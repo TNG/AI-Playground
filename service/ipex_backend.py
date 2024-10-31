@@ -21,6 +21,7 @@ from huggingface_hub import InferenceClient
 from llm_params import LLMParams
 from ipex_llm.transformers import AutoModelForCausalLM
 
+
 class IpexLLM(ABC):
     def __init__(self):
         self._model = None
@@ -29,16 +30,14 @@ class IpexLLM(ABC):
         self.stop_generate = False
     
     def load_model(self, params: LLMParams):
-        print(params)
         torch.xpu.set_device(params.device)
         model_config.device = f"xpu:{params.device}"
         model_repo_id = params.model_repo_id
         load_model_callback = None
         
         if self._model is None or self._last_repo_id != model_repo_id:
-            # if model exists, free used resources
-            if self._model is not None:
-                self.unload_model()
+            # Free used resources
+            self.unload_model()
                
             model_base_path = model_config.config.get("llm")
             model_name = model_repo_id.replace("/", "---")
@@ -72,9 +71,12 @@ class IpexLLM(ABC):
                 load_model_callback("finish")
 
     def unload_model(self):
-        del self._model
+        if self._model is not None:
+            del self._model
         gc.collect()
         torch.xpu.empty_cache()
+        self._model = None
+        self._tokenizer = None
 
     def get_backend_type(self):
         return "ipex_llm"
@@ -117,4 +119,5 @@ class IpexLLM(ABC):
 
         return streamer
              
+
       

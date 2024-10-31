@@ -22,7 +22,9 @@ import threading
 from flask import jsonify, request, Response, stream_with_context
 from apiflask import APIFlask
 
-from llm_adapter import LLM_SSE_Adapter
+from llm_adapter import LLM_SSE_Adapter, LLMParams
+#from llama_cpp_backend import LlamaCpp
+from ipex_backend import IpexLLM
 from sd_adapter import SD_SSE_Adapter
 import model_download_adpater
 from paint_biz import (
@@ -40,16 +42,20 @@ import model_config
 from model_downloader import HFPlaygroundDownloader
 from psutil._common import bytes2human
 import traceback
+from llm_params import LLMParams
 
 app = APIFlask(__name__)
 
+# TODO: move somewhere else because imcompatible with ipex
+# llm_backend = LlamaCpp()
+llm_backend = IpexLLM()
 
 @app.post("/api/llm/chat")
 def llm_chat():
     paint_biz.dispose_basic_model()
     params = request.get_json()
-    llm_params = llm_biz.LLMParams(**params)
-    sse_invoker = LLM_SSE_Adapter()
+    llm_params = LLMParams(**params)
+    sse_invoker = LLM_SSE_Adapter(llm_backend)
     it = sse_invoker.text_conversation(llm_params)
     return Response(stream_with_context(it), content_type="text/event-stream")
 
@@ -69,9 +75,7 @@ def free():
 
 @app.get("/api/llm/stopGenerate")
 def stop_llm_generate():
-    import llm_biz
-
-    llm_biz.stop_generate()
+    llm_backend.stop_generate = True
     return jsonify({"code": 0, "message": "success"})
 
 
@@ -87,7 +91,6 @@ def sd_generate():
         "mask?": file
     }
     """
-    llm_biz.dispose()
     mode = request.form.get("mode", default=0, type=int)
     if mode != 0:
         if mode == 1:

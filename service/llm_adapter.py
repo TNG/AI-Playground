@@ -2,12 +2,14 @@ import threading
 from queue import Empty, Queue
 import json
 import traceback
-from typing import Dict, List
+from typing import Dict, List, Callable
 from model_downloader import NotEnoughDiskSpaceException, DownloadException
 from psutil._common import bytes2human
 from llm_interface import LLMInterface
 from llm_params import LLMParams
 
+
+RAG_PROMPT_FORMAT = "Answer the questions based on the information below. \n{context}\n\nQuestion: {prompt}"
 
 class LLM_SSE_Adapter:
     msg_queue: Queue
@@ -97,8 +99,10 @@ class LLM_SSE_Adapter:
                 break
             
             if self.llm_interface.get_backend_type() == "ipex_llm":
+                # transformer style
                 self.text_out_callback(output)
             else:
+                # openai style
                 self.text_out_callback(output["choices"][0]["delta"].get("content",""))
         self.put_msg({"type": "finish"})
 
@@ -112,7 +116,14 @@ class LLM_SSE_Adapter:
                 self.llm_interface.load_model(params)
                 self.load_model_callback('finish')
             
-            full_prompt = convert_prompt(params.prompt)
+            prompt = params.prompt
+            if params.enable_rag:
+                last_prompt = prompt[prompt.__len__() - 1]
+                last_prompt.__setitem__(
+                    "question", process_rag(last_prompt.get("question"), params.device)
+                )
+
+            full_prompt = convert_prompt(prompt)
             stream = self.llm_interface.create_chat_completion(full_prompt)
             self.stream_function(stream)	
             
@@ -156,3 +167,19 @@ def convert_prompt(prompt: List[Dict[str, str]]):
             )
         i = i + 1
     return chat_history
+
+
+def process_rag(
+        prompt: str,
+        device: str,
+        text_out_callback: Callable[[str, int], None] = None,
+    ):
+        import rag
+        rag.to(device)
+        query_success, context, rag_source = rag.query(prompt)
+        if query_success:
+            print("rag query input\r\n{}output:\r\n{}".format(prompt, context))
+            prompt = RAG_PROMPT_FORMAT.format(prompt=prompt, context=context)
+            if text_out_callback is not None:
+                text_out_callback(rag_source, 2)
+        return prompt

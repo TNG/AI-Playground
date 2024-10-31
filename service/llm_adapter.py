@@ -2,20 +2,26 @@ import threading
 from queue import Empty, Queue
 import json
 import traceback
-import llm_biz
+from typing import Dict, List
 from model_downloader import NotEnoughDiskSpaceException, DownloadException
 from psutil._common import bytes2human
+from llm_interface import LLMInterface
+from llm_params import LLMParams
 
 
 class LLM_SSE_Adapter:
     msg_queue: Queue
     finish: bool
     singal: threading.Event
+    llm_interface: LLMInterface
+    should_stop: bool
 
-    def __init__(self):
+    def __init__(self, llm_interface: LLMInterface):
         self.msg_queue = Queue(-1)
         self.finish = False
         self.singal = threading.Event()
+        self.llm_interface = llm_interface
+        self.should_stop = False
 
     def put_msg(self, data):
         self.msg_queue.put_nowait(data)
@@ -67,34 +73,49 @@ class LLM_SSE_Adapter:
             )
         elif isinstance(ex, DownloadException):
             self.put_msg({"type": "error", "err_type": "download_exception"})
-        elif isinstance(ex, llm_biz.StopGenerateException):
-            pass
+        # elif isinstance(ex, llm_biz.StopGenerateException):
+        #     pass
         elif isinstance(ex, RuntimeError):
             self.put_msg({"type": "error", "err_type": "runtime_error"})
         else:
             self.put_msg({"type": "error", "err_type": "unknow_exception"})
         print(f"exception:{str(ex)}")
 
-    def text_conversation(self, params: llm_biz.LLMParams):
+    def text_conversation(self, params: LLMParams):
         thread = threading.Thread(
             target=self.text_conversation_run,
             args=[params],
         )
         thread.start()
         return self.generator()
+    
+
+    def stream_function(self, stream):
+        for output in stream:
+            if self.llm_interface.stop_generate:
+                self.llm_interface.stop_generate = False
+                break
+            
+            if self.llm_interface.get_backend_type() == "ipex_llm":
+                self.text_out_callback(output)
+            else:
+                self.text_out_callback(output["choices"][0]["delta"].get("content",""))
+        self.put_msg({"type": "finish"})
 
     def text_conversation_run(
         self,
-        params: llm_biz.LLMParams,
+        params: LLMParams,
     ):
         try:
-            llm_biz.chat(
-                params=params,
-                load_model_callback=self.load_model_callback,
-                text_out_callback=self.text_out_callback,
-                error_callback=self.error_callback,
-            )
-            self.put_msg({"type": "finish"})
+            if (not self.llm_interface._model):
+                self.load_model_callback('start')
+                self.llm_interface.load_model(params)
+                self.load_model_callback('finish')
+            
+            full_prompt = convert_prompt(params.prompt)
+            stream = self.llm_interface.create_chat_completion(full_prompt)
+            self.stream_function(stream)	
+            
         except Exception as ex:
             traceback.print_exc()
             self.error_callback(ex)
@@ -116,3 +137,22 @@ class LLM_SSE_Adapter:
                 self.singal.wait()
             else:
                 break
+
+
+_default_prompt = {
+        "role": "system",
+        "content": "You are a helpful digital assistant. Please provide safe, ethical and accurate information to the user. Please keep the output text language the same as the user input.",
+    }
+
+def convert_prompt(prompt: List[Dict[str, str]]):
+    chat_history = [_default_prompt]
+    prompt_len = prompt.__len__()
+    i = 0
+    while i < prompt_len:
+        chat_history.append({"role": "user", "content": prompt[i].get("question")})
+        if i < prompt_len - 1:
+            chat_history.append(
+                {"role": "assistant", "content": prompt[i].get("answer")}
+            )
+        i = i + 1
+    return chat_history

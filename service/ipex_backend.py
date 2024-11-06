@@ -17,7 +17,6 @@ from transformers import (
     PreTrainedTokenizer,
     TextStreamer
 )
-from huggingface_hub import InferenceClient
 from llm_params import LLMParams
 from ipex_llm.transformers import AutoModelForCausalLM
 

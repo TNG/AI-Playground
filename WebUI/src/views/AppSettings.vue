@@ -27,6 +27,25 @@
         <div v-show="tabIndex == 1" class="flex-auto h-0 flex flex-col gap-5 pt-3 border-t border-color-spilter">
             <div class="px-3 flex-none flex flex-col gap-3">
                 <SettingsUi></SettingsUi>
+                <div class="flex flex-col gap-2">
+                    <p>{{ languages.SETTINGS_LLM_BACKEND }}</p>
+                    <div class="flex items-center gap-2">
+                            <drop-selector :array="globalSetup.llmBackends" @change="changeLLMBackend">
+                                <template #selected>
+                                    <div class="flex gap-2 items-center">
+                                        <span class="rounded-full bg-green-500 w-2 h-2"></span>
+                                        <span>{{ globalSetup.currentLLMBackend }}</span>
+                                    </div>
+                                </template>
+                                <template #list="slotItem">
+                                    <div class="flex gap-2 items-center">
+                                        <span class="rounded-full bg-green-500 w-2 h-2"></span>
+                                        <span>{{ slotItem.item }}</span>
+                                    </div>
+                                </template>
+                            </drop-selector>
+                        </div>
+                </div>
             </div>
         </div>
         <!--Model-->
@@ -315,6 +334,10 @@ onMounted(() => {
 onUnmounted(() => {
     modelSettingsWatcher();
 })
+
+function changeLLMBackend(item: string, _: number) {
+    globalSetup.currentLLMBackend = item;
+}
 
 
 async function customPathsSettings(key: string, path: string) {

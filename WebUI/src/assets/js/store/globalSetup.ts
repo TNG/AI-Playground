@@ -27,6 +27,7 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
         quality: 0,
         enableRag: false,
         llm_model: "microsoft/Phi-3-mini-4k-instruct",
+        ggufLLM_model: "meta-llama-3.1-8b-instruct.Q5_K_M.gguf",
         sd_model: "Lykon/dreamshaper-8",
         inpaint_model: "Lykon/dreamshaper-8-inpainting",
         negativePrompt: "bad hands, nsfw",
@@ -45,6 +46,7 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
 
     const paths = ref<ModelPaths>({
         llm: "",
+        ggufLLM: "",
         embedding: "",
         stableDiffusion: "",
         inpaint: "",
@@ -61,6 +63,10 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
     });
 
     const graphicsList = ref(new Array<GraphicsItem>());
+
+    const llmBackends = ref(new Array<string>("IPEX-LLM", "LLAMA.CPP"));
+
+    const currentLLMBackend = ref("IPEX-LLM");
 
     let envType = "";
 
@@ -312,6 +318,8 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
         paths,
         apiHost,
         graphicsList,
+        llmBackends,
+        currentLLMBackend,
         loadingState,
         errorMessage,
         hdPersistentConfirmation,

@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 
-type ModelType = "llm" | "embedding" | "stableDiffusion" | "inpaint" | "lora" | "vae";
+type ModelType = "llm" | "embedding" | "stableDiffusion" | "inpaint" | "lora" | "vae" | "ggufLLM";
 
 export type Model = {
     name: string;
@@ -15,26 +15,30 @@ const predefinedModels: Model[] = [
     { name: 'mistralai/Mistral-7B-Instruct-v0.3', type: 'llm', downloaded: false },
     // { name: 'google/gemma-7b', type: 'llm', downloaded: false },
     // { name: 'THUDM/chatglm3-6b', type: 'llm', downloaded: false },
-]    
+    { name: 'meta-llama-3.1-8b-instruct.Q5_K_M.gguf', type: 'ggufLLM', downloaded: false },
+    { name: 'smollm2-1.7b-instruct-q4_k_m.gguf', type: 'ggufLLM', downloaded: false },
+]
 
 export const useModels = defineStore("models", () => {
-
     const hfToken = ref<string | undefined>(undefined);
     const models = ref(predefinedModels);
     const llms = computed(() => models.value.filter(m => m.type === 'llm'));
 
     const downloadList = ref<DownloadModelParam[]>([]);
+    const ggufLLMs = computed(() => models.value.filter(m => m.type === 'ggufLLM'));
 
     async function refreshModels() {
         const sdModels = await window.electronAPI.getDownloadedDiffusionModels();
         const llmModels = await window.electronAPI.getDownloadedLLMs();
+        const ggufModels = await window.electronAPI.getDownloadedGGUFLLMs();
         const loraModels = await window.electronAPI.getDownloadedLoras();
         const inpaintModels = await window.electronAPI.getDownloadedInpaintModels();
         const embeddingModels = await window.electronAPI.getDownloadedEmbeddingModels();
-        
+
         const downloadedModels = [
             ...sdModels.map<Model>(name => ({ name, type: 'stableDiffusion', downloaded: true })),
             ...llmModels.map<Model>(name => ({ name, type: 'llm', downloaded: true })),
+            ...ggufModels.map<Model>(name => ({ name, type: 'ggufLLM', downloaded: true })),
             ...loraModels.map<Model>(name => ({ name, type: 'lora', downloaded: true })),
             ...inpaintModels.map<Model>(name => ({ name, type: 'inpaint', downloaded: true })),
             ...embeddingModels.map<Model>(name => ({ name, type: 'embedding', downloaded: true })),
@@ -42,9 +46,10 @@ export const useModels = defineStore("models", () => {
         const notYetDownloaded = (model: Model) => !downloadedModels.map(m => m.name).includes(model.name);
 
         models.value = [...downloadedModels, ...predefinedModels.filter(notYetDownloaded)];
+
         console.log(models);
 
-        }
+    }
 
     async function download(models: DownloadModelParam[]) {
     };
@@ -53,6 +58,7 @@ export const useModels = defineStore("models", () => {
     return {
         models,
         llms,
+        ggufLLMs,
         hfToken,
         hfTokenIsValid: computed(() => hfToken.value?.startsWith('hf_')),
         downloadList,

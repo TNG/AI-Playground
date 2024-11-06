@@ -42,6 +42,25 @@
             </drop-selector>
         </div>
     </div>
+    <div class="flex flex-col gap-2">
+        <p>{{ languages.SETTINGS_LLM_BACKEND }}</p>
+        <div class="flex items-center gap-2">
+                <drop-selector :array="globalSetup.llmBackends" @change="changeLLMBackend">
+                    <template #selected>
+                        <div class="flex gap-2 items-center">
+                            <span class="rounded-full bg-green-500 w-2 h-2"></span>
+                            <span>{{ globalSetup.currentLLMBackend }}</span>
+                        </div>
+                    </template>
+                    <template #list="slotItem">
+                        <div class="flex gap-2 items-center">
+                            <span class="rounded-full bg-green-500 w-2 h-2"></span>
+                            <span>{{ slotItem.item }}</span>
+                        </div>
+                    </template>
+                </drop-selector>
+            </div>
+    </div>
 </template>
 <script setup lang="ts">
 
@@ -73,6 +92,10 @@ const graphicsName = computed(() => {
 
 function changeGraphics(value: any, index: number) {
     globalSetup.applyModelSettings({ graphics: (value as GraphicsItem).index });
+}
+
+function changeLLMBackend(item: string, _: number) {
+    globalSetup.currentLLMBackend = item;
 }
 
 </script>

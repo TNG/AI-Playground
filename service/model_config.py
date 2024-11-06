@@ -3,6 +3,7 @@
 
 config = {
     "llm": "./models/llm/checkpoints",
+    "ggufLLM": "./models/llm/gguf",
     "embedding": "./models/llm/embedding",
     "stableDiffusion": "./models/stable_diffusion/checkpoints",
     "lora": "./models/stable_diffusion/lora",

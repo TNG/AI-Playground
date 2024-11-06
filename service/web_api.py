@@ -22,9 +22,9 @@ import threading
 from flask import jsonify, request, Response, stream_with_context
 from apiflask import APIFlask
 
-from llm_adapter import LLM_SSE_Adapter, LLMParams
-#from llama_cpp_backend import LlamaCpp
+from flask import Flask, jsonify, request, Response, stream_with_context
 from ipex_backend import IpexLLM
+from llm_adapter import LLM_SSE_Adapter, LLMParams
 from sd_adapter import SD_SSE_Adapter
 import model_download_adpater
 from paint_biz import (
@@ -45,16 +45,25 @@ import traceback
 from llm_params import LLMParams
 
 app = APIFlask(__name__)
-
-# TODO: move somewhere else because imcompatible with ipex
-# llm_backend = LlamaCpp()
-llm_backend = IpexLLM()
+llm_backend = None
 
 @app.post("/api/llm/chat")
 def llm_chat():
+    global llm_backend
     paint_biz.dispose_basic_model()
     params = request.get_json()
     llm_params = LLMParams(**params)
+    print(llm_params.model_repo_id)
+    if llm_params.backend_type == "LLAMA.CPP" and (not llm_backend or not llm_backend.get_backend_type() == "llama_cpp"):
+        if llm_backend:
+            llm_backend.unload_model()
+        from llama_cpp_backend import LlamaCpp 
+        llm_backend = LlamaCpp()
+    elif llm_params.backend_type == "IPEX-LLM" and (not llm_backend or not llm_backend.get_backend_type() == "ipex_llm"):
+        if llm_backend:
+            llm_backend.unload_model()
+        #from ipex_backend import IpexLLM
+        llm_backend = IpexLLM()
     sse_invoker = LLM_SSE_Adapter(llm_backend)
     it = sse_invoker.text_conversation(llm_params)
     return Response(stream_with_context(it), content_type="text/event-stream")

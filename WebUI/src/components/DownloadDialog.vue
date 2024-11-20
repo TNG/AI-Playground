@@ -209,6 +209,7 @@ async function showConfirm(downList: DownloadModelParam[], success?: () => void,
     } catch (ex) {
         fail && fail({ type: "error", error: ex });
     }
+  check_model_access()
 }
 
 function getInfoUrl(repoId: string, type: number) {
@@ -278,6 +279,22 @@ function download() {
         downloadReject && downloadReject({ type: "error", error: ex });
         downloding = false;
     })
+}
+
+async function check_model_access() {
+  const response = await fetch(`${globalSetup.apiHost}/api/checkModelAccess`, {
+    method: "POST",
+    body: JSON.stringify([downloadList.value[0].repo_id, models.hfToken]),
+    headers: {
+      "Content-Type": "application/json"
+    }
+  })
+  const data = await response.json()
+  console.log("Is URL valid:")
+  console.log(data.valid)
+  console.log(data.url)
+  console.log(data.status)
+  return data.valid
 }
 
 function cancelConfirm() {

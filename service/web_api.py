@@ -195,6 +195,18 @@ def check_model_exist():
         result_list.append({"repo_id": repo_id, "type": type, "exist": exist})
     return jsonify({"code": 0, "message": "success", "exists": result_list})
 
+@app.route("/api/checkModelAccess", methods=["POST"])
+def checkModelAccess():
+    repo_id, hf_token = request.get_json()
+    downloader = HFPlaygroundDownloader(hf_token)
+    valid, url, status = downloader.is_token_valid(repo_id)
+    return jsonify(
+        {
+            "valid": valid,
+            "url": url,
+            "status": status
+        }
+    )
 
 size_cache = dict()
 lock = threading.Lock()

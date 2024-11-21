@@ -300,7 +300,7 @@ type CheckModelExistParam = {
 
 type DownloadModelParam = CheckModelExistParam
 
-type DownloadModelRender = { size: string, gated?: boolean } & CheckModelExistParam
+type DownloadModelRender = { size: string, gated?: boolean, accessGranted?: boolean } & CheckModelExistParam
 
 type CheckModelExistResult = {
     exist: boolean

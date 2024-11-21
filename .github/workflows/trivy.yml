@@ -1,4 +1,4 @@
-name: build
+name: dependency-scan
 on:
   schedule:
     - cron: '42 21 * * 0'

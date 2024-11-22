@@ -66,17 +66,19 @@
         @show-download-model-confirm="showDownloadModelConfirm"></create>
       <enhance v-show="activeTabIdx == 1" ref="enhanceCompt" @show-download-model-confirm="showDownloadModelConfirm">
       </enhance>
-      <answer v-show="activeTabIdx == 2" @show-download-model-confirm="showDownloadModelConfirm"></answer>
+      <answer v-show="activeTabIdx == 2" ref = "answer" @show-download-model-confirm="showDownloadModelConfirm" @show-model-request="showModelRequest"></answer>
       <learn-more v-show="activeTabIdx == 3"></learn-more>
       <app-settings v-if="showSetting" @close="hideAppSettings" @show-download-model-confirm="showDownloadModelConfirm"></app-settings>
     </div>
     <download-dialog v-show="showDowloadDlg" ref="downloadDigCompt" @close="showDowloadDlg = false"></download-dialog>
+    <add-l-l-m-dialog v-show="showModelRequestDialog" ref="addLLMCompt" @close="showModelRequestDialog = false" @call-check-model="callCheckModel" @show-warning="showWarning"></add-l-l-m-dialog>
+    <warning-dialog v-show="showWarningDialog" ref="warningCompt" @close="showWarningDialog = false"></warning-dialog>
   </main>
   <footer class="flex-none px-4 flex justify-between items-center select-none" :class="{'bg-black bg-opacity-50': theme.active === 'lnl', 'bg-black bg-opacity-80': theme.active === 'bmg', 'border-t border-color-spilter': theme.active === 'dark'}">
     <div>
       <p>Al Playground from Intel Corporation <a href="https://github.com/intel/ai-playground" target="_blank"
           class="text-blue-500">https://github.com/intel/ai-playground</a></p>
-      <p>AI Playground version: v{{ productVersion }} 
+      <p>AI Playground version: v{{ productVersion }}
         <a href="https://github.com/intel/ai-playground/blob/main/AI%20Playground%20Users%20Guide.pdf" target="_blank"
         class="text-blue-500">  User Guide</a>
 
@@ -115,6 +117,8 @@ import { useGlobalSetup } from "./assets/js/store/globalSetup";
 import DownloadDialog from '@/components/DownloadDialog.vue';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useTheme } from "./assets/js/store/theme.ts";
+import AddLLMDialog from "@/components/AddLLMDialog.vue";
+import WarningDialog from "@/components/WarningDialog.vue";
 
 
 const isOpen = ref(false);
@@ -127,11 +131,21 @@ const showSetting = ref(false);
 
 const enhanceCompt = ref<InstanceType<typeof Enhance>>();
 
+const answer = ref<InstanceType<typeof Answer>>();
+
 const showSettingBtn = ref<HTMLButtonElement>();
 
 const showDowloadDlg = ref(false);
 
+const showModelRequestDialog = ref(false);
+
+const showWarningDialog = ref(false);
+
 const downloadDigCompt = ref<InstanceType<typeof DownloadDialog>>();
+
+const addLLMCompt = ref<InstanceType<typeof AddLLMDialog>>();
+
+const warningCompt = ref<InstanceType<typeof WarningDialog>>();
 
 const fullscreen = ref(false);
 
@@ -160,7 +174,6 @@ onBeforeMount(async () => {
     }
   })
 })
-
 
 function showAppSettings() {
   if (showSetting.value === false) {
@@ -223,4 +236,25 @@ function showDownloadModelConfirm(downList: DownloadModelParam[], success?: () =
     downloadDigCompt.value!.showConfirm(downList, success, fail);
   });
 }
+
+function showModelRequest() {
+  showModelRequestDialog.value = true;
+  nextTick(() => {
+    addLLMCompt.value!.onShow();
+  });
+}
+
+function callCheckModel(){
+  answer.value!.checkModel();
+}
+
+function showWarning(message : string, func : () => void) {
+  warningCompt.value!.warningMessage = message;
+  showWarningDialog.value = true;
+  warningCompt.value!.confirmFunction = func;
+  nextTick(() => {
+    warningCompt.value!.onShow();
+  });
+}
+
 </script>

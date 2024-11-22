@@ -85,10 +85,12 @@ class HFPlaygroundDownloader:
 
     def is_gated(self, repo_id: str):
         try:
-            info = model_info(repo_id)
+            # strip gguf from repo_id
+            namespace_and_repo = ("/").join(repo_id.split("/")[0:2])
+            info = model_info(namespace_and_repo)
             return info.gated
         except Exception as ex:
-            print(f"Error while trying to determine whether {repo_id} is gated: {ex}")
+            print(f"Error while trying to determine whether {namespace_and_repo} is gated: {ex}")
             return False
 
     def download(self, repo_id: str, model_type: int, thread_count: int = 4):
@@ -169,6 +171,7 @@ class HFPlaygroundDownloader:
         self, file_list: List, enum_path: str, model_type: int, is_root=True
     ):
         list = self.fs.ls(enum_path, detail=True)
+        print('listing files to get model size', list)
         if model_type == 1 and enum_path == self.repo_id + "/unet":
             list = self.enum_sd_unet(list)
         for item in list:
@@ -205,12 +208,15 @@ class HFPlaygroundDownloader:
                     continue
 
                 self.total_size += size
-                relative_path = path.relpath(name, self.repo_id)
+                namespace_and_repo = ("/").join(self.repo_id.split("/")[0:2])
+                relative_path = path.relpath(name, namespace_and_repo)
                 subfolder = path.dirname(relative_path).replace("\\", "/")
                 filename = path.basename(relative_path)
+                print('got size of ', relative_path, subfolder, filename, size)
                 url = hf_hub_url(
-                    repo_id=self.repo_id, subfolder=subfolder, filename=filename
+                    repo_id=namespace_and_repo, subfolder=subfolder, filename=filename
                 )
+                print('adding file to download list', relative_path, size, url)
                 file_list.append(HFFileItem(relative_path, size, url))
 
     def enum_sd_unet(self, file_list: List[str | Dict[str, Any]]):

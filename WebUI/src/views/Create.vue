@@ -103,8 +103,25 @@ const emits = defineEmits<{
 }>();
 
 async function generateImage() { 
+    await ensureModelsAreAvailable();
     reset();
     await imageGeneration.generate();
+}
+
+async function ensureModelsAreAvailable() {
+    return new Promise<void>(async (resolve, reject) => {
+        const downloadList = await imageGeneration.getMissingModels();
+        if (downloadList.length > 0) {
+            emits(
+                "showDownloadModelConfirm",
+                downloadList,
+                resolve,
+                reject
+            );
+        } else {
+            resolve && resolve();
+        }
+    });
 }
 
 function postImageToEnhance() {

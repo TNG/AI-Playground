@@ -182,6 +182,7 @@
 
 </template>
 <script setup lang="ts">
+
 import Rag from "../components/Rag.vue";
 import ProgressBar from "../components/ProgressBar.vue";
 import LoadingBar from "../components/LoadingBar.vue";

@@ -85,6 +85,7 @@ function createPythonEnvFromEmbedabblePythonZip() {
 python311.zip
 .
 ../service
+../ComfyUI
 
 # Uncomment to run site.main() automatically
 import site

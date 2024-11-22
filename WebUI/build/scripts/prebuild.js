@@ -11,6 +11,7 @@ if (process.argv.length < 5) {
 const packageResDir = path.resolve(process.argv[2]);
 const serviceDir = path.resolve(process.argv[3]);
 const buildDir = path.resolve(process.argv[4]);
+const comfyUIDir = path.join(serviceDir, '..', 'ComfyUI')
 
 if (!fs.existsSync(packageResDir)) {
     console.error('Directory not found:', packageResDir);
@@ -26,6 +27,17 @@ if (fs.existsSync(serviceLink)) {
 // make link from service to <build_dir>/service
 fs.symlinkSync(serviceDir, serviceLink, 'junction');
 console.log('Created symlink:', serviceDir);
+
+// remove link if already exists
+const comfyUILink = path.join(buildDir, 'ComfyUI');
+if (fs.existsSync(comfyUILink)) {
+    fs.unlinkSync(comfyUILink);
+    console.log('Removed symlink:', comfyUILink);
+}
+fs.symlinkSync(comfyUIDir, comfyUILink, 'junction');
+console.log('Created symlink:', comfyUIDir);
+
+
 
 // Copy all files under package_res_dir to build_dir
 const files = fs.readdirSync(packageResDir);

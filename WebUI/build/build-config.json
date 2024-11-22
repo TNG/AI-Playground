@@ -39,6 +39,14 @@
       ]
     },
     {
+      "from": "external/arc-ipex-wheels",
+      "to": "arc-ipex-wheels"
+    },
+    {
+      "from": "external/workflows",
+      "to": "workflows"
+    },
+    {
       "from": "external/service/models/stable_diffusion/ESRGAN",
       "to": "service/models/stable_diffusion/ESRGAN"
     },

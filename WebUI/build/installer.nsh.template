@@ -24,6 +24,14 @@
 
         continue:
             nsExec::ExecToLog '"$INSTDIR\resources\env\python.exe" "$INSTDIR\resources\env\get-pip.py" "--no-warn-script-location"'
+            nsExec::ExecToLog '"$INSTDIR\resources\env\python.exe" "-m" "pip" "install" "$INSTDIR\resources\arc-ipex-wheels\bigdl_core_xe_23-2.6.0.dev0-cp311-cp311-win_amd64.whl"'
+            nsExec::ExecToLog '"$INSTDIR\resources\env\python.exe" "-m" "pip" "install" "$INSTDIR\resources\arc-ipex-wheels\bigdl_core_xe_addons_23-2.6.0.dev0-cp311-cp311-win_amd64.whl"'
+            nsExec::ExecToLog '"$INSTDIR\resources\env\python.exe" "-m" "pip" "install" "$INSTDIR\resources\arc-ipex-wheels\bigdl_core_xe_batch_23-2.6.0.dev0-cp311-cp311-win_amd64.whl"'
+            nsExec::ExecToLog '"$INSTDIR\resources\env\python.exe" "-m" "pip" "install" "$INSTDIR\resources\arc-ipex-wheels\intel_extension_for_pytorch-2.3.110+xpu-cp311-cp311-win_amd64.whl"'
+            nsExec::ExecToLog '"$INSTDIR\resources\env\python.exe" "-m" "pip" "install" "$INSTDIR\resources\arc-ipex-wheels\torch-2.3.1+cxx11.abi-cp311-cp311-win_amd64.whl"'
+            nsExec::ExecToLog '"$INSTDIR\resources\env\python.exe" "-m" "pip" "install" "$INSTDIR\resources\arc-ipex-wheels\torchaudio-2.3.1+cxx11.abi-cp311-cp311-win_amd64.whl"'
+            nsExec::ExecToLog '"$INSTDIR\resources\env\python.exe" "-m" "pip" "install" "$INSTDIR\resources\arc-ipex-wheels\torchvision-0.18.1+cxx11.abi-cp311-cp311-win_amd64.whl"'
+
             nsExec::ExecToLog '"$INSTDIR\resources\env\python.exe" "-m" "pip" "install" "-r" "$INSTDIR\resources\service\requirements-${PLATFORM}.txt" "--no-warn-script-location"'
             nsExec::ExecToLog '"$INSTDIR\resources\env\python.exe" "-m" "pip" "install" "-r" "$INSTDIR\resources\service\requirements.txt" "--no-warn-script-location"'
             nsExec::ExecToLog '"$INSTDIR\resources\env\python.exe" "-m" "pip" "install" "-r" "$INSTDIR\resources\ComfyUI\requirements.txt" "--no-warn-script-location"'

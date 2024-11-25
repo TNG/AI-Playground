@@ -1,3 +1,4 @@
+
 # CONFIG_PATH = "./model_config.json"
 
 config = {
@@ -11,5 +12,5 @@ config = {
     "preview": "./models/stable_diffusion/preview",
 }
 
-device = "xpu"
-env_type = "arc"
+device = "cuda"
+env_type ="arc"

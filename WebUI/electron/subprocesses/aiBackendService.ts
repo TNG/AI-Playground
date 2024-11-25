@@ -7,15 +7,16 @@ import * as filesystem from 'fs-extra'
 import {spawnProcessSync, existingFileOrError, spawnProcessAsync, copyFileWithDirs} from './osProcessHelper.ts'
 
 class AiBackendService extends LongLivedPythonApiService {
+    readonly workDir = path.resolve(app.isPackaged ? path.join(process.resourcesPath, "service") : path.join(__dirname, "../../../service"));
+    readonly pythonExe = path.resolve(path.join(this.baseDir, "env/bin/python"));
     readonly serviceDir = path.resolve(app.isPackaged ? path.join(process.resourcesPath, "service") : path.join(__dirname, "../../../service"));
-    readonly pythonEnvDir = path.resolve(path.join(this.baseDir, `${this.name}-env`));
-    readonly pythonExe = this.getPythonPath(this.pythonEnvDir)
+    readonly pythonEnvDir = path.resolve(path.join(this.baseDir, `env`));
     readonly lsLevelZeroExe = this.getLsLevelZeroPath(this.pythonEnvDir)
     healthEndpointUrl = `${this.baseUrl}/healthy`
 
 
     private getPythonPath(basePythonEnvDir: string): string {
-        return path.resolve(path.join(basePythonEnvDir, "python.exe"))
+        return path.resolve(path.join(basePythonEnvDir, "python"))
     }
 
     private getLsLevelZeroPath(basePythonEnvDir: string): string {
@@ -23,7 +24,7 @@ class AiBackendService extends LongLivedPythonApiService {
     }
 
     is_set_up(): boolean {
-        return filesystem.existsSync(this.pythonExe) && filesystem.existsSync(this.lsLevelZeroExe)
+        return filesystem.existsSync(this.pythonExe) // && filesystem.existsSync(this.lsLevelZeroExe)
     }
 
     set_up(): AsyncIterable<SetupProgress> {
@@ -177,7 +178,7 @@ class AiBackendService extends LongLivedPythonApiService {
                     })
                     yield* moveToFinalTarget(pythonEnvContainmentDir)
                     yield {serviceName: self.name, step: "end", status: "success", debugMessage: `service set up completely`};
-                });   
+                });
             } catch (e) {
                 self.appLogger.warn(`Set up of service failed due to ${e}`, self.name, true)
                 self.appLogger.warn(`Aborting set up of ${self.name} service environment`, self.name, true)

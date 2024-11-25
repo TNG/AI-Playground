@@ -8,7 +8,7 @@ import * as filesystem from "fs-extra";
 
 class ComfyUiBackendService extends LongLivedPythonApiService {
     readonly serviceDir = path.resolve(path.join(this.baseDir, "ComfyUI"));
-    readonly pythonExe = path.resolve(path.join(this.baseDir, "env", "python.exe"));
+    readonly pythonExe = path.resolve(path.join(this.baseDir, "env", "bin", "python"));
     healthEndpointUrl = `${this.baseUrl}/queue`
 
     private readonly comfyUIStartupParameters = [

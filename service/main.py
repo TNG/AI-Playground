@@ -3,8 +3,9 @@ from threading import Thread
 import time
 import traceback
 import torch
-from transformers import pipeline, PreTrainedModel, TextIteratorStreamer
 import intel_extension_for_pytorch as ipex
+from transformers import pipeline,PreTrainedModel,TextIteratorStreamer
+# import intel_extension_for_pytorch as ipex
 
 
 def stream_chat_generate(model: PreTrainedModel, args: dict):

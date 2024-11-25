@@ -11,9 +11,9 @@ import torch
 from basicsr.archs.rrdbnet_arch import RRDBNet
 from torch.nn import functional as F
 import service_config
-import xpu_hijacks
+# import xpu_hijacks
 
-xpu_hijacks.ipex_hijacks()
+# xpu_hijacks.ipex_hijacks()
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"

@@ -5,15 +5,25 @@ import path from "node:path";
 import { aiBackendServiceDir, getLsLevelZeroPath, getPythonPath, ipexIndex, ipexVersion, LongLivedPythonApiService } from "./apiService.ts";
 import { existingFileOrError, spawnProcessSync } from './osProcessHelper.ts';
 
-export class AiBackendService extends LongLivedPythonApiService {
-    readonly serviceDir = aiBackendServiceDir();
-    readonly pythonEnvDir = path.resolve(path.join(this.baseDir, `${this.name}-env`));
-    readonly pythonExe = getPythonPath(this.pythonEnvDir)
-    readonly lsLevelZeroExe = getLsLevelZeroPath(this.pythonEnvDir)
+class AiBackendService extends LongLivedPythonApiService {
+    readonly workDir = path.resolve(app.isPackaged ? path.join(process.resourcesPath, "service") : path.join(__dirname, "../../../service"));
+    readonly pythonExe = path.resolve(path.join(this.baseDir, "env/bin/python"));
+    readonly serviceDir = path.resolve(app.isPackaged ? path.join(process.resourcesPath, "service") : path.join(__dirname, "../../../service"));
+    readonly pythonEnvDir = path.resolve(path.join(this.baseDir, `env`));
+    readonly lsLevelZeroExe = this.getLsLevelZeroPath(this.pythonEnvDir)
     healthEndpointUrl = `${this.baseUrl}/healthy`
 
+
+    private getPythonPath(basePythonEnvDir: string): string {
+        return path.resolve(path.join(basePythonEnvDir, "python"))
+    }
+
+    private getLsLevelZeroPath(basePythonEnvDir: string): string {
+        return path.resolve(path.join(basePythonEnvDir, "Library/bin/ls_level_zero.exe"));
+    }
+
     is_set_up(): boolean {
-        return filesystem.existsSync(this.pythonExe) && filesystem.existsSync(this.lsLevelZeroExe)
+        return filesystem.existsSync(this.pythonExe) // && filesystem.existsSync(this.lsLevelZeroExe)
     }
 
     async *set_up(): AsyncIterable<SetupProgress> {
@@ -26,7 +36,7 @@ export class AiBackendService extends LongLivedPythonApiService {
             yield {serviceName: self.name, step: `preparing work directory`, status: "executing", debugMessage: `Cloning archetype python env`};
             const pythonEnvContainmentDir = await self.commonSetupSteps.copyArchetypePythonEnv(path.resolve(path.join(self.baseDir, `${self.name}-env_tmp`)))
             yield {serviceName: self.name, step: `preparing work directory`, status: "executing", debugMessage: `Cloning complete`};
-            
+
             yield {serviceName: self.name, step: `install uv`, status: "executing", debugMessage: `installing uv`};
             await self.commonSetupSteps.installUv(pythonEnvContainmentDir);
             yield {serviceName: self.name, step: `install uv`, status: "executing", debugMessage: `installing uv complete`};

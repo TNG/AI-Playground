@@ -10,7 +10,7 @@ service_model_paths = {
     "preview": "./models/stable_diffusion/preview",
 }
 
-
+device = "cuda"
 comfy_ui_root_path = "../ComfyUI"
 git = {
     "rootDirPath": "../git",
@@ -27,5 +27,4 @@ comfy_ui_model_paths = {
     "defaultLora": "./models/stable_diffusion/lora",
 }
 
-device = "xpu"
 env_type = "arc"

@@ -203,7 +203,7 @@ def torch_bmm_32_bit(input, mat2, *, out=None):
                 hidden_states[start_idx:end_idx] = original_torch_bmm(
                     input[start_idx:end_idx], mat2[start_idx:end_idx], out=out
                 )
-        torch.xpu.synchronize(input.device)
+        torch.mps.synchronize(input.device)
     else:
         return original_torch_bmm(input, mat2, out=out)
     return hidden_states
@@ -314,7 +314,7 @@ def scaled_dot_product_attention_32_bit(
                         **kwargs,
                     )
                 )
-        torch.xpu.synchronize(query.device)
+        torch.mps.synchronize(query.device)
     else:
         return original_scaled_dot_product_attention(
             query,

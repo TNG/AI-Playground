@@ -109,7 +109,7 @@ export class PythonService extends ExecutableService {
   }
 
   getExePath(): string {
-    return path.resolve(path.join(this.dir, 'python.exe'))
+    return path.resolve(path.join(this.dir, 'bin', 'python'))
   }
 
   async check(): Promise<void> {
@@ -136,7 +136,7 @@ export class PythonService extends ExecutableService {
 
   readonly prototypicalEnvDir = app.isPackaged
     ? path.join(this.baseDir, 'prototype-python-env')
-    : path.join(this.baseDir, 'build-envs/online/prototype-python-env')
+    : path.join(this.baseDir, 'env')
   private async clonePythonEnv(): Promise<void> {
     existingFileOrError(this.prototypicalEnvDir)
     if (filesystem.existsSync(this.dir)) {
@@ -395,17 +395,18 @@ export class LsLevelZeroService extends ExecutableService {
     return this.selectedDeviceIdx
   }
 
-  async getDeviceSelectorEnv(): Promise<{ ONEAPI_DEVICE_SELECTOR: string }> {
-    if (this.selectedDeviceIdx < 0 || this.selectedDeviceIdx >= this.allLevelZeroDevices.length) {
-      await this.detectDevice()
-    }
-
-    if (this.selectedDeviceIdx < 0) {
-      this.logError('No supported device')
-      return { ONEAPI_DEVICE_SELECTOR: 'level_zero:*' }
-    }
-
-    return { ONEAPI_DEVICE_SELECTOR: `level_zero:${this.selectedDeviceIdx}` }
+  async getDeviceSelectorEnv(): Promise<{}> {
+    // if (this.selectedDeviceIdx < 0 || this.selectedDeviceIdx >= this.allLevelZeroDevices.length) {
+    //     await this.detectDevice();
+    // }
+    //
+    // if (this.selectedDeviceIdx < 0) {
+    //     this.logError("No supported device");
+    //     return {ONEAPI_DEVICE_SELECTOR: "level_zero:*"};
+    // }
+    //
+    // return {ONEAPI_DEVICE_SELECTOR: `level_zero:${this.selectedDeviceIdx}`};
+    return {}
   }
 }
 
@@ -416,7 +417,7 @@ export class GitService extends ExecutableService {
   }
 
   getExePath(): string {
-    return path.resolve(path.join(this.dir, 'cmd/git.exe'))
+    return path.resolve('/usr/bin/git')
   }
 
   async run(args: string[] = [], extraEnv?: object, workDir?: string): Promise<string> {
@@ -536,7 +537,7 @@ export abstract class LongLivedPythonApiService implements ApiService {
   readonly baseDir = app.isPackaged ? process.resourcesPath : path.join(__dirname, '../../../')
   readonly prototypicalPythonEnv = app.isPackaged
     ? path.join(this.baseDir, 'prototype-python-env')
-    : path.join(this.baseDir, 'build-envs/online/prototype-python-env')
+    : path.join(this.baseDir, 'env')
   readonly wheelDir = path.join(
     app.isPackaged ? this.baseDir : path.join(__dirname, '../../external/'),
   )

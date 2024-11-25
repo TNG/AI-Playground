@@ -74,7 +74,7 @@ function main() {
   prepareTargetDir(targetDir)
   copyToTargetDir(envDir, targetDir)
 
-  const pythonExe = existingFileOrExit(path.join(targetDir, 'python.exe'))
+  const pythonExe = existingFileOrExit(path.join(targetDir, 'python'))
   const getPipFile = existingFileOrExit(path.join(targetDir, 'get-pip.py'))
 
   const platformSpecificRequirementsTxt = existingFileOrExit(

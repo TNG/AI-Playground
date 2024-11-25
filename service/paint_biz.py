@@ -30,10 +30,9 @@ import re
 import schedulers_util
 from compel import Compel
 from threading import Event
-from xpu_hijacks import ipex_hijacks
 
-ipex_hijacks()
-print("workarounds applied")
+# ipex_hijacks()
+# print("workarounds applied")
 
 
 # region class define
@@ -242,7 +241,7 @@ def get_ext_pipe(params: TextImageParams, pipe_classes: List, init_class: any):
                 return _ext_model_pipe
         del _ext_model_pipe
         gc.collect()
-        torch.xpu.empty_cache()
+        torch.mps.empty_cache()
 
     basic_model_pipe = get_basic_model(params.model_name)
     _ext_model_pipe = init_class.from_pipe(basic_model_pipe)
@@ -484,7 +483,7 @@ def convet_compel_prompt(
         #     }
         # )
     else:
-        compel_proc = Compel(tokenizer=pipe.tokenizer, text_encoder=pipe.text_encoder)
+        compel_proc = Compel(tokenizer=pipe.tokenizer, text_encoder=pipe.text_encoder, device="mps")
         compel_prompt = convert_prompt_to_compel_format(prompt)
         prompt_embeds = compel_proc(compel_prompt)
         custom_inputs.update(
@@ -831,8 +830,6 @@ def generate(params: TextImageParams):
 
     try:
         stop_generate()
-        torch.xpu.set_device(params.device)
-        # service_config.device = f"xpu:{params.device}"
         if _last_model_name != params.model_name:
             # hange model dispose basic model
             if _basic_model_pipe is not None:
@@ -857,7 +854,7 @@ def generate(params: TextImageParams):
             text_to_image(params)
         _last_mode = params.mode
 
-        torch.xpu.empty_cache()
+        torch.mps.empty_cache()
     finally:
         _generating = False
 
@@ -895,7 +892,7 @@ def dispose_basic_model():
     _last_mode = None
 
     gc.collect()
-    torch.xpu.empty_cache()
+    torch.mps.empty_cache()
 
 
 def dispose_ext_model():
@@ -903,7 +900,7 @@ def dispose_ext_model():
     del _ext_model_pipe
     _ext_model_pipe = None
     gc.collect()
-    torch.xpu.empty_cache()
+    torch.mps.empty_cache()
 
 
 def dispose():
@@ -931,5 +928,5 @@ def assert_stop_generate():
         raise StopGenerateException()
 
 
-def clear_xpu_cache():
-    torch.xpu.empty_cache()
+def clear_mps_cache():
+    torch.mps.empty_cache()

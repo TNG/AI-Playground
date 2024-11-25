@@ -88,7 +88,7 @@ def prepare_img_and_mask(image, mask, device, pad_out_to_modulo=8, scale_factor=
 
 class SimpleLama:
     def __init__(self):
-        self.device = "xpu"
+        self.device = "mps"
         model_path = "C:\\Users\\X\\Downloads\\big-lama.pt"
         self.model = torch.jit.load(model_path)
         self.model.eval()

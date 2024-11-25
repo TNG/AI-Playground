@@ -30,11 +30,11 @@
                 <div class="flex flex-col gap-2">
                     <p>{{ languages.SETTINGS_LLM_BACKEND }}</p>
                     <div class="flex items-center gap-2">
-                            <drop-selector :array="globalSetup.llmBackends" @change="changeLLMBackend">
+                            <drop-selector :array="[...backendTypes]" @change="(item) => textInference.backend = item">
                                 <template #selected>
                                     <div class="flex gap-2 items-center">
                                         <span class="rounded-full bg-green-500 w-2 h-2"></span>
-                                        <span>{{ globalSetup.currentLLMBackend }}</span>
+                                        <span>{{ textInference.backend }}</span>
                                     </div>
                                 </template>
                                 <template #list="slotItem">
@@ -301,10 +301,12 @@ import { toast } from "@/assets/js/toast";
 import { Const } from "@/assets/js/const";
 import { useModels } from "@/assets/js/store/models";
 import SettingsImageGeneration from "@/components/SettingsImageGeneration.vue";
+import { useTextInference, backendTypes } from "@/assets/js/store/textInference";
 
 const i18n = useI18N();
 const globalSetup = useGlobalSetup();
 const models = useModels();
+const textInference = useTextInference();
 const tabIndex = ref(0);
 const modelSettings = reactive<KVObject>(Object.assign({}, toRaw(globalSetup.modelSettings)));
 const paths = reactive<ModelPaths>(Object.assign({}, toRaw(globalSetup.paths)));

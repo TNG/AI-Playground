@@ -64,10 +64,6 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
 
     const graphicsList = ref(new Array<GraphicsItem>());
 
-    const llmBackends = ref(new Array<string>("IPEX-LLM", "LLAMA.CPP"));
-
-    const currentLLMBackend = ref("IPEX-LLM");
-
     let envType = "";
 
     const loadingState = ref("loading");
@@ -318,8 +314,6 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
         paths,
         apiHost,
         graphicsList,
-        llmBackends,
-        currentLLMBackend,
         loadingState,
         errorMessage,
         hdPersistentConfirmation,

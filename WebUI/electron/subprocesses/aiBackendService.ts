@@ -7,7 +7,7 @@ import {app} from "electron";
 
 class AiBackendService extends LongLivedPythonApiService {
     readonly workDir = path.resolve(app.isPackaged ? path.join(process.resourcesPath, "service") : path.join(__dirname, "../../../service"));
-    readonly pythonExe = path.resolve(path.join(this.baseDir, "env/python.exe"));
+    readonly pythonExe = path.resolve(path.join(this.baseDir, "env/bin/python"));
 
     spawnAPIProcess(): {process: ChildProcess, didProcessExitEarlyTracker: Promise<boolean>} {
         this.appLogger.info(` trying to start ${this.name} python API`, this.name)

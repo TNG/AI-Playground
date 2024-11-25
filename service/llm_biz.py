@@ -15,9 +15,10 @@ from transformers import (
     AutoTokenizer,
     PreTrainedModel,
     PreTrainedTokenizer,
+    AutoModelForCausalLM,
 )
 
-from ipex_llm.transformers import AutoModelForCausalLM
+#from ipex_llm.transformers import AutoModelForCausalLM
 from typing import Callable
 from transformers.generation.stopping_criteria import (
     StoppingCriteria,
@@ -27,13 +28,13 @@ from transformers.generation.stopping_criteria import (
 import service_config
 
 
-import ipex_llm.transformers.models.mistral
+# import ipex_llm.transformers.models.mistral
 
 # W/A for https://github.com/intel/AI-Playground/issues/94
 # Disable decoding_fast_path to avoid calling forward_qkv() which is not supported by bigdl-core-xe-*-23
-ipex_llm.transformers.models.mistral.use_decoding_fast_path = (
-    lambda *args, **kwargs: False
-)
+# ipex_llm.transformers.models.mistral.use_decoding_fast_path = (
+#     lambda *args, **kwargs: False
+# )
 
 
 class LLMParams:
@@ -182,8 +183,8 @@ def chat(
         # if prev genera not finish, stop it
         stop_generate()
 
-        torch.xpu.set_device(params.device)
-        service_config.device = f"xpu:{params.device}"
+        torch.cuda.set_device(params.device)
+        service_config.device = f"cuda:{params.device}"
         prompt = params.prompt
         enable_rag = params.enable_rag
         model_repo_id = params.model_repo_id
@@ -198,7 +199,7 @@ def chat(
             if _model is not None:
                 del _model
                 gc.collect()
-                torch.xpu.empty_cache()
+                torch.cuda.empty_cache()
 
             model_base_path = service_config.service_model_paths.get("llm")
             model_name = model_repo_id.replace("/", "---")
@@ -302,7 +303,7 @@ def dispose():
     del _model
     _model = None
     gc.collect()
-    torch.xpu.empty_cache()
+    torch.cuda.empty_cache()
 
 
 class StopGenerateException(Exception):

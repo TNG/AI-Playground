@@ -45,11 +45,11 @@
     <div class="flex flex-col gap-2">
         <p>{{ languages.SETTINGS_LLM_BACKEND }}</p>
         <div class="flex items-center gap-2">
-                <drop-selector :array="globalSetup.llmBackends" @change="changeLLMBackend">
+                <drop-selector :array="[...backendTypes]" @change="(item) => textInference.backend = item">
                     <template #selected>
                         <div class="flex gap-2 items-center">
                             <span class="rounded-full bg-green-500 w-2 h-2"></span>
-                            <span>{{ globalSetup.currentLLMBackend }}</span>
+                            <span>{{ textInference.backend }}</span>
                         </div>
                     </template>
                     <template #list="slotItem">
@@ -70,8 +70,10 @@ import RadioBlock from "../components/RadioBlock.vue";
 import { useGlobalSetup } from "@/assets/js/store/globalSetup";
 import { useI18N } from '@/assets/js/store/i18n';
 import { useTheme } from '@/assets/js/store/theme';
+import { useTextInference, backendTypes } from "@/assets/js/store/textInference";
 
 const globalSetup = useGlobalSetup();
+const textInference = useTextInference();
 const i18n = useI18N();
 const theme = useTheme();
 
@@ -92,10 +94,6 @@ const graphicsName = computed(() => {
 
 function changeGraphics(value: any, index: number) {
     globalSetup.applyModelSettings({ graphics: (value as GraphicsItem).index });
-}
-
-function changeLLMBackend(item: string, _: number) {
-    globalSetup.currentLLMBackend = item;
 }
 
 </script>

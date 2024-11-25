@@ -22,9 +22,7 @@ const condaBinDir = path.join(condaDir, 'Library', 'bin');
 const getPipFile = path.join(pythonPackageResourcesDir, 'get-pip.py');
 const sevenZipExe = path.join(pythonPackageResourcesDir, '7zr.exe')
 const sevenZipBinary = () => {
-    if (childProcess.execSync('which 7z').toString().includes('7z')) {
-        return "7z";
-    } else if (fs.existsSync(sevenZipExe)) {
+    if (fs.existsSync(sevenZipExe)) {
         return sevenZipExe;
     } else {
         console.error('No 7z executable found');

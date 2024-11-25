@@ -18,7 +18,7 @@ from langchain_community.document_loaders.text import TextLoader
 from langchain_community.vectorstores.faiss import FAISS, Document
 
 # from sentence_transformers import SentenceTransformer
-import intel_extension_for_pytorch as ipex  # noqa: F401
+# import intel_extension_for_pytorch as ipex  # noqa: F401
 from sentence_transformers import SentenceTransformer
 
 #### CONFIGURATIONS ------------------------------------------------------------------------------------------------------------------------

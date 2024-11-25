@@ -11,14 +11,14 @@ import {getArchPriority, getDeviceArch} from "./deviceArch.ts";
 export const aiBackendServiceDir = () => path.resolve(app.isPackaged ? path.join(process.resourcesPath, "service") : path.join(__dirname, "../../../service"));
 
 const LsLevelZeroDeviceSchema = z.object({id: z.number(), name: z.string(), device_id: z.number()});
-const LsLevelZeroOutSchema = z.array(LsLevelZeroDeviceSchema).min(1);
+const LsLevelZeroOutSchema = z.array(LsLevelZeroDeviceSchema).min(0);
 type LsLevelZeroDevice = z.infer<typeof LsLevelZeroDeviceSchema>;
 
 export function getLsLevelZeroPath(basePythonEnvDir: string): string {
     return path.resolve(path.join(basePythonEnvDir, "Library/bin/ls_level_zero.exe"));
 }
 export function getPythonPath(basePythonEnvDir: string): string {
-    return path.resolve(path.join(basePythonEnvDir, "python.exe"))
+    return path.resolve(path.join(basePythonEnvDir, "bin/python"))
 }
 
 const ipexWheel = "intel_extension_for_pytorch-2.3.110+xpu-cp311-cp311-win_amd64.whl"
@@ -51,7 +51,7 @@ export abstract class LongLivedPythonApiService implements ApiService {
     encapsulatedProcess: ChildProcess | null = null
 
     readonly baseDir = app.isPackaged ? process.resourcesPath : path.join(__dirname, "../../../");
-    readonly prototypicalPythonEnv = path.join(this.baseDir, "prototype-python-env")
+    readonly prototypicalPythonEnv = path.join(this.baseDir, "env")
     readonly customIntelExtensionForPytorch = path.join(app.isPackaged ? this.baseDir : path.join(__dirname, "../../external/"), ipexWheel)
     abstract readonly serviceDir: string
     abstract readonly lsLevelZeroDir: string
@@ -214,11 +214,11 @@ export abstract class LongLivedPythonApiService implements ApiService {
 
     async getAllLevelZeroDevices(envDir: string): Promise<LsLevelZeroDevice[]> {
         console.log('ls level zero executed in', envDir)
-        const lsLevelZeroOut = await spawnProcessAsync(getLsLevelZeroPath(envDir), [], (data: string) => {this.appLogger.logMessageToFile(data, this.name)}, {
-            ONEAPI_DEVICE_SELECTOR: "level_zero:*" // reset selector env to guarantee full device list (and the ordering)
-        });
-        this.appLogger.info(`ls_level_zero.exe output: ${lsLevelZeroOut}`, this.name)
-        return LsLevelZeroOutSchema.parse(JSON.parse(lsLevelZeroOut));
+        // const lsLevelZeroOut = await spawnProcessAsync(getLsLevelZeroPath(envDir), [], (data: string) => {this.appLogger.logMessageToFile(data, this.name)}, {
+        //     ONEAPI_DEVICE_SELECTOR: "level_zero:*" // reset selector env to guarantee full device list (and the ordering)
+        // });
+        // this.appLogger.info(`ls_level_zero.exe output: ${lsLevelZeroOut}`, this.name)
+        return LsLevelZeroOutSchema.parse(JSON.parse("[]"));
     }
 
     selectBestLevelZeroDevice(): void {
@@ -235,8 +235,8 @@ export abstract class LongLivedPythonApiService implements ApiService {
                 priority = newPriority;
             }
         }
-        const selectedDevice = this.allLevelZeroDevices[this.selectedDeviceId];
-        this.appLogger.info(`Selected device #${selectedDevice.id}: ${selectedDevice.name} with device_id: 0x${selectedDevice.device_id.toString(16)}, arch: ${arch}`, this.name)
+        // const selectedDevice = this.allLevelZeroDevices[this.selectedDeviceId];
+        // this.appLogger.info(`Selected device #${selectedDevice.id}: ${selectedDevice.name} with device_id: 0x${selectedDevice.device_id.toString(16)}, arch: ${arch}`, this.name)
     }
 
     protected commonSetupSteps = {
@@ -248,7 +248,7 @@ export abstract class LongLivedPythonApiService implements ApiService {
             const src = existingFileOrError(path.resolve(path.join(aiBackendServiceDir(), "tools/ls_level_zero.exe")));
             await copyFileWithDirs(src, lsLevelZeroBinaryTargetPath);
 
-            return 'arc';
+            return 'acm';
         },
 
         detectDevice: async (pythonEnvContainmentDir: string): Promise<string> => {
@@ -277,12 +277,12 @@ export abstract class LongLivedPythonApiService implements ApiService {
         },
 
         getDeviceSelectorEnv: async () => {
-            if (this.selectedDeviceId === -1) {
-                this.allLevelZeroDevices = await this.getAllLevelZeroDevices(this.lsLevelZeroDir);
-                this.selectBestLevelZeroDevice();
-            }
-            this.appLogger.info(`Setting device selector to level_zero:${this.selectedDeviceId}`, this.name)
-            return { ONEAPI_DEVICE_SELECTOR: `level_zero:${this.selectedDeviceId}` }
+            // if (this.selectedDeviceId === -1) {
+            //     this.allLevelZeroDevices = await this.getAllLevelZeroDevices(this.lsLevelZeroDir);
+            //     this.selectBestLevelZeroDevice();
+            // }
+            // this.appLogger.info(`Setting device selector to level_zero:${this.selectedDeviceId}`, this.name)
+            return { ONEAPI_DEVICE_SELECTOR: `level_zero:*` }
         },
 
         copyArchetypePythonEnv: async (targetDir: string) => {

@@ -12,7 +12,7 @@ const logSourceName = "updateIntelWorkflows"
 const resourcesBaseDir = app.isPackaged ? process.resourcesPath : path.join(__dirname, "../../../");
 const externalRes = path.resolve(app.isPackaged ? process.resourcesPath : path.join(__dirname, "../../external/"));
 
-const gitExePath = Path.join(resourcesBaseDir, "portable-git", "cmd" , "git.exe")
+const gitExePath = "/usr/bin/git"
 const workflowDirTargetPath = Path.join(externalRes, "workflows")
 const workflowDirSpareGitRepoPath = Path.join(externalRes, "workflows_intel")
 const intelWorkflowDirPath = Path.join(workflowDirSpareGitRepoPath, "WebUI", "external", "workflows")

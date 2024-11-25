@@ -125,7 +125,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
             }
 
             await self.commonSetupSteps.moveToFinalTarget(executableGitTempPath, executableGitTargetPath)
-            return path.join(executableGitTargetPath, "cmd", "git.exe");
+            return "/usr/bin/git";
         }
 
         async function setupComfyUiBaseService(containmentDir: string, gitExePath: string, pythonEnvDir: string): Promise<string> {
@@ -167,7 +167,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
             yield {serviceName: self.name, step: `preparing work directory`, status: "executing", debugMessage: `Cloning complete`};
 
             yield {serviceName: self.name, step: `Detecting intel device`, status: "executing", debugMessage: `Trying to identify intel hardware`};
-            const deviceArch = await self.commonSetupSteps.detectDevice(pythonEnvContainmentDir)
+            const deviceArch = await self.commonSetupSteps.detectDeviceArcMock(pythonEnvContainmentDir)
             yield {serviceName: self.name, step: `Detecting intel device`, status: "executing", debugMessage: `detected intel hardware ${deviceArch}`};
 
             yield {serviceName: self.name, step: `install dependencies`, status: "executing", debugMessage: `installing dependencies`};

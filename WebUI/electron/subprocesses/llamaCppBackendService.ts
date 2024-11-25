@@ -15,7 +15,7 @@ export class LlamaCppBackendService extends LongLivedPythonApiService {
     healthEndpointUrl = `${this.baseUrl}/health`
 
     private getPythonPath(basePythonEnvDir: string): string {
-        return path.resolve(path.join(basePythonEnvDir, "python.exe"))
+        return path.resolve(path.join(basePythonEnvDir, "python"))
     }
 
     serviceIsSetUp(): boolean {

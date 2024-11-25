@@ -130,7 +130,7 @@ def check_defaultbackend_mmodel_exist(type: int, repo_id: str) -> bool:
             or os.path.exists(os.path.join(dir, f"{repo_id}.safetensors"))
             or os.path.exists(os.path.join(dir, f"{repo_id}.bin"))
         )
-        
+
 
 
 def convert_model_type(type: int):
@@ -234,11 +234,21 @@ def get_ESRGAN_size():
         return int(response.headers.get("Content-Length"))
 
 
-def get_support_graphics():
+def get_support_graphics(env_type: str):
+
     device_count = torch.xpu.device_count()
     graphics = list()
     for i in range(device_count):
         device_name = torch.xpu.get_device_name(i)
+        print('device_name', device_name)
+        if device_name == "Intel(R) Arc(TM) Graphics" or re.search("Intel\(R\) Arc\(TM\)", device_name) is not None:
+            graphics.append({"index": i, "name": device_name})
+    device_count = torch.cuda.device_count()
+    print('cuda device_count:', device_count)
+    service_config.env_type = env_type
+    for i in range(device_count):
+        device_name = torch.cuda.get_device_name(i)
+        print('device_name', device_name)
         graphics.append({"index": i, "name": device_name})
     return graphics
 

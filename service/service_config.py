@@ -10,11 +10,11 @@ service_model_paths = {
     "preview": "./models/stable_diffusion/preview",
 }
 
-
+device = "cuda"
 comfy_ui_root_path = "../ComfyUI"
 git = {
     "rootDirPath": "../portable-git",
-    "exePath": "../portable-git/cmd/git.exe",
+    "exePath": "/usr/bin/git",
 }
 
 comfyui_python_exe = "../comfyui-backend-env/python.exe"
@@ -31,8 +31,4 @@ comfy_ui_model_paths = {
     "defaultLora": "./models/stable_diffusion/lora",
 }
 
-llama_cpp_model_paths = {
-    "ggufLLM": "./models/llm/ggufLLM",
-}
-
-device = "xpu"
+env_type = "arc"

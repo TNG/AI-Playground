@@ -29,7 +29,7 @@ export class AiBackendService extends LongLivedPythonApiService {
             yield {serviceName: self.name, step: `preparing work directory`, status: "executing", debugMessage: `Cloning complete`};
 
             yield {serviceName: self.name, step: `Detecting intel device`, status: "executing", debugMessage: `Trying to identify intel hardware`};
-            const deviceArch = await self.commonSetupSteps.detectDevice(pythonEnvContainmentDir)
+            const deviceArch = await self.commonSetupSteps.detectDeviceArcMock(pythonEnvContainmentDir)
             yield {serviceName: self.name, step: `Detecting intel device`, status: "executing", debugMessage: `detected intel hardware ${deviceArch}`};
 
             yield {serviceName: self.name, step: `install dependencies`, status: "executing", debugMessage: `installing dependencies`};

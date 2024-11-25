@@ -107,11 +107,22 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
             }
         }
         await reloadGraphics();
-        if (graphicsList.value.length == 0) {
-            await window.electronAPI.showMessageBoxSync({ message: useI18N().state.ERROR_UNFOUND_GRAPHICS, title: "error", icon: "error" });
-            window.electronAPI.exitApp();
-        }
-        loadUserSettings();
+        // if (graphicsList.value.length == 0) {
+        //     await window.electronAPI.showMessageBoxSync({ message: useI18N().state.ERROR_UNFOUND_GRAPHICS, title: "error", icon: "error" });
+        //     window.electronAPI.exitApp();
+        // }
+        await loadUserSettings();
+
+        // isComfyUiInstalled.value = await isComfyUIDownloaded()
+        // if (isComfyUiInstalled.value) {
+        //     window.electronAPI.wakeupComfyUIService()
+        //     setTimeout(() => {
+        //         //requires proper feedback on server startup...
+        //         useComfyUi().updateComfyState()
+        //         loadingState.value = "running";
+        //     }, 10000);
+        // } else {
+        //     loadingState.value = "running";
     }
 
     async function initWebSettings(postJson: string) {
@@ -273,7 +284,7 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
             modelSettings.lora = models.value.lora[0];
             changeUserSetup = true;
         }
-        if (!graphicsList.value.find(item => item.index == modelSettings.graphics)) {
+        if (!graphicsList.value.find(item => item.index == modelSettings.graphics) && graphicsList.value.length != 0) {
             modelSettings.graphics = graphicsList.value[0].index;
         }
         if (changeUserSetup) {

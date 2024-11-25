@@ -1,5 +1,5 @@
 import os
-os.environ['PATH'] = os.path.abspath('../llama-cpp-env/Library/bin') + os.pathsep + os.environ['PATH']
+os.environ['PATH'] = os.path.abspath('../llama-cpp-env-2/Library/bin') + os.pathsep + os.environ['PATH']
 
 from apiflask import APIFlask
 from flask import jsonify, request, Response, stream_with_context

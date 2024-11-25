@@ -11,9 +11,9 @@ import torch
 from basicsr.archs.rrdbnet_arch import RRDBNet
 from torch.nn import functional as F
 import service_config
-import xpu_hijacks
+# import xpu_hijacks
 
-xpu_hijacks.ipex_hijacks()
+# xpu_hijacks.ipex_hijacks()
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -89,7 +89,7 @@ class RealESRGANer:
             self,
             device: str,
     ):
-        self.model.to(device.replace("xpu", "cuda"))
+        self.model.to(device.replace("mps", "mps"))
 
     def dni(self, net_a, net_b, dni_weight, key="params", loc="cpu"):
         """Deep network interpolation.
@@ -321,10 +321,10 @@ class RealESRGANer:
         del self.model
         gc.collect()
 
-        if DEVICE == "cuda":
-            torch.cuda.empty_cache()
-        elif DEVICE == "xpu":
-            torch.xpu.empty_cache()
+        if DEVICE == "mps":
+            torch.mps.empty_cache()
+        # elif DEVICE == "mps":
+        #     torch.mps.empty_cache()
 
 
 class PrefetchReader(threading.Thread):

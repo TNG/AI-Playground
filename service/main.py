@@ -3,8 +3,9 @@ from threading import Thread
 import time
 import traceback
 import torch
-from transformers import pipeline, PreTrainedModel, TextIteratorStreamer
 import intel_extension_for_pytorch as ipex
+from transformers import pipeline,PreTrainedModel,TextIteratorStreamer
+# import intel_extension_for_pytorch as ipex
 
 
 def stream_chat_generate(model: PreTrainedModel, args: dict):
@@ -37,12 +38,12 @@ if __name__ == "__main__":
         },
     ]
     pipe.model.eval()
-    pipe.model.to("xpu")
-    model = ipex.optimize(pipe.model, dtype=torch.bfloat16)
+    pipe.model.to("mps")
+    #model = ipex.optimize(pipe.model, dtype=torch.bfloat16)
     prompt = pipe.tokenizer.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True, return_tensors="pt"
     )
-    encoding = pipe.tokenizer.encode_plus(prompt, return_tensors="pt").to("xpu")
+    encoding = pipe.tokenizer.encode_plus(prompt, return_tensors="pt").to("mps")
     tensor: torch.Tensor = encoding.get("input_ids")
     streamer = TextIteratorStreamer(
         pipe.tokenizer,
@@ -59,7 +60,7 @@ if __name__ == "__main__":
         top_k=50,
         top_p=0.95,
     )
-    torch.xpu.synchronize()
+    torch.mps.synchronize()
     Thread(target=stream_chat_generate, args=(pipe.model, generate_kwargs)).start()
 
     for stream_output in streamer:

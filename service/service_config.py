@@ -10,11 +10,10 @@ service_model_paths = {
     "preview": "./models/stable_diffusion/preview",
 }
 
-
 comfy_ui_root_path = "../ComfyUI"
 git = {
     "rootDirPath": "../portable-git",
-    "exePath": "../portable-git/cmd/git.exe",
+    "exePath": "/usr/bin/git",
 }
 
 comfyui_python_exe = "../comfyui-backend-env/python.exe"
@@ -41,4 +40,4 @@ openvino_model_paths = {
     "openvinoLLM": "./models/llm/openvino",
 }
 
-device = "xpu"
+device = "mps"

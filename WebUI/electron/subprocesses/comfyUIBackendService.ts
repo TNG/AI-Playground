@@ -121,7 +121,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         status: 'executing',
         debugMessage: `Trying to identify intel hardware`,
       }
-      const deviceArch = await this.lsLevelZero.detectDevice()
+      const deviceArch: string = 'mps'
       yield {
         serviceName: this.name,
         step: `Detecting intel device`,

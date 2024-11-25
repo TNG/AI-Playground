@@ -6,7 +6,7 @@ import time
 from typing import Any, List, Dict
 
 # from sentence_transformers import SentenceTransformer
-import intel_extension_for_pytorch as ipex  # noqa: F401
+# import intel_extension_for_pytorch as ipex  # noqa: F401
 import torch
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders.markdown import UnstructuredMarkdownLoader
@@ -53,14 +53,14 @@ class EmbeddingWrapper(Embeddings):
         self.model.to(device)
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        torch.xpu.synchronize()
+        torch.mps.synchronize()
         t0 = time.time()
         embeddings = [
             self.model.encode(text, normalize_embeddings=True) for text in texts
         ]
         # Convert embeddings from NumPy arrays to lists for serialization
         embeddings_as_lists = [embedding.tolist() for embedding in embeddings]
-        torch.xpu.synchronize()
+        torch.mps.synchronize()
         t1 = time.time()
         print("-----------SentenceTransformer--embedding cost time(s): ", t1 - t0)
         return embeddings_as_lists
@@ -231,10 +231,10 @@ class EmbeddingDatabase:
 def add_index_file(file: str):
     global embedding_database
     if re.search(".(txt|docx?|pptx?|md|pdf)$", file, re.IGNORECASE) is not None:
-        torch.xpu.synchronize()
+        torch.mps.synchronize()
         start = time.time()
         result = embedding_database.add_index_file(file)
-        torch.xpu.synchronize()
+        torch.mps.synchronize()
         end = time.time()
         print(f"add index file cost {end-start}s")
     else:
@@ -249,12 +249,12 @@ def to(device: str):
 
 def query(query: str):
     global embedding_database
-    torch.xpu.synchronize()
+    torch.mps.synchronize()
     start = time.time()
     success, context, source_file = embedding_database.query_database(query)
     end = time.time()
     print(f'query by keyword "{query}" cost {end-start}s')
-    torch.xpu.synchronize()
+    torch.mps.synchronize()
     return success, context, source_file
 
 
@@ -275,8 +275,8 @@ Is_Inited = False
 
 def init(repo_id: str, device: int):
     global embedding_database, embedding_wrapper, Is_Inited
-    torch.xpu.set_device(device)
-    service_config.device = f"xpu:{device}"
+    # torch.mps.set_device(device)
+    service_config.device = f"mps:{device}"
     embedding_wrapper = EmbeddingWrapper(repo_id)
     embedding_database = EmbeddingDatabase(embedding_wrapper)
     Is_Inited = True
@@ -293,4 +293,4 @@ def dispose():
             embedding_database = None
         Is_Inited = False
     gc.collect()
-    torch.xpu.empty_cache()
+    torch.mps.empty_cache()

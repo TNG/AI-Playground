@@ -630,13 +630,14 @@ function needAdminPermission() {
 }
 
 function isAdmin(): boolean {
-  const lib = koffi.load('Shell32.dll')
-  try {
-    const IsUserAnAdmin = lib.func('IsUserAnAdmin', 'bool', [])
-    return IsUserAnAdmin()
-  } finally {
-    lib.unload()
-  }
+  // const lib = koffi.load("Shell32.dll");
+  // try {
+  //     const IsUserAnAdmin = lib.func("IsUserAnAdmin", "bool", []);
+  //     return IsUserAnAdmin();
+  // } finally {
+  //     lib.unload();
+  // }
+  return true
 }
 
 app.whenReady().then(async () => {

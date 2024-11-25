@@ -253,10 +253,10 @@ def get_ESRGAN_size():
 
 
 def get_support_graphics():
-    device_count = torch.xpu.device_count()
+    device_count = torch.mps.device_count()
     graphics = list()
     for i in range(device_count):
-        device_name = torch.xpu.get_device_name(i)
+        device_name = "mps"
         graphics.append({"index": i, "name": device_name})
     return graphics
 

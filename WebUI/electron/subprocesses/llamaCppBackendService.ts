@@ -39,7 +39,7 @@ export class LlamaCppBackendService extends LongLivedPythonApiService {
       await this.lsLevelZero.ensureInstalled()
       await this.uvPip.ensureInstalled()
 
-      const deviceArch = await this.lsLevelZero.detectDevice()
+      const deviceArch: string = 'mps'
       yield {
         serviceName: this.name,
         step: `Detecting intel device`,

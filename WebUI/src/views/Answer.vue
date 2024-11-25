@@ -95,7 +95,7 @@
       <div class="flex flex-col gap-2 flex-auto h-full">
         <div class="flex items-center justify-between gap-5 text-white px-2">
           <div class="flex items-center">
-            <drop-selector v-if="globalSetup.currentLLMBackend === 'IPEX-LLM'" :array="models.llms" @change="changeLLMModel" class="w-96">
+            <drop-selector v-if="textInference.backend === 'IPEX-LLM'" :array="models.llms" @change="(i) => textInference.activeModel = i.name" class="w-96">
               {{ console.log('models.llms', models.llms) }}
               <template #selected>
                 <model-drop-down-item
@@ -105,14 +105,14 @@
                 <model-drop-down-item :model="slotItem.item"></model-drop-down-item>
               </template>
             </drop-selector>
-            <drop-selector v-if="globalSetup.currentLLMBackend === 'LLAMA.CPP'" :array="models.ggufLLMs" @change="" class="w-96">
-                <template #selected>
-                    <model-drop-down-item
-                        :model="models.ggufLLMs.find((m) => m.name === globalSetup.modelSettings.ggufLLM_model)"></model-drop-down-item>
-                </template>
-                <template #list="slotItem">
-                    <model-drop-down-item :model="slotItem.item"></model-drop-down-item>
-                </template>
+            <drop-selector v-if="textInference.backend === 'LLAMA.CPP'" :array="models.ggufLLMs" @change="(i) => textInference.activeModel = i.name" class="w-96">
+              <template #selected>
+                <model-drop-down-item
+                  :model="models.ggufLLMs.find((m) => m.name === globalSetup.modelSettings.ggufLLM_model)"></model-drop-down-item>
+              </template>
+              <template #list="slotItem">
+                <model-drop-down-item :model="slotItem.item"></model-drop-down-item>
+              </template>
             </drop-selector>
             <button class="svg-icon i-generate-add w-10 h-10 text-purple-500 ml-1.5" @click="addLLMModel"></button>
             <button class="svg-icon i-refresh w-5 h-5 text-purple-500 flex-none ml-1"
@@ -206,11 +206,13 @@ import "highlight.js/styles/github-dark.min.css";
 import { Const } from "@/assets/js/const";
 import { useConversations } from "@/assets/js/store/conversations";
 import { useComfyUi } from "@/assets/js/store/comfyUi";
+import { useTextInference } from "@/assets/js/store/textInference";
 
 const conversations = useConversations();
 const comfyUi = useComfyUi();
 const models = useModels();
 const globalSetup = useGlobalSetup();
+const textInference = useTextInference();
 const i18nState = useI18N().state
 const question = ref("");
 const processing = ref(false);
@@ -340,8 +342,8 @@ async function updateTitle(conversation: ChatItem[]) {
     device: globalSetup.modelSettings.graphics,
     prompt: chatContext,
     enable_rag: false,
-    model_repo_id: globalSetup.currentLLMBackend === 'IPEX-LLM' ? globalSetup.modelSettings.llm_model : globalSetup.modelSettings.ggufLLM_model,
-    backend_type: globalSetup.currentLLMBackend,
+    model_repo_id: textInference.backend === 'IPEX-LLM' ? globalSetup.modelSettings.llm_model : globalSetup.modelSettings.ggufLLM_model,
+    backend_type: textInference.backend,
     print_metrics: false
   };
   const response = await fetch(`${ globalSetup.apiHost }/api/llm/chat`, {
@@ -469,8 +471,8 @@ async function generate(chatContext: ChatItem[]) {
       device: globalSetup.modelSettings.graphics,
       prompt: chatContext,
       enable_rag: ragData.enable,
-      model_repo_id: globalSetup.currentLLMBackend === 'IPEX-LLM' ? globalSetup.modelSettings.llm_model : globalSetup.modelSettings.ggufLLM_model,
-      backend_type: globalSetup.currentLLMBackend
+      model_repo_id: textInference.backend === 'IPEX-LLM' ? globalSetup.modelSettings.llm_model : globalSetup.modelSettings.ggufLLM_model,
+      backend_type: textInference.backend
     };
     comfyUi.free();
     const response = await fetch(`${globalSetup.apiHost}/api/llm/chat`, {

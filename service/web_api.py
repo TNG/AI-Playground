@@ -52,6 +52,8 @@ def llm_chat():
     global llm_backend
     paint_biz.dispose_basic_model()
     params = request.get_json()
+    if params['backend_type'] == "LLAMA.CPP":
+        params.pop("print_metrics", None)
     llm_params = LLMParams(**params)
     print(llm_params.model_repo_id)
     if llm_params.backend_type == "LLAMA.CPP" and (not llm_backend or not llm_backend.get_backend_type() == "llama_cpp"):

@@ -5,8 +5,7 @@ mkl-dpcpp==2024.2.1
 torch==2.3.1.post0+cxx11.abi
 torchvision==0.18.1.post0+cxx11.abi
 torchaudio==2.3.1.post0+cxx11.abi
-intel-extension-for-pytorch==2.3.110.post0+xpu
-mkl-dpcpp==2024.2.1
+C:\intel_build_tests\ipex23_wheels\intel_extension_for_pytorch-2.3.110+xpu-cp311-cp311-win_amd64.whl
 
 # IPEX-LLM
 --pre

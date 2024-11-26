@@ -104,6 +104,7 @@
                                 <model-drop-down-item :model="slotItem.item"></model-drop-down-item>
                             </template>
                         </drop-selector>
+                        <button class="svg-icon i-generate-add w-10 h-10 text-purple-500 ml-1.5" @click="addLLMModel"></button>
                         <button class="svg-icon i-refresh w-5 h-5 text-purple-500 flex-none ml-1"
                             @animationend="removeRonate360" @click="refreshLLMModles"></button>
                         <!-- <button
@@ -175,9 +176,6 @@
             </div>
             <rag v-if="ragData.showUploader" ref="ragPanel" @close="ragData.showUploader = false"></rag>
         </div>
-        <teleport to="#answerPanel" v-if="showDowloadDlg">
-            <download-dialog ref="downloadDigCompt"></download-dialog>
-        </teleport>
     </div>
 
 </template>
@@ -186,7 +184,6 @@ import Rag from "../components/Rag.vue";
 import ProgressBar from "../components/ProgressBar.vue";
 import LoadingBar from "../components/LoadingBar.vue";
 import DropSelector from "@/components/DropSelector.vue";
-import DownloadDialog from "@/components/DownloadDialog.vue";
 import ModelDropDownItem from "@/components/ModelDropDownItem.vue";
 import { useI18N } from '@/assets/js/store/i18n';
 import { toast } from '@/assets/js/toast';
@@ -221,17 +218,18 @@ const loadingModel = ref(false);
 let receiveOut = "";
 let chatPanel: HTMLElement;
 const markdownParser = new MarkdownParser(i18nState.COM_COPY);
-const showDowloadDlg = ref(false);
 const ragData = reactive({
     enable: false,
     processEnable: false,
     showUploader: false,
 });
-const downloadDigCompt = ref<InstanceType<typeof DownloadDialog>>()
+
 const source = ref("");
 const emits = defineEmits<{
     (e: "showDownloadModelConfirm", downloadList: DownloadModelParam[], success?: () => void, fail?: () => void): void,
+    (e: "showModelRequest", success?: () => void, fail?: () => void): void
 }>();
+
 let abortContooler: AbortController | null;
 const stopping = ref(false);
 const fontSizeIndex = ref(1); // sets default to text-sm
@@ -390,14 +388,16 @@ async function simulatedInput() {
 }
 
 function fastGenerate(e: KeyboardEvent) {
-    if (e.code == "Enter") {
-        if (e.ctrlKey || e.shiftKey || e.altKey) {
-            question.value += "\n";
-        } else {
-            e.preventDefault();
-            newPromptGenerate();
-        }
+  if (e.code == "Enter") {
+    if (e.ctrlKey || e.shiftKey || e.altKey) {
+      question.value += "\n";
+    } else {
+      e.preventDefault();
+      if (question.value !== "") {
+        newPromptGenerate()
+      }
     }
+  }
 }
 
 async function newPromptGenerate() {
@@ -420,7 +420,7 @@ async function newPromptGenerate() {
 }
 
 async function checkModel() {
-    return new Promise<void>(async (resolve, reject) => {
+  return new Promise<void>(async (resolve, reject) => {
         const checkList: CheckModelExistParam[] = [{ repo_id: globalSetup.modelSettings.llm_model, type: Const.MODEL_TYPE_LLM }];
         if (!(await globalSetup.checkModelExists(checkList))[0].exist) {
             emits(
@@ -434,6 +434,8 @@ async function checkModel() {
         }
     });
 }
+
+
 
 async function generate(chatContext: ChatItem[]) {
     if (processing.value || chatContext.length == 0) { return; }
@@ -498,6 +500,13 @@ function removeRonate360(ev: AnimationEvent) {
 
 function changeLLMModel(model: Model, _: number) {
     globalSetup.applyModelSettings({ llm_model: model.name });
+}
+
+async function addLLMModel() {
+    return new Promise<void>(async (resolve, reject) => {
+      emits("showModelRequest", resolve, reject);
+    })
+
 }
 
 async function refreshLLMModles(e: Event) {
@@ -574,5 +583,8 @@ async function enableRag() {
     ragData.processEnable = false;
 }
 
+defineExpose({
+  checkModel
+})
 
 </script>

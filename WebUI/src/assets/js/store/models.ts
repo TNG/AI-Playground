@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 
-type ModelType = "llm" | "embedding" | "stableDiffusion" | "inpaint" | "lora" | "vae";
+export type ModelType = "llm" | "embedding" | "stableDiffusion" | "inpaint" | "lora" | "vae" | "undefined";
 
 export type Model = {
     name: string;
@@ -16,6 +16,9 @@ const predefinedModels: Model[] = [
     // { name: 'google/gemma-7b', type: 'llm', downloaded: false },
     // { name: 'THUDM/chatglm3-6b', type: 'llm', downloaded: false },
 ]    
+
+export const userModels: Model[] = [
+]
 
 export const useModels = defineStore("models", () => {
 
@@ -39,10 +42,10 @@ export const useModels = defineStore("models", () => {
             ...inpaintModels.map<Model>(name => ({ name, type: 'inpaint', downloaded: true })),
             ...embeddingModels.map<Model>(name => ({ name, type: 'embedding', downloaded: true })),
         ];
+
         const notYetDownloaded = (model: Model) => !downloadedModels.map(m => m.name).includes(model.name);
 
-        models.value = [...downloadedModels, ...predefinedModels.filter(notYetDownloaded)];
-        console.log(models);
+        models.value = [...downloadedModels, ...userModels, ...predefinedModels.filter(notYetDownloaded)];
 
         }
 

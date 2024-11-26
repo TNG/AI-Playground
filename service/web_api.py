@@ -196,6 +196,33 @@ def check_model_exist():
     return jsonify({"code": 0, "message": "success", "exists": result_list})
 
 
+@app.route("/api/checkHFRepoExists", methods=["GET"])
+def check_if_huggingface_repo_exists():
+    repo_id = request.args.get('repo_id')
+    downloader = HFPlaygroundDownloader()
+    exists = downloader.hf_url_exists(repo_id)
+
+    return jsonify(
+            {
+                "exists": exists
+            }
+        )
+
+@app.route("/api/isLLM", methods=["GET"])
+def is_llm():
+    repo_id = request.args.get('repo_id')
+    downloader = HFPlaygroundDownloader()
+    try:
+        model_type_hf = downloader.probe_type(repo_id)
+    except Exception:
+        model_type_hf = "undefined"
+    return jsonify(
+            {
+            "isllm": model_type_hf == "text-generation"
+            }
+        )
+
+
 size_cache = dict()
 lock = threading.Lock()
 

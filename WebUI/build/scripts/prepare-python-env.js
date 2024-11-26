@@ -1,26 +1,31 @@
-// Usage: node pack-python.js <python_package_res_dir> <target_res_dir>
+// Usage: node prepare-python-env.js --target_dir=$DIR ---env_resources_dir=$DIR
 
 const fs = require('fs');
 const path = require('path');
 const AdmZip = require('adm-zip');
 const childProcess = require('child_process');
 
-if (process.argv.length < 3) {
-    console.error('Usage: node pack-python.js <python_package_res_dir> <target_res_dir>');
+const argv = require('minimist')(process.argv.slice(2));
+const buildResourcesDirArg = argv.build_resources_dir
+const targetDirArg = argv.target_dir
+
+if (!buildResourcesDirArg || !targetDirArg) {
+    console.error('Usage: node prepare-python-env.js --target_dir=$DIR ---env_resources_dir=$DIR\n');
     process.exit(1);
 }
 
-const pythonPackageResourcesDir = path.resolve(process.argv[2]);
-const targetResDir = path.resolve(process.argv[3]);
+
+const envResourcesDir = path.resolve(buildResourcesDirArg);
+const targetDir = path.resolve(targetDirArg);
 const webUIBuildDir = path.join(__dirname, '..', '..');
 const pythonEmbedDir = path.join(webUIBuildDir, '..',  'env');
 
-const packageResourceFiles = fs.readdirSync(pythonPackageResourcesDir);
-const pythonEmbedZipFile = path.join(pythonPackageResourcesDir, packageResourceFiles.find((fileName) => { return fileName.startsWith('python') && fileName.endsWith('.zip') }));
-const condaDir = path.join(pythonPackageResourcesDir, packageResourceFiles.find((fileName) => { return fileName.includes('conda') }));
+const envResourcesFiles = fs.readdirSync(envResourcesDir);
+const pythonEmbedZipFile = path.join(envResourcesDir, envResourcesFiles.find((fileName) => { return fileName.startsWith('python') && fileName.endsWith('.zip') }));
+const condaDir = path.join(envResourcesDir, envResourcesFiles.find((fileName) => { return fileName.includes('conda') }));
 const condaBinDir = path.join(condaDir, 'Library', 'bin');
-const getPipFile = path.join(pythonPackageResourcesDir, 'get-pip.py');
-const sevenZipExe = path.join(pythonPackageResourcesDir, '7zr.exe')
+const getPipFile = path.join(envResourcesDir, 'get-pip.py');
+const sevenZipExe = path.join(envResourcesDir, '7zr.exe')
 const sevenZipBinary = () => {
     if (fs.existsSync(sevenZipExe)) {
         return sevenZipExe;
@@ -55,9 +60,9 @@ function verifyFilesExist() {
     }
     console.log('all required files exist.')
 
-    if (!fs.existsSync(targetResDir)) {
-        console.log(`Creating missing target dir: ${targetResDir}`)
-        fs.mkdirSync(targetResDir, { recursive: true });
+    if (!fs.existsSync(targetDir)) {
+        console.log(`Creating missing target dir: ${targetDir}`)
+        fs.mkdirSync(targetDir, { recursive: true });
     }
 }
 
@@ -83,7 +88,6 @@ function createPythonEnvFromEmbedabblePythonZip() {
 python311.zip
 .
 ../service
-../ComfyUI
 
 # Uncomment to run site.main() automatically
 import site
@@ -131,9 +135,9 @@ function compressPythonEnvDirectory(pyEnvDirPath) {
 
 function copyToTargetDir(filePaths) {
     for (const sourceFilePath of filePaths) {
-        const destinationPath = path.join(targetResDir, path.basename(sourceFilePath));
+        const destinationPath = path.join(targetDir, path.basename(sourceFilePath));
         fs.copyFileSync(sourceFilePath, destinationPath);
-        console.log(`copied ${path.basename(sourceFilePath)} into ${targetResDir}`)
+        console.log(`copied ${path.basename(sourceFilePath)} into ${targetDir}`)
     }
 }
 
@@ -141,8 +145,8 @@ function main() {
     verifyFilesExist();
     const pyEnvPath = createPythonEnvFromEmbedabblePythonZip();
     patchCondaDllsIntoPythonEnv(pyEnvPath);
-    const sevenZippedPyenv = compressPythonEnvDirectory(pyEnvPath);
-    copyToTargetDir([sevenZippedPyenv, sevenZipExe]);
+    //const sevenZippedPyenv = compressPythonEnvDirectory(pyEnvPath);
+    //copyToTargetDir([sevenZippedPyenv, sevenZipExe]);
 }
 
 main();

@@ -4,16 +4,21 @@
   "version": "1.22.1-beta",
   "scripts": {
     "dev": "cross-env VITE_PLATFORM_TITLE=\"for Local® Dev™ Mode\" vite",
-    "fetch-build-resources": "cross-env node ./build/scripts/fetch-python-package-resources.js ../python_package_res",
-    "pack-offline": "cross-env node build/scripts/pack-offline.js ./package_res",
-    "pack-python": "cross-env node build/scripts/pack-python.js ../python_package_res ./npm_package_res",
-    "prebuild": "cross-env node build/scripts/prebuild.js ./npm_package_res ../service ./external",
-    "build:all": "cross-env npm run prebuild && npm run build:arc && npm run build:ultra && npm run build:ultra2",
-    "build:arc": "cross-env-shell PLATFORM=\"arc\" VITE_PLATFORM_TITLE=\"for Intel® Arc™\" \"vue-tsc && vite build && node ./build/scripts/render-template.js && electron-builder --config build/build-config.json --win --x64\"",
-    "build:ultra": "cross-env-shell PLATFORM=\"ultra\" VITE_PLATFORM_TITLE=\"for Intel® Core™ Ultra\" \"vue-tsc && vite build && node ./build/scripts/render-template.js && electron-builder --config build/build-config.json --win --x64\"",
-    "build:ultra2": "cross-env-shell PLATFORM=\"ultra2\" VITE_PLATFORM_TITLE=\"for Intel® Core™ Ultra Series 2\" \"vue-tsc && vite build && node ./build/scripts/render-template.js && electron-builder --config build/build-config.json --win --x64\"",
+    "preview": "vite preview",
+
+    "fetch-build-resources": "cross-env node ./build/scripts/fetch-python-package-resources.js --target_dir=../build_resources",
+    "prepare-python-env": "cross-env node ./build/scripts/prepare-python-env.js --build_resources_dir=../build_resources --target_dir=../env",
+    "install-full-python-env": "cross-env node ./build/scripts/install-full-python-env.js --env_dir=../env",
+    "provide-electron-build-resources": "cross-env node build/scripts/provide-electron-build-resources.js --build_resources_dir=../build_resources --backend_dir=../service --target_dir=./external",
+
+    "build:arc": "cross-env-shell PLATFORM=\"arc\" VITE_PLATFORM_TITLE=\"for Intel® Arc™\" \"vue-tsc && vite build && electron-builder --config build/build-config.json --win --x64\"",
+    "build:arc-offline": "cross-env-shell PLATFORM=\"arc\" VITE_PLATFORM_TITLE=\"for Intel® Arc™\" \"vue-tsc && vite build && electron-builder --config build/build-config-offline.json --win --x64\"",
+
+    "build:ultra": "cross-env-shell PLATFORM=\"ultra\" VITE_PLATFORM_TITLE=\"for Intel® Core™ Ultra\" \"vue-tsc && vite build && electron-builder --config build/build-config.json --win --x64\"",
+    "build:ultra-offline": "cross-env-shell PLATFORM=\"ultra\" VITE_PLATFORM_TITLE=\"for Intel® Core™ Ultra\" \"vue-tsc && vite build && electron-builder --config build/build-config-offline.json --win --x64\"",
+
+    "build:ultra2": "cross-env-shell PLATFORM=\"ultra2\" VITE_PLATFORM_TITLE=\"for Intel® Core™ Ultra Series 2\" \"vue-tsc && vite build && electron-builder --config build/build-config.json --win --x64\"",
     "build:ultra2-offline": "cross-env-shell PLATFORM=\"ultra2\" VITE_PLATFORM_TITLE=\"for Intel® Core™ Ultra Series 2\" \"npm run pack-offline ultra2 && npm run prebuild && vue-tsc && vite build && electron-builder --config build/build-config-offline.json --win --x64\"",
-    "preview": "vite preview"
   },
   "dependencies": {
     "@radix-icons/vue": "^1.0.0",

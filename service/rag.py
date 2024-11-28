@@ -18,6 +18,9 @@ from langchain_community.document_loaders.word_document import (
 )
 from langchain_community.vectorstores.faiss import FAISS, Document
 from langchain_core.embeddings import Embeddings
+
+# from sentence_transformers import SentenceTransformer
+# import intel_extension_for_pytorch as ipex  # noqa: F401
 from sentence_transformers import SentenceTransformer
 
 import aipg_utils as utils

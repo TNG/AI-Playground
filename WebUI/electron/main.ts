@@ -569,34 +569,13 @@ function wakeupApiService() {
   const wordkDir = path.resolve(app.isPackaged ? path.join(process.resourcesPath, "service") : path.join(__dirname, "../../../service"));
   const comfyWordkDir = path.resolve(app.isPackaged ? path.join(process.resourcesPath, "ComfyUI") : path.join(__dirname, "../../../ComfyUI"));
   const baseDir = app.isPackaged ? process.resourcesPath : path.join(__dirname, "../../../");
-  const pythonExe = path.resolve(path.join(baseDir, "env/python.exe"));
+  const pythonExe = path.resolve(path.join(baseDir, "..", "arc-env", "bin", "python"));
   const additionalEnvVariables = {
     "SYCL_ENABLE_DEFAULT_CONTEXTS": "1",
     "SYCL_CACHE_PERSISTENT": "1",
     "PYTHONIOENCODING": "utf-8",
     "ONEAPI_DEVICE_SELECTOR": "level_zero:*"
   };
-
-  // Filter out unsupported devices
-  try {
-    const lsLevelZeroDevices = path.resolve(path.join(baseDir, "service/tools/ls_level_zero.exe"));
-    // copy ls_level_zero.exe to env/Library/bin for SYCL environment
-    const dest = path.resolve(path.join(pythonExe, "../Library/bin/ls_level_zero.exe"));
-    fs.copyFileSync(lsLevelZeroDevices, dest);
-    const ls = spawnSync(dest);
-    logger.info(`ls_level_zero.exe stdout: ${ls.stdout.toString()}`);
-    const devices = JSON.parse(ls.stdout.toString());
-    const supportedIDs = [];
-    for (const device of devices) {
-      if (device.name.toLowerCase().includes("arc") || device.device_id === 0xE20B) {
-        supportedIDs.push(device.id);
-      }
-    }
-    additionalEnvVariables["ONEAPI_DEVICE_SELECTOR"] = "level_zero:" + supportedIDs.join(",");
-    logger.info(`Set ONEAPI_DEVICE_SELECTOR=${additionalEnvVariables["ONEAPI_DEVICE_SELECTOR"]}`);
-  } catch (error) {
-    logger.error(`Failed to detect Level Zero devices: ${error}`);
-  }
 
   spawnAPI(pythonExe, wordkDir, additionalEnvVariables);
   spawnComfy(pythonExe, comfyWordkDir, additionalEnvVariables);

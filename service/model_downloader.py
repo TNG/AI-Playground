@@ -332,6 +332,30 @@ class HFPlaygroundDownloader:
 
         return response, fw
 
+    def is_access_granted(self, repo_id: str, model_type, backend : str):
+
+        repo_id = utils.trim_repo(repo_id)
+        headers={}
+        if (self.hf_token is not None):
+            headers["Authorization"] = f"Bearer {self.hf_token}"
+
+        self.file_queue = queue.Queue()
+        self.repo_id = repo_id
+        self.save_path = path.join(utils.get_model_path(model_type,backend))
+        self.save_path_tmp = path.abspath(
+            path.join(self.save_path, repo_id.replace("/", "---") + "_tmp")
+        )
+
+        file_list = list()
+        self.enum_file_list(file_list, repo_id, model_type)
+        self.build_queue(file_list)
+        file = self.file_queue.get_nowait()
+
+        response = requests.get(file.url, stream=True, verify=False, headers=headers)
+
+        return response.status_code == 200
+
+
     def download_model_file(self):
         try:
             while not self.download_stop and not self.file_queue.empty():

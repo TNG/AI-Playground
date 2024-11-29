@@ -1,20 +1,21 @@
-import os
-
-from huggingface_hub import HfFileSystem, hf_hub_url, model_info
-from huggingface_hub.utils import RepositoryNotFoundError
-from typing import Any, Callable, Dict, List
-from os import path, makedirs, rename
-import requests
-import queue
-from threading import Thread, Lock
-import time
-import psutil
-from psutil._common import bytes2human
-from exceptions import DownloadException
-import traceback
 import concurrent.futures
-import aipg_utils as utils
+import os
+import queue
 import shutil
+import time
+import traceback
+from os import path, makedirs, rename
+from threading import Thread, Lock
+from time import sleep
+from typing import Any, Callable, Dict, List
+
+import psutil
+import requests
+from huggingface_hub import HfFileSystem, hf_hub_url, model_info
+from psutil._common import bytes2human
+
+import aipg_utils as utils
+from exceptions import DownloadException
 
 model_list_cache = dict()
 model_lock = Lock()
@@ -60,6 +61,7 @@ class NotEnoughDiskSpaceException(Exception):
         super().__init__(message)
 
 
+
 class HFPlaygroundDownloader:
     fs: HfFileSystem
     file_queue: queue.Queue[HFDonloadItem]
@@ -87,11 +89,7 @@ class HFPlaygroundDownloader:
         self.hf_token = hf_token
 
     def hf_url_exists(self, repo_id: str):
-        try:
-            model_info(utils.trim_repo(repo_id))
-            return True
-        except RepositoryNotFoundError:
-            return False
+        return self.fs.exists(repo_id)
 
     def probe_type(self, repo_id : str):
         return model_info(utils.trim_repo(repo_id)).pipeline_tag
@@ -273,18 +271,24 @@ class HFPlaygroundDownloader:
             # Download aborted
             shutil.rmtree(self.save_path_tmp)
 
-    def move_to_desired_position(self):
+    def move_to_desired_position(self, retriable: bool = True):
         desired_repo_root_dir_name = os.path.join(self.save_path, utils.repo_local_root_dir_name(self.repo_id))
-        if os.path.exists(desired_repo_root_dir_name):
-            for item in os.listdir(self.save_path_tmp):
-                shutil.move(os.path.join(self.save_path_tmp, item), desired_repo_root_dir_name)
-            shutil.rmtree(self.save_path_tmp)
-        else:
-            rename(
-                self.save_path_tmp,
-                path.abspath(desired_repo_root_dir_name)
-            )
-
+        try:
+            if os.path.exists(desired_repo_root_dir_name):
+                for item in os.listdir(self.save_path_tmp):
+                    shutil.move(os.path.join(self.save_path_tmp, item), desired_repo_root_dir_name)
+                shutil.rmtree(self.save_path_tmp)
+            else:
+                rename(
+                    self.save_path_tmp,
+                    path.abspath(desired_repo_root_dir_name)
+                )
+        except Exception as e:
+            if (retriable):
+                sleep(5)
+                self.move_to_desired_position(retriable=False)
+            else:
+                raise e
 
     def start_report_download_progress(self):
         thread = Thread(target=self.report_download_progress)

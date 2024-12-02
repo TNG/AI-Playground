@@ -57,6 +57,8 @@ def llm_chat():
 @app.post("/api/triggerxpucacheclear")
 def trigger_xpu_cache_clear():
     paint_biz.clear_xpu_cache()
+    return Response("{'message':'triggered xpu cache clearance'}", status=201, mimetype='application/json')
+
 
 @app.post("/api/free")
 def free():

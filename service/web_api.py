@@ -53,6 +53,11 @@ def llm_chat():
     it = sse_invoker.text_conversation(llm_params)
     return Response(stream_with_context(it), content_type="text/event-stream")
 
+
+@app.post("/api/triggerxpucacheclear")
+def trigger_xpu_cache_clear():
+    paint_biz.clear_xpu_cache()
+
 @app.post("/api/free")
 def free():
     paint_biz.dispose()

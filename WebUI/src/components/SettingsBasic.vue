@@ -19,8 +19,8 @@
     <div v-if="theme.availableThemes.length > 1" class="flex flex-col gap-2">
         <p>Theme</p>
         <div class="grid gap-2" :class="{[`grid-cols-${theme.availableThemes.length}`]: true}">
-            <radio-bolck v-for="themeName in theme.availableThemes" :checked="theme.active === themeName" :text="themeToDisplayName(themeName)"
-                @click="() => theme.selected = themeName"></radio-bolck>
+            <radio-block v-for="themeName in theme.availableThemes" :checked="theme.active === themeName" :text="themeToDisplayName(themeName)"
+                @click="() => theme.selected = themeName"></radio-block>
         </div>
     </div>
     <div class="flex flex-col gap-2">
@@ -44,13 +44,17 @@
     </div>
 </template>
 <script setup lang="ts">
-import { useGlobalSetup } from "@/assets/js/store/globalSetup";
+
 import DropSelector from "../components/DropSelector.vue";
-import RadioBolck from "../components/RadioBlock.vue";
+import RadioBlock from "../components/RadioBlock.vue";
+
+import { useGlobalSetup } from "@/assets/js/store/globalSetup";
 import { useI18N } from '@/assets/js/store/i18n';
 import { useTheme } from '@/assets/js/store/theme';
 
 const globalSetup = useGlobalSetup();
+const i18n = useI18N();
+const theme = useTheme();
 
 const themeToDisplayName = (theme: Theme) => {
     switch (theme) {
@@ -61,14 +65,14 @@ const themeToDisplayName = (theme: Theme) => {
     }
 }
 
-
 const modelSettings = reactive<KVObject>(Object.assign({}, toRaw(globalSetup.modelSettings)));
+
 const graphicsName = computed(() => {
     return globalSetup.graphicsList.find(item => modelSettings.graphics as number == item.index)?.name || "";
 })
+
 function changeGraphics(value: any, index: number) {
     globalSetup.applyModelSettings({ graphics: (value as GraphicsItem).index });
 }
-const theme = useTheme();
-const i18n = useI18N();
+
 </script>

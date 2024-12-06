@@ -68,7 +68,7 @@
       </enhance>
       <answer v-show="activeTabIdx == 2" ref = "answer" @show-download-model-confirm="showDownloadModelConfirm" @show-model-request="showModelRequest"></answer>
       <learn-more v-show="activeTabIdx == 3"></learn-more>
-      <app-settings v-if="showSetting" @close="hideAppSettings" @show-download-model-confirm="showDownloadModelConfirm"></app-settings>
+      <app-settings v-show="showSetting" @close="hideAppSettings" @show-download-model-confirm="showDownloadModelConfirm"></app-settings>
     </div>
     <download-dialog v-show="showDowloadDlg" ref="downloadDigCompt" @close="showDowloadDlg = false"></download-dialog>
     <add-l-l-m-dialog v-show="showModelRequestDialog" ref="addLLMCompt" @close="showModelRequestDialog = false" @call-check-model="callCheckModel" @show-warning="showWarning"></add-l-l-m-dialog>
@@ -160,6 +160,9 @@ onBeforeMount(async () => {
     if (level == "error") {
       console.error(`[${source}] ${message}`);
     }
+    if (level == "warn") {
+      console.warn(`[${source}] ${message}`);
+    }
     if (level == "info") {
       console.log(`[${source}] ${message}`);
     }
@@ -174,6 +177,7 @@ onBeforeMount(async () => {
     }
   })
 })
+
 
 function showAppSettings() {
   if (showSetting.value === false) {

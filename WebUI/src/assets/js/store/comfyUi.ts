@@ -19,10 +19,12 @@ export const useComfyUi = defineStore("comfyUi", () => {
     const clientId = '12345';
     const loaderNodes = ref<string[]>([]);
 
-    window.electronAPI.getComfyuiState().then((stateFromBackend) => {
-        comfyUiState.value = stateFromBackend;
+    updateComfyState()
+
+    async function updateComfyState() {
+        comfyUiState.value = await window.electronAPI.getComfyuiState()
         console.log('comfyUiState from backend', comfyUiState.value);
-    });
+    }
 
     function connectToComfyUi() {
         if (!comfyUiState.value) {
@@ -128,8 +130,8 @@ export const useComfyUi = defineStore("comfyUi", () => {
 
     async function generate() {
         console.log('generateWithComfy')
-        if (!imageGeneration.activeWorkflow.comfyUiApiWorkflow) {
-            console.warn('No comfyUiApiWorkflow found in activeWorkflow');
+        if (imageGeneration.activeWorkflow.backend !== 'comfyui') {
+            console.warn('The selected workflow is not a comfyui workflow');
             return;
         }
         if (imageGeneration.processing) {
@@ -199,6 +201,10 @@ export const useComfyUi = defineStore("comfyUi", () => {
     }
 
     async function free() {
+        if (!comfyUiState.value) {
+            console.debug('ComfyUI backend not running, nothing to free');
+            return;
+        }
         await fetch(`http://${comfyHostAndPort.value}/free`, {
             method: 'POST',
             headers: {
@@ -213,7 +219,7 @@ export const useComfyUi = defineStore("comfyUi", () => {
     }
 
     return {
-        comfyUiState,
+        updateComfyState,
         generate,
         stop,
         free

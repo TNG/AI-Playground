@@ -102,6 +102,18 @@ const logger = {
       startupMessageCache.push({ level: 'info', source, message })
     }
   },
+  warn: (message: string, source: 'electron-backend' | 'ai-backend' | 'comfyui-backend' = 'electron-backend') => {
+    console.warn(`[${source}]: ${message}`);
+    if (webContentsFinishedLoad) {
+      try {
+        win?.webContents.send('debugLog', { level: 'warn', source, message })
+      } catch (error) {
+        console.error('Could not send debug log to renderer process');
+      }
+    } else {
+      startupMessageCache.push({ level: 'error', source, message })
+    }
+  },
   error: (message: string, source: 'electron-backend' | 'ai-backend' | 'comfyui-backend' = 'electron-backend') => {
     console.error(`[${source}]: ${message}`);
     if (webContentsFinishedLoad) {
@@ -292,6 +304,11 @@ function initEventHandle() {
       currentTheme:settings.currentTheme
 
     };
+  });
+
+  ipcMain.on("wakeupComfyUIService", async () => {
+    console.log("starting comfyUI")
+    wakeupComfyUIService()
   });
 
   ipcMain.handle("getLocalSettings", async () => {
@@ -567,7 +584,6 @@ function isProcessRunning(pid: number) {
 
 function wakeupApiService() {
   const wordkDir = path.resolve(app.isPackaged ? path.join(process.resourcesPath, "service") : path.join(__dirname, "../../../service"));
-  const comfyWordkDir = path.resolve(app.isPackaged ? path.join(process.resourcesPath, "ComfyUI") : path.join(__dirname, "../../../ComfyUI"));
   const baseDir = app.isPackaged ? process.resourcesPath : path.join(__dirname, "../../../");
   const pythonExe = path.resolve(path.join(baseDir, "env/python.exe"));
   const additionalEnvVariables = {
@@ -599,8 +615,22 @@ function wakeupApiService() {
   }
 
   spawnAPI(pythonExe, wordkDir, additionalEnvVariables);
+}
+
+function wakeupComfyUIService() {
+  const comfyWordkDir = path.resolve(app.isPackaged ? path.join(process.resourcesPath, "ComfyUI") : path.join(__dirname, "../../../ComfyUI"));
+  const baseDir = app.isPackaged ? process.resourcesPath : path.join(__dirname, "../../../");
+  const pythonExe = path.resolve(path.join(baseDir, "env/python.exe"));
+  const additionalEnvVariables = {
+    "SYCL_ENABLE_DEFAULT_CONTEXTS": "1",
+    "SYCL_CACHE_PERSISTENT": "1",
+    "PYTHONIOENCODING": "utf-8",
+    "ONEAPI_DEVICE_SELECTOR": "level_zero:*"
+  };
+
   spawnComfy(pythonExe, comfyWordkDir, additionalEnvVariables);
 }
+
 
 function spawnAPI(pythonExe: string, wordkDir: string, additionalEnvVariables: Record<string, string>, tries = 0) {
   if (apiService.desiredState === 'stopped') return;
@@ -642,7 +672,13 @@ function spawnAPI(pythonExe: string, wordkDir: string, additionalEnvVariables: R
   });
 
   webProcess.stdout.on('data', (message) => {
-    logger.info(`${message}`, 'ai-backend')
+    if(message.toString().startsWith('INFO')) {
+      logger.info(`${message}`, 'ai-backend')
+    } else if (message.toString().startsWith('WARN')) {
+      logger.warn(`${message}`, 'ai-backend')
+    } else {
+      logger.error(`${message}`, 'ai-backend')
+    }
   })
   webProcess.stderr.on('data', (message) => {
     logger.error(`${message}`, 'ai-backend')

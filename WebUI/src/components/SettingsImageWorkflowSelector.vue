@@ -19,42 +19,43 @@
        </div>
        </form>
    </dialog>
+   <comfy-u-i-download-dialog v-show="showComfyUIDownloadDialog" @close="onComfyUIDialogClose"></comfy-u-i-download-dialog>
     <div class="items-center flex-wrap grid grid-cols-1 gap-2">
         <div class="flex flex-col gap-2">
             <p>{{ "Mode" }}</p>
             <div class="grid grid-cols-2 items-center gap-2 flex-wrap">
-                <radio-bolck :checked="imageGeneration.backend === 'default'"
+                <radio-block :checked="imageGeneration.backend === 'default'"
                     :text="'Default'"
-                    @click="() => { imageGeneration.backend = 'default' }"></radio-bolck>
-                <radio-bolck :checked="imageGeneration.backend === 'comfyui'"
+                    @click="() => { imageGeneration.backend = 'default' }"></radio-block>
+                <radio-block :checked="imageGeneration.backend === 'comfyui'"
                     :text="'Workflow'"
-                    @click="() => { imageGeneration.backend = 'comfyui' }"></radio-bolck>
+                    @click="() => { onSwitchToComfyUI() }"></radio-block>
             </div>
         </div>
         <div v-if="imageGeneration.backend === 'default'" class="flex flex-col gap-2">
             <p>{{ languages.SETTINGS_MODEL_IMAGE_RESOLUTION }}</p>
             <div class="grid grid-cols-3 items-center gap-2 flex-wrap">
-                <radio-bolck :checked="classicModel === 'sd1.5'"
+                <radio-block :checked="classicModel === 'sd1.5'"
                     :text="languages.SETTINGS_MODEL_IMAGE_RESOLUTION_STRANDARD"
-                    @click="() => { classicModel = 'sd1.5' }"></radio-bolck>
-                <radio-bolck :checked="classicModel === 'sdxl'"
+                    @click="() => { classicModel = 'sd1.5' }"></radio-block>
+                <radio-block :checked="classicModel === 'sdxl'"
                     :text="languages.SETTINGS_MODEL_IMAGE_RESOLUTION_HD"
-                    @click="() => { classicModel = 'sdxl' }"></radio-bolck>
-                <radio-bolck :checked="classicModel === 'manual'"
+                    @click="() => { classicModel = 'sdxl' }"></radio-block>
+                <radio-block :checked="classicModel === 'manual'"
                     :text="languages.SETTINGS_MODEL_QUALITY_MANUAL"
-                    @click="() => { classicModel = 'manual' }"></radio-bolck>
+                    @click="() => { classicModel = 'manual' }"></radio-block>
             </div>
         </div>
         <div v-if="imageGeneration.backend === 'default'" class="flex flex-col gap-2">
             <p>{{ languages.SETTINGS_MODEL_QUALITY }}</p>
             <div class="grid grid-cols-3 items-center gap-2 flex-wrap">
-                <radio-bolck :checked="classicQuality === 'standard'"
+                <radio-block :checked="classicQuality === 'standard'"
                     :text="languages.SETTINGS_MODEL_QUALITY_STANDARD" @click="() => { classicQuality = 'standard' }"
-                    :disabled="classicModel === 'manual'"></radio-bolck>
-                <radio-bolck :checked="classicQuality === 'hq'" :text="languages.SETTINGS_MODEL_QUALITY_HIGH"
-                    @click="() => { classicQuality = 'hq' }" :disabled="classicModel === 'manual'"></radio-bolck>
-                <radio-bolck :checked="classicQuality === 'fast'" :text="languages.SETTINGS_MODEL_QUALITY_FAST"
-                    @click="() => { classicQuality = 'fast' }" :disabled="classicModel === 'manual'"></radio-bolck>
+                    :disabled="classicModel === 'manual'"></radio-block>
+                <radio-block :checked="classicQuality === 'hq'" :text="languages.SETTINGS_MODEL_QUALITY_HIGH"
+                    @click="() => { classicQuality = 'hq' }" :disabled="classicModel === 'manual'"></radio-block>
+                <radio-block :checked="classicQuality === 'fast'" :text="languages.SETTINGS_MODEL_QUALITY_FAST"
+                    @click="() => { classicQuality = 'fast' }" :disabled="classicModel === 'manual'"></radio-block>
             </div>
         </div>
         <div v-if="imageGeneration.backend === 'comfyui'" class="flex flex-col gap-2">
@@ -94,12 +95,17 @@
 <script setup lang="ts">
 import { useImageGeneration } from "@/assets/js/store/imageGeneration";
 import DropSelector from "../components/DropSelector.vue";
-import RadioBolck from "../components/RadioBlock.vue";
+import RadioBlock from "../components/RadioBlock.vue";
+import {useGlobalSetup} from "@/assets/js/store/globalSetup.ts";
+import ComfyUIDownloadDialog from "@/components/ComfyUIDownloadDialog.vue";
 
 const imageGeneration = useImageGeneration();
+const globalSetup = useGlobalSetup();
 
 const hdConfirmationDialog = ref<HTMLDialogElement>();
 const hdWarningOverride = ref(false);
+
+const showComfyUIDownloadDialog = ref(false);
 
 const classicModel = computed({
         get() {
@@ -129,6 +135,22 @@ const classicModel = computed({
             imageGeneration.activeWorkflowName = targetWorkflow;
         }
       })
+
+function onSwitchToComfyUI() {
+  if (globalSetup.isComfyUiInstalled){
+    imageGeneration.backend = 'comfyui'
+  } else {
+   showComfyUIDownloadDialog.value = true
+  }
+}
+
+function onComfyUIDialogClose(isInstallationSuccessful: boolean) {
+  if (isInstallationSuccessful) {
+    imageGeneration.backend = 'comfyui'
+  }
+  showComfyUIDownloadDialog.value = false
+}
+
 const classicQuality = computed({
         get() {
           if (!imageGeneration.activeWorkflowName?.match(/(Standard|HD)/)) {

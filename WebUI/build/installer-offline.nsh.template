@@ -11,6 +11,7 @@
         Delete "$INSTDIR\resources\env.7z"
         Delete "$INSTDIR\resources\7zr.exe"
 
+
     end:
         DetailPrint "Installation completed."
 !macroend

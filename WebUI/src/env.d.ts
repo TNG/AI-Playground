@@ -15,6 +15,7 @@ interface ImportMeta {
 type ComfyUiState = {
     currentVersion: string | null;
     port: number | null;
+    up: boolean
 }
 
 type electronAPI = {
@@ -67,7 +68,8 @@ type electronAPI = {
     selecteImage(url: string): void,
     setFullScreen(enable: boolean): void,
     onReportError(callback: (errorMessage: string) => void): void,
-    onDebugLog(callback: (data: { level: 'error' | 'info', source: 'ai-backend', message: string}) => void): void,
+    onDebugLog(callback: (data: { level: 'error' | 'warn' | 'info', source: 'ai-backend', message: string}) => void): void,
+    wakeupComfyUIService(): void,
 };
 
 type PythonBackendStatus = {
@@ -304,6 +306,11 @@ type BackendType = "comfyui" | "default"
 type DownloadModelRender = { size: string, gated?: boolean, accessGranted?: boolean } & CheckModelAlreadyLoadedParameters
 
 type DownloadModelParam = CheckModelAlreadyLoadedParameters
+
+type ComfyUICustomNodesRequestParameters = {
+    username: string,
+    repoName: string
+}
 
 
 type CheckModelAlreadyLoadedResult = {

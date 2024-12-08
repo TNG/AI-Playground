@@ -582,24 +582,24 @@ function isProcessRunning(pid: number) {
   }
 }
 
-function wakeupApiService() {
-  const wordkDir = path.resolve(app.isPackaged ? path.join(process.resourcesPath, "service") : path.join(__dirname, "../../../service"));
-  const baseDir = app.isPackaged ? process.resourcesPath : path.join(__dirname, "../../../");
-  const pythonExe = path.resolve(path.join(baseDir, "env/python.exe"));
-  const additionalEnvVariables = {
-    "SYCL_ENABLE_DEFAULT_CONTEXTS": "1",
-    "SYCL_CACHE_PERSISTENT": "1",
-    "PYTHONIOENCODING": "utf-8",
-    "ONEAPI_DEVICE_SELECTOR": "level_zero:*"
-  };
-
-  // Filter out unsupported devices
+function getOneAPIDeviceSelector() {
+  let selector = "level_zero:";
   try {
-    const lsLevelZeroDevices = path.resolve(path.join(baseDir, "service/tools/ls_level_zero.exe"));
-    // copy ls_level_zero.exe to env/Library/bin for SYCL environment
-    const dest = path.resolve(path.join(pythonExe, "../Library/bin/ls_level_zero.exe"));
-    fs.copyFileSync(lsLevelZeroDevices, dest);
-    const ls = spawnSync(dest);
+    const serviceDir = path.resolve(app.isPackaged ? path.join(process.resourcesPath, "service") : path.join(__dirname, "../../../service"));
+    const envDir = path.resolve(path.join(serviceDir, "../env"));
+
+    const lsLevelZeroExe = path.resolve(path.join(envDir, "Library/bin/ls_level_zero.exe"));
+    if (!fs.existsSync(lsLevelZeroExe)) {
+      const src = path.resolve(path.join(serviceDir, "tools/ls_level_zero.exe"));
+      fs.copyFileSync(src, lsLevelZeroExe);
+    }
+
+    const ls = spawnSync(lsLevelZeroExe, [], {
+      env: {
+        ...process.env,
+        ONEAPI_DEVICE_SELECTOR: "level_zero:*" // reset existing selector to avoid wrong ids
+      }
+    });
     logger.info(`ls_level_zero.exe stdout: ${ls.stdout.toString()}`);
     const devices = JSON.parse(ls.stdout.toString());
     const supportedIDs = [];
@@ -608,11 +608,26 @@ function wakeupApiService() {
         supportedIDs.push(device.id);
       }
     }
-    additionalEnvVariables["ONEAPI_DEVICE_SELECTOR"] = "level_zero:" + supportedIDs.join(",");
-    logger.info(`Set ONEAPI_DEVICE_SELECTOR=${additionalEnvVariables["ONEAPI_DEVICE_SELECTOR"]}`);
+    selector += supportedIDs.join(",");
   } catch (error) {
     logger.error(`Failed to detect Level Zero devices: ${error}`);
+    selector += "*";
   }
+
+  logger.info(`ONEAPI_DEVICE_SELECTOR: ${selector}`);
+  return selector;
+}
+
+function wakeupApiService() {
+  const wordkDir = path.resolve(app.isPackaged ? path.join(process.resourcesPath, "service") : path.join(__dirname, "../../../service"));
+  const baseDir = app.isPackaged ? process.resourcesPath : path.join(__dirname, "../../../");
+  const pythonExe = path.resolve(path.join(baseDir, "env/python.exe"));
+  const additionalEnvVariables = {
+    "SYCL_ENABLE_DEFAULT_CONTEXTS": "1",
+    "SYCL_CACHE_PERSISTENT": "1",
+    "PYTHONIOENCODING": "utf-8",
+    "ONEAPI_DEVICE_SELECTOR": getOneAPIDeviceSelector()
+  };
 
   spawnAPI(pythonExe, wordkDir, additionalEnvVariables);
 }
@@ -625,7 +640,7 @@ function wakeupComfyUIService() {
     "SYCL_ENABLE_DEFAULT_CONTEXTS": "1",
     "SYCL_CACHE_PERSISTENT": "1",
     "PYTHONIOENCODING": "utf-8",
-    "ONEAPI_DEVICE_SELECTOR": "level_zero:*"
+    "ONEAPI_DEVICE_SELECTOR": getOneAPIDeviceSelector()
   };
 
   spawnComfy(pythonExe, comfyWordkDir, additionalEnvVariables);

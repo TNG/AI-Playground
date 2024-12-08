@@ -5,7 +5,7 @@ import os
 from functools import wraps
 from contextlib import nullcontext
 import torch
-import intel_extension_for_pytorch as ipex  # pylint: disable=import-error, unused-import
+import intel_extension_for_pytorch as ipex # pylint: disable=import-error, unused-import
 import numpy as np
 
 

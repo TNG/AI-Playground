@@ -223,6 +223,7 @@ def get_support_graphics(env_type: str):
     return graphics
 
 
+
 def call_subprocess(process_command: str) -> str:
     args = shlex.split(process_command)
     try:

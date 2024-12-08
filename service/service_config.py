@@ -10,7 +10,7 @@ service_model_paths = {
     "preview": "./models/stable_diffusion/preview",
 }
 
-
+device = "cuda"
 comfy_ui_root_path = "../ComfyUI"
 git = {
     "rootDirPath": "../git",

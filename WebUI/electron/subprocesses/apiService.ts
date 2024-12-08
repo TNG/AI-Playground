@@ -31,7 +31,7 @@ export class DefaultBackend implements ApiService {
 
     readonly workDir = path.resolve(app.isPackaged ? path.join(process.resourcesPath, "service") : path.join(__dirname, "../../../service"));
     readonly baseDir = app.isPackaged ? process.resourcesPath : path.join(__dirname, "../../../");
-    readonly pythonExe = path.resolve(path.join(this.baseDir, "env/python.exe"));
+    readonly pythonExe = path.resolve(path.join(this.baseDir, "..", "arc-env", "bin", "python"));
 
     setup(): Promise<void> {
         //TODO setup with pip install etc

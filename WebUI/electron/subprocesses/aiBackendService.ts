@@ -72,7 +72,7 @@ class AiBackendService extends LongLivedPythonApiService {
 
         const processStartupFailedDueToEarlyExit = didProcessExitEarlyTracker.then( earlyExit => !earlyExit)
 
-        return Promise.race([processStartupFailedDueToEarlyExit, processStartupCompletePromise])
+        return await Promise.race([processStartupFailedDueToEarlyExit, processStartupCompletePromise])
     }
 }
 

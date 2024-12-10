@@ -17,9 +17,6 @@
         "Q8",
         "Fast"
     ],
-    "requirements": [
-        "high-vram"
-    ],
     "inputs": [],
     "outputs": [
         {

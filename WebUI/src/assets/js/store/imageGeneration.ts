@@ -48,21 +48,18 @@ const SettingSchema = SettingsSchema.keyof();
 
 export type Setting = z.infer<typeof SettingSchema>
 
-const WorkflowRequirementSchema = z.enum(['high-vram'])
-
 const ComfyUIApiWorkflowSchema = z.record(z.string(), z.object({
     inputs: z.object({
         text: z.string().optional(),
     }).passthrough().optional(),
 }).passthrough());
+
 export type ComfyUIApiWorkflow = z.infer<typeof ComfyUIApiWorkflowSchema>;
 
 const DefaultWorkflowSchema = z.object({
     name: z.string(),
-    backend: z.literal('default'),
+    backend: z.enum(['default', 'comfyui']),
     tags: z.array(z.string()),
-    requiredModels: z.array(z.string()).optional(),
-    requirements: z.array(WorkflowRequirementSchema),
     inputs: z.array(z.object({
         name: z.string(),
         type: z.enum(['image', 'mask', 'text'])
@@ -73,20 +70,18 @@ const DefaultWorkflowSchema = z.object({
     })),
     defaultSettings: SettingsSchema.partial().optional(),
     displayedSettings: z.array(SettingsSchema.keyof()),
-    modifiableSettings: z.array(SettingsSchema.keyof()),
-    dependencies: z.array(z.unknown()).optional()
-});
-export type DefaultWorkflow = z.infer<typeof DefaultWorkflowSchema>;
-const ComfyUiWorkflowSchema = z.object({
+    modifiableSettings: z.array(SettingsSchema.keyof())
+})
+export type DefaultWorkflow = z.infer<typeof DefaultWorkflowSchema>
+
+const ComfyUIWorkflowSchema = z.object({
     name: z.string(),
-    backend: z.literal('comfyui'),
+    backend: z.enum(['default', 'comfyui']),
     comfyUIRequirements: z.object({
         customNodes: z.array(z.string()),
         requiredModels: z.array(z.string()),
     }),
     tags: z.array(z.string()),
-    requiredModels: z.array(z.string()).optional(),
-    requirements: z.array(WorkflowRequirementSchema),
     inputs: z.array(z.object({
         name: z.string(),
         type: z.enum(['image', 'mask', 'text'])
@@ -98,17 +93,12 @@ const ComfyUiWorkflowSchema = z.object({
     defaultSettings: SettingsSchema.partial().optional(),
     displayedSettings: z.array(SettingsSchema.keyof()),
     modifiableSettings: z.array(SettingsSchema.keyof()),
-    dependencies: z.array(z.unknown()).optional(),
     comfyUiApiWorkflow: ComfyUIApiWorkflowSchema
-});
-export type ComfyUiWorkflow = z.infer<typeof ComfyUiWorkflowSchema>;
-const WorkflowSchema = 
-z.discriminatedUnion('backend', [
-    DefaultWorkflowSchema,
-    ComfyUiWorkflowSchema
-]
-)
-export type Workflow = z.infer<typeof WorkflowSchema>;
+})
+export type ComfyUIWorkflow = z.infer<typeof ComfyUIWorkflowSchema>
+
+const WorkflowSchema = z.union([DefaultWorkflowSchema,ComfyUIWorkflowSchema])
+export type Workflow = DefaultWorkflow | ComfyUIWorkflow
 
 
 const globalDefaultSettings = {
@@ -134,12 +124,11 @@ const generalDefaultSettings = {
 
 export const useImageGeneration = defineStore("imageGeneration", () => {
 
-    const predefinedWorkflows: Workflow[] = [
+    const predefinedWorkflows: DefaultWorkflow[] = [ // TODO: do the same with comfyui workflows where ever they are initialized
         {
             name: 'Standard',
             backend: 'default',
             tags: ['sd1.5'],
-            requirements: [],
             inputs: [],
             outputs: [{ name: 'output_image', type: 'image' }],
             defaultSettings: {
@@ -170,7 +159,6 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
             name: 'Standard - High Quality',
             backend: 'default',
             tags: ['sd1.5', 'hq'],
-            requirements: [],
             inputs: [],
             outputs: [{ name: 'output_image', type: 'image' }],
             defaultSettings: {
@@ -201,7 +189,6 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
             name: 'Standard - Fast',
             backend: 'default',
             tags: ['sd1.5', 'fast'],
-            requirements: [],
             inputs: [],
             outputs: [{ name: 'output_image', type: 'image' }],
             defaultSettings: {
@@ -234,7 +221,6 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
             name: 'HD',
             backend: 'default',
             tags: ['sdxl', 'high-vram'],
-            requirements: [],
             inputs: [],
             outputs: [{ name: 'output_image', type: 'image' }],
             defaultSettings: {
@@ -266,7 +252,6 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
             name: 'HD - High Quality',
             backend: 'default',
             tags: ['sdxl', 'high-vram', 'hq'],
-            requirements: [],
             inputs: [],
             outputs: [{ name: 'output_image', type: 'image' }],
             defaultSettings: {
@@ -298,7 +283,6 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
             name: 'HD - Fast',
             backend: 'default',
             tags: ['sdxl', 'high-vram', 'fast'],
-            requirements: [],
             inputs: [],
             outputs: [{ name: 'output_image', type: 'image' }],
             defaultSettings: {
@@ -330,7 +314,6 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
             name: 'Manual',
             backend: 'default',
             tags: ['sd1.5', 'sdxl'],
-            requirements: [],
             inputs: [],
             outputs: [{ name: 'output_image', type: 'image' }],
             displayedSettings: [
@@ -360,12 +343,14 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
 
     const hdWarningDismissed = ref(false);
 
-    const workflows = ref<Workflow[]>(predefinedWorkflows);
+    const workflows = ref<Workflow[]>(predefinedWorkflows); // ToDo: where do I get the comfyui workflows from ?
+    console.log("workflow" + typeof workflows)
     const activeWorkflowName = ref<string | null>('Standard');
-    const activeWorkflow = computed(() => {
+    const activeWorkflow = computed(() => { //ToDo: How the Compiler checks that this can be of type ComfyUIWorkflow? type-guards?? IDE Bug??
         console.log('### activeWorkflowName', activeWorkflowName.value)
         return workflows.value.find(w => w.name === activeWorkflowName.value) ?? predefinedWorkflows[0]
     });
+    console.log("active workflow" + typeof activeWorkflow)
     const processing = ref(false);
     const stopping = ref(false);
 
@@ -375,7 +360,7 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
     const seed = ref<number>(generalDefaultSettings.seed);
     const imagePreview = ref<boolean>(generalDefaultSettings.imagePreview);
     const safeCheck = ref<boolean>(generalDefaultSettings.safeCheck);
-    const batchSize = ref<number>(globalDefaultSettings.batchSize); // TODO this should be imageCount instead, as we only support batchSize 1 due to memory constraints
+    const batchSize = ref<number>(globalDefaultSettings.batchSize); // TODO: this should be imageCount instead, as we only support batchSize 1 due to memory constraints
     
     const resetActiveWorkflowSettings = () => {
         prompt.value = generalDefaultSettings.prompt;
@@ -510,38 +495,44 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
     }
 
     async function getMissingModels() {
-        if (activeWorkflow.value.backend === "default") {
+        if (activeWorkflow.value!.backend === "default") {
             return getMissingDefaultBackendModels()
         } else {
-            return getMissingComfyuiBackendModels(activeWorkflow.value)
+            return getMissingComfyuiBackendModels(activeWorkflow.value!)
         }
     }
 
-    async function getMissingComfyuiBackendModels(workflow: ComfyUiWorkflow) {
-        function extractDownloadModelParamsFromString(modelParamString: string): CheckModelAlreadyLoadedParameters {
-            const [modelType, repoAddress] = modelParamString.replace(" ", "").split(":")
-            function modelTypeToId(type: string) {
-                switch (type) {
-                    case "unet" : return Const.MODEL_TYPE_COMFY_UNET
-                    case "clip" : return Const.MODEL_TYPE_COMFY_CLIP
-                    case "vae" : return Const.MODEL_TYPE_COMFY_VAE
-                    default:
-                        console.warn("received unknown comfyUI type: ", type)
-                        return -1
+    async function getMissingComfyuiBackendModels(workflow: Workflow & ComfyUIWorkflow) {
+
+        if (workflow.comfyUIRequirements!.requiredModels === undefined) {
+            toast.error('Defined workflow did not specify required models. Please add "requiredModels" to workflowfile.');
+            return []
+        } else {
+            function extractDownloadModelParamsFromString(modelParamString: string): CheckModelAlreadyLoadedParameters {
+                const [modelType, repoAddress] = modelParamString.replace(" ", "").split(":")
+                function modelTypeToId(type: string) {
+                    switch (type) {
+                        case "unet" : return Const.MODEL_TYPE_COMFY_UNET
+                        case "clip" : return Const.MODEL_TYPE_COMFY_CLIP
+                        case "vae" : return Const.MODEL_TYPE_COMFY_VAE
+                        default:
+                            console.warn("received unknown comfyUI type: ", type)
+                            return -1
+                    }
+                }
+                return {type: modelTypeToId(modelType), repo_id: repoAddress, backend: "comfyui"}
+            }
+            const checkList: CheckModelAlreadyLoadedParameters[] = workflow.comfyUIRequirements!.requiredModels.map( extractDownloadModelParamsFromString )
+            const checkedModels: CheckModelAlreadyLoadedResult[]  = await globalSetup.checkModelAlreadyLoaded(checkList);
+            const modelsToBeLoaded = checkedModels.filter(checkModelExistsResult => !checkModelExistsResult.already_loaded)
+            for (const item of modelsToBeLoaded) {
+                if(!await globalSetup.checkIfHuggingFaceUrlExists(item.repo_id)) {
+                    toast.error(`declared model ${item.repo_id} does not exist. Aborting Generation.`)
+                    return []
                 }
             }
-            return {type: modelTypeToId(modelType), repo_id: repoAddress, backend: "comfyui"}
+            return modelsToBeLoaded.map(item => ({ repo_id: item.repo_id, type: item.type, backend: item.backend }))
         }
-        const checkList: CheckModelAlreadyLoadedParameters[] = workflow.comfyUIRequirements.requiredModels.map( extractDownloadModelParamsFromString )
-        const checkedModels: CheckModelAlreadyLoadedResult[]  = await globalSetup.checkModelAlreadyLoaded(checkList);
-        const modelsToBeLoaded = checkedModels.filter(checkModelExistsResult => !checkModelExistsResult.already_loaded)
-        for (const item of modelsToBeLoaded) {
-            if(!await globalSetup.checkIfHuggingFaceUrlExists(item.repo_id)) {
-                toast.error(`declared model ${item.repo_id} does not exist. Aborting Generation.`)
-                return []
-            }
-        }
-        return modelsToBeLoaded.map(item => ({ repo_id: item.repo_id, type: item.type, backend: item.backend }))
     }
 
     async function getMissingDefaultBackendModels() {

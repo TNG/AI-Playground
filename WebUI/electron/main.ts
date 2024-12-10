@@ -585,24 +585,33 @@ function isProcessRunning(pid: number) {
   }
 }
 
+let allLevelZeroDevices: {name: string, device_id: number, id: string}[] = [];
+
 function getSupportedDeviceEnvVariable() {
-  // Filter out unsupported devices
-  try {
-    const lsLevelZeroDevices = path.resolve(path.join(baseDir, "service/tools/ls_level_zero.exe"));
-    // copy ls_level_zero.exe to env/Library/bin for SYCL environment
-    const dest = path.resolve(path.join(pythonExe, "../Library/bin/ls_level_zero.exe"));
-    fs.copyFileSync(lsLevelZeroDevices, dest);
-    const ls = spawnSync(dest);
-    logger.info(`ls_level_zero.exe stdout: ${ls.stdout.toString()}`);
-    const devices: {name: string, device_id: number, id: string}[] = JSON.parse(ls.stdout.toString()); // TODO: use zod to parse output
-    const supportedIDs = devices.filter(device => device.name.toLowerCase().includes("arc") || device.device_id === 0xE20B).map(device => device.id);
-    const additionalEnvVariables = {ONEAPI_DEVICE_SELECTOR: "level_zero:" + supportedIDs.join(",")};
-    logger.info(`Set ONEAPI_DEVICE_SELECTOR=${additionalEnvVariables["ONEAPI_DEVICE_SELECTOR"]}`);
-    return additionalEnvVariables;
-  } catch (error) {
-    logger.error(`Failed to detect Level Zero devices: ${error}`);
+  if (allLevelZeroDevices.length === 0) {
+    // Query all level zero devices
+    try {
+        const lsLevelZeroDevices = path.resolve(path.join(baseDir, "service/tools/ls_level_zero.exe"));
+        // copy ls_level_zero.exe to env/Library/bin for SYCL environment
+        const dest = path.resolve(path.join(pythonExe, "../Library/bin/ls_level_zero.exe"));
+        fs.copyFileSync(lsLevelZeroDevices, dest);
+        const ls = spawnSync(dest);
+        logger.info(`ls_level_zero.exe stdout: ${ls.stdout.toString()}`);
+        allLevelZeroDevices = JSON.parse(ls.stdout.toString()); // TODO: use zod to parse output
+    } catch (error) {
+      logger.error(`Failed to detect Level Zero devices: ${error}`);
+      return {ONEAPI_DEVICE_SELECTOR:"level_zero:*"};
+    }
+  }
+
+  if (allLevelZeroDevices.length === 0) {
+    logger.error("No Level Zero devices detected");
     return {ONEAPI_DEVICE_SELECTOR:"level_zero:*"};
   }
+  const supportedIDs = allLevelZeroDevices.filter(device => device.name.toLowerCase().includes("arc") || device.device_id === 0xE20B).map(device => device.id);
+  const additionalEnvVariables = {ONEAPI_DEVICE_SELECTOR: "level_zero:" + supportedIDs.join(",")};
+  logger.info(`Set ONEAPI_DEVICE_SELECTOR=${additionalEnvVariables["ONEAPI_DEVICE_SELECTOR"]}`);
+  return additionalEnvVariables;
 }
 
 function wakeupApiService() {

@@ -3,7 +3,10 @@ from flask import jsonify, request, Response, stream_with_context
 from llm_adapter import LLM_SSE_Adapter
 from llama_cpp_backend import LlamaCpp
 from llm_params import LLMParams
+import os
 
+
+os.add_dll_directory(r'C:\Users\intel\Documents\AI-Playground\llama-cpp-env\Library\bin')
 app = APIFlask(__name__)
 llm_backend = LlamaCpp()
 
@@ -38,6 +41,6 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="AI Playground Web service")
-    parser.add_argument("--port", type=int, default=59999, help="Service listen port")
+    parser.add_argument("--port", type=int, default=59997, help="Service listen port")
     args = parser.parse_args()
     app.run(host="127.0.0.1", port=args.port, debug=True)

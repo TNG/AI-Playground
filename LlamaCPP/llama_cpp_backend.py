@@ -12,7 +12,7 @@ class LlamaCpp(LLMInterface):
         self.stop_generate = False
         self._last_repo_id = None
 
-    def load_model(self, params: LLMParams, n_gpu_layers: int = 1, context_length: int = 16000):
+    def load_model(self, params: LLMParams, n_gpu_layers: int = -1, context_length: int = 16000):
         model_repo_id = params.model_repo_id
         if self._model is None or self._last_repo_id != model_repo_id:
             self.unload_model()

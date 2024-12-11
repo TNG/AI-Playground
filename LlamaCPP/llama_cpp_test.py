@@ -1,12 +1,12 @@
 import requests
 
 
-url = "http://127.0.0.1:59999/api/llm/chat"
+url = "http://127.0.0.1:59997/api/llm/chat"
 params = {
   "prompt": [{"question": "Who is the president of the United States?" }],
   "device": "",
   "enable_rag": False,
-  "model_repo_id": "codellama-7b.Q4_0.gguf",
+  "model_repo_id": "meta-llama-3.1-8b-instruct-q5_k_m.gguf",
   "backend_type": "",
 }
 response = requests.post(url, json=params, stream=True)

@@ -305,7 +305,7 @@ type CheckModelAlreadyLoadedParameters = {
     backend: BackendType;
 }
 
-type BackendType = "comfyui" | "default"
+type BackendType = "comfyui" | "default" | "llama_cpp"
 
 type DownloadModelRender = { size: string, gated?: boolean, accessGranted?: boolean } & CheckModelAlreadyLoadedParameters
 

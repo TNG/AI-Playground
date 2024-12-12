@@ -439,7 +439,7 @@ async function checkModel() {
   return new Promise<void>(async (resolve, reject) => {
     let checkList: CheckModelAlreadyLoadedParameters[];
     if (textInference.backend === "LLAMA.CPP") {
-      checkList= [{ repo_id: globalSetup.modelSettings.ggufLLM_model, type: Const.MODEL_TYPE_LLAMA_CPP, backend: "default" }];
+      checkList = [{ repo_id: globalSetup.modelSettings.ggufLLM_model, type: Const.MODEL_TYPE_LLAMA_CPP, backend: "llama_cpp" }];
     } else {
       checkList = [{ repo_id: globalSetup.modelSettings.llm_model, type: Const.MODEL_TYPE_LLM, backend: "default" }];
     }

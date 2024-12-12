@@ -120,7 +120,7 @@ class ComfyUiBackendService extends LongLivedPythonApiService {
 
             await cloneGitStep(gitExePath, "https://github.com/comfyanonymous/ComfyUI.git", comfyUICloneTarget)
             const requirementsTextPath = path.join(comfyUICloneTarget, 'requirements.txt')
-            await self.commonSetupSteps.uvPipInstallStep(pythonEnvDir, requirementsTextPath)
+            await self.commonSetupSteps.uvPipInstallRequirementsTxtStep(pythonEnvDir, requirementsTextPath)
             return comfyUICloneTarget;
         }
 
@@ -217,7 +217,7 @@ class ComfyUiBackendService extends LongLivedPythonApiService {
     getOneApiSupportedDeviceEnvVariable(): { ONEAPI_DEVICE_SELECTOR: string; } {
         try {
             const lsLevelZeroOut = spawnProcessSync(this.lsLevelZeroExe, []);
-            this.appLogger.info(`ls_level_zero.exe output: ${lsLevelZeroOut}`, self.name)
+            this.appLogger.info(`ls_level_zero.exe output: ${lsLevelZeroOut}`, this.name)
             const devices: { name: string, device_id: number, id: string }[] = JSON.parse(lsLevelZeroOut.toString());
             const supportedIDs = devices.filter(device => device.name.toLowerCase().includes("arc") || device.device_id === 0xE20B).map(device => device.id);
             const additionalEnvVariables = {ONEAPI_DEVICE_SELECTOR: "level_zero:" + supportedIDs.join(",")};

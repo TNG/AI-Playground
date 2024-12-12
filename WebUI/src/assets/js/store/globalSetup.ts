@@ -12,7 +12,7 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
 
     const isComfyUiInstalled =  ref(false)
 
-    const apiHost = ref("http://127.0.0.1:9999");
+    const defaultBackendBaseUrl = ref("http://127.0.0.1:9999");
 
     const models = ref<ModelLists>({
         llm: new Array<string>(),
@@ -67,7 +67,9 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
 
     let envType = "";
 
-    const loadingState = ref("loading");
+    type globalSetupState = "running" | "verifyBackend" | "manageInstallations" | "loading" | "failed"
+
+    const loadingState: Ref<globalSetupState> = ref("verifyBackend");
 
     const errorMessage = ref("");
 
@@ -82,15 +84,82 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
         errorMessage.value = value;
     })
 
+    window.electronAPI.onServiceSetUpProgress(async ( data ) => {
+        const name = data.serviceName
+        const step = data.step
+        console.log(`${name} in stage ${step} ${data.status}. Debugmessage: ${data.debugMessage}`)
+    })
+
+    async function areBackendServicesStarted(): Promise<boolean> {
+        console.info("debuging setup call")
+        return Promise.resolve(true)
+        /*await sendSetupSignal("ai-backend")
+
+        console.info("checking on required services")
+        if (await areAllRequiredServicesSetup()) {
+            console.info("Waiting for required services to start")
+            await waitUntilRequiredServicesReady(20)
+            //TODO: handle properly
+            return true
+        } else {
+            console.info("Requiring installation from user")
+            loadingState.value = "manageInstallations"
+            await waitUntilRequiredServicesReady()
+            return false
+        }*/
+    }
+
+    async function areAllRequiredServicesSetup() {
+        const apiServiceInformation: ApiServiceInformation[] = await window.electronAPI.getServiceRegistry()
+        const requiredServices = apiServiceInformation.filter(item => item.isRequired)
+        return (requiredServices.every(service => service.isSetUp ))
+    }
+
+    async function waitUntilRequiredServicesReady(maxAttempts = 0) {
+        let attempts = 0;
+        while (true) {
+            if (maxAttempts > 0 && attempts > maxAttempts) {
+                //TODO: proper escape
+                console.error("Not all services started after 10 seconds.")
+                loadingState.value = "loading"
+                break
+            }
+            const apiServiceInformation: ApiServiceInformation[] = await window.electronAPI.getServiceRegistry()
+            console.info("services:", apiServiceInformation)
+            const requiredServices = apiServiceInformation.filter(item => item.isRequired)
+            if (requiredServices.every(serviceInfo => serviceInfo.status.status === "running")) {
+                console.info("all required backend services running.")
+                loadingState.value = "loading"
+                break
+            }
+            await new Promise<void>(resolve => setTimeout(resolve, 500));
+            attempts++;
+        }
+    }
+    
+    async function sendStartSignal(serviceName: string) {
+        window.electronAPI.sendStartSignal(serviceName)
+    }
+
+    async function sendStopSignal(serviceName: string) {
+        window.electronAPI.sendStopSignal(serviceName)
+    }
+
+    async function sendSetupSignal(serviceName: string) {
+        return window.electronAPI.sendSetUpSignal(serviceName)
+    }
+
     async function initSetup() {
         const setupData = await window.electronAPI.getInitSetting();
+        const apiServiceInformation: ApiServiceInformation[] = await window.electronAPI.getServiceRegistry()
         envType = setupData.envType;
         paths.value = setupData.modelPaths;
         models.value = setupData.modelLists;
         models.value.inpaint.push(useI18N().state.ENHANCE_INPAINT_USE_IMAGE_MODEL);
         state.isAdminExec = setupData.isAdminExec;
         state.version = setupData.version;
-        apiHost.value = setupData.apiHost;
+        //TODO: safeguard
+        defaultBackendBaseUrl.value = apiServiceInformation.find(item => item.serviceName === "ai-backend")!.baseUrl;
         loadPresetModelSettings();
         const postJson = JSON.stringify(toRaw(paths.value));
         const delay = 2000;
@@ -135,7 +204,7 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
     }
 
     async function isComfyUIDownloaded(){
-        const response = await fetch(`${apiHost.value}/api/comfyUi/isInstalled`);
+        const response = await fetch(`${defaultBackendBaseUrl.value}/api/comfyUi/isInstalled`);
         const data = await response.json()
         console.info(data)
         return data.is_comfyUI_installed;
@@ -144,7 +213,7 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
     async function reloadGraphics() {
         const formData = new FormData();
         formData.append("env", envType);
-        const response = await fetch(`${apiHost.value}/api/getGraphics`, {
+        const response = await fetch(`${defaultBackendBaseUrl.value}/api/getGraphics`, {
             body: formData,
             method: "POST"
         });
@@ -169,7 +238,7 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
     }
 
     async function initWebSettings(postJson: string) {
-        const response = await fetch(`${apiHost.value}/api/init`, {
+        const response = await fetch(`${defaultBackendBaseUrl.value}/api/init`, {
             headers: {
                 "Content-Type": "application/json",
             },
@@ -314,7 +383,7 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
     }
 
     async function checkModelAlreadyLoaded(params: CheckModelAlreadyLoadedParameters[]) {
-        const response = await fetch(`${apiHost.value}/api/checkModelAlreadyLoaded`, {
+        const response = await fetch(`${defaultBackendBaseUrl.value}/api/checkModelAlreadyLoaded`, {
             method: "POST",
             body: JSON.stringify({ 'data': params}),
             headers: {
@@ -326,7 +395,7 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
     }
 
     async function checkIfHuggingFaceUrlExists(repo_id: string) {
-        const response = await fetch(`${apiHost.value}/api/checkHFRepoExists?repo_id=${repo_id}`)
+        const response = await fetch(`${defaultBackendBaseUrl.value}/api/checkHFRepoExists?repo_id=${repo_id}`)
         const data = await response.json()
         return data.exists;
     }
@@ -337,7 +406,7 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
         presetModel,
         models,
         paths,
-        apiHost,
+        apiHost: defaultBackendBaseUrl,
         graphicsList,
         loadingState,
         errorMessage,
@@ -355,5 +424,6 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
         checkIfHuggingFaceUrlExists,
         applyPresetModelSettings,
         restorePathsSettings,
+        areBackendServicesStarted,
     };
 });

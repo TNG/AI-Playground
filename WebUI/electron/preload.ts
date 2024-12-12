@@ -108,6 +108,10 @@ contextBridge.exposeInMainWorld("envVars", {
 });
 contextBridge.exposeInMainWorld("electronAPI", {
   getComfyuiState: () => ipcRenderer.invoke("getComfyuiState"),
+  getServiceRegistry: () => ipcRenderer.invoke("getServiceRegistry"),
+      sendStartSignal: (serviceName: string) => ipcRenderer.invoke("sendStartSignal", serviceName),
+  sendStopSignal: (serviceName: string) => ipcRenderer.invoke("sendStopSignal", serviceName),
+  sendSetUpSignal: (serviceName: string) => ipcRenderer.invoke("sendSetUpSignal", serviceName),
   updateComfyui: () => ipcRenderer.invoke("updateComfyui"),
   startComfyui: () => ipcRenderer.invoke("startComfyui"),
   reloadImageWorkflows: () => ipcRenderer.invoke("reloadImageWorkflows"),
@@ -170,4 +174,5 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onReportError: (callback: (errorMessage: string) => void) => ipcRenderer.on('reportError', (_event, value) => callback(value)),
   onDebugLog: (callback: (data: { level: string, source: string, message: string}) => void) => ipcRenderer.on('debugLog', (_event, value) => callback(value)),
   wakeupComfyUIService: () => ipcRenderer.send('wakeupComfyUIService'),
+  onServiceSetUpProgress: (callback: (data: SetupProgress) => void) => ipcRenderer.on('serviceSetUpProgress', (_event, value) => callback(value))
 });

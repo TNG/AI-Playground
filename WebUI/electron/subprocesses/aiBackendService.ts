@@ -7,15 +7,15 @@ import { existingFileOrError, spawnProcessSync } from './osProcessHelper.ts';
 
 class AiBackendService extends LongLivedPythonApiService {
     readonly workDir = path.resolve(app.isPackaged ? path.join(process.resourcesPath, "service") : path.join(__dirname, "../../../service"));
-    readonly pythonExe = path.resolve(path.join(this.baseDir, "aipg_env/bin/python"));
+    readonly pythonExe = path.resolve(path.join(this.baseDir, "env/bin/python"));
     readonly serviceDir = path.resolve(app.isPackaged ? path.join(process.resourcesPath, "service") : path.join(__dirname, "../../../service"));
-    readonly pythonEnvDir = path.resolve(path.join(this.baseDir, `aipg_env`));
+    readonly pythonEnvDir = path.resolve(path.join(this.baseDir, `env`));
     readonly lsLevelZeroExe = this.getLsLevelZeroPath(this.pythonEnvDir)
     healthEndpointUrl = `${this.baseUrl}/healthy`
 
 
     private getPythonPath(basePythonEnvDir: string): string {
-        return path.resolve(path.join(basePythonEnvDir, "bin/python"))
+        return path.resolve(path.join(basePythonEnvDir, "python"))
     }
 
     private getLsLevelZeroPath(basePythonEnvDir: string): string {

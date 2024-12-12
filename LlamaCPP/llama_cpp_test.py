@@ -1,9 +1,9 @@
 import requests
 
 
-url = "http://127.0.0.1:59997/api/llm/chat"
+url = "http://127.0.0.1:59003/api/llm/chat"
 params = {
-  "prompt": [{"question": "Who is the president of the United States?" }],
+  "prompt": [{"question": "Who is the president of the United States in 5 years?" }],
   "device": "",
   "enable_rag": False,
   "model_repo_id": "meta-llama-3.1-8b-instruct-q5_k_m.gguf",
@@ -21,7 +21,7 @@ for line in response.iter_lines():
         decoded_line = line.decode('utf-8')
 
         # SSE events typically start with "data: "
-        if decoded_line.startswith("data: "):
+        if decoded_line.startswith("data:"):
             # Extract the data part
-            data = decoded_line[len("data: "):]
+            data = decoded_line[len("data:"):]
             print(data)  # Process the data as needed

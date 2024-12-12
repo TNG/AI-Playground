@@ -1,8 +1,8 @@
 from typing import Dict, List
 from os import path
-from llm_interface import LLMInterface
+from llama_interface import LLMInterface
 from llama_cpp import CreateChatCompletionStreamResponse, Iterator, Llama
-from llm_params import LLMParams
+from llama_params import LLMParams
 import model_config
 import gc
 

@@ -5,8 +5,8 @@ import traceback
 from typing import Dict, List, Callable
 #from model_downloader import NotEnoughDiskSpaceException, DownloadException
 #from psutil._common import bytes2human
-from llm_interface import LLMInterface
-from llm_params import LLMParams
+from llama_interface import LLMInterface
+from llama_params import LLMParams
 
 
 RAG_PROMPT_FORMAT = "Answer the questions based on the information below. \n{context}\n\nQuestion: {prompt}"
@@ -111,6 +111,7 @@ class LLM_SSE_Adapter:
         params: LLMParams,
     ):
         try:
+            print("sdnmsd", self.llm_interface)
             if (not self.llm_interface._model):
                 self.load_model_callback('start')
                 self.llm_interface.load_model(params)

@@ -8,7 +8,7 @@ import torch
 from typing import List, Dict
 from os import path
 from typing import Callable
-import model_config
+import service_config
 from transformers import (
     TextIteratorStreamer,
     StoppingCriteriaList,

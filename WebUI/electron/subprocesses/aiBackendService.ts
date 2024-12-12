@@ -24,7 +24,7 @@ export class AiBackendService extends LongLivedPythonApiService {
     }
 
     is_set_up(): boolean {
-        return filesystem.existsSync(this.pythonExe) && filesystem.existsSync(this.lsLevelZeroExe)
+        return filesystem.existsSync(this.pythonExe)
     }
 
     async *set_up(): AsyncIterable<SetupProgress> {

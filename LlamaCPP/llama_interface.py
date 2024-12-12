@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional
-from llm_params import LLMParams
+from llama_params import LLMParams
 
 class LLMInterface(ABC):
     stop_generate: bool

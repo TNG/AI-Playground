@@ -1,8 +1,8 @@
 from apiflask import APIFlask
 from flask import jsonify, request, Response, stream_with_context
-from llm_adapter import LLM_SSE_Adapter
+from llama_adapter import LLM_SSE_Adapter
 from llama_cpp_backend import LlamaCpp
-from llm_params import LLMParams
+from llama_params import LLMParams
 import os
 
 
@@ -11,7 +11,7 @@ app = APIFlask(__name__)
 llm_backend = LlamaCpp()
 
 
-@app.get("/api/health")
+@app.get("/health")
 def health():
     return jsonify({"code": 0, "message": "success"})
 

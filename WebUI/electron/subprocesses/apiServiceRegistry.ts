@@ -1,6 +1,7 @@
 import {ApiService} from "./apiService.ts";
 import {comfyUIBackendService} from "./comfyUIBackendService.ts";
 import {aiBackendService} from "./aiBackendService.ts";
+import { llamaCppBackendService} from "./llamaCppBackendService.ts";
 
 export type backend = 'ai-backend' | 'comfyui-backend'
 
@@ -65,6 +66,7 @@ export async function aiplaygroundApiServiceRegistry(): Promise<ApiServiceRegist
         instance = new ApiServiceRegistryImpl()
         instance.register(await aiBackendService())
         instance.register(await comfyUIBackendService())
+        instance.register(await llamaCppBackendService())
     }
     return instance
 }

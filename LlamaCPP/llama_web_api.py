@@ -19,6 +19,7 @@ def health():
 @app.post("/api/llm/chat")
 def llm_chat():
     params = request.get_json()
+    params.pop("print_metrics", None)
     llm_params = LLMParams(**params)
     sse_invoker = LLM_SSE_Adapter(llm_backend)
     it = sse_invoker.text_conversation(llm_params)

@@ -51,7 +51,7 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 
 app = APIFlask(__name__)
-llm_backend = None
+ipex_backend = IpexLLM()
 
 @app.get("/healthy")
 def healthEndpoint():
@@ -60,24 +60,13 @@ def healthEndpoint():
 
 @app.post("/api/llm/chat")
 def llm_chat():
-    global llm_backend
+    global ipex_backend
     paint_biz.dispose_basic_model()
     params = request.get_json()
     if params['backend_type'] == "LLAMA.CPP":
         params.pop("print_metrics", None)
     llm_params = LLMParams(**params)
-    print(llm_params.model_repo_id)
-    if llm_params.backend_type == "LLAMA.CPP" and (not llm_backend or not llm_backend.get_backend_type() == "llama_cpp"):
-        if llm_backend:
-            llm_backend.unload_model()
-        from llama_cpp_backend import LlamaCpp 
-        llm_backend = LlamaCpp()
-    elif llm_params.backend_type == "IPEX-LLM" and (not llm_backend or not llm_backend.get_backend_type() == "ipex_llm"):
-        if llm_backend:
-            llm_backend.unload_model()
-        #from ipex_backend import IpexLLM
-        llm_backend = IpexLLM()
-    sse_invoker = LLM_SSE_Adapter(llm_backend)
+    sse_invoker = LLM_SSE_Adapter(ipex_backend)
     it = sse_invoker.text_conversation(llm_params)
     return Response(stream_with_context(it), content_type="text/event-stream")
 
@@ -97,7 +86,7 @@ def free():
 
 @app.get("/api/llm/stopGenerate")
 def stop_llm_generate():
-    llm_backend.stop_generate = True
+    ipex_backend.stop_generate = True
     return jsonify({"code": 0, "message": "success"})
 
 

@@ -13,6 +13,7 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
     const isComfyUiInstalled =  ref(false)
 
     const defaultBackendBaseUrl = ref("http://127.0.0.1:9999");
+    const llamaBackendUrl = ref("http://127.0.0.1:8888");
 
     const models = ref<ModelLists>({
         llm: new Array<string>(),
@@ -162,6 +163,7 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
         state.version = setupData.version;
         //TODO: safeguard
         defaultBackendBaseUrl.value = apiServiceInformation.find(item => item.serviceName === "ai-backend")!.baseUrl;
+        llamaBackendUrl.value = apiServiceInformation.find(item => item.serviceName === "llama-cpp-backend")!.baseUrl;
         loadPresetModelSettings();
         const postJson = JSON.stringify(toRaw(paths.value));
         const delay = 2000;
@@ -409,6 +411,7 @@ export const useGlobalSetup = defineStore("globalSetup", () => {
         models,
         paths,
         apiHost: defaultBackendBaseUrl,
+        llamaHost: llamaBackendUrl,
         graphicsList,
         loadingState,
         errorMessage,

@@ -153,7 +153,6 @@ class LlamaCppBackendService extends LongLivedPythonApiService {
             "SYCL_ENABLE_DEFAULT_CONTEXTS": "1",
             "SYCL_CACHE_PERSISTENT": "1",
             "PYTHONIOENCODING": "utf-8",
-            ...this.getSupportedDeviceEnvVariable(),
         };
 
 

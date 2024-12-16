@@ -544,6 +544,13 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
         }
     }
 
+
+    async function loadWorkflowsFromIntel() {
+        const syncResponse = await window.electronAPI.updateWorkflowsFromIntelRepo();
+        await loadWorkflowsFromJson()
+        return syncResponse
+    }
+
     async function loadWorkflowsFromJson() {
         const workflowsFromFiles = await window.electronAPI.reloadImageWorkflows();
         const parsedWorkflows = workflowsFromFiles.map((workflow) => {
@@ -674,6 +681,7 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
         lastWorkflowPerBackend,
         resetActiveWorkflowSettings,
         loadWorkflowsFromJson,
+        loadWorkflowsFromIntel,
         getMissingModels,
         updateDestImage,
         generate,

@@ -116,6 +116,13 @@ const ComfyBooleanInputSchema = z.object({
 });
 export type ComfyBooleanInput = z.infer<typeof ComfyBooleanInputSchema>;
 
+const ComfyDynamicInputSchema = z.discriminatedUnion('type', [
+    ComfyNumberInputSchema,
+    ComfyImageInputSchema,
+    ComfyStringInputSchema,
+    ComfyBooleanInputSchema,
+]);
+type ComfyDynamicInput = z.infer<typeof ComfyDynamicInputSchema>;
 const ComfyUiWorkflowSchema = z.object({
     name: z.string(),
     backend: z.literal('comfyui'),
@@ -127,12 +134,7 @@ const ComfyUiWorkflowSchema = z.object({
     tags: z.array(z.string()),
     requiredModels: z.array(z.string()).optional(),
     requirements: z.array(WorkflowRequirementSchema),
-    inputs: z.array(z.discriminatedUnion('type',[
-        ComfyNumberInputSchema,
-        ComfyImageInputSchema,
-        ComfyStringInputSchema,
-        ComfyBooleanInputSchema
-    ])),
+    inputs: z.array(ComfyDynamicInputSchema),
     outputs: z.array(z.object({
         name: z.string(),
         type: z.literal('image')
@@ -154,6 +156,7 @@ export type Workflow = z.infer<typeof WorkflowSchema>;
 
 
 const globalDefaultSettings = {
+    seed: -1,
     width: 512,
     height: 512,
     inferenceSteps: 20,
@@ -202,6 +205,7 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
             modifiableSettings: [
                 'resolution',
                 'seed',
+                'inferenceSteps',
                 'negativePrompt',
                 'batchSize',
                 'imagePreview',
@@ -227,12 +231,12 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
                 'imageModel',
                 'inpaintModel',
                 'guidanceScale',
-                'inferenceSteps',
                 'scheduler',
             ],
             modifiableSettings: [
                 'resolution',
                 'seed',
+                'inferenceSteps',
                 'negativePrompt',
                 'batchSize',
                 'imagePreview',
@@ -259,13 +263,13 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
                 'imageModel',
                 'inpaintModel',
                 'guidanceScale',
-                'inferenceSteps',
                 'scheduler',
                 'lora'
             ],
             modifiableSettings: [
                 'resolution',
                 'seed',
+                'inferenceSteps',
                 'negativePrompt',
                 'batchSize',
                 'imagePreview',
@@ -292,12 +296,12 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
                 'imageModel',
                 'inpaintModel',
                 'guidanceScale',
-                'inferenceSteps',
                 'scheduler',
             ],
             modifiableSettings: [
                 'resolution',
                 'seed',
+                'inferenceSteps',
                 'negativePrompt',
                 'batchSize',
                 'imagePreview',
@@ -324,12 +328,12 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
                 'imageModel',
                 'inpaintModel',
                 'guidanceScale',
-                'inferenceSteps',
                 'scheduler',
             ],
             modifiableSettings: [
                 'resolution',
                 'seed',
+                'inferenceSteps',
                 'negativePrompt',
                 'batchSize',
                 'imagePreview',
@@ -356,12 +360,12 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
                 'imageModel',
                 'inpaintModel',
                 'guidanceScale',
-                'inferenceSteps',
                 'scheduler',
             ],
             modifiableSettings: [
                 'resolution',
                 'seed',
+                'inferenceSteps',
                 'negativePrompt',
                 'batchSize',
                 'imagePreview',
@@ -425,6 +429,7 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
         imagePreview.value = generalDefaultSettings.imagePreview;
         safeCheck.value = generalDefaultSettings.safeCheck;
         settingsPerWorkflow.value[activeWorkflowName.value ?? ''] = undefined;
+        comfyInputsPerWorkflow.value[activeWorkflowName.value ?? ''] = undefined;
         loadSettingsForActiveWorkflow();
     }
     // model specific settings
@@ -445,25 +450,68 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
             [width.value, height.value] = newValue.split('x').map(Number);
         }
     })
-
-    const settings = { inferenceSteps, width, height, resolution, batchSize, negativePrompt, lora, scheduler, guidanceScale, imageModel, inpaintModel };
+    
+    const settings = { seed, inferenceSteps, width, height, resolution, batchSize, negativePrompt, lora, scheduler, guidanceScale, imageModel, inpaintModel };
     type ModifiableSettings = keyof typeof settings;
     const backend = computed({
         get() {
             return activeWorkflow.value.backend;
         },
         set(newValue) {
-            activeWorkflowName.value = workflows.value.find(w => w.backend === newValue)?.name ?? activeWorkflowName.value;
+            activeWorkflowName.value = workflows.value
+            .filter(w => w.backend === newValue)
+            .find(w => w.name === lastWorkflowPerBackend.value[newValue])?.name ?? workflows.value.find(w => w.backend === newValue)?.name ?? activeWorkflowName.value;
         }
     });
+    const lastWorkflowPerBackend = ref<Record<Workflow['backend'], string | null>>({
+        comfyui: null,
+        default: null
+    });
 
-    const comfyInputs = computed(() => activeWorkflow.value.backend === 'comfyui' ? activeWorkflow.value.inputs.map(input => ({ ...input, current: ref(input.defaultValue) })) : []);
+    const comfyInputs = computed(() => {
+        if (activeWorkflow.value.backend !== 'comfyui') return []
+        const inputRef = (input: ComfyDynamicInput): NodeInputReference => `${input.nodeTitle}.${input.nodeInput}`;
+        const savePerWorkflow = (input: ComfyDynamicInput, newValue: ComfyDynamicInput['defaultValue']) => {
+            if (!activeWorkflowName.value) return;
+            comfyInputsPerWorkflow.value[activeWorkflowName.value] = {
+                ...comfyInputsPerWorkflow.value[activeWorkflowName.value],
+                [inputRef(input)]: newValue
+            }
+            console.log('saving', { nodeTitle: input.nodeTitle, nodeInput: input.nodeInput, newValue });
+        }
+        const getSavedOrDefault = (input: ComfyDynamicInput) => {
+            if (!activeWorkflowName.value) return input.defaultValue;
+            const saved = comfyInputsPerWorkflow.value[activeWorkflowName.value]?.[inputRef(input)];
+            if (saved) console.log('got saved dynamic input', { nodeTitle: input.nodeTitle, nodeInput: input.nodeInput, saved });
+            return saved ?? input.defaultValue;
+        };
 
-    const settingsPerWorkflow = ref<Record<string, Workflow['defaultSettings']>>({});
+        return activeWorkflow.value.inputs.map(input => {
+            const _current = ref(getSavedOrDefault(input))
+    
+            const current = computed({
+                get() {
+                    return _current.value;
+                },
+                set(newValue) {
+                    _current.value = newValue;
+                    savePerWorkflow(input, newValue)
+                }
+            })
+
+            return { ...input, current }
+        }) 
+    });
+
+    type WorkflowName = string;
+    type NodeInputReference = string; // nodeTitle.nodeInput
+    const comfyInputsPerWorkflow = ref<Record<WorkflowName, Record<NodeInputReference, ComfyDynamicInput['defaultValue']> | undefined>>({});
+    const settingsPerWorkflow = ref<Record<WorkflowName, Workflow['defaultSettings']>>({});
 
     const isModifiable = (settingName: ModifiableSettings) => activeWorkflow.value.modifiableSettings.includes(settingName);
 
     watch([activeWorkflowName, workflows], () => {
+        setTimeout(() => lastWorkflowPerBackend.value[activeWorkflow.value.backend] = activeWorkflowName.value)
         loadSettingsForActiveWorkflow();
     }, {});
 
@@ -485,6 +533,7 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
                 console.log('saving', { settingName, value: settings[settingName].value });
             }
         }
+        saveToSettingsPerWorkflow('seed');
         saveToSettingsPerWorkflow('inferenceSteps');
         saveToSettingsPerWorkflow('width');
         saveToSettingsPerWorkflow('height');
@@ -517,6 +566,7 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
             settings[settingName].value = saved ?? activeWorkflow.value?.defaultSettings?.[settingName] ?? globalDefaultSettings[settingName];
         };
 
+        getSavedOrDefault('seed');
         getSavedOrDefault('inferenceSteps');
         getSavedOrDefault('width');
         getSavedOrDefault('height');
@@ -670,7 +720,9 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
         batchSize,
         negativePrompt,
         settingsPerWorkflow,
+        comfyInputsPerWorkflow,
         comfyInputs,
+        lastWorkflowPerBackend,
         resetActiveWorkflowSettings,
         loadWorkflowsFromJson,
         loadWorkflowsFromIntel,
@@ -683,7 +735,7 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
 }, {
     persist: {
         debug: true,
-        pick: ['backend', 'activeWorkflowName', 'settingsPerWorkflow', 'hdWarningDismissed']
+        pick: ['backend', 'activeWorkflowName', 'settingsPerWorkflow', 'comfyInputsPerWorkflow', 'hdWarningDismissed', 'lastWorkflowPerBackend']
     }
 });
 

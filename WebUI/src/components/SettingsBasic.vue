@@ -51,13 +51,13 @@
         <drop-selector :array="[...backendTypes]" @change="(item) => textInference.backend = item">
           <template #selected>
             <div class="flex gap-2 items-center">
-              <span class="rounded-full bg-green-500 w-2 h-2"></span>
+              <span class="rounded-full w-2 h-2" :class="{ 'bg-green-500': isRunning(textInference.backend), 'bg-gray-500': !isRunning(textInference.backend) }"></span>
               <span>{{ textInferenceBackendDisplayName[textInference.backend] }}</span>
             </div>
           </template>
           <template #list="slotItem">
             <div class="flex gap-2 items-center">
-              <span class="rounded-full bg-green-500 w-2 h-2"></span>
+              <span class="rounded-full w-2 h-2" :class="{ 'bg-green-500': isRunning(slotItem.item), 'bg-gray-500': !isRunning(slotItem.item) }"></span>
               <span>{{ textInferenceBackendDisplayName[slotItem.item as typeof backendTypes[number]] }}</span>
             </div>
           </template>
@@ -91,12 +91,15 @@ import RadioBlock from "../components/RadioBlock.vue";
 import {useGlobalSetup} from "@/assets/js/store/globalSetup";
 import {useI18N} from '@/assets/js/store/i18n';
 import {useTheme} from '@/assets/js/store/theme';
-import {useTextInference, backendTypes} from "@/assets/js/store/textInference";
+import {useTextInference, backendTypes, Backend} from "@/assets/js/store/textInference";
 import {mapServiceNameToDisplayName, mapStatusToColor, mapToDisplayStatus} from "@/lib/utils.ts";
+import {useBackendServices} from "@/assets/js/store/backendServices.ts";
+
 
 const apiServiceInformation = ref<ApiServiceInformation[]>([])
 const globalSetup = useGlobalSetup();
 const textInference = useTextInference();
+const backendServices = useBackendServices();
 const i18n = useI18N();
 const theme = useTheme();
 
@@ -131,6 +134,21 @@ const graphicsName = computed(() => {
 
 function changeGraphics(value: any, index: number) {
   globalSetup.applyModelSettings({graphics: (value as GraphicsItem).index});
+}
+
+function mapBackendNames(name : Backend) : BackendServiceName | undefined {
+  if(name === "IPEX-LLM") {
+    return "ai-backend" as BackendServiceName
+  } else if(name === "LLAMA.CPP") {
+      return 'llamacpp-backend' as BackendServiceName
+  } else {
+      return undefined
+  }
+}
+
+function isRunning(name : Backend) {
+  const backendName : BackendServiceName | undefined =  mapBackendNames(name)
+  return backendServices.info.find((item) => item.serviceName === backendName)?.status === "running";
 }
 
 </script>

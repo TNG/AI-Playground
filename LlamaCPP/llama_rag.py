@@ -3,6 +3,8 @@ import json
 import os
 import time
 from typing import Any, List, Dict
+from uuid import uuid4
+
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import LlamaCppEmbeddings
@@ -13,7 +15,9 @@ from langchain_community.document_loaders.word_document import (
     UnstructuredWordDocumentLoader,
     Docx2txtLoader,
 )
+import faiss
 from langchain_community.vectorstores.faiss import FAISS, Document
+from langchain_community.docstore.in_memory import InMemoryDocstore
 
 #### CONFIGURATIONS ------------------------------------------------------------------------------------------------------------------------
 INDEX_DATABASE_PATH = "./db/"  # Faiss database folder
@@ -57,7 +61,7 @@ class EmbeddingDatabase:
         self.embeddings = embeddings
         index_cache = os.path.join(INDEX_DATABASE_PATH, "index.faiss")
         self.db = (
-            FAISS.load_local(INDEX_DATABASE_PATH, self.embeddings)
+            FAISS.load_local(INDEX_DATABASE_PATH, self.embeddings.model, allow_dangerous_deserialization=True)
             if os.path.exists(index_cache)
             else None
         )
@@ -90,11 +94,19 @@ class EmbeddingDatabase:
 
     def __add_documents(self, file_base_name: str, docs: List[Document], md5: str):
         if self.db is None:
-            self.db = FAISS.from_documents(docs, self.embeddings)
-        else:
-            self.db.add_documents(docs)
-        print(docs[0].metadata)
-        self.__save_index(file_base_name, md5, [doc.metadata["doc_id"] for doc in docs])
+            index = faiss.IndexFlatL2(len(self.embeddings.embed_query("hello world")))
+
+            self.db = FAISS(
+                embedding_function=self.embeddings.model,
+                index=index,
+                docstore=InMemoryDocstore(),
+                index_to_docstore_id={},
+            )
+        
+        uuids = [str(uuid4()) for _ in range(len(docs))]
+        self.db.add_documents(documents=docs, ids=uuids)
+        print(docs[0])
+        self.__save_index(file_base_name, md5, uuids)
 
     def __analyze_file_to_db(self, file: str, md5: str):
         file_base_name = os.path.basename(file)
@@ -188,3 +200,4 @@ if __name__ == "__main__":
     print("Context:", context)
     print("Source Files:", source)
     dispose()
+ 

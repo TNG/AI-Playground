@@ -15,6 +15,8 @@ from langchain_community.document_loaders.word_document import (
     UnstructuredWordDocumentLoader,
     Docx2txtLoader,
 )
+
+import nltk
 import faiss
 from langchain_community.vectorstores.faiss import FAISS, Document
 from langchain_community.docstore.in_memory import InMemoryDocstore
@@ -102,7 +104,7 @@ class EmbeddingDatabase:
                 docstore=InMemoryDocstore(),
                 index_to_docstore_id={},
             )
-        
+
         uuids = [str(uuid4()) for _ in range(len(docs))]
         self.db.add_documents(documents=docs, ids=uuids)
         print(docs[0])
@@ -193,11 +195,10 @@ def dispose():
 
 if __name__ == "__main__":
     # Example Usage
-    init(model_path="/Users/daniel/silicon/AI-Playground/LlamaCPP/models/llm/gguf/bge-large-en-v1.5-q8_0.gguf")
-    add_index_file("/Users/daniel/silicon/AI-Playground/hello.txt")
+    init(model_path="/Users/julianbollig/Documents/Projects/AI-Playground/service/models/llm/ggufLLM/bge-large-en-v1.5-q8_0.gguf")
+    add_index_file("//Users/julianbollig/Documents/Projects/AI-Playground/SECURITY.md")
     success, context, source = query("What is the content about?")
     print("Query success:", success)
     print("Context:", context)
     print("Source Files:", source)
     dispose()
- 

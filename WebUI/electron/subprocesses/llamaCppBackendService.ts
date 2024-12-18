@@ -6,7 +6,7 @@ import {existingFileOrError} from './osProcessHelper.ts'
 
 export class LlamaCppBackendService extends LongLivedPythonApiService {
     readonly serviceDir = path.resolve(path.join(this.baseDir, "LlamaCPP"));
-    readonly pythonEnvDir = path.resolve(path.join(this.baseDir, `llama-cpp-env`));
+    readonly pythonEnvDir = path.resolve("/opt/homebrew/anaconda3/envs/aipg_xpu");
     readonly pythonExe = this.getPythonPath(this.pythonEnvDir)
     readonly isRequired = false;
     readonly lsLevelZeroDir = path.resolve(path.join(this.baseDir, "ai-backend-env"));
@@ -15,7 +15,7 @@ export class LlamaCppBackendService extends LongLivedPythonApiService {
     healthEndpointUrl = `${this.baseUrl}/health`
 
     private getPythonPath(basePythonEnvDir: string): string {
-        return path.resolve(path.join(basePythonEnvDir, "python"))
+        return path.resolve(path.join(basePythonEnvDir, "bin","python"))
     }
 
     serviceIsSetUp(): boolean {

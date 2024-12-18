@@ -31,4 +31,8 @@ comfy_ui_model_paths = {
     "defaultLora": "./models/stable_diffusion/lora",
 }
 
+llama_cpp_model_paths = {
+    "ggufLLM": "./models/llm/ggufLLM",
+}
+
 env_type = "arc"

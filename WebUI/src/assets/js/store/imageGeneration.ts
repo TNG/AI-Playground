@@ -50,6 +50,15 @@ export type Setting = z.infer<typeof SettingSchema>
 
 const WorkflowRequirementSchema = z.enum(['high-vram'])
 
+const RequiredModelSchema = z.object({
+    type: z.string(),
+    model: z.string(),
+    additionalLicenceLink: z.string().optional(),
+    downloadedFromAIPBackend: z.boolean().default(true),
+})
+
+export type RequiredModel = z.infer<typeof RequiredModelSchema>;
+
 const ComfyUIApiWorkflowSchema = z.record(z.string(), z.object({
     inputs: z.object({
         text: z.string().optional(),
@@ -57,11 +66,12 @@ const ComfyUIApiWorkflowSchema = z.record(z.string(), z.object({
 }).passthrough());
 export type ComfyUIApiWorkflow = z.infer<typeof ComfyUIApiWorkflowSchema>;
 
+
 const DefaultWorkflowSchema = z.object({
     name: z.string(),
     backend: z.literal('default'),
     tags: z.array(z.string()),
-    requiredModels: z.array(z.string()).optional(),
+    requiredModels: z.array(RequiredModelSchema).optional(),
     requirements: z.array(WorkflowRequirementSchema),
     inputs: z.array(z.object({
         name: z.string(),
@@ -129,7 +139,7 @@ const ComfyUiWorkflowSchema = z.object({
     comfyUIRequirements: z.object({
         pythonPackages: z.array(z.string()).optional(),
         customNodes: z.array(z.string()),
-        requiredModels: z.array(z.string()),
+        requiredModels: z.array(RequiredModelSchema)
     }),
     tags: z.array(z.string()),
     requiredModels: z.array(z.string()).optional(),
@@ -608,7 +618,7 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
         workflows.value = [...predefinedWorkflows, ...parsedWorkflows];
     }
 
-    async function getMissingModels() {
+    async function getMissingModels(): Promise<DownloadModelParam[]> {
         if (activeWorkflow.value.backend === "default") {
             return getMissingDefaultBackendModels()
         } else {
@@ -616,9 +626,8 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
         }
     }
 
-    async function getMissingComfyuiBackendModels(workflow: ComfyUiWorkflow) {
-        function extractDownloadModelParamsFromString(modelParamString: string): CheckModelAlreadyLoadedParameters {
-            const [modelType, repoAddress] = modelParamString.replace(" ", "").split(":")
+    async function getMissingComfyuiBackendModels(workflow: ComfyUiWorkflow): Promise<DownloadModelParam[]> {
+        function extractDownloadModelParamsFromString(requiredModel: RequiredModel): CheckModelAlreadyLoadedParameters {
             function modelTypeToId(type: string) {
                 switch (type) {
                     case "unet" : return Const.MODEL_TYPE_COMFY_UNET
@@ -634,7 +643,7 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
                         return -1
                 }
             }
-            return {type: modelTypeToId(modelType), repo_id: repoAddress, backend: "comfyui"}
+            return {type: modelTypeToId(requiredModel.type), repo_id: requiredModel.model, backend: "comfyui" , additionalLicenseLink : requiredModel.additionalLicenceLink, downloadedFromAIPBackend : requiredModel.downloadedFromAIPBackend}
         }
         const checkList: CheckModelAlreadyLoadedParameters[] = workflow.comfyUIRequirements.requiredModels.map( extractDownloadModelParamsFromString )
         const checkedModels: CheckModelAlreadyLoadedResult[]  = await globalSetup.checkModelAlreadyLoaded(checkList);
@@ -645,10 +654,10 @@ export const useImageGeneration = defineStore("imageGeneration", () => {
                 return []
             }
         }
-        return modelsToBeLoaded.map(item => ({ repo_id: item.repo_id, type: item.type, backend: item.backend }))
+        return modelsToBeLoaded
     }
 
-    async function getMissingDefaultBackendModels() {
+    async function getMissingDefaultBackendModels(): Promise<DownloadModelParam[]> {
         const checkList: CheckModelAlreadyLoadedParameters[] = [{ repo_id: imageModel.value, type: Const.MODEL_TYPE_STABLE_DIFFUSION, backend: "default" }];
         if (lora.value !== "None") {
             checkList.push({ repo_id: lora.value, type: Const.MODEL_TYPE_LORA, backend: "default" })

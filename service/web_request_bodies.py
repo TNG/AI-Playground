@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 import marshmallow_dataclass
 from marshmallow import EXCLUDE
@@ -11,6 +11,8 @@ class DownloadModelData:
     type : int
     repo_id : str
     backend : str
+    additionalLicenseLink: Optional[str]
+    downloadedFromAIPBackend: bool = True
 
 @marshmallow_dataclass.dataclass
 class DownloadModelRequestBody:

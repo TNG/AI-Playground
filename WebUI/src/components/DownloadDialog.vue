@@ -39,7 +39,7 @@
                                   </div>
                                 </td>
                                 <td>
-                                  <div flex flex-col items-center>
+                                  <div class="flex flex-col items-center">
                                     <a :href="getInfoUrl(item.repo_id, item.type)" target="_blank"
                                         class="text-blue-500 text-sm">
                                         {{ i18nState.DOWNLOADER_TERMS }}

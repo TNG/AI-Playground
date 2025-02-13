@@ -13,7 +13,7 @@ export type StableDiffusionSettings = {
   imageModel: string
   inpaintModel: string
   negativePrompt: string
-  imageCount: number // ~ modelSettings.generateNumber
+  imageCount: number
   pickerResolution?: string
   width: number
   height: number
@@ -409,7 +409,7 @@ export const useImageGeneration = defineStore(
     const seed = ref<number>(generalDefaultSettings.seed)
     const imagePreview = ref<boolean>(generalDefaultSettings.imagePreview)
     const safeCheck = ref<boolean>(generalDefaultSettings.safeCheck)
-    const imageCount = ref<number>(globalDefaultSettings.imageCount) // TODO this should be imageCount instead, as we only support imageCount 1 due to memory constraints
+    const imageCount = ref<number>(globalDefaultSettings.imageCount)
 
     const resetActiveWorkflowSettings = () => {
       prompt.value = generalDefaultSettings.prompt

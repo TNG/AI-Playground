@@ -50,7 +50,7 @@ export const useStableDiffusion = defineStore(
           prompt: imageGeneration.prompt,
           model_repo_id: `stableDiffusion:${imageGeneration.imageModel}`,
           negative_prompt: imageGeneration.negativePrompt,
-          generate_number: imageGeneration.batchSize,
+          generate_number: imageGeneration.imageCount,
           inference_steps: imageGeneration.inferenceSteps,
           guidance_scale: imageGeneration.guidanceScale,
           seed: imageGeneration.seed,

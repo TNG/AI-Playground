@@ -328,7 +328,7 @@ export const useComfyUi = defineStore(
           ...findKeysByClassType(mutableWorkflow, 'DualCLIPLoader (GGUF)'),
         ]
 
-        for (let i = 0; i < imageGeneration.batchSize; i++) {
+        for (let i = 0; i < imageGeneration.imageCount; i++) {
           modifySettingInWorkflow(mutableWorkflow, 'seed', `${(seed + i).toFixed(0)}`)
 
           const result = await fetch(`${comfyBaseUrl.value}/prompt`, {
@@ -393,19 +393,22 @@ const settingToComfyInputsName = {
   negativePrompt: ['text'],
   guidanceScale: ['cfg'],
   scheduler: ['scheduler'],
-  batchSize: ['batch_size'],
 } satisfies Partial<Record<Setting, string[]>>
+
 type ComfySetting = keyof typeof settingToComfyInputsName
+
 const findKeysByTitle = (workflow: ComfyUIApiWorkflow, title: ComfySetting | 'loader' | string) =>
   Object.entries(workflow)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .filter(([_key, value]) => (value as any)?.['_meta']?.title === title)
     .map(([key, _value]) => key)
+
 const findKeysByClassType = (workflow: ComfyUIApiWorkflow, classType: string) =>
   Object.entries(workflow)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .filter(([_key, value]) => (value as any)?.['class_type'] === classType)
     .map(([key, _value]) => key)
+
 const findKeysByInputsName = (workflow: ComfyUIApiWorkflow, setting: ComfySetting) => {
   for (const inputName of settingToComfyInputsName[setting]) {
     if (inputName === 'text') continue

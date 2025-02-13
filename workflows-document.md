@@ -15,8 +15,8 @@
 | “inputs”  | **Required**: yes if nothing leave as empty brackets \[ \] <br>**Description**: Add inputs to settings menu, such as number sliders, text strings, load image etc. <br>**Syntax**: <br>"_nodeTitle_": the name of the node this input will influence <br>"nodeInput": the name of the field in that node this input will influence <br>"_type_": the type of input ie: number, string, image <br>"_label_": text string for the label of this input in the settings menu <br>"_defaultValue_": the default value for this node, which will need to match the value type<br>If the input is an image use the value found at the bottom of this document <br>**Number Syntax**: additional values for a number input <br>"_step_":  a float or integer value that will be the increment values between the minimum and maximum value <br>"_min_": the lowest value this number can be <br>"_max_": the highest value this number can be |
 | “outputs” | **Required**: yes if nothing leave as empty brackets \[ \] <br>**Type**:  Text string in quotes  <br>**Description**: A tag that if used can trigger other information in the UI <br>**Allowed Values**: “high-vram” |
 | “defaultSettings" | **Required**: yes <br>**Description**: data from ComfyUI that will come back to the AI Playground UI Syntax “name”: text string of the data being used for output <br> ie “output\_image” “type”: type of data <br>ie: “image”  |
-| "displayedSettings" | **Required**: yes if no default values need leave as empty brackets \[ \] <br>**Description**: Input types you’d like to show in settings, but are not modifiable such as: “resolution”, “seed”, prompt” “inferenceSteps”, “batchSize, “cfg”, “prompt”, “negativePrompt” <br>**Syntax**: “inputField” ie "scheduler", "cfg"  |
-| "modifiableSettings"  | **Required**: yes if no default values need leave as empty brackets \[ \] <br>**Description**: Input types you’d like the user to adjust: “resolution”, “seed”, prompt” “inferenceSteps”, “batchSize, “cfg”, “negativePrompt” <br>**Syntax**: “inputField” ie "inferenceSteps", "seed" |
+| "displayedSettings" | **Required**: yes if no default values need leave as empty brackets \[ \] <br>**Description**: Input types you’d like to show in settings, but are not modifiable such as: “resolution”, “seed”, prompt” “inferenceSteps”, “imageCount, “cfg”, “prompt”, “negativePrompt” <br>**Syntax**: “inputField” ie "scheduler", "cfg"  |
+| "modifiableSettings"  | **Required**: yes if no default values need leave as empty brackets \[ \] <br>**Description**: Input types you’d like the user to adjust: “resolution”, “seed”, prompt” “inferenceSteps”, “imageCount, “cfg”, “negativePrompt” <br>**Syntax**: “inputField” ie "inferenceSteps", "seed" |
 | "comfyUiApiWorkflow": | **Required**: yes <br>**Description**: This section should be a copy and paste of the API export of the workflow created in ComfyUI. 
 
 ## Instructions
@@ -74,7 +74,7 @@
 * “cfg”  
 * “sampler”  
 * “scheduler”  
-* “batchSize”  
+* “imageCount”  
 * “imagePreview”
 
 Input image default value:

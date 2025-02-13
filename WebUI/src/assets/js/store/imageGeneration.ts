@@ -53,7 +53,7 @@ const SettingsSchema = z.object({
   imageModel: z.string(),
   inpaintModel: z.string(),
   negativePrompt: z.string(),
-  batchSize: z.number(),
+  imageCount: z.number(),
   width: z.number(),
   height: z.number(),
   prompt: z.string(),
@@ -449,7 +449,7 @@ export const useImageGeneration = defineStore(
     const seed = ref<number>(generalDefaultSettings.seed)
     const imagePreview = ref<boolean>(generalDefaultSettings.imagePreview)
     const safetyCheck = ref<boolean>(generalDefaultSettings.safetyCheck)
-    const batchSize = ref<number>(globalDefaultSettings.batchSize) // TODO this should be imageCount instead, as we only support batchSize 1 due to memory constraints
+    const batchSize = ref<number>(globalDefaultSettings.imageCount)
 
     const resetActiveWorkflowSettings = () => {
       prompt.value = generalDefaultSettings.prompt
@@ -517,7 +517,7 @@ export const useImageGeneration = defineStore(
       width,
       height,
       resolution,
-      batchSize,
+      imageCount,
       negativePrompt,
       lora,
       scheduler,
@@ -672,7 +672,7 @@ export const useImageGeneration = defineStore(
       getSavedOrDefault('width')
       getSavedOrDefault('height')
       getSavedOrDefault('resolution')
-      getSavedOrDefault('batchSize')
+      getSavedOrDefault('imageCount')
       getSavedOrDefault('negativePrompt')
       getSavedOrDefault('lora')
       getSavedOrDefault('scheduler')
@@ -864,7 +864,7 @@ export const useImageGeneration = defineStore(
       seed,
       width,
       height,
-      batchSize,
+      imageCount,
       negativePrompt,
       settingsPerWorkflow,
       comfyInputsPerWorkflow,

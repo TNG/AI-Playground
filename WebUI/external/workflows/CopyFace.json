@@ -63,7 +63,7 @@
     }
   ],
   "defaultSettings": {
-    "batchSize": 1
+    "imageCount": 1
   },
   "displayedSettings": [],
   "modifiableSettings": [],

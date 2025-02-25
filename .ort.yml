@@ -1,0 +1,14 @@
+analyzer:
+  skip_excluded: true
+  enabled_package_managers:
+    - NPM
+    - PIP
+excludes:
+  scopes:
+  - pattern: "devDependencies"
+    reason: "DEV_DEPENDENCY_OF"
+    comment: "Packages for development and testing only."
+  paths:
+  - pattern: "**/requirements-*.txt"
+    reason: "OTHER"
+    comment: "Intel provided Python packages."

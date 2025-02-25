@@ -9,7 +9,7 @@ jobs:
       - name: Checkout project
         uses: actions/checkout@v3
       - name: Run GitHub Action for ORT
-        uses: oss-review-toolkit/ort-ci-github-action@v1
+        uses: oss-review-toolkit/ort-ci-github-action@main
         with:
           image: ghcr.io/oss-review-toolkit/ort-minimal:latest
           allow-dynamic-versions: 'true'
@@ -19,5 +19,6 @@ jobs:
             cache-dependencies,
             metadata-labels,
             analyzer,
+            scanner,
             reporter,
             upload-results,

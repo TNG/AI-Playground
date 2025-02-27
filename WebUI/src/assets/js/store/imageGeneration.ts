@@ -25,6 +25,7 @@ export type GenerationSettings = Partial<
     workflow: string
   } & {
     device: number
+    backend: 'default' | 'comfyui'
   }
 >
 
@@ -485,8 +486,10 @@ export const useImageGeneration = defineStore(
       activeWorkflow.value.displayedSettings.includes(setting) ||
       activeWorkflow.value.modifiableSettings.includes(setting)
 
+    // TODO: restructure this list to make it more cohesive
     const getGenerationParameters = (): GenerationSettings => {
       const allSettings = {
+        backend: backend.value,
         workflow: activeWorkflowName.value ?? 'unknown',
         device: globalSetup.modelSettings.graphics,
         prompt: prompt.value,

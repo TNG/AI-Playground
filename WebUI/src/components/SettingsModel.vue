@@ -237,7 +237,7 @@
       </div>
     </div>
     <div class="flex flex-col gap-3">
-      <p>{{ languages.DOWNLOADER_FOR_INAPINT_GENERATE }}</p>
+      <p>{{ languages.DOWNLOADER_FOR_INPAINT_GENERATE }}</p>
       <div class="flex justify-between items-center gap-6">
         <span class="text-gray-300 flex-auto"
           >{{ languages.SETTINGS_MODEL_IMAGE_RESOLUTION_STANDARD }}: dreamshaper-8-inpainting</span

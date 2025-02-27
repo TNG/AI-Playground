@@ -177,7 +177,7 @@
   "DOWNLOADER_FOR_ANSWER_GENERATE": "Mô hình trả lời",
   "DOWNLOADER_FOR_RAG_QUERY": "Mô hình RAG Embed",
   "DOWNLOADER_FOR_IMAGE_GENERATE": "Mô hình ảnh",
-  "DOWNLOADER_FOR_INAPINT_GENERATE": "Mô hình Inpaint/Outpaint",
+  "DOWNLOADER_FOR_INPAINT_GENERATE": "Mô hình Inpaint/Outpaint",
   "DOWNLOADER_FOR_IMAGE_PREVIEW": "Mô hình xem trước ảnh",
   "DOWNLOADER_FOR_IMAGE_UPSCALE": "Mô hình tăng độ phân giải ảnh",
   "DOWNLOADER_FOR_IMAGE_LORA": "Mô hình ảnh nhanh",

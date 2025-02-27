@@ -22,10 +22,9 @@ export type GenerateState =
 
 export type GenerationSettings = Partial<
   Settings & {
-    workflow: string
-  } & {
-    device: number
     backend: 'default' | 'comfyui'
+    workflow: string
+    device: number
   }
 >
 
@@ -464,8 +463,8 @@ export const useImageGeneration = defineStore(
     const width = ref<number>(globalDefaultSettings.width)
     const height = ref<number>(globalDefaultSettings.height)
     const scheduler = ref<string>(globalDefaultSettings.scheduler)
-    const imageModel = ref(globalDefaultSettings.imageModel)
-    const inpaintModel = ref(
+    const imageModel = ref<string>(globalDefaultSettings.imageModel)
+    const inpaintModel = ref<string>(
       activeWorkflow.value.defaultSettings?.inpaintModel ?? globalDefaultSettings.inpaintModel,
     )
     const lora = ref<string>(globalDefaultSettings.lora)
@@ -486,32 +485,33 @@ export const useImageGeneration = defineStore(
       activeWorkflow.value.displayedSettings.includes(setting) ||
       activeWorkflow.value.modifiableSettings.includes(setting)
 
-    // TODO: restructure this list to make it more cohesive
     const getGenerationParameters = (): GenerationSettings => {
       const allSettings = {
         backend: backend.value,
         workflow: activeWorkflowName.value ?? 'unknown',
         device: globalSetup.modelSettings.graphics,
         prompt: prompt.value,
-        negativePrompt: negativePrompt.value,
-        imageModel: imageModel.value,
-        batchSize: batchSize.value,
-        inferenceSteps: inferenceSteps.value,
-        guidanceScale: guidanceScale.value,
-        seed: seed.value,
-        height: height.value,
         width: width.value,
+        height: height.value,
         resolution: resolution.value,
-        lora: lora.value,
-        scheduler: scheduler.value,
         imagePreview: imagePreview.value,
+        inferenceSteps: inferenceSteps.value,
+        seed: seed.value,
+        batchSize: batchSize.value,
+        negativePrompt: negativePrompt.value,
         safetyCheck: safetyCheck.value,
+        scheduler: scheduler.value,
+        guidanceScale: guidanceScale.value,
+        imageModel: imageModel.value,
+        inpaintModel: inpaintModel.value,
+        lora: lora.value,
       }
       return Object.fromEntries(
         Object.entries(allSettings).filter(([key]) => settingIsRelevant(key as Setting)),
       )
     }
 
+    // TODO: Why not call this modifiableSettings, can prompt here be easily added?
     const settings = {
       seed,
       inferenceSteps,
@@ -526,6 +526,7 @@ export const useImageGeneration = defineStore(
       imageModel,
       inpaintModel,
     }
+
     type ModifiableSettings = keyof typeof settings
 
     const backend = computed({

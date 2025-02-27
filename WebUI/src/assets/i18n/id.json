@@ -177,7 +177,7 @@
   "DOWNLOADER_FOR_ANSWER_GENERATE": "Model Jawaban",
   "DOWNLOADER_FOR_RAG_QUERY": "Model Embed RAG",
   "DOWNLOADER_FOR_IMAGE_GENERATE": "Model Gambar",
-  "DOWNLOADER_FOR_INAPINT_GENERATE": "Model Inpaint/OutPaint",
+  "DOWNLOADER_FOR_INPAINT_GENERATE": "Model Inpaint/OutPaint",
   "DOWNLOADER_FOR_IMAGE_PREVIEW": "Model Pratinjau Gambar",
   "DOWNLOADER_FOR_IMAGE_UPSCALE": "Model Peningkatan Gambar",
   "DOWNLOADER_FOR_IMAGE_LORA": "Model Gambar Cepat",

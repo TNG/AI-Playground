@@ -177,7 +177,7 @@
   "DOWNLOADER_FOR_ANSWER_GENERATE": "โมเดลคำตอบ",
   "DOWNLOADER_FOR_RAG_QUERY": "โมเดลการค้นหา RAG",
   "DOWNLOADER_FOR_IMAGE_GENERATE": "โมเดลภาพ",
-  "DOWNLOADER_FOR_INAPINT_GENERATE": "โมเดล Inpaint/Outpaint",
+  "DOWNLOADER_FOR_INPAINT_GENERATE": "โมเดล Inpaint/Outpaint",
   "DOWNLOADER_FOR_IMAGE_PREVIEW": "โมเดลภาพตัวอย่าง",
   "DOWNLOADER_FOR_IMAGE_UPSCALE": "โมเดลภาพอัปสเกล",
   "DOWNLOADER_FOR_IMAGE_LORA": "โมเดลภาพ Fast",

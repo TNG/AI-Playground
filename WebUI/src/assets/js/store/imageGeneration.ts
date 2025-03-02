@@ -512,7 +512,6 @@ export const useImageGeneration = defineStore(
       )
     }
 
-    // TODO: Why not call this modifiableSettings, can prompt here be easily added?
     const settings = {
       seed,
       inferenceSteps,
@@ -527,7 +526,6 @@ export const useImageGeneration = defineStore(
       imageModel,
       inpaintModel,
     }
-
     type ModifiableSettings = keyof typeof settings
 
     const backend = computed({

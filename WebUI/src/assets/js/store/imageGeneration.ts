@@ -484,7 +484,7 @@ export const useImageGeneration = defineStore(
       activeWorkflow.value.backend === 'default' ||
       activeWorkflow.value.displayedSettings.includes(setting) ||
       activeWorkflow.value.modifiableSettings.includes(setting) ||
-      ['backend','workflow','prompt'].includes(setting)
+      ['backend', 'workflow', 'prompt'].includes(setting)
 
     const getGenerationParameters = (): GenerationSettings => {
       const allSettings = {

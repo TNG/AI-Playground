@@ -18,7 +18,6 @@ const settingToComfyInputsName = {
   negativePrompt: ['text'],
   guidanceScale: ['cfg'],
   scheduler: ['scheduler'],
-  imageCount: ['batch_size'],
 } satisfies Partial<Record<Setting, string[]>>
 
 type ComfySetting = keyof typeof settingToComfyInputsName

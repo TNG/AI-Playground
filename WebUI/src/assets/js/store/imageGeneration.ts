@@ -53,7 +53,7 @@ const SettingsSchema = z.object({
   imageModel: z.string(),
   inpaintModel: z.string(),
   negativePrompt: z.string(),
-  batchSize: z.number(),
+  imageCount: z.number(),
   width: z.number(),
   height: z.number(),
   prompt: z.string(),
@@ -220,7 +220,7 @@ const globalDefaultSettings = {
   height: 512,
   inferenceSteps: 6,
   resolution: '704x384',
-  batchSize: 4,
+  imageCount: 4,
   negativePrompt: 'nsfw',
   imageModel: 'Lykon/dreamshaper-8',
   inpaintModel: 'Lykon/dreamshaper-8-inpainting',
@@ -267,7 +267,7 @@ export const useImageGeneration = defineStore(
           'seed',
           'inferenceSteps',
           'negativePrompt',
-          'batchSize',
+          'imageCount',
           'imagePreview',
           'safetyCheck',
         ],
@@ -293,7 +293,7 @@ export const useImageGeneration = defineStore(
           'seed',
           'inferenceSteps',
           'negativePrompt',
-          'batchSize',
+          'imageCount',
           'imagePreview',
           'safetyCheck',
         ],
@@ -311,7 +311,6 @@ export const useImageGeneration = defineStore(
           resolution: '704x384',
           guidanceScale: 1,
           inferenceSteps: 6,
-          batchSize: 4,
           scheduler: 'LCM',
           lora: 'latent-consistency/lcm-lora-sdv1-5',
         },
@@ -320,7 +319,7 @@ export const useImageGeneration = defineStore(
           'resolution',
           'seed',
           'inferenceSteps',
-          'batchSize',
+          'imageCount',
           'imagePreview',
           'safetyCheck',
         ],
@@ -338,6 +337,7 @@ export const useImageGeneration = defineStore(
           resolution: '1024x1024',
           guidanceScale: 7,
           inferenceSteps: 20,
+          imageCount: 1,
           scheduler: 'DPM++ SDE',
           lora: 'None',
         },
@@ -347,7 +347,7 @@ export const useImageGeneration = defineStore(
           'seed',
           'inferenceSteps',
           'negativePrompt',
-          'batchSize',
+          'imageCount',
           'imagePreview',
         ],
       },
@@ -364,6 +364,7 @@ export const useImageGeneration = defineStore(
           resolution: '1024x1024',
           guidanceScale: 7,
           inferenceSteps: 50,
+          imageCount: 1,
           scheduler: 'DPM++ SDE',
           lora: 'None',
         },
@@ -373,7 +374,7 @@ export const useImageGeneration = defineStore(
           'seed',
           'inferenceSteps',
           'negativePrompt',
-          'batchSize',
+          'imageCount',
           'imagePreview',
         ],
       },
@@ -390,11 +391,12 @@ export const useImageGeneration = defineStore(
           resolution: '1024x1024',
           guidanceScale: 1,
           inferenceSteps: 6,
+          imageCount: 1,
           scheduler: 'LCM',
           lora: 'latent-consistency/lcm-lora-sdxl',
         },
         displayedSettings: ['imageModel', 'inpaintModel', 'guidanceScale', 'scheduler'],
-        modifiableSettings: ['resolution', 'seed', 'inferenceSteps', 'batchSize', 'imagePreview'],
+        modifiableSettings: ['resolution', 'seed', 'inferenceSteps', 'imageCount', 'imagePreview'],
       },
       {
         name: 'Manual',
@@ -407,7 +409,7 @@ export const useImageGeneration = defineStore(
         modifiableSettings: [
           'seed',
           'negativePrompt',
-          'batchSize',
+          'imageCount',
           'imagePreview',
           'safetyCheck',
           'width',
@@ -447,7 +449,7 @@ export const useImageGeneration = defineStore(
     const seed = ref<number>(generalDefaultSettings.seed)
     const imagePreview = ref<boolean>(generalDefaultSettings.imagePreview)
     const safetyCheck = ref<boolean>(generalDefaultSettings.safetyCheck)
-    const batchSize = ref<number>(globalDefaultSettings.batchSize) // TODO this should be imageCount instead, as we only support batchSize 1 due to memory constraints
+    const imageCount = ref<number>(globalDefaultSettings.imageCount)
 
     const resetActiveWorkflowSettings = () => {
       prompt.value = generalDefaultSettings.prompt
@@ -492,7 +494,7 @@ export const useImageGeneration = defineStore(
         prompt: prompt.value,
         negativePrompt: negativePrompt.value,
         imageModel: imageModel.value,
-        batchSize: batchSize.value,
+        imageCount: imageCount.value,
         inferenceSteps: inferenceSteps.value,
         guidanceScale: guidanceScale.value,
         seed: seed.value,
@@ -515,7 +517,7 @@ export const useImageGeneration = defineStore(
       width,
       height,
       resolution,
-      batchSize,
+      imageCount,
       negativePrompt,
       lora,
       scheduler,
@@ -637,7 +639,7 @@ export const useImageGeneration = defineStore(
       saveToSettingsPerWorkflow('width')
       saveToSettingsPerWorkflow('height')
       saveToSettingsPerWorkflow('resolution')
-      saveToSettingsPerWorkflow('batchSize')
+      saveToSettingsPerWorkflow('imageCount')
       saveToSettingsPerWorkflow('negativePrompt')
       saveToSettingsPerWorkflow('lora')
       saveToSettingsPerWorkflow('scheduler')
@@ -670,7 +672,7 @@ export const useImageGeneration = defineStore(
       getSavedOrDefault('width')
       getSavedOrDefault('height')
       getSavedOrDefault('resolution')
-      getSavedOrDefault('batchSize')
+      getSavedOrDefault('imageCount')
       getSavedOrDefault('negativePrompt')
       getSavedOrDefault('lora')
       getSavedOrDefault('scheduler')
@@ -802,7 +804,7 @@ export const useImageGeneration = defineStore(
 
     async function generate() {
       generatedImages.value = generatedImages.value.filter((item) => item.state === 'done')
-      const imageIds: string[] = Array.from({ length: batchSize.value }, () => crypto.randomUUID())
+      const imageIds: string[] = Array.from({ length: imageCount.value }, () => crypto.randomUUID())
       imageIds.forEach((imageId) => {
         updateImage({
           id: imageId,
@@ -862,7 +864,7 @@ export const useImageGeneration = defineStore(
       seed,
       width,
       height,
-      batchSize,
+      imageCount,
       negativePrompt,
       settingsPerWorkflow,
       comfyInputsPerWorkflow,

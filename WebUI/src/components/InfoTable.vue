@@ -60,7 +60,7 @@ const settingToTranslationKey: Record<keyof GenerationSettings, string> = {
   scheduler: 'SETTINGS_MODEL_SCHEDULER',
   imagePreview: 'SETTINGS_MODEL_IMAGE_PREVIEW',
   safetyCheck: 'SETTINGS_MODEL_SAFE_CHECK',
-  batchSize: 'SETTINGS_MODEL_GENERATE_NUMBER',
+  imageCount: 'SETTINGS_MODEL_GENERATE_NUMBER',
   width: 'SETTINGS_MODEL_IMAGE_WIDTH',
   height: 'SETTINGS_MODEL_IMAGE_HEIGHT',
 }

@@ -83,7 +83,7 @@
     "inferenceSteps": 4
   },
   "displayedSettings": [],
-  "modifiableSettings": ["inferenceSteps", "seed", "batchSize", "imagePreview", "resolution"],
+  "modifiableSettings": ["inferenceSteps", "seed", "imageCount", "imagePreview", "resolution"],
   "comfyUiApiWorkflow": {
     "3": {
       "inputs": {

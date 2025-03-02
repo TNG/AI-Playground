@@ -44,14 +44,14 @@
           :scale="1"
         ></random-number>
       </div>
-      <div v-if="modifiableOrDisplayed('batchSize')" class="flex flex-col gap-2">
+      <div v-if="modifiableOrDisplayed('imageCount')" class="flex flex-col gap-2">
         <p>{{ languages.SETTINGS_MODEL_GENERATE_NUMBER }}</p>
         <slide-bar
-          v-model:current="imageGeneration.batchSize"
+          v-model:current="imageGeneration.imageCount"
           :min="1"
-          :max="4"
+          :max="16"
           :step="1"
-          :disabled="!modifiable('batchSize')"
+          :disabled="!modifiable('imageCount')"
         ></slide-bar>
       </div>
       <div v-if="modifiableOrDisplayed('negativePrompt')" class="flex flex-col gap-2">

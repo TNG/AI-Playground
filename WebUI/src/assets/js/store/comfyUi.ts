@@ -18,7 +18,6 @@ const settingToComfyInputsName = {
   negativePrompt: ['text'],
   guidanceScale: ['cfg'],
   scheduler: ['scheduler'],
-  batchSize: ['batch_size'],
 } satisfies Partial<Record<Setting, string[]>>
 
 type ComfySetting = keyof typeof settingToComfyInputsName
@@ -494,7 +493,7 @@ export const useComfyUi = defineStore(
           ...findKeysByClassType(mutableWorkflow, 'Unet Loader (GGUF)'),
           ...findKeysByClassType(mutableWorkflow, 'DualCLIPLoader (GGUF)'),
         ]
-        queuedImages = Array.from({ length: imageGeneration.batchSize }, (_, i) => {
+        queuedImages = Array.from({ length: imageGeneration.imageCount }, (_, i) => {
           const seed = baseSeed + i
           const settings = imageGeneration.getGenerationParameters()
           settings.seed = seed

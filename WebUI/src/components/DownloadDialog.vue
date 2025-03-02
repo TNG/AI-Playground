@@ -356,7 +356,7 @@ function getFunctionTip(type: number): string {
     case Const.MODEL_TYPE_VAE:
       return i18nState.DOWNLOADER_FOR_IMAGE_GENERATE
     case Const.MODEL_TYPE_INPAINT:
-      return i18nState.DOWNLOADER_FOR_INAPINT_GENERATE
+      return i18nState.DOWNLOADER_FOR_INPAINT_GENERATE
     case Const.MODEL_TYPE_PREVIEW:
       return i18nState.DOWNLOADER_FOR_IMAGE_PREVIEW
     case Const.MODEL_TYPE_ESRGAN:

@@ -177,7 +177,7 @@
   "DOWNLOADER_FOR_ANSWER_GENERATE": "Modelo de respuesta",
   "DOWNLOADER_FOR_RAG_QUERY": "Modelo Embed RAG",
   "DOWNLOADER_FOR_IMAGE_GENERATE": "Modelo de imagen",
-  "DOWNLOADER_FOR_INAPINT_GENERATE": "Modelo Inpaint/Outpaint",
+  "DOWNLOADER_FOR_INPAINT_GENERATE": "Modelo Inpaint/Outpaint",
   "DOWNLOADER_FOR_IMAGE_PREVIEW": "Modelo de vista previa",
   "DOWNLOADER_FOR_IMAGE_UPSCALE": "Modelo de aumento de resolución",
   "DOWNLOADER_FOR_IMAGE_LORA": "Modelo de imagen rápida",

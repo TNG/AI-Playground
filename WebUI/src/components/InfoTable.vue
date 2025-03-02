@@ -10,7 +10,7 @@
     <div class="params-list">
       <ul class="border border-color-spilter">
         <li
-          v-for="(value, key) in props.generationParameters"
+          v-for="(value, key) in filterRelevantInformation(props.generationParameters)"
           class="last:border-none border-b border-color-spilter flex items-center"
           :key="key"
         >
@@ -45,24 +45,42 @@ const props = defineProps<{
   dynamicInputs?: ComfyDynamicInputWithCurrent[]
 }>()
 
+const notToDisplayKeys: (keyof GenerationSettings)[] = [
+  'imagePreview',
+  'batchSize',
+  'width',
+  'height',
+]
+
 const settingToTranslationKey: Record<keyof GenerationSettings, string> = {
+  backend: 'BACKEND',
   workflow: 'SETTINGS_IMAGE_WORKFLOW',
   device: 'DEVICE',
-  imageModel: 'DOWNLOADER_MODEL',
-  inpaintModel: 'DOWNLOADER_FOR_INAPINT_GENERATE',
-  negativePrompt: 'SETTINGS_MODEL_NEGATIVE_PROMPT',
-  resolution: 'SETTINGS_MODEL_IMAGE_RESOLUTION',
   prompt: 'INPUT_PROMPT',
-  guidanceScale: 'SETTINGS_MODEL_IMAGE_CFG',
-  inferenceSteps: 'SETTINGS_MODEL_IMAGE_STEPS',
-  seed: 'SETTINGS_MODEL_SEED',
-  lora: 'SETTINGS_MODEL_LORA',
-  scheduler: 'SETTINGS_MODEL_SCHEDULER',
-  imagePreview: 'SETTINGS_MODEL_IMAGE_PREVIEW',
-  safetyCheck: 'SETTINGS_MODEL_SAFE_CHECK',
-  batchSize: 'SETTINGS_MODEL_GENERATE_NUMBER',
   width: 'SETTINGS_MODEL_IMAGE_WIDTH',
   height: 'SETTINGS_MODEL_IMAGE_HEIGHT',
+  resolution: 'SETTINGS_MODEL_IMAGE_RESOLUTION',
+  imagePreview: 'SETTINGS_MODEL_IMAGE_PREVIEW',
+  inferenceSteps: 'SETTINGS_MODEL_IMAGE_STEPS',
+  seed: 'SETTINGS_MODEL_SEED',
+  batchSize: 'SETTINGS_MODEL_GENERATE_NUMBER',
+  negativePrompt: 'SETTINGS_MODEL_NEGATIVE_PROMPT',
+  safetyCheck: 'SETTINGS_MODEL_SAFE_CHECK',
+  scheduler: 'SETTINGS_MODEL_SCHEDULER',
+  guidanceScale: 'SETTINGS_MODEL_IMAGE_CFG',
+  imageModel: 'DOWNLOADER_MODEL',
+  inpaintModel: 'DOWNLOADER_FOR_INPAINT_GENERATE',
+  lora: 'SETTINGS_MODEL_LORA',
+}
+
+const filterRelevantInformation = (
+  generationParameters: GenerationSettings,
+): GenerationSettings => {
+  return Object.fromEntries(
+    Object.entries(generationParameters).filter(
+      ([key]) => !notToDisplayKeys.includes(key as keyof GenerationSettings),
+    ),
+  )
 }
 
 const emits = defineEmits<{

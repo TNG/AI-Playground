@@ -56,7 +56,7 @@
     "batchSize": 1
   },
   "displayedSettings": [],
-  "modifiableSettings": ["inferenceSteps", "resolution", "seed"],
+  "modifiableSettings": ["inferenceSteps", "resolution", "seed", "negativePrompt"],
   "comfyUiApiWorkflow": {
     "8": {
       "inputs": {
@@ -140,7 +140,7 @@
       },
       "class_type": "CLIPTextEncode",
       "_meta": {
-        "title": "CLIP Text Encode (Prompt)"
+        "title": "negativePrompt"
       }
     },
     "102": {

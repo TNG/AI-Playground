@@ -10,7 +10,7 @@ import service_config
 from web_request_bodies import ComfyUICustomNodesGithubRepoId
 
 
-git_download_url = "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.1/MinGit-2.47.1-64-bit.zip"
+git_download_url = "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.1/PortableGit-2.48.1-64-bit.7z.exe"
 comfyUI_git_repo_url = "https://github.com/comfyanonymous/ComfyUI.git"
 comfyUI_manager_git_repo_url = "https://github.com/ltdrdata/ComfyUI-Manager.git"
 
@@ -60,18 +60,10 @@ def _fetch_portable_git(seven_zipped_portable_git_target):
 
 
 def _unzip_portable_git(zipped_git_path, target_dir):
-    def get_unzipping_command():
-        try:
-            aipg_utils.call_subprocess("tar --version")
-            logging.debug("using system tar to unzip.")
-            return f"tar -C {target_dir} -xf {zipped_git_path}"
-        except Exception:
-            logging.warning("falling back to powershell command to extract zip, as tar not in PATH")
-            return f"powershell -command 'Expand-Archive' -Force {zipped_git_path} {target_dir}"
     try:
         if not os.path.exists(target_dir):
             os.makedirs(target_dir, exist_ok=True)
-        aipg_utils.call_subprocess(get_unzipping_command())
+        aipg_utils.call_subprocess(f"{zipped_git_path} -o{target_dir}")
         logging.info("Unzipped git successfully")
     except Exception as e:
         aipg_utils.remove_existing_filesystem_resource(zipped_git_path)

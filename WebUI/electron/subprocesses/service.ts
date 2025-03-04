@@ -7,7 +7,6 @@ import { existingFileOrError, spawnProcessAsync } from './osProcessHelper'
 import { assert } from 'node:console'
 import { Arch, getArchPriority, getDeviceArch } from './deviceArch'
 import { createHash } from 'crypto'
-import extract from 'extract-zip'
 
 import * as childProcess from 'node:child_process'
 import { promisify } from 'util';
@@ -463,7 +462,7 @@ export class GitService extends ExecutableService {
   
   readonly remoteUrl =
     'https://github.com/git-for-windows/git/releases/download/v2.48.1.windows.1/PortableGit-2.48.1-64-bit.7z.exe'
-  readonly sha256 = '50b04b55425b5c465d076cdb184f63a0cd0f86f6ec8bb4d5860114a713d2c29a' // not correct probably -> ToDo: recalculate
+  readonly sha256 = 'a4335111b3363871cac632be93d7466154d8eb08782ff55103866b67d6722257'
   readonly zipPath = path.resolve(path.join(this.baseDir, 'portable-git.7z.exe'))
   readonly unzipExePath = path.resolve(path.join(this.baseDir, '7zr.exe'))
 
@@ -471,12 +470,10 @@ export class GitService extends ExecutableService {
     if (!filesystem.existsSync(this.zipPath)) {
       return false
     }
-    return true
-    // ToDo: change later!
-    // const sha256sum = await filesystem
-    //   .readFile(this.zipPath)
-    //   .then((data) => createHash('sha256').update(data).digest('hex'))
-    // return sha256sum === this.sha256
+    const sha256sum = await filesystem
+      .readFile(this.zipPath)
+      .then((data) => createHash('sha256').update(data).digest('hex'))
+    return sha256sum === this.sha256
   }
 
   private async downloadGitZip(): Promise<void> {
@@ -500,9 +497,9 @@ export class GitService extends ExecutableService {
     }
     const buffer = await response.arrayBuffer()
     await filesystem.writeFile(this.zipPath, Buffer.from(buffer))
-    // if (!(await this.checkGitZip())) {
-    //   throw new Error(`Checksum mismatch: ${this.zipPath}`) // ToDo: do later
-    // }
+    if (!(await this.checkGitZip())) {
+      throw new Error(`Checksum mismatch: ${this.zipPath}`)
+    }
     this.log('git archive successfully downloaded')
   }
 

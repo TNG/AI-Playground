@@ -251,5 +251,8 @@
   "DEVICE": "อุปกรณ์",
   "SETTINGS_IMAGE_COMFY_CHECKPOINT_MODEL": "โมเดลเช็คพอยต์",
   "SETTINGS_IMAGE_COMFY_FRAME_RATE": "อัตราเฟรม",
-  "SETTINGS_IMAGE_COMFY_TOTAL_FRAMES": "จำนวนเฟรมทั้งหมด"
+  "SETTINGS_IMAGE_COMFY_TOTAL_FRAMES": "จำนวนเฟรมทั้งหมด",
+  "SETTINGS_LLM_MAX_TOKENS": "โทเค็นสูงสุด",
+  "SETTINGS_LLM_PERFORMANCE_METRICS": "เมตริกประสิทธิภาพ",
+  "SETTINGS_TAB_LLM": "LLM"
 }

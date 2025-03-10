@@ -155,6 +155,7 @@
         v-show="showSetting"
         @close="hideAppSettings"
         @show-download-model-confirm="showDownloadModelConfirm"
+        :activeTabIdx="activeTabIdx"
       ></app-settings>
     </div>
     <download-dialog

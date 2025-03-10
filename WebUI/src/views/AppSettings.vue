@@ -5,8 +5,21 @@
   >
     <div class="flex justify-between px-3">
       <div class="flex items-stretch gap-2">
-        <button class="panel-tab" :class="{ active: tabIndex == 0 }" @click="tabIndex = 0">
+        <button
+          v-show="tabs.activeTabIdx == 0 || tabs.activeTabIdx == 1"
+          class="panel-tab"
+          :class="{ active: tabIndex == 0 }"
+          @click="tabIndex = 0"
+        >
           {{ languages.SETTINGS_TAB_IMAGE }}
+        </button>
+        <button
+          v-show="tabs.activeTabIdx == 2"
+          class="panel-tab"
+          :class="{ active: tabIndex == 0 }"
+          @click="tabIndex = 0"
+        >
+          {{ languages.SETTINGS_TAB_LLM }}
         </button>
         <button class="panel-tab" :class="{ active: tabIndex == 1 }" @click="tabIndex = 1">
           {{ languages.SETTINGS_TAB_BASIC }}
@@ -21,11 +34,20 @@
     </div>
     <!--ImageSettingsTab-->
     <div
-      v-show="tabIndex == 0"
+      v-show="tabIndex == 0 && (tabs.activeTabIdx == 0 || tabs.activeTabIdx == 1)"
       class="flex-auto h-0 flex flex-col gap-5 pt-3 border-t border-color-spilter overflow-y-auto"
     >
       <div class="px-3 flex-none flex flex-col gap-3">
         <SettingsImageGeneration></SettingsImageGeneration>
+      </div>
+    </div>
+    <!-- LLMSettingsTab -->
+    <div
+      v-show="tabIndex == 0 && tabs.activeTabIdx == 2"
+      class="flex-auto h-0 flex flex-col gap-5 pt-3 border-t border-color-spilter overflow-y-auto"
+    >
+      <div class="px-3 flex-none flex flex-col gap-3">
+        <SettingsLLM></SettingsLLM>
       </div>
     </div>
     <!--BasicSettingsTab-->
@@ -51,8 +73,14 @@
 
 <script setup lang="ts">
 import SettingsImageGeneration from '@/components/SettingsImageGeneration.vue'
+import SettingsLLM from '../components/SettingsLLM.vue'
 import SettingsBasic from '@/components/SettingsBasic.vue'
 import SettingsModel from '@/components/SettingsModel.vue'
+import { defineProps } from 'vue'
+
+const tabs = defineProps<{
+  activeTabIdx: number
+}>()
 
 const tabIndex = ref(0)
 

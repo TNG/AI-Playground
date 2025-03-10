@@ -251,5 +251,8 @@
   "DEVICE": "Urządzenie",
   "SETTINGS_IMAGE_COMFY_CHECKPOINT_MODEL": "Model punktu kontrolnego",
   "SETTINGS_IMAGE_COMFY_FRAME_RATE": "Liczba klatek",
-  "SETTINGS_IMAGE_COMFY_TOTAL_FRAMES": "Całkowita liczba klatek"
+  "SETTINGS_IMAGE_COMFY_TOTAL_FRAMES": "Całkowita liczba klatek",
+  "SETTINGS_LLM_MAX_TOKENS": "Maksymalna liczba tokenów",
+  "SETTINGS_LLM_PERFORMANCE_METRICS": "Metryki wydajności",
+  "SETTINGS_TAB_LLM": "LLM"
 }

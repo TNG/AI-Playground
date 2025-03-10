@@ -251,5 +251,8 @@
   "DEVICE": "Dispositivo",
   "SETTINGS_IMAGE_COMFY_CHECKPOINT_MODEL": "Modello checkpoint",
   "SETTINGS_IMAGE_COMFY_FRAME_RATE": "Frequenza fotogrammi",
-  "SETTINGS_IMAGE_COMFY_TOTAL_FRAMES": "Fotogrammi totali"
+  "SETTINGS_IMAGE_COMFY_TOTAL_FRAMES": "Fotogrammi totali",
+  "SETTINGS_LLM_MAX_TOKENS": "Token massimi",
+  "SETTINGS_LLM_PERFORMANCE_METRICS": "Metriche di prestazione",
+  "SETTINGS_TAB_LLM": "LLM"
 }

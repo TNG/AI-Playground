@@ -141,9 +141,9 @@
                     {{ chat.model }}
                   </span>
                   <!-- Display RAG source if available -->
-                  <span v-if="chat.ragSource" class="bg-purple-400 text-black font-sans rounded-md px-1 py-1 text-xs">
-                    RAG
-                    <button @click="chat.showRagSource = !chat.showRagSource" class="ml-1">
+                  <span v-if="chat.ragSource" @click="chat.showRagSource = !chat.showRagSource" class="bg-purple-400 text-black font-sans rounded-md px-1 py-1 text-xs cursor-pointer">
+                    Source Docs
+                    <button class="ml-1">
                       <img v-if="chat.showRagSource" src="@/assets/svg/arrow-up.svg" class="w-3 h-3" />
                       <img v-else src="@/assets/svg/arrow-down.svg" class="w-3 h-3" />
                     </button>
@@ -152,7 +152,7 @@
               </div>
               
               <!-- RAG Source Details (collapsible) -->
-              <div v-if="chat.ragSource && chat.showRagSource" class="mt-2 text-sm text-gray-300 border-l-2 border-purple-400 pl-2 flex flex-row gap-1">
+              <div v-if="chat.ragSource && chat.showRagSource" class="my-2 text-sm text-gray-300 border-l-2 border-purple-400 pl-2 flex flex-row gap-1">
                 <div class="font-bold">{{ i18nState.RAG_SOURCE }}:</div>
                 <div class="whitespace-pre-wrap">{{ chat.ragSource }}</div>
               </div>
@@ -494,9 +494,9 @@
             class="flex items-center justify-center flex-none gap-2 border border-white rounded-md text-sm px-4 py-1"
               @click="showUploader = !showUploader"
               :disabled="processing"
+              :title="languages.ANSWER_RAG_OPEN_DIALOG"
           >
-            <span class="svg-icon i-upload w-4 h-4"></span>
-            <span>{{ languages.ANSWER_RAG_OPEN_DIALOG }}</span>
+            <span class="w-4 h-4 svg-icon i-rag flex-none"></span><span>{{ documentButtonText }}</span>
           </button>
           <drop-selector
             :array="textInference.llmEmbeddingModels.filter((m) => m.type === textInference.backend)"
@@ -681,6 +681,22 @@ function isRunning(name: LlmBackend) {
 const animatedReasoningText = ref('Reasoning.')
 const reasoningDots = ['Reasoning.  ', 'Reasoning.. ', 'Reasoning...']
 let reasoningInterval: number | null = null
+
+// Computed properties for document stats and button text
+const documentStats = computed(() => {
+  const totalDocs = textInference.ragList.length;
+  const enabledDocs = textInference.ragList.filter(doc => doc.isChecked).length;
+  return { total: totalDocs, enabled: enabledDocs };
+});
+
+const documentButtonText = computed(() => {
+  const stats = documentStats.value;
+  if (stats.total === 0) {
+    return "Add Documents";
+  } else {
+    return `Documents (${stats.enabled}/${stats.total} enabled)`;
+  }
+});
 
 watch(
   () => processing.value,

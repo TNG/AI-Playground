@@ -6,7 +6,7 @@
   >
     <!-- Header -->
     <div class="flex justify-between items-center h-11 px-4 mb-3 border-b border-purple-800/60 text-sm w-full">
-      <span class="text-lg font-bold">{{ fileTotalText }}</span>
+      <span class="text-lg font-bold">Searchable Documents</span>
       <button
         class="svg-icon i-close w-7 h-7 hover:text-purple-500 transition-colors duration-200"
         @click="closeRagPanel"

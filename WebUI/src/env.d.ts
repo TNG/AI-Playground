@@ -1,11 +1,12 @@
 declare interface Window {
   chrome: Chrome
   electronAPI: electronAPI
-  envVars: { platformTitle: string; productVersion: string }
+  envVars: { platformTitle: string; productVersion: string; debugToolsEnabled: boolean }
 }
 
 interface ImportMetaEnv {
   readonly VITE_PLATFORM_TITLE: string
+  readonly VITE_DEBUG_TOOLS: 'true' | undefined
 }
 
 interface ImportMeta {

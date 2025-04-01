@@ -5,6 +5,7 @@ import { EmbedInquiry, IndexedDocument } from '@/assets/js/store/textInference';
 
 contextBridge.exposeInMainWorld('envVars', {
   platformTitle: import.meta.env.VITE_PLATFORM_TITLE,
+  debugToolsEnabled: import.meta.env.VITE_DEBUG_TOOLS === 'true',
   productVersion: pkg.version,
 })
 contextBridge.exposeInMainWorld('electronAPI', {

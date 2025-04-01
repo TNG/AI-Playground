@@ -377,65 +377,38 @@
     >
       <div class="w-full flex flex-wrap items-center gap-y-2 gap-x-4 text-white">
         <div class="flex items-center gap-2">
-          <drop-selector
-            :array="[...llmBackendTypes]"
-            @change="(item) => (textInference.backend = item)"
-            class="w-30"
-          >
-            <template #selected>
-              <div class="flex gap-2 items-center">
-                <!-- If you want the "running" dot, use isRunning(...) below -->
-                <span
-                  class="rounded-full w-2 h-2"
-                  :class="{
-                    'bg-green-500': isRunning(textInference.backend),
-                    'bg-gray-500': !isRunning(textInference.backend),
-                  }"
-                ></span>
-                <span>{{ textInferenceBackendDisplayName[textInference.backend] }}</span>
-              </div>
-            </template>
-            <template #list="slotItem">
-              <div class="flex gap-2 items-center">
-                <!-- If you want the "running" dot, use isRunning(...) below -->
-                <span
-                  class="rounded-full w-2 h-2"
-                  :class="{
-                    'bg-green-500': isRunning(slotItem.item),
-                    'bg-gray-500': !isRunning(slotItem.item),
-                  }"
-                ></span>
-                <span>{{ textInferenceBackendDisplayName[slotItem.item as LlmBackend] }}</span>
-              </div>
-            </template>
-          </drop-selector>
-          <drop-selector
-            :array="textInference.llmModels.filter((m) => m.type === textInference.backend)"
-            @change="(i) => textInference.selectModel(textInference.backend, i.name)"
-            class="w-96"
-          >
-            <template #selected>
-              <model-drop-down-item
-                :model="
-                  textInference.llmModels
+          <drop-down-new
+          title="Inference Backend"
+          @change="(item) => (textInference.backend = item as LlmBackend)"
+          :value="textInference.backend"
+           :items="[...llmBackendTypes].map((item) => ({
+              label: textInferenceBackendDisplayName[item],
+              value: item,
+              active: isRunning(item),
+            }))"
+          ></drop-down-new>
+          <drop-down-new
+          title="Text Inference Model"
+          @change="(item) => (textInference.selectModel(textInference.backend, item))"
+          :value="textInference.llmModels
                     .filter((m) => m.type === textInference.backend)
-                    .find((m) => m.active)
-                "
-              ></model-drop-down-item>
-            </template>
-            <template #list="slotItem">
-              <model-drop-down-item :model="slotItem.item"></model-drop-down-item>
-            </template>
-          </drop-selector>
+                    .find((m) => m.active)?.name ?? ''"
+           :items="textInference.llmModels.filter((m) => m.type === textInference.backend).map((item) => ({
+              label: item.name.split('/').at(-1) ?? item.name,
+              value: item.name,
+              active: item.downloaded,
+            }))"
+          ></drop-down-new>
           <button
-            class="svg-icon i-generate-add w-10 h-6 text-purple-500 ml-1.5"
             @click="addLLMModel"
-          ></button>
+          >
+          <PlusIcon class="size-6 text-purple-500"></PlusIcon>
+        </button>
           <button
-            class="svg-icon i-refresh w-12 h-6 text-purple-500 ml-1"
-            @animationend="removeRonate360"
-            @click="refreshLLMModles"
-          ></button>
+            @click="models.refreshModels"
+          >
+          <ArrowPathIcon class="size-5 text-purple-500"></ArrowPathIcon>
+        </button>
         </div>
         <div class="flex items-center gap-2">
           <label class="text-white whitespace-nowrap">Metrics</label>
@@ -498,25 +471,18 @@
           >
             <span class="w-4 h-4 svg-icon i-rag flex-none"></span><span>{{ documentButtonText }}</span>
           </button>
-          <drop-selector
-            :array="textInference.llmEmbeddingModels.filter((m) => m.type === textInference.backend)"
-            @change="(i) => textInference.selectEmbeddingModel(textInference.backend, i.name)"
-            :disabled="processing"
-            class="w-96"
-          >
-            <template #selected>
-              <model-drop-down-item
-                :model="
-                  textInference.llmEmbeddingModels
+          <drop-down-new
+          title="Document Embedding Model"
+          @change="(item) => (textInference.selectEmbeddingModel(textInference.backend, item))"
+          :value="textInference.llmEmbeddingModels
                     .filter((m) => m.type === textInference.backend)
-                    .find((m) => m.active)
-                "
-              ></model-drop-down-item>
-            </template>
-            <template #list="slotItem">
-              <model-drop-down-item :model="slotItem.item"></model-drop-down-item>
-            </template>
-          </drop-selector>
+                    .find((m) => m.active)?.name ?? ''"
+           :items="textInference.llmEmbeddingModels.filter((m) => m.type === textInference.backend).map((item) => ({
+              label: item.name.split('/').at(-1) ?? item.name,
+              value: item.name,
+              active: item.downloaded,
+            }))"
+          ></drop-down-new>
         </div>
       </div>
       <div class="w-full h-32 gap-3 flex-none flex items-center pt-2">
@@ -554,8 +520,6 @@
 import Rag from '../components/Rag.vue'
 import ProgressBar from '../components/ProgressBar.vue'
 import LoadingBar from '../components/LoadingBar.vue'
-import DropSelector from '@/components/DropSelector.vue'
-import ModelDropDownItem from '@/components/ModelDropDownItem.vue'
 import { useI18N } from '@/assets/js/store/i18n'
 import * as toast from '@/assets/js/toast'
 import * as util from '@/assets/js/util'
@@ -564,10 +528,11 @@ import { useGlobalSetup } from '@/assets/js/store/globalSetup'
 import { useModels } from '@/assets/js/store/models'
 import { MarkdownParser } from '@/assets/js/markdownParser'
 import 'highlight.js/styles/github-dark.min.css'
-import * as Const from '@/assets/js/const'
+import DropDownNew from '@/components/DropDownNew.vue'
 import { useConversations } from '@/assets/js/store/conversations'
 import { llmBackendTypes, LlmBackend, useTextInference } from '@/assets/js/store/textInference'
 import { useBackendServices } from '@/assets/js/store/backendServices'
+import { PlusIcon, ArrowPathIcon } from '@heroicons/vue/24/solid'
 
 const conversations = useConversations()
 const models = useModels()
@@ -1092,21 +1057,10 @@ function copyText(text: string) {
   toast.success(i18nState.COM_COPY_SUCCESS_TIP)
 }
 
-function removeRonate360(ev: AnimationEvent) {
-  const target = ev.target as HTMLElement
-  target.classList.remove('animate-ronate360')
-}
-
 async function addLLMModel() {
   return new Promise<void>(async (resolve, reject) => {
     emits('showModelRequest', resolve, reject)
   })
-}
-
-async function refreshLLMModles(e: Event) {
-  const button = e.target as HTMLElement
-  button.classList.add('animate-ronate360')
-  await models.refreshModels()
 }
 
 function regenerateLastResponse(conversationKey: string) {

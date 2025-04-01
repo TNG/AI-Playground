@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import pkg from '../package.json'
 import { ModelPaths } from '@/assets/js/store/models';
 import { EmbedInquiry, IndexedDocument } from '@/assets/js/store/textInference';
@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('envVars', {
   productVersion: pkg.version,
 })
 contextBridge.exposeInMainWorld('electronAPI', {
+  getFilePath: (file: File) => webUtils.getPathForFile(file),
   getServices: () => ipcRenderer.invoke('getServices'),
   sendStartSignal: (serviceName: string) => ipcRenderer.invoke('sendStartSignal', serviceName),
   sendStopSignal: (serviceName: string) => ipcRenderer.invoke('sendStopSignal', serviceName),

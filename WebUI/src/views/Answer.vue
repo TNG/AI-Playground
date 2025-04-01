@@ -141,7 +141,9 @@
                     {{ chat.model }}
                   </span>
                   <!-- Display RAG source if available -->
-                  <span v-if="chat.ragSource" @click="chat.showRagSource = !chat.showRagSource" class="bg-purple-400 text-black font-sans rounded-md px-1 py-1 text-xs cursor-pointer">
+                  <span v-if="chat.ragSource" @click="chat.showRagSource = !chat.showRagSource" class="bg-purple-400 text-black font-sans rounded-md px-1 py-1 cursor-pointer"
+                    :class="textInference.nameSizeClass"
+                  >
                     Source Docs
                     <button class="ml-1">
                       <img v-if="chat.showRagSource" src="@/assets/svg/arrow-up.svg" class="w-3 h-3" />
@@ -152,7 +154,9 @@
               </div>
               
               <!-- RAG Source Details (collapsible) -->
-              <div v-if="chat.ragSource && chat.showRagSource" class="my-2 text-sm text-gray-300 border-l-2 border-purple-400 pl-2 flex flex-row gap-1">
+              <div v-if="chat.ragSource && chat.showRagSource" class="my-2 text-gray-300 border-l-2 border-purple-400 pl-2 flex flex-row gap-1"
+              :class="textInference.fontSizeClass"
+              >
                 <div class="font-bold">{{ i18nState.RAG_SOURCE }}:</div>
                 <div class="whitespace-pre-wrap">{{ chat.ragSource }}</div>
               </div>

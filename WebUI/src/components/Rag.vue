@@ -203,32 +203,30 @@ async function chooseUploadFiles() {
     properties: ['openFile', 'multiSelections'],
   })
   if (!result.canceled) {
-    addDocumentToRagList(result.filePaths)
+    addDocumentsToRagList(result.filePaths)
   }
 }
 
-// does not work atm
 function onDrop(files: File[] | null) {
-  console.log('########')
-  console.log(files)
-  console.log('########')
+  console.log('onDrop', files)
+  if (!files) return
+  const filePaths = files.map((file) => window.electronAPI.getFilePath(file))
+  const validExtensions = ['txt', 'doc', 'docx', 'md', 'pdf']
+  const fileExtensions = filePaths.map((filePath) => filePath.split('.').pop() ?? '')
+  if (fileExtensions.some((ext) => !validExtensions.includes(ext))) {
+    toast.error(i18nState.RAG_UPLOAD_TYPE_ERROR)
+    return
+  }
+  addDocumentsToRagList(filePaths)
 }
 
-// does not work atm
 const { isOverDropZone } = useDropZone(dropZoneRef, {
-  onDrop, // does not accept files because they are not local -> see LoadImage.vue
-  dataTypes: [
-    'application/pdf',
-    'text/plain',
-    'text/x-markdown', //not working for whatever reason
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  ],
+  onDrop,
   multiple: true,
   preventDefaultForUnhandled: false,
 })
 
-async function addDocumentToRagList(filePaths: string[]) {
+async function addDocumentsToRagList(filePaths: string[]) {
   for (let filePath of filePaths) {
     console.log(filePath)
     const name = filePath.split(/(\\|\/)/g).pop()

@@ -14,6 +14,7 @@ interface ImportMeta {
 }
 
 type electronAPI = {
+  getFilePath: (file: File) => string
   reloadImageWorkflows(): Promise<string[]>
   updateWorkflowsFromIntelRepo(): Promise<UpdateWorkflowsFromIntelResult>
   openDevTools(): void

@@ -361,7 +361,7 @@
     <div
       class="pl-4 pt-4 flex flex-col items-center justify-center relative border-t border-color-spilter px-2"
     >
-      <div class="w-full flex items-center gap-x-10 text-white">
+      <div class="w-full flex flex-wrap items-center gap-y-2 gap-x-4 text-white">
         <div class="flex items-center gap-2">
           <drop-selector
             :array="[...llmBackendTypes]"
@@ -414,11 +414,11 @@
             </template>
           </drop-selector>
           <button
-            class="svg-icon i-generate-add w-10 h-10 text-purple-500 ml-1.5"
+            class="svg-icon i-generate-add w-10 h-6 text-purple-500 ml-1.5"
             @click="addLLMModel"
           ></button>
           <button
-            class="svg-icon i-refresh w-12 h-12 text-purple-500 ml-1"
+            class="svg-icon i-refresh w-12 h-6 text-purple-500 ml-1"
             @animationend="removeRonate360"
             @click="refreshLLMModles"
           ></button>

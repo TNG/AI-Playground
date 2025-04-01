@@ -178,15 +178,14 @@ onMounted(() => {
 
 function getIconClass(type: ValidFileExtension) {
   switch (type) {
-    case 'txt':
-      return 'i-txt'
     case 'doc':
     case 'docx':
-      return 'i-doc'
+      return 'i-word'
     case 'md':
       return 'i-md'
     case 'pdf':
       return 'i-pdf'
+    case 'txt':
     default:
       return 'i-txt'
   }

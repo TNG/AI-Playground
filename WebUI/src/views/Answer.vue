@@ -133,14 +133,28 @@
                 <p class="text-gray-300 mt-0.75" :class="textInference.nameSizeClass">
                   {{ languages.ANSWER_AI_NAME }}
                 </p>
-                <div v-if="chat.model">
+                <div v-if="chat.model" class="flex items-center gap-2">
                   <span
                     class="bg-gray-400 text-black font-sans rounded-md px-1 py-1"
                     :class="textInference.nameSizeClass"
                   >
                     {{ chat.model }}
                   </span>
+                  <!-- Display RAG source if available -->
+                  <span v-if="chat.ragSource" class="bg-purple-400 text-black font-sans rounded-md px-1 py-1 text-xs">
+                    RAG
+                    <button @click="chat.showRagSource = !chat.showRagSource" class="ml-1">
+                      <img v-if="chat.showRagSource" src="@/assets/svg/arrow-up.svg" class="w-3 h-3" />
+                      <img v-else src="@/assets/svg/arrow-down.svg" class="w-3 h-3" />
+                    </button>
+                  </span>
                 </div>
+              </div>
+              
+              <!-- RAG Source Details (collapsible) -->
+              <div v-if="chat.ragSource && chat.showRagSource" class="mt-2 text-sm text-gray-300 border-l-2 border-purple-400 pl-2 flex flex-row gap-1">
+                <div class="font-bold">{{ i18nState.RAG_SOURCE }}:</div>
+                <div class="whitespace-pre-wrap">{{ chat.ragSource }}</div>
               </div>
               <div class="ai-answer chat-content">
                 <template v-if="chat.model && thinkingModels[chat.model]">
@@ -839,66 +853,73 @@ async function updateTitle(conversation: ChatItem[]) {
   conversation[0].title = newTitle
 }
 
-async function simulatedInput() {
-  while (textOutQueue.length > 0) {
-    const newText = textOutQueue.shift()!
-    receiveOut += newText
-    textOut.value = markdownParser.parseMarkdown(receiveOut)
-    await nextTick()
+    async function simulatedInput() {
+      while (textOutQueue.length > 0) {
+        const newText = textOutQueue.shift()!
+        receiveOut += newText
+        textOut.value = markdownParser.parseMarkdown(receiveOut)
+        await nextTick()
 
-    if (autoScrollEnabled.value) {
-      scrollToBottom()
-    }
-  }
-  if (!textOutFinish) {
-    await util.delay(20)
-    await simulatedInput()
-  } else {
-    const key = currentlyGeneratingKey.value
+        if (autoScrollEnabled.value) {
+          scrollToBottom()
+        }
+      }
+      if (!textOutFinish) {
+        await util.delay(20)
+        await simulatedInput()
+      } else {
+        const key = currentlyGeneratingKey.value
 
-    const finalMetrics: MetricsData = sseMetrics ?? {
-      num_tokens: 0,
-      total_time: 0,
-      first_token_latency: 0,
-      overall_tokens_per_second: 0,
-      second_plus_tokens_per_second: 0,
-    }
+        const finalMetrics: MetricsData = sseMetrics ?? {
+          num_tokens: 0,
+          total_time: 0,
+          first_token_latency: 0,
+          overall_tokens_per_second: 0,
+          second_plus_tokens_per_second: 0,
+        }
 
-    if (key !== null) {
-      conversations.addToActiveConversation(key, {
-        question: textIn.value,
-        answer:
-          textInference.ragList.length > 0 && source.value != ''
-            ? `${receiveOut}\r\n\r\n${i18nState.RAG_SOURCE}${source.value}`
-            : receiveOut,
-        metrics: finalMetrics,
-        model: textInference.activeModel,
-        showThinkingText: false,
-        reasoningTime: markerFound.value ? reasoningTotalTime : undefined,
-        createdAt: Date.now(),
-      })
-      if (conversations.conversationList[key].length <= 3) {
-        console.log('Conversations is less than 4 items long, generating new title')
-        updateTitle(conversations.conversationList[key])
+        if (key !== null) {
+          // Store RAG source information directly
+          const ragSourceInfo = textInference.ragList.length > 0 && textInference.ragList.some(item => item.isChecked)
+            ? textInference.ragList
+                .filter(item => item.isChecked)
+                .map(doc => doc.filename)
+                .join(", ")
+            : null;
+            
+          conversations.addToActiveConversation(key, {
+            question: textIn.value,
+            answer: receiveOut, // No longer append source to answer
+            metrics: finalMetrics,
+            model: textInference.activeModel,
+            ragSource: ragSourceInfo, // Store source separately
+            showRagSource: false, // Initially collapsed
+            showThinkingText: false,
+            reasoningTime: markerFound.value ? reasoningTotalTime : undefined,
+            createdAt: Date.now(),
+          })
+          if (conversations.conversationList[key].length <= 3) {
+            console.log('Conversations is less than 4 items long, generating new title')
+            updateTitle(conversations.conversationList[key])
+          }
+        }
+
+        sseMetrics = null
+        processing.value = false
+        textIn.value = ''
+        textOut.value = ''
+        nextTick(() => {
+          chatPanel.querySelectorAll('copy-code').forEach((item) => {
+            const el = item as HTMLElement
+            el.removeEventListener('click', copyCode)
+            el.addEventListener('click', copyCode)
+          })
+          if (autoScrollEnabled.value) {
+            scrollToBottom(false)
+          }
+        })
       }
     }
-
-    sseMetrics = null
-    processing.value = false
-    textIn.value = ''
-    textOut.value = ''
-    nextTick(() => {
-      chatPanel.querySelectorAll('copy-code').forEach((item) => {
-        const el = item as HTMLElement
-        el.removeEventListener('click', copyCode)
-        el.addEventListener('click', copyCode)
-      })
-      if (autoScrollEnabled.value) {
-        scrollToBottom(false)
-      }
-    })
-  }
-}
 
 function fastGenerate(e: KeyboardEvent) {
   if (e.code == 'Enter') {

@@ -184,6 +184,8 @@ type ChatItem = {
   showThinkingText?: boolean
   reasoningTime?: number
   createdAt?: number
+  ragSource?: string | null
+  showRagSource?: boolean
 }
 
 type ChatRequestParams = {

@@ -992,27 +992,16 @@ async function generate(chatContext: ChatItem[]) {
     processing.value = true
     nextTick(scrollToBottom)
 
-    //if (textInference.ragList.filter((item) => item.isChecked).length > 0) {
-    // const testResponse: KVObject = await textInference.embedInputUsingRag(
-    //   chatContext[chatContext.length - 1].question,
-    // )
-    //}
-
     let externalRagContext = null;
-    let externalRagSource = null;
-    // If there are checked documents in the RAG list
+    
     if (textInference.ragList.filter((item) => item.isChecked).length > 0) {
       try {
-        // Get relevant documents from langchain.js
         const ragResults = await textInference.embedInputUsingRag(
           chatContext[chatContext.length - 1].question
         );
         
         if (ragResults && ragResults.length > 0) {
-          // Extract context and source information using type assertions to handle different document structures
           externalRagContext = ragResults.map(doc => doc.pageContent).join('\n\n');
-          
-          externalRagSource = ragResults.map(doc => doc.metadata.source ?? '').join('\n');
         }
       } catch (error) {
         console.error('Error retrieving RAG documents:', error);
@@ -1023,7 +1012,6 @@ async function generate(chatContext: ChatItem[]) {
       device: globalSetup.modelSettings.graphics,
       prompt: chatContext,
       external_rag_context: externalRagContext,
-      external_rag_source: externalRagSource,
       max_tokens: textInference.maxTokens,
       model_repo_id: textInference.activeModel,
     }

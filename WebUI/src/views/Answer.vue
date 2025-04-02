@@ -565,6 +565,7 @@ let chatPanel: HTMLElement
 const markdownParser = new MarkdownParser(i18nState.COM_COPY)
 
 const thinkingModels: Record<string, string> = {
+  'deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B': '</think>\n\n',
   'deepseek-ai/DeepSeek-R1-Distill-Qwen-14B': '</think>\n\n',
   'deepseek-ai/DeepSeek-R1-Distill-Qwen-7B': '</think>\n\n',
 }
@@ -1002,13 +1003,6 @@ function fastGenerate(e: KeyboardEvent) {
 }
 
 async function newPromptGenerate() {
-  markerFound.value = false
-  thinkingText.value = ''
-  showThinkingText.value = false
-  postMarkerText.value = ''
-  reasoningStartTime = 0
-  reasoningTotalTime = 0
-
   const newPrompt = question.value.trim()
   if (newPrompt == '') {
     toast.error(useI18N().state.ANSWER_ERROR_NOT_PROMPT)
@@ -1059,6 +1053,12 @@ async function generate(chatContext: ChatItem[]) {
     backendServices.updateLastUsedBackend(inferenceBackendService)
 
     textIn.value = util.escape2Html(chatContext[chatContext.length - 1].question)
+    markerFound.value = false
+    thinkingText.value = ''
+    showThinkingText.value = false
+    postMarkerText.value = ''
+    reasoningStartTime = 0
+    reasoningTotalTime = 0
     textOut.value = ''
     receiveOut = ''
     firstOutput = true

@@ -560,6 +560,7 @@ const downloadModel = reactive({
   percent: 0,
 })
 const loadingModel = ref(false)
+const ragRetrievalInProgress = ref(false)
 let receiveOut = ''
 let chatPanel: HTMLElement
 const markdownParser = new MarkdownParser(i18nState.COM_COPY)
@@ -904,85 +905,147 @@ async function updateTitle(conversation: ChatItem[]) {
 
 function getRagSources(actualRagResults: LangchainDocument[]): string {
   // Group documents by source file
-  const fileGroups = new Map<string, Array<{from: number, to: number}>>();
-    const unknownSources: string[] = [];
+  const fileGroups = new Map<string, Array<{
+    lines?: {from: number, to: number},
+    page?: number
+  }>>();
+  const unknownSources: string[] = [];
+  
+  // Process each document
+  actualRagResults.forEach(doc => {
+    const source = doc.metadata?.source;
+    const location = doc.metadata.loc as {pageNumber?: number; lines?: {from?: number, to?: number}} | undefined;
     
-    // Process each document
-    actualRagResults.forEach(doc => {
-      const source = doc.metadata?.source;
-      const location = doc.metadata.loc as {lines?: {from?: number, to?: number}} | undefined;
-      
-      // Handle unknown sources
-      if (!source) {
-        unknownSources.push('Unknown Source');
-        return;
-      }
-      
-      // Skip if no location information
-      if (!location?.lines?.from || !location?.lines?.to) {
-        return;
-      }
-      
-      // Get or create array for this file
-      const ranges = fileGroups.get(source) || [];
-      ranges.push({
+    // Handle unknown sources
+    if (!source) {
+      unknownSources.push('Unknown Source');
+      return;
+    }
+    
+    // Get or create array for this file
+    const entries = fileGroups.get(source) || [];
+    
+    // Create entry with available location information
+    const entry: {lines?: {from: number, to: number}, page?: number} = {};
+    
+    // Add line information if available
+    if (location?.lines?.from && location?.lines?.to) {
+      entry.lines = {
         from: location.lines.from,
         to: location.lines.to
-      });
-      fileGroups.set(source, ranges);
+      };
+    }
+    
+    // Add page information if available
+    if (location?.pageNumber !== undefined) {
+      entry.page = location.pageNumber;
+    }
+    
+    // Only add entry if it has some location information
+    if (Object.keys(entry).length > 0) {
+      entries.push(entry);
+      fileGroups.set(source, entries);
+    }
+  });
+  
+  // Function to merge overlapping line ranges for the same page
+  const mergeRanges = (entries: Array<{lines?: {from: number, to: number}, page?: number}>): Array<{lines?: {from: number, to: number}, page?: number}> => {
+    if (entries.length <= 1) return entries;
+    
+    // Group entries by page number
+    const pageGroups = new Map<number | undefined, Array<{lines?: {from: number, to: number}, page?: number}>>();
+    
+    entries.forEach(entry => {
+      const pageKey = entry.page;
+      const pageEntries = pageGroups.get(pageKey) || [];
+      pageEntries.push(entry);
+      pageGroups.set(pageKey, pageEntries);
     });
     
-    // Function to merge overlapping ranges
-    const mergeRanges = (ranges: Array<{from: number, to: number}>): Array<{from: number, to: number}> => {
-      if (ranges.length <= 1) return ranges;
+    const result: Array<{lines?: {from: number, to: number}, page?: number}> = [];
+    
+    // Process each page group
+    pageGroups.forEach((pageEntries, pageNumber) => {
+      // For entries with line information, merge overlapping ranges
+      const entriesWithLines = pageEntries.filter(e => e.lines);
       
-      // Sort ranges by starting line
-      const sortedRanges = [...ranges].sort((a, b) => a.from - b.from);
-      const result: Array<{from: number, to: number}> = [];
-      
-      let current = sortedRanges[0];
-      
-      // Iterate through sorted ranges and merge overlapping ones
-      for (let i = 1; i < sortedRanges.length; i++) {
-        const next = sortedRanges[i];
+      if (entriesWithLines.length > 0) {
+        // Sort by starting line
+        const sortedEntries = [...entriesWithLines].sort((a, b) => 
+          (a.lines?.from || 0) - (b.lines?.from || 0)
+        );
         
-        // Check if ranges overlap or are adjacent
-        if (current.to >= next.from - 1) {
-          // Merge ranges
-          current = {
-            from: current.from,
-            to: Math.max(current.to, next.to)
-          };
-        } else {
-          // No overlap, add current to result and move to next
-          result.push(current);
-          current = next;
+        let current = sortedEntries[0];
+        
+        // Merge overlapping line ranges
+        for (let i = 1; i < sortedEntries.length; i++) {
+          const next = sortedEntries[i];
+          
+          // Check if ranges overlap or are adjacent
+          if ((current.lines?.to || 0) >= (next.lines?.from || 0) - 1) {
+            // Merge ranges
+            current = {
+              lines: {
+                from: current.lines?.from || 0,
+                to: Math.max(current.lines?.to || 0, next.lines?.to || 0)
+              },
+              page: pageNumber
+            };
+          } else {
+            // No overlap, add current to result and move to next
+            result.push(current);
+            current = next;
+          }
         }
+        
+        // Add the last range
+        result.push(current);
       }
       
-      // Add the last range
-      result.push(current);
-      return result;
-    };
-    
-    // Format results
-    const formattedResults: string[] = [];
-    
-    // Process each file group
-    fileGroups.forEach((ranges, source) => {
-      const filename = source.split(/[\/\\]/).pop() || source;
-      const mergedRanges = mergeRanges(ranges);
-      
-      // Format each merged range
-      mergedRanges.forEach(range => {
-        formattedResults.push(`${filename} (Lines ${range.from}-${range.to})`);
-      });
+      // For entries with only page information (no lines), add a single entry per page
+      if (pageEntries.some(e => !e.lines)) {
+        // If we haven't already added an entry for this page from the line merging
+        if (!result.some(r => r.page === pageNumber && !r.lines)) {
+          result.push({ page: pageNumber });
+        }
+      }
     });
     
-    // Add unknown sources
-    formattedResults.push(...unknownSources);
+    return result;
+  };
+  
+  // Format results
+  const formattedResults: string[] = [];
+  
+  // Process each file group
+  fileGroups.forEach((entries, source) => {
+    const filename = source.split(/[\/\\]/).pop() || source;
+    const mergedEntries = mergeRanges(entries);
     
-    return formattedResults.join("\n");
+    // Format each merged entry
+    mergedEntries.forEach(entry => {
+      let locationInfo = "";
+      
+      // Format based on available information
+      if (entry.page !== undefined && entry.lines) {
+        // Both page and line information
+        locationInfo = `Page ${entry.page}, Lines ${entry.lines.from}-${entry.lines.to}`;
+      } else if (entry.page !== undefined) {
+        // Only page information
+        locationInfo = `Page ${entry.page}`;
+      } else if (entry.lines) {
+        // Only line information
+        locationInfo = `Lines ${entry.lines.from}-${entry.lines.to}`;
+      }
+      
+      formattedResults.push(`${filename} (${locationInfo})`);
+    });
+  });
+  
+  // Add unknown sources
+  formattedResults.push(...unknownSources);
+  
+  return formattedResults.join("\n");
 }
 
 function fastGenerate(e: KeyboardEvent) {
@@ -1076,9 +1139,39 @@ async function generate(chatContext: ChatItem[]) {
     
     if (textInference.ragList.filter((item) => item.isChecked).length > 0) {
       try {
+        // Set RAG retrieval in progress
+        // ragRetrievalInProgress.value = true;
+        
+        // // Add a temporary chat item to show RAG retrieval in progress
+        // const tempChatItem = {
+        //   question: textIn.value,
+        //   answer: '',
+        //   model: textInference.activeModel,
+        //   ragSource: 'Retrieving Documents...',
+        //   showRagSource: true, // Auto-expand during retrieval
+        //   showThinkingText: false,
+        //   metrics: {
+        //     num_tokens: 0,
+        //     total_time: 0,
+        //     first_token_latency: 0,
+        //     overall_tokens_per_second: 0,
+        //     second_plus_tokens_per_second: 0,
+        //   },
+        //   createdAt: Date.now(),
+        // };
+        
+        // conversations.addToActiveConversation(currentlyGeneratingKey.value!, tempChatItem);
+        
+        // Perform RAG retrieval
         const ragResults = await textInference.embedInputUsingRag(
           chatContext[chatContext.length - 1].question
         );
+        
+        // // Remove the temporary chat item
+        // conversations.conversationList[currentlyGeneratingKey.value!].pop();
+        
+        // // Reset RAG retrieval status
+        // ragRetrievalInProgress.value = false;
         
         if (ragResults && ragResults.length > 0) {
           externalRagContext = ragResults.map(doc => doc.pageContent).join('\n\n');
@@ -1086,6 +1179,14 @@ async function generate(chatContext: ChatItem[]) {
           actualRagResults = ragResults;
         }
       } catch (error) {
+        // // Reset RAG retrieval status in case of error
+        // ragRetrievalInProgress.value = false;
+        
+        // // Remove the temporary chat item if it exists
+        // if (conversations.conversationList[currentlyGeneratingKey.value!]?.length > 0) {
+        //   conversations.conversationList[currentlyGeneratingKey.value!].pop();
+        // }
+        
         console.error('Error retrieving RAG documents:', error);
       }
     }

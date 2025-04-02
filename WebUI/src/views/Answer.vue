@@ -598,6 +598,7 @@ function extractPostMarker(fullAnswer: string): string {
 }
 
 let sseMetrics: MetricsData | null = null
+let actualRagResults: LangchainDocument[] | null = null
 
 const source = ref('')
 const emits = defineEmits<{
@@ -864,13 +865,7 @@ async function updateTitle(conversation: ChatItem[]) {
         }
 
         if (key !== null) {
-          // Store RAG source information directly
-          const ragSourceInfo = textInference.ragList.length > 0 && textInference.ragList.some(item => item.isChecked)
-            ? textInference.ragList
-                .filter(item => item.isChecked)
-                .map(doc => doc.filename)
-                .join(", ")
-            : null;
+          const ragSourceInfo = actualRagResults && actualRagResults.length ? getRagSources(actualRagResults) : null;
             
           conversations.addToActiveConversation(key, {
             question: textIn.value,
@@ -905,6 +900,89 @@ async function updateTitle(conversation: ChatItem[]) {
         })
       }
     }
+
+function getRagSources(actualRagResults: LangchainDocument[]): string {
+  // Group documents by source file
+  const fileGroups = new Map<string, Array<{from: number, to: number}>>();
+    const unknownSources: string[] = [];
+    
+    // Process each document
+    actualRagResults.forEach(doc => {
+      const source = doc.metadata?.source;
+      const location = doc.metadata.loc as {lines?: {from?: number, to?: number}} | undefined;
+      
+      // Handle unknown sources
+      if (!source) {
+        unknownSources.push('Unknown Source');
+        return;
+      }
+      
+      // Skip if no location information
+      if (!location?.lines?.from || !location?.lines?.to) {
+        return;
+      }
+      
+      // Get or create array for this file
+      const ranges = fileGroups.get(source) || [];
+      ranges.push({
+        from: location.lines.from,
+        to: location.lines.to
+      });
+      fileGroups.set(source, ranges);
+    });
+    
+    // Function to merge overlapping ranges
+    const mergeRanges = (ranges: Array<{from: number, to: number}>): Array<{from: number, to: number}> => {
+      if (ranges.length <= 1) return ranges;
+      
+      // Sort ranges by starting line
+      const sortedRanges = [...ranges].sort((a, b) => a.from - b.from);
+      const result: Array<{from: number, to: number}> = [];
+      
+      let current = sortedRanges[0];
+      
+      // Iterate through sorted ranges and merge overlapping ones
+      for (let i = 1; i < sortedRanges.length; i++) {
+        const next = sortedRanges[i];
+        
+        // Check if ranges overlap or are adjacent
+        if (current.to >= next.from - 1) {
+          // Merge ranges
+          current = {
+            from: current.from,
+            to: Math.max(current.to, next.to)
+          };
+        } else {
+          // No overlap, add current to result and move to next
+          result.push(current);
+          current = next;
+        }
+      }
+      
+      // Add the last range
+      result.push(current);
+      return result;
+    };
+    
+    // Format results
+    const formattedResults: string[] = [];
+    
+    // Process each file group
+    fileGroups.forEach((ranges, source) => {
+      const filename = source.split(/[\/\\]/).pop() || source;
+      const mergedRanges = mergeRanges(ranges);
+      
+      // Format each merged range
+      mergedRanges.forEach(range => {
+        formattedResults.push(`${filename} (Lines ${range.from}-${range.to})`);
+      });
+    });
+    
+    // Add unknown sources
+    formattedResults.push(...unknownSources);
+    
+    return formattedResults.join("\n");
+}
 
 function fastGenerate(e: KeyboardEvent) {
   if (e.code == 'Enter') {
@@ -993,6 +1071,8 @@ async function generate(chatContext: ChatItem[]) {
     nextTick(scrollToBottom)
 
     let externalRagContext = null;
+    // Reset the global actualRagResults
+    actualRagResults = null;
     
     if (textInference.ragList.filter((item) => item.isChecked).length > 0) {
       try {
@@ -1002,6 +1082,8 @@ async function generate(chatContext: ChatItem[]) {
         
         if (ragResults && ragResults.length > 0) {
           externalRagContext = ragResults.map(doc => doc.pageContent).join('\n\n');
+          // Set the global actualRagResults
+          actualRagResults = ragResults;
         }
       } catch (error) {
         console.error('Error retrieving RAG documents:', error);

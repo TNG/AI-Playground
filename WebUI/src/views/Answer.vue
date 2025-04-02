@@ -291,6 +291,24 @@
               >
                 {{ textInference.activeModel }}
               </span>
+              <span v-if="ragRetrievalInProgress || actualRagResults?.length" class="bg-purple-400 text-black font-sans rounded-md px-1 py-1 cursor-pointer"
+                :class="textInference.nameSizeClass"
+                @click="showRagPreview = !showRagPreview"
+              >
+                Source Docs
+                <button class="ml-1">
+                      <img v-if="showRagPreview" src="@/assets/svg/arrow-up.svg" class="w-3 h-3" />
+                      <img v-else src="@/assets/svg/arrow-down.svg" class="w-3 h-3" />
+                </button>
+              </span>
+            </div>
+            
+            <div v-if="showRagPreview" class="my-2 text-gray-300 border-l-2 border-purple-400 pl-2 flex flex-row gap-1"
+            :class="textInference.fontSizeClass"
+            >
+              <div class="font-bold">{{ i18nState.RAG_SOURCE }}:</div>
+              <div v-if="ragRetrievalInProgress" class="whitespace-pre-wrap">Retrieving Documents...</div>
+              <div v-else-if="actualRagResults?.length" class="whitespace-pre-wrap">{{ getRagSources(actualRagResults) }}</div>
             </div>
             <div
               v-if="!downloadModel.downloading && !loadingModel"
@@ -561,6 +579,7 @@ const downloadModel = reactive({
 })
 const loadingModel = ref(false)
 const ragRetrievalInProgress = ref(false)
+const showRagPreview = ref(true)
 let receiveOut = ''
 let chatPanel: HTMLElement
 const markdownParser = new MarkdownParser(i18nState.COM_COPY)
@@ -875,7 +894,7 @@ async function updateTitle(conversation: ChatItem[]) {
             metrics: finalMetrics,
             model: textInference.activeModel,
             ragSource: ragSourceInfo, // Store source separately
-            showRagSource: false, // Initially collapsed
+            showRagSource: showRagPreview.value, // Initially collapsed
             showThinkingText: false,
             reasoningTime: markerFound.value ? reasoningTotalTime : undefined,
             createdAt: Date.now(),
@@ -1140,42 +1159,18 @@ async function generate(chatContext: ChatItem[]) {
     if (textInference.ragList.filter((item) => item.isChecked).length > 0) {
       try {
         // Set RAG retrieval in progress
-        // ragRetrievalInProgress.value = true;
-        
-        // // Add a temporary chat item to show RAG retrieval in progress
-        // const tempChatItem = {
-        //   question: textIn.value,
-        //   answer: '',
-        //   model: textInference.activeModel,
-        //   ragSource: 'Retrieving Documents...',
-        //   showRagSource: true, // Auto-expand during retrieval
-        //   showThinkingText: false,
-        //   metrics: {
-        //     num_tokens: 0,
-        //     total_time: 0,
-        //     first_token_latency: 0,
-        //     overall_tokens_per_second: 0,
-        //     second_plus_tokens_per_second: 0,
-        //   },
-        //   createdAt: Date.now(),
-        // };
-        
-        // conversations.addToActiveConversation(currentlyGeneratingKey.value!, tempChatItem);
-        
+        ragRetrievalInProgress.value = true;
+        showRagPreview.value = true;
+                
         // Perform RAG retrieval
         const ragResults = await textInference.embedInputUsingRag(
           chatContext[chatContext.length - 1].question
         );
         
-        // // Remove the temporary chat item
-        // conversations.conversationList[currentlyGeneratingKey.value!].pop();
-        
-        // // Reset RAG retrieval status
-        // ragRetrievalInProgress.value = false;
+        ragRetrievalInProgress.value = false;
         
         if (ragResults && ragResults.length > 0) {
           externalRagContext = ragResults.map(doc => doc.pageContent).join('\n\n');
-          // Set the global actualRagResults
           actualRagResults = ragResults;
         }
       } catch (error) {

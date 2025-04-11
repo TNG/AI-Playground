@@ -264,7 +264,7 @@
   "ANSWER_FONT_SIZE": "Font Size",
   "RAG_DOCUMENT_EMBEDDING_MODEL": "Document Embedding Model",
   "RAG_DOCUMENTS": "Documents",
-  "RAG_ENABLED": "enabled",
+  "RAG_ENABLED": "Enabled",
   "RAG_ADD_DOCUMENTS": "Add Documents",
   "RAG_ADD_FILES": "Add Files",
   "RAG_SEARCHABLE_DOCUMENTS": "Searchable Documents",

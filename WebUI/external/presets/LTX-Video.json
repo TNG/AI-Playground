@@ -1,7 +1,7 @@
 {
   "type": "comfy",
   "name": "LTX-Video",
-  "description": "Image to Video generation using LTX-Video",
+  "description": "Image to Video generation using LTX-Video. Recommended for systems with discreet GPUs with high vRAM.",
   "displayPriority": 300,
   "tags": ["LTX Video", "high-vram"],
   "backend": "comfyui",

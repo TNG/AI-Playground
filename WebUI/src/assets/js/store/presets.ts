@@ -653,8 +653,27 @@ export const usePresets = defineStore(
     // Initialization
     // ========================================================================
 
-    // Load presets on store creation
-    loadPresetsFromFiles().then(() => loadUserPresets())
+    /**
+     * Validates that the persisted activePresetName still exists in the loaded presets.
+     * If the preset no longer exists (e.g., was renamed or removed after an update),
+     * the activePresetName is cleared to allow default preset selection logic to run.
+     */
+    function validatePersistedActivePreset(): void {
+      if (activePresetName.value) {
+        const presetExists = presets.value.some((p) => p.name === activePresetName.value)
+        if (!presetExists) {
+          console.log(
+            `[Presets] Persisted preset "${activePresetName.value}" no longer exists, clearing selection`,
+          )
+          activePresetName.value = null
+        }
+      }
+    }
+
+    // Load presets on store creation, then validate persisted selection
+    loadPresetsFromFiles()
+      .then(() => loadUserPresets())
+      .then(() => validatePersistedActivePreset())
 
     return {
       // State

@@ -6,6 +6,7 @@ import { Document } from 'langchain/document'
 import { llmBackendTypes } from '@/types/shared'
 import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { usePresets, type ChatPreset } from './presets'
+import { usePromptStore } from './promptArea'
 
 const LlmBackendSchema = z.enum(llmBackendTypes)
 export type LlmBackend = z.infer<typeof LlmBackendSchema>
@@ -97,7 +98,8 @@ export const useTextInference = defineStore(
     const dialogStore = useDialogStore()
     const models = useModels()
     const presetsStore = usePresets()
-    const backend = ref<LlmBackend>('openVINO')
+    const promptStore = usePromptStore()
+    const backend = ref<LlmBackend>('llamaCPP')
     const ragList = ref<IndexedDocument[]>([])
     const systemPrompt =
       ref<string>(`You are a helpful AI assistant embedded in an application called AI Playground, developed by Intel.
@@ -1219,11 +1221,15 @@ export const useTextInference = defineStore(
       { deep: true },
     )
 
-    // Initialize with first chat preset if available and no preset is selected
+    // Initialize with first chat preset if available and no valid chat preset is selected
+    // Only auto-select when in chat mode to avoid overwriting comfy presets in image gen mode
+    // Note: We check activePreset.value (chat-specific) to handle cases where:
+    // - The persisted preset is a comfy preset (wrong type for chat mode)
+    // - The persisted preset no longer exists after an update
     watch(
       () => presetsStore.chatPresets,
       (chatPresets) => {
-        if (chatPresets.length > 0 && !presetsStore.activePresetName) {
+        if (chatPresets.length > 0 && promptStore.currentMode === 'chat' && !activePreset.value) {
           // Sort by displayPriority and select the first one
           const sortedPresets = [...chatPresets].sort(
             (a, b) => (b.displayPriority || 0) - (a.displayPriority || 0),

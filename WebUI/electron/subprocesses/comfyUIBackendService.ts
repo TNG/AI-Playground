@@ -23,8 +23,13 @@ import { levelZeroDeviceSelectorEnv, cudaDeviceSelectorEnv } from './deviceDetec
 import { BrowserWindow } from 'electron'
 import { LocalSettings } from '../main.ts'
 import { downloadCustomNode } from './comfyuiTools.ts'
-import { TORCH_DEVICE_DETECTION_SCRIPT, parseDeviceDetectionOutput } from './deviceUtils.ts'
-import { detectNvidiaGpus } from './deviceNvidia.ts'
+import {
+  TORCH_DEVICE_DETECTION_SCRIPT,
+  parseDeviceDetectionOutput,
+  prioritizeDevices,
+} from './deviceUtils.ts'
+import { detectNvidiaGpus, isNvidiaDevice } from './deviceNvidia.ts'
+import { isIntelDevice } from './deviceArch.ts'
 type Device = Omit<InferenceDevice, 'selected'>
 export class ComfyUiBackendService extends LongLivedPythonApiService {
   constructor(name: BackendServiceName, port: number, win: BrowserWindow, settings: LocalSettings) {
@@ -88,35 +93,62 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         return false
       }
 
-      // If venv exists but environment mismatch detected, set error details and still allow startup
+      // If venv exists but environment mismatch detected, automatically fix it
       if (checkDetails.envMismatch) {
         this.appLogger.warn(
-          `Service ${this.name} venv exists but environment doesn't match expected state. Will attempt startup but recommend reinstallation.`,
+          `Service ${this.name} venv exists but environment doesn't match expected state. Automatically syncing environment...`,
           this.name,
         )
 
-        // Set error details recommending reinstallation
-        // Include stderr from uv check which contains helpful information about what packages would be changed
-        const stderrInfo = checkDetails.stderr
-          ? `\n\n=== UV Check Output ===\n${checkDetails.stderr}`
-          : ''
-        const stdoutInfo = checkDetails.stdout
-          ? `\n\n=== UV Check Details ===\n${checkDetails.stdout}`
-          : ''
+        try {
+          // Automatically run uv sync to fix the environment
+          this.appLogger.info(`Running uv sync to update ComfyUI environment`, this.name)
+          await installBackend(this.serviceFolder, () => {
+            this.win.webContents.send('show-toast', {
+              type: 'info',
+              message:
+                'ComfyUI environment is being updated to match expected configuration. This may take a moment...',
+            })
+          })
 
-        this.environmentMismatchError = {
-          command: 'ComfyUI environment check',
-          exitCode: checkDetails.exitCode,
-          stdout:
-            `Virtual environment detected at: ${this.pythonEnvDir}\n` +
-            `Environment check failed (exit code: ${checkDetails.exitCode})\n` +
-            `Sync action: ${checkDetails.action}\n\n` +
-            `The Python environment exists but doesn't match the expected configuration.\n` +
-            `This may cause ComfyUI to fail during startup.\n\n` +
-            `Recommendation: Reinstall ComfyUI to ensure the environment matches the expected state.${stdoutInfo}`,
-          stderr: `Environment mismatch detected. The virtual environment at ${this.pythonEnvDir} exists but doesn't match the expected lockfile state.${stderrInfo}`,
-          timestamp: new Date().toISOString(),
-          duration: 0,
+          this.appLogger.info(
+            `Successfully synced ComfyUI environment to match lockfile`,
+            this.name,
+          )
+
+          // Clear any previous environment mismatch error
+          this.environmentMismatchError = null
+        } catch (syncError) {
+          // If sync fails, set error details
+          this.appLogger.error(`Failed to sync ComfyUI environment: ${syncError}`, this.name)
+
+          const stderrInfo = checkDetails.stderr
+            ? `\n\n=== UV Check Output ===\n${checkDetails.stderr}`
+            : ''
+          const stdoutInfo = checkDetails.stdout
+            ? `\n\n=== UV Check Details ===\n${checkDetails.stdout}`
+            : ''
+
+          this.environmentMismatchError = {
+            command: 'ComfyUI environment sync',
+            exitCode: checkDetails.exitCode,
+            stdout:
+              `Virtual environment detected at: ${this.pythonEnvDir}\n` +
+              `Environment check failed (exit code: ${checkDetails.exitCode})\n` +
+              `Sync action: ${checkDetails.action}\n\n` +
+              `The Python environment exists but doesn't match the expected configuration.\n` +
+              `Attempted to automatically sync but failed: ${syncError}\n\n` +
+              `Recommendation: Reinstall ComfyUI to ensure the environment matches the expected state.${stdoutInfo}`,
+            stderr: `Environment mismatch detected and sync failed. The virtual environment at ${this.pythonEnvDir} exists but doesn't match the expected lockfile state.${stderrInfo}\n\nSync error: ${syncError}`,
+            timestamp: new Date().toISOString(),
+            duration: 0,
+          }
+
+          this.win.webContents.send('show-toast', {
+            type: 'error',
+            message:
+              'Failed to automatically update ComfyUI environment. Please try reinstalling ComfyUI.',
+          })
         }
       } else {
         // Clear environment mismatch error if environment is in sync
@@ -151,14 +183,21 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     if (selectedDevice?.id === 'cpu') {
       this.deviceType = 'CPU'
       this.appLogger.info('Device changed to CPU', this.name)
-    } else {
-      // Restore the detected device type based on available devices
-      // This ensures that when switching back from CPU, we use the correct GPU type
-      const hasNvidiaGpu = this.devices.some(
-        (d) => d.id !== 'cpu' && d.name.toLowerCase().includes('nvidia'),
+    } else if (selectedDevice) {
+      // Check the selected device's name to determine device type
+
+      if (isNvidiaDevice(selectedDevice.name)) {
+        this.deviceType = 'CUDA'
+      } else if (isIntelDevice(selectedDevice.name)) {
+        this.deviceType = 'XPU'
+      } else {
+        this.deviceType = 'XPU' // Default to XPU for unknown devices
+      }
+
+      this.appLogger.info(
+        `Device changed to ${selectedDevice.name} (${this.deviceType})`,
+        this.name,
       )
-      this.deviceType = hasNvidiaGpu ? 'CUDA' : 'XPU'
-      this.appLogger.info(`Device changed to GPU (${this.deviceType})`, this.name)
     }
 
     this.updateStatus()
@@ -402,7 +441,12 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         patchFile(
           path.join(this.serviceDir, 'comfy/model_management.py'),
           'from comfy.model_management import get_model',
-          ['from ipex_to_cuda import ipex_init', 'ipex_init()'],
+          [
+            'import os',
+            'if os.environ.get("DISABLE_IPEX", "").lower() not in ("1", "true", "yes"):',
+            '    from ipex_to_cuda import ipex_init',
+            '    ipex_init()',
+          ],
         )
 
         this.appLogger.info('Configuring extra model paths for comfyUI', this.name)
@@ -571,6 +615,11 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   getEnvVars() {
     const selectedDevice = this.devices.find((d) => d.selected)
 
+    this.appLogger.info(
+      `getEnvVars called - deviceType: ${this.deviceType}, selectedDevice: ${selectedDevice?.name} (id: ${selectedDevice?.id})`,
+      this.name,
+    )
+
     // Base environment variables
     const baseEnv = {
       PATH: `${path.join(this.pythonEnvDir, 'Library', 'bin')};${path.join(this.git.dir, 'cmd')};${process.env.PATH}`,
@@ -585,34 +634,55 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     if (selectedDevice?.id === 'cpu') {
       this.deviceType = 'CPU'
       this.appLogger.info('Using CPU mode for ComfyUI (explicitly selected)', this.name)
-      // Don't set CUDA_VISIBLE_DEVICES or ONEAPI_DEVICE_SELECTOR
-      // This ensures PyTorch uses CPU
-      return baseEnv
+      // Explicitly hide all GPU devices and disable IPEX to ensure PyTorch uses CPU only
+      return {
+        ...baseEnv,
+        CUDA_VISIBLE_DEVICES: '',
+        ONEAPI_DEVICE_SELECTOR: '',
+        DISABLE_IPEX: '1', // Disable Intel Extension for PyTorch
+      }
     }
 
     // Device-specific environment variables for GPU modes
     let deviceEnv = {}
     let torchBackend: string | undefined = undefined
 
+    // Extract actual device ID by removing vendor prefix (nvidia-, intel-, etc.)
+    const actualDeviceId = selectedDevice?.id?.replace(/^(nvidia|intel)-/, '') || '0'
+
+    this.appLogger.info(
+      `Setting up GPU environment - deviceType: ${this.deviceType}, actualDeviceId: ${actualDeviceId}`,
+      this.name,
+    )
+
     if (this.deviceType === 'CUDA') {
       // CUDA/NVIDIA GPU configuration
-      deviceEnv = cudaDeviceSelectorEnv(selectedDevice?.id)
+      deviceEnv = cudaDeviceSelectorEnv(actualDeviceId)
       torchBackend = 'cuda'
+      this.appLogger.info(`Using CUDA with device ${actualDeviceId}`, this.name)
     } else if (this.deviceType === 'XPU') {
       // Intel XPU configuration
       deviceEnv = {
-        ...levelZeroDeviceSelectorEnv(selectedDevice?.id),
+        ...levelZeroDeviceSelectorEnv(actualDeviceId),
         SYCL_ENABLE_DEFAULT_CONTEXTS: '1',
         SYCL_CACHE_PERSISTENT: '1',
       }
       torchBackend = process.platform === 'win32' ? 'xpu' : undefined
+      this.appLogger.info(`Using XPU with device ${actualDeviceId}`, this.name)
     }
 
-    return {
+    const finalEnv = {
       ...baseEnv,
       ...deviceEnv,
       ...(torchBackend && { UV_TORCH_BACKEND: torchBackend }),
     }
+
+    this.appLogger.info(
+      `Final environment variables: ${JSON.stringify({ ...deviceEnv, UV_TORCH_BACKEND: torchBackend }, null, 2)}`,
+      this.name,
+    )
+
+    return finalEnv
   }
 
   getPythonBinaryPath() {
@@ -624,42 +694,35 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   }
 
   async detectDevices() {
-    const defaultDevices = [{ id: '*', name: 'Auto select device', selected: true }]
+    this.appLogger.info('Starting device detection for all GPU types', this.name)
 
-    // Check if service is actually set up (don't rely on this.isSetUp flag which may be stale)
-    const pythonBinary = this.getPythonBinaryPath()
-
-    // Check if Python binary exists - this is the real indicator of setup
-    if (!filesystem.existsSync(pythonBinary)) {
-      this.appLogger.info('ComfyUI Python environment not found, using default devices', this.name)
-      this.devices = defaultDevices
-      this.updateStatus()
-      return
-    }
-
-    let allDevices: Device[] = []
+    const allDevices: Device[] = []
 
     try {
-      // First, try to detect NVIDIA GPUs using shared detection (same as LlamaCPP)
+      // Detect NVIDIA GPUs
       this.appLogger.info('Detecting NVIDIA GPUs for CUDA support', this.name)
-
       const nvidiaDevices = await detectNvidiaGpus(this.name)
-
       if (nvidiaDevices.length > 0) {
-        allDevices = nvidiaDevices
-        this.deviceType = 'CUDA'
-        this.appLogger.info(`Detected ${allDevices.length} NVIDIA GPU(s) for CUDA`, this.name)
-      } else {
-        this.appLogger.warn(`No NVIDIA GPUs detected, checking for Intel XPU`, this.name)
+        // Prefix NVIDIA device IDs to avoid conflicts
+        const prefixedNvidiaDevices = nvidiaDevices.map((d) => ({
+          ...d,
+          id: `nvidia-${d.id}`,
+        }))
+        allDevices.push(...prefixedNvidiaDevices)
+        this.appLogger.info(`Detected ${nvidiaDevices.length} NVIDIA GPU(s)`, this.name)
       }
 
-      // If no NVIDIA GPUs, try Intel XPU detection
-      if (allDevices.length === 0) {
+      // Detect Intel XPU devices (only if Python environment is set up)
+      const pythonBinary = this.getPythonBinaryPath()
+      if (filesystem.existsSync(pythonBinary)) {
         try {
-          const checkEnv = {
+          this.appLogger.info('Detecting Intel XPU devices', this.name)
+
+          const cleanEnv = {
             PATH: `${path.join(this.pythonEnvDir, 'Library', 'bin')};${path.join(this.git.dir, 'cmd')};${process.env.PATH}`,
             PYTHONNOUSERSITE: 'true',
             PYTHONIOENCODING: 'utf-8',
+            HF_ENDPOINT: this.settings.huggingfaceEndpoint,
             PIP_CONFIG_FILE: 'nul',
             UV_NO_CONFIG: '1',
           }
@@ -670,18 +733,8 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
             pythonBinary,
             ['-c', checkScript],
             (d) => this.appLogger.info(d, this.name),
-            checkEnv,
+            cleanEnv,
           )
-
-          // Get clean environment variables for XPU detection
-          const cleanEnv = {
-            PATH: `${path.join(this.pythonEnvDir, 'Library', 'bin')};${path.join(this.git.dir, 'cmd')};${process.env.PATH}`,
-            PYTHONNOUSERSITE: 'true',
-            PYTHONIOENCODING: 'utf-8',
-            HF_ENDPOINT: this.settings.huggingfaceEndpoint,
-            PIP_CONFIG_FILE: 'nul',
-            UV_NO_CONFIG: '1',
-          }
 
           // Run detection for XPU
           const result = await spawnProcessAsync(
@@ -690,30 +743,23 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
             (d) => this.appLogger.info(d, this.name),
             cleanEnv,
           )
-          this.appLogger.info(`Device detection result: ${result}`, this.name)
 
           const parsed = parseDeviceDetectionOutput(result, this.name)
 
-          // For XPU devices, we need to iterate through multiple device selectors
+          // For XPU devices, iterate through multiple device selectors
           if (parsed.deviceType === 'XPU') {
-            this.deviceType = 'XPU'
             let xpuDevices: Device[] = []
             let i = 0
             let lastDeviceList: Device[] = []
 
             while ((lastDeviceList.length > 0 || i == 0) && i < 10) {
               const env = { ...cleanEnv, ONEAPI_DEVICE_SELECTOR: `level_zero:${i}` }
-              this.appLogger.info(
-                `Detecting level_zero devices with ONEAPI_DEVICE_SELECTOR=${env.ONEAPI_DEVICE_SELECTOR}`,
-                this.name,
-              )
               const xpuResult = await spawnProcessAsync(
                 pythonBinary,
                 ['-c', TORCH_DEVICE_DETECTION_SCRIPT],
                 (d) => this.appLogger.info(d, this.name),
                 env,
               )
-              this.appLogger.info(`XPU device detection result: ${xpuResult}`, this.name)
 
               const xpuParsed = parseDeviceDetectionOutput(xpuResult, this.name)
               const devices = xpuParsed.devices.map((d) => ({ id: `${i}`, name: d.name }))
@@ -723,45 +769,49 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
               xpuDevices = xpuDevices.concat(lastDeviceList)
             }
 
-            // Add Intel XPU devices to the list
-            allDevices = xpuDevices
-            this.appLogger.info(`Detected ${xpuDevices.length} Intel XPU device(s)`, this.name)
+            if (xpuDevices.length > 0) {
+              allDevices.push(...xpuDevices)
+              this.appLogger.info(`Detected ${xpuDevices.length} Intel XPU device(s)`, this.name)
+            }
           }
         } catch (error) {
-          this.appLogger.warn(
+          this.appLogger.info(
             `Python environment not available for Intel XPU detection: ${error}`,
             this.name,
           )
         }
-      }
-
-      // Now detect NVIDIA GPUs and add them to the list
-      this.appLogger.info('Detecting NVIDIA GPUs for CUDA support', this.name)
-      const nvidiaDevices = await detectNvidiaGpus(this.name)
-
-      if (nvidiaDevices.length > 0) {
-        // If we have NVIDIA GPUs, add them to the device list
-        // NVIDIA will be the default device type if present
-        this.deviceType = 'CUDA'
-        allDevices = [...allDevices, ...nvidiaDevices]
-        this.appLogger.info(`Detected ${nvidiaDevices.length} NVIDIA GPU(s) for CUDA`, this.name)
       } else {
-        this.appLogger.info(`No NVIDIA GPUs detected`, this.name)
+        this.appLogger.info(
+          'ComfyUI Python environment not set up yet, skipping Intel XPU detection',
+          this.name,
+        )
       }
 
-      // Prepare device list: GPU devices first, then CPU as an option
+      // Build final device list: all detected GPUs + CPU option
       if (allDevices.length === 0) {
-        // No GPUs detected, CPU will be the only and default option
+        // No GPUs detected, CPU is the only option and default
         this.deviceType = 'CPU'
         this.devices = [{ id: 'cpu', name: 'CPU', selected: true }]
-        this.appLogger.info('No GPU detected, using CPU', this.name)
+        this.appLogger.info('No GPUs detected, CPU will be used', this.name)
       } else {
-        // GPUs detected, add them first (first GPU selected by default), then CPU as an option
-        const devicesWithCpu = [
-          ...allDevices.map((d, index) => ({ ...d, selected: index === 0 })),
-          { id: 'cpu', name: 'CPU', selected: false },
-        ]
-        this.devices = devicesWithCpu
+        // GPUs detected - prioritize: Intel (dedicated) > Intel (integrated) > NVIDIA > Other > CPU
+        const allDevicesWithCpu = [...allDevices, { id: 'cpu', name: 'CPU' }]
+        this.devices = prioritizeDevices(allDevicesWithCpu, this.name)
+
+        // Set initial device type based on selected (first priority) GPU
+        const selectedDevice = this.devices.find((d) => d.selected)
+        if (selectedDevice && selectedDevice.id !== 'cpu') {
+          if (isNvidiaDevice(selectedDevice.name)) {
+            this.deviceType = 'CUDA'
+          } else if (isIntelDevice(selectedDevice.name)) {
+            this.deviceType = 'XPU'
+          }
+        }
+
+        this.appLogger.info(
+          `Detected ${allDevices.length} GPU(s), default device: ${selectedDevice?.name} (type: ${this.deviceType})`,
+          this.name,
+        )
       }
     } catch (error) {
       this.appLogger.error(`Error detecting devices: ${error}`, this.name)
@@ -770,7 +820,14 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
       this.devices = [{ id: 'cpu', name: 'CPU', selected: true }]
     }
 
-    this.appLogger.info(`detected devices: ${JSON.stringify(this.devices, null, 2)}`, this.name)
+    this.appLogger.info(
+      `Device detection complete. Available devices: ${JSON.stringify(
+        this.devices.map((d) => d.name),
+        null,
+        2,
+      )}`,
+      this.name,
+    )
 
     this.updateStatus()
   }
@@ -797,9 +854,9 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     if (this.deviceType === 'CPU') {
       this.appLogger.info('Adding --cpu flag for CPU-only mode', this.name)
       parameters.push('--cpu')
+      // For CPU mode, don't add GPU-specific optimization flags
     } else {
       // Add user-configured or default startup parameters (only for GPU modes)
-      // Don't add these parameters for CPU mode to avoid conflicts
       parameters.push(...this.comfyUIStartupParameters)
     }
 

@@ -10,7 +10,9 @@ import { LocalSettings } from '../main.ts'
 import getPort, { portNumbers } from 'get-port'
 import { binary, extract } from './tools.ts'
 import { detectNvidiaGpus, checkNvidiaDrivers, isNvidiaDevice } from './deviceNvidia.ts'
+import { detectVulkanGpus } from './deviceVulkan.ts'
 import type { GpuVendor } from './deviceUtils.ts'
+import { prioritizeDevices } from './deviceUtils.ts'
 
 const execAsync = promisify(exec)
 
@@ -91,12 +93,14 @@ export class LlamaCppBackendService implements ApiService {
     this.isSetUp = this.serviceIsSetUp()
     this.appLogger.info(`Service ${this.name} isSetUp: ${this.isSetUp}`, this.name)
 
-    // Cache version on startup if already set up
-    if (this.isSetUp) {
-      this.updateCachedVersion().then(() => {
-        this.updateStatus()
-      })
-    }
+    // Detect devices on startup and cache version
+    this.detectDevices().then(() => {
+      if (this.isSetUp) {
+        this.updateCachedVersion().then(() => {
+          this.updateStatus()
+        })
+      }
+    })
   }
 
   async ensureBackendReadiness(
@@ -192,31 +196,50 @@ export class LlamaCppBackendService implements ApiService {
         return
       }
 
-      this.appLogger.info('Detecting NVIDIA GPUs for CUDA build', this.name)
+      this.appLogger.info('Detecting GPUs for llama.cpp', this.name)
 
-      // For CUDA build, detect NVIDIA GPUs using shared detection
-      const availableDevices = await detectNvidiaGpus(this.name)
+      const availableDevices: Array<{ id: string; name: string }> = []
+
+      // Detect NVIDIA GPUs
+      const nvidiaDevices = await detectNvidiaGpus(this.name)
+      if (nvidiaDevices.length > 0) {
+        // Prefix NVIDIA device IDs to avoid conflicts
+        const prefixedNvidiaDevices = nvidiaDevices.map((d) => ({
+          ...d,
+          id: `nvidia-${d.id}`,
+        }))
+        availableDevices.push(...prefixedNvidiaDevices)
+        this.appLogger.info(`Detected ${nvidiaDevices.length} NVIDIA GPU(s)`, this.name)
+      }
+
+      // Detect Vulkan-capable GPUs (AMD, etc.)
+      const vulkanDevices = await detectVulkanGpus(this.name)
+      if (vulkanDevices.length > 0) {
+        // Prefix Vulkan device IDs to avoid conflicts
+        const prefixedVulkanDevices = vulkanDevices.map((d) => ({
+          ...d,
+          id: `vulkan-${d.id}`,
+        }))
+        availableDevices.push(...prefixedVulkanDevices)
+        this.appLogger.info(`Detected ${vulkanDevices.length} Vulkan-capable GPU(s)`, this.name)
+      }
 
       this.appLogger.info(
         `detected devices: ${JSON.stringify(availableDevices, null, 2)}`,
         this.name,
       )
 
-      // Add CPU device as an option (not default)
-      const devicesWithCpu = [
-        ...availableDevices.map((d, index) => ({
-          ...d,
-          selected: index === 0 && availableDevices.length > 0,
-        })),
-        { id: 'cpu', name: 'CPU', selected: false },
-      ]
+      // Prioritize devices: Intel (dedicated) > Intel (integrated) > NVIDIA > Other > CPU
+      // Add CPU device as an option
+      const allDevices = [...availableDevices, { id: 'cpu', name: 'CPU' }]
 
-      // If no GPU devices found, select CPU by default
+      // If no GPU devices found, use prioritizeDevices which will select CPU
       if (availableDevices.length === 0) {
-        devicesWithCpu[devicesWithCpu.length - 1].selected = true
+        this.devices = [{ id: 'cpu', name: 'CPU', selected: true }]
+      } else {
+        // Use prioritization function to sort and select default
+        this.devices = prioritizeDevices(allDevices, this.name)
       }
-
-      this.devices = devicesWithCpu
     } catch (error) {
       this.appLogger.error(`Failed to detect devices: ${error}`, this.name)
       // Fallback to CPU device on error
@@ -593,13 +616,16 @@ export class LlamaCppBackendService implements ApiService {
           )
         }
       }
+      // Vulkan and other backends don't need special dependency checks
     } catch (error) {
       this.appLogger.error(`Failed to verify GPU dependencies for ${vendor}: ${error}`, this.name)
       // Don't throw - allow execution to continue
-      this.appLogger.warn(
-        `GPU acceleration may not work optimally. Ensure NVIDIA drivers (525.x+) are installed.`,
-        this.name,
-      )
+      if (vendor === 'nvidia') {
+        this.appLogger.warn(
+          `GPU acceleration may not work optimally. Ensure NVIDIA drivers (525.x+) are installed.`,
+          this.name,
+        )
+      }
     }
   }
 
@@ -661,8 +687,8 @@ export class LlamaCppBackendService implements ApiService {
       const useCpu = selectedDevice?.id === 'cpu'
       const useGpu = !useCpu && selectedDevice?.id !== undefined
 
-      // Detect GPU vendor (NVIDIA and Intel supported)
-      let gpuVendor: 'nvidia' | 'intel' | 'unknown' = 'unknown'
+      // Detect GPU vendor (NVIDIA uses CUDA, Intel uses Level Zero, everything else uses Vulkan)
+      let gpuVendor: GpuVendor = 'unknown'
       if (useGpu && selectedDevice) {
         if (isNvidiaDevice(selectedDevice.name)) {
           gpuVendor = 'nvidia'
@@ -671,6 +697,9 @@ export class LlamaCppBackendService implements ApiService {
           selectedDevice.name.toLowerCase().includes('arc')
         ) {
           gpuVendor = 'intel'
+        } else {
+          // Everything else (AMD, etc.) uses Vulkan backend
+          gpuVendor = 'vulkan'
         }
       }
 
@@ -719,11 +748,28 @@ export class LlamaCppBackendService implements ApiService {
         this.appLogger.info(`Using mmproj file ${mmprojFile} for model ${modelRepoId}`, this.name)
       }
 
-      // Set CUDA_VISIBLE_DEVICES for GPU selection
+      // Set environment variables for GPU selection
       const envVars: Record<string, string> = { ...process.env }
-      if (useGpu && selectedDevice && gpuVendor === 'nvidia') {
-        envVars.CUDA_VISIBLE_DEVICES = selectedDevice.id
-        this.appLogger.info(`Setting CUDA_VISIBLE_DEVICES=${selectedDevice.id}`, this.name)
+      if (useGpu && selectedDevice) {
+        if (gpuVendor === 'nvidia') {
+          // Extract NVIDIA device ID
+          const actualDeviceId = selectedDevice.id.replace(/^nvidia-/, '')
+          envVars.CUDA_VISIBLE_DEVICES = actualDeviceId
+          this.appLogger.info(`Setting CUDA_VISIBLE_DEVICES=${actualDeviceId}`, this.name)
+        } else if (gpuVendor === 'vulkan') {
+          // For Vulkan, we need to find the correct device index
+          // Vulkan enumerates all GPUs, so we need to calculate the global index
+          const allGpuDevices = this.devices.filter((d) => d.id !== 'cpu')
+          const vulkanDeviceIndex = allGpuDevices.findIndex((d) => d.id === selectedDevice.id)
+
+          // Hide CUDA devices to prevent llama.cpp from preferring CUDA over Vulkan
+          envVars.CUDA_VISIBLE_DEVICES = ''
+          envVars.GGML_VK_VISIBLE_DEVICES = vulkanDeviceIndex.toString()
+          this.appLogger.info(
+            `Setting GGML_VK_VISIBLE_DEVICES=${vulkanDeviceIndex} for Vulkan backend (device: ${selectedDevice.name}) and hiding CUDA devices`,
+            this.name,
+          )
+        }
       }
 
       const childProcess = spawn(this.llamaCppExePath, args, {
@@ -831,15 +877,48 @@ export class LlamaCppBackendService implements ApiService {
         '--verbose', // Add verbose logging to capture initialization issues
       ]
 
-      // Set CUDA_VISIBLE_DEVICES for GPU selection
+      // Set environment variables for GPU selection
       const selectedDevice = this.devices.find((d) => d.selected)
       const envVars: Record<string, string> = { ...process.env }
       if (selectedDevice && selectedDevice.id !== 'cpu') {
-        envVars.CUDA_VISIBLE_DEVICES = selectedDevice.id
-        this.appLogger.info(
-          `[Embedding] Setting CUDA_VISIBLE_DEVICES=${selectedDevice.id}`,
-          this.name,
-        )
+        // Detect GPU vendor (NVIDIA uses CUDA, everything else uses Vulkan)
+        let gpuVendor: GpuVendor = 'unknown'
+        if (isNvidiaDevice(selectedDevice.name)) {
+          gpuVendor = 'nvidia'
+        } else if (
+          selectedDevice.name.toLowerCase().includes('intel') ||
+          selectedDevice.name.toLowerCase().includes('arc')
+        ) {
+          gpuVendor = 'intel'
+        } else {
+          // Everything else uses Vulkan backend
+          gpuVendor = 'vulkan'
+        }
+
+        if (gpuVendor === 'nvidia') {
+          // Extract NVIDIA device ID
+          const actualDeviceId = selectedDevice.id.replace(/^nvidia-/, '')
+          envVars.CUDA_VISIBLE_DEVICES = actualDeviceId
+          this.appLogger.info(
+            `[Embedding] Setting CUDA_VISIBLE_DEVICES=${actualDeviceId}`,
+            this.name,
+          )
+        } else if (gpuVendor === 'vulkan') {
+          // For Vulkan, we need to find the correct device index
+          // Vulkan enumerates all GPUs, so we need to calculate the global index
+          const allGpuDevices = this.devices.filter((d) => d.id !== 'cpu')
+          const vulkanDeviceIndex = allGpuDevices.findIndex((d) => d.id === selectedDevice.id)
+
+          // Hide CUDA devices to prevent llama.cpp from preferring CUDA over Vulkan
+          envVars.CUDA_VISIBLE_DEVICES = ''
+          envVars.GGML_VK_VISIBLE_DEVICES = vulkanDeviceIndex.toString()
+          this.appLogger.info(
+            `[Embedding] Setting GGML_VK_VISIBLE_DEVICES=${vulkanDeviceIndex} for Vulkan backend (device: ${selectedDevice.name}) and hiding CUDA devices`,
+            this.name,
+          )
+        }
+      } else {
+        this.appLogger.info(`[Embedding] Using CPU mode`, this.name)
       }
 
       const childProcess = spawn(this.llamaCppExePath, args, {

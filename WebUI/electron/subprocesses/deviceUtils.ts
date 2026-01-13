@@ -6,12 +6,101 @@ import { appLoggerInstance } from '../logging/logger.ts'
 import { isIntelDevice } from './deviceArch.ts'
 import { isNvidiaDevice } from './deviceNvidia.ts'
 
-export type DeviceType = 'CUDA' | 'XPU' | 'CPU'
-export type GpuVendor = 'nvidia' | 'intel' | 'unknown'
+export type DeviceType = 'CUDA' | 'XPU' | 'CPU' | 'ROCM'
+export type GpuVendor = 'nvidia' | 'intel' | 'vulkan' | 'unknown'
 
 export interface DetectedDevice {
   id: string
   name: string
+}
+
+/**
+ * Check if a device name suggests it's a dedicated GPU (vs integrated)
+ */
+export function isDedicatedGpu(deviceName: string): boolean {
+  const lowerName = deviceName.toLowerCase()
+
+  // Intel integrated GPU patterns
+  const integratedPatterns = ['uhd graphics', 'iris xe graphics', 'iris plus', 'hd graphics']
+
+  // If it's Intel and matches integrated patterns, it's not dedicated
+  if (isIntelDevice(deviceName)) {
+    return !integratedPatterns.some((pattern) => lowerName.includes(pattern))
+  }
+
+  // All NVIDIA GPUs are considered dedicated
+  if (isNvidiaDevice(deviceName)) {
+    return true
+  }
+
+  // AMD and other GPUs are typically dedicated
+  return true
+}
+
+/**
+ * Get device priority for sorting (lower number = higher priority)
+ * Priority order:
+ * 1. Intel dedicated GPU
+ * 2. Intel integrated GPU
+ * 3. NVIDIA GPU
+ * 4. Other GPUs (AMD, etc.)
+ * 5. CPU
+ */
+export function getDevicePriority(device: { id: string; name: string }): number {
+  const lowerName = device.name.toLowerCase()
+
+  // CPU has lowest priority
+  if (device.id === 'cpu' || lowerName.includes('cpu')) {
+    return 100
+  }
+
+  // Intel GPUs have highest priority
+  if (isIntelDevice(device.name)) {
+    if (isDedicatedGpu(device.name)) {
+      return 1 // Intel dedicated GPU - highest priority
+    } else {
+      return 2 // Intel integrated GPU - second priority
+    }
+  }
+
+  // NVIDIA GPUs are third priority
+  if (isNvidiaDevice(device.name)) {
+    return 3
+  }
+
+  // Other GPUs (AMD, etc.) are fourth priority
+  return 4
+}
+
+/**
+ * Sort devices by priority and return with first device selected by default
+ */
+export function prioritizeDevices(
+  devices: Array<{ id: string; name: string }>,
+  serviceName: string,
+): Array<{ id: string; name: string; selected: boolean }> {
+  if (devices.length === 0) {
+    return []
+  }
+
+  // Sort by priority
+  const sortedDevices = [...devices].sort((a, b) => {
+    const priorityA = getDevicePriority(a)
+    const priorityB = getDevicePriority(b)
+    return priorityA - priorityB
+  })
+
+  // Log the sorted order
+  appLoggerInstance.info(
+    `Device priority order: ${sortedDevices.map((d, i) => `${i + 1}. ${d.name} (priority: ${getDevicePriority(d)})`).join(', ')}`,
+    serviceName,
+  )
+
+  // Mark first device as selected
+  return sortedDevices.map((d, index) => ({
+    ...d,
+    selected: index === 0,
+  }))
 }
 
 /**
@@ -26,11 +115,12 @@ export function detectGpuVendor(deviceName: string): GpuVendor {
     return 'intel'
   }
 
-  return 'unknown'
+  // Everything else uses Vulkan backend
+  return 'vulkan'
 }
 
 /**
- * Python script to detect PyTorch devices (CUDA, XPU, CPU)
+ * Python script to detect PyTorch devices (CUDA, XPU, ROCm, CPU)
  */
 export const TORCH_DEVICE_DETECTION_SCRIPT = `
 import torch
@@ -50,6 +140,21 @@ try:
         sys.exit(0)
 except Exception as e:
     print(f"CUDA check error: {str(e)}", file=sys.stderr)
+
+# Try ROCm next (AMD GPUs)
+try:
+    if hasattr(torch, 'hip') and torch.hip.is_available():
+        device_count = torch.hip.device_count()
+        print("DEVICE_TYPE:ROCM")
+        for i in range(device_count):
+            try:
+                device_name = torch.hip.get_device_name(i)
+                print(f"{i}|{device_name}")
+            except Exception as e:
+                print(f"{i}|Unknown ROCm Device")
+        sys.exit(0)
+except Exception as e:
+    print(f"ROCm check error: {str(e)}", file=sys.stderr)
 
 # Try XPU next (Intel Arc GPUs)
 try:

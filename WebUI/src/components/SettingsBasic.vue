@@ -149,7 +149,7 @@ const selectedSttDevice = computed(
 )
 const sttDeviceItems = computed(() =>
   sttDevices.value.map((d: InferenceDevice) => ({
-    label: `${d.id}: ${d.name}`,
+    label: d.name,
     value: d.id,
     active: true,
   })),

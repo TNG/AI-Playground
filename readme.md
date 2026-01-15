@@ -73,6 +73,15 @@ npm run dev
 
 The application will start in Electron and be accessible at `http://127.0.0.1:25413`. Backend components and Python dependencies are automatically installed on first run.
 
+### Building the Application
+
+To build the application for distribution on Windows, run the build script in PowerShell as Administrator:
+```cmd
+npm run build
+```
+
+**Note:** Administrator privileges are required on Windows to avoid symbolic link creation errors during the build process.
+
 ## Model Support
 AI Playground does not ship with any generative AI models but does make models available for all features either directly from the interface or indirectly by the users downloading models from HuggingFace.co or CivitAI.com and placing them in the appropriate model folder. 
 

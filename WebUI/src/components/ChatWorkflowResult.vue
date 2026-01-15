@@ -168,7 +168,7 @@ interface Props {
 
 const props = defineProps<Props>()
 const instance = getCurrentInstance()
-const languages = instance?.appContext.config.globalProperties.languages
+const languages = instance?.appContext.config.globalProperties.languages || {}
 const i18nState = useI18N().state
 const showInfoParams = ref(false)
 

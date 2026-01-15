@@ -6,7 +6,7 @@ import { appLoggerInstance } from '../logging/logger.ts'
 import { isIntelDevice } from './deviceArch.ts'
 import { isNvidiaDevice } from './deviceNvidia.ts'
 
-export type DeviceType = 'CUDA' | 'XPU' | 'CPU' | 'ROCM'
+export type DeviceType = 'CUDA' | 'XPU' | 'CPU'
 export type GpuVendor = 'nvidia' | 'intel' | 'vulkan' | 'unknown'
 
 export interface DetectedDevice {
@@ -33,7 +33,7 @@ export function isDedicatedGpu(deviceName: string): boolean {
     return true
   }
 
-  // AMD and other GPUs are typically dedicated
+  // Other GPUs are typically dedicated
   return true
 }
 
@@ -43,7 +43,7 @@ export function isDedicatedGpu(deviceName: string): boolean {
  * 1. Intel dedicated GPU
  * 2. Intel integrated GPU
  * 3. NVIDIA GPU
- * 4. Other GPUs (AMD, etc.)
+ * 4. Other GPUs
  * 5. CPU
  */
 export function getDevicePriority(device: { id: string; name: string }): number {
@@ -68,7 +68,7 @@ export function getDevicePriority(device: { id: string; name: string }): number 
     return 3
   }
 
-  // Other GPUs (AMD, etc.) are fourth priority
+  // Other GPUs are fourth priority
   return 4
 }
 
@@ -120,7 +120,7 @@ export function detectGpuVendor(deviceName: string): GpuVendor {
 }
 
 /**
- * Python script to detect PyTorch devices (CUDA, XPU, ROCm, CPU)
+ * Python script to detect PyTorch devices (CUDA, XPU, CPU)
  */
 export const TORCH_DEVICE_DETECTION_SCRIPT = `
 import torch
@@ -141,20 +141,6 @@ try:
 except Exception as e:
     print(f"CUDA check error: {str(e)}", file=sys.stderr)
 
-# Try ROCm next (AMD GPUs)
-try:
-    if hasattr(torch, 'hip') and torch.hip.is_available():
-        device_count = torch.hip.device_count()
-        print("DEVICE_TYPE:ROCM")
-        for i in range(device_count):
-            try:
-                device_name = torch.hip.get_device_name(i)
-                print(f"{i}|{device_name}")
-            except Exception as e:
-                print(f"{i}|Unknown ROCm Device")
-        sys.exit(0)
-except Exception as e:
-    print(f"ROCm check error: {str(e)}", file=sys.stderr)
 
 # Try XPU next (Intel Arc GPUs)
 try:

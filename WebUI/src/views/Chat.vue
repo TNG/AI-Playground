@@ -300,7 +300,7 @@ import { UserCircleIcon } from '@heroicons/vue/24/outline'
 
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const instance = getCurrentInstance()
-const languages = instance?.appContext.config.globalProperties.languages
+const languages = instance?.appContext.config.globalProperties.languages || {}
 const textInference = useTextInference()
 const promptStore = usePromptStore()
 const imageGeneration = useImageGenerationPresets()

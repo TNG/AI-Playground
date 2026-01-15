@@ -2,6 +2,11 @@
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "YourAppID",
   "asar": true,
+  "asarUnpack": [
+    "node_modules/koffi/**/*",
+    "node_modules/sudo-prompt/**/*",
+    "node_modules/zod/**/*"
+  ],
   "copyright": "Copyright © Intel. All rights reserved",
   "extraResources": [
     {
@@ -74,6 +79,18 @@
       "from": ".",
       "to": ".",
       "filter": ["package.json"]
+    },
+    {
+      "from": "node_modules/koffi",
+      "to": "node_modules/koffi"
+    },
+    {
+      "from": "node_modules/sudo-prompt",
+      "to": "node_modules/sudo-prompt"
+    },
+    {
+      "from": "node_modules/zod",
+      "to": "node_modules/zod"
     }
   ],
   "win": {

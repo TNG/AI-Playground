@@ -749,7 +749,9 @@ export class LlamaCppBackendService implements ApiService {
       }
 
       // Set environment variables for GPU selection
-      const envVars: Record<string, string> = { ...process.env }
+      const envVars: Record<string, string> = Object.fromEntries(
+        Object.entries(process.env).filter(([_, v]) => v !== undefined) as [string, string][],
+      )
       if (useGpu && selectedDevice) {
         if (gpuVendor === 'nvidia') {
           // Extract NVIDIA device ID
@@ -772,10 +774,10 @@ export class LlamaCppBackendService implements ApiService {
         }
       }
 
-      const childProcess = spawn(this.llamaCppExePath, args, {
+      const childProcess: ChildProcess = spawn(this.llamaCppExePath, args, {
         cwd: this.llamaCppDir,
         windowsHide: true,
-        env: envVars,
+        env: envVars as NodeJS.ProcessEnv,
       })
 
       const llamaProcess: LlamaServerProcess = {
@@ -789,7 +791,7 @@ export class LlamaCppBackendService implements ApiService {
       }
 
       // Set up process event handlers
-      childProcess.stdout!.on('data', (message) => {
+      childProcess.stdout?.on('data', (message: Buffer) => {
         const msg = message.toString()
         // Log ALL output for debugging
         if (msg.startsWith('I ')) {
@@ -804,7 +806,7 @@ export class LlamaCppBackendService implements ApiService {
         }
       })
 
-      childProcess.stderr!.on('data', (message) => {
+      childProcess.stderr?.on('data', (message: Buffer) => {
         const msg = message.toString()
         // Log ALL stderr output - this is where CUDA/Vulkan errors appear
         if (msg.startsWith('I ')) {
@@ -879,7 +881,9 @@ export class LlamaCppBackendService implements ApiService {
 
       // Set environment variables for GPU selection
       const selectedDevice = this.devices.find((d) => d.selected)
-      const envVars: Record<string, string> = { ...process.env }
+      const envVars: Record<string, string> = Object.fromEntries(
+        Object.entries(process.env).filter(([_, v]) => v !== undefined) as [string, string][],
+      )
       if (selectedDevice && selectedDevice.id !== 'cpu') {
         // Detect GPU vendor (NVIDIA uses CUDA, everything else uses Vulkan)
         let gpuVendor: GpuVendor = 'unknown'
@@ -921,10 +925,10 @@ export class LlamaCppBackendService implements ApiService {
         this.appLogger.info(`[Embedding] Using CPU mode`, this.name)
       }
 
-      const childProcess = spawn(this.llamaCppExePath, args, {
+      const childProcess: ChildProcess = spawn(this.llamaCppExePath, args, {
         cwd: this.llamaCppDir,
         windowsHide: true,
-        env: envVars,
+        env: envVars as NodeJS.ProcessEnv,
       })
 
       const llamaProcess: LlamaServerProcess = {
@@ -937,7 +941,7 @@ export class LlamaCppBackendService implements ApiService {
       }
 
       // Set up process event handlers
-      childProcess.stdout!.on('data', (message) => {
+      childProcess.stdout?.on('data', (message: Buffer) => {
         const msg = message.toString()
         // Log ALL output for debugging
         if (msg.startsWith('I ')) {
@@ -952,7 +956,7 @@ export class LlamaCppBackendService implements ApiService {
         }
       })
 
-      childProcess.stderr!.on('data', (message) => {
+      childProcess.stderr?.on('data', (message: Buffer) => {
         const msg = message.toString()
         // Log ALL stderr output - critical for CUDA/Vulkan errors
         if (msg.startsWith('I ')) {

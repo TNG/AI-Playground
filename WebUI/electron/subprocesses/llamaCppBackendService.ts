@@ -687,18 +687,14 @@ export class LlamaCppBackendService implements ApiService {
       const useCpu = selectedDevice?.id === 'cpu'
       const useGpu = !useCpu && selectedDevice?.id !== undefined
 
-      // Detect GPU vendor (NVIDIA uses CUDA, Intel uses Level Zero, everything else uses Vulkan)
+      // Detect GPU vendor (NVIDIA uses CUDA, Intel Arc and everything else uses Vulkan)
       let gpuVendor: GpuVendor = 'unknown'
       if (useGpu && selectedDevice) {
         if (isNvidiaDevice(selectedDevice.name)) {
           gpuVendor = 'nvidia'
-        } else if (
-          selectedDevice.name.toLowerCase().includes('intel') ||
-          selectedDevice.name.toLowerCase().includes('arc')
-        ) {
-          gpuVendor = 'intel'
         } else {
-          // Everything else (AMD, etc.) uses Vulkan backend
+          // Intel Arc and everything else (generic GPUs) use Vulkan backend
+          // llama.cpp uses Vulkan for all non-CUDA GPUs
           gpuVendor = 'vulkan'
         }
       }
@@ -885,17 +881,13 @@ export class LlamaCppBackendService implements ApiService {
         Object.entries(process.env).filter(([_, v]) => v !== undefined) as [string, string][],
       )
       if (selectedDevice && selectedDevice.id !== 'cpu') {
-        // Detect GPU vendor (NVIDIA uses CUDA, everything else uses Vulkan)
+        // Detect GPU vendor (NVIDIA uses CUDA, Intel Arc and everything else uses Vulkan)
         let gpuVendor: GpuVendor = 'unknown'
         if (isNvidiaDevice(selectedDevice.name)) {
           gpuVendor = 'nvidia'
-        } else if (
-          selectedDevice.name.toLowerCase().includes('intel') ||
-          selectedDevice.name.toLowerCase().includes('arc')
-        ) {
-          gpuVendor = 'intel'
         } else {
-          // Everything else uses Vulkan backend
+          // Intel Arc and everything else use Vulkan backend
+          // llama.cpp uses Vulkan for all non-CUDA GPUs
           gpuVendor = 'vulkan'
         }
 

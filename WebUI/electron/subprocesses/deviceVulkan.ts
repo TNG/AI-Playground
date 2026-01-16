@@ -1,6 +1,7 @@
 /**
  * Vulkan-capable GPU detection utilities
- * Detects GPUs that should use Vulkan backend (e.g., AMD GPUs)
+ * Detects GPUs that should use Vulkan backend (Intel Arc, other non-NVIDIA GPUs)
+ * Note: Intel devices are included as llama.cpp uses Vulkan backend for Intel Arc GPUs
  */
 
 import { promisify } from 'util'
@@ -18,7 +19,7 @@ export interface VulkanDevice {
 
 /**
  * Detect Vulkan-capable GPUs across all platforms
- * Returns GPUs that are not NVIDIA or Intel (these use Vulkan backend)
+ * Returns GPUs that use Vulkan backend (Intel Arc, non-NVIDIA GPUs)
  *
  * @param serviceName - The name of the service calling this function (for logging)
  * @returns Promise resolving to array of detected Vulkan devices
@@ -81,9 +82,10 @@ async function detectVulkanGpusWindows(serviceName: string): Promise<VulkanDevic
         continue
       }
 
-      // Skip NVIDIA and Intel devices - they use their own backends
-      if (isNvidiaDevice(deviceName) || isIntelDevice(deviceName)) {
-        appLoggerInstance.info(`Skipping ${deviceName} - uses dedicated backend`, serviceName)
+      // Skip NVIDIA devices - they use CUDA backend
+      // Intel devices are included as they use Vulkan backend for llama.cpp
+      if (isNvidiaDevice(deviceName)) {
+        appLoggerInstance.info(`Skipping ${deviceName} - uses CUDA backend`, serviceName)
         continue
       }
 
@@ -154,9 +156,7 @@ async function detectVulkanGpusLinux(serviceName: string): Promise<VulkanDevice[
         continue
       }
 
-      // Skip Intel devices on Linux if they should use a different backend
-      // Note: On Linux, Intel integrated GPUs can use Vulkan, so we include them
-      // unless they explicitly use Level Zero backend
+      // Intel devices are included - they use Vulkan backend for llama.cpp on Linux
 
       appLoggerInstance.info(`Found Vulkan-capable GPU: ${deviceName}`, serviceName)
 
@@ -200,8 +200,7 @@ async function detectVulkanGpusMac(serviceName: string): Promise<VulkanDevice[]>
         const deviceName = trimmed.split(':')[1]?.trim()
         if (deviceName) {
           // On macOS, most GPUs can use Metal or Vulkan via MoltenVK
-          // Skip if it's explicitly an Intel device that we want to use a different backend for
-          // But include AMD and Apple Silicon GPUs
+          // Intel, Apple Silicon, and other GPUs are included for Vulkan support
 
           if (isNvidiaDevice(deviceName)) {
             appLoggerInstance.info(`Skipping ${deviceName} - uses CUDA backend`, serviceName)
@@ -233,22 +232,30 @@ async function detectVulkanGpusMac(serviceName: string): Promise<VulkanDevice[]>
 
 /**
  * Check if a device name indicates a Vulkan-capable GPU
- * (e.g., AMD Radeon, but not NVIDIA or Intel)
+ * (e.g., Intel Arc, generic GPUs, but not NVIDIA which uses CUDA)
  */
 export function isVulkanDevice(deviceName: string): boolean {
   const lowerName = deviceName.toLowerCase()
 
-  // Don't treat NVIDIA or Intel as Vulkan devices
-  if (isNvidiaDevice(deviceName) || isIntelDevice(deviceName)) {
+  // Don't treat NVIDIA as Vulkan devices - they use CUDA
+  if (isNvidiaDevice(deviceName)) {
     return false
   }
 
-  // Check for AMD/Radeon
-  if (lowerName.includes('amd') || lowerName.includes('radeon')) {
+  // Intel Arc GPUs use Vulkan backend for llama.cpp
+  if (isIntelDevice(deviceName)) {
     return true
   }
 
-  // Other GPU vendors that would use Vulkan could be added here
+  // Other GPU vendors that would use Vulkan
+  // Check for generic patterns that indicate a GPU
+  if (
+    lowerName.includes('gpu') ||
+    lowerName.includes('graphics') ||
+    lowerName.includes('display')
+  ) {
+    return true
+  }
 
   return false
 }

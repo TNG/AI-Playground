@@ -750,9 +750,8 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
           if (parsed.deviceType === 'XPU') {
             let xpuDevices: Device[] = []
             let i = 0
-            let lastDeviceList: Device[] = []
 
-            while ((lastDeviceList.length > 0 || i == 0) && i < 10) {
+            while (i < 10) {
               const env = { ...cleanEnv, ONEAPI_DEVICE_SELECTOR: `level_zero:${i}` }
               const xpuResult = await spawnProcessAsync(
                 pythonBinary,
@@ -762,17 +761,39 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
               )
 
               const xpuParsed = parseDeviceDetectionOutput(xpuResult, this.name)
-              const devices = xpuParsed.devices.map((d) => ({ id: `${i}`, name: d.name }))
+
+              // If we get CPU instead of XPU, we've exhausted all XPU devices
+              if (xpuParsed.deviceType === 'CPU') {
+                this.appLogger.info(`No more XPU devices found at index ${i}`, this.name)
+                break
+              }
+
+              // Only add XPU devices, not CPU
+              if (xpuParsed.deviceType === 'XPU') {
+                const devices = xpuParsed.devices.map((d) => ({ id: `${i}`, name: d.name }))
+                xpuDevices = xpuDevices.concat(devices)
+                this.appLogger.info(
+                  `Found XPU device at index ${i}: ${devices.map((d) => d.name).join(', ')}`,
+                  this.name,
+                )
+              }
 
               i = i + 1
-              lastDeviceList = devices
-              xpuDevices = xpuDevices.concat(lastDeviceList)
             }
 
             if (xpuDevices.length > 0) {
               allDevices.push(...xpuDevices)
               this.appLogger.info(`Detected ${xpuDevices.length} Intel XPU device(s)`, this.name)
             }
+          }
+          // If CUDA is detected, just use the parsed devices directly
+          else if (parsed.deviceType === 'CUDA') {
+            // CUDA devices already added via detectNvidiaGpus above
+            this.appLogger.info(`CUDA backend detected, using NVIDIA GPUs`, this.name)
+          }
+          // If CPU is detected, no XPU devices available
+          else if (parsed.deviceType === 'CPU') {
+            this.appLogger.info(`No XPU devices detected via PyTorch`, this.name)
           }
         } catch (error) {
           this.appLogger.info(

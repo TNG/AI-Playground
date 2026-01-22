@@ -67,31 +67,14 @@ cd WebUI
 npm install
 ```
 
-### Prepare Python Environment
+### Prepare Development Environment
 
-1. Install Miniforge to manage your Conda environment: https://github.com/conda-forge/miniforge
-
-2. Create a Conda environment with Python 3.11 and libuv:
+1. In the `WebUI` directory, run the `fetch-build-resources` script to download required build resources:
 ```
-conda create -n cp311_libuv python=3.11 libuv -y
+npm run fetch-build-resources
 ```
 
-3. Locate the path to your newly created Conda environment:
-```
-conda env list | findstr cp311_libuv
-```
-
-4. In the `WebUI` directory, execute the `fetch-build-resources` script, replacing `<path_to_cp311_libuv_conda_env>` with the actual path you copied in the previous step:
-```
-npm run fetch-build-resources -- --conda_env_dir=<path_to_cp311_libuv_conda_env>
-```
-
-5. Run the `prepare-build` script:
-```
-npm run prepare-build
-```
-
-You should now have a basic Python environment located at `build-envs\online\prototype-python-env`.
+This will download `uv` (Python package manager) and other required tools to the `build/resources/` directory.
 
 ### Launch the application
 

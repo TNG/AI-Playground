@@ -10,6 +10,7 @@ interface ModelCapabilities {
   maxContextSize?: number
   name?: string
   npuSupport?: boolean
+  isPredefined?: boolean
 }
 
 const props = withDefaults(
@@ -54,6 +55,11 @@ const maxContextSizeFormatted = computed(() => formatMaxContextSize(props.model.
         <div class="space-y-2">
           <div class="space-y-1">
             <h3 class="text-sm font-semibold">Model Info</h3>
+            <div v-if="model.isPredefined === false" class="space-y-1">
+              <p class="text-xs text-amber-500 dark:text-amber-400">
+                ⚠️ User-added model - capabilities may not be fully specified
+              </p>
+            </div>
             <div v-if="model.maxContextSize" class="space-y-1">
               <p class="text-xs text-muted-foreground">
                 Max Context Size: {{ maxContextSizeFormatted }} tokens

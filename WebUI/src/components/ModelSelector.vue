@@ -78,15 +78,20 @@ const items = computed(() => {
       supportsReasoning: item.supportsReasoning,
       maxContextSize: item.maxContextSize,
       npuSupport: item.npuSupport,
+      isPredefined: item.isPredefined,
     }))
 })
 
 const selectedItem = computed(() => {
+  const currentModelData = textInference.llmModels.find(
+    (m) => m.type === textInference.backend && m.active
+  )
   return (
     items.value.find((item) => item.value === value.value) || {
       label: 'Select...',
       value: '',
       active: false,
+      isPredefined: true,
     }
   )
 })
@@ -118,6 +123,13 @@ watchEffect(() => {
             {{ selectedItem.label }}
           </span>
           <div class="flex items-center gap-1">
+            <span
+              v-if="!selectedItem.isPredefined && selectedItem.value"
+              class="px-1.5 py-0.5 text-[10px] font-medium bg-primary/20 text-primary rounded shrink-0"
+              title="User-added model"
+            >
+              Custom
+            </span>
             <ModelCapabilities v-if="currentModel" :model="currentModel" />
             <ChevronDownIcon class="size-4 text-muted-foreground"></ChevronDownIcon>
           </div>
@@ -159,7 +171,14 @@ watchEffect(() => {
               :class="item.active ? 'bg-primary' : 'bg-muted-foreground'"
             ></div>
             <span class="flex-1 truncate">{{ item.label }}</span>
-            <div class="flex gap-1 ml-2 shrink-0">
+            <div class="flex gap-1 ml-2 shrink-0 items-center">
+              <span
+                v-if="!item.isPredefined"
+                class="px-1.5 py-0.5 text-[10px] font-medium bg-primary/20 text-primary rounded"
+                title="User-added model"
+              >
+                Custom
+              </span>
               <ModelCapabilities
                 :model="{
                   name: item.label,
@@ -168,6 +187,7 @@ watchEffect(() => {
                   supportsReasoning: item.supportsReasoning,
                   maxContextSize: item.maxContextSize,
                   npuSupport: item.npuSupport,
+                  isPredefined: item.isPredefined,
                 }"
                 icon-size="size-3.5"
               />

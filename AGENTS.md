@@ -1923,9 +1923,8 @@ const monitorWorkflowPerformance = (workflow: ComfyUIWorkflow) => {
 cd WebUI
 npm install
 
-# Prepare Python environment
-npm run fetch-build-resources -- --conda_env_dir=<path_to_conda_env>
-npm run prepare-build
+# Fetch build resources
+npm run fetch-build-resources
 
 # Start development mode
 npm run dev

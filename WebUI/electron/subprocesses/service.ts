@@ -140,6 +140,8 @@ export async function createEnhancedErrorDetails(
 
 export const aipgBaseDir = () =>
   app.isPackaged ? process.resourcesPath : path.join(__dirname, '../../../')
+const buildResources = () =>
+  app.isPackaged ? aipgBaseDir() : path.join(aipgBaseDir(), 'build', 'resources')
 export const hijacksDir = path.resolve(path.join(aipgBaseDir(), `hijacks/ipex_to_cuda`))
 const hijacksRemote = 'https://github.com/Disty0/ipex_to_cuda.git'
 const hijacksRevision = '7379d6ecbc26a96b1a39f6fc063c61fc8462914f'
@@ -383,7 +385,7 @@ export class GitService extends ExecutableService {
     'https://github.com/git-for-windows/git/releases/download/v2.51.2.windows.1/PortableGit-2.51.2-64-bit.7z.exe'
   readonly sha256 = 'f5764d546ff9a2511b50ec4e20424c5f4669de1695abc3fa4128e7f7d4a7b2cd'
   readonly zipPath = path.resolve(path.join(this.baseDir, 'portable-git.7z.exe'))
-  readonly unzipExePath = path.resolve(path.join(this.baseDir, '7zr.exe'))
+  readonly unzipExePath = path.resolve(path.join(buildResources(), '7zr.exe'))
 
   private async checkGitZip(): Promise<boolean> {
     if (!filesystem.existsSync(this.zipPath)) {

@@ -83,9 +83,6 @@ const items = computed(() => {
 })
 
 const selectedItem = computed(() => {
-  const currentModelData = textInference.llmModels.find(
-    (m) => m.type === textInference.backend && m.active
-  )
   return (
     items.value.find((item) => item.value === value.value) || {
       label: 'Select...',
@@ -171,7 +168,7 @@ watchEffect(() => {
               :class="item.active ? 'bg-primary' : 'bg-muted-foreground'"
             ></div>
             <span class="flex-1 truncate">{{ item.label }}</span>
-            <div class="flex gap-1 ml-2 shrink-0 items-center">
+            <div class="flex items-center gap-1 ml-2 shrink-0">
               <span
                 v-if="!item.isPredefined"
                 class="px-1.5 py-0.5 text-[10px] font-medium bg-primary/20 text-primary rounded"

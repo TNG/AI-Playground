@@ -99,9 +99,9 @@ export const useTextInference = defineStore(
     const presetsStore = usePresets()
     const backend = ref<LlmBackend>('llamaCPP')
     const ragList = ref<IndexedDocument[]>([])
-    const systemPrompt =
-      ref<string>(`You are a helpful AI assistant embedded in an application called AI Playground, developed by Intel.
-      You assist users by answering questions and providing information based on your training data and any additional context provided.`)
+    const defaultSystemPrompt = `You are a helpful AI assistant embedded in an application called AI Playground, developed by Intel.
+      You assist users by answering questions and providing information based on your training data and any additional context provided.`
+    const systemPrompt = ref<string>(defaultSystemPrompt)
 
     const selectedModels = ref<LlmBackendKV>({
       llamaCPP: null,
@@ -970,6 +970,16 @@ export const useTextInference = defineStore(
       return variantName ? `${activePreset.value.name}:${variantName}` : activePreset.value.name
     }
 
+    const isSystemPromptVisible = computed(() => activePreset.value?.advancedMode === true)
+    const isToolsToggleVisible = computed(
+      () => activePreset.value?.showTools === true && modelSupportsToolCalling.value,
+    )
+
+    function getDefaultToolsEnabled(preset: ChatPreset): boolean {
+      if (!modelSupportsToolCalling.value) return false
+      return preset.toolsEnabledByDefault ?? preset.requiresToolCalling === true
+    }
+
     // Load saved settings for the active preset
     function loadSettingsForActivePreset() {
       if (!activePreset.value) return
@@ -1109,11 +1119,13 @@ export const useTextInference = defineStore(
         temperature.value = preset.temperature
       }
 
-      // Load system prompt (only if user has modified it)
-      if (savedSettings.systemPrompt !== undefined) {
+      // Load system prompt (only when user can modify it)
+      if (isSystemPromptVisible.value && savedSettings.systemPrompt !== undefined) {
         systemPrompt.value = savedSettings.systemPrompt as string
       } else if (preset.systemPrompt) {
         systemPrompt.value = preset.systemPrompt
+      } else {
+        systemPrompt.value = defaultSystemPrompt
       }
 
       // Load metrics enabled
@@ -1124,15 +1136,13 @@ export const useTextInference = defineStore(
         metricsEnabled.value = false
       }
 
-      // Load tools enabled
-      // Only allow tools to be enabled if preset has showTools enabled
-      if (preset.showTools !== true) {
-        // Force disable tools when preset hides the toggle
-        toolsEnabled.value = false
+      // Load tools enabled (only when user can modify it)
+      if (!isToolsToggleVisible.value) {
+        toolsEnabled.value = getDefaultToolsEnabled(preset)
       } else if (savedSettings.toolsEnabled !== undefined) {
         toolsEnabled.value = savedSettings.toolsEnabled as boolean
       } else {
-        toolsEnabled.value = preset.toolsEnabledByDefault ?? preset.requiresToolCalling === true
+        toolsEnabled.value = getDefaultToolsEnabled(preset)
       }
 
       // Clear flag after loading
@@ -1205,14 +1215,11 @@ export const useTextInference = defineStore(
         const settingsKey = getSettingsKey()
         if (!settingsKey) return
 
-        // Only save device for OpenVINO backend (llamaCPP is GPU-only)
-        if (backend.value === 'openVINO') {
-          const currentDeviceId = getCurrentDeviceId()
-          if (currentDeviceId) {
-            settingsPerPreset.value[settingsKey] = {
-              ...settingsPerPreset.value[settingsKey],
-              selectedDeviceId: currentDeviceId,
-            }
+        const currentDeviceId = getCurrentDeviceId()
+        if (currentDeviceId) {
+          settingsPerPreset.value[settingsKey] = {
+            ...settingsPerPreset.value[settingsKey],
+            selectedDeviceId: currentDeviceId,
           }
         }
       },

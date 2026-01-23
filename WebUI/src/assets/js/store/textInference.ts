@@ -982,6 +982,7 @@ export const useTextInference = defineStore(
 
     // Load saved settings for the active preset
     function loadSettingsForActivePreset() {
+      console.log('Loading settings for active preset', activePreset.value)
       if (!activePreset.value) return
 
       const settingsKey = getSettingsKey()
@@ -1033,28 +1034,24 @@ export const useTextInference = defineStore(
         backend.value = runningBackend || preset.backends[0]
       }
 
-      // Load device selection (for OpenVINO backend)
-      // Note: llamaCPP is GPU-only on target platform (Vulkan), so no device selection needed
-      if (backend.value === 'openVINO') {
-        const serviceName = backendToService[backend.value] as BackendServiceName
-        const serviceInfo = backendServices.info.find((s) => s.serviceName === serviceName)
+      const serviceName = backendToService[backend.value] as BackendServiceName
+      const serviceInfo = backendServices.info.find((s) => s.serviceName === serviceName)
 
-        if (preset.lockDeviceToNpu) {
-          // NPU Chat: Force NPU selection (handled in prepareBackendIfNeeded)
-          // Don't override here - let the existing lockDeviceToNpu logic handle it
-        } else if (savedSettings.selectedDeviceId !== undefined) {
-          // Restore saved device preference
-          const savedDeviceId = savedSettings.selectedDeviceId as string
-          const deviceExists = serviceInfo?.devices.some((d) => d.id === savedDeviceId)
-          if (deviceExists) {
-            backendServices.selectDevice(serviceName, savedDeviceId)
-          }
-        } else {
-          // Default to GPU if no preference saved
-          const gpuDevice = serviceInfo?.devices.find((d) => d.id.includes('GPU'))
-          if (gpuDevice && !gpuDevice.selected) {
-            backendServices.selectDevice(serviceName, gpuDevice.id)
-          }
+      if (preset.lockDeviceToNpu) {
+        // NPU Chat: Force NPU selection (handled in prepareBackendIfNeeded)
+        // Don't override here - let the existing lockDeviceToNpu logic handle it
+      } else if (savedSettings.selectedDeviceId !== undefined) {
+        // Restore saved device preference
+        const savedDeviceId = savedSettings.selectedDeviceId as string
+        const deviceExists = serviceInfo?.devices.some((d) => d.id === savedDeviceId)
+        if (deviceExists) {
+          backendServices.selectDevice(serviceName, savedDeviceId)
+        }
+      } else {
+        // Default to GPU if no preference saved
+        const gpuDevice = serviceInfo?.devices.find((d) => d.id.includes('GPU'))
+        if (gpuDevice && !gpuDevice.selected) {
+          backendServices.selectDevice(serviceName, gpuDevice.id)
         }
       }
 
@@ -1121,10 +1118,13 @@ export const useTextInference = defineStore(
 
       // Load system prompt (only when user can modify it)
       if (isSystemPromptVisible.value && savedSettings.systemPrompt !== undefined) {
+        console.log('Loading system prompt from saved settings', savedSettings.systemPrompt)
         systemPrompt.value = savedSettings.systemPrompt as string
       } else if (preset.systemPrompt) {
+        console.log('Loading system prompt from preset', preset.systemPrompt)
         systemPrompt.value = preset.systemPrompt
       } else {
+        console.log('Loading system prompt from default', defaultSystemPrompt)
         systemPrompt.value = defaultSystemPrompt
       }
 
@@ -1227,15 +1227,32 @@ export const useTextInference = defineStore(
     )
 
     // Initialize with first chat preset if available and no preset is selected
+    // Note: We call loadSettingsForActivePreset() directly here instead of using
+    // presetSwitching.switchPreset() because the watcher is synchronous.
+
+    let initialSettingsLoaded = false
+
+    // Initialize chat preset settings on startup.
+    // This handles two cases:
+    // 1. First launch: activePresetName is null → select first chat preset
+    // 2. Subsequent launches: activePresetName is persisted → load settings directly
+    // Note: We call loadSettingsForActivePreset() directly here instead of using
+    // presetSwitching.switchPreset() because the watcher is synchronous.
     watch(
       () => presetsStore.chatPresets,
       (chatPresets) => {
-        if (chatPresets.length > 0 && !presetsStore.activePresetName) {
-          // Sort by displayPriority and select the first one
-          const sortedPresets = [...chatPresets].sort(
-            (a, b) => (b.displayPriority || 0) - (a.displayPriority || 0),
-          )
-          presetsStore.activePresetName = sortedPresets[0].name
+        if (chatPresets.length > 0 && !initialSettingsLoaded) {
+          // First launch: no preset is selected, so initialize with the first chat preset
+          if (!presetsStore.activePresetName) {
+            const sortedPresets = [...chatPresets].sort(
+              (a, b) => (b.displayPriority || 0) - (a.displayPriority || 0),
+            )
+            presetsStore.activePresetName = sortedPresets[0].name
+          }
+
+          // Load settings for the active preset (works for both cases)
+          loadSettingsForActivePreset()
+          initialSettingsLoaded = true
         }
       },
       { immediate: true },

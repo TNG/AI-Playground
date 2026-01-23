@@ -32,7 +32,7 @@
         </div>
 
         <div
-          v-else-if="image.type === 'image' && image.sourceImageUrl === image.imageUrl"
+          v-else-if="image.type === 'image' && image.fromImageGen"
           class="absolute bottom-0 w-full bg-background/60 text-foreground text-[14px] text-center py-[2px]"
         >
           {{ languages.ENHANCE_PREVIEW_BEFORE_PROCESS }}

@@ -77,7 +77,7 @@
           class="absolute bottom-0 -right-8 box-content flex flex-col items-center justify-center gap-2"
         >
           <button
-            v-if="currentImage && currentImage?.state !== 'generating' && props.mode === 'imageGen'"
+            v-if="currentImage && currentImage?.state !== 'generating' && (props.mode === 'imageGen' || props.mode === 'imageEdit')"
             @click="postImageToMode(currentImage, 'imageEdit')"
             :title="languages.COM_POST_TO_IMAGE_EDIT"
             class="bg-muted rounded-xs w-6 h-6 flex items-center justify-center"
@@ -163,7 +163,7 @@ import {
 } from '@/assets/js/store/imageGenerationPresets'
 import Model3DViewer from '@/components/Model3DViewer.vue'
 import { usePromptStore } from '@/assets/js/store/promptArea.ts'
-import { checkIfNsfwBlocked } from '@/lib/utils'
+import { checkIfNsfwBlocked, imageUrlToDataUri } from '@/lib/utils'
 
 interface Props {
   mode: WorkflowModeType
@@ -269,15 +269,8 @@ function stopGeneration() {
 }
 
 async function postImageToMode(image: MediaItem, mode: WorkflowModeType) {
+  await imageGeneration.copyImageAsInputForMode(image, mode)
   promptStore.setCurrentMode(mode)
-
-  const mewImage: MediaItem = { ...image }
-  mewImage.mode = mode
-  if (image.type === 'image') {
-    mewImage.sourceImageUrl = image.imageUrl
-  }
-
-  imageGeneration.generatedImages.push(mewImage)
 }
 
 function showParamsDialog() {

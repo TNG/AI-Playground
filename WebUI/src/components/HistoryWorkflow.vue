@@ -47,7 +47,6 @@
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" class="w-28">
-            <DropdownMenuItem @click.stop="reloadImage(image)"> Reload </DropdownMenuItem>
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <DropdownMenuItem @select="(e: Event) => e.preventDefault()">

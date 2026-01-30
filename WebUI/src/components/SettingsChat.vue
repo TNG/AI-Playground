@@ -31,23 +31,23 @@
           <DeviceSelector :backend="backendToService[textInference.backend]" />
         </div>
         <div class="grid grid-cols-[120px_1fr] items-center gap-4">
-          <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
+          <div class="flex items-center gap-2">
+            <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
+            <button
+              class="svg-icon i-refresh w-5 h-5 text-primary shrink-0"
+              @click="models.refreshModels"
+              :title="languages.COM_REFRESH || 'Refresh model list'"
+            ></button>
+          </div>
           <ModelSelector />
         </div>
-        <div class="flex items-center gap-2">
-          <Button
-            variant="secondary"
-            class="w-auto px-3 py-1.5 rounded text-sm"
-            @click="() => (showModelRequestDialog = true)"
-          >
-            {{ languages.COM_ADD + ' ' + languages.MODEL }}
-          </Button>
-          <button
-            class="svg-icon i-refresh w-5 h-5 text-primary shrink-0"
-            @click="models.refreshModels"
-            :title="languages.COM_REFRESH || 'Refresh model list'"
-          ></button>
-        </div>
+        <Button
+          variant="secondary"
+          class="self-start w-auto px-3 py-1.5 rounded text-sm"
+          @click="() => (showModelRequestDialog = true)"
+        >
+          {{ languages.COM_ADD + ' ' + languages.MODEL }}
+        </Button>
 
         <!-- Add Documents button - only shown when RAG is enabled -->
         <Button

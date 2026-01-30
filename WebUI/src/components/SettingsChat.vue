@@ -34,13 +34,20 @@
           <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
           <ModelSelector />
         </div>
-        <Button
-          variant="secondary"
-          class="self-start w-auto px-3 py-1.5 rounded text-sm"
-          @click="() => (showModelRequestDialog = true)"
-        >
-          {{ languages.COM_ADD + ' ' + languages.MODEL }}
-        </Button>
+        <div class="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            class="w-auto px-3 py-1.5 rounded text-sm"
+            @click="() => (showModelRequestDialog = true)"
+          >
+            {{ languages.COM_ADD + ' ' + languages.MODEL }}
+          </Button>
+          <button
+            class="svg-icon i-refresh w-5 h-5 text-primary shrink-0"
+            @click="models.refreshModels"
+            :title="languages.COM_REFRESH || 'Refresh model list'"
+          ></button>
+        </div>
 
         <!-- Add Documents button - only shown when RAG is enabled -->
         <Button
@@ -181,8 +188,10 @@ import { usePresets, type ChatPreset } from '@/assets/js/store/presets.ts'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching.ts'
 import PresetSelector from '@/components/PresetSelector.vue'
 import * as toast from '@/assets/js/toast'
+import { useModels } from '@/assets/js/store/models.ts'
 
 const showModelRequestDialog = ref(false)
+const models = useModels()
 const showUploader = ref(false)
 const processing = ref(false)
 const i18nState = useI18N().state

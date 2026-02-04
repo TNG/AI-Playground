@@ -53,6 +53,7 @@ export class LlamaCppBackendService implements ApiService {
   private llamaEmbeddingProcess: LlamaServerProcess | null = null
   private currentLlmModel: string | null = null
   private currentContextSize: number | null = null
+  private currentMmproj: string | undefined = undefined
   private currentEmbeddingModel: string | null = null
 
   // Store last startup error details for persistence
@@ -102,9 +103,10 @@ export class LlamaCppBackendService implements ApiService {
     llmModelName: string,
     embeddingModelName?: string,
     contextSize?: number,
+    selectedMmproj?: string,
   ): Promise<void> {
     this.appLogger.info(
-      `Ensuring LlamaCPP backend readiness for LLM: ${llmModelName}, Embedding: ${embeddingModelName ?? 'none'}, Context: ${contextSize ?? 'default'}`,
+      `Ensuring LlamaCPP backend readiness for LLM: ${llmModelName}, Embedding: ${embeddingModelName ?? 'none'}, Context: ${contextSize ?? 'default'}, mmproj: ${selectedMmproj || 'auto'}`,
       this.name,
     )
 
@@ -113,11 +115,18 @@ export class LlamaCppBackendService implements ApiService {
       const needsLlmRestart =
         this.currentLlmModel !== llmModelName ||
         (contextSize && contextSize !== this.currentContextSize) ||
+        this.currentMmproj !== selectedMmproj ||
         !this.llamaLlmProcess?.isReady
 
       if (needsLlmRestart) {
+        if (this.currentMmproj !== selectedMmproj) {
+          this.appLogger.info(
+            `mmproj changed from '${this.currentMmproj || 'auto'}' to '${selectedMmproj || 'auto'}', restarting server`,
+            this.name,
+          )
+        }
         await this.stopLlamaLlmServer()
-        await this.startLlamaLlmServer(llmModelName, contextSize)
+        await this.startLlamaLlmServer(llmModelName, contextSize, selectedMmproj)
         this.appLogger.info(`LLM server ready with model: ${llmModelName}`, this.name)
       } else {
         this.appLogger.info(`LLM server already running with model: ${llmModelName}`, this.name)
@@ -524,6 +533,7 @@ export class LlamaCppBackendService implements ApiService {
   private async startLlamaLlmServer(
     modelRepoId: string,
     contextSize?: number,
+    selectedMmproj?: string,
   ): Promise<LlamaServerProcess> {
     try {
       const modelPath = this.resolveModelPath(modelRepoId)
@@ -555,16 +565,36 @@ export class LlamaCppBackendService implements ApiService {
       ]
 
       const modelFolder = path.dirname(modelPath)
-      // find mmproj*.gguf file in the same folder
-      const files = await filesystem.readdir(modelFolder)
-      const mmprojFiles = files.filter(
-        (file) => file.startsWith('mmproj') && file.endsWith('.gguf'),
-      )
-      const mmprojFile = mmprojFiles.at(0)
+
+      let mmprojFile: string | undefined = undefined
+
+      if (selectedMmproj) {
+        const mmprojPath = path.join(modelFolder, selectedMmproj)
+        if (await filesystem.pathExists(mmprojPath)) {
+          mmprojFile = selectedMmproj
+        } else {
+          this.appLogger.warn(
+            `Selected mmproj file ${selectedMmproj} not found, skipping`,
+            this.name,
+          )
+        }
+      }
+
+      if (!mmprojFile) {
+        const files = await filesystem.readdir(modelFolder)
+        const mmprojFiles = files.filter(
+          (file) => file.startsWith('mmproj') && file.endsWith('.gguf'),
+        )
+        mmprojFile = mmprojFiles.at(0)
+      }
+
       if (mmprojFile) {
         const mmprojPath = path.join(modelFolder, mmprojFile)
         args.push('--mmproj', mmprojPath)
-        this.appLogger.info(`Using mmproj file ${mmprojFile} for model ${modelRepoId}`, this.name)
+        this.appLogger.info(
+          `Using mmproj file ${mmprojFile} for model ${modelRepoId}${selectedMmproj ? ' (selected)' : ' (auto-detected)'}`,
+          this.name,
+        )
       }
 
       const childProcess = spawn(this.llamaCppExePath, args, {
@@ -619,6 +649,7 @@ export class LlamaCppBackendService implements ApiService {
           this.llamaLlmProcess = null
           this.currentLlmModel = null
           this.currentContextSize = null
+          this.currentMmproj = undefined
         }
       })
 
@@ -629,6 +660,7 @@ export class LlamaCppBackendService implements ApiService {
       this.llamaLlmProcess = llamaProcess
       this.currentLlmModel = modelRepoId
       this.currentContextSize = ctxSize
+      this.currentMmproj = selectedMmproj
 
       this.appLogger.info(`LLM server ready for model: ${modelRepoId}`, this.name)
       return llamaProcess
@@ -765,6 +797,7 @@ export class LlamaCppBackendService implements ApiService {
       this.llamaLlmProcess = null
       this.currentLlmModel = null
       this.currentContextSize = null
+      this.currentMmproj = undefined
     }
   }
 

@@ -16,7 +16,9 @@ export type ModelType = 'embedding' | 'undefined' | LlmBackend
 
 export type Model = {
   name: string
-  mmproj?: string
+  mmproj?: string // For predefined models: the mmproj file path to download
+  mmprojFiles?: string[] // Available mmproj files in the model folder (populated at runtime)
+  selectedMmproj?: string // Selected mmproj file for this model (user choice)
   downloaded: boolean
   type: ModelType
   backend?: LlmBackend
@@ -77,12 +79,15 @@ export const useModels = defineStore(
       const isMmprojHelper = (name: string) => name.toLowerCase().includes('mmproj')
 
       // Preserve models.json order: predefined models first, then non-predefined downloads
-      models.value = [
+      const modelsBeforeProcessing = [
         ...predefinedModels, // Keep models.json order (first = highest priority)
         ...downloadedModels.filter(notPredefined), // Add non-predefined downloads at end
         ...models.value.filter(notPredefined).filter(notYetDownloaded),
       ]
-        .map<Model>((m) => {
+
+      // Process models and detect mmproj files for llamaCPP models
+      const processedModels = await Promise.all(
+        modelsBeforeProcessing.map(async (m) => {
           const predefinedModel = predefinedModels.find((pm) => pm.name === m.name)
           const existingModel = models.value.find((em) => em.name === m.name)
           const customMetadata = customModelMetadata.value[m.name]
@@ -93,13 +98,33 @@ export const useModels = defineStore(
               ? (m.mmproj as string | undefined)
               : (existingModel?.mmproj ?? customMetadata?.mmproj)
 
+          // Detect available mmproj files for downloaded llamaCPP models
+          let mmprojFiles: string[] | undefined = existingModel?.mmprojFiles
+          const isDownloaded = downloadedModelNames.has(m.name)
+          const isLlamaCpp = m.type === 'llamaCPP' || m.backend === 'llamaCPP'
+
+          if (isDownloaded && isLlamaCpp && !mmprojFiles) {
+            // Scan for mmproj files in the model folder
+            try {
+              mmprojFiles = await window.electronAPI.getMmprojFilesForModel(m.name)
+            } catch (error) {
+              console.warn(`Failed to scan mmproj files for ${m.name}:`, error)
+              mmprojFiles = undefined
+            }
+          }
+
+          // Get selected mmproj - check in order: existing model, custom metadata
+          const selectedMmproj = existingModel?.selectedMmproj ?? customMetadata?.selectedMmproj
+
           // Combine model sources with priority: predefined > existing > custom
           const combinedModel = { ...customMetadata, ...existingModel, ...predefinedModel }
 
           const model: Model = {
             name: m.name,
             mmproj,
-            downloaded: downloadedModelNames.has(m.name),
+            mmprojFiles,
+            selectedMmproj,
+            downloaded: isDownloaded,
             type: m.type,
             backend: 'backend' in m ? (m.backend as LlmBackend | undefined) : combinedModel.backend,
             supportsToolCalling: combinedModel.supportsToolCalling,
@@ -110,9 +135,13 @@ export const useModels = defineStore(
             isPredefined: !!predefinedModel, // true if model is defined in models.json
           }
           return model
-        })
+        }),
+      )
+
+      models.value = processedModels
         // Filter out mmproj vision helper models (these are not directly selectable)
         .filter((m) => !isMmprojHelper(m.name))
+
       console.log('Models refreshed', models.value)
     }
 
@@ -122,6 +151,7 @@ export const useModels = defineStore(
       if (!model.isPredefined) {
         customModelMetadata.value[model.name] = {
           mmproj: model.mmproj,
+          selectedMmproj: model.selectedMmproj,
           backend: model.backend,
           supportsToolCalling: model.supportsToolCalling,
           supportsVision: model.supportsVision,
@@ -132,6 +162,25 @@ export const useModels = defineStore(
       }
       models.value.push(model)
       await refreshModels()
+    }
+
+    /**
+     * Update the selected mmproj file for a model
+     * @param modelName - The model name
+     * @param mmprojFile - The mmproj file name to use
+     */
+    function setSelectedMmproj(modelName: string, mmprojFile: string | undefined) {
+      const model = models.value.find((m) => m.name === modelName)
+      if (model) {
+        model.selectedMmproj = mmprojFile
+        // Persist for custom models
+        if (!model.isPredefined) {
+          if (!customModelMetadata.value[modelName]) {
+            customModelMetadata.value[modelName] = {}
+          }
+          customModelMetadata.value[modelName].selectedMmproj = mmprojFile
+        }
+      }
     }
 
     const aipgBackendUrl = () => {
@@ -341,6 +390,7 @@ export const useModels = defineStore(
       initPaths,
       applyPathsSettings,
       restorePathsSettings,
+      setSelectedMmproj,
     }
   },
   {

@@ -466,6 +466,7 @@ export interface ApiService {
     llmModelName: string,
     embeddingModelName?: string,
     contextSize?: number,
+    selectedMmproj?: string,
   ): Promise<void>
 }
 
@@ -690,9 +691,10 @@ export abstract class LongLivedPythonApiService implements ApiService {
     llmModelName: string,
     embeddingModelName?: string,
     contextSize?: number,
+    selectedMmproj?: string,
   ): Promise<void> {
     this.appLogger.info(
-      `ensureBackendReadiness called for LLM: ${llmModelName}, Embedding: ${embeddingModelName ?? 'none'}, Context Size: ${contextSize} ?? 'undefined'`,
+      `ensureBackendReadiness called for LLM: ${llmModelName}, Embedding: ${embeddingModelName ?? 'none'}, Context Size: ${contextSize ?? 'undefined'}, mmproj: ${selectedMmproj || 'auto'}`,
       this.name,
     )
   }

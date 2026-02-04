@@ -87,6 +87,7 @@ type electronAPI = {
   zoomOut(): Promise<void>
   getDownloadedLLMs(): Promise<string[]>
   getDownloadedGGUFLLMs(): Promise<string[]>
+  getMmprojFilesForModel(modelName: string): Promise<string[]>
   getDownloadedOpenVINOLLMModels(): Promise<string[]>
   getDownloadedEmbeddingModels(): Promise<Model[]>
   openImageWithSystem(url: string): void
@@ -118,7 +119,8 @@ type electronAPI = {
     llmModelName: string,
     embeddingModelName?: string,
     contextSize?: number,
-  ): Promise<{ success: boolean; error?: string }>
+    selectedMmproj?: string,
+  ): Promise<{ success: boolean; error?: string; notInstalled?: boolean }>
   startTranscriptionServer(modelName: string): Promise<{ success: boolean; error?: string }>
   stopTranscriptionServer(): Promise<{ success: boolean; error?: string }>
   getTranscriptionServerUrl(): Promise<{ success: boolean; url?: string; error?: string }>

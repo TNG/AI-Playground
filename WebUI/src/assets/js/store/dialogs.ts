@@ -39,6 +39,9 @@ export const useDialogStore = defineStore('dialog', () => {
   // Download dialog state
   const downloadDialogVisible = ref(false)
   const downloadList = ref<DownloadModelParam[]>([])
+  const downloadSuccessCallbacks = ref<Array<(() => void) | undefined>>([])
+  const downloadFailCallbacks = ref<Array<((args: DownloadFailedParams) => void) | undefined>>([])
+  // Legacy single callback support (for backward compatibility)
   const downloadSuccessFunction = ref<(() => void) | undefined>(undefined)
   const downloadFailFunction = ref<((args: DownloadFailedParams) => void) | undefined>(undefined)
 
@@ -75,14 +78,51 @@ export const useDialogStore = defineStore('dialog', () => {
     success?: () => void,
     fail?: (args: DownloadFailedParams) => void,
   ) {
-    downloadList.value = downList
-    downloadSuccessFunction.value = success
-    downloadFailFunction.value = fail
-    downloadDialogVisible.value = true
+    console.log(
+      `[DialogStore] showDownloadDialog called with ${downList.length} item(s):`,
+      downList.map((d) => d.repo_id),
+    )
+
+    // If dialog is already visible, accumulate downloads instead of replacing
+    if (downloadDialogVisible.value) {
+      console.log(`[DialogStore] Dialog already visible, accumulating...`)
+      // Filter out duplicates based on repo_id to avoid downloading the same model twice
+      const existingRepoIds = new Set(downloadList.value.map((item) => item.repo_id))
+      const newItems = downList.filter((item) => !existingRepoIds.has(item.repo_id))
+
+      if (newItems.length > 0) {
+        downloadList.value = [...downloadList.value, ...newItems]
+        // Add callbacks to the arrays
+        downloadSuccessCallbacks.value.push(success)
+        downloadFailCallbacks.value.push(fail)
+        console.log(
+          `[DialogStore] Added ${newItems.length} new download(s) to existing queue. Total: ${downloadList.value.length}`,
+        )
+        console.log(
+          '[DialogStore] Current queue:',
+          downloadList.value.map((d) => d.repo_id),
+        )
+      } else {
+        console.log('[DialogStore] All models already in download queue, skipping duplicates')
+      }
+    } else {
+      console.log(`[DialogStore] Opening new dialog with initial list`)
+      // Dialog not visible yet, set initial list
+      downloadList.value = downList
+      downloadSuccessCallbacks.value = success ? [success] : []
+      downloadFailCallbacks.value = fail ? [fail] : []
+      // Set legacy callbacks for backward compatibility
+      downloadSuccessFunction.value = success
+      downloadFailFunction.value = fail
+      downloadDialogVisible.value = true
+    }
   }
 
   function closeDownloadDialog() {
     downloadDialogVisible.value = false
+    // Clear callback arrays when closing
+    downloadSuccessCallbacks.value = []
+    downloadFailCallbacks.value = []
   }
 
   function showPresetRequirementsDialog(data: PresetRequirementsData, confirmFunction: () => void) {
@@ -258,6 +298,8 @@ export const useDialogStore = defineStore('dialog', () => {
     downloadList,
     downloadSuccessFunction,
     downloadFailFunction,
+    downloadSuccessCallbacks,
+    downloadFailCallbacks,
     showDownloadDialog,
     closeDownloadDialog,
 

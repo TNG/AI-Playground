@@ -193,8 +193,14 @@ const globalSetup = useGlobalSetup()
 const models = useModels()
 const dialogStore = useDialogStore()
 
-const { downloadDialogVisible, downloadList, downloadSuccessFunction, downloadFailFunction } =
-  storeToRefs(dialogStore)
+const {
+  downloadDialogVisible,
+  downloadList,
+  downloadSuccessFunction,
+  downloadFailFunction,
+  downloadSuccessCallbacks,
+  downloadFailCallbacks,
+} = storeToRefs(dialogStore)
 
 let downloding = false
 const curDownloadTip = ref('')
@@ -211,6 +217,13 @@ const animate = ref(false)
 const readTerms = ref(false)
 const downloadModelRender = ref<DownloadModelRender[]>([])
 
+// Helper function to call all fail callbacks
+function callAllFailCallbacks(args: DownloadFailedParams) {
+  downloadFailCallbacks.value.forEach((callback) => callback?.(args))
+  // Also call legacy single callback for backward compatibility
+  downloadFailFunction.value?.(args)
+}
+
 function dataProcess(line: string) {
   console.log(line)
   const dataJson = line.slice(5)
@@ -226,6 +239,9 @@ function dataProcess(line: string) {
       if (completeCount.value == allTaskCount) {
         downloding = false
         dialogStore.closeDownloadDialog()
+        // Call all success callbacks
+        downloadSuccessCallbacks.value.forEach((callback) => callback?.())
+        // Also call legacy single callback for backward compatibility
         downloadSuccessFunction.value?.()
       } else {
         taskPercent.value = util.toFixed((completeCount.value / allTaskCount) * 100, 1)
@@ -254,14 +270,14 @@ function dataProcess(line: string) {
           errorText.value = i18nState.ERR_DOWNLOAD_FAILED
           break
         case 'runtime_error':
-          errorText.value = i18nState.ERROR_RUNTIME_ERROR
+          errorText.value = i18nState.ERR_DOWNLOAD_FAILED
           break
-        case 'unknown_exception':
-          errorText.value = i18nState.ERROR_GENERATE_UNKONW_EXCEPTION
+        default:
+          errorText.value = data.error
           break
       }
 
-      downloadFailFunction.value?.({ type: 'error', error: errorText.value })
+      callAllFailCallbacks({ type: 'error', error: errorText.value })
       break
   }
 }
@@ -276,10 +292,92 @@ watch(downloadDialogVisible, async (isVisible) => {
   }
 })
 
+// Helper function to add new items to the render list
+function addNewItems(newItems: DownloadModel[]) {
+  for (const item of newItems) {
+    downloadModelRender.value.push({ size: '???', ...item })
+  }
+}
+
+// Helper function to fetch sizes, gated status, and access for new items
+async function fetchSizes(newItems: DownloadModel[]) {
+  const sizeResponse = await fetch(`${globalSetup.apiHost}/api/getModelSize`, {
+    method: 'POST',
+    body: JSON.stringify(newItems),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
+  const gatedResponse = await fetch(`${globalSetup.apiHost}/api/isModelGated`, {
+    method: 'POST',
+    body: JSON.stringify(newItems),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
+  const accessResponse = await fetch(`${globalSetup.apiHost}/api/isAccessGranted`, {
+    method: 'POST',
+    body: JSON.stringify([newItems, models.hfToken]),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
+
+  const sizeData = (await sizeResponse.json()) as ApiResponse & { sizeList: StringKV }
+  const gatedData = (await gatedResponse.json()) as ApiResponse & {
+    gatedList: Record<string, boolean>
+  }
+  const accessData = (await accessResponse.json()) as ApiResponse & {
+    accessList: Record<string, boolean>
+  }
+
+  return { sizeData, gatedData, accessData }
+}
+
+// Helper function to update newly added items with their sizes and gated status
+function updateNewItems(
+  oldListLength: number,
+  sizeData: ApiResponse & { sizeList: StringKV },
+  gatedData: ApiResponse & { gatedList: Record<string, boolean> },
+  accessData: ApiResponse & { accessList: Record<string, boolean> },
+) {
+  for (const item of downloadModelRender.value.slice(oldListLength)) {
+    item.size = sizeData.sizeList[`${item.repo_id}_${item.type}`] || ''
+    item.gated = gatedData.gatedList[item.repo_id] || false
+    item.accessGranted = accessData.accessList[item.repo_id] || false
+  }
+}
+
+// Watch downloadList for changes while dialog is visible (accumulation of models)
+watch(
+  downloadList,
+  async (newList, oldList) => {
+    if (!downloadDialogVisible.value || newList.length <= oldList.length || !showConfirm.value) {
+      return
+    }
+
+    console.log(
+      `[DownloadDialog] downloadList changed from ${oldList.length} to ${newList.length} items`,
+    )
+
+    const newItems = newList.slice(oldList.length)
+    addNewItems(newItems)
+
+    try {
+      const { sizeData, gatedData, accessData } = await fetchSizes(newItems)
+      updateNewItems(oldList.length, sizeData, gatedData, accessData)
+      console.log(`[DownloadDialog] Updated sizes for ${newItems.length} new items`)
+    } catch (error) {
+      console.error('[DownloadDialog] Error fetching sizes for new items:', error)
+    }
+  },
+  { deep: true },
+)
+
 async function initializeDownloadDialog() {
   if (downloding) {
     toast.error(i18nState.DOWNLOADER_CONFLICT)
-    downloadFailFunction.value?.({ type: 'conflict' })
+    callAllFailCallbacks({ type: 'conflict' })
     dialogStore.closeDownloadDialog()
     return
   }
@@ -331,7 +429,7 @@ async function initializeDownloadDialog() {
     }
     sizeRequesting.value = false
   } catch (ex) {
-    downloadFailFunction.value?.({ type: 'error', error: ex })
+    callAllFailCallbacks({ type: 'error', error: ex })
     sizeRequesting.value = false
   }
 }
@@ -396,13 +494,13 @@ function download() {
       return new SSEProcessor(reader, dataProcess, undefined).start()
     })
     .catch((ex) => {
-      downloadFailFunction.value?.({ type: 'error', error: ex })
+      callAllFailCallbacks({ type: 'error', error: ex })
       downloding = false
     })
 }
 
 function cancelConfirm() {
-  downloadFailFunction.value?.({ type: 'cancelConfrim' })
+  callAllFailCallbacks({ type: 'cancelConfrim' })
   dialogStore.closeDownloadDialog()
 }
 
@@ -415,7 +513,7 @@ function confirmDownload() {
 function cancelDownload() {
   abortController?.abort()
   fetch(`${globalSetup.apiHost}/api/stopDownloadModel`)
-  downloadFailFunction.value?.({ type: 'cancelDownload' })
+  callAllFailCallbacks({ type: 'cancelDownload' })
   dialogStore.closeDownloadDialog()
 }
 

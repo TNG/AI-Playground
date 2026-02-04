@@ -566,6 +566,10 @@ function initEventHandle() {
     return pathsManager.scanGGUFLLMModels()
   })
 
+  ipcMain.handle('getMmprojFilesForModel', (_event, modelName: string) => {
+    return pathsManager.getMmprojFilesForModel(modelName)
+  })
+
   ipcMain.handle('getDownloadedOpenVINOLLMModels', (_event) => {
     return pathsManager.scanOpenVINOModels()
   })
@@ -780,9 +784,10 @@ function initEventHandle() {
       llmModelName: string,
       embeddingModelName?: string,
       contextSize?: number,
+      selectedMmproj?: string,
     ) => {
       appLogger.info(
-        `Ensuring backend readiness for service: ${serviceName}, LLM: ${llmModelName}, Embedding: ${embeddingModelName || 'none'}, Context Size: ${contextSize ?? 'undefined'}`,
+        `Ensuring backend readiness for service: ${serviceName}, LLM: ${llmModelName}, Embedding: ${embeddingModelName || 'none'}, Context Size: ${contextSize ?? 'undefined'}, mmproj: ${selectedMmproj || 'auto'}`,
         'electron-backend',
       )
       if (!serviceRegistry) {
@@ -799,7 +804,12 @@ function initEventHandle() {
       }
 
       try {
-        await service.ensureBackendReadiness(llmModelName, embeddingModelName, contextSize)
+        await service.ensureBackendReadiness(
+          llmModelName,
+          embeddingModelName,
+          contextSize,
+          selectedMmproj,
+        )
         appLogger.info(
           `Backend ${serviceName} ready for LLM: ${llmModelName}, Embedding: ${embeddingModelName || 'none'}`,
           'electron-backend',

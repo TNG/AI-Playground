@@ -129,4 +129,72 @@ export class PathsManager {
     })
     return embeddingModels
   }
+
+  /**
+   * Get mmproj files for a specific GGUF model
+   * @param modelName - The model name (e.g., "namespace/repo/model.gguf")
+   * @returns Array of mmproj file names found in the model's folder
+   */
+  getMmprojFilesForModel(modelName: string): string[] {
+    const dir = this.modelPaths.ggufLLM
+    console.log(`[PathsManager] getMmprojFilesForModel called for: ${modelName}`)
+    console.log(`[PathsManager] ggufLLM directory: ${dir}`)
+
+    if (!fs.existsSync(dir)) {
+      console.log(`[PathsManager] ggufLLM directory does not exist`)
+      return []
+    }
+
+    // Model names use "/" as separator in the store, but on filesystem they might use "---" or OS separators
+    // We need to find the actual file/folder structure
+    // Strategy: recursively scan and find the actual file, then look for mmproj files in its folder
+
+    try {
+      const allFiles = fs.readdirSync(dir, { encoding: 'utf-8', recursive: true }) as string[]
+      console.log(`[PathsManager] Total files in ggufLLM:`, allFiles.length)
+
+      // Find the actual file path by comparing normalized names
+      const normalizedModelName = modelName.replace(/\//g, path.sep).replace(/---/g, path.sep)
+      console.log(`[PathsManager] Normalized model name: ${normalizedModelName}`)
+
+      let actualFilePath: string | undefined
+      for (const file of allFiles) {
+        // Normalize the file path for comparison
+        const normalizedFile = file.replace(/\\/g, '/').replace(/---/g, '/')
+        if (normalizedFile === modelName) {
+          actualFilePath = file
+          break
+        }
+      }
+
+      if (!actualFilePath) {
+        console.log(`[PathsManager] Could not find model file: ${modelName}`)
+        return []
+      }
+
+      console.log(`[PathsManager] Found actual file path: ${actualFilePath}`)
+
+      // Get the folder containing the model file
+      const fullPath = path.join(dir, actualFilePath)
+      const modelFolder = path.dirname(fullPath)
+
+      console.log(`[PathsManager] Model folder: ${modelFolder}`)
+
+      if (!fs.existsSync(modelFolder)) {
+        console.log(`[PathsManager] Model folder does not exist`)
+        return []
+      }
+
+      const files = fs.readdirSync(modelFolder)
+      console.log(`[PathsManager] Files in folder:`, files)
+      const mmprojFiles = files.filter(
+        (file) => file.toLowerCase().startsWith('mmproj') && file.endsWith('.gguf'),
+      )
+      console.log(`[PathsManager] Found mmproj files:`, mmprojFiles)
+      return mmprojFiles
+    } catch (error) {
+      console.error(`Error scanning mmproj files for ${modelName}:`, error)
+      return []
+    }
+  }
 }

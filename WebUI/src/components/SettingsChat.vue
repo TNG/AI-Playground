@@ -34,7 +34,14 @@
           <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
           <ModelSelector />
         </div>
+
+        <div v-if="shouldShowVisionSelector" class="grid grid-cols-[120px_1fr] items-center gap-4">
+          <Label class="whitespace-nowrap">Vision</Label>
+          <VisionModelSelector />
+        </div>
+        <!-- Add Model button - only shown in advanced mode -->
         <Button
+          v-if="advancedMode"
           variant="secondary"
           class="self-start w-auto px-3 py-1.5 rounded text-sm"
           @click="() => (showModelRequestDialog = true)"
@@ -170,6 +177,7 @@ import {
 } from '@/assets/js/store/textInference.ts'
 import DeviceSelector from '@/components/DeviceSelector.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
+import VisionModelSelector from '@/components/VisionModelSelector.vue'
 import AddLLMDialog from '@/components/AddLLMDialog.vue'
 import { ref, computed } from 'vue'
 import { useI18N } from '@/assets/js/store/i18n.ts'
@@ -209,6 +217,44 @@ const enableRAG = computed(() => activeChatPreset.value?.enableRAG ?? false)
 const showTools = computed(() => activeChatPreset.value?.showTools ?? false)
 const lockDeviceToNpu = computed(() => activeChatPreset.value?.lockDeviceToNpu ?? false)
 const advancedMode = computed(() => activeChatPreset.value?.advancedMode ?? false)
+
+// Check if vision selector should be shown
+const shouldShowVisionSelector = computed(() => {
+  const currentModel = textInference.llmModels.find(
+    (m) => m.active && m.type === textInference.backend,
+  )
+  const mmprojFiles = currentModel?.mmprojFiles || []
+  const hasPredefinedMmproj = !!currentModel?.mmproj
+
+  console.log('[SettingsChat] Check vision selector visibility:', {
+    currentModel: currentModel?.name,
+    backend: textInference.backend,
+    isAdvancedMode: activeChatPreset.value?.advancedMode,
+    isVisionMode: activeChatPreset.value?.requiresVision,
+    mmprojFilesCount: mmprojFiles.length,
+    mmprojFiles: mmprojFiles,
+    hasPredefinedMmproj: hasPredefinedMmproj,
+    supportsVision: currentModel?.supportsVision,
+  })
+
+  if (textInference.backend !== 'llamaCPP') {
+    console.log('[SettingsChat] Backend is not llamaCPP')
+    return false
+  }
+
+  const isAdvancedMode = activeChatPreset.value?.advancedMode === true
+  const isVisionMode = activeChatPreset.value?.requiresVision === true
+
+  if (!isAdvancedMode && !isVisionMode) {
+    console.log('[SettingsChat] Neither advanced nor vision mode enabled')
+    return false
+  }
+
+  // Show if model has downloaded mmproj files OR has predefined mmproj (even if not downloaded)
+  const shouldShow = mmprojFiles.length > 0 || hasPredefinedMmproj
+  console.log('[SettingsChat] Final decision:', shouldShow)
+  return shouldShow
+})
 
 // Get available backends from preset
 // Note: Fallback only includes standard backends (not Ollama) to avoid showing Ollama

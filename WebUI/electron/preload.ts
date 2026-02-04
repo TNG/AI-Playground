@@ -85,6 +85,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   zoomOut: () => ipcRenderer.invoke('zoomOut'),
   getDownloadedLLMs: () => ipcRenderer.invoke('getDownloadedLLMs'),
   getDownloadedGGUFLLMs: () => ipcRenderer.invoke('getDownloadedGGUFLLMs'),
+  getMmprojFilesForModel: (modelName: string) =>
+    ipcRenderer.invoke('getMmprojFilesForModel', modelName),
   getDownloadedOpenVINOLLMModels: () => ipcRenderer.invoke('getDownloadedOpenVINOLLMModels'),
   getDownloadedEmbeddingModels: () => ipcRenderer.invoke('getDownloadedEmbeddingModels'),
   openImageWithSystem: (url: string) => ipcRenderer.send('openImageWithSystem', url),
@@ -104,6 +106,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     llmModelName: string,
     embeddingModelName?: string,
     contextSize?: number,
+    selectedMmproj?: string,
   ) =>
     ipcRenderer.invoke(
       'ensureBackendReadiness',
@@ -111,6 +114,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       llmModelName,
       embeddingModelName,
       contextSize,
+      selectedMmproj,
     ),
   startTranscriptionServer: (modelName: string) =>
     ipcRenderer.invoke('startTranscriptionServer', modelName),

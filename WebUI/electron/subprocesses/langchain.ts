@@ -56,8 +56,8 @@ async function addDocumentToRAGList(document: IndexedDocument): Promise<IndexedD
   const rawDocument = await loadDocument(document.type, document.filepath)
   console.log(rawDocument)
   const splitter = new RecursiveCharacterTextSplitter({
-    chunkSize: 1024,
-    chunkOverlap: 128,
+    chunkSize: 512,
+    chunkOverlap: 64,
   })
   const splitDocument = await splitter.splitDocuments(rawDocument)
   const newDocument = {
@@ -117,7 +117,6 @@ async function embedInputUsingRag(embedInquiry: EmbedInquiry): Promise<Document[
     documentEmbeddingStore,
     { namespace: createHash('md5').update(underlyingEmbeddings.model).digest('hex') },
   )
-  
 
   const vectorStore = await MemoryVectorStore.fromDocuments(
     embedInquiry.ragList.flatMap((doc) => doc.splitDB),
@@ -134,7 +133,7 @@ async function embedInputUsingRag(embedInquiry: EmbedInquiry): Promise<Document[
     ),
   )
 
-  return result.filter(([_doc, score]) => score > 0.3).map(([doc, _score]) => doc)
+  return result.filter(([_doc, score]) => score > 0.5).map(([doc, _score]) => doc)
 }
 
 async function generateFileMD5Hash(filePath: string): Promise<string> {

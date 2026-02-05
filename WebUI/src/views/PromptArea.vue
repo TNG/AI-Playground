@@ -193,7 +193,10 @@ import { mapModeToLabel, downscaleImageTo1MP, imageUrlToDataUri } from '@/lib/ut
 import { useAudioRecorder } from '@/assets/js/store/audioRecorder'
 import { useSpeechToText } from '@/assets/js/store/speechToText'
 import { usePromptStore } from '@/assets/js/store/promptArea'
-import { useImageGenerationPresets, type ImageMediaItem } from '@/assets/js/store/imageGenerationPresets.ts'
+import {
+  useImageGenerationPresets,
+  type ImageMediaItem,
+} from '@/assets/js/store/imageGenerationPresets.ts'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import {
   useTextInference,
@@ -261,7 +264,7 @@ const shouldShowImageUploadButton = computed(() => {
     if (imageGeneration.activePreset.type !== 'comfy') return false
 
     const hasRequiredImageInput = imageGeneration.comfyInputs.some(
-      (input) => input.type === 'image' && input.optional !== true
+      (input) => input.type === 'image' && input.optional !== true,
     )
 
     return hasRequiredImageInput

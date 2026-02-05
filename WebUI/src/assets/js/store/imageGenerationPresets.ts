@@ -402,11 +402,17 @@ export const useImageGenerationPresets = defineStore(
 
       // Load currently selected edit image into first dynamic image input
       let image: MediaItem | undefined
-      console.log('### loadSettingsForActivePreset', activePreset.value?.category, selectedEditedImageId.value)
+      console.log(
+        '### loadSettingsForActivePreset',
+        activePreset.value?.category,
+        selectedEditedImageId.value,
+      )
       if (activePreset.value?.category === 'edit-images' && selectedEditedImageId.value) {
         image = generatedImages.value.find((img) => img.id === selectedEditedImageId.value)
       } else if (activePreset.value?.category === 'create-videos') {
-        image = generatedImages.value.find((img) => img.mode === 'video' && img.type === 'image' && img.fromImageGen)
+        image = generatedImages.value.find(
+          (img) => img.mode === 'video' && img.type === 'image' && img.fromImageGen,
+        )
       }
 
       console.log('### image', image)

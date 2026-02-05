@@ -45,7 +45,13 @@
         >
           <!-- Modern placeholder for queued/generating images without preview (exclude stopped) -->
           <div
-            v-if="currentImage && currentImage.type === 'image' && currentImage.state !== 'stopped' && (currentImage.state === 'queued' || currentImage.state === 'generating') && !hasValidImageUrl(currentImage)"
+            v-if="
+              currentImage &&
+              currentImage.type === 'image' &&
+              currentImage.state !== 'stopped' &&
+              (currentImage.state === 'queued' || currentImage.state === 'generating') &&
+              !hasValidImageUrl(currentImage)
+            "
             class="flex items-center justify-center bg-gradient-to-br from-accent/30 to-muted/20 min-w-[400px] min-h-[300px] rounded-sm"
           >
             <div class="flex flex-col items-center justify-center gap-4">
@@ -53,7 +59,9 @@
             </div>
           </div>
           <img
-            v-else-if="currentImage && currentImage.type === 'image' && hasValidImageUrl(currentImage)"
+            v-else-if="
+              currentImage && currentImage.type === 'image' && hasValidImageUrl(currentImage)
+            "
             class="object-contain shadow-black/40 shadow-md rounded-sm border-3 border-background"
             :src="currentImage.imageUrl"
           />
@@ -85,13 +93,14 @@
             class="w-3/4"
           ></loading-bar>
           <ImageGenerationProgress
-            v-else-if="currentImage && currentImage.state !== 'stopped' && (currentImage.state === 'generating' || currentImage.state === 'queued')"
+            v-else-if="
+              currentImage &&
+              currentImage.state !== 'stopped' &&
+              (currentImage.state === 'generating' || currentImage.state === 'queued')
+            "
             :step-text="stepText || 'Generating...'"
           />
-          <ImageGenerationProgress
-            v-else
-            :step-text="stepText || 'Preparing...'"
-          />
+          <ImageGenerationProgress v-else :step-text="stepText || 'Preparing...'" />
         </div>
         <div
           v-show="currentImage && (!(currentImage?.state === 'generating') || !processing)"
@@ -174,7 +183,8 @@ const showInfoParams = ref(false)
 // Check if imageUrl is the transparent placeholder
 const isPlaceholderUrl = (url: string | undefined): boolean => {
   if (!url || url.trim() === '') return true
-  const placeholderUrl = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="1" height="1"%3E%3C/svg%3E'
+  const placeholderUrl =
+    'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="1" height="1"%3E%3C/svg%3E'
   return url === placeholderUrl
 }
 

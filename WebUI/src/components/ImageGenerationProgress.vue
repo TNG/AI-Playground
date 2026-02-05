@@ -1,6 +1,8 @@
 <template>
   <div class="absolute inset-0 flex items-center justify-center image-generation-progress">
-    <div class="flex flex-col items-center justify-center gap-4 bg-background/40 backdrop-blur-sm rounded-2xl px-12 py-8 border border-border/50 shadow-lg progress-content">
+    <div
+      class="flex flex-col items-center justify-center gap-4 bg-background/40 backdrop-blur-sm rounded-2xl px-12 py-8 border border-border/50 shadow-lg progress-content"
+    >
       <div class="flex items-center justify-center spinner-container">
         <Spinner class="w-12 h-12 text-primary" />
       </div>
@@ -51,5 +53,4 @@ defineProps<{
     transform: scale(1);
   }
 }
-
 </style>

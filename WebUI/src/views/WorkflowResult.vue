@@ -19,7 +19,13 @@
           <!-- eslint-enable -->
           <!-- Modern placeholder for queued/generating images without preview (exclude stopped) -->
           <div
-            v-if="currentImage && currentImage.type === 'image' && currentImage.state !== 'stopped' && (currentImage.state === 'queued' || currentImage.state === 'generating') && !hasValidImageUrl(currentImage)"
+            v-if="
+              currentImage &&
+              currentImage.type === 'image' &&
+              currentImage.state !== 'stopped' &&
+              (currentImage.state === 'queued' || currentImage.state === 'generating') &&
+              !hasValidImageUrl(currentImage)
+            "
             class="w-full h-full flex items-center justify-center bg-gradient-to-br from-accent/30 to-muted/20"
           >
             <div class="flex flex-col items-center justify-center gap-4">
@@ -27,7 +33,9 @@
             </div>
           </div>
           <img
-            v-else-if="currentImage && currentImage.type === 'image' && hasValidImageUrl(currentImage)"
+            v-else-if="
+              currentImage && currentImage.type === 'image' && hasValidImageUrl(currentImage)
+            "
             class="w-full h-full object-contain p-2"
             :src="currentImage.imageUrl"
           />
@@ -70,7 +78,11 @@
             class="w-3/4"
           ></loading-bar>
           <ImageGenerationProgress
-            v-else-if="currentImage && currentImage.state !== 'stopped' && (currentImage.state === 'generating' || currentImage.state === 'queued')"
+            v-else-if="
+              currentImage &&
+              currentImage.state !== 'stopped' &&
+              (currentImage.state === 'generating' || currentImage.state === 'queued')
+            "
             :step-text="imageGeneration.stepText"
           />
         </div>
@@ -81,7 +93,11 @@
           class="absolute bottom-0 -right-8 box-content flex flex-col items-center justify-center gap-2"
         >
           <button
-            v-if="currentImage && currentImage?.state !== 'generating' && (props.mode === 'imageGen' || props.mode === 'imageEdit')"
+            v-if="
+              currentImage &&
+              currentImage?.state !== 'generating' &&
+              (props.mode === 'imageGen' || props.mode === 'imageEdit')
+            "
             @click="postImageToMode(currentImage, 'imageEdit')"
             :title="languages.COM_POST_TO_IMAGE_EDIT"
             class="bg-muted rounded-xs w-6 h-6 flex items-center justify-center"
@@ -169,7 +185,7 @@ import {
 } from '@/assets/js/store/imageGenerationPresets'
 import Model3DViewer from '@/components/Model3DViewer.vue'
 import { usePromptStore } from '@/assets/js/store/promptArea.ts'
-import { checkIfNsfwBlocked, imageUrlToDataUri } from '@/lib/utils'
+import { checkIfNsfwBlocked } from '@/lib/utils'
 
 interface Props {
   mode: WorkflowModeType
@@ -204,7 +220,8 @@ const currentImage = computed<MediaItem | null>(() => {
 // Check if imageUrl is the transparent placeholder
 const isPlaceholderUrl = (url: string | undefined): boolean => {
   if (!url || url.trim() === '') return true
-  const placeholderUrl = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="1" height="1"%3E%3C/svg%3E'
+  const placeholderUrl =
+    'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="1" height="1"%3E%3C/svg%3E'
   return url === placeholderUrl
 }
 

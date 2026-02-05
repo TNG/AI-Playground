@@ -17,11 +17,26 @@
       >
         <video v-if="isVideo(image)" :src="image.videoUrl" class="w-full h-full object-cover" />
         <Model3DViewer v-else-if="is3D(image)" :src="image.model3dUrl" class="w-full h-full" />
+        <!-- Modern placeholder for queued/generating images without preview (exclude stopped) -->
+        <div
+          v-else-if="image.type === 'image' && image.state !== 'stopped' && (image.state === 'queued' || image.state === 'generating') && !hasValidImageUrl(image)"
+          class="w-full h-full flex items-center justify-center bg-gradient-to-br from-accent/20 to-muted/10"
+        >
+          <Spinner class="w-6 h-6 text-primary/50" />
+        </div>
         <img
-          v-else-if="image.type === 'image'"
+          v-else-if="image.type === 'image' && hasValidImageUrl(image)"
           :src="image.imageUrl"
           class="w-full h-full object-cover"
         />
+
+        <!-- Loading overlay for generating images (exclude stopped) -->
+        <div
+          v-if="image.type === 'image' && image.state !== 'stopped' && (image.state === 'generating' || image.state === 'queued')"
+          class="absolute inset-0 bg-background/40 backdrop-blur-[1px] flex items-center justify-center"
+        >
+          <Spinner class="w-5 h-5 text-primary" />
+        </div>
 
         <!-- NSFW Blocked Overlay -->
         <div
@@ -106,6 +121,7 @@ import {
 } from '@/assets/js/store/imageGenerationPresets'
 import Model3DViewer from '@/components/Model3DViewer.vue'
 import { checkIfNsfwBlocked } from '@/lib/utils'
+import { Spinner } from '@/components/ui/spinner'
 
 const props = defineProps<{
   mode: WorkflowModeType
@@ -115,6 +131,18 @@ const imageGeneration = useImageGenerationPresets()
 
 // Track which images are NSFW blocked
 const nsfwBlockedImages = ref<Set<string>>(new Set())
+
+// Check if imageUrl is the transparent placeholder
+const isPlaceholderUrl = (url: string | undefined): boolean => {
+  if (!url || url.trim() === '') return true
+  const placeholderUrl = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="1" height="1"%3E%3C/svg%3E'
+  return url === placeholderUrl
+}
+
+const hasValidImageUrl = (image: MediaItem): boolean => {
+  if (image.type !== 'image') return false
+  return !isPlaceholderUrl(image.imageUrl)
+}
 
 const nonQueuedImages = computed(() =>
   imageGeneration.generatedImages.filter((i) => i.state !== 'queued' && i.mode === props.mode),

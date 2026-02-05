@@ -42,6 +42,7 @@ import { exec } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import sudo from 'sudo-prompt'
 import { PathsManager } from './pathsManager'
+import { cleanupTempFolders } from './tempFolderCleanup'
 import { appLoggerInstance } from './logging/logger.ts'
 import {
   aiplaygroundApiServiceRegistry,
@@ -1390,6 +1391,9 @@ app.whenReady().then(async () => {
     app.exit()
   } else {
     const settings = await loadSettings()
+
+    cleanupTempFolders(path.join(externalRes, '..', 'models'))
+
     initEventHandle()
 
     // Custom protocol docking is file protocol

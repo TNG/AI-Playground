@@ -309,6 +309,29 @@ export const useImageGenerationPresets = defineStore(
     // Note: Preset/variant changes are now handled by the orchestrator (usePresetSwitching),
     // which calls loadSettingsForActivePreset() explicitly. No watcher needed.
 
+    // Update first image input when selected edited image changes
+    watch(
+      () => selectedEditedImageId.value,
+      (newImageId) => {
+        if (!newImageId || !activePreset.value) return
+
+        // Only update for edit-images or create-videos presets that have image inputs
+        const category = activePreset.value.category
+        if (category !== 'edit-images' && category !== 'create-videos') return
+
+        // Find the selected image (only update if it's a reference image, i.e., mode === 'imageEdit')
+        const image = generatedImages.value.find((img) => img.id === newImageId)
+        if (!image || image.type !== 'image' || !image.fromImageGen) return
+
+        // Update the first image input
+        const currentImageInput = comfyInputs.value.find((input) => input.type === 'image')
+        if (currentImageInput) {
+          currentImageInput.current.value = image.imageUrl
+          console.log('### updated image input from selected reference image', image.id)
+        }
+      },
+    )
+
     // Keep resolution in sync with width/height
     watch(resolution, () => {
       const [w, h] = resolution.value.split('x').map(Number)

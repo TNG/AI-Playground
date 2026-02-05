@@ -193,7 +193,7 @@ import { mapModeToLabel, downscaleImageTo1MP, imageUrlToDataUri } from '@/lib/ut
 import { useAudioRecorder } from '@/assets/js/store/audioRecorder'
 import { useSpeechToText } from '@/assets/js/store/speechToText'
 import { usePromptStore } from '@/assets/js/store/promptArea'
-import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets.ts'
+import { useImageGenerationPresets, type ImageMediaItem } from '@/assets/js/store/imageGenerationPresets.ts'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import {
   useTextInference,

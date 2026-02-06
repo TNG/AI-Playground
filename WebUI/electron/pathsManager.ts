@@ -137,11 +137,9 @@ export class PathsManager {
    */
   getMmprojFilesForModel(modelName: string): string[] {
     const dir = this.modelPaths.ggufLLM
-    console.log(`[PathsManager] getMmprojFilesForModel called for: ${modelName}`)
-    console.log(`[PathsManager] ggufLLM directory: ${dir}`)
 
     if (!fs.existsSync(dir)) {
-      console.log(`[PathsManager] ggufLLM directory does not exist`)
+      console.error(`[PathsManager] ggufLLM directory ${dir} does not exist`)
       return []
     }
 
@@ -151,46 +149,53 @@ export class PathsManager {
 
     try {
       const allFiles = fs.readdirSync(dir, { encoding: 'utf-8', recursive: true }) as string[]
-      console.log(`[PathsManager] Total files in ggufLLM:`, allFiles.length)
 
-      // Find the actual file path by comparing normalized names
-      const normalizedModelName = modelName.replace(/\//g, path.sep).replace(/---/g, path.sep)
-      console.log(`[PathsManager] Normalized model name: ${normalizedModelName}`)
+      // Try multiple normalization strategies to match the file
+      // Strategy 1: Replace / with OS separator
+      const normalizedModelName1 = modelName.replace(/\//g, path.sep)
+      // Strategy 2: Replace / with --- (HuggingFace repo naming convention)
+      const normalizedModelName2 = modelName.replace(/\//g, '---')
+      // Strategy 3: For Windows, replace / with \
+      const normalizedModelName3 = modelName.replace(/\//g, '\\')
 
       let actualFilePath: string | undefined
       for (const file of allFiles) {
-        // Normalize the file path for comparison
-        const normalizedFile = file.replace(/\\/g, '/').replace(/---/g, '/')
-        if (normalizedFile === modelName) {
+        // Normalize file path for comparison (use forward slashes)
+        const normalizedFile = file.replace(/\\/g, '/')
+        const modelNameWithSlash = modelName.replace(/\\/g, '/')
+
+        // Try matching with various separators
+        if (
+          normalizedFile === modelNameWithSlash ||
+          file === normalizedModelName1 ||
+          file === normalizedModelName2 ||
+          file === normalizedModelName3 ||
+          // Also try matching after converting --- to /
+          normalizedFile === modelNameWithSlash.replace(/---/g, '/') ||
+          file.replace(/---/g, path.sep) === normalizedModelName1
+        ) {
           actualFilePath = file
           break
         }
       }
 
       if (!actualFilePath) {
-        console.log(`[PathsManager] Could not find model file: ${modelName}`)
+        console.error(`[PathsManager] Could not find model file: ${modelName}`)
         return []
       }
-
-      console.log(`[PathsManager] Found actual file path: ${actualFilePath}`)
 
       // Get the folder containing the model file
       const fullPath = path.join(dir, actualFilePath)
       const modelFolder = path.dirname(fullPath)
 
-      console.log(`[PathsManager] Model folder: ${modelFolder}`)
-
       if (!fs.existsSync(modelFolder)) {
-        console.log(`[PathsManager] Model folder does not exist`)
         return []
       }
 
       const files = fs.readdirSync(modelFolder)
-      console.log(`[PathsManager] Files in folder:`, files)
       const mmprojFiles = files.filter(
-        (file) => file.toLowerCase().startsWith('mmproj') && file.endsWith('.gguf'),
+        (file) => file.toLowerCase().includes('mmproj') && file.endsWith('.gguf'),
       )
-      console.log(`[PathsManager] Found mmproj files:`, mmprojFiles)
       return mmprojFiles
     } catch (error) {
       console.error(`Error scanning mmproj files for ${modelName}:`, error)

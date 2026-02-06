@@ -350,7 +350,8 @@ export const useTextInference = defineStore(
       const currentModel = llmModels.value
         .filter((m) => m.type === backend.value)
         .find((m) => m.active)
-      return currentModel?.supportsVision === true
+      const supports = currentModel?.supportsVision === true
+      return supports
     })
 
     // Check if the active preset requires tool calling

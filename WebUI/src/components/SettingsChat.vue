@@ -226,19 +226,7 @@ const shouldShowVisionSelector = computed(() => {
   const mmprojFiles = currentModel?.mmprojFiles || []
   const hasPredefinedMmproj = !!currentModel?.mmproj
 
-  console.log('[SettingsChat] Check vision selector visibility:', {
-    currentModel: currentModel?.name,
-    backend: textInference.backend,
-    isAdvancedMode: activeChatPreset.value?.advancedMode,
-    isVisionMode: activeChatPreset.value?.requiresVision,
-    mmprojFilesCount: mmprojFiles.length,
-    mmprojFiles: mmprojFiles,
-    hasPredefinedMmproj: hasPredefinedMmproj,
-    supportsVision: currentModel?.supportsVision,
-  })
-
   if (textInference.backend !== 'llamaCPP') {
-    console.log('[SettingsChat] Backend is not llamaCPP')
     return false
   }
 
@@ -246,13 +234,11 @@ const shouldShowVisionSelector = computed(() => {
   const isVisionMode = activeChatPreset.value?.requiresVision === true
 
   if (!isAdvancedMode && !isVisionMode) {
-    console.log('[SettingsChat] Neither advanced nor vision mode enabled')
     return false
   }
 
   // Show if model has downloaded mmproj files OR has predefined mmproj (even if not downloaded)
   const shouldShow = mmprojFiles.length > 0 || hasPredefinedMmproj
-  console.log('[SettingsChat] Final decision:', shouldShow)
   return shouldShow
 })
 

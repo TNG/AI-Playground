@@ -103,8 +103,8 @@ export const useModels = defineStore(
           const isDownloaded = downloadedModelNames.has(m.name)
           const isLlamaCpp = m.type === 'llamaCPP' || m.backend === 'llamaCPP'
 
-          if (isDownloaded && isLlamaCpp && !mmprojFiles) {
-            // Scan for mmproj files in the model folder
+          if (isDownloaded && isLlamaCpp) {
+            // Always scan for mmproj files to detect newly downloaded files
             try {
               mmprojFiles = await window.electronAPI.getMmprojFilesForModel(m.name)
             } catch (error) {
@@ -128,7 +128,9 @@ export const useModels = defineStore(
             type: m.type,
             backend: 'backend' in m ? (m.backend as LlmBackend | undefined) : combinedModel.backend,
             supportsToolCalling: combinedModel.supportsToolCalling,
-            supportsVision: combinedModel.supportsVision ?? (mmproj ? true : undefined),
+            supportsVision:
+              combinedModel.supportsVision ??
+              (mmproj || (mmprojFiles && mmprojFiles.length > 0) ? true : undefined),
             supportsReasoning: combinedModel.supportsReasoning,
             maxContextSize: combinedModel.maxContextSize,
             npuSupport: combinedModel.npuSupport,

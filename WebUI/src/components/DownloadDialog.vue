@@ -225,7 +225,6 @@ function callAllFailCallbacks(args: DownloadFailedParams) {
 }
 
 function dataProcess(line: string) {
-  console.log(line)
   const dataJson = line.slice(5)
   const data = JSON.parse(dataJson) as LLMOutCallback
   switch (data.type) {
@@ -356,17 +355,12 @@ watch(
       return
     }
 
-    console.log(
-      `[DownloadDialog] downloadList changed from ${oldList.length} to ${newList.length} items`,
-    )
-
     const newItems = newList.slice(oldList.length)
     addNewItems(newItems)
 
     try {
       const { sizeData, gatedData, accessData } = await fetchSizes(newItems)
       updateNewItems(oldList.length, sizeData, gatedData, accessData)
-      console.log(`[DownloadDialog] Updated sizes for ${newItems.length} new items`)
     } catch (error) {
       console.error('[DownloadDialog] Error fetching sizes for new items:', error)
     }

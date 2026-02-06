@@ -117,8 +117,6 @@ async function downloadMmproj(trimmedModelRequest: string) {
     },
   ]
 
-  console.log('[AddLLMDialog] mmproj download params:', downloadParams)
-
   // Clear input for next addition instead of closing dialog
   modelRequest.value = ''
 
@@ -226,13 +224,8 @@ async function addModel() {
       await nextTick()
       await nextTick()
 
-      console.log(`[AddLLMDialog] Model added and selected: ${trimmedModelRequest}`)
-      console.log(`[AddLLMDialog] Active model:`, textInference.activeModel)
-
       // Clear input immediately after model is added and selected
       modelRequest.value = ''
-
-      console.log(`[AddLLMDialog] Checking availability for model: ${trimmedModelRequest}`)
 
       // Check if model needs to be downloaded and show dialog if needed
       // Don't await - we want to allow adding multiple models in sequence

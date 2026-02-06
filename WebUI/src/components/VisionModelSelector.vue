@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed, onMounted, watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { useModels } from '@/assets/js/store/models'
 import {
@@ -62,35 +62,20 @@ const selectedMmprojInfo = computed(() => {
 
 // Handle mmproj selection
 function selectMmproj(mmprojFile: string) {
-  console.log('[VisionModelSelector] Selecting mmproj:', mmprojFile)
   if (!currentModel.value) return
   models.setSelectedMmproj(currentModel.value.name, mmprojFile)
 }
-
-onMounted(() => {
-  console.log('[VisionModelSelector] Component MOUNTED!')
-  console.log('[VisionModelSelector] Current model:', currentModel.value?.name)
-  console.log('[VisionModelSelector] mmproj files:', mmprojFiles.value)
-  console.log('[VisionModelSelector] Selected mmproj:', selectedMmprojInfo.value)
-})
 
 // Auto-select mmproj file if nothing is selected
 watch(
   [currentModel, mmprojFiles],
   ([newModel, newFiles]) => {
-    console.log('[VisionModelSelector] Data changed - Model:', newModel?.name, 'Files:', newFiles)
-
     // Auto-select if there's at least one mmproj option and nothing is selected yet
     if (newModel && newFiles.length > 0 && !newModel.selectedMmproj) {
       // Prefer downloaded mmproj files over non-downloaded ones
       const downloadedMmproj = newFiles.find((file) => file.downloaded)
       const mmprojToSelect = downloadedMmproj || newFiles[0]
 
-      console.log(
-        '[VisionModelSelector] Auto-selecting mmproj:',
-        mmprojToSelect.filename,
-        `(downloaded: ${mmprojToSelect.downloaded})`,
-      )
       selectMmproj(mmprojToSelect.filename)
     }
   },

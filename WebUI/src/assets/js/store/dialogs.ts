@@ -78,14 +78,8 @@ export const useDialogStore = defineStore('dialog', () => {
     success?: () => void,
     fail?: (args: DownloadFailedParams) => void,
   ) {
-    console.log(
-      `[DialogStore] showDownloadDialog called with ${downList.length} item(s):`,
-      downList.map((d) => d.repo_id),
-    )
-
     // If dialog is already visible, accumulate downloads instead of replacing
     if (downloadDialogVisible.value) {
-      console.log(`[DialogStore] Dialog already visible, accumulating...`)
       // Filter out duplicates based on repo_id to avoid downloading the same model twice
       const existingRepoIds = new Set(downloadList.value.map((item) => item.repo_id))
       const newItems = downList.filter((item) => !existingRepoIds.has(item.repo_id))
@@ -98,15 +92,8 @@ export const useDialogStore = defineStore('dialog', () => {
         console.log(
           `[DialogStore] Added ${newItems.length} new download(s) to existing queue. Total: ${downloadList.value.length}`,
         )
-        console.log(
-          '[DialogStore] Current queue:',
-          downloadList.value.map((d) => d.repo_id),
-        )
-      } else {
-        console.log('[DialogStore] All models already in download queue, skipping duplicates')
       }
     } else {
-      console.log(`[DialogStore] Opening new dialog with initial list`)
       // Dialog not visible yet, set initial list
       downloadList.value = downList
       downloadSuccessCallbacks.value = success ? [success] : []

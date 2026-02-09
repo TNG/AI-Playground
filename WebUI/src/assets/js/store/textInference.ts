@@ -850,18 +850,11 @@ export const useTextInference = defineStore(
           throw new Error('No embedding model selected but RAG documents are enabled')
         }
 
-        // Get selected mmproj for llamaCPP backend
-        const selectedMmproj =
-          backend.value === 'llamaCPP'
-            ? llmModels.value.find((m) => m.active && m.type === backend.value)?.selectedMmproj
-            : undefined
-
         await backendServices.ensureBackendReadiness(
           serviceName,
           llmModelName,
           embeddingModelToSend,
           contextSize.value,
-          selectedMmproj,
         )
       }
     }

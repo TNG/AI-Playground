@@ -119,6 +119,8 @@ npm run build
 
 The installer executable will be located in the `release` folder.
 
+**Note:** Administrator privileges are required on Windows to avoid symbolic link creation errors during the build process.
+
 ## Model Support
 AI Playground does not ship with any generative AI models but does make models available for all features either directly from the interface or indirectly by the users downloading models from HuggingFace.co or CivitAI.com and placing them in the appropriate model folder. 
 

@@ -467,10 +467,34 @@ export const useComfyUiPresets = defineStore(
         console.warn('ComfyUI backend not running, cannot start websocket')
         return
       }
+
+      // Close existing websocket before creating new one
+      if (websocket.value) {
+        console.info('Closing existing websocket connection before creating new one')
+        websocket.value.close()
+        websocket.value = null
+      }
+
       const comfyWsUrl = `ws://localhost:${comfyPort.value}/ws?clientId=${clientId}`
       console.info('Connecting to ComfyUI', { comfyWsUrl })
       websocket.value = new WebSocket(comfyWsUrl)
       websocket.value.binaryType = 'arraybuffer'
+
+      websocket.value.addEventListener('open', () => {
+        console.info('[ComfyUI] Websocket connection opened successfully')
+      })
+
+      websocket.value.addEventListener('error', (error) => {
+        console.error('[ComfyUI] Websocket error:', error)
+      })
+
+      websocket.value.addEventListener('close', (event) => {
+        console.info('[ComfyUI] Websocket connection closed', {
+          code: event.code,
+          reason: event.reason,
+        })
+      })
+
       websocket.value.addEventListener('message', (event) => {
         try {
           if (event.data instanceof ArrayBuffer) {
@@ -811,9 +835,35 @@ export const useComfyUiPresets = defineStore(
         console.warn('Already processing')
         return
       }
+
+      // Wait for websocket connection before generating
       if (websocket.value?.readyState !== WEBSOCKET_OPEN) {
-        console.warn('Websocket not open')
-        return
+        console.log('[ComfyUI] Websocket not open yet, waiting for connection...')
+
+        // Try to reconnect if websocket is not open
+        if (!websocket.value || websocket.value.readyState === WebSocket.CLOSED) {
+          console.log('[ComfyUI] Attempting to reconnect websocket...')
+          connectToComfyUi()
+        }
+
+        // Wait up to 10 seconds for websocket to connect
+        const maxWaitTime = 10000
+        const startTime = Date.now()
+
+        while (
+          websocket.value?.readyState !== WEBSOCKET_OPEN &&
+          Date.now() - startTime < maxWaitTime
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 100))
+        }
+
+        if (websocket.value?.readyState !== WEBSOCKET_OPEN) {
+          console.error('[ComfyUI] Websocket not open after waiting, generation cannot proceed')
+          toast.error('Failed to connect to ComfyUI. Please check if the backend is running.')
+          return
+        }
+
+        console.log('[ComfyUI] Websocket connection established, proceeding with generation')
       }
 
       // Validate required image inputs before execution

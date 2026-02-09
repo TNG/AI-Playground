@@ -272,7 +272,7 @@ function dataProcess(line: string) {
           errorText.value = i18nState.ERR_DOWNLOAD_FAILED
           break
         default:
-          errorText.value = data.error
+          errorText.value = i18nState.ERR_DOWNLOAD_FAILED
           break
       }
 
@@ -292,14 +292,14 @@ watch(downloadDialogVisible, async (isVisible) => {
 })
 
 // Helper function to add new items to the render list
-function addNewItems(newItems: DownloadModel[]) {
+function addNewItems(newItems: DownloadModelParam[]) {
   for (const item of newItems) {
     downloadModelRender.value.push({ size: '???', ...item })
   }
 }
 
 // Helper function to fetch sizes, gated status, and access for new items
-async function fetchSizes(newItems: DownloadModel[]) {
+async function fetchSizes(newItems: DownloadModelParam[]) {
   const sizeResponse = await fetch(`${globalSetup.apiHost}/api/getModelSize`, {
     method: 'POST',
     body: JSON.stringify(newItems),

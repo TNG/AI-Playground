@@ -101,7 +101,7 @@ export const useModels = defineStore(
           // Detect available mmproj files for downloaded llamaCPP models
           let mmprojFiles: string[] | undefined = existingModel?.mmprojFiles
           const isDownloaded = downloadedModelNames.has(m.name)
-          const isLlamaCpp = m.type === 'llamaCPP' || m.backend === 'llamaCPP'
+          const isLlamaCpp = m.type === 'llamaCPP' || ('backend' in m && m.backend === 'llamaCPP')
 
           if (isDownloaded && isLlamaCpp) {
             // Always scan for mmproj files to detect newly downloaded files
@@ -345,7 +345,7 @@ export const useModels = defineStore(
       params: Array<{
         repo_id: string
         type: string
-        backend: 'comfyui' | 'llama_cpp' | 'openvino'
+        backend: 'comfyui' | 'llama_cpp' | 'openvino' | 'ollama'
         additionalLicenseLink?: string
       }>,
     ) {

@@ -78,35 +78,62 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         return false
       }
 
-      // If venv exists but environment mismatch detected, set error details and still allow startup
+      // If venv exists but environment mismatch detected, automatically fix it
       if (checkDetails.envMismatch) {
         this.appLogger.warn(
-          `Service ${this.name} venv exists but environment doesn't match expected state. Will attempt startup but recommend reinstallation.`,
+          `Service ${this.name} venv exists but environment doesn't match expected state. Automatically syncing environment...`,
           this.name,
         )
 
-        // Set error details recommending reinstallation
-        // Include stderr from uv check which contains helpful information about what packages would be changed
-        const stderrInfo = checkDetails.stderr
-          ? `\n\n=== UV Check Output ===\n${checkDetails.stderr}`
-          : ''
-        const stdoutInfo = checkDetails.stdout
-          ? `\n\n=== UV Check Details ===\n${checkDetails.stdout}`
-          : ''
+        try {
+          // Automatically run uv sync to fix the environment
+          this.appLogger.info(`Running uv sync to update ComfyUI environment`, this.name)
+          await installBackend(this.serviceFolder, () => {
+            this.win.webContents.send('show-toast', {
+              type: 'info',
+              message:
+                'ComfyUI environment is being updated to match expected configuration. This may take a moment...',
+            })
+          })
 
-        this.environmentMismatchError = {
-          command: 'ComfyUI environment check',
-          exitCode: checkDetails.exitCode,
-          stdout:
-            `Virtual environment detected at: ${this.pythonEnvDir}\n` +
-            `Environment check failed (exit code: ${checkDetails.exitCode})\n` +
-            `Sync action: ${checkDetails.action}\n\n` +
-            `The Python environment exists but doesn't match the expected configuration.\n` +
-            `This may cause ComfyUI to fail during startup.\n\n` +
-            `Recommendation: Reinstall ComfyUI to ensure the environment matches the expected state.${stdoutInfo}`,
-          stderr: `Environment mismatch detected. The virtual environment at ${this.pythonEnvDir} exists but doesn't match the expected lockfile state.${stderrInfo}`,
-          timestamp: new Date().toISOString(),
-          duration: 0,
+          this.appLogger.info(
+            `Successfully synced ComfyUI environment to match lockfile`,
+            this.name,
+          )
+
+          // Clear any previous environment mismatch error
+          this.environmentMismatchError = null
+        } catch (syncError) {
+          // If sync fails, set error details
+          this.appLogger.error(`Failed to sync ComfyUI environment: ${syncError}`, this.name)
+
+          const stderrInfo = checkDetails.stderr
+            ? `\n\n=== UV Check Output ===\n${checkDetails.stderr}`
+            : ''
+          const stdoutInfo = checkDetails.stdout
+            ? `\n\n=== UV Check Details ===\n${checkDetails.stdout}`
+            : ''
+
+          this.environmentMismatchError = {
+            command: 'ComfyUI environment sync',
+            exitCode: checkDetails.exitCode,
+            stdout:
+              `Virtual environment detected at: ${this.pythonEnvDir}\n` +
+              `Environment check failed (exit code: ${checkDetails.exitCode})\n` +
+              `Sync action: ${checkDetails.action}\n\n` +
+              `The Python environment exists but doesn't match the expected configuration.\n` +
+              `Attempted to automatically sync but failed: ${syncError}\n\n` +
+              `Recommendation: Reinstall ComfyUI to ensure the environment matches the expected state.${stdoutInfo}`,
+            stderr: `Environment mismatch detected and sync failed. The virtual environment at ${this.pythonEnvDir} exists but doesn't match the expected lockfile state.${stderrInfo}\n\nSync error: ${syncError}`,
+            timestamp: new Date().toISOString(),
+            duration: 0,
+          }
+
+          this.win.webContents.send('show-toast', {
+            type: 'error',
+            message:
+              'Failed to automatically update ComfyUI environment. Please try reinstalling ComfyUI.',
+          })
         }
       } else {
         // Clear environment mismatch error if environment is in sync
@@ -574,7 +601,7 @@ import sys
 try:
     # Try to get the number of XPU devices
     device_count = torch.xpu.device_count()
-    
+
     # For each device, get its name and print it
     for i in range(device_count):
         try:

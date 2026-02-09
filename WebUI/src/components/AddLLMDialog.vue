@@ -59,7 +59,6 @@ import { useI18N } from '@/assets/js/store/i18n'
 import { useModels } from '@/assets/js/store/models'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { useDialogStore } from '@/assets/js/store/dialogs'
-import type { DownloadModelParam } from '@/env'
 
 const i18nState = useI18N().state
 const textInference = useTextInference()
@@ -94,7 +93,7 @@ function onShow() {
 
 async function downloadMmproj(trimmedModelRequest: string) {
   // Construct proper download parameters with all required fields
-  const backendName =
+  const backendName: 'llama_cpp' | 'openvino' | 'ollama' | 'comfyui' =
     textInference.backend === 'llamaCPP'
       ? 'llama_cpp'
       : textInference.backend === 'openVINO'
@@ -126,7 +125,7 @@ async function downloadMmproj(trimmedModelRequest: string) {
       {
         repo_id: repoId,
         type: modelType,
-        backend: backendName as 'llama_cpp' | 'openvino' | 'comfyui',
+        backend: backendName,
       },
     ]
 

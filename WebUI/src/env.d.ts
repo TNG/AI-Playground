@@ -390,7 +390,7 @@ type DownloadFailedParams = {
 type CheckModelAlreadyLoadedParameters = {
   repo_id: string
   type: string
-  backend: 'comfyui' | 'llama_cpp' | 'openvino'
+  backend: 'comfyui' | 'llama_cpp' | 'openvino' | 'ollama'
   model_path: string
   additionalLicenseLink?: string
 }

@@ -132,6 +132,14 @@ function getPresetDefault(preset: Preset, settingName: string): unknown {
     ?.defaultValue
 }
 
+function stopChatBackend(): Promise<void> {
+  console.log('[ComfyUIImageEdit Tool] Stopping chat backend to free resources for image editing')
+  // TODO: tbd.
+  // The logic already exists somehwere, see promptArea.vue and what happens
+  // when clicking to the ImageGen or ImageEdit button.
+  return Promise.resolve()
+}
+
 type ImageEditArgs = {
   workflow?: string
   variant?: string
@@ -190,6 +198,8 @@ export async function executeImageEdit(
   messages: ModelMessage[],
 ): Promise<ImageEditToolOutput> {
   console.log('[ComfyUIImageEdit Tool] Starting generation with args:', args)
+
+  await stopChatBackend()
 
   const imageGeneration = useImageGenerationPresets()
   const comfyUi = useComfyUiPresets()
@@ -306,16 +316,6 @@ export async function executeImageEdit(
         `Failed to convert source image: ${error instanceof Error ? error.message : 'Unknown error'}`,
       )
     }
-
-    imageGeneration.updateImage({
-      id: imageId,
-      mode: 'imageEdit',
-      sourceImageUrl,
-      state: 'queued',
-      settings: {},
-      type: 'image',
-      imageUrl: '',
-    })
 
     imageGeneration.currentState = 'no_start'
     imageGeneration.stepText = ''

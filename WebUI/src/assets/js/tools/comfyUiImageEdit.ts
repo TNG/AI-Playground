@@ -250,7 +250,6 @@ export async function executeImageEdit(
       skipLastUsedUpdate: true,
     })
     if (!switchResult.success) {
-      await restoreState()
       return createErrorResult(`Failed to switch to preset "${preset.name}"`)
     }
 
@@ -296,7 +295,6 @@ export async function executeImageEdit(
     console.log('[ComfyUIImageEdit Tool] Found image input:', imageInput)
 
     if (!imageInput) {
-      await restoreState()
       return createErrorResult('No suitable image input found in the preset')
     }
 
@@ -304,7 +302,6 @@ export async function executeImageEdit(
       const dataUri = await convertToDataUri(sourceImageUrl)
       imageInput.current.value = dataUri
     } catch (error) {
-      await restoreState()
       return createErrorResult(
         `Failed to convert source image: ${error instanceof Error ? error.message : 'Unknown error'}`,
       )
@@ -363,7 +360,6 @@ export async function executeImageEdit(
       setTimeout(() => stopWatcher(), 300000)
     })
 
-    await restoreState()
     return result
   } catch (error) {
     usePromptStore().promptSubmitted = false
@@ -373,10 +369,11 @@ export async function executeImageEdit(
         (i) => i.id !== imageId,
       )
     }
-    await restoreState()
     return createErrorResult(
       `Image edit failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
     )
+  } finally {
+    await restoreState()
   }
 }
 

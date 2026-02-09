@@ -3,7 +3,7 @@ import { watch } from 'vue'
 import { FilePart, ModelMessage, tool } from 'ai'
 import { useImageGenerationPresets, type MediaItem } from '../store/imageGenerationPresets'
 import { useComfyUiPresets } from '../store/comfyUiPresets'
-import { useBackendServices } from '../store/backendServices'
+import { useBackendServices, type BackendServiceName } from '../store/backendServices'
 import { usePresets, type Preset } from '../store/presets'
 import { usePresetSwitching } from '../store/presetSwitching'
 import { usePromptStore } from '../store/promptArea'
@@ -132,12 +132,28 @@ function getPresetDefault(preset: Preset, settingName: string): unknown {
     ?.defaultValue
 }
 
-function stopChatBackend(): Promise<void> {
+// Chat backends to be stopped to free resources for image editing
+const chatBackends: BackendServiceName[] = [
+  'llamacpp-backend',
+  'openvino-backend',
+  'ollama-backend',
+]
+
+async function stopChatBackend(): Promise<void> {
   console.log('[ComfyUIImageEdit Tool] Stopping chat backend to free resources for image editing')
-  // TODO: tbd.
-  // The logic already exists somehwere, see promptArea.vue and what happens
-  // when clicking to the ImageGen or ImageEdit button.
-  return Promise.resolve()
+  const backendServices = useBackendServices()
+  
+  // Stop any running chat backends to free up memory/resources
+  for (const serviceName of chatBackends) {
+    const backend = backendServices.info.find((s) => s.serviceName === serviceName)
+    if (backend?.status === 'running') {
+      try {
+        await backendServices.stopService(serviceName)
+      } catch (error) {
+        console.warn(`[ComfyUIImageEdit Tool] Failed to stop ${serviceName}:`, error)
+      }
+    }
+  }
 }
 
 type ImageEditArgs = {

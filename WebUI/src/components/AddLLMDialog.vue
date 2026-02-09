@@ -1,7 +1,7 @@
 <template>
   <div class="dialog-container z-10">
     <div
-      class="dialog-mask absolute left-0 top-0 w-full h-full bg-background/55  flex justify-center items-center"
+      class="dialog-mask absolute left-0 top-0 w-full h-full bg-background/55 flex justify-center items-center"
     >
       <div
         class="py-10 px-20 w-500px flex flex-col items-center justify-center bg-card shadow-2xl rounded-3xl gap-6 text-foreground"
@@ -27,7 +27,10 @@
             class="svg-icon i-info w-7 h-7 px-6"
           ></span>
         </div>
-        <span v-if="showInfo" class="absolute bg-background shadow-lg border border-border rounded-lg p-2.5 z-10 w-0.6">
+        <span
+          v-if="showInfo"
+          class="absolute bg-background shadow-lg border border-border rounded-lg p-2.5 z-10 w-0.6"
+        >
           <p v-html="i18nState.REQUEST_LLM_MODEL_DESCRIPTION"></p>
           <ul>
             <li>{{ exampleModelName }}</li>
@@ -72,8 +75,8 @@
             />
           </div>
 
-          <!-- Vision Model (Optional) - Disabled when vision is not enabled or backend is not llamaCPP -->
-          <div class="w-full flex flex-col gap-2">
+          <!-- Vision Model (Optional) - Always visible for llamaCPP, disabled when vision is not checked -->
+          <div v-if="currentBackend === 'llamaCPP'" class="w-full flex flex-col gap-2">
             <Label class="text-sm font-medium">
               {{ i18nState.REQUEST_LLM_VISION_MODEL_OPTIONAL }}
             </Label>
@@ -81,7 +84,7 @@
               <Input
                 :placeholder="i18nState.COM_LLM_HF_PROMPT_GGUF"
                 v-model="visionModelRequest"
-                :disabled="!isVisionModelInputEnabled"
+                :disabled="!supportsVision"
                 class="disabled:opacity-50 disabled:cursor-not-allowed"
                 @keyup.enter="addModel"
               ></Input>
@@ -92,7 +95,10 @@
                 class="svg-icon i-info w-7 h-7 px-6"
               ></span>
             </div>
-            <span v-if="showVisionInfo" class="absolute bg-background shadow-lg border border-border rounded-lg p-2.5 z-10 w-0.6">
+            <span
+              v-if="showVisionInfo"
+              class="absolute bg-background shadow-lg border border-border rounded-lg p-2.5 z-10 w-0.6"
+            >
               <p v-html="i18nState.REQUEST_LLM_VISION_MODEL_DESCRIPTION"></p>
             </span>
           </div>
@@ -155,8 +161,6 @@ const examplePlaceholder = computed(() =>
 
 // Access backend as a reactive computed to ensure updates
 const currentBackend = computed(() => textInference.backend)
-
-const isVisionModelInputEnabled = computed(() => supportsVision.value && currentBackend.value === 'llamaCPP')
 
 // Show NPU Support checkbox only for OpenVINO backend
 const showNpuSupportCheckbox = computed(() => currentBackend.value === 'openVINO')

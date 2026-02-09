@@ -26,14 +26,7 @@ export const ImageEditToolOutputSchema = z
 
 export type ImageEditToolOutput = z.infer<typeof ImageEditToolOutputSchema>
 
-function convertFilePartDataToUrl(data: FilePart['data']): string {
-  if (typeof data === 'string' && data.startsWith('data:image/')) {
-    return data
-  }
-  throw new Error('Only data URL images are supported')
-}
-
-function findLatestImageInMessages(messages: ModelMessage[]): FilePart | null {
+function findLatestUserProvidedImage(messages: ModelMessage[]): FilePart | null {
   return (
     messages
       .filter((msg) => Array.isArray(msg.content))
@@ -43,6 +36,14 @@ function findLatestImageInMessages(messages: ModelMessage[]): FilePart | null {
           part.type === 'file' && part.mediaType?.startsWith('image/') === true,
       ) || null
   )
+}
+
+function convertFilePartToDataUrl(data: FilePart['data']): string {
+  if (typeof data === 'string' && data.startsWith('data:image/')) {
+    return data
+  }
+  console.error('[ComfyUIImageEdit Tool] Unsupported file part data format:', data)
+  throw new Error('Only data URL images are supported')
 }
 
 function findLatestGeneratedImage(messages: ModelMessage[]): string | null {
@@ -65,6 +66,7 @@ function findLatestGeneratedImage(messages: ModelMessage[]): string | null {
 
 // Helper to extract images from tool result output
 // Handles JSON output structure: { type: "json", value: { images: [...] } }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractImageGenToolResult(part: any): { type?: string; imageUrl?: string } | null {
   const result = part.output ?? part.result
   if (!result) return null
@@ -72,31 +74,27 @@ function extractImageGenToolResult(part: any): { type?: string; imageUrl?: strin
   const images = result.type === 'json' ? result.value?.images : null
   if (!images) return null
 
-  return images.find(
-    (img: { type?: string; imageUrl?: string }) => img.type === 'image' && img.imageUrl,
-  ) ?? null
+  return (
+    images.find(
+      (img: { type?: string; imageUrl?: string }) => img.type === 'image' && img.imageUrl,
+    ) ?? null
+  )
 }
 
 function findSourceImage(messages: ModelMessage[]): string | null {
   const generatedImage = findLatestGeneratedImage(messages)
   if (generatedImage) return generatedImage
 
-  const imagePart = findLatestImageInMessages(messages)
-  if (imagePart?.data) {
-    try {
-      return convertFilePartDataToUrl(imagePart.data)
-    } catch {
-      return null
-    }
-  }
-  return null
+  const imagePart = findLatestUserProvidedImage(messages)
+  if (!imagePart) return null
+  return convertFilePartToDataUrl(imagePart.data)
 }
 
 async function convertToDataUri(imageUrl: string): Promise<string> {
   if (imageUrl.startsWith('data:image/')) {
     return imageUrl
   }
-  
+
   if (imageUrl.startsWith('aipg-media://')) {
     console.log('[ComfyUIImageEdit Tool] Converting to data:image/ URI:', imageUrl)
     const response = await fetch(imageUrl)
@@ -111,7 +109,7 @@ async function convertToDataUri(imageUrl: string): Promise<string> {
       reader.readAsDataURL(blob)
     })
   }
-  
+
   throw new Error(`Unsupported image URL format: ${imageUrl}`)
 }
 
@@ -143,22 +141,60 @@ type ImageEditArgs = {
   seed?: number
 }
 
+const createErrorResult = (message: string): ImageEditToolOutput => ({
+  success: false,
+  message,
+  images: [],
+})
+
+function saveCurrentState(
+  imageGeneration: ReturnType<typeof useImageGenerationPresets>,
+  presets: ReturnType<typeof usePresets>,
+) {
+  const originalState = {
+    prompt: imageGeneration.prompt,
+    negativePrompt: imageGeneration.negativePrompt,
+    inferenceSteps: imageGeneration.inferenceSteps,
+    width: imageGeneration.width,
+    height: imageGeneration.height,
+    seed: imageGeneration.seed,
+    batchSize: imageGeneration.batchSize,
+    presetName: presets.activePresetName,
+    variant: presets.activePresetName ? presets.activeVariantName[presets.activePresetName] : null,
+  }
+
+  const restoreState = async () => {
+    Object.assign(imageGeneration, {
+      prompt: originalState.prompt,
+      negativePrompt: originalState.negativePrompt,
+      inferenceSteps: originalState.inferenceSteps,
+      width: originalState.width,
+      height: originalState.height,
+      seed: originalState.seed,
+      batchSize: originalState.batchSize,
+    })
+    if (originalState.presetName) {
+      await usePresetSwitching().switchPreset(originalState.presetName, {
+        variant: originalState.variant ?? undefined,
+        skipModeSwitch: true,
+        skipLastUsedUpdate: true,
+      })
+    }
+  }
+
+  return restoreState
+}
+
 export async function executeImageEdit(
   args: ImageEditArgs,
   messages: ModelMessage[],
 ): Promise<ImageEditToolOutput> {
-    console.log('[ComfyUIImageEdit Tool] Starting generation with args:', args)
+  console.log('[ComfyUIImageEdit Tool] Starting generation with args:', args)
 
   const imageGeneration = useImageGenerationPresets()
   const comfyUi = useComfyUiPresets()
   const backendServices = useBackendServices()
   const presets = usePresets()
-
-  const createErrorResult = (message: string): ImageEditToolOutput => ({
-    success: false,
-    message,
-    images: [],
-  })
 
   const sourceImageUrl = findSourceImage(messages)
   if (!sourceImageUrl) {
@@ -192,7 +228,9 @@ export async function executeImageEdit(
       findFastVariant(preset) ||
       preset.variants[0].name
   }
-  console.log(`[ComfyUIImageEdit Tool] Using preset "${preset.name}" with variant "${selectedVariant}"`)
+  console.log(
+    `[ComfyUIImageEdit Tool] Using preset "${preset.name}" with variant "${selectedVariant}"`,
+  )
 
   if (selectedVariant) presets.setActiveVariant(preset.name, selectedVariant)
   const presetWithVariant = presets.getPresetWithVariant(preset.name)
@@ -202,36 +240,8 @@ export async function executeImageEdit(
   preset = presetWithVariant
 
   const imageId = crypto.randomUUID()
-  const originalState = {
-    prompt: imageGeneration.prompt,
-    negativePrompt: imageGeneration.negativePrompt,
-    inferenceSteps: imageGeneration.inferenceSteps,
-    width: imageGeneration.width,
-    height: imageGeneration.height,
-    seed: imageGeneration.seed,
-    batchSize: imageGeneration.batchSize,
-    presetName: presets.activePresetName,
-    variant: presets.activePresetName ? presets.activeVariantName[presets.activePresetName] : null,
-  }
 
-  const restoreState = async () => {
-    Object.assign(imageGeneration, {
-      prompt: originalState.prompt,
-      negativePrompt: originalState.negativePrompt,
-      inferenceSteps: originalState.inferenceSteps,
-      width: originalState.width,
-      height: originalState.height,
-      seed: originalState.seed,
-      batchSize: originalState.batchSize,
-    })
-    if (originalState.presetName) {
-      await usePresetSwitching().switchPreset(originalState.presetName, {
-        variant: originalState.variant ?? undefined,
-        skipModeSwitch: true,
-        skipLastUsedUpdate: true,
-      })
-    }
-  }
+  const restoreState = saveCurrentState(imageGeneration, presets)
 
   try {
     const switchResult = await usePresetSwitching().switchPreset(preset.name, {
@@ -263,15 +273,18 @@ export async function executeImageEdit(
 
     // Set the source image into the appropriate comfyInput
     // Find the first image input that doesn't have a default value (required input)
-    console.log('[ComfyUIImageEdit Tool] Available comfyInputs:', imageGeneration.comfyInputs.map(input => ({
-      label: input.label,
-      type: input.type,
-      displayed: input.displayed,
-      modifiable: input.modifiable,
-      defaultValue: input.defaultValue,
-      currentValue: input.current.value
-    })))
-    
+    console.log(
+      '[ComfyUIImageEdit Tool] Available comfyInputs:',
+      imageGeneration.comfyInputs.map((input) => ({
+        label: input.label,
+        type: input.type,
+        displayed: input.displayed,
+        modifiable: input.modifiable,
+        defaultValue: input.defaultValue,
+        currentValue: input.current.value,
+      })),
+    )
+
     const imageInput = imageGeneration.comfyInputs.find(
       (input) =>
         (input.type === 'image' || input.type === 'inpaintMask') &&
@@ -279,7 +292,7 @@ export async function executeImageEdit(
         input.modifiable !== false &&
         (input.defaultValue === '' || input.defaultValue === undefined),
     )
-    
+
     console.log('[ComfyUIImageEdit Tool] Found image input:', imageInput)
 
     if (!imageInput) {
@@ -292,7 +305,9 @@ export async function executeImageEdit(
       imageInput.current.value = dataUri
     } catch (error) {
       await restoreState()
-      return createErrorResult(`Failed to convert source image: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      return createErrorResult(
+        `Failed to convert source image: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      )
     }
 
     imageGeneration.updateImage({

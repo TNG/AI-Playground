@@ -908,6 +908,16 @@ export const useComfyUiPresets = defineStore(
       }
     }
 
+    async function free() {
+      await fetch(`${comfyBaseUrl.value}/free`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ free_memory: true, unload_models: true }),
+      })
+    }
+
     async function stop() {
       await fetch(`${comfyBaseUrl.value}/queue`, {
         method: 'POST',
@@ -930,6 +940,7 @@ export const useComfyUiPresets = defineStore(
     return {
       generate,
       stop,
+      free,
       checkPresetRequirements,
       installMissingRequirements,
     }

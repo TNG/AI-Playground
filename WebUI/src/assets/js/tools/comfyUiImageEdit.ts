@@ -146,12 +146,12 @@ async function stopChatBackend(): Promise<void> {
   // Stop any running chat backends to free up memory/resources
   for (const serviceName of chatBackends) {
     const backend = backendServices.info.find((s) => s.serviceName === serviceName)
-    if (backend?.status === 'running') {
-      try {
-        await backendServices.stopService(serviceName)
-      } catch (error) {
-        console.warn(`[ComfyUIImageEdit Tool] Failed to stop ${serviceName}:`, error)
-      }
+    console.log(`[ComfyUIImageEdit Tool] Checking backend "${serviceName}":`, backend)
+    try {
+      console.log(`[ComfyUIImageEdit Tool] Stopping ${serviceName}...`)
+      await backendServices.stopService(serviceName)
+    } catch (error) {
+      console.warn(`[ComfyUIImageEdit Tool] Failed to stop ${serviceName}:`, error)
     }
   }
 }
@@ -390,6 +390,7 @@ export async function executeImageEdit(
     )
   } finally {
     await restoreState()
+    await comfyUi.free()
   }
 }
 

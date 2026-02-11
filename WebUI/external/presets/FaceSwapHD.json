@@ -6,6 +6,8 @@
   "description": "Generate images with a likeness you control. Load image with a face to guide the likeness, then describe the character to generate",
   "backend": "comfyui",
   "category": "create-images",
+  "toolEnabled": true,
+  "toolCategory": "edit-images",
   "requiredCustomNodes": [
     "Gourieff/comfyui-reactor@d2318ad140582c6d0b68c51df342319b502006ed",
     "BetaDoggo/ComfyUI-YetAnotherSafetyChecker@a4e7d9e329c43c90366df73519c50df573ef0a9d",

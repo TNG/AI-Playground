@@ -116,9 +116,12 @@ async function convertToDataUri(imageUrl: string): Promise<string> {
 export function getAvailableEditWorkflows(): Array<{ name: string; description?: string }> {
   const presets = usePresets()
   return presets.presets
-    .filter(
-      (p: Preset) => p.type === 'comfy' && p.backend === 'comfyui' && p.category === 'edit-images',
-    )
+    .filter((p: Preset) => {
+      if (!(p.type === 'comfy' && p.backend === 'comfyui')) return false
+      if ((p.toolCategory || p.category) !== 'edit-images') return false
+      if (p.toolEnabled !== true) return false
+      return true
+    })
     .map((p: Preset) => ({ name: p.name, description: p.description }))
 }
 

@@ -120,6 +120,7 @@ const BasePresetFieldsSchema = z.object({
   mediaType: z.enum(['image', 'video', 'model3d']).optional(), // Specifies what type of media the preset generates
   toolInstructions: z.string().optional(), // Instructions for the AI on how to generate prompts for this preset
   toolEnabled: z.boolean().optional(), // Whether this preset should be available in the tool
+  toolCategory: z.string().optional(), // Category for tool organization (e.g., 'edit-images' for image editing tools)
 })
 
 // ComfyUI Preset Schema

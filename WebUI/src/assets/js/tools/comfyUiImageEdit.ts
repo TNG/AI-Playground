@@ -118,8 +118,7 @@ export function getAvailableEditWorkflows(): Array<{ name: string; description?:
   return presets.presets
     .filter((p: Preset) => {
       if (!(p.type === 'comfy' && p.backend === 'comfyui')) return false
-      if ((p.toolCategory || p.category) !== 'edit-images') return false
-      if (p.toolEnabled !== true) return false
+      if (p.toolCategory !== 'edit-images') return false
       return true
     })
     .map((p: Preset) => ({ name: p.name, description: p.description }))
@@ -241,8 +240,8 @@ export async function executeImageEdit(
 
   const requestedWorkflow = args.workflow || 'Edit By Prompt'
   let preset: Preset | null =
-    presets.presets.find((p) => p.name === requestedWorkflow && p.category === 'edit-images') ||
-    presets.presets.find((p) => p.type === 'comfy' && p.category === 'edit-images') ||
+    presets.presets.find((p) => p.name === requestedWorkflow && p.toolCategory === 'edit-images') ||
+    presets.presets.find((p) => p.type === 'comfy' && p.toolCategory === 'edit-images') ||
     null
 
   if (!preset || preset.type !== 'comfy') {

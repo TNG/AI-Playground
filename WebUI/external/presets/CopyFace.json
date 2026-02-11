@@ -6,7 +6,6 @@
   "backend": "comfyui",
   "category": "edit-images",
   "description": "Edit an image to have a likeness you control. Load image with a face you want to change, then load a reference face to guide the likeness.",
-  "toolEnabled": false,
   "requiredCustomNodes": ["Gourieff/comfyui-reactor@d2318ad140582c6d0b68c51df342319b502006ed"],
   "requiredPythonPackages": [
     "stringzilla==3.12.6",

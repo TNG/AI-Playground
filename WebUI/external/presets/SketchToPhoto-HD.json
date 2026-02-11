@@ -6,7 +6,7 @@
   "description": "Turn rough sketches into stunning photos. Load a sketch and describe the location, weather and environment",
   "backend": "comfyui",
   "category": "edit-images",
-  "toolEnabled": true,
+  "toolCategory": "edit-images",
   "requiredCustomNodes": [],
   "requiredPythonPackages": [],
   "requiredModels": [

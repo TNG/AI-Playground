@@ -102,6 +102,17 @@
       </div>
     </div>
   </div>
+  <div class="flex flex-col gap-3 pt-6 border-t border-border">
+    <p>{{ languages.SETTINGS_DEVELOPER }}</p>
+    <div class="pl-2 pt-2">
+      <div class="grid grid-cols-[280px_1fr] items-center gap-4 mb-4">
+        <Label class="whitespace-nowrap">{{
+          languages.SETTINGS_DEVELOPER_OPEN_DEV_CONSOLE_ON_STARTUP
+        }}</Label>
+        <Checkbox id="open-dev-console" v-model="developerSettings.openDevConsoleOnStartup" />
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -113,6 +124,7 @@ import { mapServiceNameToDisplayName, mapStatusToColor, mapToDisplayStatus } fro
 import { useBackendServices } from '@/assets/js/store/backendServices.ts'
 import { usePresets } from '@/assets/js/store/presets'
 import { useSpeechToText } from '@/assets/js/store/speechToText'
+import { useDeveloperSettings } from '@/assets/js/store/developerSettings'
 import * as toast from '@/assets/js/toast'
 import LanguageSelector from '@/components/LanguageSelector.vue'
 import ThemeSelector from '@/components/ThemeSelector.vue'
@@ -130,7 +142,9 @@ const models = useModels()
 const theme = useTheme()
 const presetsStore = usePresets()
 const i18nState = useI18N().state
+const languages = i18nState
 const speechToText = useSpeechToText()
+const developerSettings = useDeveloperSettings()
 const backendStarting = ref(false)
 
 const displayComponents = computed(() => {

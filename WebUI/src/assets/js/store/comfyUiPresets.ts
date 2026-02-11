@@ -903,7 +903,7 @@ export const useComfyUiPresets = defineStore(
       }
     }
 
-    async function free() {
+    async function freeMemoryAndUnloadModels() {
       await fetch(`${comfyBaseUrl.value}/free`, {
         method: 'POST',
         headers: {
@@ -935,7 +935,7 @@ export const useComfyUiPresets = defineStore(
     return {
       generate,
       stop,
-      free,
+      free: freeMemoryAndUnloadModels,
       checkPresetRequirements,
       installMissingRequirements,
     }

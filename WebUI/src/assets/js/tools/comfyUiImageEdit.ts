@@ -142,12 +142,13 @@ const chatBackends: BackendServiceName[] = [
 async function stopChatBackend(): Promise<void> {
   console.log('[ComfyUIImageEdit Tool] Stopping chat backend to free resources for image editing')
   const backendServices = useBackendServices()
-  
+
   // Stop any running chat backends to free up memory/resources
   for (const serviceName of chatBackends) {
     const backend = backendServices.info.find((s) => s.serviceName === serviceName)
     console.log(`[ComfyUIImageEdit Tool] Checking backend "${serviceName}":`, backend)
     try {
+      console.log(`[ComfyUIImageEdit Tool]  Backend: ${serviceName}, status: ${backend?.status}`)
       console.log(`[ComfyUIImageEdit Tool] Stopping ${serviceName}...`)
       await backendServices.stopService(serviceName)
     } catch (error) {
@@ -291,7 +292,7 @@ export async function executeImageEdit(
       args.inferenceSteps ??
       imageGeneration.inferenceSteps ??
       (getPresetDefault(preset, 'inferenceSteps') as number) ??
-      6
+      20
     imageGeneration.seed =
       args.seed ?? imageGeneration.seed ?? (getPresetDefault(preset, 'seed') as number) ?? -1
     imageGeneration.batchSize = 1

@@ -370,7 +370,8 @@ export const useOpenAiCompatibleChat = defineStore(
     async function regenerate(messageId: string) {
       await textInference.ensureReadyForInference()
       manuallyStopped.value = false
-      chats[conversations.activeKey]?.regenerate({ messageId })
+      await chats[conversations.activeKey]?.regenerate({ messageId })
+      conversations.updateConversation(messages.value, conversations.activeKey)
     }
 
     function removeMessage(messageId: string) {

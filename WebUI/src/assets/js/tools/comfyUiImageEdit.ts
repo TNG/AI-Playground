@@ -218,6 +218,10 @@ export async function executeImageEdit(
 ): Promise<ImageEditToolOutput> {
   console.log('[ComfyUIImageEdit Tool] Starting generation with args:', args)
 
+  // avoid network issues from killing the chat BE while tool call is still streaming
+  const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+  await delay(100)
+
   await stopChatBackend()
 
   const imageGeneration = useImageGenerationPresets()

@@ -42,7 +42,7 @@
     <div class="pt-4">
       <p>{{ languages.SETTINGS_AUDIO }}</p>
       <div class="pl-2 pt-4">
-        <div class="grid grid-cols-[120px_1fr] items-center gap-4 mb-4">
+        <div class="flex justify-between pr-4 items-center gap-4 mb-4">
           <Label class="whitespace-nowrap">Speech To Text</Label>
           <Checkbox
             v-if="!backendStarting"
@@ -67,17 +67,15 @@
         </div>
       </div>
     </div>
-
-    <div class="flex flex-col pt-5">
-      <button
-        @click="globalSetup.loadingState = 'manageInstallations'"
-        class="bg-primary hover:bg-primary/80 px-3 py-1.5 rounded-lg text-sm"
-      >
-        {{ languages.SETTINGS_MODEL_MANAGE_BACKEND }}
-      </button>
+    <p>{{ languages.SETTINGS_DEVELOPER }}</p>
+    <div class="pl-2 pt-2">
+      <div class="flex justify-between pr-4 items-center gap-4 mb-4">
+        <Label class="whitespace-nowrap">{{
+          languages.SETTINGS_DEVELOPER_OPEN_DEV_CONSOLE_ON_STARTUP
+        }}</Label>
+        <Checkbox id="open-dev-console" v-model="developerSettings.openDevConsoleOnStartup" />
+      </div>
     </div>
-  </div>
-  <div class="flex flex-col gap-3 pt-6 border-t border-border">
     <div class="flex justify-between items-center">
       <p>
         {{
@@ -86,31 +84,28 @@
           'Presets Management'
         }}
       </p>
-      <div class="flex gap-2 items-center">
+      <div class="flex pr-4 gap-2 items-center">
         <div :data-tooltip="i18nState.PRESET_RELOAD_INFO">
           <button
-            class="svg-icon i-refresh w-5 h-5 text-primary"
+            class="svg-icon i-refresh w-5 h-5"
             @click="presetsStore.loadPresetsFromFiles"
           ></button>
         </div>
         <div :data-tooltip="i18nState.PRESET_DOWNLOAD_INFO">
           <button
-            class="svg-icon i-download-cloud w-5 h-5 text-primary"
+            class="svg-icon i-download-cloud w-5 h-5"
             @click="loadPresetsFromIntel"
           ></button>
         </div>
       </div>
     </div>
-  </div>
-  <div class="flex flex-col gap-3 pt-6 border-t border-border">
-    <p>{{ languages.SETTINGS_DEVELOPER }}</p>
-    <div class="pl-2 pt-2">
-      <div class="grid grid-cols-[280px_1fr] items-center gap-4 mb-4">
-        <Label class="whitespace-nowrap">{{
-          languages.SETTINGS_DEVELOPER_OPEN_DEV_CONSOLE_ON_STARTUP
-        }}</Label>
-        <Checkbox id="open-dev-console" v-model="developerSettings.openDevConsoleOnStartup" />
-      </div>
+    <div class="flex flex-col pt-5">
+      <button
+        @click="globalSetup.loadingState = 'manageInstallations'"
+        class="bg-primary hover:bg-primary/80 px-3 py-1.5 rounded-lg text-sm"
+      >
+        {{ languages.SETTINGS_MODEL_MANAGE_BACKEND }}
+      </button>
     </div>
   </div>
 </template>

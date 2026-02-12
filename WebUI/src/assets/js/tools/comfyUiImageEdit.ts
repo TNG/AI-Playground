@@ -164,7 +164,6 @@ type ImageEditArgs = {
   variant?: string
   prompt: string
   negativePrompt?: string
-  inferenceSteps?: number
   seed?: number
 }
 
@@ -290,17 +289,9 @@ export async function executeImageEdit(
 
     imageGeneration.prompt = args.prompt
     imageGeneration.negativePrompt =
-      args.negativePrompt ??
-      imageGeneration.negativePrompt ??
-      (getPresetDefault(preset, 'negativePrompt') as string) ??
-      ''
-    imageGeneration.inferenceSteps =
-      args.inferenceSteps ??
-      imageGeneration.inferenceSteps ??
-      (getPresetDefault(preset, 'inferenceSteps') as number) ??
-      20
-    imageGeneration.seed =
-      args.seed ?? imageGeneration.seed ?? (getPresetDefault(preset, 'seed') as number) ?? -1
+      args.negativePrompt ?? (getPresetDefault(preset, 'negativePrompt') as string) ?? ''
+    imageGeneration.inferenceSteps = (getPresetDefault(preset, 'inferenceSteps') as number) ?? 20
+    imageGeneration.seed = args.seed ?? (getPresetDefault(preset, 'seed') as number) ?? -1
     imageGeneration.batchSize = 1
 
     // Set the source image into the appropriate comfyInput
@@ -436,8 +427,12 @@ function getToolDefinition() {
         .describe('Optional variant name (e.g., "Fast", "Standard", "Quality").'),
       prompt: z.string().describe('Description of the edit to apply to the image.'),
       negativePrompt: z.string().optional().describe('Things to avoid in the edit'),
-      inferenceSteps: z.number().optional().describe('Number of inference steps'),
-      seed: z.number().optional().describe('Random seed. Use -1 for random.'),
+      seed: z
+        .number()
+        .optional()
+        .describe(
+          'Random seed for reproducible generation. Use -1 for random seed. Only specify if user wants to reproduce a specific result.',
+        ),
     }),
   }
 }

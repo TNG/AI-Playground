@@ -7,7 +7,7 @@
   "backend": "comfyui",
   "category": "edit-images",
   "toolCategory": "edit-images",
-  "requiredCustomNodes": [],
+  "requiredCustomNodes": ["evanspearman/ComfyMath@939bb813f1c0ace959b62f20bb2da47190c4e211"],
   "requiredPythonPackages": [],
   "requiredModels": [
     {
@@ -17,6 +17,18 @@
     {
       "type": "controlNet",
       "model": "stabilityai/control-lora/control-LoRAs-rank128/control-lora-canny-rank128.safetensors"
+    },
+    {
+      "type": "nsfwdetector",
+      "model": "AdamCodd/vit-base-nsfw-detector/config.json"
+    },
+    {
+      "type": "nsfwdetector",
+      "model": "AdamCodd/vit-base-nsfw-detector/model.safetensors"
+    },
+    {
+      "type": "nsfwdetector",
+      "model": "AdamCodd/vit-base-nsfw-detector/preprocessor_config.json"
     }
   ],
   "settings": [
@@ -91,6 +103,18 @@
       "modifiable": false,
       "defaultValue": true,
       "settingName": "safetyCheck"
+    },
+    {
+      "type": "number",
+      "label": "Safety Checker Strength",
+      "nodeTitle": "SafetyCheckerStrength",
+      "nodeInput": "b",
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "defaultValue": 0.5,
+      "displayed": true,
+      "modifiable": true
     },
     {
       "type": "number",
@@ -264,11 +288,33 @@
     "9": {
       "inputs": {
         "filename_prefix": "AIPG_Image",
-        "images": ["8", 0]
+        "images": ["98", 0]
       },
       "class_type": "SaveImage",
       "_meta": {
         "title": "Save Image"
+      }
+    },
+    "98": {
+      "inputs": {
+        "threshold": ["99", 0],
+        "cuda": false,
+        "image": ["8", 0]
+      },
+      "class_type": "SafetyChecker",
+      "_meta": {
+        "title": "Intercept NSFW Outputs"
+      }
+    },
+    "99": {
+      "inputs": {
+        "op": "Sub",
+        "a": 1,
+        "b": 0.5
+      },
+      "class_type": "CM_FloatBinaryOperation",
+      "_meta": {
+        "title": "SafetyCheckerStrength"
       }
     },
     "15": {

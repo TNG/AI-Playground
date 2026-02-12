@@ -1,5 +1,5 @@
 <template>
-  <div class="dialog-container z-10">
+  <div class="dialog-container z-50">
     <div
       class="dialog-mask absolute left-0 top-0 w-full h-full bg-background/55 flex justify-center items-center"
     >
@@ -140,10 +140,10 @@
               }}
             </span>
           </div>
-          <div class="flex items-center gap-2">
+          <label class="flex items-center gap-2">
             <Checkbox v-model="readTerms" />
             <span class="text-sm text-left">{{ languages.DOWNLOADER_TERMS_TIP }}</span>
-          </div>
+          </label>
           <div class="flex justify-center items-center gap-9">
             <button @click="cancelConfirm" class="bg-muted text-foreground py-1 px-4 rounded">
               {{ i18nState.COM_CANCEL }}

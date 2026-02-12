@@ -2,6 +2,43 @@ import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { useI18N } from '@/assets/js/store/i18n.ts'
 
+/**
+ * Compares two version strings using numeric segment comparison.
+ * Handles versions like "v0.10.0", "b7446", "2025.4.0", "v2.3.0-nightly".
+ *
+ * Non-numeric prefixes (e.g. "v", "b") are stripped before comparison.
+ * Pre-release suffixes after a hyphen (e.g. "-nightly") are ignored.
+ * Each dot-separated segment is compared numerically; non-numeric segments
+ * fall back to lexicographic comparison.
+ *
+ * @returns negative if a < b, positive if a > b, 0 if equal
+ */
+export function compareVersions(a: string, b: string): number {
+  const normalize = (v: string) =>
+    v
+      .replace(/^[a-z]+/i, '') // strip leading non-numeric prefix ("v", "b", etc.)
+      .split('-')[0] // drop pre-release suffix ("-nightly", "-rc1", etc.)
+
+  const partsA = normalize(a).split('.')
+  const partsB = normalize(b).split('.')
+  const length = Math.max(partsA.length, partsB.length)
+
+  for (let i = 0; i < length; i++) {
+    const segA = partsA[i] ?? '0'
+    const segB = partsB[i] ?? '0'
+    const numA = Number(segA)
+    const numB = Number(segB)
+
+    if (!Number.isNaN(numA) && !Number.isNaN(numB)) {
+      if (numA !== numB) return numA - numB
+    } else {
+      if (segA < segB) return -1
+      if (segA > segB) return 1
+    }
+  }
+  return 0
+}
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
@@ -172,6 +209,46 @@ export async function checkIfNsfwBlocked(imageUrl: string): Promise<boolean> {
     }
 
     img.src = imageUrl
+  })
+}
+
+/**
+ * Checks if a string is a valid base64 data URI for an image.
+ * @param url - The string to check
+ * @returns true if the string is a valid base64 image data URI
+ */
+export function isBase64ImageDataUri(url: string | undefined | null): boolean {
+  if (!url || typeof url !== 'string') return false
+  return /^data:image\/(png|jpeg|webp);base64,/.test(url)
+}
+
+/**
+ * Converts a blob URL (or any image URL) to a base64 data URI.
+ * If the URL is already a base64 data URI, it returns it unchanged.
+ * @param url - The URL to convert (blob:, http:, or data: URL)
+ * @returns A Promise that resolves to a base64 data URI
+ */
+export async function imageUrlToDataUri(url: string): Promise<string> {
+  // If already a base64 data URI, return as-is
+  if (isBase64ImageDataUri(url)) {
+    return url
+  }
+
+  // Fetch the URL and convert to base64
+  const response = await fetch(url)
+  const blob = await response.blob()
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result)
+      } else {
+        reject(new Error('Failed to convert image to data URI'))
+      }
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
   })
 }
 

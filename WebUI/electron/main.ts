@@ -1392,7 +1392,12 @@ app.whenReady().then(async () => {
   } else {
     const settings = await loadSettings()
 
-    cleanupTempFolders(path.join(externalRes, '..', 'models'))
+    const modelsDir = path.resolve(
+      app.isPackaged
+        ? path.join(process.resourcesPath, 'models')
+        : path.join(__dirname, '../../../models'),
+    )
+    cleanupTempFolders(modelsDir)
 
     initEventHandle()
 

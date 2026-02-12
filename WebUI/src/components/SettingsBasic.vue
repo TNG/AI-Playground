@@ -128,10 +128,7 @@
           ></button>
         </div>
         <div :data-tooltip="i18nState.PRESET_DOWNLOAD_INFO">
-          <button
-            class="svg-icon i-download-cloud w-5 h-5"
-            @click="loadPresetsFromIntel"
-          ></button>
+          <button class="svg-icon i-download-cloud w-5 h-5" @click="loadPresetsFromIntel"></button>
         </div>
       </div>
     </div>

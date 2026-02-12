@@ -58,6 +58,7 @@ const languages = i18nState
 
 const settingToTranslationKey: Record<keyof GenerationSettings, string> = {
   preset: 'SETTINGS_IMAGE_PRESET',
+  variant: 'SETTINGS_IMAGE_VARIANT',
   device: 'DEVICE',
   negativePrompt: 'SETTINGS_MODEL_NEGATIVE_PROMPT',
   resolution: 'SETTINGS_MODEL_IMAGE_RESOLUTION',

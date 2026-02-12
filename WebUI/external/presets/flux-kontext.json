@@ -115,7 +115,7 @@
       "label": "Use resolution of reference image(s)",
       "displayed": true,
       "modifiable": true,
-      "defaultValue": false,
+      "defaultValue": true,
       "nodeTitle": "use_original_resolution",
       "nodeInput": "switch"
     },

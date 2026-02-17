@@ -1,63 +1,104 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
-export const useCamera = defineStore('camera', () => {
-  const isStreaming = ref(false)
+export type CameraDevice = {
+  deviceId: string
+  label: string
+  kind: string
+}
+
+export const useCameraStore = defineStore('camera', () => {
+  // State
+  const devices = ref<CameraDevice[]>([])
+  const selectedDeviceId = ref<string | null>(null)
+  const stream = ref<MediaStream | null>(null)
+  const isActive = ref(false)
   const error = ref<string | null>(null)
+  const isLoading = ref(false)
   const capturedImage = ref<string | null>(null)
 
-  let stream: MediaStream | null = null
-  let videoElement: HTMLVideoElement | null = null
+  // Getters
+  const hasDevices = computed(() => devices.value.length > 0)
 
-  const canCapture = computed(() => isStreaming.value && !error.value)
-
-  async function startStream(video?: HTMLVideoElement) {
-    if (isStreaming.value) return
-
+  // Actions
+  async function getDevices() {
     try {
+      isLoading.value = true
       error.value = null
-      capturedImage.value = null
 
-      stream = await navigator.mediaDevices.getUserMedia({ video: true })
+      // Request camera permission first
+      const tempStream = await navigator.mediaDevices.getUserMedia({ video: true })
+      tempStream.getTracks().forEach((track) => track.stop())
 
-      if (video) {
-        videoElement = video
-        videoElement.srcObject = stream
-        await videoElement.play()
+      const mediaDevices = await navigator.mediaDevices.enumerateDevices()
+      const videoDevices = mediaDevices.filter((device) => device.kind === 'videoinput')
+
+      devices.value = videoDevices.map((device, index) => ({
+        deviceId: device.deviceId,
+        label: device.label || `Camera ${index + 1}`,
+        kind: device.kind,
+      }))
+
+      // Auto-select first device if none selected
+      if (devices.value.length > 0 && !selectedDeviceId.value) {
+        selectedDeviceId.value = devices.value[0].deviceId
       }
-
-      isStreaming.value = true
     } catch (err) {
-      console.error('Failed to start camera stream:', err)
-      error.value = err instanceof Error ? err.message : 'Failed to start camera stream'
+      error.value = err instanceof Error ? err.message : 'Failed to get camera devices'
+      console.error('Error getting camera devices:', err)
+    } finally {
+      isLoading.value = false
     }
   }
 
-  function stopStream() {
-    if (stream) {
-      for (const track of stream.getTracks()) {
-        track.stop()
+  async function startCamera(deviceId?: string) {
+    try {
+      isLoading.value = true
+      error.value = null
+
+      const targetDeviceId = deviceId || selectedDeviceId.value
+
+      if (!targetDeviceId) {
+        throw new Error('No camera device selected')
       }
-      stream = null
-    }
 
-    if (videoElement) {
-      videoElement.srcObject = null
-      videoElement = null
-    }
+      // Stop existing stream if any
+      if (stream.value) {
+        stopCamera()
+      }
 
-    isStreaming.value = false
+      stream.value = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: targetDeviceId } },
+      })
+
+      isActive.value = true
+      selectedDeviceId.value = targetDeviceId
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to start camera'
+      console.error('Error starting camera:', err)
+    } finally {
+      isLoading.value = false
+    }
   }
 
-  function captureImage(): string | null {
-    if (!isStreaming.value || !videoElement) {
-      error.value = 'Camera is not streaming'
+  function stopCamera() {
+    if (stream.value) {
+      stream.value.getTracks().forEach((track) => track.stop())
+      stream.value = null
+    }
+    isActive.value = false
+    capturedImage.value = null
+  }
+
+  function captureImage(video: HTMLVideoElement): string | null {
+    if (!isActive.value || !stream.value) {
+      error.value = 'Camera is not active'
       return null
     }
 
     const canvas = document.createElement('canvas')
-    canvas.width = videoElement.videoWidth
-    canvas.height = videoElement.videoHeight
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
 
     const ctx = canvas.getContext('2d')
     if (!ctx) {
@@ -65,22 +106,37 @@ export const useCamera = defineStore('camera', () => {
       return null
     }
 
-    ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height)
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
     capturedImage.value = canvas.toDataURL('image/png')
     return capturedImage.value
   }
 
+  function selectDevice(deviceId: string) {
+    selectedDeviceId.value = deviceId
+  }
+
+  function clearError() {
+    error.value = null
+  }
+
   return {
-    isStreaming,
+    devices,
+    selectedDeviceId,
+    stream,
+    isActive,
     error,
+    isLoading,
     capturedImage,
-    canCapture,
-    startStream,
-    stopStream,
+    hasDevices,
+    getDevices,
+    startCamera,
+    stopCamera,
     captureImage,
+    selectDevice,
+    clearError,
   }
 })
 
 if (import.meta.hot) {
-  import.meta.hot.accept(acceptHMRUpdate(useCamera, import.meta.hot))
+  import.meta.hot.accept(acceptHMRUpdate(useCameraStore, import.meta.hot))
 }

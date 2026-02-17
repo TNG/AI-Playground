@@ -51,6 +51,9 @@ export const useDialogStore = defineStore('dialog', () => {
   const installationProgressDialogVisible = ref(false)
   const installationProgressData = ref<InstallationProgressData | null>(null)
 
+  // Camera dialog state
+  const cameraDialogVisible = ref(false)
+
   // Mask editor dialog state
   const maskEditorDialogVisible = ref(false)
   const maskEditorMode = ref<'inpaint' | 'outpaint'>('inpaint')
@@ -120,6 +123,14 @@ export const useDialogStore = defineStore('dialog', () => {
       installationProgressData.value.showModelDownload = true
       installationProgressData.value.modelDownloadList = downloadList
     }
+  }
+
+  function showCameraDialog() {
+    cameraDialogVisible.value = true
+  }
+
+  function closeCameraDialog() {
+    cameraDialogVisible.value = false
   }
 
   function showMaskEditorDialog(mode: 'inpaint' | 'outpaint', originalImageUrl?: string) {
@@ -275,6 +286,11 @@ export const useDialogStore = defineStore('dialog', () => {
     updateInstallationProgress,
     closeInstallationProgressDialog,
     transitionToModelDownload,
+
+    // Camera dialog
+    cameraDialogVisible,
+    showCameraDialog,
+    closeCameraDialog,
 
     // Mask editor dialog
     maskEditorDialogVisible,

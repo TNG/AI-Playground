@@ -100,7 +100,7 @@ const cameraStore = useCameraStore()
 const videoElement = ref<HTMLVideoElement | null>(null)
 
 const emit = defineEmits<{
-  capture: [imageDataUrl: string]
+  capture: [file: File]
 }>()
 
 watch(
@@ -143,11 +143,11 @@ async function onDeviceChange(deviceId: string) {
   }
 }
 
-function capture() {
+async function capture() {
   if (!videoElement.value) return
-  const imageDataUrl = cameraStore.captureImage(videoElement.value)
-  if (imageDataUrl) {
-    emit('capture', imageDataUrl)
+  const file = await cameraStore.captureImageAsFileBlob(videoElement.value)
+  if (file) {
+    emit('capture', file)
   }
 }
 

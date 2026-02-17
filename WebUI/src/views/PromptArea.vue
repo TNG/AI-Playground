@@ -193,6 +193,20 @@
         </div>
       </div>
     </div>
+
+    <!-- Camera Capture Dialog -->
+    <div
+      v-if="dialogStore.cameraDialogVisible"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+    >
+      <div class="bg-background rounded-lg p-6 w-full max-w-lg mx-4 shadow-xl">
+        <h2 class="text-lg font-semibold mb-4">Capture Image</h2>
+        <CameraCapture @capture="handleCameraCapture" />
+        <div class="mt-4 flex justify-end">
+          <Button variant="outline" @click="dialogStore.closeCameraDialog()">Close</Button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -233,6 +247,8 @@ import { useDropZone, useEventListener } from '@vueuse/core'
 import * as toast from '@/assets/js/toast'
 import { Context } from '@/components/ui/context'
 import Button from '@/components/ui/button/Button.vue'
+import { useDialogStore } from '@/assets/js/store/dialogs'
+import CameraCapture from '@/components/CameraCapture.vue'
 
 const instance = getCurrentInstance()
 const audioRecorder = useAudioRecorder()
@@ -247,6 +263,7 @@ const openAiCompatibleChat = useOpenAiCompatibleChat()
 const textInference = useTextInference()
 const textareaRef = ref<HTMLTextAreaElement>()
 const presetsStore = usePresets()
+const dialogStore = useDialogStore()
 
 audioRecorder.registerTranscriptionCallback((text) => (prompt.value = text))
 
@@ -451,8 +468,12 @@ async function handleRecordingClick() {
 }
 
 function handleCameraClick() {
-  // TODO IAIP-96: Implement camera capture functionality
-  console.log('Camera button clicked - implementation coming soon')
+  dialogStore.showCameraDialog()
+}
+
+async function handleCameraCapture(file: File) {
+  dialogStore.closeCameraDialog()
+  await handleImageFiles([file])
 }
 
 function fastGenerate(e: KeyboardEvent) {

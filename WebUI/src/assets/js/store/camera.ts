@@ -39,9 +39,11 @@ export const useCameraStore = defineStore('camera', () => {
         kind: device.kind,
       }))
 
-      // Auto-select first device if none selected
+      // Auto-select first device if none selected and start camera
       if (devices.value.length > 0 && !selectedDeviceId.value) {
         selectedDeviceId.value = devices.value[0].deviceId
+        // Auto-start camera for the selected device
+        await startCamera(devices.value[0].deviceId)
       }
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to get camera devices'
@@ -111,8 +113,18 @@ export const useCameraStore = defineStore('camera', () => {
     return capturedImage.value
   }
 
-  function selectDevice(deviceId: string) {
+  async function captureImageAsFileBlob(video: HTMLVideoElement): Promise<File | null> {
+    const dataUrl = captureImage(video)
+    if (!dataUrl) return null
+
+    const response = await fetch(dataUrl)
+    const blob = await response.blob()
+    return new File([blob], 'camera-capture.png', { type: 'image/png' })
+  }
+
+  async function selectDevice(deviceId: string) {
     selectedDeviceId.value = deviceId
+    await startCamera(deviceId)
   }
 
   function clearError() {
@@ -132,6 +144,7 @@ export const useCameraStore = defineStore('camera', () => {
     startCamera,
     stopCamera,
     captureImage,
+    captureImageAsFileBlob,
     selectDevice,
     clearError,
   }

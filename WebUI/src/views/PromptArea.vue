@@ -128,6 +128,15 @@
             class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
             variant="secondary"
             v-if="promptStore.getCurrentMode() === 'chat'"
+            @click="handleCameraClick"
+            title="Capture image from camera"
+          >
+            <CameraIcon class="w-5 h-5" />
+          </Button>
+          <Button
+            class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
+            variant="secondary"
+            v-if="promptStore.getCurrentMode() === 'chat'"
             @click="handleRecordingClick"
             :disabled="(false && !speechToText.enabled) || audioRecorder.isTranscribing"
             :title="
@@ -217,6 +226,7 @@ import {
   XMarkIcon,
   MagnifyingGlassPlusIcon,
   MagnifyingGlassMinusIcon,
+  CameraIcon,
 } from '@heroicons/vue/24/outline'
 import { Label } from '@/components/ui/label'
 import { useDropZone, useEventListener } from '@vueuse/core'
@@ -438,6 +448,11 @@ async function handleRecordingClick() {
       toast.error(audioRecorder.error)
     }
   }
+}
+
+function handleCameraClick() {
+  // TODO IAIP-96: Implement camera capture functionality
+  console.log('Camera button clicked - implementation coming soon')
 }
 
 function fastGenerate(e: KeyboardEvent) {

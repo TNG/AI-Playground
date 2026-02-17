@@ -113,15 +113,6 @@ export const useCameraStore = defineStore('camera', () => {
     return capturedImage.value
   }
 
-  async function captureImageAsFileBlob(video: HTMLVideoElement): Promise<File | null> {
-    const dataUrl = captureImage(video)
-    if (!dataUrl) return null
-
-    const response = await fetch(dataUrl)
-    const blob = await response.blob()
-    return new File([blob], 'camera-capture.png', { type: 'image/png' })
-  }
-
   async function selectDevice(deviceId: string) {
     selectedDeviceId.value = deviceId
     await startCamera(deviceId)
@@ -144,7 +135,6 @@ export const useCameraStore = defineStore('camera', () => {
     startCamera,
     stopCamera,
     captureImage,
-    captureImageAsFileBlob,
     selectDevice,
     clearError,
   }

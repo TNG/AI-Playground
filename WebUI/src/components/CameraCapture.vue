@@ -24,11 +24,6 @@
         <span v-else-if="cameraStore.isActive">Stop Camera</span>
         <span v-else>Start Camera</span>
       </Button>
-
-      <!-- Capture Button -->
-      <Button v-if="cameraStore.isActive" variant="default" size="sm" @click="capture">
-        Capture
-      </Button>
     </div>
 
     <!-- Error Message -->
@@ -86,6 +81,11 @@
           <span class="text-sm text-muted-foreground">Click "Start Camera" to begin</span>
         </div>
       </template>
+    </div>
+
+    <!-- Capture Button -->
+    <div v-if="cameraStore.isActive" class="flex justify-center">
+      <Button variant="default" size="sm" @click="capture">Capture</Button>
     </div>
   </div>
 </template>
@@ -145,10 +145,15 @@ async function onDeviceChange(deviceId: string) {
 
 async function capture() {
   if (!videoElement.value) return
-  const file = await cameraStore.captureImageAsFileBlob(videoElement.value)
-  if (file) {
-    emit('capture', file)
-  }
+  const dataUrl = cameraStore.captureImage(videoElement.value)
+  if (!dataUrl) return
+
+  // Convert data URL to File
+  const response = await fetch(dataUrl)
+  const blob = await response.blob()
+  const file = new File([blob], 'camera-capture.png', { type: 'image/png' })
+
+  emit('capture', file)
 }
 
 function clearCapture() {

@@ -3,7 +3,7 @@
     <!-- Controls Row -->
     <div class="flex items-center gap-4 flex-wrap">
       <!-- Device Selector -->
-      <div v-if="cameraStore.hasDevices" class="flex items-center gap-2">
+      <div class="flex items-center gap-2">
         <span class="text-sm text-muted-foreground">Camera:</span>
         <DropDownNew
           :items="deviceItems"
@@ -13,16 +13,15 @@
         />
       </div>
 
-      <!-- Start/Stop Button -->
+      <!-- Next Camera Button -->
       <Button
+        v-if="cameraStore.devices.length > 1"
         variant="outline"
         size="sm"
-        :disabled="cameraStore.isLoading || !cameraStore.hasDevices"
-        @click="toggleCamera"
+        :disabled="cameraStore.isLoading"
+        @click="cameraStore.nextCamera()"
       >
-        <span v-if="cameraStore.isLoading">Loading...</span>
-        <span v-else-if="cameraStore.isActive">Stop Camera</span>
-        <span v-else>Start Camera</span>
+        Next Camera
       </Button>
     </div>
 
@@ -106,14 +105,6 @@ const deviceItems = computed(() =>
     active: d.deviceId === cameraStore.selectedDeviceId,
   })),
 )
-
-async function toggleCamera() {
-  if (cameraStore.isActive) {
-    cameraStore.stopCamera()
-  } else {
-    await cameraStore.startCamera()
-  }
-}
 
 async function onDeviceChange(deviceId: string) {
   cameraStore.selectDevice(deviceId)

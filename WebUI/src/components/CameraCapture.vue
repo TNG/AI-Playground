@@ -3,9 +3,10 @@
     <!-- Controls Row -->
     <div class="flex items-center gap-4 flex-wrap">
       <!-- Device Selector -->
-      <div class="flex items-center gap-2">
-        <span class="text-sm text-muted-foreground">Camera:</span>
+      <div class="flex items-center gap-2 flex-1">
+        <span class="text-sm text-muted-foreground whitespace-nowrap">Camera:</span>
         <DropDownNew
+          class="flex-1"
           :items="deviceItems"
           :value="cameraStore.selectedDeviceId || ''"
           :on-change="onDeviceChange"
@@ -15,10 +16,10 @@
 
       <!-- Next Camera Button -->
       <Button
-        v-if="cameraStore.devices.length > 1"
         variant="outline"
         size="sm"
-        :disabled="cameraStore.isLoading"
+        class="ml-auto"
+        :disabled="cameraStore.isLoading || cameraStore.devices.length <= 1"
         @click="cameraStore.nextCamera()"
       >
         Next Camera
@@ -58,8 +59,10 @@
     </div>
 
     <!-- Capture Button -->
-    <div v-if="cameraStore.isActive" class="flex justify-center">
-      <Button variant="default" size="sm" @click="capture">Capture</Button>
+    <div class="flex justify-center">
+      <Button variant="default" size="sm" :disabled="!cameraStore.isActive" @click="capture">
+        Capture
+      </Button>
     </div>
   </div>
 </template>

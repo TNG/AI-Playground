@@ -114,6 +114,9 @@ watch(
 
 onMounted(async () => {
   await cameraStore.getDevices()
+  if (cameraStore.hasDevices && !cameraStore.isActive) {
+    await cameraStore.startCamera(cameraStore.selectedDeviceId || undefined)
+  }
 })
 
 onUnmounted(() => {

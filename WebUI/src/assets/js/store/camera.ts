@@ -39,11 +39,10 @@ export const useCameraStore = defineStore('camera', () => {
         kind: device.kind,
       }))
 
-      // Auto-select first device if none selected and start camera
+      // Auto-select first device if none selected
       if (devices.value.length > 0 && !selectedDeviceId.value) {
         selectedDeviceId.value = devices.value[0].deviceId
-        // Auto-start camera for the selected device
-        await startCamera(devices.value[0].deviceId)
+        // Don't auto-start camera here - let the component decide when to start it
       }
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to get camera devices'

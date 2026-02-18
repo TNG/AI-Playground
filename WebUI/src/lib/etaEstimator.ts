@@ -1,11 +1,11 @@
 type RateSample = {
   timestamp: number
-  rate: number // value per second
+  rate: number
 }
 
 /**
  * ETA Estimator - calculates time remaining based on progress over time
- * Uses a rolling window of rate samples with median for smoothing
+ * Uses a rolling window of rate samples with average for smoothing
  */
 export class EtaEstimator {
   private samples: RateSample[]
@@ -59,13 +59,13 @@ export class EtaEstimator {
     this.addSample(now, valueChange / timeElapsedSeconds)
     this.pruneOldSamples(now)
 
-    const medianRate = this.calculateMedianRate()
-    if (medianRate === null) {
+    const rate = this.calculateAverageRate()
+    if (rate === null) {
       return null
     }
 
     const remainingValue = this.maxValue - currentValue
-    return remainingValue / medianRate
+    return remainingValue / rate
   }
 
   updateAndEstimate(currentValue: number): string {
@@ -96,18 +96,13 @@ export class EtaEstimator {
     return newestTimestamp - oldestTimestamp >= this.enoughDataMs
   }
 
-  private calculateMedianRate(): number | null {
+  private calculateAverageRate(): number | null {
     if (this.samples.length === 0) {
       return null
     }
 
-    const sortedRates = this.samples.map((s) => s.rate).sort((a, b) => a - b)
-    const mid = Math.floor(sortedRates.length / 2)
-
-    if (sortedRates.length % 2 === 0) {
-      return (sortedRates[mid - 1] + sortedRates[mid]) / 2
-    }
-    return sortedRates[mid]
+    const sum = this.samples.reduce((acc, s) => acc + s.rate, 0)
+    return sum / this.samples.length
   }
 
   private formatTime(seconds: number | null): string {

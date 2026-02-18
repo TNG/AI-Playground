@@ -16,7 +16,6 @@ export const useCameraStore = defineStore('camera', () => {
   const isLoading = ref(false)
 
   // Getters
-  const hasDevices = computed(() => devices.value.length > 0)
   const isActive = computed(() => stream.value !== null)
 
   // Actions
@@ -37,12 +36,6 @@ export const useCameraStore = defineStore('camera', () => {
         label: device.label || `Camera ${index + 1}`,
         kind: device.kind,
       }))
-
-      // Auto-select first device if none selected
-      if (devices.value.length > 0 && !selectedDeviceId.value) {
-        selectedDeviceId.value = devices.value[0].deviceId
-        // Don't auto-start camera here - let the component decide when to start it
-      }
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to get camera devices'
       console.error('Error getting camera devices:', err)
@@ -51,27 +44,20 @@ export const useCameraStore = defineStore('camera', () => {
     }
   }
 
-  async function startCamera(deviceId?: string) {
+  async function startCamera() {
+    const targetDeviceId = selectedDeviceId.value
+    if (!targetDeviceId) {
+      error.value = 'No camera device selected'
+      return
+    }
+
     try {
       isLoading.value = true
       error.value = null
 
-      const targetDeviceId = deviceId || selectedDeviceId.value
-
-      if (!targetDeviceId) {
-        throw new Error('No camera device selected')
-      }
-
-      // Stop existing stream if any
-      if (stream.value) {
-        stopCamera()
-      }
-
       stream.value = await navigator.mediaDevices.getUserMedia({
         video: { deviceId: { exact: targetDeviceId } },
       })
-
-      selectedDeviceId.value = targetDeviceId
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to start camera'
       console.error('Error starting camera:', err)
@@ -87,8 +73,21 @@ export const useCameraStore = defineStore('camera', () => {
     }
   }
 
+  async function selectDevice(deviceId: string) {
+    stopCamera()
+    selectedDeviceId.value = deviceId
+    await startCamera()
+  }
+
+  async function selectNextDevice() {
+    if (devices.value.length <= 1) return
+    const currentIndex = devices.value.findIndex((d) => d.deviceId === selectedDeviceId.value)
+    const nextIndex = (currentIndex + 1) % devices.value.length
+    await selectDevice(devices.value[nextIndex].deviceId)
+  }
+
   function captureImage(video: HTMLVideoElement): string | null {
-    if (!isActive.value || !stream.value) {
+    if (!isActive.value) {
       error.value = 'Camera is not active'
       return null
     }
@@ -107,18 +106,6 @@ export const useCameraStore = defineStore('camera', () => {
     return canvas.toDataURL('image/png')
   }
 
-  async function selectDevice(deviceId: string) {
-    selectedDeviceId.value = deviceId
-    await startCamera(deviceId)
-  }
-
-  async function nextCamera() {
-    if (devices.value.length <= 1) return
-    const currentIndex = devices.value.findIndex((d) => d.deviceId === selectedDeviceId.value)
-    const nextIndex = (currentIndex + 1) % devices.value.length
-    await selectDevice(devices.value[nextIndex].deviceId)
-  }
-
   function clearError() {
     error.value = null
   }
@@ -130,13 +117,12 @@ export const useCameraStore = defineStore('camera', () => {
     isActive,
     error,
     isLoading,
-    hasDevices,
     getDevices,
     startCamera,
     stopCamera,
     captureImage,
     selectDevice,
-    nextCamera,
+    selectNextDevice,
     clearError,
   }
 })

@@ -20,7 +20,7 @@
         size="sm"
         class="ml-auto"
         :disabled="cameraStore.isLoading || cameraStore.devices.length <= 1"
-        @click="cameraStore.nextCamera()"
+        @click="cameraStore.selectNextDevice()"
       >
         Next Camera
       </Button>
@@ -92,8 +92,9 @@ watch(
 
 onMounted(async () => {
   await cameraStore.getDevices()
-  if (cameraStore.hasDevices && !cameraStore.isActive) {
-    await cameraStore.startCamera(cameraStore.selectedDeviceId || undefined)
+  if (cameraStore.devices.length > 0) {
+    const deviceId = cameraStore.selectedDeviceId || cameraStore.devices[0].deviceId
+    await cameraStore.selectDevice(deviceId)
   }
 })
 
@@ -110,10 +111,7 @@ const deviceItems = computed(() =>
 )
 
 async function onDeviceChange(deviceId: string) {
-  cameraStore.selectDevice(deviceId)
-  if (cameraStore.isActive) {
-    await cameraStore.startCamera(deviceId)
-  }
+  await cameraStore.selectDevice(deviceId)
 }
 
 async function capture() {

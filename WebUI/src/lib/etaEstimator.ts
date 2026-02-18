@@ -115,18 +115,13 @@ export class EtaEstimator {
       return '--'
     }
 
-    if (seconds < 60) {
-      return `${Math.round(seconds)}s`
-    }
+    const totalSeconds = Math.round(seconds)
+    const hours = Math.floor(totalSeconds / 3600)
+    const mins = Math.floor((totalSeconds % 3600) / 60)
+    const secs = totalSeconds % 60
 
-    if (seconds < 3600) {
-      const mins = Math.floor(seconds / 60)
-      const secs = Math.round(seconds % 60)
-      return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`
-    }
-
-    const hours = Math.floor(seconds / 3600)
-    const mins = Math.round((seconds % 3600) / 60)
-    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`
+    if (hours > 0) return `${hours}h ${mins}m ${secs}s`
+    if (mins > 0) return `${mins}m ${secs}s`
+    return `${secs}s`
   }
 }

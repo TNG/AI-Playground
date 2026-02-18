@@ -10,7 +10,7 @@ import {
   patchFile,
   createEnhancedErrorDetails,
 } from './service.ts'
-import { aipgBaseDir, checkBackendWithDetails, installBackend } from './uvBasedBackends/uv.ts'
+import { aipgBaseDir, checkBackendWithDetails, installBackend, installComfyUIBackend } from './uvBasedBackends/uv.ts'
 import { ProcessError } from './osProcessHelper.ts'
 import { getMediaDir } from '../util.ts'
 import { levelZeroDeviceSelectorEnv } from './deviceDetection.ts'
@@ -38,7 +38,8 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   readonly serviceFolder = 'ComfyUI'
   readonly baseDir = path.resolve(aipgBaseDir)
   readonly serviceDir = path.resolve(path.join(this.baseDir, this.serviceFolder))
-  readonly pythonEnvDir = path.resolve(path.join(this.serviceDir, '.venv'))
+  readonly pythonEnvDirCpu = path.resolve(path.join(this.serviceDir, '.venv-cpu'))
+  readonly pythonEnvDirXpu = path.resolve(path.join(this.serviceDir, '.venv-xpu'))
   devices: InferenceDevice[] = [{ id: '*', name: 'Auto select device', selected: true }]
   readonly git = new GitService()
   healthEndpointUrl = `${this.baseUrl}/queue`
@@ -48,6 +49,17 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   private environmentMismatchError: ErrorDetails | null = null
 
   private comfyUiParametersString: string = COMFYUI_DEFAULT_PARAMETERS
+
+  // Track device type for backend configuration (XPU/CUDA/CPU)
+  private deviceType: 'XPU' | 'CUDA' | 'CPU' = 'XPU'
+
+  // Track if Intel Arc GPU is available for dual venv setup
+  private hasIntelArcGpu = false
+
+  // Get the appropriate Python environment directory based on device type
+  get pythonEnvDir(): string {
+    return this.deviceType === 'CPU' ? this.pythonEnvDirCpu : this.pythonEnvDirXpu
+  }
 
   async serviceIsSetUp(): Promise<boolean> {
     this.appLogger.info(`Checking if comfyUI directories exist`, this.name)
@@ -63,62 +75,24 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
       }
     })
 
-    // For ComfyUI, only check if venv exists, not exact lockfile match
-    try {
-      const checkDetails = await checkBackendWithDetails(this.serviceFolder, this.pythonEnvDir)
-
-      // If venv doesn't exist, service is not set up
-      if (!checkDetails.venvExists) {
-        this.appLogger.info(
-          `Service ${this.name} venv does not exist, needs installation`,
-          this.name,
-        )
-        return false
-      }
-
-      // If venv exists but environment mismatch detected, set error details and still allow startup
-      if (checkDetails.envMismatch) {
-        this.appLogger.warn(
-          `Service ${this.name} venv exists but environment doesn't match expected state. Will attempt startup but recommend reinstallation.`,
-          this.name,
-        )
-
-        // Set error details recommending reinstallation
-        // Include stderr from uv check which contains helpful information about what packages would be changed
-        const stderrInfo = checkDetails.stderr
-          ? `\n\n=== UV Check Output ===\n${checkDetails.stderr}`
-          : ''
-        const stdoutInfo = checkDetails.stdout
-          ? `\n\n=== UV Check Details ===\n${checkDetails.stdout}`
-          : ''
-
-        this.environmentMismatchError = {
-          command: 'ComfyUI environment check',
-          exitCode: checkDetails.exitCode,
-          stdout:
-            `Virtual environment detected at: ${this.pythonEnvDir}\n` +
-            `Environment check failed (exit code: ${checkDetails.exitCode})\n` +
-            `Sync action: ${checkDetails.action}\n\n` +
-            `The Python environment exists but doesn't match the expected configuration.\n` +
-            `This may cause ComfyUI to fail during startup.\n\n` +
-            `Recommendation: Reinstall ComfyUI to ensure the environment matches the expected state.${stdoutInfo}`,
-          stderr: `Environment mismatch detected. The virtual environment at ${this.pythonEnvDir} exists but doesn't match the expected lockfile state.${stderrInfo}`,
-          timestamp: new Date().toISOString(),
-          duration: 0,
-        }
-      } else {
-        // Clear environment mismatch error if environment is in sync
-        this.environmentMismatchError = null
-      }
-
-      // Venv exists, allow startup attempt (even if mismatch detected)
-      this.appLogger.info(`Service ${this.name} venv exists, allowing startup attempt`, this.name)
-      return true
-    } catch (error) {
-      // If check fails completely, assume not set up
-      this.appLogger.error(`Failed to check ${this.name} environment: ${error}`, this.name)
+    // Check if CPU venv exists (required)
+    const cpuVenvExists = filesystem.existsSync(this.pythonEnvDirCpu)
+    if (!cpuVenvExists) {
+      this.appLogger.info(`CPU venv does not exist at ${this.pythonEnvDirCpu}, needs installation`, this.name)
       return false
     }
+
+    // Check if XPU venv exists (optional, only if Intel Arc GPU present)
+    const xpuVenvExists = filesystem.existsSync(this.pythonEnvDirXpu)
+    if (xpuVenvExists) {
+      this.hasIntelArcGpu = true
+      this.appLogger.info(`XPU venv found at ${this.pythonEnvDirXpu}, Intel Arc GPU support available`, this.name)
+    } else {
+      this.appLogger.info(`XPU venv not found, only CPU backend available`, this.name)
+    }
+
+    this.appLogger.info(`ComfyUI service is set up (CPU: ${cpuVenvExists}, XPU: ${xpuVenvExists})`, this.name)
+    return true
   }
 
   isSetUp = false
@@ -258,43 +232,61 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         await this.git.run(['-C', this.serviceDir, 'checkout', this.revision], {}, this.serviceDir)
       }
 
-      // Copy ComfyUI dependency files and install using bundled uv
+      // Copy ComfyUI dependency files
       const comfyUIDepsDir = path.join(aipgBaseDir, 'comfyui-deps')
       const pyprojectSource = path.join(comfyUIDepsDir, 'pyproject.toml')
       const uvLockSource = path.join(comfyUIDepsDir, 'uv.lock')
       const pyprojectTarget = path.join(this.serviceDir, 'pyproject.toml')
       const uvLockTarget = path.join(this.serviceDir, 'uv.lock')
 
-      // Check if dependencies are already installed
-      let needsInstall = false
-      try {
-        await checkProject(this.serviceDir)
-        this.appLogger.info('ComfyUI dependencies already installed, skipping', this.name)
-      } catch (_checkError) {
-        needsInstall = true
+      // Copy dependency specification files
+      this.appLogger.info(
+        `Copying pyproject.toml from ${pyprojectSource} to ${pyprojectTarget}`,
+        this.name,
+      )
+      await filesystem.copyFile(pyprojectSource, pyprojectTarget)
+
+      this.appLogger.info(`Copying uv.lock from ${uvLockSource} to ${uvLockTarget}`, this.name)
+      await filesystem.copyFile(uvLockSource, uvLockTarget)
+
+      // Install dependencies with dual venv support (CPU + optional XPU)
+      this.appLogger.info('Installing ComfyUI with dual venv support (CPU + optional XPU)', this.name)
+
+      const detectIntelArcGpu = async (): Promise<boolean> => {
+        // Use device-service to detect Intel Arc GPU without requiring Python venv
+        try {
+          const deviceServicePath = path.join(aipgBaseDir, 'device-service', 'xpu-smi.exe')
+          if (!filesystem.existsSync(deviceServicePath)) {
+            this.appLogger.info('device-service not found, assuming no Intel Arc GPU', this.name)
+            return false
+          }
+
+          const { exec } = await import('child_process')
+          const { promisify } = await import('util')
+          const execAsync = promisify(exec)
+
+          const { stdout } = await execAsync(`"${deviceServicePath}" discovery`, { timeout: 10000 })
+          const hasIntelGpu = stdout.toLowerCase().includes('intel') &&
+                             (stdout.toLowerCase().includes('arc') || stdout.toLowerCase().includes('graphics'))
+
+          this.appLogger.info(`Intel Arc GPU detection result: ${hasIntelGpu}`, this.name)
+          return hasIntelGpu
+        } catch (error) {
+          this.appLogger.info(`Intel Arc GPU detection failed (assuming no GPU): ${error}`, this.name)
+          return false
+        }
       }
 
-      if (needsInstall) {
-        // Copy dependency specification files
-        this.appLogger.info(
-          `Copying pyproject.toml from ${pyprojectSource} to ${pyprojectTarget}`,
-          this.name,
-        )
-        await filesystem.copyFile(pyprojectSource, pyprojectTarget)
-
-        this.appLogger.info(`Copying uv.lock from ${uvLockSource} to ${uvLockTarget}`, this.name)
-        await filesystem.copyFile(uvLockSource, uvLockTarget)
-
-        // Install dependencies
-        this.appLogger.info('Installing ComfyUI dependencies using bundled uv', this.name)
-        await installBackend(this.serviceDir, () => {
-          this.win.webContents.send('show-toast', {
-            type: 'warning',
-            message:
-              'UV cache corruption detected. Retrying installation without cache. This may take longer. You can manually clear the cache at %LOCALAPPDATA%/uv/cache',
-          })
+      const results = await installComfyUIBackend(this.serviceDir, detectIntelArcGpu, () => {
+        this.win.webContents.send('show-toast', {
+          type: 'warning',
+          message:
+            'UV cache corruption detected. Retrying installation without cache. This may take longer. You can manually clear the cache at %LOCALAPPDATA%/uv/cache',
         })
-      }
+      })
+
+      this.hasIntelArcGpu = results.xpuInstalled
+      this.appLogger.info(`ComfyUI installation complete: CPU=${results.cpuInstalled}, XPU=${results.xpuInstalled}`, this.name)
     }
 
     const configureComfyUI = async (): Promise<void> => {
@@ -540,17 +532,36 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   }
 
   getEnvVars() {
-    return {
+    const selectedDevice = this.devices.find((d) => d.selected)
+    const baseEnv = {
       PATH: `${path.join(this.pythonEnvDir, 'Library', 'bin')};${path.join(this.git.dir, 'cmd')};${process.env.PATH}`,
       PYTHONNOUSERSITE: 'true',
       SYCL_ENABLE_DEFAULT_CONTEXTS: '1',
       SYCL_CACHE_PERSISTENT: '1',
       PYTHONIOENCODING: 'utf-8',
       HF_ENDPOINT: this.settings.huggingfaceEndpoint,
-      ...levelZeroDeviceSelectorEnv(this.devices.find((d) => d.selected)?.id),
       PIP_CONFIG_FILE: 'nul',
       UV_NO_CONFIG: '1',
       UV_TORCH_BACKEND: process.platform === 'win32' ? 'xpu' : undefined,
+    }
+
+    // Check if CPU is explicitly selected
+    if (selectedDevice?.id === 'cpu') {
+      this.deviceType = 'CPU'
+      this.appLogger.info('Using CPU mode for ComfyUI (explicitly selected)', this.name)
+      // Explicitly hide all GPU devices and disable IPEX
+      return {
+        ...baseEnv,
+        CUDA_VISIBLE_DEVICES: '', // Hide NVIDIA GPUs
+        ONEAPI_DEVICE_SELECTOR: '', // Hide Intel XPU
+        DISABLE_IPEX: '1', // Disable Intel Extension for PyTorch
+      }
+    }
+
+    // GPU mode configuration
+    return {
+      ...baseEnv,
+      ...levelZeroDeviceSelectorEnv(selectedDevice?.id),
     }
   }
 
@@ -563,8 +574,6 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   }
 
   async detectDevices() {
-    // For now, use auto-select device similar to aiBackendService
-    const availableDevices = [{ id: '*', name: 'Auto select device', selected: true }]
     let allDevices: Device[] = []
     try {
       const pythonScript = `
@@ -574,7 +583,7 @@ import sys
 try:
     # Try to get the number of XPU devices
     device_count = torch.xpu.device_count()
-    
+
     # For each device, get its name and print it
     for i in range(device_count):
         try:
@@ -631,9 +640,57 @@ except Exception as e:
     } catch (error) {
       console.error('Error detecting level_zero devices:', error)
     }
-    this.appLogger.info(`detected devices: ${JSON.stringify(allDevices, null, 2)}`, this.name)
-    this.devices =
-      allDevices.length > 0 ? allDevices.map((d) => ({ ...d, selected: false })) : availableDevices
+
+    this.appLogger.info(`detected GPU devices: ${JSON.stringify(allDevices, null, 2)}`, this.name)
+
+    // Build final device list: all detected GPUs + CPU option
+    if (allDevices.length === 0) {
+      // No GPUs detected, CPU is the only option and default
+      this.deviceType = 'CPU'
+      this.devices = [{ id: 'cpu', name: 'CPU', selected: true }]
+      this.appLogger.info('No GPUs detected, CPU will be used', this.name)
+    } else {
+      // GPUs detected - add CPU as last option, first GPU is selected by default
+      const allDevicesWithCpu: InferenceDevice[] = [
+        ...allDevices.map((d, index) => ({ ...d, selected: index === 0 })),
+        { id: 'cpu', name: 'CPU', selected: false },
+      ]
+      this.devices = allDevicesWithCpu
+      this.deviceType = 'XPU' // Default to XPU for Intel GPUs
+      this.appLogger.info(
+        `Devices available: ${this.devices.length} (${allDevices.length} GPU(s) + CPU)`,
+        this.name,
+      )
+    }
+
+    this.updateStatus()
+  }
+
+  async selectDevice(deviceId: string): Promise<void> {
+    if (!this.devices.find((d) => d.id === deviceId)) return
+    this.devices = this.devices.map((d) => ({ ...d, selected: d.id === deviceId }))
+
+    const selectedDevice = this.devices.find((d) => d.selected)
+    if (selectedDevice?.id === 'cpu') {
+      this.deviceType = 'CPU'
+      this.appLogger.info('Device changed to CPU', this.name)
+    } else if (selectedDevice) {
+      // Check if XPU venv is available
+      if (this.hasIntelArcGpu && filesystem.existsSync(this.pythonEnvDirXpu)) {
+        this.deviceType = 'XPU'
+        this.appLogger.info(
+          `Device changed to ${selectedDevice.name} (XPU backend available)`,
+          this.name,
+        )
+      } else {
+        // Fall back to CPU if XPU not available
+        this.deviceType = 'CPU'
+        this.appLogger.warn(
+          `XPU backend not available for ${selectedDevice.name}, using CPU backend`,
+          this.name,
+        )
+      }
+    }
     this.updateStatus()
   }
 
@@ -651,8 +708,18 @@ except Exception as e:
       'auto',
       '--output-directory',
       mediaDir,
-      ...this.comfyUiParametersString.split(/\s+/).filter(Boolean),
     ]
+
+    // Add --cpu flag if running in CPU mode
+    if (this.deviceType === 'CPU') {
+      this.appLogger.info('Adding --cpu flag for CPU-only mode', this.name)
+      parameters.push('--cpu')
+      // For CPU mode, don't add GPU-specific optimization flags
+    } else {
+      // Add user-configured or default startup parameters (only for GPU modes)
+      parameters.push(...this.comfyUiParametersString.split(/\s+/).filter(Boolean))
+    }
+
     this.appLogger.info(
       `starting comfyui with ${JSON.stringify({ parameters, additionalEnvVariables })}`,
       this.name,
@@ -662,7 +729,7 @@ except Exception as e:
     const apiProcess = spawn(pythonBinary, parameters, {
       cwd: this.serviceDir,
       windowsHide: true,
-      env: Object.assign(process.env, additionalEnvVariables),
+      env: { ...process.env, ...additionalEnvVariables },
     })
 
     //must be at the same tick as the spawn function call

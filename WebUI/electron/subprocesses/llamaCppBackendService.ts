@@ -253,15 +253,27 @@ export class LlamaCppBackendService implements ApiService {
         this.name,
       )
 
-      // Add AUTO option and set selection (select first Vulkan device if available, otherwise AUTO)
-      this.devices = availableDevices.map((d, index) => ({
-        ...d,
-        selected: index === 0,
-      }))
+      // Add detected devices + CPU option
+      if (availableDevices.length === 0) {
+        // No GPUs detected, CPU is the only option and default
+        this.devices = [{ id: 'cpu', name: 'CPU', selected: true }]
+        this.appLogger.info('No GPUs detected for LlamaCPP, CPU will be used', this.name)
+      } else {
+        // GPUs detected - add CPU as last option, first GPU is selected by default
+        const devicesWithCpu = [
+          ...availableDevices.map((d, index) => ({ ...d, selected: index === 0 })),
+          { id: 'cpu', name: 'CPU', selected: false },
+        ]
+        this.devices = devicesWithCpu
+        this.appLogger.info(
+          `LlamaCPP devices available: ${this.devices.length} (${availableDevices.length} GPU(s) + CPU)`,
+          this.name,
+        )
+      }
     } catch (error) {
       this.appLogger.error(`Failed to detect devices: ${error}`, this.name)
-      // Fallback to default device on error
-      this.devices = [{ id: '0', name: 'Auto select device', selected: true }]
+      // Fallback to CPU on error
+      this.devices = [{ id: 'cpu', name: 'CPU', selected: true }]
     }
     this.updateStatus()
   }
@@ -533,13 +545,20 @@ export class LlamaCppBackendService implements ApiService {
         this.name,
       )
 
+      const selectedDevice = this.devices.find((d) => d.selected)
+      const isCpuMode = selectedDevice?.id === 'cpu'
+
+      if (isCpuMode) {
+        this.appLogger.info('LlamaCPP LLM running in CPU mode', this.name)
+      }
+
       const args = [
         '--model',
         modelPath,
         '--port',
         port.toString(),
         '--gpu-layers',
-        '999',
+        isCpuMode ? '0' : '999', // Use CPU-only when CPU is selected
         '--ctx-size',
         ctxSize.toString(),
         '--log-prefix',
@@ -567,7 +586,8 @@ export class LlamaCppBackendService implements ApiService {
         windowsHide: true,
         env: {
           ...process.env,
-          ...vulkanDeviceSelectorEnv(this.devices.find((d) => d.selected)?.id),
+          // Only set Vulkan device selector for GPU mode
+          ...(isCpuMode ? {} : vulkanDeviceSelectorEnv(selectedDevice?.id)),
         },
       })
 
@@ -646,6 +666,13 @@ export class LlamaCppBackendService implements ApiService {
         this.name,
       )
 
+      const selectedDevice = this.devices.find((d) => d.selected)
+      const isCpuMode = selectedDevice?.id === 'cpu'
+
+      if (isCpuMode) {
+        this.appLogger.info('LlamaCPP embedding server running in CPU mode', this.name)
+      }
+
       const args = [
         '--embedding',
         '--model',
@@ -664,7 +691,8 @@ export class LlamaCppBackendService implements ApiService {
         windowsHide: true,
         env: {
           ...process.env,
-          ...vulkanDeviceSelectorEnv(this.devices.find((d) => d.selected)?.id),
+          // Only set Vulkan device selector for GPU mode
+          ...(isCpuMode ? {} : vulkanDeviceSelectorEnv(selectedDevice?.id)),
         },
       })
 

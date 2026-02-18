@@ -126,7 +126,7 @@ export class AiBackendService extends LongLivedPythonApiService {
     const apiProcess = spawn(pythonBinary, ['web_api.py', '--port', this.port.toString()], {
       cwd: this.serviceDir,
       windowsHide: true,
-      env: Object.assign(process.env, additionalEnvVariables),
+      env: { ...process.env, ...additionalEnvVariables },
     })
 
     //must be at the same tick as the spawn function call

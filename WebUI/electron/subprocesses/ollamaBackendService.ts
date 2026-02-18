@@ -312,7 +312,7 @@ export class OllamaBackendService implements ApiService {
       {
         cwd: this.ollamaDir,
         windowsHide: true,
-        env: Object.assign(process.env, additionalEnvVariables),
+        env: { ...process.env, ...additionalEnvVariables },
       },
     )
 

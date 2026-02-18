@@ -33,11 +33,11 @@ const loggerFor = (source: string) => ({
   },
 })
 
-const uv = (uvCommand: string[], logger: ReturnType<typeof loggerFor>) =>
+const uv = (uvCommand: string[], logger: ReturnType<typeof loggerFor>, additionalEnv?: Record<string, string>) =>
   new Promise<void>((resolve, reject) => {
     logger.info(`Spawning UV process with command: ${uvCommand.join(' ')}`)
     const uvProcess = spawn(uvPath, uvCommand, {
-      env: { ...process.env, UV_NO_ENV_FILE: '1', UV_NO_CONFIG: '1', VIRTUAL_ENV: undefined },
+      env: { ...process.env, UV_NO_ENV_FILE: '1', UV_NO_CONFIG: '1', VIRTUAL_ENV: undefined, ...additionalEnv },
     })
 
     const stdoutChunks: string[] = []
@@ -137,8 +137,17 @@ export const installBackend = async (backend: string, onCacheCorruptionDetected?
   const uvCommand = ['sync', '--directory', aipgBaseDir, '--project', backend]
   logger.info(`Installing backend: ${backend} with ${JSON.stringify(uvCommand)}`)
 
+  // Set UV_TORCH_BACKEND=cpu by default for ComfyUI to ensure CPU-compatible installation
+  // This can be overridden by setting UV_TORCH_BACKEND=xpu in the environment for Intel Arc GPU systems
+  const additionalEnv: Record<string, string> = {}
+  if (backend === 'comfyui-deps' || backend.includes('ComfyUI')) {
+    const torchBackend = process.env.UV_TORCH_BACKEND || 'cpu'
+    additionalEnv.UV_TORCH_BACKEND = torchBackend
+    logger.info(`Setting UV_TORCH_BACKEND=${torchBackend} for ComfyUI installation`)
+  }
+
   try {
-    return await uv(uvCommand, logger)
+    return await uv(uvCommand, logger, additionalEnv)
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
 
@@ -146,7 +155,7 @@ export const installBackend = async (backend: string, onCacheCorruptionDetected?
       logger.warn('Hash mismatch detected in UV cache, retrying with --no-cache')
       onCacheCorruptionDetected?.()
       const noCacheCommand = [...uvCommand, '--no-cache']
-      return await uv(noCacheCommand, logger)
+      return await uv(noCacheCommand, logger, additionalEnv)
     }
 
     throw error
@@ -377,3 +386,114 @@ export const installRequirementsTxt = async (
 
   await uv(uvCommand, logger)
 }
+
+/**
+ * Install ComfyUI backend with dual venv support (CPU + XPU)
+ * Always installs CPU version, optionally installs XPU version if Intel Arc GPU detected
+ */
+export const installComfyUIBackend = async (
+  serviceDir: string,
+  detectIntelArcGpu: () => Promise<boolean>,
+  onCacheCorruptionDetected?: () => void,
+): Promise<{ cpuInstalled: boolean; xpuInstalled: boolean }> => {
+  const logger = loggerFor('uv.comfyui-dual-venv')
+  await assertUv(logger)
+
+  const backendName = 'comfyui-deps'
+  const venvCpuPath = path.join(serviceDir, '.venv-cpu')
+  const venvXpuPath = path.join(serviceDir, '.venv-xpu')
+
+  // Check if Intel Arc GPU is available
+  const hasIntelArc = await detectIntelArcGpu()
+  logger.info(`Intel Arc GPU detection: ${hasIntelArc ? 'Available' : 'Not available'}`)
+
+  const results = { cpuInstalled: false, xpuInstalled: false }
+
+  // Install CPU version (always) - Use PyTorch CPU from pytorch.org/whl/cpu
+  logger.info('=== Installing ComfyUI with CPU backend (PyTorch CPU) ===')
+
+  // First, create the venv and install base dependencies
+  const cpuEnv = {
+    UV_PROJECT_ENVIRONMENT: venvCpuPath,
+  }
+
+  try {
+    // Step 1: Do a full sync to create venv and install all dependencies (including torch from xpu index initially)
+    logger.info('CPU backend step 1: Creating venv and installing dependencies')
+    const syncCommand = ['sync', '--directory', aipgBaseDir, '--project', backendName]
+    await uv(syncCommand, logger, cpuEnv)
+
+    // Step 2: Force-reinstall torch packages from CPU index to replace the XPU versions
+    logger.info('CPU backend step 2: Replacing PyTorch XPU with PyTorch CPU from https://download.pytorch.org/whl/cpu')
+    const pythonPath = path.join(venvCpuPath, 'Scripts', 'python.exe')
+    const pipInstallCmd = [
+      'pip', 'install',
+      '--python', pythonPath,
+      'torch>=2.10.0',
+      'torchvision',
+      'torchaudio',
+      '--index-url', 'https://download.pytorch.org/whl/cpu',
+      '--force-reinstall',
+      '--no-deps',
+    ]
+    await uv(pipInstallCmd, logger, {})
+
+    results.cpuInstalled = true
+    logger.info('[OK] CPU backend installed successfully with PyTorch CPU')
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    if (isHashMismatchError(errorMessage)) {
+      logger.warn('Hash mismatch detected in UV cache, retrying with --no-cache')
+      onCacheCorruptionDetected?.()
+
+      const noCacheCommand = ['sync', '--directory', aipgBaseDir, '--project', backendName, '--no-cache']
+      await uv(noCacheCommand, logger, cpuEnv)
+
+      const pythonPath = path.join(venvCpuPath, 'Scripts', 'python.exe')
+      const pipInstallCmd = [
+        'pip', 'install',
+        '--python', pythonPath,
+        'torch>=2.10.0',
+        'torchvision',
+        'torchaudio',
+        '--index-url', 'https://download.pytorch.org/whl/cpu',
+        '--force-reinstall',
+        '--no-deps',
+      ]
+      await uv(pipInstallCmd, logger, {})
+
+      results.cpuInstalled = true
+      logger.info('[OK] CPU backend installed successfully (retry)')
+    } else {
+      logger.error(`Failed to install CPU backend: ${errorMessage}`)
+      throw error
+    }
+  }
+
+  // Install XPU version (only if Intel Arc detected)
+  if (hasIntelArc) {
+    logger.info('=== Installing ComfyUI with XPU backend (Intel Arc GPU detected) ===')
+    const xpuEnv = {
+      UV_TORCH_BACKEND: 'xpu',
+      UV_PROJECT_ENVIRONMENT: venvXpuPath,
+    }
+
+    try {
+      const uvCommand = ['sync', '--directory', aipgBaseDir, '--project', backendName]
+      logger.info(`Installing XPU backend: ${JSON.stringify(uvCommand)}`)
+      await uv(uvCommand, logger, xpuEnv)
+      results.xpuInstalled = true
+      logger.info('[OK] XPU backend installed successfully')
+    } catch (error) {
+      // XPU installation is optional - don't fail if it doesn't work
+      logger.warn(`Failed to install XPU backend (non-fatal): ${error}`)
+      logger.warn('Continuing with CPU-only installation')
+    }
+  } else {
+    logger.info('Skipping XPU backend installation (no Intel Arc GPU detected)')
+  }
+
+  logger.info(`ComfyUI installation complete: CPU=${results.cpuInstalled}, XPU=${results.xpuInstalled}`)
+  return results
+}
+

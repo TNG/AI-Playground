@@ -341,5 +341,7 @@
   "DEMO_ENHANCE_IMAGE_TEXT_2": "Bewegen Sie den Regler nach links, um mehr vom ursprünglichen Bild zu erhalten, oder nach rechts, um sich enger an Ihre Textaufforderung anzulehnen.",
   "DEMO_ENHANCE_OUTPAINT_TEXT": "Beschreiben Sie, wie Sie das Bild erweitern möchten.",
   "DEMO_ENHANCE_OUTPAINT_TEXT_2": "Verwenden Sie die Pfeile unten, um die Richtung der Erweiterung zu wählen.",
-  "DEMO_ENHANCE_OUTPAINT_TEXT_3": "Bewegen Sie den Regler nach links, um mehr vom ursprünglichen Bild zu erhalten, oder nach rechts, um sich enger an Ihre Textaufforderung anzulehnen."
+  "DEMO_ENHANCE_OUTPAINT_TEXT_3": "Bewegen Sie den Regler nach links, um mehr vom ursprünglichen Bild zu erhalten, oder nach rechts, um sich enger an Ihre Textaufforderung anzulehnen.",
+  "BACKEND_LOADING_TITLE": "Wird gestartet...",
+  "BACKEND_LOADING_MESSAGE": "Ihre Anfrage wird automatisch verarbeitet, sobald das System bereit ist"
 }

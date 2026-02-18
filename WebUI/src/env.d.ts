@@ -4,6 +4,13 @@ declare interface Window {
   envVars: { platformTitle: string; productVersion: string; debugToolsEnabled: boolean }
 }
 
+type GlobalDevice = {
+  id: string // Unique ID like "nvidia-0", "intel-arc-0", "amd-0", "cpu"
+  name: string
+  type: 'nvidia' | 'intel-arc' | 'amd' | 'cpu'
+  rawId: string // Original ID from detection (e.g., "0" for CUDA device 0)
+}
+
 interface ImportMetaEnv {
   readonly VITE_PLATFORM_TITLE: string
   readonly VITE_DEBUG_TOOLS: 'true' | undefined
@@ -111,6 +118,7 @@ type electronAPI = {
   selectDevice(serviceName: string, deviceId: string): Promise<void>
   selectSttDevice(serviceName: string, deviceId: string): Promise<void>
   detectDevices(serviceName: string): Promise<void>
+  getGlobalDevices(): Promise<GlobalDevice[]>
   startService(serviceName: string): Promise<BackendStatus>
   stopService(serviceName: string): Promise<BackendStatus>
   setUpService(serviceName: string): void

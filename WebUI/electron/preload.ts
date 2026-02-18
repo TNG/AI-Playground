@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectSttDevice: (serviceName: string, deviceId: string) =>
     ipcRenderer.invoke('selectSttDevice', serviceName, deviceId),
   detectDevices: (serviceName: string) => ipcRenderer.invoke('detectDevices', serviceName),
+  getGlobalDevices: () => ipcRenderer.invoke('getGlobalDevices'),
   startService: (serviceName: string) => ipcRenderer.invoke('startService', serviceName),
   stopService: (serviceName: string) => ipcRenderer.invoke('stopService', serviceName),
   setUpService: (serviceName: string) => ipcRenderer.invoke('setUpService', serviceName),

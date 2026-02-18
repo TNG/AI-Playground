@@ -324,5 +324,7 @@
   "DEMO_ENHANCE_IMAGE_TEXT_2": "Mueve el deslizador hacia la izquierda para preservar más de la imagen original, o hacia la derecha para alinearse más estrechamente con tu indicación de texto.",
   "DEMO_ENHANCE_OUTPAINT_TEXT": "Describe cómo te gustaría expandir la imagen.",
   "DEMO_ENHANCE_OUTPAINT_TEXT_2": "Usa las flechas de abajo para elegir la dirección de la expansión.",
-  "DEMO_ENHANCE_OUTPAINT_TEXT_3": "Mueve el deslizador hacia la izquierda para preservar más de la imagen original, o hacia la derecha para alinearse más estrechamente con tu indicación de texto."
+  "DEMO_ENHANCE_OUTPAINT_TEXT_3": "Mueve el deslizador hacia la izquierda para preservar más de la imagen original, o hacia la derecha para alinearse más estrechamente con tu indicación de texto.",
+  "BACKEND_LOADING_TITLE": "Iniciando...",
+  "BACKEND_LOADING_MESSAGE": "Tu solicitud se procesará automáticamente una vez esté lista"
 }

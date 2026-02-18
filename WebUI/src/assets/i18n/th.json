@@ -321,5 +321,7 @@
   "BACKEND_SETTINGS_DESCRIPTION": "กำหนดค่าการตั้งค่าสำหรับแบ็กเอนด์ {backend} การเปลี่ยนแปลงอาจต้องการการรีสตาร์ทหรือการติดตั้งใหม่เพื่อให้มีผล",
   "BACKEND_VERSION": "เวอร์ชัน",
   "BACKEND_VERSION_DESCRIPTION": "การอ้างอิง Git ที่จะใช้สำหรับแบ็กเอนด์ นี่อาจเป็นแท็กเวอร์ชันหรือแฮชคอมมิต",
-  "BACKEND_SAVE_CHANGES": "บันทึกการเปลี่ยนแปลง"
+  "BACKEND_SAVE_CHANGES": "บันทึกการเปลี่ยนแปลง",
+  "BACKEND_LOADING_TITLE": "กำลังเริ่มต้น...",
+  "BACKEND_LOADING_MESSAGE": "คำขอของคุณจะถูกประมวลผลโดยอัตโนมัติเมื่อพร้อม"
 }

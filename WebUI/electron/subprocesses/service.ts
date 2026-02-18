@@ -668,15 +668,47 @@ export abstract class LongLivedPythonApiService implements ApiService {
     )
     this.desiredStatus = 'stopped'
     this.setStatus('stopping')
-    this.encapsulatedProcess?.kill()
-    await new Promise((resolve) => {
-      setTimeout(() => {
-        resolve('killedprocess (hopefully)')
-      }, 1000)
-    })
+
+    if (!this.encapsulatedProcess) {
+      this.appLogger.info(`No process to stop for ${this.name}`, this.name)
+      this.setStatus('stopped')
+      return 'stopped'
+    }
+
+    // Try graceful shutdown first
+    this.encapsulatedProcess.kill('SIGTERM')
+
+    // Wait for process to exit or timeout
+    const processExited = await Promise.race([
+      new Promise<boolean>((resolve) => {
+        this.encapsulatedProcess?.once('exit', () => {
+          this.appLogger.info(`Process ${this.name} exited gracefully`, this.name)
+          resolve(true)
+        })
+      }),
+      new Promise<boolean>((resolve) => {
+        setTimeout(() => {
+          this.appLogger.warn(
+            `Process ${this.name} did not exit within 2 seconds, will force kill`,
+            this.name,
+          )
+          resolve(false)
+        }, 2000)
+      }),
+    ])
+
+    // Force kill if graceful shutdown failed
+    if (!processExited && this.encapsulatedProcess && !this.encapsulatedProcess.killed) {
+      this.appLogger.warn(`Force killing process ${this.name}`, this.name)
+      this.encapsulatedProcess.kill('SIGKILL')
+
+      // Wait a bit more for force kill to take effect
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
 
     this.encapsulatedProcess = null
     this.setStatus('stopped')
+    this.appLogger.info(`Backend ${this.name} stopped`, this.name)
     return 'stopped'
   }
 

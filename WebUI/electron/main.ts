@@ -691,6 +691,12 @@ function initEventHandle() {
     return service.detectDevices()
   })
 
+  // Get globally detected devices (new unified approach)
+  ipcMain.handle('getGlobalDevices', async () => {
+    const { getCachedDevices } = await import('./subprocesses/globalDeviceDetection.ts')
+    return getCachedDevices()
+  })
+
   ipcMain.handle(
     'selectDevice',
     (_event: IpcMainInvokeEvent, serviceName: string, deviceId: string) => {
@@ -1380,6 +1386,12 @@ app.whenReady().then(async () => {
       return response
     })
     const window = await createWindow()
+
+    // Detect all devices globally at startup
+    appLogger.info('Detecting all available devices...', 'electron-main')
+    const { detectAllDevices } = await import('./subprocesses/globalDeviceDetection.ts')
+    await detectAllDevices()
+
     await initServiceRegistry(window, settings)
     spawnLangchainUtilityProcess()
   }

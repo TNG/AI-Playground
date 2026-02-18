@@ -60,6 +60,11 @@ export const useDialogStore = defineStore('dialog', () => {
   const maskEditorPreviewImageUrl = ref<string>('')
   const maskEditorIsModified = ref(false)
 
+  // Backend loading dialog state
+  const backendLoadingDialogVisible = ref(false)
+  const backendLoadingMessage = ref('')
+
+
   function showWarningDialog(message: string, func: () => void) {
     warningMessage.value = message
     warningConfirmFunction.value = func
@@ -149,6 +154,17 @@ export const useDialogStore = defineStore('dialog', () => {
     maskEditorIsModified.value = false
   }
 
+  function showBackendLoadingDialog(message: string) {
+    backendLoadingMessage.value = message
+    backendLoadingDialogVisible.value = true
+  }
+
+  function closeBackendLoadingDialog() {
+    backendLoadingDialogVisible.value = false
+    backendLoadingMessage.value = ''
+  }
+
+  // Regenerate outpaint preview when resolution changes
   // Regenerate outpaint preview when resolution changes
   async function regenerateOutpaintPreview(
     targetWidth: number,
@@ -290,6 +306,12 @@ export const useDialogStore = defineStore('dialog', () => {
     setMaskEditorPreview,
     clearMaskEditorPreview,
     regenerateOutpaintPreview,
+
+    // Backend loading dialog
+    backendLoadingDialogVisible,
+    backendLoadingMessage,
+    showBackendLoadingDialog,
+    closeBackendLoadingDialog,
   }
 })
 

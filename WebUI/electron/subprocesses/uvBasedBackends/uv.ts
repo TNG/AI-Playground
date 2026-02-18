@@ -33,11 +33,21 @@ const loggerFor = (source: string) => ({
   },
 })
 
-const uv = (uvCommand: string[], logger: ReturnType<typeof loggerFor>, additionalEnv?: Record<string, string>) =>
+const uv = (
+  uvCommand: string[],
+  logger: ReturnType<typeof loggerFor>,
+  additionalEnv?: Record<string, string>,
+) =>
   new Promise<void>((resolve, reject) => {
     logger.info(`Spawning UV process with command: ${uvCommand.join(' ')}`)
     const uvProcess = spawn(uvPath, uvCommand, {
-      env: { ...process.env, UV_NO_ENV_FILE: '1', UV_NO_CONFIG: '1', VIRTUAL_ENV: undefined, ...additionalEnv },
+      env: {
+        ...process.env,
+        UV_NO_ENV_FILE: '1',
+        UV_NO_CONFIG: '1',
+        VIRTUAL_ENV: undefined,
+        ...additionalEnv,
+      },
     })
 
     const stdoutChunks: string[] = []
@@ -388,26 +398,28 @@ export const installRequirementsTxt = async (
 }
 
 /**
- * Install ComfyUI backend with dual venv support (CPU + XPU)
- * Always installs CPU version, optionally installs XPU version if Intel Arc GPU detected
+ * Install ComfyUI backend with triple venv support (CPU + XPU + CUDA)
+ * Always installs CPU version, optionally installs XPU version if Intel Arc GPU detected,
+ * optionally installs CUDA version if NVIDIA GPU detected
  */
 export const installComfyUIBackend = async (
   serviceDir: string,
-  detectIntelArcGpu: () => Promise<boolean>,
+  hasIntelArcGpu: boolean,
+  hasNvidiaGpu: boolean,
   onCacheCorruptionDetected?: () => void,
-): Promise<{ cpuInstalled: boolean; xpuInstalled: boolean }> => {
-  const logger = loggerFor('uv.comfyui-dual-venv')
+): Promise<{ cpuInstalled: boolean; xpuInstalled: boolean; cudaInstalled: boolean }> => {
+  const logger = loggerFor('uv.comfyui-triple-venv')
   await assertUv(logger)
 
   const backendName = 'comfyui-deps'
   const venvCpuPath = path.join(serviceDir, '.venv-cpu')
   const venvXpuPath = path.join(serviceDir, '.venv-xpu')
+  const venvCudaPath = path.join(serviceDir, '.venv-cuda')
 
-  // Check if Intel Arc GPU is available
-  const hasIntelArc = await detectIntelArcGpu()
-  logger.info(`Intel Arc GPU detection: ${hasIntelArc ? 'Available' : 'Not available'}`)
+  logger.info(`Intel Arc GPU available: ${hasIntelArcGpu}`)
+  logger.info(`NVIDIA GPU available: ${hasNvidiaGpu}`)
 
-  const results = { cpuInstalled: false, xpuInstalled: false }
+  const results = { cpuInstalled: false, xpuInstalled: false, cudaInstalled: false }
 
   // Install CPU version (always) - Use PyTorch CPU from pytorch.org/whl/cpu
   logger.info('=== Installing ComfyUI with CPU backend (PyTorch CPU) ===')
@@ -424,15 +436,20 @@ export const installComfyUIBackend = async (
     await uv(syncCommand, logger, cpuEnv)
 
     // Step 2: Force-reinstall torch packages from CPU index to replace the XPU versions
-    logger.info('CPU backend step 2: Replacing PyTorch XPU with PyTorch CPU from https://download.pytorch.org/whl/cpu')
+    logger.info(
+      'CPU backend step 2: Replacing PyTorch XPU with PyTorch CPU from https://download.pytorch.org/whl/cpu',
+    )
     const pythonPath = path.join(venvCpuPath, 'Scripts', 'python.exe')
     const pipInstallCmd = [
-      'pip', 'install',
-      '--python', pythonPath,
+      'pip',
+      'install',
+      '--python',
+      pythonPath,
       'torch>=2.10.0',
       'torchvision',
       'torchaudio',
-      '--index-url', 'https://download.pytorch.org/whl/cpu',
+      '--index-url',
+      'https://download.pytorch.org/whl/cpu',
       '--force-reinstall',
       '--no-deps',
     ]
@@ -446,17 +463,27 @@ export const installComfyUIBackend = async (
       logger.warn('Hash mismatch detected in UV cache, retrying with --no-cache')
       onCacheCorruptionDetected?.()
 
-      const noCacheCommand = ['sync', '--directory', aipgBaseDir, '--project', backendName, '--no-cache']
+      const noCacheCommand = [
+        'sync',
+        '--directory',
+        aipgBaseDir,
+        '--project',
+        backendName,
+        '--no-cache',
+      ]
       await uv(noCacheCommand, logger, cpuEnv)
 
       const pythonPath = path.join(venvCpuPath, 'Scripts', 'python.exe')
       const pipInstallCmd = [
-        'pip', 'install',
-        '--python', pythonPath,
+        'pip',
+        'install',
+        '--python',
+        pythonPath,
         'torch>=2.10.0',
         'torchvision',
         'torchaudio',
-        '--index-url', 'https://download.pytorch.org/whl/cpu',
+        '--index-url',
+        'https://download.pytorch.org/whl/cpu',
         '--force-reinstall',
         '--no-deps',
       ]
@@ -471,7 +498,7 @@ export const installComfyUIBackend = async (
   }
 
   // Install XPU version (only if Intel Arc detected)
-  if (hasIntelArc) {
+  if (hasIntelArcGpu) {
     logger.info('=== Installing ComfyUI with XPU backend (Intel Arc GPU detected) ===')
     const xpuEnv = {
       UV_TORCH_BACKEND: 'xpu',
@@ -493,7 +520,52 @@ export const installComfyUIBackend = async (
     logger.info('Skipping XPU backend installation (no Intel Arc GPU detected)')
   }
 
-  logger.info(`ComfyUI installation complete: CPU=${results.cpuInstalled}, XPU=${results.xpuInstalled}`)
+  // Install CUDA version (only if NVIDIA GPU detected)
+  if (hasNvidiaGpu) {
+    logger.info('=== Installing ComfyUI with CUDA backend (NVIDIA GPU detected) ===')
+    const cudaEnv = {
+      UV_PROJECT_ENVIRONMENT: venvCudaPath,
+    }
+
+    try {
+      // Step 1: Do a full sync to create venv and install all dependencies
+      logger.info('CUDA backend step 1: Creating venv and installing dependencies')
+      const syncCommand = ['sync', '--directory', aipgBaseDir, '--project', backendName]
+      await uv(syncCommand, logger, cudaEnv)
+
+      // Step 2: Force-reinstall torch packages from CUDA index
+      // Using cu121 index which has better compatibility and includes CUDA runtime
+      logger.info(
+        'CUDA backend step 2: Installing PyTorch CUDA from https://download.pytorch.org/whl/cu121',
+      )
+      const pythonPath = path.join(venvCudaPath, 'Scripts', 'python.exe')
+      const pipInstallCmd = [
+        'pip',
+        'install',
+        '--python',
+        pythonPath,
+        'torch',
+        'torchvision',
+        'torchaudio',
+        '--index-url',
+        'https://download.pytorch.org/whl/cu121',
+        '--force-reinstall',
+      ]
+      await uv(pipInstallCmd, logger, {})
+
+      results.cudaInstalled = true
+      logger.info('[OK] CUDA backend installed successfully')
+    } catch (error) {
+      // CUDA installation is optional - don't fail if it doesn't work
+      logger.warn(`Failed to install CUDA backend (non-fatal): ${error}`)
+      logger.warn('Continuing without CUDA support')
+    }
+  } else {
+    logger.info('Skipping CUDA backend installation (no NVIDIA GPU detected)')
+  }
+
+  logger.info(
+    `ComfyUI installation complete: CPU=${results.cpuInstalled}, XPU=${results.xpuInstalled}, CUDA=${results.cudaInstalled}`,
+  )
   return results
 }
-

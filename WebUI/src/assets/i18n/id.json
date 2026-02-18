@@ -324,5 +324,7 @@
   "BACKEND_SETTINGS_DESCRIPTION": "Konfigurasikan pengaturan untuk backend {backend}. Perubahan mungkin memerlukan restart atau pemasangan ulang untuk diterapkan.",
   "BACKEND_VERSION": "Versi",
   "BACKEND_VERSION_DESCRIPTION": "Referensi Git yang akan digunakan untuk backend. Ini bisa berupa tag versi atau hash commit.",
-  "BACKEND_SAVE_CHANGES": "Simpan perubahan"
+  "BACKEND_SAVE_CHANGES": "Simpan perubahan",
+  "BACKEND_LOADING_TITLE": "Memulai...",
+  "BACKEND_LOADING_MESSAGE": "Permintaan Anda akan diproses secara otomatis setelah siap"
 }

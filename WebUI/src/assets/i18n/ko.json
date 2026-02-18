@@ -324,5 +324,7 @@
   "BACKEND_SETTINGS_DESCRIPTION": "{backend} backend에 대한 설정을 구성합니다. 변경 사항을 적용하려면 재시작이나 재설치가 필요할 수 있습니다.",
   "BACKEND_VERSION": "버전",
   "BACKEND_VERSION_DESCRIPTION": "Backend에 사용할 Git 참조. 이는 버전 태그 또는 커밋 해시일 수 있습니다.",
-  "BACKEND_SAVE_CHANGES": "변경 사항 저장"
+  "BACKEND_SAVE_CHANGES": "변경 사항 저장",
+  "BACKEND_LOADING_TITLE": "시작 중...",
+  "BACKEND_LOADING_MESSAGE": "준비가 완료되면 요청이 자동으로 처리됩니다"
 }

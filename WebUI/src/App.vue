@@ -200,6 +200,7 @@
     />
     <download-dialog v-show="dialogStore.downloadDialogVisible"></download-dialog>
     <warning-dialog v-show="dialogStore.warningDialogVisible"></warning-dialog>
+    <backend-loading-dialog></backend-loading-dialog>
     <preset-requirements-dialog
       v-show="dialogStore.presetRequirementsDialogVisible"
     ></preset-requirements-dialog>
@@ -270,6 +271,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { useTheme } from './assets/js/store/theme.ts'
 import AddLLMDialog from '@/components/AddLLMDialog.vue'
 import WarningDialog from '@/components/WarningDialog.vue'
+import BackendLoadingDialog from '@/components/BackendLoadingDialog.vue'
 import PresetRequirementsDialog from '@/components/PresetRequirementsDialog.vue'
 import InstallationProgressDialog from '@/components/InstallationProgressDialog.vue'
 import MaskEditorDialog from '@/components/MaskEditorDialog.vue'

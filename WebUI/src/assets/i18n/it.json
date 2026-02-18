@@ -324,5 +324,7 @@
   "BACKEND_SETTINGS_DESCRIPTION": "Configura le impostazioni per il backend {backend}. Le modifiche potrebbero richiedere un riavvio o una reinstallazione per avere effetto.",
   "BACKEND_VERSION": "Versione",
   "BACKEND_VERSION_DESCRIPTION": "Il riferimento Git da utilizzare per il backend. Può essere un tag di versione o un hash di commit.",
-  "BACKEND_SAVE_CHANGES": "Salva modifiche"
+  "BACKEND_SAVE_CHANGES": "Salva modifiche",
+  "BACKEND_LOADING_TITLE": "Avvio in corso...",
+  "BACKEND_LOADING_MESSAGE": "La tua richiesta verrà elaborata automaticamente quando sarà pronta"
 }

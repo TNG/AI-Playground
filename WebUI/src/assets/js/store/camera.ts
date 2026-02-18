@@ -12,13 +12,12 @@ export const useCameraStore = defineStore('camera', () => {
   const devices = ref<CameraDevice[]>([])
   const selectedDeviceId = ref<string | null>(null)
   const stream = ref<MediaStream | null>(null)
-  const isActive = ref(false)
   const error = ref<string | null>(null)
   const isLoading = ref(false)
-  const capturedImage = ref<string | null>(null)
 
   // Getters
   const hasDevices = computed(() => devices.value.length > 0)
+  const isActive = computed(() => stream.value !== null)
 
   // Actions
   async function getDevices() {
@@ -72,7 +71,6 @@ export const useCameraStore = defineStore('camera', () => {
         video: { deviceId: { exact: targetDeviceId } },
       })
 
-      isActive.value = true
       selectedDeviceId.value = targetDeviceId
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to start camera'
@@ -87,8 +85,6 @@ export const useCameraStore = defineStore('camera', () => {
       stream.value.getTracks().forEach((track) => track.stop())
       stream.value = null
     }
-    isActive.value = false
-    capturedImage.value = null
   }
 
   function captureImage(video: HTMLVideoElement): string | null {
@@ -108,8 +104,7 @@ export const useCameraStore = defineStore('camera', () => {
     }
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-    capturedImage.value = canvas.toDataURL('image/png')
-    return capturedImage.value
+    return canvas.toDataURL('image/png')
   }
 
   async function selectDevice(deviceId: string) {
@@ -128,7 +123,6 @@ export const useCameraStore = defineStore('camera', () => {
     isActive,
     error,
     isLoading,
-    capturedImage,
     hasDevices,
     getDevices,
     startCamera,

@@ -35,52 +35,27 @@
       <Button variant="ghost" size="sm" @click="cameraStore.clearError"> Dismiss </Button>
     </div>
 
-    <!-- Camera View / Captured Image -->
+    <!-- Camera View -->
     <div class="relative bg-card rounded-lg overflow-hidden border border-border">
-      <!-- Captured Image Preview -->
-      <div v-if="cameraStore.capturedImage" class="relative">
-        <img
-          :src="cameraStore.capturedImage"
-          alt="Captured"
-          class="w-full max-h-[400px] object-contain"
-        />
-        <Button variant="secondary" size="sm" class="absolute top-2 right-2" @click="clearCapture">
-          Clear
-        </Button>
-      </div>
-
       <!-- Video Stream -->
-      <template v-else>
-        <video
-          ref="videoElement"
-          autoplay
-          playsinline
-          class="w-full max-h-[400px] bg-black"
-          :class="{ 'opacity-0': !cameraStore.isActive }"
-        ></video>
+      <video
+        ref="videoElement"
+        autoplay
+        playsinline
+        class="w-full max-h-[400px] bg-black"
+        :class="{ 'opacity-0': !cameraStore.isActive }"
+      ></video>
 
-        <!-- Placeholder -->
-        <div
-          v-if="!cameraStore.isActive"
-          class="absolute inset-0 flex flex-col items-center justify-center bg-muted/50"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-12 w-12 text-muted-foreground mb-2"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="1.5"
-              d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-            />
-          </svg>
-          <span class="text-sm text-muted-foreground">Click "Start Camera" to begin</span>
-        </div>
-      </template>
+      <!-- Placeholder -->
+      <div
+        v-if="!cameraStore.isActive"
+        class="absolute inset-0 flex flex-col items-center justify-center bg-muted/50"
+      >
+        <VideoCameraIcon class="h-12 w-12 text-muted-foreground mb-2" />
+        <span class="text-sm text-muted-foreground">
+          {{ cameraStore.isLoading ? 'Starting Preview...' : 'Camera not active' }}
+        </span>
+      </div>
     </div>
 
     <!-- Capture Button -->
@@ -95,6 +70,7 @@ import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import DropDownNew from './DropDownNew.vue'
 import { Button } from '@/components/ui/button'
 import { useCameraStore } from '@/assets/js/store/camera'
+import { VideoCameraIcon } from '@heroicons/vue/24/outline'
 
 const cameraStore = useCameraStore()
 const videoElement = ref<HTMLVideoElement | null>(null)
@@ -157,9 +133,5 @@ async function capture() {
   const file = new File([blob], 'camera-capture.png', { type: 'image/png' })
 
   emit('capture', file)
-}
-
-function clearCapture() {
-  cameraStore.capturedImage = null
 }
 </script>

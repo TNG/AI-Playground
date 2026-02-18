@@ -240,8 +240,8 @@ import {
   XMarkIcon,
   MagnifyingGlassPlusIcon,
   MagnifyingGlassMinusIcon,
-  CameraIcon,
 } from '@heroicons/vue/24/outline'
+import { CameraIcon } from '@heroicons/vue/24/solid'
 import { Label } from '@/components/ui/label'
 import { useDropZone, useEventListener } from '@vueuse/core'
 import * as toast from '@/assets/js/toast'

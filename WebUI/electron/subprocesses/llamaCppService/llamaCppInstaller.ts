@@ -5,8 +5,8 @@ import { AppLogger } from '../../logging/logger.ts'
 import { LlamaCppPaths, LlamaCppVersion } from './llamaCppTypes.ts'
 import { promisify } from 'util'
 import { exec } from 'child_process'
-import { binary, extract } from '../tools.ts'
-import { createEnhancedErrorDetails, ErrorDetails } from '../service.ts'
+import { extract } from '../tools.ts'
+import { createEnhancedErrorDetails } from '../service.ts'
 
 const execAsync = promisify(exec)
 
@@ -226,4 +226,3 @@ export class LlamaCppInstaller {
     this.appLogger.info(`Removed LlamaCPP service directory`, this.serviceName)
   }
 }
-

@@ -31,4 +31,3 @@ export interface LlamaCppVersion {
   version: string
   releaseTag?: string
 }
-

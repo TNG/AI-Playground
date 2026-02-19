@@ -1,9 +1,9 @@
 import { OpenAIEmbeddings } from '@langchain/openai'
-import { CacheBackedEmbeddings } from '@langchain/community/embeddings/cache_backed'
-import { MemoryVectorStore } from '@langchain/community/vectorstores/memory'
-import { LocalFileStore } from '@langchain/community/storage/file_system'
+import { CacheBackedEmbeddings } from '@langchain/classic/embeddings/cache_backed'
+import { MemoryVectorStore } from '@langchain/classic/vectorstores/memory'
+import { LocalFileStore } from '@langchain/classic/storage/file_system'
 
-import { TextLoader } from '@langchain/community/document_loaders/fs/text'
+import { TextLoader } from '@langchain/classic/document_loaders/fs/text'
 import { DocxLoader } from '@langchain/community/document_loaders/fs/docx'
 import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf'
 import { Document } from '@langchain/core/documents'
@@ -128,12 +128,14 @@ async function embedInputUsingRag(embedInquiry: EmbedInquiry): Promise<Document[
   console.log(
     `Got ${result.length} results:`,
     result.map(
-      ([doc, score]) =>
+      ([doc, score]: [Document, number]) =>
         `${doc.metadata.source}@${JSON.stringify(doc.metadata.loc)}: Score ${score}`,
     ),
   )
 
-  return result.filter(([_doc, score]) => score > 0.5).map(([doc, _score]) => doc)
+  return result
+    .filter(([_doc, score]: [Document, number]) => score > 0.5)
+    .map(([doc, _score]: [Document, number]) => doc)
 }
 
 async function generateFileMD5Hash(filePath: string): Promise<string> {

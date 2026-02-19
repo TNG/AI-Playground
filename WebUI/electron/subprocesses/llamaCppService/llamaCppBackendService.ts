@@ -251,7 +251,7 @@ export class LlamaCppBackendService implements ApiService {
       if (needsLlmRestart) {
         await this.serverManager.stopLlmServer()
         // Start the LLM server - it will allocate a port and start the server
-        const llamaProcess = await this.serverManager.startLlmServer(llmModelName, contextSize, (port) => {
+        await this.serverManager.startLlmServer(llmModelName, contextSize, (port) => {
           // Callback to update port immediately after allocation, before server starts
           this.updatePort(port)
           this.updateStatus()
@@ -316,4 +316,3 @@ export class LlamaCppBackendService implements ApiService {
     this.lastStartupErrorDetails = null
   }
 }
-

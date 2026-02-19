@@ -1,6 +1,6 @@
 import { utilityProcess, UtilityProcess } from 'electron'
 import path from 'node:path'
-import { externalResourcesDir } from './util.ts'
+import { externalResourcesDir } from './utils.ts'
 import { appLoggerInstance } from './logging/logger.ts'
 import type { IndexedDocument, EmbedInquiry } from '@/assets/js/store/textInference.ts'
 
@@ -106,4 +106,3 @@ export function embedInputUsingRag(embedInquiry: EmbedInquiry): Promise<KVObject
 export function getLangchainChild(): UtilityProcess | null {
   return langchainChild
 }
-

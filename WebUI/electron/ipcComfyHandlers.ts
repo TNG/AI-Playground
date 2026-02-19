@@ -1,12 +1,13 @@
-import { app, ipcMain, IpcMainInvokeEvent } from 'electron'
+import { app, ipcMain } from 'electron'
 import path from 'node:path'
 import fs from 'fs'
 import type { LocalSettings } from './settings.ts'
 import { appLoggerInstance } from './logging/logger.ts'
 import type { ApiServiceRegistryImpl } from './subprocesses/apiServiceRegistry'
-import type { ComfyUiBackendService } from './subprocesses/comfyUIBackendService'
+import type { ComfyUiBackendService } from './subprocesses/comfyUIService/comfyUIBackendService'
 import { updateIntelPresets, filterPartnerPresets } from './subprocesses/updateIntelPresets.ts'
 import * as comfyuiTools from './subprocesses/comfyuiTools'
+import { getSettings } from './settings.ts'
 
 const appLogger = appLoggerInstance
 
@@ -14,8 +15,31 @@ export function setupComfyIpcHandlers(
   getServiceRegistry: () => ApiServiceRegistryImpl | null,
   externalRes: string,
 ): void {
+  // Ensure correct ComfyUI backend is running for selected device
+  ipcMain.handle('ensureComfyUIBackendRunning', async () => {
+    try {
+      const serviceRegistry = getServiceRegistry()
+      if (!serviceRegistry) {
+        appLogger.warn('Service registry not available', 'electron-backend')
+        return { success: false, error: 'Service registry not available' }
+      }
+
+      const comfyService = serviceRegistry.getService('comfyui-backend') as ComfyUiBackendService
+      if (!comfyService) {
+        appLogger.warn('ComfyUI service not found', 'electron-backend')
+        return { success: false, error: 'ComfyUI service not found' }
+      }
+
+      const result = await comfyService.ensureCorrectBackendRunning()
+      return { success: true, restarted: result.restarted, starting: result.starting }
+    } catch (error) {
+      appLogger.error(`Failed to ensure correct backend: ${error}`, 'electron-backend')
+      return { success: false, error: String(error) }
+    }
+  })
+
   ipcMain.handle('updatePresetsFromIntelRepo', () => {
-    const { remoteRepository } = require('./settings.ts').getSettings() as LocalSettings
+    const { remoteRepository } = getSettings() as LocalSettings
     return updateIntelPresets(remoteRepository)
   })
 
@@ -234,4 +258,3 @@ export function setupComfyIpcHandlers(
     return comfyuiTools.listInstalledCustomNodes(comfyService.serviceDir)
   })
 }
-

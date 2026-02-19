@@ -108,11 +108,17 @@ async function detectVulkanDevices(): Promise<GlobalDevice[]> {
 
     // Check if llama-server exists
     if (!filesystem.existsSync(llamaCppExePath)) {
-      appLoggerInstance.info('llama-server not found, skipping Vulkan detection', 'globalDeviceDetection')
+      appLoggerInstance.info(
+        'llama-server not found, skipping Vulkan detection',
+        'globalDeviceDetection',
+      )
       return []
     }
 
-    appLoggerInstance.info('Detecting devices using llama-server --list-devices', 'globalDeviceDetection')
+    appLoggerInstance.info(
+      'Detecting devices using llama-server --list-devices',
+      'globalDeviceDetection',
+    )
 
     // Execute llama-server --list-devices
     const { stdout } = await execAsync(`"${llamaCppExePath}" --list-devices`, {
@@ -138,7 +144,7 @@ async function detectVulkanDevices(): Promise<GlobalDevice[]> {
         // Parse lines like "Vulkan0: NVIDIA GeForce RTX 4060 Laptop GPU (7824 MiB, 7824 MiB free)"
         const colonIndex = line.indexOf(':')
         if (colonIndex > 0) {
-          let vulkanId = line.substring(0, colonIndex).trim()
+          const vulkanId = line.substring(0, colonIndex).trim()
           const deviceInfo = line.substring(colonIndex + 1).trim()
 
           // Strip "Vulkan" prefix from device ID (e.g., "Vulkan0" -> "0")
@@ -166,11 +172,23 @@ async function detectVulkanDevices(): Promise<GlobalDevice[]> {
           const lowerName = deviceName.toLowerCase()
           let deviceType: GlobalDevice['type'] = 'nvidia' // default
 
-          if (lowerName.includes('nvidia') || lowerName.includes('geforce') || lowerName.includes('rtx') || lowerName.includes('gtx')) {
+          if (
+            lowerName.includes('nvidia') ||
+            lowerName.includes('geforce') ||
+            lowerName.includes('rtx') ||
+            lowerName.includes('gtx')
+          ) {
             deviceType = 'nvidia'
-          } else if (lowerName.includes('intel') && (lowerName.includes('arc') || lowerName.includes('graphics'))) {
+          } else if (
+            lowerName.includes('intel') &&
+            (lowerName.includes('arc') || lowerName.includes('graphics'))
+          ) {
             deviceType = 'intel-arc'
-          } else if (lowerName.includes('amd') || lowerName.includes('radeon') || lowerName.includes('ati')) {
+          } else if (
+            lowerName.includes('amd') ||
+            lowerName.includes('radeon') ||
+            lowerName.includes('ati')
+          ) {
             deviceType = 'amd'
           }
 
@@ -193,10 +211,7 @@ async function detectVulkanDevices(): Promise<GlobalDevice[]> {
 
     return devices
   } catch (error) {
-    appLoggerInstance.info(
-      `Vulkan detection failed: ${error}`,
-      'globalDeviceDetection',
-    )
+    appLoggerInstance.info(`Vulkan detection failed: ${error}`, 'globalDeviceDetection')
     return []
   }
 }

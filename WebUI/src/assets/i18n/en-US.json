@@ -353,7 +353,5 @@
   "DEMO_ENHANCE_IMAGE_TEXT_2": "Move the slider left to preserve more of the original image, or right to align more closely with your text prompt.",
   "DEMO_ENHANCE_OUTPAINT_TEXT": "Describe how you'd like to expand the image.",
   "DEMO_ENHANCE_OUTPAINT_TEXT_2": "Use the arrows below to choose the direction of the expansion.",
-  "DEMO_ENHANCE_OUTPAINT_TEXT_3": "Move the slider left to preserve more of the original image, or right to align more closely with your text prompt.",
-  "BACKEND_LOADING_TITLE": "Starting up...",
-  "BACKEND_LOADING_MESSAGE": "Your request will be processed automatically once ready"
+  "DEMO_ENHANCE_OUTPAINT_TEXT_3": "Move the slider left to preserve more of the original image, or right to align more closely with your text prompt."
 }

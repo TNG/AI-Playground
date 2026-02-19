@@ -321,7 +321,5 @@
   "DEMO_ENHANCE_OUTPAINT_TEXT": "Görseli nasıl genişletmek istediğinizi açıklayın.",
   "DEMO_ENHANCE_OUTPAINT_TEXT_2": "Genişletme yönünü seçmek için aşağıdaki okları kullanın.",
   "DEMO_ENHANCE_OUTPAINT_TEXT_3": "Orijinal görselden daha fazlasını korumak için kaydırıcıyı sola, metin isteminize daha fazla uyum sağlamak için sağa kaydırın.",
-  "BACKEND_SAVE_CHANGES": "Değişiklikleri Kaydet",
-  "BACKEND_LOADING_TITLE": "Başlatılıyor...",
-  "BACKEND_LOADING_MESSAGE": "İsteğiniz hazır olduğunda otomatik olarak işlenecektir"
+  "BACKEND_SAVE_CHANGES": "Değişiklikleri Kaydet"
 }

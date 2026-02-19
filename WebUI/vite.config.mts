@@ -74,7 +74,14 @@ export default defineConfig(({ command }) => {
               minify: isBuild,
               outDir: isServe ? 'dist/langchain' : '../build/dist/langchain',
               rollupOptions: {
-                external: Object.keys('dependencies' in pkg ? pkg.dependencies : {}),
+                external: [
+                  ...Object.keys('dependencies' in pkg ? pkg.dependencies : {}),
+                  'pdf-parse',
+                  'pdf-parse/lib/pdf-parse.js',
+                  'pdfjs-dist',
+                  /^pdfjs-dist\//,
+                  /^pdf-parse\//,
+                ],
               },
             },
           },
@@ -85,6 +92,9 @@ export default defineConfig(({ command }) => {
       alias: {
         '@': path.resolve(__dirname, './src'),
       },
+    },
+    optimizeDeps: {
+      exclude: ['pdf-parse', 'pdfjs-dist', 'mammoth', 'word-extractor'],
     },
     server: {
       host: '127.0.0.1',

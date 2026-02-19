@@ -322,7 +322,5 @@
   "DEMO_ENHANCE_OUTPAINT_TEXT": "描述您希望如何扩展图像。",
   "DEMO_ENHANCE_OUTPAINT_TEXT_2": "使用下面的箭头选择扩展方向。",
   "DEMO_ENHANCE_OUTPAINT_TEXT_3": "向左滑动滑块以保留更多原始图像，或向右滑动以更符合您的文本提示。",
-  "RAG_CLEAR_ALL": "清除全部",
-  "BACKEND_LOADING_TITLE": "启动中...",
-  "BACKEND_LOADING_MESSAGE": "您的请求将在准备就绪后自动处理"
+  "RAG_CLEAR_ALL": "清除全部"
 }

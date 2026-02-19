@@ -321,7 +321,5 @@
   "DEMO_ENHANCE_OUTPAINT_TEXT": "描述您希望如何擴展圖像。",
   "DEMO_ENHANCE_OUTPAINT_TEXT_2": "使用下面的箭頭選擇擴展方向。",
   "DEMO_ENHANCE_OUTPAINT_TEXT_3": "向左滑動滑桿以保留更多原始圖像，或向右滑動以更符合您的文字提示。",
-  "BACKEND_SAVE_CHANGES": "儲存變更",
-  "BACKEND_LOADING_TITLE": "啟動中...",
-  "BACKEND_LOADING_MESSAGE": "您的請求將在準備就緒後自動處理"
+  "BACKEND_SAVE_CHANGES": "儲存變更"
 }

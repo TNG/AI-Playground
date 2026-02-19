@@ -2,7 +2,7 @@ import { BrowserWindow, ipcMain, IpcMainInvokeEvent } from 'electron'
 import type { LocalSettings } from './settings.ts'
 import { appLoggerInstance } from './logging/logger.ts'
 import type { ApiServiceRegistryImpl } from './subprocesses/apiServiceRegistry'
-import { COMFYUI_DEFAULT_PARAMETERS } from './subprocesses/comfyUIBackendService'
+import { COMFYUI_DEFAULT_PARAMETERS } from './subprocesses/comfyUIService/comfyUIBackendService'
 import { getGitHubRepoUrl, resolveBackendVersion } from './remoteUpdates.ts'
 import type { BackendServiceName } from '@/assets/js/store/backendServices.ts'
 
@@ -389,4 +389,3 @@ export function setupServiceIpcHandlers(
     }
   })
 }
-

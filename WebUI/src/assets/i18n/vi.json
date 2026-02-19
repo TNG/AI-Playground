@@ -321,7 +321,5 @@
   "DEMO_ENHANCE_OUTPAINT_TEXT": "Mô tả cách bạn muốn mở rộng hình ảnh.",
   "DEMO_ENHANCE_OUTPAINT_TEXT_2": "Sử dụng các mũi tên bên dưới để chọn hướng mở rộng.",
   "DEMO_ENHANCE_OUTPAINT_TEXT_3": "Trượt thanh trượt sang trái để giữ lại nhiều hơn từ hình ảnh gốc, hoặc sang phải để phù hợp hơn với lời nhắc văn bản của bạn.",
-  "BACKEND_SAVE_CHANGES": "Lưu thay đổi",
-  "BACKEND_LOADING_TITLE": "Đang khởi động...",
-  "BACKEND_LOADING_MESSAGE": "Yêu cầu của bạn sẽ được xử lý tự động khi sẵn sàng"
+  "BACKEND_SAVE_CHANGES": "Lưu thay đổi"
 }

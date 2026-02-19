@@ -303,7 +303,10 @@ export class LlamaCppServerManager {
    */
   async stopLlmServer(): Promise<void> {
     if (this.llamaLlmProcess) {
-      this.appLogger.info(`Stopping LLM server for model: ${this.currentLlmModel}`, this.serviceName)
+      this.appLogger.info(
+        `Stopping LLM server for model: ${this.currentLlmModel}`,
+        this.serviceName,
+      )
       await this.killProcess(this.llamaLlmProcess, 'LLM')
       this.llamaLlmProcess = null
       this.currentLlmModel = null
@@ -369,7 +372,10 @@ export class LlamaCppServerManager {
     })
 
     childProcess.on('exit', (code: number | null) => {
-      this.appLogger.info(`${processType} server process exited with code: ${code}`, this.serviceName)
+      this.appLogger.info(
+        `${processType} server process exited with code: ${code}`,
+        this.serviceName,
+      )
       if (llamaProcess.type === 'llm' && this.llamaLlmProcess === llamaProcess) {
         this.llamaLlmProcess = null
         this.currentLlmModel = null
@@ -502,4 +508,3 @@ export class LlamaCppServerManager {
     return modelPath
   }
 }
-

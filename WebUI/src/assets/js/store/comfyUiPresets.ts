@@ -6,7 +6,6 @@ import { useI18N } from './i18n'
 import * as toast from '../toast'
 import { useBackendServices } from '@/assets/js/store/backendServices.ts'
 import { usePromptStore } from './promptArea'
-import { useDialogStore } from './dialogs'
 import { z } from 'zod'
 
 const WEBSOCKET_OPEN = 1
@@ -185,7 +184,6 @@ export const useComfyUiPresets = defineStore(
   () => {
     const imageGeneration = useImageGenerationPresets()
     const i18nState = useI18N().state
-    const dialogs = useDialogStore()
     const comfyPort = computed(() => comfyUiState.value?.port)
     const comfyBaseUrl = computed(() => comfyUiState.value?.baseUrl)
 
@@ -707,9 +705,6 @@ export const useComfyUiPresets = defineStore(
           const pending = pendingGenerationRequest.value
           pendingGenerationRequest.value = null
 
-          // Close the loading dialog
-          dialogs.closeBackendLoadingDialog()
-
           // Use setTimeout to avoid immediate re-execution in the same tick
           setTimeout(() => {
             generate(pending.imageIds, pending.mode, pending.sourceImage)
@@ -886,18 +881,39 @@ export const useComfyUiPresets = defineStore(
         return
       }
 
-      // Check if ComfyUI backend is running before attempting generation
+      // Ensure the correct backend is running for the selected device FIRST
+      // This triggers a restart if needed, which will change backend status
+      try {
+        const result = await window.electronAPI.ensureComfyUIBackendRunning()
+        if (!result.success) {
+          console.error('Failed to ensure correct backend is running:', result.error)
+          toast.error('Failed to check backend compatibility')
+          resetGenerationState()
+          return
+        }
+
+        // If backend was restarted or is starting, store request for retry
+        if (result.restarted || result.starting) {
+          console.info(
+            `Backend ${result.restarted ? 'restarting' : 'starting'} for device compatibility`,
+          )
+          pendingGenerationRequest.value = { imageIds, mode, sourceImage }
+          resetGenerationState()
+          return
+        }
+      } catch (error) {
+        console.error('Error checking backend:', error)
+        toast.error('Failed to check backend compatibility')
+        resetGenerationState()
+        return
+      }
+
+      // Check if ComfyUI backend is running (for normal startup scenarios)
       if (comfyUiState.value?.status !== 'running') {
-        console.warn(
-          'ComfyUI backend is not running. Current status:',
-          comfyUiState.value?.status,
-        )
+        console.warn('ComfyUI backend is not running. Current status:', comfyUiState.value?.status)
 
         // Store the generation request for auto-retry
         pendingGenerationRequest.value = { imageIds, mode, sourceImage }
-
-        // Show loading dialog with i18n message
-        dialogs.showBackendLoadingDialog(`ComfyUI ${i18nState.BACKEND_LOADING_TITLE}`)
 
         resetGenerationState()
         return

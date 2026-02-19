@@ -61,20 +61,19 @@ export class LlamaCppDeviceManager {
 
       // Filter devices that work with LlamaCPP (NVIDIA, Intel Arc, AMD, and CPU)
       // Note: LlamaCPP uses Vulkan backend which supports NVIDIA, Intel Arc, and AMD GPUs
-      const supportedGpuDevices = filterDevicesByType(globalDevices, [
-        'nvidia',
-        'intel-arc',
-        'amd',
-      ])
+      const supportedGpuDevices = filterDevicesByType(globalDevices, ['nvidia', 'intel-arc', 'amd'])
 
       // Map global devices to InferenceDevice format
       const deviceList: InferenceDevice[] = []
 
       // Verify device availability with llama-server if it exists
-      let verifiedDevices: string[] = []
+      const verifiedDevices: string[] = []
       if (filesystem.existsSync(this.paths.llamaCppExePath)) {
         try {
-          this.appLogger.info('Verifying devices with llama-server --list-devices', this.serviceName)
+          this.appLogger.info(
+            'Verifying devices with llama-server --list-devices',
+            this.serviceName,
+          )
           const { stdout } = await execAsync(`"${this.paths.llamaCppExePath}" --list-devices`, {
             cwd: this.paths.llamaCppDir,
             env: {
@@ -145,7 +144,10 @@ export class LlamaCppDeviceManager {
         `LlamaCPP devices available: ${this.devices.length} (${supportedGpuDevices.length} GPU(s) + CPU)`,
         this.serviceName,
       )
-      this.appLogger.info(`Device details: ${JSON.stringify(this.devices, null, 2)}`, this.serviceName)
+      this.appLogger.info(
+        `Device details: ${JSON.stringify(this.devices, null, 2)}`,
+        this.serviceName,
+      )
     } catch (error) {
       this.appLogger.error(`Failed to detect devices: ${error}`, this.serviceName)
       // Fallback to CPU on error
@@ -153,4 +155,3 @@ export class LlamaCppDeviceManager {
     }
   }
 }
-

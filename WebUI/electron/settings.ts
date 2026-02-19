@@ -53,4 +53,3 @@ export function updateSettings(updates: Partial<LocalSettings>): void {
   Object.assign(settings, updates)
   appLogger.info(`Updated local settings: ${JSON.stringify(updates)}`, 'electron-backend')
 }
-

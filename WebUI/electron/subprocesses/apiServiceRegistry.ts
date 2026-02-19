@@ -1,5 +1,5 @@
 import { ApiService } from './service.ts'
-import { ComfyUiBackendService } from './comfyUIBackendService.ts'
+import { ComfyUiBackendService } from './comfyUIService/comfyUIBackendService.ts'
 import { AiBackendService } from './aiBackendService.ts'
 import { BrowserWindow } from 'electron'
 import { appLoggerInstance } from '../logging/logger.ts'

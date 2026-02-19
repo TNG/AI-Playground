@@ -93,4 +93,6 @@ class Logger {
   }
 }
 
+export type AppLogger = Logger
+
 export const appLoggerInstance = new Logger()

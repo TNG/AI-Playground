@@ -1,4 +1,4 @@
-import { app, BrowserWindow, screen, session as electronSession, shell } from 'electron'
+import { app, BrowserWindow, screen, shell } from 'electron'
 import path from 'node:path'
 import type { LocalSettings } from './settings.ts'
 import { appLoggerInstance } from './logging/logger.ts'
@@ -154,4 +154,3 @@ export function setupDisplayMetricsListener(win: BrowserWindow | null): void {
     }
   })
 }
-

@@ -76,4 +76,3 @@ export function getAssetPathFromUrl(
       : imageUrl.pathname
   return path.join(mediaDir, imageSubPath)
 }
-

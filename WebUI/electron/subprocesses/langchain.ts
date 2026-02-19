@@ -1,14 +1,14 @@
 import { OpenAIEmbeddings } from '@langchain/openai'
-import { CacheBackedEmbeddings } from '@langchain/classic/embeddings/cache_backed'
-import { MemoryVectorStore } from '@langchain/classic/vectorstores/memory'
-import { LocalFileStore } from 'langchain/storage/file_system'
+import { CacheBackedEmbeddings } from '@langchain/community/embeddings/cache_backed'
+import { MemoryVectorStore } from '@langchain/community/vectorstores/memory'
+import { LocalFileStore } from '@langchain/community/storage/file_system'
 
-import { TextLoader } from '@langchain/classic/document_loaders/fs/text'
+import { TextLoader } from '@langchain/community/document_loaders/fs/text'
 import { DocxLoader } from '@langchain/community/document_loaders/fs/docx'
 import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf'
-import { Document } from '@langchain/classic/document'
+import { Document } from '@langchain/core/documents'
 
-import { RecursiveCharacterTextSplitter } from '@langchain/classic/text_splitter'
+import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters'
 
 import { IndexedDocument, EmbedInquiry } from '@/assets/js/store/textInference.ts'
 

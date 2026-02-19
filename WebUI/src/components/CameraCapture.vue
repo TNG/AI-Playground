@@ -19,7 +19,7 @@
         variant="outline"
         size="sm"
         class="ml-auto"
-        :disabled="cameraStore.isLoading || cameraStore.devices.length <= 1"
+        :disabled="cameraStore.isLoading"
         @click="cameraStore.selectNextDevice()"
       >
         Next Camera
@@ -93,7 +93,10 @@ watch(
 onMounted(async () => {
   await cameraStore.getDevices()
   if (cameraStore.devices.length > 0) {
-    const deviceId = cameraStore.selectedDeviceId || cameraStore.devices[0].deviceId
+    const persistedId = cameraStore.devices.find(
+      (d) => d.deviceId === cameraStore.selectedDeviceId,
+    )?.deviceId
+    const deviceId = persistedId ?? cameraStore.devices[0].deviceId
     await cameraStore.selectDevice(deviceId)
   }
 })

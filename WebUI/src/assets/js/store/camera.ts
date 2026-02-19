@@ -80,7 +80,8 @@ export const useCameraStore = defineStore('camera', () => {
   }
 
   async function selectNextDevice() {
-    if (devices.value.length <= 1) return
+    await getDevices()
+    if (devices.value.length === 0) return
     const currentIndex = devices.value.findIndex((d) => d.deviceId === selectedDeviceId.value)
     const nextIndex = (currentIndex + 1) % devices.value.length
     await selectDevice(devices.value[nextIndex].deviceId)
@@ -125,6 +126,10 @@ export const useCameraStore = defineStore('camera', () => {
     selectNextDevice,
     clearError,
   }
+}, {
+  persist: {
+    pick: ['selectedDeviceId'],
+  },
 })
 
 if (import.meta.hot) {

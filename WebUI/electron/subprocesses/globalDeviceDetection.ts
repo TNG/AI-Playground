@@ -1,6 +1,9 @@
 import { promisify } from 'node:util'
 import { exec } from 'node:child_process'
 import { appLoggerInstance } from '../logging/logger.ts'
+import path from 'node:path'
+import * as filesystem from 'fs-extra'
+import { app } from 'electron'
 
 const execAsync = promisify(exec)
 
@@ -26,17 +29,35 @@ export async function detectAllDevices(): Promise<GlobalDevice[]> {
 
   const devices: GlobalDevice[] = []
 
-  // Detect NVIDIA GPUs
-  const nvidiaDevices = await detectNvidiaDevices()
-  devices.push(...nvidiaDevices)
+  // Try Vulkan detection first (via llama-server) - this detects ALL GPU types
+  const vulkanDevices = await detectVulkanDevices()
 
-  // Detect Intel Arc GPUs
-  const intelDevices = await detectIntelArcDevices()
-  devices.push(...intelDevices)
+  if (vulkanDevices.length > 0) {
+    // If Vulkan detection found devices, use those
+    devices.push(...vulkanDevices)
+    appLoggerInstance.info(
+      `Using Vulkan-based detection, found ${vulkanDevices.length} GPU(s)`,
+      'globalDeviceDetection',
+    )
+  } else {
+    // Fall back to specific detection methods
+    appLoggerInstance.info(
+      'Vulkan detection unavailable, using specific detection methods',
+      'globalDeviceDetection',
+    )
 
-  // Detect AMD GPUs (for future support)
-  const amdDevices = await detectAmdDevices()
-  devices.push(...amdDevices)
+    // Detect NVIDIA GPUs
+    const nvidiaDevices = await detectNvidiaDevices()
+    devices.push(...nvidiaDevices)
+
+    // Detect Intel Arc GPUs
+    const intelDevices = await detectIntelArcDevices()
+    devices.push(...intelDevices)
+
+    // Detect AMD GPUs
+    const amdDevices = await detectAmdDevices()
+    devices.push(...amdDevices)
+  }
 
   // Always add CPU
   devices.push({
@@ -71,6 +92,113 @@ export function getCachedDevices(): GlobalDevice[] {
  */
 export function clearDeviceCache(): void {
   cachedDevices = null
+}
+
+/**
+ * Detect all GPUs using Vulkan via llama-server --list-devices
+ * This detects NVIDIA, Intel Arc, and AMD GPUs through the Vulkan API
+ */
+async function detectVulkanDevices(): Promise<GlobalDevice[]> {
+  try {
+    // Locate llama-server.exe
+    const baseDir = app.isPackaged ? process.resourcesPath : path.join(__dirname, '../../../')
+    const llamaCppDir = path.resolve(path.join(baseDir, 'LlamaCPP', 'llama-cpp'))
+    const binaryName = process.platform === 'win32' ? 'llama-server.exe' : 'llama-server'
+    const llamaCppExePath = path.resolve(path.join(llamaCppDir, binaryName))
+
+    // Check if llama-server exists
+    if (!filesystem.existsSync(llamaCppExePath)) {
+      appLoggerInstance.info('llama-server not found, skipping Vulkan detection', 'globalDeviceDetection')
+      return []
+    }
+
+    appLoggerInstance.info('Detecting devices using llama-server --list-devices', 'globalDeviceDetection')
+
+    // Execute llama-server --list-devices
+    const { stdout } = await execAsync(`"${llamaCppExePath}" --list-devices`, {
+      cwd: llamaCppDir,
+      env: {
+        ...process.env,
+      },
+      timeout: 10000,
+    })
+
+    // Parse the output
+    const devices: GlobalDevice[] = []
+    const lines = stdout.split('\n').map((line) => line.trim())
+
+    let foundDevicesSection = false
+    for (const line of lines) {
+      if (line.startsWith('Available devices:')) {
+        foundDevicesSection = true
+        continue
+      }
+
+      if (foundDevicesSection && line.includes(':')) {
+        // Parse lines like "Vulkan0: NVIDIA GeForce RTX 4060 Laptop GPU (7824 MiB, 7824 MiB free)"
+        const colonIndex = line.indexOf(':')
+        if (colonIndex > 0) {
+          let vulkanId = line.substring(0, colonIndex).trim()
+          const deviceInfo = line.substring(colonIndex + 1).trim()
+
+          // Strip "Vulkan" prefix from device ID (e.g., "Vulkan0" -> "0")
+          let deviceIndex = '0'
+          if (vulkanId.startsWith('Vulkan')) {
+            deviceIndex = vulkanId.substring(6)
+          }
+
+          // Extract device name (before memory info in parentheses)
+          const lastParenIndex = deviceInfo.lastIndexOf('(')
+          let deviceName = deviceInfo
+
+          if (lastParenIndex > 0) {
+            const memoryInfo = deviceInfo.substring(lastParenIndex)
+            if (
+              memoryInfo.includes('MiB') ||
+              memoryInfo.includes('GiB') ||
+              memoryInfo.includes('free')
+            ) {
+              deviceName = deviceInfo.substring(0, lastParenIndex).trim()
+            }
+          }
+
+          // Determine device type based on name
+          const lowerName = deviceName.toLowerCase()
+          let deviceType: GlobalDevice['type'] = 'nvidia' // default
+
+          if (lowerName.includes('nvidia') || lowerName.includes('geforce') || lowerName.includes('rtx') || lowerName.includes('gtx')) {
+            deviceType = 'nvidia'
+          } else if (lowerName.includes('intel') && (lowerName.includes('arc') || lowerName.includes('graphics'))) {
+            deviceType = 'intel-arc'
+          } else if (lowerName.includes('amd') || lowerName.includes('radeon') || lowerName.includes('ati')) {
+            deviceType = 'amd'
+          }
+
+          devices.push({
+            id: `${deviceType}-${deviceIndex}`,
+            name: deviceName,
+            type: deviceType,
+            rawId: deviceIndex,
+          })
+        }
+      }
+    }
+
+    if (devices.length > 0) {
+      appLoggerInstance.info(
+        `Vulkan detected ${devices.length} GPU(s): ${devices.map((d) => `${d.name} (${d.type})`).join(', ')}`,
+        'globalDeviceDetection',
+      )
+    }
+
+    return devices
+  } catch (error) {
+    appLoggerInstance.info(
+      `Vulkan detection failed: ${error}`,
+      'globalDeviceDetection',
+    )
+    return []
+  }
 }
 
 /**
@@ -174,12 +302,50 @@ async function detectIntelArcDevices(): Promise<GlobalDevice[]> {
 }
 
 /**
- * Detect AMD GPUs (placeholder for future support)
+ * Detect AMD GPUs using Windows Management Instrumentation
  */
 async function detectAmdDevices(): Promise<GlobalDevice[]> {
-  // AMD detection would go here using rocm-smi or similar
-  // For now, return empty array
-  return []
+  try {
+    // On Windows, we can use WMIC or PowerShell to detect AMD GPUs
+    // We'll try PowerShell first as it's more reliable and available on all modern Windows
+    const psCommand = `Get-CimInstance -ClassName Win32_VideoController | Where-Object { $_.Name -like '*AMD*' -or $_.Name -like '*Radeon*' -or $_.Name -like '*ATI*' } | ForEach-Object { Write-Output "$($_.PNPDeviceID)|$($_.Name)" }`
+
+    const { stdout } = await execAsync(`powershell -Command "${psCommand}"`, {
+      timeout: 10000,
+    })
+
+    const lines = stdout
+      .trim()
+      .split('\n')
+      .filter((line) => line.trim().length > 0)
+
+    const devices: GlobalDevice[] = []
+    for (let i = 0; i < lines.length; i++) {
+      const parts = lines[i].split('|')
+      if (parts.length >= 2) {
+        const name = parts[1].trim()
+        // Only add discrete GPUs (skip APU integrated graphics that might be detected elsewhere)
+        devices.push({
+          id: `amd-${i}`,
+          name: name,
+          type: 'amd',
+          rawId: `${i}`,
+        })
+      }
+    }
+
+    if (devices.length > 0) {
+      appLoggerInstance.info(
+        `Detected ${devices.length} AMD GPU(s): ${devices.map((d) => d.name).join(', ')}`,
+        'globalDeviceDetection',
+      )
+    }
+
+    return devices
+  } catch (_error) {
+    appLoggerInstance.info('No AMD GPUs detected', 'globalDeviceDetection')
+    return []
+  }
 }
 
 /**

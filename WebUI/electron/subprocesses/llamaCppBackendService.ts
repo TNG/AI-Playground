@@ -10,6 +10,7 @@ import { vulkanDeviceSelectorEnv } from './deviceDetection.ts'
 import { LocalSettings } from '../main.ts'
 import getPort, { portNumbers } from 'get-port'
 import { binary, extract } from './tools.ts'
+import { getCachedDevices, filterDevicesByType, GlobalDevice } from './globalDeviceDetection.ts'
 
 const execAsync = promisify(exec)
 
@@ -179,97 +180,106 @@ export class LlamaCppBackendService implements ApiService {
 
   async detectDevices() {
     try {
-      // Check if llama-server.exe exists
-      if (!filesystem.existsSync(this.llamaCppExePath)) {
-        this.appLogger.warn('llama-server.exe not found, using default device', this.name)
-        this.devices = [{ id: '0', name: 'Auto select device', selected: true }]
+      this.appLogger.info('Using global device detection for LlamaCPP', this.name)
+
+      const globalDevices = getCachedDevices()
+
+      if (globalDevices.length === 0) {
+        this.appLogger.warn('No devices found in global cache, using CPU only', this.name)
+        this.devices = [{ id: 'cpu', name: 'CPU', selected: true }]
         return
       }
 
-      this.appLogger.info('Detecting devices using llama-server --list-devices', this.name)
+      // Filter devices that work with LlamaCPP (NVIDIA, Intel Arc, AMD, and CPU)
+      // Note: LlamaCPP uses Vulkan backend which supports NVIDIA, Intel Arc, and AMD GPUs
+      const supportedGpuDevices = filterDevicesByType(globalDevices, [
+        'nvidia',
+        'intel-arc',
+        'amd',
+      ])
 
-      // Execute llama-server.exe --list-devices
-      const { stdout } = await execAsync(`"${this.llamaCppExePath}" --list-devices`, {
-        cwd: this.llamaCppDir,
-        env: {
-          ...process.env,
-        },
-        timeout: 10000, // 10 second timeout
-      })
+      // Map global devices to InferenceDevice format
+      const deviceList: InferenceDevice[] = []
 
-      // Parse the output
-      const availableDevices: Array<{ id: string; name: string }> = []
-      const lines = stdout
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => line !== '')
+      // Verify device availability with llama-server if it exists
+      let verifiedDevices: string[] = []
+      if (filesystem.existsSync(this.llamaCppExePath)) {
+        try {
+          this.appLogger.info('Verifying devices with llama-server --list-devices', this.name)
+          const { stdout } = await execAsync(`"${this.llamaCppExePath}" --list-devices`, {
+            cwd: this.llamaCppDir,
+            env: {
+              ...process.env,
+            },
+            timeout: 10000,
+          })
 
-      let foundDevicesSection = false
-      for (const line of lines) {
-        if (line.startsWith('Available devices:')) {
-          foundDevicesSection = true
-          continue
-        }
-
-        if (foundDevicesSection && line.includes(':')) {
-          // Parse lines like "Vulkan0: Intel(R) Arc(TM) A750 Graphics (7824 MiB, 7824 MiB free)"
-          const colonIndex = line.indexOf(':')
-          if (colonIndex > 0) {
-            let deviceId = line.substring(0, colonIndex).trim()
-            const deviceInfo = line.substring(colonIndex + 1).trim()
-
-            // Strip "Vulkan" prefix from device ID (e.g., "Vulkan0" -> "0")
-            if (deviceId.startsWith('Vulkan')) {
-              deviceId = deviceId.substring(6) // Remove "Vulkan" prefix
+          // Parse the output to get Vulkan device IDs
+          const lines = stdout.split('\n').map((line) => line.trim())
+          let foundDevicesSection = false
+          for (const line of lines) {
+            if (line.startsWith('Available devices:')) {
+              foundDevicesSection = true
+              continue
             }
 
-            // Extract just the device name (before the memory info in parentheses)
-            // Look for the last parenthesis that contains memory info like "(7824 MiB, 7824 MiB free)"
-            const lastParenIndex = deviceInfo.lastIndexOf('(')
-            let deviceName = deviceInfo
-
-            if (lastParenIndex > 0) {
-              const memoryInfo = deviceInfo.substring(lastParenIndex)
-              // Check if this parenthesis contains memory information (MiB, GiB, etc.)
-              if (
-                memoryInfo.includes('MiB') ||
-                memoryInfo.includes('GiB') ||
-                memoryInfo.includes('free')
-              ) {
-                deviceName = deviceInfo.substring(0, lastParenIndex).trim()
+            if (foundDevicesSection && line.includes(':')) {
+              const colonIndex = line.indexOf(':')
+              if (colonIndex > 0) {
+                let deviceId = line.substring(0, colonIndex).trim()
+                // Strip "Vulkan" prefix from device ID
+                if (deviceId.startsWith('Vulkan')) {
+                  deviceId = deviceId.substring(6)
+                }
+                verifiedDevices.push(deviceId)
               }
             }
+          }
+          this.appLogger.info(
+            `Verified Vulkan devices: ${JSON.stringify(verifiedDevices)}`,
+            this.name,
+          )
+        } catch (error) {
+          this.appLogger.warn(
+            `Failed to verify devices with llama-server: ${error}`,
+            this.name,
+          )
+        }
+      }
 
-            availableDevices.push({
-              id: deviceId,
-              name: deviceName,
+      // Add GPU devices (only if they're verified or if we couldn't verify)
+      if (supportedGpuDevices.length > 0) {
+        for (let i = 0; i < supportedGpuDevices.length; i++) {
+          const device = supportedGpuDevices[i]
+          // If we have verified devices, only add this device if it's in the list
+          // Otherwise, add all detected devices
+          const deviceIndex = i.toString()
+          if (verifiedDevices.length === 0 || verifiedDevices.includes(deviceIndex)) {
+            deviceList.push({
+              id: deviceIndex,
+              name: device.name,
+              selected: i === 0, // First GPU is selected by default
             })
           }
         }
       }
 
+      // Always add CPU as last option
+      deviceList.push({
+        id: 'cpu',
+        name: 'CPU',
+        selected: deviceList.length === 0, // CPU is selected by default if no GPUs
+      })
+
+      this.devices = deviceList
       this.appLogger.info(
-        `detected devices: ${JSON.stringify(availableDevices, null, 2)}`,
+        `LlamaCPP devices available: ${this.devices.length} (${supportedGpuDevices.length} GPU(s) + CPU)`,
         this.name,
       )
-
-      // Add detected devices + CPU option
-      if (availableDevices.length === 0) {
-        // No GPUs detected, CPU is the only option and default
-        this.devices = [{ id: 'cpu', name: 'CPU', selected: true }]
-        this.appLogger.info('No GPUs detected for LlamaCPP, CPU will be used', this.name)
-      } else {
-        // GPUs detected - add CPU as last option, first GPU is selected by default
-        const devicesWithCpu = [
-          ...availableDevices.map((d, index) => ({ ...d, selected: index === 0 })),
-          { id: 'cpu', name: 'CPU', selected: false },
-        ]
-        this.devices = devicesWithCpu
-        this.appLogger.info(
-          `LlamaCPP devices available: ${this.devices.length} (${availableDevices.length} GPU(s) + CPU)`,
-          this.name,
-        )
-      }
+      this.appLogger.info(
+        `Device details: ${JSON.stringify(this.devices, null, 2)}`,
+        this.name,
+      )
     } catch (error) {
       this.appLogger.error(`Failed to detect devices: ${error}`, this.name)
       // Fallback to CPU on error
@@ -548,8 +558,17 @@ export class LlamaCppBackendService implements ApiService {
       const selectedDevice = this.devices.find((d) => d.selected)
       const isCpuMode = selectedDevice?.id === 'cpu'
 
+      // Check if device is a slower iGPU (integrated GPU) that might struggle with warmup
+      const isSlowerIGPU = selectedDevice?.name.toLowerCase().includes('radeon') &&
+                          selectedDevice?.name.match(/\d{3}M/) !== null // AMD iGPUs like "780M"
+
       if (isCpuMode) {
         this.appLogger.info('LlamaCPP LLM running in CPU mode', this.name)
+      } else if (isSlowerIGPU) {
+        this.appLogger.info(
+          `LlamaCPP LLM running on iGPU: ${selectedDevice?.name} - warmup disabled to prevent OOM`,
+          this.name,
+        )
       }
 
       const args = [
@@ -568,6 +587,11 @@ export class LlamaCppBackendService implements ApiService {
         'off',
       ]
 
+      // Disable warmup for slower iGPUs to prevent OOM during startup
+      if (isSlowerIGPU) {
+        args.push('--no-warmup')
+      }
+
       const modelFolder = path.dirname(modelPath)
       // find mmproj*.gguf file in the same folder
       const files = await filesystem.readdir(modelFolder)
@@ -581,14 +605,17 @@ export class LlamaCppBackendService implements ApiService {
         this.appLogger.info(`Using mmproj file ${mmprojFile} for model ${modelRepoId}`, this.name)
       }
 
+      const env = {
+        ...process.env,
+        // Only set Vulkan device selector for GPU mode
+        ...(isCpuMode ? {} : vulkanDeviceSelectorEnv(selectedDevice?.id)),
+      }
+
+
       const childProcess = spawn(this.llamaCppExePath, args, {
         cwd: this.llamaCppDir,
         windowsHide: true,
-        env: {
-          ...process.env,
-          // Only set Vulkan device selector for GPU mode
-          ...(isCpuMode ? {} : vulkanDeviceSelectorEnv(selectedDevice?.id)),
-        },
+        env,
       })
 
       const llamaProcess: LlamaServerProcess = {
@@ -669,8 +696,17 @@ export class LlamaCppBackendService implements ApiService {
       const selectedDevice = this.devices.find((d) => d.selected)
       const isCpuMode = selectedDevice?.id === 'cpu'
 
+      // Check if device is a slower iGPU (integrated GPU) that might struggle with warmup
+      const isSlowerIGPU = selectedDevice?.name.toLowerCase().includes('radeon') &&
+                          selectedDevice?.name.match(/\d{3}M/) !== null // AMD iGPUs like "780M"
+
       if (isCpuMode) {
         this.appLogger.info('LlamaCPP embedding server running in CPU mode', this.name)
+      } else if (isSlowerIGPU) {
+        this.appLogger.info(
+          `LlamaCPP embedding server running on iGPU: ${selectedDevice?.name} - warmup disabled to prevent OOM`,
+          this.name,
+        )
       }
 
       const args = [
@@ -686,14 +722,23 @@ export class LlamaCppBackendService implements ApiService {
         '1024',
       ]
 
+      // Disable warmup for slower iGPUs to prevent OOM during startup
+      if (isSlowerIGPU) {
+        args.push('--no-warmup')
+      }
+
+      // Prepare environment
+      const env = {
+        ...process.env,
+        // Only set Vulkan device selector for GPU mode
+        ...(isCpuMode ? {} : vulkanDeviceSelectorEnv(selectedDevice?.id)),
+      }
+
+
       const childProcess = spawn(this.llamaCppExePath, args, {
         cwd: this.llamaCppDir,
         windowsHide: true,
-        env: {
-          ...process.env,
-          // Only set Vulkan device selector for GPU mode
-          ...(isCpuMode ? {} : vulkanDeviceSelectorEnv(selectedDevice?.id)),
-        },
+        env,
       })
 
       const llamaProcess: LlamaServerProcess = {
@@ -857,8 +902,16 @@ export class LlamaCppBackendService implements ApiService {
   }
 
   private async waitForServerReady(healthUrl: string, process: ChildProcess): Promise<void> {
-    const maxAttempts = 120
+    // Increase timeout for iGPUs which are slower (especially during warmup)
+    const selectedDevice = this.devices.find((d) => d.selected)
+    const isSlowerDevice = selectedDevice?.id === 'cpu' || selectedDevice?.name.toLowerCase().includes('radeon')
+    const maxAttempts = isSlowerDevice ? 300 : 120 // 5 minutes for slower devices, 2 minutes for others
     const delayMs = 1000
+
+    this.appLogger.info(
+      `Waiting for server to be ready (timeout: ${maxAttempts}s) for device: ${selectedDevice?.name || 'unknown'}`,
+      this.name,
+    )
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       // Check if process has exited before attempting health check

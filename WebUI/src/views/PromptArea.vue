@@ -201,7 +201,7 @@
     >
       <div class="bg-background rounded-lg p-6 w-full max-w-lg mx-4 shadow-xl">
         <h2 class="text-lg font-semibold mb-4">Capture Image</h2>
-        <CameraCapture @capture="handleCameraCapture" />
+        <CameraCapture @capture="dialogStore.handleCameraCapture" />
         <div class="mt-4 flex justify-end">
           <Button variant="outline" @click="dialogStore.closeCameraDialog()">Close</Button>
         </div>
@@ -468,12 +468,9 @@ async function handleRecordingClick() {
 }
 
 function handleCameraClick() {
-  dialogStore.showCameraDialog()
-}
-
-async function handleCameraCapture(file: File) {
-  dialogStore.closeCameraDialog()
-  await handleImageFiles([file])
+  dialogStore.showCameraDialog(async (file: File) => {
+    await handleImageFiles([file])
+  })
 }
 
 function fastGenerate(e: KeyboardEvent) {

@@ -53,6 +53,7 @@ export const useDialogStore = defineStore('dialog', () => {
 
   // Camera dialog state
   const cameraDialogVisible = ref(false)
+  const cameraCaptureCallback = ref<((file: File) => void) | null>(null)
 
   // Mask editor dialog state
   const maskEditorDialogVisible = ref(false)
@@ -125,12 +126,21 @@ export const useDialogStore = defineStore('dialog', () => {
     }
   }
 
-  function showCameraDialog() {
+  function showCameraDialog(callback?: (file: File) => void) {
+    cameraCaptureCallback.value = callback || null
     cameraDialogVisible.value = true
+  }
+
+  function handleCameraCapture(file: File) {
+    if (cameraCaptureCallback.value) {
+      cameraCaptureCallback.value(file)
+    }
+    closeCameraDialog()
   }
 
   function closeCameraDialog() {
     cameraDialogVisible.value = false
+    cameraCaptureCallback.value = null
   }
 
   function showMaskEditorDialog(mode: 'inpaint' | 'outpaint', originalImageUrl?: string) {
@@ -291,6 +301,7 @@ export const useDialogStore = defineStore('dialog', () => {
     cameraDialogVisible,
     showCameraDialog,
     closeCameraDialog,
+    handleCameraCapture,
 
     // Mask editor dialog
     maskEditorDialogVisible,

@@ -86,7 +86,8 @@ export function setupCoreIpcHandlers(
   })
 
   ipcMain.handle('setWinSize', (event: IpcMainInvokeEvent, width: number, height: number) => {
-    const win = BrowserWindow.fromWebContents(event.sender)!
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
     const winRect = win.getBounds()
     if (winRect.width != width || winRect.height != height) {
       const y = winRect.y + (winRect.height - height)
@@ -329,16 +330,15 @@ export function setupCoreIpcHandlers(
   )
 
   ipcMain.handle('showSaveDialog', async (_event, options: Electron.SaveDialogOptions) => {
-    dialog
-      .showSaveDialog(options)
-      .then((result) => {
-        return result
-      })
-      .catch((error) => {
-        appLogger.error(
-          `${JSON.stringify(error, Object.getOwnPropertyNames, 2)}`,
-          'electron-backend',
-        )
-      })
+    try {
+      const result = await dialog.showSaveDialog(options)
+      return result
+    } catch (error) {
+      appLogger.error(
+        `${JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}`,
+        'electron-backend',
+      )
+      throw error
+    }
   })
 }

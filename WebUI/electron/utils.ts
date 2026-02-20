@@ -36,6 +36,8 @@ export function needAdminPermission(externalRes: string): Promise<boolean> {
         if (err && err.code == 'EPERM') {
           if (path.parse(externalRes).root == path.parse(process.env.windir!).root) {
             resolve(!isAdmin())
+          } else {
+            resolve(false)
           }
         } else {
           resolve(false)

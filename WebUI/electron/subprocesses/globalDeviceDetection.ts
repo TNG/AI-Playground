@@ -49,17 +49,13 @@ export async function detectAllDevices(): Promise<GlobalDevice[]> {
       'globalDeviceDetection',
     )
 
-    // Detect NVIDIA GPUs
-    const nvidiaDevices = await detectNvidiaDevices()
-    devices.push(...nvidiaDevices)
-
-    // Detect Intel Arc GPUs
-    const intelDevices = await detectIntelArcDevices()
-    devices.push(...intelDevices)
-
-    // Detect AMD GPUs
-    const amdDevices = await detectAmdDevices()
-    devices.push(...amdDevices)
+    // Detect all GPU types in parallel
+    const [nvidiaDevices, intelDevices, amdDevices] = await Promise.all([
+      detectNvidiaDevices(),
+      detectIntelArcDevices(),
+      detectAmdDevices(),
+    ])
+    devices.push(...nvidiaDevices, ...intelDevices, ...amdDevices)
   }
 
   // Always add CPU
@@ -143,6 +139,8 @@ async function detectVulkanDevices(): Promise<GlobalDevice[]> {
     // Parse the output
     const devices: GlobalDevice[] = []
     const lines = stdout.split('\n').map((line) => line.trim())
+    // Per-type counters to avoid ID collisions when Vulkan indices repeat across device types
+    const deviceCounters: Record<string, number> = {}
 
     let foundDevicesSection = false
     for (const line of lines) {
@@ -158,10 +156,10 @@ async function detectVulkanDevices(): Promise<GlobalDevice[]> {
           const vulkanId = line.substring(0, colonIndex).trim()
           const deviceInfo = line.substring(colonIndex + 1).trim()
 
-          // Strip "Vulkan" prefix from device ID (e.g., "Vulkan0" -> "0")
-          let deviceIndex = '0'
+          // Strip "Vulkan" prefix from device ID (e.g., "Vulkan0" -> "0") — kept as rawId
+          let rawId = '0'
           if (vulkanId.startsWith('Vulkan')) {
-            deviceIndex = vulkanId.substring(6)
+            rawId = vulkanId.substring(6)
           }
 
           // Extract device name (before memory info in parentheses)
@@ -203,11 +201,18 @@ async function detectVulkanDevices(): Promise<GlobalDevice[]> {
             deviceType = 'amd'
           }
 
+          // Use per-type counter for unique IDs (avoids collisions when Vulkan indices repeat)
+          if (deviceCounters[deviceType] === undefined) {
+            deviceCounters[deviceType] = 0
+          }
+          const typeIndex = deviceCounters[deviceType]
+          deviceCounters[deviceType]++
+
           devices.push({
-            id: `${deviceType}-${deviceIndex}`,
+            id: `${deviceType}-${typeIndex}`,
             name: deviceName,
             type: deviceType,
-            rawId: deviceIndex,
+            rawId,
           })
         }
       }

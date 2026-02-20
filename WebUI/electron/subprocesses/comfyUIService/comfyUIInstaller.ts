@@ -104,10 +104,41 @@ export class ComfyUIInstaller {
    */
   async getCurrentVersion(): Promise<string | undefined> {
     try {
-      const gitOutput = await this.git.run(['-C', this.paths.serviceDir, 'rev-parse', 'HEAD'])
-      const versionMatch = gitOutput.match(/HEAD detached at ([0-9a-f]{7,})|v(\d+\.\d+\.\d+)/)
-      if (versionMatch) {
-        return versionMatch[1]
+      // First, try to get the current branch or tag name
+      const branchOutput = await this.git.run([
+        '-C',
+        this.paths.serviceDir,
+        'rev-parse',
+        '--abbrev-ref',
+        'HEAD',
+      ])
+      const branchName = branchOutput.trim()
+
+      // If we're not in detached HEAD state, return the branch name
+      if (branchName !== 'HEAD') {
+        return branchName
+      }
+
+      // If in detached HEAD state, try to get the exact tag
+      try {
+        const tagOutput = await this.git.run([
+          '-C',
+          this.paths.serviceDir,
+          'describe',
+          '--tags',
+          '--exact-match',
+        ])
+        return tagOutput.trim()
+      } catch {
+        // No exact tag match, fall back to short commit hash
+        const hashOutput = await this.git.run([
+          '-C',
+          this.paths.serviceDir,
+          'rev-parse',
+          '--short',
+          'HEAD',
+        ])
+        return hashOutput.trim()
       }
     } catch (e) {
       this.appLogger.error(`failed to get comfyUI version: ${e}`, this.serviceName)
@@ -269,7 +300,7 @@ export class ComfyUIInstaller {
         return true
       }
       this.appLogger.info(
-        `ComfyUI version ${version?.[1]} does not match ${this.revision}. Removing...`,
+        `ComfyUI version ${version} does not match ${this.revision}. Removing...`,
         this.serviceName,
       )
       throw new Error('Version mismatch')
@@ -286,7 +317,7 @@ export class ComfyUIInstaller {
    * Setup ComfyUI base service
    */
   private async setupComfyUiBaseService(): Promise<void> {
-    installHijacks()
+    await installHijacks()
     if (await this.checkServiceDir()) {
       this.appLogger.info('comfyUI already cloned, skipping', this.serviceName)
     } else {
@@ -354,7 +385,7 @@ export class ComfyUIInstaller {
   private async configureComfyUI(): Promise<void> {
     try {
       this.appLogger.info('patching hijacks into comfyUI model_management', this.serviceName)
-      patchFile(
+      await patchFile(
         path.join(this.paths.serviceDir, 'comfy/model_management.py'),
         'from comfy.model_management import get_model',
         ['from ipex_to_cuda import ipex_init', 'ipex_init()'],
@@ -397,7 +428,7 @@ export class ComfyUIInstaller {
   facerestore_models: facerestore_models
   nsfw_detector: nsfw_detector
   inpaint: inpaint`
-      fs.promises.writeFile(extraModelPathsYaml, extraModelsYaml, {
+      await fs.promises.writeFile(extraModelPathsYaml, extraModelsYaml, {
         encoding: 'utf-8',
         flag: 'w',
       })

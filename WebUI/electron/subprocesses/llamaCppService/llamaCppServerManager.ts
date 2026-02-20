@@ -345,27 +345,33 @@ export class LlamaCppServerManager {
     processType: string,
     llamaProcess: LlamaServerProcess,
   ): void {
-    childProcess.stdout!.on('data', (message) => {
-      const msg = message.toString()
-      if (msg.startsWith('I ')) {
-        this.appLogger.info(`[${processType}] ${message}`, this.serviceName)
-      } else if (msg.startsWith('W ')) {
-        this.appLogger.warn(`[${processType}] ${message}`, this.serviceName)
-      } else if (msg.startsWith('E ')) {
-        this.appLogger.error(`[${processType}] ${message}`, this.serviceName)
-      }
-    })
+    const stdout = childProcess.stdout
+    if (stdout) {
+      stdout.on('data', (message) => {
+        const msg = message.toString()
+        if (msg.startsWith('I ')) {
+          this.appLogger.info(`[${processType}] ${msg}`, this.serviceName)
+        } else if (msg.startsWith('W ')) {
+          this.appLogger.warn(`[${processType}] ${msg}`, this.serviceName)
+        } else if (msg.startsWith('E ')) {
+          this.appLogger.error(`[${processType}] ${msg}`, this.serviceName)
+        }
+      })
+    }
 
-    childProcess.stderr!.on('data', (message) => {
-      const msg = message.toString()
-      if (msg.startsWith('I ')) {
-        this.appLogger.info(`[${processType}] ${message}`, this.serviceName)
-      } else if (msg.startsWith('W ')) {
-        this.appLogger.warn(`[${processType}] ${message}`, this.serviceName)
-      } else if (msg.startsWith('E ')) {
-        this.appLogger.error(`[${processType}] ${message}`, this.serviceName)
-      }
-    })
+    const stderr = childProcess.stderr
+    if (stderr) {
+      stderr.on('data', (message) => {
+        const msg = message.toString()
+        if (msg.startsWith('I ')) {
+          this.appLogger.info(`[${processType}] ${msg}`, this.serviceName)
+        } else if (msg.startsWith('W ')) {
+          this.appLogger.warn(`[${processType}] ${msg}`, this.serviceName)
+        } else if (msg.startsWith('E ')) {
+          this.appLogger.error(`[${processType}] ${msg}`, this.serviceName)
+        }
+      })
+    }
 
     childProcess.on('error', (error: Error) => {
       this.appLogger.error(`${processType} server process error: ${error}`, this.serviceName)

@@ -1,7 +1,7 @@
 import { OpenAIEmbeddings } from '@langchain/openai'
 import { CacheBackedEmbeddings } from '@langchain/classic/embeddings/cache_backed'
 import { MemoryVectorStore } from '@langchain/classic/vectorstores/memory'
-import { LocalFileStore } from '@langchain/classic/storage/file_system'
+import { LocalFileStore } from 'langchain/storage/file_system'
 
 import { TextLoader } from '@langchain/classic/document_loaders/fs/text'
 import { DocxLoader } from '@langchain/community/document_loaders/fs/docx'

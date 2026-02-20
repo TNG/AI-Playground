@@ -175,7 +175,11 @@ app.whenReady().then(async () => {
 
     appLogger.info('Detecting all available devices...', 'electron-main')
     const { detectAllDevices } = await import('./subprocesses/globalDeviceDetection.ts')
-    await detectAllDevices()
+    try {
+      await detectAllDevices()
+    } catch (e) {
+      appLogger.error(`Device detection failed: ${e}`, 'electron-main')
+    }
 
     await initServiceRegistry(win)
     spawnLangchainUtilityProcess()

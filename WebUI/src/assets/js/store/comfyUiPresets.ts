@@ -708,10 +708,12 @@ export const useComfyUiPresets = defineStore(
         if (pendingGenerationRequest.value) {
           console.info('Backend is now running, auto-retrying pending generation')
           const pending = pendingGenerationRequest.value
-          pendingGenerationRequest.value = null
 
-          // Use setTimeout to avoid immediate re-execution in the same tick
+          // Use setTimeout to avoid immediate re-execution in the same tick.
+          // Clear the pending request only inside the callback so it is not lost
+          // if the scheduler itself fails before the retry begins.
           setTimeout(() => {
+            pendingGenerationRequest.value = null
             generate(pending.imageIds, pending.mode, pending.sourceImage)
           }, 500)
         }

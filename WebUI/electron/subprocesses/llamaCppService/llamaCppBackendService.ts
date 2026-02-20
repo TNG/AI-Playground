@@ -9,11 +9,14 @@ import { LlamaCppInstaller } from './llamaCppInstaller.ts'
 import { LlamaCppDeviceManager } from './llamaCppDeviceManager.ts'
 import { LlamaCppServerManager } from './llamaCppServerManager.ts'
 
+/** Default LlamaCPP release tag to install. Update this constant to upgrade the bundled version. */
+const LLAMA_CPP_VERSION = 'b7278'
+
 /**
  * Main service class that orchestrates LlamaCPP backend operations
  */
 export class LlamaCppBackendService implements ApiService {
-  readonly name = 'llama-cpp-backend' as BackendServiceName
+  readonly name: BackendServiceName = 'llamacpp-backend'
   baseUrl: string
   port: number
   readonly isRequired: boolean = false
@@ -45,8 +48,7 @@ export class LlamaCppBackendService implements ApiService {
   private readonly deviceManager: LlamaCppDeviceManager
   private readonly serverManager: LlamaCppServerManager
 
-  constructor(name: BackendServiceName, port: number, win: BrowserWindow, settings: LocalSettings) {
-    this.name = name
+  constructor(port: number, win: BrowserWindow, settings: LocalSettings) {
     this.port = port
     this.win = win
     this.settings = settings
@@ -71,7 +73,7 @@ export class LlamaCppBackendService implements ApiService {
     }
 
     // Initialize sub-components
-    this.installer = new LlamaCppInstaller(this.paths, this.appLogger, this.name, 'b7278')
+    this.installer = new LlamaCppInstaller(this.paths, this.appLogger, this.name, LLAMA_CPP_VERSION)
     this.deviceManager = new LlamaCppDeviceManager(this.paths, this.appLogger, this.name)
     this.serverManager = new LlamaCppServerManager(
       this.paths,
@@ -285,7 +287,7 @@ export class LlamaCppBackendService implements ApiService {
       )
 
       // Communicate status 'running' to backendServices and UI
-      this.start()
+      await this.start()
     } catch (error) {
       this.appLogger.error(
         `Failed to ensure backend readiness - LLM: ${llmModelName}, Embedding: ${embeddingModelName ?? 'none'}: ${error}`,

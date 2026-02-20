@@ -398,6 +398,15 @@ export const installRequirementsTxt = async (
 }
 
 /**
+ * Get platform-aware Python executable path in a venv
+ */
+const getPythonPath = (venvPath: string): string => {
+  const binDir = process.platform === 'win32' ? 'Scripts' : 'bin'
+  const pythonExe = process.platform === 'win32' ? 'python.exe' : 'python'
+  return path.join(venvPath, binDir, pythonExe)
+}
+
+/**
  * Install ComfyUI backend with triple venv support (CPU + XPU + CUDA)
  * Always installs CPU version, optionally installs XPU version if Intel Arc GPU detected,
  * optionally installs CUDA version if NVIDIA GPU detected
@@ -426,6 +435,7 @@ export const installComfyUIBackend = async (
 
   // First, create the venv and install base dependencies
   const cpuEnv = {
+    UV_TORCH_BACKEND: 'cpu',
     UV_PROJECT_ENVIRONMENT: venvCpuPath,
   }
 
@@ -439,7 +449,7 @@ export const installComfyUIBackend = async (
     logger.info(
       'CPU backend step 2: Replacing PyTorch XPU with PyTorch CPU from https://download.pytorch.org/whl/cpu',
     )
-    const pythonPath = path.join(venvCpuPath, 'Scripts', 'python.exe')
+    const pythonPath = getPythonPath(venvCpuPath)
     const pipInstallCmd = [
       'pip',
       'install',
@@ -473,7 +483,7 @@ export const installComfyUIBackend = async (
       ]
       await uv(noCacheCommand, logger, cpuEnv)
 
-      const pythonPath = path.join(venvCpuPath, 'Scripts', 'python.exe')
+      const pythonPath = getPythonPath(venvCpuPath)
       const pipInstallCmd = [
         'pip',
         'install',
@@ -538,7 +548,7 @@ export const installComfyUIBackend = async (
       logger.info(
         'CUDA backend step 2: Installing PyTorch CUDA from https://download.pytorch.org/whl/cu121',
       )
-      const pythonPath = path.join(venvCudaPath, 'Scripts', 'python.exe')
+      const pythonPath = getPythonPath(venvCudaPath)
       const pipInstallCmd = [
         'pip',
         'install',

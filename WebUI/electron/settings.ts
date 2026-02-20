@@ -39,7 +39,7 @@ export async function loadSettings(): Promise<LocalSettings> {
   if (fs.existsSync(settingPath)) {
     try {
       settings = LocalSettingsSchema.parse(
-        JSON.parse(fs.readFileSync(settingPath, { encoding: 'utf8' })),
+        JSON.parse(await fs.promises.readFile(settingPath, { encoding: 'utf8' })),
       )
     } catch (e) {
       appLogger.error(`failed to load settings: ${e}`, 'electron-backend')
@@ -61,6 +61,9 @@ export function getSettings(): LocalSettings {
 
 /**
  * Applies partial updates to the in-memory local settings.
+ *
+ * NOTE: This function is runtime-only — changes are NOT persisted to disk (settings.json).
+ * Callers should be aware that updates will be lost after the application restarts.
  *
  * Modifies the cached settings object in-place and logs the updated fields.
  *

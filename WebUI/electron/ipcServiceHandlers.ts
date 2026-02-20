@@ -50,7 +50,7 @@ export function setupServiceIpcHandlers(
     return service.uninstall()
   })
 
-  ipcMain.handle('updateServiceSettings', (_event: IpcMainInvokeEvent, settings) => {
+  ipcMain.handle('updateServiceSettings', (_event: IpcMainInvokeEvent, incomingSettings) => {
     const serviceRegistry = getServiceRegistry()
     if (!serviceRegistry) {
       appLogger.warn(
@@ -59,15 +59,15 @@ export function setupServiceIpcHandlers(
       )
       return
     }
-    const service = serviceRegistry.getService(settings.serviceName)
+    const service = serviceRegistry.getService(incomingSettings.serviceName)
     if (!service) {
       appLogger.warn(
-        `Tried to update settings for service ${settings.serviceName} which is not known`,
+        `Tried to update settings for service ${incomingSettings.serviceName} which is not known`,
         'electron-backend',
       )
       return
     }
-    return service.updateSettings(settings)
+    return service.updateSettings(incomingSettings)
   })
 
   ipcMain.handle('getComfyUiDefaultParameters', () => COMFYUI_DEFAULT_PARAMETERS)

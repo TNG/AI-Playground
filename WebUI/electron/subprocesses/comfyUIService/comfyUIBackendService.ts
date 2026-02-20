@@ -230,18 +230,32 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
 
     if (deviceType === 'CUDA') {
       this.appLogger.info(`Using CUDA mode for ComfyUI (device: ${selectedDevice.name})`, this.name)
+      if (!globalDevice) {
+        this.appLogger.warn(
+          `Selected device ${selectedDevice.id} not found in cached device list; falling back to base env`,
+          this.name,
+        )
+        return { ...baseEnv, ONEAPI_DEVICE_SELECTOR: '' }
+      }
       return {
         ...baseEnv,
-        ...cudaDeviceSelectorEnv(globalDevice!.rawId),
+        ...cudaDeviceSelectorEnv(globalDevice.rawId),
         ONEAPI_DEVICE_SELECTOR: '',
       }
     }
 
     if (deviceType === 'XPU') {
       this.appLogger.info(`Using XPU mode for ComfyUI (device: ${selectedDevice.name})`, this.name)
+      if (!globalDevice) {
+        this.appLogger.warn(
+          `Selected device ${selectedDevice.id} not found in cached device list; falling back to base env`,
+          this.name,
+        )
+        return { ...baseEnv, CUDA_VISIBLE_DEVICES: '' }
+      }
       return {
         ...baseEnv,
-        ...levelZeroDeviceSelectorEnv(globalDevice!.rawId),
+        ...levelZeroDeviceSelectorEnv(globalDevice.rawId),
         CUDA_VISIBLE_DEVICES: '',
       }
     }

@@ -180,12 +180,7 @@ export async function aiplaygroundApiServiceRegistry(
       ),
     )
     instance.register(
-      new LlamaCppBackendService(
-        'llamacpp-backend',
-        await getPort({ port: portNumbers(39000, 39999) }),
-        win,
-        settings,
-      ),
+      new LlamaCppBackendService(await getPort({ port: portNumbers(39000, 39999) }), win, settings),
     )
     if (settings.enablePreviewFeatures) {
       instance.register(

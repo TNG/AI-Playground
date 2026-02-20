@@ -14,6 +14,9 @@ export class LlamaCppDeviceManager {
   private readonly paths: LlamaCppPaths
   private readonly appLogger: AppLogger
   private readonly serviceName: BackendServiceName
+  // Startup default placeholder — replaced once detectDevices() runs.
+  // Consumers should call detectDevices() (or await an initialization that triggers it)
+  // before relying on this list for accurate device information.
   private devices: InferenceDevice[] = [{ id: '0', name: 'Auto select device', selected: true }]
 
   constructor(paths: LlamaCppPaths, appLogger: AppLogger, serviceName: BackendServiceName) {

@@ -82,14 +82,42 @@ export class LlamaCppInstaller {
    * Download LlamaCPP binary archive
    */
   async download(): Promise<void> {
-    const platformArch = process.platform === 'darwin' ? 'macos-arm64' : 'win-vulkan-x64'
-    const downloadUrl = `https://github.com/ggml-org/llama.cpp/releases/download/${this.version}/llama-${this.version}-bin-${platformArch}.zip`
-    this.appLogger.info(`Downloading LlamaCPP from ${downloadUrl}`, this.serviceName)
+    // Detect platform and architecture
+    let platformArch: string
+    let extension: string
 
-    // Delete existing zip if it exists
-    if (filesystem.existsSync(this.paths.zipPath)) {
-      this.appLogger.info(`Removing existing LlamaCPP zip file`, this.serviceName)
-      filesystem.removeSync(this.paths.zipPath)
+    if (process.platform === 'darwin') {
+      // macOS
+      extension = '.tar.gz'
+      platformArch = process.arch === 'arm64' ? 'macos-arm64' : 'macos-x64'
+    } else if (process.platform === 'linux') {
+      // Linux - use ubuntu-x64 or ubuntu-vulkan-x64
+      // For now, defaulting to ubuntu-x64 (can be extended to detect GPU/Vulkan preference)
+      extension = '.tar.gz'
+      platformArch = 'ubuntu-x64'
+    } else {
+      // Windows (win32)
+      extension = '.zip'
+      platformArch = 'win-vulkan-x64'
+    }
+
+    const downloadUrl = `https://github.com/ggml-org/llama.cpp/releases/download/${this.version}/llama-${this.version}-bin-${platformArch}${extension}`
+    this.appLogger.info(
+      `Downloading LlamaCPP from ${downloadUrl} for platform ${process.platform} (${process.arch})`,
+      this.serviceName,
+    )
+
+    // Construct archive file path based on extension
+    const archiveFileName = `llama-cpp${extension}`
+    const archivePath = path.join(this.paths.serviceDir, archiveFileName)
+
+    // Delete existing archive if it exists
+    if (filesystem.existsSync(archivePath)) {
+      this.appLogger.info(
+        `Removing existing LlamaCPP archive file: ${archiveFileName}`,
+        this.serviceName,
+      )
+      filesystem.removeSync(archivePath)
     }
 
     // Using electron net for better proxy support
@@ -99,9 +127,15 @@ export class LlamaCppInstaller {
     }
 
     const buffer = await response.arrayBuffer()
-    await filesystem.writeFile(this.paths.zipPath, Buffer.from(buffer))
+    await filesystem.writeFile(archivePath, Buffer.from(buffer))
 
-    this.appLogger.info(`LlamaCPP zip file downloaded successfully`, this.serviceName)
+    this.appLogger.info(
+      `LlamaCPP archive file downloaded successfully: ${archiveFileName}`,
+      this.serviceName,
+    )
+
+    // Store the archive path for extraction
+    this.paths.zipPath = archivePath
   }
 
   /**

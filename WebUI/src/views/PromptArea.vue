@@ -72,6 +72,8 @@
             [`pt-${checkedRagDocuments.length > 0 && canAttachDocuments && promptStore.getCurrentMode() === 'chat' ? 8 : 3}`]: true,
             'opacity-50 cursor-not-allowed': !isPromptModifiable,
             'border-primary bg-primary/10': isOverDropZone,
+            'demo-mode-overlay-content':
+              demoMode.answer.show || demoMode.create.show || demoMode.enhance.showPrompt,
           }"
           :placeholder="getTextAreaPlaceholder()"
           v-model="prompt"
@@ -164,6 +166,10 @@
             v-if="readyForNewSubmit"
             @click="handleSubmitPromptClick"
             class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px]"
+            :class="{
+              'demo-mode-overlay-content':
+                demoMode.create.show || demoMode.answer.show || demoMode.enhance.showPrompt,
+            }"
           >
             →
           </Button>
@@ -217,6 +223,7 @@ import { useDropZone, useEventListener } from '@vueuse/core'
 import * as toast from '@/assets/js/toast'
 import { Context } from '@/components/ui/context'
 import Button from '@/components/ui/button/Button.vue'
+import { useDemoMode } from '@/assets/js/store/demoMode'
 
 const instance = getCurrentInstance()
 const audioRecorder = useAudioRecorder()
@@ -231,6 +238,7 @@ const openAiCompatibleChat = useOpenAiCompatibleChat()
 const textInference = useTextInference()
 const textareaRef = ref<HTMLTextAreaElement>()
 const presetsStore = usePresets()
+const demoMode = useDemoMode()
 
 audioRecorder.registerTranscriptionCallback((text) => (prompt.value = text))
 

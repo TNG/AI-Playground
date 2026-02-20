@@ -40,6 +40,14 @@
         <ServerStackIcon class="size-6 text-foreground"></ServerStackIcon>
       </button>
       <button
+        v-if="demoMode.enabled && globalSetup.loadingState === 'running'"
+        class="bg-[#01aef2] text-white px-3 rounded text-xs cursor-pointer"
+        style="height: 30px; min-width: 90px"
+        @click="triggerHelpForCurrentMode(true)"
+      >
+        {{ languages.DEMO_NEED_HELP }}
+      </button>
+      <button
         v-if="!demoMode.enabled"
         :title="languages.COM_MINI"
         @click="miniWindow"
@@ -207,6 +215,89 @@
       v-show="dialogStore.installationProgressDialogVisible"
     ></installation-progress-dialog>
     <MaskEditorDialog />
+
+    <!-- Demo Mode Overlays -->
+    <transition name="fade">
+      <div class="demo-mode-answer-overlay" v-if="demoMode.answer.show">
+        <div class="center-popup">
+          <p>{{ languages.DEMO_ANSWER_HEADING }}</p>
+        </div>
+        <div class="tooltip-wrapper">
+          <div class="tooltip-box">
+            <div class="tooltip-row">
+              <div class="tooltip-circle">1</div>
+              <div>
+                <p>{{ languages.DEMO_ANSWER_GENERATE_TEXT }}</p>
+                <p class="content-tooltip">
+                  <em>{{ languages.DEMO_YOU_COULD_TYPE }}</em>
+                  <span>"{{ languages.DEMO_ANSWER_GENERATE_HELP_TEXT }}"</span>
+                </p>
+              </div>
+            </div>
+            <div class="got-it-btn">
+              <button class="tooltip-button" @click.stop="demoMode.answer.show = false">
+                {{ languages.DEMO_OK_GOT_IT }} &#8594;
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </transition>
+
+    <transition name="fade">
+      <div class="demo-mode-create-overlay" v-if="demoMode.create.show">
+        <div class="popup-box center-box">
+          <div class="create-text">
+            <p>{{ languages.DEMO_CREATE_CENTER_CONTENT }}</p>
+          </div>
+        </div>
+        <div class="prompt-popup-box bottom-left-box">
+          <div class="step">1</div>
+          <div class="content">
+            <p>{{ languages.DEMO_CREATE_POPUP_CONTENT_1 }}</p>
+            <p class="example">
+              {{ languages.DEMO_YOU_COULD_TYPE }}
+              <em>"{{ languages.DEMO_CREATE_POPUP_CONTENT_3 }}"</em>.
+            </p>
+            <div class="got-it-btn">
+              <button class="action" @click.stop="demoMode.create.show = false">
+                {{ languages.DEMO_OK_GOT_IT }} &#8594;
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </transition>
+
+    <transition name="fade">
+      <div class="demo-mode-Image-overlay" v-if="demoMode.enhance.showPrompt">
+        <div class="tooltip-wrapper">
+          <div class="tooltip-box">
+            <div class="tooltip-row">
+              <div class="tooltip-circle">1</div>
+              <p class="tooltip-text">{{ languages.DEMO_ENHANCE_IMAGE_TEXT }}</p>
+            </div>
+            <div class="tooltip-row">
+              <div class="tooltip-circle">2</div>
+              <p class="tooltip-text">{{ languages.DEMO_ENHANCE_IMAGE_TEXT_2 }}</p>
+            </div>
+            <div class="got-it-btn">
+              <button
+                class="tooltip-button"
+                @click.stop="
+                  () => {
+                    demoMode.enhance.showPrompt = false
+                    demoMode.enhance.show = false
+                  }
+                "
+              >
+                {{ languages.DEMO_OK_GOT_IT }} &#8594;
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </transition>
   </main>
 
   <footer
@@ -471,4 +562,32 @@ function openSpecificSettings() {
 function openAppSettings() {
   showAppSettings.value = true
 }
+
+function triggerHelpForCurrentMode(force = false) {
+  const mode = promptStore.getCurrentMode()
+  if (mode === 'chat') {
+    demoMode.triggerHelp('answer', force)
+  } else if (mode === 'imageGen') {
+    demoMode.triggerHelp('create', force)
+  } else if (mode === 'imageEdit') {
+    demoMode.enhance.feature = 'prompt'
+    demoMode.triggerHelp('enhance', force)
+  }
+}
+
+watch(
+  () => promptStore.getCurrentMode(),
+  () => {
+    triggerHelpForCurrentMode()
+  },
+)
+
+watch(
+  () => globalSetup.loadingState,
+  (state) => {
+    if (state === 'running' && demoMode.enabled) {
+      setTimeout(() => triggerHelpForCurrentMode(), 2200)
+    }
+  },
+)
 </script>

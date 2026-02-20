@@ -95,6 +95,11 @@ export const useCameraStore = defineStore(
         return null
       }
 
+      if (video.videoWidth === 0 || video.videoHeight === 0) {
+        error.value = 'Camera is not ready yet'
+        return null
+      }
+
       const canvas = document.createElement('canvas')
       canvas.width = video.videoWidth
       canvas.height = video.videoHeight

@@ -8,6 +8,14 @@ import type { BackendServiceName } from '@/assets/js/store/backendServices.ts'
 
 const appLogger = appLoggerInstance
 
+/**
+ * Register ipcMain handlers for managing backend services, device selection/detection,
+ * backend readiness, embedding/transcription servers, and version-related utilities.
+ *
+ * @param getServiceRegistry - Callback that returns the current ApiServiceRegistryImpl or `null` if the registry is not initialized.
+ * @param getWin - Callback that returns the main BrowserWindow used to forward setup progress events, or `null` if the window is not available.
+ * @param settings - Local application settings used by handlers that resolve backend versions and repository URLs.
+ */
 export function setupServiceIpcHandlers(
   getServiceRegistry: () => ApiServiceRegistryImpl | null,
   getWin: () => BrowserWindow | null,

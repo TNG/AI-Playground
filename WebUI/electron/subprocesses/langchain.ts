@@ -96,6 +96,22 @@ async function loadDocument(type: string, filepath: string) {
   return await loader.load()
 }
 
+/**
+ * Finds the most relevant documents from a RAG list for the given prompt using cached embeddings.
+ *
+ * Builds an embeddings client from the specified model and backend URL, wraps it with a cache
+ * namespaced by the model's MD5, indexes the RAG list chunks into a memory vector store, performs
+ * a similarity search with the provided prompt (up to `maxResults`, default 6), and returns the
+ * matching Documents whose similarity score is greater than 0.5.
+ *
+ * @param embedInquiry - Inquiry describing the embedding request. Expected fields:
+ *   - `embeddingModel`: model identifier used for embeddings
+ *   - `backendBaseUrl`: base URL for the embeddings API
+ *   - `ragList`: array of documents where each document contains a `splitDB` array of chunks
+ *   - `prompt`: text to use for the similarity search
+ *   - `maxResults` (optional): maximum number of search results to retrieve (defaults to 6)
+ * @returns An array of Documents from the RAG list whose similarity score to the prompt is greater than 0.5.
+ */
 async function embedInputUsingRag(embedInquiry: EmbedInquiry): Promise<Document[]> {
   console.log('embedInputUsingRag', embedInquiry)
 
@@ -138,6 +154,13 @@ async function embedInputUsingRag(embedInquiry: EmbedInquiry): Promise<Document[
     .map(([doc, _score]: [Document, number]) => doc)
 }
 
+/**
+ * Compute the MD5 hash of a file's contents.
+ *
+ * @param filePath - Filesystem path to the file to hash
+ * @returns The MD5 digest as a hex string
+ * @throws Rethrows any error encountered while reading the file or computing the hash
+ */
 async function generateFileMD5Hash(filePath: string): Promise<string> {
   try {
     const fileBuffer = await readFile(filePath)

@@ -27,6 +27,16 @@ import { getAssetPathFromUrl } from './utils.ts'
 
 const appLogger = appLoggerInstance
 
+/**
+ * Registers core Electron IPC handlers and listeners used by the renderer to control application behavior, windows, dialogs, file operations, model/path management, and asset interactions.
+ *
+ * @param pathsManager - Manager responsible for scanning and updating model and asset paths.
+ * @param settings - Local application settings object that handlers read from and update.
+ * @param mediaDir - Filesystem directory where media assets are stored.
+ * @param externalRes - Directory containing external resource files (fallback icons, etc.).
+ * @param getWin - Function that returns the current main BrowserWindow or null.
+ * @param getComfyBackendUrl - Function that returns the optional backend URL used to resolve asset URLs.
+ */
 export function setupCoreIpcHandlers(
   pathsManager: PathsManager,
   settings: LocalSettings,

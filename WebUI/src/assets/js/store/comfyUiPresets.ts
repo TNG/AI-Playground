@@ -469,6 +469,11 @@ export const useComfyUiPresets = defineStore(
       }
     }
 
+    /**
+     * Establishes and manages a WebSocket connection to the running ComfyUI backend.
+     *
+     * Connects to the backend WebSocket (if the comfyUI backend is running), replacing any existing connection, and attaches listeners for open/close/error/message events. Incoming binary frames and JSON messages from ComfyUI are processed to update generation state, step text, loader/model progress, and queued media items (images, videos, GIFs, 3D models). The function gracefully handles connection closing and parsing errors and logs connection lifecycle events.
+     */
     function connectToComfyUi() {
       if (comfyUiState.value?.status !== 'running') {
         console.warn('ComfyUI backend not running, cannot start websocket')
@@ -870,6 +875,15 @@ export const useComfyUiPresets = defineStore(
       promptStore.promptSubmitted = false
     }
 
+    /**
+     * Initiates a generation run for the given image IDs using the active ComfyUI preset.
+     *
+     * Ensures the correct ComfyUI backend is available (queueing the request for auto-retry if the backend is starting or restarting), validates required image inputs, installs missing workflow components, prepares a workflow per batch item, submits prompts to the ComfyUI backend, and updates internal generation state (queuedImages, processing state, currentState, and pendingGenerationRequest) as the run progresses. On failure the function resets generation state and surfaces an error toast.
+     *
+     * @param imageIds - Array of media item IDs to generate images for (one per batch slot)
+     * @param mode - Workflow execution mode to use for the generation
+     * @param sourceImage - Optional source image data URI to include in the generation inputs
+     */
     async function generate(imageIds: string[], mode: WorkflowModeType, sourceImage?: string) {
       const preset = imageGeneration.activePreset
       if (!preset || preset.type !== 'comfy') {

@@ -25,6 +25,11 @@ export type LocalSettings = z.infer<typeof LocalSettingsSchema>
 
 let settings = LocalSettingsSchema.parse({})
 
+/**
+ * Load local settings from the packaged or development settings file, validate them against the schema, and update the in-memory settings.
+ *
+ * @returns The loaded and validated `LocalSettings` object; if the settings file is missing or cannot be parsed, returns the current in-memory settings (initialized from the schema defaults).
+ */
 export async function loadSettings(): Promise<LocalSettings> {
   const settingPath = app.isPackaged
     ? path.join(process.resourcesPath, 'settings.json')
@@ -45,10 +50,22 @@ export async function loadSettings(): Promise<LocalSettings> {
   return settings
 }
 
+/**
+ * Retrieve the current in-memory local settings.
+ *
+ * @returns The current cached `LocalSettings` object
+ */
 export function getSettings(): LocalSettings {
   return settings
 }
 
+/**
+ * Applies partial updates to the in-memory local settings.
+ *
+ * Modifies the cached settings object in-place and logs the updated fields.
+ *
+ * @param updates - Partial LocalSettings whose properties will be merged into the current settings
+ */
 export function updateSettings(updates: Partial<LocalSettings>): void {
   Object.assign(settings, updates)
   appLogger.info(`Updated local settings: ${JSON.stringify(updates)}`, 'electron-backend')

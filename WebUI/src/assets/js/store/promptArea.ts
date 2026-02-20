@@ -37,8 +37,14 @@ export const usePromptStore = defineStore('prompt', () => {
   }
 
   /**
-   * Set the current mode and switch to the last-used preset for that mode.
-   * Uses the preset switching orchestrator to ensure proper settings loading.
+   * Set the active mode and load the last-used preset for that mode.
+   *
+   * For modes that require ComfyUI (image generation, image editing, video), this will
+   * check whether the comfyui-backend is installed; if it is not, a warning dialog will
+   * be shown offering to open the installation manager and the mode switch will be aborted.
+   *
+   * @param mode - The ModeType to activate; when successful the store's current mode is updated
+   *               and the preset orchestrator switches to the last-used preset for the mode.
    */
   function setCurrentMode(mode: ModeType) {
     // Check if ComfyUI is required for this mode

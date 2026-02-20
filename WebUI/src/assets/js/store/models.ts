@@ -48,6 +48,13 @@ export const useModels = defineStore(
       embedding: '',
     })
 
+    /**
+     * Refreshes the store's model list by loading predefined, downloaded, and persisted custom models and merging their metadata.
+     *
+     * Loads model lists from the backend (predefined models, downloaded GGUF/openVINO/embedding models), reconstructs non-predefined custom models from persisted metadata, preserves the predefined models.json ordering (predefined first), and combines sources with priority predefined > existing > custom to produce the final models list stored in `models.value`.
+     *
+     * The resulting list marks which models are downloaded, assigns type/backend information, carries through capability and sizing metadata (e.g., `supportsVision`, `supportsToolCalling`, `maxContextSize`, `npuSupport`), and excludes internal mmproj vision helper models from selection.
+     */
     async function refreshModels() {
       const predefinedModels = (await window.electronAPI.loadModels()) as Model[]
       const ggufModels = await window.electronAPI.getDownloadedGGUFLLMs()

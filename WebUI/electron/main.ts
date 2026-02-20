@@ -94,11 +94,25 @@ app.on('second-instance', () => {
   }
 })
 
+/**
+ * Initializes and stores the AI Playground API service registry for the provided window.
+ *
+ * @param win - The Electron BrowserWindow used when creating the service registry
+ * @returns The initialized `aiplaygroundApiServiceRegistry` instance
+ */
 async function initServiceRegistry(win: BrowserWindow) {
   serviceRegistry = await aiplaygroundApiServiceRegistry(win, getSettings())
   return serviceRegistry
 }
 
+/**
+ * Initialize application event and IPC handlers used by the main process.
+ *
+ * Creates the PathsManager for the app's model configuration (uses `model_config.dev.json` in dev),
+ * registers the display metrics listener, and wires up core, service, and Comfy IPC handlers using
+ * the current settings, media directory, external resources path, and accessor functions for the
+ * main window and service registry.
+ */
 function initEventHandlers() {
   const pathsManager = new PathsManager(
     path.join(externalRes, app.isPackaged ? 'model_config.json' : 'model_config.dev.json'),

@@ -11,6 +11,18 @@ import { getSettings } from './settings.ts'
 
 const appLogger = appLoggerInstance
 
+/**
+ * Register IPC handlers on Electron's ipcMain to manage ComfyUI backend, presets, user presets, and ComfyUI tooling.
+ *
+ * This sets up a collection of handlers that:
+ * - ensure the correct ComfyUI backend is running for the selected device,
+ * - update and reload bundled presets and user presets (including optional embedded preview images),
+ * - expose operations to read/write user presets on disk,
+ * - and proxy various ComfyUI tooling operations (git checks, package installs, custom node management).
+ *
+ * @param getServiceRegistry - Callback that returns the current ApiServiceRegistryImpl instance or `null`; used to locate the `comfyui-backend` service when handlers need the service directory or to invoke backend actions.
+ * @param externalRes - Filesystem path to the application's external resources directory (used to locate bundled presets and their images).
+ */
 export function setupComfyIpcHandlers(
   getServiceRegistry: () => ApiServiceRegistryImpl | null,
   externalRes: string,

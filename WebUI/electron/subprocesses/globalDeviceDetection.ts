@@ -17,8 +17,11 @@ export type GlobalDevice = {
 let cachedDevices: GlobalDevice[] | null = null
 
 /**
- * Detect all available devices in the system
- * This runs once at app startup and caches the result
+ * Detects and returns all compute devices available on the system and caches the result for subsequent calls.
+ *
+ * Detection prefers a Vulkan-based enumeration and falls back to vendor-specific discovery methods when Vulkan is unavailable. A CPU device is always included in the returned list.
+ *
+ * @returns An array of `GlobalDevice` entries representing discovered devices (GPUs and a CPU). The returned list is cached so subsequent calls return the previously detected devices.
  */
 export async function detectAllDevices(): Promise<GlobalDevice[]> {
   if (cachedDevices) {
@@ -81,22 +84,30 @@ export async function detectAllDevices(): Promise<GlobalDevice[]> {
 }
 
 /**
- * Get cached devices (returns empty array if not detected yet)
+ * Retrieve the last-detected global devices from cache.
+ *
+ * @returns The cached array of GlobalDevice objects, or an empty array if device detection has not been run yet.
  */
 export function getCachedDevices(): GlobalDevice[] {
   return cachedDevices || []
 }
 
 /**
- * Clear the device cache (for testing purposes)
+ * Resets the cached device list so subsequent detection performs a fresh scan.
  */
 export function clearDeviceCache(): void {
   cachedDevices = null
 }
 
 /**
- * Detect all GPUs using Vulkan via llama-server --list-devices
- * This detects NVIDIA, Intel Arc, and AMD GPUs through the Vulkan API
+ * Detect available GPUs by querying llama-server's Vulkan device list.
+ *
+ * Parses the output from the llama-server Vulkan device listing and returns a
+ * GlobalDevice entry for each detected GPU (NVIDIA, Intel Arc, or AMD). If the
+ * llama-server binary is not available, parsing fails, or no GPUs are found,
+ * an empty array is returned.
+ *
+ * @returns An array of detected GlobalDevice objects; an empty array if no GPUs are detected or detection fails.
  */
 async function detectVulkanDevices(): Promise<GlobalDevice[]> {
   try {
@@ -217,7 +228,9 @@ async function detectVulkanDevices(): Promise<GlobalDevice[]> {
 }
 
 /**
- * Detect NVIDIA GPUs using nvidia-smi
+ * Discovers NVIDIA GPUs available on the host by querying `nvidia-smi`.
+ *
+ * @returns An array of detected NVIDIA devices as `GlobalDevice` entries; returns an empty array if no NVIDIA GPUs are found or detection fails.
  */
 async function detectNvidiaDevices(): Promise<GlobalDevice[]> {
   try {
@@ -263,7 +276,9 @@ async function detectNvidiaDevices(): Promise<GlobalDevice[]> {
 }
 
 /**
- * Detect Intel Arc GPUs using xpu-smi
+ * Discover Intel Arc GPUs present on the host and return them as GlobalDevice entries.
+ *
+ * @returns An array of `GlobalDevice` objects for each detected Intel Arc GPU. The array is empty if no Intel Arc GPUs are found or if detection fails.
  */
 async function detectIntelArcDevices(): Promise<GlobalDevice[]> {
   try {
@@ -317,7 +332,12 @@ async function detectIntelArcDevices(): Promise<GlobalDevice[]> {
 }
 
 /**
- * Detect AMD GPUs using Windows Management Instrumentation
+ * Detect AMD Radeon/ATI discrete GPUs on Windows and represent them as GlobalDevice objects.
+ *
+ * Uses PowerShell to query Win32_VideoController and filters controllers whose names contain
+ * "AMD", "Radeon", or "ATI"; integrated/APU graphics are skipped when possible.
+ *
+ * @returns An array of detected AMD GPU GlobalDevice objects; an empty array if none are found.
  */
 async function detectAmdDevices(): Promise<GlobalDevice[]> {
   try {
@@ -364,7 +384,11 @@ async function detectAmdDevices(): Promise<GlobalDevice[]> {
 }
 
 /**
- * Filter devices by type(s)
+ * Return only devices whose type is one of the specified types.
+ *
+ * @param devices - Array of global devices to filter
+ * @param types - Allowed device types to include in the result
+ * @returns The subset of `devices` whose `type` is included in `types`
  */
 export function filterDevicesByType(
   devices: GlobalDevice[],
@@ -374,21 +398,29 @@ export function filterDevicesByType(
 }
 
 /**
- * Check if any NVIDIA GPU is available
+ * Determine whether the provided device list contains any NVIDIA GPU.
+ *
+ * @returns `true` if at least one device has type `'nvidia'`, `false` otherwise.
  */
 export function hasNvidiaGpu(devices: GlobalDevice[]): boolean {
   return devices.some((d) => d.type === 'nvidia')
 }
 
 /**
- * Check if any Intel Arc GPU is available
+ * Determines whether the device list contains any Intel Arc GPU.
+ *
+ * @returns `true` if the list contains at least one device with type `'intel-arc'`, `false` otherwise.
  */
 export function hasIntelArcGpu(devices: GlobalDevice[]): boolean {
   return devices.some((d) => d.type === 'intel-arc')
 }
 
 /**
- * Get device by ID
+ * Retrieve a device matching the given identifier.
+ *
+ * @param devices - The array of devices to search.
+ * @param id - The device id to find.
+ * @returns The matching `GlobalDevice` if found, `undefined` otherwise.
  */
 export function getDeviceById(devices: GlobalDevice[], id: string): GlobalDevice | undefined {
   return devices.find((d) => d.id === id)

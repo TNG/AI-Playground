@@ -14,6 +14,20 @@ export const appSize = {
   maxChatContentHeight: 0,
 }
 
+/**
+ * Create and configure the main application BrowserWindow for the AI Playground.
+ *
+ * The window is created with app-specific UI options, loads either the dev server URL
+ * or the built index.html, and is configured with lifecycle hooks and session handlers:
+ * - optionally opens DevTools based on packaging, developer settings, or `settings.debug`
+ * - when demo mode is enabled, clears storage and enters fullscreen/kiosk
+ * - injects permissive CORS response headers for local (localhost/127.0.0.1) origins
+ * - restricts permission requests to `media` and `clipboard-sanitized-write`
+ * - forces external opening of new-window links for https and local http URLs
+ *
+ * @param settings - Application local settings; used for `debug` and `isDemoModeEnabled` behavior
+ * @returns The configured BrowserWindow instance that has begun loading the app UI
+ */
 export async function createWindow(settings: LocalSettings): Promise<BrowserWindow> {
   const win = new BrowserWindow({
     title: 'AI PLAYGROUND',
@@ -137,6 +151,11 @@ export async function createWindow(settings: LocalSettings): Promise<BrowserWind
   return win
 }
 
+/**
+ * Subscribes to display metric changes and, when a window is provided, resizes it to the display work area and notifies the renderer.
+ *
+ * @param win - The BrowserWindow to update and notify; if `null`, the listener remains registered but no window is modified
+ */
 export function setupDisplayMetricsListener(win: BrowserWindow | null): void {
   screen.on('display-metrics-changed', (_event, display, _changedMetrics) => {
     if (win) {

@@ -73,7 +73,7 @@
             'opacity-50 cursor-not-allowed': !isPromptModifiable,
             'border-primary bg-primary/10': isOverDropZone,
             'demo-mode-overlay-content':
-              demoMode.answer.show || demoMode.create.show || demoMode.enhance.showPrompt,
+              demoMode.chat.show || demoMode.imageGen.show || demoMode.imageEdit.showPrompt,
           }"
           :placeholder="getTextAreaPlaceholder()"
           v-model="prompt"
@@ -168,7 +168,7 @@
             class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px]"
             :class="{
               'demo-mode-overlay-content':
-                demoMode.create.show || demoMode.answer.show || demoMode.enhance.showPrompt,
+                demoMode.imageGen.show || demoMode.chat.show || demoMode.imageEdit.showPrompt,
             }"
           >
             →

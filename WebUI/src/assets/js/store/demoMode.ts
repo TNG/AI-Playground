@@ -1,15 +1,15 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 
-const answerInitial = {
+const chatInitial = {
   show: false,
   finished: false,
 }
-const createInitial = {
+const imageGenInitial = {
   show: false,
   finished: false,
 }
-type EnhanceFeature = 'upscale' | 'prompt' | 'inpaint' | 'outpaint'
-const enhanceInitial = {
+type ImageEditFeature = 'upscale' | 'prompt' | 'inpaint' | 'outpaint'
+const imageEditInitial = {
   showUpscale: false,
   showPrompt: false,
   showInpaint: false,
@@ -18,7 +18,7 @@ const enhanceInitial = {
   finishedPrompt: false,
   finishedInpaint: false,
   finishedOutpaint: false,
-  feature: 'upscale' as EnhanceFeature,
+  feature: 'upscale' as ImageEditFeature,
   imageAvailable: false,
   show: false,
   finished: false,
@@ -36,14 +36,14 @@ export const useDemoMode = defineStore('demoMode', () => {
     if (res.isDemoModeEnabled && res.demoModeResetInSeconds) trackUserInteraction()
   })
 
-  const answer = ref(answerInitial)
-  const create = ref(createInitial)
-  const enhance = ref(enhanceInitial)
+  const chat = ref(chatInitial)
+  const imageGen = ref(imageGenInitial)
+  const imageEdit = ref(imageEditInitial)
 
   const pages = {
-    answer,
-    create,
-    enhance,
+    chat,
+    imageGen,
+    imageEdit,
   }
 
   const trackUserInteraction = () => {
@@ -73,9 +73,9 @@ export const useDemoMode = defineStore('demoMode', () => {
 
   const escapeDemo = (e: Event) => {
     e.stopPropagation()
-    create.value.show = false
-    enhance.value.show = false
-    answer.value.show = false
+    imageGen.value.show = false
+    imageEdit.value.show = false
+    chat.value.show = false
   }
 
   function calculateMaskPenDim() {
@@ -92,49 +92,48 @@ export const useDemoMode = defineStore('demoMode', () => {
     }
   }
 
-  function triggerHelp(page: AipgPage, force = false) {
+  function triggerHelp(page: DemoModePage, force = false) {
     if (!enabled.value) return
     console.log('demo mode triggered for ', {
       page,
       force,
     })
-    if (page === 'learn-more') return
     if (!force && pages[page].value.finished) return
-    if (page !== 'enhance') {
+    if (page !== 'imageEdit') {
       pages[page].value.show = true
       pages[page].value.finished = true
     } else {
-      switch (enhance.value.feature) {
+      switch (imageEdit.value.feature) {
         case 'upscale':
-          if (enhance.value.finishedUpscale && !force) break
-          enhance.value.showUpscale = true
-          enhance.value.finishedUpscale = true
+          if (imageEdit.value.finishedUpscale && !force) break
+          imageEdit.value.showUpscale = true
+          imageEdit.value.finishedUpscale = true
           pages[page].value.show = true
           break
         case 'prompt':
-          if (enhance.value.finishedPrompt && !force) break
-          enhance.value.showPrompt = true
-          enhance.value.finishedPrompt = true
+          if (imageEdit.value.finishedPrompt && !force) break
+          imageEdit.value.showPrompt = true
+          imageEdit.value.finishedPrompt = true
           pages[page].value.show = true
           break
         case 'inpaint':
-          if (!enhance.value.imageAvailable) break
-          if (enhance.value.finishedInpaint && !force) return
+          if (!imageEdit.value.imageAvailable) break
+          if (imageEdit.value.finishedInpaint && !force) return
           setTimeout(() => {
             const maskPenRef: HTMLElement = document.getElementById('mask-pen') as HTMLElement
             const isMaskPenVisible = window.getComputedStyle(maskPenRef).display !== 'none'
             if (isMaskPenVisible) {
-              enhance.value.showInpaint = true
-              enhance.value.finishedInpaint = true
+              imageEdit.value.showInpaint = true
+              imageEdit.value.finishedInpaint = true
               pages[page].value.show = true
               calculateMaskPenDim()
             }
           }, 100)
           break
         case 'outpaint':
-          if (enhance.value.finishedOutpaint && !force) break
-          enhance.value.showOutpaint = true
-          enhance.value.finishedOutpaint = true
+          if (imageEdit.value.finishedOutpaint && !force) break
+          imageEdit.value.showOutpaint = true
+          imageEdit.value.finishedOutpaint = true
           pages[page].value.show = true
           break
       }
@@ -142,29 +141,29 @@ export const useDemoMode = defineStore('demoMode', () => {
   }
 
   watch(
-    () => enhance.value.show,
-    (showEnhance) => {
-      if (!showEnhance) {
-        enhance.value.showUpscale = false
-        enhance.value.showPrompt = false
-        enhance.value.showInpaint = false
-        enhance.value.showOutpaint = false
+    () => imageEdit.value.show,
+    (showImageEdit) => {
+      if (!showImageEdit) {
+        imageEdit.value.showUpscale = false
+        imageEdit.value.showPrompt = false
+        imageEdit.value.showInpaint = false
+        imageEdit.value.showOutpaint = false
       }
     },
   )
 
   watch(
-    () => enhance.value.feature,
+    () => imageEdit.value.feature,
     () => {
       if (!enabled.value) return
-      if (!enhance.value.show) triggerHelp('enhance')
+      if (!imageEdit.value.show) triggerHelp('imageEdit')
     },
   )
 
   watch(
-    [() => answer.value.show, () => create.value.show, () => enhance.value.show],
-    ([a, c, e]) => {
-      if (c || e || a) {
+    [() => chat.value.show, () => imageGen.value.show, () => imageEdit.value.show],
+    ([c, g, e]) => {
+      if (c || g || e) {
         setTimeout(() => document.addEventListener('click', escapeDemo), 50)
       } else {
         document.removeEventListener('click', escapeDemo)
@@ -174,9 +173,9 @@ export const useDemoMode = defineStore('demoMode', () => {
 
   return {
     enabled,
-    answer,
-    create,
-    enhance,
+    chat,
+    imageGen,
+    imageEdit,
     triggerHelp,
   }
 })

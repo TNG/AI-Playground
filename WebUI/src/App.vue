@@ -218,7 +218,7 @@
 
     <!-- Demo Mode Overlays -->
     <transition name="fade">
-      <div class="demo-mode-answer-overlay" v-if="demoMode.answer.show">
+      <div class="demo-mode-answer-overlay" v-if="demoMode.chat.show">
         <div class="center-popup">
           <p>{{ languages.DEMO_ANSWER_HEADING }}</p>
         </div>
@@ -235,7 +235,7 @@
               </div>
             </div>
             <div class="got-it-btn">
-              <button class="tooltip-button" @click.stop="demoMode.answer.show = false">
+              <button class="tooltip-button" @click.stop="demoMode.chat.show = false">
                 {{ languages.DEMO_OK_GOT_IT }} &#8594;
               </button>
             </div>
@@ -245,7 +245,7 @@
     </transition>
 
     <transition name="fade">
-      <div class="demo-mode-create-overlay" v-if="demoMode.create.show">
+      <div class="demo-mode-create-overlay" v-if="demoMode.imageGen.show">
         <div class="popup-box center-box">
           <div class="create-text">
             <p>{{ languages.DEMO_CREATE_CENTER_CONTENT }}</p>
@@ -260,7 +260,7 @@
               <em>"{{ languages.DEMO_CREATE_POPUP_CONTENT_3 }}"</em>.
             </p>
             <div class="got-it-btn">
-              <button class="action" @click.stop="demoMode.create.show = false">
+              <button class="action" @click.stop="demoMode.imageGen.show = false">
                 {{ languages.DEMO_OK_GOT_IT }} &#8594;
               </button>
             </div>
@@ -270,7 +270,7 @@
     </transition>
 
     <transition name="fade">
-      <div class="demo-mode-Image-overlay" v-if="demoMode.enhance.showPrompt">
+      <div class="demo-mode-Image-overlay" v-if="demoMode.imageEdit.showPrompt">
         <div class="tooltip-wrapper">
           <div class="tooltip-box">
             <div class="tooltip-row">
@@ -286,8 +286,8 @@
                 class="tooltip-button"
                 @click.stop="
                   () => {
-                    demoMode.enhance.showPrompt = false
-                    demoMode.enhance.show = false
+                    demoMode.imageEdit.showPrompt = false
+                    demoMode.imageEdit.show = false
                   }
                 "
               >
@@ -566,12 +566,12 @@ function openAppSettings() {
 function triggerHelpForCurrentMode(force = false) {
   const mode = promptStore.getCurrentMode()
   if (mode === 'chat') {
-    demoMode.triggerHelp('answer', force)
+    demoMode.triggerHelp('chat', force)
   } else if (mode === 'imageGen') {
-    demoMode.triggerHelp('create', force)
+    demoMode.triggerHelp('imageGen', force)
   } else if (mode === 'imageEdit') {
-    demoMode.enhance.feature = 'prompt'
-    demoMode.triggerHelp('enhance', force)
+    demoMode.imageEdit.feature = 'prompt'
+    demoMode.triggerHelp('imageEdit', force)
   }
 }
 

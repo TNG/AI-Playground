@@ -25,8 +25,9 @@ type DemoModeSettings = {
   demoModeResetInSeconds: null | number
 }
 
-// AipgPage type kept for backward compatibility with demoMode, but old UI pages are no longer used
+// AipgPage type kept for backward compatibility with getInitialPage IPC handler
 type AipgPage = 'create' | 'enhance' | 'answer' | 'learn-more'
+type DemoModePage = 'chat' | 'imageGen' | 'imageEdit'
 type WorkflowModeType = 'imageGen' | 'imageEdit' | 'video'
 type ModeType = 'chat' | WorkflowModeType
 

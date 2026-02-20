@@ -50,7 +50,7 @@
           @click="showUploader = !showUploader"
           :disabled="processing"
           :title="languages.ANSWER_RAG_OPEN_DIALOG"
-          :class="{ 'demo-mode-overlay-content': demoMode.answer.show }"
+          :class="{ 'demo-mode-overlay-content': demoMode.chat.show }"
         >
           <span>{{ documentButtonText }}</span>
         </Button>

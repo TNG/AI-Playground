@@ -216,27 +216,71 @@
     ></installation-progress-dialog>
     <MaskEditorDialog />
 
-    <!-- Demo Mode Overlays - dim backdrop + heading; tooltip is anchored to mode buttons in PromptArea -->
+    <!-- Demo Mode Overlay — one unified overlay for all modes using existing demo-mode-answer-overlay CSS.
+         The tooltip-wrapper is positioned by JS relative to #mode-buttons so it works at any window size. -->
     <transition name="fade">
-      <div class="demo-mode-answer-overlay" v-if="demoMode.chat.show">
+      <div
+        class="demo-mode-answer-overlay"
+        v-if="
+          demoMode.chat.show ||
+          demoMode.imageGen.show ||
+          demoMode.imageEdit.showPrompt ||
+          demoMode.video.show
+        "
+      >
         <div class="center-popup">
-          <p>{{ languages.DEMO_CHAT_HEADING }}</p>
+          <p v-if="demoMode.chat.show">{{ languages.DEMO_CHAT_HEADING }}</p>
+          <p v-else-if="demoMode.imageGen.show">{{ languages.DEMO_IMAGE_GEN_HEADING }}</p>
+          <p v-else-if="demoMode.imageEdit.showPrompt">{{ languages.DEMO_IMAGE_EDIT_HEADING }}</p>
+          <p v-else-if="demoMode.video.show">{{ languages.DEMO_VIDEO_HEADING }}</p>
         </div>
-      </div>
-    </transition>
-
-    <transition name="fade">
-      <div class="demo-mode-create-overlay" v-if="demoMode.imageGen.show">
-        <div class="popup-box center-box">
-          <div class="create-text">
-            <p>{{ languages.DEMO_IMAGE_GEN_CENTER_CONTENT }}</p>
+        <div class="tooltip-wrapper" :style="getTooltipStyle()">
+          <div class="tooltip-box">
+            <template v-if="demoMode.chat.show">
+              <div class="tooltip-row">
+                <div class="tooltip-circle">1</div>
+                <div>
+                  <p>{{ languages.DEMO_CHAT_GENERATE_TEXT }}</p>
+                  <p class="content-tooltip">
+                    <em>{{ languages.DEMO_YOU_COULD_TYPE }}</em>
+                    <span>"{{ languages.DEMO_CHAT_GENERATE_HELP_TEXT }}"</span>
+                  </p>
+                </div>
+              </div>
+            </template>
+            <template v-else-if="demoMode.imageGen.show">
+              <div class="tooltip-row">
+                <div class="tooltip-circle">1</div>
+                <p>{{ languages.DEMO_IMAGE_GEN_POPUP_CONTENT_1 }}</p>
+              </div>
+              <p class="content-tooltip">
+                <em>{{ languages.DEMO_YOU_COULD_TYPE }}</em>
+                <em>"{{ languages.DEMO_IMAGE_GEN_POPUP_CONTENT_3 }}"</em>.
+              </p>
+            </template>
+            <template v-else-if="demoMode.imageEdit.showPrompt">
+              <div class="tooltip-row">
+                <div class="tooltip-circle">1</div>
+                <p>{{ languages.DEMO_IMAGE_EDIT_IMAGE_TEXT }}</p>
+              </div>
+              <div class="tooltip-row">
+                <div class="tooltip-circle">2</div>
+                <p>{{ languages.DEMO_IMAGE_EDIT_IMAGE_TEXT_2 }}</p>
+              </div>
+            </template>
+            <template v-else-if="demoMode.video.show">
+              <div class="tooltip-row">
+                <div class="tooltip-circle">1</div>
+                <p>{{ languages.DEMO_VIDEO_TOOLTIP_TEXT }}</p>
+              </div>
+            </template>
+            <div class="got-it-btn">
+              <button class="tooltip-button" @click.stop="dismissDemoOverlay">
+                {{ languages.DEMO_OK_GOT_IT }} &#8594;
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-    </transition>
-
-    <transition name="fade">
-      <div class="demo-mode-Image-overlay" v-if="demoMode.imageEdit.showPrompt">
       </div>
     </transition>
   </main>
@@ -513,7 +557,29 @@ function triggerHelpForCurrentMode(force = false) {
   } else if (mode === 'imageEdit') {
     demoMode.imageEdit.feature = 'prompt'
     demoMode.triggerHelp('imageEdit', force)
+  } else if (mode === 'video') {
+    demoMode.triggerHelp('video', force)
   }
+}
+
+/** Returns inline style to position the tooltip-wrapper above the #mode-buttons element.
+ *  This keeps positioning window-size-independent by reading the live bounding rect. */
+function getTooltipStyle(): Record<string, string> {
+  const el = document.getElementById('mode-buttons')
+  if (!el) return {}
+  const rect = el.getBoundingClientRect()
+  return {
+    left: `${rect.left}px`,
+    bottom: `${window.innerHeight - rect.top + 12}px`,
+  }
+}
+
+function dismissDemoOverlay() {
+  demoMode.chat.show = false
+  demoMode.imageGen.show = false
+  demoMode.imageEdit.showPrompt = false
+  demoMode.imageEdit.show = false
+  demoMode.video.show = false
 }
 
 watch(

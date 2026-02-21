@@ -216,30 +216,11 @@
     ></installation-progress-dialog>
     <MaskEditorDialog />
 
-    <!-- Demo Mode Overlays -->
+    <!-- Demo Mode Overlays - dim backdrop + heading; tooltip is anchored to mode buttons in PromptArea -->
     <transition name="fade">
       <div class="demo-mode-answer-overlay" v-if="demoMode.chat.show">
         <div class="center-popup">
           <p>{{ languages.DEMO_CHAT_HEADING }}</p>
-        </div>
-        <div class="tooltip-wrapper">
-          <div class="tooltip-box">
-            <div class="tooltip-row">
-              <div class="tooltip-circle">1</div>
-              <div>
-                <p>{{ languages.DEMO_CHAT_GENERATE_TEXT }}</p>
-                <p class="content-tooltip">
-                  <em>{{ languages.DEMO_YOU_COULD_TYPE }}</em>
-                  <span>"{{ languages.DEMO_CHAT_GENERATE_HELP_TEXT }}"</span>
-                </p>
-              </div>
-            </div>
-            <div class="got-it-btn">
-              <button class="tooltip-button" @click.stop="demoMode.chat.show = false">
-                {{ languages.DEMO_OK_GOT_IT }} &#8594;
-              </button>
-            </div>
-          </div>
         </div>
       </div>
     </transition>
@@ -251,51 +232,11 @@
             <p>{{ languages.DEMO_IMAGE_GEN_CENTER_CONTENT }}</p>
           </div>
         </div>
-        <div class="prompt-popup-box bottom-left-box">
-          <div class="step">1</div>
-          <div class="content">
-            <p>{{ languages.DEMO_IMAGE_GEN_POPUP_CONTENT_1 }}</p>
-            <p class="example">
-              {{ languages.DEMO_YOU_COULD_TYPE }}
-              <em>"{{ languages.DEMO_IMAGE_GEN_POPUP_CONTENT_3 }}"</em>.
-            </p>
-            <div class="got-it-btn">
-              <button class="action" @click.stop="demoMode.imageGen.show = false">
-                {{ languages.DEMO_OK_GOT_IT }} &#8594;
-              </button>
-            </div>
-          </div>
-        </div>
       </div>
     </transition>
 
     <transition name="fade">
       <div class="demo-mode-Image-overlay" v-if="demoMode.imageEdit.showPrompt">
-        <div class="tooltip-wrapper">
-          <div class="tooltip-box">
-            <div class="tooltip-row">
-              <div class="tooltip-circle">1</div>
-              <p class="tooltip-text">{{ languages.DEMO_IMAGE_EDIT_IMAGE_TEXT }}</p>
-            </div>
-            <div class="tooltip-row">
-              <div class="tooltip-circle">2</div>
-              <p class="tooltip-text">{{ languages.DEMO_IMAGE_EDIT_IMAGE_TEXT_2 }}</p>
-            </div>
-            <div class="got-it-btn">
-              <button
-                class="tooltip-button"
-                @click.stop="
-                  () => {
-                    demoMode.imageEdit.showPrompt = false
-                    demoMode.imageEdit.show = false
-                  }
-                "
-              >
-                {{ languages.DEMO_OK_GOT_IT }} &#8594;
-              </button>
-            </div>
-          </div>
-        </div>
       </div>
     </transition>
   </main>

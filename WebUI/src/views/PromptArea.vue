@@ -72,8 +72,6 @@
             [`pt-${checkedRagDocuments.length > 0 && canAttachDocuments && promptStore.getCurrentMode() === 'chat' ? 8 : 3}`]: true,
             'opacity-50 cursor-not-allowed': !isPromptModifiable,
             'border-primary bg-primary/10': isOverDropZone,
-            'demo-mode-overlay-content':
-              demoMode.chat.show || demoMode.imageGen.show || demoMode.imageEdit.showPrompt,
           }"
           :placeholder="getTextAreaPlaceholder()"
           v-model="prompt"
@@ -115,15 +113,62 @@
             />
           </div>
         </div>
-        <div class="absolute bottom-4 left-3 flex gap-2">
+        <div class="absolute bottom-4 left-3 flex gap-2 relative">
           <Button
             v-for="mode in ['chat', 'imageGen', 'imageEdit', 'video'] as ModeType[]"
             :variant="promptStore.getCurrentMode() === mode ? 'default' : 'secondary'"
             :key="mode"
+            :class="{ 'demo-mode-overlay-content': isDemoModeHighlighted(mode) }"
             @click="promptStore.setCurrentMode(mode)"
           >
             {{ mapModeToLabel(mode) }}
           </Button>
+
+          <!-- Demo mode tooltip - anchored above the mode buttons, window-size independent -->
+          <transition name="fade">
+            <div
+              v-if="demoMode.chat.show || demoMode.imageGen.show || demoMode.imageEdit.showPrompt"
+              class="demo-mode-prompt-tooltip"
+            >
+              <template v-if="demoMode.chat.show">
+                <div class="tooltip-row">
+                  <div class="tooltip-circle">1</div>
+                  <div>
+                    <p>{{ i18nState.DEMO_CHAT_GENERATE_TEXT }}</p>
+                    <p class="content-tooltip">
+                      <em>{{ i18nState.DEMO_YOU_COULD_TYPE }}</em>
+                      <span>"{{ i18nState.DEMO_CHAT_GENERATE_HELP_TEXT }}"</span>
+                    </p>
+                  </div>
+                </div>
+              </template>
+              <template v-else-if="demoMode.imageGen.show">
+                <div class="tooltip-row">
+                  <div class="tooltip-circle">1</div>
+                  <p>{{ i18nState.DEMO_IMAGE_GEN_POPUP_CONTENT_1 }}</p>
+                </div>
+                <p class="content-tooltip">
+                  <em>{{ i18nState.DEMO_YOU_COULD_TYPE }}</em>
+                  <em>"{{ i18nState.DEMO_IMAGE_GEN_POPUP_CONTENT_3 }}"</em>.
+                </p>
+              </template>
+              <template v-else-if="demoMode.imageEdit.showPrompt">
+                <div class="tooltip-row">
+                  <div class="tooltip-circle">1</div>
+                  <p>{{ i18nState.DEMO_IMAGE_EDIT_IMAGE_TEXT }}</p>
+                </div>
+                <div class="tooltip-row">
+                  <div class="tooltip-circle">2</div>
+                  <p>{{ i18nState.DEMO_IMAGE_EDIT_IMAGE_TEXT_2 }}</p>
+                </div>
+              </template>
+              <div class="got-it-btn">
+                <button class="tooltip-button" @click.stop="dismissDemoTooltip">
+                  {{ i18nState.DEMO_OK_GOT_IT }} &#8594;
+                </button>
+              </div>
+            </div>
+          </transition>
         </div>
         <div class="absolute bottom-4 right-3 flex gap-2">
           <Button
@@ -166,10 +211,6 @@
             v-if="readyForNewSubmit"
             @click="handleSubmitPromptClick"
             class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px]"
-            :class="{
-              'demo-mode-overlay-content':
-                demoMode.imageGen.show || demoMode.chat.show || demoMode.imageEdit.showPrompt,
-            }"
           >
             →
           </Button>
@@ -445,6 +486,20 @@ function getTextAreaPlaceholder() {
     default:
       return languages?.COM_PROMPT_CHAT || ''
   }
+}
+
+function isDemoModeHighlighted(mode: ModeType): boolean {
+  if (mode === 'chat') return demoMode.chat.show
+  if (mode === 'imageGen') return demoMode.imageGen.show
+  if (mode === 'imageEdit') return demoMode.imageEdit.showPrompt
+  return false
+}
+
+function dismissDemoTooltip() {
+  demoMode.chat.show = false
+  demoMode.imageGen.show = false
+  demoMode.imageEdit.showPrompt = false
+  demoMode.imageEdit.show = false
 }
 
 function handleSubmitPromptClick() {

@@ -73,7 +73,6 @@
     border-radius: 12px;
     padding: 16px 20px;
     width: 400px;
-    height: 225px;
     font-family: 'Segoe UI', sans-serif;
     position: relative;
   }
@@ -119,7 +118,7 @@
     content: '';
     position: absolute;
     bottom: -11px;
-    left: 40px;
+    left: var(--arrow-left, 40px);
     width: 0;
     height: 0;
     border-left: 10px solid transparent;
@@ -132,7 +131,7 @@
     content: '';
     position: absolute;
     bottom: -14px;
-    left: 39px;
+    left: calc(var(--arrow-left, 40px) - 1px);
     width: 0;
     height: 0;
     border-left: 11px solid transparent;

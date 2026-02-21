@@ -118,6 +118,7 @@
             v-for="mode in ['chat', 'imageGen', 'imageEdit', 'video'] as ModeType[]"
             :variant="promptStore.getCurrentMode() === mode ? 'default' : 'secondary'"
             :key="mode"
+            :id="'mode-button-' + mode"
             :class="{ 'demo-mode-overlay-content': isDemoModeHighlighted(mode) }"
             @click="promptStore.setCurrentMode(mode)"
           >

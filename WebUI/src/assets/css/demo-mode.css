@@ -31,7 +31,7 @@
   transition-delay: var(--demo-mode-transition-delay);
 }
 
-.demo-mode-answer-overlay {
+.demo-mode-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);

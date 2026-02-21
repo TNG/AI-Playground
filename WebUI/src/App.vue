@@ -216,11 +216,11 @@
     ></installation-progress-dialog>
     <MaskEditorDialog />
 
-    <!-- Demo Mode Overlay — one unified overlay for all modes using existing demo-mode-answer-overlay CSS.
+    <!-- Demo Mode Overlay — one unified overlay for all modes.
          The tooltip-wrapper is positioned by JS relative to #mode-buttons so it works at any window size. -->
     <transition name="fade">
       <div
-        class="demo-mode-answer-overlay"
+        class="demo-mode-overlay"
         v-if="
           demoMode.chat.show ||
           demoMode.imageGen.show ||

@@ -445,7 +445,7 @@ function getTextAreaPlaceholder() {
 function isDemoModeHighlighted(mode: ModeType): boolean {
   if (mode === 'chat') return demoMode.chat.show
   if (mode === 'imageGen') return demoMode.imageGen.show
-  if (mode === 'imageEdit') return demoMode.imageEdit.showPrompt
+  if (mode === 'imageEdit') return demoMode.imageEdit.show
   if (mode === 'video') return demoMode.video.show
   return false
 }

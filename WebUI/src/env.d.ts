@@ -27,7 +27,7 @@ type DemoModeSettings = {
 
 // AipgPage type kept for backward compatibility with getInitialPage IPC handler
 type AipgPage = 'create' | 'enhance' | 'answer' | 'learn-more'
-type DemoModePage = 'chat' | 'imageGen' | 'imageEdit'
+type DemoModePage = 'chat' | 'imageGen' | 'imageEdit' | 'video'
 type WorkflowModeType = 'imageGen' | 'imageEdit' | 'video'
 type ModeType = 'chat' | WorkflowModeType
 

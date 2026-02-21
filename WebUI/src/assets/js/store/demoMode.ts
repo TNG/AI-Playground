@@ -8,6 +8,10 @@ const imageGenInitial = {
   show: false,
   finished: false,
 }
+const videoInitial = {
+  show: false,
+  finished: false,
+}
 type ImageEditFeature = 'upscale' | 'prompt' | 'inpaint' | 'outpaint'
 const imageEditInitial = {
   showUpscale: false,
@@ -39,11 +43,13 @@ export const useDemoMode = defineStore('demoMode', () => {
   const chat = ref(chatInitial)
   const imageGen = ref(imageGenInitial)
   const imageEdit = ref(imageEditInitial)
+  const video = ref(videoInitial)
 
   const pages = {
     chat,
     imageGen,
     imageEdit,
+    video,
   }
 
   const trackUserInteraction = () => {
@@ -76,6 +82,7 @@ export const useDemoMode = defineStore('demoMode', () => {
     imageGen.value.show = false
     imageEdit.value.show = false
     chat.value.show = false
+    video.value.show = false
   }
 
   function calculateMaskPenDim() {
@@ -161,9 +168,14 @@ export const useDemoMode = defineStore('demoMode', () => {
   )
 
   watch(
-    [() => chat.value.show, () => imageGen.value.show, () => imageEdit.value.show],
-    ([c, g, e]) => {
-      if (c || g || e) {
+    [
+      () => chat.value.show,
+      () => imageGen.value.show,
+      () => imageEdit.value.show,
+      () => video.value.show,
+    ],
+    ([c, g, e, v]) => {
+      if (c || g || e || v) {
         setTimeout(() => document.addEventListener('click', escapeDemo), 50)
       } else {
         document.removeEventListener('click', escapeDemo)
@@ -176,6 +188,7 @@ export const useDemoMode = defineStore('demoMode', () => {
     chat,
     imageGen,
     imageEdit,
+    video,
     triggerHelp,
   }
 })

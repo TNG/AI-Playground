@@ -132,11 +132,15 @@ function updateTooltipPosition() {
   }
 
   // position the tooltip
-  const tooltipLeft = rect.left + rect.width / 2 - TOOLTIP_WIDTH / 2 - TOOLTIP_BORDER
+  const tooltipLeft = Math.min(
+    Math.max(rect.left, 8),
+    window.innerWidth - TOOLTIP_WIDTH - 8
+  )
   const tooltipBottom = window.innerHeight - rect.top + ARROW_HEIGHT + TOOLTIP_GAP
 
   // position the arrow
-  const arrowLeft = TOOLTIP_WIDTH / 2 - ARROW_HALF_WIDTH + TOOLTIP_BORDER
+  const tooltipCenter = rect.left + rect.width / 2
+  const arrowLeft = tooltipCenter - tooltipLeft - ARROW_HALF_WIDTH + TOOLTIP_BORDER
 
   tooltipStyle.value = {
     bottom: `${tooltipBottom}px`,

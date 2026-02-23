@@ -1,6 +1,7 @@
 :root {
   --demo-mode-transition-duration: 0.5s;
   --demo-mode-transition-delay: 0.5s;
+  --demo-mode-tooltip-gap: 10px;
 }
 
 .demo-mode-overlay-content {
@@ -61,7 +62,7 @@
 
   .tooltip-wrapper {
     position: absolute;
-    bottom: 300px;
+    bottom: calc(var(--tooltip-bottom) + var(--demo-mode-tooltip-gap));
     left: 25px;
   }
 

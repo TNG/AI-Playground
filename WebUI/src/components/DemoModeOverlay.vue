@@ -89,7 +89,6 @@ import { useI18N } from '@/assets/js/store/i18n'
 const demoMode = useDemoMode()
 const i18n = useI18N().state
 
-/** Which mode's overlay is currently active. */
 const activeMode = computed(() => {
   if (demoMode.chat.show) return 'chat'
   if (demoMode.imageGen.show) return 'imageGen'
@@ -125,13 +124,8 @@ const TOOLTIP_WIDTH = 400
 const ARROW_HALF_WIDTH = 11 // matches border-left/right in CSS ::before/::after
 
 /**
- * Position the tooltip above the active mode button and align the arrow tip to
- * the horizontal centre of that button. The tooltip is left-clamped so it never
- * overflows the viewport.
- *
- * --arrow-left is a CSS custom property consumed by .tooltip-box::before/::after
- * to override their default left offset.
- */
+ * Position the tooltip above the active mode button
+ *  */
 const tooltipStyle = computed(() => {
   const rect = buttonRect.value
   if (!rect) return {}
@@ -139,7 +133,7 @@ const tooltipStyle = computed(() => {
   const arrowLeft = rect.left + rect.width / 2 - tooltipLeft - ARROW_HALF_WIDTH
   return {
     left: `${tooltipLeft}px`,
-    bottom: `${window.innerHeight - rect.top + 12}px`,
+    '--tooltip-bottom': `${window.innerHeight - rect.top}px`,
     '--arrow-left': `${Math.max(arrowLeft, 8)}px`,
   }
 })

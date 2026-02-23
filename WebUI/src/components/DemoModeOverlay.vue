@@ -97,46 +97,50 @@ const activeMode = computed(() => {
   return null
 })
 
-const buttonRect = ref<DOMRect | null>(null)
+const tooltipStyle = ref<Record<string, string>>({})
 
-function updateRect() {
-  const mode = activeMode.value
-  if (!mode) {
-    buttonRect.value = null
-    return
-  }
-  const el = document.getElementById(`mode-button-${mode}`)
-  buttonRect.value = el ? el.getBoundingClientRect() : null
-}
-
-watch(activeMode, updateRect)
+watch(activeMode, updateTooltipPosition)
 
 onMounted(() => {
-  updateRect()
-  window.addEventListener('resize', updateRect)
+  updateTooltipPosition()
+  window.addEventListener('resize', updateTooltipPosition)
 })
 
 onUnmounted(() => {
-  window.removeEventListener('resize', updateRect)
+  window.removeEventListener('resize', updateTooltipPosition)
 })
 
 const TOOLTIP_WIDTH = 400
-const ARROW_HALF_WIDTH = 11 // matches border-left/right in CSS ::before/::after
+const TOOLTIP_GAP = 10
+const ARROW_HALF_WIDTH = 11 // matches .tooltip-box::before border-left/right: 11px in demo-mode.css
 
 /**
  * Position the tooltip above the active mode button
- *  */
-const tooltipStyle = computed(() => {
-  const rect = buttonRect.value
-  if (!rect) return {}
+ */
+function updateTooltipPosition() {
+  const mode = activeMode.value
+  if (!mode) {
+    tooltipStyle.value = {}
+    return
+  }
+  const rect = getButtonRect(mode)
+  if (!rect) {
+    tooltipStyle.value = {}
+    return
+  }
   const tooltipLeft = Math.min(Math.max(rect.left, 8), window.innerWidth - TOOLTIP_WIDTH - 8)
   const arrowLeft = rect.left + rect.width / 2 - tooltipLeft - ARROW_HALF_WIDTH
-  return {
+  tooltipStyle.value = {
     left: `${tooltipLeft}px`,
-    '--tooltip-bottom': `${window.innerHeight - rect.top}px`,
+    bottom: `${window.innerHeight - rect.top + TOOLTIP_GAP}px`,
     '--arrow-left': `${Math.max(arrowLeft, 8)}px`,
   }
-})
+}
+
+function getButtonRect(mode: string) {
+  const el = document.getElementById(`mode-button-${mode}`)
+  return el ? el.getBoundingClientRect() : null
+}
 
 function dismissDemoOverlay() {
   demoMode.chat.show = false

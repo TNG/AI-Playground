@@ -1,4 +1,5 @@
 import path from 'node:path'
+import os from 'node:os'
 import fs from 'fs'
 import * as filesystem from 'fs-extra'
 import { AppLogger } from '../../logging/logger.ts'
@@ -89,13 +90,7 @@ export class ComfyUIInstaller {
     this.appLogger.info(`Checking if comfyUI directories exist: ${dirsExist}`, this.serviceName)
     if (!dirsExist) return false
 
-    setTimeout(async () => {
-      const version = await this.getCurrentVersion()
-      if (version) {
-        this.appLogger.info(`comfyUI version ${version} detected`, this.serviceName)
-        this.revision = version
-      }
-    })
+    await this.initComfyUIVersion()
 
     const venvExists = filesystem.existsSync(this.paths.pythonEnvDir)
     if (!venvExists) {
@@ -123,6 +118,19 @@ export class ComfyUIInstaller {
     }
 
     return true
+  }
+
+  /** Initialize the revision from the currently checked-out git version */
+  async initComfyUIVersion(): Promise<void> {
+    try {
+      const version = await this.getCurrentVersion()
+      if (version) {
+        this.appLogger.info(`comfyUI version ${version} detected`, this.serviceName)
+        this.revision = version
+      }
+    } catch (e) {
+      this.appLogger.error(`Failed to initialize comfyUI version: ${e}`, this.serviceName)
+    }
   }
 
   /** Update the version to install */
@@ -313,9 +321,13 @@ export class ComfyUIInstaller {
     } catch (_e) {
       try {
         filesystem.removeSync(this.paths.serviceDir)
-      } finally {
-        return false
+      } catch (removeErr) {
+        this.appLogger.error(
+          `Failed to remove service directory ${this.paths.serviceDir}: ${removeErr}`,
+          this.serviceName,
+        )
       }
+      return false
     }
   }
 
@@ -362,10 +374,16 @@ export class ComfyUIInstaller {
     }
 
     await installComfyUISingleBackend(this.paths.serviceDir, deviceType, () => {
+      const localAppData = process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local')
+      const cachePath =
+        process.platform === 'win32'
+          ? path.join(localAppData, 'uv', 'cache')
+          : process.platform === 'darwin'
+            ? path.join(os.homedir(), 'Library', 'Caches', 'uv', 'cache')
+            : path.join(os.homedir(), '.cache', 'uv', 'cache')
       this.win.webContents.send('show-toast', {
         type: 'warning',
-        message:
-          'UV cache corruption detected. Retrying installation without cache. This may take longer. You can manually clear the cache at %LOCALAPPDATA%/uv/cache',
+        message: `UV cache corruption detected. Retrying installation without cache. This may take longer. You can manually clear the cache at ${cachePath}`,
       })
     })
 
@@ -393,9 +411,11 @@ export class ComfyUIInstaller {
 
       this.appLogger.info('Configuring extra model paths for comfyUI', this.serviceName)
       const extraModelPathsYaml = path.join(this.paths.serviceDir, 'extra_model_paths.yaml')
-      const comfyUIModelsBasePath = path.resolve(this.paths.baseDir, 'models/ComfyUI')
+      const comfyUIModelsBasePath = path
+        .resolve(this.paths.baseDir, 'models/ComfyUI')
+        .replace(/\\/g, '/')
       const extraModelsYaml = `aipg:
-  base_path: ${comfyUIModelsBasePath}
+  base_path: "${comfyUIModelsBasePath}"
   checkpoints: checkpoints
   loras: |
     loras

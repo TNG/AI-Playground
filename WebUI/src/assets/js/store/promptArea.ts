@@ -51,9 +51,10 @@ export const usePromptStore = defineStore('prompt', () => {
     const comfyUiModes: ModeType[] = ['imageGen', 'imageEdit', 'video']
     if (comfyUiModes.includes(mode)) {
       const backendServices = useBackendServices()
+      const servicesLoaded = backendServices.serviceInfoUpdateReceived
       const comfyUIService = backendServices.info.find((s) => s.serviceName === 'comfyui-backend')
 
-      if (!comfyUIService?.isSetUp) {
+      if (servicesLoaded && comfyUIService && comfyUIService.isSetUp === false) {
         // ComfyUI is not installed - show dialog
         const dialogStore = useDialogStore()
         const globalSetup = useGlobalSetup()

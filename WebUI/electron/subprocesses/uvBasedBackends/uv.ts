@@ -679,6 +679,7 @@ export const installComfyUIBackend = async (
         '--index-url',
         'https://download.pytorch.org/whl/cu121',
         '--force-reinstall',
+        '--no-deps', // Match CPU behaviour: only replace the torch packages themselves
       ]
       await uv(pipInstallCmd, logger, {})
 

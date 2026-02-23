@@ -70,6 +70,15 @@ export function getSettings(): LocalSettings {
  * @param updates - Partial LocalSettings whose properties will be merged into the current settings
  */
 export function updateSettings(updates: Partial<LocalSettings>): void {
-  Object.assign(settings, updates)
+  const candidate = { ...settings, ...updates }
+  const result = LocalSettingsSchema.safeParse(candidate)
+  if (!result.success) {
+    appLogger.error(
+      `updateSettings: validation failed, discarding update: ${result.error.message}`,
+      'electron-backend',
+    )
+    return
+  }
+  Object.assign(settings, result.data)
   appLogger.info(`Updated local settings: ${JSON.stringify(updates)}`, 'electron-backend')
 }

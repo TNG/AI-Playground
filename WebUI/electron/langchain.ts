@@ -51,12 +51,18 @@ export function spawnLangchainUtilityProcess(): void {
 
     langchainChild.on('exit', (code) => {
       if (code !== 0) {
-        appLogger.info(`Langchain utility process exited with code ${code}`, 'electron-backend')
+        appLogger.error(
+          `Langchain utility process exited with code ${code}, restarting...`,
+          'electron-backend',
+        )
+        langchainChild = null
+        setTimeout(() => {
+          spawnLangchainUtilityProcess()
+        }, 1000)
+      } else {
+        appLogger.info('Langchain utility process exited cleanly', 'electron-backend')
+        langchainChild = null
       }
-      setTimeout(() => {
-        spawnLangchainUtilityProcess()
-      }, 1000)
-      langchainChild = null
     })
   } catch (error) {
     appLogger.error(`Error starting langchain utility process: ${error}`, 'electron-backend')
@@ -82,15 +88,20 @@ export function handleUtilityFunction<T, R>(
   return new Promise((resolve, reject) => {
     const messageHandler = (message: { type: string; returnValue: R }) => {
       if (message.type === eventType) {
-        child.off('message', messageHandler)
+        cleanup()
         resolve(message.returnValue)
       }
     }
 
     const errorHandler = (type: string, location: string, report: string) => {
       const error = new Error(`Error in ${type} at ${location}: ${report}`)
-      child.off('error', errorHandler)
+      cleanup()
       reject(error)
+    }
+
+    const cleanup = () => {
+      child.off('message', messageHandler)
+      child.off('error', errorHandler)
     }
 
     child.on('message', messageHandler)

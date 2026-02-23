@@ -43,7 +43,10 @@ export class LlamaCppDeviceManager {
    * Select a device by ID
    */
   async selectDevice(deviceId: string): Promise<void> {
-    if (!this.devices.find((d) => d.id === deviceId)) return
+    if (!this.devices.find((d) => d.id === deviceId)) {
+      this.appLogger.error(`Device not found: ${deviceId}`, this.serviceName)
+      throw new Error(`Device not found: ${deviceId}`)
+    }
     this.devices = this.devices.map((d) => ({ ...d, selected: d.id === deviceId }))
   }
 

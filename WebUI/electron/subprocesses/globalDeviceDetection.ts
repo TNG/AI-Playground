@@ -1,11 +1,12 @@
 import { promisify } from 'node:util'
-import { exec } from 'node:child_process'
+import { exec, execFile } from 'node:child_process'
 import { appLoggerInstance } from '../logging/logger.ts'
 import path from 'node:path'
 import * as filesystem from 'fs-extra'
 import { app } from 'electron'
 
 const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
 
 export type GlobalDevice = {
   id: string // Unique ID like "nvidia-0", "intel-arc-0", "amd-0", "cpu"
@@ -179,7 +180,7 @@ async function detectVulkanDevices(): Promise<GlobalDevice[]> {
 
           // Determine device type based on name
           const lowerName = deviceName.toLowerCase()
-          let deviceType: GlobalDevice['type'] = 'nvidia' // default
+          let deviceType: GlobalDevice['type'] | undefined
 
           if (
             lowerName.includes('nvidia') ||
@@ -199,6 +200,14 @@ async function detectVulkanDevices(): Promise<GlobalDevice[]> {
             lowerName.includes('ati')
           ) {
             deviceType = 'amd'
+          }
+
+          if (deviceType === undefined) {
+            appLoggerInstance.info(
+              `Vulkan: skipping unrecognized device "${deviceName}" (no vendor match)`,
+              'globalDeviceDetection',
+            )
+            continue
           }
 
           // Use per-type counter for unique IDs (avoids collisions when Vulkan indices repeat)
@@ -350,7 +359,7 @@ async function detectAmdDevices(): Promise<GlobalDevice[]> {
     // We'll try PowerShell first as it's more reliable and available on all modern Windows
     const psCommand = `Get-CimInstance -ClassName Win32_VideoController | Where-Object { $_.Name -like '*AMD*' -or $_.Name -like '*Radeon*' -or $_.Name -like '*ATI*' } | ForEach-Object { Write-Output "$($_.PNPDeviceID)|$($_.Name)" }`
 
-    const { stdout } = await execAsync(`powershell -Command "${psCommand}"`, {
+    const { stdout } = await execFileAsync('powershell', ['-Command', psCommand], {
       timeout: 10000,
     })
 

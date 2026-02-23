@@ -90,10 +90,22 @@ export function getAssetPathFromUrl(
   mediaDir: string,
   comfyBackendUrl?: string,
 ): string | undefined {
+  const resolvedMediaDir = path.resolve(mediaDir)
+
+  /** Returns resolvedPath only when it is strictly inside resolvedMediaDir. */
+  function guardTraversal(resolvedPath: string): string | undefined {
+    const relative = path.relative(resolvedMediaDir, resolvedPath)
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      console.error('Path traversal attempt blocked', { resolvedPath, resolvedMediaDir })
+      return undefined
+    }
+    return resolvedPath
+  }
+
   // Handle aipg-media:// URLs
   if (url.startsWith('aipg-media://')) {
     const decodedUrl = decodeURIComponent(url.replace(/^aipg-media:\/\//i, ''))
-    return path.join(mediaDir, decodedUrl)
+    return guardTraversal(path.resolve(resolvedMediaDir, decodedUrl))
   }
 
   // Existing logic for HTTP URLs
@@ -112,5 +124,5 @@ export function getAssetPathFromUrl(
           imageUrl.searchParams.get('filename') ?? '',
         )
       : imageUrl.pathname
-  return path.join(mediaDir, imageSubPath)
+  return guardTraversal(path.resolve(resolvedMediaDir, imageSubPath))
 }

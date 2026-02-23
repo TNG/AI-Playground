@@ -185,9 +185,9 @@ export const patchFile = async (
   const targetfilePath = path.normalize(filePath)
   const targetFileContent = await fsPromises.readFile(targetfilePath, 'utf-8')
   const targetFileLines = targetFileContent.split(/\r?\n/)
-  // Idempotency check: skip if any of the lines to insert are already present
+  // Idempotency check: skip if any of the lines to insert are already present (exact trimmed-line match)
   if (
-    unindentedLinesToInsert.some((line) => targetFileLines.some((l) => l.includes(line.trim())))
+    unindentedLinesToInsert.some((line) => targetFileLines.some((l) => l.trim() === line.trim()))
   ) {
     return
   }
@@ -685,12 +685,14 @@ export abstract class LongLivedPythonApiService implements ApiService {
     this.encapsulatedProcess.kill('SIGTERM')
 
     // Wait for process to exit or timeout
+    let onExit: (() => void) | undefined
     const processExited = await Promise.race([
       new Promise<boolean>((resolve) => {
-        this.encapsulatedProcess?.once('exit', () => {
+        onExit = () => {
           this.appLogger.info(`Process ${this.name} exited gracefully`, this.name)
           resolve(true)
-        })
+        }
+        this.encapsulatedProcess?.once('exit', onExit)
       }),
       new Promise<boolean>((resolve) => {
         setTimeout(() => {
@@ -698,6 +700,9 @@ export abstract class LongLivedPythonApiService implements ApiService {
             `Process ${this.name} did not exit within 2 seconds, will force kill`,
             this.name,
           )
+          if (onExit) {
+            this.encapsulatedProcess?.removeListener('exit', onExit)
+          }
           resolve(false)
         }, 2000)
       }),

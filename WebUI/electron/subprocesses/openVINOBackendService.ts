@@ -840,7 +840,6 @@ export class OpenVINOBackendService implements ApiService {
 
       const modelIdLower = modelRepoId.toLowerCase()
       const isQwen3 = modelIdLower.includes('qwen3') && !modelIdLower.includes('qwen3-vl')
-      const isDeepSeekR1 = modelIdLower.includes('deepseek-r1')
       const supportsMistralToolCalling =
         modelIdLower.includes('mistral') && modelIdLower.includes('v0.3')
 
@@ -850,8 +849,6 @@ export class OpenVINOBackendService implements ApiService {
 
       if (isQwen3) {
         args.push('--reasoning_parser', 'qwen3')
-      } else if (isDeepSeekR1) {
-        args.push('--reasoning_parser', 'deepseek_r1')
       }
 
       this.appLogger.info(`OVMS launch args: ${args.join(' ')}`, this.name)

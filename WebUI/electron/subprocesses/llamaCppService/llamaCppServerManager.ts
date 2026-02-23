@@ -401,18 +401,22 @@ export class LlamaCppServerManager {
 
     // Wait a bit for graceful shutdown, then force kill if needed
     await new Promise<void>((resolve) => {
+      const exitHandler = () => {
+        clearTimeout(timeout)
+        llamaProcess.process.off('exit', exitHandler)
+        resolve()
+      }
+
       const timeout = setTimeout(() => {
         if (llamaProcess) {
           this.appLogger.warn(`Force killing ${processType} server process`, this.serviceName)
+          llamaProcess.process.off('exit', exitHandler)
           llamaProcess.process.kill('SIGKILL')
         }
         resolve()
       }, 5000)
 
-      llamaProcess.process.on('exit', () => {
-        clearTimeout(timeout)
-        resolve()
-      })
+      llamaProcess.process.on('exit', exitHandler)
     })
   }
 

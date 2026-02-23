@@ -14,7 +14,6 @@ import {
 } from 'electron'
 import path from 'node:path'
 import fs from 'fs'
-import { exec } from 'node:child_process'
 import type { LocalSettings } from './settings.ts'
 import { appLoggerInstance } from './logging/logger.ts'
 import { PathsManager } from './pathsManager'
@@ -286,12 +285,7 @@ export function setupCoreIpcHandlers(
     const imagePath = getAssetPathFromUrl(url, mediaDir, getComfyBackendUrl())
     if (!imagePath) return
 
-    // Open the image with the default system image viewer
-    if (process.platform === 'win32') {
-      exec(`explorer.exe /select, "${imagePath}"`)
-    } else {
-      shell.showItemInFolder(imagePath)
-    }
+    shell.showItemInFolder(imagePath)
   })
 
   ipcMain.on(

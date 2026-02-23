@@ -89,10 +89,11 @@ export async function createWindow(settings: LocalSettings): Promise<BrowserWind
   }
 
   session.webRequest.onBeforeSendHeaders((details, callback) => {
+    const isLocal = /^(https?|wss?):\/\/(localhost|127\.0\.0\.1)(:\d+)?/.test(details.url)
     callback({
       requestHeaders: {
         ...details.requestHeaders,
-        Origin: '*',
+        ...(isLocal ? { Origin: '*' } : {}),
       },
     })
   })

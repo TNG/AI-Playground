@@ -63,14 +63,22 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
       false,
     )
 
-    this.serviceIsSetUp().then(async (setUp) => {
-      this.isSetUp = setUp
-      if (this.isSetUp) {
-        await this.updateCachedVersion()
-        this.setStatus('notYetStarted')
-      }
-      this.appLogger.info(`Service ${this.name} isSetUp: ${this.isSetUp}`, this.name)
-    })
+    this.serviceIsSetUp()
+      .then(async (setUp) => {
+        this.isSetUp = setUp
+        if (this.isSetUp) {
+          try {
+            await this.updateCachedVersion()
+            this.setStatus('notYetStarted')
+          } catch (e) {
+            this.appLogger.error(`Error during ${this.name} post-setup init: ${e}`, this.name)
+          }
+        }
+        this.appLogger.info(`Service ${this.name} isSetUp: ${this.isSetUp}`, this.name)
+      })
+      .catch((e) => {
+        this.appLogger.error(`Error checking if ${this.name} is set up: ${e}`, this.name)
+      })
   }
 
   get pythonEnvDir(): string {

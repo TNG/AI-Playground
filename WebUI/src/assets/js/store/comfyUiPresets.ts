@@ -199,6 +199,7 @@ export const useComfyUiPresets = defineStore(
       mode: WorkflowModeType
       sourceImage?: string
     } | null>(null)
+    const pendingRetryTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 
     const backendServices = useBackendServices()
     const comfyUiState = computed(() => {
@@ -480,18 +481,25 @@ export const useComfyUiPresets = defineStore(
         return
       }
 
-      // Close existing websocket if it exists
+      const comfyWsUrl = `ws://localhost:${comfyPort.value}/ws?clientId=${clientId}`
+
+      // Reuse an existing healthy connection instead of tearing it down and reconnecting
       if (websocket.value) {
-        console.info('Closing existing websocket connection before creating new one')
+        const state = websocket.value.readyState
+        if (state === WebSocket.OPEN || state === WebSocket.CONNECTING) {
+          console.info('ComfyUI websocket already connected or connecting, reusing')
+          return
+        }
+        // Socket is stale (CLOSING or CLOSED) — replace it
+        console.info('Closing stale websocket connection before creating new one')
         try {
           websocket.value.close()
         } catch (e) {
-          console.warn('Error closing existing websocket:', e)
+          console.warn('Error closing stale websocket:', e)
         }
         websocket.value = null
       }
 
-      const comfyWsUrl = `ws://localhost:${comfyPort.value}/ws?clientId=${clientId}`
       console.info('Connecting to ComfyUI', { comfyWsUrl })
       websocket.value = new WebSocket(comfyWsUrl)
       websocket.value.binaryType = 'arraybuffer'
@@ -709,16 +717,27 @@ export const useComfyUiPresets = defineStore(
           console.info('Backend is now running, auto-retrying pending generation')
           const pending = pendingGenerationRequest.value
 
+          // Guard against scheduling duplicate retries while the delay is in progress
+          if (pendingRetryTimer.value !== null) {
+            clearTimeout(pendingRetryTimer.value)
+            pendingRetryTimer.value = null
+          }
+
           // Use setTimeout to avoid immediate re-execution in the same tick.
           // Clear the pending request only inside the callback so it is not lost
           // if the scheduler itself fails before the retry begins.
-          setTimeout(() => {
+          pendingRetryTimer.value = setTimeout(() => {
             pendingGenerationRequest.value = null
+            pendingRetryTimer.value = null
             generate(pending.imageIds, pending.mode, pending.sourceImage)
           }, 500)
         }
       } else {
         // Backend is not running, close any existing connection
+        if (pendingRetryTimer.value !== null) {
+          clearTimeout(pendingRetryTimer.value)
+          pendingRetryTimer.value = null
+        }
         if (websocket.value) {
           console.info('Backend is not running, closing websocket connection')
           try {

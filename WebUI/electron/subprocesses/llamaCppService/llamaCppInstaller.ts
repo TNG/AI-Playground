@@ -157,12 +157,27 @@ export class LlamaCppInstaller {
     try {
       await extract(this.paths.zipPath, this.paths.llamaCppDir)
       if (process.platform !== 'win32') {
-        filesystem.readdirSync(path.join(this.paths.llamaCppDir, 'build/bin')).forEach((file) => {
-          filesystem.renameSync(
-            path.join(this.paths.llamaCppDir, 'build/bin', file),
-            path.join(this.paths.llamaCppDir, file),
+        const buildBinDir = path.join(this.paths.llamaCppDir, 'build/bin')
+        if (filesystem.existsSync(buildBinDir)) {
+          try {
+            filesystem.readdirSync(buildBinDir).forEach((file) => {
+              filesystem.renameSync(
+                path.join(buildBinDir, file),
+                path.join(this.paths.llamaCppDir, file),
+              )
+            })
+          } catch (moveError) {
+            this.appLogger.error(
+              `Failed to move files from build/bin: ${moveError}`,
+              this.serviceName,
+            )
+          }
+        } else {
+          this.appLogger.info(
+            `No build/bin directory found in archive; binaries assumed to be in root`,
+            this.serviceName,
           )
-        })
+        }
       }
 
       this.appLogger.info(`LlamaCPP extracted successfully`, this.serviceName)

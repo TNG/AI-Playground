@@ -5,10 +5,10 @@
 }
 
 .demo-mode-overlay-content {
-  border: 2px solid #00bfff;
+  outline: 2px solid #00bfff;
   z-index: 100;
   pointer-events: none;
-  border-radius: 10.5px;
+  /* border-radius: 10.5px; */
   transition: border var(--demo-mode-transition-duration) ease;
   transition-delay: var(--demo-mode-transition-delay);
 }

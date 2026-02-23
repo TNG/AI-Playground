@@ -111,7 +111,8 @@ onUnmounted(() => {
 })
 
 const TOOLTIP_WIDTH = 400
-const TOOLTIP_GAP = 10
+const TOOLTIP_GAP = 8
+const ARROW_HEIGHT = 12 // matches .tooltip-box::after border-top: 12px in demo-mode.css
 const ARROW_HALF_WIDTH = 11 // matches .tooltip-box::before border-left/right: 11px in demo-mode.css
 
 /**
@@ -131,7 +132,7 @@ function updateTooltipPosition() {
 
   // position the tooltip
   const tooltipLeft = Math.min(Math.max(rect.left, 8), window.innerWidth - TOOLTIP_WIDTH - 8)
-  const tooltipBottom = window.innerHeight - rect.top + rect.height + TOOLTIP_GAP
+  const tooltipBottom = window.innerHeight - rect.top + ARROW_HEIGHT + TOOLTIP_GAP
   tooltipStyle.value = {
     bottom: `${tooltipBottom}px`,
     left: `${tooltipLeft}px`,

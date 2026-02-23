@@ -128,12 +128,20 @@ function updateTooltipPosition() {
     tooltipStyle.value = {}
     return
   }
+
+  // position the tooltip
   const tooltipLeft = Math.min(Math.max(rect.left, 8), window.innerWidth - TOOLTIP_WIDTH - 8)
-  const arrowLeft = rect.left + rect.width / 2 - tooltipLeft - ARROW_HALF_WIDTH
+  const tooltipBottom = window.innerHeight - rect.top + rect.height + TOOLTIP_GAP
   tooltipStyle.value = {
+    bottom: `${tooltipBottom}px`,
     left: `${tooltipLeft}px`,
-    bottom: `${window.innerHeight - rect.top + TOOLTIP_GAP}px`,
-    '--arrow-left': `${Math.max(arrowLeft, 8)}px`,
+  }
+
+  // position the arrow
+  const arrowLeft = rect.left + rect.width / 2 - tooltipLeft - ARROW_HALF_WIDTH
+  const tooltipBox = document.querySelector<HTMLElement>('.tooltip-box')
+  if (tooltipBox) {
+    tooltipBox.style.setProperty('--arrow-left', `${Math.max(arrowLeft, 8)}px`)
   }
 }
 

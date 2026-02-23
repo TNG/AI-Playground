@@ -62,7 +62,7 @@
 
   .tooltip-wrapper {
     position: absolute;
-    bottom: calc(var(--tooltip-bottom) + var(--demo-mode-tooltip-gap));
+    bottom: 300px;
     left: 25px;
   }
 

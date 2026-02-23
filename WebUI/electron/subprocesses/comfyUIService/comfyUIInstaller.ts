@@ -2,15 +2,20 @@ import path from 'node:path'
 import fs from 'fs'
 import * as filesystem from 'fs-extra'
 import { AppLogger } from '../../logging/logger.ts'
-import { ComfyUIPaths, ComfyUIVersion } from './comfyUITypes.ts'
+import { ComfyUIPaths, ComfyUIDeviceType, ComfyUIVersion } from './comfyUITypes.ts'
 import { GitService, installHijacks, patchFile, createEnhancedErrorDetails } from '../service.ts'
-import { aipgBaseDir, installComfyUIBackend } from '../uvBasedBackends/uv.ts'
+import { aipgBaseDir, installComfyUISingleBackend } from '../uvBasedBackends/uv.ts'
 import { ProcessError } from '../osProcessHelper.ts'
 import { getCachedDevices } from '../globalDeviceDetection.ts'
 import { BrowserWindow } from 'electron'
 
+/** Name of the marker file that records which backend type is installed in the venv */
+const BACKEND_TYPE_MARKER = '.venv-backend-type'
+
 /**
- * Handles installation, setup, and version management for ComfyUI
+ * Handles installation, setup, and version management for ComfyUI.
+ * Only a single Python venv (`.venv`) is ever present; it is replaced when the
+ * required device type changes.
  */
 export class ComfyUIInstaller {
   private readonly paths: ComfyUIPaths
@@ -39,17 +44,47 @@ export class ComfyUIInstaller {
     this.revision = revision
   }
 
-  /**
-   * Get git directory path
-   */
+  /** Get git directory path */
   getGitDir(): string {
     return this.git.dir
   }
 
   /**
-   * Check if ComfyUI is already set up
+   * Return the device type that should be installed based on detected hardware.
+   * Priority: CUDA > XPU > CPU
+   */
+  getRequiredDeviceType(): ComfyUIDeviceType {
+    const globalDevices = getCachedDevices()
+    const hasIntelArc = globalDevices.some((d) => d.type === 'intel-arc')
+    const hasNvidia = globalDevices.some((d) => d.type === 'nvidia')
+    if (hasNvidia) return 'CUDA'
+    if (hasIntelArc) return 'XPU'
+    return 'CPU'
+  }
+
+  /** Read the backend type that was recorded in the venv marker file, or undefined */
+  private readInstalledBackendType(): ComfyUIDeviceType | undefined {
+    const markerPath = path.join(this.paths.serviceDir, BACKEND_TYPE_MARKER)
+    if (!filesystem.existsSync(markerPath)) return undefined
+    const raw = filesystem.readFileSync(markerPath, 'utf-8').trim() as ComfyUIDeviceType
+    return raw === 'CPU' || raw === 'XPU' || raw === 'CUDA' ? raw : undefined
+  }
+
+  /** Write the installed backend type to the marker file */
+  private writeInstalledBackendType(type: ComfyUIDeviceType): void {
+    const markerPath = path.join(this.paths.serviceDir, BACKEND_TYPE_MARKER)
+    filesystem.writeFileSync(markerPath, type, 'utf-8')
+  }
+
+  /**
+   * Check if ComfyUI is set up AND the installed backend matches the required device type.
+   * Also updates `hasIntelArcGpu` / `hasNvidiaGpu` based on detected hardware.
    */
   async serviceIsSetUp(): Promise<boolean> {
+    const globalDevices = getCachedDevices()
+    this.hasIntelArcGpu = globalDevices.some((d) => d.type === 'intel-arc')
+    this.hasNvidiaGpu = globalDevices.some((d) => d.type === 'nvidia')
+
     const dirsExist = filesystem.existsSync(this.paths.serviceDir)
     this.appLogger.info(`Checking if comfyUI directories exist: ${dirsExist}`, this.serviceName)
     if (!dirsExist) return false
@@ -62,49 +97,43 @@ export class ComfyUIInstaller {
       }
     })
 
-    // Check if CPU venv exists (required)
-    const cpuVenvExists = filesystem.existsSync(this.paths.pythonEnvDirCpu)
-    if (!cpuVenvExists) {
+    const venvExists = filesystem.existsSync(this.paths.pythonEnvDir)
+    if (!venvExists) {
       this.appLogger.info(
-        `CPU venv does not exist at ${this.paths.pythonEnvDirCpu}, needs installation`,
+        `Venv does not exist at ${this.paths.pythonEnvDir}, needs installation`,
         this.serviceName,
       )
       return false
     }
 
-    // Check if XPU venv exists (optional)
-    if (filesystem.existsSync(this.paths.pythonEnvDirXpu)) {
-      this.hasIntelArcGpu = true
-      this.appLogger.info(`XPU venv found, Intel Arc GPU support available`, this.serviceName)
-    }
-
-    // Check if CUDA venv exists (optional)
-    if (filesystem.existsSync(this.paths.pythonEnvDirCuda)) {
-      this.hasNvidiaGpu = true
-      this.appLogger.info(`CUDA venv found, NVIDIA GPU support available`, this.serviceName)
-    }
+    const installedType = this.readInstalledBackendType()
+    const requiredType = this.getRequiredDeviceType()
 
     this.appLogger.info(
-      `ComfyUI is set up (CPU: ${cpuVenvExists}, XPU: ${this.hasIntelArcGpu}, CUDA: ${this.hasNvidiaGpu})`,
+      `ComfyUI venv found. Installed backend: ${installedType ?? 'unknown'}, required: ${requiredType}`,
       this.serviceName,
     )
+
+    if (installedType !== requiredType) {
+      this.appLogger.info(
+        `Backend mismatch (installed: ${installedType}, required: ${requiredType}) — will reinstall`,
+        this.serviceName,
+      )
+      return false
+    }
+
     return true
   }
 
-  /**
-   * Update the version to install
-   */
+  /** Update the version to install */
   updateVersion(version: string): void {
     this.revision = version
     this.appLogger.info(`applied new comfyUI version ${this.revision}`, this.serviceName)
   }
 
-  /**
-   * Get the current git version
-   */
+  /** Get the current git version */
   async getCurrentVersion(): Promise<string | undefined> {
     try {
-      // First, try to get the current branch or tag name
       const branchOutput = await this.git.run([
         '-C',
         this.paths.serviceDir,
@@ -113,13 +142,8 @@ export class ComfyUIInstaller {
         'HEAD',
       ])
       const branchName = branchOutput.trim()
+      if (branchName !== 'HEAD') return branchName
 
-      // If we're not in detached HEAD state, return the branch name
-      if (branchName !== 'HEAD') {
-        return branchName
-      }
-
-      // If in detached HEAD state, try to get the exact tag
       try {
         const tagOutput = await this.git.run([
           '-C',
@@ -130,7 +154,6 @@ export class ComfyUIInstaller {
         ])
         return tagOutput.trim()
       } catch {
-        // No exact tag match, fall back to short commit hash
         const hashOutput = await this.git.run([
           '-C',
           this.paths.serviceDir,
@@ -146,9 +169,7 @@ export class ComfyUIInstaller {
     }
   }
 
-  /**
-   * Get the currently installed version
-   */
+  /** Get the currently installed version */
   async getInstalledVersion(): Promise<ComfyUIVersion | undefined> {
     if (!(await this.serviceIsSetUp())) return undefined
     try {
@@ -158,12 +179,7 @@ export class ComfyUIInstaller {
         const versionMatch = versionFileContent.match(/__version__\s*=\s*["']([^"']+)["']/)
         if (versionMatch && versionMatch[1]) {
           const version = versionMatch[1]
-          // Check if it's a version tag (v0.3.76) or git hash
-          if (version.startsWith('v')) {
-            return { version }
-          } else {
-            return { version: `v${version}` }
-          }
+          return { version: version.startsWith('v') ? version : `v${version}` }
         }
       }
     } catch (e) {
@@ -172,12 +188,9 @@ export class ComfyUIInstaller {
     return undefined
   }
 
-  /**
-   * Main setup generator
-   */
+  /** Main setup generator */
   async *setup(): AsyncIterable<SetupProgress> {
     this.appLogger.info('setting up service', this.serviceName)
-
     let currentStep = 'start'
 
     try {
@@ -196,14 +209,14 @@ export class ComfyUIInstaller {
         serviceName: this.serviceName,
         step: currentStep,
         status: 'executing',
-        debugMessage: `installing comfyUI base repo`,
+        debugMessage: 'installing comfyUI base repo',
       }
       await this.setupComfyUiBaseService()
       yield {
         serviceName: this.serviceName,
         step: currentStep,
         status: 'executing',
-        debugMessage: `installation of comfyUI base repo complete`,
+        debugMessage: 'installation of comfyUI base repo complete',
       }
 
       currentStep = 'configure comfyUI'
@@ -211,14 +224,14 @@ export class ComfyUIInstaller {
         serviceName: this.serviceName,
         step: currentStep,
         status: 'executing',
-        debugMessage: `configuring comfyUI base repo`,
+        debugMessage: 'configuring comfyUI base repo',
       }
       await this.configureComfyUI()
       yield {
         serviceName: this.serviceName,
         step: currentStep,
         status: 'executing',
-        debugMessage: `configured comfyUI base repo`,
+        debugMessage: 'configured comfyUI base repo',
       }
 
       currentStep = 'install builtin custom nodes'
@@ -263,7 +276,7 @@ export class ComfyUIInstaller {
         serviceName: this.serviceName,
         step: currentStep,
         status: 'success',
-        debugMessage: `service set up completely`,
+        debugMessage: 'service set up completely',
       }
     } catch (e) {
       this.appLogger.warn(`Set up of service failed due to ${e}`, this.serviceName, true)
@@ -272,7 +285,6 @@ export class ComfyUIInstaller {
         this.serviceName,
         true,
       )
-
       const errorDetails = await createEnhancedErrorDetails(e, `${currentStep} operation`)
       yield {
         serviceName: this.serviceName,
@@ -284,15 +296,9 @@ export class ComfyUIInstaller {
     }
   }
 
-  /**
-   * Check if service directory is valid
-   */
+  /** Check if service directory is valid (git repo at correct revision) */
   private async checkServiceDir(): Promise<boolean> {
-    if (!filesystem.existsSync(this.paths.serviceDir)) {
-      return false
-    }
-
-    // Check if it's a valid git repo
+    if (!filesystem.existsSync(this.paths.serviceDir)) return false
     try {
       const version = await this.getCurrentVersion()
       if (version === this.revision) {
@@ -313,9 +319,7 @@ export class ComfyUIInstaller {
     }
   }
 
-  /**
-   * Setup ComfyUI base service
-   */
+  /** Clone/checkout ComfyUI, copy dep files, install a single venv for the detected device type */
   private async setupComfyUiBaseService(): Promise<void> {
     await installHijacks()
     if (await this.checkServiceDir()) {
@@ -331,64 +335,60 @@ export class ComfyUIInstaller {
 
     // Copy ComfyUI dependency files
     const comfyUIDepsDir = path.join(aipgBaseDir, 'comfyui-deps')
-    const pyprojectSource = path.join(comfyUIDepsDir, 'pyproject.toml')
-    const uvLockSource = path.join(comfyUIDepsDir, 'uv.lock')
     const pyprojectTarget = path.join(this.paths.serviceDir, 'pyproject.toml')
     const uvLockTarget = path.join(this.paths.serviceDir, 'uv.lock')
+    this.appLogger.info(`Copying dependency files to ${this.paths.serviceDir}`, this.serviceName)
+    await filesystem.copyFile(path.join(comfyUIDepsDir, 'pyproject.toml'), pyprojectTarget)
+    await filesystem.copyFile(path.join(comfyUIDepsDir, 'uv.lock'), uvLockTarget)
 
-    // Copy dependency specification files
-    this.appLogger.info(
-      `Copying pyproject.toml from ${pyprojectSource} to ${pyprojectTarget}`,
-      this.serviceName,
-    )
-    await filesystem.copyFile(pyprojectSource, pyprojectTarget)
-
-    this.appLogger.info(`Copying uv.lock from ${uvLockSource} to ${uvLockTarget}`, this.serviceName)
-    await filesystem.copyFile(uvLockSource, uvLockTarget)
-
-    // Install dependencies with triple venv support
-    this.appLogger.info('Installing ComfyUI with triple venv support', this.serviceName)
-
+    // Determine which backend to install
     const globalDevices = getCachedDevices()
-    const hasIntelArcGpu = globalDevices.some((d) => d.type === 'intel-arc')
-    const hasNvidiaGpu = globalDevices.some((d) => d.type === 'nvidia')
+    this.hasIntelArcGpu = globalDevices.some((d) => d.type === 'intel-arc')
+    this.hasNvidiaGpu = globalDevices.some((d) => d.type === 'nvidia')
+    const deviceType = this.getRequiredDeviceType()
 
     this.appLogger.info(
-      `GPU detection: Intel Arc=${hasIntelArcGpu}, NVIDIA=${hasNvidiaGpu}`,
+      `GPU detection: Intel Arc=${this.hasIntelArcGpu}, NVIDIA=${this.hasNvidiaGpu} → installing ${deviceType} backend`,
       this.serviceName,
     )
 
-    const results = await installComfyUIBackend(
-      this.paths.serviceDir,
-      hasIntelArcGpu,
-      hasNvidiaGpu,
-      () => {
-        this.win.webContents.send('show-toast', {
-          type: 'warning',
-          message:
-            'UV cache corruption detected. Retrying installation without cache. This may take longer. You can manually clear the cache at %LOCALAPPDATA%/uv/cache',
-        })
-      },
-    )
+    // Remove stale venv if it exists (e.g. leftover from a previous different backend)
+    if (filesystem.existsSync(this.paths.pythonEnvDir)) {
+      this.appLogger.info(
+        `Removing existing venv at ${this.paths.pythonEnvDir} before reinstall`,
+        this.serviceName,
+      )
+      filesystem.removeSync(this.paths.pythonEnvDir)
+    }
 
-    this.hasIntelArcGpu = results.xpuInstalled
-    this.hasNvidiaGpu = results.cudaInstalled
-    this.appLogger.info(
-      `Installation complete: CPU=${results.cpuInstalled}, XPU=${results.xpuInstalled}, CUDA=${results.cudaInstalled}`,
-      this.serviceName,
-    )
+    await installComfyUISingleBackend(this.paths.serviceDir, deviceType, () => {
+      this.win.webContents.send('show-toast', {
+        type: 'warning',
+        message:
+          'UV cache corruption detected. Retrying installation without cache. This may take longer. You can manually clear the cache at %LOCALAPPDATA%/uv/cache',
+      })
+    })
+
+    this.writeInstalledBackendType(deviceType)
+    this.appLogger.info(`Installation complete: ${deviceType} backend installed`, this.serviceName)
   }
 
-  /**
-   * Configure ComfyUI (hijacks, model paths)
-   */
+  /** Configure ComfyUI (hijacks patch + extra model paths) */
   private async configureComfyUI(): Promise<void> {
     try {
       this.appLogger.info('patching hijacks into comfyUI model_management', this.serviceName)
+      const hijacksParentDir = path
+        .resolve(path.join(this.paths.baseDir, 'hijacks'))
+        .replace(/\\/g, '/')
       await patchFile(
         path.join(this.paths.serviceDir, 'comfy/model_management.py'),
-        'from comfy.model_management import get_model',
-        ['from ipex_to_cuda import ipex_init', 'ipex_init()'],
+        'import torch',
+        [
+          'import os as _os, sys as _sys',
+          `if not _os.environ.get('DISABLE_IPEX') and '${hijacksParentDir}' not in _sys.path: _sys.path.insert(0, '${hijacksParentDir}')`,
+          `if not _os.environ.get('DISABLE_IPEX'):`,
+          `    from ipex_to_cuda import ipex_init; ipex_init()`,
+        ],
       )
 
       this.appLogger.info('Configuring extra model paths for comfyUI', this.serviceName)
@@ -441,22 +441,15 @@ export class ComfyUIInstaller {
         `Failed to configure extra model paths for comfyUI: ${configError}`,
         this.serviceName,
       )
-      // Re-throw ProcessError instances to preserve enhanced error details
-      if (configError instanceof ProcessError) {
-        throw configError
-      }
-      // For other errors, wrap with context
+      if (configError instanceof ProcessError) throw configError
       throw new Error(`Failed to configure extra model paths for comfyUI: ${configError}`)
     }
   }
 
-  /**
-   * Install builtin custom nodes
-   */
+  /** Install builtin custom nodes bundled with the app */
   private async installBuiltinCustomNodes(): Promise<void> {
     try {
       const builtinCustomNodesDir = path.join(aipgBaseDir, 'comfyui-deps', 'custom_nodes')
-
       if (!filesystem.existsSync(builtinCustomNodesDir)) {
         this.appLogger.info(
           `No builtin custom nodes directory found at ${builtinCustomNodesDir}, skipping`,
@@ -464,43 +457,24 @@ export class ComfyUIInstaller {
         )
         return
       }
-
       this.appLogger.info(
         `Installing builtin custom nodes from ${builtinCustomNodesDir}`,
         this.serviceName,
       )
-
       const targetCustomNodesDir = path.join(this.paths.serviceDir, 'custom_nodes')
-
-      if (!filesystem.existsSync(targetCustomNodesDir)) {
-        this.appLogger.info(
-          `Creating custom_nodes directory at ${targetCustomNodesDir}`,
-          this.serviceName,
-        )
-        await filesystem.ensureDir(targetCustomNodesDir)
-      }
-
+      await filesystem.ensureDir(targetCustomNodesDir)
       const entries = await filesystem.readdir(builtinCustomNodesDir, { withFileTypes: true })
-
       for (const entry of entries) {
         if (entry.isDirectory()) {
           const sourcePath = path.join(builtinCustomNodesDir, entry.name)
           const targetPath = path.join(targetCustomNodesDir, entry.name)
-
           this.appLogger.info(
-            `Copying builtin custom node ${entry.name} from ${sourcePath} to ${targetPath}`,
+            `Copying builtin custom node ${entry.name} to ${targetPath}`,
             this.serviceName,
           )
-
           await filesystem.copy(sourcePath, targetPath, { overwrite: true })
-
-          this.appLogger.info(
-            `Successfully installed builtin custom node ${entry.name}`,
-            this.serviceName,
-          )
         }
       }
-
       this.appLogger.info(`Builtin custom nodes installation complete`, this.serviceName)
     } catch (error) {
       this.appLogger.error(`Failed to install builtin custom nodes: ${error}`, this.serviceName)
@@ -508,19 +482,15 @@ export class ComfyUIInstaller {
     }
   }
 
-  /**
-   * Install ComfyUI Manager custom node
-   */
+  /** Install ComfyUI Manager custom node */
   private async installComfyUIManager(): Promise<void> {
     try {
       const { downloadCustomNode } = await import('../comfyuiTools.ts')
-      const managerNode = {
-        username: 'Comfy-Org',
-        repoName: 'ComfyUI-Manager',
-      }
-      await downloadCustomNode(managerNode, this.paths.serviceDir)
+      await downloadCustomNode(
+        { username: 'Comfy-Org', repoName: 'ComfyUI-Manager' },
+        this.paths.serviceDir,
+      )
     } catch (error) {
-      // Log warning but don't fail setup
       this.appLogger.warn(
         `Failed to install ComfyUI Manager: ${error}. Continuing setup.`,
         this.serviceName,

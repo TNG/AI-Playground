@@ -407,9 +407,128 @@ const getPythonPath = (venvPath: string): string => {
 }
 
 /**
+ * Install a single ComfyUI backend venv matching the requested device type.
+ * The venv is always created at `serviceDir/.venv`.
+ */
+export const installComfyUISingleBackend = async (
+  serviceDir: string,
+  deviceType: 'CPU' | 'XPU' | 'CUDA',
+  onCacheCorruptionDetected?: () => void,
+): Promise<void> => {
+  const logger = loggerFor('uv.comfyui-single-venv')
+  await assertUv(logger)
+
+  const backendName = 'comfyui-deps'
+  const venvPath = path.join(serviceDir, '.venv')
+
+  logger.info(`Installing ComfyUI single backend: ${deviceType} → ${venvPath}`)
+
+  const runInstall = async (noCache = false): Promise<void> => {
+    if (deviceType === 'CPU') {
+      const cpuEnv = {
+        UV_TORCH_BACKEND: 'cpu',
+        UV_PROJECT_ENVIRONMENT: venvPath,
+      }
+      const syncArgs = [
+        'sync',
+        '--directory',
+        aipgBaseDir,
+        '--project',
+        backendName,
+        ...(noCache ? ['--no-cache'] : []),
+      ]
+      await uv(syncArgs, logger, cpuEnv)
+
+      // Force-reinstall torch from CPU index to replace any XPU variant
+      const pythonPath = getPythonPath(venvPath)
+      await uv(
+        [
+          'pip',
+          'install',
+          '--python',
+          pythonPath,
+          'torch>=2.10.0',
+          'torchvision',
+          'torchaudio',
+          '--index-url',
+          'https://download.pytorch.org/whl/cpu',
+          '--force-reinstall',
+          '--no-deps',
+        ],
+        logger,
+        {},
+      )
+    } else if (deviceType === 'XPU') {
+      const xpuEnv = {
+        UV_TORCH_BACKEND: 'xpu',
+        UV_PROJECT_ENVIRONMENT: venvPath,
+      }
+      const syncArgs = [
+        'sync',
+        '--directory',
+        aipgBaseDir,
+        '--project',
+        backendName,
+        ...(noCache ? ['--no-cache'] : []),
+      ]
+      await uv(syncArgs, logger, xpuEnv)
+    } else {
+      // CUDA
+      const cudaEnv = {
+        UV_PROJECT_ENVIRONMENT: venvPath,
+      }
+      const syncArgs = [
+        'sync',
+        '--directory',
+        aipgBaseDir,
+        '--project',
+        backendName,
+        ...(noCache ? ['--no-cache'] : []),
+      ]
+      await uv(syncArgs, logger, cudaEnv)
+
+      // Force-reinstall torch from CUDA index
+      const pythonPath = getPythonPath(venvPath)
+      await uv(
+        [
+          'pip',
+          'install',
+          '--python',
+          pythonPath,
+          'torch',
+          'torchvision',
+          'torchaudio',
+          '--index-url',
+          'https://download.pytorch.org/whl/cu121',
+          '--force-reinstall',
+        ],
+        logger,
+        {},
+      )
+    }
+  }
+
+  try {
+    await runInstall()
+    logger.info(`[OK] ${deviceType} backend installed successfully`)
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    if (isHashMismatchError(errorMessage)) {
+      logger.warn('Hash mismatch detected in UV cache, retrying with --no-cache')
+      onCacheCorruptionDetected?.()
+      await runInstall(true)
+      logger.info(`[OK] ${deviceType} backend installed successfully (retry)`)
+    } else {
+      throw error
+    }
+  }
+}
+
+/**
  * Install ComfyUI backend with triple venv support (CPU + XPU + CUDA)
  * Always installs CPU version, optionally installs XPU version if Intel Arc GPU detected,
  * optionally installs CUDA version if NVIDIA GPU detected
+ * @deprecated Use installComfyUISingleBackend instead
  */
 export const installComfyUIBackend = async (
   serviceDir: string,

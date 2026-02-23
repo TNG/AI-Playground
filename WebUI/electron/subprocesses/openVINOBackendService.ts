@@ -836,11 +836,23 @@ export class OpenVINOBackendService implements ApiService {
         '2',
         '--task',
         'text_generation',
-        '--tool_parser',
-        'hermes3',
-        '--reasoning_parser',
-        'qwen3',
       ]
+
+      const modelIdLower = modelRepoId.toLowerCase()
+      const isQwen3 = modelIdLower.includes('qwen3') && !modelIdLower.includes('qwen3-vl')
+      const isDeepSeekR1 = modelIdLower.includes('deepseek-r1')
+      const supportsMistralToolCalling =
+        modelIdLower.includes('mistral') && modelIdLower.includes('v0.3')
+
+      if (isQwen3 || supportsMistralToolCalling) {
+        args.push('--tool_parser', 'hermes3')
+      }
+
+      if (isQwen3) {
+        args.push('--reasoning_parser', 'qwen3')
+      } else if (isDeepSeekR1) {
+        args.push('--reasoning_parser', 'deepseek_r1')
+      }
 
       this.appLogger.info(`OVMS launch args: ${args.join(' ')}`, this.name)
 

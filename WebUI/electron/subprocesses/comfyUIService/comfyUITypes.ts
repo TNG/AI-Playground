@@ -10,27 +10,24 @@ export type ComfyUIDeviceType = 'XPU' | 'CUDA' | 'CPU'
 /**
  * Configuration for ComfyUI service paths
  */
-export interface ComfyUIPaths {
+export type ComfyUIPaths = {
   baseDir: string
   serviceDir: string
-  pythonEnvDirCpu: string
-  pythonEnvDirXpu: string
-  pythonEnvDirCuda: string
+  /** Single Python venv used by whatever backend is currently installed */
+  pythonEnvDir: string
 }
 
 /**
  * ComfyUI version information
  */
-export interface ComfyUIVersion {
+export type ComfyUIVersion = {
   version?: string
   releaseTag?: string
 }
 
 /**
- * Result of backend installation
+ * Result of a single-backend installation
  */
-export interface InstallationResult {
-  cpuInstalled: boolean
-  xpuInstalled: boolean
-  cudaInstalled: boolean
+export type InstallationResult = {
+  installedBackendType: ComfyUIDeviceType
 }

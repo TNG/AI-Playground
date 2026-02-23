@@ -1,6 +1,6 @@
 import { ChildProcess, spawn } from 'node:child_process'
 import path from 'node:path'
-import { LongLivedPythonApiService } from '../service.ts'
+import { LongLivedPythonApiService, hijacksDir } from '../service.ts'
 import { aipgBaseDir } from '../uvBasedBackends/uv.ts'
 import { getMediaDir } from '../../utils.ts'
 import { levelZeroDeviceSelectorEnv, cudaDeviceSelectorEnv } from '../deviceDetection.ts'
@@ -38,17 +38,13 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   constructor(name: BackendServiceName, port: number, win: BrowserWindow, settings: LocalSettings) {
     super(name, port, win, settings)
 
-    // Set up paths
-    const pythonEnvDirCpu = path.resolve(path.join(this.serviceDir, '.venv-cpu'))
-    const pythonEnvDirXpu = path.resolve(path.join(this.serviceDir, '.venv-xpu'))
-    const pythonEnvDirCuda = path.resolve(path.join(this.serviceDir, '.venv-cuda'))
+    // Set up paths — single venv regardless of device type
+    const pythonEnvDir = path.resolve(path.join(this.serviceDir, '.venv'))
 
     this.paths = {
       baseDir: this.baseDir,
       serviceDir: this.serviceDir,
-      pythonEnvDirCpu,
-      pythonEnvDirXpu,
-      pythonEnvDirCuda,
+      pythonEnvDir,
     }
 
     // Initialize sub-components
@@ -78,15 +74,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   }
 
   get pythonEnvDir(): string {
-    const deviceType = this.deviceManager.getDeviceType()
-    switch (deviceType) {
-      case 'CPU':
-        return this.paths.pythonEnvDirCpu
-      case 'CUDA':
-        return this.paths.pythonEnvDirCuda
-      case 'XPU':
-        return this.paths.pythonEnvDirXpu
-    }
+    return this.paths.pythonEnvDir
   }
 
   get devices(): InferenceDevice[] {
@@ -235,28 +223,32 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
           `Selected device ${selectedDevice.id} not found in cached device list; falling back to base env`,
           this.name,
         )
-        return { ...baseEnv, ONEAPI_DEVICE_SELECTOR: '' }
+        return { ...baseEnv, ONEAPI_DEVICE_SELECTOR: '', DISABLE_IPEX: '1' }
       }
       return {
         ...baseEnv,
         ...cudaDeviceSelectorEnv(globalDevice.rawId),
         ONEAPI_DEVICE_SELECTOR: '',
+        DISABLE_IPEX: '1',
       }
     }
 
     if (deviceType === 'XPU') {
       this.appLogger.info(`Using XPU mode for ComfyUI (device: ${selectedDevice.name})`, this.name)
+      // hijacksDir is e.g. <base>/hijacks/ipex_to_cuda — Python needs its parent on sys.path
+      const hijacksParentDir = path.dirname(hijacksDir)
       if (!globalDevice) {
         this.appLogger.warn(
           `Selected device ${selectedDevice.id} not found in cached device list; falling back to base env`,
           this.name,
         )
-        return { ...baseEnv, CUDA_VISIBLE_DEVICES: '' }
+        return { ...baseEnv, CUDA_VISIBLE_DEVICES: '', PYTHONPATH: hijacksParentDir }
       }
       return {
         ...baseEnv,
         ...levelZeroDeviceSelectorEnv(globalDevice.rawId),
         CUDA_VISIBLE_DEVICES: '',
+        PYTHONPATH: hijacksParentDir,
       }
     }
 
@@ -351,7 +343,9 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   }
 
   /**
-   * Restart ComfyUI with a new device backend
+   * Restart ComfyUI with a new device backend.
+   * If the installed venv doesn't match the new device type, the venv is deleted and
+   * reinstalled automatically before starting.
    */
   private async restartWithNewDevice(oldDeviceType: 'CPU' | 'CUDA' | 'XPU'): Promise<void> {
     this.deviceManager.setDeviceSwitching(true)
@@ -366,21 +360,37 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
       this.appLogger.info('Stopping ComfyUI for device switch...', this.name)
       await this.stop()
 
-      // Wait longer for GPU resources to be released
+      // Wait for GPU resources to be released
       this.appLogger.info('Waiting for GPU resources to be released...', this.name)
       await new Promise((resolve) => setTimeout(resolve, 3000))
 
-      // Verify the process is fully stopped
+      // Force-kill if still alive
       if (this.encapsulatedProcess && !this.encapsulatedProcess.killed) {
         this.appLogger.warn('Process still alive, force killing...', this.name)
         this.encapsulatedProcess.kill('SIGKILL')
         await new Promise((resolve) => setTimeout(resolve, 1000))
       }
 
+      // Reinstall if the venv backend doesn't match the new device type
+      const isSetUp = await this.installer.serviceIsSetUp()
+      if (!isSetUp) {
+        this.appLogger.info(
+          `Installed backend incompatible with ${newDeviceType} — reinstalling venv...`,
+          this.name,
+        )
+        this.setStatus('installing')
+        for await (const progress of this.set_up()) {
+          if (progress.status === 'failed') {
+            this.appLogger.error(`Reinstall failed: ${progress.debugMessage}`, this.name)
+            this.setStatus('failed')
+            return
+          }
+        }
+      }
+
       // Reset desired status to allow start
       this.desiredStatus = 'stopped'
 
-      // Start with new device
       this.appLogger.info(`Starting ComfyUI with ${newDeviceType} backend...`, this.name)
       await this.start()
 

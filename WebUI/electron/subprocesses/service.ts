@@ -185,6 +185,12 @@ export const patchFile = async (
   const targetfilePath = path.normalize(filePath)
   const targetFileContent = await fsPromises.readFile(targetfilePath, 'utf-8')
   const targetFileLines = targetFileContent.split(/\r?\n/)
+  // Idempotency check: skip if any of the lines to insert are already present
+  if (
+    unindentedLinesToInsert.some((line) => targetFileLines.some((l) => l.includes(line.trim())))
+  ) {
+    return
+  }
   const lineAboveSpliceTargetIndex = targetFileLines.findIndex((l) =>
     l.includes(targetLineIncludes),
   )

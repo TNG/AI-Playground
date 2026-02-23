@@ -110,10 +110,11 @@ onUnmounted(() => {
   window.removeEventListener('resize', updateTooltipPosition)
 })
 
-const TOOLTIP_WIDTH = 400
-const TOOLTIP_GAP = 8
+const TOOLTIP_WIDTH = 400 // matches .tooltip-box width in demo-mode.css
+const TOOLTIP_GAP = 8 // matches --demo-mode-tooltip-gap in demo-mode.css
+const TOOLTIP_BORDER = 1.5 // matches .tooltip-box border: 1.5px in demo-mode.css
 const ARROW_HEIGHT = 12 // matches .tooltip-box::after border-top: 12px in demo-mode.css
-const ARROW_HALF_WIDTH = 11 // matches .tooltip-box::before border-left/right: 11px in demo-mode.css
+const ARROW_HALF_WIDTH = 10 // matches .tooltip-box::after border-left/right: 10px in demo-mode.css
 
 /**
  * Position the tooltip above the active mode button
@@ -131,18 +132,16 @@ function updateTooltipPosition() {
   }
 
   // position the tooltip
-  const tooltipLeft = Math.min(Math.max(rect.left, 8), window.innerWidth - TOOLTIP_WIDTH - 8)
+  const tooltipLeft = rect.left + rect.width / 2 - TOOLTIP_WIDTH / 2 - TOOLTIP_BORDER
   const tooltipBottom = window.innerHeight - rect.top + ARROW_HEIGHT + TOOLTIP_GAP
+
+  // position the arrow
+  const arrowLeft = TOOLTIP_WIDTH / 2 - ARROW_HALF_WIDTH + TOOLTIP_BORDER
+
   tooltipStyle.value = {
     bottom: `${tooltipBottom}px`,
     left: `${tooltipLeft}px`,
-  }
-
-  // position the arrow
-  const arrowLeft = rect.left + rect.width / 2 - tooltipLeft - ARROW_HALF_WIDTH
-  const tooltipBox = document.querySelector<HTMLElement>('.tooltip-box')
-  if (tooltipBox) {
-    tooltipBox.style.setProperty('--arrow-left', `${Math.max(arrowLeft, 8)}px`)
+    '--arrow-left': `${arrowLeft}px`,
   }
 }
 

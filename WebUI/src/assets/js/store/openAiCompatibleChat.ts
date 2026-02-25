@@ -374,7 +374,7 @@ export const useOpenAiCompatibleChat = defineStore(
       // 7. Persist conversation
       conversations.updateConversation(messages.value, conversations.activeKey)
 
-      // 7. Clear inputs
+      // 8. Clear inputs
       messageInput.value = ''
       fileInput.value = null
     }

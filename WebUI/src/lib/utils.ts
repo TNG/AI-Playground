@@ -261,9 +261,9 @@ export function isBase64DataUri(url: string | undefined | null): boolean {
 }
 
 /**
- * Saves a base64 data URI to the media directory via IPC and returns the aipg-media:// URL.
- * If the URL is not a base64 data URI, it is returned unchanged.
- * @param url - A base64 data URI or any other URL
+ * Saves a base64 image data URI to the media directory via IPC and returns the aipg-media:// URL.
+ * If the URL is not a base64 image data URI, it is returned unchanged.
+ * @param url - A base64 image data URI or any other URL
  * @returns The aipg-media:// URL if conversion was performed, or the original URL
  */
 export async function replaceBase64WithMediaUrl(url: string): Promise<string> {

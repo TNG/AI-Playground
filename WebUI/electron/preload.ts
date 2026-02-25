@@ -61,6 +61,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('showOpenDialog', options),
   reportClientEvent: (eventId: number) => ipcRenderer.send('reportClientEvent', eventId),
   saveImage: (url: string) => ipcRenderer.send('saveImage', url),
+  saveBase64AsMedia: (dataUri: string): Promise<string> =>
+    ipcRenderer.invoke('saveBase64AsMedia', dataUri),
   wakeupApiService: () => ipcRenderer.send('wakeupApiService'),
   openImageWin: (url: string, title: string, width: number, height: number) =>
     ipcRenderer.send('openImageWin', url, title, width, height),

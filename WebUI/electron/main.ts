@@ -522,6 +522,24 @@ function initEventHandle() {
     }
   })
 
+  ipcMain.handle(
+    'saveBase64AsMedia',
+    async (_event: IpcMainInvokeEvent, dataUri: string): Promise<string> => {
+      const match = dataUri.match(/^data:image\/(png|jpeg|webp|gif);base64,(.+)$/)
+      if (!match) {
+        throw new Error('Invalid base64 image data URI')
+      }
+      const ext = match[1] === 'jpeg' ? 'jpg' : match[1]
+      const base64Data = match[2]
+      const fileName = `${randomUUID()}.${ext}`
+      const chatUploadsDir = path.join(mediaDir, 'chat-uploads')
+      fs.mkdirSync(chatUploadsDir, { recursive: true })
+      const filePath = path.join(chatUploadsDir, fileName)
+      fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'))
+      return `aipg-media://chat-uploads/${fileName}`
+    },
+  )
+
   /** Get command line parameters when launched from IPOS to decide the default home page */
   ipcMain.handle('getInitialPage', () => {
     const startPageArg = process.argv.find((arg) => arg.startsWith('--start-page='))

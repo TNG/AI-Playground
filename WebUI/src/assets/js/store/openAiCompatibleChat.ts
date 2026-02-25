@@ -17,6 +17,7 @@ import z from 'zod'
 import { AipgTools } from '../tools/tools'
 import * as toast from '../toast'
 import { LanguageModelV2ToolResultOutput } from '@ai-sdk/provider'
+import { replaceBase64WithMediaUrl, isBase64ImageDataUri } from '@/lib/utils'
 
 const LlamaCppRawValueTimingsSchema = z.object({
   cache_n: z.number(),
@@ -59,6 +60,26 @@ export type AipgMetadata = {
 }
 
 export type AipgUiMessage = UIMessage<AipgMetadata, UIDataTypes, AipgTools>
+
+/**
+ * Walks through all messages and replaces base64 image data URIs
+ * in file parts with aipg-media:// URLs (saved to disk via IPC).
+ */
+async function replaceBase64ImagesInMessages(messages: AipgUiMessage[]): Promise<void> {
+  for (const message of messages) {
+    if (!message.parts) continue
+    for (const part of message.parts) {
+      if (
+        part.type === 'file' &&
+        'url' in part &&
+        typeof part.url === 'string' &&
+        isBase64ImageDataUri(part.url)
+      ) {
+        part.url = await replaceBase64WithMediaUrl(part.url)
+      }
+    }
+  }
+}
 
 export const useOpenAiCompatibleChat = defineStore(
   'openAiCompatibleChat',
@@ -347,7 +368,10 @@ export const useOpenAiCompatibleChat = defineStore(
         }
       }
 
-      // 6. Persist conversation
+      // 6. Replace base64 image data URIs with aipg-media:// URLs to avoid localStorage bloat
+      await replaceBase64ImagesInMessages(messages.value)
+
+      // 7. Persist conversation
       conversations.updateConversation(messages.value, conversations.activeKey)
 
       // 7. Clear inputs

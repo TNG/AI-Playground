@@ -252,6 +252,26 @@ export async function imageUrlToDataUri(url: string): Promise<string> {
   })
 }
 
+/**
+ * Checks if a string is a base64 data URI (any type, not just images).
+ */
+export function isBase64DataUri(url: string | undefined | null): boolean {
+  if (!url || typeof url !== 'string') return false
+  return /^data:[^;]+;base64,/.test(url)
+}
+
+/**
+ * Saves a base64 data URI to the media directory via IPC and returns the aipg-media:// URL.
+ * If the URL is not a base64 data URI, it is returned unchanged.
+ * @param url - A base64 data URI or any other URL
+ * @returns The aipg-media:// URL if conversion was performed, or the original URL
+ */
+export async function replaceBase64WithMediaUrl(url: string): Promise<string> {
+  if (!isBase64ImageDataUri(url)) return url
+  if (typeof window === 'undefined' || !window.electronAPI?.saveBase64AsMedia) return url
+  return window.electronAPI.saveBase64AsMedia(url)
+}
+
 export async function downscaleImageTo1MP(file: File): Promise<File> {
   const MAX_PIXELS = 1_000_000 // 1MP
 

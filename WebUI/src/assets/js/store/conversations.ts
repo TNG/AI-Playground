@@ -1,6 +1,9 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { AipgUiMessage } from './openAiCompatibleChat'
 
+// Regex for base64 data URIs — used in the serializer to strip them from persisted state
+const BASE64_DATA_URI_PATTERN = /^data:image\/[^;]+;base64,/
+
 export const useConversations = defineStore(
   'conversations',
   () => {
@@ -63,6 +66,17 @@ export const useConversations = defineStore(
       pick: ['conversationList'],
       afterHydrate: (ctx) =>
         addNewConversationIfLatestIsNotEmpty(ctx.store.$state.conversationList),
+      serializer: {
+        serialize: (state) => {
+          return JSON.stringify(state, (_key, value) => {
+            if (typeof value === 'string' && BASE64_DATA_URI_PATTERN.test(value)) {
+              return ''
+            }
+            return value
+          })
+        },
+        deserialize: (value) => JSON.parse(value),
+      },
     },
   },
 )

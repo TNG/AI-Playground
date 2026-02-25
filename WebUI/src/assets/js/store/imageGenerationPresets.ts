@@ -7,7 +7,7 @@ import { usePresets, type ComfyInput } from './presets'
 import { useUIStore } from './ui'
 import { PresetRequirementsData, useDialogStore } from './dialogs'
 import { getMissingComfyuiBackendModels } from './imageGenerationUtils'
-import { imageUrlToDataUri } from '@/lib/utils'
+import { imageUrlToDataUri, isBase64ImageDataUri, replaceBase64WithMediaUrl } from '@/lib/utils'
 
 export type GenerateState =
   | 'no_start'
@@ -434,9 +434,10 @@ export const useImageGenerationPresets = defineStore(
       const newImage: MediaItem = { ...image, id: crypto.randomUUID() }
       newImage.mode = mode
       if (image.type === 'image' && newImage.type === 'image') {
-        // Convert blob URL to base64 data URI for ComfyUI compatibility
         newImage.sourceImageUrl = image.imageUrl
-        newImage.imageUrl = await imageUrlToDataUri(image.imageUrl)
+        // Convert to data URI for ComfyUI compatibility, then persist as aipg-media:// URL
+        const dataUri = await imageUrlToDataUri(image.imageUrl)
+        newImage.imageUrl = await replaceBase64WithMediaUrl(dataUri)
         newImage.fromImageGen = true
       }
 
@@ -697,18 +698,30 @@ export const useImageGenerationPresets = defineStore(
           const filteredInputs: typeof comfyInputsPerPreset = {}
           Object.entries(comfyInputsPerPreset)
             .filter(([_, inputs]) => inputs !== undefined)
-            .map(([presetName, inputs]) => [
-              presetName,
-              Object.fromEntries(
-                Object.entries(inputs as Record<string, unknown>).filter(([key]) =>
-                  ['image', 'inpaintMask', 'video'].includes(key),
+            .forEach(([presetName, inputs]) => {
+              filteredInputs[presetName] = Object.fromEntries(
+                Object.entries(inputs as Record<string, unknown>).filter(
+                  ([_, value]) => typeof value !== 'string' || !isBase64ImageDataUri(value),
                 ),
-              ),
-            ])
+              )
+            })
           const imagesToPersist = Array.isArray(state.generatedImages)
             ? state.generatedImages
                 .filter((img) => img && img.state === 'done')
                 .toSorted((a: MediaItem, b: MediaItem) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
+                .map((img) => {
+                  const cleaned = { ...img }
+                  if ('imageUrl' in cleaned && isBase64ImageDataUri(cleaned.imageUrl as string)) {
+                    cleaned.imageUrl = ''
+                  }
+                  if (
+                    'sourceImageUrl' in cleaned &&
+                    isBase64ImageDataUri(cleaned.sourceImageUrl as string)
+                  ) {
+                    cleaned.sourceImageUrl = ''
+                  }
+                  return cleaned
+                })
             : state.generatedImages
           return JSON.stringify({
             ...state,

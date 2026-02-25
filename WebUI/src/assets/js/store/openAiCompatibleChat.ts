@@ -17,6 +17,11 @@ import z from 'zod'
 import { AipgTools } from '../tools/tools'
 import * as toast from '../toast'
 import { LanguageModelV2ToolResultOutput } from '@ai-sdk/provider'
+import {
+  imageUrlToDataUri,
+  isBase64ImageDataUri,
+  saveImageToMediaInput,
+} from '@/lib/utils'
 
 const LlamaCppRawValueTimingsSchema = z.object({
   cache_n: z.number(),
@@ -94,7 +99,28 @@ export const useOpenAiCompatibleChat = defineStore(
       let timings: z.infer<typeof LlamaCppRawValueTimingsSchema> | undefined = undefined
       let usage: LanguageModelUsage | undefined = undefined
       const systemPromptToUse = temporarySystemPrompt.value || textInference.systemPrompt
-      let messages = convertToModelMessages(m.messages) //.filter((m) => m.role !== 'tool')
+      let messages = convertToModelMessages(m.messages)
+
+      // Convert aipg-media image URLs to base64 for the backend
+      messages = await Promise.all(
+        messages.map(async (msg) => {
+          if (msg.role !== 'user' || !Array.isArray(msg.content)) return msg
+          const content = await Promise.all(
+            msg.content.map(async (part) => {
+              if (
+                part.type === 'file' &&
+                part.mediaType?.startsWith('image/') &&
+                typeof part.data === 'string' &&
+                part.data.startsWith('aipg-media://')
+              ) {
+                return { ...part, data: await imageUrlToDataUri(part.data) }
+              }
+              return part
+            }),
+          )
+          return { ...msg, content }
+        }),
+      )
 
       // Filter out annotatedImageUrl json from tool results
       messages = messages.map((m) => {
@@ -294,6 +320,32 @@ export const useOpenAiCompatibleChat = defineStore(
     const fileInput = ref<FileList | null>(null)
     const temporarySystemPrompt = ref<string | null>(null)
 
+    async function sanitizeMessagesForPersist(
+      msgs: AipgUiMessage[],
+    ): Promise<AipgUiMessage[]> {
+      return Promise.all(
+        msgs.map(async (msg) => {
+          if (!msg.parts || !Array.isArray(msg.parts)) return { ...msg }
+          const parts = await Promise.all(
+            msg.parts.map(async (part) => {
+              const filePart = part as { type: string; mediaType?: string; url?: string }
+              if (
+                filePart.type === 'file' &&
+                filePart.mediaType?.startsWith('image/') &&
+                typeof filePart.url === 'string' &&
+                isBase64ImageDataUri(filePart.url)
+              ) {
+                const aipgMediaUrl = await saveImageToMediaInput(filePart.url)
+                return { ...part, url: aipgMediaUrl }
+              }
+              return { ...part }
+            }),
+          )
+          return { ...msg, parts }
+        }),
+      )
+    }
+
     async function generate(question: string) {
       // 1. Ensure backend and models are ready
       await textInference.ensureReadyForInference()
@@ -347,8 +399,11 @@ export const useOpenAiCompatibleChat = defineStore(
         }
       }
 
-      // 6. Persist conversation
-      conversations.updateConversation(messages.value, conversations.activeKey)
+      // 6. Persist conversation (sanitize base64 image parts to aipg-media)
+      conversations.updateConversation(
+        await sanitizeMessagesForPersist(messages.value),
+        conversations.activeKey,
+      )
 
       // 7. Clear inputs
       messageInput.value = ''
@@ -365,21 +420,26 @@ export const useOpenAiCompatibleChat = defineStore(
       await textInference.ensureReadyForInference()
       manuallyStopped.value = false
       await chats[conversations.activeKey]?.regenerate({ messageId })
-      conversations.updateConversation(messages.value, conversations.activeKey)
+      conversations.updateConversation(
+        await sanitizeMessagesForPersist(messages.value),
+        conversations.activeKey,
+      )
     }
 
-    function removeMessage(messageId: string) {
+    async function removeMessage(messageId: string) {
       const chat = chats[conversations.activeKey]
       if (!chat) return
       const indexOfAssistantMeessage = chat.messages.findIndex((m) => m.id === messageId)
       console.log('removeMessage', { messageId, indexOfAssistantMeessage, messages: chat.messages })
-      // remove also the user message before the assistant message
       if (indexOfAssistantMeessage > 0) {
         chat.messages.splice(indexOfAssistantMeessage - 1, 2)
       } else {
         chat.messages.splice(indexOfAssistantMeessage, 1)
       }
-      conversations.updateConversation(chat.messages, conversations.activeKey)
+      conversations.updateConversation(
+        await sanitizeMessagesForPersist(chat.messages),
+        conversations.activeKey,
+      )
     }
 
     const error = computed(() => chats[conversations.activeKey]?.error?.message)

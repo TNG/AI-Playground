@@ -189,7 +189,12 @@
 
 <script setup lang="ts">
 import { getCurrentInstance, ref, computed, watch } from 'vue'
-import { mapModeToLabel, downscaleImageTo1MP, imageUrlToDataUri } from '@/lib/utils.ts'
+import {
+  mapModeToLabel,
+  downscaleImageTo1MP,
+  imageUrlToDataUri,
+  saveImageToMediaInput,
+} from '@/lib/utils.ts'
 import { useAudioRecorder } from '@/assets/js/store/audioRecorder'
 import { useSpeechToText } from '@/assets/js/store/speechToText'
 import { usePromptStore } from '@/assets/js/store/promptArea'
@@ -513,23 +518,20 @@ async function handleComfyUIImageUpload(imageFiles: File[]) {
   const imageUrl = URL.createObjectURL(imageFile)
 
   try {
-    // Convert to data URI for ComfyUI
     const dataUri = await imageUrlToDataUri(imageUrl)
+    const aipgMediaUrl = await saveImageToMediaInput(dataUri)
 
-    // Find first image input
     const firstImageInput = imageGeneration.comfyInputs.find((input) => input.type === 'image')
 
     if (firstImageInput) {
-      // Set the image input value
-      firstImageInput.current.value = dataUri
+      firstImageInput.current.value = aipgMediaUrl
 
-      // Create MediaItem and add to history (same as "Send to Edit")
       const imageItem: ImageMediaItem = {
         id: crypto.randomUUID(),
         type: 'image',
         mode: 'imageEdit',
         state: 'done',
-        imageUrl: dataUri,
+        imageUrl: aipgMediaUrl,
         sourceImageUrl: imageUrl,
         fromImageGen: true,
         settings: {},

@@ -18,6 +18,7 @@
       <h1 class="select-none flex gap-3 items-baseline">
         <span style="color: #00c4fa">AI</span>
         <span>PLAYGROUND</span>
+        <span>ESSENTIALS</span>
         <span v-if="platformTitle" class="text-sm font-normal">{{ platformTitle }}</span>
       </h1>
     </div>

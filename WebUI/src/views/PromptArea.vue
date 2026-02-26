@@ -115,7 +115,7 @@
         </div>
         <div class="absolute bottom-4 left-3 flex gap-2">
           <Button
-            v-for="mode in ['chat', 'imageGen', 'imageEdit', 'video'] as ModeType[]"
+            v-for="mode in modesWithPresets"
             :variant="promptStore.getCurrentMode() === mode ? 'default' : 'secondary'"
             :key="mode"
             @click="promptStore.setCurrentMode(mode)"
@@ -306,6 +306,26 @@ const shouldShowImageUploadButton = computed(() => {
   // For chat mode, use existing logic (vision model + RAG documents)
   return canAttachImages.value || canAttachDocuments.value
 })
+
+// Modes that have at least one preset (stable order: chat, imageGen, imageEdit, video)
+const modesWithPresets = computed(() => {
+  const modes: ModeType[] = []
+  if (presetsStore.chatPresets.length > 0) modes.push('chat')
+  if (presetsStore.imageGenPresets.length > 0) modes.push('imageGen')
+  if (presetsStore.imageEditPresets.length > 0) modes.push('imageEdit')
+  if (presetsStore.videoPresets.length > 0) modes.push('video')
+  return modes
+})
+
+// Redirect current mode if it no longer has presets (e.g. after preset list reload)
+watch(
+  [modesWithPresets, () => promptStore.getCurrentMode()],
+  ([modes, currentMode]) => {
+    if (modes.length > 0 && currentMode && !modes.includes(currentMode)) {
+      promptStore.setCurrentMode(modes[0])
+    }
+  },
+)
 
 // Get checked RAG documents for display
 const checkedRagDocuments = computed(() => {

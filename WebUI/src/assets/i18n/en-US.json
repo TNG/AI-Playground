@@ -234,7 +234,7 @@
   "ERROR_PYTHON_BACKEND_INIT_DETAILS": "Details",
   "ERROR_PYTHON_BACKEND_INIT_OPEN_LOG": "Open Log",
   "WARNING_MODEL_TYPE_WRONG": "The model type doesn't seem to fit the requirements. Are you sure, you want to continue?",
-  "BACKEND_MANAGE": "AI Playground Setup",
+  "BACKEND_MANAGE": "AI Playground Essentials Setup",
   "BACKEND_REQUIRED_COMPONENTS": "Required Components",
   "BACKEND_OPTIONAL_COMPONENTS": "Optional Components",
   "BACKEND_SINGLE_COMPONENT": "Component ",

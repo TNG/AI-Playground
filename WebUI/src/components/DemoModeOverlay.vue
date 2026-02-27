@@ -9,7 +9,6 @@
         demoMode.video.show
       "
     >
-
       <!-- Center Heading -->
       <div class="center-popup">
         <p v-if="demoMode.chat.show">{{ i18n.DEMO_CHAT_HEADING }}</p>
@@ -21,7 +20,6 @@
       <!-- tooltips -->
       <div class="tooltip-wrapper" :style="tooltipStyle">
         <div class="tooltip-box">
-
           <!-- chat tooltip -->
           <template v-if="demoMode.chat.show">
             <div class="tooltip-row">
@@ -74,7 +72,6 @@
               {{ i18n.DEMO_OK_GOT_IT }} &#8594;
             </button>
           </div>
-
         </div>
       </div>
     </div>
@@ -125,17 +122,17 @@ function updateTooltipPosition() {
     tooltipStyle.value = {}
     return
   }
-  const rect = getButtonRect(mode)
+  
+  const targetElementId = `mode-button-${mode}`
+
+  const rect = getButtonRect(targetElementId)
   if (!rect) {
     tooltipStyle.value = {}
     return
   }
 
   // position the tooltip
-  const tooltipLeft = Math.min(
-    Math.max(rect.left, 8),
-    window.innerWidth - TOOLTIP_WIDTH - 8
-  )
+  const tooltipLeft = Math.min(Math.max(rect.left, 8), window.innerWidth - TOOLTIP_WIDTH - 8)
   const tooltipBottom = window.innerHeight - rect.top + ARROW_HEIGHT + TOOLTIP_GAP
 
   // position the arrow
@@ -149,8 +146,8 @@ function updateTooltipPosition() {
   }
 }
 
-function getButtonRect(mode: string) {
-  const el = document.getElementById(`mode-button-${mode}`)
+function getButtonRect(targetElementId: string) {
+  const el = document.getElementById(targetElementId)
   return el ? el.getBoundingClientRect() : null
 }
 

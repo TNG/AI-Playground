@@ -353,5 +353,13 @@
   "DEMO_IMAGE_EDIT_IMAGE_TEXT_2": "Move the slider left to preserve more of the original image, or right to align more closely with your text prompt.",
   "DEMO_IMAGE_EDIT_OUTPAINT_TEXT": "Describe how you'd like to expand the image.",
   "DEMO_IMAGE_EDIT_OUTPAINT_TEXT_2": "Use the arrows below to choose the direction of the expansion.",
-  "DEMO_IMAGE_EDIT_OUTPAINT_TEXT_3": "Move the slider left to preserve more of the original image, or right to align more closely with your text prompt."
+  "DEMO_IMAGE_EDIT_OUTPAINT_TEXT_3": "Move the slider left to preserve more of the original image, or right to align more closely with your text prompt.",
+
+  "DEMO_STARTING_TIP": "AI Playground works similar to online AI Tools but runs offline using your own hardware to generate. To get started select a mode like Chat, Image Gen, or Image Edit to get started.",
+  "DEMO_CHAT_TIP": "Select Chat to ask a general knowledge questions, or Click the “+” icon to load a document or image to get an answer about it",
+  "DEMO_CHAT_FOLLOWUP_TIP": "When enabled, Chat Settings expose presets for Reasoning, Vision, Agentic and more, where you can add or select models to use, set the token limits, and target a processors for use.",
+  "DEMO_IMAGE_GEN_TIP": "With Image Gen selected simply describe an image to generate, describe a scene, a character, their look, the background, the mood and style",
+  "DEMO_IMAGE_GEN_FOLLOWUP_TIP": "Image Gen Settings, when enabled, will give you access to options to generate using different quality, control the likeness of characters, and set the resolution and aspect ratio of the final image",
+  "DEMO_IMAGE_EDIT_TIP": "Image Edit has the Edit By Prompt feature already enabled. Try it by typing how this image should change, such as ‘remove people’",
+  "DEMO_IMAGE_EDIT_FOLLOWUP_TIP": "Additionally Image Edit settings will give you access to additional image editing tools like Image Upscale, Inpaint, Outpaint, 2D to 3D Models and more"
 }

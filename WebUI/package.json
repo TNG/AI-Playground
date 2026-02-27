@@ -14,7 +14,8 @@
     "lint": "eslint . --fix",
     "format": "prettier --write .",
     "lint:ci": "eslint .",
-    "format:ci": "prettier --check ."
+    "format:ci": "prettier --check .",
+    "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.88",

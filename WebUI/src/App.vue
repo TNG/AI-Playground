@@ -512,12 +512,6 @@ function startTour() {
   demoModeOverlayDriverJs.value?.startTour?.()
 }
 
-watch(
-  () => promptStore.getCurrentMode(),
-  () => {
-    triggerHelpForCurrentMode()
-  },
-)
 
 watch(
   () => globalSetup.loadingState,

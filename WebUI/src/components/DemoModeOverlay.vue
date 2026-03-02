@@ -122,7 +122,7 @@ function updateTooltipPosition() {
     tooltipStyle.value = {}
     return
   }
-  
+
   const targetElementId = `mode-button-${mode}`
 
   const rect = getButtonRect(targetElementId)

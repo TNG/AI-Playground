@@ -168,16 +168,20 @@
           'bottom-27': footerExpanded,
         }"
       >
-        <button
-          @click="openAppSettings"
-          class="svg-icon i-setup w-6 h-6 text-foreground hover:text-foreground/80 transition-colors"
-          title="App Settings"
-        ></button>
-        <button
-          @click="openDevTools"
-          class="svg-icon i-code w-6 h-6 text-foreground hover:text-foreground/80 transition-colors"
-          title="Developer Tools"
-        ></button>
+        <DemoModeBlocker>
+          <button
+            @click="openAppSettings"
+            class="svg-icon i-setup w-6 h-6 text-foreground hover:text-foreground/80 transition-colors"
+            title="App Settings"
+          ></button>
+        </DemoModeBlocker>
+        <DemoModeBlocker>
+          <button
+            @click="openDevTools"
+            class="svg-icon i-code w-6 h-6 text-foreground hover:text-foreground/80 transition-colors"
+            title="Developer Tools"
+          ></button>
+        </DemoModeBlocker>
       </div>
       <Chat v-if="promptStore.getCurrentMode() === 'chat'" ref="chatRef" />
       <WorkflowResult
@@ -303,6 +307,7 @@ import { useUIStore } from '@/assets/js/store/ui.ts'
 import { useSpeechToText } from '@/assets/js/store/speechToText'
 import * as toast from '@/assets/js/toast'
 import DemoModeOverlayDriverJsRef from './components/DemoModeOverlayDriverJs.vue'
+import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 
 const backendServices = useBackendServices()
 const theme = useTheme()

@@ -116,7 +116,7 @@
         </div>
         <div id="mode-buttons" class="absolute bottom-4 left-3 flex gap-2">
           <Button
-            v-for="mode in ['chat', 'imageGen', 'imageEdit', 'video'] as ModeType[]"
+            v-for="mode in ['chat', 'imageGen', 'imageEdit'] as ModeType[]"
             :variant="promptStore.getCurrentMode() === mode ? 'default' : 'secondary'"
             :key="mode"
             :id="'mode-button-' + mode"
@@ -125,6 +125,16 @@
           >
             {{ mapModeToLabel(mode) }}
           </Button>
+          <DemoModeBlocker>
+            <Button
+              :variant="promptStore.getCurrentMode() === 'video' ? 'default' : 'secondary'"
+              :id="'mode-button-video'"
+              :class="{ 'demo-mode-overlay-content': isDemoModeHighlighted('video') }"
+              @click="promptStore.setCurrentMode('video')"
+            >
+              {{ mapModeToLabel('video') }}
+            </Button>
+          </DemoModeBlocker>
         </div>
         <div class="absolute bottom-4 right-3 flex gap-2">
           <Button
@@ -222,6 +232,7 @@ import * as toast from '@/assets/js/toast'
 import { Context } from '@/components/ui/context'
 import Button from '@/components/ui/button/Button.vue'
 import { useDemoMode } from '@/assets/js/store/demoMode'
+import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 
 const instance = getCurrentInstance()
 const audioRecorder = useAudioRecorder()

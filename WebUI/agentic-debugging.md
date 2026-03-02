@@ -4,7 +4,7 @@ For 'agentic debugging' in OpenCode, Chrome DevTools MCP can be used to inspect 
 
 **Usage:**
 
-1. `npm run dev`
+1. `npm run dev` (adjust `AIPG_DEBUGGING_PORT` in `package.json` if required)
 2. Run `opencode`, press "Ctrl-P" and check "Toggle MCPs" shows "chrome-devtools connected" (config has it disabled per default)
 3. In Opencode ask to:
    - `list pages`
@@ -15,8 +15,8 @@ For 'agentic debugging' in OpenCode, Chrome DevTools MCP can be used to inspect 
 
 **Relevant files:**
 
-- `.opencode/opencode.json` - MCP config for chrome-devtools-mcp connecting to port 9222
-- `electron/main.ts` - Adds `app.commandLine.appendSwitch("remote-debugging-port", "9222")` during dev mode
+- `.opencode/opencode.json` - MCP config for chrome-devtools-mcp connecting to port 29222
+- `electron/main.ts` - Adds `app.commandLine.appendSwitch("remote-debugging-port", "29222")` during dev mode
 
 **Sources:**
 

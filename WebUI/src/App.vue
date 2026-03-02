@@ -517,6 +517,7 @@ watch(
   () => globalSetup.loadingState,
   (state) => {
     if (state === 'running' && demoMode.enabled) {
+      void demoMode.applyExplicitDefaults()
       setTimeout(() => triggerHelpForCurrentMode(), 2200)
     }
   },

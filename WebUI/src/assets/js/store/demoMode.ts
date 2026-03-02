@@ -1,4 +1,5 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
+import { applyDemoModeExplicitDefaults } from './demoModeDefaults'
 
 const chatInitial = {
   show: false,
@@ -29,6 +30,8 @@ const imageEditInitial = {
 }
 export const useDemoMode = defineStore('demoMode', () => {
   const enabled = ref(false)
+  const explicitDefaultsApplied = ref(false)
+  const explicitDefaultsApplying = ref(false)
 
   let resetTimer: null | ReturnType<typeof setTimeout> = null
   let trackUserInteractionInterval: null | ReturnType<typeof setInterval> = null
@@ -147,6 +150,20 @@ export const useDemoMode = defineStore('demoMode', () => {
     }
   }
 
+  async function applyExplicitDefaults() {
+    if (!enabled.value || explicitDefaultsApplied.value || explicitDefaultsApplying.value) return
+
+    explicitDefaultsApplying.value = true
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      const defaults = await applyDemoModeExplicitDefaults()
+      imageEdit.value.feature = defaults.imageEditFeature
+      explicitDefaultsApplied.value = true
+    } finally {
+      explicitDefaultsApplying.value = false
+    }
+  }
+
   watch(
     () => imageEdit.value.show,
     (showImageEdit) => {
@@ -189,6 +206,7 @@ export const useDemoMode = defineStore('demoMode', () => {
     imageGen,
     imageEdit,
     video,
+    applyExplicitDefaults,
     triggerHelp,
   }
 })

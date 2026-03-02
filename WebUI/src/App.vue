@@ -40,6 +40,7 @@
         <ServerStackIcon class="size-6 text-foreground"></ServerStackIcon>
       </button>
       <button
+        id="demo-start-button"
         v-if="demoMode.enabled && globalSetup.loadingState === 'running'"
         class="bg-[#01aef2] text-white px-3 rounded text-xs cursor-pointer"
         style="height: 30px; min-width: 90px"
@@ -217,7 +218,8 @@
     <MaskEditorDialog />
 
     <!-- Demo Mode Overlay -->
-    <DemoModeOverlay />
+    <!-- <DemoModeOverlay /> -->
+    <DemoModeOverlayDriverJsRef ref="demoModeOverlayDriverJs" />
   </main>
 
   <footer
@@ -300,6 +302,7 @@ import SideModalSpecificSettings from '@/components/SideModalSpecificSettings.vu
 import { useUIStore } from '@/assets/js/store/ui.ts'
 import { useSpeechToText } from '@/assets/js/store/speechToText'
 import * as toast from '@/assets/js/toast'
+import DemoModeOverlayDriverJsRef from './components/DemoModeOverlayDriverJs.vue'
 
 const backendServices = useBackendServices()
 const theme = useTheme()
@@ -311,6 +314,7 @@ const uiStore = useUIStore()
 const speechToText = useSpeechToText()
 
 const addLLMCompt = ref<InstanceType<typeof AddLLMDialog>>()
+const demoModeOverlayDriverJs = ref<InstanceType<typeof DemoModeOverlayDriverJsRef>>()
 const showSettingBtn = ref<HTMLButtonElement>()
 const chatRef = ref<{
   handleSubmitPromptClick: (prompt: string) => void
@@ -485,17 +489,22 @@ function openAppSettings() {
 }
 
 function triggerHelpForCurrentMode(force = false) {
-  const mode = promptStore.getCurrentMode()
-  if (mode === 'chat') {
-    demoMode.triggerHelp('chat', force)
-  } else if (mode === 'imageGen') {
-    demoMode.triggerHelp('imageGen', force)
-  } else if (mode === 'imageEdit') {
-    demoMode.imageEdit.feature = 'prompt'
-    demoMode.triggerHelp('imageEdit', force)
-  } else if (mode === 'video') {
-    demoMode.triggerHelp('video', force)
-  }
+  // const mode = promptStore.getCurrentMode()
+  // if (mode === 'chat') {
+  //   demoMode.triggerHelp('chat', force)
+  // } else if (mode === 'imageGen') {
+  //   demoMode.triggerHelp('imageGen', force)
+  // } else if (mode === 'imageEdit') {
+  //   demoMode.imageEdit.feature = 'prompt'
+  //   demoMode.triggerHelp('imageEdit', force)
+  // } else if (mode === 'video') {
+  //   demoMode.triggerHelp('video', force)
+  // }
+  startTour()
+}
+
+function startTour() {
+  demoModeOverlayDriverJs.value?.startTour?.()
 }
 
 watch(

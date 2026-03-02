@@ -66,6 +66,7 @@
           </div>
         </div>
         <textarea
+          id="chat-input"
           ref="textareaRef"
           class="resize-none w-full h-48 px-4 pb-16 bg-background/50 rounded-md outline-none border border-border focus-visible:ring-[1px] focus-visible:ring-primary"
           :class="{
@@ -157,6 +158,7 @@
             </div>
           </Button>
           <Button
+            id="advanced-settings-button"
             class="px-3 py-1.5 bg-muted hover:bg-muted/80 text-foreground rounded-lg text-sm font-normal"
             @click="$emit('openSettings')"
           >

@@ -1,5 +1,6 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { useComfyUiPresets } from './comfyUiPresets'
+import { useDemoMode } from './demoMode'
 import { useI18N } from './i18n'
 import * as toast from '@/assets/js/toast.ts'
 import { useBackendServices } from './backendServices'
@@ -8,6 +9,7 @@ import { useUIStore } from './ui'
 import { PresetRequirementsData, useDialogStore } from './dialogs'
 import { getMissingComfyuiBackendModels } from './imageGenerationUtils'
 import { imageUrlToDataUri } from '@/lib/utils'
+import dogOnBeachImage from '@/assets/image/dog_on_a_beach.png'
 
 export type GenerateState =
   | 'no_start'
@@ -104,6 +106,7 @@ export { findBestResolution } from './imageGenerationUtils'
 export const useImageGenerationPresets = defineStore(
   'imageGenerationPresets',
   () => {
+    const demoMode = useDemoMode()
     const presetsStore = usePresets()
     const comfyUi = useComfyUiPresets()
     const backendServices = useBackendServices()
@@ -426,6 +429,17 @@ export const useImageGenerationPresets = defineStore(
         if (currentImageInput) {
           currentImageInput.current.value = image.imageUrl
           console.log('### loaded image into first dynamic image input', image.id)
+        }
+      }
+
+      preloadImageDuringDemo()
+    }
+
+    async function preloadImageDuringDemo() {
+      if (demoMode.enabled && activePreset.value?.category === 'edit-images') {
+        const currentImageInput = comfyInputs.value.find((input) => input.type === 'image')
+        if (currentImageInput) {
+          currentImageInput.current.value = await imageUrlToDataUri(dogOnBeachImage)
         }
       }
     }

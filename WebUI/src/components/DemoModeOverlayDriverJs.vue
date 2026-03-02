@@ -19,26 +19,32 @@ const steps: StepList = [
     id: '#demo-start-button',
     title: 'Welcome to Intel AI-Playground!',
     descr:
-      'Intel AI-Playground is a generative AI app that provides local-powered chat, image, and video capabilities. You can always restart the tour through the app with this button. Click "Next" or press "Right" to start the tour. You can click the "Need Help" button anytime to restart the tour.',
-  },
-  {
-    id: '#mode-buttons',
-    title: 'Mode buttons',
-    descr:
-      'Different modes, text works like typical ai chat, the others allow to create or edit images, and work with video.',
+      'Intel AI-Playground is a generative AI app that provides local-powered chat, image, and video capabilities. You can start the tour anytime with the "Need Help?" button in the upper left. Click "Next" or press "Right" to start the tour.',
   },
   {
     id: '#chat-input',
-    title: 'Add Images or documents',
+    title: 'Add Images or Documents',
     descr:
-      'Drag and drop, or use the small plus button in lower left, to add images or documents to the current conversation. You can then ask questions about them, or use them as context for generating new content.',
+      'Drag and drop, or use the small plus button in lower left, to add images or documents to the current conversation. You can ask questions about them, use them as context for generating new content. Or just chat.',
+  },
+  {
+    id: '#mode-buttons',
+    title: 'Pick your Mode',
+    descr:
+      'Chat works like a typical AI chat. The image buttons allow you to generate or edit existing images. And with video it is even possible to work on videos or 3D models.',
   },
   {
     id: '#advanced-settings-button',
     title: 'Settings',
     descr:
-      'Modes have advanced settings, like different presets, picking models, and other configurations. You can access them through this button.',
+      'Modes have advanced settings, like presets, models, and other configurations. You can access them through this button.',
   },
+  {
+    id: '#send-button',
+    title: 'Ready to start?',
+    descr:
+      'Enter a message and press this button to get your first response.',
+  }
 ]
 
 const driverObj = driver({

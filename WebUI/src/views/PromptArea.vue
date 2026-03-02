@@ -177,6 +177,7 @@
           <Button
             v-if="readyForNewSubmit"
             @click="handleSubmitPromptClick"
+            id="send-button"
             class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px]"
           >
             →

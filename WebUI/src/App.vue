@@ -224,6 +224,7 @@
     <!-- Demo Mode Overlay -->
     <!-- <DemoModeOverlay /> -->
     <DemoModeOverlayDriverJsRef ref="demoModeOverlayDriverJs" />
+    <DemoModeIndicator />
   </main>
 
   <footer
@@ -290,6 +291,7 @@ import WarningDialog from '@/components/WarningDialog.vue'
 import PresetRequirementsDialog from '@/components/PresetRequirementsDialog.vue'
 import InstallationProgressDialog from '@/components/InstallationProgressDialog.vue'
 import MaskEditorDialog from '@/components/MaskEditorDialog.vue'
+import DemoModeIndicator from '@/components/DemoModeIndicator.vue'
 import DemoModeOverlay from '@/components/DemoModeOverlay.vue'
 import { useBackendServices } from './assets/js/store/backendServices.ts'
 import { ServerStackIcon } from '@heroicons/vue/24/solid'

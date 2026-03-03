@@ -18,41 +18,48 @@ export function findTempFolders(baseDir: string): string[] {
 }
 
 export function cleanupTempFolders(baseDir: string) {
-  logger.info(`[tmpCleanup] Attempting to clean up temp folders in: ${baseDir}`, LOG_SOURCE)
-  if (!fs.existsSync(baseDir)) {
-    logger.warn(`[tmpCleanup] Base directory does not exist: ${baseDir}`, LOG_SOURCE)
-    return
-  }
+  try {
+    logger.info(`[tmpCleanup] Attempting to clean up temp folders in: ${baseDir}`, LOG_SOURCE)
+    if (!fs.existsSync(baseDir)) {
+      logger.warn(`[tmpCleanup] Base directory does not exist: ${baseDir}`, LOG_SOURCE)
+      return
+    }
 
-  if (!path.normalize(baseDir).split(path.sep).includes(REQUIRED_PARENT_FOLDER)) {
-    logger.warn(
-      `[tmpCleanup] Base directory does not contain a ${REQUIRED_PARENT_FOLDER} folder. This should not happen, aborting.`,
-      LOG_SOURCE,
-    )
-    return
-  }
-
-  const tempFolders = findTempFolders(baseDir)
-
-  if (tempFolders.length === 0) {
-    logger.info(`[tmpCleanup] No temp folders found.`, LOG_SOURCE)
-    return
-  }
-
-  logger.info(`[tmpCleanup] Found the following temp folder(s):`, LOG_SOURCE)
-  for (const tempFolder of tempFolders) {
-    logger.info(`[tmpCleanup] - ${tempFolder}`, LOG_SOURCE)
-  }
-
-  for (const tempFolder of tempFolders) {
-    try {
-      logger.info(`[tmpCleanup] Removing: ${tempFolder}`, LOG_SOURCE)
-      fs.rmSync(tempFolder, { recursive: true, force: true })
-    } catch (error) {
-      logger.error(
-        `[tmpCleanup] Failed to remove ${tempFolder}: ${error instanceof Error ? error.message : String(error)}`,
+    if (!path.normalize(baseDir).split(path.sep).includes(REQUIRED_PARENT_FOLDER)) {
+      logger.warn(
+        `[tmpCleanup] Base directory does not contain a ${REQUIRED_PARENT_FOLDER} folder. This should not happen, aborting.`,
         LOG_SOURCE,
       )
+      return
     }
+
+    const tempFolders = findTempFolders(baseDir)
+
+    if (tempFolders.length === 0) {
+      logger.info(`[tmpCleanup] No temp folders found.`, LOG_SOURCE)
+      return
+    }
+
+    logger.info(`[tmpCleanup] Found the following temp folder(s):`, LOG_SOURCE)
+    for (const tempFolder of tempFolders) {
+      logger.info(`[tmpCleanup] - ${tempFolder}`, LOG_SOURCE)
+    }
+
+    for (const tempFolder of tempFolders) {
+      try {
+        logger.info(`[tmpCleanup] Removing: ${tempFolder}`, LOG_SOURCE)
+        fs.rmSync(tempFolder, { recursive: true, force: true })
+      } catch (error) {
+        logger.error(
+          `[tmpCleanup] Failed to remove ${tempFolder}: ${error instanceof Error ? error.message : String(error)}`,
+          LOG_SOURCE,
+        )
+      }
+    }
+  } catch (err) {
+    logger.error(
+      `Fatal error in cleanupTempFolders: ${err instanceof Error ? err.message : String(err)}`,
+      LOG_SOURCE,
+    )
   }
 }

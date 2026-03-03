@@ -512,7 +512,6 @@ function startTour() {
   demoModeOverlayDriverJs.value?.startTour?.()
 }
 
-
 watch(
   () => globalSetup.loadingState,
   (state) => {

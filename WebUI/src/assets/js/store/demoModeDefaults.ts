@@ -5,8 +5,7 @@ import { usePromptStore } from './promptArea'
 export type DemoImageEditFeature = 'upscale' | 'prompt' | 'inpaint' | 'outpaint'
 
 export const DEMO_CHAT_PRESET = 'Vision'
-export const DEMO_CHAT_MODEL =
-  'unsloth/Qwen3-VL-4B-Instruct-GGUF/Qwen3-VL-4B-Instruct-Q5_K_S.gguf'
+export const DEMO_CHAT_MODEL = 'unsloth/Qwen3-VL-4B-Instruct-GGUF/Qwen3-VL-4B-Instruct-Q5_K_S.gguf'
 export const DEMO_IMAGEGEN_PRESET = 'HD Image'
 export const DEMO_IMAGEEDIT_PRESET = 'Edit By Prompt'
 export const DEMO_IMAGEEDIT_FEATURE: DemoImageEditFeature = 'prompt'
@@ -38,4 +37,3 @@ export async function applyDemoModeExplicitDefaults(): Promise<{
     imageEditFeature: DEMO_IMAGEEDIT_FEATURE,
   }
 }
-

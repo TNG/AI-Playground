@@ -42,9 +42,8 @@ const steps: StepList = [
   {
     id: '#send-button',
     title: 'Ready to start?',
-    descr:
-      'Enter a message and press this button to get your first response.',
-  }
+    descr: 'Enter a message and press this button to get your first response.',
+  },
 ]
 
 const driverObj = driver({

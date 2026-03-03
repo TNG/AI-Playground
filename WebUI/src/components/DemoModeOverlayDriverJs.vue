@@ -73,43 +73,10 @@ defineExpose({
 </script>
 
 <style>
-/* Driver.js popover arrow styling to match tooltip border color */
-.driver-popover::before {
-  content: '';
-  position: absolute;
-  width: 0;
-  height: 0;
-  border-left: 11px solid transparent;
-  border-right: 11px solid transparent;
-  border-top: 14px solid #00c4fa;
-  left: 40px;
-  bottom: -14px;
-  z-index: 1;
-}
-.driver-popover::after {
-  content: '';
-  position: absolute;
-  width: 0;
-  height: 0;
-  border-left: 10px solid transparent;
-  border-right: 10px solid transparent;
-  border-top: 12px solid #0a0622;
-  left: 41px;
-  bottom: -11px;
-  z-index: 2;
-}
-
-/* Driver.js popover arrow styling to match tooltip border color */
-.driver-popover-arrow {
-  /* border-top-color: #00c4fa !important;
-  border-bottom-color: #00c4fa !important;
-  border-left-color: #00c4fa !important;
-  border-right-color: #00c4fa !important; */
-  border-left: 10px solid transparent;
-  border-right: 10px solid transparent;
-}
-
 /* Driver.js popover styling inspired by demo-mode.css */
+
+/* DIALOG */
+
 .driver-popover {
   background: #0a0622;
   color: #fff;
@@ -136,6 +103,9 @@ defineExpose({
   border-top: 1px solid #00c4fa;
   margin-top: 1em;
 }
+
+/* BUTTON */
+
 .driver-popover-next-btn,
 .driver-popover-prev-btn {
   background: #01aef2;
@@ -172,6 +142,44 @@ defineExpose({
 
 .driver-active-element {
   box-shadow: 0 0 0 5px #00bfff;
+}
+
+/* ARROW */
+
+/* Driver.js popover arrow styling to match tooltip border color */
+.driver-popover::before {
+  content: '';
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-left: 11px solid transparent;
+  border-right: 11px solid transparent;
+  border-top: 14px solid #00c4fa;
+  left: 40px;
+  bottom: -14px;
+  z-index: 1;
+}
+.driver-popover::after {
+  content: '';
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-top: 12px solid #0a0622;
+  left: 41px;
+  bottom: -11px;
+  z-index: 2;
+}
+
+/* Driver.js popover arrow styling to match tooltip border color */
+.driver-popover-arrow {
+  /* border-top-color: #00c4fa !important;
+  border-bottom-color: #00c4fa !important;
+  border-left-color: #00c4fa !important;
+  border-right-color: #00c4fa !important; */
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
 }
 
 .driver-popover.driverjs-theme .driver-popover-arrow-side-left.driver-popover-arrow {

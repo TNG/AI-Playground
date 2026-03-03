@@ -10,6 +10,7 @@ type Step = {
   id: string
   title: string
   descr: string
+  align?: 'start' | 'center' | 'end'
 }
 
 type StepList = Step[]
@@ -38,11 +39,13 @@ const steps: StepList = [
     title: 'Settings',
     descr:
       'Modes have advanced settings, like presets, models, and other configurations. You can access them through this button.',
+    align: 'end',
   },
   {
     id: '#send-button',
     title: 'Ready to start?',
     descr: 'Enter a message and click here to get your first response.',
+    align: 'end',
   },
 ]
 
@@ -50,12 +53,14 @@ const driverObj = driver({
   showProgress: true,
   showButtons: ['next', 'previous', 'close'],
   doneBtnText: 'Got it!',
+  popoverOffset: 20,
   steps: steps.map((step) => ({
     element: step.id,
     popover: {
       title: step.title,
       description: step.descr,
       side: 'top',
+      align: step.align,
     },
   })),
 })
@@ -150,7 +155,8 @@ defineExpose({
 /* HIGHLIGHTED ELEMENT */
 
 .driver-active-element {
-  box-shadow: 0 0 0 5px #00bfff;
+  /* box-shadow: 0 0 0 5px #00bfff; */
+  /* outline: 5px solid #00bfff; */
 }
 
 /* ARROW */

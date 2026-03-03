@@ -1,5 +1,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { appLoggerInstance } from './logging/logger.ts'
+
+const logger = appLoggerInstance
+const LOG_SOURCE = 'tmpCleanup'
 
 // Matches temp folders created by model_downloader.py getTmpPath(), e.g.
 // fd824df26f56f9a3_tmp, 0a1b2c3d4e5f6789_tmp, etc.
@@ -14,15 +18,16 @@ export function findTempFolders(baseDir: string): string[] {
 }
 
 export function cleanupTempFolders(baseDir: string) {
-  console.log(`[tmpCleanup] Attempting to clean up temp folders in: ${baseDir}`)
+  logger.info(`[tmpCleanup] Attempting to clean up temp folders in: ${baseDir}`, LOG_SOURCE)
   if (!fs.existsSync(baseDir)) {
-    console.warn(`[tmpCleanup] Base directory does not exist: ${baseDir}`)
+    logger.warn(`[tmpCleanup] Base directory does not exist: ${baseDir}`, LOG_SOURCE)
     return
   }
 
   if (!path.normalize(baseDir).split(path.sep).includes(REQUIRED_PARENT_FOLDER)) {
-    console.warn(
+    logger.warn(
       `[tmpCleanup] Base directory does not contain a ${REQUIRED_PARENT_FOLDER} folder. This should not happen, aborting.`,
+      LOG_SOURCE,
     )
     return
   }
@@ -30,21 +35,24 @@ export function cleanupTempFolders(baseDir: string) {
   const tempFolders = findTempFolders(baseDir)
 
   if (tempFolders.length === 0) {
-    console.log(`[tmpCleanup] No temp folders found.`)
+    logger.info(`[tmpCleanup] No temp folders found.`, LOG_SOURCE)
     return
   }
 
-  console.log(`[tmpCleanup] Found the following temp folder(s):`)
+  logger.info(`[tmpCleanup] Found the following temp folder(s):`, LOG_SOURCE)
   for (const tempFolder of tempFolders) {
-    console.log(`[tmpCleanup] - ${tempFolder}`)
+    logger.info(`[tmpCleanup] - ${tempFolder}`, LOG_SOURCE)
   }
 
   for (const tempFolder of tempFolders) {
     try {
-      console.log(`[tmpCleanup] Removing: ${tempFolder}`)
+      logger.info(`[tmpCleanup] Removing: ${tempFolder}`, LOG_SOURCE)
       fs.rmSync(tempFolder, { recursive: true, force: true })
     } catch (error) {
-      console.error(`[tmpCleanup] Failed to remove ${tempFolder}:`, error)
+      logger.error(
+        `[tmpCleanup] Failed to remove ${tempFolder}: ${error instanceof Error ? error.message : String(error)}`,
+        LOG_SOURCE,
+      )
     }
   }
 }

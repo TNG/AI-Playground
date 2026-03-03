@@ -191,19 +191,19 @@ defineExpose({
   border-right: 10px solid transparent;
 }
 
-.driver-popover.driverjs-theme .driver-popover-arrow-side-left.driver-popover-arrow {
-  border-left-color: #fde047;
+.driver-popover-arrow-side-left.driver-popover-arrow {
+  border-left-color: #00c4fa;
 }
 
-.driver-popover.driverjs-theme .driver-popover-arrow-side-right.driver-popover-arrow {
-  border-right-color: #fde047;
+.driver-popover-arrow-side-right.driver-popover-arrow {
+  border-right-color: #00c4fa;
 }
 
-.driver-popover.driverjs-theme .driver-popover-arrow-side-top.driver-popover-arrow {
-  border-top-color: #fde047;
+.driver-popover-arrow-side-top.driver-popover-arrow {
+  border-top-color: #00c4fa;
 }
 
-.driver-popover.driverjs-theme .driver-popover-arrow-side-bottom.driver-popover-arrow {
-  border-bottom-color: #fde047;
+.driver-popover-arrow-side-bottom.driver-popover-arrow {
+  border-bottom-color: #00c4fa;
 }
 </style>

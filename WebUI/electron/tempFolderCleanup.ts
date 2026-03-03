@@ -10,17 +10,27 @@ const LOG_SOURCE = 'tmpCleanup'
 export const TMP_FOLDER_PATTERN = /^[0-9a-f]{16}_tmp$/
 const REQUIRED_PARENT_FOLDER = 'models'
 
-export function findTempFolders(baseDir: string): string[] {
-  const entries = fs.readdirSync(baseDir, { recursive: true, withFileTypes: true })
-  return entries
-    .filter((e) => e.isDirectory() && TMP_FOLDER_PATTERN.test(e.name))
-    .map((e) => path.join(e.parentPath, e.name))
+export async function findTempFolders(baseDir: string): Promise<string[]> {
+  try {
+    const entries = await fs.promises.readdir(baseDir, { recursive: true, withFileTypes: true })
+    return entries
+      .filter((e) => e.isDirectory() && TMP_FOLDER_PATTERN.test(e.name))
+      .map((e) => path.join(e.parentPath, e.name))
+  } catch (error: any) {
+    if (error.code === 'ENOENT') {
+      return []
+    }
+    throw error
+  }
 }
 
-export function cleanupTempFolders(baseDir: string) {
+export async function cleanupTempFolders(baseDir: string): Promise<void> {
   try {
     logger.info(`[tmpCleanup] Attempting to clean up temp folders in: ${baseDir}`, LOG_SOURCE)
-    if (!fs.existsSync(baseDir)) {
+
+    try {
+      await fs.promises.access(baseDir)
+    } catch {
       logger.warn(`[tmpCleanup] Base directory does not exist: ${baseDir}`, LOG_SOURCE)
       return
     }
@@ -33,7 +43,7 @@ export function cleanupTempFolders(baseDir: string) {
       return
     }
 
-    const tempFolders = findTempFolders(baseDir)
+    const tempFolders = await findTempFolders(baseDir)
 
     if (tempFolders.length === 0) {
       logger.info(`[tmpCleanup] No temp folders found.`, LOG_SOURCE)
@@ -48,7 +58,7 @@ export function cleanupTempFolders(baseDir: string) {
     for (const tempFolder of tempFolders) {
       try {
         logger.info(`[tmpCleanup] Removing: ${tempFolder}`, LOG_SOURCE)
-        fs.rmSync(tempFolder, { recursive: true, force: true })
+        await fs.promises.rm(tempFolder, { recursive: true, force: true })
       } catch (error) {
         logger.error(
           `[tmpCleanup] Failed to remove ${tempFolder}: ${error instanceof Error ? error.message : String(error)}`,

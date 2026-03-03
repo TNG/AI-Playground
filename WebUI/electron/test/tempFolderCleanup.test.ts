@@ -4,6 +4,14 @@ import { tmpdir } from 'node:os'
 import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs'
 import { cleanupTempFolders, TMP_FOLDER_PATTERN } from '../tempFolderCleanup'
 
+vi.mock('../logging/logger.ts', () => ({
+  appLoggerInstance: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}))
+
 describe('TMP_FOLDER_PATTERN', () => {
   it('matches valid temp folder names', () => {
     expect(TMP_FOLDER_PATTERN.test('fd824df26f56f9a3_tmp')).toBe(true)
@@ -42,16 +50,16 @@ describe('cleanupTempFolders', () => {
       expect(() => cleanupTempFolders(nonExistent)).not.toThrow()
     })
 
-    it('does nothing when no temp folders exist', () => {
+    it('does nothing when no temp folders exist', async () => {
       const normalDir = path.join(testDir, 'normal_folder')
       mkdirSync(normalDir)
 
-      cleanupTempFolders(testDir)
+      await cleanupTempFolders(testDir)
 
       expect(existsSync(normalDir)).toBe(true)
     })
 
-    it('removes temp folders inside models path', () => {
+    it('removes temp folders inside models path', async () => {
       const tempFolder = path.join(testDir, 'fd824df26f56f9a3_tmp')
       const nestedDir = path.join(testDir, 'subdir', 'nested')
       const nestedTempFolder = path.join(nestedDir, '0a1b2c3d4e5f6789_tmp')
@@ -65,7 +73,7 @@ describe('cleanupTempFolders', () => {
       mkdirSync(nestedNormalFolder)
       writeFileSync(path.join(tempFolder, 'test.txt'), 'test')
 
-      cleanupTempFolders(testDir)
+      await cleanupTempFolders(testDir)
 
       expect(existsSync(tempFolder)).toBe(false)
       expect(existsSync(nestedTempFolder)).toBe(false)
@@ -76,14 +84,14 @@ describe('cleanupTempFolders', () => {
   })
 
   describe('without models in path', () => {
-    it('does NOT remove temp folders', () => {
+    it('does NOT remove temp folders', async () => {
       const nonModelsDir = path.join(tmpdir(), `non-models-path-${Date.now()}`)
       const tempFolder = path.join(nonModelsDir, 'fd824df26f56f9a3_tmp')
       mkdirSync(nonModelsDir, { recursive: true })
       mkdirSync(tempFolder)
       writeFileSync(path.join(tempFolder, 'test.txt'), 'test')
 
-      cleanupTempFolders(nonModelsDir)
+      await cleanupTempFolders(nonModelsDir)
 
       expect(existsSync(tempFolder)).toBe(true)
       rmSync(nonModelsDir, { recursive: true, force: true })

@@ -48,7 +48,8 @@ const steps: StepList = [
 
 const driverObj = driver({
   showProgress: true,
-  showButtons: ['next', 'previous'],
+  showButtons: ['next', 'previous', 'close'],
+  doneBtnText: 'Got it!',
   steps: steps.map((step) => ({
     element: step.id,
     popover: {
@@ -101,34 +102,35 @@ defineExpose({
 .driver-popover-footer {
   background: transparent;
   border-top: 1px solid #00c4fa;
-  padding-top: 1em;
+  padding-top: 0.5rem;
 }
 
 /* BUTTON */
 
-.driver-popover-next-btn,
-.driver-popover-prev-btn {
-  background: #01aef2;
-  color: #fff;
-  border-radius: 6px;
-  font-weight: 400;
-  padding: 6px 12px;
-  font-size: 12px;
-  width: 90px;
-  height: 30px;
+.driver-popover-footer button {
+  background: transparent;
   border: none;
-  margin: 0 0.25em;
+  color: #00c4fa;
+  font-weight: bold;
   cursor: pointer;
-  box-shadow: 0px 0.75px 4.95px #00c4fa;
-  transition: background 0.2s;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  font-size: 18px;
+  float: right;
+  text-shadow: none;
 }
-.driver-popover-next-btn:hover,
-.driver-popover-prev-btn:hover {
-  background: #00c4fa;
+
+.driver-popover-footer button:hover,
+.driver-popover-footer button:hover {
+  //background: #00c4fa;
+  background-color: transparent;
+  text-decoration: underline;
+  //color: #3bc8ff;
 }
+
+.driver-popover-footer button:focus {
+  background: transparent;
+  //outline: 1px solid orange;
+}
+
 .driver-popover-close-btn {
   color: #fff;
   background: transparent;
@@ -139,6 +141,13 @@ defineExpose({
   top: 12px;
   right: 16px;
 }
+
+.driver-popover-close-btn:hover,
+.driver-popover-close-btn:focus {
+  color: #fff;
+}
+
+/* HIGHLIGHTED ELEMENT */
 
 .driver-active-element {
   box-shadow: 0 0 0 5px #00bfff;

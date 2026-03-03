@@ -187,8 +187,8 @@ defineExpose({
   border-bottom-color: #00c4fa !important;
   border-left-color: #00c4fa !important;
   border-right-color: #00c4fa !important; */
-  border-left: 10px solid transparent;
-  border-right: 10px solid transparent;
+  //border-left: 10px solid transparent;
+  //border-right: 10px solid transparent;
 }
 
 .driver-popover-arrow-side-left.driver-popover-arrow {
@@ -205,5 +205,56 @@ defineExpose({
 
 .driver-popover-arrow-side-bottom.driver-popover-arrow {
   border-bottom-color: #00c4fa;
+}
+
+.driver-popover-arrow {
+  border: 10px solid transparent;
+}
+
+// downward-facing triangle
+.driver-popover-arrow.driver-popover-arrow-side-top {
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-top: 12px solid #00c4fa;
+}
+
+// rightward-facing triangle
+.driver-popover-arrow.driver-popover-arrow-side-bottom {
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+  border-left: 10px solid #00c4fa;
+}
+
+/* 1. Remove the static hardcoded arrows so they don't conflict with Driver.js */
+.driver-popover::before,
+.driver-popover::after {
+  //display: none !important;
+}
+
+/* 2. Format the Driver.js arrow element to be the Outer Blue Triangle */
+/* side-top means popover is ABOVE, so arrow points DOWN */
+.driver-popover-arrow.driver-popover-arrow-side-top {
+  border-left: 11px solid transparent;
+  border-right: 11px solid transparent;
+  border-top: 14px solid #00c4fa; /* Blue Border */
+  border-bottom: none;
+  background: transparent;
+}
+
+/* 3. Inject the Inner Dark Triangle over the Blue Triangle */
+.driver-popover-arrow.driver-popover-arrow-side-top::after {
+  content: '';
+  position: absolute;
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-top: 12px solid #0a0622; /* Dark Background */
+  border-bottom: none;
+
+  /* POSITIONING MATH:
+     The exact center/bottom tip of the outer triangle is coordinates (0,0).
+     We move the inner triangle UP by 3px (-3px) to reveal the blue tip.
+     We move it LEFT by 10px (-10px) to center it over the 11px blue borders. */
+  top: -15px;
+  left: -10px;
 }
 </style>

@@ -79,14 +79,14 @@ defineExpose({
 
 .driver-popover {
   background: #0a0622;
-  color: #fff;
-  border-radius: 12px;
-  box-shadow: 0px 0.75px 4.95px #00c4fa;
+  color: white;
   border: 1.5px solid #00c4fa;
-  font-family: 'Segoe UI', 'IntelOne', sans-serif;
+  box-shadow: 0px 0.75px 4.95px #00c4fa;
+  border-radius: 12px;
   padding: 16px 20px;
   min-width: 340px;
   max-width: 420px;
+  font-family: 'Segoe UI', 'IntelOne', sans-serif;
 }
 .driver-popover-title {
   font-size: 1.25rem;
@@ -101,7 +101,7 @@ defineExpose({
 .driver-popover-footer {
   background: transparent;
   border-top: 1px solid #00c4fa;
-  margin-top: 1em;
+  padding-top: 1em;
 }
 
 /* BUTTON */

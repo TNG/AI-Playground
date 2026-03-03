@@ -16,8 +16,8 @@ export async function findTempFolders(baseDir: string): Promise<string[]> {
     return entries
       .filter((e) => e.isDirectory() && TMP_FOLDER_PATTERN.test(e.name))
       .map((e) => path.join(e.parentPath, e.name))
-  } catch (error: any) {
-    if (error.code === 'ENOENT') {
+  } catch (error: unknown) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return []
     }
     throw error

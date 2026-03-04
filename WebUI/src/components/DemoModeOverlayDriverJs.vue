@@ -70,7 +70,7 @@ function startTour() {
 }
 
 onMounted(() => {
-  startTour()
+    //startTour()
 })
 
 defineExpose({

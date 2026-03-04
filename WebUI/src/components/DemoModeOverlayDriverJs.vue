@@ -20,13 +20,7 @@ const steps: StepList = [
     id: '#demo-start-button',
     title: 'Welcome to Intel AI-Playground!',
     descr:
-      'Intel AI-Playground is a generative AI app that provides local-powered chat, image, and video capabilities. You can start the tour anytime with the "Need Help?" button in the upper left. Click "Next" or press "Right" to start the tour.',
-  },
-  {
-    id: '#chat-input',
-    title: 'Add Images or Documents',
-    descr:
-      'Drag and drop, or use the small plus button in lower left, to add images or documents to the current conversation. You can ask questions about them, use them as context for generating new content. Or just chat.',
+      'Intel AI-Playground is a generative AI app that provides local-powered chat, image, and video capabilities. You can start the tour anytime with the "Need Help?" button in the upper right. Click "Next" or press "Right" to start the tour.',
   },
   {
     id: '#mode-buttons',
@@ -35,8 +29,14 @@ const steps: StepList = [
       'Chat works like a typical AI chat. The image buttons allow you to generate or edit existing images. And with video it is even possible to work on videos or 3D models.',
   },
   {
+    id: '#chat-input',
+    title: 'Add Images or Documents',
+    descr:
+      'Drag and drop, or use the small plus button in lower left, to add images or documents to the current conversation. You can ask questions about them, use them as context for generating new content. Or just chat.',
+  },
+  {
     id: '#advanced-settings-button',
-    title: 'Settings',
+    title: 'Advanced Settings',
     descr:
       'Modes have advanced settings, like presets, models, and other configurations. You can access them through this button.',
     align: 'end',

@@ -229,7 +229,7 @@ defineExpose({
   border-right: 10px solid transparent;
   border-bottom: none;
   bottom: 3px;
-  left: -9.5px;
+  transform: translateX(-50%);
 }
 
 /* rightward-facing triangle */
@@ -247,6 +247,42 @@ defineExpose({
   border-bottom: 10px solid transparent;
   border-right: none;
   right: 3px;
-  top: -9.5px;
+  transform: translateY(-50%);
+}
+
+/* upward-facing triangle */
+.driver-popover-arrow.driver-popover-arrow-side-bottom {
+  border-bottom: 14px solid #00c4fa;
+  border-left: 11px solid transparent;
+  border-right: 11px solid transparent;
+  border-top: none;
+}
+.driver-popover-arrow.driver-popover-arrow-side-bottom::after {
+  content: '';
+  position: absolute;
+  border-bottom: 12px solid #0a0622;
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-top: none;
+  top: 3px;
+  transform: translateX(-50%);
+}
+
+/* leftward-facing triangle */
+.driver-popover-arrow.driver-popover-arrow-side-right {
+  border-right: 14px solid #00c4fa;
+  border-top: 11px solid transparent;
+  border-bottom: 11px solid transparent;
+  border-left: none;
+}
+.driver-popover-arrow.driver-popover-arrow-side-right::after {
+  content: '';
+  position: absolute;
+  border-right: 12px solid #0a0622;
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+  border-left: none;
+  left: 3px;
+  transform: translateY(-50%);
 }
 </style>

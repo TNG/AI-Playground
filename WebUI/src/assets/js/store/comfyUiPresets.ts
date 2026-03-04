@@ -806,11 +806,19 @@ export const useComfyUiPresets = defineStore(
             pendingRetryTimer.value = null
           }
 
-          pendingRetryTimer.value = setTimeout(() => {
-            pendingGenerationRequest.value = null
-            pendingRetryTimer.value = null
-            generate(pending.imageIds, pending.mode, pending.sourceImage)
-          }, 500)
+          const attemptRetry = () => {
+            pendingRetryTimer.value = setTimeout(() => {
+              pendingRetryTimer.value = null
+              if (websocket.value?.readyState !== WEBSOCKET_OPEN) {
+                console.info('Websocket not yet open, re-scheduling pending generation retry')
+                attemptRetry()
+                return
+              }
+              pendingGenerationRequest.value = null
+              generate(pending.imageIds, pending.mode, pending.sourceImage)
+            }, 500)
+          }
+          attemptRetry()
         }
       } else {
         if (pendingRetryTimer.value !== null) {

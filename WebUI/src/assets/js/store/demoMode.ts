@@ -28,10 +28,12 @@ const imageEditInitial = {
   show: false,
   finished: false,
 }
+
+type ExplicitDefaultsState = 'idle' | 'applying' | 'applied'
+
 export const useDemoMode = defineStore('demoMode', () => {
   const enabled = ref(false)
-  const explicitDefaultsApplied = ref(false)
-  const explicitDefaultsApplying = ref(false)
+  const explicitDefaultsState = ref<ExplicitDefaultsState>('idle')
 
   let resetTimer: null | ReturnType<typeof setTimeout> = null
   let trackUserInteractionInterval: null | ReturnType<typeof setInterval> = null
@@ -151,16 +153,15 @@ export const useDemoMode = defineStore('demoMode', () => {
   }
 
   async function applyExplicitDefaults() {
-    if (!enabled.value || explicitDefaultsApplied.value || explicitDefaultsApplying.value) return
+    if (!enabled.value || explicitDefaultsState.value !== 'idle') return
 
-    explicitDefaultsApplying.value = true
+    explicitDefaultsState.value = 'applying'
     try {
       await new Promise((resolve) => setTimeout(resolve, 1000))
       const defaults = await applyDemoModeExplicitDefaults()
       imageEdit.value.feature = defaults.imageEditFeature
-      explicitDefaultsApplied.value = true
     } finally {
-      explicitDefaultsApplying.value = false
+      explicitDefaultsState.value = 'applied'
     }
   }
 
@@ -180,7 +181,9 @@ export const useDemoMode = defineStore('demoMode', () => {
     () => imageEdit.value.feature,
     () => {
       if (!enabled.value) return
-      if (!imageEdit.value.show) triggerHelp('imageEdit')
+      // Note: auto-triggering triggerHelp removed — the driver.js-based tour
+      // now handles demo-mode highlighting instead of the legacy overlay system.
+      // if (!imageEdit.value.show) triggerHelp('imageEdit')
     },
   )
 

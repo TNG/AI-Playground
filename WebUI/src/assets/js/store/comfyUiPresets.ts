@@ -792,7 +792,7 @@ export const useComfyUiPresets = defineStore(
     }
 
     watchEffect(() => {
-      const isRunning = comfyPort && comfyUiState.value?.status === 'running'
+      const isRunning = comfyPort.value != null && comfyUiState.value?.status === 'running'
 
       if (isRunning) {
         connectToComfyUi()

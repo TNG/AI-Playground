@@ -1398,7 +1398,7 @@ app.whenReady().then(async () => {
         : path.join(__dirname, '../../../models'),
     )
     // Start temp-folder cleanup without blocking application startup
-    const _ = cleanupTempFolders(modelsDir)
+    void cleanupTempFolders(modelsDir)
 
     initEventHandle()
 

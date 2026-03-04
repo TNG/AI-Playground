@@ -285,4 +285,15 @@ defineExpose({
   left: 3px;
   transform: translateY(-50%);
 }
+
+/* arrow position within the popup */
+.driver-popover-arrow-side-top.driver-popover-arrow-align-start, .driver-popover-arrow-side-bottom.driver-popover-arrow-align-start {
+  left: 30px;
+}
+
+.driver-popover-arrow-side-top.driver-popover-arrow-align-end, .driver-popover-arrow-side-bottom.driver-popover-arrow-align-end {
+  right: 20px;
+}
+
+
 </style>

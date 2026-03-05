@@ -5,6 +5,7 @@
   "enablePreviewFeatures": true,
   "isDemoModeEnabled": false,
   "demoModeResetInSeconds": null,
+  "demoModePresetsDir": "presets_demo",
   "languageOverride": null,
   "remoteRepository": "tng/ai-playground"
 }

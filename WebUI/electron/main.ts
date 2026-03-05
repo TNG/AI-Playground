@@ -104,6 +104,7 @@ const LocalSettingsSchema = z.object({
   currentTheme: ThemeSchema.default('bmg'),
   isDemoModeEnabled: z.boolean().default(false),
   demoModeResetInSeconds: z.number().min(1).nullable().default(null),
+  demoModePresetsDir: z.string().optional(),
   languageOverride: z.string().nullable().default(null),
   remoteRepository: z.string().default('intel/ai-playground'),
   huggingfaceEndpoint: z.string().default('https://huggingface.co'),
@@ -972,7 +973,9 @@ function initEventHandle() {
     } catch (error) {
       appLogger.error(`Failed to filter partner presets: ${error}`, 'electron-backend')
     }
-    const presetsDir = path.join(externalRes, 'presets')
+    const presetsDir = settings.isDemoModeEnabled
+      ? path.join(externalRes, settings.demoModePresetsDir || 'presets_demo')
+      : path.join(externalRes, 'presets')
     try {
       // Ensure presets directory exists
       await fs.promises.mkdir(presetsDir, { recursive: true })

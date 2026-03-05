@@ -1,6 +1,8 @@
 This folder contains the presets to be used during demo mode.
 Demo mode can be activated by `isDemoModeEnabled: true` in `settings.json`.
 
+The demo presets folder can be configured via `demoModePresetsDir` (defaults to `presets_demo`).
+
 The logic is intentionally kept simple, no deepmerging from multiple places or similar:
 
 - When in demo mode, all presets are taken from this folder

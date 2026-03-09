@@ -53,6 +53,29 @@ type DemoModeSettings = {
   profile?: DemoProfile | null
 }
 
+type McpConnectionState = 'stopped' | 'starting' | 'running' | 'error'
+
+type McpStatus = {
+  state: McpConnectionState
+  lastError?: string
+}
+
+type McpToolInfo = {
+  name: string
+  description?: string
+}
+
+type McpServerInfo = {
+  id: string
+  name: string
+}
+
+type McpToolCallResult = {
+  isError?: boolean
+  content?: unknown
+  structuredContent?: unknown
+}
+
 // AipgPage type kept for backward compatibility with getInitialPage IPC handler
 type AipgPage = 'create' | 'enhance' | 'answer' | 'learn-more'
 type DemoModePage = 'chat' | 'imageGen' | 'imageEdit' | 'video'
@@ -175,6 +198,18 @@ type electronAPI = {
     downloadCustomNode(nodeRepoData: ComfyUICustomNodeRepoId): Promise<boolean>
     uninstallCustomNode(nodeRepoData: ComfyUICustomNodeRepoId): Promise<boolean>
     listInstalledCustomNodes(): Promise<string[]>
+  }
+  mcp: {
+    listServers(): Promise<McpServerInfo[]>
+    startServer(serverId: string): Promise<McpStatus>
+    stopServer(serverId: string): Promise<McpStatus>
+    getServerStatus(serverId: string): Promise<McpStatus>
+    listServerTools(serverId: string): Promise<McpToolInfo[]>
+    invokeServerTool(
+      serverId: string,
+      toolName: string,
+      args: Record<string, unknown>,
+    ): Promise<McpToolCallResult>
   }
 }
 

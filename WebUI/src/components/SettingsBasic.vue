@@ -146,6 +146,7 @@
           </div>
           <Checkbox id="keep-models-loaded" v-model="developerSettings.keepModelsLoaded" />
         </div>
+        <SettingsMcp />
       </div>
       <div class="flex justify-between items-center">
         <p>
@@ -199,6 +200,7 @@ import * as toast from '@/assets/js/toast'
 import LanguageSelector from '@/components/LanguageSelector.vue'
 import ThemeSelector from '@/components/ThemeSelector.vue'
 import MicrophoneSettings from '@/components/MicrophoneSettings.vue'
+import SettingsMcp from '@/components/SettingsMcp.vue'
 import DropDownNew from '@/components/DropDownNew.vue'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'

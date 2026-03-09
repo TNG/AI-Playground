@@ -8,13 +8,15 @@ import {
   DefaultChatTransport,
   LanguageModelUsage,
   streamText,
+  tool,
+  type ToolSet,
   UIDataTypes,
   UIMessage,
 } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { useTextInference } from './textInference'
 import { useConversations } from './conversations'
-import { availableTools } from '../tools/tools'
+import { aipgTools } from '../tools/tools'
 import z from 'zod'
 import { AipgTools } from '../tools/tools'
 import * as toast from '../toast'
@@ -84,6 +86,35 @@ export const useOpenAiCompatibleChat = defineStore(
         includeUsage: true,
       }).chatModel(textInference.activeModel?.split('/').join('---') ?? ''),
     )
+
+    async function resolveTools(): Promise<ToolSet> {
+      const resolvedTools: ToolSet = { ...aipgTools }
+
+      const blenderServerId = 'blender'
+      const blenderStatus = await window.electronAPI.mcp.getServerStatus(blenderServerId)
+      if (blenderStatus.state !== 'running') {
+        return resolvedTools
+      }
+
+      const mcpTools = await window.electronAPI.mcp.listServerTools(blenderServerId)
+
+      for (const mcpTool of mcpTools) {
+        const aiToolName = `blender__${mcpTool.name}`
+        resolvedTools[aiToolName] = tool({
+          description: mcpTool.description || `Blender MCP tool: ${mcpTool.name}`,
+          inputSchema: z.object({}).passthrough(),
+          execute: async (args: Record<string, unknown>) => {
+            return await window.electronAPI.mcp.invokeServerTool(
+              blenderServerId,
+              mcpTool.name,
+              args,
+            )
+          },
+        })
+      }
+
+      return resolvedTools
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const customFetch = async (_: any, options: any) => {
@@ -176,6 +207,7 @@ export const useOpenAiCompatibleChat = defineStore(
         textInference.toolsEnabled,
       )
       const shouldEnableTools = textInference.modelSupportsToolCalling && textInference.toolsEnabled
+      const runtimeTools = shouldEnableTools ? await resolveTools() : undefined
 
       console.log('customFetch called with messages:', {
         messages,
@@ -192,7 +224,7 @@ export const useOpenAiCompatibleChat = defineStore(
         includeRawChunks: true,
         ...(shouldEnableTools
           ? {
-              tools: availableTools,
+              tools: runtimeTools,
             }
           : {}),
         onChunk: (chunk) => {

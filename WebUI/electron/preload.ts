@@ -141,4 +141,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('comfyui:uninstallCustomNode', nodeRepoData),
     listInstalledCustomNodes: () => ipcRenderer.invoke('comfyui:listInstalledCustomNodes'),
   },
+  mcp: {
+    listServers: () => ipcRenderer.invoke('mcp:listServers'),
+    startServer: (serverId: string) => ipcRenderer.invoke('mcp:startServer', serverId),
+    stopServer: (serverId: string) => ipcRenderer.invoke('mcp:stopServer', serverId),
+    getServerStatus: (serverId: string) => ipcRenderer.invoke('mcp:getServerStatus', serverId),
+    listServerTools: (serverId: string) => ipcRenderer.invoke('mcp:listServerTools', serverId),
+    invokeServerTool: (serverId: string, toolName: string, args: Record<string, unknown>) =>
+      ipcRenderer.invoke('mcp:invokeServerTool', serverId, toolName, args),
+  },
 })

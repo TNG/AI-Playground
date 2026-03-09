@@ -56,6 +56,15 @@ import { LLAMACPP_DEFAULT_PARAMETERS } from './subprocesses/llamaCppBackendServi
 import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateIntelPresets.ts'
 import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
 import * as comfyuiTools from './subprocesses/comfyuiTools'
+import {
+  getMcpServerStatus,
+  invokeMcpServerTool,
+  listMcpServers,
+  listMcpServerTools,
+  startMcpServer,
+  stopAllMcpServers,
+  stopMcpServer,
+} from './subprocesses/mcpManager'
 import { externalResourcesDir, getMediaDir } from './util.ts'
 import { loadDemoProfile, type DemoProfile } from './demoProfile.ts'
 import type { ModelPaths } from '@/assets/js/store/models.ts'
@@ -390,6 +399,7 @@ function handleUtilityFunction<T, R>(
 }
 
 app.on('quit', async () => {
+  await stopAllMcpServers()
   if (singleInstanceLock) {
     app.releaseSingleInstanceLock()
   }
@@ -399,6 +409,7 @@ app.on('quit', async () => {
 // explicitly with Cmd + Q.
 app.on('window-all-closed', async () => {
   try {
+    await stopAllMcpServers()
     await serviceRegistry?.stopAllServices()
   } catch {}
   if (process.platform !== 'darwin') {
@@ -1306,6 +1317,34 @@ function initEventHandle() {
     }
     return comfyuiTools.listInstalledCustomNodes(comfyService.serviceDir)
   })
+
+  // MCP server IPC handlers
+  ipcMain.handle('mcp:startServer', async (_event, serverId: string) => {
+    return await startMcpServer(serverId)
+  })
+
+  ipcMain.handle('mcp:listServers', () => {
+    return listMcpServers()
+  })
+
+  ipcMain.handle('mcp:stopServer', async (_event, serverId: string) => {
+    return await stopMcpServer(serverId)
+  })
+
+  ipcMain.handle('mcp:getServerStatus', (_event, serverId: string) => {
+    return getMcpServerStatus(serverId)
+  })
+
+  ipcMain.handle('mcp:listServerTools', async (_event, serverId: string) => {
+    return await listMcpServerTools(serverId)
+  })
+
+  ipcMain.handle(
+    'mcp:invokeServerTool',
+    async (_event, serverId: string, toolName: string, args: Record<string, unknown>) => {
+      return await invokeMcpServerTool(serverId, toolName, args)
+    },
+  )
 
   const getAssetPathFromUrl = (url: string) => {
     // Handle aipg-media:// URLs

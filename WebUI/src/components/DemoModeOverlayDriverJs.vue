@@ -141,7 +141,7 @@ defineExpose({
   padding: 16px 20px;
   min-width: 340px;
   max-width: 420px;
-  font-family: 'Segoe UI', 'IntelOne', sans-serif;
+  font-family: 'IntelOne';
 }
 
 .driver-popover-title {
@@ -149,17 +149,24 @@ defineExpose({
   font-weight: bold;
   margin-bottom: 0.5em;
   color: #00bfff;
+  font-family: 'IntelOne';
 }
 
 .driver-popover-description {
   font-size: 1rem;
   margin-bottom: 1em;
+  font-family: 'IntelOne';
 }
 
 .driver-popover-footer {
   background: transparent;
   border-top: 1px solid #00c4fa;
   padding-top: 0.5rem;
+  font-family: 'IntelOne';
+}
+
+.driver-popover-progress-text {
+  font-family: 'IntelOne';
 }
 
 /* BUTTON */
@@ -173,6 +180,7 @@ defineExpose({
   font-size: 18px;
   float: right;
   text-shadow: none;
+  font-family: 'IntelOne';
 }
 
 .driver-popover-footer button:hover,

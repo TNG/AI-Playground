@@ -9,7 +9,7 @@ import { useUIStore } from './ui'
 import { PresetRequirementsData, useDialogStore } from './dialogs'
 import { getMissingComfyuiBackendModels } from './imageGenerationUtils'
 import { imageUrlToDataUri } from '@/lib/utils'
-import dogOnBeachImage from '@/assets/image/dog_on_a_beach.png'
+import demoModeInputImage from '@/assets/image/dog_with_people.jpg'
 
 export type GenerateState =
   | 'no_start'
@@ -439,7 +439,7 @@ export const useImageGenerationPresets = defineStore(
       if (demoMode.enabled && activePreset.value?.category === 'edit-images') {
         const currentImageInput = comfyInputs.value.find((input) => input.type === 'image')
         if (currentImageInput) {
-          currentImageInput.current.value = await imageUrlToDataUri(dogOnBeachImage)
+          currentImageInput.current.value = await imageUrlToDataUri(demoModeInputImage)
         }
       }
     }

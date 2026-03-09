@@ -23,29 +23,73 @@ const steps: StepList = [
       'Intel AI-Playground is a generative AI app that provides local-powered chat, image, and video capabilities. You can start the tour anytime with the "Need Help?" button in the upper right. Click "Next" or press "Right" to start the tour.',
   },
   {
+    id: '#prompt-input',
+    title: 'Unified Prompt',
+    descr:
+      'This is your Prompt field. This is the core experience of AI Playground, across all features of the app. This is where you write a prompt, add images or documents to guide your content, and select modes for the type of content you want to generate. Click continue to explore what\'s here ',
+  },
+  {
+    id: '#plus-icon',
+    title: 'Add Images or Documents',
+    descr:
+      'The PLUS icon allows you to load content like documents or images to the prompt. Alternatively you can also drag and drop content here. When added this content is part of your generation. In Chat mode you can ask questions about a document or an image. For Image Edit you can add images you want to edit. Note: If you\'re not able to load a certain type of document, check Prompt Settings as you might need to select a preset like Vision to support images, or RAG to support text documents',
+  },
+  {
     id: '#mode-buttons',
     title: 'Pick your Mode',
     descr:
-      'Chat works like a typical AI chat. The image buttons allow you to generate or edit existing images. And with video it is even possible to work on videos or 3D models.',
+      'Here are multiple mode buttons, that define the type of content you are generating.  Select any one of these modes. Let\'s explore each',
   },
   {
-    id: '#chat-input',
-    title: 'Add Images or Documents',
+    id: '#chat-mode',
+    title: 'Chat Mode',
     descr:
-      'Drag and drop, or use the small plus button in lower left, to add images or documents to the current conversation. You can ask questions about them, use them as context for generating new content. Or just chat.',
+      'Chat works like a typical AI chat. You can type questions to get information on almost any topic you can imagine. In the settings you can select from a variety of chat options where you can do document search, work with Reasoning or Vision models, and more.',
+  },
+  {
+    id: '#image-mode',
+    title: 'Image Mode',
+    descr:
+      'The Image Gen mode allows you to generate images from text you enter. Describe a scene or character and style (photographic, watercolor, etc), you wish to generate, and have watching your ideas come to life. When in this mode, you\'ll find ready to go presets in the Prompt Settings that allow you to create images using generative models to achieve different levels of realism and generation times.',
+  },
+  {
+    id: '#image-edit-mode',
+    title: 'Image Edit Mode',
+    descr:
+      'The Image Edit mode allows you to edit existing images or photos, often by describing what to change.  Simply drag in a photo, select an editing Preset in Prompt Settings where you can; upscale images, edit images with precision, generate 3 Models from images, and more.',
+  },
+  {
+    id: '#video-mode',
+    title: 'Video Mode',
+    descr:
+      'Video generation allows you to create short video clips from your imagination either from prompt or guided by images and video.',
+  },
+  {
+    id: '#microphone-button',
+    title: 'Mic Button',
+    descr:
+      'The Mic button is only active after you\'ve selected and turned on Speech Mode in app settings.When done you simply click this icon, start talking in a language you\'re comfortable speaking, then click again. You\'ll see your speech written out as text in the prompt field.',
   },
   {
     id: '#advanced-settings-button',
-    title: 'Advanced Settings',
+    title: 'Prompt Settings',
     descr:
-      'Modes have advanced settings, like presets, models, and other configurations. You can access them through this button.',
-    align: 'end',
+      'Each mode has prompt settings specific to the mode of content you are generating. Here you will find ready to go preset to do targeted tasks. Each preset is already dialed in to go, but you choose to adjust options and own values from Max Tokens in Chat, to Aspect Ratio settings for Image Gen. Prompt settings is at the heart of getting AI Playground to do what you want it to do. Select a Mode and explore what our Prompt Settings have to offer.',
   },
   {
     id: '#send-button',
     title: 'Ready to start?',
-    descr: 'Enter a message and click here to get your first response.',
-    align: 'end',
+    descr: 'This is the magic button that starts generation. Select a mode like Chat, enter a question and click this button to get your first response.',
+  },
+  {
+    id: '#app-settings',
+    title: 'Application Settings',
+    descr: 'Select this gear icon to see a list of application-level settings, from to language options, installation manager, and speech mode, you\'ll find important applications settings here.Click here and select the Theme menu to give AI Playground different looks.',
+  },
+  {
+    id: '#history-panel',
+    title: 'History Panel',
+    descr: 'The History Panel keeps track of all that you\'ve generated.History will show you the latest content from each mode you used.Use this to scroll back through and revisit previous discussion and content generated from AI Playground.',
   },
 ]
 
@@ -94,16 +138,19 @@ defineExpose({
   max-width: 420px;
   font-family: 'Segoe UI', 'IntelOne', sans-serif;
 }
+
 .driver-popover-title {
   font-size: 1.25rem;
   font-weight: bold;
   margin-bottom: 0.5em;
   color: #00bfff;
 }
+
 .driver-popover-description {
   font-size: 1rem;
   margin-bottom: 1em;
 }
+
 .driver-popover-footer {
   background: transparent;
   border-top: 1px solid #00c4fa;
@@ -174,6 +221,7 @@ defineExpose({
   bottom: -14px;
   z-index: 1;
 }
+
 .driver-popover::after {
   content: '';
   position: absolute;
@@ -221,6 +269,7 @@ defineExpose({
   border-bottom: none;
   background: transparent;
 }
+
 .driver-popover-arrow.driver-popover-arrow-side-top::after {
   content: '';
   position: absolute;
@@ -239,6 +288,7 @@ defineExpose({
   border-bottom: 11px solid transparent;
   border-right: none;
 }
+
 .driver-popover-arrow.driver-popover-arrow-side-left::after {
   content: '';
   position: absolute;
@@ -257,6 +307,7 @@ defineExpose({
   border-right: 11px solid transparent;
   border-top: none;
 }
+
 .driver-popover-arrow.driver-popover-arrow-side-bottom::after {
   content: '';
   position: absolute;
@@ -275,6 +326,7 @@ defineExpose({
   border-bottom: 11px solid transparent;
   border-left: none;
 }
+
 .driver-popover-arrow.driver-popover-arrow-side-right::after {
   content: '';
   position: absolute;

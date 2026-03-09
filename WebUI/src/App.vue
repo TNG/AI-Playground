@@ -144,16 +144,19 @@
     }"
   >
     <SideModalHistory
+      id="history-panel"
       :isVisible="uiStore.showHistory"
       :mode="promptStore.getCurrentMode()"
       @close="uiStore.closeHistory()"
       @conversation-selected="chatRef?.scrollToBottom"
     />
+
     <SideModalAppSettings :isVisible="showAppSettings" @close="showAppSettings = false" />
 
     <div class="flex-1 flex flex-col relative justify-center min-h-0">
       <div class="fixed top-18 left-4 z-5">
         <button
+          id="show-history-button"
           v-show="!uiStore.showHistory"
           @click="openHistory"
           class="text-foreground px-3 py-1.5 bg-muted hover:bg-muted/80 rounded-lg text-sm"
@@ -170,6 +173,7 @@
       >
         <DemoModeBlocker>
           <button
+            id="app-settings-button"
             @click="openAppSettings"
             class="svg-icon i-setup w-6 h-6 text-foreground hover:text-foreground/80 transition-colors"
             title="App Settings"

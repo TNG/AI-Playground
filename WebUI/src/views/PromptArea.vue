@@ -66,7 +66,7 @@
           </div>
         </div>
         <textarea
-          id="chat-input"
+          id="prompt-input"
           ref="textareaRef"
           class="resize-none w-full h-48 px-4 pb-16 bg-background/50 rounded-md outline-none border border-border focus-visible:ring-[1px] focus-visible:ring-primary"
           :class="{
@@ -102,6 +102,7 @@
             v-if="shouldShowImageUploadButton"
             class="self-center border border-dashed border-border rounded-md p-1 hover:cursor-pointer origin-bottom-left"
             :class="{ 'border-primary bg-primary/10': isOverDropZone }"
+            id="plus-icon"
           >
             <Label htmlFor="file-attachment"><PlusIcon class="size-4 cursor-pointer" /></Label>
             <input
@@ -138,6 +139,7 @@
         </div>
         <div class="absolute bottom-4 right-3 flex gap-2">
           <Button
+            id="microphone-button"
             class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
             variant="secondary"
             v-if="promptStore.getCurrentMode() === 'chat'"

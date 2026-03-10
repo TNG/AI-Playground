@@ -27,12 +27,12 @@ const isDemoModeOn = demoMode.enabled
 
 .center-popup {
   position: absolute;
-  top: 100px;
+  top: 10px;
   left: 50%;
   transform: translateX(-50%);
   background-color: rgba(0, 0, 50, 0.85);
-  border: 2px solid #00bfff;
-  box-shadow: 0px 0.75px 4.95px #00c4fa;
+  /* border: 2px solid #00bfff; */
+  /* box-shadow: 0px 0.75px 4.95px #00c4fa; */
   border-radius: 10px;
   padding: 16px 20px;
   color: white;

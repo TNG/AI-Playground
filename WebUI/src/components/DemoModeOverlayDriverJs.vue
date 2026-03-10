@@ -132,6 +132,10 @@ defineExpose({
 
 /* DIALOG */
 
+.driver-popover * {
+  font-family: 'IntelOne';
+}
+
 .driver-popover {
   background: #0a0622;
   color: white;
@@ -141,7 +145,7 @@ defineExpose({
   padding: 16px 20px;
   min-width: 340px;
   max-width: 420px;
-  font-family: 'IntelOne';
+  font-family: unset;
 }
 
 .driver-popover-title {
@@ -149,24 +153,24 @@ defineExpose({
   font-weight: bold;
   margin-bottom: 0.5em;
   color: #00bfff;
-  font-family: 'IntelOne';
+  font-family: unset;
 }
 
 .driver-popover-description {
   font-size: 1rem;
   margin-bottom: 1em;
-  font-family: 'IntelOne';
+  font-family: unset;
 }
 
 .driver-popover-footer {
   background: transparent;
   border-top: 1px solid #00c4fa;
   padding-top: 0.5rem;
-  font-family: 'IntelOne';
+  font-family: unset;
 }
 
 .driver-popover-progress-text {
-  font-family: 'IntelOne';
+  font-family: unset;
 }
 
 /* BUTTON */
@@ -180,7 +184,7 @@ defineExpose({
   font-size: 18px;
   float: right;
   text-shadow: none;
-  font-family: 'IntelOne';
+  font-family: unset;
 }
 
 .driver-popover-footer button:hover,

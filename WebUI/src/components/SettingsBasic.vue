@@ -117,6 +117,10 @@
 
   <DemoModeBlocker>
     <div class="flex flex-col gap-3 pt-4">
+      <p>{{ languages.SETTINGS_MCP }}</p>
+      <div class="pl-2 pt-2">
+        <SettingsMcp />
+      </div>
       <p>{{ languages.SETTINGS_DEVELOPER }}</p>
       <div class="pl-2 pt-2">
         <div class="flex justify-between pr-4 items-center gap-4 mb-4">

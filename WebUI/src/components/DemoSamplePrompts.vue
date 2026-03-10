@@ -14,10 +14,13 @@
 </template>
 
 <script setup lang="ts">
+import { nextTick } from 'vue'
+
 type SamplePrompt = {
   title: string
   description: string
   prompt: string
+  mode: ModeType
 }
 
 const samples: SamplePrompt[] = [
@@ -25,21 +28,34 @@ const samples: SamplePrompt[] = [
     title: 'Science Chat',
     description: 'Ask a science question and get an answer.',
     prompt: 'Why does water expand when it freezes?',
+    mode: 'chat',
   },
   {
     title: 'Image Generation',
     description: 'Create a fantastic image from a detailed prompt.',
     prompt:
       'A close-up photo of a hummingbird hovering to get nectar from a red rose with drops of dew. Iridescent blue and green feathers, wings a blur. Depth of field. High Dynamic Range.',
+    mode: 'imageGen',
   },
   {
     title: 'Image Editing',
     description: 'Edit a photo by describing what to change.',
     prompt: 'Remove people from the background',
+    mode: 'imageEdit',
   },
 ]
 
-function applySample(sample: SamplePrompt) {
+async function applySample(sample: SamplePrompt) {
+  // Click the corresponding mode button to switch modes
+  const modeButton = document.getElementById(`mode-button-${sample.mode}`)
+  if (modeButton) {
+    modeButton.click()
+  }
+
+  // Wait for Vue reactivity to settle after mode switch
+  await nextTick()
+
+  // Insert the sample prompt into the textarea
   const textarea = document.getElementById('prompt-input') as HTMLTextAreaElement | null
   if (!textarea) return
 

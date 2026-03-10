@@ -33,6 +33,11 @@ export const useMcp = defineStore('mcp', () => {
   }
 
   async function startBlender() {
+    blenderStatus.value = {
+      state: 'starting',
+    }
+    blenderTools.value = []
+
     const status = await window.electronAPI.mcp.startServer(BLENDER_SERVER_ID)
     blenderStatus.value = status
     if (status.state === 'running') {

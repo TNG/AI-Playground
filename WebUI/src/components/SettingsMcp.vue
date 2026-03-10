@@ -14,7 +14,7 @@
         :disabled="mcp.blenderBusy"
         @click="mcp.toggleBlender"
       >
-        {{ mcp.blenderConnected ? 'Stop' : 'Start' }}
+        {{ startButtonText }}
       </Button>
     </div>
 
@@ -40,7 +40,15 @@ const statusText = computed(() => {
 })
 
 const statusDotClass = computed(() => {
-  return mcp.blenderConnected ? 'bg-green-500' : 'bg-muted-foreground/40'
+  if (mcp.blenderStatus.state === 'running') return 'bg-green-500'
+  if (mcp.blenderStatus.state === 'starting') return 'bg-amber-500 animate-pulse'
+  if (mcp.blenderStatus.state === 'error') return 'bg-destructive'
+  return 'bg-muted-foreground/40'
+})
+
+const startButtonText = computed(() => {
+  if (mcp.blenderStatus.state === 'starting') return 'Starting...'
+  return mcp.blenderConnected ? 'Stop' : 'Start'
 })
 
 onMounted(async () => {

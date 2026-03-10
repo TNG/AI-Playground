@@ -1,6 +1,7 @@
 <template>
   <div id="prompt-area" class="text-foreground flex flex-col w-full pt-4">
     <div class="flex flex-col items-center gap-7 text-base px-4">
+      <DemoSamplePrompts />
       <div v-if="contextError" class="flex items-center gap-3">
         <p class="text-red-500">{{ contextError }}</p>
       </div>
@@ -14,7 +15,6 @@
           :usage="contextUsage"
         />
       </div>
-      <DemoSamplePrompts />
       <div class="relative w-full max-w-3xl">
         <!-- Zoom Controls (only in chat mode) -->
         <div

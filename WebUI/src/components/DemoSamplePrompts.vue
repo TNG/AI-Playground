@@ -23,7 +23,7 @@ type SamplePrompt = {
 const samples: SamplePrompt[] = [
   {
     title: 'Science Chat',
-    description: "Ask a science question and get an answer.",
+    description: 'Ask a science question and get an answer.',
     prompt: 'Why does water expand when it freezes?',
   },
   {
@@ -46,10 +46,7 @@ function applySample(sample: SamplePrompt) {
   textarea.scrollIntoView({ behavior: 'smooth', block: 'center' })
 
   // Set value and trigger Vue reactivity via input event
-  const nativeSetter = Object.getOwnPropertyDescriptor(
-    HTMLTextAreaElement.prototype,
-    'value',
-  )?.set
+  const nativeSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
   if (nativeSetter) {
     nativeSetter.call(textarea, sample.prompt)
     textarea.dispatchEvent(new Event('input', { bubbles: true }))

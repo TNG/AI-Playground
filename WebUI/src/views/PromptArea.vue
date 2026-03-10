@@ -14,7 +14,7 @@
           :usage="contextUsage"
         />
       </div>
-      <SamplePrompts />
+      <DemoSamplePrompts />
       <div class="relative w-full max-w-3xl">
         <!-- Zoom Controls (only in chat mode) -->
         <div
@@ -237,7 +237,7 @@ import { Context } from '@/components/ui/context'
 import Button from '@/components/ui/button/Button.vue'
 import { useDemoMode } from '@/assets/js/store/demoMode'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
-import SamplePrompts from '@/components/SamplePrompts.vue'
+import DemoSamplePrompts from '@/components/DemoSamplePrompts.vue'
 
 const instance = getCurrentInstance()
 const audioRecorder = useAudioRecorder()

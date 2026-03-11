@@ -17,4 +17,12 @@ export const mcpServers: Record<string, McpServerConfig> = {
       DISABLE_TELEMETRY: 'true',
     },
   },
+  datetime: {
+    // mcp-server-time for testing purposes
+    // https://github.com/modelcontextprotocol/servers/tree/main/src/time
+    id: 'datetime',
+    name: 'DateTime MCP',
+    command: 'cmd',
+    args: ['/c', 'uvx', 'mcp-server-time'],
+  },
 }

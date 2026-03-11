@@ -248,7 +248,7 @@
                   </div>
                 </template>
                 <template v-else-if="isMcpTool(part)">
-                  <ChatMcpToolDisplay :part="part" />
+                  <ChatMcpToolDisplay :part="part" :state="part.state" />
                 </template>
               </template>
             </div>

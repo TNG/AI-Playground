@@ -33,13 +33,14 @@ import { type ToolUIPart } from 'ai'
 
 const props = defineProps<{
   part: ToolUIPart
+  state: ToolUIPart['state']
 }>()
 
 const progressText = computed(() => {
-  if (props.part.state === 'input-streaming') return 'Executing MCP tool call...'
-  if (props.part.state === 'input-available') return 'MCP tool call queued.'
-  if (props.part.state === 'output-available') return 'MCP tool call completed.'
-  if (props.part.state === 'output-error') return 'MCP tool call failed.'
+  if (props.state === 'input-streaming') return 'Executing MCP tool call...'
+  if (props.state === 'input-available') return 'MCP tool call queued.'
+  if (props.state === 'output-available') return 'MCP tool call completed.'
+  if (props.state === 'output-error') return 'MCP tool call failed.'
   return 'MCP tool call status updated.'
 })
 
@@ -48,7 +49,7 @@ const errorText = computed(() => {
   if (typeof anyPart.errorText === 'string' && anyPart.errorText.trim() !== '') {
     return anyPart.errorText
   }
-  if (props.part.state === 'output-error') {
+  if (props.state === 'output-error') {
     const outputError = anyPart.output?.error || anyPart.output?.message
     if (typeof outputError === 'string' && outputError.trim() !== '') {
       return outputError

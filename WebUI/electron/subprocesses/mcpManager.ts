@@ -88,7 +88,7 @@ export async function startMcpServer(serverId: string): Promise<McpStatus> {
 
     const client = await createMCPClient({
       transport,
-      name: 'ai-playground-blender-mcp-client',
+      name: `ai-playground-${serverId}-mcp-client`,
       version: '1.0.0',
     })
 

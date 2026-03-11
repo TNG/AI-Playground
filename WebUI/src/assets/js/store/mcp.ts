@@ -14,64 +14,121 @@ type McpToolInfo = {
   description?: string
 }
 
-const BLENDER_SERVER_ID = 'blender'
+type McpServerInfo = {
+  id: string
+  name: string
+}
+
+type ServerState = {
+  status: McpStatus
+  tools: McpToolInfo[]
+}
 
 export const useMcp = defineStore('mcp', () => {
-  const blenderStatus = ref<McpStatus>({ state: 'stopped' })
-  const blenderTools = ref<McpToolInfo[]>([])
+  const servers = ref<Map<string, ServerState>>(new Map())
+  const availableServers = ref<McpServerInfo[]>([])
 
-  const blenderConnected = computed(() => blenderStatus.value.state === 'running')
-  const blenderBusy = computed(() => blenderStatus.value.state === 'starting')
+  const allServers = computed(() => availableServers.value)
 
-  async function refreshBlenderStatus() {
-    blenderStatus.value = await window.electronAPI.mcp.getServerStatus(BLENDER_SERVER_ID)
-    if (blenderStatus.value.state === 'running') {
-      blenderTools.value = await window.electronAPI.mcp.listServerTools(BLENDER_SERVER_ID)
-    } else {
-      blenderTools.value = []
-    }
+  function getServerState(serverId: string): ServerState {
+    return (
+      servers.value.get(serverId) ?? {
+        status: { state: 'stopped' },
+        tools: [],
+      }
+    )
   }
 
-  async function startBlender() {
-    blenderStatus.value = {
-      state: 'starting',
-    }
-    blenderTools.value = []
+  function getServerStatus(serverId: string): McpStatus {
+    return getServerState(serverId).status
+  }
 
-    const status = await window.electronAPI.mcp.startServer(BLENDER_SERVER_ID)
-    blenderStatus.value = status
+  function getServerTools(serverId: string): McpToolInfo[] {
+    return getServerState(serverId).tools
+  }
+
+  function isServerConnected(serverId: string): boolean {
+    return getServerState(serverId).status.state === 'running'
+  }
+
+  function isServerBusy(serverId: string): boolean {
+    return getServerState(serverId).status.state === 'starting'
+  }
+
+  async function refreshAvailableServers() {
+    availableServers.value = await window.electronAPI.mcp.listServers()
+  }
+
+  async function refreshServerStatus(serverId: string) {
+    const status = await window.electronAPI.mcp.getServerStatus(serverId)
+    let tools: McpToolInfo[] = []
+
     if (status.state === 'running') {
-      blenderTools.value = await window.electronAPI.mcp.listServerTools(BLENDER_SERVER_ID)
-      toast.success('Blender MCP connected')
-      return
+      tools = await window.electronAPI.mcp.listServerTools(serverId)
     }
-    toast.error(status.lastError || 'Failed to start Blender MCP')
+
+    servers.value.set(serverId, { status, tools })
   }
 
-  async function stopBlender() {
-    const status = await window.electronAPI.mcp.stopServer(BLENDER_SERVER_ID)
-    blenderStatus.value = status
-    blenderTools.value = []
-    toast.success('Blender MCP disconnected')
+  async function refreshAllServerStatuses() {
+    await refreshAvailableServers()
+    await Promise.all(availableServers.value.map((s) => refreshServerStatus(s.id)))
   }
 
-  async function toggleBlender() {
-    if (blenderConnected.value) {
-      await stopBlender()
-      return
+  async function startServer(serverId: string) {
+    servers.value.set(serverId, {
+      status: { state: 'starting' },
+      tools: [],
+    })
+
+    const status = await window.electronAPI.mcp.startServer(serverId)
+    let tools: McpToolInfo[] = []
+
+    if (status.state === 'running') {
+      tools = await window.electronAPI.mcp.listServerTools(serverId)
+      const serverInfo = availableServers.value.find((s) => s.id === serverId)
+      toast.success(`${serverInfo?.name ?? serverId} connected`)
+    } else {
+      toast.error(status.lastError || `Failed to start ${serverId}`)
     }
-    await startBlender()
+
+    servers.value.set(serverId, { status, tools })
+    return status
+  }
+
+  async function stopServer(serverId: string) {
+    const status = await window.electronAPI.mcp.stopServer(serverId)
+    servers.value.set(serverId, {
+      status,
+      tools: [],
+    })
+    const serverInfo = availableServers.value.find((s) => s.id === serverId)
+    toast.success(`${serverInfo?.name ?? serverId} disconnected`)
+    return status
+  }
+
+  async function toggleServer(serverId: string) {
+    if (isServerConnected(serverId)) {
+      return await stopServer(serverId)
+    }
+    return await startServer(serverId)
   }
 
   return {
-    blenderStatus,
-    blenderTools,
-    blenderConnected,
-    blenderBusy,
-    refreshBlenderStatus,
-    startBlender,
-    stopBlender,
-    toggleBlender,
+    servers,
+    availableServers,
+    allServers,
+    getServerState,
+    getServerStatus,
+    getServerTools,
+    isServerConnected,
+    isServerBusy,
+    refreshAvailableServers,
+    refreshServerStatus,
+    refreshAllServerStatuses,
+    startServer,
+    stopServer,
+    toggleServer,
   }
 })
 

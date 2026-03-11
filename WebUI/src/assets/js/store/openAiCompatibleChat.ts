@@ -97,28 +97,27 @@ export const useOpenAiCompatibleChat = defineStore(
     async function resolveTools(): Promise<ToolSet> {
       const resolvedTools: ToolSet = { ...aipgTools }
 
-      const blenderServerId = 'blender'
-      const blenderStatus = await window.electronAPI.mcp.getServerStatus(blenderServerId)
-      if (blenderStatus.state !== 'running') {
-        return resolvedTools
-      }
+      const servers = await window.electronAPI.mcp.listServers()
 
-      const allMcpTools = await window.electronAPI.mcp.listServerTools(blenderServerId)
-      const mcpTools = allMcpTools.filter((tool) => isToolEnabled(tool.name))
+      for (const server of servers) {
+        const status = await window.electronAPI.mcp.getServerStatus(server.id)
+        if (status.state !== 'running') {
+          continue
+        }
 
-      for (const mcpTool of mcpTools) {
-        const aiToolName = `mcp__${blenderServerId}__${mcpTool.name}`
-        resolvedTools[aiToolName] = tool({
-          description: mcpTool.description || `Blender MCP tool: ${mcpTool.name}`,
-          inputSchema: z.object({}).passthrough(),
-          execute: async (args: Record<string, unknown>) => {
-            return await window.electronAPI.mcp.invokeServerTool(
-              blenderServerId,
-              mcpTool.name,
-              args,
-            )
-          },
-        })
+        const allMcpTools = await window.electronAPI.mcp.listServerTools(server.id)
+        const mcpTools = allMcpTools.filter((t) => isToolEnabled(t.name))
+
+        for (const mcpTool of mcpTools) {
+          const aiToolName = `mcp__${server.id}__${mcpTool.name}`
+          resolvedTools[aiToolName] = tool({
+            description: mcpTool.description || `${server.name} tool: ${mcpTool.name}`,
+            inputSchema: z.object({}).passthrough(),
+            execute: async (args: Record<string, unknown>) => {
+              return await window.electronAPI.mcp.invokeServerTool(server.id, mcpTool.name, args)
+            },
+          })
+        }
       }
 
       return resolvedTools

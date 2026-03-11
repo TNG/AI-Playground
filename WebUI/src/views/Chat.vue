@@ -517,8 +517,14 @@ function isAipgTool(part: ToolUIPart<AipgTools>): boolean {
 
 function getToolDisplayName(part: ToolUIPart<AipgTools>): string {
   const rawName = part.type.replace('tool-', '')
-  if (rawName.startsWith('blender__')) {
-    return `Blender MCP · ${rawName.replace('blender__', '')}`
+  if (rawName.startsWith('mcp__')) {
+    const mcpEnd = 'mcp__'.length
+    const firstUnderscorePos = rawName.indexOf('__', mcpEnd)
+
+    const serverId = rawName.substring(mcpEnd, firstUnderscorePos)
+    const toolName = rawName.substring(firstUnderscorePos + 2)
+
+    return `${serverId} MCP · ${toolName}`
   }
   return rawName
 }
@@ -539,7 +545,7 @@ function getToolStateClass(state: string): string {
 }
 
 function isMcpTool(part: ToolUIPart<AipgTools>): boolean {
-  return part.type.startsWith('tool-blender__')
+  return part.type.startsWith('tool-mcp__')
 }
 
 // Watch for new tool calls starting to initialize their image tracking

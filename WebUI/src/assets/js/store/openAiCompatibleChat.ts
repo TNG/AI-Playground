@@ -107,7 +107,7 @@ export const useOpenAiCompatibleChat = defineStore(
       const mcpTools = allMcpTools.filter((tool) => isToolEnabled(tool.name))
 
       for (const mcpTool of mcpTools) {
-        const aiToolName = `blender__${mcpTool.name}`
+        const aiToolName = `mcp__${blenderServerId}__${mcpTool.name}`
         resolvedTools[aiToolName] = tool({
           description: mcpTool.description || `Blender MCP tool: ${mcpTool.name}`,
           inputSchema: z.object({}).passthrough(),

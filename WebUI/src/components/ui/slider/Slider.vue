@@ -62,7 +62,7 @@ const handleValueCommit = (value: number[]) => {
     <SliderThumb
       v-for="(_, key) in internalModelValue"
       :key="key"
-      class="block h-5 w-5 rounded-full border-2 border-primary bg-background ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[disabled]:pointer-events-none"
+      class="block h-5 w-5 cursor-pointer rounded-full border-2 border-primary bg-background ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[disabled]:cursor-default data-[disabled]:pointer-events-none"
     />
   </SliderRoot>
 </template>

@@ -111,7 +111,9 @@
             :class="{ 'border-primary bg-primary/10': isOverDropZone }"
             id="plus-icon"
           >
-            <Label htmlFor="file-attachment"><PlusIcon class="size-4 cursor-pointer" /></Label>
+            <Label htmlFor="file-attachment">
+              <PlusIcon class="size-4 cursor-pointer" />
+            </Label>
             <input
               type="file"
               class="hidden"
@@ -375,12 +377,21 @@ const isStopping = computed(() => imageGeneration.stopping)
 const readyForNewSubmit = computed(() => !promptStore.promptSubmitted && !isProcessing.value)
 
 const isFirstPrompt = computed(() => {
-  return (
-    promptStore.getCurrentMode() === 'chat' &&
+  const mode = promptStore.getCurrentMode()
+
+  const isFirstChatPrompt =
+    mode === 'chat' &&
     !openAiCompatibleChat.messages?.length &&
     !openAiCompatibleChat.processing &&
     !textInference.isPreparingBackend
-  )
+
+  const isFirstImageGenPrompt =
+    mode === 'imageGen' && !imageGeneration.selectedGeneratedImageId && !imageGeneration.processing
+
+  const isFirstImageEditPrompt =
+    mode === 'imageEdit' && !imageGeneration.selectedEditedImageId && !imageGeneration.processing
+
+  return isFirstChatPrompt || isFirstImageGenPrompt || isFirstImageEditPrompt
 })
 
 // Check if prompt is modifiable for ComfyUI presets

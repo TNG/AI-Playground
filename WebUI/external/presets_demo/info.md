@@ -22,3 +22,4 @@ Typical things to change for demo mode:
 
 - "Safety Checker Strength" slider to `defaultValue: 0` and `modifyable: false`
 - "Show Preview" checkbox to `defaultValue: false` and `modifyable: false`
+- "Input Image" image picker to `modifyable: false`

@@ -157,7 +157,7 @@
       "type": "image",
       "label": "Reference Image",
       "displayed": true,
-      "modifiable": true,
+      "modifiable": false,
       "defaultValue": "",
       "nodeTitle": "Load Image",
       "nodeInput": "image"

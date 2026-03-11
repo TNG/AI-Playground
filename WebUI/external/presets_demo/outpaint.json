@@ -637,7 +637,7 @@
       "nodeInput": "image",
       "defaultValue": "",
       "displayed": true,
-      "modifiable": true
+      "modifiable": false
     },
     {
       "type": "number",

@@ -29,7 +29,7 @@
       "type": "image",
       "label": "Input Image",
       "displayed": true,
-      "modifiable": true,
+      "modifiable": false,
       "defaultValue": "",
       "nodeTitle": "Load Image",
       "nodeInput": "image"

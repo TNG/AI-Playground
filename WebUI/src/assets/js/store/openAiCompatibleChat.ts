@@ -87,6 +87,13 @@ export const useOpenAiCompatibleChat = defineStore(
       }).chatModel(textInference.activeModel?.split('/').join('---') ?? ''),
     )
 
+    function isToolEnabled(toolName: string): boolean {
+      const name = toolName.toLowerCase()
+      // These blender tools fill up context, but still only work with separate api keys
+      const excludedKeywords = ['hyper', 'rodin', 'sketchfab', 'hunyuan', 'polyhaven']
+      return !excludedKeywords.some((keyword) => name.includes(keyword))
+    }
+
     async function resolveTools(): Promise<ToolSet> {
       const resolvedTools: ToolSet = { ...aipgTools }
 
@@ -96,7 +103,8 @@ export const useOpenAiCompatibleChat = defineStore(
         return resolvedTools
       }
 
-      const mcpTools = await window.electronAPI.mcp.listServerTools(blenderServerId)
+      const allMcpTools = await window.electronAPI.mcp.listServerTools(blenderServerId)
+      const mcpTools = allMcpTools.filter((tool) => isToolEnabled(tool.name))
 
       for (const mcpTool of mcpTools) {
         const aiToolName = `blender__${mcpTool.name}`

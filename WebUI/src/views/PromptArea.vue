@@ -1,7 +1,7 @@
 <template>
   <div id="prompt-area" class="text-foreground flex flex-col w-full pt-4">
     <div class="group flex flex-col items-center gap-7 text-base px-4">
-      <template v-if="demoMode.enabled">
+      <template v-if="demoMode.enabled && isFirstPrompt">
         <div
           class="transition-opacity duration-200 invisible opacity-0 pointer-events-none group-focus-within:visible group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
         >
@@ -373,6 +373,15 @@ const isProcessing = computed(() => {
 const isStopping = computed(() => imageGeneration.stopping)
 
 const readyForNewSubmit = computed(() => !promptStore.promptSubmitted && !isProcessing.value)
+
+const isFirstPrompt = computed(() => {
+  return (
+    promptStore.getCurrentMode() === 'chat' &&
+    !openAiCompatibleChat.messages?.length &&
+    !openAiCompatibleChat.processing &&
+    !textInference.isPreparingBackend
+  )
+})
 
 // Check if prompt is modifiable for ComfyUI presets
 const isPromptModifiable = computed(() => {

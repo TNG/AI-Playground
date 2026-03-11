@@ -296,7 +296,6 @@ import PresetRequirementsDialog from '@/components/PresetRequirementsDialog.vue'
 import InstallationProgressDialog from '@/components/InstallationProgressDialog.vue'
 import MaskEditorDialog from '@/components/MaskEditorDialog.vue'
 import DemoModeIndicator from '@/components/DemoModeIndicator.vue'
-import DemoModeOverlay from '@/components/DemoModeOverlay.vue'
 import { useBackendServices } from './assets/js/store/backendServices.ts'
 import { ServerStackIcon } from '@heroicons/vue/24/solid'
 import { useColorMode } from '@vueuse/core'
@@ -499,7 +498,7 @@ function openAppSettings() {
   showAppSettings.value = true
 }
 
-function triggerHelpForCurrentMode(force = false) {
+function triggerHelpForCurrentMode(_force = false) {
   // const mode = promptStore.getCurrentMode()
   // if (mode === 'chat') {
   //   demoMode.triggerHelp('chat', force)

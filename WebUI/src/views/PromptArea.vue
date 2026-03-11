@@ -1,7 +1,13 @@
 <template>
   <div id="prompt-area" class="text-foreground flex flex-col w-full pt-4">
-    <div class="flex flex-col items-center gap-7 text-base px-4">
-      <DemoSamplePrompts />
+    <div class="group flex flex-col items-center gap-7 text-base px-4">
+      <template v-if="demoMode.enabled">
+        <div
+          class="transition-opacity duration-200 invisible opacity-0 pointer-events-none group-focus-within:visible group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
+        >
+          <DemoSamplePrompts />
+        </div>
+      </template>
       <div v-if="contextError" class="flex items-center gap-3">
         <p class="text-red-500">{{ contextError }}</p>
       </div>

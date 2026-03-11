@@ -90,12 +90,14 @@ async function applySample(sample: SamplePrompt) {
   width: 100%;
   font-family: 'IntelOne', sans-serif;
   transition:
+    transform 0.3s ease,
     box-shadow 0.2s ease,
     border-color 0.2s ease;
   position: relative;
 }
 
 .demo-sample-bubble:hover {
+  transform: translateY(-3px);
   box-shadow: 0px 1px 8px #00c4fa;
   border-color: #3be0ff;
 }

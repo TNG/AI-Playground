@@ -172,19 +172,19 @@
 
               <!-- Render tool parts -->
               <template
-                v-for="part in message.parts.filter((p) => p.type.startsWith('tool-'))"
-                :key="
-                  part.type === 'tool-comfyUI'
-                    ? `tool-${part.toolCallId}`
-                    : part.type === 'tool-comfyUiImageEdit'
-                      ? `tool-${part.toolCallId}`
-                      : part.type === 'tool-visualizeObjectDetections'
-                        ? `tool-${part.toolCallId}`
-                        : undefined
-                "
+                v-for="(part, partIndex) in getToolParts(message)"
+                :key="`tool-${part.toolCallId ?? `${message.id}-${partIndex}`}`"
               >
                 <span>I'm using the tool {{ part.type.replace('tool-', '') }}</span>
-                <template v-if="part.type === 'tool-comfyUI'">
+                <span
+                  class="inline-flex items-center gap-2 rounded-md border border-border px-2 py-1"
+                >
+                  <span class="font-medium">Tool: {{ getToolDisplayName(part) }}</span>
+                  <span class="text-xs" :class="getToolStateClass(part.state)">
+                    {{ getToolStateLabel(part.state) }}
+                  </span>
+                </span>
+                <template v-if="isAipgTool(part) && part.type === 'tool-comfyUI'">
                   <div class="mt-1 pt-1">
                     <span
                       >Generating using the preset
@@ -204,7 +204,7 @@
                     />
                   </div>
                 </template>
-                <template v-else-if="part.type === 'tool-comfyUiImageEdit'">
+                <template v-else-if="isAipgTool(part) && part.type === 'tool-comfyUiImageEdit'">
                   <div class="mt-1 pt-1">
                     <span
                       >Editing using the preset <b>{{ part.input?.workflow ?? 'unknown' }}</b></span
@@ -223,7 +223,9 @@
                     />
                   </div>
                 </template>
-                <template v-else-if="part.type === 'tool-visualizeObjectDetections'">
+                <template
+                  v-else-if="isAipgTool(part) && part.type === 'tool-visualizeObjectDetections'"
+                >
                   <div class="mt-1 pt-1">
                     <div
                       v-if="
@@ -244,6 +246,9 @@
                       <span class="text-muted-foreground">Visualizing object detections...</span>
                     </div>
                   </div>
+                </template>
+                <template v-else-if="isMcpTool(part)">
+                  <ChatMcpToolDisplay :part="part" />
                 </template>
               </template>
             </div>
@@ -308,8 +313,9 @@ import { useTextInference } from '@/assets/js/store/textInference.ts'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import LoadingBar from '@/components/LoadingBar.vue'
 import { usePromptStore } from '@/assets/js/store/promptArea.ts'
-import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
+import { useOpenAiCompatibleChat, type AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
+import ChatMcpToolDisplay from '@/components/ChatMcpToolDisplay.vue'
 import {
   useImageGenerationPresets,
   type MediaItem,
@@ -317,7 +323,7 @@ import {
 } from '@/assets/js/store/imageGenerationPresets'
 import { useComfyUiPresets } from '@/assets/js/store/comfyUiPresets'
 import { ToolUIPart } from 'ai'
-import { AipgTools } from '@/assets/js/tools/tools'
+import { aipgTools, AipgTools } from '@/assets/js/tools/tools'
 import { UserCircleIcon } from '@heroicons/vue/24/outline'
 
 const openAiCompatibleChat = useOpenAiCompatibleChat()
@@ -337,6 +343,7 @@ const showThinkingTextPerMessageId = reactive<Record<string, boolean>>({})
 const showRagSourcePerMessageId = reactive<Record<string, boolean>>({})
 
 const ragSourcePerMessageId = reactive<Record<string, string>>({})
+const aipgToolPartTypes = new Set(Object.keys(aipgTools).map((toolName) => `tool-${toolName}`))
 
 // Track progress for active tool calls
 const toolProgressMap = reactive<
@@ -496,6 +503,43 @@ function getToolStepText(part: ToolUIPart<AipgTools>): string | undefined {
   }
 
   return undefined
+}
+
+function getToolParts(message: AipgUiMessage): ToolUIPart<AipgTools>[] {
+  return message.parts.filter((part): part is ToolUIPart<AipgTools> =>
+    part.type.startsWith('tool-'),
+  )
+}
+
+function isAipgTool(part: ToolUIPart<AipgTools>): boolean {
+  return aipgToolPartTypes.has(part.type)
+}
+
+function getToolDisplayName(part: ToolUIPart<AipgTools>): string {
+  const rawName = part.type.replace('tool-', '')
+  if (rawName.startsWith('blender__')) {
+    return `Blender MCP · ${rawName.replace('blender__', '')}`
+  }
+  return rawName
+}
+
+function getToolStateLabel(state: string): string {
+  if (state === 'input-streaming') return 'Running'
+  if (state === 'input-available') return 'Queued'
+  if (state === 'output-available') return 'Completed'
+  if (state === 'output-error') return 'Failed'
+  return state
+}
+
+function getToolStateClass(state: string): string {
+  if (state === 'output-available') return 'text-green-600'
+  if (state === 'output-error') return 'text-destructive'
+  if (state === 'input-streaming' || state === 'input-available') return 'text-amber-500'
+  return 'text-muted-foreground'
+}
+
+function isMcpTool(part: ToolUIPart<AipgTools>): boolean {
+  return part.type.startsWith('tool-blender__')
 }
 
 // Watch for new tool calls starting to initialize their image tracking

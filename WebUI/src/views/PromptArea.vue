@@ -386,7 +386,10 @@ const isFirstPrompt = computed(() => {
     !textInference.isPreparingBackend
 
   const isFirstImageGenPrompt =
-    mode === 'imageGen' && !imageGeneration.selectedGeneratedImageId && !imageGeneration.processing
+    mode === 'imageGen' &&
+    (!imageGeneration.selectedGeneratedImageId ||
+      imageGeneration.selectedGeneratedImageId === 'new') &&
+    !imageGeneration.processing
 
   const isFirstImageEditPrompt =
     mode === 'imageEdit' && !imageGeneration.selectedEditedImageId && !imageGeneration.processing

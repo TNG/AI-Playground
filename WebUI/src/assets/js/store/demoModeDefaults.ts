@@ -1,6 +1,7 @@
 import { usePresets } from './presets'
 import { useTextInference } from './textInference'
 import { usePromptStore } from './promptArea'
+import demoInputImageUrl from '@/assets/image/dog_with_people.jpg'
 
 export type DemoImageEditFeature = 'upscale' | 'prompt' | 'inpaint' | 'outpaint'
 
@@ -36,4 +37,8 @@ export async function applyDemoModeExplicitDefaults(): Promise<{
   return {
     imageEditFeature: DEMO_IMAGEEDIT_FEATURE,
   }
+}
+
+export function getDemoModeInputImage(): string | null {
+  return demoInputImageUrl
 }

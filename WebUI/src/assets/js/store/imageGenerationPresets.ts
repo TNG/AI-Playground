@@ -9,7 +9,7 @@ import { useUIStore } from './ui'
 import { PresetRequirementsData, useDialogStore } from './dialogs'
 import { getMissingComfyuiBackendModels } from './imageGenerationUtils'
 import { imageUrlToDataUri } from '@/lib/utils'
-import demoModeInputImage from '@/assets/image/dog_with_people.jpg'
+import { getDemoModeInputImage } from './demoModeDefaults'
 
 export type GenerateState =
   | 'no_start'
@@ -437,9 +437,10 @@ export const useImageGenerationPresets = defineStore(
 
     async function preloadImageDuringDemo() {
       if (demoMode.enabled && activePreset.value?.category === 'edit-images') {
-        const currentImageInput = comfyInputs.value.find((input) => input.type === 'image')
-        if (currentImageInput) {
-          currentImageInput.current.value = await imageUrlToDataUri(demoModeInputImage)
+        const imageInput = comfyInputs.value.find((input) => input.type === 'image')
+        const demoImage = getDemoModeInputImage()
+        if (imageInput && demoImage) {
+          imageInput.current.value = await imageUrlToDataUri(demoImage)
         }
       }
     }

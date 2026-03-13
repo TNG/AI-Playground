@@ -34,7 +34,8 @@ export const useDialogStore = defineStore('dialog', () => {
   // Warning dialog state
   const warningDialogVisible = ref(false)
   const warningMessage = ref('')
-  const warningConfirmFunction = ref(() => {})
+  const warningConfirmFunction = ref<(_dontShowAgain?: boolean) => void>(() => {})
+  const warningDontShowAgainKey = ref<string | null>(null)
 
   // Download dialog state
   const downloadDialogVisible = ref(false)
@@ -64,14 +65,22 @@ export const useDialogStore = defineStore('dialog', () => {
   const maskEditorPreviewImageUrl = ref<string>('')
   const maskEditorIsModified = ref(false)
 
-  function showWarningDialog(message: string, func: () => void) {
+  type ShowWarningDialogOptions = { dontShowAgainKey: string }
+
+  function showWarningDialog(
+    message: string,
+    func: (_dontShowAgain?: boolean) => void,
+    options?: ShowWarningDialogOptions,
+  ) {
     warningMessage.value = message
     warningConfirmFunction.value = func
+    warningDontShowAgainKey.value = options?.dontShowAgainKey ?? null
     warningDialogVisible.value = true
   }
 
   function closeWarningDialog() {
     warningDialogVisible.value = false
+    warningDontShowAgainKey.value = null
   }
 
   function showDownloadDialog(
@@ -271,6 +280,7 @@ export const useDialogStore = defineStore('dialog', () => {
     warningDialogVisible,
     warningMessage,
     warningConfirmFunction,
+    warningDontShowAgainKey,
     showWarningDialog,
     closeWarningDialog,
 

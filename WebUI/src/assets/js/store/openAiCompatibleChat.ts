@@ -8,6 +8,7 @@ import {
   DefaultChatTransport,
   LanguageModelUsage,
   streamText,
+  stepCountIs,
   type ToolSet,
   UIDataTypes,
   UIMessage,
@@ -237,6 +238,7 @@ export const useOpenAiCompatibleChat = defineStore(
         ...(shouldEnableTools
           ? {
               tools: availableTools,
+              stopWhen: stepCountIs(20),
             }
           : {}),
         onChunk: (chunk) => {

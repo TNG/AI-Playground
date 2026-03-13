@@ -18,6 +18,7 @@ type ServiceSettings = {
   version?: string
   releaseTag?: string
   comfyUiParameters?: string
+  llamaCppParameters?: string
 }
 
 type DemoModeSettings = {
@@ -72,6 +73,7 @@ type electronAPI = {
   getInitialPage(): Promise<AipgPage>
   getDemoModeSettings(): Promise<DemoModeSettings>
   saveImage(url: string): void
+  saveImageToMediaInput(dataUri: string): Promise<string>
   openImageWin(url: string, title: string, width: number, height: number): void
   wakeupApiService(): void
   screenChange(callback: (width: number, height: number) => void): void
@@ -93,6 +95,8 @@ type electronAPI = {
   getDownloadedGGUFLLMs(): Promise<string[]>
   getDownloadedOpenVINOLLMModels(): Promise<string[]>
   getDownloadedEmbeddingModels(): Promise<Model[]>
+  getComfyUIModels(modelType: string): Promise<string[]>
+  getPlatform(): Promise<NodeJS.Platform>
   openImageWithSystem(url: string): void
   openImageInFolder(url: string): void
   setFullScreen(enable: boolean): void
@@ -105,6 +109,7 @@ type electronAPI = {
   ): void
   wakeupComfyUIService(): void
   getComfyUiDefaultParameters(): Promise<string>
+  getLlamaCppDefaultParameters(): Promise<string>
   getServices(): Promise<ApiServiceInformation[]>
   updateServiceSettings(settings: ServiceSettings): Promise<BackendStatus>
 
@@ -124,6 +129,11 @@ type electronAPI = {
     embeddingModelName?: string,
     contextSize?: number,
   ): Promise<{ success: boolean; error?: string }>
+  ensureComfyUIBackendRunning(): Promise<{
+    success: boolean
+    error?: string
+    starting?: boolean
+  }>
   startTranscriptionServer(modelName: string): Promise<{ success: boolean; error?: string }>
   stopTranscriptionServer(): Promise<{ success: boolean; error?: string }>
   getTranscriptionServerUrl(): Promise<{ success: boolean; url?: string; error?: string }>

@@ -1,7 +1,7 @@
 <template>
-  <div class="mt-2 rounded-md border border-border/80 bg-muted/20 px-3 py-3 flex flex-col gap-2">
+  <div class="mt-2 rounded-md border border-border/80 bg-muted/20 flex flex-col">
     <div
-      class="flex items-center justify-between gap-2 cursor-pointer"
+      class="px-3 py-3 flex items-center justify-between gap-2 cursor-pointer"
       @click="isExpanded = !isExpanded"
     >
       <span class="text-sm text-muted-foreground">MCP tool call - {{ toolDisplayName }}</span>
@@ -10,7 +10,10 @@
       </span>
     </div>
 
-    <div v-if="isExpanded" class="animate-in fade-in-0 zoom-in-95 duration-200">
+    <div
+      v-if="isExpanded"
+      class="px-3 pb-3 animate-in fade-in-0 zoom-in-95 duration-200 flex flex-col gap-2"
+    >
       <details class="mt-2" v-if="part.input" open>
         <summary class="cursor-pointer text-xs text-muted-foreground">Arguments</summary>
         <pre class="mt-1 overflow-x-auto rounded bg-muted p-2 text-xs leading-5">{{

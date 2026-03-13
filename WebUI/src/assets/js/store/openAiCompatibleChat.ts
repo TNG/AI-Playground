@@ -214,7 +214,7 @@ export const useOpenAiCompatibleChat = defineStore(
         textInference.toolsEnabled,
       )
       const shouldEnableTools = textInference.modelSupportsToolCalling && textInference.toolsEnabled
-      const runtimeTools = shouldEnableTools ? await resolveTools() : undefined
+      const availableTools = shouldEnableTools ? await resolveTools() : undefined
 
       console.log('customFetch called with messages:', {
         messages,
@@ -231,7 +231,7 @@ export const useOpenAiCompatibleChat = defineStore(
         includeRawChunks: true,
         ...(shouldEnableTools
           ? {
-              tools: runtimeTools,
+              tools: availableTools,
             }
           : {}),
         onChunk: (chunk) => {

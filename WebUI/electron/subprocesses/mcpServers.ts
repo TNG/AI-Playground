@@ -11,8 +11,8 @@ export const mcpServers: Record<string, McpServerConfig> = {
   blender: {
     id: 'blender',
     name: 'Blender MCP',
-    command: 'cmd',
-    args: ['/c', 'uvx', 'blender-mcp'],
+    command: 'uvx',
+    args: ['blender-mcp'],
     env: {
       DISABLE_TELEMETRY: 'true',
     },
@@ -22,7 +22,7 @@ export const mcpServers: Record<string, McpServerConfig> = {
     // https://github.com/modelcontextprotocol/servers/tree/main/src/time
     id: 'datetime',
     name: 'DateTime MCP',
-    command: 'cmd',
-    args: ['/c', 'uvx', 'mcp-server-time'],
+    command: 'uvx',
+    args: ['mcp-server-time'],
   },
 }

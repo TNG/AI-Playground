@@ -148,7 +148,7 @@
         </div>
         <div class="absolute bottom-4 right-3 flex gap-2">
           <Button
-            id="microphone-button"
+            id="camera-button"
             class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
             variant="secondary"
             v-if="promptStore.getCurrentMode() === 'chat'"
@@ -158,6 +158,7 @@
             <CameraIcon class="w-5 h-5" />
           </Button>
           <Button
+            id="microphone-button"
             class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
             variant="secondary"
             v-if="promptStore.getCurrentMode() === 'chat'"

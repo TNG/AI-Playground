@@ -45,15 +45,8 @@ const progressText = computed(() => {
 })
 
 const errorText = computed(() => {
-  if (typeof props.part.errorText === 'string' && props.part.errorText.trim() !== '') {
-    return props.part.errorText
-  }
   if (props.state === 'output-error') {
-    const outputError = props.part.output?.error || props.part.output?.message
-    if (typeof outputError === 'string' && outputError.trim() !== '') {
-      return outputError
-    }
-    return 'Tool call failed with an unknown error.'
+    return props.part.errorText
   }
   return null
 })

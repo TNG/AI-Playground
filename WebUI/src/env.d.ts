@@ -63,6 +63,7 @@ type McpStatus = {
 type McpToolInfo = {
   name: string
   description?: string
+  inputSchema: Record<string, unknown>
 }
 
 type McpServerInfo = {

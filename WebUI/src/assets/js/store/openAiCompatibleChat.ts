@@ -8,7 +8,6 @@ import {
   DefaultChatTransport,
   LanguageModelUsage,
   streamText,
-  tool,
   type ToolSet,
   UIDataTypes,
   UIMessage,
@@ -20,7 +19,8 @@ import { aipgTools } from '../tools/tools'
 import z from 'zod'
 import { AipgTools } from '../tools/tools'
 import * as toast from '../toast'
-import { LanguageModelV2ToolResultOutput } from '@ai-sdk/provider'
+import { LanguageModelV2ToolResultOutput, JSONSchema7 } from '@ai-sdk/provider'
+import { dynamicTool, jsonSchema } from '@ai-sdk/provider-utils'
 import { imageUrlToDataUri } from '@/lib/utils'
 
 const LlamaCppRawValueTimingsSchema = z.object({
@@ -110,10 +110,15 @@ export const useOpenAiCompatibleChat = defineStore(
 
         for (const mcpTool of mcpTools) {
           const aiToolName = `mcp__${server.id}__${mcpTool.name}`
-          resolvedTools[aiToolName] = tool({
+          resolvedTools[aiToolName] = dynamicTool({
             description: mcpTool.description || `${server.name} tool: ${mcpTool.name}`,
-            inputSchema: z.object({}).passthrough(),
-            execute: async (args: Record<string, unknown>) => {
+            inputSchema: jsonSchema({
+              ...mcpTool.inputSchema,
+              properties: mcpTool.inputSchema.properties ?? {},
+              additionalProperties: false,
+            } as JSONSchema7),
+            execute: async (input: unknown) => {
+              const args = input as Record<string, unknown>
               return await window.electronAPI.mcp.invokeServerTool(server.id, mcpTool.name, args)
             },
           })

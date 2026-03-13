@@ -175,7 +175,7 @@
                 v-for="(part, partIndex) in getToolParts(message)"
                 :key="`tool-${part.toolCallId ?? `${message.id}-${partIndex}`}`"
               >
-                <span>I'm using the tool {{ part.type.replace('tool-', '') }}</span>
+                <span>I'm using the tool {{ getToolOrDynamicToolName(part) }}</span>
                 <span
                   class="inline-flex items-center gap-2 rounded-md border border-border px-2 py-1"
                 >
@@ -322,7 +322,12 @@ import {
   type GenerateState,
 } from '@/assets/js/store/imageGenerationPresets'
 import { useComfyUiPresets } from '@/assets/js/store/comfyUiPresets'
-import { ToolUIPart } from 'ai'
+import {
+  DynamicToolUIPart,
+  getToolOrDynamicToolName,
+  isToolOrDynamicToolUIPart,
+  ToolUIPart,
+} from 'ai'
 import { aipgTools, AipgTools } from '@/assets/js/tools/tools'
 import { UserCircleIcon } from '@heroicons/vue/24/outline'
 
@@ -450,7 +455,7 @@ function copyText(text: string) {
     .catch((e) => console.error('Error while copying text to clipboard', e))
 }
 
-// Helper functions for tool rendering
+// Helper functions for AIPG tool rendering
 function getToolImages(part: ToolUIPart<AipgTools>): MediaItem[] {
   if (!(part.type === 'tool-comfyUI' || part.type === 'tool-comfyUiImageEdit')) return []
   const toolCallId = part.toolCallId
@@ -505,18 +510,24 @@ function getToolStepText(part: ToolUIPart<AipgTools>): string | undefined {
   return undefined
 }
 
-function getToolParts(message: AipgUiMessage): ToolUIPart<AipgTools>[] {
-  return message.parts.filter((part): part is ToolUIPart<AipgTools> =>
-    part.type.startsWith('tool-'),
-  )
+function getToolParts(message: AipgUiMessage): Array<ToolUIPart<AipgTools> | DynamicToolUIPart> {
+  return message.parts.filter(isToolOrDynamicToolUIPart)
 }
 
-function isAipgTool(part: ToolUIPart<AipgTools>): boolean {
-  return aipgToolPartTypes.has(part.type)
+// Type guard to check if a part is an AIPG tool (static tool)
+function isAipgTool(
+  part: ToolUIPart<AipgTools> | DynamicToolUIPart,
+): part is ToolUIPart<AipgTools> {
+  return part.type !== 'dynamic-tool' && aipgToolPartTypes.has(part.type)
 }
 
-function getToolDisplayName(part: ToolUIPart<AipgTools>): string {
-  const rawName = part.type.replace('tool-', '')
+// Type guard to check if a part is an MCP tool (dynamic tool with mcp__ prefix)
+function isMcpTool(part: ToolUIPart<AipgTools> | DynamicToolUIPart): part is DynamicToolUIPart {
+  return part.type === 'dynamic-tool' && part.toolName.startsWith('mcp__')
+}
+
+function getToolDisplayName(part: ToolUIPart<AipgTools> | DynamicToolUIPart): string {
+  const rawName = getToolOrDynamicToolName(part)
   if (rawName.startsWith('mcp__')) {
     const mcpEnd = 'mcp__'.length
     const firstUnderscorePos = rawName.indexOf('__', mcpEnd)
@@ -542,10 +553,6 @@ function getToolStateClass(state: string): string {
   if (state === 'output-error') return 'text-destructive'
   if (state === 'input-streaming' || state === 'input-available') return 'text-amber-500'
   return 'text-muted-foreground'
-}
-
-function isMcpTool(part: ToolUIPart<AipgTools>): boolean {
-  return part.type.startsWith('tool-mcp__')
 }
 
 // Watch for new tool calls starting to initialize their image tracking

@@ -13,6 +13,7 @@ export type McpStatus = {
 export type McpToolInfo = {
   name: string
   description?: string
+  inputSchema: Record<string, unknown>
 }
 
 export type McpServerInfo = {
@@ -144,6 +145,7 @@ export async function listMcpServerTools(serverId: string): Promise<McpToolInfo[
       ...tools.map((tool) => ({
         name: tool.name,
         description: tool.description,
+        inputSchema: tool.inputSchema as Record<string, unknown>,
       })),
     )
     cursor = nextCursor

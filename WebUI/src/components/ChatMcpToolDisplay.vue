@@ -29,11 +29,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { type ToolUIPart } from 'ai'
+import { type DynamicToolUIPart } from 'ai'
 
 const props = defineProps<{
-  part: ToolUIPart
-  state: ToolUIPart['state']
+  part: DynamicToolUIPart
+  state: DynamicToolUIPart['state']
 }>()
 
 const progressText = computed(() => {
@@ -45,12 +45,11 @@ const progressText = computed(() => {
 })
 
 const errorText = computed(() => {
-  const anyPart = props.part as any
-  if (typeof anyPart.errorText === 'string' && anyPart.errorText.trim() !== '') {
-    return anyPart.errorText
+  if (typeof props.part.errorText === 'string' && props.part.errorText.trim() !== '') {
+    return props.part.errorText
   }
   if (props.state === 'output-error') {
-    const outputError = anyPart.output?.error || anyPart.output?.message
+    const outputError = props.part.output?.error || props.part.output?.message
     if (typeof outputError === 'string' && outputError.trim() !== '') {
       return outputError
     }
@@ -60,7 +59,7 @@ const errorText = computed(() => {
 })
 
 const formattedInput = computed(() => formatToolPayload(props.part.input))
-const formattedOutput = computed(() => formatToolPayload((props.part as any).output))
+const formattedOutput = computed(() => formatToolPayload(props.part.output))
 
 function formatToolPayload(payload: unknown): string {
   if (typeof payload === 'string') return payload

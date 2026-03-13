@@ -71,7 +71,7 @@
         </div>
         <div v-else-if="message.role === 'assistant'" class="flex items-start gap-3">
           <img :class="textInference.iconSizeClass" src="../assets/svg/ai-icon.svg" />
-          <div class="flex flex-col gap-3 max-w-[90%] text-wrap wrap-break-word">
+          <div class="flex flex-col gap-3 max-w-[90%] w-full text-wrap wrap-break-word">
             <div class="flex items-center gap-2">
               <p class="text-muted-foreground mt-0.75" :class="textInference.nameSizeClass">
                 {{ languages.ANSWER_AI_NAME }}
@@ -131,124 +131,125 @@
               </div>
             </div>
             <div class="ai-answer chat-content" :class="textInference.fontSizeClass">
-              <template v-if="message.parts.some((part) => part.type === 'reasoning')">
-                <div class="mb-2 flex items-center">
-                  <span class="italic text-muted-foreground">
-                    {{
-                      message.metadata?.reasoningFinished && message.metadata?.reasoningStarted
-                        ? `Done Reasoning after ${((message.metadata.reasoningFinished - message.metadata.reasoningStarted) / 1000).toFixed(1)} seconds`
-                        : `Reasoned for ${(
-                            (Date.now() - (message.metadata?.reasoningStarted ?? 0)) /
-                            1000
-                          ).toFixed(1)} seconds`
-                    }}
-                  </span>
-                  <button
-                    @click="
-                      showThinkingTextPerMessageId[message.id] =
-                        !showThinkingTextPerMessageId[message.id]
-                    "
-                    class="ml-1"
-                  >
-                    <img
-                      v-if="showThinkingTextPerMessageId[message.id]"
-                      src="../assets/svg/arrow-up.svg"
-                      class="w-4 h-4"
-                    />
-                    <img v-else src="../assets/svg/arrow-down.svg" class="w-4 h-4" />
-                  </button>
-                </div>
-                <MarkdownRenderer
-                  v-if="showThinkingTextPerMessageId[message.id]"
-                  class="border-l-2 border-border pl-4 text-muted-foreground"
-                  :content="message.parts.find((part) => part.type === 'reasoning')?.text ?? ''"
-                  :on-copy="copyText"
-                />
-              </template>
-              <MarkdownRenderer
-                :content="message.parts.find((part) => part.type === 'text')?.text ?? ''"
-                :on-copy="copyText"
-              />
-
-              <!-- Render tool parts -->
               <template
-                v-for="(part, partIndex) in getToolParts(message)"
-                :key="`tool-${part.toolCallId ?? `${message.id}-${partIndex}`}`"
+                v-for="(part, partIndex) in message.parts"
+                :key="`${message.id}-${part.type}-${partIndex}`"
               >
-                <span>I'm using the tool {{ getToolOrDynamicToolName(part) }}</span>
-                <span
-                  class="inline-flex items-center gap-2 rounded-md border border-border px-2 py-1"
-                >
-                  <span class="font-medium">Tool: {{ getToolDisplayName(part) }}</span>
-                  <span class="text-xs" :class="getToolStateClass(part.state)">
-                    {{ getToolStateLabel(part.state) }}
-                  </span>
-                </span>
-                <template v-if="isAipgTool(part) && part.type === 'tool-comfyUI'">
-                  <div class="mt-1 pt-1">
-                    <span
-                      >Generating using the preset
-                      <b>{{ part.input?.workflow ?? 'unknown' }}</b></span
-                    >
-                    <br />
-                    <br />
-                    <span
-                      ><em>{{ part.input?.prompt ?? '' }}</em></span
-                    >
-                    <ChatWorkflowResult
-                      :images="getToolImages(part)"
-                      :processing="getToolProcessing(part)"
-                      :currentState="getToolCurrentState(part)"
-                      :stepText="getToolStepText(part)"
-                      :toolCallId="(part as any).toolCallId"
-                    />
-                  </div>
-                </template>
-                <template v-else-if="isAipgTool(part) && part.type === 'tool-comfyUiImageEdit'">
-                  <div class="mt-1 pt-1">
-                    <span
-                      >Editing using the preset <b>{{ part.input?.workflow ?? 'unknown' }}</b></span
-                    >
-                    <br />
-                    <br />
-                    <span
-                      ><em>{{ part.input?.prompt ?? '' }}</em></span
-                    >
-                    <ChatWorkflowResult
-                      :images="getToolImages(part)"
-                      :processing="getToolProcessing(part)"
-                      :currentState="getToolCurrentState(part)"
-                      :stepText="getToolStepText(part)"
-                      :toolCallId="(part as any).toolCallId"
-                    />
-                  </div>
-                </template>
-                <template
-                  v-else-if="isAipgTool(part) && part.type === 'tool-visualizeObjectDetections'"
-                >
-                  <div class="mt-1 pt-1">
-                    <div
-                      v-if="
-                        part.state === 'output-available' && (part as any).output?.annotatedImageUrl
+                <!-- Reasoning part -->
+                <template v-if="part.type === 'reasoning'">
+                  <div class="mb-2 flex items-center">
+                    <span class="italic text-muted-foreground">
+                      {{
+                        message.metadata?.reasoningFinished && message.metadata?.reasoningStarted
+                          ? `Done Reasoning after ${((message.metadata.reasoningFinished - message.metadata.reasoningStarted) / 1000).toFixed(1)} seconds`
+                          : `Reasoned for ${(
+                              (Date.now() - (message.metadata?.reasoningStarted ?? 0)) /
+                              1000
+                            ).toFixed(1)} seconds`
+                      }}
+                    </span>
+                    <button
+                      @click="
+                        showThinkingTextPerMessageId[message.id] =
+                          !showThinkingTextPerMessageId[message.id]
                       "
+                      class="ml-1"
                     >
                       <img
-                        :src="(part as any).output.annotatedImageUrl"
-                        alt="Annotated image with object detections"
-                        class="max-w-full rounded-md border-2 border-border"
+                        v-if="showThinkingTextPerMessageId[message.id]"
+                        src="../assets/svg/arrow-up.svg"
+                        class="w-4 h-4"
+                      />
+                      <img v-else src="../assets/svg/arrow-down.svg" class="w-4 h-4" />
+                    </button>
+                  </div>
+                  <MarkdownRenderer
+                    v-if="showThinkingTextPerMessageId[message.id]"
+                    class="border-l-2 border-border pl-4 text-muted-foreground"
+                    :content="(part as any).text ?? ''"
+                    :on-copy="copyText"
+                  />
+                </template>
+
+                <!-- Text part -->
+                <template v-else-if="part.type === 'text'">
+                  <MarkdownRenderer
+                    class="mt-2"
+                    :content="(part as any).text ?? ''"
+                    :on-copy="copyText"
+                  />
+                </template>
+
+                <!-- Tool parts -->
+                <template v-else-if="isToolOrDynamicToolUIPart(part)">
+                  <template v-if="isAipgTool(part) && part.type === 'tool-comfyUI'">
+                    <div class="mt-1 pt-1">
+                      <span
+                        >Generating using the preset
+                        <b>{{ part.input?.workflow ?? 'unknown' }}</b></span
+                      >
+                      <br />
+                      <br />
+                      <span
+                        ><em>{{ part.input?.prompt ?? '' }}</em></span
+                      >
+                      <ChatWorkflowResult
+                        :images="getToolImages(part)"
+                        :processing="getToolProcessing(part)"
+                        :currentState="getToolCurrentState(part)"
+                        :stepText="getToolStepText(part)"
+                        :toolCallId="(part as any).toolCallId"
                       />
                     </div>
-                    <div
-                      v-else-if="
-                        part.state === 'input-streaming' || part.state === 'input-available'
-                      "
-                    >
-                      <span class="text-muted-foreground">Visualizing object detections...</span>
+                  </template>
+                  <template v-else-if="isAipgTool(part) && part.type === 'tool-comfyUiImageEdit'">
+                    <div class="mt-1 pt-1">
+                      <span
+                        >Editing using the preset
+                        <b>{{ part.input?.workflow ?? 'unknown' }}</b></span
+                      >
+                      <br />
+                      <br />
+                      <span
+                        ><em>{{ part.input?.prompt ?? '' }}</em></span
+                      >
+                      <ChatWorkflowResult
+                        :images="getToolImages(part)"
+                        :processing="getToolProcessing(part)"
+                        :currentState="getToolCurrentState(part)"
+                        :stepText="getToolStepText(part)"
+                        :toolCallId="(part as any).toolCallId"
+                      />
                     </div>
-                  </div>
-                </template>
-                <template v-else-if="isMcpTool(part)">
-                  <ChatMcpToolDisplay :part="part" :state="part.state" />
+                  </template>
+                  <template
+                    v-else-if="isAipgTool(part) && part.type === 'tool-visualizeObjectDetections'"
+                  >
+                    <div class="mt-1 pt-1">
+                      <div
+                        v-if="
+                          part.state === 'output-available' &&
+                          (part as any).output?.annotatedImageUrl
+                        "
+                      >
+                        <img
+                          :src="(part as any).output.annotatedImageUrl"
+                          alt="Annotated image with object detections"
+                          class="max-w-full rounded-md border-2 border-border"
+                        />
+                      </div>
+                      <div
+                        v-else-if="
+                          part.state === 'input-streaming' || part.state === 'input-available'
+                        "
+                      >
+                        <span class="text-muted-foreground">Visualizing object detections...</span>
+                      </div>
+                    </div>
+                  </template>
+                  <template v-else-if="isMcpTool(part)">
+                    <ChatMcpToolDisplay :part="part" :state="part.state" />
+                  </template>
                 </template>
               </template>
             </div>
@@ -313,7 +314,7 @@ import { useTextInference } from '@/assets/js/store/textInference.ts'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import LoadingBar from '@/components/LoadingBar.vue'
 import { usePromptStore } from '@/assets/js/store/promptArea.ts'
-import { useOpenAiCompatibleChat, type AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
+import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
 import ChatMcpToolDisplay from '@/components/ChatMcpToolDisplay.vue'
 import {
@@ -322,12 +323,7 @@ import {
   type GenerateState,
 } from '@/assets/js/store/imageGenerationPresets'
 import { useComfyUiPresets } from '@/assets/js/store/comfyUiPresets'
-import {
-  DynamicToolUIPart,
-  getToolOrDynamicToolName,
-  isToolOrDynamicToolUIPart,
-  ToolUIPart,
-} from 'ai'
+import { DynamicToolUIPart, isToolOrDynamicToolUIPart, ToolUIPart } from 'ai'
 import { aipgTools, AipgTools } from '@/assets/js/tools/tools'
 import { UserCircleIcon } from '@heroicons/vue/24/outline'
 
@@ -510,10 +506,6 @@ function getToolStepText(part: ToolUIPart<AipgTools>): string | undefined {
   return undefined
 }
 
-function getToolParts(message: AipgUiMessage): Array<ToolUIPart<AipgTools> | DynamicToolUIPart> {
-  return message.parts.filter(isToolOrDynamicToolUIPart)
-}
-
 // Type guard to check if a part is an AIPG tool (static tool)
 function isAipgTool(
   part: ToolUIPart<AipgTools> | DynamicToolUIPart,
@@ -524,35 +516,6 @@ function isAipgTool(
 // Type guard to check if a part is an MCP tool (dynamic tool with mcp__ prefix)
 function isMcpTool(part: ToolUIPart<AipgTools> | DynamicToolUIPart): part is DynamicToolUIPart {
   return part.type === 'dynamic-tool' && part.toolName.startsWith('mcp__')
-}
-
-function getToolDisplayName(part: ToolUIPart<AipgTools> | DynamicToolUIPart): string {
-  const rawName = getToolOrDynamicToolName(part)
-  if (rawName.startsWith('mcp__')) {
-    const mcpEnd = 'mcp__'.length
-    const firstUnderscorePos = rawName.indexOf('__', mcpEnd)
-
-    const serverId = rawName.substring(mcpEnd, firstUnderscorePos)
-    const toolName = rawName.substring(firstUnderscorePos + 2)
-
-    return `${serverId} MCP · ${toolName}`
-  }
-  return rawName
-}
-
-function getToolStateLabel(state: string): string {
-  if (state === 'input-streaming') return 'Running'
-  if (state === 'input-available') return 'Queued'
-  if (state === 'output-available') return 'Completed'
-  if (state === 'output-error') return 'Failed'
-  return state
-}
-
-function getToolStateClass(state: string): string {
-  if (state === 'output-available') return 'text-green-600'
-  if (state === 'output-error') return 'text-destructive'
-  if (state === 'input-streaming' || state === 'input-available') return 'text-amber-500'
-  return 'text-muted-foreground'
 }
 
 // Watch for new tool calls starting to initialize their image tracking

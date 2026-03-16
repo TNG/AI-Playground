@@ -641,6 +641,7 @@ function initEventHandle() {
       modelPaths: pathsManager.modelPaths,
       isAdminExec: settings.isAdminExec,
       version: app.getVersion(),
+      detectNonIntelDevicesIfAnyIntelDeviceFound: settings.detectNonIntelDevicesIfAnyIntelDeviceFound,
     }
   })
 
@@ -749,6 +750,13 @@ function initEventHandle() {
 
   ipcMain.handle('getComfyUiDefaultParameters', () => COMFYUI_DEFAULT_PARAMETERS)
   ipcMain.handle('getLlamaCppDefaultParameters', () => LLAMACPP_DEFAULT_PARAMETERS)
+
+  ipcMain.handle('getInstalledComfyUiVariant', () => {
+    const service = serviceRegistry?.getService('comfyui-backend')
+    if (!service) return null
+    const info = (service as ComfyUiBackendService).get_info()
+    return info.installedComfyUiVariant ?? null
+  })
 
   ipcMain.handle('getGlobalDetectionResult', () => lastGlobalDetectionResult)
 

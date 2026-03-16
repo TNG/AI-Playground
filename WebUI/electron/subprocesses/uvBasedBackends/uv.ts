@@ -164,6 +164,53 @@ export const installBackend = async (backend: string, onCacheCorruptionDetected?
   }
 }
 
+/**
+ * Install a backend using uv sync with a specific extra (e.g. 'xpu', 'cuda', 'cpu').
+ * Used by ComfyUI which keeps a single pyproject.toml with optional dependency groups.
+ */
+export const installBackendWithExtra = async (
+  backend: string,
+  extra: string,
+  onCacheCorruptionDetected?: () => void,
+) => {
+  const logger = loggerFor(`uv.sync.${path.basename(backend)}`)
+  await assertUv(logger)
+  const uvVenvCommand = [
+    'venv',
+    '--directory',
+    aipgBaseDir,
+    '--project',
+    backend,
+    '--allow-existing',
+    '--relocatable',
+  ]
+  const uvSyncCommand = [
+    'sync',
+    '--directory',
+    aipgBaseDir,
+    '--project',
+    backend,
+    '--extra',
+    extra,
+  ]
+  logger.info(
+    `Installing backend: ${backend} with extra '${extra}' — ${JSON.stringify(uvSyncCommand)}`,
+  )
+  try {
+    await uv(uvVenvCommand, logger)
+    return await uv(uvSyncCommand, logger)
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    if (isHashMismatchError(errorMessage)) {
+      logger.warn('Hash mismatch detected in UV cache, retrying with --no-cache')
+      onCacheCorruptionDetected?.()
+      await uv(uvVenvCommand, logger)
+      return await uv([...uvSyncCommand, '--no-cache'], logger)
+    }
+    throw error
+  }
+}
+
 export const checkBackend = async (backend: string) => {
   const logger = loggerFor(`uv.check.${backend}`)
   await assertUv(logger)

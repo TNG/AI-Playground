@@ -2,6 +2,9 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import z from 'zod'
 
+// ComfyUiVariant is declared globally in env.d.ts
+type ComfyUiVariant = 'xpu' | 'cuda' | 'cpu'
+
 const backends = [
   'openvino-backend',
   'ai-backend',
@@ -47,6 +50,33 @@ export const useBackendServices = defineStore(
 
     // ComfyUI startup parameters (persisted). null = use default from backend.
     const comfyUiParameters = ref<string | null>(null)
+
+    // ComfyUI variant (persisted). null = auto-select based on detected hardware.
+    const comfyUiVariant = ref<ComfyUiVariant | null>(null)
+
+    // Tracks the variant actually installed on disk, read from service info on startup.
+    // Not persisted — refreshed every time service info is received.
+    const installedComfyUiVariant = ref<ComfyUiVariant | null>(null)
+
+    // Compute the effective variant based on detected hardware (if no explicit choice)
+    async function getEffectiveComfyUiVariant(): Promise<ComfyUiVariant> {
+      if (comfyUiVariant.value !== null) return comfyUiVariant.value
+      try {
+        const result = await window.electronAPI.getGlobalDetectionResult()
+        if (!result) return 'xpu'
+        // Only OpenVINO GPU.* devices with an Intel name indicate an Intel GPU.
+        // OpenVINO also exposes NVIDIA/AMD hardware under GPU.* IDs, so filter by name.
+        const hasIntelGpu = result.devices.some(
+          (d) => d.kind === 'intel' && d.id.startsWith('GPU') && !/nvidia|amd/i.test(d.name),
+        )
+        if (hasIntelGpu) return 'xpu'
+        const hasNvidia = result.devices.some((d) => d.kind === 'nvidia')
+        if (hasNvidia) return 'cuda'
+        return 'cpu'
+      } catch {
+        return 'xpu'
+      }
+    }
 
     // Default parameters fetched from backend via IPC
     const comfyUiDefaultParameters = ref<string>('')
@@ -129,6 +159,10 @@ export const useBackendServices = defineStore(
           if (service.installedVersion) {
             versionState.value[serviceName].installed = service.installedVersion
           }
+          // Track which ComfyUI variant is installed on disk
+          if (serviceName === 'comfyui-backend' && service.installedComfyUiVariant) {
+            installedComfyUiVariant.value = service.installedComfyUiVariant
+          }
         }
       })
     setTimeout(() => {
@@ -140,6 +174,10 @@ export const useBackendServices = defineStore(
           const serviceName = service.serviceName as BackendServiceName
           if (service.installedVersion) {
             versionState.value[serviceName].installed = service.installedVersion
+          }
+          // Track which ComfyUI variant is installed on disk
+          if (serviceName === 'comfyui-backend' && service.installedComfyUiVariant) {
+            installedComfyUiVariant.value = service.installedComfyUiVariant
           }
         }
       })
@@ -155,6 +193,14 @@ export const useBackendServices = defineStore(
       } else if (!updatedInfo.isSetUp) {
         // Clear installed version if service is not set up
         versionState.value[serviceName].installed = undefined
+      }
+      // Track which ComfyUI variant is installed on disk
+      if (serviceName === 'comfyui-backend') {
+        if (updatedInfo.installedComfyUiVariant) {
+          installedComfyUiVariant.value = updatedInfo.installedComfyUiVariant
+        } else if (!updatedInfo.isSetUp) {
+          installedComfyUiVariant.value = null
+        }
       }
     })
 
@@ -275,6 +321,7 @@ export const useBackendServices = defineStore(
       const serviceSettings: ServiceSettings = { serviceName, ...targetVersionSettings }
       if (serviceName === 'comfyui-backend') {
         serviceSettings.comfyUiParameters = effectiveComfyUiParameters.value
+        serviceSettings.comfyUiVariant = await getEffectiveComfyUiVariant()
       }
       if (serviceName === 'llamacpp-backend') {
         serviceSettings.llamaCppParameters = effectiveLlamaCppParameters.value
@@ -285,6 +332,11 @@ export const useBackendServices = defineStore(
       if (result.success) {
         await detectDevices(serviceName)
         // Installed version is now automatically updated via serviceInfoUpdate
+        // For comfyui-backend, persist the variant that was actually installed so the
+        // dropdown reflects the correct value after a restart.
+        if (serviceName === 'comfyui-backend') {
+          comfyUiVariant.value = serviceSettings.comfyUiVariant ?? null
+        }
       }
       return result
     }
@@ -486,8 +538,11 @@ export const useBackendServices = defineStore(
       versionOverrides,
       lastSelectedDeviceIdPerBackend,
       comfyUiParameters,
+      comfyUiVariant,
+      installedComfyUiVariant,
       comfyUiDefaultParameters,
       effectiveComfyUiParameters,
+      getEffectiveComfyUiVariant,
       llamaCppParameters,
       llamaCppDefaultParameters,
       effectiveLlamaCppParameters,
@@ -518,6 +573,7 @@ export const useBackendServices = defineStore(
         'versionOverrides',
         'lastSelectedDeviceIdPerBackend',
         'comfyUiParameters',
+        'comfyUiVariant',
         'llamaCppParameters',
       ],
     },

@@ -48,6 +48,7 @@ type SetupData = {
   modelLists: ModelLists
   isAdminExec: boolean
   version: string
+  detectNonIntelDevicesIfAnyIntelDeviceFound: boolean
 }
 
 type UpdateWorkflowsFromIntelResult = {

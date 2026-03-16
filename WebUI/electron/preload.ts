@@ -100,6 +100,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   wakeupComfyUIService: () => ipcRenderer.send('wakeupComfyUIService'),
   getComfyUiDefaultParameters: () => ipcRenderer.invoke('getComfyUiDefaultParameters'),
   getLlamaCppDefaultParameters: () => ipcRenderer.invoke('getLlamaCppDefaultParameters'),
+  getInstalledComfyUiVariant: () => ipcRenderer.invoke('getInstalledComfyUiVariant') as Promise<'xpu' | 'cuda' | 'cpu' | null>,
   getGlobalDetectionResult: () => ipcRenderer.invoke('getGlobalDetectionResult'),
   onGlobalDetectionResult: (
     callback: (result: import('./subprocesses/globalDeviceDetection.ts').GlobalDetectionResult) => void,

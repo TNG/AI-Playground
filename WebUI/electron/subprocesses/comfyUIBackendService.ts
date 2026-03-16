@@ -10,7 +10,7 @@ import {
   patchFile,
   createEnhancedErrorDetails,
 } from './service.ts'
-import { aipgBaseDir, checkBackendWithDetails, installBackend } from './uvBasedBackends/uv.ts'
+import { aipgBaseDir, checkBackendWithDetails, installBackendWithExtra } from './uvBasedBackends/uv.ts'
 import { ProcessError } from './osProcessHelper.ts'
 import { getMediaDir } from '../util.ts'
 import { levelZeroDeviceSelectorEnv } from './deviceDetection.ts'
@@ -19,7 +19,12 @@ import { LocalSettings } from '../main.ts'
 import { downloadCustomNode } from './comfyuiTools.ts'
 type Device = Omit<InferenceDevice, 'selected'>
 
+export type ComfyUiVariant = 'xpu' | 'cuda' | 'cpu'
+
 export const COMFYUI_DEFAULT_PARAMETERS = '--lowvram --reserve-vram 6.0'
+
+/** The single comfyui-deps directory that holds the shared pyproject.toml with xpu/cuda/cpu extras */
+const COMFYUI_DEPS_DIR = 'comfyui-deps'
 
 export class ComfyUiBackendService extends LongLivedPythonApiService {
   constructor(name: BackendServiceName, port: number, win: BrowserWindow, settings: LocalSettings) {
@@ -28,6 +33,15 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     this.serviceIsSetUp().then(async (setUp) => {
       this.isSetUp = setUp
       if (this.isSetUp) {
+        // Restore the installed variant so getEnvVars() uses the correct torch backend
+        const installedVariant = this.readInstalledVariant()
+        if (installedVariant !== null) {
+          this.comfyUiVariant = installedVariant
+          this.appLogger.info(
+            `Restored comfyUI variant from marker file: ${installedVariant}`,
+            this.name,
+          )
+        }
         await this.updateCachedVersion()
         this.setStatus('notYetStarted')
       }
@@ -48,6 +62,45 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   private environmentMismatchError: ErrorDetails | null = null
 
   private comfyUiParametersString: string = COMFYUI_DEFAULT_PARAMETERS
+  private comfyUiVariant: ComfyUiVariant = 'xpu'
+
+  /** Path of the small JSON file that records which variant is currently installed */
+  private readonly variantMarkerPath = path.join(this.serviceDir, 'aipg-variant.json')
+
+  private readInstalledVariant(): ComfyUiVariant | null {
+    try {
+      if (!filesystem.existsSync(this.variantMarkerPath)) return null
+      const raw = filesystem.readFileSync(this.variantMarkerPath, 'utf-8')
+      const parsed = JSON.parse(raw) as { variant?: string }
+      const v = parsed.variant
+      if (v === 'xpu' || v === 'cuda' || v === 'cpu') return v
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  private writeVariantMarker(variant: ComfyUiVariant): void {
+    filesystem.writeFileSync(this.variantMarkerPath, JSON.stringify({ variant }), 'utf-8')
+  }
+
+  /** Override uninstall to also wipe the generated lockfile and variant marker so a fresh setup starts clean. */
+  async uninstall(): Promise<void> {
+    await super.uninstall()
+    // Remove the generated uv.lock (it will be regenerated on reinstall for the new variant)
+    // and the variant marker. Keep pyproject.toml so serviceIsSetUp can detect the git repo state.
+    for (const file of ['uv.lock', 'aipg-variant.json']) {
+      const filePath = path.join(this.serviceDir, file)
+      if (filesystem.existsSync(filePath)) {
+        try {
+          await filesystem.remove(filePath)
+          this.appLogger.info(`Removed ${file} from ComfyUI dir during uninstall`, this.name)
+        } catch (e) {
+          this.appLogger.warn(`Failed to remove ${file} during uninstall: ${e}`, this.name)
+        }
+      }
+    }
+  }
 
   async serviceIsSetUp(): Promise<boolean> {
     this.appLogger.info(`Checking if comfyUI directories exist`, this.name)
@@ -135,6 +188,25 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         this.name,
       )
     }
+    if (settings.comfyUiVariant) {
+      const newVariant = settings.comfyUiVariant
+      const installedVariant = this.readInstalledVariant()
+      this.comfyUiVariant = newVariant
+      this.appLogger.info(`applied new comfyUI variant: ${this.comfyUiVariant}`, this.name)
+
+      // If the variant changed and ComfyUI is already installed, uninstall it so the
+      // user can reinstall with the correct dependencies for the new variant.
+      // A null installedVariant means no marker file exists (pre-tracking install) —
+      // treat it as a mismatch so the user always gets the right variant.
+      if (this.isSetUp && installedVariant !== newVariant) {
+        this.appLogger.info(
+          `ComfyUI variant changed from '${installedVariant ?? 'unknown'}' to '${newVariant}' — uninstalling to force reinstall`,
+          this.name,
+        )
+        await this.uninstall()
+        this.isSetUp = false
+      }
+    }
   }
 
   async getCurrentVersion(): Promise<string | undefined> {
@@ -176,6 +248,11 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   get_info(): ApiServiceInformation {
     const baseInfo = super.get_info()
 
+    // Include the currently installed variant so the frontend can reflect it correctly
+    const installedComfyUiVariant: ComfyUiVariant | undefined = this.isSetUp
+      ? this.readInstalledVariant() ?? this.comfyUiVariant
+      : undefined
+
     // Always show environment mismatch error if it exists, even if there's a startup error
     // This guides users toward a potential fix (reinstallation)
     if (this.environmentMismatchError) {
@@ -206,22 +283,60 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         return {
           ...baseInfo,
           errorDetails: mergedError,
+          installedComfyUiVariant,
         }
       } else {
         // Only environment mismatch error, no startup error
         return {
           ...baseInfo,
           errorDetails: this.environmentMismatchError,
+          installedComfyUiVariant,
         }
       }
     }
 
-    return baseInfo
+    return { ...baseInfo, installedComfyUiVariant }
   }
 
   async *set_up(): AsyncIterable<SetupProgress> {
     this.appLogger.info('setting up service', this.name)
     this.setStatus('installing')
+
+    // --- prerequisite check: ai-backend and openvino must be installed first ---
+    const aiBackendVenv = path.resolve(path.join(aipgBaseDir, 'service', '.venv'))
+    const openVinoVenv = path.resolve(path.join(aipgBaseDir, 'OpenVINO', '.venv'))
+    const aiBackendReady = filesystem.existsSync(aiBackendVenv)
+    const openVinoReady = filesystem.existsSync(openVinoVenv)
+
+    if (!aiBackendReady || !openVinoReady) {
+      const missing = [
+        !aiBackendReady ? 'AI Backend' : null,
+        !openVinoReady ? 'OpenVINO' : null,
+      ]
+        .filter(Boolean)
+        .join(' and ')
+      this.appLogger.warn(
+        `Cannot set up ComfyUI: ${missing} must be installed first`,
+        this.name,
+        true,
+      )
+      this.setStatus('installationFailed')
+      yield {
+        serviceName: this.name,
+        step: 'prerequisites',
+        status: 'failed',
+        debugMessage: `ComfyUI requires ${missing} to be installed first. Please install them before installing ComfyUI.`,
+        errorDetails: {
+          command: 'prerequisite check',
+          exitCode: 1,
+          stdout: `Required backends not installed: ${missing}`,
+          stderr: '',
+          timestamp: new Date().toISOString(),
+          duration: 0,
+        },
+      }
+      return
+    }
 
     const checkServiceDir = async (): Promise<boolean> => {
       if (!filesystem.existsSync(this.serviceDir)) {
@@ -258,53 +373,63 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         await this.git.run(['-C', this.serviceDir, 'checkout', this.revision], {}, this.serviceDir)
       }
 
-      // Copy ComfyUI dependency files and install using bundled uv
-      const comfyUIDepsDir = path.join(aipgBaseDir, 'comfyui-deps')
+      // Copy the shared pyproject.toml (with xpu/cuda/cpu extras) from comfyui-deps
+      const comfyUIDepsDir = path.join(aipgBaseDir, COMFYUI_DEPS_DIR)
       const pyprojectSource = path.join(comfyUIDepsDir, 'pyproject.toml')
-      const uvLockSource = path.join(comfyUIDepsDir, 'uv.lock')
       const pyprojectTarget = path.join(this.serviceDir, 'pyproject.toml')
+      this.appLogger.info(
+        `Copying pyproject.toml from ${pyprojectSource} to ${pyprojectTarget}`,
+        this.name,
+      )
+      await filesystem.copyFile(pyprojectSource, pyprojectTarget)
+
+      // Remove any stale uv.lock so uv regenerates it for the chosen extra
       const uvLockTarget = path.join(this.serviceDir, 'uv.lock')
-
-      // Check if dependencies are already installed
-      let needsInstall = false
-      try {
-        await checkProject(this.serviceDir)
-        this.appLogger.info('ComfyUI dependencies already installed, skipping', this.name)
-      } catch (_checkError) {
-        needsInstall = true
+      if (filesystem.existsSync(uvLockTarget)) {
+        await filesystem.remove(uvLockTarget)
+        this.appLogger.info('Removed stale uv.lock so it will be regenerated', this.name)
       }
 
-      if (needsInstall) {
-        // Copy dependency specification files
-        this.appLogger.info(
-          `Copying pyproject.toml from ${pyprojectSource} to ${pyprojectTarget}`,
-          this.name,
-        )
-        await filesystem.copyFile(pyprojectSource, pyprojectTarget)
-
-        this.appLogger.info(`Copying uv.lock from ${uvLockSource} to ${uvLockTarget}`, this.name)
-        await filesystem.copyFile(uvLockSource, uvLockTarget)
-
-        // Install dependencies
-        this.appLogger.info('Installing ComfyUI dependencies using bundled uv', this.name)
-        await installBackend(this.serviceDir, () => {
-          this.win.webContents.send('show-toast', {
-            type: 'warning',
-            message:
-              'UV cache corruption detected. Retrying installation without cache. This may take longer. You can manually clear the cache at %LOCALAPPDATA%/uv/cache',
-          })
+      // Install dependencies for the selected variant via uv sync --extra <variant>
+      this.appLogger.info(
+        `Installing ComfyUI dependencies for variant '${this.comfyUiVariant}' using uv sync --extra`,
+        this.name,
+      )
+      await installBackendWithExtra(this.serviceDir, this.comfyUiVariant, () => {
+        this.win.webContents.send('show-toast', {
+          type: 'warning',
+          message:
+            'UV cache corruption detected. Retrying installation without cache. This may take longer. You can manually clear the cache at %LOCALAPPDATA%/uv/cache',
         })
-      }
+      })
     }
 
     const configureComfyUI = async (): Promise<void> => {
       try {
-        this.appLogger.info('patching hijacks into comfyUI model_management', this.name)
-        patchFile(
-          path.join(this.serviceDir, 'comfy/model_management.py'),
-          'from comfy.model_management import get_model',
-          ['from ipex_to_cuda import ipex_init', 'ipex_init()'],
-        )
+        // The ipex_to_cuda hijack is only needed for the XPU variant
+        if (this.comfyUiVariant === 'xpu') {
+          this.appLogger.info('patching hijacks into comfyUI model_management', this.name)
+          patchFile(
+            path.join(this.serviceDir, 'comfy/model_management.py'),
+            'from comfy.model_management import get_model',
+            ['from ipex_to_cuda import ipex_init', 'ipex_init()'],
+          )
+        } else {
+          this.appLogger.info(
+            `Removing ipex_to_cuda hijack from model_management for variant '${this.comfyUiVariant}'`,
+            this.name,
+          )
+          const modelMgmtPath = path.join(this.serviceDir, 'comfy/model_management.py')
+          if (filesystem.existsSync(modelMgmtPath)) {
+            let content = filesystem.readFileSync(modelMgmtPath, 'utf-8')
+            // Remove the ipex_to_cuda lines that may have been injected by a previous XPU install
+            content = content
+              .replace(/^from ipex_to_cuda import ipex_init\r?\n/m, '')
+              .replace(/^ipex_init\(\)\r?\n/m, '')
+            filesystem.writeFileSync(modelMgmtPath, content, 'utf-8')
+            this.appLogger.info('Removed ipex_to_cuda lines from model_management.py', this.name)
+          }
+        }
 
         this.appLogger.info('Configuring extra model paths for comfyUI', this.name)
         const extraModelPathsYaml = path.join(this.serviceDir, 'extra_model_paths.yaml')
@@ -514,6 +639,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         debugMessage: 'dependencies configured',
       }
       this.isSetUp = true
+      this.writeVariantMarker(this.comfyUiVariant)
       await this.updateCachedVersion()
       this.setStatus('notYetStarted')
       currentStep = 'end'
@@ -540,17 +666,27 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   }
 
   getEnvVars() {
+    const torchBackend =
+      process.platform === 'win32'
+        ? this.comfyUiVariant === 'cuda'
+          ? 'cuda'
+          : this.comfyUiVariant === 'cpu'
+            ? 'cpu'
+            : 'xpu'
+        : undefined
+    const isXpu = this.comfyUiVariant === 'xpu'
     return {
       PATH: `${path.join(this.pythonEnvDir, 'Library', 'bin')};${path.join(this.git.dir, 'cmd')};${process.env.PATH}`,
       PYTHONNOUSERSITE: 'true',
-      SYCL_ENABLE_DEFAULT_CONTEXTS: '1',
-      SYCL_CACHE_PERSISTENT: '1',
+      // Intel SYCL vars only needed for XPU variant
+      ...(isXpu ? { SYCL_ENABLE_DEFAULT_CONTEXTS: '1', SYCL_CACHE_PERSISTENT: '1' } : {}),
       PYTHONIOENCODING: 'utf-8',
       HF_ENDPOINT: this.settings.huggingfaceEndpoint,
-      ...levelZeroDeviceSelectorEnv(this.devices.find((d) => d.selected)?.id),
+      // ONEAPI_DEVICE_SELECTOR only relevant for XPU
+      ...(isXpu ? levelZeroDeviceSelectorEnv(this.devices.find((d) => d.selected)?.id) : {}),
       PIP_CONFIG_FILE: 'nul',
       UV_NO_CONFIG: '1',
-      UV_TORCH_BACKEND: process.platform === 'win32' ? 'xpu' : undefined,
+      UV_TORCH_BACKEND: torchBackend,
     }
   }
 
@@ -563,6 +699,18 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   }
 
   async detectDevices() {
+    // For non-XPU variants the installed torch doesn't have XPU support,
+    // so skip the XPU detection script entirely.
+    if (this.comfyUiVariant !== 'xpu') {
+      this.appLogger.info(
+        `Skipping XPU device detection for variant '${this.comfyUiVariant}'`,
+        this.name,
+      )
+      this.devices = [{ id: '*', name: 'Auto select device', selected: true }]
+      this.updateStatus()
+      return
+    }
+
     // For now, use auto-select device similar to aiBackendService
     const availableDevices = [{ id: '*', name: 'Auto select device', selected: true }]
     let allDevices: Device[] = []
@@ -574,7 +722,7 @@ import sys
 try:
     # Try to get the number of XPU devices
     device_count = torch.xpu.device_count()
-    
+
     # For each device, get its name and print it
     for i in range(device_count):
         try:
@@ -641,8 +789,44 @@ except Exception as e:
     process: ChildProcess
     didProcessExitEarlyTracker: Promise<boolean>
   }> {
+    // For non-XPU variants, ensure the ipex_to_cuda patch is not present in
+    // model_management.py — it may have been left over from a previous XPU install.
+    if (this.comfyUiVariant !== 'xpu') {
+      const modelMgmtPath = path.join(this.serviceDir, 'comfy/model_management.py')
+      if (filesystem.existsSync(modelMgmtPath)) {
+        const original = filesystem.readFileSync(modelMgmtPath, 'utf-8')
+        const patched = original
+          .replace(/^from ipex_to_cuda import ipex_init\r?\n/m, '')
+          .replace(/^ipex_init\(\)\r?\n/m, '')
+        if (patched !== original) {
+          filesystem.writeFileSync(modelMgmtPath, patched, 'utf-8')
+          this.appLogger.info(
+            'Removed ipex_to_cuda lines from model_management.py before startup',
+            this.name,
+          )
+        }
+      }
+    }
+
     const additionalEnvVariables = this.getEnvVars()
     const mediaDir = getMediaDir()
+    const userParams = this.comfyUiParametersString.split(/\s+/).filter(Boolean)
+    // For the cpu variant, always pass --cpu so ComfyUI doesn't attempt CUDA/XPU
+    // even when the installed torch package is the XPU build (e.g. fallback deps).
+    // Remove VRAM flags that are incompatible with --cpu.
+    if (this.comfyUiVariant === 'cpu') {
+      const vramFlags = ['--lowvram', '--normalvram', '--highvram', '--novram', '--gpu-only']
+      for (const flag of vramFlags) {
+        const idx = userParams.indexOf(flag)
+        if (idx !== -1) {
+          userParams.splice(idx, 1)
+          this.appLogger.info(`Removed '${flag}' from parameters (incompatible with --cpu)`, this.name)
+        }
+      }
+      if (!userParams.includes('--cpu')) {
+        userParams.push('--cpu')
+      }
+    }
     const parameters = [
       'main.py',
       '--port',
@@ -651,7 +835,7 @@ except Exception as e:
       'auto',
       '--output-directory',
       mediaDir,
-      ...this.comfyUiParametersString.split(/\s+/).filter(Boolean),
+      ...userParams,
     ]
     this.appLogger.info(
       `starting comfyui with ${JSON.stringify({ parameters, additionalEnvVariables })}`,
@@ -685,6 +869,3 @@ except Exception as e:
   }
 }
 
-function checkProject(_serviceDir: string) {
-  throw new Error('Function not implemented.')
-}

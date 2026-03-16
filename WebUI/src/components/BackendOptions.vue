@@ -59,6 +59,70 @@ const backendStatus = computed(
 const menuOpen = ref(false)
 const settingsDialogOpen = ref(false)
 
+// ---- ComfyUI variant selection ----
+const detectNonIntelFlag = ref(false)
+const globalDetectionResult = ref<GlobalDetectionResult | null>(null)
+
+window.electronAPI.getInitSetting().then((data) => {
+  detectNonIntelFlag.value = data.detectNonIntelDevicesIfAnyIntelDeviceFound
+})
+window.electronAPI.getGlobalDetectionResult().then((result) => {
+  globalDetectionResult.value = result
+})
+window.electronAPI.onGlobalDetectionResult((result) => {
+  globalDetectionResult.value = result
+})
+
+const hasIntelDevice = computed(() =>
+  (globalDetectionResult.value?.devices ?? []).some(
+    (d) =>
+      d.kind === 'intel' &&
+      d.id.startsWith('GPU') &&
+      !/nvidia|amd/i.test(d.name),
+  ),
+)
+const hasNvidiaDevice = computed(() =>
+  (globalDetectionResult.value?.devices ?? []).some((d) => d.kind === 'nvidia'),
+)
+
+/** Auto-select variant: intel GPU → xpu, nvidia → cuda, else → cpu */
+const computedDefaultVariant = computed((): ComfyUiVariant => {
+  if (hasIntelDevice.value) return 'xpu'
+  if (hasNvidiaDevice.value) return 'cuda'
+  return 'cpu'
+})
+
+// Standalone variant state — populated from disk when the dialog opens, not from the form.
+// This avoids any stale-initial-values issue with vee-validate.
+const selectedVariant = ref<ComfyUiVariant>('xpu')
+
+watch(settingsDialogOpen, async (open) => {
+  if (open && props.backend === 'comfyui-backend') {
+    const installed = await window.electronAPI.getInstalledComfyUiVariant()
+    selectedVariant.value = installed ?? computedDefaultVariant.value
+  }
+})
+
+/** Show variant dropdown when detectNonIntelDevicesIfAnyIntelDeviceFound is true
+ *  AND there is at least one Intel GPU or NVIDIA device */
+const showVariantSelector = computed(
+  () =>
+    props.backend === 'comfyui-backend' &&
+    detectNonIntelFlag.value &&
+    (hasIntelDevice.value || hasNvidiaDevice.value),
+)
+
+/** Available variant options — only show options for which hardware exists */
+const variantOptions = computed<{ value: ComfyUiVariant; label: string }[]>(() => {
+  const opts: { value: ComfyUiVariant; label: string }[] = []
+  if (hasIntelDevice.value) opts.push({ value: 'xpu', label: 'Intel XPU' })
+  if (hasNvidiaDevice.value) opts.push({ value: 'cuda', label: 'NVIDIA CUDA' })
+  opts.push({ value: 'cpu', label: 'CPU only' })
+  return opts
+})
+
+type ComfyUiVariant = 'xpu' | 'cuda' | 'cpu'
+
 // Backend-specific validation schemas
 const getFormSchema = (backend: BackendServiceName) => {
   switch (backend) {
@@ -74,6 +138,7 @@ const getFormSchema = (backend: BackendServiceName) => {
                 z.string().regex(/^v\d+\.\d+\.\d+$/, 'Must be a valid version tag (e.g. v1.0.0)'),
               ),
             comfyUiParameters: z.string().optional(),
+            comfyUiVariant: z.enum(['xpu', 'cuda', 'cpu']).optional(),
           })
           .passthrough(),
       )
@@ -173,8 +238,9 @@ const getVersionDescription = (backend: BackendServiceName) => {
   }
 }
 
-// Get initial form values based on backend type
-const getInitialFormValues = () => {
+// Get initial form values based on backend type — reactive computed so the form
+// always reflects the latest persisted values when the dialog is (re-)opened.
+const initialFormValues = computed(() => {
   const backendVersionState = backendServices.versionState[props.backend]
   const values: Record<string, unknown> =
     backendVersionState.uiOverride ??
@@ -194,9 +260,45 @@ const getInitialFormValues = () => {
     }
   }
   return values
-}
+})
 
-// Handler for starting a service with enhanced error handling
+// Handler called when the settings form is submitted
+const handleSettingsSave = async (values: Record<string, unknown>) => {
+  console.log('Form submitted with values:', values)
+  const override = BackendVersionSchema.parse(values)
+  backendServices.versionState[props.backend].uiOverride = override
+
+  // Save comfyUiParameters separately (not part of version override)
+  if (props.backend === 'comfyui-backend' && 'comfyUiParameters' in values) {
+    const params = (values as { comfyUiParameters?: string }).comfyUiParameters
+    backendServices.comfyUiParameters =
+      !params || params === backendServices.comfyUiDefaultParameters ? null : params
+  }
+
+  // Save the variant from the standalone ref (not from form values).
+  // If it differs from what is currently installed, uninstall and reinstall.
+  if (props.backend === 'comfyui-backend') {
+    const installedVariant = await window.electronAPI.getInstalledComfyUiVariant()
+    const chosenVariant = selectedVariant.value
+    backendServices.comfyUiVariant = chosenVariant
+    if (chosenVariant !== installedVariant) {
+      settingsDialogOpen.value = false
+      menuOpen.value = false
+      await handleReinstall()
+      return
+    }
+  }
+
+  // Save llamaCppParameters separately (not part of version override)
+  if (props.backend === 'llamacpp-backend' && 'llamaCppParameters' in values) {
+    const params = (values as { llamaCppParameters?: string }).llamaCppParameters
+    backendServices.llamaCppParameters =
+      !params || params === backendServices.llamaCppDefaultParameters ? null : params
+  }
+
+  settingsDialogOpen.value = false
+  menuOpen.value = false
+}
 const handleStartService = async () => {
   try {
     const status = await backendServices.startService(props.backend)
@@ -342,14 +444,16 @@ const hasUserOverride = computed(
   () =>
     !!backendServices.versionState[props.backend].uiOverride ||
     (props.backend === 'comfyui-backend' && backendServices.comfyUiParameters !== null) ||
+    (props.backend === 'comfyui-backend' && backendServices.comfyUiVariant !== null) ||
     (props.backend === 'llamacpp-backend' && backendServices.llamaCppParameters !== null),
 )
 
 // Clear the user override
-const clearOverride = () => {
+const clearOverride = async () => {
   backendServices.versionState[props.backend].uiOverride = undefined
   if (props.backend === 'comfyui-backend') {
     backendServices.comfyUiParameters = null
+    backendServices.comfyUiVariant = null
   }
   if (props.backend === 'llamacpp-backend') {
     backendServices.llamaCppParameters = null
@@ -428,8 +532,7 @@ const showMenuButton = computed(
         v-if="showSettings"
         v-slot="{ handleSubmit }"
         as=""
-        :initial-values="getInitialFormValues()"
-        keep-values
+        :initial-values="initialFormValues"
         :validation-schema="formSchema"
       >
         <Dialog
@@ -465,35 +568,7 @@ const showMenuButton = computed(
 
             <form
               id="dialogForm"
-              @submit="
-                handleSubmit($event, (values) => {
-                  console.log('Form submitted with values:', values)
-                  const override = BackendVersionSchema.parse(values)
-
-                  backendServices.versionState[props.backend].uiOverride = override
-
-                  // Save comfyUiParameters separately (not part of version override)
-                  if (props.backend === 'comfyui-backend' && 'comfyUiParameters' in values) {
-                    const params = (values as { comfyUiParameters?: string }).comfyUiParameters
-                    // Store null if empty or matches default (meaning 'use default')
-                    backendServices.comfyUiParameters =
-                      !params || params === backendServices.comfyUiDefaultParameters ? null : params
-                  }
-
-                  // Save llamaCppParameters separately (not part of version override)
-                  if (props.backend === 'llamacpp-backend' && 'llamaCppParameters' in values) {
-                    const params = (values as { llamaCppParameters?: string }).llamaCppParameters
-                    // Store null if empty or matches default (meaning 'use default')
-                    backendServices.llamaCppParameters =
-                      !params || params === backendServices.llamaCppDefaultParameters
-                        ? null
-                        : params
-                  }
-
-                  settingsDialogOpen = false
-                  menuOpen = false
-                })
-              "
+              @submit="handleSubmit($event, handleSettingsSave)"
             >
               <!-- Ollama backend has two fields -->
               <template v-if="backend === 'ollama-backend'">
@@ -579,6 +654,26 @@ const showMenuButton = computed(
                     <FormMessage />
                   </FormItem>
                 </FormField>
+
+                <!-- ComfyUI variant selector (only when non-Intel detection is enabled and relevant hardware found) -->
+                <div v-if="showVariantSelector" class="mt-4">
+                  <label class="text-sm font-medium">Installation Variant</label>
+                  <select
+                    v-model="selectedVariant"
+                    class="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  >
+                    <option
+                      v-for="opt in variantOptions"
+                      :key="opt.value"
+                      :value="opt.value"
+                    >
+                      {{ opt.label }}
+                    </option>
+                  </select>
+                  <p class="text-sm text-muted-foreground mt-1">
+                    Choose which GPU backend to install ComfyUI for. Requires reinstall to take effect.
+                  </p>
+                </div>
 
                 <!-- LlamaCPP startup parameters -->
                 <FormField

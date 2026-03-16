@@ -13,12 +13,15 @@ interface ImportMeta {
   readonly env: ImportMetaEnv
 }
 
+type ComfyUiVariant = 'xpu' | 'cuda' | 'cpu'
+
 type ServiceSettings = {
   serviceName: BackendServiceName
   version?: string
   releaseTag?: string
   comfyUiParameters?: string
   llamaCppParameters?: string
+  comfyUiVariant?: ComfyUiVariant
 }
 
 type DemoModeSettings = {
@@ -122,6 +125,7 @@ type electronAPI = {
   wakeupComfyUIService(): void
   getComfyUiDefaultParameters(): Promise<string>
   getLlamaCppDefaultParameters(): Promise<string>
+  getInstalledComfyUiVariant(): Promise<ComfyUiVariant | null>
   getGlobalDetectionResult(): Promise<GlobalDetectionResult | null>
   onGlobalDetectionResult(callback: (result: GlobalDetectionResult) => void): void
   getServices(): Promise<ApiServiceInformation[]>
@@ -474,6 +478,8 @@ type ApiServiceInformation = {
   sttDevices?: InferenceDevice[]
   errorDetails: ErrorDetails | null
   installedVersion?: { version: string; releaseTag?: string }
+  /** Only populated for comfyui-backend — the variant that is currently installed */
+  installedComfyUiVariant?: ComfyUiVariant
 }
 
 type Model = {

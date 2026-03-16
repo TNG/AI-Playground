@@ -21,10 +21,10 @@ const isDemoModeOn = demoMode.enabled
   top: 10px;
   left: 50%;
   transform: translateX(-50%);
-  background-color: rgba(0, 0, 50, 0.85);
+  background-color: color-mix(in srgb, var(--demo-indicator-bg) 85%, transparent);
   border-radius: 10px;
   padding: 6px 20px;
-  color: white;
+  color: var(--demo-text-color);
   width: 600px;
   height: 40px;
   text-align: center;

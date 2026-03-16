@@ -5,6 +5,15 @@
   --textbox-gradient-border:
     linear-gradient(hsl(var(--input)), hsl(var(--input))), var(--main-gradient);
   --textbox-clip: padding-box, border-box;
+
+  /* Demo mode variables */
+  --demo-popover-bg: #0a0622;
+  --demo-indicator-bg: #000032;
+  --demo-popover-border: #00c4fa;
+  --demo-popover-shadow: #00c4fa;
+  --demo-title-color: #00bfff;
+  --demo-text-color: #fff;
+  --demo-button-color: #00c4fa;
 }
 
 @font-face {

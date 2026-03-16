@@ -137,10 +137,10 @@ defineExpose({
 }
 
 .driver-popover {
-  background: #0a0622;
-  color: white;
-  border: 1.5px solid #00c4fa;
-  box-shadow: 0px 0.75px 4.95px #00c4fa;
+  background: var(--demo-popover-bg);
+  color: var(--demo-text-color);
+  border: 1.5px solid var(--demo-popover-border);
+  box-shadow: 0px 0.75px 4.95px var(--demo-popover-shadow);
   border-radius: 12px;
   padding: 16px 20px;
   min-width: 340px;
@@ -152,7 +152,7 @@ defineExpose({
   font-size: 1.25rem;
   font-weight: bold;
   margin-bottom: 0.5em;
-  color: #00bfff;
+  color: var(--demo-title-color);
   font-family: unset;
 }
 
@@ -164,7 +164,7 @@ defineExpose({
 
 .driver-popover-footer {
   background: transparent;
-  border-top: 1px solid #00c4fa;
+  border-top: 1px solid var(--demo-popover-border);
   padding-top: 0.5rem;
   font-family: unset;
 }
@@ -178,7 +178,7 @@ defineExpose({
 .driver-popover-footer button {
   background: transparent;
   border: none;
-  color: #00c4fa;
+  color: var(--demo-button-color);
   font-weight: bold;
   cursor: pointer;
   font-size: 18px;
@@ -189,19 +189,16 @@ defineExpose({
 
 .driver-popover-footer button:hover,
 .driver-popover-footer button:hover {
-  //background: #00c4fa;
   background-color: transparent;
   text-decoration: underline;
-  //color: #3bc8ff;
 }
 
 .driver-popover-footer button:focus {
   background: transparent;
-  //outline: 1px solid orange;
 }
 
 .driver-popover-close-btn {
-  color: #fff;
+  color: var(--demo-text-color);
   background: transparent;
   border: none;
   font-size: 1.5em;
@@ -213,64 +210,35 @@ defineExpose({
 
 .driver-popover-close-btn:hover,
 .driver-popover-close-btn:focus {
-  color: #fff;
+  color: var(--demo-text-color);
 }
 
 /* HIGHLIGHTED ELEMENT */
 
 .driver-active-element {
-  /* box-shadow: 0 0 0 5px #00bfff; */
-  /* outline: 5px solid #00bfff; */
+  /* Styling handled by driver.js */
 }
 
 /* ARROW */
 
-/* Driver.js popover arrow styling to match tooltip border color */
-.driver-popover::before {
-  content: '';
-  position: absolute;
-  width: 0;
-  height: 0;
-  border-left: 11px solid transparent;
-  border-right: 11px solid transparent;
-  border-top: 14px solid #00c4fa;
-  left: 40px;
-  bottom: -14px;
-  z-index: 1;
-}
-
-.driver-popover::after {
-  content: '';
-  position: absolute;
-  width: 0;
-  height: 0;
-  border-left: 10px solid transparent;
-  border-right: 10px solid transparent;
-  border-top: 12px solid #0a0622;
-  left: 41px;
-  bottom: -11px;
-  z-index: 2;
-}
-
-/* Driver.js popover arrow styling to match tooltip border color */
 .driver-popover-arrow {
   border: 10px solid transparent;
 }
 
 .driver-popover-arrow-side-left.driver-popover-arrow {
-  border-left-color: #00c4fa;
+  border-left-color: var(--demo-popover-border);
 }
 
 .driver-popover-arrow-side-right.driver-popover-arrow {
-  border-right-color: #00c4fa;
+  border-right-color: var(--demo-popover-border);
 }
 
 .driver-popover-arrow-side-top.driver-popover-arrow {
-  border-top-color: #00c4fa;
+  border-top-color: var(--demo-popover-border);
 }
 
 .driver-popover-arrow-side-bottom.driver-popover-arrow {
-  border-bottom-color: #00c4fa;
+  border-bottom-color: var(--demo-popover-border);
 }
 
 .driver-popover::before,
@@ -280,7 +248,7 @@ defineExpose({
 
 /* downward-facing triangle */
 .driver-popover-arrow.driver-popover-arrow-side-top {
-  border-top: 14px solid #00c4fa;
+  border-top: 14px solid var(--demo-popover-border);
   border-left: 11px solid transparent;
   border-right: 11px solid transparent;
   border-bottom: none;
@@ -290,7 +258,7 @@ defineExpose({
 .driver-popover-arrow.driver-popover-arrow-side-top::after {
   content: '';
   position: absolute;
-  border-top: 12px solid #0a0622;
+  border-top: 12px solid var(--demo-popover-bg);
   border-left: 10px solid transparent;
   border-right: 10px solid transparent;
   border-bottom: none;
@@ -300,7 +268,7 @@ defineExpose({
 
 /* rightward-facing triangle */
 .driver-popover-arrow.driver-popover-arrow-side-left {
-  border-left: 14px solid #00c4fa;
+  border-left: 14px solid var(--demo-popover-border);
   border-top: 11px solid transparent;
   border-bottom: 11px solid transparent;
   border-right: none;
@@ -309,7 +277,7 @@ defineExpose({
 .driver-popover-arrow.driver-popover-arrow-side-left::after {
   content: '';
   position: absolute;
-  border-left: 12px solid #0a0622;
+  border-left: 12px solid var(--demo-popover-bg);
   border-top: 10px solid transparent;
   border-bottom: 10px solid transparent;
   border-right: none;
@@ -319,7 +287,7 @@ defineExpose({
 
 /* upward-facing triangle */
 .driver-popover-arrow.driver-popover-arrow-side-bottom {
-  border-bottom: 14px solid #00c4fa;
+  border-bottom: 14px solid var(--demo-popover-border);
   border-left: 11px solid transparent;
   border-right: 11px solid transparent;
   border-top: none;
@@ -328,7 +296,7 @@ defineExpose({
 .driver-popover-arrow.driver-popover-arrow-side-bottom::after {
   content: '';
   position: absolute;
-  border-bottom: 12px solid #0a0622;
+  border-bottom: 12px solid var(--demo-popover-bg);
   border-left: 10px solid transparent;
   border-right: 10px solid transparent;
   border-top: none;
@@ -338,7 +306,7 @@ defineExpose({
 
 /* leftward-facing triangle */
 .driver-popover-arrow.driver-popover-arrow-side-right {
-  border-right: 14px solid #00c4fa;
+  border-right: 14px solid var(--demo-popover-border);
   border-top: 11px solid transparent;
   border-bottom: 11px solid transparent;
   border-left: none;
@@ -347,7 +315,7 @@ defineExpose({
 .driver-popover-arrow.driver-popover-arrow-side-right::after {
   content: '';
   position: absolute;
-  border-right: 12px solid #0a0622;
+  border-right: 12px solid var(--demo-popover-bg);
   border-top: 10px solid transparent;
   border-bottom: 10px solid transparent;
   border-left: none;

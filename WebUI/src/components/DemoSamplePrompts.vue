@@ -79,10 +79,10 @@ async function applySample(sample: SamplePrompt) {
   align-items: flex-start;
   gap: 4px;
   padding: 12px 16px;
-  background: #0a0622;
-  color: white;
-  border: 1.5px solid #00c4fa;
-  box-shadow: 0px 0.75px 4.95px #00c4fa;
+  background: var(--demo-popover-bg);
+  color: var(--demo-text-color);
+  border: 1.5px solid var(--demo-popover-border);
+  box-shadow: 0px 0.75px 4.95px var(--demo-popover-shadow);
   border-radius: 12px;
   cursor: pointer;
   text-align: left;
@@ -98,8 +98,8 @@ async function applySample(sample: SamplePrompt) {
 
 .demo-sample-bubble:hover {
   transform: translateY(-3px);
-  box-shadow: 0px 1px 8px #00c4fa;
-  border-color: #3be0ff;
+  box-shadow: 0px 1px 8px var(--demo-popover-shadow);
+  border-color: color-mix(in srgb, var(--demo-popover-border) 80%, white);
 }
 
 /* Speech bubble arrow pointing downward */
@@ -112,7 +112,7 @@ async function applySample(sample: SamplePrompt) {
   height: 0;
   border-left: 10px solid transparent;
   border-right: 10px solid transparent;
-  border-top: 10px solid #00c4fa;
+  border-top: 10px solid var(--demo-popover-border);
 }
 
 .demo-sample-bubble::before {
@@ -124,14 +124,14 @@ async function applySample(sample: SamplePrompt) {
   height: 0;
   border-left: 9px solid transparent;
   border-right: 9px solid transparent;
-  border-top: 9px solid #0a0622;
+  border-top: 9px solid var(--demo-popover-bg);
   z-index: 1;
 }
 
 .demo-sample-title {
   font-size: 0.875rem;
   font-weight: bold;
-  color: #00bfff;
+  color: var(--demo-title-color);
 }
 
 .demo-sample-description {
@@ -145,7 +145,7 @@ async function applySample(sample: SamplePrompt) {
 
 .demo-sample-prompt {
   font-size: 0.75rem;
-  color: rgba(0, 196, 250, 0.8);
+  color: color-mix(in srgb, var(--demo-button-color) 80%, transparent);
   font-style: italic;
   margin-top: 4px;
   display: -webkit-box;

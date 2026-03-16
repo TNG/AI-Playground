@@ -136,7 +136,7 @@ async function applySample(sample: SamplePrompt) {
 
 .demo-sample-description {
   font-size: 0.75rem;
-  color: rgba(255, 255, 255, 0.7);
+  color: hsl(var(--muted-foreground));
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -145,7 +145,7 @@ async function applySample(sample: SamplePrompt) {
 
 .demo-sample-prompt {
   font-size: 0.75rem;
-  color: color-mix(in srgb, var(--demo-button-color) 80%, transparent);
+  color: hsl(var(--muted-foreground));
   font-style: italic;
   margin-top: 4px;
   display: -webkit-box;

@@ -54,8 +54,8 @@
     /* Demo mode variables - light theme overrides */
     --demo-popover-bg: hsl(var(--card));
     --demo-indicator-bg: hsl(var(--card));
-    --demo-popover-border: hsl(var(--primary));
-    --demo-popover-shadow: hsl(var(--primary));
+    --demo-popover-border: hsl(var(--border));
+    --demo-popover-shadow: rgb(0 0 0 / 0.1);
     --demo-title-color: hsl(var(--primary));
     --demo-text-color: hsl(var(--foreground));
     --demo-button-color: hsl(var(--primary));

@@ -50,6 +50,15 @@
     --input: 214.3 31.8% 91.4%;
     --ring: 209 100% 60%;
     --radius: 0.5rem;
+
+    /* Demo mode variables - light theme overrides */
+    --demo-popover-bg: hsl(var(--card));
+    --demo-indicator-bg: hsl(var(--card));
+    --demo-popover-border: hsl(var(--primary));
+    --demo-popover-shadow: hsl(var(--primary));
+    --demo-title-color: hsl(var(--primary));
+    --demo-text-color: hsl(var(--foreground));
+    --demo-button-color: hsl(var(--primary));
   }
 
   /* Dark Theme */
@@ -74,6 +83,15 @@
     --input: 280 30% 18%;
     --ring: 280 98.4% 50.6%;
     --radius: 0.5rem;
+
+    /* Demo mode variables */
+    --demo-popover-bg: #0a0622;
+    --demo-indicator-bg: #000032;
+    --demo-popover-border: #00c4fa;
+    --demo-popover-shadow: #00c4fa;
+    --demo-title-color: #00bfff;
+    --demo-text-color: #fff;
+    --demo-button-color: #00c4fa;
   }
 
   /* Intel Core Ultra Theme (lnl) */
@@ -98,6 +116,15 @@
     --input: 209 30% 25%;
     --ring: 209 100% 60%;
     --radius: 0.5rem;
+
+    /* Demo mode variables */
+    --demo-popover-bg: #0a0622;
+    --demo-indicator-bg: #000032;
+    --demo-popover-border: #00c4fa;
+    --demo-popover-shadow: #00c4fa;
+    --demo-title-color: #00bfff;
+    --demo-text-color: #fff;
+    --demo-button-color: #00c4fa;
   }
 
   /* Intel Arc Theme (bmg) */
@@ -122,6 +149,15 @@
     --input: 280 30% 18%;
     --ring: 280 98.4% 50.6%;
     --radius: 0.5rem;
+
+    /* Demo mode variables */
+    --demo-popover-bg: #0a0622;
+    --demo-indicator-bg: #000032;
+    --demo-popover-border: #00c4fa;
+    --demo-popover-shadow: #00c4fa;
+    --demo-title-color: #00bfff;
+    --demo-text-color: #fff;
+    --demo-button-color: #00c4fa;
   }
 }
 

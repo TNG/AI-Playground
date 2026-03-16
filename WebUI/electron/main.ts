@@ -57,6 +57,11 @@ import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateI
 import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
 import * as comfyuiTools from './subprocesses/comfyuiTools'
 import { externalResourcesDir, getMediaDir } from './util.ts'
+import {
+  detectAllAiDevices,
+  abortOpenVinoDetection,
+  type GlobalDetectionResult,
+} from './subprocesses/globalDeviceDetection.ts'
 import type { ModelPaths } from '@/assets/js/store/models.ts'
 import type { IndexedDocument, EmbedInquiry } from '@/assets/js/store/textInference.ts'
 import { BackendServiceName } from '@/assets/js/store/backendServices.ts'
@@ -84,6 +89,13 @@ const appLogger = appLoggerInstance
 
 let win: BrowserWindow | null
 let serviceRegistry: ApiServiceRegistryImpl | null = null
+let lastGlobalDetectionResult: GlobalDetectionResult | null = null
+let appIsQuitting = false
+
+app.on('before-quit', () => {
+  appIsQuitting = true
+  abortOpenVinoDetection()
+})
 const mediaDir = getMediaDir()
 fs.mkdirSync(mediaDir, { recursive: true })
 const mediaInputDir = path.join(mediaDir, 'input')
@@ -114,6 +126,7 @@ const LocalSettingsSchema = z.object({
   languageOverride: z.string().nullable().default(null),
   remoteRepository: z.string().default('intel/ai-playground'),
   huggingfaceEndpoint: z.string().default('https://huggingface.co'),
+  detectNonIntelDevicesIfAnyIntelDeviceFound: z.boolean().default(false),
 })
 export type LocalSettings = z.infer<typeof LocalSettingsSchema>
 
@@ -392,6 +405,36 @@ app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
 
 async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) {
   serviceRegistry = await aiplaygroundApiServiceRegistry(win, settings)
+
+  // Run global device detection in the background — does not block startup.
+  // Runs on every start: first time after BEs are installed, and on every subsequent launch.
+  // Skip detection if OpenVINO is not yet installed (detection relies on its Python venv).
+  const openVinoService = serviceRegistry.getService('openvino-backend')
+  const openVinoIsInstalled = openVinoService?.isSetUp ?? false
+  if (!openVinoIsInstalled) {
+    appLogger.info(
+      'OpenVINO not yet installed — skipping global device detection',
+      'electron-backend',
+    )
+    return serviceRegistry
+  }
+  detectAllAiDevices(settings.detectNonIntelDevicesIfAnyIntelDeviceFound)
+    .then((result) => {
+      if (appIsQuitting) return
+      lastGlobalDetectionResult = result
+      appLogger.info(
+        `Global device detection complete, pushing result to frontend (${result.devices.length} device(s))`,
+        'electron-backend',
+      )
+      if (!win.isDestroyed()) {
+        win.webContents.send('globalDetectionResult', result)
+      }
+    })
+    .catch((err) => {
+      if (appIsQuitting) return
+      appLogger.error(`Global device detection failed: ${err}`, 'electron-backend')
+    })
+
   return serviceRegistry
 }
 
@@ -706,6 +749,8 @@ function initEventHandle() {
 
   ipcMain.handle('getComfyUiDefaultParameters', () => COMFYUI_DEFAULT_PARAMETERS)
   ipcMain.handle('getLlamaCppDefaultParameters', () => LLAMACPP_DEFAULT_PARAMETERS)
+
+  ipcMain.handle('getGlobalDetectionResult', () => lastGlobalDetectionResult)
 
   ipcMain.handle('detectDevices', (_event: IpcMainInvokeEvent, serviceName: string) => {
     if (!serviceRegistry) {

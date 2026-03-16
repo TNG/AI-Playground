@@ -153,7 +153,7 @@ const LlmBackendEnum = z.enum(['llamaCPP', 'openVINO', 'ollama'])
 const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).extend({
   type: z.literal('chat'),
   backends: z.array(LlmBackendEnum).min(1), // Array of allowed backends
-  preferredModels: z.partialRecord(LlmBackendEnum, z.string()).optional(), // Per-backend default models
+  preferredModels: z.record(LlmBackendEnum, z.string()).optional(), // Per-backend default models
   systemPrompt: z.string().optional(),
   contextSize: z.number().optional(),
   maxNewTokens: z.number().optional(),

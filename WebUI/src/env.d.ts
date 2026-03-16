@@ -31,6 +31,19 @@ type AipgPage = 'create' | 'enhance' | 'answer' | 'learn-more'
 type WorkflowModeType = 'imageGen' | 'imageEdit' | 'video'
 type ModeType = 'chat' | WorkflowModeType
 
+type DetectedDeviceKind = 'intel' | 'nvidia' | 'apple-silicon' | 'gpu'
+
+type DetectedDevice = {
+  id: string
+  name: string
+  kind: DetectedDeviceKind
+}
+
+type GlobalDetectionResult = {
+  devices: DetectedDevice[]
+  detectedAt: string
+}
+
 type electronAPI = {
   startDrag: (fileName: string) => void
   getFilePath: (file: File) => string
@@ -109,6 +122,8 @@ type electronAPI = {
   wakeupComfyUIService(): void
   getComfyUiDefaultParameters(): Promise<string>
   getLlamaCppDefaultParameters(): Promise<string>
+  getGlobalDetectionResult(): Promise<GlobalDetectionResult | null>
+  onGlobalDetectionResult(callback: (result: GlobalDetectionResult) => void): void
   getServices(): Promise<ApiServiceInformation[]>
   updateServiceSettings(settings: ServiceSettings): Promise<BackendStatus>
 

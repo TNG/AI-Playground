@@ -6,5 +6,6 @@
   "isDemoModeEnabled": false,
   "demoModeResetInSeconds": null,
   "languageOverride": null,
-  "remoteRepository": "tng/ai-playground"
+  "remoteRepository": "tng/ai-playground",
+  "detectNonIntelDevicesIfAnyIntelDeviceFound": true
 }

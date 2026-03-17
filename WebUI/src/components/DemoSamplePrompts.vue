@@ -1,6 +1,6 @@
 <template>
   <div v-if="activeSample" class="pb-3 w-full max-w-3xl">
-    <button
+    <div
       class="demo-sample-bubble"
       :style="{ marginLeft: bubbleOffset }"
       @click="applySample(activeSample)"
@@ -8,7 +8,8 @@
       <span class="demo-sample-title">{{ activeSample.title }}</span>
       <span class="demo-sample-description">{{ activeSample.description }}</span>
       <span class="demo-sample-prompt">"{{ activeSample.prompt }}"</span>
-    </button>
+      <button class="demo-sample-apply-btn" @click="applySample(activeSample)">Apply ›</button>
+    </div>
   </div>
 </template>
 
@@ -168,5 +169,27 @@ function applySample(sample: SamplePrompt) {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.demo-sample-apply-btn {
+  align-self: flex-end;
+  margin-top: 4px;
+  padding: 2px 10px;
+  background: transparent;
+  border: 1.5px solid var(--demo-popover-border);
+  border-radius: 6px;
+  color: var(--demo-popover-border);
+  font-family: 'IntelOne', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
+}
+
+.demo-sample-apply-btn:hover {
+  background: var(--demo-popover-border);
+  color: var(--demo-popover-bg);
 }
 </style>

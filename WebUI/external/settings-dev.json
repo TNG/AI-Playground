@@ -6,6 +6,7 @@
   "isDemoModeEnabled": false,
   "demoModeResetInSeconds": null,
   "demoModePresetsDir": "presets_demo",
+  "demoModePasscode": "",
   "languageOverride": null,
   "remoteRepository": "tng/ai-playground"
 }

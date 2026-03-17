@@ -24,6 +24,7 @@ type ServiceSettings = {
 type DemoModeSettings = {
   isDemoModeEnabled: boolean
   demoModeResetInSeconds: null | number
+  demoModePasscode?: string
 }
 
 // AipgPage type kept for backward compatibility with getInitialPage IPC handler

@@ -39,9 +39,12 @@ export const useDemoMode = defineStore('demoMode', () => {
   let trackUserInteractionInterval: null | ReturnType<typeof setInterval> = null
 
   const resetInSeconds = ref<null | number>(null)
+  const passcode = ref('')
+  const hasPasscode = computed(() => passcode.value.length > 0)
   window.electronAPI.getDemoModeSettings().then((res) => {
     enabled.value = res.isDemoModeEnabled
     resetInSeconds.value = res.demoModeResetInSeconds
+    passcode.value = res.demoModePasscode ?? ''
     if (res.isDemoModeEnabled && res.demoModeResetInSeconds) trackUserInteraction()
   })
 
@@ -203,6 +206,10 @@ export const useDemoMode = defineStore('demoMode', () => {
     },
   )
 
+  function verifyPasscode(input: string): boolean {
+    return input === passcode.value
+  }
+
   async function setEnabled(value: boolean) {
     try {
       const result = await window.electronAPI.updateLocalSettings({ isDemoModeEnabled: value })
@@ -220,12 +227,14 @@ export const useDemoMode = defineStore('demoMode', () => {
 
   return {
     enabled,
+    hasPasscode,
     chat,
     imageGen,
     imageEdit,
     video,
     applyExplicitDefaults,
     triggerHelp,
+    verifyPasscode,
     setEnabled,
   }
 })

@@ -167,19 +167,7 @@
       </div>
     </div>
   </DemoModeBlocker>
-  <div class="flex flex-col gap-3 pt-6 border-t border-border mt-4">
-    <div class="flex justify-between pr-4 items-center gap-4">
-      <Label class="whitespace-nowrap">Demo Mode</Label>
-      <Button
-        id="demo-mode-toggle"
-        variant="destructive"
-        size="sm"
-        @click="demoMode.setEnabled(!demoMode.enabled)"
-      >
-        {{ demoMode.enabled ? 'Leave' : 'Enter' }}
-      </Button>
-    </div>
-  </div>
+  <DemoModeSettings />
 </template>
 
 <script setup lang="ts">
@@ -202,13 +190,12 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { useDemoMode } from '@/assets/js/store/demoMode'
+import DemoModeSettings from '@/components/DemoModeSettings.vue'
 import { useI18N } from '@/assets/js/store/i18n'
 import { Spinner } from './ui/spinner'
 import { Button } from '@/components/ui/button'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 
-const demoMode = useDemoMode()
 const globalSetup = useGlobalSetup()
 const backendServices = useBackendServices()
 const models = useModels()
@@ -224,11 +211,6 @@ const backendStarting = ref(false)
 const mirrorUrl = ref(models.hfEndpoint)
 const verificationMessage = ref('')
 const verificationSuccess = ref(false)
-
-function handleDemoModeToggle(value: boolean | 'indeterminate') {
-  if (value === 'indeterminate') return
-  demoMode.setEnabled(value)
-}
 
 function isValidUrl(url: string): boolean {
   try {

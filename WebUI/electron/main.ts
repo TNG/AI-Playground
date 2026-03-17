@@ -112,6 +112,7 @@ const LocalSettingsSchema = z.object({
   isDemoModeEnabled: z.boolean().default(false),
   demoModeResetInSeconds: z.number().min(1).nullable().default(null),
   demoModePresetsDir: z.string().optional(),
+  demoModePasscode: z.string().optional(),
   languageOverride: z.string().nullable().default(null),
   remoteRepository: z.string().default('intel/ai-playground'),
   huggingfaceEndpoint: z.string().default('https://huggingface.co'),
@@ -559,6 +560,7 @@ function initEventHandle() {
     return {
       isDemoModeEnabled: settings.isDemoModeEnabled,
       demoModeResetInSeconds: settings.demoModeResetInSeconds,
+      demoModePasscode: settings.demoModePasscode,
     }
   })
 

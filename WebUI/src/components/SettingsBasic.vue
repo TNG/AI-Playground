@@ -75,35 +75,42 @@
           </tr>
         </tbody>
       </table>
+    </div>
+  </DemoModeBlocker>
 
-      <div class="pt-4">
-        <p>{{ languages.SETTINGS_AUDIO }}</p>
-        <div class="pl-2 pt-4">
-          <div class="flex justify-between pr-4 items-center gap-4 mb-4">
-            <Label class="whitespace-nowrap">Speech To Text</Label>
-            <Checkbox
-              v-if="!backendStarting"
-              id="speech-to-text"
-              :modelValue="speechToText.enabled"
-              @update:modelValue="handleSpeechToTextToggle"
-            />
-            <Spinner v-else class="justify-self-start" />
-          </div>
-          <MicrophoneSettings v-if="speechToText.enabled" />
-          <div
-            v-if="speechToText.enabled && sttDevices.length > 0"
-            class="grid grid-cols-[120px_1fr] items-center gap-4 mt-4"
-          >
-            <Label class="whitespace-nowrap">Device</Label>
-            <drop-down-new
-              title="STT Device"
-              @change="selectSttDevice"
-              :value="selectedSttDevice?.id"
-              :items="sttDeviceItems"
-            />
-          </div>
+  <div class="flex flex-col gap-3 pt-4">
+    <div>
+      <p>{{ languages.SETTINGS_AUDIO }}</p>
+      <div class="pl-2 pt-4">
+        <div class="flex justify-between pr-4 items-center gap-4 mb-4">
+          <Label class="whitespace-nowrap">Speech To Text</Label>
+          <Checkbox
+            v-if="!backendStarting"
+            id="speech-to-text"
+            :modelValue="speechToText.enabled"
+            @update:modelValue="handleSpeechToTextToggle"
+          />
+          <Spinner v-else class="justify-self-start" />
+        </div>
+        <MicrophoneSettings v-if="speechToText.enabled" />
+        <div
+          v-if="speechToText.enabled && sttDevices.length > 0"
+          class="grid grid-cols-[120px_1fr] items-center gap-4 mt-4"
+        >
+          <Label class="whitespace-nowrap">Device</Label>
+          <drop-down-new
+            title="STT Device"
+            @change="selectSttDevice"
+            :value="selectedSttDevice?.id"
+            :items="sttDeviceItems"
+          />
         </div>
       </div>
+    </div>
+  </div>
+
+  <DemoModeBlocker>
+    <div class="flex flex-col gap-3 pt-4">
       <p>{{ languages.SETTINGS_DEVELOPER }}</p>
       <div class="pl-2 pt-2">
         <div class="flex justify-between pr-4 items-center gap-4 mb-4">

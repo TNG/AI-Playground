@@ -39,15 +39,28 @@
       >
         <ServerStackIcon class="size-6 text-foreground"></ServerStackIcon>
       </button>
-      <button
-        id="demo-start-button"
+      <div
+        id="demo-buttons-group"
         v-if="demoMode.enabled && globalSetup.loadingState === 'running'"
-        class="bg-[#01aef2] text-white px-3 rounded text-xs cursor-pointer"
-        style="height: 30px; min-width: 90px"
-        @click="triggerHelpForCurrentMode(true)"
+        class="flex gap-2"
       >
-        {{ languages.DEMO_NEED_HELP }}
-      </button>
+        <button
+          id="demo-start-tour-button"
+          class="bg-[#01aef2] text-white px-3 rounded text-xs cursor-pointer"
+          style="height: 30px; min-width: 90px"
+          @click="startTour()"
+        >
+          {{ languages.DEMO_START_TOUR }}
+        </button>
+        <button
+          id="demo-need-help-button"
+          class="bg-[#01aef2] text-white px-3 rounded text-xs cursor-pointer"
+          style="height: 30px; min-width: 90px"
+          @click="triggerHelpForCurrentMode(true)"
+        >
+          {{ languages.DEMO_NEED_HELP }}
+        </button>
+      </div>
       <button
         v-if="!demoMode.enabled"
         :title="languages.COM_MINI"
@@ -500,19 +513,18 @@ function openAppSettings() {
   showAppSettings.value = true
 }
 
-function triggerHelpForCurrentMode(_force = false) {
-  // const mode = promptStore.getCurrentMode()
-  // if (mode === 'chat') {
-  //   demoMode.triggerHelp('chat', force)
-  // } else if (mode === 'imageGen') {
-  //   demoMode.triggerHelp('imageGen', force)
-  // } else if (mode === 'imageEdit') {
-  //   demoMode.imageEdit.feature = 'prompt'
-  //   demoMode.triggerHelp('imageEdit', force)
-  // } else if (mode === 'video') {
-  //   demoMode.triggerHelp('video', force)
-  // }
-  startTour()
+function triggerHelpForCurrentMode(force = false) {
+  const mode = promptStore.getCurrentMode()
+  if (mode === 'chat') {
+    demoMode.triggerHelp('chat', force)
+  } else if (mode === 'imageGen') {
+    demoMode.triggerHelp('imageGen', force)
+  } else if (mode === 'imageEdit') {
+    demoMode.imageEdit.feature = 'prompt'
+    demoMode.triggerHelp('imageEdit', force)
+  } else if (mode === 'video') {
+    demoMode.triggerHelp('video', force)
+  }
 }
 
 function startTour() {
@@ -524,7 +536,7 @@ watch(
   (state) => {
     if (state === 'running' && demoMode.enabled) {
       void demoMode.applyExplicitDefaults()
-      setTimeout(() => triggerHelpForCurrentMode(), 2200)
+      setTimeout(() => startTour(), 2200)
     }
   },
 )

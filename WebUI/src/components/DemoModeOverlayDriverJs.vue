@@ -17,10 +17,16 @@ type StepList = Step[]
 
 const steps: StepList = [
   {
-    id: '#demo-start-button',
+    id: '#demo-buttons-group',
     title: 'Welcome to Intel AI-Playground!',
     descr:
-      'Intel AI-Playground is a generative AI app that provides local-powered chat, image, and video capabilities. You can start the tour anytime with the "Need Help?" button in the upper right. Click "Next" or press "Right" to start the tour.',
+      'Intel AI-Playground is a generative AI app that provides local-powered chat, image, and video capabilities. You can start the tour anytime with the "Start Tour" button in the upper right, and get context-specific help with the "Need Help" button. Click "Next" or press "Right" to start the tour.',
+  },
+  {
+    id: '#mode-buttons',
+    title: 'Pick your Mode',
+    descr:
+      'Here are multiple mode buttons, that define the type of content you are generating.  Select any one of these modes later to explore each.',
   },
   {
     id: '#prompt-input',
@@ -29,16 +35,20 @@ const steps: StepList = [
       "This is your Prompt field. This is the core experience of AI Playground, across all features of the app. This is where you write a prompt, add images or documents to guide your content, and select modes for the type of content you want to generate. Click continue to explore what's here ",
   },
   {
+    id: '#send-button',
+    title: 'Ready to start?',
+    descr:
+      'This is the magic button that starts generation. Select a mode like Chat, enter a question and click this button to get your first response.',
+    align: 'end',
+  },
+]
+
+const stepsAlternative: StepList = [
+  {
     id: '#plus-icon',
     title: 'Add Images or Documents',
     descr:
       "The PLUS icon allows you to load content like documents or images to the prompt. Alternatively you can also drag and drop content here. When added this content is part of your generation. In Chat mode you can ask questions about a document or an image. For Image Edit you can add images you want to edit. Note: If you're not able to load a certain type of document, check Prompt Settings as you might need to select a preset like Vision to support images, or RAG to support text documents",
-  },
-  {
-    id: '#mode-buttons',
-    title: 'Pick your Mode',
-    descr:
-      "Here are multiple mode buttons, that define the type of content you are generating.  Select any one of these modes. Let's explore each",
   },
   {
     id: '#mode-button-chat',
@@ -75,13 +85,6 @@ const steps: StepList = [
     title: 'Prompt Settings',
     descr:
       'Each mode has prompt settings specific to the mode of content you are generating. Here you will find ready to go preset to do targeted tasks. Each preset is already dialed in to go, but you choose to adjust options and own values from Max Tokens in Chat, to Aspect Ratio settings for Image Gen. Prompt settings is at the heart of getting AI Playground to do what you want it to do. Select a Mode and explore what our Prompt Settings have to offer.',
-    align: 'end',
-  },
-  {
-    id: '#send-button',
-    title: 'Ready to start?',
-    descr:
-      'This is the magic button that starts generation. Select a mode like Chat, enter a question and click this button to get your first response.',
     align: 'end',
   },
   {

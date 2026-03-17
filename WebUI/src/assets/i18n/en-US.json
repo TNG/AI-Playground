@@ -347,6 +347,7 @@
   "DEMO_CHAT_GENERATE_TEXT": "Use the Chat mode to search for specific information, or upload files to generate summarized insights tailored to your needs.",
   "DEMO_CHAT_GENERATE_HELP_TEXT": "help me write a research paper on cats ...",
   "DEMO_NEED_HELP": "Need help?",
+  "DEMO_START_TOUR": "Start Tour",
   "DEMO_VIDEO_HEADING": "Generate AI-powered videos from text prompts.",
   "DEMO_VIDEO_TOOLTIP_TEXT": "Describe the video you would like to generate, then click the Generate button.",
   "DEMO_IMAGE_EDIT_IMAGE_TEXT": "Type in your prompt describing how you would like to stylise your image",

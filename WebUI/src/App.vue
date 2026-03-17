@@ -171,12 +171,13 @@
           'bottom-27': footerExpanded,
         }"
       >
-        <button
-          id="app-settings-button"
-          @click="openAppSettings"
-          class="svg-icon i-setup w-6 h-6 text-foreground hover:text-foreground/80 transition-colors"
-          title="App Settings"
-        ></button>
+        <div id="app-settings-button" class="relative">
+          <button
+            @click="openAppSettings"
+            class="svg-icon i-setup w-6 h-6 text-foreground hover:text-foreground/80 transition-colors"
+            title="App Settings"
+          ></button>
+        </div>
         <DemoModeBlocker>
           <button
             @click="openDevTools"

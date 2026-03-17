@@ -203,6 +203,21 @@ export const useDemoMode = defineStore('demoMode', () => {
     },
   )
 
+  async function setEnabled(value: boolean) {
+    try {
+      const result = await window.electronAPI.updateLocalSettings({ isDemoModeEnabled: value })
+      if (result.success) {
+        enabled.value = value
+        console.log(`Demo mode ${value ? 'enabled' : 'disabled'}. Reloading...`)
+        setTimeout(() => location.reload(), 1000)
+      } else {
+        console.error('Failed to update demo mode setting')
+      }
+    } catch (error) {
+      console.error('Failed to toggle demo mode:', error)
+    }
+  }
+
   return {
     enabled,
     chat,
@@ -211,6 +226,7 @@ export const useDemoMode = defineStore('demoMode', () => {
     video,
     applyExplicitDefaults,
     triggerHelp,
+    setEnabled,
   }
 })
 

@@ -12,11 +12,10 @@
           type="password"
           v-model="passcodeInput"
           placeholder="Passcode"
-          class="h-[30px] leading-[30px] rounded-md bg-card border-border text-foreground px-[3px]"
-          :class="{ 'border-red-500': passcodeError }"
+          :class="{ 'border-destructive': passcodeError }"
           @keydown.enter="confirmPasscode"
         />
-        <div v-if="passcodeError" class="text-xs text-red-500">
+        <div v-if="passcodeError" class="text-xs text-destructive">
           Incorrect passcode. Please try again.
         </div>
       </div>

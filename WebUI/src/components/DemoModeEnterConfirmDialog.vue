@@ -1,35 +1,39 @@
 <template>
-  <AlertDialog v-model:open="open">
-    <AlertDialogContent>
-      <AlertDialogHeader>
-        <AlertDialogTitle>Enter Demo Mode?</AlertDialogTitle>
-        <AlertDialogDescription>
+  <Dialog v-model:open="open">
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Enter Demo Mode?</DialogTitle>
+        <DialogDescription>
           A passcode may be required to leave demo mode.
-        </AlertDialogDescription>
-      </AlertDialogHeader>
-      <AlertDialogFooter>
-        <AlertDialogCancel>Cancel</AlertDialogCancel>
-        <AlertDialogAction @click="emit('confirmed')">Enter Demo Mode</AlertDialogAction>
-      </AlertDialogFooter>
-    </AlertDialogContent>
-  </AlertDialog>
+        </DialogDescription>
+      </DialogHeader>
+      <DialogFooter>
+        <Button variant="ghost" @click="open = false">Cancel</Button>
+        <Button @click="confirm">Enter Demo Mode</Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <script setup lang="ts">
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 
 const emit = defineEmits<{
   confirmed: []
 }>()
 
 const open = defineModel<boolean>('open', { required: true })
+
+function confirm() {
+  open.value = false
+  emit('confirmed')
+}
 </script>

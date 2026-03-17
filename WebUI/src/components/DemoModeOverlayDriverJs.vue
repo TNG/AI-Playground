@@ -153,14 +153,18 @@ function startMiniTour(elementId: string) {
   miniDriver.drive()
 }
 
-function triggerContextHelp(mode: ModeType) {
-  const modeToElementId: Record<ModeType, string> = {
+type ContextHelpTarget = ModeType | 'app-settings' | 'advanced-settings'
+
+function triggerContextHelp(target: ContextHelpTarget) {
+  const targetToElementId: Record<ContextHelpTarget, string> = {
     chat: '#mode-button-chat',
     imageGen: '#mode-button-imageGen',
     imageEdit: '#mode-button-imageEdit',
     video: '#mode-button-video',
+    'app-settings': '#app-settings-button',
+    'advanced-settings': '#advanced-settings-button',
   }
-  const elementId = modeToElementId[mode]
+  const elementId = targetToElementId[target]
   if (elementId) {
     startMiniTour(elementId)
   }

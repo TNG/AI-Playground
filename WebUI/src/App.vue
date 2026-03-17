@@ -514,6 +514,16 @@ function openAppSettings() {
 }
 
 function triggerHelpForCurrentMode(_force = false) {
+  if (showAppSettings.value === true) {
+    demoModeOverlayDriverJs.value?.triggerContextHelp?.('app-settings')
+    return
+  }
+
+  if (showSpecificSettings.value === true) {
+    demoModeOverlayDriverJs.value?.triggerContextHelp?.('advanced-settings')
+    return
+  }
+
   demoModeOverlayDriverJs.value?.triggerContextHelp?.(promptStore.getCurrentMode())
 
   //   const mode = promptStore.getCurrentMode()

@@ -121,12 +121,54 @@ function startTour() {
   driverObj.drive()
 }
 
-onMounted(() => {
-  //startTour()
-})
+function startMiniTour(elementId: string) {
+  const step = stepsAlternative.find((s) => s.id === elementId)
+  if (!step) {
+    console.warn(`startMiniTour: No step found for elementId "${elementId}"`)
+    return
+  }
+
+  const domElement = document.querySelector(elementId)
+  if (!domElement) {
+    console.warn(`startMiniTour: DOM element "${elementId}" not found`)
+  }
+
+  const miniDriver = driver({
+    showProgress: false,
+    showButtons: ['close'],
+    doneBtnText: 'Got it!',
+    popoverOffset: 20,
+    steps: [
+      {
+        element: step.id,
+        popover: {
+          title: step.title,
+          description: step.descr,
+          side: 'top' as const,
+          align: step.align,
+        },
+      },
+    ],
+  })
+  miniDriver.drive()
+}
+
+function triggerContextHelp(mode: ModeType) {
+  const modeToElementId: Record<ModeType, string> = {
+    chat: '#mode-button-chat',
+    imageGen: '#mode-button-imageGen',
+    imageEdit: '#mode-button-imageEdit',
+    video: '#mode-button-video',
+  }
+  const elementId = modeToElementId[mode]
+  if (elementId) {
+    startMiniTour(elementId)
+  }
+}
 
 defineExpose({
   startTour,
+  triggerContextHelp,
 })
 </script>
 

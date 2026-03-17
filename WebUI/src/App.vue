@@ -513,18 +513,20 @@ function openAppSettings() {
   showAppSettings.value = true
 }
 
-function triggerHelpForCurrentMode(force = false) {
-  const mode = promptStore.getCurrentMode()
-  if (mode === 'chat') {
-    demoMode.triggerHelp('chat', force)
-  } else if (mode === 'imageGen') {
-    demoMode.triggerHelp('imageGen', force)
-  } else if (mode === 'imageEdit') {
-    demoMode.imageEdit.feature = 'prompt'
-    demoMode.triggerHelp('imageEdit', force)
-  } else if (mode === 'video') {
-    demoMode.triggerHelp('video', force)
-  }
+function triggerHelpForCurrentMode(_force = false) {
+  demoModeOverlayDriverJs.value?.triggerContextHelp?.(promptStore.getCurrentMode())
+
+  //   const mode = promptStore.getCurrentMode()
+  //   if (mode === 'chat') {
+  //     demoMode.triggerHelp('chat', force)
+  //   } else if (mode === 'imageGen') {
+  //     demoMode.triggerHelp('imageGen', force)
+  //   } else if (mode === 'imageEdit') {
+  //     demoMode.imageEdit.feature = 'prompt'
+  //     demoMode.triggerHelp('imageEdit', force)
+  //   } else if (mode === 'video') {
+  //     demoMode.triggerHelp('video', force)
+  //   }
 }
 
 function startTour() {

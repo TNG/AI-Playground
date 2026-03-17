@@ -2,12 +2,7 @@
   <div class="flex flex-col gap-3 pt-6 border-t border-border mt-4">
     <div class="flex justify-between pr-4 items-center gap-4">
       <Label class="whitespace-nowrap">Demo Mode</Label>
-      <Button
-        id="demo-mode-toggle"
-        variant="destructive"
-        size="sm"
-        @click="handleClick"
-      >
+      <Button id="demo-mode-toggle" variant="destructive" size="sm" @click="handleClick">
         {{ demoMode.enabled ? 'Leave' : 'Enter' }}
       </Button>
     </div>

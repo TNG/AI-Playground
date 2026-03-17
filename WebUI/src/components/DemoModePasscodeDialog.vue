@@ -3,9 +3,7 @@
     <DialogContent>
       <DialogHeader>
         <DialogTitle>Enter Passcode</DialogTitle>
-        <DialogDescription>
-          A passcode is required to leave demo mode.
-        </DialogDescription>
+        <DialogDescription> A passcode is required to leave demo mode. </DialogDescription>
       </DialogHeader>
       <div class="flex flex-col gap-2 mt-2">
         <Input

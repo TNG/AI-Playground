@@ -3,9 +3,7 @@
     <DialogContent>
       <DialogHeader>
         <DialogTitle>Enter Demo Mode?</DialogTitle>
-        <DialogDescription>
-          A passcode may be required to leave demo mode.
-        </DialogDescription>
+        <DialogDescription> A passcode may be required to leave demo mode. </DialogDescription>
       </DialogHeader>
       <DialogFooter>
         <Button variant="ghost" @click="open = false">Cancel</Button>

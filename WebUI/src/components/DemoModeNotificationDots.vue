@@ -1,11 +1,6 @@
 <template>
   <template v-if="demoMode.enabled">
-    <DemoModeNotificationDot
-      v-for="buttonId in buttonIds"
-      :key="buttonId"
-      :button-id="buttonId"
-      :target-id="buttonId"
-    />
+    <DemoModeNotificationDot v-for="buttonId in buttonIds" :key="buttonId" :target-id="buttonId" />
   </template>
 </template>
 

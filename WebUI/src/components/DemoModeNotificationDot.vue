@@ -1,7 +1,7 @@
 <template>
   <Teleport :to="`#${targetId}`" v-if="mounted && targetExists">
     <span
-      v-if="demoMode.enabled && !demoMode.isVisited(buttonId)"
+      v-if="demoMode.enabled && !demoMode.isVisited(targetId)"
       class="demo-dot pointer-events-none"
       aria-hidden="true"
     >
@@ -14,10 +14,7 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
 
-const props = defineProps<{
-  buttonId: DemoButtonId
-  targetId: string
-}>()
+const props = defineProps<{ targetId: DemoButtonId }>()
 
 const demoMode = useDemoMode()
 const mounted = ref(false)

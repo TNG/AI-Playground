@@ -1,10 +1,10 @@
 <template>
   <template v-if="demoMode.enabled">
     <DemoModeNotificationDot
-      v-for="mapping in buttonMappings"
-      :key="mapping.buttonId"
-      :button-id="mapping.buttonId"
-      :target-id="mapping.targetId"
+      v-for="buttonId in buttonIds"
+      :key="buttonId"
+      :button-id="buttonId"
+      :target-id="buttonId"
     />
   </template>
 </template>
@@ -15,15 +15,15 @@ import DemoModeNotificationDot from '@/components/DemoModeNotificationDot.vue'
 
 const demoMode = useDemoMode()
 
-const buttonMappings: { buttonId: DemoButtonId; targetId: string }[] = [
-  { buttonId: 'mode-chat', targetId: 'mode-button-chat' },
-  { buttonId: 'mode-imageGen', targetId: 'mode-button-imageGen' },
-  { buttonId: 'mode-imageEdit', targetId: 'mode-button-imageEdit' },
-  { buttonId: 'mode-video', targetId: 'mode-button-video' },
-  { buttonId: 'camera', targetId: 'camera-button' },
-  { buttonId: 'microphone', targetId: 'microphone-button' },
-  { buttonId: 'app-settings', targetId: 'app-settings-button' },
-  { buttonId: 'advanced-settings', targetId: 'advanced-settings-button' },
-  { buttonId: 'plus-icon', targetId: 'plus-icon' },
+const buttonIds: DemoButtonId[] = [
+  'mode-button-chat',
+  'mode-button-imageGen',
+  'mode-button-imageEdit',
+  'mode-button-video',
+  'camera-button',
+  'microphone-button',
+  'app-settings-button',
+  'advanced-settings-button',
+  'plus-icon',
 ]
 </script>

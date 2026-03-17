@@ -517,7 +517,7 @@ function handleCancelClick() {
 }
 
 async function handleRecordingClick() {
-  demoMode.markAsVisited('microphone')
+  demoMode.markAsVisited('microphone-button')
   if (audioRecorder.isRecording) {
     audioRecorder.stopRecording()
   } else {
@@ -530,19 +530,19 @@ async function handleRecordingClick() {
 }
 
 function handleCameraClick() {
-  demoMode.markAsVisited('camera')
+  demoMode.markAsVisited('camera-button')
   dialogStore.showCameraDialog(async (file: File) => {
     await handleImageFiles([file])
   })
 }
 
 function handleModeClick(mode: ModeType) {
-  demoMode.markAsVisited(`mode-${mode}`)
+  demoMode.markAsVisited(`mode-button-${mode}`)
   promptStore.setCurrentMode(mode)
 }
 
 function handleAdvancedSettingsClick() {
-  demoMode.markAsVisited('advanced-settings')
+  demoMode.markAsVisited('advanced-settings-button')
   emits('openSettings')
 }
 

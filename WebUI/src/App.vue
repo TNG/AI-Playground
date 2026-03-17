@@ -509,7 +509,7 @@ function openSpecificSettings() {
 }
 
 function openAppSettings() {
-  demoMode.markAsVisited('app-settings')
+  demoMode.markAsVisited('app-settings-button')
   showAppSettings.value = true
 }
 

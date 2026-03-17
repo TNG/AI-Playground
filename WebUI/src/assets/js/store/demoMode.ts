@@ -2,25 +2,25 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { applyDemoModeExplicitDefaults } from './demoModeDefaults'
 
 export type DemoButtonId =
-  | 'mode-chat'
-  | 'mode-imageGen'
-  | 'mode-imageEdit'
-  | 'mode-video'
-  | 'camera'
-  | 'microphone'
-  | 'app-settings'
-  | 'advanced-settings'
+  | 'mode-button-chat'
+  | 'mode-button-imageGen'
+  | 'mode-button-imageEdit'
+  | 'mode-button-video'
+  | 'camera-button'
+  | 'microphone-button'
+  | 'app-settings-button'
+  | 'advanced-settings-button'
   | 'plus-icon'
 
 const allDemoButtonIds: DemoButtonId[] = [
-  'mode-chat',
-  'mode-imageGen',
-  'mode-imageEdit',
-  'mode-video',
-  'camera',
-  'microphone',
-  'app-settings',
-  'advanced-settings',
+  'mode-button-chat',
+  'mode-button-imageGen',
+  'mode-button-imageEdit',
+  'mode-button-video',
+  'camera-button',
+  'microphone-button',
+  'app-settings-button',
+  'advanced-settings-button',
   'plus-icon',
 ]
 

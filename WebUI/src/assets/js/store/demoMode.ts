@@ -1,6 +1,36 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { applyDemoModeExplicitDefaults } from './demoModeDefaults'
 
+export type DemoButtonId =
+  | 'mode-chat'
+  | 'mode-imageGen'
+  | 'mode-imageEdit'
+  | 'mode-video'
+  | 'camera'
+  | 'microphone'
+  | 'app-settings'
+  | 'advanced-settings'
+  | 'plus-icon'
+
+const allDemoButtonIds: DemoButtonId[] = [
+  'mode-chat',
+  'mode-imageGen',
+  'mode-imageEdit',
+  'mode-video',
+  'camera',
+  'microphone',
+  'app-settings',
+  'advanced-settings',
+  'plus-icon',
+]
+
+function createInitialVisitedState(): Record<DemoButtonId, boolean> {
+  return Object.fromEntries(allDemoButtonIds.map((id) => [id, false])) as Record<
+    DemoButtonId,
+    boolean
+  >
+}
+
 const chatInitial = {
   show: false,
   finished: false,
@@ -34,6 +64,15 @@ type ExplicitDefaultsState = 'idle' | 'applying' | 'applied'
 export const useDemoMode = defineStore('demoMode', () => {
   const enabled = ref(false)
   const explicitDefaultsState = ref<ExplicitDefaultsState>('idle')
+  const visitedButtons = ref<Record<DemoButtonId, boolean>>(createInitialVisitedState())
+
+  function markAsVisited(buttonId: DemoButtonId) {
+    visitedButtons.value[buttonId] = true
+  }
+
+  function isVisited(buttonId: DemoButtonId): boolean {
+    return visitedButtons.value[buttonId]
+  }
 
   let resetTimer: null | ReturnType<typeof setTimeout> = null
   let trackUserInteractionInterval: null | ReturnType<typeof setInterval> = null
@@ -232,6 +271,9 @@ export const useDemoMode = defineStore('demoMode', () => {
     imageGen,
     imageEdit,
     video,
+    visitedButtons,
+    markAsVisited,
+    isVisited,
     applyExplicitDefaults,
     triggerHelp,
     verifyPasscode,

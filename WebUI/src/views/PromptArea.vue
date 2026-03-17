@@ -110,6 +110,7 @@
             class="self-center border border-dashed border-border rounded-md p-1 hover:cursor-pointer origin-bottom-left"
             :class="{ 'border-primary bg-primary/10': isOverDropZone }"
             id="plus-icon"
+            @click="demoMode.markAsVisited('plus-icon')"
           >
             <Label htmlFor="file-attachment">
               <PlusIcon class="size-4 cursor-pointer" />
@@ -131,7 +132,7 @@
             :key="mode"
             :id="'mode-button-' + mode"
             :class="{ 'demo-mode-overlay-content': isDemoModeHighlighted(mode) }"
-            @click="promptStore.setCurrentMode(mode)"
+            @click="handleModeClick(mode)"
           >
             {{ mapModeToLabel(mode) }}
           </Button>
@@ -140,7 +141,7 @@
               :variant="promptStore.getCurrentMode() === 'video' ? 'default' : 'secondary'"
               :id="'mode-button-video'"
               :class="{ 'demo-mode-overlay-content': isDemoModeHighlighted('video') }"
-              @click="promptStore.setCurrentMode('video')"
+              @click="handleModeClick('video')"
             >
               {{ mapModeToLabel('video') }}
             </Button>
@@ -191,7 +192,7 @@
           <Button
             id="advanced-settings-button"
             class="px-3 py-1.5 bg-muted hover:bg-muted/80 text-foreground rounded-lg text-sm font-normal"
-            @click="$emit('openSettings')"
+            @click="handleAdvancedSettingsClick"
           >
             {{ mapModeToLabel(promptStore.getCurrentMode()) }} Settings
           </Button>
@@ -516,6 +517,7 @@ function handleCancelClick() {
 }
 
 async function handleRecordingClick() {
+  demoMode.markAsVisited('microphone')
   if (audioRecorder.isRecording) {
     audioRecorder.stopRecording()
   } else {
@@ -528,9 +530,20 @@ async function handleRecordingClick() {
 }
 
 function handleCameraClick() {
+  demoMode.markAsVisited('camera')
   dialogStore.showCameraDialog(async (file: File) => {
     await handleImageFiles([file])
   })
+}
+
+function handleModeClick(mode: ModeType) {
+  demoMode.markAsVisited(`mode-${mode}`)
+  promptStore.setCurrentMode(mode)
+}
+
+function handleAdvancedSettingsClick() {
+  demoMode.markAsVisited('advanced-settings')
+  emits('openSettings')
 }
 
 function fastGenerate(e: KeyboardEvent) {

@@ -227,6 +227,7 @@
     <!-- <DemoModeOverlay /> -->
     <DemoModeOverlayDriverJsRef ref="demoModeOverlayDriverJs" />
     <DemoModeIndicator />
+    <DemoModeNotificationDots />
   </main>
 
   <footer
@@ -311,6 +312,7 @@ import { useSpeechToText } from '@/assets/js/store/speechToText'
 import * as toast from '@/assets/js/toast'
 import DemoModeOverlayDriverJsRef from './components/DemoModeOverlayDriverJs.vue'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
+import DemoModeNotificationDots from '@/components/DemoModeNotificationDots.vue'
 
 const backendServices = useBackendServices()
 const theme = useTheme()
@@ -493,6 +495,7 @@ function openSpecificSettings() {
 }
 
 function openAppSettings() {
+  demoMode.markAsVisited('app-settings')
   showAppSettings.value = true
 }
 

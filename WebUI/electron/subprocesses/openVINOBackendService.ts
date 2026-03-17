@@ -171,14 +171,10 @@ export class OpenVINOBackendService implements ApiService {
   }
 
   async detectDevices() {
-    const defaultDevices: InferenceDevice[] = [
-      { id: 'AUTO', name: 'Auto select device', selected: true },
-    ]
-
     if (!this.isSetUp) {
-      this.appLogger.info('OpenVINO not set up, using default devices', this.name)
-      this.devices = defaultDevices
-      this.sttDevices = [...defaultDevices]
+      this.appLogger.info('OpenVINO not set up, skipping device detection', this.name)
+      this.devices = []
+      this.sttDevices = []
       this.updateStatus()
       return
     }
@@ -204,9 +200,8 @@ export class OpenVINOBackendService implements ApiService {
       this.applyDetectedDevices(ovmsDevices)
     } catch (error) {
       this.appLogger.error(`Failed to detect devices: ${error}`, this.name)
-      // Fallback to default device on error
-      this.devices = defaultDevices
-      this.sttDevices = [...defaultDevices]
+      this.devices = []
+      this.sttDevices = []
     }
     this.updateStatus()
   }
@@ -261,10 +256,6 @@ export class OpenVINOBackendService implements ApiService {
           try {
             const result = JSON.parse(stdout.trim())
             if (result.success && Array.isArray(result.devices)) {
-              this.appLogger.info(
-                `Python detected devices: ${JSON.stringify(result.devices)}`,
-                this.name,
-              )
               resolve(result.devices)
             } else {
               this.appLogger.warn(`Python script returned error: ${result.error}`, this.name)
@@ -338,8 +329,7 @@ export class OpenVINOBackendService implements ApiService {
             const devices = match[1]
               .split(',')
               .map((d) => d.trim())
-              .filter((d) => d.length > 0)
-            this.appLogger.info(`Detected OpenVINO devices: ${devices.join(', ')}`, this.name)
+              .filter((d) => d.length > 0 && d !== 'AUTO')
 
             // Kill the process since we have what we need
             childProcess.kill('SIGTERM')
@@ -399,23 +389,21 @@ export class OpenVINOBackendService implements ApiService {
    * Apply detected devices to the service state.
    */
   private applyDetectedDevices(devices: { id: string; name: string }[]): void {
-    const mappedDevices: InferenceDevice[] = devices.map((device) => ({
+    // Filter out the AUTO pseudo-device — it is not a real hardware device
+    const filteredDevices = devices.filter((d) => d.id !== 'AUTO')
+
+    const mappedDevices: InferenceDevice[] = filteredDevices.map((device) => ({
       id: device.id,
       name: device.name,
       selected: false,
     }))
-
-    // Create base device list with AUTO option
-    const baseDevices: InferenceDevice[] = [
-      { id: 'AUTO', name: 'Auto select device', selected: false },
-      ...mappedDevices,
-    ]
 
     // Helper function to select device by priority
     const selectByPriority = (
       deviceList: InferenceDevice[],
       priority: string[],
     ): InferenceDevice[] => {
+      if (deviceList.length === 0) return deviceList
       const result = deviceList.map((d) => ({ ...d, selected: false }))
       // Match by id prefix (e.g., 'GPU' matches 'GPU.0', 'GPU.1', etc.)
       const selectedDevice = priority
@@ -424,26 +412,22 @@ export class OpenVINOBackendService implements ApiService {
       if (selectedDevice) {
         selectedDevice.selected = true
       } else {
-        result[0].selected = true // Fallback to AUTO
+        result[0].selected = true // Fallback to first available device
       }
       return result
     }
 
-    // LLM devices: priority GPU > AUTO
-    this.devices = selectByPriority(baseDevices, ['GPU'])
+    // LLM devices: priority GPU > first available
+    this.devices = selectByPriority(mappedDevices, ['GPU'])
 
-    // STT devices: priority NPU > CPU > GPU > AUTO
+    // STT devices: priority NPU > CPU > GPU > first available
     this.sttDevices = selectByPriority(
-      baseDevices.map((d) => ({ ...d })),
+      mappedDevices.map((d) => ({ ...d })),
       ['NPU', 'CPU', 'GPU'],
     )
 
     this.appLogger.info(
-      `Available LLM devices: ${JSON.stringify(this.devices, null, 2)}`,
-      this.name,
-    )
-    this.appLogger.info(
-      `Available STT devices: ${JSON.stringify(this.sttDevices, null, 2)}`,
+      `Detected devices — LLM: [${this.devices.map((d) => `${d.id}${d.selected ? '*' : ''}`).join(', ')}] STT: [${this.sttDevices.map((d) => `${d.id}${d.selected ? '*' : ''}`).join(', ')}]`,
       this.name,
     )
   }

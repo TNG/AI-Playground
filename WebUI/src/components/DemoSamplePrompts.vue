@@ -1,20 +1,16 @@
 <template>
-  <div class="flex flex-wrap justify-center gap-3 pb-3 w-full max-w-3xl">
-    <button
-      v-for="(sample, index) in samples"
-      :key="index"
-      class="demo-sample-bubble"
-      @click="applySample(sample)"
-    >
-      <span class="demo-sample-title">{{ sample.title }}</span>
-      <span class="demo-sample-description">{{ sample.description }}</span>
-      <span class="demo-sample-prompt">"{{ sample.prompt }}"</span>
+  <div v-if="activeSample" class="flex flex-wrap justify-start gap-3 pb-3 w-full max-w-3xl">
+    <button class="demo-sample-bubble" @click="applySample(activeSample)">
+      <span class="demo-sample-title">{{ activeSample.title }}</span>
+      <span class="demo-sample-description">{{ activeSample.description }}</span>
+      <span class="demo-sample-prompt">"{{ activeSample.prompt }}"</span>
     </button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { nextTick } from 'vue'
+import { computed } from 'vue'
+import { usePromptStore } from '@/assets/js/store/promptArea'
 
 type SamplePrompt = {
   title: string
@@ -22,6 +18,8 @@ type SamplePrompt = {
   prompt: string
   mode: ModeType
 }
+
+const promptStore = usePromptStore()
 
 const samples: SamplePrompt[] = [
   {
@@ -43,18 +41,19 @@ const samples: SamplePrompt[] = [
     prompt: 'Remove people from the background',
     mode: 'imageEdit',
   },
+  {
+    title: 'Video Generation',
+    description: 'Create a short video from a text description.',
+    prompt: 'A golden retriever running through a field of sunflowers on a sunny day',
+    mode: 'video',
+  },
 ]
 
-async function applySample(sample: SamplePrompt) {
-  // Click the corresponding mode button to switch modes
-  const modeButton = document.getElementById(`mode-button-${sample.mode}`)
-  if (modeButton) {
-    modeButton.click()
-  }
+const activeSample = computed(() =>
+  samples.find((s) => s.mode === promptStore.currentMode),
+)
 
-  // Wait for Vue reactivity to settle after mode switch
-  await nextTick()
-
+function applySample(sample: SamplePrompt) {
   // Insert the sample prompt into the textarea
   const textarea = document.getElementById('prompt-input') as HTMLTextAreaElement | null
   if (!textarea) return

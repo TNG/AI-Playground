@@ -3,7 +3,7 @@
     <div class="group flex flex-col items-center gap-7 text-base px-4">
       <template v-if="demoMode.enabled && isFirstPrompt">
         <div
-          class="transition-opacity duration-200 invisible opacity-0 pointer-events-none group-focus-within:visible group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
+          class="w-full max-w-3xl transition-opacity duration-200 invisible opacity-0 pointer-events-none group-focus-within:visible group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
         >
           <DemoSamplePrompts />
         </div>

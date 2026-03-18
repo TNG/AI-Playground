@@ -1,4 +1,5 @@
 declare interface Window {
+  __AIPG_DEMO_MODE__?: boolean
   chrome: Chrome
   electronAPI: electronAPI
   envVars: { platformTitle: string; productVersion: string; debugToolsEnabled: boolean }

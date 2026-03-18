@@ -1,5 +1,6 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { watch } from 'vue'
+import { demoAwareStorage } from '../demoAwareStorage'
 import { useComfyUiPresets } from './comfyUiPresets'
 import { useDemoMode } from './demoMode'
 import { useI18N } from './i18n'
@@ -799,6 +800,7 @@ export const useImageGenerationPresets = defineStore(
   },
   {
     persist: {
+      storage: demoAwareStorage,
       debug: true,
       pick: ['settingsPerPreset', 'comfyInputsPerPreset', 'generatedImages'],
       serializer: {

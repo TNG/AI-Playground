@@ -1,5 +1,6 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
+import { demoAwareStorage } from '../demoAwareStorage'
 import { Chat } from '@ai-sdk/vue'
 import {
   convertToModelMessages,
@@ -468,6 +469,7 @@ export const useOpenAiCompatibleChat = defineStore(
   },
   {
     persist: {
+      storage: demoAwareStorage,
       pick: [],
     },
   },

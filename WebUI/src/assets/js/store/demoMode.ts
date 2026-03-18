@@ -12,11 +12,10 @@ export type DemoButtonId =
   | 'advanced-settings-button'
   | 'plus-icon'
 
-const allDemoButtonIds: DemoButtonId[] = [
+export const initiallyUnvisitedDemoButtonIds: DemoButtonId[] = [
   'mode-button-chat',
   'mode-button-imageGen',
   'mode-button-imageEdit',
-  'mode-button-video',
   'camera-button',
   'microphone-button',
   'app-settings-button',
@@ -25,10 +24,12 @@ const allDemoButtonIds: DemoButtonId[] = [
 ]
 
 function createInitialVisitedState(): Record<DemoButtonId, boolean> {
-  return Object.fromEntries(allDemoButtonIds.map((id) => [id, false])) as Record<
-    DemoButtonId,
-    boolean
-  >
+  const state = Object.fromEntries(
+    initiallyUnvisitedDemoButtonIds.map((id) => [id, false]),
+  ) as Record<DemoButtonId, boolean>
+  // Video mode is disabled during demo, so no notification dot
+  state['mode-button-video'] = true
+  return state
 }
 
 const chatInitial = {

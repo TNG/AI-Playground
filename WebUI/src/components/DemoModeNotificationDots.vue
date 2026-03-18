@@ -1,24 +1,16 @@
 <template>
   <template v-if="demoMode.enabled">
-    <DemoModeNotificationDot v-for="buttonId in buttonIds" :key="buttonId" :target-id="buttonId" />
+    <DemoModeNotificationDot
+      v-for="buttonId in initiallyUnvisitedDemoButtonIds"
+      :key="buttonId"
+      :target-id="buttonId"
+    />
   </template>
 </template>
 
 <script setup lang="ts">
-import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
+import { initiallyUnvisitedDemoButtonIds, useDemoMode } from '@/assets/js/store/demoMode'
 import DemoModeNotificationDot from '@/components/DemoModeNotificationDot.vue'
 
 const demoMode = useDemoMode()
-
-const buttonIds: DemoButtonId[] = [
-  'mode-button-chat',
-  'mode-button-imageGen',
-  'mode-button-imageEdit',
-  'mode-button-video',
-  'camera-button',
-  'microphone-button',
-  'app-settings-button',
-  'advanced-settings-button',
-  'plus-icon',
-]
 </script>

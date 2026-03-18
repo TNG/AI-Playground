@@ -121,16 +121,17 @@ function startTour() {
   driverObj.drive()
 }
 
-function startMiniTour(elementId: string) {
-  const step = stepsAlternative.find((s) => s.id === elementId)
+function startMiniTour(stepId: string, highlightElement?: string) {
+  const step = stepsAlternative.find((s) => s.id === stepId)
   if (!step) {
-    console.warn(`startMiniTour: No step found for elementId "${elementId}"`)
+    console.warn(`startMiniTour: No step found for stepId "${stepId}"`)
     return
   }
 
-  const domElement = document.querySelector(elementId)
+  const elementToHighlight = highlightElement || stepId
+  const domElement = document.querySelector(elementToHighlight)
   if (!domElement) {
-    console.warn(`startMiniTour: DOM element "${elementId}" not found`)
+    console.warn(`startMiniTour: DOM element "${elementToHighlight}" not found`)
   }
 
   const miniDriver = driver({
@@ -140,7 +141,7 @@ function startMiniTour(elementId: string) {
     popoverOffset: 20,
     steps: [
       {
-        element: step.id,
+        element: elementToHighlight,
         popover: {
           title: step.title,
           description: step.descr,
@@ -148,6 +149,7 @@ function startMiniTour(elementId: string) {
           align: step.align,
         },
       },
+      // second step: sample prompt (if needed)
     ],
   })
   miniDriver.drive()
@@ -156,17 +158,20 @@ function startMiniTour(elementId: string) {
 type ContextHelpTarget = ModeType | 'app-settings' | 'advanced-settings'
 
 function triggerContextHelp(target: ContextHelpTarget) {
-  const targetToElementId: Record<ContextHelpTarget, string> = {
-    chat: '#mode-button-chat',
-    imageGen: '#mode-button-imageGen',
-    imageEdit: '#mode-button-imageEdit',
-    video: '#mode-button-video',
-    'app-settings': '#app-settings-button',
-    'advanced-settings': '#advanced-settings-button',
+  const targetConfig: Record<ContextHelpTarget, { stepId: string; highlightElement: string }> = {
+    chat: { stepId: '#mode-button-chat', highlightElement: '#prompt-input' },
+    imageGen: { stepId: '#mode-button-imageGen', highlightElement: '#prompt-input' },
+    imageEdit: { stepId: '#mode-button-imageEdit', highlightElement: '#prompt-input' },
+    video: { stepId: '#mode-button-video', highlightElement: '#prompt-input' },
+    'app-settings': { stepId: '#app-settings-button', highlightElement: '#app-settings-button' },
+    'advanced-settings': {
+      stepId: '#advanced-settings-button',
+      highlightElement: '#advanced-settings-button',
+    },
   }
-  const elementId = targetToElementId[target]
-  if (elementId) {
-    startMiniTour(elementId)
+  const config = targetConfig[target]
+  if (config) {
+    startMiniTour(config.stepId, config.highlightElement)
   }
 }
 

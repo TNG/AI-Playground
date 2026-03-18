@@ -35,19 +35,19 @@ const steps: StepList = [
     id: '#mode-buttons',
     title: 'Pick your Mode',
     descr:
-      'Here are multiple mode buttons, that define the type of content you are generating.  Select any one of these modes later to explore each.',
+      'Here are multiple mode buttons, that define the type of content you are generating. Select any one of these modes later to explore each. Little dots generally indicate additional help is available when clicking the first time.',
   },
   {
     id: '#prompt-input',
     title: 'Unified Prompt',
     descr:
-      "This is your Prompt field. This is the core experience of AI Playground, across all features of the app. This is where you write a prompt, add images or documents to guide your content, and select modes for the type of content you want to generate. Click continue to explore what's here ",
+      "This is your Prompt field. This is the core experience of AI Playground, across all features of the app. This is where you write a prompt, add images or documents to guide your content, and select modes for the type of content you want to generate.",
   },
   {
     id: '#send-button',
     title: 'Ready to start?',
     descr:
-      'This is the magic button that starts generation. Select a mode like Chat, enter a question and click this button to get your first response.',
+      'This is the magic button that will start a generation. Select a mode like Chat, enter a question and click this button to get your first response.',
     align: 'end',
   },
 ]

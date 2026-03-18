@@ -135,9 +135,11 @@ function startMiniTour(driverSteps: DriveStep[]) {
     return
   }
 
+  const isSingleStep = driverSteps.length === 1
+
   const miniDriver = driver({
-    showProgress: driverSteps.length > 1,
-    showButtons: ['next', 'previous', 'close'],
+    showProgress: !isSingleStep,
+    showButtons: isSingleStep ? ['next', 'close'] : ['next', 'previous', 'close'],
     doneBtnText: 'Got it!',
     popoverOffset: 20,
     steps: driverSteps,

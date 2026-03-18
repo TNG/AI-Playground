@@ -3,7 +3,12 @@
     <div class="group flex flex-col items-center gap-7 text-base px-4">
       <template v-if="demoMode.enabled && isFirstPrompt">
         <div
-          class="w-full max-w-3xl transition-opacity duration-200 invisible opacity-0 pointer-events-none group-focus-within:visible group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
+          class="w-full max-w-3xl transition-[opacity,visibility] duration-200"
+          :class="
+            isTextareaFocused
+              ? 'visible opacity-100 pointer-events-auto'
+              : 'invisible opacity-0 pointer-events-none'
+          "
         >
           <DemoSamplePrompts />
         </div>
@@ -82,6 +87,8 @@
             'border-primary bg-primary/10': isOverDropZone,
           }"
           :placeholder="getTextAreaPlaceholder()"
+          @focus="isTextareaFocused = true"
+          @blur="isTextareaFocused = false"
           v-model="prompt"
           :disabled="isTextAreaDisabled"
           @keydown="fastGenerate"
@@ -292,6 +299,7 @@ const processingDebounceTimer = ref<number | null>(null)
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const textInference = useTextInference()
 const textareaRef = ref<HTMLTextAreaElement>()
+const isTextareaFocused = ref(false)
 const presetsStore = usePresets()
 const dialogStore = useDialogStore()
 const demoMode = useDemoMode()

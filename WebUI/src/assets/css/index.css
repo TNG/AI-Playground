@@ -52,13 +52,14 @@
     --radius: 0.5rem;
 
     /* Demo mode variables - light theme overrides */
+    --demo-accent: hsl(280 98.4% 50.6%);
     --demo-popover-bg: hsl(var(--card));
     --demo-indicator-bg: hsl(var(--card));
     --demo-popover-border: hsl(var(--border));
     --demo-popover-shadow: rgb(0 0 0 / 0.1);
-    --demo-title-color: hsl(var(--primary));
+    --demo-title-color: var(--demo-accent);
     --demo-text-color: hsl(var(--foreground));
-    --demo-button-color: hsl(var(--primary));
+    --demo-button-color: var(--demo-accent);
   }
 
   /* Dark Theme */
@@ -85,13 +86,14 @@
     --radius: 0.5rem;
 
     /* Demo mode variables */
+    --demo-accent: #00c4fa;
     --demo-popover-bg: #0a0622;
     --demo-indicator-bg: #000032;
-    --demo-popover-border: #00c4fa;
-    --demo-popover-shadow: #00c4fa;
+    --demo-popover-border: var(--demo-accent);
+    --demo-popover-shadow: var(--demo-accent);
     --demo-title-color: #00bfff;
     --demo-text-color: #fff;
-    --demo-button-color: #00c4fa;
+    --demo-button-color: var(--demo-accent);
   }
 
   /* Intel Core Ultra Theme (lnl) */
@@ -118,13 +120,14 @@
     --radius: 0.5rem;
 
     /* Demo mode variables */
+    --demo-accent: #00c4fa;
     --demo-popover-bg: #0a0622;
     --demo-indicator-bg: #000032;
-    --demo-popover-border: #00c4fa;
-    --demo-popover-shadow: #00c4fa;
+    --demo-popover-border: var(--demo-accent);
+    --demo-popover-shadow: var(--demo-accent);
     --demo-title-color: #00bfff;
     --demo-text-color: #fff;
-    --demo-button-color: #00c4fa;
+    --demo-button-color: var(--demo-accent);
   }
 
   /* Intel Arc Theme (bmg) */
@@ -151,13 +154,14 @@
     --radius: 0.5rem;
 
     /* Demo mode variables */
+    --demo-accent: #00c4fa;
     --demo-popover-bg: #0a0622;
     --demo-indicator-bg: #000032;
-    --demo-popover-border: #00c4fa;
-    --demo-popover-shadow: #00c4fa;
+    --demo-popover-border: var(--demo-accent);
+    --demo-popover-shadow: var(--demo-accent);
     --demo-title-color: #00bfff;
     --demo-text-color: #fff;
-    --demo-button-color: #00c4fa;
+    --demo-button-color: var(--demo-accent);
   }
 }
 

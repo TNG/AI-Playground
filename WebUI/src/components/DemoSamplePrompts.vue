@@ -24,26 +24,26 @@ const promptStore = usePromptStore()
 
 const samples: SamplePrompt[] = [
   {
-    title: 'Science Chat',
-    description: 'Ask a science question and get an answer.',
+    title: 'Prompt Example',
+    description: 'Ask a science question and get an answer:',
     prompt: 'Why does water expand when it freezes?',
     mode: 'chat',
   },
   {
-    title: 'Image Generation',
-    description: 'Create a fantastic image from a detailed prompt.',
+    title: 'Image Generation Example',
+    description: 'Create a fantastic image from a detailed prompt:',
     prompt:
       'A close-up photo of a hummingbird hovering to get nectar from a red rose with drops of dew. Iridescent blue and green feathers, wings a blur. Depth of field. High Dynamic Range.',
     mode: 'imageGen',
   },
   {
-    title: 'Image Editing',
-    description: 'Edit a photo by describing what to change.',
+    title: 'Image Editing Example',
+    description: 'Edit a photo by describing what to change. An image is already given:',
     prompt: 'Remove people from the background',
     mode: 'imageEdit',
   },
   {
-    title: 'Video Generation',
+    title: 'Video Generation Example',
     description: 'Create a short video from a text description.',
     prompt: 'A golden retriever running through a field of sunflowers on a sunny day',
     mode: 'video',
@@ -95,7 +95,7 @@ function applySample(sample: SamplePrompt) {
 }
 
 .demo-sample-bubble:hover {
-  transform: translateY(-3px);
+  /* transform: translateY(-3px); */
   box-shadow: 0px 1px 8px var(--demo-popover-shadow);
   border-color: color-mix(in srgb, var(--demo-popover-border) 80%, white);
 }

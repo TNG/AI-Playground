@@ -3,7 +3,7 @@
 </template>
 
 <script setup lang="ts">
-import { driver } from 'driver.js'
+import { driver, type DriveStep } from 'driver.js'
 import 'driver.js/dist/driver.css'
 
 type Step = {
@@ -120,57 +120,71 @@ function startTour() {
   driverObj.drive()
 }
 
-function startMiniTour(stepId: string, highlightElement?: string) {
-  const step = stepsAlternative.find((s) => s.id === stepId)
-  if (!step) {
-    console.warn(`startMiniTour: No step found for stepId "${stepId}"`)
+function startMiniTour(driverSteps: DriveStep[]) {
+  if (driverSteps.length === 0) {
+    console.warn('startMiniTour: No steps provided')
     return
   }
 
-  const elementToHighlight = highlightElement || stepId
-  const domElement = document.querySelector(elementToHighlight)
-  if (!domElement) {
-    console.warn(`startMiniTour: DOM element "${elementToHighlight}" not found`)
-  }
-
   const miniDriver = driver({
-    showProgress: false,
-    showButtons: ['next', 'close'],
+    showProgress: driverSteps.length > 1,
+    showButtons: ['next', 'previous', 'close'],
     doneBtnText: 'Got it!',
     popoverOffset: 20,
-    steps: [
-      {
-        element: elementToHighlight,
-        popover: {
-          title: step.title,
-          description: step.descr,
-          side: 'top' as const,
-          align: step.align,
-        },
-      },
-      // second step: sample prompt (if needed)
-    ],
+    steps: driverSteps,
   })
   miniDriver.drive()
 }
 
 type ContextHelpTarget = ModeType | 'app-settings' | 'advanced-settings'
 
-function triggerContextHelp(target: ContextHelpTarget) {
-  const targetConfig: Record<ContextHelpTarget, { stepId: string; highlightElement: string }> = {
-    chat: { stepId: '#mode-button-chat', highlightElement: '#prompt-input' },
-    imageGen: { stepId: '#mode-button-imageGen', highlightElement: '#prompt-input' },
-    imageEdit: { stepId: '#mode-button-imageEdit', highlightElement: '#prompt-input' },
-    video: { stepId: '#mode-button-video', highlightElement: '#prompt-input' },
-    'app-settings': { stepId: '#app-settings-button', highlightElement: '#app-settings-sidebar' },
-    'advanced-settings': {
-      stepId: '#advanced-settings-button',
-      highlightElement: '#advanced-settings-sidebar',
+const contextHelpConfig: Record<ContextHelpTarget, { stepId: string; highlightElement: string }> = {
+  chat: { stepId: '#mode-button-chat', highlightElement: '#prompt-input' },
+  imageGen: { stepId: '#mode-button-imageGen', highlightElement: '#prompt-input' },
+  imageEdit: { stepId: '#mode-button-imageEdit', highlightElement: '#prompt-input' },
+  video: { stepId: '#mode-button-video', highlightElement: '#prompt-input' },
+  'app-settings': { stepId: '#app-settings-button', highlightElement: '#app-settings-sidebar' },
+  'advanced-settings': {
+    stepId: '#advanced-settings-button',
+    highlightElement: '#advanced-settings-sidebar',
+  },
+}
+
+function resolveDriverStep(target: ContextHelpTarget): DriveStep | null {
+  const config = contextHelpConfig[target]
+  const step = stepsAlternative.find((s) => s.id === config.stepId)
+  if (!step) {
+    console.warn(`triggerContextHelp: No step definition found for "${target}"`)
+    return null
+  }
+  if (!document.querySelector(config.highlightElement)) {
+    console.warn(`triggerContextHelp: DOM element "${config.highlightElement}" not found`)
+    return null
+  }
+  return {
+    element: config.highlightElement,
+    popover: {
+      title: step.title,
+      description: step.descr,
+      side: 'top',
+      align: step.align,
     },
   }
+}
 
-  const config = targetConfig[target]
-  startMiniTour(config.stepId, config.highlightElement)
+function triggerContextHelp(
+  mode: ModeType,
+  appSettingsOpen: boolean,
+  advancedSettingsOpen: boolean,
+) {
+  const targets: ContextHelpTarget[] = []
+  if (appSettingsOpen) targets.push('app-settings')
+  if (advancedSettingsOpen) targets.push('advanced-settings')
+  targets.push(mode)
+
+  const driverSteps = targets.map((target) => resolveDriverStep(target)).filter((s) => s !== null)
+
+  startMiniTour(driverSteps)
 }
 
 defineExpose({

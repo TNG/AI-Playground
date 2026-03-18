@@ -21,6 +21,9 @@
         <span v-if="platformTitle" class="text-sm font-normal">{{ platformTitle }}</span>
       </h1>
     </div>
+    <div class="flex items-center">
+      <DemoModeIndicator />
+    </div>
     <div class="flex justify-between items-center gap-5">
       <button
         v-if="debugToolsEnabled"
@@ -45,16 +48,8 @@
         class="flex gap-2"
       >
         <button
-          id="demo-start-tour-button"
-          class="bg-[#01aef2] text-white px-3 rounded text-xs cursor-pointer"
-          style="height: 30px; min-width: 90px"
-          @click="startTour()"
-        >
-          {{ languages.DEMO_START_TOUR }}
-        </button>
-        <button
           id="demo-need-help-button"
-          class="bg-[#01aef2] text-white px-3 rounded text-xs cursor-pointer"
+          class="bg-demo-button text-white px-3 rounded text-xs cursor-pointer"
           style="height: 30px; min-width: 90px"
           @click="triggerHelpForCurrentMode(true)"
         >
@@ -240,7 +235,6 @@
     <!-- Demo Mode Overlay -->
     <!-- <DemoModeOverlay /> -->
     <DemoModeOverlayDriverJsRef ref="demoModeOverlayDriverJs" />
-    <DemoModeIndicator />
     <DemoModeNotificationDots />
   </main>
 
@@ -519,18 +513,6 @@ function triggerHelpForCurrentMode(_force = false) {
     showAppSettings.value,
     showSpecificSettings.value,
   )
-
-  //   const mode = promptStore.getCurrentMode()
-  //   if (mode === 'chat') {
-  //     demoMode.triggerHelp('chat', force)
-  //   } else if (mode === 'imageGen') {
-  //     demoMode.triggerHelp('imageGen', force)
-  //   } else if (mode === 'imageEdit') {
-  //     demoMode.imageEdit.feature = 'prompt'
-  //     demoMode.triggerHelp('imageEdit', force)
-  //   } else if (mode === 'video') {
-  //     demoMode.triggerHelp('video', force)
-  //   }
 }
 
 function startTour() {

@@ -61,7 +61,7 @@ onBeforeUnmount(() => {
   position: absolute;
   top: -4px;
   right: -4px;
-  z-index: 50;
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: center;

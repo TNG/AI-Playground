@@ -1,32 +1,17 @@
 <template>
-  <teleport to="body">
-    <div v-if="isDemoModeOn" class="demo-mode-indicator">
-      <p>Demo mode active.</p>
-    </div>
-  </teleport>
+  <span
+    v-if="isDemoModeOn"
+    class="inline-flex items-center rounded px-3 py-1.5 text-xs font-medium text-secondary-foreground border border-demo-accent"
+  >
+    Demo mode active.
+  </span>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useDemoMode } from '@/assets/js/store/demoMode'
 
 const demoMode = useDemoMode()
 
-const isDemoModeOn = demoMode.enabled
+const isDemoModeOn = computed(() => demoMode.enabled)
 </script>
-
-<style scoped>
-.demo-mode-indicator {
-  position: fixed;
-  position: absolute;
-  top: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  background-color: color-mix(in srgb, var(--demo-indicator-bg) 85%, transparent);
-  border-radius: 10px;
-  padding: 6px 20px;
-  color: var(--demo-text-color);
-  width: 600px;
-  height: 40px;
-  text-align: center;
-}
-</style>

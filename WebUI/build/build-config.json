@@ -14,6 +14,10 @@
       "to": "presets"
     },
     {
+      "from": "external/presets_demo",
+      "to": "presets_demo"
+    },
+    {
       "from": "../device-service",
       "to": "device-service"
     },

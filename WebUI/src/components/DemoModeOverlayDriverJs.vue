@@ -29,7 +29,7 @@ const steps: StepList = [
     id: '#demo-buttons-group',
     title: 'Welcome to Intel AI-Playground!',
     descr:
-      'Intel AI-Playground is a generative AI app that provides local-powered chat, image, and video capabilities. You can start the tour anytime with the "Start Tour" button in the upper right, and get context-specific help with the "Need Help" button. Click "Next" or press "Right" to start the tour.',
+      'Intel AI-Playground is a generative AI app that provides local-powered chat, image, and video capabilities. You can get context-specific help with the "Need Help" button. Click "Next" or press "Right" to start the tour.',
   },
   {
     id: '#mode-buttons',

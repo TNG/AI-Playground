@@ -52,7 +52,7 @@
     --radius: 0.5rem;
 
     /* Demo mode variables - light theme overrides */
-    --demo-accent: hsl(280 98.4% 50.6%);
+    --demo-accent: hsl(219, 100%, 29%);
     --demo-popover-bg: hsl(var(--card));
     --demo-indicator-bg: hsl(var(--card));
     --demo-popover-border: hsl(var(--border));

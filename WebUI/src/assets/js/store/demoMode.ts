@@ -95,6 +95,10 @@ export const useDemoMode = defineStore('demoMode', () => {
 
   let resetTimer: null | ReturnType<typeof setTimeout> = null
   let trackUserInteractionInterval: null | ReturnType<typeof setInterval> = null
+  // Sticky user activation (navigator.userActivation.hasBeenActive) is not reset by location.reload()
+  // in Chromium/Electron — it is tied to the Window and never clears. Track interaction since this
+  // page load ourselves so the reset timer only starts after a real user gesture post-reload.
+  let userInteractedThisLoad = false
 
   const resetInSeconds = ref<null | number>(null)
   const passcode = ref('')
@@ -103,7 +107,21 @@ export const useDemoMode = defineStore('demoMode', () => {
     enabled.value = res.isDemoModeEnabled
     resetInSeconds.value = res.demoModeResetInSeconds
     passcode.value = res.demoModePasscode ?? ''
-    if (res.isDemoModeEnabled && res.demoModeResetInSeconds) trackUserInteraction()
+    if (res.isDemoModeEnabled && res.demoModeResetInSeconds) {
+      const markInteracted = (e: Event) => {
+        console.log('markInteracted', e.isTrusted)
+        if (e.isTrusted) userInteractedThisLoad = true
+      }
+      // Delay attaching listeners so load/focus spurious events don't start the reset timer
+      const GRACE_MS = 1000
+      window.setTimeout(() => {
+        console.log('markInteracted listener added')
+        window.addEventListener('click', markInteracted, { capture: true, once: true })
+        window.addEventListener('keydown', markInteracted, { capture: true, once: true })
+      }, GRACE_MS)
+      console.log('trackUserInteraction')
+      trackUserInteraction()
+    }
   })
 
   const showDemoToggle = computed(() => hasPasscode.value)
@@ -113,20 +131,13 @@ export const useDemoMode = defineStore('demoMode', () => {
   const imageEdit = ref(imageEditInitial)
   const video = ref(videoInitial)
 
-  const pages = {
-    chat,
-    imageGen,
-    imageEdit,
-    video,
-  }
-
   const trackUserInteraction = () => {
     if (trackUserInteractionInterval) {
       clearInterval(trackUserInteractionInterval)
       trackUserInteractionInterval = null
     }
     trackUserInteractionInterval = setInterval(() => {
-      if (!navigator.userActivation.hasBeenActive) return
+      if (!userInteractedThisLoad) return
       if (navigator.userActivation.isActive) {
         if (resetTimer) {
           clearTimeout(resetTimer)
@@ -138,6 +149,12 @@ export const useDemoMode = defineStore('demoMode', () => {
             `demo mode reset timer started, resetting after ${resetInSeconds.value} seconds`,
           )
           resetTimer = setTimeout(() => {
+            if (trackUserInteractionInterval) {
+              clearInterval(trackUserInteractionInterval)
+              trackUserInteractionInterval = null
+            }
+            resetTimer = null
+            sessionStorage.clear()
             location.reload()
           }, resetInSeconds.value * 1000)
         }
@@ -153,68 +170,6 @@ export const useDemoMode = defineStore('demoMode', () => {
     video.value.show = false
   }
 
-  function calculateMaskPenDim() {
-    const maskPenRef = document.getElementById('mask-pen')?.getBoundingClientRect()
-
-    if (maskPenRef) {
-      setTimeout(() => {
-        const inpaintOverlayContent = document.getElementById('inpaintOverlayContent')
-        if (inpaintOverlayContent && inpaintOverlayContent.style) {
-          inpaintOverlayContent.style.top = `${maskPenRef.bottom - 145}px`
-          inpaintOverlayContent.style.left = `${maskPenRef.left - 445}px`
-        }
-      }, 50)
-    }
-  }
-
-  function triggerHelp(page: DemoModePage, force = false) {
-    if (!enabled.value) return
-    console.log('demo mode triggered for ', {
-      page,
-      force,
-    })
-    if (!force && pages[page].value.finished) return
-    if (page !== 'imageEdit') {
-      pages[page].value.show = true
-      pages[page].value.finished = true
-    } else {
-      switch (imageEdit.value.feature) {
-        case 'upscale':
-          if (imageEdit.value.finishedUpscale && !force) break
-          imageEdit.value.showUpscale = true
-          imageEdit.value.finishedUpscale = true
-          pages[page].value.show = true
-          break
-        case 'prompt':
-          if (imageEdit.value.finishedPrompt && !force) break
-          imageEdit.value.showPrompt = true
-          imageEdit.value.finishedPrompt = true
-          pages[page].value.show = true
-          break
-        case 'inpaint':
-          if (!imageEdit.value.imageAvailable) break
-          if (imageEdit.value.finishedInpaint && !force) return
-          setTimeout(() => {
-            const maskPenRef: HTMLElement = document.getElementById('mask-pen') as HTMLElement
-            const isMaskPenVisible = window.getComputedStyle(maskPenRef).display !== 'none'
-            if (isMaskPenVisible) {
-              imageEdit.value.showInpaint = true
-              imageEdit.value.finishedInpaint = true
-              pages[page].value.show = true
-              calculateMaskPenDim()
-            }
-          }, 100)
-          break
-        case 'outpaint':
-          if (imageEdit.value.finishedOutpaint && !force) break
-          imageEdit.value.showOutpaint = true
-          imageEdit.value.finishedOutpaint = true
-          pages[page].value.show = true
-          break
-      }
-    }
-  }
-
   async function applyExplicitDefaults() {
     if (!enabled.value || explicitDefaultsState.value !== 'idle') return
 
@@ -227,28 +182,6 @@ export const useDemoMode = defineStore('demoMode', () => {
       explicitDefaultsState.value = 'applied'
     }
   }
-
-  watch(
-    () => imageEdit.value.show,
-    (showImageEdit) => {
-      if (!showImageEdit) {
-        imageEdit.value.showUpscale = false
-        imageEdit.value.showPrompt = false
-        imageEdit.value.showInpaint = false
-        imageEdit.value.showOutpaint = false
-      }
-    },
-  )
-
-  watch(
-    () => imageEdit.value.feature,
-    () => {
-      if (!enabled.value) return
-      // Note: auto-triggering triggerHelp removed — the driver.js-based tour
-      // now handles demo-mode highlighting instead of the legacy overlay system.
-      // if (!imageEdit.value.show) triggerHelp('imageEdit')
-    },
-  )
 
   watch(
     [
@@ -299,7 +232,6 @@ export const useDemoMode = defineStore('demoMode', () => {
     registerDriverJs,
     triggerFirstTimeHelp,
     applyExplicitDefaults,
-    triggerHelp,
     verifyPasscode,
     setEnabled,
   }

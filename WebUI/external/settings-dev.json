@@ -1,12 +1,12 @@
 {
   "debug": true,
   "availableThemes": ["dark", "lnl", "bmg", "light"],
-  "currentTheme": "bmg",
+  "currentTheme": "light",
   "enablePreviewFeatures": true,
-  "isDemoModeEnabled": false,
-  "demoModeResetInSeconds": null,
+  "isDemoModeEnabled": true,
+  "demoModeResetInSeconds": 60,
   "demoModePresetsDir": "presets_demo",
-  "demoModePasscode": "",
+  "demoModePasscode": "0451",
   "languageOverride": null,
   "remoteRepository": "tng/ai-playground"
 }

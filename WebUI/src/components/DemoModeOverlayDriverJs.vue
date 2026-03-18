@@ -163,16 +163,15 @@ function triggerContextHelp(target: ContextHelpTarget) {
     imageGen: { stepId: '#mode-button-imageGen', highlightElement: '#prompt-input' },
     imageEdit: { stepId: '#mode-button-imageEdit', highlightElement: '#prompt-input' },
     video: { stepId: '#mode-button-video', highlightElement: '#prompt-input' },
-    'app-settings': { stepId: '#app-settings-button', highlightElement: '#app-settings-button' },
+    'app-settings': { stepId: '#app-settings-button', highlightElement: '#app-settings-sidebar' },
     'advanced-settings': {
       stepId: '#advanced-settings-button',
-      highlightElement: '#advanced-settings-button',
+      highlightElement: '#advanced-settings-sidebar',
     },
   }
+
   const config = targetConfig[target]
-  if (config) {
-    startMiniTour(config.stepId, config.highlightElement)
-  }
+  startMiniTour(config.stepId, config.highlightElement)
 }
 
 defineExpose({

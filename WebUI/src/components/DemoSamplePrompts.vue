@@ -1,5 +1,5 @@
 <template>
-  <div v-if="activeSample" class="pb-3 w-full max-w-3xl">
+  <div v-if="activeSample" class="pb-3 w-full max-w-3xl" @mousedown.prevent>
     <div
       class="demo-sample-bubble"
       :style="{ marginLeft: bubbleOffset }"

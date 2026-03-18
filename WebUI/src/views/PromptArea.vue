@@ -537,7 +537,8 @@ function handleCameraClick() {
 
 function handleModeClick(mode: ModeType) {
   const buttonId = `mode-button-${mode}` as DemoButtonId
-  if (demoMode.triggerFirstTimeHelp(buttonId)) return
+  // mode buttons should switch modes, even when first-time-help is shown
+  demoMode.triggerFirstTimeHelp(buttonId)
   promptStore.setCurrentMode(mode)
 }
 

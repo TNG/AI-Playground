@@ -63,19 +63,19 @@ const stepsAlternative: StepList = [
     id: '#mode-button-chat',
     title: 'Chat Mode',
     descr:
-      'Chat works like a typical AI chat. You can type questions to get information on almost any topic you can imagine. In the settings you can select from a variety of chat options where you can do document search, work with Reasoning or Vision models, and more.',
+      'Chat works like a typical AI chat. You can type questions to get information on almost any topic you can imagine. In the settings you can select from a variety of chat options where you can do document search, work with Reasoning or Vision models, and more. Click the prompt input to see a sample prompt!',
   },
   {
     id: '#mode-button-imageGen',
     title: 'Image Mode',
     descr:
-      "The Image Gen mode allows you to generate images from text you enter. Describe a scene or character and style (photographic, watercolor, etc), you wish to generate, and have watching your ideas come to life. When in this mode, you'll find ready to go presets in the Prompt Settings that allow you to create images using generative models to achieve different levels of realism and generation times.",
+      "The Image Gen mode allows you to generate images from text you enter. Describe a scene or character and style (photographic, watercolor, etc), you wish to generate, and have watching your ideas come to life. When in this mode, you'll find ready to go presets in the Prompt Settings that allow you to create images using generative models to achieve different levels of realism and generation times. Click the prompt input to see a sample prompt!",
   },
   {
     id: '#mode-button-imageEdit',
     title: 'Image Edit Mode',
     descr:
-      'The Image Edit mode allows you to edit existing images or photos, often by describing what to change.  Simply drag in a photo, select an editing Preset in Prompt Settings where you can upscale images, edit images with precision, generate 3 Models from images, and more.',
+      'The Image Edit mode allows you to edit existing images or photos, often by describing what to change. Simply drag in a photo, select an editing Preset in Prompt Settings where you can upscale images, edit images with precision, generate 3D models from images, and more. An input image is already pre-selected for you. Click the prompt input to see a sample prompt!',
   },
   {
     id: '#mode-button-video',

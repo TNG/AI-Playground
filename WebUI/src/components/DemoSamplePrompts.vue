@@ -176,9 +176,9 @@ function applySample(sample: SamplePrompt) {
   margin-top: 4px;
   padding: 2px 10px;
   background: transparent;
-  border: 1.5px solid var(--demo-popover-border);
+  border: 1.5px solid var(--demo-accent);
   border-radius: 6px;
-  color: var(--demo-popover-border);
+  color: var(--demo-accent);
   font-family: 'IntelOne', sans-serif;
   font-size: 0.75rem;
   font-weight: 600;
@@ -189,7 +189,7 @@ function applySample(sample: SamplePrompt) {
 }
 
 .demo-sample-apply-btn:hover {
-  background: var(--demo-popover-border);
+  background: var(--demo-accent);
   color: var(--demo-popover-bg);
 }
 </style>

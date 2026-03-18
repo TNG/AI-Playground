@@ -110,9 +110,8 @@
             class="self-center border border-dashed border-border rounded-md p-1 hover:cursor-pointer origin-bottom-left"
             :class="{ 'border-primary bg-primary/10': isOverDropZone }"
             id="plus-icon"
-            @click="handlePlusIconClick"
           >
-            <Label htmlFor="file-attachment">
+            <Label htmlFor="file-attachment" @click="handlePlusIconClick">
               <PlusIcon class="size-4 cursor-pointer" />
             </Label>
             <input
@@ -277,7 +276,7 @@ import { Context } from '@/components/ui/context'
 import Button from '@/components/ui/button/Button.vue'
 import { useDialogStore } from '@/assets/js/store/dialogs'
 import CameraCapture from '@/components/CameraCapture.vue'
-import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
+import { useDemoMode } from '@/assets/js/store/demoMode'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import DemoSamplePrompts from '@/components/DemoSamplePrompts.vue'
 
@@ -363,7 +362,6 @@ function getRagIconClass(type: ValidFileExtension): string {
 const emits = defineEmits<{
   (e: 'autoHideFooter'): void
   (e: 'openSettings'): void
-  (e: 'triggerFirstTimeHelp', buttonId: DemoButtonId): void
 }>()
 
 const imagePreview = computed(() =>
@@ -670,12 +668,16 @@ async function handleImageFiles(imageFiles: File[]) {
 }
 
 function handlePlusIconClick(event: MouseEvent) {
-  if (!demoMode.isVisited('plus-icon')) {
-    demoMode.markAsVisited('plus-icon')
-    emits('triggerFirstTimeHelp', 'plus-icon')
-    event.stopPropagation()
+  if (demoMode.triggerFirstTimeHelp('plus-icon')) {
+    event.preventDefault()
     return
   }
+  if (demoMode.enabled) {
+    event.preventDefault()
+    toast.show('Clicking this feature is disabled during demo.')
+    return
+  }
+  // Let the Label's default behavior open the file dialog
 }
 
 // Handle file input change

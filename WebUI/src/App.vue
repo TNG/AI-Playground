@@ -211,11 +211,7 @@
         mode="imageEdit"
       />
       <WorkflowResult v-if="promptStore.getCurrentMode() === 'video'" ref="videoRef" mode="video" />
-      <PromptArea
-        @auto-hide-footer="handleAutoHideFooter"
-        @open-settings="openSpecificSettings"
-        @trigger-first-time-help="handleTriggerFirstTimeHelp"
-      />
+      <PromptArea @auto-hide-footer="handleAutoHideFooter" @open-settings="openSpecificSettings" />
       <div v-if="!footerExpanded" class="fixed bottom-4 right-4 z-5 flex items-center gap-3">
         <button
           @click="footerExpanded = !footerExpanded"
@@ -316,7 +312,7 @@ import DemoModeIndicator from '@/components/DemoModeIndicator.vue'
 import { useBackendServices } from './assets/js/store/backendServices.ts'
 import { ServerStackIcon } from '@heroicons/vue/24/solid'
 import { useColorMode } from '@vueuse/core'
-import { useDemoMode, type DemoButtonId } from './assets/js/store/demoMode.ts'
+import { useDemoMode } from './assets/js/store/demoMode.ts'
 import WorkflowResult from '@/views/WorkflowResult.vue'
 import Chat from '@/views/Chat.vue'
 import { computed, ref } from 'vue'
@@ -502,10 +498,6 @@ function _showModelRequest() {
 
 function handleAutoHideFooter() {
   footerExpanded.value = false
-}
-
-function handleTriggerFirstTimeHelp(buttonId: DemoButtonId) {
-  demoModeOverlayDriverJs.value?.triggerFirstTimeHelp?.(buttonId)
 }
 
 function openHistory() {

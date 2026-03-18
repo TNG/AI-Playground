@@ -62,6 +62,12 @@ const imageEditInitial = {
 
 type ExplicitDefaultsState = 'idle' | 'applying' | 'applied'
 
+type DriverJsComponent = {
+  triggerFirstTimeHelp: (buttonId: DemoButtonId) => void
+}
+
+let driverJsRef: DriverJsComponent | null = null
+
 export const useDemoMode = defineStore('demoMode', () => {
   const enabled = ref(false)
   const explicitDefaultsState = ref<ExplicitDefaultsState>('idle')
@@ -73,6 +79,18 @@ export const useDemoMode = defineStore('demoMode', () => {
 
   function isVisited(buttonId: DemoButtonId): boolean {
     return visitedButtons.value[buttonId]
+  }
+
+  function registerDriverJs(ref: DriverJsComponent) {
+    driverJsRef = ref
+  }
+
+  function triggerFirstTimeHelp(buttonId: DemoButtonId): boolean {
+    if (!enabled.value) return false
+    if (isVisited(buttonId)) return false
+    markAsVisited(buttonId)
+    driverJsRef?.triggerFirstTimeHelp(buttonId)
+    return true
   }
 
   let resetTimer: null | ReturnType<typeof setTimeout> = null
@@ -275,6 +293,8 @@ export const useDemoMode = defineStore('demoMode', () => {
     visitedButtons,
     markAsVisited,
     isVisited,
+    registerDriverJs,
+    triggerFirstTimeHelp,
     applyExplicitDefaults,
     triggerHelp,
     verifyPasscode,

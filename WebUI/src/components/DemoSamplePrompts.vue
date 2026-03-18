@@ -1,10 +1,6 @@
 <template>
   <div v-if="activeSample" class="pb-3 w-full max-w-3xl" @mousedown.prevent>
-    <div
-      class="demo-sample-bubble"
-      :style="{ marginLeft: bubbleOffset }"
-      @click="applySample(activeSample)"
-    >
+    <div class="demo-sample-bubble" @click="applySample(activeSample)">
       <span class="demo-sample-title">{{ activeSample.title }}</span>
       <span class="demo-sample-description">{{ activeSample.description }}</span>
       <span class="demo-sample-prompt">"{{ activeSample.prompt }}"</span>
@@ -56,20 +52,6 @@ const samples: SamplePrompt[] = [
 
 const activeSample = computed(() => samples.find((s) => s.mode === promptStore.currentMode))
 
-/**
- * Horizontal offset for the speech bubble so its arrow points
- * roughly above the corresponding mode button in the prompt area.
- * The mode buttons are laid out left-to-right: Chat, Image Gen, Image Edit, Video.
- */
-const modeOffsets: Record<ModeType, string> = {
-  chat: '0px',
-  imageGen: '80px',
-  imageEdit: '230px',
-  video: '350px',
-}
-
-const bubbleOffset = computed(() => modeOffsets[promptStore.currentMode] ?? '0px')
-
 function applySample(sample: SamplePrompt) {
   // Insert the sample prompt into the textarea
   const textarea = document.getElementById('prompt-input') as HTMLTextAreaElement | null
@@ -106,7 +88,6 @@ function applySample(sample: SamplePrompt) {
   width: 100%;
   font-family: 'IntelOne', sans-serif;
   transition:
-    margin-left 0.3s ease,
     transform 0.3s ease,
     box-shadow 0.2s ease,
     border-color 0.2s ease;

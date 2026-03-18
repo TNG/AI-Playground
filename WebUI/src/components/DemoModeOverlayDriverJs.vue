@@ -90,6 +90,12 @@ const stepsAlternative: StepList = [
       "The Mic button is only active after you've selected and turned on Speech Mode in app settings.When done you simply click this icon, start talking in a language you're comfortable speaking, then click again. You'll see your speech written out as text in the prompt field.",
   },
   {
+    id: '#camera-button',
+    title: 'Camera Button',
+    descr:
+      'Click this button to capture an image from your camera. The captured image will be added to your prompt for vision-capable models to analyze.',
+  },
+  {
     id: '#advanced-settings-button',
     title: 'Prompt Settings',
     descr:

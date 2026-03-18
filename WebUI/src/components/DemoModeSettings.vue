@@ -32,17 +32,9 @@ const confirmEnterOpen = ref(false)
 
 function handleClick() {
   if (demoMode.enabled) {
-    if (demoMode.hasPasscode) {
-      passcodeDialogOpen.value = true
-    } else {
-      demoMode.setEnabled(false)
-    }
+    passcodeDialogOpen.value = true
   } else {
-    if (demoMode.hasPasscode) {
-      confirmEnterOpen.value = true
-    } else {
-      demoMode.setEnabled(true)
-    }
+    confirmEnterOpen.value = true
   }
 }
 </script>

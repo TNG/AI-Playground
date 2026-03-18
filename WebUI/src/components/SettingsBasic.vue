@@ -174,7 +174,7 @@
       </div>
     </div>
   </DemoModeBlocker>
-  <DemoModeSettings />
+  <DemoModeSettings v-if="demoMode.showDemoToggle" />
 </template>
 
 <script setup lang="ts">
@@ -188,6 +188,7 @@ import { usePresets } from '@/assets/js/store/presets'
 import { useSpeechToText } from '@/assets/js/store/speechToText'
 import { useDeveloperSettings } from '@/assets/js/store/developerSettings'
 import { useDialogStore } from '@/assets/js/store/dialogs'
+import { useDemoMode } from '@/assets/js/store/demoMode'
 import * as toast from '@/assets/js/toast'
 import LanguageSelector from '@/components/LanguageSelector.vue'
 import ThemeSelector from '@/components/ThemeSelector.vue'
@@ -203,6 +204,7 @@ import { Spinner } from './ui/spinner'
 import { Button } from '@/components/ui/button'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 
+const demoMode = useDemoMode()
 const globalSetup = useGlobalSetup()
 const backendServices = useBackendServices()
 const models = useModels()

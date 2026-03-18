@@ -106,6 +106,8 @@ export const useDemoMode = defineStore('demoMode', () => {
     if (res.isDemoModeEnabled && res.demoModeResetInSeconds) trackUserInteraction()
   })
 
+  const showDemoToggle = computed(() => hasPasscode.value)
+
   const chat = ref(chatInitial)
   const imageGen = ref(imageGenInitial)
   const imageEdit = ref(imageEditInitial)
@@ -285,6 +287,7 @@ export const useDemoMode = defineStore('demoMode', () => {
 
   return {
     enabled,
+    showDemoToggle,
     hasPasscode,
     chat,
     imageGen,

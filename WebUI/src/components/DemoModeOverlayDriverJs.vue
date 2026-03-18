@@ -167,16 +167,40 @@ const contextHelpConfig: Record<ContextHelpTarget, { stepId: string; highlightEl
   },
 }
 
-const firstTimeHelpConfig: Record<DemoButtonId, string> = {
-  'plus-icon': '#plus-icon',
-  'app-settings-button': '#app-settings-button',
-  'advanced-settings-button': '#advanced-settings-button',
-  'mode-button-chat': '#mode-button-chat',
-  'mode-button-imageGen': '#mode-button-imageGen',
-  'mode-button-imageEdit': '#mode-button-imageEdit',
-  'mode-button-video': '#mode-button-video',
-  'camera-button': '#camera-button',
-  'microphone-button': '#microphone-button',
+const firstTimeHelpConfig: Record<DemoButtonId, { stepId: string; highlightElement: string }> = {
+  'plus-icon': { stepId: '#plus-icon', highlightElement: '#plus-icon' },
+  'app-settings-button': {
+    stepId: '#app-settings-button',
+    highlightElement: '#app-settings-button',
+  },
+  'advanced-settings-button': {
+    stepId: '#advanced-settings-button',
+    highlightElement: '#advanced-settings-button',
+  },
+  'mode-button-chat': {
+    stepId: '#mode-button-chat',
+    highlightElement: '#prompt-input',
+  },
+  'mode-button-imageGen': {
+    stepId: '#mode-button-imageGen',
+    highlightElement: '#prompt-input',
+  },
+  'mode-button-imageEdit': {
+    stepId: '#mode-button-imageEdit',
+    highlightElement: '#prompt-input',
+  },
+  'mode-button-video': {
+    stepId: '#mode-button-video',
+    highlightElement: '#prompt-input',
+  },
+  'camera-button': {
+    stepId: '#camera-button',
+    highlightElement: '#camera-button',
+  },
+  'microphone-button': {
+    stepId: '#microphone-button',
+    highlightElement: '#microphone-button',
+  },
 }
 
 function resolveDriverStep(target: ContextHelpTarget): DriveStep | null {
@@ -217,26 +241,26 @@ function triggerContextHelp(
 }
 
 function triggerFirstTimeHelp(buttonId: DemoButtonId) {
-  const stepId = firstTimeHelpConfig[buttonId]
-  if (!stepId) {
+  const config = firstTimeHelpConfig[buttonId]
+  if (!config) {
     console.warn(`triggerFirstTimeHelp: No config found for "${buttonId}"`)
     return
   }
 
-  const step = stepsAlternative.find((s) => s.id === stepId)
+  const step = stepsAlternative.find((s) => s.id === config.stepId)
   if (!step) {
     console.warn(`triggerFirstTimeHelp: No step definition found for "${buttonId}"`)
     return
   }
 
-  if (!document.querySelector(stepId)) {
-    console.warn(`triggerFirstTimeHelp: DOM element "${stepId}" not found`)
+  if (!document.querySelector(config.highlightElement)) {
+    console.warn(`triggerFirstTimeHelp: DOM element "${config.highlightElement}" not found`)
     return
   }
 
   startMiniTour([
     {
-      element: stepId,
+      element: config.highlightElement,
       popover: {
         title: step.title,
         description: step.descr,

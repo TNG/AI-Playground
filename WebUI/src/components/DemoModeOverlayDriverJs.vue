@@ -101,23 +101,22 @@ const stepsAlternative: StepList = [
   },
 ]
 
-const driverObj = driver({
-  showProgress: true,
-  showButtons: ['next', 'previous', 'close'],
-  doneBtnText: 'Got it!',
-  popoverOffset: 20,
-  steps: steps.map((step) => ({
-    element: step.id,
-    popover: {
-      title: step.title,
-      description: step.descr,
-      side: 'top',
-      align: step.align,
-    },
-  })),
-})
-
 function startTour() {
+  const driverObj = driver({
+    showProgress: true,
+    showButtons: ['next', 'previous', 'close'],
+    doneBtnText: 'Got it!',
+    popoverOffset: 20,
+    steps: steps.map((step) => ({
+      element: step.id,
+      popover: {
+        title: step.title,
+        description: step.descr,
+        side: 'top',
+        align: step.align,
+      },
+    })),
+  })
   driverObj.drive()
 }
 

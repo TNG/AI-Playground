@@ -110,7 +110,7 @@
             class="self-center border border-dashed border-border rounded-md p-1 hover:cursor-pointer origin-bottom-left"
             :class="{ 'border-primary bg-primary/10': isOverDropZone }"
             id="plus-icon"
-            @click="demoMode.markAsVisited('plus-icon')"
+            @click="handlePlusIconClick"
           >
             <Label htmlFor="file-attachment">
               <PlusIcon class="size-4 cursor-pointer" />
@@ -277,7 +277,7 @@ import { Context } from '@/components/ui/context'
 import Button from '@/components/ui/button/Button.vue'
 import { useDialogStore } from '@/assets/js/store/dialogs'
 import CameraCapture from '@/components/CameraCapture.vue'
-import { useDemoMode } from '@/assets/js/store/demoMode'
+import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import DemoSamplePrompts from '@/components/DemoSamplePrompts.vue'
 
@@ -363,6 +363,7 @@ function getRagIconClass(type: ValidFileExtension): string {
 const emits = defineEmits<{
   (e: 'autoHideFooter'): void
   (e: 'openSettings'): void
+  (e: 'triggerFirstTimeHelp', buttonId: DemoButtonId): void
 }>()
 
 const imagePreview = computed(() =>
@@ -665,6 +666,15 @@ async function handleImageFiles(imageFiles: File[]) {
     await handleChatImageUpload(imageFiles)
   } else {
     await handleComfyUIImageUpload(imageFiles)
+  }
+}
+
+function handlePlusIconClick(event: MouseEvent) {
+  if (!demoMode.isVisited('plus-icon')) {
+    demoMode.markAsVisited('plus-icon')
+    emits('triggerFirstTimeHelp', 'plus-icon')
+    event.stopPropagation()
+    return
   }
 }
 

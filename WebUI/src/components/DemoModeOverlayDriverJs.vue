@@ -5,9 +5,7 @@
 <script setup lang="ts">
 import { driver, type DriveStep } from 'driver.js'
 import 'driver.js/dist/driver.css'
-import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
-
-const demoMode = useDemoMode()
+import type { DemoButtonId } from '@/assets/js/store/demoMode'
 
 type Step = {
   id: string

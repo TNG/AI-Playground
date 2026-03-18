@@ -136,7 +136,7 @@ function startMiniTour(stepId: string, highlightElement?: string) {
 
   const miniDriver = driver({
     showProgress: false,
-    showButtons: ['close'],
+    showButtons: ['next', 'close'],
     doneBtnText: 'Got it!',
     popoverOffset: 20,
     steps: [

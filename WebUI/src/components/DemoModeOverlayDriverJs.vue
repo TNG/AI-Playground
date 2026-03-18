@@ -5,6 +5,9 @@
 <script setup lang="ts">
 import { driver, type DriveStep } from 'driver.js'
 import 'driver.js/dist/driver.css'
+import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
+
+const demoMode = useDemoMode()
 
 type Step = {
   id: string
@@ -150,6 +153,18 @@ const contextHelpConfig: Record<ContextHelpTarget, { stepId: string; highlightEl
   },
 }
 
+const firstTimeHelpConfig: Record<DemoButtonId, string> = {
+  'plus-icon': '#plus-icon',
+  'app-settings-button': '#app-settings-button',
+  'advanced-settings-button': '#advanced-settings-button',
+  'mode-button-chat': '#mode-button-chat',
+  'mode-button-imageGen': '#mode-button-imageGen',
+  'mode-button-imageEdit': '#mode-button-imageEdit',
+  'mode-button-video': '#mode-button-video',
+  'camera-button': '#camera-button',
+  'microphone-button': '#microphone-button',
+}
+
 function resolveDriverStep(target: ContextHelpTarget): DriveStep | null {
   const config = contextHelpConfig[target]
   const step = stepsAlternative.find((s) => s.id === config.stepId)
@@ -187,9 +202,41 @@ function triggerContextHelp(
   startMiniTour(driverSteps)
 }
 
+function triggerFirstTimeHelp(buttonId: DemoButtonId) {
+  const stepId = firstTimeHelpConfig[buttonId]
+  if (!stepId) {
+    console.warn(`triggerFirstTimeHelp: No config found for "${buttonId}"`)
+    return
+  }
+
+  const step = stepsAlternative.find((s) => s.id === stepId)
+  if (!step) {
+    console.warn(`triggerFirstTimeHelp: No step definition found for "${buttonId}"`)
+    return
+  }
+
+  if (!document.querySelector(stepId)) {
+    console.warn(`triggerFirstTimeHelp: DOM element "${stepId}" not found`)
+    return
+  }
+
+  startMiniTour([
+    {
+      element: stepId,
+      popover: {
+        title: step.title,
+        description: step.descr,
+        side: 'top',
+        align: step.align,
+      },
+    },
+  ])
+}
+
 defineExpose({
   startTour,
   triggerContextHelp,
+  triggerFirstTimeHelp,
 })
 </script>
 

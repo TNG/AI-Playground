@@ -1,14 +1,18 @@
 <template>
-  <DemoModeBlocker>
-    <div class="border-b border-border flex flex-col gap-5 py-4">
+  <div class="border-b border-border flex flex-col gap-5 py-4">
+    <DemoModeBlocker>
       <div class="flex flex-col gap-2">
         <p>{{ languages.SETTINGS_BASIC_LANGUAGE }}</p>
         <LanguageSelector></LanguageSelector>
       </div>
-      <div v-if="theme.availableThemes.length > 1" class="flex flex-col gap-2">
-        <p>{{ languages.SETTINGS_THEME }}</p>
-        <ThemeSelector />
-      </div>
+    </DemoModeBlocker>
+
+    <div v-if="theme.availableThemes.length > 1" class="flex flex-col gap-2">
+      <p>{{ languages.SETTINGS_THEME }}</p>
+      <ThemeSelector />
+    </div>
+
+    <DemoModeBlocker>
       <div class="flex flex-col gap-3"></div>
       <div class="flex flex-col gap-3">
         <p>{{ languages.SETTINGS_MODEL_HUGGINGFACE_SETTINGS }}</p>
@@ -62,7 +66,9 @@
           </div>
         </div>
       </div>
-    </div>
+    </DemoModeBlocker>
+  </div>
+  <DemoModeBlocker>
     <div class="flex flex-col gap-3 pt-6">
       <p>{{ languages.SETTINGS_BACKEND_STATUS }}</p>
       <table class="text-center w-full mx-2 table-fixed">

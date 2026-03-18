@@ -276,7 +276,7 @@ import { Context } from '@/components/ui/context'
 import Button from '@/components/ui/button/Button.vue'
 import { useDialogStore } from '@/assets/js/store/dialogs'
 import CameraCapture from '@/components/CameraCapture.vue'
-import { useDemoMode } from '@/assets/js/store/demoMode'
+import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import DemoSamplePrompts from '@/components/DemoSamplePrompts.vue'
 
@@ -516,7 +516,7 @@ function handleCancelClick() {
 }
 
 async function handleRecordingClick() {
-  demoMode.markAsVisited('microphone-button')
+  if (demoMode.triggerFirstTimeHelp('microphone-button')) return
   if (audioRecorder.isRecording) {
     audioRecorder.stopRecording()
   } else {
@@ -529,19 +529,20 @@ async function handleRecordingClick() {
 }
 
 function handleCameraClick() {
-  demoMode.markAsVisited('camera-button')
+  if (demoMode.triggerFirstTimeHelp('camera-button')) return
   dialogStore.showCameraDialog(async (file: File) => {
     await handleImageFiles([file])
   })
 }
 
 function handleModeClick(mode: ModeType) {
-  demoMode.markAsVisited(`mode-button-${mode}`)
+  const buttonId = `mode-button-${mode}` as DemoButtonId
+  if (demoMode.triggerFirstTimeHelp(buttonId)) return
   promptStore.setCurrentMode(mode)
 }
 
 function handleAdvancedSettingsClick() {
-  demoMode.markAsVisited('advanced-settings-button')
+  if (demoMode.triggerFirstTimeHelp('advanced-settings-button')) return
   emits('openSettings')
 }
 

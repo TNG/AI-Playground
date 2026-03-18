@@ -509,7 +509,7 @@ function openSpecificSettings() {
 }
 
 function openAppSettings() {
-  demoMode.markAsVisited('app-settings-button')
+  if (demoMode.triggerFirstTimeHelp('app-settings-button')) return
   showAppSettings.value = true
 }
 

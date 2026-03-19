@@ -41,7 +41,7 @@ const steps: StepList = [
     id: '#prompt-input',
     title: 'Unified Prompt',
     descr:
-      "This is your Prompt field. This is the core experience of AI Playground, across all features of the app. This is where you write a prompt, add images or documents to guide your content, and select modes for the type of content you want to generate.",
+      'This is your Prompt field. This is the core experience of AI Playground, across all features of the app. This is where you write a prompt, add images or documents to guide your content, and select modes for the type of content you want to generate.',
   },
   {
     id: '#send-button',

@@ -1,6 +1,8 @@
 import { usePresets } from './presets'
 import { useTextInference } from './textInference'
 import { usePromptStore } from './promptArea'
+import { useImageGenerationPresets } from './imageGenerationPresets'
+import type { ImageMediaItem } from './imageGenerationPresets'
 import demoInputImageUrl from '@/assets/image/dog_with_people.jpg'
 
 export type DemoImageEditFeature = 'upscale' | 'prompt' | 'inpaint' | 'outpaint'
@@ -17,6 +19,7 @@ export async function applyDemoModeExplicitDefaults(): Promise<{
   const presetsStore = usePresets()
   const textInference = useTextInference()
   const promptStore = usePromptStore()
+  const imageGeneration = useImageGenerationPresets()
 
   // force Vision as the chat preset source of truth
   presetsStore.setLastUsedPreset('chat', DEMO_CHAT_PRESET)
@@ -34,9 +37,27 @@ export async function applyDemoModeExplicitDefaults(): Promise<{
   // set imageedit to 'edit by prompt' (dog-on-a-beach input is preloaded in imageGeneration demo logic)
   presetsStore.setLastUsedPreset('edit-images', DEMO_IMAGEEDIT_PRESET)
 
+  // prepopulate image edit history s.t. people already have a 'reference image'
+  await populateImageEditHistory(imageGeneration)
+
   return {
     imageEditFeature: DEMO_IMAGEEDIT_FEATURE,
   }
+}
+
+async function populateImageEditHistory(imageGeneration: ReturnType<typeof useImageGenerationPresets>) {
+  const demoImageUrl = getDemoModeInputImage()
+  if (!demoImageUrl) return
+
+  const sourceItem: ImageMediaItem = {
+    id: 'demo-source',
+    type: 'image',
+    state: 'done',
+    mode: 'imageEdit',
+    imageUrl: demoImageUrl,
+    settings: {},
+  }
+  await imageGeneration.copyImageAsInputForMode(sourceItem, 'imageEdit')
 }
 
 export function getDemoModeInputImage(): string | null {

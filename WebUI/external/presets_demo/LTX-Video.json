@@ -108,6 +108,14 @@
       "settingName": "safetyCheck"
     },
     {
+      "type": "boolean",
+      "label": "Show Preview",
+      "displayed": true,
+      "modifiable": false,
+      "defaultValue": false,
+      "settingName": "showPreview"
+    },
+    {
       "type": "number",
       "label": "Total Frames",
       "displayed": true,

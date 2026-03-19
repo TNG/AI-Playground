@@ -108,8 +108,10 @@ dependencies = [
     { name = "albumentations", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
     { name = "alembic", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
     { name = "av", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
+    { name = "blake3", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
     { name = "chardet", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
     { name = "color-matcher", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
+    { name = "comfy-aimdo", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
     { name = "comfy-kitchen", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
     { name = "comfyui-embedded-docs", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
     { name = "comfyui-frontend-package", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
@@ -148,6 +150,7 @@ dependencies = [
     { name = "pygithub", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
     { name = "python-dateutil", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
     { name = "pyyaml", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
+    { name = "requests", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
     { name = "rich", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
     { name = "safetensors", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
     { name = "scikit-image", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
@@ -155,6 +158,7 @@ dependencies = [
     { name = "scipy", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
     { name = "segment-anything", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
     { name = "sentencepiece", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
+    { name = "simpleeval", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
     { name = "soxr", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
     { name = "spandrel", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
     { name = "sqlalchemy", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
@@ -190,8 +194,10 @@ requires-dist = [
     { name = "albumentations" },
     { name = "alembic" },
     { name = "av", specifier = ">=14.2.0" },
+    { name = "blake3" },
     { name = "chardet" },
     { name = "color-matcher" },
+    { name = "comfy-aimdo", specifier = ">=0.2.10" },
     { name = "comfy-kitchen", specifier = ">=0.2.8" },
     { name = "comfyui-embedded-docs", specifier = "==0.4.3" },
     { name = "comfyui-frontend-package", specifier = "==1.41.18" },
@@ -231,6 +237,7 @@ requires-dist = [
     { name = "pygithub" },
     { name = "python-dateutil" },
     { name = "pyyaml" },
+    { name = "requests" },
     { name = "rich" },
     { name = "safetensors", specifier = ">=0.4.2" },
     { name = "scikit-image" },
@@ -238,6 +245,7 @@ requires-dist = [
     { name = "scipy" },
     { name = "segment-anything", specifier = ">=1.0" },
     { name = "sentencepiece" },
+    { name = "simpleeval", specifier = ">=1.0.0" },
     { name = "soxr", specifier = "<1.0.0" },
     { name = "spandrel" },
     { name = "sqlalchemy" },
@@ -383,6 +391,18 @@ wheels = [
 ]
 
 [[package]]
+name = "blake3"
+version = "1.0.8"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/75/aa/abcd75e9600987a0bc6cfe9b6b2ff3f0e2cb08c170addc6e76035b5c4cb3/blake3-1.0.8.tar.gz", hash = "sha256:513cc7f0f5a7c035812604c2c852a0c1468311345573de647e310aca4ab165ba", size = 117308, upload-time = "2025-10-14T06:47:48.83Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ed/a0/b7b6dff04012cfd6e665c09ee446f749bd8ea161b00f730fe1bdecd0f033/blake3-1.0.8-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:d8da4233984d51471bd4e4366feda1d90d781e712e0a504ea54b1f2b3577557b", size = 347983, upload-time = "2025-10-14T06:45:47.214Z" },
+    { url = "https://files.pythonhosted.org/packages/5b/a2/264091cac31d7ae913f1f296abc20b8da578b958ffb86100a7ce80e8bf5c/blake3-1.0.8-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:1257be19f2d381c868a34cc822fc7f12f817ddc49681b6d1a2790bfbda1a9865", size = 325415, upload-time = "2025-10-14T06:45:48.482Z" },
+    { url = "https://files.pythonhosted.org/packages/55/d1/ca74aa450cbe10e396e061f26f7a043891ffa1485537d6b30d3757e20995/blake3-1.0.8-cp312-cp312-win32.whl", hash = "sha256:e0fee93d5adcd44378b008c147e84f181f23715307a64f7b3db432394bbfce8b", size = 228343, upload-time = "2025-10-14T06:46:01.533Z" },
+    { url = "https://files.pythonhosted.org/packages/4d/42/bbd02647169e3fbed27558555653ac2578c6f17ccacf7d1956c58ef1d214/blake3-1.0.8-cp312-cp312-win_amd64.whl", hash = "sha256:6a6eafc29e4f478d365a87d2f25782a521870c8514bb43734ac85ae9be71caf7", size = 215704, upload-time = "2025-10-14T06:46:02.79Z" },
+]
+
+[[package]]
 name = "certifi"
 version = "2026.2.25"
 source = { registry = "https://pypi.org/simple" }
@@ -480,6 +500,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a2/61/f083b5ac52e505dfc1c624eafbf8c7589a0d7f32daa398d2e7590efa5fda/colorlog-6.10.1.tar.gz", hash = "sha256:eb4ae5cb65fe7fec7773c2306061a8e63e02efc2c72eba9d27b0fa23c94f1321", size = 17162, upload-time = "2025-10-16T16:14:11.978Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/6d/c1/e419ef3723a074172b68aaa89c9f3de486ed4c2399e2dbd8113a4fdcaf9e/colorlog-6.10.1-py3-none-any.whl", hash = "sha256:2d7e8348291948af66122cff006c9f8da6255d224e7cf8e37d8de2df3bad8c9c", size = 11743, upload-time = "2025-10-16T16:14:10.512Z" },
+]
+
+[[package]]
+name = "comfy-aimdo"
+version = "0.2.12"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/14/fa/0f765cdef066b9549d208ec3ade5ebd2473567d398b8e0515f898f6edadb/comfy_aimdo-0.2.12-cp39-abi3-win_amd64.whl", hash = "sha256:3843ca106a857fa82e02d4ae17dc061e7ae041ff994e32e6582a851f66efe8d7", size = 126158, upload-time = "2026-03-14T09:11:25.429Z" },
+    { url = "https://files.pythonhosted.org/packages/1a/4d/32878d4d33fab5cc7ebdaf4f2d2ee49cb1de985765a213f25789a67acc4a/comfy_aimdo-0.2.12-py3-none-any.whl", hash = "sha256:60fec92752d5d7a51e49ecb213e954665ed80faf664b8dab2449c1cc1fe46a7e", size = 19944, upload-time = "2026-03-14T09:11:26.837Z" },
 ]
 
 [[package]]
@@ -2338,6 +2367,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/58/15/8b3609fd3830ef7b27b655beb4b4e9c62313a4e8da8c676e142cc210d58e/shellingham-1.5.4.tar.gz", hash = "sha256:8dbca0739d487e5bd35ab3ca4b36e11c4078f3a234bfce294b0a0291363404de", size = 10310, upload-time = "2023-10-24T04:13:40.426Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e0/f9/0595336914c5619e5f28a1fb793285925a8cd4b432c9da0a987836c7f822/shellingham-1.5.4-py2.py3-none-any.whl", hash = "sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686", size = 9755, upload-time = "2023-10-24T04:13:38.866Z" },
+]
+
+[[package]]
+name = "simpleeval"
+version = "1.0.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b4/9d/e7c9309940794dd3073cba2e5101df5874d84243595ce63b1e1c8f9b9c76/simpleeval-1.0.7.tar.gz", hash = "sha256:1e10e5f9fec597814444e20c0892ed15162fa214c8a88f434b5b077cf2fef85b", size = 30250, upload-time = "2026-03-16T10:53:03.464Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0f/2f/f32aa85591882378bb43caa09363f3ed97df399369a5144c7f19f2275bc0/simpleeval-1.0.7-py3-none-any.whl", hash = "sha256:97ac271bfd8f2af9e7b9a36ceea67617f26fa873f9d5ae1922f64d4c1442534b", size = 18792, upload-time = "2026-03-16T10:53:02.103Z" },
 ]
 
 [[package]]

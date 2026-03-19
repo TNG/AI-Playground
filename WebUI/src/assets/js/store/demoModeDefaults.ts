@@ -14,7 +14,6 @@ export async function applyDemoModeExplicitDefaults(): Promise<void> {
   const presetsStore = usePresets()
   const textInference = useTextInference()
   const promptStore = usePromptStore()
-  const imageGeneration = useImageGenerationPresets()
 
   // force Vision as the chat preset source of truth
   presetsStore.setLastUsedPreset('chat', DEMO_CHAT_PRESET)
@@ -32,11 +31,9 @@ export async function applyDemoModeExplicitDefaults(): Promise<void> {
   // set imageedit to 'edit by prompt' (dog-on-a-beach input is preloaded in imageGeneration demo logic)
   presetsStore.setLastUsedPreset('edit-images', DEMO_IMAGEEDIT_PRESET)
 
-  // prepopulate image edit history s.t. people already have a 'reference image'
-  await populateImageEditHistory(imageGeneration)
 }
 
-async function populateImageEditHistory(
+export async function populateImageEditHistory(
   imageGeneration: ReturnType<typeof useImageGenerationPresets>,
 ) {
   const demoImageUrl = getDemoModeInputImage()

@@ -1,18 +1,6 @@
 <template>
   <div id="prompt-area" class="text-foreground flex flex-col w-full pt-4">
     <div class="group flex flex-col items-center gap-7 text-base px-4">
-      <template v-if="demoMode.enabled && isFirstPrompt">
-        <div
-          class="w-full max-w-3xl transition-[opacity,visibility] duration-200"
-          :class="
-            isTextareaFocused
-              ? 'visible opacity-100 pointer-events-auto'
-              : 'invisible opacity-0 pointer-events-none'
-          "
-        >
-          <DemoSamplePrompts />
-        </div>
-      </template>
       <div v-if="contextError" class="flex items-center gap-3">
         <p class="text-red-500">{{ contextError }}</p>
       </div>
@@ -77,22 +65,44 @@
             </button>
           </div>
         </div>
-        <textarea
-          id="prompt-input"
-          ref="textareaRef"
-          class="resize-none w-full h-48 px-4 pb-16 bg-background/50 rounded-md outline-none border border-border focus-visible:ring-[1px] focus-visible:ring-primary"
-          :class="{
-            [`pt-${checkedRagDocuments.length > 0 && canAttachDocuments && promptStore.getCurrentMode() === 'chat' ? 8 : 3}`]: true,
-            'opacity-50 cursor-not-allowed': !isPromptModifiable,
-            'border-primary bg-primary/10': isOverDropZone,
-          }"
-          :placeholder="getTextAreaPlaceholder()"
-          @focus="isTextareaFocused = true"
-          @blur="isTextareaFocused = false"
-          v-model="prompt"
-          :disabled="isTextAreaDisabled"
-          @keydown="fastGenerate"
-        ></textarea>
+        <div class="relative w-full">
+          <template v-if="demoMode.enabled && isFirstPrompt">
+            <Popover :open="isTextareaFocused">
+              <PopoverAnchor as-child>
+                <div
+                  class="pointer-events-none absolute left-3 -top-2 size-1 overflow-hidden opacity-0"
+                  aria-hidden="true"
+                />
+              </PopoverAnchor>
+              <PopoverContent
+                side="top"
+                align="start"
+                :side-offset="10"
+                class="z-[40010] w-auto min-w-0 rounded-xl border-[1.5px] border-[var(--demo-popover-border)] bg-[var(--demo-popover-bg)] p-3 text-[var(--demo-text-color)] shadow-[0px_0.75px_4.95px_var(--demo-popover-shadow)] dark:border-[var(--demo-popover-border)] dark:bg-[var(--demo-popover-bg)] dark:text-[var(--demo-text-color)]"
+                @open-auto-focus.prevent
+              >
+                <div @mousedown.prevent @touchstart.prevent>
+                  <DemoSamplePrompts />
+                </div>
+              </PopoverContent>
+            </Popover>
+          </template>
+          <textarea
+            id="prompt-input"
+            ref="textareaRef"
+            class="resize-none w-full h-48 px-4 pb-16 bg-background/50 rounded-md outline-none border border-border focus-visible:ring-[1px] focus-visible:ring-primary"
+            :class="{
+              [`pt-${checkedRagDocuments.length > 0 && canAttachDocuments && promptStore.getCurrentMode() === 'chat' ? 8 : 3}`]: true,
+              'opacity-50 cursor-not-allowed': !isPromptModifiable,
+              'border-primary bg-primary/10': isOverDropZone,
+            }"
+            :placeholder="getTextAreaPlaceholder()"
+            @focus="isTextareaFocused = true"
+            @blur="isTextareaFocused = false"
+            v-model="prompt"
+            :disabled="isTextAreaDisabled"
+            @keydown="fastGenerate"
+          ></textarea>
         <div class="absolute bottom-14 left-3 flex gap-2">
           <div
             v-for="preview in imagePreview"
@@ -223,6 +233,7 @@
             <i class="svg-icon w-4 h-4 i-loading"></i>
           </Button>
         </div>
+        </div>
       </div>
     </div>
 
@@ -284,6 +295,7 @@ import CameraCapture from '@/components/CameraCapture.vue'
 import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import DemoSamplePrompts from '@/components/DemoSamplePrompts.vue'
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 
 const instance = getCurrentInstance()
 const audioRecorder = useAudioRecorder()
@@ -405,8 +417,20 @@ const isFirstPrompt = computed(() => {
       imageGeneration.selectedGeneratedImageId === 'new') &&
     !imageGeneration.processing
 
+  // Demo preloads an edit input via copyImageAsInputForMode, which sets selectedEditedImageId.
+  // Still show the sample until a real workflow output exists (those omit fromImageGen; inputs set it true).
+  const hasCompletedImageEditOutput = imageGeneration.generatedImages.some(
+    (item) =>
+      item.mode === 'imageEdit' &&
+      item.state === 'done' &&
+      item.type === 'image' &&
+      item.fromImageGen !== true,
+  )
   const isFirstImageEditPrompt =
-    mode === 'imageEdit' && !imageGeneration.selectedEditedImageId && !imageGeneration.processing
+    mode === 'imageEdit' &&
+    !imageGeneration.processing &&
+    (!imageGeneration.selectedEditedImageId ||
+      (demoMode.enabled && !hasCompletedImageEditOutput))
 
   return isFirstChatPrompt || isFirstImageGenPrompt || isFirstImageEditPrompt
 })

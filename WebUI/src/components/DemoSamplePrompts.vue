@@ -1,10 +1,12 @@
 <template>
-  <div v-if="activeSample" class="pb-3 w-full max-w-3xl" @mousedown.prevent>
-    <div class="demo-sample-bubble" @click="applySample(activeSample)">
+  <div v-if="activeSample" class="flex w-full flex-col gap-1 text-left z-40000 driver-active-element" @mousedown.prevent>
+    <div class="demo-sample-body" @click="applySample(activeSample)">
       <span class="demo-sample-title">{{ activeSample.title }}</span>
       <span class="demo-sample-description">{{ activeSample.description }}</span>
       <span class="demo-sample-prompt">"{{ activeSample.prompt }}"</span>
-      <button class="demo-sample-apply-btn" @click="applySample(activeSample)">Apply ›</button>
+      <button class="demo-sample-apply-btn z-50000" type="button" @click="applySample(activeSample)">
+        Apply ›
+      </button>
     </div>
   </div>
 </template>
@@ -12,6 +14,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { usePromptStore } from '@/assets/js/store/promptArea'
+import { populateImageEditHistory } from '@/assets/js/store/demoModeDefaults'
+import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets'
 
 type SamplePrompt = {
   title: string
@@ -21,6 +25,7 @@ type SamplePrompt = {
 }
 
 const promptStore = usePromptStore()
+const imageGeneration = useImageGenerationPresets()
 
 const samples: SamplePrompt[] = [
   {
@@ -53,13 +58,13 @@ const samples: SamplePrompt[] = [
 const activeSample = computed(() => samples.find((s) => s.mode === promptStore.currentMode))
 
 function applySample(sample: SamplePrompt) {
-  // Insert the sample prompt into the textarea
   const textarea = document.getElementById('prompt-input') as HTMLTextAreaElement | null
   if (!textarea) return
-
+  if (sample.mode === 'imageEdit') {
+    void populateImageEditHistory(imageGeneration)
+  }
   textarea.scrollIntoView({ behavior: 'smooth', block: 'center' })
 
-  // Set value and trigger Vue reactivity via input event
   const nativeSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
   if (nativeSetter) {
     nativeSetter.call(textarea, sample.prompt)
@@ -71,59 +76,15 @@ function applySample(sample: SamplePrompt) {
 </script>
 
 <style scoped>
-.demo-sample-bubble {
+.demo-sample-body {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
-  padding: 12px 16px;
-  background: var(--demo-popover-bg);
-  color: var(--demo-text-color);
-  border: 1.5px solid var(--demo-popover-border);
-  box-shadow: 0px 0.75px 4.95px var(--demo-popover-shadow);
-  border-radius: 12px;
   cursor: pointer;
-  text-align: left;
+  font-family: 'IntelOne', sans-serif;
   max-width: 220px;
   width: 100%;
-  font-family: 'IntelOne', sans-serif;
-  transition:
-    transform 0.3s ease,
-    box-shadow 0.2s ease,
-    border-color 0.2s ease;
-  position: relative;
-}
-
-.demo-sample-bubble:hover {
-  /* transform: translateY(-3px); */
-  box-shadow: 0px 1px 8px var(--demo-popover-shadow);
-  border-color: color-mix(in srgb, var(--demo-popover-border) 80%, white);
-}
-
-/* Speech bubble arrow pointing downward */
-.demo-sample-bubble::after {
-  content: '';
-  position: absolute;
-  bottom: -10px;
-  left: 24px;
-  width: 0;
-  height: 0;
-  border-left: 10px solid transparent;
-  border-right: 10px solid transparent;
-  border-top: 10px solid var(--demo-popover-border);
-}
-
-.demo-sample-bubble::before {
-  content: '';
-  position: absolute;
-  bottom: -7px;
-  left: 25px;
-  width: 0;
-  height: 0;
-  border-left: 9px solid transparent;
-  border-right: 9px solid transparent;
-  border-top: 9px solid var(--demo-popover-bg);
-  z-index: 1;
 }
 
 .demo-sample-title {

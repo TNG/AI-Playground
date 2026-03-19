@@ -65,12 +65,20 @@ export const useDemoMode = defineStore('demoMode', () => {
     return true
   }
 
+  // --- User activity detection ---
+
   let resetTimer: null | ReturnType<typeof setTimeout> = null
   let trackUserInteractionInterval: null | ReturnType<typeof setInterval> = null
   // Sticky user activation (navigator.userActivation.hasBeenActive) is not reset by location.reload()
   // in Chromium/Electron — it is tied to the Window and never clears. Track interaction since this
   // page load ourselves so the reset timer only starts after a real user gesture post-reload.
   let userInteractedThisLoad = false
+
+  const USER_IDLE_THRESHOLD_MS = 5000
+  let lastMouseMove = 0
+  function isUserActive(): boolean {
+    return navigator.userActivation.isActive || Date.now() - lastMouseMove < USER_IDLE_THRESHOLD_MS
+  }
 
   const resetInSeconds = ref<null | number>(null)
   const passcode = ref('')
@@ -90,6 +98,7 @@ export const useDemoMode = defineStore('demoMode', () => {
         console.log('markInteracted listener added')
         window.addEventListener('click', markInteracted, { capture: true, once: true })
         window.addEventListener('keydown', markInteracted, { capture: true, once: true })
+        window.addEventListener('mousemove', () => (lastMouseMove = Date.now()))
       }, GRACE_MS)
       console.log('trackUserInteraction')
       trackUserInteraction()
@@ -98,14 +107,20 @@ export const useDemoMode = defineStore('demoMode', () => {
 
   const showDemoToggle = computed(() => hasPasscode.value)
 
+  function resetDemo() {
+    sessionStorage.clear()
+    location.reload()
+  }
+
   const trackUserInteraction = () => {
     if (trackUserInteractionInterval) {
       clearInterval(trackUserInteractionInterval)
       trackUserInteractionInterval = null
     }
     trackUserInteractionInterval = setInterval(() => {
+      // console.log('interaction any/recent:', userInteractedThisLoad, isUserActive())
       if (!userInteractedThisLoad) return
-      if (navigator.userActivation.isActive) {
+      if (isUserActive()) {
         if (resetTimer) {
           clearTimeout(resetTimer)
           resetTimer = null
@@ -121,8 +136,8 @@ export const useDemoMode = defineStore('demoMode', () => {
               trackUserInteractionInterval = null
             }
             resetTimer = null
-            sessionStorage.clear()
-            location.reload()
+
+            resetDemo()
           }, resetInSeconds.value * 1000)
         }
       }

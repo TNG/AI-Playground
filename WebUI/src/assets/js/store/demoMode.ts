@@ -44,6 +44,7 @@ export const useDemoMode = defineStore('demoMode', () => {
   const enabled = ref(false)
   const explicitDefaultsState = ref<ExplicitDefaultsState>('idle')
   const visitedButtons = ref<Record<DemoButtonId, boolean>>(createInitialVisitedState())
+  const showResetDialog = ref(false)
 
   function markAsVisited(buttonId: DemoButtonId) {
     visitedButtons.value[buttonId] = true
@@ -118,7 +119,7 @@ export const useDemoMode = defineStore('demoMode', () => {
       trackUserInteractionInterval = null
     }
     trackUserInteractionInterval = setInterval(() => {
-      // console.log('interaction any/recent:', userInteractedThisLoad, isUserActive())
+      console.log('interaction any/recent:', userInteractedThisLoad, isUserActive())
       if (!userInteractedThisLoad) return
       if (isUserActive()) {
         if (resetTimer) {
@@ -126,22 +127,21 @@ export const useDemoMode = defineStore('demoMode', () => {
           resetTimer = null
         }
       } else {
-        if (!resetTimer && resetInSeconds.value) {
+        if (!resetTimer && resetInSeconds.value && !showResetDialog.value) {
           console.log(
             `demo mode reset timer started, resetting after ${resetInSeconds.value} seconds`,
           )
           resetTimer = setTimeout(() => {
-            if (trackUserInteractionInterval) {
-              clearInterval(trackUserInteractionInterval)
-              trackUserInteractionInterval = null
-            }
             resetTimer = null
-
-            resetDemo()
+            showResetDialog.value = true
           }, resetInSeconds.value * 1000)
         }
       }
     }, 1000)
+  }
+
+  function cancelReset() {
+    showResetDialog.value = false
   }
 
   async function applyExplicitDefaults() {
@@ -178,12 +178,15 @@ export const useDemoMode = defineStore('demoMode', () => {
   return {
     enabled,
     showDemoToggle,
+    showResetDialog,
     isVisited,
     registerDriverJs,
     triggerFirstTimeHelp,
     applyExplicitDefaults,
     verifyPasscode,
     setEnabled,
+    cancelReset,
+    resetDemo,
   }
 })
 

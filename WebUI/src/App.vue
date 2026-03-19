@@ -235,6 +235,7 @@
     <!-- Demo Mode Overlay -->
     <DemoModeOverlayDriverJsRef ref="demoModeOverlayDriverJs" />
     <DemoModeNotificationDots />
+    <DemoModeAutoresetDialog v-if="demoMode.showResetDialog" />
   </main>
 
   <footer
@@ -320,6 +321,7 @@ import * as toast from '@/assets/js/toast'
 import DemoModeOverlayDriverJsRef from './components/DemoModeOverlayDriverJs.vue'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import DemoModeNotificationDots from '@/components/DemoModeNotificationDots.vue'
+import DemoModeAutoresetDialog from '@/components/DemoModeAutoresetDialog.vue'
 
 const backendServices = useBackendServices()
 const theme = useTheme()

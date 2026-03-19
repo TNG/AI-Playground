@@ -297,6 +297,7 @@ defineExpose({
   min-width: 340px;
   max-width: 420px;
   font-family: unset;
+  z-index: 20000;
 }
 
 .driver-popover-title {

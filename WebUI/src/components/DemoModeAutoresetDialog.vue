@@ -1,15 +1,15 @@
 <template>
   <Dialog :open="true">
-    <DialogContent>
+    <DialogContent class="z-30000">
       <DialogHeader>
-        <DialogTitle>Session Timeout</DialogTitle>
+        <DialogTitle>Demo Session Timeout</DialogTitle>
         <DialogDescription>
-          The session will reset due to inactivity. Continue to stay in the current session?
+          This demo session will soon reset due to inactivity. Do you want to stay?
         </DialogDescription>
       </DialogHeader>
       <DialogFooter>
-        <Button variant="ghost" @click="cancel">No</Button>
-        <Button @click="confirm">Yes ({{ countdown }})</Button>
+        <Button variant="ghost" @click="cancel">Reset ({{ countdown }})</Button>
+        <Button @click="confirm">Stay</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>

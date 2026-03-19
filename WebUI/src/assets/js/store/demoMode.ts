@@ -32,34 +32,6 @@ function createInitialVisitedState(): Record<DemoButtonId, boolean> {
   return state
 }
 
-const chatInitial = {
-  show: false,
-  finished: false,
-}
-const imageGenInitial = {
-  show: false,
-  finished: false,
-}
-const videoInitial = {
-  show: false,
-  finished: false,
-}
-type ImageEditFeature = 'upscale' | 'prompt' | 'inpaint' | 'outpaint'
-const imageEditInitial = {
-  showUpscale: false,
-  showPrompt: false,
-  showInpaint: false,
-  showOutpaint: false,
-  finishedUpscale: false,
-  finishedPrompt: false,
-  finishedInpaint: false,
-  finishedOutpaint: false,
-  feature: 'upscale' as ImageEditFeature,
-  imageAvailable: false,
-  show: false,
-  finished: false,
-}
-
 type ExplicitDefaultsState = 'idle' | 'applying' | 'applied'
 
 type DriverJsComponent = {
@@ -126,11 +98,6 @@ export const useDemoMode = defineStore('demoMode', () => {
 
   const showDemoToggle = computed(() => hasPasscode.value)
 
-  const chat = ref(chatInitial)
-  const imageGen = ref(imageGenInitial)
-  const imageEdit = ref(imageEditInitial)
-  const video = ref(videoInitial)
-
   const trackUserInteraction = () => {
     if (trackUserInteractionInterval) {
       clearInterval(trackUserInteractionInterval)
@@ -162,42 +129,17 @@ export const useDemoMode = defineStore('demoMode', () => {
     }, 1000)
   }
 
-  const escapeDemo = (e: Event) => {
-    e.stopPropagation()
-    imageGen.value.show = false
-    imageEdit.value.show = false
-    chat.value.show = false
-    video.value.show = false
-  }
-
   async function applyExplicitDefaults() {
     if (!enabled.value || explicitDefaultsState.value !== 'idle') return
 
     explicitDefaultsState.value = 'applying'
     try {
       await new Promise((resolve) => setTimeout(resolve, 1000))
-      const defaults = await applyDemoModeExplicitDefaults()
-      imageEdit.value.feature = defaults.imageEditFeature
+      await applyDemoModeExplicitDefaults()
     } finally {
       explicitDefaultsState.value = 'applied'
     }
   }
-
-  watch(
-    [
-      () => chat.value.show,
-      () => imageGen.value.show,
-      () => imageEdit.value.show,
-      () => video.value.show,
-    ],
-    ([c, g, e, v]) => {
-      if (c || g || e || v) {
-        setTimeout(() => document.addEventListener('click', escapeDemo), 50)
-      } else {
-        document.removeEventListener('click', escapeDemo)
-      }
-    },
-  )
 
   function verifyPasscode(input: string): boolean {
     return input === passcode.value
@@ -221,13 +163,6 @@ export const useDemoMode = defineStore('demoMode', () => {
   return {
     enabled,
     showDemoToggle,
-    hasPasscode,
-    chat,
-    imageGen,
-    imageEdit,
-    video,
-    visitedButtons,
-    markAsVisited,
     isVisited,
     registerDriverJs,
     triggerFirstTimeHelp,

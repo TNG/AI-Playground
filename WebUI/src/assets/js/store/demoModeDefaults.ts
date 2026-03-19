@@ -5,17 +5,12 @@ import { useImageGenerationPresets } from './imageGenerationPresets'
 import type { ImageMediaItem } from './imageGenerationPresets'
 import demoInputImageUrl from '@/assets/image/dog_with_people.jpg'
 
-export type DemoImageEditFeature = 'upscale' | 'prompt' | 'inpaint' | 'outpaint'
-
 export const DEMO_CHAT_PRESET = 'Vision'
 export const DEMO_CHAT_MODEL = 'unsloth/Qwen3-VL-4B-Instruct-GGUF/Qwen3-VL-4B-Instruct-Q5_K_S.gguf'
 export const DEMO_IMAGEGEN_PRESET = 'Pro Image'
 export const DEMO_IMAGEEDIT_PRESET = 'Edit by Prompt 2'
-export const DEMO_IMAGEEDIT_FEATURE: DemoImageEditFeature = 'prompt'
 
-export async function applyDemoModeExplicitDefaults(): Promise<{
-  imageEditFeature: DemoImageEditFeature
-}> {
+export async function applyDemoModeExplicitDefaults(): Promise<void> {
   const presetsStore = usePresets()
   const textInference = useTextInference()
   const promptStore = usePromptStore()
@@ -39,13 +34,11 @@ export async function applyDemoModeExplicitDefaults(): Promise<{
 
   // prepopulate image edit history s.t. people already have a 'reference image'
   await populateImageEditHistory(imageGeneration)
-
-  return {
-    imageEditFeature: DEMO_IMAGEEDIT_FEATURE,
-  }
 }
 
-async function populateImageEditHistory(imageGeneration: ReturnType<typeof useImageGenerationPresets>) {
+async function populateImageEditHistory(
+  imageGeneration: ReturnType<typeof useImageGenerationPresets>,
+) {
   const demoImageUrl = getDemoModeInputImage()
   if (!demoImageUrl) return
 

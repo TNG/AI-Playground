@@ -137,7 +137,6 @@
             :variant="promptStore.getCurrentMode() === mode ? 'default' : 'secondary'"
             :key="mode"
             :id="'mode-button-' + mode"
-            :class="{ 'demo-mode-overlay-content': isDemoModeHighlighted(mode) }"
             @click="handleModeClick(mode)"
           >
             {{ mapModeToLabel(mode) }}
@@ -146,7 +145,6 @@
             <Button
               :variant="promptStore.getCurrentMode() === 'video' ? 'default' : 'secondary'"
               :id="'mode-button-video'"
-              :class="{ 'demo-mode-overlay-content': isDemoModeHighlighted('video') }"
               @click="handleModeClick('video')"
             >
               {{ mapModeToLabel('video') }}
@@ -504,14 +502,6 @@ function getTextAreaPlaceholder() {
     default:
       return languages?.COM_PROMPT_CHAT || ''
   }
-}
-
-function isDemoModeHighlighted(mode: ModeType): boolean {
-  if (mode === 'chat') return demoMode.chat.show
-  if (mode === 'imageGen') return demoMode.imageGen.show
-  if (mode === 'imageEdit') return demoMode.imageEdit.show
-  if (mode === 'video') return demoMode.video.show
-  return false
 }
 
 function handleSubmitPromptClick() {

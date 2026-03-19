@@ -233,7 +233,6 @@
     <MaskEditorDialog />
 
     <!-- Demo Mode Overlay -->
-    <!-- <DemoModeOverlay /> -->
     <DemoModeOverlayDriverJsRef ref="demoModeOverlayDriverJs" />
     <DemoModeNotificationDots />
   </main>

@@ -243,7 +243,7 @@
 </template>
 
 <script setup lang="ts">
-import { getCurrentInstance, ref, computed, watch } from 'vue'
+import { getCurrentInstance, ref, computed, watch, nextTick } from 'vue'
 import type { FileUIPart } from 'ai'
 import {
   mapModeToLabel,
@@ -535,9 +535,14 @@ function handleCameraClick() {
 
 function handleModeClick(mode: ModeType) {
   const buttonId = `mode-button-${mode}` as DemoButtonId
-  // mode buttons should switch modes, even when first-time-help is shown
-  demoMode.triggerFirstTimeHelp(buttonId)
   promptStore.setCurrentMode(mode)
+  void nextTick(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        demoMode.triggerFirstTimeHelp(buttonId)
+      })
+    })
+  })
 }
 
 function handleAdvancedSettingsClick() {

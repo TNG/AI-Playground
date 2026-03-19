@@ -148,6 +148,12 @@ function startMiniTour(driverSteps: DriveStep[]) {
     showButtons: isSingleStep ? ['next', 'close'] : ['next', 'previous', 'close'],
     doneBtnText: 'Got it!',
     popoverOffset: 20,
+    onHighlighted: (_element, _step, { driver: d }) => {
+      requestAnimationFrame(() => {
+        d.refresh()
+        requestAnimationFrame(() => d.refresh())
+      })
+    },
     steps: driverSteps,
   })
   miniDriver.drive()

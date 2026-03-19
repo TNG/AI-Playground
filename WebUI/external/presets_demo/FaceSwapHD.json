@@ -129,7 +129,7 @@
       "min": 0,
       "max": 1,
       "step": 0.05,
-      "defaultValue": 0.95,
+      "defaultValue": 0.93,
       "displayed": true,
       "modifiable": false
     },
@@ -534,7 +534,7 @@
       "inputs": {
         "op": "Sub",
         "a": 1,
-        "b": 0.95
+        "b": 0.93
       },
       "class_type": "CM_FloatBinaryOperation",
       "_meta": {

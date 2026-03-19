@@ -1,19 +1,21 @@
 [project]
+# Tested dependency set for ComfyUI: regenerate uv.lock from this tree after bumps.
+# Keep in sync with the ComfyUI git ref in WebUI/external/backend-versions.json (comfyui-backend.version).
 name = "aipg-comfyui"
-version = "0.10.0"
+version = "0.17.0"
 requires-python = "==3.12.*"
 dependencies = [
   "addict",
-  "aiohttp>=3.11.8",
+  "aiohttp>=3.13.3",
   "albumentations",
   "alembic",
   "av>=14.2.0",
   "chardet",
   "color-matcher",
-  "comfy-kitchen>=0.2.7",
-  "comfyui-embedded-docs==0.4.0",
-  "comfyui-frontend-package==1.37.11",
-  "comfyui-workflow-templates==0.8.15",
+  "comfy-kitchen>=0.2.8",
+  "comfyui-embedded-docs==0.4.3",
+  "comfyui-frontend-package==1.41.18",
+  "comfyui-workflow-templates==0.9.21",
   "diffusers>=0.35.2",
   "einops",
   "filelock",

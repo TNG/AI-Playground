@@ -262,7 +262,7 @@
   "SETTINGS_DEVELOPER_KEEP_MODELS_LOADED_INFO": "Se abilitato, i modelli di chat e generazione immagini rimangono caricati contemporaneamente in memoria. Richiede più VRAM ma evita di ricaricare i modelli quando si passa tra chat e generazione immagini.",
   "COM_LOAD_VIDEO": "Carica video",
   "SETTINGS_MODEL_SD_HD_INPAINT_MODEL": "Modello inpaint/outpaint HD predefinito",
-  "BACKEND_VERSION_DESCRIPTION_COMFYUI": "Inserisci un hash di commit git o tag di versione (es. v1.2.3 o abc1234)",
+  "BACKEND_VERSION_DESCRIPTION_COMFYUI": "Inserisci un hash di commit git o tag di versione (es. v1.2.3 o abc1234). La versione predefinita dell'app usa un lockfile testato; altre versioni si installano da requirements.txt di ComfyUI (meno prevedibile).",
   "BACKEND_VERSION_DESCRIPTION_LLAMACPP": "Inserisci un numero di build (es. b6048)",
   "BACKEND_VERSION_DESCRIPTION_OPENVINO": "Inserisci un numero di versione (es. 2025.2.0)",
   "BACKEND_VERSION_DESCRIPTION_OLLAMA": "Inserisci tag di rilascio e versione",

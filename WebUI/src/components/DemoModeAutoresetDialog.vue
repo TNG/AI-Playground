@@ -52,10 +52,10 @@ onUnmounted(() => {
 })
 
 function confirm() {
-  demoMode.resetDemo()
+  demoMode.cancelReset()
 }
 
 function cancel() {
-  demoMode.cancelReset()
+  demoMode.resetDemo()
 }
 </script>

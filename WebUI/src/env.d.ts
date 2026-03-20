@@ -42,10 +42,13 @@ type DemoProfile = {
   notificationDotButtons: string[]
 }
 
+type ProductMode = 'professional' | 'essentials'
+
 type DemoModeSettings = {
   isDemoModeEnabled: boolean
   demoModeResetInSeconds: null | number
   demoModePasscode?: string
+  productMode: ProductMode
   profile?: DemoProfile | null
 }
 

@@ -60,6 +60,7 @@ export const useDemoMode = defineStore('demoMode', () => {
   // Existing DEMO_* keys in en-US.json are legacy and unused by the current driver.js tour.
   const enabled = ref(false)
   const profile = ref<DemoProfile | null>(null)
+  const productMode = ref<ProductMode>('professional')
   const explicitDefaultsState = ref<ExplicitDefaultsState>('idle')
   const visitedButtons = ref<Record<DemoButtonId, boolean>>(
     createInitialVisitedState(FALLBACK_NOTIFICATION_DOT_BUTTONS, FALLBACK_ENABLED_MODES),
@@ -116,6 +117,7 @@ export const useDemoMode = defineStore('demoMode', () => {
   window.electronAPI.getDemoModeSettings().then((res) => {
     enabled.value = res.isDemoModeEnabled
     profile.value = res.profile ?? null
+    productMode.value = res.productMode ?? 'professional'
     resetInSeconds.value = res.demoModeResetInSeconds
     passcode.value = res.demoModePasscode ?? ''
 
@@ -222,6 +224,7 @@ export const useDemoMode = defineStore('demoMode', () => {
   return {
     enabled,
     profile,
+    productMode,
     notificationDotButtonIds,
     showDemoToggle,
     showResetDialog,

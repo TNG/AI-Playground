@@ -103,6 +103,7 @@ const appSize = {
   maxChatContentHeight: 0,
 }
 const ThemeSchema = z.enum(['dark', 'lnl', 'bmg', 'light'])
+const ProductModeSchema = z.enum(['professional', 'essentials'])
 const LocalSettingsSchema = z.object({
   debug: z.boolean().default(false),
   deviceArchOverride: z.enum(['bmg', 'acm', 'arl_h', 'lnl', 'mtl']).nullable().default(null),
@@ -110,6 +111,7 @@ const LocalSettingsSchema = z.object({
   isAdminExec: z.boolean().default(false),
   availableThemes: z.array(ThemeSchema).default(['dark', 'lnl', 'bmg', 'light']),
   currentTheme: ThemeSchema.default('bmg'),
+  productMode: ProductModeSchema.default('professional'),
   isDemoModeEnabled: z.boolean().default(false),
   demoModeResetInSeconds: z.number().min(1).nullable().default(null),
   demoModePresetsDir: z.string().optional(),
@@ -119,6 +121,26 @@ const LocalSettingsSchema = z.object({
   huggingfaceEndpoint: z.string().default('https://huggingface.co'),
 })
 export type LocalSettings = z.infer<typeof LocalSettingsSchema>
+export type ProductMode = z.infer<typeof ProductModeSchema>
+
+/**
+ * Resolves the preset directory name based on product mode and demo mode.
+ *
+ * When demo mode is enabled and a custom `demoModePresetsDir` is set, that value
+ * takes precedence (backward-compatible override). Otherwise:
+ *
+ *   professional + non-demo → presets
+ *   professional + demo    → presets_demo
+ *   essentials   + non-demo → presets_essentials
+ *   essentials   + demo    → presets_essentials_demo
+ */
+function getPresetsDirName(s: LocalSettings): string {
+  if (s.isDemoModeEnabled && s.demoModePresetsDir) {
+    return s.demoModePresetsDir
+  }
+  const base = s.productMode === 'essentials' ? 'presets_essentials' : 'presets'
+  return s.isDemoModeEnabled ? `${base}_demo` : base
+}
 
 let settings = LocalSettingsSchema.parse({})
 let demoProfile: DemoProfile | null = null
@@ -153,7 +175,7 @@ async function loadSettings() {
   appLogger.info(`settings loaded: ${JSON.stringify({ settings })}`, 'electron-backend')
 
   if (settings.isDemoModeEnabled) {
-    const presetsDir = path.join(externalRes, settings.demoModePresetsDir || 'presets_demo')
+    const presetsDir = path.join(externalRes, getPresetsDirName(settings))
     try {
       demoProfile = loadDemoProfile(presetsDir, appLogger)
     } catch (e) {
@@ -571,6 +593,7 @@ function initEventHandle() {
       isDemoModeEnabled: settings.isDemoModeEnabled,
       demoModeResetInSeconds: settings.demoModeResetInSeconds,
       demoModePasscode: settings.demoModePasscode,
+      productMode: settings.productMode,
       profile: demoProfile,
     }
   })
@@ -1038,24 +1061,22 @@ function initEventHandle() {
   })
 
   ipcMain.handle('updatePresetsFromIntelRepo', () => {
-    return updateIntelPresets(settings.remoteRepository)
+    return updateIntelPresets(settings.remoteRepository, getPresetsDirName(settings))
   })
 
   // Preset management IPC handlers
   ipcMain.handle('reloadPresets', async () => {
+    const presetsDir = path.join(externalRes, getPresetsDirName(settings))
     try {
-      await filterPartnerPresets()
+      await filterPartnerPresets(presetsDir)
     } catch (error) {
       appLogger.error(`Failed to filter partner presets: ${error}`, 'electron-backend')
     }
-    const presetsDir = settings.isDemoModeEnabled
-      ? path.join(externalRes, settings.demoModePresetsDir || 'presets_demo')
-      : path.join(externalRes, 'presets')
     try {
       // Ensure presets directory exists
       await fs.promises.mkdir(presetsDir, { recursive: true })
       const files = await fs.promises.readdir(presetsDir)
-      const presetFiles = files.filter((file) => file.endsWith('.json'))
+      const presetFiles = files.filter((file) => file.endsWith('.json') && !file.startsWith('_'))
       const presets = await Promise.all(
         presetFiles.map(async (file) => {
           const presetContent = await fs.promises.readFile(path.join(presetsDir, file), {

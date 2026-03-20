@@ -143,7 +143,7 @@
           </div>
           <div id="mode-buttons" class="absolute bottom-4 left-3 flex gap-2">
             <Button
-              v-for="mode in ['chat', 'imageGen', 'imageEdit'] as ModeType[]"
+              v-for="mode in modesWithPresets"
               :variant="promptStore.getCurrentMode() === mode ? 'default' : 'secondary'"
               :key="mode"
               :id="'mode-button-' + mode"
@@ -151,15 +151,6 @@
             >
               {{ mapModeToLabel(mode) }}
             </Button>
-            <DemoModeBlocker>
-              <Button
-                :variant="promptStore.getCurrentMode() === 'video' ? 'default' : 'secondary'"
-                :id="'mode-button-video'"
-                @click="handleModeClick('video')"
-              >
-                {{ mapModeToLabel('video') }}
-              </Button>
-            </DemoModeBlocker>
           </div>
           <div class="absolute bottom-4 right-3 flex gap-2">
             <Button
@@ -293,7 +284,6 @@ import Button from '@/components/ui/button/Button.vue'
 import { useDialogStore } from '@/assets/js/store/dialogs'
 import CameraCapture from '@/components/CameraCapture.vue'
 import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
-import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import DemoSamplePrompts from '@/components/DemoSamplePrompts.vue'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 
@@ -354,6 +344,21 @@ const shouldShowImageUploadButton = computed(() => {
 
   // For chat mode, use existing logic (vision model + RAG documents)
   return canAttachImages.value || canAttachDocuments.value
+})
+
+const modesWithPresets = computed(() => {
+  const modes: ModeType[] = []
+  if (presetsStore.chatPresets.length > 0) modes.push('chat')
+  if (presetsStore.imageGenPresets.length > 0) modes.push('imageGen')
+  if (presetsStore.imageEditPresets.length > 0) modes.push('imageEdit')
+  if (presetsStore.videoPresets.length > 0) modes.push('video')
+  return modes
+})
+
+watch([modesWithPresets, () => promptStore.getCurrentMode()], ([modes, currentMode]) => {
+  if (modes.length > 0 && currentMode && !modes.includes(currentMode)) {
+    promptStore.setCurrentMode(modes[0])
+  }
 })
 
 // Get checked RAG documents for display

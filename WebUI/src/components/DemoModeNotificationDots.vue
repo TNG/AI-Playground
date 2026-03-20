@@ -1,7 +1,7 @@
 <template>
   <template v-if="demoMode.enabled">
     <DemoModeNotificationDot
-      v-for="buttonId in initiallyUnvisitedDemoButtonIds"
+      v-for="buttonId in demoMode.notificationDotButtonIds"
       :key="buttonId"
       :target-id="buttonId"
     />
@@ -9,7 +9,7 @@
 </template>
 
 <script setup lang="ts">
-import { initiallyUnvisitedDemoButtonIds, useDemoMode } from '@/assets/js/store/demoMode'
+import { useDemoMode } from '@/assets/js/store/demoMode'
 import DemoModeNotificationDot from '@/components/DemoModeNotificationDot.vue'
 
 const demoMode = useDemoMode()

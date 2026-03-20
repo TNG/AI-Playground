@@ -3,6 +3,7 @@ import { useTextInference } from './textInference'
 import { usePromptStore } from './promptArea'
 import { useImageGenerationPresets } from './imageGenerationPresets'
 import type { ImageMediaItem } from './imageGenerationPresets'
+import { useDemoMode } from './demoMode'
 import demoInputImageUrl from '@/assets/image/dog_with_people.jpg'
 
 export const DEMO_CHAT_PRESET = 'Vision'
@@ -14,23 +15,21 @@ export async function applyDemoModeExplicitDefaults(): Promise<void> {
   const presetsStore = usePresets()
   const textInference = useTextInference()
   const promptStore = usePromptStore()
+  const profile = useDemoMode().profile
 
-  // force Vision as the chat preset source of truth
-  presetsStore.setLastUsedPreset('chat', DEMO_CHAT_PRESET)
+  const chatPreset = profile?.defaults.chatPreset ?? DEMO_CHAT_PRESET
+  const chatModel = profile?.defaults.chatModel ?? DEMO_CHAT_MODEL
+  const imageGenPreset = profile?.defaults.imageGenPreset ?? DEMO_IMAGEGEN_PRESET
+  const imageEditPreset = profile?.defaults.imageEditPreset ?? DEMO_IMAGEEDIT_PRESET
 
-  // always start in chat mode; preset load now goes through the single mode entrypoint
+  presetsStore.setLastUsedPreset('chat', chatPreset)
   promptStore.setCurrentMode('chat')
 
-  // set model to 'qwen-vl' (exact hardcoded model id)
   textInference.backend = 'llamaCPP'
-  textInference.selectModel('llamaCPP', DEMO_CHAT_MODEL)
+  textInference.selectModel('llamaCPP', chatModel)
 
-  // set 'imagegen' to 'hdmode' (mapped to preset name "HD Image")
-  presetsStore.setLastUsedPreset('create-images', DEMO_IMAGEGEN_PRESET)
-
-  // set imageedit to 'edit by prompt' (dog-on-a-beach input is preloaded in imageGeneration demo logic)
-  presetsStore.setLastUsedPreset('edit-images', DEMO_IMAGEEDIT_PRESET)
-
+  presetsStore.setLastUsedPreset('create-images', imageGenPreset)
+  presetsStore.setLastUsedPreset('edit-images', imageEditPreset)
 }
 
 export async function populateImageEditHistory(
@@ -51,5 +50,5 @@ export async function populateImageEditHistory(
 }
 
 export function getDemoModeInputImage(): string | null {
-  return demoInputImageUrl
+  return useDemoMode().profile?.inputImage ?? demoInputImageUrl
 }

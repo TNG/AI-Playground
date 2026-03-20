@@ -24,18 +24,13 @@ import { computed } from 'vue'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { populateImageEditHistory } from '@/assets/js/store/demoModeDefaults'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets'
-
-type SamplePrompt = {
-  title: string
-  description: string
-  prompt: string
-  mode: ModeType
-}
+import { useDemoMode } from '@/assets/js/store/demoMode'
 
 const promptStore = usePromptStore()
 const imageGeneration = useImageGenerationPresets()
+const demoMode = useDemoMode()
 
-const samples: SamplePrompt[] = [
+const FALLBACK_SAMPLES: SamplePrompt[] = [
   {
     title: 'Prompt Example',
     description: 'Ask a science question and get an answer:',
@@ -63,7 +58,8 @@ const samples: SamplePrompt[] = [
   },
 ]
 
-const activeSample = computed(() => samples.find((s) => s.mode === promptStore.currentMode))
+const samples = computed(() => demoMode.profile?.samplePrompts ?? FALLBACK_SAMPLES)
+const activeSample = computed(() => samples.value.find((s) => s.mode === promptStore.currentMode))
 
 function applySample(sample: SamplePrompt) {
   if (sample.mode === 'imageEdit') {

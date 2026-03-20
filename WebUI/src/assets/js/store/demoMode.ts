@@ -1,4 +1,5 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
+import { computed, ref } from 'vue'
 import { applyDemoModeExplicitDefaults } from './demoModeDefaults'
 
 export type DemoButtonId =
@@ -12,7 +13,7 @@ export type DemoButtonId =
   | 'advanced-settings-button'
   | 'plus-icon'
 
-export const initiallyUnvisitedDemoButtonIds: DemoButtonId[] = [
+export const FALLBACK_NOTIFICATION_DOT_BUTTONS: DemoButtonId[] = [
   'mode-button-chat',
   'mode-button-imageGen',
   'mode-button-imageEdit',
@@ -23,12 +24,25 @@ export const initiallyUnvisitedDemoButtonIds: DemoButtonId[] = [
   'plus-icon',
 ]
 
-function createInitialVisitedState(): Record<DemoButtonId, boolean> {
-  const state = Object.fromEntries(
-    initiallyUnvisitedDemoButtonIds.map((id) => [id, false]),
-  ) as Record<DemoButtonId, boolean>
-  // Video mode is disabled during demo, so no notification dot
-  state['mode-button-video'] = true
+const FALLBACK_ENABLED_MODES: ModeType[] = ['chat', 'imageGen', 'imageEdit', 'video']
+
+function createInitialVisitedState(
+  notificationDotButtons: DemoButtonId[],
+  enabledModes: ModeType[],
+): Record<DemoButtonId, boolean> {
+  const state = Object.fromEntries(notificationDotButtons.map((id) => [id, false])) as Record<
+    DemoButtonId,
+    boolean
+  >
+  const modeButtonPrefix = 'mode-button-'
+  for (const id of notificationDotButtons) {
+    if (id.startsWith(modeButtonPrefix)) {
+      const mode = id.slice(modeButtonPrefix.length) as ModeType
+      if (!enabledModes.includes(mode)) {
+        state[id] = true
+      }
+    }
+  }
   return state
 }
 
@@ -45,9 +59,18 @@ export const useDemoMode = defineStore('demoMode', () => {
   // English-only. Demo mode targets trade-show kiosks where English is the expected language.
   // Existing DEMO_* keys in en-US.json are legacy and unused by the current driver.js tour.
   const enabled = ref(false)
+  const profile = ref<DemoProfile | null>(null)
   const explicitDefaultsState = ref<ExplicitDefaultsState>('idle')
-  const visitedButtons = ref<Record<DemoButtonId, boolean>>(createInitialVisitedState())
+  const visitedButtons = ref<Record<DemoButtonId, boolean>>(
+    createInitialVisitedState(FALLBACK_NOTIFICATION_DOT_BUTTONS, FALLBACK_ENABLED_MODES),
+  )
   const showResetDialog = ref(false)
+
+  const notificationDotButtonIds = computed<DemoButtonId[]>(
+    () =>
+      (profile.value?.notificationDotButtons as DemoButtonId[]) ??
+      FALLBACK_NOTIFICATION_DOT_BUTTONS,
+  )
 
   function markAsVisited(buttonId: DemoButtonId) {
     visitedButtons.value[buttonId] = true
@@ -92,8 +115,16 @@ export const useDemoMode = defineStore('demoMode', () => {
   const hasPasscode = computed(() => passcode.value.length > 0)
   window.electronAPI.getDemoModeSettings().then((res) => {
     enabled.value = res.isDemoModeEnabled
+    profile.value = res.profile ?? null
     resetInSeconds.value = res.demoModeResetInSeconds
     passcode.value = res.demoModePasscode ?? ''
+
+    // Re-initialize visited state with profile data (or fallbacks)
+    const dotButtons =
+      (profile.value?.notificationDotButtons as DemoButtonId[]) ?? FALLBACK_NOTIFICATION_DOT_BUTTONS
+    const enabledModes = profile.value?.enabledModes ?? FALLBACK_ENABLED_MODES
+    visitedButtons.value = createInitialVisitedState(dotButtons, enabledModes)
+
     if (res.isDemoModeEnabled && res.demoModeResetInSeconds) {
       const markInteracted = (e: Event) => {
         if (e.isTrusted) userInteractedThisLoad = true
@@ -190,6 +221,8 @@ export const useDemoMode = defineStore('demoMode', () => {
 
   return {
     enabled,
+    profile,
+    notificationDotButtonIds,
     showDemoToggle,
     showResetDialog,
     isVisited,

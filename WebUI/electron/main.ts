@@ -57,6 +57,7 @@ import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateI
 import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
 import * as comfyuiTools from './subprocesses/comfyuiTools'
 import { externalResourcesDir, getMediaDir } from './util.ts'
+import { loadDemoProfile, type DemoProfile } from './demoProfile.ts'
 import type { ModelPaths } from '@/assets/js/store/models.ts'
 import type { IndexedDocument, EmbedInquiry } from '@/assets/js/store/textInference.ts'
 import { BackendServiceName } from '@/assets/js/store/backendServices.ts'
@@ -120,6 +121,7 @@ const LocalSettingsSchema = z.object({
 export type LocalSettings = z.infer<typeof LocalSettingsSchema>
 
 let settings = LocalSettingsSchema.parse({})
+let demoProfile: DemoProfile | null = null
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'aipg-media',
@@ -149,6 +151,15 @@ async function loadSettings() {
     }
   }
   appLogger.info(`settings loaded: ${JSON.stringify({ settings })}`, 'electron-backend')
+
+  if (settings.isDemoModeEnabled) {
+    const presetsDir = path.join(externalRes, settings.demoModePresetsDir || 'presets_demo')
+    try {
+      demoProfile = loadDemoProfile(presetsDir, appLogger)
+    } catch (e) {
+      appLogger.error(`Failed to load demo profile: ${e}`, 'demo-profile')
+    }
+  }
 
   return settings
 }
@@ -560,6 +571,7 @@ function initEventHandle() {
       isDemoModeEnabled: settings.isDemoModeEnabled,
       demoModeResetInSeconds: settings.demoModeResetInSeconds,
       demoModePasscode: settings.demoModePasscode,
+      profile: demoProfile,
     }
   })
 

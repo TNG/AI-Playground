@@ -6,6 +6,7 @@
 import { driver, type DriveStep } from 'driver.js'
 import 'driver.js/dist/driver.css'
 import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
+import { computed } from 'vue'
 
 const demoMode = useDemoMode()
 
@@ -23,6 +24,22 @@ type Step = {
 }
 
 type StepList = Step[]
+
+const SELECTOR_TO_MODE: Record<string, ModeType> = {
+  '#mode-button-chat': 'chat',
+  '#mode-button-imageGen': 'imageGen',
+  '#mode-button-imageEdit': 'imageEdit',
+  '#mode-button-video': 'video',
+}
+
+const enabledModes = computed(
+  () => demoMode.profile?.enabledModes ?? ['chat', 'imageGen', 'imageEdit', 'video'],
+)
+
+function isStepEnabled(step: Step): boolean {
+  const mode = SELECTOR_TO_MODE[step.id]
+  return !mode || enabledModes.value.includes(mode)
+}
 
 const steps: StepList = [
   {
@@ -117,12 +134,13 @@ const stepsAlternative: StepList = [
 ]
 
 function startTour() {
+  const filteredSteps = steps.filter(isStepEnabled)
   const driverObj = driver({
     showProgress: true,
     showButtons: ['next', 'previous', 'close'],
     doneBtnText: 'Got it!',
     popoverOffset: 20,
-    steps: steps.map((step) => ({
+    steps: filteredSteps.map((step) => ({
       element: step.id,
       popover: {
         title: step.title,
@@ -216,6 +234,7 @@ function resolveDriverStep(target: ContextHelpTarget): DriveStep | null {
     console.warn(`triggerContextHelp: No step definition found for "${target}"`)
     return null
   }
+  if (!isStepEnabled(step)) return null
   if (!document.querySelector(config.highlightElement)) {
     console.warn(`triggerContextHelp: DOM element "${config.highlightElement}" not found`)
     return null
@@ -258,6 +277,8 @@ function triggerFirstTimeHelp(buttonId: DemoButtonId) {
     console.warn(`triggerFirstTimeHelp: No step definition found for "${buttonId}"`)
     return
   }
+
+  if (!isStepEnabled(step)) return
 
   if (!document.querySelector(config.highlightElement)) {
     console.warn(`triggerFirstTimeHelp: DOM element "${config.highlightElement}" not found`)

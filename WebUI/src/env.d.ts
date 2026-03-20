@@ -22,10 +22,31 @@ type ServiceSettings = {
   llamaCppParameters?: string
 }
 
+type SamplePrompt = {
+  title: string
+  description: string
+  prompt: string
+  mode: ModeType
+}
+
+type DemoProfile = {
+  defaults: {
+    chatPreset: string
+    chatModel: string
+    imageGenPreset?: string
+    imageEditPreset?: string
+  }
+  inputImage: string | null
+  samplePrompts: SamplePrompt[]
+  enabledModes: ModeType[]
+  notificationDotButtons: string[]
+}
+
 type DemoModeSettings = {
   isDemoModeEnabled: boolean
   demoModeResetInSeconds: null | number
   demoModePasscode?: string
+  profile?: DemoProfile | null
 }
 
 // AipgPage type kept for backward compatibility with getInitialPage IPC handler

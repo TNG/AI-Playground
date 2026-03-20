@@ -41,6 +41,9 @@ type DriverJsComponent = {
 let driverJsRef: DriverJsComponent | null = null
 
 export const useDemoMode = defineStore('demoMode', () => {
+  // NOTE: Demo mode UI strings (tour text, sample prompts, dialog labels) are intentionally
+  // English-only. Demo mode targets trade-show kiosks where English is the expected language.
+  // Existing DEMO_* keys in en-US.json are legacy and unused by the current driver.js tour.
   const enabled = ref(false)
   const explicitDefaultsState = ref<ExplicitDefaultsState>('idle')
   const visitedButtons = ref<Record<DemoButtonId, boolean>>(createInitialVisitedState())
@@ -77,6 +80,9 @@ export const useDemoMode = defineStore('demoMode', () => {
 
   const USER_IDLE_THRESHOLD_MS = 5000
   let lastMouseMove = 0
+  const onMouseMove = () => {
+    lastMouseMove = Date.now()
+  }
   function isUserActive(): boolean {
     return navigator.userActivation.isActive || Date.now() - lastMouseMove < USER_IDLE_THRESHOLD_MS
   }
@@ -90,25 +96,35 @@ export const useDemoMode = defineStore('demoMode', () => {
     passcode.value = res.demoModePasscode ?? ''
     if (res.isDemoModeEnabled && res.demoModeResetInSeconds) {
       const markInteracted = (e: Event) => {
-        console.log('markInteracted', e.isTrusted)
         if (e.isTrusted) userInteractedThisLoad = true
       }
       // Delay attaching listeners so load/focus spurious events don't start the reset timer
       const GRACE_MS = 1000
       window.setTimeout(() => {
-        console.log('markInteracted listener added')
         window.addEventListener('click', markInteracted, { capture: true, once: true })
         window.addEventListener('keydown', markInteracted, { capture: true, once: true })
-        window.addEventListener('mousemove', () => (lastMouseMove = Date.now()))
+        window.addEventListener('mousemove', onMouseMove)
       }, GRACE_MS)
-      console.log('trackUserInteraction')
       trackUserInteraction()
     }
   })
 
   const showDemoToggle = computed(() => hasPasscode.value)
 
+  function stopActivityTracking() {
+    if (trackUserInteractionInterval) {
+      clearInterval(trackUserInteractionInterval)
+      trackUserInteractionInterval = null
+    }
+    if (resetTimer) {
+      clearTimeout(resetTimer)
+      resetTimer = null
+    }
+    window.removeEventListener('mousemove', onMouseMove)
+  }
+
   function resetDemo() {
+    stopActivityTracking()
     sessionStorage.clear()
     location.reload()
   }
@@ -119,7 +135,6 @@ export const useDemoMode = defineStore('demoMode', () => {
       trackUserInteractionInterval = null
     }
     trackUserInteractionInterval = setInterval(() => {
-      console.log('interaction any/recent:', userInteractedThisLoad, isUserActive())
       if (!userInteractedThisLoad) return
       if (isUserActive()) {
         if (resetTimer) {
@@ -128,9 +143,6 @@ export const useDemoMode = defineStore('demoMode', () => {
         }
       } else {
         if (!resetTimer && resetInSeconds.value && !showResetDialog.value) {
-          console.log(
-            `demo mode reset timer started, resetting after ${resetInSeconds.value} seconds`,
-          )
           resetTimer = setTimeout(() => {
             resetTimer = null
             showResetDialog.value = true
@@ -149,6 +161,8 @@ export const useDemoMode = defineStore('demoMode', () => {
 
     explicitDefaultsState.value = 'applying'
     try {
+      // Brief delay so dependent stores (presets, models) finish their own async initialisation
+      // after the app reaches "running" state before we override their values.
       await new Promise((resolve) => setTimeout(resolve, 1000))
       await applyDemoModeExplicitDefaults()
     } finally {
@@ -165,7 +179,6 @@ export const useDemoMode = defineStore('demoMode', () => {
       const result = await window.electronAPI.updateLocalSettings({ isDemoModeEnabled: value })
       if (result.success) {
         enabled.value = value
-        console.log(`Demo mode ${value ? 'enabled' : 'disabled'}. Reloading...`)
         setTimeout(() => location.reload(), 1000)
       } else {
         console.error('Failed to update demo mode setting')

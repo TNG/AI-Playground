@@ -1,10 +1,18 @@
 <template>
-  <div v-if="activeSample" class="flex w-full flex-col gap-1 text-left z-40000 driver-active-element" @mousedown.prevent>
+  <div
+    v-if="activeSample"
+    class="flex w-full flex-col gap-1 text-left z-[var(--demo-z-sample)] driver-active-element"
+    @mousedown.prevent
+  >
     <div class="demo-sample-body" @click="applySample(activeSample)">
       <span class="demo-sample-title">{{ activeSample.title }}</span>
       <span class="demo-sample-description">{{ activeSample.description }}</span>
       <span class="demo-sample-prompt">"{{ activeSample.prompt }}"</span>
-      <button class="demo-sample-apply-btn z-50000" type="button" @click="applySample(activeSample)">
+      <button
+        class="demo-sample-apply-btn z-[var(--demo-z-sample-btn)]"
+        type="button"
+        @click="applySample(activeSample)"
+      >
         Apply ›
       </button>
     </div>
@@ -58,20 +66,11 @@ const samples: SamplePrompt[] = [
 const activeSample = computed(() => samples.find((s) => s.mode === promptStore.currentMode))
 
 function applySample(sample: SamplePrompt) {
-  const textarea = document.getElementById('prompt-input') as HTMLTextAreaElement | null
-  if (!textarea) return
   if (sample.mode === 'imageEdit') {
     void populateImageEditHistory(imageGeneration)
   }
-  textarea.scrollIntoView({ behavior: 'smooth', block: 'center' })
-
-  const nativeSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
-  if (nativeSetter) {
-    nativeSetter.call(textarea, sample.prompt)
-    textarea.dispatchEvent(new Event('input', { bubbles: true }))
-  }
-
-  textarea.focus()
+  promptStore.injectPromptText(sample.prompt)
+  document.getElementById('prompt-input')?.focus()
 }
 </script>
 

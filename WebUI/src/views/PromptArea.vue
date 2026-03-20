@@ -103,136 +103,136 @@
             :disabled="isTextAreaDisabled"
             @keydown="fastGenerate"
           ></textarea>
-        <div class="absolute bottom-14 left-3 flex gap-2">
-          <div
-            v-for="preview in imagePreview"
-            :key="preview.id"
-            class="relative max-h-12 max-w-12 mr-2 aspect-square group"
-          >
-            <img
-              :src="preview.url"
-              alt="Image Preview"
-              class="w-full h-full object-contain border border-dashed border-border rounded-md"
-            />
-            <button
-              @click="removeImage(preview.id)"
-              class="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-background rounded-full p-0.5 text-muted-foreground hover:text-destructive"
-              title="Remove image"
-            >
-              <XMarkIcon class="size-4" />
-            </button>
-          </div>
-          <div
-            v-if="shouldShowImageUploadButton"
-            class="self-center border border-dashed border-border rounded-md p-1 hover:cursor-pointer origin-bottom-left"
-            :class="{ 'border-primary bg-primary/10': isOverDropZone }"
-            id="plus-icon"
-          >
-            <Label htmlFor="file-attachment" @click="handlePlusIconClick">
-              <PlusIcon class="size-4 cursor-pointer" />
-            </Label>
-            <input
-              type="file"
-              class="hidden"
-              id="file-attachment"
-              :accept="getAcceptedFileTypes()"
-              multiple
-              @change="handleFileInput"
-            />
-          </div>
-        </div>
-        <div id="mode-buttons" class="absolute bottom-4 left-3 flex gap-2">
-          <Button
-            v-for="mode in ['chat', 'imageGen', 'imageEdit'] as ModeType[]"
-            :variant="promptStore.getCurrentMode() === mode ? 'default' : 'secondary'"
-            :key="mode"
-            :id="'mode-button-' + mode"
-            @click="handleModeClick(mode)"
-          >
-            {{ mapModeToLabel(mode) }}
-          </Button>
-          <DemoModeBlocker>
-            <Button
-              :variant="promptStore.getCurrentMode() === 'video' ? 'default' : 'secondary'"
-              :id="'mode-button-video'"
-              @click="handleModeClick('video')"
-            >
-              {{ mapModeToLabel('video') }}
-            </Button>
-          </DemoModeBlocker>
-        </div>
-        <div class="absolute bottom-4 right-3 flex gap-2">
-          <Button
-            id="camera-button"
-            class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
-            variant="secondary"
-            v-if="promptStore.getCurrentMode() === 'chat'"
-            @click="handleCameraClick"
-            title="Capture image from camera"
-          >
-            <CameraIcon class="w-5 h-5" />
-          </Button>
-          <Button
-            id="microphone-button"
-            class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
-            variant="secondary"
-            v-if="promptStore.getCurrentMode() === 'chat'"
-            @click="handleRecordingClick"
-            :disabled="(false && !speechToText.enabled) || audioRecorder.isTranscribing"
-            :title="
-              !speechToText.enabled ? 'Enable Speech To Text in settings to use voice input' : ''
-            "
-          >
-            <i
-              v-if="!audioRecorder.isTranscribing"
-              class="svg-icon w-5 h-5"
-              :class="audioRecorder.isRecording ? 'i-record-active' : 'i-record'"
-            ></i>
+          <div class="absolute bottom-14 left-3 flex gap-2">
             <div
-              v-if="audioRecorder.isRecording"
-              class="absolute -top-11 flex gap-1 items-end h-10"
+              v-for="preview in imagePreview"
+              :key="preview.id"
+              class="relative max-h-12 max-w-12 mr-2 aspect-square group"
             >
-              <div
-                v-for="i in 5"
-                :key="i"
-                class="w-1.5 bg-primary rounded-full transition-all duration-100"
-                :style="{
-                  height: `${Math.max(6, (audioRecorder.audioLevel / 100) * 40 * (i / 5))}px`,
-                  opacity: audioRecorder.audioLevel > (i - 1) * 20 ? 1 : 0.35,
-                }"
-              ></div>
+              <img
+                :src="preview.url"
+                alt="Image Preview"
+                class="w-full h-full object-contain border border-dashed border-border rounded-md"
+              />
+              <button
+                @click="removeImage(preview.id)"
+                class="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-background rounded-full p-0.5 text-muted-foreground hover:text-destructive"
+                title="Remove image"
+              >
+                <XMarkIcon class="size-4" />
+              </button>
             </div>
-          </Button>
-          <Button
-            id="advanced-settings-button"
-            class="px-3 py-1.5 bg-muted hover:bg-muted/80 text-foreground rounded-lg text-sm font-normal"
-            @click="handleAdvancedSettingsClick"
-          >
-            {{ mapModeToLabel(promptStore.getCurrentMode()) }} Settings
-          </Button>
-          <Button
-            v-if="readyForNewSubmit"
-            @click="handleSubmitPromptClick"
-            id="send-button"
-            class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px]"
-          >
-            →
-          </Button>
-          <Button
-            v-else-if="!isStopping"
-            @click="handleCancelClick"
-            class="px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-sm min-w-[44px] flex items-center justify-center"
-          >
-            <i class="svg-icon w-4 h-4 i-stop"></i>
-          </Button>
-          <Button
-            v-else
-            disabled
-            class="px-3 py-1.5 bg-red-400 cursor-not-allowed rounded-lg text-sm min-w-[44px] flex items-center justify-center"
-          >
-            <i class="svg-icon w-4 h-4 i-loading"></i>
-          </Button>
-        </div>
+            <div
+              v-if="shouldShowImageUploadButton"
+              class="self-center border border-dashed border-border rounded-md p-1 hover:cursor-pointer origin-bottom-left"
+              :class="{ 'border-primary bg-primary/10': isOverDropZone }"
+              id="plus-icon"
+            >
+              <Label htmlFor="file-attachment" @click="handlePlusIconClick">
+                <PlusIcon class="size-4 cursor-pointer" />
+              </Label>
+              <input
+                type="file"
+                class="hidden"
+                id="file-attachment"
+                :accept="getAcceptedFileTypes()"
+                multiple
+                @change="handleFileInput"
+              />
+            </div>
+          </div>
+          <div id="mode-buttons" class="absolute bottom-4 left-3 flex gap-2">
+            <Button
+              v-for="mode in ['chat', 'imageGen', 'imageEdit'] as ModeType[]"
+              :variant="promptStore.getCurrentMode() === mode ? 'default' : 'secondary'"
+              :key="mode"
+              :id="'mode-button-' + mode"
+              @click="handleModeClick(mode)"
+            >
+              {{ mapModeToLabel(mode) }}
+            </Button>
+            <DemoModeBlocker>
+              <Button
+                :variant="promptStore.getCurrentMode() === 'video' ? 'default' : 'secondary'"
+                :id="'mode-button-video'"
+                @click="handleModeClick('video')"
+              >
+                {{ mapModeToLabel('video') }}
+              </Button>
+            </DemoModeBlocker>
+          </div>
+          <div class="absolute bottom-4 right-3 flex gap-2">
+            <Button
+              id="camera-button"
+              class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
+              variant="secondary"
+              v-if="promptStore.getCurrentMode() === 'chat'"
+              @click="handleCameraClick"
+              title="Capture image from camera"
+            >
+              <CameraIcon class="w-5 h-5" />
+            </Button>
+            <Button
+              id="microphone-button"
+              class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
+              variant="secondary"
+              v-if="promptStore.getCurrentMode() === 'chat'"
+              @click="handleRecordingClick"
+              :disabled="(false && !speechToText.enabled) || audioRecorder.isTranscribing"
+              :title="
+                !speechToText.enabled ? 'Enable Speech To Text in settings to use voice input' : ''
+              "
+            >
+              <i
+                v-if="!audioRecorder.isTranscribing"
+                class="svg-icon w-5 h-5"
+                :class="audioRecorder.isRecording ? 'i-record-active' : 'i-record'"
+              ></i>
+              <div
+                v-if="audioRecorder.isRecording"
+                class="absolute -top-11 flex gap-1 items-end h-10"
+              >
+                <div
+                  v-for="i in 5"
+                  :key="i"
+                  class="w-1.5 bg-primary rounded-full transition-all duration-100"
+                  :style="{
+                    height: `${Math.max(6, (audioRecorder.audioLevel / 100) * 40 * (i / 5))}px`,
+                    opacity: audioRecorder.audioLevel > (i - 1) * 20 ? 1 : 0.35,
+                  }"
+                ></div>
+              </div>
+            </Button>
+            <Button
+              id="advanced-settings-button"
+              class="px-3 py-1.5 bg-muted hover:bg-muted/80 text-foreground rounded-lg text-sm font-normal"
+              @click="handleAdvancedSettingsClick"
+            >
+              {{ mapModeToLabel(promptStore.getCurrentMode()) }} Settings
+            </Button>
+            <Button
+              v-if="readyForNewSubmit"
+              @click="handleSubmitPromptClick"
+              id="send-button"
+              class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px]"
+            >
+              →
+            </Button>
+            <Button
+              v-else-if="!isStopping"
+              @click="handleCancelClick"
+              class="px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-sm min-w-[44px] flex items-center justify-center"
+            >
+              <i class="svg-icon w-4 h-4 i-stop"></i>
+            </Button>
+            <Button
+              v-else
+              disabled
+              class="px-3 py-1.5 bg-red-400 cursor-not-allowed rounded-lg text-sm min-w-[44px] flex items-center justify-center"
+            >
+              <i class="svg-icon w-4 h-4 i-loading"></i>
+            </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -429,8 +429,7 @@ const isFirstPrompt = computed(() => {
   const isFirstImageEditPrompt =
     mode === 'imageEdit' &&
     !imageGeneration.processing &&
-    (!imageGeneration.selectedEditedImageId ||
-      (demoMode.enabled && !hasCompletedImageEditOutput))
+    (!imageGeneration.selectedEditedImageId || (demoMode.enabled && !hasCompletedImageEditOutput))
 
   return isFirstChatPrompt || isFirstImageGenPrompt || isFirstImageEditPrompt
 })
@@ -509,6 +508,17 @@ watch(
       if (prompt.value !== newPrompt) {
         prompt.value = newPrompt || ''
       }
+    }
+  },
+)
+
+// Accept programmatically injected prompt text (e.g. from demo sample prompts)
+watch(
+  () => promptStore.injectedPromptText,
+  (text) => {
+    if (text !== null) {
+      prompt.value = text
+      promptStore.injectedPromptText = null
     }
   },
 )

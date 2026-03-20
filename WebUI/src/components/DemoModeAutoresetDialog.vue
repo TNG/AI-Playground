@@ -1,6 +1,6 @@
 <template>
   <Dialog :open="true">
-    <DialogContent class="z-30000">
+    <DialogContent class="z-[var(--demo-z-dialog)]">
       <DialogHeader>
         <DialogTitle>Demo Session Timeout</DialogTitle>
         <DialogDescription>
@@ -8,8 +8,8 @@
         </DialogDescription>
       </DialogHeader>
       <DialogFooter>
-        <Button variant="ghost" @click="cancel">Reset ({{ countdown }})</Button>
-        <Button @click="confirm">Stay</Button>
+        <Button variant="ghost" @click="reset">Reset ({{ countdown }})</Button>
+        <Button @click="stay">Stay</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>
@@ -39,7 +39,7 @@ onMounted(() => {
   countdownInterval = setInterval(() => {
     countdown.value--
     if (countdown.value <= 0) {
-      confirm()
+      reset()
     }
   }, 1000)
 })
@@ -51,11 +51,11 @@ onUnmounted(() => {
   }
 })
 
-function confirm() {
+function stay() {
   demoMode.cancelReset()
 }
 
-function cancel() {
+function reset() {
   demoMode.resetDemo()
 }
 </script>

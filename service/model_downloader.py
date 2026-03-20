@@ -86,7 +86,7 @@ class HFPlaygroundDownloader:
     hf_token: str | None
 
     def __init__(self, hf_token=None) -> None:
-        self.fs = HfFileSystem()
+        self.fs = HfFileSystem(token=hf_token)
         self.total_size = 0
         self.download_size = 0
         self.thread_lock = Lock()

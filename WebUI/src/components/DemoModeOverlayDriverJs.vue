@@ -303,7 +303,7 @@ defineExpose({
   min-width: 340px;
   max-width: 420px;
   font-family: unset;
-  z-index: 20000;
+  z-index: var(--demo-z-popover);
 }
 
 .driver-popover-title {
@@ -345,7 +345,6 @@ defineExpose({
   font-family: unset;
 }
 
-.driver-popover-footer button:hover,
 .driver-popover-footer button:hover {
   background-color: transparent;
   text-decoration: underline;

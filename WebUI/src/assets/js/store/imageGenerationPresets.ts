@@ -36,7 +36,7 @@ import { useUIStore } from './ui'
 import { PresetRequirementsData, useDialogStore } from './dialogs'
 import { getMissingComfyuiBackendModels } from './imageGenerationUtils'
 import { imageUrlToDataUri, saveImageToMediaInput } from '@/lib/utils'
-import { getDemoModeInputImage } from './demoModeDefaults'
+import { getDemoModeInputImage, getDemoModeSketchInputImage } from './demoModeDefaults'
 
 export type GenerateState =
   | 'no_start'
@@ -531,7 +531,8 @@ export const useImageGenerationPresets = defineStore(
     async function preloadImageDuringDemo() {
       if (demoMode.enabled && activePreset.value?.category === 'edit-images') {
         const imageInput = comfyInputs.value.find((input) => input.type === 'image')
-        const demoImage = getDemoModeInputImage()
+        const isSketchPreset = activePreset.value?.name === 'Sketch to Photo'
+        const demoImage = isSketchPreset ? getDemoModeSketchInputImage() : getDemoModeInputImage()
         if (imageInput && demoImage) {
           imageInput.current.value = await imageUrlToDataUri(demoImage)
         }

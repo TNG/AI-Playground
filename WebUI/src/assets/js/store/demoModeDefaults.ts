@@ -5,6 +5,7 @@ import { useImageGenerationPresets } from './imageGenerationPresets'
 import type { ImageMediaItem } from './imageGenerationPresets'
 import { useDemoMode } from './demoMode'
 import demoInputImageUrl from '@/assets/image/dog_with_people.jpg'
+import demoSketchInputImageUrl from '@/assets/image/sketch_of_building.png'
 
 export const DEMO_CHAT_PRESET = 'Vision'
 export const DEMO_CHAT_MODEL = 'unsloth/Qwen3-VL-4B-Instruct-GGUF/Qwen3-VL-4B-Instruct-Q5_K_S.gguf'
@@ -51,4 +52,8 @@ export async function populateImageEditHistory(
 
 export function getDemoModeInputImage(): string | null {
   return useDemoMode().profile?.inputImage ?? demoInputImageUrl
+}
+
+export function getDemoModeSketchInputImage(): string | null {
+  return demoSketchInputImageUrl
 }

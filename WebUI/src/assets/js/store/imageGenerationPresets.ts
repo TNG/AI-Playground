@@ -536,6 +536,28 @@ export const useImageGenerationPresets = defineStore(
         if (imageInput && demoImage) {
           imageInput.current.value = await imageUrlToDataUri(demoImage)
         }
+
+        // Also add the demo image to the history if not already present for this preset
+        if (demoImage) {
+          const alreadyInHistory = generatedImages.value.some(
+            (img) =>
+              img.mode === 'imageEdit' &&
+              img.type === 'image' &&
+              img.fromImageGen &&
+              img.sourceImageUrl === demoImage,
+          )
+          if (!alreadyInHistory) {
+            const sourceItem: ImageMediaItem = {
+              id: 'demo-source',
+              type: 'image',
+              state: 'done',
+              mode: 'imageEdit',
+              imageUrl: demoImage,
+              settings: {},
+            }
+            await copyImageAsInputForMode(sourceItem, 'imageEdit')
+          }
+        }
       }
     }
 

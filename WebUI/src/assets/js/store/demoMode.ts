@@ -119,7 +119,7 @@ export const useDemoMode = defineStore('demoMode', () => {
       trackUserInteractionInterval = null
     }
     trackUserInteractionInterval = setInterval(() => {
-      console.log('interaction any/recent:', userInteractedThisLoad, isUserActive())
+      // console.log('interaction any/recent:', userInteractedThisLoad, isUserActive())
       if (!userInteractedThisLoad) return
       if (isUserActive()) {
         if (resetTimer) {

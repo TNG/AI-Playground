@@ -98,6 +98,14 @@
     "maxContextSize": 262144
   },
   {
+    "name": "unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-Q4_K_M.gguf",
+    "type": "llamaCPP",
+    "supportsToolCalling": true,
+    "supportsVision": true,
+    "supportsReasoning": true,
+    "maxContextSize": 262144
+  },
+  {
     "name": "OpenVINO/Phi-3.5-mini-instruct-int4-ov",
     "type": "openVINO",
     "supportsToolCalling": false,

@@ -8,8 +8,8 @@
         </DialogDescription>
       </DialogHeader>
       <DialogFooter>
-        <Button variant="ghost" @click="cancel">Reset ({{ countdown }})</Button>
-        <Button @click="confirm">Stay</Button>
+        <Button variant="ghost" @click="resetNow">Reset ({{ countdown }})</Button>
+        <Button @click="stay">Stay</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>
@@ -39,7 +39,7 @@ onMounted(() => {
   countdownInterval = setInterval(() => {
     countdown.value--
     if (countdown.value <= 0) {
-      confirm()
+      resetNow()
     }
   }, 1000)
 })
@@ -51,11 +51,11 @@ onUnmounted(() => {
   }
 })
 
-function confirm() {
+function stay() {
   demoMode.cancelReset()
 }
 
-function cancel() {
+function resetNow() {
   demoMode.resetDemo()
 }
 </script>

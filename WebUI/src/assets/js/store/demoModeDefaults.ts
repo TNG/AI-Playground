@@ -5,6 +5,7 @@ import { useImageGenerationPresets } from './imageGenerationPresets'
 import type { ImageMediaItem } from './imageGenerationPresets'
 import demoInputImageUrl from '@/assets/image/dog_with_people.jpg'
 import demoSketchInputImageUrl from '@/assets/image/sketch_of_building.png'
+import demoUpscaleInputImageUrl from '@/assets/image/cat_low_resolution.png'
 
 export const DEMO_CHAT_PRESET = 'Vision'
 export const DEMO_CHAT_MODEL = 'unsloth/Qwen3-VL-4B-Instruct-GGUF/Qwen3-VL-4B-Instruct-Q5_K_S.gguf'
@@ -57,4 +58,8 @@ export function getDemoModeInputImage(): string | null {
 
 export function getDemoModeSketchInputImage(): string | null {
   return demoSketchInputImageUrl
+}
+
+export function getDemoModeUpscaleInputImage(): string | null {
+  return demoUpscaleInputImageUrl
 }

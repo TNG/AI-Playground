@@ -813,6 +813,7 @@ export class OpenVINOBackendService implements ApiService {
   ): Promise<OvmsServerProcess> {
     try {
       const selectedDevice = this.devices.find((d) => d.selected)?.id || 'AUTO'
+      const maxPromptLen = contextSize ?? 8192
 
       this.appLogger.info(
         `Starting OVMS server for model: ${modelRepoId} on port ${this.port} with device ${selectedDevice}`,
@@ -841,6 +842,10 @@ export class OpenVINOBackendService implements ApiService {
         '--reasoning_parser',
         'qwen3',
       ]
+
+      if (selectedDevice === 'NPU') {
+        args.push('--max_prompt_len', maxPromptLen.toString())
+      }
 
       this.appLogger.info(`OVMS launch args: ${args.join(' ')}`, this.name)
 

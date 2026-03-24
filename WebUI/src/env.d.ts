@@ -27,6 +27,7 @@ type SamplePrompt = {
   description: string
   prompt: string
   mode: ModeType
+  presetName?: string
 }
 
 type DemoProfile = {

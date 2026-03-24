@@ -7,6 +7,7 @@ const SamplePromptSchema = z.object({
   description: z.string(),
   prompt: z.string(),
   mode: z.enum(['chat', 'imageGen', 'imageEdit', 'video']),
+  presetName: z.string().optional(),
 })
 
 export const DemoProfileSchema = z.object({

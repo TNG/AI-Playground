@@ -27,14 +27,6 @@ import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPres
 import { useDemoMode } from '@/assets/js/store/demoMode'
 import { usePresets } from '@/assets/js/store/presets'
 
-type SamplePrompt = {
-  title: string
-  description: string
-  prompt: string
-  mode: ModeType
-  presetName?: string
-}
-
 const promptStore = usePromptStore()
 const imageGeneration = useImageGenerationPresets()
 const demoMode = useDemoMode()
@@ -81,7 +73,7 @@ const activeSample = computed(() => {
   const presetName = presetsStore.activePreset?.name
   const presetMatch = samples.value.find((s) => s.mode === mode && s.presetName === presetName)
   if (presetMatch) return presetMatch
-  return samples.find((s) => s.mode === mode && !s.presetName)
+  return samples.value.find((s) => s.mode === mode && !s.presetName)
 })
 
 function applySample(sample: SamplePrompt) {

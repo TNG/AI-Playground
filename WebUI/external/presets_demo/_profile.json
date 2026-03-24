@@ -26,6 +26,13 @@
       "mode": "imageEdit"
     },
     {
+      "title": "Sketch to Photo Example",
+      "description": "Turn a sketch into a photo by describing the scene:",
+      "prompt": "Photo of a modern apartment building, tropical resort, sunset view",
+      "mode": "imageEdit",
+      "presetName": "Sketch to Photo"
+    },
+    {
       "title": "Video Generation Example",
       "description": "Create a short video from a text description.",
       "prompt": "A golden retriever running through a field of sunflowers on a sunny day",

@@ -129,8 +129,8 @@
       "type": "boolean",
       "label": "Show Preview",
       "displayed": true,
-      "modifiable": false,
-      "defaultValue": false,
+      "modifiable": true,
+      "defaultValue": true,
       "settingName": "showPreview"
     },
     {
@@ -141,9 +141,9 @@
       "min": 0,
       "max": 1,
       "step": 0.05,
-      "defaultValue": 0.93,
+      "defaultValue": 0.5,
       "displayed": true,
-      "modifiable": false
+      "modifiable": true
     },
     {
       "type": "model",
@@ -327,7 +327,7 @@
       "inputs": {
         "op": "Sub",
         "a": 1,
-        "b": 0.93
+        "b": 0.5
       },
       "class_type": "CM_FloatBinaryOperation",
       "_meta": {

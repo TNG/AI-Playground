@@ -93,7 +93,8 @@
             class="resize-none w-full h-48 px-4 pb-16 bg-background/50 rounded-md outline-none border border-border focus-visible:ring-[1px] focus-visible:ring-primary"
             :class="{
               [`pt-${checkedRagDocuments.length > 0 && canAttachDocuments && promptStore.getCurrentMode() === 'chat' ? 8 : 3}`]: true,
-              'opacity-50 cursor-not-allowed': !isPromptModifiable,
+              'opacity-50 cursor-not-allowed text-transparent placeholder-transparent':
+                !isPromptModifiable,
               'border-primary bg-primary/10': isOverDropZone,
             }"
             :placeholder="getTextAreaPlaceholder()"

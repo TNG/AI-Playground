@@ -845,7 +845,7 @@ export class OpenVINOBackendService implements ApiService {
         'cache',
       ]
 
-      if (selectedDevice === 'NPU') {
+      if (selectedDevice.startsWith('NPU')) {
         args.push('--max_prompt_len', maxPromptLen.toString())
       }
 

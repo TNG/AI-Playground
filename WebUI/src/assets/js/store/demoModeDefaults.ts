@@ -36,8 +36,9 @@ export async function applyDemoModeExplicitDefaults(): Promise<void> {
 
 export async function populateImageEditHistory(
   imageGeneration: ReturnType<typeof useImageGenerationPresets>,
+  presetName?: string,
 ) {
-  const demoImageUrl = getDemoModeInputImage()
+  const demoImageUrl = getDemoModeImageForPreset(presetName)
   if (!demoImageUrl) return
 
   const sourceItem: ImageMediaItem = {
@@ -61,4 +62,15 @@ export function getDemoModeSketchInputImage(): string | null {
 
 export function getDemoModeUpscaleInputImage(): string | null {
   return demoUpscaleInputImageUrl
+}
+
+function getDemoModeImageForPreset(presetName?: string): string | null {
+  switch (presetName) {
+    case 'Sketch to Photo':
+      return getDemoModeSketchInputImage()
+    case 'Upscale':
+      return getDemoModeUpscaleInputImage()
+    default:
+      return getDemoModeInputImage()
+  }
 }

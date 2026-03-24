@@ -25,10 +25,20 @@ import { usePromptStore } from '@/assets/js/store/promptArea'
 import { populateImageEditHistory } from '@/assets/js/store/demoModeDefaults'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets'
 import { useDemoMode } from '@/assets/js/store/demoMode'
+import { usePresets } from '@/assets/js/store/presets'
+
+type SamplePrompt = {
+  title: string
+  description: string
+  prompt: string
+  mode: ModeType
+  presetName?: string
+}
 
 const promptStore = usePromptStore()
 const imageGeneration = useImageGenerationPresets()
 const demoMode = useDemoMode()
+const presetsStore = usePresets()
 
 const FALLBACK_SAMPLES: SamplePrompt[] = [
   {
@@ -51,6 +61,13 @@ const FALLBACK_SAMPLES: SamplePrompt[] = [
     mode: 'imageEdit',
   },
   {
+    title: 'Sketch to Photo Example',
+    description: 'Turn a sketch into a photo by describing the scene:',
+    prompt: 'Photo of a modern apartment building, tropical resort, sunset view',
+    mode: 'imageEdit',
+    presetName: 'Sketch to Photo',
+  },
+  {
     title: 'Video Generation Example',
     description: 'Create a short video from a text description.',
     prompt: 'A golden retriever running through a field of sunflowers on a sunny day',
@@ -59,7 +76,13 @@ const FALLBACK_SAMPLES: SamplePrompt[] = [
 ]
 
 const samples = computed(() => demoMode.profile?.samplePrompts ?? FALLBACK_SAMPLES)
-const activeSample = computed(() => samples.value.find((s) => s.mode === promptStore.currentMode))
+const activeSample = computed(() => {
+  const mode = promptStore.currentMode
+  const presetName = presetsStore.activePreset?.name
+  const presetMatch = samples.value.find((s) => s.mode === mode && s.presetName === presetName)
+  if (presetMatch) return presetMatch
+  return samples.find((s) => s.mode === mode && !s.presetName)
+})
 
 function applySample(sample: SamplePrompt) {
   if (sample.mode === 'imageEdit') {

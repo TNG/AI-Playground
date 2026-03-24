@@ -18,7 +18,7 @@
       <h1 class="select-none flex gap-2 items-baseline">
         <span style="color: #00c4fa">AI</span>
         <span>PLAYGROUND</span>
-        <span class="text-muted-foreground font-medium">essentials</span>
+        <span v-if="demoMode.productMode === 'essentials'" class="text-muted-foreground font-medium">essentials</span>
         <span v-if="platformTitle" class="text-sm font-normal">{{ platformTitle }}</span>
       </h1>
     </div>

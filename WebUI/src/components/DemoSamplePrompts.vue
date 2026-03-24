@@ -16,16 +16,19 @@ import { computed } from 'vue'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { populateImageEditHistory } from '@/assets/js/store/demoModeDefaults'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets'
+import { usePresets } from '@/assets/js/store/presets'
 
 type SamplePrompt = {
   title: string
   description: string
   prompt: string
   mode: ModeType
+  presetName?: string
 }
 
 const promptStore = usePromptStore()
 const imageGeneration = useImageGenerationPresets()
+const presetsStore = usePresets()
 
 const samples: SamplePrompt[] = [
   {
@@ -48,6 +51,13 @@ const samples: SamplePrompt[] = [
     mode: 'imageEdit',
   },
   {
+    title: 'Sketch to Photo Example',
+    description: 'Turn a sketch into a photo by describing the scene:',
+    prompt: 'Photo of a modern apartment building, tropical resort, sunset view',
+    mode: 'imageEdit',
+    presetName: 'Sketch to Photo',
+  },
+  {
     title: 'Video Generation Example',
     description: 'Create a short video from a text description.',
     prompt: 'A golden retriever running through a field of sunflowers on a sunny day',
@@ -55,7 +65,13 @@ const samples: SamplePrompt[] = [
   },
 ]
 
-const activeSample = computed(() => samples.find((s) => s.mode === promptStore.currentMode))
+const activeSample = computed(() => {
+  const mode = promptStore.currentMode
+  const presetName = presetsStore.activePreset?.name
+  const presetMatch = samples.find((s) => s.mode === mode && s.presetName === presetName)
+  if (presetMatch) return presetMatch
+  return samples.find((s) => s.mode === mode && !s.presetName)
+})
 
 function applySample(sample: SamplePrompt) {
   const textarea = document.getElementById('prompt-input') as HTMLTextAreaElement | null

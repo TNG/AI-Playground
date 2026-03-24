@@ -3,7 +3,6 @@
   "availableThemes": ["dark", "lnl", "bmg", "light"],
   "currentTheme": "light",
   "enablePreviewFeatures": true,
-  "productMode": "essentials",
   "isDemoModeEnabled": false,
   "demoModeResetInSeconds": 60,
   "demoModePresetsDir": "presets_essentials_demo",

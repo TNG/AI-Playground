@@ -841,6 +841,8 @@ export class OpenVINOBackendService implements ApiService {
         'hermes3',
         '--reasoning_parser',
         'qwen3',
+        '--cache_dir',
+        'cache',
       ]
 
       if (selectedDevice === 'NPU') {
@@ -978,6 +980,8 @@ export class OpenVINOBackendService implements ApiService {
         'embeddings',
         '--pooling',
         'CLS',
+        '--cache_dir',
+        'cache',
       ]
 
       this.appLogger.info(`OVMS embedding launch args: ${args.join(' ')}`, this.name)
@@ -1113,6 +1117,8 @@ export class OpenVINOBackendService implements ApiService {
         // '2',
         '--task',
         'speech2text',
+        '--cache_dir',
+        'cache',
       ]
 
       this.appLogger.info(`OVMS transcription launch args: ${args.join(' ')}`, this.name)

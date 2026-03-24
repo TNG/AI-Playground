@@ -1308,6 +1308,9 @@ export const useTextInference = defineStore(
       checkModelAvailability,
       prepareRagContext,
 
+      // NPU support
+      runningOnOpenvinoNpu,
+
       // Preset management
       activePreset,
       resetActivePresetSettings,

@@ -99,6 +99,7 @@
   },
   {
     "name": "unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-Q4_K_M.gguf",
+    "mmproj": "unsloth/Qwen3.5-9B-GGUF/mmproj-BF16.gguf",
     "type": "llamaCPP",
     "supportsToolCalling": true,
     "supportsVision": true,
@@ -154,22 +155,6 @@
     "maxContextSize": 2048
   },
   {
-    "name": "OpenVINO/Phi-3-mini-4k-instruct-int4-cw-ov",
-    "type": "openVINO",
-    "supportsToolCalling": false,
-    "supportsVision": false,
-    "supportsReasoning": false,
-    "maxContextSize": 4096
-  },
-  {
-    "name": "OpenVINO/Phi-3.5-mini-instruct-int4-cw-ov",
-    "type": "openVINO",
-    "supportsToolCalling": false,
-    "supportsVision": false,
-    "supportsReasoning": false,
-    "maxContextSize": 40960
-  },
-  {
     "name": "OpenVINO/Qwen3-4B-int4-ov",
     "type": "openVINO",
     "supportsToolCalling": true,
@@ -193,14 +178,6 @@
     "supportsReasoning": true,
     "maxContextSize": 32768,
     "npuSupport": true
-  },
-  {
-    "name": "OpenVINO/Mistral-7B-Instruct-v0.2-int4-cw-ov",
-    "type": "openVINO",
-    "supportsToolCalling": false,
-    "supportsVision": false,
-    "supportsReasoning": false,
-    "maxContextSize": 32000
   },
   {
     "name": "OpenVINO/Mistral-7B-Instruct-v0.3-int4-cw-ov",

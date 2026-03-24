@@ -99,6 +99,7 @@
   },
   {
     "name": "unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-Q4_K_M.gguf",
+    "mmproj": "unsloth/Qwen3.5-9B-GGUF/mmproj-BF16.gguf",
     "type": "llamaCPP",
     "supportsToolCalling": true,
     "supportsVision": true,

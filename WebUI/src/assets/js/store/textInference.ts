@@ -119,6 +119,15 @@ export const useTextInference = defineStore(
       ollama: null,
     })
 
+    /** OpenVINO LLM device list: true when the selected device is an NPU (not AUTO/GPU/CPU). */
+    const openvinoLlmDeviceIsNpu = computed(
+      () =>
+        !!backendServices.info
+          .find((s) => s.serviceName === 'openvino-backend')
+          ?.devices.find((d) => d.selected)
+          ?.id.includes('NPU'),
+    )
+
     // Backend readiness state tracking
     const backendReadinessState = reactive({
       lastUsedModel: {
@@ -141,17 +150,24 @@ export const useTextInference = defineStore(
         ['llamaCPP', 'openVINO', 'ollama'].includes(m.type),
       )
 
+      const visibilityFiltered = llmTypeModels.filter((m) => {
+        if (m.type === 'openVINO' && m.npuSupport && !openvinoLlmDeviceIsNpu.value) return false
+        return true
+      })
+
       // Find first model for each type (already in priority order from models.json)
       const firstModelByType = new Map<string, string>()
-      for (const m of llmTypeModels) {
+      for (const m of visibilityFiltered) {
         if (!firstModelByType.has(m.type)) {
           firstModelByType.set(m.type, m.name)
         }
       }
 
-      const newModels = llmTypeModels.map((m) => {
+      const newModels = visibilityFiltered.map((m) => {
         const selectedModelForType = selectedModels.value[m.type as LlmBackend]
-        const hasValidSelection = llmTypeModels.some((model) => model.name === selectedModelForType)
+        const hasValidSelection = visibilityFiltered.some(
+          (model) => model.name === selectedModelForType && model.type === m.type,
+        )
         const isFirstForType = m.name === firstModelByType.get(m.type)
 
         return {
@@ -217,11 +233,7 @@ export const useTextInference = defineStore(
     })
 
     const runningOnOpenvinoNpu = computed(
-      () =>
-        !!backendServices.info
-          .find((s) => s.serviceName === backendToService[backend.value])
-          ?.devices.find((d) => d.selected)
-          ?.id.includes('NPU'),
+      () => backend.value === 'openVINO' && openvinoLlmDeviceIsNpu.value,
     )
 
     const selectModel = (backend: LlmBackend, modelName: string) => {
@@ -230,6 +242,17 @@ export const useTextInference = defineStore(
 
     const selectEmbeddingModel = (backend: LlmBackend, modelName: string) => {
       selectedEmbeddingModels.value[backend] = modelName
+    }
+
+    function coerceOpenvinoModelSelectionToDevice() {
+      const selected = selectedModels.value.openVINO
+      if (!selected) return
+      const meta = models.models.find((m) => m.name === selected && m.type === 'openVINO')
+      if (!meta?.npuSupport || openvinoLlmDeviceIsNpu.value) return
+      const fallback = models.models.find(
+        (m) => m.type === 'openVINO' && (!m.npuSupport || openvinoLlmDeviceIsNpu.value),
+      )?.name
+      if (fallback) selectedModels.value.openVINO = fallback
     }
 
     // Get the currently selected device ID for the active backend
@@ -1086,6 +1109,8 @@ export const useTextInference = defineStore(
         }
       }
 
+      coerceOpenvinoModelSelectionToDevice()
+
       // Load selected embedding models (per backend)
       if (savedSettings.selectedEmbeddingModels !== undefined) {
         const savedEmbeddingModels = savedSettings.selectedEmbeddingModels as LlmBackendKV
@@ -1175,6 +1200,11 @@ export const useTextInference = defineStore(
 
     // Track if we're currently loading settings to prevent watcher from saving during load
     let isLoadingSettings = false
+
+    watch(openvinoLlmDeviceIsNpu, () => {
+      if (isLoadingSettings) return
+      coerceOpenvinoModelSelectionToDevice()
+    })
 
     // Watch for setting changes and save them to settingsPerPreset
     // Note: Preset/variant changes are now handled by the orchestrator, not by watchers

@@ -117,10 +117,6 @@
 
   <DemoModeBlocker>
     <div class="flex flex-col gap-3 pt-4">
-      <p>{{ languages.SETTINGS_MCP }}</p>
-      <div class="pl-2 pt-2">
-        <SettingsMcp />
-      </div>
       <p>{{ languages.SETTINGS_DEVELOPER }}</p>
       <div class="pl-2 pt-2">
         <div class="flex justify-between pr-4 items-center gap-4 mb-4">
@@ -150,7 +146,6 @@
           </div>
           <Checkbox id="keep-models-loaded" v-model="developerSettings.keepModelsLoaded" />
         </div>
-        <SettingsMcp />
       </div>
       <div class="flex justify-between items-center">
         <p>
@@ -204,7 +199,6 @@ import * as toast from '@/assets/js/toast'
 import LanguageSelector from '@/components/LanguageSelector.vue'
 import ThemeSelector from '@/components/ThemeSelector.vue'
 import MicrophoneSettings from '@/components/MicrophoneSettings.vue'
-import SettingsMcp from '@/components/SettingsMcp.vue'
 import DropDownNew from '@/components/DropDownNew.vue'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'

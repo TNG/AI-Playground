@@ -105,6 +105,14 @@
           />
         </div>
 
+        <!-- MCP Settings - shown when tools are enabled -->
+        <div
+          v-if="showTools && textInference.modelSupportsToolCalling"
+          class="pl-2 pt-2"
+        >
+          <SettingsMcp />
+        </div>
+
         <!-- Embeddings selector - only shown when RAG is enabled -->
         <div v-if="enableRAG" class="grid grid-cols-[120px_1fr] items-center gap-4">
           <Label class="whitespace-nowrap">Embeddings</Label>
@@ -173,6 +181,7 @@ import AddLLMDialog from '@/components/AddLLMDialog.vue'
 import { ref, computed } from 'vue'
 import { useI18N } from '@/assets/js/store/i18n.ts'
 import Rag from '@/components/Rag.vue'
+import SettingsMcp from '@/components/SettingsMcp.vue'
 import { useBackendServices } from '@/assets/js/store/backendServices.ts'
 import DropDownNew from '@/components/DropDownNew.vue'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets.ts'

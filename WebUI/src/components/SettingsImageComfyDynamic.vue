@@ -53,7 +53,7 @@
         :id="`${input.nodeTitle}.${input.nodeInput}`"
         :image-url-ref="input.current as WritableComputedRef<string>"
         :disabled="!isModifiable(input)"
-        @image-loaded="handleImageLoaded"
+        @image-loaded="(url) => handleImageLoaded(url, isFirstImageInput(input))"
       ></LoadImageWithPreview>
 
       <!--    Image (standard)    -->
@@ -62,7 +62,7 @@
         :id="`${input.nodeTitle}.${input.nodeInput}`"
         :image-url-ref="input.current as WritableComputedRef<string>"
         :disabled="!isModifiable(input)"
-        @image-loaded="handleImageLoaded"
+        @image-loaded="(url) => handleImageLoaded(url, isFirstImageInput(input))"
       ></LoadImage>
 
       <!--    Video    -->
@@ -131,7 +131,9 @@ const i18nState = useI18N().state
 const languages = i18nState
 
 // Handle image loaded event from LoadImage components
-function handleImageLoaded(imageUrl: string) {
+function handleImageLoaded(imageUrl: string, isFirstInput: boolean) {
+  if (!isFirstInput) return
+
   // Create MediaItem and add to history (same as "Send to Edit")
   const imageItem: ImageMediaItem = {
     id: crypto.randomUUID(),
@@ -146,6 +148,20 @@ function handleImageLoaded(imageUrl: string) {
 
   imageGeneration.generatedImages.push(imageItem)
   imageGeneration.selectedEditedImageId = imageItem.id
+}
+
+function isFirstImageInput(input: (typeof imageGeneration.comfyInputs)[0]) {
+  const firstImageInput = imageGeneration.comfyInputs.find((i) => i.type === 'image')
+
+  const titleA = input.nodeTitle
+  const inputA = input.nodeInput
+  const identifier1 = `${titleA}.${inputA}`
+
+  const titleB = firstImageInput?.nodeTitle
+  const inputB = firstImageInput?.nodeInput
+  const identifier2 = `${titleB}.${inputB}`
+
+  return identifier1 === identifier2
 }
 
 // Clear preview state when preset changes

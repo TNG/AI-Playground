@@ -171,6 +171,7 @@ export const useImageGenerationPresets = defineStore(
       seed.value = generalDefaultSettings.seed
       safetyCheck.value = generalDefaultSettings.safetyCheck
       showPreview.value = generalDefaultSettings.showPreview
+      selectedEditedImageId.value = null
       const settingsKey = getSettingsKey()
       if (settingsKey) {
         settingsPerPreset.value[settingsKey] = {}

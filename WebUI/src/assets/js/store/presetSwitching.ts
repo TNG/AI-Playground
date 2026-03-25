@@ -8,6 +8,7 @@ import { useBackendServices } from './backendServices'
 import { useDialogStore } from './dialogs'
 import { useGlobalSetup } from './globalSetup'
 import { useI18N } from './i18n'
+import { useDemoMode } from './demoMode'
 
 /**
  * Maps a preset to its corresponding UI mode based on type and category.
@@ -92,6 +93,7 @@ export const usePresetSwitching = defineStore('presetSwitching', () => {
   const dialogStore = useDialogStore()
   const globalSetup = useGlobalSetup()
   const i18nState = useI18N().state
+  const demoMode = useDemoMode()
 
   // Switching state
   const isSwitching = ref(false)
@@ -189,7 +191,7 @@ export const usePresetSwitching = defineStore('presetSwitching', () => {
         preset.type === 'comfy' &&
         (HIGH_MEMORY_PRESETS.has(presetName) || VIDEO_VRAM_PRESETS.has(presetName))
       const shouldShowMemoryAlert =
-        isGatedMemoryPreset && !isMemoryAlertSuppressed(presetName)
+        isGatedMemoryPreset && !isMemoryAlertSuppressed(presetName) && !demoMode.enabled
 
       if (shouldShowMemoryAlert) {
         const message = HIGH_MEMORY_PRESETS.has(presetName)

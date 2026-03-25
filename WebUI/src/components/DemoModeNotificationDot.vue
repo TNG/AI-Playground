@@ -26,7 +26,13 @@ function checkTarget() {
   const el = document.getElementById(props.targetId)
   if (el) {
     targetExists.value = true
-    el.classList.add('demo-dot-anchor')
+    // Ensure the target has relative positioning for the absolute dot
+    // Use inline style directly on the element because it has higher specificity
+    // than class selectors, which might unintentionally be overridden by other CSS classes.
+    const style = getComputedStyle(el)
+    if (style.position === 'static') {
+      el.style.position = 'relative'
+    }
     return true
   }
   targetExists.value = false
@@ -83,11 +89,5 @@ onBeforeUnmount(() => {
     transform: scale(2);
     opacity: 0;
   }
-}
-</style>
-
-<style>
-.demo-dot-anchor {
-  position: relative;
 }
 </style>

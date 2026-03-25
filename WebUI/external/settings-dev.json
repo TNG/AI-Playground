@@ -1,9 +1,10 @@
 {
   "debug": true,
   "availableThemes": ["dark", "lnl", "bmg", "light"],
-  "currentTheme": "light",
+  "currentTheme": "bmg",
   "enablePreviewFeatures": true,
-  "isDemoModeEnabled": true,
+  "productMode": "professional",
+  "isDemoModeEnabled": false,
   "demoModeResetInSeconds": 60,
   "demoModePresetsDir": "presets_demo",
   "demoModePasscode": "0451",

@@ -96,8 +96,22 @@ export const useOpenAiCompatibleChat = defineStore(
     }
 
     async function resolveTools(): Promise<ToolSet> {
-      const resolvedTools: ToolSet = { ...aipgTools }
+      if (!textInference.modelSupportsToolCalling) return {}
 
+      const builtinTools = resolveBuiltinTools()
+      const mcpTools = await resolveMcpTools()
+      return { ...builtinTools, ...mcpTools }
+    }
+
+    function resolveBuiltinTools(): ToolSet {
+      if (!textInference.aipgToolsEnabled) return {}
+      return { ...aipgTools }
+    }
+
+    async function resolveMcpTools(): Promise<ToolSet> {
+      if (!textInference.mcpToolsEnabled) return {}
+
+      const resolvedTools: ToolSet = {}
       const servers = await window.electronAPI.mcp.listServers()
 
       for (const server of servers) {
@@ -216,16 +230,18 @@ export const useOpenAiCompatibleChat = defineStore(
       console.log(
         'textInference.modelSupportsToolCalling:',
         textInference.modelSupportsToolCalling,
-        'textInference.toolsEnabled:',
-        textInference.toolsEnabled,
+        'textInference.aipgToolsEnabled:',
+        textInference.aipgToolsEnabled,
+        'textInference.mcpToolsEnabled:',
+        textInference.mcpToolsEnabled,
       )
-      const shouldEnableTools = textInference.modelSupportsToolCalling && textInference.toolsEnabled
-      const availableTools = shouldEnableTools ? await resolveTools() : undefined
+      const availableTools = await resolveTools()
+      const hasTools = Object.keys(availableTools).length > 0
 
       console.log('customFetch called with messages:', {
         messages,
         systemPromptToUse,
-        shouldEnableTools,
+        hasTools,
       })
       const result = await streamText({
         model: model.value,
@@ -235,7 +251,7 @@ export const useOpenAiCompatibleChat = defineStore(
         maxOutputTokens: textInference.maxTokens,
         temperature: textInference.temperature,
         includeRawChunks: true,
-        ...(shouldEnableTools
+        ...(hasTools
           ? {
               tools: availableTools,
               stopWhen: stepCountIs(20),

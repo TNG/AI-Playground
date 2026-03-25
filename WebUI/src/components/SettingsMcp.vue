@@ -15,7 +15,7 @@
         variant="secondary"
         size="sm"
         class="px-3 py-1.5 rounded text-sm"
-        :disabled="mcp.isServerBusy(server.id)"
+        :disabled="!textInference.mcpToolsEnabled || mcp.isServerBusy(server.id)"
         @click="mcp.toggleServer(server.id)"
       >
         {{ getStartButtonText(server.id) }}
@@ -37,10 +37,12 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useMcp } from '@/assets/js/store/mcp'
+import { useTextInference } from '@/assets/js/store/textInference'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 
 const mcp = useMcp()
+const textInference = useTextInference()
 
 function getStatusText(serverId: string): string {
   const status = mcp.getServerStatus(serverId)

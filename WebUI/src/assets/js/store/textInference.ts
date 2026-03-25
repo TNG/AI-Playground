@@ -324,7 +324,8 @@ export const useTextInference = defineStore(
     })
 
     const metricsEnabled = ref(true)
-    const toolsEnabled = ref(true)
+    const aipgToolsEnabled = ref(true)
+    const mcpToolsEnabled = ref(true)
     const maxTokens = ref<number>(1024)
     const contextSize = ref<number>(8192)
     const temperature = ref<number>(0.7)
@@ -1148,12 +1149,14 @@ export const useTextInference = defineStore(
       }
 
       // Load tools enabled (only when user can modify it)
+      const defaultToolsEnabled = getDefaultToolsEnabled(preset)
+
       if (!isToolsToggleVisible.value) {
-        toolsEnabled.value = getDefaultToolsEnabled(preset)
-      } else if (savedSettings.toolsEnabled !== undefined) {
-        toolsEnabled.value = savedSettings.toolsEnabled as boolean
+        aipgToolsEnabled.value = defaultToolsEnabled
+        mcpToolsEnabled.value = defaultToolsEnabled
       } else {
-        toolsEnabled.value = getDefaultToolsEnabled(preset)
+        aipgToolsEnabled.value = (savedSettings.aipgToolsEnabled as boolean | undefined) ?? defaultToolsEnabled
+        mcpToolsEnabled.value = (savedSettings.mcpToolsEnabled as boolean | undefined) ?? defaultToolsEnabled
       }
 
       // Clear flag after loading
@@ -1188,7 +1191,8 @@ export const useTextInference = defineStore(
         temperature,
         systemPrompt,
         metricsEnabled,
-        toolsEnabled,
+        aipgToolsEnabled,
+        mcpToolsEnabled,
       ],
       () => {
         // Don't save if we're loading settings (prevents overwriting during preset switch)
@@ -1210,7 +1214,8 @@ export const useTextInference = defineStore(
           temperature: temperature.value,
           systemPrompt: systemPrompt.value,
           metricsEnabled: metricsEnabled.value,
-          toolsEnabled: toolsEnabled.value,
+          aipgToolsEnabled: aipgToolsEnabled.value,
+          mcpToolsEnabled: mcpToolsEnabled.value,
         }
       },
       { deep: true },
@@ -1277,7 +1282,8 @@ export const useTextInference = defineStore(
       llmEmbeddingModels,
       currentBackendUrl,
       metricsEnabled,
-      toolsEnabled,
+      aipgToolsEnabled,
+      mcpToolsEnabled,
       maxTokens,
       contextSize,
       maxContextSizeFromModel,

@@ -92,23 +92,36 @@
             @click="() => (textInference.metricsEnabled = !textInference.metricsEnabled)"
           />
         </div>
-        <!-- Enable Tools toggle - only shown when preset has showTools enabled -->
+        <!-- Built-in Tools toggle - only shown when preset has showTools enabled -->
         <div
           v-if="showTools && textInference.modelSupportsToolCalling"
           class="grid grid-cols-[120px_1fr] items-center gap-4"
         >
-          <Label class="whitespace-nowrap">Enable Tools</Label>
+          <Label class="whitespace-nowrap">Built-in tools:</Label>
           <Checkbox
             id="tools"
-            :model-value="textInference.toolsEnabled"
-            @click="() => (textInference.toolsEnabled = !textInference.toolsEnabled)"
+            :model-value="textInference.aipgToolsEnabled"
+            @click="() => (textInference.aipgToolsEnabled = !textInference.aipgToolsEnabled)"
           />
         </div>
 
-        <!-- MCP Settings - shown when tools are enabled -->
+        <!-- MCP Tools toggle -->
+        <div
+          v-if="showTools && textInference.modelSupportsToolCalling"
+          class="grid grid-cols-[120px_1fr] items-center gap-4"
+        >
+          <Label class="whitespace-nowrap">MCP tools:</Label>
+          <Checkbox
+            id="mcp-tools"
+            :model-value="textInference.mcpToolsEnabled"
+            @click="() => (textInference.mcpToolsEnabled = !textInference.mcpToolsEnabled)"
+          />
+        </div>
+
         <div
           v-if="showTools && textInference.modelSupportsToolCalling"
           class="pl-2 pt-2"
+          :class="{ 'opacity-50': !textInference.mcpToolsEnabled }"
         >
           <SettingsMcp />
         </div>

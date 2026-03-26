@@ -11,8 +11,6 @@ const props = defineProps<{
 const root = ref<HTMLElement | null>(null)
 const renderedHtml = ref('')
 
-const instanceId = crypto.randomUUID().slice(0, 3)
-
 let pendingContent: string | null = null
 let isProcessing = false
 
@@ -35,17 +33,13 @@ async function updateRenderedContent(content: string) {
       const nextContent = pendingContent
       pendingContent = null
 
-      await new Promise((resolve) => setTimeout(resolve, 16))
-      const renderId = crypto.randomUUID().slice(0, 3)
-      console.log(`${instanceId}: start-${renderId}`)
-      const start = performance.now()
       renderedHtml.value = sanitizeMarkdown(parse(nextContent) as string)
-      const duration = performance.now() - start
-      console.log(`${instanceId}: stop-${renderId} ${duration.toFixed(1)}ms`)
       nextTick(attachCopyHandlers)
 
       if (pendingContent !== null) {
-        await new Promise((resolve) => requestAnimationFrame(resolve))
+        const sixtyFpsMax = new Promise((resolve) => setTimeout(resolve, 16))
+        const animationFrameMax = new Promise((resolve) => requestAnimationFrame(resolve))
+        await Promise.all([sixtyFpsMax, animationFrameMax])
       }
     }
   } catch (error) {

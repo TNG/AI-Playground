@@ -1155,8 +1155,10 @@ export const useTextInference = defineStore(
         aipgToolsEnabled.value = defaultToolsEnabled
         mcpToolsEnabled.value = defaultToolsEnabled
       } else {
-        aipgToolsEnabled.value = (savedSettings.aipgToolsEnabled as boolean | undefined) ?? defaultToolsEnabled
-        mcpToolsEnabled.value = (savedSettings.mcpToolsEnabled as boolean | undefined) ?? defaultToolsEnabled
+        aipgToolsEnabled.value =
+          (savedSettings.aipgToolsEnabled as boolean | undefined) ?? defaultToolsEnabled
+        mcpToolsEnabled.value =
+          (savedSettings.mcpToolsEnabled as boolean | undefined) ?? defaultToolsEnabled
       }
 
       // Clear flag after loading

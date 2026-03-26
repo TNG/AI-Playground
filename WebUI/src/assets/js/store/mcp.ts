@@ -115,6 +115,13 @@ export const useMcp = defineStore('mcp', () => {
     return await startServer(serverId)
   }
 
+  async function reloadConfig() {
+    const serverList = await window.electronAPI.mcp.reloadConfig()
+    availableServers.value = serverList
+    servers.value.clear()
+    toast.success('MCP config reloaded')
+  }
+
   return {
     servers,
     availableServers,
@@ -130,6 +137,7 @@ export const useMcp = defineStore('mcp', () => {
     startServer,
     stopServer,
     toggleServer,
+    reloadConfig,
   }
 })
 

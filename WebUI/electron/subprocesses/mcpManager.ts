@@ -1,7 +1,7 @@
 import { createMCPClient, type MCPClient } from '@ai-sdk/mcp'
 import { Experimental_StdioMCPTransport } from '@ai-sdk/mcp/mcp-stdio'
 import { appLoggerInstance } from '../logging/logger'
-import { mcpServers, type McpServerConfig } from './mcpServers'
+import { loadMcpServers, type McpServerConfig } from './mcpServers'
 
 export type McpConnectionState = 'stopped' | 'starting' | 'running' | 'error'
 
@@ -37,7 +37,8 @@ function ensureStatus(serverId: string) {
 }
 
 function getServerConfig(serverId: string): McpServerConfig {
-  const config = mcpServers[serverId]
+  const servers = loadMcpServers()
+  const config = servers[serverId]
   if (!config) {
     throw new Error(`Unknown MCP server id: ${serverId}`)
   }
@@ -45,7 +46,8 @@ function getServerConfig(serverId: string): McpServerConfig {
 }
 
 export function listMcpServers(): McpServerInfo[] {
-  return Object.values(mcpServers).map((server) => ({
+  const servers = loadMcpServers()
+  return Object.values(servers).map((server) => ({
     id: server.id,
     name: server.name,
   }))

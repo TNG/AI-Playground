@@ -211,6 +211,9 @@ type electronAPI = {
       toolName: string,
       args: Record<string, unknown>,
     ): Promise<McpToolCallResult>
+    openConfig(): void
+    openConfigInFolder(): void
+    reloadConfig(): Promise<McpServerInfo[]>
   }
 }
 

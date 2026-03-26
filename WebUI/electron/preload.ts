@@ -149,5 +149,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listServerTools: (serverId: string) => ipcRenderer.invoke('mcp:listServerTools', serverId),
     invokeServerTool: (serverId: string, toolName: string, args: Record<string, unknown>) =>
       ipcRenderer.invoke('mcp:invokeServerTool', serverId, toolName, args),
+    openConfig: () => ipcRenderer.send('mcp:openConfig'),
+    openConfigInFolder: () => ipcRenderer.send('mcp:openConfigInFolder'),
+    reloadConfig: () => ipcRenderer.invoke('mcp:reloadConfig'),
   },
 })

@@ -65,6 +65,7 @@ import {
   stopAllMcpServers,
   stopMcpServer,
 } from './subprocesses/mcpManager'
+import { getMcpConfigPath } from './subprocesses/mcpServers'
 import { externalResourcesDir, getMediaDir } from './util.ts'
 import { loadDemoProfile, type DemoProfile } from './demoProfile.ts'
 import type { ModelPaths } from '@/assets/js/store/models.ts'
@@ -1345,6 +1346,28 @@ function initEventHandle() {
       return await invokeMcpServerTool(serverId, toolName, args)
     },
   )
+
+  // MCP config file handlers
+  // TODO: Consider consolidating with openImageWithSystem/openImageInFolder
+  // into generic openFileWithSystem/openFileInFolder that take file paths
+  ipcMain.on('mcp:openConfig', () => {
+    const configPath = getMcpConfigPath()
+    shell.openPath(configPath)
+  })
+
+  ipcMain.on('mcp:openConfigInFolder', () => {
+    const configPath = getMcpConfigPath()
+    if (process.platform === 'win32') {
+      exec(`explorer.exe /select, "${configPath}"`)
+    } else {
+      shell.showItemInFolder(configPath)
+    }
+  })
+
+  ipcMain.handle('mcp:reloadConfig', async () => {
+    await stopAllMcpServers()
+    return listMcpServers()
+  })
 
   const getAssetPathFromUrl = (url: string) => {
     // Handle aipg-media:// URLs

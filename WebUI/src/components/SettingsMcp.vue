@@ -31,6 +31,27 @@
         {{ server.name }}: {{ mcp.getServerStatus(server.id).lastError }}
       </p>
     </template>
+
+    <!-- Footer: config actions -->
+
+    <div class="flex justify-between px-1">
+      <div class="flex gap-2">
+        <Button variant="link" size="sm" class="px-0 text-muted-foreground" @click="openConfig">
+          Edit mcp.json...
+        </Button>
+        <Button
+          variant="link"
+          size="sm"
+          class="px-0 text-muted-foreground"
+          @click="openConfigInFolder"
+        >
+          Show in folder
+        </Button>
+      </div>
+      <Button variant="link" size="sm" class="px-0 text-muted-foreground" @click="reloadConfig">
+        Reload
+      </Button>
+    </div>
   </div>
 </template>
 
@@ -74,4 +95,16 @@ function getStartButtonText(serverId: string): string {
 onMounted(async () => {
   await mcp.refreshAllServerStatuses()
 })
+
+async function openConfig() {
+  window.electronAPI.mcp.openConfig()
+}
+
+async function openConfigInFolder() {
+  window.electronAPI.mcp.openConfigInFolder()
+}
+
+async function reloadConfig() {
+  await mcp.reloadConfig()
+}
 </script>

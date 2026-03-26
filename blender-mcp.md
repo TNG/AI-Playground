@@ -1,4 +1,73 @@
-# Usage with Blender MCP
+# Usage with official Blender MCP
+
+## Prerequisites
+
+In a folder of your choice (e.g. `C:\Users\username\src\blender\`):
+
+```
+git clone https://projects.blender.org/lab/blender_mcp.git
+```
+
+## Setup Plugin in Blender
+
+This needs Blender `5.1.0` released on March 17, 2026. The `blender_manifest.json` specifies that.
+
+1. Go into that folder, navigate `./addons/`, right click `blender_mcp_addon/` folder and "Compress to zip file"
+2. In Blender, go to Edit Menu > Preferences... > Add-ons > Install from disk... and select the previously created `blender_mcp_addon.zip` file (folder won't work).
+
+A new entry 'MCP' appears in the list. Expand it, click "Start MCP Bridge Server".
+
+You might need to enable online access under Preferences... > System > Network > Allow Online Access.
+
+
+## Setup the MCP server in your agentic chat client
+
+in the cloned repo root, find the path:
+- setup a venv
+- activate the venv
+- `pip install .`
+- `Get-Command blender-mcp` to find the path to the executable, which should env with `...venv\Scripts\blender-mcp.exe` on Windows, e.g.
+
+C:\Users\username\src\blender\blender_mcp\venv\Scripts\blender-mcp.exe
+
+Configure Ai Playground (as a developer):
+
+in mcpServers.ts, extend the existing `mcpServers` object with a new entry, e.g.
+
+```
+export const mcpServers: Record<string, McpServerConfig> = {
+  blender: {
+    id: 'blender',
+    name: 'Blender MCP (official)',
+    command: 'C:\\Users\\username\\src\\blender\\blender_mcp\\venv\\Scripts\\blender-mcp.exe',
+    args: [],
+  },
+  ```
+
+## alternative client: vscode/cursor/etc.
+
+```
+{
+    "mcpServers": {
+        "blender": {
+            "command": "C:\\Users\\username\\src\\blender\\blender_mcp\\venv\\Scripts\\blender-mcp.exe",
+            "args": []
+        }
+    }
+}
+```
+
+
+
+## Links
+
+- https://projects.blender.org/dfelinto/research_and_development/src/branch/main/mcp/installation.md
+
+
+
+---
+
+# Usage with the Ahujasid Blender MCP
 
 https://github.com/ahujasid/blender-mcp
 

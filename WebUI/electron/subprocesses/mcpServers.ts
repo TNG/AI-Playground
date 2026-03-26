@@ -8,9 +8,9 @@ export type McpServerConfig = {
 
 // Hardcoded servers for now. Keep server-specific wiring here.
 export const mcpServers: Record<string, McpServerConfig> = {
-  blender: {
-    id: 'blender',
-    name: 'Blender MCP',
+  ahujasidBlender: {
+    id: 'ahujasidBlender',
+    name: 'ahujasid/blender-mcp',
     command: 'uvx',
     args: ['blender-mcp'],
     env: {

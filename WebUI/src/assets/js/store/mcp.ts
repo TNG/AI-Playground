@@ -28,8 +28,14 @@ type ServerState = {
 export const useMcp = defineStore('mcp', () => {
   const servers = ref<Map<string, ServerState>>(new Map())
   const availableServers = ref<McpServerInfo[]>([])
+  const configError = ref<string | null>(null)
 
   const allServers = computed(() => availableServers.value)
+
+  function formatConfigError(error: unknown, fallback: string): string {
+    const message = error instanceof Error ? error.message : fallback
+    return message.replace(/^Error invoking remote method '[^']+': Error: /, '')
+  }
 
   function getServerState(serverId: string): ServerState {
     return (
@@ -57,7 +63,12 @@ export const useMcp = defineStore('mcp', () => {
   }
 
   async function refreshAvailableServers() {
-    availableServers.value = await window.electronAPI.mcp.listServers()
+    try {
+      availableServers.value = await window.electronAPI.mcp.listServers()
+      configError.value = null
+    } catch (error) {
+      configError.value = formatConfigError(error, 'Failed to load MCP servers')
+    }
   }
 
   async function refreshServerStatus(serverId: string) {
@@ -116,16 +127,21 @@ export const useMcp = defineStore('mcp', () => {
   }
 
   async function reloadConfig() {
-    const serverList = await window.electronAPI.mcp.reloadConfig()
-    availableServers.value = serverList
-    servers.value.clear()
-    toast.success('MCP config reloaded')
+    try {
+      const serverList = await window.electronAPI.mcp.reloadConfig()
+      availableServers.value = serverList
+      servers.value.clear()
+      configError.value = null
+    } catch (error) {
+      configError.value = formatConfigError(error, 'Failed to reload MCP config')
+    }
   }
 
   return {
     servers,
     availableServers,
     allServers,
+    configError,
     getServerState,
     getServerStatus,
     getServerTools,

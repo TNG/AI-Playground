@@ -23,14 +23,20 @@
     </div>
 
     <div v-if="mcp.allServers.length === 0" class="text-sm text-muted-foreground text-center py-2">
-      No MCP servers configured
+      No MCP servers available
     </div>
+
+    <!-- Red error messages -->
 
     <template v-for="server in mcp.allServers" :key="'error-' + server.id">
       <p v-if="mcp.getServerStatus(server.id).lastError" class="text-xs text-destructive">
         {{ server.name }}: {{ mcp.getServerStatus(server.id).lastError }}
       </p>
     </template>
+
+    <p v-if="mcp.configError" class="text-xs text-destructive">
+      {{ mcp.configError }}
+    </p>
 
     <!-- Footer: config actions -->
 

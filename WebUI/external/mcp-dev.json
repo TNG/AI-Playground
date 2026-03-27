@@ -16,6 +16,11 @@
       "env": {
         "DISABLE_TELEMETRY": "true"
       }
+    },
+    "lenny-podcast": {
+      "type": "http",
+      "displayName": "Lenny Rachitsky Podcast",
+      "url": "https://lenny-rachitsky.run.mcp.com.ai/mcp"
     }
   }
 }

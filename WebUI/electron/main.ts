@@ -1374,7 +1374,9 @@ function initEventHandle() {
     async (
       _event,
       serverId: string,
-      config: { command: string; args: string[]; displayName?: string },
+      config:
+        | { type?: 'stdio'; command: string; args?: string[]; displayName?: string }
+        | { type: 'http'; url: string; headers?: Record<string, string>; displayName?: string },
     ) => {
       return addMcpServer(serverId, config)
     },

@@ -3,6 +3,12 @@ import { Experimental_StdioMCPTransport } from '@ai-sdk/mcp/mcp-stdio'
 import { appLoggerInstance } from '../logging/logger'
 import { loadMcpServers, type McpServerConfig } from './mcpServers'
 
+type HttpTransportConfig = {
+  type: 'http'
+  url: string
+  headers?: Record<string, string>
+}
+
 export type McpConnectionState = 'stopped' | 'starting' | 'running' | 'error'
 
 export type McpStatus = {
@@ -73,21 +79,33 @@ export async function startMcpServer(serverId: string): Promise<McpStatus> {
   setStatus(serverId, { state: 'starting' })
 
   try {
-    const mergedEnv = {
-      ...process.env,
-      ...(config.env ?? {}),
-    }
-    const stdioEnv = Object.fromEntries(
-      Object.entries(mergedEnv).filter(
-        (entry): entry is [string, string] => typeof entry[1] === 'string',
-      ),
-    )
+    let transport: HttpTransportConfig | Experimental_StdioMCPTransport
 
-    const transport = new Experimental_StdioMCPTransport({
-      command: config.command,
-      args: config.args,
-      env: stdioEnv,
-    })
+    if ('command' in config) {
+      const mergedEnv = {
+        ...process.env,
+        ...(config.env ?? {}),
+      }
+      const stdioEnv = Object.fromEntries(
+        Object.entries(mergedEnv).filter(
+          (entry): entry is [string, string] => typeof entry[1] === 'string',
+        ),
+      )
+
+      transport = new Experimental_StdioMCPTransport({
+        command: config.command,
+        args: config.args,
+        env: stdioEnv,
+      })
+    } else if ('url' in config) {
+      transport = {
+        type: 'http',
+        url: config.url,
+        headers: config.headers,
+      }
+    } else {
+      throw new Error('Invalid MCP server config: missing command (stdio) or url (http)')
+    }
 
     const client = await createMCPClient({
       transport,

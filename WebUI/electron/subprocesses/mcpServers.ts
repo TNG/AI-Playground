@@ -3,12 +3,20 @@ import path from 'node:path'
 import { app } from 'electron'
 import { appLoggerInstance } from '../logging/logger'
 
-export type McpServerConfig = {
-  command: string
-  args?: string[]
-  env?: Record<string, string>
-  displayName?: string
-}
+export type McpServerConfig =
+  | {
+      type?: 'stdio'
+      command: string
+      args?: string[]
+      env?: Record<string, string>
+      displayName?: string
+    }
+  | {
+      type: 'http'
+      url: string
+      headers?: Record<string, string>
+      displayName?: string
+    }
 
 type McpConfigFile = {
   mcpServers: Record<string, McpServerConfig>

@@ -130,7 +130,10 @@
                 {{ message.metadata?.ragSource || ragSourcePerMessageId[message.id] }}
               </div>
             </div>
-            <div class="ai-answer chat-content" :class="textInference.fontSizeClass">
+            <div
+              class="ai-answer chat-content flex flex-col gap-2"
+              :class="textInference.fontSizeClass"
+            >
               <template
                 v-for="(part, partIndex) in message.parts"
                 :key="`${message.id}-${part.type}-${partIndex}`"
@@ -149,17 +152,13 @@
 
                 <!-- Text part -->
                 <template v-else-if="part.type === 'text'">
-                  <MarkdownRenderer
-                    class="mt-2"
-                    :content="(part as any).text ?? ''"
-                    :on-copy="copyText"
-                  />
+                  <MarkdownRenderer :content="(part as any).text ?? ''" :on-copy="copyText" />
                 </template>
 
                 <!-- Tool parts -->
                 <template v-else-if="isToolOrDynamicToolUIPart(part)">
                   <template v-if="isAipgTool(part) && part.type === 'tool-comfyUI'">
-                    <div class="mt-1 pt-1">
+                    <div>
                       <span
                         >Generating using the preset
                         <b>{{ part.input?.workflow ?? 'unknown' }}</b></span
@@ -179,7 +178,7 @@
                     </div>
                   </template>
                   <template v-else-if="isAipgTool(part) && part.type === 'tool-comfyUiImageEdit'">
-                    <div class="mt-1 pt-1">
+                    <div>
                       <span
                         >Editing using the preset
                         <b>{{ part.input?.workflow ?? 'unknown' }}</b></span
@@ -201,7 +200,7 @@
                   <template
                     v-else-if="isAipgTool(part) && part.type === 'tool-visualizeObjectDetections'"
                   >
-                    <div class="mt-1 pt-1">
+                    <div>
                       <div
                         v-if="
                           part.state === 'output-available' &&

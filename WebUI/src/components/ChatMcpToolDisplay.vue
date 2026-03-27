@@ -1,5 +1,5 @@
 <template>
-  <div class="mt-2 rounded-md border border-border/80 bg-muted/20 flex flex-col">
+  <div class="rounded-md border border-border/80 bg-muted/20 flex flex-col">
     <div
       class="px-3 py-3 flex items-center justify-between gap-2 cursor-pointer"
       @click="isExpanded = !isExpanded"

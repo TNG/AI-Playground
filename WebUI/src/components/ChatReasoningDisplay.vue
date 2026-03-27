@@ -24,7 +24,7 @@ const statusText = computed(() => {
 </script>
 
 <template>
-  <div class="mb-2">
+  <div>
     <button @click="isExpanded = !isExpanded" class="flex items-center cursor-pointer">
       <span class="italic text-muted-foreground">{{ statusText }}</span>
       <img v-if="isExpanded" src="../assets/svg/arrow-up.svg" class="w-4 h-4 ml-1" />

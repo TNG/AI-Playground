@@ -54,8 +54,6 @@ const LlamaCppRawValueSchema = z.object({
 })
 
 export type AipgMetadata = {
-  reasoningStarted?: number
-  reasoningFinished?: number
   model?: string
   timestamp?: number
   conversationTitle?: string
@@ -147,8 +145,7 @@ export const useOpenAiCompatibleChat = defineStore(
     const customFetch = async (_: any, options: any) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const m = JSON.parse(options.body) as any
-      let reasoningStarted: number = 0
-      let reasoningFinished: number = 0
+      const reasoningTimings = new Map<string, { started: number; finished: number }>()
       const startOfRequestTime: number = Date.now()
       let firstTokenTime: number = 0
       let finishTime: number = 0
@@ -304,21 +301,33 @@ export const useOpenAiCompatibleChat = defineStore(
               }
             }
           }
-          if (
-            !firstTokenTime &&
-            (chunk.chunk.type === 'reasoning-delta' || chunk.chunk.type === 'text-delta')
-          ) {
-            firstTokenTime = Date.now()
+          // Track per-block reasoning timing. The SDK reuses the same reasoning ID (e.g., "reasoning-0")
+          // across multiple tool call cycles, but onChunk never receives reasoning-start/reasoning-end.
+          // We detect a new reasoning block by a >100ms gap since the last delta (tool execution time).
+          if (chunk.chunk.type === 'reasoning-delta') {
+            if (!firstTokenTime) {
+              firstTokenTime = Date.now()
+            }
+            const reasoningId = chunk.chunk.id
+            const now = Date.now()
+            let timing = reasoningTimings.get(reasoningId)
+            if (!timing || now - timing.finished > 100) {
+              timing = { started: now, finished: now }
+              reasoningTimings.set(reasoningId, timing)
+            } else {
+              timing.finished = now
+            }
+            chunk.chunk.providerMetadata = {
+              aipg: {
+                reasoningStarted: timing.started,
+                reasoningFinished: timing.finished,
+              },
+            }
           }
-          if (chunk.chunk.type === 'reasoning-delta' && !reasoningStarted) {
-            reasoningStarted = Date.now()
-            console.log('Reasoning started at:', reasoningStarted)
-            chunk.chunk.providerMetadata = { aipg: { reasoningStarted } }
-          }
-          if (chunk.chunk.type === 'text-delta' && reasoningStarted && !reasoningFinished) {
-            reasoningFinished = Date.now()
-            console.log('Reasoning finished at:', reasoningFinished)
-            chunk.chunk.providerMetadata = { aipg: { reasoningStarted, reasoningFinished } }
+          if (chunk.chunk.type === 'text-delta') {
+            if (!firstTokenTime) {
+              firstTokenTime = Date.now()
+            }
           }
         },
         onFinish: (result) => {
@@ -352,17 +361,12 @@ export const useOpenAiCompatibleChat = defineStore(
           }
         },
       })
+
       return result.toUIMessageStreamResponse({
         sendReasoning: true,
         messageMetadata: (options) => {
-          // Always include reasoning timing from outer scope if available
-          const baseMetadata = {
-            reasoningStarted: reasoningStarted || undefined,
-            reasoningFinished: reasoningFinished || undefined,
-          }
-
           if (options.part.type === 'text-delta' || options.part.type === 'reasoning-delta') {
-            return baseMetadata
+            return {}
           }
 
           let totalUsage: LanguageModelUsage | undefined = undefined
@@ -371,7 +375,6 @@ export const useOpenAiCompatibleChat = defineStore(
           }
 
           return {
-            ...baseMetadata,
             model: textInference.activeModel,
             timestamp: Date.now(),
             timings,

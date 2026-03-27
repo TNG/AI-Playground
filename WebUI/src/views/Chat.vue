@@ -142,10 +142,13 @@
                 <ChatReasoningDisplay
                   v-if="part.type === 'reasoning'"
                   :text="(part as { text?: string }).text"
-                  :startedAt="(message.metadata as { reasoningStarted?: number }).reasoningStarted"
+                  :startedAt="
+                    (part as { providerMetadata?: { aipg?: { reasoningStarted?: number } } })
+                      .providerMetadata?.aipg?.reasoningStarted
+                  "
                   :finishedAt="
-                    (message.metadata as { reasoningFinished?: number }).reasoningFinished ??
-                    Date.now()
+                    (part as { providerMetadata?: { aipg?: { reasoningFinished?: number } } })
+                      .providerMetadata?.aipg?.reasoningFinished
                   "
                   :onCopy="copyText"
                 />

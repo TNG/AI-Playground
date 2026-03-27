@@ -12,7 +12,7 @@ const isExpanded = ref(false)
 
 const elapsedSeconds = computed(() => {
   if (!props.startedAt) return '0.0'
-  return ((props.finishedAt! - props.startedAt) / 1000).toFixed(1)
+  return (((props.finishedAt ?? Date.now()) - props.startedAt) / 1000).toFixed(1)
 })
 
 const statusText = computed(() => {

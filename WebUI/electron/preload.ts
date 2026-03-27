@@ -152,5 +152,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openConfig: () => ipcRenderer.send('mcp:openConfig'),
     openConfigInFolder: () => ipcRenderer.send('mcp:openConfigInFolder'),
     reloadConfig: () => ipcRenderer.invoke('mcp:reloadConfig'),
+    addServer: (
+      serverId: string,
+      config: { command: string; args: string[]; displayName?: string },
+    ) => ipcRenderer.invoke('mcp:addServer', serverId, config),
   },
 })

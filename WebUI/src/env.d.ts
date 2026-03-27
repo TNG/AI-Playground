@@ -214,6 +214,10 @@ type electronAPI = {
     openConfig(): void
     openConfigInFolder(): void
     reloadConfig(): Promise<McpServerInfo[]>
+    addServer(
+      serverId: string,
+      config: { command: string; args: string[]; displayName?: string },
+    ): Promise<void>
   }
 }
 

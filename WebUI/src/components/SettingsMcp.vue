@@ -42,8 +42,16 @@
 
     <div class="flex justify-between px-1">
       <div class="flex gap-2">
+        <Button
+          variant="link"
+          size="sm"
+          class="px-0 text-muted-foreground"
+          @click="showAddDialog = true"
+        >
+          Add server...
+        </Button>
         <Button variant="link" size="sm" class="px-0 text-muted-foreground" @click="openConfig">
-          Edit mcp.json...
+          Edit mcp.json
         </Button>
         <Button
           variant="link"
@@ -58,18 +66,22 @@
         Reload
       </Button>
     </div>
+
+    <AddMcpServerDialog v-model:open="showAddDialog" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useMcp } from '@/assets/js/store/mcp'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import AddMcpServerDialog from '@/components/AddMcpServerDialog.vue'
 
 const mcp = useMcp()
 const textInference = useTextInference()
+const showAddDialog = ref(false)
 
 function getStatusText(serverId: string): string {
   const status = mcp.getServerStatus(serverId)

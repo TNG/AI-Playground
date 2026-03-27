@@ -52,3 +52,19 @@ export function loadMcpServers(): Record<string, McpServerConfig> {
   appLoggerInstance.info(`Loaded MCP servers from ${configPath}`, 'mcp')
   return config.mcpServers
 }
+
+export function addMcpServer(serverId: string, config: McpServerConfig): void {
+  const configPath = getMcpConfigPath()
+  const servers = loadMcpServers()
+
+  if (servers[serverId]) {
+    throw new Error(`MCP server with ID "${serverId}" already exists`)
+  }
+
+  servers[serverId] = config
+
+  const newConfig: McpConfigFile = { mcpServers: servers }
+  fs.writeFileSync(configPath, JSON.stringify(newConfig, null, 2), 'utf-8')
+
+  appLoggerInstance.info(`Added MCP server: ${serverId}`, 'mcp')
+}

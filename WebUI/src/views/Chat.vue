@@ -136,40 +136,16 @@
                 :key="`${message.id}-${part.type}-${partIndex}`"
               >
                 <!-- Reasoning part -->
-                <template v-if="part.type === 'reasoning'">
-                  <div class="mb-2 flex items-center">
-                    <span class="italic text-muted-foreground">
-                      {{
-                        message.metadata?.reasoningFinished && message.metadata?.reasoningStarted
-                          ? `Done Reasoning after ${((message.metadata.reasoningFinished - message.metadata.reasoningStarted) / 1000).toFixed(1)} seconds`
-                          : `Reasoned for ${(
-                              (Date.now() - (message.metadata?.reasoningStarted ?? 0)) /
-                              1000
-                            ).toFixed(1)} seconds`
-                      }}
-                    </span>
-                    <button
-                      @click="
-                        showThinkingTextPerMessageId[message.id] =
-                          !showThinkingTextPerMessageId[message.id]
-                      "
-                      class="ml-1"
-                    >
-                      <img
-                        v-if="showThinkingTextPerMessageId[message.id]"
-                        src="../assets/svg/arrow-up.svg"
-                        class="w-4 h-4"
-                      />
-                      <img v-else src="../assets/svg/arrow-down.svg" class="w-4 h-4" />
-                    </button>
-                  </div>
-                  <MarkdownRenderer
-                    v-if="showThinkingTextPerMessageId[message.id]"
-                    class="border-l-2 border-border pl-4 text-muted-foreground"
-                    :content="(part as any).text ?? ''"
-                    :on-copy="copyText"
-                  />
-                </template>
+                <ChatReasoningDisplay
+                  v-if="part.type === 'reasoning'"
+                  :text="(part as { text?: string }).text"
+                  :startedAt="(message.metadata as { reasoningStarted?: number }).reasoningStarted"
+                  :finishedAt="
+                    (message.metadata as { reasoningFinished?: number }).reasoningFinished ??
+                    Date.now()
+                  "
+                  :onCopy="copyText"
+                />
 
                 <!-- Text part -->
                 <template v-else-if="part.type === 'text'">
@@ -317,6 +293,7 @@ import { usePromptStore } from '@/assets/js/store/promptArea.ts'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
 import ChatMcpToolDisplay from '@/components/ChatMcpToolDisplay.vue'
+import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
 import {
   useImageGenerationPresets,
   type MediaItem,
@@ -340,7 +317,6 @@ const showScrollButton = ref(false)
 const chatPanel = ref<HTMLElement | null>(null)
 
 const activeConversation = computed(() => openAiCompatibleChat.messages)
-const showThinkingTextPerMessageId = reactive<Record<string, boolean>>({})
 const showRagSourcePerMessageId = reactive<Record<string, boolean>>({})
 
 const ragSourcePerMessageId = reactive<Record<string, string>>({})

@@ -4,15 +4,14 @@ import { app } from 'electron'
 import { appLoggerInstance } from '../logging/logger'
 
 export type McpServerConfig = {
-  id: string
-  name: string
   command: string
-  args: string[]
+  args?: string[]
   env?: Record<string, string>
+  displayName?: string
 }
 
 type McpConfigFile = {
-  servers: Record<string, McpServerConfig>
+  mcpServers: Record<string, McpServerConfig>
 }
 
 function getExternalResourcesDir(): string {
@@ -44,10 +43,12 @@ export function loadMcpServers(): Record<string, McpServerConfig> {
     )
   }
 
-  if (!config.servers || typeof config.servers !== 'object') {
-    throw new Error(`Invalid MCP config file: ${configPath}. Missing or invalid 'servers' field.`)
+  if (!config.mcpServers || typeof config.mcpServers !== 'object') {
+    throw new Error(
+      `Invalid MCP config file: ${configPath}. Missing or invalid 'mcpServers' field.`,
+    )
   }
 
   appLoggerInstance.info(`Loaded MCP servers from ${configPath}`, 'mcp')
-  return config.servers
+  return config.mcpServers
 }

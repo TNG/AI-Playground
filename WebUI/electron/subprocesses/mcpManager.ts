@@ -47,9 +47,9 @@ function getServerConfig(serverId: string): McpServerConfig {
 
 export function listMcpServers(): McpServerInfo[] {
   const servers = loadMcpServers()
-  return Object.values(servers).map((server) => ({
-    id: server.id,
-    name: server.name,
+  return Object.entries(servers).map(([id, server]) => ({
+    id,
+    name: server.displayName ?? id,
   }))
 }
 
@@ -97,7 +97,7 @@ export async function startMcpServer(serverId: string): Promise<McpStatus> {
 
     clients.set(serverId, client)
     setStatus(serverId, { state: 'running' })
-    appLoggerInstance.info(`MCP server started: ${config.name}`, 'mcp')
+    appLoggerInstance.info(`MCP server started: ${serverId}`, 'mcp')
     return getMcpServerStatus(serverId)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

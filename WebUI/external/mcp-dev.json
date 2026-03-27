@@ -1,20 +1,16 @@
 {
-  "servers": {
+  "mcpServers": {
     "datetime": {
-      "id": "datetime",
-      "name": "DateTime MCP",
+      "displayName": "DateTime MCP",
       "command": "uvx",
       "args": ["mcp-server-time"]
     },
     "blender": {
-      "id": "blender",
-      "name": "Blender MCP (official)",
-      "command": "C:\\Users\\username\\src\\blender\\blender_mcp\\venv\\Scripts\\blender-mcp.exe",
-      "args": []
+      "displayName": "Blender MCP (official)",
+      "command": "C:\\Users\\username\\src\\blender\\blender_mcp\\venv\\Scripts\\blender-mcp.exe"
     },
     "ahujasidBlender": {
-      "id": "ahujasidBlender",
-      "name": "ahujasid/blender-mcp",
+      "displayName": "ahujasid/blender-mcp",
       "command": "uvx",
       "args": ["blender-mcp"],
       "env": {

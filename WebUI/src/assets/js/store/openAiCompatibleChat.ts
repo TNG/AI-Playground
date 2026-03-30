@@ -152,6 +152,7 @@ export const useOpenAiCompatibleChat = defineStore(
       let timings: z.infer<typeof LlamaCppRawValueTimingsSchema> | undefined = undefined
       let usage: LanguageModelUsage | undefined = undefined
       let usageFromRawChunk: LanguageModelUsage | undefined = undefined
+      let lastStepUsage: LanguageModelUsage | undefined = undefined
       const systemPromptToUse = temporarySystemPrompt.value || textInference.systemPrompt
       let messages = await convertToModelMessages(m.messages)
 
@@ -369,16 +370,20 @@ export const useOpenAiCompatibleChat = defineStore(
             return {}
           }
 
-          let totalUsage: LanguageModelUsage | undefined = undefined
+          if (options.part.type === 'finish-step') {
+            lastStepUsage = options.part.usage
+          }
+
+          let effectiveUsage: LanguageModelUsage | undefined = undefined
           if (options.part.type === 'finish') {
-            totalUsage = options.part.totalUsage
+            effectiveUsage = lastStepUsage ?? options.part.totalUsage
           }
 
           return {
             model: textInference.activeModel,
             timestamp: Date.now(),
             timings,
-            usage: totalUsage ?? usage,
+            usage: effectiveUsage ?? usage,
           }
         },
       })

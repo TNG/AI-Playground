@@ -63,7 +63,8 @@ export function loadMcpServers(): Record<string, McpServerConfig> {
 
 export function addMcpServer(serverId: string, config: McpServerConfig): void {
   const configPath = getMcpConfigPath()
-  const servers = loadMcpServers()
+  // Create a new mcp.json as needed, so users don't get stuck in the UI
+  const servers = fs.existsSync(configPath) ? loadMcpServers() : {}
 
   if (servers[serverId]) {
     throw new Error(`MCP server with ID "${serverId}" already exists`)

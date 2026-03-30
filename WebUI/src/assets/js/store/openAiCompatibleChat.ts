@@ -130,11 +130,11 @@ export const useOpenAiCompatibleChat = defineStore(
               properties: mcpTool.inputSchema.properties ?? {},
               additionalProperties: false,
             } as JSONSchema7),
-            execute: async (input: unknown) => {
+            execute: async (input) => {
               const args = input as Record<string, unknown>
               return await window.electronAPI.mcp.invokeServerTool(server.id, mcpTool.name, args)
             },
-          })
+          }) as ToolSet[string]
         }
       }
 

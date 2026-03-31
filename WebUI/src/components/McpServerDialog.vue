@@ -33,7 +33,7 @@
           <Label for="command">Command *</Label>
           <Input id="command" v-model="command" placeholder="uvx" />
           <span class="text-xs text-muted-foreground">
-            Executable to run (e.g., uvx, python, node)
+            Executable to run (e.g., uvx, python, node). Paths are escaped automatically.
           </span>
         </div>
 
@@ -51,18 +51,38 @@
         </div>
       </div>
 
-      <div class="flex justify-end gap-2">
-        <Button variant="outline" @click="handleClose">Cancel</Button>
-        <Button :disabled="isSubmitting" @click="handleAdd">
-          {{ isSubmitting ? 'Adding...' : 'Add Server' }}
-        </Button>
+      <div class="flex justify-between gap-2">
+        <div class="flex gap-2">
+          <Button
+            v-if="!isAddMode"
+            variant="destructive"
+            :disabled="isSubmitting"
+            @click="handleRemove"
+          >
+            Remove
+          </Button>
+        </div>
+        <div class="flex gap-2">
+          <Button variant="outline" @click="handleClose">Cancel</Button>
+          <Button :disabled="isSubmitting" @click="handleSubmit">
+            {{
+              isSubmitting
+                ? isAddMode
+                  ? 'Adding...'
+                  : 'Updating...'
+                : isAddMode
+                  ? 'Add Server'
+                  : 'Update Server'
+            }}
+          </Button>
+        </div>
       </div>
     </DialogContent>
   </Dialog>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -70,10 +90,14 @@ import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { useMcp } from '@/assets/js/store/mcp'
 import * as toast from '@/assets/js/toast'
+import type { McpServerConfig } from '../../electron/subprocesses/mcpServers'
 
 const props = defineProps<{
   open: boolean
+  editServer?: { id: string; config: McpServerConfig }
 }>()
+
+const isAddMode = computed(() => props.editServer === undefined)
 
 const emits = defineEmits<{
   (e: 'update:open', value: boolean): void
@@ -89,6 +113,34 @@ const args = ref('')
 const url = ref('')
 const errorMessage = ref('')
 const isSubmitting = ref(false)
+
+function populateFormFromConfig(config: McpServerConfig) {
+  displayName.value = config.displayName ?? ''
+  if (config.type !== 'http') {
+    transport.value = 'stdio'
+    command.value = config.command
+    args.value = config.args?.join(' ') ?? ''
+    url.value = ''
+  } else {
+    transport.value = 'http'
+    url.value = config.url
+    command.value = ''
+    args.value = ''
+  }
+}
+
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (!isOpen) return
+    const editServer = props.editServer
+    if (editServer === undefined) {
+      resetForm()
+    } else {
+      populateFormFromConfig(editServer.config)
+    }
+  },
+)
 
 const isOpen = computed({
   get: () => props.open,
@@ -128,7 +180,31 @@ function generateUniqueId(baseName: string): string {
   return id
 }
 
-async function handleAdd() {
+function getServerId(): string {
+  const editServer = props.editServer
+  if (editServer === undefined) {
+    return generateUniqueId(displayName.value.trim())
+  }
+  return editServer.id
+}
+
+function buildStdioConfig(name: string, cmd: string): McpServerConfig {
+  return {
+    command: cmd,
+    args: parseArgs(args.value),
+    displayName: name,
+  }
+}
+
+function buildHttpConfig(name: string, httpUrl: string): McpServerConfig {
+  return {
+    type: 'http',
+    url: httpUrl,
+    displayName: name,
+  }
+}
+
+async function handleSubmit() {
   errorMessage.value = ''
 
   const name = displayName.value.trim()
@@ -150,38 +226,59 @@ async function handleAdd() {
     return
   }
 
-  const id = generateUniqueId(name)
+  const id = getServerId()
+  const config =
+    transport.value === 'http' ? buildHttpConfig(name, httpUrl) : buildStdioConfig(name, cmd)
 
   isSubmitting.value = true
 
   try {
-    switch (transport.value) {
-      case 'stdio': {
-        const parsedArgs = parseArgs(args.value)
-        await window.electronAPI.mcp.addServer(id, {
-          command: cmd,
-          args: parsedArgs,
-          displayName: name,
-        })
-        break
-      }
-      case 'http':
-        await window.electronAPI.mcp.addServer(id, {
-          type: 'http',
-          url: httpUrl,
-          displayName: name,
-        })
-        break
+    if (isAddMode.value) {
+      await handleAdd(id, config, name)
+    } else {
+      await handleUpdate(id, config, name)
     }
-
-    await mcp.reloadConfig()
-    toast.success(`MCP server "${name}" added`)
-    resetForm()
-    emits('update:open', false)
-    emits('added')
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : 'Failed to add server'
+    errorMessage.value =
+      error instanceof Error
+        ? error.message
+        : `Failed to ${isAddMode.value ? 'add' : 'update'} server`
     toast.error(errorMessage.value)
+  } finally {
+    isSubmitting.value = false
+  }
+}
+
+async function handleAdd(id: string, config: McpServerConfig, name: string) {
+  await window.electronAPI.mcp.addServer(id, config)
+  await mcp.reloadConfig()
+  toast.success(`MCP server "${name}" added`)
+  resetForm()
+  emits('update:open', false)
+  emits('added')
+}
+
+async function handleUpdate(id: string, config: McpServerConfig, name: string) {
+  await window.electronAPI.mcp.updateServer(id, config)
+  await mcp.reloadConfig()
+  toast.success(`MCP server "${name}" updated`)
+  resetForm()
+  emits('update:open', false)
+  emits('added')
+}
+
+async function handleRemove() {
+  const editServer = props.editServer
+  if (editServer === undefined) return
+  isSubmitting.value = true
+  try {
+    await window.electronAPI.mcp.removeServer(editServer.id)
+    await mcp.reloadConfig()
+    toast.success('MCP server removed')
+    emits('update:open', false)
+    resetForm()
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Failed to remove server')
   } finally {
     isSubmitting.value = false
   }

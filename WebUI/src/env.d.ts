@@ -71,6 +71,21 @@ type McpServerInfo = {
   name: string
 }
 
+type McpServerConfig =
+  | {
+      type?: 'stdio'
+      command: string
+      args?: string[]
+      env?: Record<string, string>
+      displayName?: string
+    }
+  | {
+      type: 'http'
+      url: string
+      headers?: Record<string, string>
+      displayName?: string
+    }
+
 type McpToolCallResult = {
   isError?: boolean
   content?: unknown
@@ -220,6 +235,14 @@ type electronAPI = {
         | { type?: 'stdio'; command: string; args?: string[]; displayName?: string }
         | { type: 'http'; url: string; headers?: Record<string, string>; displayName?: string },
     ): Promise<void>
+    getServerConfig(serverId: string): Promise<McpServerConfig>
+    updateServer(
+      serverId: string,
+      config:
+        | { type?: 'stdio'; command: string; args?: string[]; displayName?: string }
+        | { type: 'http'; url: string; headers?: Record<string, string>; displayName?: string },
+    ): Promise<void>
+    removeServer(serverId: string): Promise<void>
   }
 }
 

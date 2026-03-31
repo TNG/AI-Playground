@@ -11,15 +11,34 @@
         <span class="text-xs text-muted-foreground">{{ getStatusText(server.id) }}</span>
       </div>
 
-      <Button
-        variant="secondary"
-        size="sm"
-        class="px-3 py-1.5 rounded text-sm"
-        :disabled="!textInference.mcpToolsEnabled || mcp.isServerBusy(server.id)"
-        @click="mcp.toggleServer(server.id)"
-      >
-        {{ getStartButtonText(server.id) }}
-      </Button>
+      <div class="flex items-center gap-1">
+        <Button
+          variant="secondary"
+          size="sm"
+          class="px-3 py-1.5 rounded text-sm"
+          :disabled="!textInference.mcpToolsEnabled || mcp.isServerBusy(server.id)"
+          @click="mcp.toggleServer(server.id)"
+        >
+          {{ getStartButtonText(server.id) }}
+        </Button>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" class="h-7 w-7">
+              <EllipsisHorizontalIcon class="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem @select="openEditDialog(server.id)"> Edit </DropdownMenuItem>
+            <DropdownMenuItem
+              class="text-destructive focus:text-destructive"
+              @select="handleRemoveServer(server.id)"
+            >
+              Remove
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </div>
 
     <div v-if="mcp.allServers.length === 0" class="text-sm text-muted-foreground text-center py-2">
@@ -67,7 +86,8 @@
       </Button>
     </div>
 
-    <AddMcpServerDialog v-model:open="showAddDialog" />
+    <McpServerDialog v-model:open="showAddDialog" />
+    <McpServerDialog v-model:open="showEditDialog" :edit-server="editServer" />
   </div>
 </template>
 
@@ -77,11 +97,22 @@ import { useMcp } from '@/assets/js/store/mcp'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import AddMcpServerDialog from '@/components/AddMcpServerDialog.vue'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu'
+import { EllipsisHorizontalIcon } from '@heroicons/vue/24/outline'
+import * as toast from '@/assets/js/toast'
+import McpServerDialog from '@/components/McpServerDialog.vue'
+import type { McpServerConfig } from '../../electron/subprocesses/mcpServers'
 
 const mcp = useMcp()
 const textInference = useTextInference()
 const showAddDialog = ref(false)
+const showEditDialog = ref(false)
+const editServer = ref<{ id: string; config: McpServerConfig } | undefined>()
 
 function getStatusText(serverId: string): string {
   const status = mcp.getServerStatus(serverId)
@@ -124,5 +155,25 @@ async function openConfigInFolder() {
 
 async function reloadConfig() {
   await mcp.reloadConfig()
+}
+
+async function openEditDialog(serverId: string) {
+  try {
+    const config = await window.electronAPI.mcp.getServerConfig(serverId)
+    editServer.value = { id: serverId, config }
+    showEditDialog.value = true
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Failed to get server config')
+  }
+}
+
+async function handleRemoveServer(serverId: string) {
+  try {
+    await window.electronAPI.mcp.removeServer(serverId)
+    await mcp.reloadConfig()
+    toast.success('MCP server removed')
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Failed to remove server')
+  }
 }
 </script>

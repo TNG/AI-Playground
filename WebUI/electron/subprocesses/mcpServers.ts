@@ -77,3 +77,44 @@ export function addMcpServer(serverId: string, config: McpServerConfig): void {
 
   appLoggerInstance.info(`Added MCP server: ${serverId}`, 'mcp')
 }
+
+export function getMcpServerConfig(serverId: string): McpServerConfig {
+  const servers = loadMcpServers()
+
+  if (!servers[serverId]) {
+    throw new Error(`MCP server with ID "${serverId}" not found`)
+  }
+
+  appLoggerInstance.info(`Retrieved MCP server config: ${serverId}`, 'mcp')
+  return servers[serverId]
+}
+
+export function updateMcpServer(serverId: string, config: McpServerConfig): void {
+  const configPath = getMcpConfigPath()
+  const servers = loadMcpServers()
+
+  if (!servers[serverId]) {
+    throw new Error(`MCP server with ID "${serverId}" not found`)
+  }
+
+  servers[serverId] = config
+
+  fs.writeFileSync(configPath, JSON.stringify({ mcpServers: servers }, null, 2), 'utf-8')
+
+  appLoggerInstance.info(`Updated MCP server: ${serverId}`, 'mcp')
+}
+
+export function removeMcpServer(serverId: string): void {
+  const configPath = getMcpConfigPath()
+  const servers = loadMcpServers()
+
+  if (!servers[serverId]) {
+    throw new Error(`MCP server with ID "${serverId}" not found`)
+  }
+
+  delete servers[serverId]
+
+  fs.writeFileSync(configPath, JSON.stringify({ mcpServers: servers }, null, 2), 'utf-8')
+
+  appLoggerInstance.info(`Removed MCP server: ${serverId}`, 'mcp')
+}

@@ -65,7 +65,14 @@ import {
   stopAllMcpServers,
   stopMcpServer,
 } from './subprocesses/mcpManager'
-import { addMcpServer, getMcpConfigPath } from './subprocesses/mcpServers'
+import {
+  addMcpServer,
+  getMcpConfigPath,
+  getMcpServerConfig,
+  updateMcpServer,
+  removeMcpServer,
+  type McpServerConfig,
+} from './subprocesses/mcpServers'
 import { externalResourcesDir, getMediaDir } from './util.ts'
 import { loadDemoProfile, type DemoProfile } from './demoProfile.ts'
 import type { ModelPaths } from '@/assets/js/store/models.ts'
@@ -1381,6 +1388,20 @@ function initEventHandle() {
       return addMcpServer(serverId, config)
     },
   )
+
+  ipcMain.handle('mcp:getServerConfig', (_event, serverId: string) => {
+    return getMcpServerConfig(serverId)
+  })
+
+  ipcMain.handle('mcp:updateServer', async (_event, serverId: string, config: McpServerConfig) => {
+    await stopMcpServer(serverId)
+    return updateMcpServer(serverId, config)
+  })
+
+  ipcMain.handle('mcp:removeServer', async (_event, serverId: string) => {
+    await stopMcpServer(serverId)
+    return removeMcpServer(serverId)
+  })
 
   const getAssetPathFromUrl = (url: string) => {
     // Handle aipg-media:// URLs

@@ -158,5 +158,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
         | { type?: 'stdio'; command: string; args?: string[]; displayName?: string }
         | { type: 'http'; url: string; headers?: Record<string, string>; displayName?: string },
     ) => ipcRenderer.invoke('mcp:addServer', serverId, config),
+    getServerConfig: (serverId: string) => ipcRenderer.invoke('mcp:getServerConfig', serverId),
+    updateServer: (
+      serverId: string,
+      config:
+        | { type?: 'stdio'; command: string; args?: string[]; displayName?: string }
+        | { type: 'http'; url: string; headers?: Record<string, string>; displayName?: string },
+    ) => ipcRenderer.invoke('mcp:updateServer', serverId, config),
+    removeServer: (serverId: string) => ipcRenderer.invoke('mcp:removeServer', serverId),
   },
 })

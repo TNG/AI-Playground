@@ -231,6 +231,9 @@ export const useModels = defineStore(
           // STT path for openvino transcription models
           return pathsToUse['STT'] || ''
         }
+        if (type === 'openvino-image') {
+          return pathsToUse['openvino-image'] || ''
+        }
       }
 
       // Fallback: try to find by type directly

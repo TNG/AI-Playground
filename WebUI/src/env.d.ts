@@ -164,6 +164,13 @@ type electronAPI = {
   startTranscriptionServer(modelName: string): Promise<{ success: boolean; error?: string }>
   stopTranscriptionServer(): Promise<{ success: boolean; error?: string }>
   getTranscriptionServerUrl(): Promise<{ success: boolean; url?: string; error?: string }>
+  ensureOvmsImageReady(
+    serviceName: string,
+    modelName: string,
+    keepModelsLoaded?: boolean,
+  ): Promise<{ success: boolean; url?: string; error?: string }>
+  stopOvmsImageServer(): Promise<{ success: boolean; error?: string }>
+  getOvmsImageServerUrl(): Promise<{ success: boolean; url?: string; error?: string }>
   // ComfyUI Tools - uses uv for Python package management
   comfyui: {
     isGitInstalled(): Promise<boolean>

@@ -34,6 +34,12 @@
       "3/4"
     ]
   },
+  "requiredModels": [
+    {
+      "type": "openvino-image",
+      "model": "OpenVINO/LCM_Dreamshaper_v7-int8-ov"
+    }
+  ],
   "requiredPythonPackages": [],
   "settings": [
     {
@@ -130,7 +136,7 @@
     {
       "type": "string",
       "label": "Image API base URL",
-      "displayed": true,
+      "displayed": false,
       "modifiable": true,
       "defaultValue": "http://127.0.0.1:8000/v3",
       "nodeTitle": "prompt",
@@ -139,9 +145,9 @@
     {
       "type": "string",
       "label": "Model id",
-      "displayed": true,
+      "displayed": false,
       "modifiable": true,
-      "defaultValue": "stable-diffusion-v1-5/stable-diffusion-inpainting",
+      "defaultValue": "OpenVINO/LCM_Dreamshaper_v7-int8-ov",
       "nodeTitle": "prompt",
       "nodeInput": "model"
     }
@@ -167,7 +173,7 @@
           1
         ],
         "base_url": "http://127.0.0.1:8000/v3",
-        "model": "stable-diffusion-v1-5/stable-diffusion-inpainting",
+        "model": "OpenVINO/LCM_Dreamshaper_v7-int8-ov",
         "text": "",
         "seed": 0,
         "steps": 50,

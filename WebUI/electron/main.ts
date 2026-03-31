@@ -1042,6 +1042,90 @@ function initEventHandle() {
     return { success: false, error: 'Transcription server not supported' }
   })
 
+  ipcMain.handle(
+    'ensureOvmsImageReady',
+    async (
+      _event: IpcMainInvokeEvent,
+      serviceName: string,
+      modelName: string,
+      keepModelsLoaded?: boolean,
+    ) => {
+      if (!serviceRegistry) {
+        return { success: false, error: 'Service registry not ready' }
+      }
+      const service = serviceRegistry.getService(serviceName)
+      if (!service) {
+        return { success: false, error: `Service ${serviceName} not found` }
+      }
+
+      if ('startImageServer' in service && typeof service.startImageServer === 'function') {
+        try {
+          await service.startImageServer(modelName, keepModelsLoaded)
+          const url =
+            'getImageServerUrl' in service && typeof service.getImageServerUrl === 'function'
+              ? service.getImageServerUrl()
+              : null
+          if (url) {
+            return { success: true, url }
+          }
+          return { success: false, error: 'Image server started but URL not available' }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          appLogger.error(
+            `Failed to ensure OVMS image readiness: ${errorMessage}`,
+            'electron-backend',
+          )
+          return { success: false, error: errorMessage }
+        }
+      }
+
+      return { success: false, error: 'Image server not supported by this backend' }
+    },
+  )
+
+  ipcMain.handle('stopOvmsImageServer', async (_event: IpcMainInvokeEvent) => {
+    if (!serviceRegistry) {
+      return { success: false, error: 'Service registry not ready' }
+    }
+    const service = serviceRegistry.getService('openvino-backend')
+    if (!service) {
+      return { success: false, error: 'OpenVINO backend service not found' }
+    }
+
+    if ('stopImageServer' in service && typeof service.stopImageServer === 'function') {
+      try {
+        await service.stopImageServer()
+        return { success: true }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        appLogger.error(`Failed to stop OVMS image server: ${errorMessage}`, 'electron-backend')
+        return { success: false, error: errorMessage }
+      }
+    }
+
+    return { success: false, error: 'Image server not supported' }
+  })
+
+  ipcMain.handle('getOvmsImageServerUrl', async (_event: IpcMainInvokeEvent) => {
+    if (!serviceRegistry) {
+      return { success: false, error: 'Service registry not ready' }
+    }
+    const service = serviceRegistry.getService('openvino-backend')
+    if (!service) {
+      return { success: false, error: 'OpenVINO backend service not found' }
+    }
+
+    if ('getImageServerUrl' in service && typeof service.getImageServerUrl === 'function') {
+      const imageUrl = service.getImageServerUrl()
+      if (imageUrl) {
+        return { success: true, url: imageUrl }
+      }
+      return { success: false, error: 'Image server not running' }
+    }
+
+    return { success: false, error: 'Image server not supported' }
+  })
+
   ipcMain.on('ondragstart', async (event, filePath) => {
     const imagePath = getAssetPathFromUrl(filePath)
     if (!imagePath) return

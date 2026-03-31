@@ -1,7 +1,8 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
 import { WebSocket } from 'partysocket'
 import { demoAwareStorage } from '../demoAwareStorage'
-import { ComfyUIApiWorkflow } from './presets'
+import { ComfyUIApiWorkflow, type Preset } from './presets'
+import { useDeveloperSettings } from './developerSettings'
 import {
   useImageGenerationPresets,
   modelNameForComfyApi,
@@ -152,6 +153,28 @@ const getInputNameBySettingAndKey = (
     if (inputName !== undefined && inputName in inputs) return inputName
   }
   return ''
+}
+
+const OVMS_IMAGE_CLASS_TYPES = [
+  'OpenAICompatibleImageGeneration',
+  'OpenAICompatibleImageEdit',
+]
+
+function workflowUsesOvmsImage(workflow: ComfyUIApiWorkflow): boolean {
+  return OVMS_IMAGE_CLASS_TYPES.some(
+    (ct) => findKeysByClassType(workflow, ct).length > 0,
+  )
+}
+
+function injectOvmsImageUrl(workflow: ComfyUIApiWorkflow, url: string): void {
+  for (const classType of OVMS_IMAGE_CLASS_TYPES) {
+    for (const key of findKeysByClassType(workflow, classType)) {
+      const inputs = workflow[key]?.inputs
+      if (inputs && typeof inputs === 'object' && 'base_url' in inputs) {
+        inputs['base_url'] = url
+      }
+    }
+  }
 }
 
 function modifySettingInWorkflow(
@@ -1001,6 +1024,49 @@ export const useComfyUiPresets = defineStore(
       promptStore.promptSubmitted = false
     }
 
+    /**
+     * If the preset's workflow uses OVMS image nodes, ensure the OVMS image server
+     * is running with the correct model. Returns the server URL on success, null if
+     * the workflow doesn't need OVMS, or false on failure (caller should abort).
+     */
+    async function ensureOvmsImageServerIfNeeded(
+      preset: Preset,
+    ): Promise<string | null | false> {
+      if (preset.type !== 'comfy') return null
+      if (!workflowUsesOvmsImage(preset.comfyUiApiWorkflow)) return null
+
+      const modelInput = imageGeneration.comfyInputs.find(
+        (input) => 'nodeInput' in input && input.nodeInput === 'model',
+      )
+      const modelId =
+        (modelInput && 'current' in modelInput ? String(modelInput.current.value) : '') ||
+        preset.requiredModels?.[0]?.model ||
+        ''
+
+      if (!modelId) {
+        toast.error('No model id configured for OVMS image generation')
+        return false
+      }
+
+      try {
+        const { keepModelsLoaded } = useDeveloperSettings()
+        const result = await window.electronAPI.ensureOvmsImageReady(
+          'openvino-backend',
+          modelId,
+          keepModelsLoaded,
+        )
+        if (result.success && result.url) {
+          return result.url
+        }
+        toast.error(`Failed to start OVMS image server: ${result.error || 'unknown error'}`)
+        return false
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error)
+        toast.error(`OVMS image server error: ${msg}`)
+        return false
+      }
+    }
+
     async function generate(imageIds: string[], mode: WorkflowModeType, sourceImage?: string) {
       const preset = imageGeneration.activePreset
       if (!preset || preset.type !== 'comfy') {
@@ -1060,6 +1126,13 @@ export const useComfyUiPresets = defineStore(
         imageGeneration.currentState = 'install_workflow_components'
         await installCustomNodesForActivePresetFully()
 
+        // Ensure OVMS image server is ready if the workflow uses OpenAI-compatible image nodes
+        const ovmsImageUrl = await ensureOvmsImageServerIfNeeded(preset)
+        if (ovmsImageUrl === false) {
+          resetGenerationState()
+          return
+        }
+
         const platform = await window.electronAPI.getPlatform()
         const mutableWorkflow: ComfyUIApiWorkflow = JSON.parse(
           JSON.stringify(preset.comfyUiApiWorkflow),
@@ -1075,6 +1148,11 @@ export const useComfyUiPresets = defineStore(
         modifySettingInWorkflow(mutableWorkflow, 'negativePrompt', imageGeneration.negativePrompt)
 
         await modifyDynamicSettingsInWorkflow(mutableWorkflow, platform)
+
+        if (ovmsImageUrl) {
+          injectOvmsImageUrl(mutableWorkflow, ovmsImageUrl)
+        }
+
         bypassOptionalModelNodes(mutableWorkflow)
         normalizeModelPathsInWorkflow(mutableWorkflow, platform)
 

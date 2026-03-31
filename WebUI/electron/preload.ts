@@ -124,6 +124,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('startTranscriptionServer', modelName),
   stopTranscriptionServer: () => ipcRenderer.invoke('stopTranscriptionServer'),
   getTranscriptionServerUrl: () => ipcRenderer.invoke('getTranscriptionServerUrl'),
+  ensureOvmsImageReady: (serviceName: string, modelName: string, keepModelsLoaded?: boolean) =>
+    ipcRenderer.invoke('ensureOvmsImageReady', serviceName, modelName, keepModelsLoaded),
+  stopOvmsImageServer: () => ipcRenderer.invoke('stopOvmsImageServer'),
+  getOvmsImageServerUrl: () => ipcRenderer.invoke('getOvmsImageServerUrl'),
   // ComfyUI Tools
   comfyui: {
     isGitInstalled: () => ipcRenderer.invoke('comfyui:isGitInstalled'),

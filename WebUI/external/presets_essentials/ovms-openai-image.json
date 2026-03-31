@@ -1,0 +1,140 @@
+{
+  "type": "comfy",
+  "name": "OVMS OpenAI Image",
+  "displayPriority": 420,
+  "tags": ["OVMS", "OpenVINO", "512x512"],
+  "backend": "comfyui",
+  "category": "create-images",
+  "description": "Generate images via an OpenAI-compatible image API served by OpenVINO Model Server",
+  "extendedDescription": "Runs text-to-image through ComfyUI using a remote /v3/images/generations endpoint. For testing, run OVMS locally (default base URL http://127.0.0.1:8000/v3). Adjust the API base URL in settings when your server uses another port.",
+  "mediaType": "image",
+  "toolCategory": "create-images",
+  "toolInstructions": "Write a single detailed text prompt describing the image: subject, style, lighting, composition, and quality. OVMS uses the model configured on the server; keep prompts clear and concrete.",
+  "resolutionConfig": {
+    "megapixels": [
+      { "label": "0.26", "totalPixels": 262144 },
+      { "label": "0.5", "totalPixels": 495616 }
+    ],
+    "aspectRatios": ["1/1", "16/9", "9/16", "4/3", "3/4"]
+  },
+  "requiredPythonPackages": [],
+  "settings": [
+    {
+      "type": "string",
+      "label": "Prompt",
+      "displayed": false,
+      "modifiable": true,
+      "defaultValue": "",
+      "settingName": "prompt"
+    },
+    {
+      "type": "number",
+      "label": "Seed",
+      "displayed": false,
+      "modifiable": true,
+      "defaultValue": -1,
+      "settingName": "seed"
+    },
+    {
+      "type": "number",
+      "label": "Inference Steps",
+      "displayed": false,
+      "modifiable": true,
+      "defaultValue": 50,
+      "settingName": "inferenceSteps"
+    },
+    {
+      "type": "number",
+      "label": "Width",
+      "displayed": false,
+      "modifiable": false,
+      "defaultValue": 512,
+      "settingName": "width"
+    },
+    {
+      "type": "number",
+      "label": "Height",
+      "displayed": false,
+      "modifiable": false,
+      "defaultValue": 512,
+      "settingName": "height"
+    },
+    {
+      "type": "string",
+      "label": "Resolution",
+      "displayed": false,
+      "modifiable": true,
+      "defaultValue": "512x512",
+      "settingName": "resolution"
+    },
+    {
+      "type": "number",
+      "label": "Batch Size",
+      "displayed": false,
+      "modifiable": true,
+      "defaultValue": 1,
+      "settingName": "batchSize"
+    },
+    {
+      "type": "boolean",
+      "label": "Safety Check",
+      "displayed": true,
+      "modifiable": true,
+      "defaultValue": false,
+      "settingName": "safetyCheck"
+    },
+    {
+      "type": "boolean",
+      "label": "Show Preview",
+      "displayed": true,
+      "modifiable": true,
+      "defaultValue": true,
+      "settingName": "showPreview"
+    },
+    {
+      "type": "string",
+      "label": "Image API base URL",
+      "displayed": true,
+      "modifiable": true,
+      "defaultValue": "http://127.0.0.1:8000/v3",
+      "nodeTitle": "prompt",
+      "nodeInput": "base_url"
+    },
+    {
+      "type": "string",
+      "label": "Model id",
+      "displayed": true,
+      "modifiable": true,
+      "defaultValue": "OpenVINO/stable-diffusion-v1-5-int8-ov",
+      "nodeTitle": "prompt",
+      "nodeInput": "model"
+    }
+  ],
+  "comfyUiApiWorkflow": {
+    "1": {
+      "inputs": {
+        "base_url": "http://127.0.0.1:8000/v3",
+        "model": "OpenVINO/stable-diffusion-v1-5-int8-ov",
+        "text": "",
+        "seed": 0,
+        "steps": 50,
+        "width": 512,
+        "height": 512
+      },
+      "class_type": "OpenAICompatibleImageGeneration",
+      "_meta": {
+        "title": "prompt"
+      }
+    },
+    "2": {
+      "inputs": {
+        "filename_prefix": "AIPG_OVMS",
+        "images": ["1", 0]
+      },
+      "class_type": "SaveImage",
+      "_meta": {
+        "title": "Save Image"
+      }
+    }
+  }
+}

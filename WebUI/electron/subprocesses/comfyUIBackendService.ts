@@ -838,6 +838,7 @@ except Exception as e:
     const mediaDir = getMediaDir()
     const parameters = [
       'main.py',
+      '--verbose',
       '--port',
       this.port.toString(),
       '--preview-method',

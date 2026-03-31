@@ -81,6 +81,8 @@ const emits = defineEmits<{
   (e: 'update:cropX', value: number): void
   (e: 'update:cropY', value: number): void
   (e: 'update:preview', value: string): void
+  /** RGBA PNG for Comfy LoadImage: opaque where the source sits, transparent in outpaint regions */
+  (e: 'compositeExport', value: string): void
 }>()
 
 const canvas = useTemplateRef<HTMLCanvasElement>('canvas')
@@ -243,6 +245,39 @@ function emitAllValues() {
 
   // Emit preview image
   emitPreviewImage()
+  emitCompositeForOvmsUpload()
+}
+
+/** PNG with alpha: transparent outside the placed image so Comfy/OVMS treat borders as mask. */
+function emitCompositeForOvmsUpload() {
+  if (!sourceImage.value || !imageLoaded.value) return
+
+  const c = document.createElement('canvas')
+  c.width = props.targetWidth
+  c.height = props.targetHeight
+  const ctx = c.getContext('2d')
+  if (!ctx) return
+
+  ctx.clearRect(0, 0, c.width, c.height)
+
+  const sourceCropX = (cropX.value / imageWidth.value) * sourceImageWidth.value
+  const sourceCropY = (cropY.value / imageHeight.value) * sourceImageHeight.value
+  const sourceCropWidth = (cropWidth.value / imageWidth.value) * sourceImageWidth.value
+  const sourceCropHeight = (cropHeight.value / imageHeight.value) * sourceImageHeight.value
+
+  ctx.drawImage(
+    sourceImage.value,
+    sourceCropX,
+    sourceCropY,
+    sourceCropWidth,
+    sourceCropHeight,
+    imageX.value + cropX.value,
+    imageY.value + cropY.value,
+    cropWidth.value,
+    cropHeight.value,
+  )
+
+  emits('compositeExport', c.toDataURL('image/png'))
 }
 
 // Generate and emit a clean preview image (positioned image without UI elements)

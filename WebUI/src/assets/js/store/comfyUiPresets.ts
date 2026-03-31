@@ -145,8 +145,11 @@ const getInputNameBySettingAndKey = (
   key: string,
   setting: ComfySetting,
 ) => {
+  const inputs = workflow[key]?.inputs
+  if (!inputs || typeof inputs !== 'object') return ''
   for (const inputName of settingToComfyInputsName[setting]) {
-    if (workflow[key]?.inputs?.[inputName ?? '']) return inputName
+    // Use `in`, not truthiness: empty prompt ("") and seed 0 are valid defaults to overwrite
+    if (inputName !== undefined && inputName in inputs) return inputName
   }
   return ''
 }
@@ -169,10 +172,11 @@ function modifySettingInWorkflow(
   }
   const key = keys[0]
   const inputName = getInputNameBySettingAndKey(workflow, key, setting)
-  if (workflow[key]?.inputs?.[inputName] !== undefined) {
-    workflow[key].inputs[inputName] = value
-  } else if (workflow[key]?.inputs?.['a'] !== undefined) {
-    workflow[key].inputs['a'] = value
+  const nodeInputs = workflow[key]?.inputs
+  if (inputName !== '' && nodeInputs && inputName in nodeInputs) {
+    nodeInputs[inputName] = value
+  } else if (nodeInputs && 'a' in nodeInputs) {
+    nodeInputs['a'] = value
   }
 }
 
@@ -863,7 +867,7 @@ export const useComfyUiPresets = defineStore(
         }
 
         // Check if this is a required image input
-        const isImageType = input.type === 'image' || input.type === 'inpaintMask'
+        const isImageType = input.type === 'image' || input.type === 'inpaintMask' || input.type === 'outpaintCanvas'
         const isDisplayed = input.displayed !== false // defaults to true
         const isModifiable = input.modifiable !== false // defaults to true
         const hasNoDefault = input.defaultValue === '' || input.defaultValue === undefined
@@ -917,7 +921,7 @@ export const useComfyUiPresets = defineStore(
             ;(mutableWorkflow[keys[0]].inputs as any)[input.nodeInput] = value
           }
         }
-        if (input.type === 'image' || input.type === 'inpaintMask') {
+        if (input.type === 'image' || input.type === 'inpaintMask' || input.type === 'outpaintCanvas') {
           const rawValue = input.current.value
           const isEmpty = typeof rawValue !== 'string' || rawValue === '' || !isImageUrl(rawValue)
           const isOptional = input.optional === true
@@ -941,8 +945,7 @@ export const useComfyUiPresets = defineStore(
           )
             .map((b) => b.toString(16).padStart(2, '0'))
             .join('')
-          // For inpaintMask, always use PNG to preserve alpha channel
-          // For regular images, extract extension from data URI
+          // PNG for alpha (inpaint / outpaint composites); else follow data URI
           let uploadImageExtension = 'png'
           if (input.type === 'image') {
             const match = imageDataUri.match(/data:image\/(png|jpeg|webp);base64,/)

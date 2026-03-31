@@ -59,29 +59,36 @@
 
     <!-- Footer: config actions -->
 
-    <div class="flex justify-between px-1">
-      <div class="flex gap-2">
-        <Button
-          variant="link"
-          size="sm"
-          class="px-0 text-muted-foreground"
-          @click="showAddDialog = true"
-        >
-          Add server...
-        </Button>
-        <Button variant="link" size="sm" class="px-0 text-muted-foreground" @click="openConfig">
-          Edit mcp.json
-        </Button>
-        <Button
-          variant="link"
-          size="sm"
-          class="px-0 text-muted-foreground"
-          @click="openConfigInFolder"
-        >
-          Show in folder
-        </Button>
-      </div>
-      <Button variant="link" size="sm" class="px-0 text-muted-foreground" @click="reloadConfig">
+    <div class="flex justify-start gap-4 pl-2">
+      <Button
+        variant="link"
+        size="sm"
+        class="px-0 text-muted-foreground gap-1"
+        @click="showAddDialog = true"
+      >
+        <span class="svg-icon i-add w-4 h-4 shrink-0" />
+        Add server...
+      </Button>
+      <Button variant="link" size="sm" class="px-0 text-muted-foreground gap-1" @click="openConfig">
+        <span class="svg-icon i-pen w-4 h-4 shrink-0" />
+        Edit mcp.json
+      </Button>
+      <Button
+        variant="link"
+        size="sm"
+        class="px-0 text-muted-foreground gap-1"
+        @click="openConfigInFolder"
+      >
+        <span class="svg-icon i-folder w-4 h-4 shrink-0" />
+        Show in folder
+      </Button>
+      <Button
+        variant="link"
+        size="sm"
+        class="px-0 text-muted-foreground gap-1"
+        @click="reloadConfig"
+      >
+        <span class="svg-icon i-refresh w-4 h-4 shrink-0" />
         Reload
       </Button>
     </div>

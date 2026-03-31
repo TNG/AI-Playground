@@ -566,15 +566,9 @@ const showMenuButton = computed(
                   name="releaseTag"
                 >
                   <FormItem class="mt-4">
-                    <FormLabel>{{
-                      i18nState.BACKEND_RELEASE_TAG || 'Release Tag'
-                    }}</FormLabel>
+                    <FormLabel>{{ i18nState.BACKEND_RELEASE_TAG || 'Release Tag' }}</FormLabel>
                     <FormControl>
-                      <Input
-                        type="text"
-                        placeholder="72cc0624"
-                        v-bind="componentField"
-                      />
+                      <Input type="text" placeholder="72cc0624" v-bind="componentField" />
                     </FormControl>
                     <FormDescription>
                       {{

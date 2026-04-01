@@ -3,10 +3,16 @@
     "chatPreset": "Basic Chat",
     "chatModel": "unsloth/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-Q5_K_S.gguf",
     "imageGenPreset": "Draft Image",
-    "imageEditPreset": "Upscale"
+    "imageEditPreset": "Sketch to Photo"
   },
   "inputImage": "demo_cat.png",
   "samplePrompts": [
+    {
+      "title": "Prompt Example",
+      "description": "Ask a science question and get an answer:",
+      "prompt": "Why does water expand when it freezes?",
+      "mode": "chat"
+    },
     {
       "title": "Image Generation Example",
       "description": "Create an image from a text prompt:",
@@ -14,14 +20,16 @@
       "mode": "imageGen"
     },
     {
-      "title": "Image Upscale Example",
-      "description": "Upscale an image by 4x. An image is already given:",
-      "prompt": "Upscale an image by 4x",
-      "mode": "imageEdit"
+      "title": "Sketch to Photo Example",
+      "description": "Turn a sketch into a photo by describing the scene:",
+      "prompt": "Photo of a modern apartment building, tropical resort, sunset view",
+      "mode": "imageEdit",
+      "presetName": "Sketch to Photo"
     }
   ],
-  "enabledModes": ["imageGen", "imageEdit"],
+  "enabledModes": ["chat", "imageGen", "imageEdit"],
   "notificationDotButtons": [
+    "mode-button-chat",
     "mode-button-imageGen",
     "mode-button-imageEdit",
     "app-settings-button",

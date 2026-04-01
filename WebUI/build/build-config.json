@@ -23,6 +23,14 @@
       "to": "presets_demo"
     },
     {
+      "from": "external/presets_essentials_demo",
+      "to": "presets_essentials_demo"
+    },
+    {
+      "from": "external/presets_essentials",
+      "to": "presets_essentials"
+    },
+    {
       "from": "../device-service",
       "to": "device-service"
     },

@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getThemeSettings: () => ipcRenderer.invoke('getThemeSettings'),
   updateLocalSettings: (updates: Partial<LocalSettings>) =>
     ipcRenderer.invoke('updateLocalSettings', updates),
+  detectHardwareForModeRecommendation: () =>
+    ipcRenderer.invoke('detectHardwareForModeRecommendation'),
   getWinSize: () => ipcRenderer.invoke('getWinSize'),
   setWinSize: (width: number, height: number) => ipcRenderer.invoke('setWinSize', width, height),
   showSaveDialog: (options: Electron.SaveDialogOptions) =>

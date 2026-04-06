@@ -18,9 +18,9 @@
       <h1 class="select-none flex gap-2 items-baseline">
         <span style="color: #00c4fa">AI</span>
         <span>PLAYGROUND</span>
-        <span v-if="demoMode.productMode === 'essentials'" class="text-muted-foreground font-medium"
-          >essentials</span
-        >
+        <span v-if="globalSetup.productMode" class="text-muted-foreground/60 font-medium">{{
+          globalSetup.productMode === 'essentials' ? 'essentials' : 'studio'
+        }}</span>
         <span v-if="platformTitle" class="text-sm font-normal">{{ platformTitle }}</span>
       </h1>
     </div>
@@ -80,14 +80,29 @@
     </div>
   </header>
   <main
-    v-show="globalSetup.loadingState === 'verifyBackend'"
+    v-show="
+      globalSetup.loadingState === 'verifyBackend' || globalSetup.loadingState === 'autoInstalling'
+    "
     class="flex-auto flex items-center justify-center"
   >
     <loading-bar
-      :text="languages.LOADING_VERIFYING_BACKENDS"
+      :text="
+        globalSetup.loadingState === 'autoInstalling'
+          ? 'Setting up AI Playground...'
+          : languages.LOADING_VERIFYING_BACKENDS
+      "
       class="w-3/5"
       style="word-spacing: 8px"
     ></loading-bar>
+  </main>
+  <main
+    v-show="globalSetup.loadingState === 'selectProductMode'"
+    class="flex-auto flex items-center justify-center"
+  >
+    <product-mode-selector
+      :recommended-mode="globalSetup.hardwareRecommendation?.recommendedMode ?? null"
+      @select="onProductModeSelected"
+    />
   </main>
   <main
     v-show="globalSetup.loadingState === 'manageInstallations'"
@@ -294,6 +309,7 @@
 <script setup lang="ts">
 import LoadingBar from './components/LoadingBar.vue'
 import InstallationManagement from './components/InstallationManagement.vue'
+import ProductModeSelector from './components/ProductModeSelector.vue'
 import PromptArea from '@/views/PromptArea.vue'
 import './assets/css/index.css'
 import { useGlobalSetup } from './assets/js/store/globalSetup'
@@ -441,24 +457,65 @@ onMounted(async () => {
 
 async function setInitalLoadingState() {
   console.log('setting loading state')
-  // Wait for service info (non-blocking check)
   if (!backendServices.serviceInfoUpdateReceived) {
     globalSetup.loadingState = 'verifyBackend'
     setTimeout(setInitalLoadingState, 1000)
     return
   }
 
-  // Check if installation dialog is needed
-  // Wait for setup checks to complete before deciding
-  const needsInstallation = await backendServices.shouldShowInstallationDialog()
-  if (needsInstallation) {
-    globalSetup.loadingState = 'manageInstallations'
-    // Note: Backends are now started automatically by the service registry
-    // This call is kept as a fallback for manual restarts
-    backendServices.startAllSetUpServicesInBackground()
+  // Auto-install ai-backend if not set up (required for hardware detection)
+  const aiBackend = backendServices.info.find((s) => s.serviceName === 'ai-backend')
+  if (aiBackend && !aiBackend.isSetUp) {
+    globalSetup.loadingState = 'autoInstalling'
+    console.log('Auto-installing ai-backend service')
+    const result = await backendServices.setUpService('ai-backend')
+    if (!result.success) {
+      console.error('Failed to auto-install ai-backend:', result.errorDetails)
+      globalSetup.loadingState = 'manageInstallations'
+      backendServices.startAllSetUpServicesInBackground()
+      return
+    }
+    await backendServices.startService('ai-backend')
+  }
+
+  // Check if user needs to select product mode (first run)
+  if (!globalSetup.productMode) {
+    globalSetup.loadingState = 'autoInstalling'
+    try {
+      const recommendation = await window.electronAPI.detectHardwareForModeRecommendation()
+      globalSetup.hardwareRecommendation = recommendation
+    } catch (e) {
+      console.warn('Hardware detection failed, defaulting to studio recommendation:', e)
+      globalSetup.hardwareRecommendation = {
+        success: false,
+        recommendedMode: 'studio',
+        detectedDevices: [],
+      }
+    }
+    globalSetup.loadingState = 'selectProductMode'
     return
   }
 
+  // Product mode already chosen - sync to main process and continue
+  await globalSetup.syncProductModeToMain()
+  await proceedAfterModeSelection()
+}
+
+async function onProductModeSelected(mode: ProductMode) {
+  globalSetup.productMode = mode
+  await globalSetup.syncProductModeToMain()
+  // After first-time mode selection, always show installation management
+  globalSetup.loadingState = 'manageInstallations'
+  backendServices.startAllSetUpServicesInBackground()
+}
+
+async function proceedAfterModeSelection() {
+  const needsInstallation = await backendServices.shouldShowInstallationDialog()
+  if (needsInstallation) {
+    globalSetup.loadingState = 'manageInstallations'
+    backendServices.startAllSetUpServicesInBackground()
+    return
+  }
   await concludeLoadingState()
 }
 

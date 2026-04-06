@@ -53,6 +53,7 @@ import {
   COMFYUI_DEFAULT_PARAMETERS,
 } from './subprocesses/comfyUIBackendService'
 import { LLAMACPP_DEFAULT_PARAMETERS } from './subprocesses/llamaCppBackendService'
+import { AiBackendService } from './subprocesses/aiBackendService'
 import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateIntelPresets.ts'
 import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
 import * as comfyuiTools from './subprocesses/comfyuiTools'
@@ -103,7 +104,7 @@ const appSize = {
   maxChatContentHeight: 0,
 }
 const ThemeSchema = z.enum(['dark', 'lnl', 'bmg', 'light'])
-const ProductModeSchema = z.enum(['professional', 'essentials'])
+const ProductModeSchema = z.enum(['studio', 'essentials'])
 const LocalSettingsSchema = z.object({
   debug: z.boolean().default(false),
   deviceArchOverride: z.enum(['bmg', 'acm', 'arl_h', 'lnl', 'mtl']).nullable().default(null),
@@ -111,7 +112,7 @@ const LocalSettingsSchema = z.object({
   isAdminExec: z.boolean().default(false),
   availableThemes: z.array(ThemeSchema).default(['dark', 'lnl', 'bmg', 'light']),
   currentTheme: ThemeSchema.default('bmg'),
-  productMode: ProductModeSchema.default('professional'),
+  productMode: ProductModeSchema.default('studio'),
   isDemoModeEnabled: z.boolean().default(false),
   demoModeResetInSeconds: z.number().min(1).nullable().default(null),
   demoModePresetsDir: z.string().optional(),
@@ -129,8 +130,8 @@ export type ProductMode = z.infer<typeof ProductModeSchema>
  * When demo mode is enabled and a custom `demoModePresetsDir` is set, that value
  * takes precedence (backward-compatible override). Otherwise:
  *
- *   professional + non-demo → presets
- *   professional + demo    → presets_demo
+ *   studio     + non-demo → presets
+ *   studio     + demo    → presets_demo
  *   essentials   + non-demo → presets_essentials
  *   essentials   + demo    → presets_essentials_demo
  */
@@ -464,6 +465,61 @@ function initEventHandle() {
     Object.assign(settings, updates)
     appLogger.info(`Updated local settings: ${JSON.stringify(updates)}`, 'electron-backend')
     return { success: true }
+  })
+
+  ipcMain.handle('detectHardwareForModeRecommendation', async () => {
+    if (!serviceRegistry) {
+      return {
+        success: false,
+        error: 'Service registry not ready',
+        recommendedMode: 'studio' as const,
+        detectedDevices: [],
+      }
+    }
+    const service = serviceRegistry.getService('ai-backend')
+    if (!service || !(service instanceof AiBackendService)) {
+      return {
+        success: false,
+        error: 'ai-backend service not found',
+        recommendedMode: 'studio' as const,
+        detectedDevices: [],
+      }
+    }
+
+    const hwResult = await service.detectHardwareDevices()
+
+    const recommendationsPath = path.join(externalRes, 'hardware-recommendations.json')
+    let essentialsIds: string[] = []
+    let defaultRec: ProductMode = 'studio'
+    try {
+      const raw = fs.readFileSync(recommendationsPath, 'utf-8')
+      const config = JSON.parse(raw)
+      essentialsIds = (config.essentialsGpuDeviceIds ?? []).map((id: string) => id.toLowerCase())
+      defaultRec = config.defaultRecommendation ?? 'studio'
+    } catch (e) {
+      appLogger.warn(`Failed to read hardware-recommendations.json: ${e}`, 'electron-backend')
+    }
+
+    let recommendedMode: ProductMode = defaultRec
+    if (hwResult.success) {
+      const gpuIds = hwResult.gpuDevices
+        .map((d) => d.gpuDeviceId)
+        .filter((id): id is string => id !== null)
+        .map((id) => id.toLowerCase())
+
+      if (gpuIds.length === 0 || gpuIds.every((id) => essentialsIds.includes(id))) {
+        recommendedMode = 'essentials'
+      } else {
+        recommendedMode = 'studio'
+      }
+    }
+
+    return {
+      success: hwResult.success,
+      recommendedMode,
+      detectedDevices: hwResult.gpuDevices,
+      error: hwResult.error,
+    }
   })
 
   ipcMain.handle('getWinSize', () => {

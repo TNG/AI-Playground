@@ -43,7 +43,20 @@ type DemoProfile = {
   notificationDotButtons: string[]
 }
 
-type ProductMode = 'professional' | 'essentials'
+type ProductMode = 'studio' | 'essentials'
+
+type GpuHardwareDevice = {
+  device: string
+  name: string
+  gpuDeviceId: string | null
+}
+
+type HardwareRecommendationResult = {
+  success: boolean
+  recommendedMode: ProductMode
+  detectedDevices: GpuHardwareDevice[]
+  error?: string
+}
 
 type DemoModeSettings = {
   isDemoModeEnabled: boolean
@@ -86,6 +99,7 @@ type electronAPI = {
   getLocaleSettings(): Promise<LocaleSettings>
   getThemeSettings(): Promise<ThemeSettings>
   updateLocalSettings(updates: Partial<LocalSettings>): Promise<{ success: boolean }>
+  detectHardwareForModeRecommendation(): Promise<HardwareRecommendationResult>
   setWinSize(width: number, height: number): Promise<void>
   showSaveDialog(options: Electron.SaveDialogOptions): Promise<Electron.SaveDialogReturnValue>
   showMessageBox(options: Electron.MessageBoxOptions): Promise<number>

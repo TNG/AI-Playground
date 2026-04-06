@@ -3,7 +3,7 @@
     <div class="px-20 py-5 max-w-5xl">
       <h1 class="text-center py-1 px-4 rounded-sm text-4xl">
         {{
-          demoMode.productMode === 'essentials'
+          globalSetup.productMode === 'essentials'
             ? languages.BACKEND_MANAGE_ESSENTIALS
             : languages.BACKEND_MANAGE
         }}
@@ -288,7 +288,7 @@ import ErrorDetailsModal from '@/components/ErrorDetailsModal.vue'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import type { ErrorDetails } from '../../electron/subprocesses/service'
-import { useDemoMode } from '@/assets/js/store/demoMode'
+import { useGlobalSetup } from '@/assets/js/store/globalSetup'
 
 const emits = defineEmits<{
   (e: 'close'): void
@@ -300,7 +300,7 @@ type ExtendedApiServiceInformation = ApiServiceInformation & {
 }
 
 const backendServices = useBackendServices()
-const demoMode = useDemoMode()
+const globalSetup = useGlobalSetup()
 
 // App version for AI Backend display (fetched directly to avoid timing issues with globalSetup.initSetup)
 const appVersion = ref('...')

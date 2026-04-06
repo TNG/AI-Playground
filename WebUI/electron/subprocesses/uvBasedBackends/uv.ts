@@ -347,6 +347,18 @@ export const installWheel = async (backend: string, wheelPath: string) => {
   return uv(uvCommand, logger)
 }
 
+export const installExtraWheels = async (backend: string) => {
+  const logger = loggerFor(`uv.wheels.${backend}`)
+  const wheelDir = app.isPackaged ? aipgBaseDir : path.join(aipgBaseDir, 'external')
+  logger.info(`Scanning for extra wheels in ${wheelDir}`)
+  const entries = await fs.promises.readdir(wheelDir)
+  const wheelFiles = entries.filter((e) => e.endsWith('.whl'))
+  logger.info(`Found extra wheels: ${JSON.stringify(wheelFiles)}`)
+  for (const whl of wheelFiles) {
+    await installWheel(backend, path.join(wheelDir, whl))
+  }
+}
+
 /**
  * Check if a Python package is installed in a backend's environment
  */

@@ -7,6 +7,7 @@ import {
   isPackageInstalled as uvIsPackageInstalled,
   installPypiPackage as uvInstallPackage,
   installRequirementsTxt,
+  installExtraWheels,
   aipgBaseDir,
 } from './uvBasedBackends/uv'
 
@@ -282,6 +283,8 @@ export async function downloadCustomNode(
 
     // Install pip requirements using uv
     await installPipRequirements(potentialNodeRequirements)
+
+    await installExtraWheels(COMFYUI_BACKEND)
 
     appLoggerInstance.info(
       `Successfully installed custom node ${nodeRepoData.username}/${nodeRepoData.repoName}`,

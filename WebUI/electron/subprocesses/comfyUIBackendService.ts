@@ -16,7 +16,7 @@ import {
   checkBackendWithDetails,
   ensureBackendVenv,
   installBackend,
-  installWheel,
+  installExtraWheels,
   pipInstallRequirementsFromFile,
 } from './uvBasedBackends/uv.ts'
 import {
@@ -636,15 +636,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         debugMessage: `installing comfyUI base repo`,
       }
       await setupComfyUiBaseService()
-
-      this.appLogger.info('scanning for extra wheels', this.name)
-      const wheelFiles = (await filesystem.readdir(this.wheelDir)).filter((e) =>
-        e.endsWith('.whl'),
-      )
-      this.appLogger.info(`found extra wheels: ${JSON.stringify(wheelFiles)}`, this.name)
-      for (const wheelFile of wheelFiles) {
-        await installWheel(this.serviceFolder, path.join(this.wheelDir, wheelFile))
-      }
+      await installExtraWheels(this.serviceFolder)
 
       yield {
         serviceName: this.name,

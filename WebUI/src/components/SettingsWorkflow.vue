@@ -81,9 +81,12 @@
           </div>
         </div>
 
-        <div v-if="modifiableOrDisplayed('negativePrompt')" class="flex flex-col gap-2">
-          <div class="flex items-center justify-between gap-2 min-w-0 max-w-[120px]">
-            <Label class="truncate min-w-0">
+        <div
+          v-if="modifiableOrDisplayed('negativePrompt')"
+          class="grid grid-cols-[120px_1fr] items-start gap-4"
+        >
+          <div class="flex items-center justify-between gap-2 min-w-0 w-[120px] mt-2">
+            <Label class="whitespace-nowrap truncate min-w-0">
               {{ languages.SETTINGS_MODEL_NEGATIVE_PROMPT }}
             </Label>
             <Tooltip>
@@ -102,10 +105,13 @@
           ></textarea>
         </div>
 
-        <div v-if="modifiableOrDisplayed('seed')" class="flex flex-col gap-2">
-          <div class="flex items-center justify-between gap-2 min-w-0 max-w-[120px]">
-            <Label class="truncate min-w-0">
-              {{ languages.SETTINGS_MODEL_SEED }}: {{ imageGeneration.seed }}
+        <div
+          v-if="modifiableOrDisplayed('seed')"
+          class="grid grid-cols-[120px_1fr] items-center gap-4"
+        >
+          <div class="flex items-center justify-between gap-2 min-w-0 w-[120px]">
+            <Label class="whitespace-nowrap truncate min-w-0">
+              {{ languages.SETTINGS_MODEL_SEED }}
             </Label>
             <Tooltip>
               <TooltipTrigger as-child>

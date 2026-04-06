@@ -1,8 +1,7 @@
-import * as filesystem from 'fs-extra'
 import { ChildProcess, spawn } from 'node:child_process'
 import path from 'node:path'
 import { GitService, LongLivedPythonApiService, createEnhancedErrorDetails } from './service.ts'
-import { aipgBaseDir, checkBackend, installBackend, installWheel } from './uvBasedBackends/uv.ts'
+import { aipgBaseDir, checkBackend, installBackend } from './uvBasedBackends/uv.ts'
 import { BrowserWindow } from 'electron'
 import { LocalSettings } from '../main.ts'
 
@@ -65,13 +64,6 @@ export class AiBackendService extends LongLivedPythonApiService {
         debugMessage: `installing dependencies`,
       }
       await installBackend(this.serviceFolder)
-
-      this.appLogger.info('scanning for extra wheels', this.name)
-      const wheelFiles = (await filesystem.readdir(this.wheelDir)).filter((e) => e.endsWith('.whl'))
-      this.appLogger.info(`found extra wheels: ${JSON.stringify(wheelFiles)}`, this.name)
-      for (const wheelFile of wheelFiles) {
-        await installWheel(this.serviceFolder, path.join(this.wheelDir, wheelFile))
-      }
 
       yield {
         serviceName: this.name,

@@ -3,10 +3,10 @@
   "availableThemes": ["dark", "lnl", "bmg", "light"],
   "currentTheme": "light",
   "enablePreviewFeatures": true,
-  "isDemoModeEnabled": true,
+  "isDemoModeEnabled": false,
   "demoModeResetInSeconds": 60,
-  "productMode": "essentials",
-  "demoModePresetsDir": "presets_essentials_demo",
+  "productMode": "professional",
+  "demoModePresetsDir": "presets_demo",
   "demoModePasscode": "0451",
   "languageOverride": null,
   "remoteRepository": "asdf/ai-playground"

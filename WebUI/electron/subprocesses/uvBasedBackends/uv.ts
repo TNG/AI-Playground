@@ -341,7 +341,7 @@ export const checkBackendWithDetails = async (
 export const installWheel = async (backend: string, wheelPath: string) => {
   const logger = loggerFor(`uv.wheel.${backend}`)
   await assertUv(logger)
-  const uvCommand = ['pip', 'install', '--directory', path.join(aipgBaseDir, backend), wheelPath]
+  const uvCommand = ['pip', 'install', '--no-deps', '--directory', path.join(aipgBaseDir, backend), wheelPath]
   logger.info(`Installing wheel: ${wheelPath} with ${JSON.stringify(uvCommand)}`)
 
   return uv(uvCommand, logger)
@@ -349,7 +349,7 @@ export const installWheel = async (backend: string, wheelPath: string) => {
 
 export const installExtraWheels = async (backend: string) => {
   const logger = loggerFor(`uv.wheels.${backend}`)
-  const wheelDir = app.isPackaged ? aipgBaseDir : path.join(aipgBaseDir, 'external')
+  const wheelDir = app.isPackaged ? aipgBaseDir : path.join(aipgBaseDir, 'WebUI', 'external')
   logger.info(`Scanning for extra wheels in ${wheelDir}`)
   const entries = await fs.promises.readdir(wheelDir)
   const wheelFiles = entries.filter((e) => e.endsWith('.whl'))

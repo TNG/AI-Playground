@@ -18,8 +18,8 @@
       <h1 class="select-none flex gap-2 items-baseline">
         <span style="color: #00c4fa">AI</span>
         <span>PLAYGROUND</span>
-        <span v-if="globalSetup.productMode" class="text-muted-foreground/60 font-medium">{{
-          globalSetup.productMode === 'essentials' ? 'essentials' : 'studio'
+        <span v-if="productModeStore.productMode" class="text-muted-foreground/60 font-medium">{{
+          productModeStore.productMode === 'essentials' ? 'essentials' : 'studio'
         }}</span>
         <span v-if="platformTitle" class="text-sm font-normal">{{ platformTitle }}</span>
       </h1>
@@ -100,7 +100,7 @@
     class="flex-auto flex items-center justify-center"
   >
     <product-mode-selector
-      :recommended-mode="globalSetup.hardwareRecommendation?.recommendedMode ?? null"
+      :recommended-mode="productModeStore.hardwareRecommendation?.recommendedMode ?? null"
       @select="onProductModeSelected"
     />
   </main>
@@ -313,6 +313,7 @@ import ProductModeSelector from './components/ProductModeSelector.vue'
 import PromptArea from '@/views/PromptArea.vue'
 import './assets/css/index.css'
 import { useGlobalSetup } from './assets/js/store/globalSetup'
+import { useProductMode } from './assets/js/store/productMode'
 import DownloadDialog from '@/components/DownloadDialog.vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useTheme } from './assets/js/store/theme.ts'
@@ -345,6 +346,7 @@ import DemoModeAutoresetDialog from '@/components/DemoModeAutoresetDialog.vue'
 const backendServices = useBackendServices()
 const theme = useTheme()
 const globalSetup = useGlobalSetup()
+const productModeStore = useProductMode()
 const demoMode = useDemoMode()
 const dialogStore = useDialogStore()
 const promptStore = usePromptStore()
@@ -463,48 +465,24 @@ async function setInitalLoadingState() {
     return
   }
 
-  // Auto-install ai-backend if not set up (required for hardware detection)
-  const aiBackend = backendServices.info.find((s) => s.serviceName === 'ai-backend')
-  if (aiBackend && !aiBackend.isSetUp) {
-    globalSetup.loadingState = 'autoInstalling'
-    console.log('Auto-installing ai-backend service')
-    const result = await backendServices.setUpService('ai-backend')
-    if (!result.success) {
-      console.error('Failed to auto-install ai-backend:', result.errorDetails)
-      globalSetup.loadingState = 'manageInstallations'
-      backendServices.startAllSetUpServicesInBackground()
-      return
-    }
-    await backendServices.startService('ai-backend')
+  const result = await productModeStore.ensureReady()
+
+  if (result === 'installFailed') {
+    globalSetup.loadingState = 'manageInstallations'
+    backendServices.startAllSetUpServicesInBackground()
+    return
   }
 
-  // Check if user needs to select product mode (first run)
-  if (!globalSetup.productMode) {
-    globalSetup.loadingState = 'autoInstalling'
-    try {
-      const recommendation = await window.electronAPI.detectHardwareForModeRecommendation()
-      globalSetup.hardwareRecommendation = recommendation
-    } catch (e) {
-      console.warn('Hardware detection failed, defaulting to studio recommendation:', e)
-      globalSetup.hardwareRecommendation = {
-        success: false,
-        recommendedMode: 'studio',
-        detectedDevices: [],
-      }
-    }
+  if (result === 'needsSelection') {
     globalSetup.loadingState = 'selectProductMode'
     return
   }
 
-  // Product mode already chosen - sync to main process and continue
-  await globalSetup.syncProductModeToMain()
   await proceedAfterModeSelection()
 }
 
 async function onProductModeSelected(mode: ProductMode) {
-  globalSetup.productMode = mode
-  await globalSetup.syncProductModeToMain()
-  // After first-time mode selection, always show installation management
+  await productModeStore.selectMode(mode)
   globalSetup.loadingState = 'manageInstallations'
   backendServices.startAllSetUpServicesInBackground()
 }

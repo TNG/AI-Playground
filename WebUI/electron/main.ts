@@ -80,6 +80,12 @@ process.env.VITE_PUBLIC = path.join(__dirname, app.isPackaged ? '../..' : '../..
 const externalRes = path.resolve(
   app.isPackaged ? process.resourcesPath : path.join(__dirname, '../../external/'),
 )
+
+const modesDir = path.resolve(
+  app.isPackaged
+    ? path.join(process.resourcesPath, 'modes')
+    : path.join(__dirname, '../../../modes/'),
+)
 const singleInstanceLock = app.requestSingleInstanceLock()
 
 const appLogger = appLoggerInstance
@@ -115,7 +121,6 @@ const LocalSettingsSchema = z.object({
   productMode: ProductModeSchema.default('studio'),
   isDemoModeEnabled: z.boolean().default(false),
   demoModeResetInSeconds: z.number().min(1).nullable().default(null),
-  demoModePresetsDir: z.string().optional(),
   demoModePasscode: z.string().optional(),
   languageOverride: z.string().nullable().default(null),
   remoteRepository: z.string().default('intel/ai-playground'),
@@ -124,23 +129,10 @@ const LocalSettingsSchema = z.object({
 export type LocalSettings = z.infer<typeof LocalSettingsSchema>
 export type ProductMode = z.infer<typeof ProductModeSchema>
 
-/**
- * Resolves the preset directory name based on product mode and demo mode.
- *
- * When demo mode is enabled and a custom `demoModePresetsDir` is set, that value
- * takes precedence (backward-compatible override). Otherwise:
- *
- *   studio     + non-demo → presets
- *   studio     + demo    → presets_demo
- *   essentials   + non-demo → presets_essentials
- *   essentials   + demo    → presets_essentials_demo
- */
-function getPresetsDirName(s: LocalSettings): string {
-  if (s.isDemoModeEnabled && s.demoModePresetsDir) {
-    return s.demoModePresetsDir
-  }
-  const base = s.productMode === 'essentials' ? 'presets_essentials' : 'presets'
-  return s.isDemoModeEnabled ? `${base}_demo` : base
+function getPresetsDir(s: LocalSettings): string {
+  const mode = s.productMode === 'essentials' ? 'essentials' : 'studio'
+  const variant = s.isDemoModeEnabled ? 'demo' : 'presets'
+  return path.join(modesDir, mode, variant)
 }
 
 let settings = LocalSettingsSchema.parse({})
@@ -176,7 +168,7 @@ async function loadSettings() {
   appLogger.info(`settings loaded: ${JSON.stringify({ settings })}`, 'electron-backend')
 
   if (settings.isDemoModeEnabled) {
-    const presetsDir = path.join(externalRes, getPresetsDirName(settings))
+    const presetsDir = getPresetsDir(settings)
     try {
       demoProfile = loadDemoProfile(presetsDir, appLogger)
     } catch (e) {
@@ -649,7 +641,6 @@ function initEventHandle() {
       isDemoModeEnabled: settings.isDemoModeEnabled,
       demoModeResetInSeconds: settings.demoModeResetInSeconds,
       demoModePasscode: settings.demoModePasscode,
-      productMode: settings.productMode,
       profile: demoProfile,
     }
   })
@@ -1117,12 +1108,14 @@ function initEventHandle() {
   })
 
   ipcMain.handle('updatePresetsFromIntelRepo', () => {
-    return updateIntelPresets(settings.remoteRepository, getPresetsDirName(settings))
+    const mode = settings.productMode === 'essentials' ? 'essentials' : 'studio'
+    const variant = settings.isDemoModeEnabled ? 'demo' : 'presets'
+    return updateIntelPresets(settings.remoteRepository, mode, variant, getPresetsDir(settings))
   })
 
   // Preset management IPC handlers
   ipcMain.handle('reloadPresets', async () => {
-    const presetsDir = path.join(externalRes, getPresetsDirName(settings))
+    const presetsDir = getPresetsDir(settings)
     try {
       await filterPartnerPresets(presetsDir)
     } catch (error) {

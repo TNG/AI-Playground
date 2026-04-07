@@ -5,8 +5,7 @@
   "enablePreviewFeatures": true,
   "isDemoModeEnabled": false,
   "demoModeResetInSeconds": 60,
-  "productMode": "professional",
-  "demoModePresetsDir": "presets_demo",
+  "productMode": "studio",
   "demoModePasscode": "0451",
   "languageOverride": null,
   "remoteRepository": "asdf/ai-playground"

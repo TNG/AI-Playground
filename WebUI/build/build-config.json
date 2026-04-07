@@ -15,20 +15,8 @@
       "filter": ["*.py", "pyproject.toml", "uv.lock"]
     },
     {
-      "from": "external/presets",
-      "to": "presets"
-    },
-    {
-      "from": "external/presets_demo",
-      "to": "presets_demo"
-    },
-    {
-      "from": "external/presets_essentials_demo",
-      "to": "presets_essentials_demo"
-    },
-    {
-      "from": "external/presets_essentials",
-      "to": "presets_essentials"
+      "from": "../modes",
+      "to": "modes"
     },
     {
       "from": "../device-service",

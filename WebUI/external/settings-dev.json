@@ -2,7 +2,6 @@
   "debug": true,
   "availableThemes": ["dark", "lnl", "bmg", "light"],
   "currentTheme": "light",
-  "enablePreviewFeatures": true,
   "isDemoModeEnabled": false,
   "demoModeResetInSeconds": 60,
   "productMode": "studio",

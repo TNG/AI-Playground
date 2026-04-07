@@ -28,11 +28,7 @@ const globalDefaultSettings = {
 }
 
 // Chat backends to be stopped to free resources for image generation
-const chatBackends: BackendServiceName[] = [
-  'llamacpp-backend',
-  'openvino-backend',
-  'ollama-backend',
-]
+const chatBackends: BackendServiceName[] = ['llamacpp-backend', 'openvino-backend']
 
 async function stopChatBackend(): Promise<void> {
   console.log('[ComfyUI Tool] Stopping chat backend to free resources for image generation')

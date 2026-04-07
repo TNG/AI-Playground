@@ -106,21 +106,6 @@ const getFormSchema = (backend: BackendServiceName) => {
           .passthrough(),
       )
 
-    case 'ollama-backend':
-      // Ollama: two fields - release tag and version
-      return toTypedSchema(
-        z
-          .object({
-            releaseTag: z
-              .string()
-              .regex(/^v\d+\.\d+\.\d+-\w+$/, 'Must be a valid release tag (e.g. v2.3.0-nightly)'),
-            version: z
-              .string()
-              .regex(/^\d+\.\d+\.\d+[a-z]\d{8}$/, 'Must be a valid version (e.g. 2.3.0b20250630)'),
-          })
-          .passthrough(),
-      )
-
     default:
       return toTypedSchema(z.object({}).passthrough())
   }
@@ -138,9 +123,7 @@ const showReinstall = computed(() => {
   return backendStatus.value !== 'installing' && backendStatus.value !== 'notInstalled'
 })
 const showSettings = computed(() => {
-  return ['comfyui-backend', 'llamacpp-backend', 'openvino-backend', 'ollama-backend'].includes(
-    props.backend,
-  )
+  return ['comfyui-backend', 'llamacpp-backend', 'openvino-backend'].includes(props.backend)
 })
 
 // Get backend-specific placeholders and descriptions
@@ -152,8 +135,6 @@ const getVersionPlaceholder = (backend: BackendServiceName) => {
       return 'b6048'
     case 'openvino-backend':
       return '2026.1.0'
-    case 'ollama-backend':
-      return 'v2.3.0-nightly'
     default:
       return ''
   }
@@ -172,8 +153,6 @@ const getVersionDescription = (backend: BackendServiceName) => {
         i18nState.BACKEND_VERSION_DESCRIPTION_OPENVINO ||
         'Enter a version number (e.g. 2026.1.0). Add a release tag below for weekly builds.'
       )
-    case 'ollama-backend':
-      return i18nState.BACKEND_VERSION_DESCRIPTION_OLLAMA || 'Enter release tag and version'
     default:
       return i18nState.BACKEND_VERSION_DESCRIPTION || 'Enter version information'
   }
@@ -278,7 +257,7 @@ function hasVersionChange(serviceName: BackendServiceName): boolean {
   const effectiveTarget = getEffectiveTarget(serviceName)
   if (!effectiveTarget || !versionState.installed) return false
 
-  if (serviceName === 'ollama-backend' || serviceName === 'openvino-backend') {
+  if (serviceName === 'openvino-backend') {
     return (
       versionState.installed.version !== effectiveTarget.version ||
       versionState.installed.releaseTag !== effectiveTarget.releaseTag
@@ -501,145 +480,98 @@ const showMenuButton = computed(
                 })
               "
             >
-              <!-- Ollama backend has two fields -->
-              <template v-if="backend === 'ollama-backend'">
-                <FormField v-slot="{ componentField }" name="releaseTag">
-                  <FormItem>
-                    <FormLabel>{{ i18nState.BACKEND_RELEASE_TAG || 'Release Tag' }}</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="text"
-                        :placeholder="getVersionPlaceholder(backend)"
-                        v-bind="componentField"
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {{
-                        i18nState.BACKEND_RELEASE_TAG_DESCRIPTION ||
-                        'Enter the release tag (e.g. v2.3.0-nightly)'
-                      }}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                </FormField>
+              <!-- Version fields (single version + optional release tag for OpenVINO) -->
+              <FormField v-slot="{ componentField }" name="version">
+                <FormItem>
+                  <FormLabel>{{ i18nState.BACKEND_VERSION }}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="text"
+                      :placeholder="getVersionPlaceholder(backend)"
+                      v-bind="componentField"
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {{ getVersionDescription(backend) }}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              </FormField>
 
-                <FormField v-slot="{ componentField }" name="version" class="mt-4">
-                  <FormItem>
-                    <FormLabel>{{ i18nState.BACKEND_VERSION }}</FormLabel>
-                    <FormControl>
-                      <Input type="text" placeholder="2.3.0b20250630" v-bind="componentField" />
-                    </FormControl>
-                    <FormDescription>
-                      {{
-                        i18nState.BACKEND_VERSION_DESCRIPTION_OLLAMA_VERSION ||
-                        'Enter the version number (e.g. 2.3.0b20250630)'
-                      }}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                </FormField>
-              </template>
+              <!-- OpenVINO weekly release tag -->
+              <FormField
+                v-if="backend === 'openvino-backend'"
+                v-slot="{ componentField }"
+                name="releaseTag"
+              >
+                <FormItem class="mt-4">
+                  <FormLabel>{{ i18nState.BACKEND_RELEASE_TAG || 'Release Tag' }}</FormLabel>
+                  <FormControl>
+                    <Input type="text" placeholder="72cc0624" v-bind="componentField" />
+                  </FormControl>
+                  <FormDescription>
+                    {{
+                      i18nState.BACKEND_OPENVINO_RELEASE_TAG_DESCRIPTION ||
+                      'Hex commit hash for weekly builds. Leave empty to use a regular release.'
+                    }}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              </FormField>
 
-              <!-- Other backends have single version field -->
-              <template v-else>
-                <FormField v-slot="{ componentField }" name="version">
-                  <FormItem>
-                    <FormLabel>{{ i18nState.BACKEND_VERSION }}</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="text"
-                        :placeholder="getVersionPlaceholder(backend)"
-                        v-bind="componentField"
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {{ getVersionDescription(backend) }}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                </FormField>
+              <!-- ComfyUI startup parameters -->
+              <FormField
+                v-if="backend === 'comfyui-backend'"
+                v-slot="{ componentField }"
+                name="comfyUiParameters"
+              >
+                <FormItem class="mt-4">
+                  <FormLabel>{{
+                    i18nState.BACKEND_COMFYUI_PARAMETERS_LABEL || 'Startup Parameters'
+                  }}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="text"
+                      :placeholder="backendServices.comfyUiDefaultParameters"
+                      v-bind="componentField"
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {{
+                      i18nState.BACKEND_COMFYUI_PARAMETERS_DESCRIPTION ||
+                      'Command-line arguments passed to ComfyUI on startup. Restart required to apply changes.'
+                    }}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              </FormField>
 
-                <!-- OpenVINO weekly release tag -->
-                <FormField
-                  v-if="backend === 'openvino-backend'"
-                  v-slot="{ componentField }"
-                  name="releaseTag"
-                >
-                  <FormItem class="mt-4">
-                    <FormLabel>{{
-                      i18nState.BACKEND_RELEASE_TAG || 'Release Tag'
-                    }}</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="text"
-                        placeholder="72cc0624"
-                        v-bind="componentField"
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {{
-                        i18nState.BACKEND_OPENVINO_RELEASE_TAG_DESCRIPTION ||
-                        'Hex commit hash for weekly builds. Leave empty to use a regular release.'
-                      }}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                </FormField>
-
-                <!-- ComfyUI startup parameters -->
-                <FormField
-                  v-if="backend === 'comfyui-backend'"
-                  v-slot="{ componentField }"
-                  name="comfyUiParameters"
-                >
-                  <FormItem class="mt-4">
-                    <FormLabel>{{
-                      i18nState.BACKEND_COMFYUI_PARAMETERS_LABEL || 'Startup Parameters'
-                    }}</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="text"
-                        :placeholder="backendServices.comfyUiDefaultParameters"
-                        v-bind="componentField"
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {{
-                        i18nState.BACKEND_COMFYUI_PARAMETERS_DESCRIPTION ||
-                        'Command-line arguments passed to ComfyUI on startup. Restart required to apply changes.'
-                      }}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                </FormField>
-
-                <!-- LlamaCPP startup parameters -->
-                <FormField
-                  v-if="backend === 'llamacpp-backend'"
-                  v-slot="{ componentField }"
-                  name="llamaCppParameters"
-                >
-                  <FormItem class="mt-4">
-                    <FormLabel>{{
-                      i18nState.BACKEND_LLAMACPP_PARAMETERS_LABEL || 'Startup Parameters'
-                    }}</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="text"
-                        :placeholder="backendServices.llamaCppDefaultParameters"
-                        v-bind="componentField"
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {{
-                        i18nState.BACKEND_LLAMACPP_PARAMETERS_DESCRIPTION ||
-                        'Command-line arguments passed to llama-server on startup. Applied on next model load.'
-                      }}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                </FormField>
-              </template>
+              <!-- LlamaCPP startup parameters -->
+              <FormField
+                v-if="backend === 'llamacpp-backend'"
+                v-slot="{ componentField }"
+                name="llamaCppParameters"
+              >
+                <FormItem class="mt-4">
+                  <FormLabel>{{
+                    i18nState.BACKEND_LLAMACPP_PARAMETERS_LABEL || 'Startup Parameters'
+                  }}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="text"
+                      :placeholder="backendServices.llamaCppDefaultParameters"
+                      v-bind="componentField"
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {{
+                      i18nState.BACKEND_LLAMACPP_PARAMETERS_DESCRIPTION ||
+                      'Command-line arguments passed to llama-server on startup. Applied on next model load.'
+                    }}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              </FormField>
             </form>
 
             <DialogFooter class="gap-2">

@@ -550,14 +550,6 @@ function hasVersionChange(serviceName: BackendServiceName): boolean {
   const effectiveTarget = getEffectiveTarget(serviceName)
   if (!effectiveTarget || !versionState.installed) return false
 
-  // For Ollama, compare both version and releaseTag
-  if (serviceName === 'ollama-backend') {
-    return (
-      versionState.installed.version !== effectiveTarget.version ||
-      versionState.installed.releaseTag !== effectiveTarget.releaseTag
-    )
-  }
-
   // Normalize versions for comparison (handles OpenVINO subversions)
   const installedNorm = normalizeVersionForComparison(
     serviceName,

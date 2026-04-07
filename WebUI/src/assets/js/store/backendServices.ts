@@ -8,7 +8,6 @@ const backends = [
   'ai-backend',
   'comfyui-backend',
   'llamacpp-backend',
-  'ollama-backend',
 ] as const
 
 export type BackendServiceName = (typeof backends)[number]
@@ -39,7 +38,6 @@ export const useBackendServices = defineStore(
       'ai-backend': null,
       'comfyui-backend': null,
       'llamacpp-backend': null,
-      'ollama-backend': null,
       'openvino-backend': null,
     })
 
@@ -79,7 +77,6 @@ export const useBackendServices = defineStore(
       'ai-backend': {},
       'comfyui-backend': {},
       'llamacpp-backend': {},
-      'ollama-backend': {},
       'openvino-backend': {},
     })
 

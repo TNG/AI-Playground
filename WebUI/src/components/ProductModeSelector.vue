@@ -47,7 +47,7 @@
                 v-if="recommendedMode === option.mode"
                 class="ml-1 text-sm font-semibold text-green-500"
               >
-                RECOMMENDED
+                Recommended
               </span>
               <span
                 v-else-if="option.mode === 'studio' && recommendedMode === 'essentials'"

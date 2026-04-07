@@ -439,7 +439,12 @@ export class LlamaCppBackendService implements ApiService {
   }
 
   private async downloadLlamacpp(): Promise<void> {
-    const platformArch = process.platform === 'darwin' ? 'macos-arm64' : 'win-vulkan-x64'
+    const platformArchMap: Record<string, string> = {
+      darwin: 'macos-arm64',
+      linux: 'ubuntu-x64',
+      win32: 'win-vulkan-x64',
+    }
+    const platformArch = platformArchMap[process.platform] ?? 'win-vulkan-x64'
     const downloadUrl = `https://github.com/ggml-org/llama.cpp/releases/download/${this.version}/llama-${this.version}-bin-${platformArch}.${platformExtension}`
     this.appLogger.info(`Downloading Llamacpp from ${downloadUrl}`, this.name)
 

@@ -289,3 +289,32 @@ User sends message → `textInference.ensureReadyForInference()` → IPC `ensure
 | `electron/subprocesses/langchain.ts` | RAG utility process (document splitting, embedding, vector search) |
 | `electron/subprocesses/deviceDetection.ts` | Intel GPU device detection and env var setup |
 | `electron/logging/logger.ts` | Logging, sends `debugLog` events to renderer |
+
+## Cursor Cloud specific instructions
+
+### Service overview
+
+Only the **WebUI** (Electron + Vue.js frontend) is relevant for cloud-agent work. All
+commands run from `WebUI/`. Backend services (AI Backend, LlamaCPP, OpenVINO, ComfyUI,
+Ollama) require Intel GPU hardware and pre-built native binaries that are not available in
+the cloud VM — they will show as "notInstalled" at runtime, which is expected.
+
+### Running the dev server
+
+```bash
+cd /workspace/WebUI
+DISPLAY=:1 npm run dev
+```
+
+The Vite dev server starts on `http://localhost:25413` and Electron opens automatically.
+A virtual framebuffer (`Xvfb`) is already running on `:1`.
+
+### Known issues
+
+- **`npm install` requires `--legacy-peer-deps`** due to a `zod@4` vs `zod@3` peer
+  conflict from `@browserbasehq/stagehand` (transitive dep of `@langchain/community`).
+- **`electron/test/subprocesses/service.test.ts` fails** because the `electron` path alias
+  in `vitest.config.ts` shadows the `electron` package mock. This is a pre-existing issue
+  on the `dev` branch — 4 of 5 test files (24 tests) pass.
+- **Prettier reports 2 pre-existing formatting issues** in `electron/subprocesses/openVINOBackendService.ts`
+  and `src/components/BackendOptions.vue` on the `dev` branch.

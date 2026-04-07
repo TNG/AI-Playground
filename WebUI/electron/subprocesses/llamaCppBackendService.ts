@@ -14,7 +14,7 @@ import { binary, extract } from './tools.ts'
 const execAsync = promisify(exec)
 
 export const LLAMACPP_DEFAULT_PARAMETERS = '--gpu-layers 999 --log-prefix --jinja --no-mmap -fa off'
-const platformExtension = process.platform === 'darwin' ? 'tar.gz' : 'zip'
+const platformExtension = process.platform === 'win32' ? 'zip' : 'tar.gz'
 
 interface LlamaServerProcess {
   process: ChildProcess

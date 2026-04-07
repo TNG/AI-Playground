@@ -292,17 +292,11 @@ User sends message → `textInference.ensureReadyForInference()` → IPC `ensure
 
 ## Cursor Cloud specific instructions
 
-### Service overview
-
-Only the **WebUI** (Electron + Vue.js frontend) is relevant for cloud-agent work. All
-commands run from `WebUI/`. Backend services (AI Backend, LlamaCPP, OpenVINO, ComfyUI,
-Ollama) require Intel GPU hardware and pre-built native binaries that are not available in
-the cloud VM — they will show as "notInstalled" at runtime, which is expected.
-
 ### Running the dev server
 
 ```bash
 cd /workspace/WebUI
+npm run fetch-external-resources   # first time only — downloads uv + 7zip binaries
 DISPLAY=:1 npm run dev
 ```
 
@@ -313,14 +307,28 @@ A virtual framebuffer (`Xvfb`) is already running on `:1`.
 
 The `ai-backend` and `llamacpp-backend` services work on Linux (Ubuntu x64):
 
-- Run `npm run fetch-external-resources` from `WebUI/` to download `uv` and `7zip` binaries
-  for the current platform (placed in `build/resources/`).
-- Start the Electron app with `DISPLAY=:1 npm run dev` and use the setup dialog to install
-  `AI Playground` (ai-backend) and `Llama.cpp - GGUF` (llamacpp-backend).
-- `ai-backend` runs the Python Flask server on port 59000 (health: `/healthy`).
+- Run `npm run fetch-external-resources` once to download `uv` and `7zip` binaries for
+  the current platform (placed in `build/resources/`).
+- Start the Electron app with `DISPLAY=:1 npm run dev`. On the setup dialog, click
+  **Install** next to `AI Playground` (ai-backend) and `Llama.cpp - GGUF` (llamacpp-backend).
+- `ai-backend` runs a Python Flask server on port 59000 (health: `GET /healthy`).
 - `llamacpp-backend` downloads the `ubuntu-x64` CPU build from GitHub releases and
-  provides on-demand LLM inference (health: `/health`).
+  provides on-demand LLM inference (health: `GET /health`).
 - ComfyUI and OpenVINO are not yet supported on Linux.
+
+### Testing inference end-to-end
+
+A small test model (`LFM2.5-350M-Q4_K_M.gguf`, ~255 MB) is registered in `models.json`.
+To test inference:
+
+1. Start the app, install both backends via the setup dialog, then click **Continue**.
+2. Open **Chat Settings**, select **LFM2.5-350M-Q4_K_M.gguf** from the Model dropdown.
+3. Type a message and send — the app auto-downloads the model from HuggingFace on first use.
+4. The llamacpp-backend will load the model and serve streaming responses.
+
+**Network requirement**: Model downloads redirect through `cas-bridge.xethub.hf.co`
+(HuggingFace Xet CDN). This domain must be in the egress allowlist. Allowlist changes
+only take effect on new VM sessions — a running VM will not pick up changes.
 
 ### Known issues
 

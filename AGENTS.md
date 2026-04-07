@@ -309,6 +309,19 @@ DISPLAY=:1 npm run dev
 The Vite dev server starts on `http://localhost:25413` and Electron opens automatically.
 A virtual framebuffer (`Xvfb`) is already running on `:1`.
 
+### Backend services on Linux
+
+The `ai-backend` and `llamacpp-backend` services work on Linux (Ubuntu x64):
+
+- Run `npm run fetch-external-resources` from `WebUI/` to download `uv` and `7zip` binaries
+  for the current platform (placed in `build/resources/`).
+- Start the Electron app with `DISPLAY=:1 npm run dev` and use the setup dialog to install
+  `AI Playground` (ai-backend) and `Llama.cpp - GGUF` (llamacpp-backend).
+- `ai-backend` runs the Python Flask server on port 59000 (health: `/healthy`).
+- `llamacpp-backend` downloads the `ubuntu-x64` CPU build from GitHub releases and
+  provides on-demand LLM inference (health: `/health`).
+- ComfyUI and OpenVINO are not yet supported on Linux.
+
 ### Known issues
 
 - **`npm install` requires `--legacy-peer-deps`** due to a `zod@4` vs `zod@3` peer

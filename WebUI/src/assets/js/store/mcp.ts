@@ -72,19 +72,36 @@ export const useMcp = defineStore('mcp', () => {
   }
 
   async function refreshServerStatus(serverId: string) {
-    const status = await window.electronAPI.mcp.getServerStatus(serverId)
-    let tools: McpToolInfo[] = []
+    try {
+      const status = await window.electronAPI.mcp.getServerStatus(serverId)
+      let tools: McpToolInfo[] = []
 
-    if (status.state === 'running') {
-      tools = await window.electronAPI.mcp.listServerTools(serverId)
+      if (status.state === 'running') {
+        try {
+          tools = await window.electronAPI.mcp.listServerTools(serverId)
+        } catch (error) {
+          console.error(`Failed to list MCP tools for ${serverId}:`, error)
+          servers.value.set(serverId, {
+            status: { state: 'error', lastError: String(error) },
+            tools: [],
+          })
+          return
+        }
+      }
+
+      servers.value.set(serverId, { status, tools })
+    } catch (error) {
+      console.error(`Failed to refresh MCP status for ${serverId}:`, error)
+      servers.value.set(serverId, {
+        status: { state: 'error', lastError: String(error) },
+        tools: [],
+      })
     }
-
-    servers.value.set(serverId, { status, tools })
   }
 
   async function refreshAllServerStatuses() {
     await refreshAvailableServers()
-    await Promise.all(availableServers.value.map((s) => refreshServerStatus(s.id)))
+    await Promise.allSettled(availableServers.value.map((s) => refreshServerStatus(s.id)))
   }
 
   async function startServer(serverId: string) {
@@ -93,13 +110,18 @@ export const useMcp = defineStore('mcp', () => {
       tools: [],
     })
 
-    const status = await window.electronAPI.mcp.startServer(serverId)
+    let status = await window.electronAPI.mcp.startServer(serverId)
     let tools: McpToolInfo[] = []
 
     if (status.state === 'running') {
       tools = await window.electronAPI.mcp.listServerTools(serverId)
+      status = await window.electronAPI.mcp.getServerStatus(serverId)
       const serverInfo = availableServers.value.find((s) => s.id === serverId)
-      toast.success(`${serverInfo?.name ?? serverId} connected`)
+      if (status.state === 'running') {
+        toast.success(`${serverInfo?.name ?? serverId} connected`)
+      } else {
+        toast.error(status.lastError || `Failed to start ${serverId}`)
+      }
     } else {
       toast.error(status.lastError || `Failed to start ${serverId}`)
     }

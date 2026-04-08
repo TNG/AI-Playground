@@ -56,13 +56,13 @@
             />
             <MarkdownRenderer
               :class="textInference.fontSizeClass"
-              :content="message.parts.find((part) => part.type === 'text')?.text ?? ''"
+              :content="getMessageTextForCopy(message)"
               :on-copy="copyText"
             />
             <button
               class="flex items-center gap-1 text-xs text-muted-foreground mt-1"
               :title="languages.COM_COPY"
-              @click="copyText(message.parts.find((part) => part.type === 'text')?.text || '')"
+              @click="copyText(getMessageTextForCopy(message))"
             >
               <span class="svg-icon i-copy w-4 h-4"></span>
               <span>{{ languages.COM_COPY }}</span>
@@ -235,7 +235,7 @@
               <button
                 class="flex items-end"
                 :title="languages.COM_COPY"
-                @click="copyText(message.parts.find((part) => part.type === 'text')?.text || '')"
+                @click="copyText(getMessageTextForCopy(message))"
               >
                 <span class="svg-icon i-copy w-4 h-4"></span>
                 <span class="text-xs ml-1">{{ languages.COM_COPY }}</span>
@@ -427,6 +427,14 @@ function copyText(text: string) {
       toast.success(i18nState.COM_COPY_SUCCESS_TIP)
     })
     .catch((e) => console.error('Error while copying text to clipboard', e))
+}
+
+function getMessageTextForCopy(message: { parts: { type: string; text?: string }[] }): string {
+  return message.parts
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text ?? '')
+    .filter((t) => t.length > 0)
+    .join('\n\n')
 }
 
 // Helper functions for AIPG tool rendering

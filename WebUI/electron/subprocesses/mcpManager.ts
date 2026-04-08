@@ -35,6 +35,7 @@ export type McpToolCallResult = {
 
 const clients = new Map<string, MCPClient>()
 const statuses = new Map<string, McpStatus>()
+const pendingStarts = new Map<string, Promise<McpStatus>>()
 
 function ensureStatus(serverId: string) {
   if (!statuses.has(serverId)) {
@@ -75,54 +76,72 @@ export async function startMcpServer(serverId: string): Promise<McpStatus> {
     return getMcpServerStatus(serverId)
   }
 
-  const config = getServerConfig(serverId)
-  setStatus(serverId, { state: 'starting' })
-
-  try {
-    let transport: HttpTransportConfig | Experimental_StdioMCPTransport
-
-    if ('command' in config) {
-      const mergedEnv = {
-        ...process.env,
-        ...(config.env ?? {}),
-      }
-      const stdioEnv = Object.fromEntries(
-        Object.entries(mergedEnv).filter(
-          (entry): entry is [string, string] => typeof entry[1] === 'string',
-        ),
-      )
-
-      transport = new Experimental_StdioMCPTransport({
-        command: config.command,
-        args: config.args,
-        env: stdioEnv,
-      })
-    } else if ('url' in config) {
-      transport = {
-        type: 'http',
-        url: config.url,
-        headers: config.headers,
-      }
-    } else {
-      throw new Error('Invalid MCP server config: missing command (stdio) or url (http)')
-    }
-
-    const client = await createMCPClient({
-      transport,
-      name: `ai-playground-${serverId}-mcp-client`,
-      version: '1.0.0',
-    })
-
-    clients.set(serverId, client)
-    setStatus(serverId, { state: 'running' })
-    appLoggerInstance.info(`MCP server started: ${serverId}`, 'mcp')
-    return getMcpServerStatus(serverId)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    setStatus(serverId, { state: 'error', lastError: message })
-    appLoggerInstance.error(`Failed to start MCP server ${serverId}: ${message}`, 'mcp')
-    return getMcpServerStatus(serverId)
+  const existingStart = pendingStarts.get(serverId)
+  if (existingStart) {
+    return existingStart
   }
+
+  const startPromise = (async (): Promise<McpStatus> => {
+    try {
+      const config = getServerConfig(serverId)
+      setStatus(serverId, { state: 'starting' })
+
+      try {
+        let transport: HttpTransportConfig | Experimental_StdioMCPTransport
+
+        if ('command' in config) {
+          const mergedEnv = {
+            ...process.env,
+            ...(config.env ?? {}),
+          }
+          const stdioEnv = Object.fromEntries(
+            Object.entries(mergedEnv).filter(
+              (entry): entry is [string, string] => typeof entry[1] === 'string',
+            ),
+          )
+
+          transport = new Experimental_StdioMCPTransport({
+            command: config.command,
+            args: config.args,
+            env: stdioEnv,
+          })
+        } else if ('url' in config) {
+          transport = {
+            type: 'http',
+            url: config.url,
+            headers: config.headers,
+          }
+        } else {
+          throw new Error('Invalid MCP server config: missing command (stdio) or url (http)')
+        }
+
+        const client = await createMCPClient({
+          transport,
+          name: `ai-playground-${serverId}-mcp-client`,
+          version: '1.0.0',
+        })
+
+        clients.set(serverId, client)
+        setStatus(serverId, { state: 'running' })
+        appLoggerInstance.info(`MCP server started: ${serverId}`, 'mcp')
+        return getMcpServerStatus(serverId)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        setStatus(serverId, { state: 'error', lastError: message })
+        appLoggerInstance.error(`Failed to start MCP server ${serverId}: ${message}`, 'mcp')
+        return getMcpServerStatus(serverId)
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setStatus(serverId, { state: 'error', lastError: message })
+      appLoggerInstance.error(`Failed to start MCP server ${serverId}: ${message}`, 'mcp')
+      return getMcpServerStatus(serverId)
+    }
+  })()
+
+  pendingStarts.set(serverId, startPromise)
+  void startPromise.finally(() => pendingStarts.delete(serverId))
+  return startPromise
 }
 
 export async function stopMcpServer(serverId: string): Promise<McpStatus> {
@@ -157,19 +176,26 @@ export async function listMcpServerTools(serverId: string): Promise<McpToolInfo[
   const allTools: McpToolInfo[] = []
   let cursor: string | undefined
 
-  do {
-    const { tools, nextCursor } = await client.listTools({
-      params: { cursor },
-    })
-    allTools.push(
-      ...tools.map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: tool.inputSchema as Record<string, unknown>,
-      })),
-    )
-    cursor = nextCursor
-  } while (cursor)
+  try {
+    do {
+      const { tools, nextCursor } = await client.listTools({
+        params: { cursor },
+      })
+      allTools.push(
+        ...tools.map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          inputSchema: tool.inputSchema as Record<string, unknown>,
+        })),
+      )
+      cursor = nextCursor
+    } while (cursor)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    setStatus(serverId, { state: 'error', lastError: message })
+    appLoggerInstance.error(`Failed to list MCP tools for ${serverId}: ${message}`, 'mcp')
+    return []
+  }
 
   return allTools
 }

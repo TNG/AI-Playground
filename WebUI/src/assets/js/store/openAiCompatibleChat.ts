@@ -110,15 +110,33 @@ export const useOpenAiCompatibleChat = defineStore(
       if (!textInference.mcpToolsEnabled) return {}
 
       const resolvedTools: ToolSet = {}
-      const servers = await window.electronAPI.mcp.listServers()
+      let servers: Awaited<ReturnType<typeof window.electronAPI.mcp.listServers>>
+      try {
+        servers = await window.electronAPI.mcp.listServers()
+      } catch (error) {
+        console.error('Failed to list MCP servers:', error)
+        return {}
+      }
 
       for (const server of servers) {
-        const status = await window.electronAPI.mcp.getServerStatus(server.id)
+        let status: Awaited<ReturnType<typeof window.electronAPI.mcp.getServerStatus>>
+        try {
+          status = await window.electronAPI.mcp.getServerStatus(server.id)
+        } catch (error) {
+          console.error(`Failed to get MCP server status for ${server.id}:`, error)
+          continue
+        }
         if (status.state !== 'running') {
           continue
         }
 
-        const allMcpTools = await window.electronAPI.mcp.listServerTools(server.id)
+        let allMcpTools: Awaited<ReturnType<typeof window.electronAPI.mcp.listServerTools>>
+        try {
+          allMcpTools = await window.electronAPI.mcp.listServerTools(server.id)
+        } catch (error) {
+          console.error(`Failed to list MCP tools for ${server.id}:`, error)
+          continue
+        }
         const mcpTools = allMcpTools.filter((t) => isToolEnabled(t.name))
 
         for (const mcpTool of mcpTools) {

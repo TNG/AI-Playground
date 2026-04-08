@@ -118,6 +118,10 @@ export const usePresetSwitching = defineStore('presetSwitching', () => {
    * Check if a chat backend is available (running or can be started)
    */
   function isBackendAvailable(backend: LlmBackend): boolean {
+    // During startup, the renderer may reconcile presets before service info arrives from main.
+    // Treat "unknown" as available to avoid showing spurious requirements warnings on boot.
+    if (!backendServices.serviceInfoUpdateReceived) return true
+
     const serviceName = backendToService[backend]
     const backendInfo = backendServices.info.find((s) => s.serviceName === serviceName)
     return backendInfo

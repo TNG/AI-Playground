@@ -13,7 +13,6 @@ export type LlmBackend = z.infer<typeof LlmBackendSchema>
 type LlmBackendKV = { [key in LlmBackend]: string | null }
 
 export const backendToService = {
-  ipexLLM: 'ai-backend',
   llamaCPP: 'llamacpp-backend',
   openVINO: 'openvino-backend',
 } as const
@@ -130,7 +129,7 @@ export const useTextInference = defineStore(
 
     const llmModels: Ref<LlmModel[]> = computed(() => {
       const llmTypeModels = models.models.filter((m) =>
-        ['llamaCPP', 'openVINO'].includes(m.type),
+        (llmBackendTypes as readonly string[]).includes(m.type),
       )
 
       // Find first model for each type (already in priority order from models.json)

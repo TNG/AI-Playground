@@ -351,7 +351,16 @@ export const installExtraWheels = async (backend: string) => {
   const logger = loggerFor(`uv.wheels.${backend}`)
   const wheelDir = app.isPackaged ? aipgBaseDir : path.join(aipgBaseDir, 'WebUI', 'external')
   logger.info(`Scanning for extra wheels in ${wheelDir}`)
-  const entries = await fs.promises.readdir(wheelDir)
+  let entries: string[]
+  try {
+    entries = await fs.promises.readdir(wheelDir)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      logger.info(`No extra wheels directory found at ${wheelDir}`)
+      return
+    }
+    throw error
+  }
   const wheelFiles = entries.filter((e) => e.endsWith('.whl'))
   logger.info(`Found extra wheels: ${JSON.stringify(wheelFiles)}`)
   for (const whl of wheelFiles) {

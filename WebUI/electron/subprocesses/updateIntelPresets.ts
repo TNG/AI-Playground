@@ -58,7 +58,7 @@ export async function updateIntelPresets(
     logger.error(`updating intel presets failed due to ${e}`, logSourceName, true)
     if (!fs.existsSync(presetDirTargetPath)) {
       logger.info(`restoring previous presets from  ${presetDirBakTargetPath}`, logSourceName, true)
-      await copyFileWithDirs(intelPresetDirPath, presetDirTargetPath)
+      await copyFileWithDirs(presetDirBakTargetPath, presetDirTargetPath)
     }
     return {
       result: 'error',

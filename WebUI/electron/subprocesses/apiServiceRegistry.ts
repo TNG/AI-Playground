@@ -8,7 +8,7 @@ import { LlamaCppBackendService } from './llamaCppBackendService.ts'
 import { OpenVINOBackendService } from './openVINOBackendService.ts'
 import { LocalSettings } from '../main.ts'
 
-export type backend = 'ai-backend' | 'comfyui-backend'
+export type backend = 'ai-backend' | 'openvino-backend' | 'comfyui-backend' | 'llamacpp-backend'
 
 export interface ApiServiceRegistry {
   register(apiService: ApiService): void

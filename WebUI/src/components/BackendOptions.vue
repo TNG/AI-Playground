@@ -258,10 +258,15 @@ function hasVersionChange(serviceName: BackendServiceName): boolean {
   if (!effectiveTarget || !versionState.installed) return false
 
   if (serviceName === 'openvino-backend') {
-    return (
-      versionState.installed.version !== effectiveTarget.version ||
-      versionState.installed.releaseTag !== effectiveTarget.releaseTag
+    const installedNorm = normalizeVersionForComparison(
+      serviceName,
+      versionState.installed.version || '',
     )
+    const targetNorm = normalizeVersionForComparison(serviceName, effectiveTarget.version || '')
+    const installedReleaseTag = versionState.installed.releaseTag || ''
+    const targetReleaseTag = effectiveTarget.releaseTag || ''
+
+    return installedNorm !== targetNorm || installedReleaseTag !== targetReleaseTag
   }
 
   // Normalize versions for comparison (handles OpenVINO subversions)

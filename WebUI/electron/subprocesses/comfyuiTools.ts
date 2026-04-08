@@ -259,6 +259,8 @@ export async function downloadCustomNode(
   nodeRepoData: ComfyUICustomNodeRepoId,
   comfyUiRootPath: string,
 ): Promise<boolean> {
+  const expectedCustomNodePath = path.join(comfyUiRootPath, 'custom_nodes', nodeRepoData.repoName)
+
   if (isCustomNodeInstalled(nodeRepoData, comfyUiRootPath)) {
     appLoggerInstance.info(
       `Node repo ${JSON.stringify(nodeRepoData)} already exists. Omitting`,
@@ -269,7 +271,6 @@ export async function downloadCustomNode(
 
   try {
     const expectedGitUrl = `https://github.com/${nodeRepoData.username}/${nodeRepoData.repoName}`
-    const expectedCustomNodePath = path.join(comfyUiRootPath, 'custom_nodes', nodeRepoData.repoName)
     const potentialNodeRequirements = path.join(expectedCustomNodePath, 'requirements.txt')
 
     // Install the git repo
@@ -292,6 +293,7 @@ export async function downloadCustomNode(
     )
     return true
   } catch (error) {
+    removeExistingResource(expectedCustomNodePath)
     appLoggerInstance.error(
       `Failed to install custom comfy node ${nodeRepoData.username}/${nodeRepoData.repoName} due to: ${error}`,
       'comfyui-tools',

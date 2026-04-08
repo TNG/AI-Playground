@@ -421,7 +421,7 @@ onBeforeMount(async () => {
       e.preventDefault()
     }
   })
-  await setInitalLoadingState()
+  await setInitialLoadingState()
 })
 
 onMounted(async () => {
@@ -457,11 +457,11 @@ onMounted(async () => {
   })
 })
 
-async function setInitalLoadingState() {
+async function setInitialLoadingState() {
   console.log('setting loading state')
   if (!backendServices.serviceInfoUpdateReceived) {
     globalSetup.loadingState = 'verifyBackend'
-    setTimeout(setInitalLoadingState, 1000)
+    setTimeout(setInitialLoadingState, 1000)
     return
   }
 

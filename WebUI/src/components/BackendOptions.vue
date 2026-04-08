@@ -294,6 +294,30 @@ function isUpgrade(serviceName: BackendServiceName): boolean | null {
   return null
 }
 
+function getVersionActionType(serviceName: BackendServiceName): 'update' | 'downgrade' | 'apply' {
+  if (serviceName === 'openvino-backend') {
+    const versionState = backendServices.versionState[serviceName]
+    const effectiveTarget = getEffectiveTarget(serviceName)
+    if (!effectiveTarget?.version || !versionState.installed?.version) return 'apply'
+
+    const installedNorm = normalizeVersionForComparison(serviceName, versionState.installed.version)
+    const targetNorm = normalizeVersionForComparison(serviceName, effectiveTarget.version)
+    const versionCmp = compareVersions(installedNorm, targetNorm)
+
+    if (versionCmp < 0) return 'update'
+    if (versionCmp > 0) return 'downgrade'
+
+    const installedReleaseTag = versionState.installed.releaseTag || ''
+    const targetReleaseTag = effectiveTarget.releaseTag || ''
+    if (installedReleaseTag !== targetReleaseTag) return 'apply'
+  }
+
+  const upgrading = isUpgrade(serviceName)
+  if (upgrading === true) return 'update'
+  if (upgrading === false) return 'downgrade'
+  return 'apply'
+}
+
 // Format version for display
 function formatVersion(
   version: { version?: string; releaseTag?: string } | null | undefined,
@@ -316,9 +340,17 @@ const showVersionAction = computed(() => {
 // Dynamic label: "Update to X" or "Downgrade to X"
 const versionActionLabel = computed(() => {
   const effectiveTarget = getEffectiveTarget(props.backend)
-  const upgrading = isUpgrade(props.backend)
-  const action = upgrading === true ? 'Update' : 'Downgrade'
+  const actionType = getVersionActionType(props.backend)
+  const action =
+    actionType === 'update' ? 'Update' : actionType === 'downgrade' ? 'Downgrade' : 'Apply change'
   return `${action} to ${formatVersion(effectiveTarget)}`
+})
+
+const versionActionClass = computed(() => {
+  const actionType = getVersionActionType(props.backend)
+  if (actionType === 'update') return 'text-green-500'
+  if (actionType === 'downgrade') return 'text-amber-500'
+  return 'text-blue-500'
 })
 
 // Handler for version action - clears override and reinstalls
@@ -375,7 +407,7 @@ const showMenuButton = computed(
       <DropdownMenuItem
         v-if="showVersionAction"
         @click="handleVersionAction"
-        :class="isUpgrade(backend) === true ? 'text-green-500' : 'text-amber-500'"
+        :class="versionActionClass"
       >
         {{ versionActionLabel }}
       </DropdownMenuItem>

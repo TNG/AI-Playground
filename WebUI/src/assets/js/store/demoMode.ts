@@ -113,17 +113,26 @@ export const useDemoMode = defineStore('demoMode', () => {
   const resetInSeconds = ref<null | number>(null)
   const passcode = ref('')
   const hasPasscode = computed(() => passcode.value.length > 0)
-  window.electronAPI.getDemoModeSettings().then((res) => {
+
+  function applyDemoSettingsPayload(res: DemoModeSettings) {
     enabled.value = res.isDemoModeEnabled
     profile.value = res.profile ?? null
     resetInSeconds.value = res.demoModeResetInSeconds
     passcode.value = res.demoModePasscode ?? ''
 
-    // Re-initialize visited state with profile data (or fallbacks)
     const dotButtons =
       (profile.value?.notificationDotButtons as DemoButtonId[]) ?? FALLBACK_NOTIFICATION_DOT_BUTTONS
     const enabledModes = profile.value?.enabledModes ?? FALLBACK_ENABLED_MODES
     visitedButtons.value = createInitialVisitedState(dotButtons, enabledModes)
+  }
+
+  async function refreshFromMainConfig() {
+    const res = await window.electronAPI.getDemoModeSettings()
+    applyDemoSettingsPayload(res)
+  }
+
+  window.electronAPI.getDemoModeSettings().then((res) => {
+    applyDemoSettingsPayload(res)
 
     if (res.isDemoModeEnabled && res.demoModeResetInSeconds) {
       const markInteracted = (e: Event) => {
@@ -233,6 +242,7 @@ export const useDemoMode = defineStore('demoMode', () => {
     setEnabled,
     cancelReset,
     resetDemo,
+    refreshFromMainConfig,
   }
 })
 

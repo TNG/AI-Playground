@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getThemeSettings: () => ipcRenderer.invoke('getThemeSettings'),
   updateLocalSettings: (updates: Partial<LocalSettings>) =>
     ipcRenderer.invoke('updateLocalSettings', updates),
+  getLocalSettings: () => ipcRenderer.invoke('getLocalSettings'),
   detectHardwareForModeRecommendation: () =>
     ipcRenderer.invoke('detectHardwareForModeRecommendation'),
   getWinSize: () => ipcRenderer.invoke('getWinSize'),

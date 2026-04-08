@@ -1,11 +1,13 @@
 {
   "debug": true,
+  "deviceArchOverride": null,
+  "isAdminExec": false,
   "availableThemes": ["dark", "lnl", "bmg", "light"],
   "currentTheme": "light",
   "isDemoModeEnabled": false,
   "demoModeResetInSeconds": 60,
-  "productMode": "studio",
   "demoModePasscode": "0451",
   "languageOverride": null,
-  "remoteRepository": "asdf/ai-playground"
+  "remoteRepository": "asdf/ai-playground",
+  "huggingfaceEndpoint": "https://huggingface.co"
 }

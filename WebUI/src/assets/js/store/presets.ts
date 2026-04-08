@@ -399,6 +399,12 @@ export const usePresets = defineStore(
       }
     }
 
+    /** Reload built-in + user presets after product mode changes (main IPC uses updated settings). */
+    async function reloadAfterProductModeChange(): Promise<void> {
+      await loadPresetsFromFiles()
+      await loadUserPresets()
+    }
+
     async function loadUserPresets(): Promise<void> {
       try {
         const userPresetFiles = await window.electronAPI.loadUserPresets()
@@ -682,6 +688,7 @@ export const usePresets = defineStore(
       getFirstVariantName,
       loadPresetsFromFiles,
       loadUserPresets,
+      reloadAfterProductModeChange,
       loadPresetsFromIntel,
       addPreset,
       saveSettingsForPreset,

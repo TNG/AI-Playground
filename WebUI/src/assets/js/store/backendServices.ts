@@ -3,12 +3,7 @@ import { ref, computed, watch } from 'vue'
 import z from 'zod'
 import { demoAwareStorage } from '../demoAwareStorage'
 
-const backends = [
-  'openvino-backend',
-  'ai-backend',
-  'comfyui-backend',
-  'llamacpp-backend',
-] as const
+const backends = ['openvino-backend', 'ai-backend', 'comfyui-backend', 'llamacpp-backend'] as const
 
 export type BackendServiceName = (typeof backends)[number]
 

@@ -92,21 +92,34 @@ import LanguageSelector from '@/components/LanguageSelector.vue'
 
 const props = defineProps<{
   recommendedMode: ProductMode | null
+  /** Committed tier from settings; pre-selects this when reopening the manager (matches app header). */
+  currentMode?: ProductMode | null
 }>()
 
 const emits = defineEmits<{
   (e: 'select', mode: ProductMode): void
 }>()
 
-const selectedMode = ref<ProductMode | null>(props.recommendedMode)
+const selectedMode = ref<ProductMode | null>(null)
+
+watch(
+  () => props.currentMode,
+  (cur) => {
+    if (cur != null) {
+      selectedMode.value = cur
+    }
+  },
+  { immediate: true },
+)
 
 watch(
   () => props.recommendedMode,
-  (newVal) => {
-    if (newVal && !selectedMode.value) {
-      selectedMode.value = newVal
+  (rec) => {
+    if (props.currentMode == null && selectedMode.value === null && rec != null) {
+      selectedMode.value = rec
     }
   },
+  { immediate: true },
 )
 
 const modeOptions = [
@@ -115,13 +128,13 @@ const modeOptions = [
     title: 'AI Playground',
     subtitle: 'essentials',
     description:
-      'Focused feature set, purpose built for low power, lightweight, and power efficient AI PCs targeting the NPU.',
+      'Focused feature set, purpose built for low power, lightweight, and power efficient Intel Core AI PCs.',
     features: [
-      'Chat: Knowledge chat, document search and analysis',
-      'Image Gen: Draft and HD image generation modes',
-      'Image Edit: Upscale, Inpaint, Outpaint',
+      'Chat: Knowledge chat, document search, and analysis',
+      'Image Gen: Draft, HD, and Manual image generation modes',
+      'Image Edit: Upscale, SketchToPhoto, Inpaint, Outpaint',
     ],
-    supportedHardware: 'Intel Core with NPU, Intel Core Ultra Series 1U, 2U',
+    supportedHardware: 'Intel® Core™ Series 3 with 12GB RAM',
   },
   {
     mode: 'studio' as ProductMode,
@@ -130,13 +143,13 @@ const modeOptions = [
     description:
       'Full feature set of demanding offline AI workloads across chat, vision, image and video, targeting the GPU.',
     features: [
-      'Chat: Advanced chat with reasoning, vision, agentic and multi-modal chat.',
+      'Chat: Advanced chat with reasoning, vision, agentic, and multi-modal chat.',
       'Image Gen: Advanced image gen with high realism and prompt adherence',
-      'Image Edit: Semantic image editing, style control, and 3D model generation',
+      'Image Edit: Semantic prompt driven image editing, style control, and 3D model generation',
       'Video Generation Support',
     ],
     supportedHardware:
-      'Intel Core Ultra Series 3, Intel Core Ultra Series 2V/2U, Intel Arc GPU Series A & B',
+      'Intel® Core™ Ultra Series 3, Series 2V/2H, Series 1H with 16GB RAM; Intel Arc GPU Series A & B with 8GB of vRAM',
   },
 ]
 

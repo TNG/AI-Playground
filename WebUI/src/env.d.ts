@@ -45,6 +45,22 @@ type DemoProfile = {
 
 type ProductMode = 'studio' | 'essentials'
 
+/** Mirrors electron/main LocalSettingsSchema (renderer copy for IPC typing). */
+type LocalSettings = {
+  debug: boolean
+  deviceArchOverride: 'bmg' | 'acm' | 'arl_h' | 'lnl' | 'mtl' | null
+  isAdminExec: boolean
+  availableThemes: Array<'dark' | 'lnl' | 'bmg' | 'light'>
+  currentTheme: 'dark' | 'lnl' | 'bmg' | 'light'
+  productMode?: ProductMode
+  isDemoModeEnabled: boolean
+  demoModeResetInSeconds: number | null
+  demoModePasscode?: string
+  languageOverride: string | null
+  remoteRepository: string
+  huggingfaceEndpoint: string
+}
+
 type GpuHardwareDevice = {
   device: string
   name: string
@@ -98,6 +114,7 @@ type electronAPI = {
   getLocaleSettings(): Promise<LocaleSettings>
   getThemeSettings(): Promise<ThemeSettings>
   updateLocalSettings(updates: Partial<LocalSettings>): Promise<{ success: boolean }>
+  getLocalSettings(): Promise<LocalSettings>
   detectHardwareForModeRecommendation(): Promise<HardwareRecommendationResult>
   setWinSize(width: number, height: number): Promise<void>
   showSaveDialog(options: Electron.SaveDialogOptions): Promise<Electron.SaveDialogReturnValue>
@@ -466,11 +483,7 @@ type CheckModelAlreadyLoadedResult = {
   already_loaded: boolean
 } & CheckModelAlreadyLoadedParameters
 
-type BackendServiceName =
-  | 'ai-backend'
-  | 'comfyui-backend'
-  | 'llamacpp-backend'
-  | 'openvino-backend'
+type BackendServiceName = 'ai-backend' | 'comfyui-backend' | 'llamacpp-backend' | 'openvino-backend'
 
 type InferenceDevice = {
   id: string

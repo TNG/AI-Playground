@@ -341,7 +341,14 @@ export const checkBackendWithDetails = async (
 export const installWheel = async (backend: string, wheelPath: string) => {
   const logger = loggerFor(`uv.wheel.${backend}`)
   await assertUv(logger)
-  const uvCommand = ['pip', 'install', '--no-deps', '--directory', path.join(aipgBaseDir, backend), wheelPath]
+  const uvCommand = [
+    'pip',
+    'install',
+    '--no-deps',
+    '--directory',
+    path.join(aipgBaseDir, backend),
+    wheelPath,
+  ]
   logger.info(`Installing wheel: ${wheelPath} with ${JSON.stringify(uvCommand)}`)
 
   return uv(uvCommand, logger)

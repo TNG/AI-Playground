@@ -117,7 +117,7 @@ const LocalSettingsSchema = z.object({
   isAdminExec: z.boolean().default(false),
   availableThemes: z.array(ThemeSchema).default(['dark', 'lnl', 'bmg', 'light']),
   currentTheme: ThemeSchema.default('bmg'),
-  productMode: ProductModeSchema.default('studio'),
+  productMode: ProductModeSchema.optional(),
   isDemoModeEnabled: z.boolean().default(false),
   demoModeResetInSeconds: z.number().min(1).nullable().default(null),
   demoModePasscode: z.string().optional(),
@@ -136,6 +136,43 @@ function getPresetsDir(s: LocalSettings): string {
 
 let settings = LocalSettingsSchema.parse({})
 let demoProfile: DemoProfile | null = null
+
+/** Packaged app: single JSON next to resources. Dev: never write here (Vite watches the repo). */
+function getPackagedSettingsPath(): string {
+  return path.join(process.resourcesPath, 'settings.json')
+}
+
+/** Dev-only defaults shipped in the repo (read-only for the app). */
+function getDevSettingsDefaultsPath(): string {
+  return path.join(__dirname, '../../external/settings-dev.json')
+}
+
+/** Writable path: packaged = resources settings; dev = userData overlay (avoids Vite reload loops). */
+function getWritableSettingsPath(): string {
+  if (app.isPackaged) {
+    return getPackagedSettingsPath()
+  }
+  return path.join(app.getPath('userData'), 'ai-playground-local-settings.json')
+}
+
+function persistLocalSettingsToDisk(): void {
+  const settingPath = getWritableSettingsPath()
+  const serialized = JSON.stringify(LocalSettingsSchema.parse(settings), null, 2)
+  const tmpPath = `${settingPath}.${randomUUID()}.tmp`
+  try {
+    fs.mkdirSync(path.dirname(settingPath), { recursive: true })
+    fs.writeFileSync(tmpPath, serialized, { encoding: 'utf8' })
+    fs.renameSync(tmpPath, settingPath)
+  } catch (e) {
+    try {
+      fs.unlinkSync(tmpPath)
+    } catch {
+      // ignore cleanup failure
+    }
+    appLogger.error(`failed to persist local settings: ${e}`, 'electron-backend')
+  }
+}
+
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'aipg-media',
@@ -150,20 +187,42 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 async function loadSettings() {
-  const settingPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'settings.json')
-    : path.join(__dirname, '../../external/settings-dev.json')
+  settings = LocalSettingsSchema.parse({})
 
-  appLogger.info(`loading settings from ${settingPath}`, 'electron-backend')
-  if (fs.existsSync(settingPath)) {
-    try {
-      settings = LocalSettingsSchema.parse(
-        JSON.parse(fs.readFileSync(settingPath, { encoding: 'utf8' })),
-      )
-    } catch (e) {
-      appLogger.error(`failed to load settings: ${e}`, 'electron-backend')
+  if (app.isPackaged) {
+    const packagedPath = getPackagedSettingsPath()
+    appLogger.info(`loading packaged settings from ${packagedPath}`, 'electron-backend')
+    if (fs.existsSync(packagedPath)) {
+      try {
+        const raw = JSON.parse(fs.readFileSync(packagedPath, { encoding: 'utf8' }))
+        settings = LocalSettingsSchema.parse({ ...settings, ...raw })
+      } catch (e) {
+        appLogger.error(`failed to load settings: ${e}`, 'electron-backend')
+      }
+    }
+  } else {
+    const defaultsPath = getDevSettingsDefaultsPath()
+    appLogger.info(`loading dev defaults from ${defaultsPath}`, 'electron-backend')
+    if (fs.existsSync(defaultsPath)) {
+      try {
+        const raw = JSON.parse(fs.readFileSync(defaultsPath, { encoding: 'utf8' }))
+        settings = LocalSettingsSchema.parse({ ...settings, ...raw })
+      } catch (e) {
+        appLogger.error(`failed to load dev defaults: ${e}`, 'electron-backend')
+      }
+    }
+    const userPath = getWritableSettingsPath()
+    appLogger.info(`loading dev user settings from ${userPath}`, 'electron-backend')
+    if (fs.existsSync(userPath)) {
+      try {
+        const raw = JSON.parse(fs.readFileSync(userPath, { encoding: 'utf8' }))
+        settings = LocalSettingsSchema.parse({ ...settings, ...raw })
+      } catch (e) {
+        appLogger.error(`failed to load dev user settings: ${e}`, 'electron-backend')
+      }
     }
   }
+
   appLogger.info(`settings loaded: ${JSON.stringify({ settings })}`, 'electron-backend')
 
   if (settings.isDemoModeEnabled) {
@@ -452,8 +511,24 @@ function initEventHandle() {
     }
   })
 
+  ipcMain.handle('getLocalSettings', () => {
+    return LocalSettingsSchema.parse(settings)
+  })
+
   ipcMain.handle('updateLocalSettings', (_event, updates: Partial<LocalSettings>) => {
     Object.assign(settings, updates)
+    if ('productMode' in updates && settings.isDemoModeEnabled) {
+      const presetsDir = getPresetsDir(settings)
+      try {
+        demoProfile = loadDemoProfile(presetsDir, appLogger)
+      } catch (e) {
+        appLogger.error(
+          `Failed to reload demo profile after product mode change: ${e}`,
+          'demo-profile',
+        )
+      }
+    }
+    persistLocalSettingsToDisk()
     appLogger.info(`Updated local settings: ${JSON.stringify(updates)}`, 'electron-backend')
     return { success: true }
   })

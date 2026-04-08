@@ -88,7 +88,7 @@
     <loading-bar
       :text="
         globalSetup.loadingState === 'autoInstalling'
-          ? 'Setting up AI Playground...'
+          ? languages.LOADING_AUTO_INSTALLING
           : languages.LOADING_VERIFYING_BACKENDS
       "
       class="w-3/5"
@@ -100,7 +100,9 @@
     class="flex-auto flex items-center justify-center"
   >
     <product-mode-selector
+      :key="productModeSelectorKey"
       :recommended-mode="productModeStore.hardwareRecommendation?.recommendedMode ?? null"
+      :current-mode="productModeStore.productMode"
       @select="onProductModeSelected"
     />
   </main>
@@ -329,7 +331,7 @@ import { useColorMode } from '@vueuse/core'
 import { useDemoMode } from './assets/js/store/demoMode.ts'
 import WorkflowResult from '@/views/WorkflowResult.vue'
 import Chat from '@/views/Chat.vue'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import SideModalHistory from '@/components/SideModalHistory.vue'
 import SideModalAppSettings from '@/components/SideModalAppSettings.vue'
 import { useDialogStore } from '@/assets/js/store/dialogs.ts'
@@ -337,6 +339,8 @@ import { usePromptStore } from '@/assets/js/store/promptArea.ts'
 import SideModalSpecificSettings from '@/components/SideModalSpecificSettings.vue'
 import { useUIStore } from '@/assets/js/store/ui.ts'
 import { useSpeechToText } from '@/assets/js/store/speechToText'
+import { usePresets } from '@/assets/js/store/presets'
+import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import * as toast from '@/assets/js/toast'
 import DemoModeOverlayDriverJsRef from './components/DemoModeOverlayDriverJs.vue'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
@@ -352,6 +356,8 @@ const dialogStore = useDialogStore()
 const promptStore = usePromptStore()
 const uiStore = useUIStore()
 const speechToText = useSpeechToText()
+const presetsStore = usePresets()
+const presetSwitching = usePresetSwitching()
 
 const addLLMCompt = ref<InstanceType<typeof AddLLMDialog>>()
 const demoModeOverlayDriverJs = ref<InstanceType<typeof DemoModeOverlayDriverJsRef>>()
@@ -382,6 +388,20 @@ const licenseUrl = computed(() => `${gitHubRepoUrl.value}LICENSE`)
 
 const mode = useColorMode()
 mode.value = 'dark'
+
+/** Only one pending poll for backend readiness (avoids stacked timers if onBeforeMount runs twice). */
+let initialLoadingPollHandle: ReturnType<typeof setTimeout> | null = null
+
+/** Remount mode selector whenever the screen is shown so selection syncs with committed `productMode`. */
+const productModeSelectorKey = ref(0)
+watch(
+  () => globalSetup.loadingState,
+  (state, prev) => {
+    if (state === 'selectProductMode' && prev !== 'selectProductMode') {
+      productModeSelectorKey.value += 1
+    }
+  },
+)
 
 const zoomIn = (event: KeyboardEvent) => {
   if (event.ctrlKey && event.code === 'Equal') window.electronAPI.zoomIn()
@@ -461,15 +481,29 @@ async function setInitialLoadingState() {
   console.log('setting loading state')
   if (!backendServices.serviceInfoUpdateReceived) {
     globalSetup.loadingState = 'verifyBackend'
-    setTimeout(setInitialLoadingState, 1000)
+    if (initialLoadingPollHandle !== null) {
+      clearTimeout(initialLoadingPollHandle)
+    }
+    initialLoadingPollHandle = setTimeout(() => {
+      initialLoadingPollHandle = null
+      void setInitialLoadingState()
+    }, 1000)
     return
+  }
+
+  if (initialLoadingPollHandle !== null) {
+    clearTimeout(initialLoadingPollHandle)
+    initialLoadingPollHandle = null
   }
 
   const result = await productModeStore.ensureReady()
 
   if (result === 'installFailed') {
-    globalSetup.loadingState = 'manageInstallations'
-    backendServices.startAllSetUpServicesInBackground()
+    if (!productModeStore.productMode) {
+      globalSetup.loadingState = 'selectProductMode'
+      return
+    }
+    await proceedAfterModeSelection()
     return
   }
 
@@ -483,11 +517,24 @@ async function setInitialLoadingState() {
 
 async function onProductModeSelected(mode: ProductMode) {
   await productModeStore.selectMode(mode)
-  globalSetup.loadingState = 'manageInstallations'
-  backendServices.startAllSetUpServicesInBackground()
+  await proceedAfterModeSelection()
+}
+
+/**
+ * Presets store loads from main on first import, before ensureReady() syncs Pinia productMode
+ * to Electron — so we always re-fetch after main knows the real mode.
+ */
+async function syncPresetsForCurrentProductMode() {
+  await productModeStore.syncToMain()
+  await presetsStore.reloadAfterProductModeChange()
+  await presetSwitching.reconcileActivePresetAfterCatalogReload()
+  if (demoMode.enabled) {
+    await demoMode.refreshFromMainConfig()
+  }
 }
 
 async function proceedAfterModeSelection() {
+  await syncPresetsForCurrentProductMode()
   const needsInstallation = await backendServices.shouldShowInstallationDialog()
   if (needsInstallation) {
     globalSetup.loadingState = 'manageInstallations'

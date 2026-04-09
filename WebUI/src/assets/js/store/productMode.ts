@@ -36,6 +36,7 @@ export const useProductMode = defineStore('productMode', () => {
         recommendedMode: 'studio',
         detectedDevices: [],
         hasNvidiaGpu: false,
+        modeCatalog: [],
       }
     }
   }

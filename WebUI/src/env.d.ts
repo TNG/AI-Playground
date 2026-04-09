@@ -67,11 +67,32 @@ type GpuHardwareDevice = {
   gpuDeviceId: string | null
 }
 
+type ProductModeCatalogFeatureI18n = {
+  labelKey: string
+  detailKey: string
+}
+
+type ProductModeCatalogUiI18n = {
+  titleOne: string
+  titleTwo: string
+  subtitle?: string
+  description: string
+  supportedHardware: string
+  features?: ProductModeCatalogFeatureI18n[]
+}
+
+type ProductModeCatalogEntry = {
+  mode: ProductMode
+  experimental: boolean
+  ui: { i18n: ProductModeCatalogUiI18n }
+}
+
 type HardwareRecommendationResult = {
   success: boolean
   recommendedMode: ProductMode
   detectedDevices: GpuHardwareDevice[]
   hasNvidiaGpu: boolean
+  modeCatalog: ProductModeCatalogEntry[]
   error?: string
 }
 

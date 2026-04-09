@@ -78,18 +78,36 @@ import { loadDemoProfile, type DemoProfile } from './demoProfile.ts'
 import type { ModelPaths } from '@/assets/js/store/models.ts'
 import type { IndexedDocument, EmbedInquiry } from '@/assets/js/store/textInference.ts'
 import { BackendServiceName } from '@/assets/js/store/backendServices.ts'
-import { detectGpuHardwareDevices } from './subprocesses/hardwareDiscovery.ts'
+import {
+  detectGpuHardwareDevices,
+  type GpuHardwareDevice,
+} from './subprocesses/hardwareDiscovery.ts'
 import z from 'zod'
 
-const ProductModeRecommendationSchema = z.object({
+const ProductModeUiI18nSchema = z.object({
+  titleOne: z.string(),
+  titleTwo: z.string(),
+  subtitle: z.string().optional(),
+  description: z.string(),
+  supportedHardware: z.string(),
+  features: z.array(z.object({ labelKey: z.string(), detailKey: z.string() })).optional(),
+})
+
+const ProductModeFileSchema = z.object({
   mode: z.enum(['studio', 'essentials', 'nvidia']),
   priority: z.number(),
   recommendForIntelDeviceIds: z.array(z.string()).default([]),
   recommendForNvidia: z.boolean().default(false),
+  experimental: z.boolean().default(false),
+  displayOrder: z.number(),
+  requiresNvidiaGpu: z.boolean().default(false),
+  ui: z.object({
+    i18n: ProductModeUiI18nSchema,
+  }),
 })
-type ProductModeRecommendation = z.infer<typeof ProductModeRecommendationSchema>
+type ProductModeFileConfig = z.infer<typeof ProductModeFileSchema>
 
-function loadProductModeConfigs(externalResDir: string): ProductModeRecommendation[] {
+function loadProductModeConfigs(externalResDir: string): ProductModeFileConfig[] {
   const dir = path.join(externalResDir, 'product-modes')
   try {
     const entries = fs
@@ -97,10 +115,10 @@ function loadProductModeConfigs(externalResDir: string): ProductModeRecommendati
       .filter((e) => e.isFile() && e.name.endsWith('.json'))
       .map((e) => e.name)
 
-    const configs: ProductModeRecommendation[] = []
+    const configs: ProductModeFileConfig[] = []
     for (const file of entries) {
       const raw = fs.readFileSync(path.join(dir, file), 'utf-8')
-      const parsed = ProductModeRecommendationSchema.parse(JSON.parse(raw))
+      const parsed = ProductModeFileSchema.parse(JSON.parse(raw))
       configs.push({
         ...parsed,
         recommendForIntelDeviceIds: parsed.recommendForIntelDeviceIds.map((id) => id.toLowerCase()),
@@ -586,15 +604,36 @@ function initEventHandle() {
   })
 
   ipcMain.handle('detectHardwareForModeRecommendation', async () => {
-    const { detected, hasNvidia } = await detectGpuHardwareDevices()
-    appLogger.info(`Detected GPU devices: ${JSON.stringify(detected)}`, 'electron-backend')
+    let detected: GpuHardwareDevice[] = []
+    let hasNvidia = false
+    let detectSuccess = true
+
+    try {
+      const probe = await detectGpuHardwareDevices()
+      detected = probe.detected
+      hasNvidia = probe.hasNvidia
+      appLogger.info(`Detected GPU devices: ${JSON.stringify(detected)}`, 'electron-backend')
+      appLogger.info(`Has NVIDIA: ${hasNvidia}`, 'electron-backend')
+    } catch (e) {
+      detectSuccess = false
+      appLogger.warn(`GPU detection failed: ${e}`, 'electron-backend')
+    }
+
+    const configs = loadProductModeConfigs(externalRes)
+
+    const modeCatalog = configs
+      .filter((c) => !c.requiresNvidiaGpu || hasNvidia)
+      .sort((a, b) => a.displayOrder - b.displayOrder)
+      .map((c) => ({
+        mode: c.mode,
+        experimental: c.experimental,
+        ui: c.ui,
+      }))
 
     const gpuIds = detected
       .map((d) => d.gpuDeviceId)
       .filter((id): id is string => id !== null)
       .map((id) => id.toLowerCase())
-
-    const configs = loadProductModeConfigs(externalRes)
 
     // Highest priority wins.
     const eligible = configs
@@ -610,10 +649,11 @@ function initEventHandle() {
     const recommendedMode: ProductMode = eligible[0]?.mode ?? 'studio'
 
     return {
-      success: true,
+      success: detectSuccess,
       recommendedMode,
       detectedDevices: detected,
       hasNvidiaGpu: hasNvidia,
+      modeCatalog,
     }
   })
 

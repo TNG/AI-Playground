@@ -102,6 +102,7 @@ Python backend (`service/`) uses **Ruff** for linting (runs in CI via GitHub Act
 - Store files: **camelCase** in `WebUI/src/assets/js/store/` (e.g., `backendServices.ts`).
 - Store hooks use `use` prefix: `useBackendServices`, `useTextInference`.
 - Stores may import other stores for composition.
+- **Store instantiation**: Always use a regular `import` at the top of the file and call `const someStore = useSomeStore()` at the top of the `defineStore` setup function or `<script setup>` block. **Never** use dynamic `import()` or inline `useSomeStore()` calls inside nested functions/callbacks.
 
 ### Import Ordering
 

@@ -333,11 +333,11 @@ const components = computed(() => {
   return backendServices.info
     .filter((item) => !(isNvidiaMode && item.serviceName === 'openvino-backend'))
     .map((item) => ({
-    enabled:
-      alreadyInstalledOrRequiredComponents.value.has(item.serviceName) ||
-      toBeInstalledComponents.value.has(item.serviceName),
-    isLoading: loadingComponents.value.has(item.serviceName),
-    ...item,
+      enabled:
+        alreadyInstalledOrRequiredComponents.value.has(item.serviceName) ||
+        toBeInstalledComponents.value.has(item.serviceName),
+      isLoading: loadingComponents.value.has(item.serviceName),
+      ...item,
     }))
 })
 

@@ -5,8 +5,8 @@ import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
 import { useModels } from './models'
 import { useDialogStore } from './dialogs'
-import { useGlobalSetup } from './globalSetup'
 import * as toast from '@/assets/js/toast'
+import { useSetupWizard } from './setupWizard'
 
 export const WHISPER_MODEL_NAME = 'OpenVINO/whisper-base-int8-ov'
 
@@ -18,8 +18,7 @@ export const useSpeechToText = defineStore(
     const backendServices = useBackendServices()
     const models = useModels()
     const dialogStore = useDialogStore()
-    const globalSetup = useGlobalSetup()
-
+    const setupWizard = useSetupWizard()
     /**
      * Ensures the transcription server is running when STT is enabled.
      * This method checks if the server is already running and starts it if needed.
@@ -109,11 +108,10 @@ export const useSpeechToText = defineStore(
         )
 
         if (!openVinoService || !openVinoService.isSetUp) {
-          // Show warning dialog to install OVMS
           dialogStore.showWarningDialog(
             'OpenVINO backend is required for Speech To Text. Please install it first.',
             () => {
-              globalSetup.loadingState = 'manageInstallations'
+              setupWizard.openWizard()
             },
           )
           return

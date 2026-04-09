@@ -43,7 +43,7 @@ type DemoProfile = {
   notificationDotButtons: string[]
 }
 
-type ProductMode = 'studio' | 'essentials'
+type ProductMode = 'studio' | 'essentials' | 'nvidia'
 
 /** Mirrors electron/main LocalSettingsSchema (renderer copy for IPC typing). */
 type LocalSettings = {
@@ -71,6 +71,7 @@ type HardwareRecommendationResult = {
   success: boolean
   recommendedMode: ProductMode
   detectedDevices: GpuHardwareDevice[]
+  hasNvidiaGpu: boolean
   error?: string
 }
 

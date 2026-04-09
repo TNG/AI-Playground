@@ -148,7 +148,9 @@ export class AiBackendService extends LongLivedPythonApiService {
         status: 'executing',
         debugMessage: `installing dependencies`,
       }
-      await installBackend(this.serviceFolder)
+      const extraEnv =
+        this.settings.productMode === 'nvidia' ? { UV_TORCH_BACKEND: 'cu128' } : undefined
+      await installBackend(this.serviceFolder, undefined, extraEnv)
 
       yield {
         serviceName: this.name,

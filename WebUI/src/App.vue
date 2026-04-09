@@ -103,6 +103,7 @@
       :key="productModeSelectorKey"
       :recommended-mode="productModeStore.hardwareRecommendation?.recommendedMode ?? null"
       :current-mode="productModeStore.productMode"
+      :has-nvidia-gpu="productModeStore.hardwareRecommendation?.hasNvidiaGpu ?? false"
       @select="onProductModeSelected"
     />
   </main>

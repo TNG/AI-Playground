@@ -3,6 +3,11 @@
     <div class="px-20 py-5 max-w-5xl">
       <h1 class="text-center py-1 px-4 rounded-sm text-4xl">AI Playground Installation Manager</h1>
 
+      <div v-if="showNvidiaMode" class="pt-4 text-sm text-muted-foreground">
+        NVIDIA GPU detected. You can enable CUDA mode to install compatible components (OpenVINO will be
+        disabled).
+      </div>
+
       <div class="flex flex-col gap-4 pt-8">
         <label
           v-for="option in modeOptions"
@@ -104,6 +109,7 @@ const props = defineProps<{
   recommendedMode: ProductMode | null
   /** Committed tier from settings; pre-selects this when reopening the manager (matches app header). */
   currentMode?: ProductMode | null
+  hasNvidiaGpu?: boolean
 }>()
 
 const emits = defineEmits<{
@@ -169,7 +175,26 @@ const modeOptions = [
     supportedHardware:
       'Intel® Core™ Ultra Series 3, Series 2V/2H, Series 1H with 16GB RAM; Intel Arc GPU Series A & B with 8GB of vRAM',
   },
+  ...(props.hasNvidiaGpu
+    ? [
+        {
+          mode: 'nvidia' as ProductMode,
+          titleOne: 'AI',
+          titleTwo: 'PLAYGROUND',
+          subtitle: 'NVIDIA CUDA',
+          description:
+            'CUDA-accelerated mode for NVIDIA GPUs. Uses CUDA PyTorch and disables OpenVINO backends.',
+          features: [
+            { label: 'Chat:', detail: ' GGUF chat via llama.cpp' },
+            { label: 'Image Gen:', detail: ' ComfyUI workflows with CUDA acceleration' },
+          ],
+          supportedHardware: 'NVIDIA RTX GPU with 8GB+ VRAM',
+        },
+      ]
+    : []),
 ]
+
+const showNvidiaMode = computed(() => props.hasNvidiaGpu === true)
 
 function confirmSelection() {
   if (selectedMode.value) {

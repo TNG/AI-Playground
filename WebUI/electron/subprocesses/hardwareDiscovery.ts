@@ -1,0 +1,106 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import { z } from 'zod'
+import { spawnProcessAsync } from './osProcessHelper'
+
+export type GpuHardwareDevice = {
+  device: string
+  name: string
+  gpuDeviceId: string | null
+}
+
+const XpuSmiDiscoverySchema = z.object({
+  device_list: z.array(
+    z.object({
+      device_id: z.number(),
+      device_name: z.string(),
+      device_type: z.string().optional(),
+      pci_device_id: z.string().optional(),
+      uuid: z.string().optional(),
+      vendor_name: z.string().optional(),
+    }),
+  ),
+})
+
+const NvidiaSmiLineSchema = z.object({
+  index: z.number(),
+  name: z.string(),
+  uuid: z.string().optional(),
+})
+
+function getXpuSmiExePath(): string | null {
+  const baseDir = process.resourcesPath ?? path.join(__dirname, '../../../')
+  // Packaged app ships device-service as an extraResource next to the asar.
+  // Dev points at the repo root (same as used throughout other subprocess code).
+  const exePath = path.join(baseDir, 'device-service', 'xpu-smi.exe')
+  if (fs.existsSync(exePath)) return exePath
+  return null
+}
+
+export async function detectIntelGpusViaXpuSmi(): Promise<GpuHardwareDevice[]> {
+  if (process.platform !== 'win32') return []
+  const exePath = getXpuSmiExePath()
+  if (!exePath) return []
+
+  try {
+    const out = await spawnProcessAsync(
+      exePath,
+      ['discovery', '-j'],
+      () => {},
+      { ONEAPI_DEVICE_SELECTOR: 'level_zero:*' },
+      path.dirname(exePath),
+    )
+    const parsed = XpuSmiDiscoverySchema.parse(JSON.parse(out))
+    return parsed.device_list.map((d) => ({
+      device: `INTEL_GPU:${d.device_id}`,
+      name: d.device_name,
+      gpuDeviceId: d.pci_device_id ?? null,
+    }))
+  } catch {
+    return []
+  }
+}
+
+function parseNvidiaSmiListOutput(output: string): Array<z.infer<typeof NvidiaSmiLineSchema>> {
+  const lines = output
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+
+  const out: Array<z.infer<typeof NvidiaSmiLineSchema>> = []
+  for (const line of lines) {
+    const m = line.match(/^GPU\s+(\d+):\s+(.+?)(?:\s+\(UUID:\s*([^)]+)\))?$/i)
+    if (!m) continue
+    const index = Number.parseInt(m[1] ?? '', 10)
+    if (!Number.isFinite(index)) continue
+    const name = (m[2] ?? '').trim()
+    const uuid = (m[3] ?? '').trim() || undefined
+    out.push(NvidiaSmiLineSchema.parse({ index, name, uuid }))
+  }
+  return out
+}
+
+export async function detectNvidiaGpusViaSmi(): Promise<GpuHardwareDevice[]> {
+  const exe = process.platform === 'win32' ? 'nvidia-smi.exe' : 'nvidia-smi'
+  try {
+    const out = await spawnProcessAsync(exe, ['-L'], () => {}, undefined, undefined, 2000)
+    const gpus = parseNvidiaSmiListOutput(out)
+    return gpus.map((g) => ({
+      device: `NVIDIA_GPU:${g.index}`,
+      name: g.name,
+      gpuDeviceId: g.uuid ?? null,
+    }))
+  } catch {
+    return []
+  }
+}
+
+export async function detectGpuHardwareDevices(): Promise<{
+  detected: GpuHardwareDevice[]
+  hasNvidia: boolean
+}> {
+  const [intel, nvidia] = await Promise.all([detectIntelGpusViaXpuSmi(), detectNvidiaGpusViaSmi()])
+  const detected = [...nvidia, ...intel]
+  return { detected, hasNvidia: nvidia.length > 0 }
+}
+

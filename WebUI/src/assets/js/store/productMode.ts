@@ -5,6 +5,10 @@ import { useGlobalSetup } from './globalSetup'
 export const useProductMode = defineStore('productMode', () => {
   const productMode = ref<ProductMode | null>(null)
   const hardwareRecommendation = ref<HardwareRecommendationResult | null>(null)
+  const isNvidiaModeAvailable = computed(
+    () => (hardwareRecommendation.value?.hasNvidiaGpu ?? false) === true,
+  )
+  const isNvidiaModeSelected = computed(() => productMode.value === 'nvidia')
 
   async function hydrateFromMain() {
     try {
@@ -31,6 +35,7 @@ export const useProductMode = defineStore('productMode', () => {
         success: false,
         recommendedMode: 'studio',
         detectedDevices: [],
+        hasNvidiaGpu: false,
       }
     }
   }
@@ -71,6 +76,8 @@ export const useProductMode = defineStore('productMode', () => {
   return {
     productMode,
     hardwareRecommendation,
+    isNvidiaModeAvailable,
+    isNvidiaModeSelected,
     hydrateFromMain,
     syncToMain,
     detectRecommendation,

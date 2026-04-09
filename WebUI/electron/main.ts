@@ -53,7 +53,6 @@ import {
   COMFYUI_DEFAULT_PARAMETERS,
 } from './subprocesses/comfyUIBackendService'
 import { LLAMACPP_DEFAULT_PARAMETERS } from './subprocesses/llamaCppBackendService'
-import { AiBackendService } from './subprocesses/aiBackendService'
 import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateIntelPresets.ts'
 import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
 import * as comfyuiTools from './subprocesses/comfyuiTools'
@@ -79,6 +78,7 @@ import { loadDemoProfile, type DemoProfile } from './demoProfile.ts'
 import type { ModelPaths } from '@/assets/js/store/models.ts'
 import type { IndexedDocument, EmbedInquiry } from '@/assets/js/store/textInference.ts'
 import { BackendServiceName } from '@/assets/js/store/backendServices.ts'
+import { detectGpuHardwareDevices } from './subprocesses/hardwareDiscovery.ts'
 import z from 'zod'
 
 // }
@@ -127,7 +127,7 @@ const appSize = {
   maxChatContentHeight: 0,
 }
 const ThemeSchema = z.enum(['dark', 'lnl', 'bmg', 'light'])
-const ProductModeSchema = z.enum(['studio', 'essentials'])
+const ProductModeSchema = z.enum(['studio', 'essentials', 'nvidia'])
 const LocalSettingsSchema = z.object({
   debug: z.boolean().default(false),
   deviceArchOverride: z.enum(['bmg', 'acm', 'arl_h', 'lnl', 'mtl']).nullable().default(null),
@@ -146,7 +146,8 @@ export type LocalSettings = z.infer<typeof LocalSettingsSchema>
 export type ProductMode = z.infer<typeof ProductModeSchema>
 
 function getPresetsDir(s: LocalSettings): string {
-  const mode = s.productMode === 'essentials' ? 'essentials' : 'studio'
+  const mode =
+    s.productMode === 'essentials' ? 'essentials' : s.productMode === 'nvidia' ? 'nvidia' : 'studio'
   const variant = s.isDemoModeEnabled ? 'demo' : 'presets'
   return path.join(modesDir, mode, variant)
 }
@@ -553,25 +554,7 @@ function initEventHandle() {
   })
 
   ipcMain.handle('detectHardwareForModeRecommendation', async () => {
-    if (!serviceRegistry) {
-      return {
-        success: false,
-        error: 'Service registry not ready',
-        recommendedMode: 'studio' as const,
-        detectedDevices: [],
-      }
-    }
-    const service = serviceRegistry.getService('ai-backend')
-    if (!service || !(service instanceof AiBackendService)) {
-      return {
-        success: false,
-        error: 'ai-backend service not found',
-        recommendedMode: 'studio' as const,
-        detectedDevices: [],
-      }
-    }
-
-    const hwResult = await service.detectHardwareDevices()
+    const { detected, hasNvidia } = await detectGpuHardwareDevices()
 
     const recommendationsPath = path.join(externalRes, 'hardware-recommendations.json')
     let essentialsIds: string[] = []
@@ -586,8 +569,10 @@ function initEventHandle() {
     }
 
     let recommendedMode: ProductMode = defaultRec
-    if (hwResult.success) {
-      const gpuIds = hwResult.gpuDevices
+    if (hasNvidia) {
+      recommendedMode = 'nvidia'
+    } else {
+      const gpuIds = detected
         .map((d) => d.gpuDeviceId)
         .filter((id): id is string => id !== null)
         .map((id) => id.toLowerCase())
@@ -600,10 +585,10 @@ function initEventHandle() {
     }
 
     return {
-      success: hwResult.success,
+      success: true,
       recommendedMode,
-      detectedDevices: hwResult.gpuDevices,
-      error: hwResult.error,
+      detectedDevices: detected,
+      hasNvidiaGpu: hasNvidia,
     }
   })
 

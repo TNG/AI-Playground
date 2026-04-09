@@ -1,0 +1,6 @@
+{
+  "priority": 20,
+  "recommendForIntelDeviceIds": ["0xFD80", "0xFD81"],
+  "recommendForNvidia": false
+}
+

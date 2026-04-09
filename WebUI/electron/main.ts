@@ -81,6 +81,38 @@ import { BackendServiceName } from '@/assets/js/store/backendServices.ts'
 import { detectGpuHardwareDevices } from './subprocesses/hardwareDiscovery.ts'
 import z from 'zod'
 
+const ProductModeRecommendationSchema = z.object({
+  mode: z.enum(['studio', 'essentials', 'nvidia']),
+  priority: z.number(),
+  recommendForIntelDeviceIds: z.array(z.string()).default([]),
+  recommendForNvidia: z.boolean().default(false),
+})
+type ProductModeRecommendation = z.infer<typeof ProductModeRecommendationSchema>
+
+function loadProductModeConfigs(externalResDir: string): ProductModeRecommendation[] {
+  const dir = path.join(externalResDir, 'product-modes')
+  try {
+    const entries = fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isFile() && e.name.endsWith('.json'))
+      .map((e) => e.name)
+
+    const configs: ProductModeRecommendation[] = []
+    for (const file of entries) {
+      const raw = fs.readFileSync(path.join(dir, file), 'utf-8')
+      const parsed = ProductModeRecommendationSchema.parse(JSON.parse(raw))
+      configs.push({
+        ...parsed,
+        recommendForIntelDeviceIds: parsed.recommendForIntelDeviceIds.map((id) => id.toLowerCase()),
+      })
+    }
+    return configs
+  } catch (e) {
+    appLogger.warn(`Failed to read product mode configs: ${e}`, 'electron-backend')
+    return []
+  }
+}
+
 // }
 // The built directory structure
 //
@@ -556,33 +588,25 @@ function initEventHandle() {
   ipcMain.handle('detectHardwareForModeRecommendation', async () => {
     const { detected, hasNvidia } = await detectGpuHardwareDevices()
 
-    const recommendationsPath = path.join(externalRes, 'hardware-recommendations.json')
-    let essentialsIds: string[] = []
-    let defaultRec: ProductMode = 'studio'
-    try {
-      const raw = fs.readFileSync(recommendationsPath, 'utf-8')
-      const config = JSON.parse(raw)
-      essentialsIds = (config.essentialsGpuDeviceIds ?? []).map((id: string) => id.toLowerCase())
-      defaultRec = config.defaultRecommendation ?? 'studio'
-    } catch (e) {
-      appLogger.warn(`Failed to read hardware-recommendations.json: ${e}`, 'electron-backend')
-    }
+    const gpuIds = detected
+      .map((d) => d.gpuDeviceId)
+      .filter((id): id is string => id !== null)
+      .map((id) => id.toLowerCase())
 
-    let recommendedMode: ProductMode = defaultRec
-    if (hasNvidia) {
-      recommendedMode = 'nvidia'
-    } else {
-      const gpuIds = detected
-        .map((d) => d.gpuDeviceId)
-        .filter((id): id is string => id !== null)
-        .map((id) => id.toLowerCase())
+    const configs = loadProductModeConfigs(externalRes)
 
-      if (gpuIds.length === 0 || gpuIds.every((id) => essentialsIds.includes(id))) {
-        recommendedMode = 'essentials'
-      } else {
-        recommendedMode = 'studio'
-      }
-    }
+    // Highest priority wins.
+    const eligible = configs
+      .filter((c) => c.mode !== 'nvidia' || hasNvidia)
+      .filter((c) => {
+        if (c.mode === 'nvidia') return c.recommendForNvidia === true
+        if (!c.recommendForIntelDeviceIds.length) return false
+        if (gpuIds.length === 0) return false
+        return gpuIds.some((id) => c.recommendForIntelDeviceIds.includes(id))
+      })
+      .sort((a, b) => b.priority - a.priority)
+
+    const recommendedMode: ProductMode = eligible[0]?.mode ?? 'studio'
 
     return {
       success: true,

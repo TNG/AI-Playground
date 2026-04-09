@@ -230,6 +230,50 @@ export const installBackend = async (
   }
 }
 
+export type UvExtra = 'xpu' | 'cuda' | 'cpu'
+
+/**
+ * Install a backend using uv sync with a specific extra (e.g. 'xpu', 'cuda', 'cpu').
+ */
+export const installBackendWithExtra = async (
+  backend: string,
+  extra: UvExtra,
+  onCacheCorruptionDetected?: () => void,
+  extraEnv?: Record<string, string>,
+) => {
+  const logger = loggerFor(`uv.sync-extra.${backend}.${extra}`)
+  await assertUv(logger)
+  const uvVenvCommand = [
+    'venv',
+    '--directory',
+    aipgBaseDir,
+    '--project',
+    backend,
+    '--allow-existing',
+    '--relocatable',
+  ]
+  const uvSyncCommand = ['sync', '--directory', aipgBaseDir, '--project', backend, '--extra', extra]
+  logger.info(
+    `Installing backend w/ extra: ${backend} (${extra}) with ${JSON.stringify(uvVenvCommand)} and ${JSON.stringify(uvSyncCommand)}`,
+  )
+  try {
+    await uv(uvVenvCommand, logger, extraEnv)
+    return await uv(uvSyncCommand, logger, extraEnv)
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+
+    if (isHashMismatchError(errorMessage)) {
+      logger.warn('Hash mismatch detected in UV cache during sync-extra, retrying with --no-cache')
+      onCacheCorruptionDetected?.()
+      await uv(uvVenvCommand, logger, extraEnv)
+      const noCacheCommand = [...uvSyncCommand, '--no-cache']
+      return await uv(noCacheCommand, logger, extraEnv)
+    }
+
+    throw error
+  }
+}
+
 export const checkBackend = async (backend: string) => {
   const logger = loggerFor(`uv.check.${backend}`)
   await assertUv(logger)

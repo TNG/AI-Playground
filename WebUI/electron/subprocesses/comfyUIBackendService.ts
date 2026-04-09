@@ -15,7 +15,7 @@ import {
   checkBackend,
   checkBackendWithDetails,
   ensureBackendVenv,
-  installBackend,
+  installBackendWithExtra,
   installExtraWheels,
   pipInstallRequirementsFromFile,
 } from './uvBasedBackends/uv.ts'
@@ -33,6 +33,8 @@ import { LocalSettings } from '../main.ts'
 import { downloadCustomNode } from './comfyuiTools.ts'
 import { getBundledComfyUiGitRefSync } from '../remoteUpdates.ts'
 type Device = Omit<InferenceDevice, 'selected'>
+
+export type ComfyUiVariant = 'xpu' | 'cuda' | 'cpu'
 
 export const COMFYUI_DEFAULT_PARAMETERS = '--lowvram --reserve-vram 6.0'
 
@@ -65,6 +67,34 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   private environmentMismatchError: ErrorDetails | null = null
 
   private comfyUiParametersString: string = COMFYUI_DEFAULT_PARAMETERS
+  private comfyUiVariant: ComfyUiVariant = 'xpu'
+
+  private readonly variantMarkerPath = path.join(this.serviceDir, 'aipg-variant.json')
+
+  private readInstalledVariant(): ComfyUiVariant | null {
+    try {
+      if (!filesystem.existsSync(this.variantMarkerPath)) return null
+      const raw = filesystem.readFileSync(this.variantMarkerPath, 'utf-8')
+      const parsed = JSON.parse(raw) as { variant?: string }
+      const v = parsed.variant
+      if (v === 'xpu' || v === 'cuda' || v === 'cpu') return v
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  private writeVariantMarker(variant: ComfyUiVariant): void {
+    filesystem.writeFileSync(this.variantMarkerPath, JSON.stringify({ variant }), 'utf-8')
+  }
+
+  private getEffectiveVariant(): ComfyUiVariant {
+    const restored = this.readInstalledVariant()
+    if (restored) return restored
+    if (this.settings.productMode === 'nvidia') return 'cuda'
+    if (process.platform === 'win32') return 'xpu'
+    return 'cpu'
+  }
 
   async serviceIsSetUp(): Promise<boolean> {
     this.appLogger.info(`Checking if comfyUI directories exist`, this.name)
@@ -390,6 +420,8 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     this.appLogger.info('setting up service', this.name)
     this.setStatus('installing')
 
+    this.comfyUiVariant = this.getEffectiveVariant()
+
     const checkServiceDir = async (): Promise<boolean> => {
       if (!filesystem.existsSync(this.serviceDir)) {
         return false
@@ -426,7 +458,6 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
 
       const comfyUIDepsDir = path.join(aipgBaseDir, 'comfyui-deps')
       const pyprojectSource = path.join(comfyUIDepsDir, 'pyproject.toml')
-      const uvLockSource = path.join(comfyUIDepsDir, 'uv.lock')
       const pyprojectTarget = path.join(this.serviceDir, 'pyproject.toml')
       const uvLockTarget = path.join(this.serviceDir, 'uv.lock')
       const useLocked = useLockedComfyUiDeps(this.revision, getBundledComfyUiGitRefSync())
@@ -452,12 +483,20 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
             this.name,
           )
           await filesystem.copyFile(pyprojectSource, pyprojectTarget)
-          await filesystem.copyFile(uvLockSource, uvLockTarget)
+          // Don't copy the bundled uv.lock anymore. We need to support different PyTorch variants
+          // (xpu/cuda/cpu) depending on selected productMode, so we let uv resolve the lock in-tree.
+          try {
+            if (await filesystem.pathExists(uvLockTarget)) {
+              await filesystem.remove(uvLockTarget)
+            }
+          } catch {
+            /* ignore */
+          }
           this.appLogger.info(
-            'Installing ComfyUI dependencies using bundled uv (locked)',
+            `Installing ComfyUI dependencies for variant '${this.comfyUiVariant}' using uv sync --extra (locked)`,
             this.name,
           )
-          await installBackend(this.serviceFolder, () => {
+          await installBackendWithExtra(this.serviceFolder, this.comfyUiVariant, () => {
             this.win.webContents.send('show-toast', {
               type: 'warning',
               message:
@@ -494,12 +533,30 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
 
     const configureComfyUI = async (): Promise<void> => {
       try {
-        this.appLogger.info('patching hijacks into comfyUI model_management', this.name)
-        patchFile(
-          path.join(this.serviceDir, 'comfy/model_management.py'),
-          'from comfy.model_management import get_model',
-          ['from ipex_to_cuda import ipex_init', 'ipex_init()'],
-        )
+        if (this.comfyUiVariant === 'xpu') {
+          this.appLogger.info('patching hijacks into comfyUI model_management (xpu)', this.name)
+          patchFile(
+            path.join(this.serviceDir, 'comfy/model_management.py'),
+            'from comfy.model_management import get_model',
+            ['from ipex_to_cuda import ipex_init', 'ipex_init()'],
+          )
+        } else {
+          // If a previous install injected ipex_to_cuda, remove it for non-XPU variants.
+          const mmPath = path.join(this.serviceDir, 'comfy/model_management.py')
+          if (filesystem.existsSync(mmPath)) {
+            const cur = await filesystem.readFile(mmPath, 'utf-8')
+            const next = cur
+              .replace(/^from ipex_to_cuda import ipex_init\r?\n/m, '')
+              .replace(/^ipex_init\(\)\r?\n/m, '')
+            if (next !== cur) {
+              await filesystem.writeFile(mmPath, next, 'utf-8')
+              this.appLogger.info(
+                `Removed ipex_to_cuda lines from model_management.py for variant '${this.comfyUiVariant}'`,
+                this.name,
+              )
+            }
+          }
+        }
 
         this.appLogger.info('Configuring extra model paths for comfyUI', this.name)
         const extraModelPathsYaml = path.join(this.serviceDir, 'extra_model_paths.yaml')
@@ -709,6 +766,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         status: 'executing',
         debugMessage: 'dependencies configured',
       }
+      this.writeVariantMarker(this.comfyUiVariant)
       this.isSetUp = true
       await this.updateCachedVersion()
       this.setStatus('notYetStarted')
@@ -736,6 +794,14 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   }
 
   getEnvVars() {
+    const torchBackend =
+      this.comfyUiVariant === 'cuda'
+        ? 'cu128'
+        : this.comfyUiVariant === 'cpu'
+          ? 'cpu'
+          : process.platform === 'win32'
+            ? 'xpu'
+            : 'cpu'
     return {
       PATH: `${path.join(this.pythonEnvDir, 'Library', 'bin')};${path.join(this.git.dir, 'cmd')};${process.env.PATH}`,
       PYTHONNOUSERSITE: 'true',
@@ -746,7 +812,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
       ...levelZeroDeviceSelectorEnv(this.devices.find((d) => d.selected)?.id),
       PIP_CONFIG_FILE: 'nul',
       UV_NO_CONFIG: '1',
-      UV_TORCH_BACKEND: process.platform === 'win32' ? 'xpu' : 'cpu',
+      UV_TORCH_BACKEND: torchBackend,
     }
   }
 
@@ -759,6 +825,15 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   }
 
   async detectDevices() {
+    if (this.comfyUiVariant !== 'xpu') {
+      this.appLogger.info(
+        `Skipping XPU device detection for variant '${this.comfyUiVariant}'`,
+        this.name,
+      )
+      this.devices = [{ id: '*', name: 'Auto select device', selected: true }]
+      this.updateStatus()
+      return
+    }
     // For now, use auto-select device similar to aiBackendService
     const availableDevices = [{ id: '*', name: 'Auto select device', selected: true }]
     let allDevices: Device[] = []
@@ -837,6 +912,28 @@ except Exception as e:
     process: ChildProcess
     didProcessExitEarlyTracker: Promise<boolean>
   }> {
+    // Ensure non-XPU variants don't keep stale ipex_to_cuda injection from previous installs.
+    if (this.comfyUiVariant !== 'xpu') {
+      const mmPath = path.join(this.serviceDir, 'comfy/model_management.py')
+      try {
+        if (filesystem.existsSync(mmPath)) {
+          const cur = await filesystem.readFile(mmPath, 'utf-8')
+          const next = cur
+            .replace(/^from ipex_to_cuda import ipex_init\r?\n/m, '')
+            .replace(/^ipex_init\(\)\r?\n/m, '')
+          if (next !== cur) {
+            await filesystem.writeFile(mmPath, next, 'utf-8')
+            this.appLogger.info(
+              'Removed ipex_to_cuda lines from model_management.py before startup',
+              this.name,
+            )
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
     const additionalEnvVariables = this.getEnvVars()
     const mediaDir = getMediaDir()
     const parameters = [

@@ -587,6 +587,7 @@ function initEventHandle() {
 
   ipcMain.handle('detectHardwareForModeRecommendation', async () => {
     const { detected, hasNvidia } = await detectGpuHardwareDevices()
+    appLogger.info(`Detected GPU devices: ${JSON.stringify(detected)}`, 'electron-backend')
 
     const gpuIds = detected
       .map((d) => d.gpuDeviceId)

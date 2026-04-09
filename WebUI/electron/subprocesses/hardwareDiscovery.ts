@@ -2,6 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
 import { spawnProcessAsync } from './osProcessHelper'
+import { appLoggerInstance as appLogger } from '../logging/logger.ts'
+import { buildResources } from './uvBasedBackends/uv.ts'
 
 export type GpuHardwareDevice = {
   device: string
@@ -29,10 +31,8 @@ const NvidiaSmiLineSchema = z.object({
 })
 
 function getXpuSmiExePath(): string | null {
-  const baseDir = process.resourcesPath ?? path.join(__dirname, '../../../')
-  // Packaged app ships device-service as an extraResource next to the asar.
-  // Dev points at the repo root (same as used throughout other subprocess code).
-  const exePath = path.join(baseDir, 'device-service', 'xpu-smi.exe')
+  const exePath = path.join(buildResources, 'xpu-smi.exe')
+  appLogger.info('Checking for xpu-smi.exe at path: ' + exePath, 'electron-backend')
   if (fs.existsSync(exePath)) return exePath
   return null
 }
@@ -43,20 +43,23 @@ export async function detectIntelGpusViaXpuSmi(): Promise<GpuHardwareDevice[]> {
   if (!exePath) return []
 
   try {
+    appLogger.info(`spawning xpu-smi for discovery at path: ${exePath}`, 'electron-backend')
     const out = await spawnProcessAsync(
       exePath,
       ['discovery', '-j'],
       () => {},
-      { ONEAPI_DEVICE_SELECTOR: 'level_zero:*' },
+      { ONEAPI_DEVICE_SELECTOR: '*' },
       path.dirname(exePath),
     )
+    appLogger.info(`xpu-smi discovery output: ${out}`, 'electron-backend')
     const parsed = XpuSmiDiscoverySchema.parse(JSON.parse(out))
     return parsed.device_list.map((d) => ({
       device: `INTEL_GPU:${d.device_id}`,
       name: d.device_name,
       gpuDeviceId: d.pci_device_id ?? null,
     }))
-  } catch {
+  } catch (e) {
+    appLogger.warn(`Failed to detect Intel GPUs via xpu-smi ${JSON.stringify(e)}`, 'electron-backend')
     return []
   }
 }
@@ -90,7 +93,8 @@ export async function detectNvidiaGpusViaSmi(): Promise<GpuHardwareDevice[]> {
       name: g.name,
       gpuDeviceId: g.uuid ?? null,
     }))
-  } catch {
+  } catch (e) {
+    appLogger.warn(`Failed to detect NVIDIA GPUs via nvidia-smi ${JSON.stringify(e)}`, 'electron-backend')
     return []
   }
 }

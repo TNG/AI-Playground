@@ -8,7 +8,7 @@ import z from 'zod'
 export const aipgBaseDir = app.isPackaged
   ? process.resourcesPath
   : path.join(__dirname, '../../../')
-const buildResources = app.isPackaged ? aipgBaseDir : path.join(aipgBaseDir, 'build', 'resources')
+export const buildResources = app.isPackaged ? aipgBaseDir : path.join(aipgBaseDir, 'build', 'resources')
 const uvPath = path.join(buildResources, 'uv.exe')
 const uvEnv = (extraEnv: Record<string, string> = {}) => ({
   ...process.env,

@@ -176,9 +176,9 @@
 
             <!-- Toggle -->
             <Switch
-              :checked="row.enabled"
+              :model-value="row.enabled"
               :disabled="row.toggleDisabled"
-              @update:checked="(v: boolean) => wizard.toggleBackend(row.serviceName, v)"
+              @update:model-value="(v: boolean) => wizard.toggleBackend(row.serviceName, v)"
               class="shrink-0"
             />
 

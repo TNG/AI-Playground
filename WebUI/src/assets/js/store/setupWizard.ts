@@ -68,8 +68,8 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       const isSetUp = info?.isSetUp ?? false
       const status = info?.status ?? ('notInstalled' as BackendStatus)
       const isInstalling = installingServiceNames.value.has(serviceName)
-      const enabled = isRequired || isSetUp || installSelection.value.has(serviceName)
-      const toggleDisabled = isRequired || !available || isInstalling || status === 'running'
+      const enabled = isRequired || installSelection.value.has(serviceName)
+      const toggleDisabled = isRequired || !available || isInstalling
 
       let versionDisplay = ''
       if (serviceName === 'ai-backend') {
@@ -137,18 +137,27 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     for (const serviceName of backends) {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       if (!info) continue
-      if (info.isSetUp || info.isRequired) continue
+      if (info.isRequired) continue
       if (!isBackendAvailableInProductMode(pendingProductMode.value, serviceName)) continue
-      newSelection.add(serviceName)
+      if (info.isSetUp || !info.isRequired) {
+        newSelection.add(serviceName)
+      }
     }
     installSelection.value = newSelection
   }
 
-  function toggleBackend(serviceName: BackendServiceName, value: boolean) {
+  async function toggleBackend(serviceName: BackendServiceName, value: boolean) {
+    const info = backendServices.info.find((s) => s.serviceName === serviceName)
     if (value) {
       installSelection.value.add(serviceName)
+      if (info?.isSetUp && (info.status === 'stopped' || info.status === 'notYetStarted')) {
+        await backendServices.startService(serviceName)
+      }
     } else {
       installSelection.value.delete(serviceName)
+      if (info?.status === 'running') {
+        await backendServices.stopService(serviceName)
+      }
     }
     installSelection.value = new Set(installSelection.value)
   }

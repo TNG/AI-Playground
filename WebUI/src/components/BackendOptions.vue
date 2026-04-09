@@ -51,9 +51,7 @@ const backendServices = useBackendServices()
 const i18nState = useI18N().state
 const backendStatus = computed(
   () =>
-    backendServices.info.filter(
-      (backendService) => backendService.serviceName === props.backend,
-    )[0]['status'],
+    backendServices.info.find((s) => s.serviceName === props.backend)?.status ?? 'notInstalled',
 )
 
 const menuOpen = ref(false)

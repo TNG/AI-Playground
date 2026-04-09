@@ -1,5 +1,5 @@
 <template>
-  <div class="z-10 text-foreground rounded-xl bg-background/70 border border-border shadow-lg">
+  <div class="z-10 text-foreground rounded-xl bg-background/70 backdrop-blur-sm border border-border shadow-lg">
     <div class="px-12 py-5 max-w-5xl w-5xl">
       <h1 class="text-center py-1 px-4 rounded-sm text-3xl font-bold">
         {{ languages.SETUP_WIZARD_TITLE || 'AI Playground Setup' }}
@@ -19,8 +19,8 @@
               class="flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition-colors"
               :class="
                 wizard.pendingProductMode === option.mode
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:border-border/80'
+                  ? 'border-primary bg-primary/10'
+                  : 'border-border hover:border-muted/50'
               "
               @click="wizard.setPendingMode(option.mode)"
             >
@@ -87,7 +87,7 @@
             <div
               v-for="row in wizard.backendRows"
               :key="row.serviceName"
-              class="flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors"
+              class="flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-muted/30 transition-colors"
               :class="{
                 'border-border': row.availableInCurrentMode,
                 'border-border/50 opacity-50': !row.availableInCurrentMode,

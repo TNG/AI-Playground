@@ -1,4 +1,5 @@
 {
+  "mode": "studio",
   "priority": 3,
   "recommendForIntelDeviceIds": [],
   "recommendForNvidia": false

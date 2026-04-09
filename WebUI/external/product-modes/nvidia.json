@@ -1,4 +1,5 @@
 {
+  "mode": "nvidia",
   "priority": 10,
   "recommendForIntelDeviceIds": [],
   "recommendForNvidia": true

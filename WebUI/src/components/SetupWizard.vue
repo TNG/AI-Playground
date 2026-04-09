@@ -5,199 +5,220 @@
         {{ languages.SETUP_WIZARD_TITLE || 'AI Playground Setup' }}
       </h1>
 
-      <!-- Product Mode Selection -->
-      <div class="pt-6">
-        <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-3">
-          {{ languages.SETUP_WIZARD_MODE_SECTION || 'Product Mode' }}
-        </h2>
-        <div class="flex gap-3">
-          <label
-            v-for="option in resolvedModeOptions"
-            :key="option.mode"
-            class="flex-1 flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
-            :class="
-              wizard.pendingProductMode === option.mode
-                ? 'border-primary bg-primary/5'
-                : 'border-border hover:border-border/80'
-            "
-            @click="wizard.setPendingMode(option.mode)"
-          >
-            <div class="shrink-0">
-              <div
-                class="w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors"
-                :class="
-                  wizard.pendingProductMode === option.mode
-                    ? 'border-primary bg-primary'
-                    : 'border-muted-foreground'
-                "
-              >
-                <svg
-                  v-if="wizard.pendingProductMode === option.mode"
-                  class="w-3 h-3 text-primary-foreground"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="3"
+      <!-- Two-column layout: Product Mode | Components -->
+      <div class="flex gap-6 pt-6">
+        <!-- Left column: Product Mode -->
+        <div class="flex-1 min-w-0">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-3">
+            {{ languages.SETUP_WIZARD_MODE_SECTION || 'Product Mode' }}
+          </h2>
+          <div class="flex flex-col gap-2">
+            <label
+              v-for="option in resolvedModeOptions"
+              :key="option.mode"
+              class="flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition-colors"
+              :class="
+                wizard.pendingProductMode === option.mode
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border hover:border-border/80'
+              "
+              @click="wizard.setPendingMode(option.mode)"
+            >
+              <div class="shrink-0 mt-0.5">
+                <div
+                  class="w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors"
+                  :class="
+                    wizard.pendingProductMode === option.mode
+                      ? 'border-primary bg-primary'
+                      : 'border-muted-foreground'
+                  "
                 >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              </div>
-            </div>
-            <div class="min-w-0">
-              <div class="flex items-baseline gap-1.5 flex-wrap">
-                <span class="text-sm font-bold text-[#00c4fa] -mr-0.5">{{ option.titleOne }}</span>
-                <span class="text-sm font-bold">{{ option.titleTwo }}</span>
-                <span v-if="option.subtitle" class="text-sm font-medium text-muted-foreground">{{
-                  option.subtitle
-                }}</span>
-                <span
-                  v-if="recommendedMode === option.mode"
-                  class="text-[10px] font-semibold uppercase tracking-wider text-green-500 ml-1"
-                  >{{ languages.PRODUCT_MODE_BADGE_RECOMMENDED }}</span
-                >
-                <span
-                  v-if="option.experimental"
-                  class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 ml-1"
-                  >{{ languages.PRODUCT_MODE_BADGE_EXPERIMENTAL }}</span
-                >
-              </div>
-              <p class="text-xs text-muted-foreground pt-0.5 line-clamp-2">
-                {{ option.description }}
-              </p>
-            </div>
-          </label>
-        </div>
-      </div>
-
-      <!-- Backend List -->
-      <div class="pt-6">
-        <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-3">
-          {{ languages.SETUP_WIZARD_BACKENDS_SECTION || 'Components' }}
-        </h2>
-        <p class="text-xs text-muted-foreground pb-3">
-          {{
-            languages.SETUP_WIZARD_BACKENDS_INTRO ||
-            'Required components will be installed automatically. Optional components can be toggled on or off.'
-          }}
-        </p>
-
-        <div class="flex flex-col gap-1.5">
-          <div
-            v-for="row in wizard.backendRows"
-            :key="row.serviceName"
-            class="flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors"
-            :class="{
-              'border-border': row.availableInCurrentMode,
-              'border-border/50 opacity-50': !row.availableInCurrentMode,
-            }"
-          >
-            <!-- Status bubble -->
-            <TooltipProvider :delay-duration="200">
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <span
-                    class="w-2.5 h-2.5 rounded-full shrink-0"
-                    :style="{ backgroundColor: row.statusColor }"
-                  ></span>
-                </TooltipTrigger>
-                <TooltipContent side="right" class="text-xs">
-                  {{ row.statusText }}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
-            <!-- Name + version + info link -->
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-1.5">
-                <span class="text-sm font-medium leading-tight">{{ row.displayName }}</span>
-                <a
-                  v-if="getInfoURL(row.serviceName)"
-                  :href="getInfoURL(row.serviceName)"
-                  target="_blank"
-                  class="text-muted-foreground hover:text-foreground transition-colors shrink-0"
-                  title="Component info &amp; license"
-                >
-                  <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="M12 16v-4" />
-                    <path d="M12 8h.01" />
+                  <svg
+                    v-if="wizard.pendingProductMode === option.mode"
+                    class="w-2.5 h-2.5 text-primary-foreground"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="3"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
                   </svg>
-                </a>
+                </div>
               </div>
-              <div class="text-xs text-muted-foreground leading-tight">
-                {{ row.versionDisplay }}
+              <div class="min-w-0">
+                <div class="flex items-baseline gap-1 flex-wrap">
+                  <span class="text-xs font-bold text-[#00c4fa] -mr-0.5">{{
+                    option.titleOne
+                  }}</span>
+                  <span class="text-xs font-bold">{{ option.titleTwo }}</span>
+                  <span
+                    v-if="option.subtitle"
+                    class="text-xs font-medium text-muted-foreground"
+                    >{{ option.subtitle }}</span
+                  >
+                </div>
+                <div class="flex gap-1 pt-0.5">
+                  <span
+                    v-if="recommendedMode === option.mode"
+                    class="text-[9px] font-semibold uppercase tracking-wider text-green-500"
+                    >{{ languages.PRODUCT_MODE_BADGE_RECOMMENDED }}</span
+                  >
+                  <span
+                    v-if="option.experimental"
+                    class="text-[9px] font-semibold uppercase tracking-wider text-gray-400"
+                    >{{ languages.PRODUCT_MODE_BADGE_EXPERIMENTAL }}</span
+                  >
+                </div>
+                <p class="text-[11px] text-muted-foreground pt-1 leading-snug">
+                  {{ option.description }}
+                </p>
               </div>
-            </div>
+            </label>
+          </div>
+        </div>
 
-            <!-- Unavailable tooltip -->
-            <TooltipProvider v-if="!row.availableInCurrentMode" :delay-duration="200">
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <span class="text-xs text-muted-foreground italic">
-                    {{ languages.SETUP_WIZARD_UNAVAILABLE || 'Unavailable' }}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="left" class="text-xs max-w-[200px]">
-                  {{
-                    languages.SETUP_WIZARD_UNAVAILABLE_TOOLTIP ||
-                    'This component is not available in the selected product mode.'
-                  }}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+        <!-- Right column: Components -->
+        <div class="flex-1 min-w-0">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-3">
+            {{ languages.SETUP_WIZARD_BACKENDS_SECTION || 'Components' }}
+          </h2>
 
-            <!-- Per-row action -->
-            <div class="flex justify-center shrink-0">
-              <span v-if="row.isInstalling" class="svg-icon i-loading flex-none w-4 h-4"></span>
-              <button
-                v-else-if="
-                  (row.status === 'failed' || row.status === 'installationFailed') &&
-                  row.availableInCurrentMode
-                "
-                @click="wizard.repairBackend(row.serviceName)"
-                :disabled="wizard.isBusy"
-                class="text-xs bg-primary/80 hover:bg-primary py-0.5 px-2.5 rounded transition-colors disabled:opacity-50"
-              >
-                {{ languages.COM_REPAIR || 'Repair' }}
-              </button>
-            </div>
-
-            <!-- Toggle + gear -->
-            <div class="flex items-center gap-2 shrink-0">
-              <button
-                v-if="row.status === 'failed' || row.status === 'installationFailed'"
-                @click="wizard.showErrorModal(row.serviceName)"
-                class="text-primary hover:text-primary/80 transition-colors"
-                title="View error details"
-              >
-                <span class="svg-icon i-info w-4 h-4"></span>
-              </button>
-              <TooltipProvider :delay-duration="300">
+          <div class="flex flex-col gap-1.5">
+            <div
+              v-for="row in wizard.backendRows"
+              :key="row.serviceName"
+              class="flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors"
+              :class="{
+                'border-border': row.availableInCurrentMode,
+                'border-border/50 opacity-50': !row.availableInCurrentMode,
+              }"
+            >
+              <!-- Status bubble -->
+              <TooltipProvider :delay-duration="200">
                 <Tooltip>
                   <TooltipTrigger as-child>
-                    <span class="inline-flex">
-                      <Switch
-                        :model-value="row.enabled"
-                        :disabled="row.toggleDisabled"
-                        @update:model-value="
-                          (v: boolean) => wizard.toggleBackend(row.serviceName, v)
-                        "
-                      />
-                    </span>
+                    <span
+                      class="w-2.5 h-2.5 rounded-full shrink-0"
+                      :style="{ backgroundColor: row.statusColor }"
+                    ></span>
                   </TooltipTrigger>
-                  <TooltipContent side="left" class="text-xs">
-                    {{ row.toggleTooltip }}
+                  <TooltipContent side="right" class="text-xs">
+                    {{ row.statusText }}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
-              <BackendOptions :backend="row.serviceName" />
+
+              <!-- Name + version + info link -->
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-sm font-medium leading-tight">{{ row.displayName }}</span>
+                  <a
+                    v-if="getInfoURL(row.serviceName)"
+                    :href="getInfoURL(row.serviceName)"
+                    target="_blank"
+                    class="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                    title="Component info &amp; license"
+                  >
+                    <svg
+                      class="w-3.5 h-3.5"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M12 16v-4" />
+                      <path d="M12 8h.01" />
+                    </svg>
+                  </a>
+                </div>
+                <div class="text-xs text-muted-foreground leading-tight">
+                  {{ row.versionDisplay }}
+                </div>
+              </div>
+
+              <!-- Unavailable tooltip -->
+              <TooltipProvider v-if="!row.availableInCurrentMode" :delay-duration="200">
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <span class="text-xs text-muted-foreground italic">
+                      {{ languages.SETUP_WIZARD_UNAVAILABLE || 'Unavailable' }}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="left" class="text-xs max-w-[200px]">
+                    {{
+                      languages.SETUP_WIZARD_UNAVAILABLE_TOOLTIP ||
+                      'This component is not available in the selected product mode.'
+                    }}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
+              <!-- Per-row action -->
+              <div class="flex justify-center shrink-0">
+                <span
+                  v-if="row.isInstalling"
+                  class="svg-icon i-loading flex-none w-4 h-4"
+                ></span>
+                <button
+                  v-else-if="
+                    (row.status === 'failed' || row.status === 'installationFailed') &&
+                    row.availableInCurrentMode
+                  "
+                  @click="wizard.repairBackend(row.serviceName)"
+                  :disabled="wizard.isBusy"
+                  class="text-xs bg-primary/80 hover:bg-primary py-0.5 px-2.5 rounded transition-colors disabled:opacity-50"
+                >
+                  {{ languages.COM_REPAIR || 'Repair' }}
+                </button>
+              </div>
+
+              <!-- Toggle + gear -->
+              <div class="flex items-center gap-2 shrink-0">
+                <button
+                  v-if="row.status === 'failed' || row.status === 'installationFailed'"
+                  @click="wizard.showErrorModal(row.serviceName)"
+                  class="text-primary hover:text-primary/80 transition-colors"
+                  title="View error details"
+                >
+                  <span class="svg-icon i-info w-4 h-4"></span>
+                </button>
+                <TooltipProvider :delay-duration="300">
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <span class="inline-flex">
+                        <Switch
+                          :model-value="row.enabled"
+                          :disabled="row.toggleDisabled"
+                          @update:model-value="
+                            (v: boolean) => wizard.toggleBackend(row.serviceName, v)
+                          "
+                        />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" class="text-xs">
+                      {{ row.toggleTooltip }}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+                <BackendOptions :backend="row.serviceName" />
+              </div>
             </div>
           </div>
+          <p class="text-xs text-muted-foreground pt-3">
+            {{
+              languages.SETUP_WIZARD_BACKENDS_INTRO ||
+              'Required components will be installed automatically. Optional components can be toggled on or off.'
+            }}
+          </p>
         </div>
       </div>
 
+
       <!-- Primary CTA + Close -->
-      <div class="flex items-center justify-between pt-6">
+      <div class="flex items-center justify-between pt-4">
         <div class="flex items-center gap-2">
           <LanguageSelector class="max-w-40" />
           <button

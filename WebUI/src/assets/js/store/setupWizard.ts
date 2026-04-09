@@ -40,6 +40,7 @@ export type BackendRowViewModel = {
   statusText: string
   versionDisplay: string
   errorDetails: ErrorDetails | null
+  toggleTooltip: string
 }
 
 export const useSetupWizard = defineStore('setupWizard', () => {
@@ -54,6 +55,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   const pendingProductMode = ref<ProductMode | null>(null)
   const installSelection = ref(new Set<BackendServiceName>())
   const installingServiceNames = ref(new Set<BackendServiceName>())
+  const disabledBackends = ref(new Set<BackendServiceName>())
   const wizardDirty = ref(false)
 
   const errorModalOpen = ref(false)
@@ -70,6 +72,23 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       const isInstalling = installingServiceNames.value.has(serviceName)
       const enabled = isRequired || installSelection.value.has(serviceName)
       const toggleDisabled = isRequired || !available || isInstalling
+
+      let toggleTooltip = ''
+      if (isRequired) {
+        toggleTooltip = 'Required — cannot be disabled'
+      } else if (!available) {
+        toggleTooltip = 'Not available in this product mode'
+      } else if (isInstalling) {
+        toggleTooltip = 'Installation in progress'
+      } else if (isSetUp && enabled) {
+        toggleTooltip = 'Toggle off to stop this component'
+      } else if (isSetUp && !enabled) {
+        toggleTooltip = 'Toggle on to start this component'
+      } else if (!isSetUp && enabled) {
+        toggleTooltip = 'Toggle off to skip installation'
+      } else {
+        toggleTooltip = 'Toggle on to install this component'
+      }
 
       let versionDisplay = ''
       if (serviceName === 'ai-backend') {
@@ -99,6 +118,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
         statusText: mapToDisplayStatus(status) ?? status,
         versionDisplay,
         errorDetails: backendServices.getServiceErrorDetails(serviceName),
+        toggleTooltip,
       }
     })
   })
@@ -139,6 +159,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       if (!info) continue
       if (info.isRequired) continue
       if (!isBackendAvailableInProductMode(pendingProductMode.value, serviceName)) continue
+      if (disabledBackends.value.has(serviceName)) continue
       if (info.isSetUp || !info.isRequired) {
         newSelection.add(serviceName)
       }
@@ -150,11 +171,15 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     const info = backendServices.info.find((s) => s.serviceName === serviceName)
     if (value) {
       installSelection.value.add(serviceName)
+      disabledBackends.value.delete(serviceName)
+      disabledBackends.value = new Set(disabledBackends.value)
       if (info?.isSetUp && (info.status === 'stopped' || info.status === 'notYetStarted')) {
         await backendServices.startService(serviceName)
       }
     } else {
       installSelection.value.delete(serviceName)
+      disabledBackends.value.add(serviceName)
+      disabledBackends.value = new Set(disabledBackends.value)
       if (info?.status === 'running') {
         await backendServices.stopService(serviceName)
       }
@@ -328,7 +353,17 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   async function dismiss() {
     await globalSetup.initSetup()
     globalSetup.loadingState = 'running'
-    backendServices.startAllSetUpServicesInBackground()
+
+    for (const serviceName of backends) {
+      const info = backendServices.info.find((s) => s.serviceName === serviceName)
+      if (!info?.isSetUp) continue
+      if (info.isRequired || installSelection.value.has(serviceName)) {
+        if (info.status !== 'running') {
+          backendServices.startService(serviceName)
+        }
+      }
+    }
+
     speechToText.initialize()
   }
 

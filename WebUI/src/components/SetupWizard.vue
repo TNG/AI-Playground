@@ -106,9 +106,24 @@
               </Tooltip>
             </TooltipProvider>
 
-            <!-- Name + version -->
+            <!-- Name + version + info link -->
             <div class="flex-1 min-w-0">
-              <div class="text-sm font-medium leading-tight">{{ row.displayName }}</div>
+              <div class="flex items-center gap-1.5">
+                <span class="text-sm font-medium leading-tight">{{ row.displayName }}</span>
+                <a
+                  v-if="getInfoURL(row.serviceName)"
+                  :href="getInfoURL(row.serviceName)"
+                  target="_blank"
+                  class="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                  title="Component info &amp; license"
+                >
+                  <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 16v-4" />
+                    <path d="M12 8h.01" />
+                  </svg>
+                </a>
+              </div>
               <div class="text-xs text-muted-foreground leading-tight">
                 {{ row.versionDisplay }}
               </div>
@@ -132,7 +147,7 @@
             </TooltipProvider>
 
             <!-- Per-row action -->
-            <div class="w-20 flex justify-center shrink-0">
+            <div class="flex justify-center shrink-0">
               <span v-if="row.isInstalling" class="svg-icon i-loading flex-none w-4 h-4"></span>
               <button
                 v-else-if="
@@ -145,45 +160,38 @@
               >
                 {{ languages.COM_REPAIR || 'Repair' }}
               </button>
-              <button
-                v-else-if="
-                  (row.status === 'running' ||
-                    row.status === 'stopped' ||
-                    row.status === 'notYetStarted') &&
-                  row.availableInCurrentMode
-                "
-                @click="wizard.restartBackend(row.serviceName)"
-                :disabled="wizard.isBusy"
-                class="text-xs bg-muted hover:bg-muted/80 py-0.5 px-2.5 rounded transition-colors disabled:opacity-50"
-              >
-                {{
-                  row.status === 'running'
-                    ? languages.COM_RESTART || 'Restart'
-                    : languages.COM_START || 'Start'
-                }}
-              </button>
             </div>
 
-            <!-- Error details button -->
-            <button
-              v-if="row.status === 'failed' || row.status === 'installationFailed'"
-              @click="wizard.showErrorModal(row.serviceName)"
-              class="text-primary hover:text-primary/80 transition-colors shrink-0"
-              title="View error details"
-            >
-              <span class="svg-icon i-info w-4 h-4"></span>
-            </button>
-
-            <!-- Toggle -->
-            <Switch
-              :model-value="row.enabled"
-              :disabled="row.toggleDisabled"
-              @update:model-value="(v: boolean) => wizard.toggleBackend(row.serviceName, v)"
-              class="shrink-0"
-            />
-
-            <!-- Backend options menu -->
-            <BackendOptions :backend="row.serviceName" />
+            <!-- Toggle + gear -->
+            <div class="flex items-center gap-2 shrink-0">
+              <button
+                v-if="row.status === 'failed' || row.status === 'installationFailed'"
+                @click="wizard.showErrorModal(row.serviceName)"
+                class="text-primary hover:text-primary/80 transition-colors"
+                title="View error details"
+              >
+                <span class="svg-icon i-info w-4 h-4"></span>
+              </button>
+              <TooltipProvider :delay-duration="300">
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <span class="inline-flex">
+                      <Switch
+                        :model-value="row.enabled"
+                        :disabled="row.toggleDisabled"
+                        @update:model-value="
+                          (v: boolean) => wizard.toggleBackend(row.serviceName, v)
+                        "
+                      />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="left" class="text-xs">
+                    {{ row.toggleTooltip }}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <BackendOptions :backend="row.serviceName" />
+            </div>
           </div>
         </div>
       </div>
@@ -269,6 +277,21 @@ const resolvedModeOptions = computed(() => {
     supportedHardware: t(entry.ui.i18n.supportedHardware),
   }))
 })
+
+function getInfoURL(serviceName: string): string | undefined {
+  switch (serviceName) {
+    case 'ai-backend':
+      return 'https://github.com/intel/ai-playground'
+    case 'comfyui-backend':
+      return 'https://github.com/comfyanonymous/ComfyUI'
+    case 'llamacpp-backend':
+      return 'https://github.com/abetlen/llama-cpp-python'
+    case 'openvino-backend':
+      return 'https://github.com/openvinotoolkit/model_server'
+    default:
+      return undefined
+  }
+}
 
 function openDebug() {
   window.electronAPI.openDevTools()

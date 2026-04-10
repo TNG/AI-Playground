@@ -174,11 +174,17 @@ export const pipInstallRequirementsFromFile = async (
   requirementsTxtPath: string,
   onCacheCorruptionDetected?: () => void,
   extraEnv?: Record<string, string>,
+  reinstallPackages?: string[],
 ) => {
   const logger = loggerFor(`uv.pip-req.${backend}`)
   await assertUv(logger)
   const projectDir = path.join(aipgBaseDir, backend)
   const uvCommand = ['pip', 'install', '--directory', projectDir, '-r', requirementsTxtPath]
+  if (reinstallPackages) {
+    for (const pkg of reinstallPackages) {
+      uvCommand.push('--reinstall-package', pkg)
+    }
+  }
   logger.info(`pip install -r via uv: ${JSON.stringify(uvCommand)}`)
   try {
     await uv(uvCommand, logger, extraEnv)

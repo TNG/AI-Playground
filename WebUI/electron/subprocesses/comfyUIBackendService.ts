@@ -68,6 +68,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
 
   private comfyUiParametersString: string = COMFYUI_DEFAULT_PARAMETERS
   private comfyUiVariant: ComfyUiVariant = 'xpu'
+  private variantMismatchToastSent = false
 
   private readonly variantMarkerPath = path.join(this.serviceDir, 'aipg-variant.json')
 
@@ -88,12 +89,17 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     filesystem.writeFileSync(this.variantMarkerPath, JSON.stringify({ variant }), 'utf-8')
   }
 
-  private getEffectiveVariant(): ComfyUiVariant {
-    const restored = this.readInstalledVariant()
-    if (restored) return restored
+  private getDesiredVariant(): ComfyUiVariant {
     if (this.settings.productMode === 'nvidia') return 'cuda'
     if (process.platform === 'win32') return 'xpu'
     return 'cpu'
+  }
+
+  private getEffectiveVariant(): ComfyUiVariant {
+    if (this.settings.productMode) return this.getDesiredVariant()
+    const restored = this.readInstalledVariant()
+    if (restored) return restored
+    return this.getDesiredVariant()
   }
 
   async serviceIsSetUp(): Promise<boolean> {
@@ -106,6 +112,23 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     if (installedVersion) {
       this.appLogger.info(`comfyUI version ${installedVersion} detected`, this.name)
       this.revision = installedVersion
+    }
+
+    const installedVariant = this.readInstalledVariant()
+    const desiredVariant = this.getDesiredVariant()
+    if (installedVariant && installedVariant !== desiredVariant) {
+      this.appLogger.info(
+        `ComfyUI variant mismatch: installed '${installedVariant}' but '${desiredVariant}' is required for current mode. Reinstallation needed.`,
+        this.name,
+      )
+      if (!this.variantMismatchToastSent) {
+        this.variantMismatchToastSent = true
+        this.win.webContents.send('show-toast', {
+          type: 'warning',
+          message: `ComfyUI needs reinstallation to switch from ${installedVariant.toUpperCase()} to ${desiredVariant.toUpperCase()} backend.`,
+        })
+      }
+      return false
     }
 
     try {
@@ -306,7 +329,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     }
   }
 
-  private async installComfyUiFlexibleDeps(): Promise<void> {
+  private async installComfyUiFlexibleDeps(reinstallTorch = false): Promise<void> {
     const flexiblePyprojectSource = path.join(
       aipgBaseDir,
       'comfyui-deps',
@@ -358,6 +381,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
           })
         },
         this.getTorchBackendEnv(),
+        reinstallTorch ? ['torch', 'torchvision', 'torchaudio'] : undefined,
       )
     } finally {
       try {
@@ -467,10 +491,19 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
       const normRev = normalizeComfyUiRef(this.revision)
       const existingMarker = await this.readDepsMarker()
       const markerMatches = existingMarker?.revision === normRev
+      const installedVariant = this.readInstalledVariant()
+      const variantChanged = installedVariant !== null && installedVariant !== this.comfyUiVariant
+
+      if (variantChanged) {
+        this.appLogger.info(
+          `ComfyUI variant changed from '${installedVariant}' to '${this.comfyUiVariant}', forcing dependency reinstall`,
+          this.name,
+        )
+      }
 
       if (useLocked) {
         let needsInstall = true
-        if (existingMarker?.mode === 'locked' && markerMatches) {
+        if (existingMarker?.mode === 'locked' && markerMatches && !variantChanged) {
           try {
             await checkBackend(this.serviceFolder)
             needsInstall = false
@@ -513,6 +546,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         if (
           existingMarker?.mode === 'flexible' &&
           markerMatches &&
+          !variantChanged &&
           filesystem.existsSync(this.pythonEnvDir)
         ) {
           needsInstall = false
@@ -528,7 +562,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
             message:
               'Installing custom ComfyUI versions may not be compatible with the bundled workflows. If you encounter issues, please clear the version override and reinstall the ComfyUI backend.',
           })
-          await this.installComfyUiFlexibleDeps()
+          await this.installComfyUiFlexibleDeps(variantChanged)
         }
         await this.writeDepsMarker({ mode: 'flexible', revision: normRev })
       }

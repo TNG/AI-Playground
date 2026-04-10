@@ -274,7 +274,7 @@ export const useBackendServices = defineStore(
       }
 
       const versions = versionState.value[serviceName]
-      const targetVersionSettings = versions.uiOverride ?? versions.target
+      const targetVersionSettings = versions.uiOverride ?? versions.installed ?? versions.target
       const serviceSettings: ServiceSettings = { serviceName, ...targetVersionSettings }
       if (serviceName === 'comfyui-backend') {
         serviceSettings.comfyUiParameters = effectiveComfyUiParameters.value

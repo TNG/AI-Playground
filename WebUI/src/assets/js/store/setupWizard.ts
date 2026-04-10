@@ -83,19 +83,40 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   const disabledBackends = ref(new Set<BackendServiceName>())
   const wizardDirty = ref(false)
 
+  const wizardActivity = ref(new Map<BackendServiceName, string>())
+
   const errorModalOpen = ref(false)
   const errorModalServiceName = ref<BackendServiceName | null>(null)
   const errorModalDetails = ref<ErrorDetails | null>(null)
+
+  const comfyUiNeedsVariantSwitch = computed(() => {
+    const current = productModeStore.productMode
+    const pending = pendingProductMode.value
+    if (!current || !pending || current === pending) return false
+    const crossesNvidiaBoundary = current === 'nvidia' || pending === 'nvidia'
+    if (!crossesNvidiaBoundary) return false
+    const comfyInfo = backendServices.info.find((s) => s.serviceName === 'comfyui-backend')
+    return comfyInfo?.isSetUp === true
+  })
 
   const backendRows = computed<BackendRowViewModel[]>(() => {
     return backends.map((serviceName) => {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       const available = isBackendAvailableInProductMode(pendingProductMode.value, serviceName)
       const isRequired = info?.isRequired ?? serviceName === 'ai-backend'
-      const isSetUp = info?.isSetUp ?? false
-      const status = info?.status ?? ('notInstalled' as BackendStatus)
+      let isSetUp = info?.isSetUp ?? false
+      let status = info?.status ?? ('notInstalled' as BackendStatus)
+
+      if (serviceName === 'comfyui-backend' && comfyUiNeedsVariantSwitch.value) {
+        isSetUp = false
+        status = 'notInstalled' as BackendStatus
+      }
+
       const isInstalling =
-        status === 'installing' || status === 'starting' || status === 'stopping'
+        status === 'installing' ||
+        status === 'starting' ||
+        status === 'stopping' ||
+        wizardActivity.value.has(serviceName)
       const enabled = isRequired || installSelection.value.has(serviceName)
       const toggleDisabled = isRequired || !available || isInstalling
 
@@ -125,13 +146,14 @@ export const useSetupWizard = defineStore('setupWizard', () => {
           versionDisplay = vs.installed.releaseTag
             ? `${vs.installed.releaseTag} / ${vs.installed.version}`
             : vs.installed.version
-        } else if (!isSetUp) {
+        } else if (!isSetUp && !(serviceName === 'comfyui-backend' && comfyUiNeedsVariantSwitch.value)) {
           versionDisplay = 'Not installed'
         }
       }
 
+      const activityMessage = wizardActivity.value.get(serviceName)
       let installProgressText: string | null = null
-      if (isInstalling) {
+      if (isInstalling || activityMessage) {
         const progress = backendServices.latestSetupProgress.get(serviceName)
         if (progress) {
           const steps = knownSteps[serviceName] ?? []
@@ -139,6 +161,8 @@ export const useSetupWizard = defineStore('setupWizard', () => {
           const label = stepDisplayNames[progress.step] ?? progress.debugMessage
           installProgressText =
             stepIdx >= 0 ? `${label} (${stepIdx + 1}/${steps.length})` : label
+        } else if (activityMessage) {
+          installProgressText = activityMessage
         } else if (status === 'stopping') {
           installProgressText = 'Stopping...'
         } else if (status === 'starting') {
@@ -159,7 +183,10 @@ export const useSetupWizard = defineStore('setupWizard', () => {
         toggleDisabled,
         isInstalling,
         statusColor: mapStatusToColor(status),
-        statusText: mapToDisplayStatus(status) ?? status,
+        statusText:
+          serviceName === 'comfyui-backend' && comfyUiNeedsVariantSwitch.value
+            ? `Needs reinstall for ${pendingProductMode.value === 'nvidia' ? 'CUDA' : 'XPU'}`
+            : (mapToDisplayStatus(status) ?? status),
         versionDisplay,
         errorDetails: backendServices.getServiceErrorDetails(serviceName),
         toggleTooltip,
@@ -280,7 +307,20 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       initialLoadingPollHandle = null
     }
 
-    await productModeStore.ensureReady()
+    const modeStatus = await productModeStore.ensureReady()
+
+    if (modeStatus === 'ready') {
+      const allRequiredSetUp = backendServices.info
+        .filter((s) => s.isRequired)
+        .every((s) => s.isSetUp)
+
+      if (allRequiredSetUp) {
+        pendingProductMode.value = productModeStore.productMode
+        seedInstallSelection()
+        await dismiss()
+        return
+      }
+    }
 
     if (!productModeStore.hardwareRecommendation) {
       await productModeStore.detectRecommendation()
@@ -304,17 +344,19 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   async function commitAndInstall() {
     if (!pendingProductMode.value) return
 
-    if (pendingProductMode.value !== productModeStore.productMode) {
-      await productModeStore.selectMode(pendingProductMode.value)
-    }
-    await syncPresetsForCurrentProductMode()
-
+    // Capture what needs installing BEFORE syncing mode — syncing resets the
+    // variant-switch detection because current and pending modes become equal.
     const toInstall = backendRows.value.filter(
       (r) =>
         r.enabled &&
         r.availableInCurrentMode &&
         (r.status === 'notInstalled' || r.status === 'failed' || r.status === 'installationFailed'),
     )
+
+    if (pendingProductMode.value !== productModeStore.productMode) {
+      await productModeStore.selectMode(pendingProductMode.value)
+    }
+    await syncPresetsForCurrentProductMode()
 
     if (toInstall.length > 0) {
       wizardDirty.value = true
@@ -369,6 +411,12 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     }
 
     try {
+      wizardActivity.value.set(name, 'Detecting devices...')
+      wizardActivity.value = new Map(wizardActivity.value)
+      await backendServices.detectDevices(name)
+
+      wizardActivity.value.set(name, 'Starting...')
+      wizardActivity.value = new Map(wizardActivity.value)
       const startStatus = await backendServices.startService(name)
       if (startStatus !== 'running') {
         const errorDetails = backendServices.getServiceErrorDetails(name)
@@ -383,6 +431,9 @@ export const useSetupWizard = defineStore('setupWizard', () => {
         ? 'Service startup failed — see error log for details'
         : `Service startup failed: ${error instanceof Error ? error.message : String(error)}`
       toast.error(msg)
+    } finally {
+      wizardActivity.value.delete(name)
+      wizardActivity.value = new Map(wizardActivity.value)
     }
   }
 

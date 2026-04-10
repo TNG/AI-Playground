@@ -157,11 +157,16 @@
               </TooltipProvider>
 
               <!-- Per-row action -->
-              <div class="flex justify-center shrink-0">
-                <span
-                  v-if="row.isInstalling"
-                  class="svg-icon i-loading flex-none w-4 h-4"
-                ></span>
+              <div class="flex items-center gap-2 shrink-0">
+                <template v-if="row.isInstalling">
+                  <span
+                    v-if="row.installProgressText"
+                    class="text-xs text-muted-foreground whitespace-nowrap"
+                  >
+                    {{ row.installProgressText }}
+                  </span>
+                  <span class="svg-icon i-loading flex-none w-4 h-4"></span>
+                </template>
                 <button
                   v-else-if="
                     (row.status === 'failed' || row.status === 'installationFailed') &&

@@ -41,6 +41,32 @@ export type BackendRowViewModel = {
   versionDisplay: string
   errorDetails: ErrorDetails | null
   toggleTooltip: string
+  installProgressText: string | null
+}
+
+const knownSteps: Record<BackendServiceName, string[]> = {
+  'ai-backend': ['start', 'install dependencies'],
+  'llamacpp-backend': ['start', 'download', 'extract'],
+  'openvino-backend': ['start', 'download', 'extract', 'install python'],
+  'comfyui-backend': [
+    'start',
+    'install comfyUI',
+    'configure comfyUI',
+    'install builtin custom nodes',
+    'install comfyUI manager',
+  ],
+}
+
+const stepDisplayNames: Record<string, string> = {
+  start: 'Preparing...',
+  download: 'Downloading...',
+  extract: 'Extracting...',
+  'install dependencies': 'Installing dependencies...',
+  'install python': 'Installing Python environment...',
+  'install comfyUI': 'Installing ComfyUI...',
+  'configure comfyUI': 'Configuring...',
+  'install builtin custom nodes': 'Installing custom nodes...',
+  'install comfyUI manager': 'Installing ComfyUI Manager...',
 }
 
 export const useSetupWizard = defineStore('setupWizard', () => {
@@ -54,7 +80,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
   const pendingProductMode = ref<ProductMode | null>(null)
   const installSelection = ref(new Set<BackendServiceName>())
-  const installingServiceNames = ref(new Set<BackendServiceName>())
   const disabledBackends = ref(new Set<BackendServiceName>())
   const wizardDirty = ref(false)
 
@@ -69,7 +94,8 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       const isRequired = info?.isRequired ?? serviceName === 'ai-backend'
       const isSetUp = info?.isSetUp ?? false
       const status = info?.status ?? ('notInstalled' as BackendStatus)
-      const isInstalling = installingServiceNames.value.has(serviceName)
+      const isInstalling =
+        status === 'installing' || status === 'starting' || status === 'stopping'
       const enabled = isRequired || installSelection.value.has(serviceName)
       const toggleDisabled = isRequired || !available || isInstalling
 
@@ -104,6 +130,24 @@ export const useSetupWizard = defineStore('setupWizard', () => {
         }
       }
 
+      let installProgressText: string | null = null
+      if (isInstalling) {
+        const progress = backendServices.latestSetupProgress.get(serviceName)
+        if (progress) {
+          const steps = knownSteps[serviceName] ?? []
+          const stepIdx = steps.indexOf(progress.step)
+          const label = stepDisplayNames[progress.step] ?? progress.debugMessage
+          installProgressText =
+            stepIdx >= 0 ? `${label} (${stepIdx + 1}/${steps.length})` : label
+        } else if (status === 'stopping') {
+          installProgressText = 'Stopping...'
+        } else if (status === 'starting') {
+          installProgressText = 'Starting...'
+        } else {
+          installProgressText = 'Preparing...'
+        }
+      }
+
       return {
         serviceName,
         displayName: mapServiceNameToDisplayName(serviceName),
@@ -119,11 +163,12 @@ export const useSetupWizard = defineStore('setupWizard', () => {
         versionDisplay,
         errorDetails: backendServices.getServiceErrorDetails(serviceName),
         toggleTooltip,
+        installProgressText,
       }
     })
   })
 
-  const isBusy = computed(() => installingServiceNames.value.size > 0)
+  const isBusy = computed(() => backendRows.value.some((r) => r.isInstalling))
 
   const rowsNeedingInstall = computed(() =>
     backendRows.value.filter(
@@ -273,10 +318,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
     if (toInstall.length > 0) {
       wizardDirty.value = true
-      for (const row of toInstall) {
-        installingServiceNames.value.add(row.serviceName)
-      }
-      installingServiceNames.value = new Set(installingServiceNames.value)
 
       for (const row of toInstall) {
         if (row.status === 'failed' || row.status === 'installationFailed') {
@@ -300,8 +341,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
   async function installBackend(name: BackendServiceName) {
     wizardDirty.value = true
-    installingServiceNames.value.add(name)
-    installingServiceNames.value = new Set(installingServiceNames.value)
     const result = await backendServices.setUpService(name)
     if (result.success) {
       await restartBackend(name)
@@ -310,14 +349,10 @@ export const useSetupWizard = defineStore('setupWizard', () => {
         ? 'Setup failed — see error log for details'
         : 'Setup failed'
       toast.error(msg)
-      installingServiceNames.value.delete(name)
-      installingServiceNames.value = new Set(installingServiceNames.value)
     }
   }
 
   async function repairBackend(name: BackendServiceName) {
-    installingServiceNames.value.add(name)
-    installingServiceNames.value = new Set(installingServiceNames.value)
     const stopStatus = await backendServices.stopService(name)
     if (stopStatus !== 'stopped') {
       toast.error('Service failed to stop')
@@ -327,13 +362,9 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   }
 
   async function restartBackend(name: BackendServiceName) {
-    installingServiceNames.value.add(name)
-    installingServiceNames.value = new Set(installingServiceNames.value)
     const stopStatus = await backendServices.stopService(name)
     if (stopStatus !== 'stopped') {
       toast.error('Service failed to stop')
-      installingServiceNames.value.delete(name)
-      installingServiceNames.value = new Set(installingServiceNames.value)
       return
     }
 
@@ -353,9 +384,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
         : `Service startup failed: ${error instanceof Error ? error.message : String(error)}`
       toast.error(msg)
     }
-
-    installingServiceNames.value.delete(name)
-    installingServiceNames.value = new Set(installingServiceNames.value)
   }
 
   async function dismiss() {
@@ -390,7 +418,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   return {
     pendingProductMode,
     installSelection,
-    installingServiceNames,
     wizardDirty,
     backendRows,
     isBusy,

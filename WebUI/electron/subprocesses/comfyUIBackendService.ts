@@ -27,7 +27,7 @@ import {
 } from './comfyUiRevision.ts'
 import { ProcessError } from './osProcessHelper.ts'
 import { getMediaDir } from '../util.ts'
-import { levelZeroDeviceSelectorEnv } from './deviceDetection.ts'
+import { cudaVisibleDevicesEnv, levelZeroDeviceSelectorEnv } from './deviceDetection.ts'
 import { BrowserWindow } from 'electron'
 import { LocalSettings } from '../main.ts'
 import { downloadCustomNode } from './comfyuiTools.ts'
@@ -102,13 +102,11 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     this.appLogger.info(`Checking if comfyUI directories exist: ${dirsExist}`, this.name)
     if (!dirsExist) return false
 
-    setTimeout(async () => {
-      const version = await this.getCurrentVersion()
-      if (version) {
-        this.appLogger.info(`comfyUI version ${version} detected`, this.name)
-        this.revision = version
-      }
-    })
+    const installedVersion = await this.getCurrentVersion()
+    if (installedVersion) {
+      this.appLogger.info(`comfyUI version ${installedVersion} detected`, this.name)
+      this.revision = installedVersion
+    }
 
     try {
       const marker = await this.readDepsMarker()
@@ -819,7 +817,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     return { UV_TORCH_BACKEND: this.torchBackendValue }
   }
 
-  getEnvVars() {
+  private getCommonEnvVars(): Record<string, string> {
     return {
       PATH: `${path.join(this.pythonEnvDir, 'Library', 'bin')};${path.join(this.git.dir, 'cmd')};${process.env.PATH}`,
       PYTHONNOUSERSITE: 'true',
@@ -827,10 +825,27 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
       SYCL_CACHE_PERSISTENT: '1',
       PYTHONIOENCODING: 'utf-8',
       HF_ENDPOINT: this.settings.huggingfaceEndpoint,
-      ...levelZeroDeviceSelectorEnv(this.devices.find((d) => d.selected)?.id),
       PIP_CONFIG_FILE: 'nul',
       UV_NO_CONFIG: '1',
       UV_TORCH_BACKEND: this.torchBackendValue,
+    }
+  }
+
+  private getDeviceSelectorEnv(): Record<string, string> {
+    const selectedId = this.devices.find((d) => d.selected)?.id
+    if (this.comfyUiVariant === 'cuda') {
+      return cudaVisibleDevicesEnv(selectedId)
+    }
+    if (this.comfyUiVariant === 'xpu') {
+      return levelZeroDeviceSelectorEnv(selectedId)
+    }
+    return {}
+  }
+
+  getEnvVars() {
+    return {
+      ...this.getCommonEnvVars(),
+      ...this.getDeviceSelectorEnv(),
     }
   }
 
@@ -843,16 +858,82 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   }
 
   async detectDevices() {
-    if (this.comfyUiVariant !== 'xpu') {
-      this.appLogger.info(
-        `Skipping XPU device detection for variant '${this.comfyUiVariant}'`,
-        this.name,
-      )
+    this.comfyUiVariant = this.getEffectiveVariant()
+
+    if (this.comfyUiVariant === 'cpu') {
       this.devices = [{ id: '*', name: 'Auto select device', selected: true }]
       this.updateStatus()
       return
     }
-    // For now, use auto-select device similar to aiBackendService
+
+    if (this.comfyUiVariant === 'cuda') {
+      await this.detectCudaDevicesWithTorch()
+      return
+    }
+
+    await this.detectXpuDevicesWithTorch()
+  }
+
+  private async detectCudaDevicesWithTorch(): Promise<void> {
+    const availableDevices = [{ id: '*', name: 'Auto select device', selected: true }]
+    const allDevices: Device[] = []
+    const pythonScript = `
+import torch
+import sys
+
+try:
+    if not torch.cuda.is_available():
+        print("Error detecting CUDA devices: CUDA is not available")
+        sys.exit(1)
+    device_count = torch.cuda.device_count()
+    for i in range(device_count):
+        try:
+            device_name = torch.cuda.get_device_name(i)
+            print(f"{i}|{device_name}")
+        except Exception:
+            print(f"{i}|Unknown Device")
+except Exception as e:
+    print(f"Error detecting CUDA devices: {str(e)}")
+    sys.exit(1)
+`
+    try {
+      const pythonBinary = this.getPythonBinaryPath()
+      const env = this.getCommonEnvVars()
+      this.appLogger.info('Detecting CUDA devices with torch.cuda', this.name)
+      const result = await spawnProcessAsync(
+        pythonBinary,
+        ['-c', pythonScript],
+        (d) => this.appLogger.info(d, this.name),
+        env,
+      )
+      this.appLogger.info(`CUDA device detection result: ${result}`, this.name)
+
+      const lines = result
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((line) => line !== '')
+
+      for (const line of lines) {
+        if (line.startsWith('Error detecting CUDA devices:')) {
+          console.error(line)
+          continue
+        }
+        const parts = line.split('|', 2)
+        if (parts.length === 2) {
+          allDevices.push({ id: parts[0], name: parts[1] })
+        }
+      }
+    } catch (error) {
+      console.error('Error detecting CUDA devices:', error)
+    }
+
+    this.appLogger.info(`detected devices: ${JSON.stringify(allDevices, null, 2)}`, this.name)
+    this.devices =
+      allDevices.length > 0 ? allDevices.map((d) => ({ ...d, selected: false })) : availableDevices
+    this.updateStatus()
+  }
+
+  private async detectXpuDevicesWithTorch(): Promise<void> {
     const availableDevices = [{ id: '*', name: 'Auto select device', selected: true }]
     let allDevices: Device[] = []
     try {
@@ -879,7 +960,7 @@ except Exception as e:
       let lastDeviceList: Device[] = []
       const pythonBinary = this.getPythonBinaryPath()
       while ((lastDeviceList.length > 0 || i == 0) && i < 10) {
-        const env = { ...this.getEnvVars(), ONEAPI_DEVICE_SELECTOR: `level_zero:${i}` }
+        const env = { ...this.getCommonEnvVars(), ...levelZeroDeviceSelectorEnv(String(i)) }
         this.appLogger.info(
           `Detecting level_zero devices with ONEAPI_DEVICE_SELECTOR=${env.ONEAPI_DEVICE_SELECTOR}`,
           this.name,
@@ -892,7 +973,6 @@ except Exception as e:
         )
         this.appLogger.info(`Device detection result: ${result}`, this.name)
 
-        // Parse the output
         const devices: Device[] = []
         const lines = result
           .split('\n')

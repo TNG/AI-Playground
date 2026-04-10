@@ -101,23 +101,25 @@ const ProductModeFileSchema = z.object({
   experimental: z.boolean().default(false),
   displayOrder: z.number(),
   requiresNvidiaGpu: z.boolean().default(false),
+  includePresets: z.array(z.string()).optional(),
+  excludePresets: z.array(z.string()).optional(),
   ui: z.object({
     i18n: ProductModeUiI18nSchema,
   }),
 })
 type ProductModeFileConfig = z.infer<typeof ProductModeFileSchema>
 
-function loadProductModeConfigs(externalResDir: string): ProductModeFileConfig[] {
-  const dir = path.join(externalResDir, 'product-modes')
+function loadProductModeConfigs(): ProductModeFileConfig[] {
   try {
-    const entries = fs
-      .readdirSync(dir, { withFileTypes: true })
-      .filter((e) => e.isFile() && e.name.endsWith('.json'))
-      .map((e) => e.name)
+    const modeDirs = fs
+      .readdirSync(modesDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && e.name !== 'base')
 
     const configs: ProductModeFileConfig[] = []
-    for (const file of entries) {
-      const raw = fs.readFileSync(path.join(dir, file), 'utf-8')
+    for (const dir of modeDirs) {
+      const modeFile = path.join(modesDir, dir.name, 'mode.json')
+      if (!fs.existsSync(modeFile)) continue
+      const raw = fs.readFileSync(modeFile, 'utf-8')
       const parsed = ProductModeFileSchema.parse(JSON.parse(raw))
       configs.push({
         ...parsed,
@@ -128,6 +130,18 @@ function loadProductModeConfigs(externalResDir: string): ProductModeFileConfig[]
   } catch (e) {
     appLogger.warn(`Failed to read product mode configs: ${e}`, 'electron-backend')
     return []
+  }
+}
+
+function loadModeConfig(mode: string): ProductModeFileConfig | null {
+  const modeFile = path.join(modesDir, mode, 'mode.json')
+  if (!fs.existsSync(modeFile)) return null
+  try {
+    const raw = fs.readFileSync(modeFile, 'utf-8')
+    return ProductModeFileSchema.parse(JSON.parse(raw))
+  } catch (e) {
+    appLogger.warn(`Failed to read mode config for ${mode}: ${e}`, 'electron-backend')
+    return null
   }
 }
 
@@ -195,11 +209,89 @@ const LocalSettingsSchema = z.object({
 export type LocalSettings = z.infer<typeof LocalSettingsSchema>
 export type ProductMode = z.infer<typeof ProductModeSchema>
 
-function getPresetsDir(s: LocalSettings): string {
-  const mode =
-    s.productMode === 'essentials' ? 'essentials' : s.productMode === 'nvidia' ? 'nvidia' : 'studio'
+function resolveProductMode(s: LocalSettings): string {
+  return s.productMode === 'essentials'
+    ? 'essentials'
+    : s.productMode === 'nvidia'
+      ? 'nvidia'
+      : 'studio'
+}
+
+type PresetLoadConfig = {
+  baseDir: string
+  modeDir: string
+  includePresets?: string[]
+  excludePresets?: string[]
+}
+
+function getPresetLoadConfig(s: LocalSettings): PresetLoadConfig {
+  const mode = resolveProductMode(s)
   const variant = s.isDemoModeEnabled ? 'demo' : 'presets'
-  return path.join(modesDir, mode, variant)
+  const modeConfig = loadModeConfig(mode)
+  return {
+    baseDir: path.join(modesDir, 'base', variant),
+    modeDir: path.join(modesDir, mode, variant),
+    includePresets: modeConfig?.includePresets,
+    excludePresets: modeConfig?.excludePresets,
+  }
+}
+
+function getModeDemoDir(s: LocalSettings): string {
+  return path.join(modesDir, resolveProductMode(s), 'demo')
+}
+
+type PresetFile = { content: string; image: string | null }
+
+async function readPresetsFromDir(dir: string): Promise<Map<string, PresetFile>> {
+  const result = new Map<string, PresetFile>()
+  if (!fs.existsSync(dir)) return result
+
+  await fs.promises.mkdir(dir, { recursive: true })
+  const files = await fs.promises.readdir(dir)
+  const presetFiles = files.filter((f) => f.endsWith('.json') && !f.startsWith('_'))
+
+  await Promise.all(
+    presetFiles.map(async (file) => {
+      const raw = await fs.promises.readFile(path.join(dir, file), { encoding: 'utf-8' })
+      const content = process.platform !== 'win32' ? raw.replaceAll('\\\\', '/') : raw
+
+      const baseName = path.basename(file, '.json')
+      let imageBase64: string | null = null
+      for (const ext of ['.png', '.jpg', '.jpeg']) {
+        const imagePath = path.join(dir, `${baseName}${ext}`)
+        if (fs.existsSync(imagePath)) {
+          try {
+            const imageBuffer = await fs.promises.readFile(imagePath)
+            const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg'
+            imageBase64 = `data:${mimeType};base64,${imageBuffer.toString('base64')}`
+            break
+          } catch (error) {
+            appLogger.warn(`Failed to read image file ${imagePath}: ${error}`, 'electron-backend')
+          }
+        }
+      }
+
+      result.set(baseName, { content, image: imageBase64 })
+    }),
+  )
+  return result
+}
+
+function applyPresetFilter(
+  presets: Map<string, PresetFile>,
+  config: PresetLoadConfig,
+): Map<string, PresetFile> {
+  if (config.includePresets) {
+    const allowed = new Set(config.includePresets)
+    for (const key of presets.keys()) {
+      if (!allowed.has(key)) presets.delete(key)
+    }
+  } else if (config.excludePresets) {
+    for (const excluded of config.excludePresets) {
+      presets.delete(excluded)
+    }
+  }
+  return presets
 }
 
 let settings = LocalSettingsSchema.parse({})
@@ -294,9 +386,10 @@ async function loadSettings() {
   appLogger.info(`settings loaded: ${JSON.stringify({ settings })}`, 'electron-backend')
 
   if (settings.isDemoModeEnabled) {
-    const presetsDir = getPresetsDir(settings)
+    const modeDemoDir = getModeDemoDir(settings)
+    const baseDemoDir = path.join(modesDir, 'base', 'demo')
     try {
-      demoProfile = loadDemoProfile(presetsDir, appLogger)
+      demoProfile = loadDemoProfile(modeDemoDir, baseDemoDir, appLogger)
     } catch (e) {
       appLogger.error(`Failed to load demo profile: ${e}`, 'demo-profile')
     }
@@ -588,9 +681,10 @@ function initEventHandle() {
   ipcMain.handle('updateLocalSettings', (_event, updates: Partial<LocalSettings>) => {
     Object.assign(settings, updates)
     if ('productMode' in updates && settings.isDemoModeEnabled) {
-      const presetsDir = getPresetsDir(settings)
+      const modeDemoDir = getModeDemoDir(settings)
+      const baseDemoDir = path.join(modesDir, 'base', 'demo')
       try {
-        demoProfile = loadDemoProfile(presetsDir, appLogger)
+        demoProfile = loadDemoProfile(modeDemoDir, baseDemoDir, appLogger)
       } catch (e) {
         appLogger.error(
           `Failed to reload demo profile after product mode change: ${e}`,
@@ -619,7 +713,7 @@ function initEventHandle() {
       appLogger.warn(`GPU detection failed: ${e}`, 'electron-backend')
     }
 
-    const configs = loadProductModeConfigs(externalRes)
+    const configs = loadProductModeConfigs()
 
     const modeCatalog = configs
       .filter((c) => !c.requiresNvidiaGpu || hasNvidia)
@@ -1251,61 +1345,34 @@ function initEventHandle() {
   })
 
   ipcMain.handle('updatePresetsFromIntelRepo', () => {
-    const mode = settings.productMode === 'essentials' ? 'essentials' : 'studio'
+    const mode = resolveProductMode(settings)
     const variant = settings.isDemoModeEnabled ? 'demo' : 'presets'
-    return updateIntelPresets(settings.remoteRepository, mode, variant, getPresetsDir(settings))
+    const config = getPresetLoadConfig(settings)
+    return updateIntelPresets(
+      settings.remoteRepository,
+      mode,
+      variant,
+      config.baseDir,
+      config.modeDir,
+    )
   })
 
-  // Preset management IPC handlers
   ipcMain.handle('reloadPresets', async () => {
-    const presetsDir = getPresetsDir(settings)
+    const config = getPresetLoadConfig(settings)
     try {
-      await filterPartnerPresets(presetsDir)
+      await filterPartnerPresets(config.baseDir)
     } catch (error) {
       appLogger.error(`Failed to filter partner presets: ${error}`, 'electron-backend')
     }
     try {
-      // Ensure presets directory exists
-      await fs.promises.mkdir(presetsDir, { recursive: true })
-      const files = await fs.promises.readdir(presetsDir)
-      const presetFiles = files.filter((file) => file.endsWith('.json') && !file.startsWith('_'))
-      const presets = await Promise.all(
-        presetFiles.map(async (file) => {
-          const presetContent = await fs.promises.readFile(path.join(presetsDir, file), {
-            encoding: 'utf-8',
-          })
-          const osSpecificPreset =
-            process.platform !== 'win32' ? presetContent.replaceAll('\\\\', '/') : presetContent
+      const basePresets = applyPresetFilter(await readPresetsFromDir(config.baseDir), config)
+      const modePresets = await readPresetsFromDir(config.modeDir)
 
-          // Check for image file with same name
-          const presetNameWithoutExt = path.basename(file, '.json')
-          const imageExtensions = ['.png', '.jpg', '.jpeg']
-          let imageBase64: string | null = null
+      for (const [name, preset] of modePresets) {
+        basePresets.set(name, preset)
+      }
 
-          for (const ext of imageExtensions) {
-            const imagePath = path.join(presetsDir, `${presetNameWithoutExt}${ext}`)
-            if (fs.existsSync(imagePath)) {
-              try {
-                const imageBuffer = await fs.promises.readFile(imagePath)
-                const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg'
-                imageBase64 = `data:${mimeType};base64,${imageBuffer.toString('base64')}`
-                break
-              } catch (error) {
-                appLogger.warn(
-                  `Failed to read image file ${imagePath}: ${error}`,
-                  'electron-backend',
-                )
-              }
-            }
-          }
-
-          return {
-            content: osSpecificPreset,
-            image: imageBase64,
-          }
-        }),
-      )
-      return presets
+      return [...basePresets.values()]
     } catch (error) {
       appLogger.error(`Failed to load presets: ${error}`, 'electron-backend')
       return []
@@ -1324,46 +1391,8 @@ function initEventHandle() {
     try {
       const userDataPath = app.getPath('documents')
       const presetsPath = path.join(userDataPath, 'AI Playground', 'presets')
-      if (!fs.existsSync(presetsPath)) {
-        return []
-      }
-      const files = await fs.promises.readdir(presetsPath)
-      const presetFiles = files.filter((file) => file.endsWith('.json'))
-      const presets = await Promise.all(
-        presetFiles.map(async (file) => {
-          const presetContent = await fs.promises.readFile(path.join(presetsPath, file), {
-            encoding: 'utf-8',
-          })
-
-          // Check for image file with same name
-          const presetNameWithoutExt = path.basename(file, '.json')
-          const imageExtensions = ['.png', '.jpg', '.jpeg']
-          let imageBase64: string | null = null
-
-          for (const ext of imageExtensions) {
-            const imagePath = path.join(presetsPath, `${presetNameWithoutExt}${ext}`)
-            if (fs.existsSync(imagePath)) {
-              try {
-                const imageBuffer = await fs.promises.readFile(imagePath)
-                const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg'
-                imageBase64 = `data:${mimeType};base64,${imageBuffer.toString('base64')}`
-                break
-              } catch (error) {
-                appLogger.warn(
-                  `Failed to read image file ${imagePath}: ${error}`,
-                  'electron-backend',
-                )
-              }
-            }
-          }
-
-          return {
-            content: presetContent,
-            image: imageBase64,
-          }
-        }),
-      )
-      return presets
+      const presets = await readPresetsFromDir(presetsPath)
+      return [...presets.values()]
     } catch (error) {
       appLogger.error(`Failed to load user presets: ${error}`, 'electron-backend')
       return []

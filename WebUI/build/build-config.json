@@ -67,10 +67,6 @@
       "to": "hardware-recommendations.json"
     },
     {
-      "from": "external/product-modes",
-      "to": "product-modes"
-    },
-    {
       "from": "../service/static/assets/",
       "to": "service/static/assets/"
     },

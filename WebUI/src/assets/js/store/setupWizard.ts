@@ -285,6 +285,14 @@ export const useSetupWizard = defineStore('setupWizard', () => {
           await installBackend(row.serviceName)
         }
       }
+
+      const anyFailed = backendRows.value.some(
+        (r) =>
+          r.enabled &&
+          r.availableInCurrentMode &&
+          (r.status === 'failed' || r.status === 'installationFailed'),
+      )
+      if (anyFailed) return
     }
 
     await dismiss()
@@ -299,7 +307,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       await restartBackend(name)
     } else {
       const msg = result.errorDetails
-        ? 'Setup failed - Click the info icon for details'
+        ? 'Setup failed — see error log for details'
         : 'Setup failed'
       toast.error(msg)
       installingServiceNames.value.delete(name)
@@ -334,14 +342,14 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       if (startStatus !== 'running') {
         const errorDetails = backendServices.getServiceErrorDetails(name)
         const msg = errorDetails
-          ? 'Service failed to start - Click the info icon for details'
+          ? 'Service failed to start — see error log for details'
           : 'Service failed to start'
         toast.error(msg)
       }
     } catch (error) {
       const errorDetails = backendServices.getServiceErrorDetails(name)
       const msg = errorDetails
-        ? 'Service startup failed - Click the info icon for details'
+        ? 'Service startup failed — see error log for details'
         : `Service startup failed: ${error instanceof Error ? error.message : String(error)}`
       toast.error(msg)
     }

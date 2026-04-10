@@ -220,6 +220,7 @@ function resolveProductMode(s: LocalSettings): string {
 type PresetLoadConfig = {
   baseDir: string
   modeDir: string
+  imageFallbackDirs: string[]
   includePresets?: string[]
   excludePresets?: string[]
 }
@@ -228,9 +229,11 @@ function getPresetLoadConfig(s: LocalSettings): PresetLoadConfig {
   const mode = resolveProductMode(s)
   const variant = s.isDemoModeEnabled ? 'demo' : 'presets'
   const modeConfig = loadModeConfig(mode)
+  const basePresetsDir = path.join(modesDir, 'base', 'presets')
   return {
     baseDir: path.join(modesDir, 'base', variant),
     modeDir: path.join(modesDir, mode, variant),
+    imageFallbackDirs: variant === 'demo' ? [basePresetsDir] : [],
     includePresets: modeConfig?.includePresets,
     excludePresets: modeConfig?.excludePresets,
   }
@@ -242,7 +245,20 @@ function getModeDemoDir(s: LocalSettings): string {
 
 type PresetFile = { content: string; image: string | null }
 
-async function readPresetsFromDir(dir: string): Promise<Map<string, PresetFile>> {
+function findPresetImage(baseName: string, dirs: string[]): string | null {
+  for (const dir of dirs) {
+    for (const ext of ['.png', '.jpg', '.jpeg']) {
+      const imagePath = path.join(dir, `${baseName}${ext}`)
+      if (fs.existsSync(imagePath)) return imagePath
+    }
+  }
+  return null
+}
+
+async function readPresetsFromDir(
+  dir: string,
+  imageFallbackDirs: string[] = [],
+): Promise<Map<string, PresetFile>> {
   const result = new Map<string, PresetFile>()
   if (!fs.existsSync(dir)) return result
 
@@ -257,17 +273,15 @@ async function readPresetsFromDir(dir: string): Promise<Map<string, PresetFile>>
 
       const baseName = path.basename(file, '.json')
       let imageBase64: string | null = null
-      for (const ext of ['.png', '.jpg', '.jpeg']) {
-        const imagePath = path.join(dir, `${baseName}${ext}`)
-        if (fs.existsSync(imagePath)) {
-          try {
-            const imageBuffer = await fs.promises.readFile(imagePath)
-            const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg'
-            imageBase64 = `data:${mimeType};base64,${imageBuffer.toString('base64')}`
-            break
-          } catch (error) {
-            appLogger.warn(`Failed to read image file ${imagePath}: ${error}`, 'electron-backend')
-          }
+      const imagePath = findPresetImage(baseName, [dir, ...imageFallbackDirs])
+      if (imagePath) {
+        try {
+          const imageBuffer = await fs.promises.readFile(imagePath)
+          const ext = path.extname(imagePath).toLowerCase()
+          const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg'
+          imageBase64 = `data:${mimeType};base64,${imageBuffer.toString('base64')}`
+        } catch (error) {
+          appLogger.warn(`Failed to read image file ${imagePath}: ${error}`, 'electron-backend')
         }
       }
 
@@ -1365,8 +1379,11 @@ function initEventHandle() {
       appLogger.error(`Failed to filter partner presets: ${error}`, 'electron-backend')
     }
     try {
-      const basePresets = applyPresetFilter(await readPresetsFromDir(config.baseDir), config)
-      const modePresets = await readPresetsFromDir(config.modeDir)
+      const basePresets = applyPresetFilter(
+        await readPresetsFromDir(config.baseDir, config.imageFallbackDirs),
+        config,
+      )
+      const modePresets = await readPresetsFromDir(config.modeDir, config.imageFallbackDirs)
 
       for (const [name, preset] of modePresets) {
         basePresets.set(name, preset)

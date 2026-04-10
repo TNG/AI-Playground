@@ -349,13 +349,18 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         'Installing ComfyUI core deps from requirements.txt (flexible / non-pinned ref)',
         this.name,
       )
-      await pipInstallRequirementsFromFile(this.serviceFolder, requirementsPath, () => {
-        this.win.webContents.send('show-toast', {
-          type: 'warning',
-          message:
-            'UV cache corruption detected while installing ComfyUI requirements. Retrying without cache — this may take longer.',
-        })
-      })
+      await pipInstallRequirementsFromFile(
+        this.serviceFolder,
+        requirementsPath,
+        () => {
+          this.win.webContents.send('show-toast', {
+            type: 'warning',
+            message:
+              'UV cache corruption detected while installing ComfyUI requirements. Retrying without cache — this may take longer.',
+          })
+        },
+        this.getTorchBackendEnv(),
+      )
     } finally {
       try {
         await filesystem.remove(pyprojectTarget)
@@ -693,7 +698,14 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         debugMessage: `installing comfyUI base repo`,
       }
       await setupComfyUiBaseService()
-      await installExtraWheels(this.serviceFolder)
+      if (this.comfyUiVariant === 'xpu') {
+        await installExtraWheels(this.serviceFolder)
+      } else {
+        this.appLogger.info(
+          `Skipping bundled extra wheels for variant '${this.comfyUiVariant}'`,
+          this.name,
+        )
+      }
 
       yield {
         serviceName: this.name,
@@ -793,15 +805,21 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     }
   }
 
+  private get torchBackendValue(): string {
+    if (this.comfyUiVariant === 'cuda') return 'cu128'
+    if (this.comfyUiVariant === 'cpu') return 'cpu'
+    return process.platform === 'win32' ? 'xpu' : 'cpu'
+  }
+
+  get comfyUiVariantName(): ComfyUiVariant {
+    return this.comfyUiVariant
+  }
+
+  getTorchBackendEnv(): Record<string, string> {
+    return { UV_TORCH_BACKEND: this.torchBackendValue }
+  }
+
   getEnvVars() {
-    const torchBackend =
-      this.comfyUiVariant === 'cuda'
-        ? 'cu128'
-        : this.comfyUiVariant === 'cpu'
-          ? 'cpu'
-          : process.platform === 'win32'
-            ? 'xpu'
-            : 'cpu'
     return {
       PATH: `${path.join(this.pythonEnvDir, 'Library', 'bin')};${path.join(this.git.dir, 'cmd')};${process.env.PATH}`,
       PYTHONNOUSERSITE: 'true',
@@ -812,7 +830,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
       ...levelZeroDeviceSelectorEnv(this.devices.find((d) => d.selected)?.id),
       PIP_CONFIG_FILE: 'nul',
       UV_NO_CONFIG: '1',
-      UV_TORCH_BACKEND: torchBackend,
+      UV_TORCH_BACKEND: this.torchBackendValue,
     }
   }
 

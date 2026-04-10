@@ -1447,7 +1447,13 @@ function initEventHandle() {
   })
 
   ipcMain.handle('comfyui:installPypiPackage', async (_event, packageSpecifier: string) => {
-    return await comfyuiTools.installPypiPackage(packageSpecifier)
+    const comfyService = serviceRegistry?.getService('comfyui-backend') as
+      | ComfyUiBackendService
+      | undefined
+    return await comfyuiTools.installPypiPackage(
+      packageSpecifier,
+      comfyService?.getTorchBackendEnv(),
+    )
   })
 
   ipcMain.handle(
@@ -1472,7 +1478,15 @@ function initEventHandle() {
       if (!comfyService) {
         throw new Error('ComfyUI backend service not found')
       }
-      return await comfyuiTools.downloadCustomNode(nodeRepoData, comfyService.serviceDir)
+      const envAndWheels: comfyuiTools.ComfyUiInstallOptions = {
+        extraEnv: comfyService.getTorchBackendEnv(),
+        skipExtraWheels: comfyService.comfyUiVariantName !== 'xpu',
+      }
+      return await comfyuiTools.downloadCustomNode(
+        nodeRepoData,
+        comfyService.serviceDir,
+        envAndWheels,
+      )
     },
   )
 

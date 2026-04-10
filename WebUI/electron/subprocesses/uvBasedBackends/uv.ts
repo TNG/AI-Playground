@@ -8,7 +8,9 @@ import z from 'zod'
 export const aipgBaseDir = app.isPackaged
   ? process.resourcesPath
   : path.join(__dirname, '../../../')
-export const buildResources = app.isPackaged ? aipgBaseDir : path.join(aipgBaseDir, 'build', 'resources')
+export const buildResources = app.isPackaged
+  ? aipgBaseDir
+  : path.join(aipgBaseDir, 'build', 'resources')
 const uvPath = path.join(buildResources, 'uv.exe')
 const uvEnv = (extraEnv: Record<string, string> = {}) => ({
   ...process.env,
@@ -471,6 +473,7 @@ export const isPackageInstalled = async (
 export const installPypiPackage = async (
   backend: string,
   packageSpecifier: string,
+  extraEnv?: Record<string, string>,
 ): Promise<void> => {
   const logger = loggerFor(`uv.install-package.${backend}`)
   await assertUv(logger)
@@ -497,7 +500,7 @@ export const installPypiPackage = async (
   const uvCommand = ['add', '--directory', path.join(aipgBaseDir, backend), pipSpecifier]
   logger.info(`Installing package ${packageSpecifier}`)
 
-  await uv(uvCommand, logger)
+  await uv(uvCommand, logger, extraEnv)
 
   // Clean up downloaded .whl file if it was a local download
   if (packageSpecifier.endsWith('.whl') && packageSpecifier.startsWith('http')) {
@@ -515,6 +518,7 @@ export const installPypiPackage = async (
 export const installRequirementsTxt = async (
   backend: string,
   requirementsTxtPath: string,
+  extraEnv?: Record<string, string>,
 ): Promise<void> => {
   const logger = loggerFor(`uv.install-requirements.${backend}`)
   await assertUv(logger)
@@ -536,5 +540,5 @@ export const installRequirementsTxt = async (
   ]
   logger.info(`Installing requirements from ${requirementsTxtPath}`)
 
-  await uv(uvCommand, logger)
+  await uv(uvCommand, logger, extraEnv)
 }

@@ -788,7 +788,10 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
           username: 'Comfy-Org',
           repoName: 'ComfyUI-Manager',
         }
-        await downloadCustomNode(managerNode, this.serviceDir)
+        await downloadCustomNode(managerNode, this.serviceDir, {
+          extraEnv: this.getTorchBackendEnv(),
+          skipExtraWheels: this.comfyUiVariant !== 'xpu',
+        })
         yield {
           serviceName: this.name,
           step: currentStep,

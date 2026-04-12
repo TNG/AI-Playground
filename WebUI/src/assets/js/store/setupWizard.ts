@@ -307,6 +307,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       initialLoadingPollHandle = null
     }
 
+    await globalSetup.initSetup()
     const modeStatus = await productModeStore.ensureReady()
 
     if (modeStatus === 'ready') {

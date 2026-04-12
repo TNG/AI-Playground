@@ -2,10 +2,10 @@
   "mode": "nvidia",
   "priority": 10,
   "recommendForIntelDeviceIds": [],
-  "recommendForNvidia": false,
+  "recommendForNvidia": true,
   "experimental": true,
   "displayOrder": 30,
-  "requiresNvidiaGpu": true,
+  "requiresNvidiaGpu": false,
   "excludePresets": ["npu-chat"],
   "ui": {
     "i18n": {

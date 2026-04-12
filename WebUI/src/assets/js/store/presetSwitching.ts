@@ -115,14 +115,12 @@ export const usePresetSwitching = defineStore('presetSwitching', () => {
   const switchError = ref<string | null>(null)
 
   /**
-   * Check if a chat backend is available (running or can be started)
+   * Check if a chat backend is available (installed and can be started on demand)
    */
   function isBackendAvailable(backend: LlmBackend): boolean {
     const serviceName = backendToService[backend]
     const backendInfo = backendServices.info.find((s) => s.serviceName === serviceName)
-    return backendInfo
-      ? backendInfo.status === 'running' || backendInfo.status === 'stopped'
-      : false
+    return backendInfo?.isSetUp ?? false
   }
 
   /**

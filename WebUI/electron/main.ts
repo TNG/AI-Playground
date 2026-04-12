@@ -730,7 +730,6 @@ function initEventHandle() {
     const configs = loadProductModeConfigs()
 
     const modeCatalog = configs
-      .filter((c) => !c.requiresNvidiaGpu || hasNvidia)
       .sort((a, b) => a.displayOrder - b.displayOrder)
       .map((c) => ({
         mode: c.mode,

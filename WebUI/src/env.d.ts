@@ -48,7 +48,7 @@ type ProductMode = 'studio' | 'essentials' | 'nvidia'
 /** Mirrors electron/main LocalSettingsSchema (renderer copy for IPC typing). */
 type LocalSettings = {
   debug: boolean
-  deviceArchOverride: 'bmg' | 'acm' | 'arl_h' | 'lnl' | 'mtl' | null
+  deviceArchOverride: 'bmg' | 'acm' | 'arl_h' | 'wcl' | 'lnl' | 'mtl' | null
   isAdminExec: boolean
   availableThemes: Array<'dark' | 'lnl' | 'bmg' | 'light'>
   currentTheme: 'dark' | 'lnl' | 'bmg' | 'light'

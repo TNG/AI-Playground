@@ -64,6 +64,61 @@ export async function detectIntelGpusViaXpuSmi(): Promise<GpuHardwareDevice[]> {
   }
 }
 
+const PowerShellGpuSchema = z.array(
+  z.object({
+    Name: z.string(),
+    PNPDeviceID: z.string().nullable().optional(),
+  }),
+)
+
+export function parsePowerShellGpuOutput(output: string): GpuHardwareDevice[] {
+  const raw = JSON.parse(output)
+  const entries = PowerShellGpuSchema.parse(Array.isArray(raw) ? raw : [raw])
+
+  const devices: GpuHardwareDevice[] = []
+  for (const entry of entries) {
+    const pnp = entry.PNPDeviceID ?? ''
+    const m = pnp.match(/VEN_8086&DEV_([0-9A-Fa-f]{4})/)
+    if (!m) continue
+    const devId = `0x${m[1].toUpperCase()}`
+    devices.push({
+      device: `INTEL_GPU_PNP`,
+      name: entry.Name,
+      gpuDeviceId: devId,
+    })
+  }
+  return devices
+}
+
+export async function detectIntelGpusViaPowerShell(): Promise<GpuHardwareDevice[]> {
+  if (process.platform !== 'win32') return []
+
+  try {
+    appLogger.info('Falling back to PowerShell for Intel GPU detection', 'electron-backend')
+    const out = await spawnProcessAsync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        'Get-CimInstance Win32_VideoController | Select-Object Name, PNPDeviceID | ConvertTo-Json',
+      ],
+      () => {},
+      undefined,
+      undefined,
+      5000,
+    )
+    appLogger.info(`PowerShell GPU detection output: ${out}`, 'electron-backend')
+    return parsePowerShellGpuOutput(out)
+  } catch (e) {
+    appLogger.warn(
+      `Failed to detect Intel GPUs via PowerShell: ${JSON.stringify(e)}`,
+      'electron-backend',
+    )
+    return []
+  }
+}
+
 function parseNvidiaSmiListOutput(output: string): Array<z.infer<typeof NvidiaSmiLineSchema>> {
   const lines = output
     .split('\n')
@@ -104,7 +159,35 @@ export async function detectGpuHardwareDevices(): Promise<{
   hasNvidia: boolean
 }> {
   const [intel, nvidia] = await Promise.all([detectIntelGpusViaXpuSmi(), detectNvidiaGpusViaSmi()])
-  const detected = [...nvidia, ...intel]
+
+  const needsFallback =
+    intel.length === 0 || intel.every((d) => d.gpuDeviceId === null)
+
+  let finalIntel = intel
+  if (needsFallback) {
+    const psDevices = await detectIntelGpusViaPowerShell()
+    if (intel.length === 0) {
+      finalIntel = psDevices
+    } else {
+      finalIntel = enrichWithPowerShellIds(intel, psDevices)
+    }
+  }
+
+  const detected = [...nvidia, ...finalIntel]
   return { detected, hasNvidia: nvidia.length > 0 }
+}
+
+function enrichWithPowerShellIds(
+  xpuSmiDevices: GpuHardwareDevice[],
+  psDevices: GpuHardwareDevice[],
+): GpuHardwareDevice[] {
+  return xpuSmiDevices.map((d) => {
+    if (d.gpuDeviceId !== null) return d
+    const match = psDevices.find(
+      (ps) => ps.name.toLowerCase() === d.name.toLowerCase(),
+    )
+    if (match) return { ...d, gpuDeviceId: match.gpuDeviceId }
+    return d
+  })
 }
 

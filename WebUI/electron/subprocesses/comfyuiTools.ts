@@ -6,7 +6,7 @@ import { appLoggerInstance } from '../logging/logger'
 import {
   isPackageInstalled as uvIsPackageInstalled,
   installPypiPackage as uvInstallPackage,
-  installRequirementsTxt,
+  pipInstallRequirementsFromFile,
   installExtraWheels,
   aipgBaseDir,
 } from './uvBasedBackends/uv'
@@ -175,7 +175,7 @@ async function installPipRequirements(
   }
 
   try {
-    await installRequirementsTxt(COMFYUI_BACKEND, requirementsTxtPath, extraEnv)
+    await pipInstallRequirementsFromFile(COMFYUI_BACKEND, requirementsTxtPath, undefined, extraEnv)
     appLoggerInstance.info('Python requirements installation completed', 'comfyui-tools')
   } catch (error) {
     appLoggerInstance.error(

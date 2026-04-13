@@ -281,7 +281,10 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     if (!productModeStore.hardwareRecommendation) {
       await productModeStore.detectRecommendation()
     }
-    pendingProductMode.value = productModeStore.productMode
+    pendingProductMode.value =
+      productModeStore.productMode ??
+      productModeStore.hardwareRecommendation?.recommendedMode ??
+      null
     seedInstallSelection()
     wizardDirty.value = false
     globalSetup.loadingState = 'setupWizard'
@@ -315,7 +318,11 @@ export const useSetupWizard = defineStore('setupWizard', () => {
         .filter((s) => s.isRequired)
         .every((s) => s.isSetUp)
 
-      if (allRequiredSetUp) {
+      const anyFailed = backendServices.info.some(
+        (s) => s.status === 'failed' || s.status === 'installationFailed',
+      )
+
+      if (allRequiredSetUp && !anyFailed) {
         pendingProductMode.value = productModeStore.productMode
         seedInstallSelection()
         await dismiss()
@@ -327,7 +334,10 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       await productModeStore.detectRecommendation()
     }
 
-    pendingProductMode.value = productModeStore.productMode
+    pendingProductMode.value =
+      productModeStore.productMode ??
+      productModeStore.hardwareRecommendation?.recommendedMode ??
+      null
     seedInstallSelection()
     wizardDirty.value = false
     globalSetup.loadingState = 'setupWizard'

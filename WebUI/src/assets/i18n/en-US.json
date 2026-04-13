@@ -400,10 +400,10 @@
   "PRODUCT_MODE_NVIDIA_DESCRIPTION": "CUDA-accelerated mode for NVIDIA GPUs. Uses CUDA PyTorch and disables OpenVINO backends.",
   "PRODUCT_MODE_NVIDIA_SUPPORTED_HARDWARE": "NVIDIA RTX GPU with 8GB+ VRAM",
   "SETUP_WIZARD_TITLE": "AI Playground Setup",
-  "SETUP_WIZARD_MODE_SECTION": "Device Mode",
+  "SETUP_WIZARD_MODE_SECTION": "Hardware Mode",
   "SETUP_WIZARD_BACKENDS_SECTION": "Components",
   "SETUP_WIZARD_BACKENDS_INTRO": "Required components will be installed automatically. Optional components can be toggled on or off.",
   "SETUP_WIZARD_UNAVAILABLE": "Unavailable",
-  "SETUP_WIZARD_UNAVAILABLE_TOOLTIP": "This component is not available in the selected device mode.",
+  "SETUP_WIZARD_UNAVAILABLE_TOOLTIP": "This component is not available in the selected hardware mode.",
   "SETTINGS_SETUP_WIZARD": "Setup Wizard"
 }

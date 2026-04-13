@@ -367,7 +367,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     if (pendingProductMode.value !== productModeStore.productMode) {
       await productModeStore.selectMode(pendingProductMode.value)
     }
-    await syncPresetsForCurrentProductMode()
 
     if (toInstall.length > 0) {
       wizardDirty.value = true
@@ -390,6 +389,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     }
 
     await dismiss()
+    await syncPresetsForCurrentProductMode()
   }
 
   async function installBackend(name: BackendServiceName) {

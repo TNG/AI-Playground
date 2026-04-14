@@ -59,7 +59,10 @@ export async function detectIntelGpusViaXpuSmi(): Promise<GpuHardwareDevice[]> {
       gpuDeviceId: d.pci_device_id ?? null,
     }))
   } catch (e) {
-    appLogger.warn(`Failed to detect Intel GPUs via xpu-smi ${JSON.stringify(e)}`, 'electron-backend')
+    appLogger.warn(
+      `Failed to detect Intel GPUs via xpu-smi ${JSON.stringify(e)}`,
+      'electron-backend',
+    )
     return []
   }
 }
@@ -149,7 +152,10 @@ export async function detectNvidiaGpusViaSmi(): Promise<GpuHardwareDevice[]> {
       gpuDeviceId: g.uuid ?? null,
     }))
   } catch (e) {
-    appLogger.warn(`Failed to detect NVIDIA GPUs via nvidia-smi ${JSON.stringify(e)}`, 'electron-backend')
+    appLogger.warn(
+      `Failed to detect NVIDIA GPUs via nvidia-smi ${JSON.stringify(e)}`,
+      'electron-backend',
+    )
     return []
   }
 }
@@ -160,8 +166,7 @@ export async function detectGpuHardwareDevices(): Promise<{
 }> {
   const [intel, nvidia] = await Promise.all([detectIntelGpusViaXpuSmi(), detectNvidiaGpusViaSmi()])
 
-  const needsFallback =
-    intel.length === 0 || intel.every((d) => d.gpuDeviceId === null)
+  const needsFallback = intel.length === 0 || intel.every((d) => d.gpuDeviceId === null)
 
   let finalIntel = intel
   if (needsFallback) {
@@ -183,11 +188,8 @@ function enrichWithPowerShellIds(
 ): GpuHardwareDevice[] {
   return xpuSmiDevices.map((d) => {
     if (d.gpuDeviceId !== null) return d
-    const match = psDevices.find(
-      (ps) => ps.name.toLowerCase() === d.name.toLowerCase(),
-    )
+    const match = psDevices.find((ps) => ps.name.toLowerCase() === d.name.toLowerCase())
     if (match) return { ...d, gpuDeviceId: match.gpuDeviceId }
     return d
   })
 }
-

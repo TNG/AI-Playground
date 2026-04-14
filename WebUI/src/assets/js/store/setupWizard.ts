@@ -146,7 +146,10 @@ export const useSetupWizard = defineStore('setupWizard', () => {
           versionDisplay = vs.installed.releaseTag
             ? `${vs.installed.releaseTag} / ${vs.installed.version}`
             : vs.installed.version
-        } else if (!isSetUp && !(serviceName === 'comfyui-backend' && comfyUiNeedsVariantSwitch.value)) {
+        } else if (
+          !isSetUp &&
+          !(serviceName === 'comfyui-backend' && comfyUiNeedsVariantSwitch.value)
+        ) {
           versionDisplay = 'Not installed'
         }
       }
@@ -159,8 +162,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
           const steps = knownSteps[serviceName] ?? []
           const stepIdx = steps.indexOf(progress.step)
           const label = stepDisplayNames[progress.step] ?? progress.debugMessage
-          installProgressText =
-            stepIdx >= 0 ? `${label} (${stepIdx + 1}/${steps.length})` : label
+          installProgressText = stepIdx >= 0 ? `${label} (${stepIdx + 1}/${steps.length})` : label
         } else if (activityMessage) {
           installProgressText = activityMessage
         } else if (status === 'stopping') {
@@ -398,9 +400,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     if (result.success) {
       await restartBackend(name)
     } else {
-      const msg = result.errorDetails
-        ? 'Setup failed — see error log for details'
-        : 'Setup failed'
+      const msg = result.errorDetails ? 'Setup failed — see error log for details' : 'Setup failed'
       toast.error(msg)
     }
   }

@@ -168,7 +168,9 @@
               id="microphone-button"
               class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
               variant="secondary"
-              v-if="promptStore.getCurrentMode() === 'chat' && !productModeStore.isNvidiaModeSelected"
+              v-if="
+                promptStore.getCurrentMode() === 'chat' && !productModeStore.isNvidiaModeSelected
+              "
               @click="handleRecordingClick"
               :disabled="(false && !speechToText.enabled) || audioRecorder.isTranscribing"
               :title="

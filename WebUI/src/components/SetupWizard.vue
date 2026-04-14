@@ -1,5 +1,7 @@
 <template>
-  <div class="z-10 text-foreground rounded-xl bg-background/70 backdrop-blur-sm border border-border shadow-lg">
+  <div
+    class="z-10 text-foreground rounded-xl bg-background/70 backdrop-blur-sm border border-border shadow-lg"
+  >
     <div class="px-12 py-5 max-w-5xl w-5xl">
       <h1 class="text-center py-1 px-4 rounded-sm text-3xl font-bold">
         {{ languages.SETUP_WIZARD_TITLE || 'AI Playground Setup' }}
@@ -51,11 +53,9 @@
                     option.titleOne
                   }}</span>
                   <span class="text-xs font-bold">{{ option.titleTwo }}</span>
-                  <span
-                    v-if="option.subtitle"
-                    class="text-xs font-medium text-muted-foreground"
-                    >{{ option.subtitle }}</span
-                  >
+                  <span v-if="option.subtitle" class="text-xs font-medium text-muted-foreground">{{
+                    option.subtitle
+                  }}</span>
                 </div>
                 <div class="flex gap-1 pt-0.5">
                   <span
@@ -233,7 +233,6 @@
           </p>
         </div>
       </div>
-
 
       <!-- Primary CTA + Close -->
       <div class="flex items-center justify-between pt-4">

@@ -695,18 +695,14 @@ function initEventHandle() {
   ipcMain.handle('updateLocalSettings', (_event, updates: Partial<LocalSettings>) => {
     Object.assign(settings, updates)
     const shouldReloadDemoProfile =
-      settings.isDemoModeEnabled &&
-      ('productMode' in updates || 'isDemoModeEnabled' in updates)
+      settings.isDemoModeEnabled && ('productMode' in updates || 'isDemoModeEnabled' in updates)
     if (shouldReloadDemoProfile) {
       const modeDemoDir = getModeDemoDir(settings)
       const baseDemoDir = path.join(modesDir, 'base', 'demo')
       try {
         demoProfile = loadDemoProfile(modeDemoDir, baseDemoDir, appLogger)
       } catch (e) {
-        appLogger.error(
-          `Failed to reload demo profile after settings change: ${e}`,
-          'demo-profile',
-        )
+        appLogger.error(`Failed to reload demo profile after settings change: ${e}`, 'demo-profile')
       }
     }
     persistLocalSettingsToDisk()

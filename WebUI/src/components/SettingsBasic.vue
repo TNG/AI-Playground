@@ -84,7 +84,7 @@
     </div>
   </DemoModeBlocker>
 
-  <div class="flex flex-col gap-3 pt-4">
+  <div v-if="!productModeStore.isNvidiaModeSelected" class="flex flex-col gap-3 pt-4">
     <div>
       <p>{{ languages.SETTINGS_AUDIO }}</p>
       <div class="pl-2 pt-4">
@@ -210,7 +210,9 @@ import { Spinner } from './ui/spinner'
 import { Button } from '@/components/ui/button'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
+import { useProductMode } from '@/assets/js/store/productMode'
 
+const productModeStore = useProductMode()
 const demoMode = useDemoMode()
 const setupWizardStore = useSetupWizard()
 const backendServices = useBackendServices()

@@ -1,12 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { DeviceService } from '../../subprocesses/service'
 import path from 'node:path'
 
 vi.mock('electron', () => ({
   app: {
     isPackaged: false,
   },
+  BrowserWindow: vi.fn(),
+  net: { fetch: vi.fn() },
 }))
+
+vi.mock('../../main.ts', () => ({}))
+
+vi.mock('../../logging/logger.ts', () => ({
+  appLoggerInstance: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}))
+
+import { DeviceService } from '../../subprocesses/service'
 
 describe('DeviceService', () => {
   let deviceService: DeviceService
@@ -55,6 +68,34 @@ describe('DeviceService', () => {
     it('should return the correct path to xpu-smi.exe', () => {
       const exePath = deviceService.getExePath()
       expect(exePath).toContain(path.join('device-service', 'xpu-smi.exe'))
+    })
+  })
+
+  describe('getDevices', () => {
+    it('should parse xpu-smi output and return sorted devices', async () => {
+      const devices = await deviceService.getDevices()
+
+      expect(devices).toHaveLength(3)
+      expect(devices[0].name).toBe('Intel(R) Arc(TM) B580 Graphics')
+      expect(devices[0].arch).toBe('bmg')
+      expect(devices[1].name).toBe('Intel(R) Arc(TM) A770 Graphics')
+      expect(devices[1].arch).toBe('acm')
+      expect(devices[2].name).toBe('Intel(R) UHD Graphics')
+    })
+
+    it('should sort devices by architecture priority (highest first)', async () => {
+      const devices = await deviceService.getDevices()
+
+      const priorities = devices.map((d) => d.arch)
+      expect(priorities).toEqual(['bmg', 'acm', 'unknown'])
+    })
+
+    it('should extract device IDs from UUIDs', async () => {
+      const devices = await deviceService.getDevices()
+
+      expect(devices[0].id).toBe(1)
+      expect(devices[1].id).toBe(2)
+      expect(devices[2].id).toBe(0)
     })
   })
 })

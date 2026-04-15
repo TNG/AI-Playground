@@ -24,10 +24,6 @@ vi.mock('../../logging/logger.ts', () => ({
 vi.mock('../../subprocesses/mcpServers', async () => {
   const fs = await import('node:fs')
 
-  function getMcpConfigPathMock(): string {
-    return configPath
-  }
-
   type McpServerConfig =
     | {
         type?: 'stdio'
@@ -47,8 +43,12 @@ vi.mock('../../subprocesses/mcpServers', async () => {
     mcpServers: Record<string, McpServerConfig>
   }
 
-  function loadMcpServersMock(): Record<string, McpServerConfig> {
-    const cp = getMcpConfigPathMock()
+  function getMcpConfigPath(): string {
+    return configPath
+  }
+
+  function loadMcpServers(): Record<string, McpServerConfig> {
+    const cp = getMcpConfigPath()
     if (!fs.existsSync(cp)) {
       throw new Error(`MCP config file not found: ${cp}`)
     }
@@ -68,11 +68,11 @@ vi.mock('../../subprocesses/mcpServers', async () => {
   }
 
   return {
-    getMcpConfigPath: getMcpConfigPathMock,
-    loadMcpServers: loadMcpServersMock,
+    getMcpConfigPath,
+    loadMcpServers,
     addMcpServer: (serverId: string, config: McpServerConfig) => {
-      const cp = getMcpConfigPathMock()
-      const servers = fs.existsSync(cp) ? loadMcpServersMock() : {}
+      const cp = getMcpConfigPath()
+      const servers = fs.existsSync(cp) ? loadMcpServers() : {}
       if (servers[serverId]) {
         throw new Error(`MCP server with ID "${serverId}" already exists`)
       }
@@ -80,15 +80,15 @@ vi.mock('../../subprocesses/mcpServers', async () => {
       fs.writeFileSync(cp, JSON.stringify({ mcpServers: servers }, null, 2), 'utf-8')
     },
     getMcpServerConfig: (serverId: string) => {
-      const servers = loadMcpServersMock()
+      const servers = loadMcpServers()
       if (!servers[serverId]) {
         throw new Error(`MCP server with ID "${serverId}" not found`)
       }
       return servers[serverId]
     },
     updateMcpServer: (serverId: string, config: McpServerConfig) => {
-      const cp = getMcpConfigPathMock()
-      const servers = loadMcpServersMock()
+      const cp = getMcpConfigPath()
+      const servers = loadMcpServers()
       if (!servers[serverId]) {
         throw new Error(`MCP server with ID "${serverId}" not found`)
       }
@@ -96,8 +96,8 @@ vi.mock('../../subprocesses/mcpServers', async () => {
       fs.writeFileSync(cp, JSON.stringify({ mcpServers: servers }, null, 2), 'utf-8')
     },
     removeMcpServer: (serverId: string) => {
-      const cp = getMcpConfigPathMock()
-      const servers = loadMcpServersMock()
+      const cp = getMcpConfigPath()
+      const servers = loadMcpServers()
       if (!servers[serverId]) {
         throw new Error(`MCP server with ID "${serverId}" not found`)
       }

@@ -31,7 +31,7 @@ export async function launchElectronApp(): Promise<ElectronApplication> {
 
   const mainPath = path.join(WEBUI_DIR, 'dist', 'main', 'main.js')
 
-  const app = await electron.launch({
+  return electron.launch({
     args: [mainPath],
     cwd: WEBUI_DIR,
     env: {
@@ -43,21 +43,9 @@ export async function launchElectronApp(): Promise<ElectronApplication> {
       DIST: path.join(WEBUI_DIR, 'dist'),
       VITE_PUBLIC: path.join(WEBUI_DIR, 'public'),
       NODE_ENV: 'development',
-      AIPG_E2E_TEST: 'true',
     },
     timeout: 60_000,
   })
-
-  // Close auto-opened DevTools to avoid window-selection issues
-  await app.evaluate(({ BrowserWindow }) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (win.webContents.isDevToolsOpened()) {
-        win.webContents.closeDevTools()
-      }
-    }
-  })
-
-  return app
 }
 
 type E2EFixtures = {

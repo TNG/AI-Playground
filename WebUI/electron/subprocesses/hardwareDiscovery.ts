@@ -122,7 +122,9 @@ export async function detectIntelGpusViaPowerShell(): Promise<GpuHardwareDevice[
   }
 }
 
-function parseNvidiaSmiListOutput(output: string): Array<z.infer<typeof NvidiaSmiLineSchema>> {
+export function parseNvidiaSmiListOutput(
+  output: string,
+): Array<z.infer<typeof NvidiaSmiLineSchema>> {
   const lines = output
     .split('\n')
     .map((l) => l.trim())
@@ -182,7 +184,7 @@ export async function detectGpuHardwareDevices(): Promise<{
   return { detected, hasNvidia: nvidia.length > 0 }
 }
 
-function enrichWithPowerShellIds(
+export function enrichWithPowerShellIds(
   xpuSmiDevices: GpuHardwareDevice[],
   psDevices: GpuHardwareDevice[],
 ): GpuHardwareDevice[] {

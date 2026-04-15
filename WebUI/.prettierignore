@@ -3,3 +3,4 @@ workflows_intel/
 *.whl
 test-results/
 playwright-report/
+playwright-report-e2e/

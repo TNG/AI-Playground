@@ -7,9 +7,10 @@ import pkg from './package.json'
 import tailwindcss from '@tailwindcss/vite'
 
 // https://vitejs.dev/config/
-export default defineConfig(({ command }) => {
+export default defineConfig(({ command, mode }) => {
   const isServe = command === 'serve'
   const isBuild = command === 'build'
+  const isTest = mode === 'test'
   const sourcemap = isServe || !!process.env.VSCODE_DEBUG
   const dependenciesToBeTranspiled = ['get-port']
   return {
@@ -24,62 +25,66 @@ export default defineConfig(({ command }) => {
         imports: ['vue'],
         dts: 'src/auto-import.d.ts',
       }),
-      electron([
-        {
-          // Main-Process entry file of the Electron App.
-          entry: 'electron/main.ts',
-          onstart(options) {
-            if (process.env.VSCODE_DEBUG) {
-              console.log(/* For `.vscode/.debug.script.mjs` */ '[startup] Electron App')
-            } else {
-              options.startup()
-            }
-          },
-          vite: {
-            build: {
-              sourcemap,
-              minify: isBuild,
-              outDir: isServe ? 'dist/main' : '../build/dist/main',
-              rollupOptions: {
-                external: Object.keys('dependencies' in pkg ? pkg.dependencies : {}).filter(
-                  (d) => !dependenciesToBeTranspiled.includes(d),
-                ),
+      ...(isTest
+        ? []
+        : [
+            electron([
+              {
+                // Main-Process entry file of the Electron App.
+                entry: 'electron/main.ts',
+                onstart(options) {
+                  if (process.env.VSCODE_DEBUG) {
+                    console.log(/* For `.vscode/.debug.script.mjs` */ '[startup] Electron App')
+                  } else {
+                    options.startup()
+                  }
+                },
+                vite: {
+                  build: {
+                    sourcemap,
+                    minify: isBuild,
+                    outDir: isServe ? 'dist/main' : '../build/dist/main',
+                    rollupOptions: {
+                      external: Object.keys('dependencies' in pkg ? pkg.dependencies : {}).filter(
+                        (d) => !dependenciesToBeTranspiled.includes(d),
+                      ),
+                    },
+                  },
+                },
               },
-            },
-          },
-        },
-        {
-          entry: 'electron/preload.ts',
-          onstart(options) {
-            // Notify the Renderer-Process to reload the page when the Preload-Scripts build is complete,
-            // instead of restarting the entire Electron App.
-            options.reload()
-          },
-          vite: {
-            build: {
-              sourcemap: sourcemap ? 'inline' : undefined, // #332
-              minify: isBuild,
-              outDir: isServe ? 'dist/preload' : '../build/dist/preload',
-              rollupOptions: {
-                external: Object.keys('dependencies' in pkg ? pkg.dependencies : {}),
+              {
+                entry: 'electron/preload.ts',
+                onstart(options) {
+                  // Notify the Renderer-Process to reload the page when the Preload-Scripts build is complete,
+                  // instead of restarting the entire Electron App.
+                  options.reload()
+                },
+                vite: {
+                  build: {
+                    sourcemap: sourcemap ? 'inline' : undefined, // #332
+                    minify: isBuild,
+                    outDir: isServe ? 'dist/preload' : '../build/dist/preload',
+                    rollupOptions: {
+                      external: Object.keys('dependencies' in pkg ? pkg.dependencies : {}),
+                    },
+                  },
+                },
               },
-            },
-          },
-        },
-        {
-          entry: 'electron/subprocesses/langchain.ts',
-          vite: {
-            build: {
-              sourcemap: sourcemap ? 'inline' : undefined,
-              minify: isBuild,
-              outDir: isServe ? 'dist/langchain' : '../build/dist/langchain',
-              rollupOptions: {
-                external: Object.keys('dependencies' in pkg ? pkg.dependencies : {}),
+              {
+                entry: 'electron/subprocesses/langchain.ts',
+                vite: {
+                  build: {
+                    sourcemap: sourcemap ? 'inline' : undefined,
+                    minify: isBuild,
+                    outDir: isServe ? 'dist/langchain' : '../build/dist/langchain',
+                    rollupOptions: {
+                      external: Object.keys('dependencies' in pkg ? pkg.dependencies : {}),
+                    },
+                  },
+                },
               },
-            },
-          },
-        },
-      ]),
+            ]),
+          ]),
     ],
     resolve: {
       alias: {

@@ -1,3 +1,5 @@
 src/auto-import.d.ts
 workflows_intel/
 *.whl
+test-results/
+playwright-report/

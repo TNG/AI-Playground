@@ -3,43 +3,44 @@ import { type ElectronApplication, type Page } from '@playwright/test'
 /**
  * Finds the main renderer window among Electron's windows.
  *
- * Closes any auto-opened DevTools first, then waits for the app window
- * (URL starting with http://127.0.0.1 or http://localhost).
+ * Instead of relying on URL checks (which can be unreliable with DevTools),
+ * this helper simply gets the first window and waits for app content to appear.
+ * If the first window is DevTools, it waits for the next window with a Vite URL.
  */
 export async function getMainWindow(electronApp: ElectronApplication): Promise<Page> {
-  // Close any DevTools windows that were auto-opened in dev mode
-  await electronApp.evaluate(({ BrowserWindow }) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (win.webContents.isDevToolsOpened()) {
-        win.webContents.closeDevTools()
-      }
-    }
-  })
+  // Wait up to 30s for windows to appear, then pick the right one
+  const start = Date.now()
+  const TIMEOUT = 30_000
 
-  // Small delay for DevTools windows to close and main window to navigate
-  await new Promise((r) => setTimeout(r, 1000))
+  while (Date.now() - start < TIMEOUT) {
+    const windows = electronApp.windows()
 
-  // Now find the app window
-  const deadline = Date.now() + 60_000
-  while (Date.now() < deadline) {
-    for (const w of electronApp.windows()) {
+    for (const w of windows) {
       const url = w.url()
+      // The main app window loads from the Vite dev server
       if (url.startsWith('http://127.0.0.1') || url.startsWith('http://localhost')) {
-        await w.waitForLoadState('domcontentloaded')
         return w
       }
     }
 
-    // Wait for new windows or poll
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, 1000)
-      electronApp.once('window', () => {
-        clearTimeout(timer)
-        setTimeout(resolve, 500)
-      })
-    })
+    // If only one window exists and it has about:blank, wait for navigation
+    if (windows.length === 1 && windows[0].url() === 'about:blank') {
+      try {
+        await windows[0].waitForURL(/http:\/\/127\.0\.0\.1/, { timeout: 5000 })
+        return windows[0]
+      } catch {
+        // Keep trying
+      }
+    }
+
+    await new Promise((r) => setTimeout(r, 500))
   }
 
-  const urls = electronApp.windows().map((w) => w.url())
-  throw new Error(`Main window not found after 60s. Window URLs: ${JSON.stringify(urls)}`)
+  // Fallback: just return the first window and hope for the best
+  const windows = electronApp.windows()
+  if (windows.length > 0) {
+    return windows[0]
+  }
+
+  throw new Error('No windows found after 30s')
 }

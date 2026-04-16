@@ -4,7 +4,7 @@ import {
   type ElectronApplication,
   type Page,
 } from '@playwright/test'
-import { execSync } from 'child_process'
+import { execSync, spawnSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import { getMainWindow } from './helpers'
@@ -26,8 +26,43 @@ function ensureMainProcessCompiled(): void {
   })
 }
 
+function cleanupElectronState(): void {
+  // Kill leftover Electron processes that hold the single-instance lock
+  try {
+    const result = spawnSync('pgrep', ['-f', 'electron/dist/electron'], { encoding: 'utf-8' })
+    const pids = (result.stdout || '').trim().split('\n').filter(Boolean)
+    for (const pid of pids) {
+      try {
+        process.kill(Number(pid), 'SIGKILL')
+      } catch {
+        // Already dead
+      }
+    }
+    if (pids.length > 0) {
+      console.log(`[e2e] Killed ${pids.length} leftover Electron process(es)`)
+    }
+  } catch {
+    // pgrep not available
+  }
+
+  // Remove the Electron single-instance lock file
+  const lockPaths = [
+    path.join(process.env.HOME || '', '.config', 'ai-playground', 'SingletonLock'),
+    path.join(process.env.HOME || '', '.config', 'ai-playground', 'SingletonSocket'),
+    path.join(process.env.HOME || '', '.config', 'ai-playground', 'SingletonCookie'),
+  ]
+  for (const lockPath of lockPaths) {
+    try {
+      fs.unlinkSync(lockPath)
+    } catch {
+      // File doesn't exist
+    }
+  }
+}
+
 export async function launchElectronApp(): Promise<ElectronApplication> {
   ensureMainProcessCompiled()
+  cleanupElectronState()
 
   const mainPath = path.join(WEBUI_DIR, 'dist', 'main', 'main.js')
 

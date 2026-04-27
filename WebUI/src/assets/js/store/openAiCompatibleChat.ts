@@ -563,7 +563,39 @@ export const useOpenAiCompatibleChat = defineStore(
     async function regenerate(messageId: string) {
       await textInference.ensureReadyForInference()
       manuallyStopped.value = false
-      await chats[conversations.activeKey]?.regenerate({ messageId })
+
+      const chat = chats[conversations.activeKey]
+      if (!chat) return
+
+      // Find the user message that produced the assistant message being regenerated
+      // so RAG retrieval re-runs against the same question.
+      const targetIdx = chat.messages.findIndex((m) => m.id === messageId)
+      const priorUserMessage =
+        targetIdx > 0
+          ? [...chat.messages.slice(0, targetIdx)].reverse().find((m) => m.role === 'user')
+          : undefined
+      const question =
+        priorUserMessage?.parts
+          ?.filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+          .map((p) => p.text ?? '')
+          .join('\n\n') ?? ''
+
+      const ragContext = await textInference.prepareRagContext(question)
+      temporarySystemPrompt.value = ragContext.systemPrompt
+
+      try {
+        await chat.regenerate({ messageId })
+      } finally {
+        temporarySystemPrompt.value = null
+      }
+
+      if (ragContext.ragSourceText) {
+        const latestMessage = messages.value?.[messages.value.length - 1]
+        if (latestMessage && latestMessage.role === 'assistant' && latestMessage.metadata) {
+          latestMessage.metadata.ragSource = ragContext.ragSourceText
+        }
+      }
+
       conversations.updateConversation(messages.value, conversations.activeKey)
     }
 

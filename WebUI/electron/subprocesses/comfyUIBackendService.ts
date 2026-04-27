@@ -1071,6 +1071,10 @@ except Exception as e:
 
     const additionalEnvVariables = this.getEnvVars()
     const mediaDir = getMediaDir()
+    // --enable-cors-header is required so ComfyUI's origin_only_middleware doesn't 403
+    // our cross-origin requests from the renderer (Vite dev origin / file:// in prod both
+    // trigger Sec-Fetch-Site: cross-site against 127.0.0.1:<port>).
+    const userParameters = this.comfyUiParametersString.split(/\s+/).filter(Boolean)
     const parameters = [
       'main.py',
       '--port',
@@ -1079,8 +1083,11 @@ except Exception as e:
       'auto',
       '--output-directory',
       mediaDir,
-      ...this.comfyUiParametersString.split(/\s+/).filter(Boolean),
+      ...userParameters,
     ]
+    if (!userParameters.includes('--enable-cors-header')) {
+      parameters.push('--enable-cors-header')
+    }
     this.appLogger.info(
       `starting comfyui with ${JSON.stringify({ parameters, additionalEnvVariables })}`,
       this.name,

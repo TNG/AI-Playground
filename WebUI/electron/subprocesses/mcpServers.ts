@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
@@ -128,7 +129,23 @@ type AutoDetectRule = {
 }
 
 const ACER_PREFIX = 'AcerIncorporated.AcerMCPService'
-const WINDOWS_APPS = 'C:\\Program Files\\WindowsApps'
+const ACER_APP_PATHS_KEY =
+  'Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\AcerMCPService.exe'
+
+function readRegistryDefaultString(hive: 'HKCU' | 'HKLM', subKey: string): string | null {
+  try {
+    const stdout = execFileSync('reg.exe', ['query', `${hive}\\${subKey}`, '/ve'], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 5_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    const match = stdout.match(/^\s*\(Default\)\s+REG_(?:SZ|EXPAND_SZ)\s+(.+?)\s*$/m)
+    return match ? match[1].trim() : null
+  } catch {
+    return null
+  }
+}
 
 const AUTO_DETECT_RULES: AutoDetectRule[] = [
   {
@@ -137,20 +154,12 @@ const AUTO_DETECT_RULES: AutoDetectRule[] = [
       command.toLowerCase().includes(`\\windowsapps\\${ACER_PREFIX.toLowerCase()}`),
     match: () => {
       if (process.platform !== 'win32') return null
-      let entries: string[]
-      try {
-        entries = fs.readdirSync(WINDOWS_APPS)
-      } catch {
-        return null
-      }
-      for (const entry of entries) {
-        if (!entry.startsWith(ACER_PREFIX)) continue
-        const exe = path.join(WINDOWS_APPS, entry, 'AcerMCPService', 'AcerMCPService.exe')
-        if (fs.existsSync(exe)) {
-          return { type: 'stdio', displayName: 'Acer MCP', command: exe }
-        }
-      }
-      return null
+      const exe =
+        readRegistryDefaultString('HKCU', ACER_APP_PATHS_KEY) ??
+        readRegistryDefaultString('HKLM', ACER_APP_PATHS_KEY)
+      if (!exe) return null
+      if (!fs.existsSync(exe)) return null
+      return { type: 'stdio', displayName: 'Acer MCP', command: exe }
     },
   },
 ]

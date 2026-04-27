@@ -67,8 +67,10 @@ import {
 } from './subprocesses/mcpManager'
 import {
   addMcpServer,
+  detectAndRegisterAutoMcpServers,
   getMcpConfigPath,
   getMcpServerConfig,
+  isAutoDetectId,
   updateMcpServer,
   removeMcpServer,
   type McpServerConfig,
@@ -205,6 +207,7 @@ const LocalSettingsSchema = z.object({
   languageOverride: z.string().nullable().default(null),
   remoteRepository: z.string().default('intel/ai-playground'),
   huggingfaceEndpoint: z.string().default('https://huggingface.co'),
+  mcpAutoDetectionDismissed: z.array(z.string()).default([]),
 })
 export type LocalSettings = z.infer<typeof LocalSettingsSchema>
 export type ProductMode = z.infer<typeof ProductModeSchema>
@@ -1557,6 +1560,15 @@ function initEventHandle() {
     return comfyuiTools.listInstalledCustomNodes(comfyService.serviceDir)
   })
 
+  // Auto-detect MCP servers (e.g., Acer MCP service installed via WindowsApps).
+  // Runs on every startup so newly installed services are picked up and stale
+  // versioned paths get refreshed after MSIX/Store updates.
+  try {
+    detectAndRegisterAutoMcpServers(settings.mcpAutoDetectionDismissed ?? [])
+  } catch (e) {
+    appLogger.warn(`MCP auto-detect failed: ${e}`, 'mcp')
+  }
+
   // MCP server IPC handlers
   ipcMain.handle('mcp:startServer', async (_event, serverId: string) => {
     return await startMcpServer(serverId)
@@ -1631,7 +1643,12 @@ function initEventHandle() {
 
   ipcMain.handle('mcp:removeServer', async (_event, serverId: string) => {
     await stopMcpServer(serverId)
-    return removeMcpServer(serverId)
+    const result = removeMcpServer(serverId)
+    if (isAutoDetectId(serverId) && !settings.mcpAutoDetectionDismissed.includes(serverId)) {
+      settings.mcpAutoDetectionDismissed = [...settings.mcpAutoDetectionDismissed, serverId]
+      persistLocalSettingsToDisk()
+    }
+    return result
   })
 
   const getAssetPathFromUrl = (url: string) => {

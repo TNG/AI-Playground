@@ -59,6 +59,7 @@ type LocalSettings = {
   languageOverride: string | null
   remoteRepository: string
   huggingfaceEndpoint: string
+  mcpAutoDetectionDismissed: string[]
 }
 
 type GpuHardwareDevice = {
@@ -119,6 +120,7 @@ type McpToolInfo = {
 type McpServerInfo = {
   id: string
   name: string
+  instructions?: string
 }
 
 type McpServerConfig =
@@ -128,12 +130,14 @@ type McpServerConfig =
       args?: string[]
       env?: Record<string, string>
       displayName?: string
+      instructions?: string
     }
   | {
       type: 'http'
       url: string
       headers?: Record<string, string>
       displayName?: string
+      instructions?: string
     }
 
 type McpToolCallResult = {
@@ -284,15 +288,39 @@ type electronAPI = {
     addServer(
       serverId: string,
       config:
-        | { type?: 'stdio'; command: string; args?: string[]; displayName?: string }
-        | { type: 'http'; url: string; headers?: Record<string, string>; displayName?: string },
+        | {
+            type?: 'stdio'
+            command: string
+            args?: string[]
+            displayName?: string
+            instructions?: string
+          }
+        | {
+            type: 'http'
+            url: string
+            headers?: Record<string, string>
+            displayName?: string
+            instructions?: string
+          },
     ): Promise<void>
     getServerConfig(serverId: string): Promise<McpServerConfig>
     updateServer(
       serverId: string,
       config:
-        | { type?: 'stdio'; command: string; args?: string[]; displayName?: string }
-        | { type: 'http'; url: string; headers?: Record<string, string>; displayName?: string },
+        | {
+            type?: 'stdio'
+            command: string
+            args?: string[]
+            displayName?: string
+            instructions?: string
+          }
+        | {
+            type: 'http'
+            url: string
+            headers?: Record<string, string>
+            displayName?: string
+            instructions?: string
+          },
     ): Promise<void>
     removeServer(serverId: string): Promise<void>
   }

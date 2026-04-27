@@ -10,12 +10,14 @@ export type McpServerConfig =
       args?: string[]
       env?: Record<string, string>
       displayName?: string
+      instructions?: string
     }
   | {
       type: 'http'
       url: string
       headers?: Record<string, string>
       displayName?: string
+      instructions?: string
     }
 
 type McpConfigFile = {
@@ -117,4 +119,83 @@ export function removeMcpServer(serverId: string): void {
   fs.writeFileSync(configPath, JSON.stringify({ mcpServers: servers }, null, 2), 'utf-8')
 
   appLoggerInstance.info(`Removed MCP server: ${serverId}`, 'mcp')
+}
+
+type AutoDetectRule = {
+  id: string
+  ownsCommand: (command: string) => boolean
+  match: () => McpServerConfig | null
+}
+
+const ACER_PREFIX = 'AcerIncorporated.AcerMCPService'
+const WINDOWS_APPS = 'C:\\Program Files\\WindowsApps'
+
+const AUTO_DETECT_RULES: AutoDetectRule[] = [
+  {
+    id: 'acer-mcp-server',
+    ownsCommand: (command) =>
+      command.toLowerCase().includes(`\\windowsapps\\${ACER_PREFIX.toLowerCase()}`),
+    match: () => {
+      if (process.platform !== 'win32') return null
+      let entries: string[]
+      try {
+        entries = fs.readdirSync(WINDOWS_APPS)
+      } catch {
+        return null
+      }
+      for (const entry of entries) {
+        if (!entry.startsWith(ACER_PREFIX)) continue
+        const exe = path.join(WINDOWS_APPS, entry, 'AcerMCPService', 'AcerMCPService.exe')
+        if (fs.existsSync(exe)) {
+          return { type: 'stdio', displayName: 'Acer MCP', command: exe }
+        }
+      }
+      return null
+    },
+  },
+]
+
+export type AutoDetectChange = { id: string; action: 'added' | 'refreshed' }
+
+export function detectAndRegisterAutoMcpServers(dismissedIds: string[]): AutoDetectChange[] {
+  const changes: AutoDetectChange[] = []
+  const configPath = getMcpConfigPath()
+  const servers = fs.existsSync(configPath) ? loadMcpServers() : {}
+
+  for (const rule of AUTO_DETECT_RULES) {
+    if (dismissedIds.includes(rule.id)) continue
+    const detected = rule.match()
+    if (!detected) continue
+
+    const existing = servers[rule.id]
+    if (!existing) {
+      servers[rule.id] = detected
+      changes.push({ id: rule.id, action: 'added' })
+      continue
+    }
+
+    // Only refresh entries we still own (i.e., the existing command still points at this rule's
+    // WindowsApps prefix). If the user customized it, leave it alone.
+    if (
+      'command' in existing &&
+      'command' in detected &&
+      rule.ownsCommand(existing.command) &&
+      existing.command !== detected.command
+    ) {
+      servers[rule.id] = { ...existing, ...detected }
+      changes.push({ id: rule.id, action: 'refreshed' })
+    }
+  }
+
+  if (changes.length > 0) {
+    fs.writeFileSync(configPath, JSON.stringify({ mcpServers: servers }, null, 2), 'utf-8')
+    for (const c of changes) {
+      appLoggerInstance.info(`MCP auto-detect ${c.action}: ${c.id}`, 'mcp')
+    }
+  }
+  return changes
+}
+
+export function isAutoDetectId(id: string): boolean {
+  return AUTO_DETECT_RULES.some((r) => r.id === id)
 }

@@ -116,6 +116,36 @@ export const useOpenAiCompatibleChat = defineStore(
       return { ...aipgTools }
     }
 
+    async function resolveMcpInstructions(): Promise<string> {
+      if (!textInference.mcpToolsEnabled) return ''
+
+      let servers: Awaited<ReturnType<typeof window.electronAPI.mcp.listServers>>
+      try {
+        servers = await window.electronAPI.mcp.listServers()
+      } catch (error) {
+        console.error('Failed to list MCP servers for instructions:', error)
+        return ''
+      }
+
+      const blocks: string[] = []
+      for (const server of servers) {
+        const trimmed = server.instructions?.trim()
+        if (!trimmed) continue
+        let status: Awaited<ReturnType<typeof window.electronAPI.mcp.getServerStatus>>
+        try {
+          status = await window.electronAPI.mcp.getServerStatus(server.id)
+        } catch (error) {
+          console.error(`Failed to get MCP server status for ${server.id}:`, error)
+          continue
+        }
+        if (status.state !== 'running') continue
+        blocks.push(`## MCP server: ${server.name}\n${trimmed}`)
+      }
+
+      if (blocks.length === 0) return ''
+      return `\n\n# MCP server instructions\n\n${blocks.join('\n\n')}`
+    }
+
     async function resolveMcpTools(): Promise<ToolSet> {
       if (!textInference.mcpToolsEnabled) return {}
 
@@ -181,7 +211,9 @@ export const useOpenAiCompatibleChat = defineStore(
       let usage: LanguageModelUsage | undefined = undefined
       let usageFromRawChunk: LanguageModelUsage | undefined = undefined
       let lastStepUsage: LanguageModelUsage | undefined = undefined
-      const systemPromptToUse = temporarySystemPrompt.value || textInference.systemPrompt
+      const baseSystemPrompt = temporarySystemPrompt.value || textInference.systemPrompt
+      const mcpInstructions = await resolveMcpInstructions()
+      const systemPromptToUse = `${baseSystemPrompt}${mcpInstructions}`
       let messages = await convertToModelMessages(m.messages)
 
       // Convert aipg-media image URLs to base64 for the backend

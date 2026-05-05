@@ -240,7 +240,7 @@ _LOGIN_HTML = """<!doctype html>
   <div class="card">
     <h1>This ComfyUI instance is locked</h1>
     <p>Open ComfyUI from the AI Playground app:</p>
-    <p><strong>Settings &rarr; Workflow &rarr; Open ComfyUI</strong></p>
+    <p><strong>Image Gen / Edit / Video Settings &rarr; Scroll Down &rarr; Open ComfyUI</strong></p>
     <p>That button issues a single-use launch token that this server
        exchanges for a session cookie in your browser. Bookmarking or sharing
        the URL won&rsquo;t work.</p>

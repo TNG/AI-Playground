@@ -52,6 +52,7 @@ import {
   ComfyUiBackendService,
   COMFYUI_DEFAULT_PARAMETERS,
 } from './subprocesses/comfyUIBackendService'
+import { AiBackendService } from './subprocesses/aiBackendService'
 import { LLAMACPP_DEFAULT_PARAMETERS } from './subprocesses/llamaCppBackendService'
 import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateIntelPresets.ts'
 import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
@@ -497,12 +498,22 @@ async function createWindow() {
           headers.append(name, value)
         }
       }
-      append('Access-Control-Allow-Origin', '*')
+      // Defer to the upstream backend's `Access-Control-Allow-Origin` if
+      // it is already set. Otherwise the backend's specific origin (e.g.
+      // `http://localhost:25413`) gets joined with our wildcard, yielding
+      // `http://localhost:25413, *` which browsers reject as invalid.
+      if (!headers.has('Access-Control-Allow-Origin')) {
+        headers.append('Access-Control-Allow-Origin', '*')
+      }
       append('Access-Control-Allow-Methods', 'GET')
       append('Access-Control-Allow-Methods', 'POST')
       append('Access-Control-Allow-Headers', 'x-requested-with')
       append('Access-Control-Allow-Headers', 'Content-Type')
       append('Access-Control-Allow-Headers', 'Authorization')
+      // Loopback auth token header used by AI Playground's renderer to
+      // authenticate to the ai-backend Flask service. Must be in the
+      // preflight allow-list or the browser blocks the request.
+      append('Access-Control-Allow-Headers', 'X-AIPG-Auth')
       details.responseHeaders = Object.fromEntries([...headers.entries()].map(([k, v]) => [k, [v]]))
       callback(details)
     } else {
@@ -1003,6 +1014,46 @@ function initEventHandle() {
       return []
     }
     return serviceRegistry.getServiceInformation()
+  })
+
+  ipcMain.handle('getBackendAuthToken', (_event: IpcMainInvokeEvent, serviceName: string) => {
+    if (!serviceRegistry) {
+      return ''
+    }
+    const service = serviceRegistry.getService(serviceName)
+    if (service instanceof AiBackendService) {
+      return service.getLoopbackAuthToken()
+    }
+    if (service instanceof ComfyUiBackendService) {
+      return service.getLoopbackAuthToken()
+    }
+    return ''
+  })
+
+  ipcMain.handle('comfyui:openInBrowser', async () => {
+    const comfyService = serviceRegistry?.getService('comfyui-backend') as
+      | ComfyUiBackendService
+      | undefined
+    if (!comfyService) {
+      return { success: false, error: 'ComfyUI backend service not found' }
+    }
+    const baseUrl = comfyService.baseUrl
+    if (!baseUrl) {
+      return { success: false, error: 'ComfyUI backend has no base URL yet' }
+    }
+    const token = comfyService.getLoopbackAuthToken()
+    // /aipg/launch (provided by the bundled aipg-auth custom_node) validates
+    // launch_token against AIPG_LOOPBACK_TOKEN, then issues an HttpOnly,
+    // SameSite=Strict aipg_session cookie and redirects to /. After that
+    // the user's default browser uses the cookie for all subsequent
+    // requests; the launch_token does not need to live in browser history.
+    const url = `${baseUrl}/aipg/launch?launch_token=${encodeURIComponent(token)}`
+    try {
+      await shell.openExternal(url)
+      return { success: true }
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('uninstall', (_event: IpcMainInvokeEvent, serviceName: string) => {

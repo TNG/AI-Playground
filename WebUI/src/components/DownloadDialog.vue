@@ -188,6 +188,7 @@ import * as toast from '@/assets/js/toast'
 import { useModels } from '@/assets/js/store/models'
 import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { EtaEstimator } from '@/lib/etaEstimator'
+import { aipgFetch } from '@/lib/loopbackAuth'
 
 const i18nState = useI18N().state
 const globalSetup = useGlobalSetup()
@@ -245,7 +246,7 @@ function dataProcess(line: string) {
     case 'error':
       hashError.value = true
       abortController?.abort()
-      fetch(`${globalSetup.apiHost}/api/stopDownloadModel`)
+      aipgFetch(`${globalSetup.apiHost}/api/stopDownloadModel`)
 
       switch (data.err_type) {
         case 'not_enough_disk_space':
@@ -300,21 +301,21 @@ async function initializeDownloadDialog() {
   readTerms.value = false
 
   try {
-    const sizeResponse = await fetch(`${globalSetup.apiHost}/api/getModelSize`, {
+    const sizeResponse = await aipgFetch(`${globalSetup.apiHost}/api/getModelSize`, {
       method: 'POST',
       body: JSON.stringify(downloadList.value),
       headers: {
         'Content-Type': 'application/json',
       },
     })
-    const gatedResponse = await fetch(`${globalSetup.apiHost}/api/isModelGated`, {
+    const gatedResponse = await aipgFetch(`${globalSetup.apiHost}/api/isModelGated`, {
       method: 'POST',
       body: JSON.stringify([downloadList.value, models.hfToken]),
       headers: {
         'Content-Type': 'application/json',
       },
     })
-    const accessResponse = await fetch(`${globalSetup.apiHost}/api/isAccessGranted`, {
+    const accessResponse = await aipgFetch(`${globalSetup.apiHost}/api/isAccessGranted`, {
       method: 'POST',
       body: JSON.stringify([downloadList.value, models.hfToken]),
       headers: {
@@ -386,7 +387,7 @@ function download() {
   completeCount.value = 0
   abortController = new AbortController()
   curDownloadTip.value = ''
-  fetch(`${globalSetup.apiHost}/api/downloadModel`, {
+  aipgFetch(`${globalSetup.apiHost}/api/downloadModel`, {
     method: 'POST',
     body: JSON.stringify(toRaw({ data: accessableDownloadList })),
     headers: {
@@ -418,7 +419,7 @@ function confirmDownload() {
 
 function cancelDownload() {
   abortController?.abort()
-  fetch(`${globalSetup.apiHost}/api/stopDownloadModel`)
+  aipgFetch(`${globalSetup.apiHost}/api/stopDownloadModel`)
   downloadFailFunction.value?.({ type: 'cancelDownload' })
   dialogStore.closeDownloadDialog()
 }

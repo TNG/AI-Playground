@@ -169,15 +169,9 @@
           v-if="currentPreset?.type === 'comfy' && currentPreset?.backend === 'comfyui'"
           class="max-w-md mx-auto flex items-center gap-2"
         >
-          <a
-            :href="
-              backendServices.info.find((item) => item.serviceName === 'comfyui-backend')?.baseUrl
-            "
-            target="_blank"
-            class="flex-1"
-          >
-            <Button variant="outline" class="w-full"> Open ComfyUI </Button>
-          </a>
+          <Button variant="outline" class="flex-1 w-full" @click="openComfyUiInBrowser">
+            Open ComfyUI
+          </Button>
           <Tooltip>
             <TooltipTrigger as-child>
               <span class="svg-icon i-info w-4 h-4 shrink-0 opacity-50 cursor-help" />
@@ -208,10 +202,10 @@ import {
   backendToService,
   useImageGenerationPresets,
 } from '@/assets/js/store/imageGenerationPresets.ts'
-import { useBackendServices } from '@/assets/js/store/backendServices.ts'
 import ComfyDynamic from '@/components/SettingsImageComfyDynamic.vue'
 import { usePresets } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
+import * as toast from '@/assets/js/toast'
 import AspectRatioPicker from './AspectRatioPicker.vue'
 import PresetSelector from './PresetSelector.vue'
 
@@ -225,7 +219,13 @@ const _props = defineProps<Props>()
 const imageGeneration = useImageGenerationPresets()
 const presetsStore = usePresets()
 const presetSwitching = usePresetSwitching()
-const backendServices = useBackendServices()
+
+async function openComfyUiInBrowser() {
+  const result = await window.electronAPI.comfyui.openInBrowser()
+  if (!result.success) {
+    toast.error(result.error ?? 'Failed to open ComfyUI')
+  }
+}
 
 const currentPreset = computed(() => {
   return presetsStore.activePreset

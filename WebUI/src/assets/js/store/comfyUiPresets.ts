@@ -14,6 +14,31 @@ import { useBackendServices } from '@/assets/js/store/backendServices.ts'
 import { usePromptStore } from './promptArea'
 import { z } from 'zod'
 import { imageUrlToDataUri, isImageUrl } from '@/lib/utils'
+import { getComfyAuthToken, invalidateComfyAuthToken } from '@/lib/loopbackAuth'
+
+/**
+ * Wraps fetch() with the ComfyUI loopback bearer token. The bundled
+ * `aipg-auth` ComfyUI custom_node requires this header on every non-/queue
+ * request; without it any other local process / web page could reach
+ * ComfyUI's API on 127.0.0.1.
+ */
+async function comfyFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  let token = await getComfyAuthToken()
+  const buildInit = (t: string): RequestInit => {
+    const headers = new Headers(init?.headers ?? {})
+    if (t) headers.set('Authorization', `Bearer ${t}`)
+    return { ...(init ?? {}), headers }
+  }
+  let response = await fetch(input, buildInit(token))
+  if (response.status === 401) {
+    invalidateComfyAuthToken()
+    token = await getComfyAuthToken()
+    if (token) {
+      response = await fetch(input, buildInit(token))
+    }
+  }
+  return response
+}
 
 const WEBSOCKET_OPEN = 1
 
@@ -564,13 +589,19 @@ export const useComfyUiPresets = defineStore(
       }
     }
 
-    function connectToComfyUi() {
+    async function connectToComfyUi() {
       if (comfyUiState.value?.status !== 'running') {
         console.warn('ComfyUI backend not running, cannot start websocket')
         return
       }
 
-      const comfyWsUrl = `ws://localhost:${comfyPort.value}/ws?clientId=${clientId}`
+      // Browsers cannot set custom headers on WebSocket upgrades, so the
+      // bundled aipg-auth middleware accepts the loopback token via query
+      // string for the /ws endpoint.
+      const wsToken = await getComfyAuthToken()
+      const comfyWsUrl =
+        `ws://localhost:${comfyPort.value}/ws?clientId=${clientId}` +
+        (wsToken ? `&token=${encodeURIComponent(wsToken)}` : '')
 
       if (websocket.value) {
         const state = websocket.value.readyState
@@ -955,7 +986,7 @@ export const useComfyUiPresets = defineStore(
           }
           const data = new FormData()
           data.append('image', dataURItoBlob(imageDataUri), uploadImageName)
-          await fetch(`${comfyBaseUrl.value}/upload/image`, {
+          await comfyFetch(`${comfyBaseUrl.value}/upload/image`, {
             method: 'POST',
             body: data,
           })
@@ -982,7 +1013,7 @@ export const useComfyUiPresets = defineStore(
           }
           const data = new FormData()
           data.append('image', dataURItoBlob(input.current.value), uploadVideoName)
-          await fetch(`${comfyBaseUrl.value}/upload/image`, {
+          await comfyFetch(`${comfyBaseUrl.value}/upload/image`, {
             method: 'POST',
             body: data,
           })
@@ -1102,7 +1133,7 @@ export const useComfyUiPresets = defineStore(
         })
         for (const image of queuedImages) {
           modifySettingInWorkflow(mutableWorkflow, 'seed', `${image.settings.seed!.toFixed(0)}`)
-          const result = await fetch(`${comfyBaseUrl.value}/prompt`, {
+          const result = await comfyFetch(`${comfyBaseUrl.value}/prompt`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1131,7 +1162,7 @@ export const useComfyUiPresets = defineStore(
     }
 
     async function freeMemoryAndUnloadModels() {
-      await fetch(`${comfyBaseUrl.value}/free`, {
+      await comfyFetch(`${comfyBaseUrl.value}/free`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1141,14 +1172,14 @@ export const useComfyUiPresets = defineStore(
     }
 
     async function stop() {
-      await fetch(`${comfyBaseUrl.value}/queue`, {
+      await comfyFetch(`${comfyBaseUrl.value}/queue`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ clear: true }),
       })
-      await fetch(`${comfyBaseUrl.value}/interrupt`, {
+      await comfyFetch(`${comfyBaseUrl.value}/interrupt`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

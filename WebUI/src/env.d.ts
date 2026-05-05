@@ -233,6 +233,7 @@ type electronAPI = {
   getComfyUiDefaultParameters(): Promise<string>
   getLlamaCppDefaultParameters(): Promise<string>
   getServices(): Promise<ApiServiceInformation[]>
+  getBackendAuthToken(serviceName: string): Promise<string>
   updateServiceSettings(settings: ServiceSettings): Promise<BackendStatus>
 
   uninstall(serviceName: string): Promise<void>
@@ -270,6 +271,7 @@ type electronAPI = {
     downloadCustomNode(nodeRepoData: ComfyUICustomNodeRepoId): Promise<boolean>
     uninstallCustomNode(nodeRepoData: ComfyUICustomNodeRepoId): Promise<boolean>
     listInstalledCustomNodes(): Promise<string[]>
+    openInBrowser(): Promise<{ success: boolean; error?: string }>
   }
   mcp: {
     listServers(): Promise<McpServerInfo[]>

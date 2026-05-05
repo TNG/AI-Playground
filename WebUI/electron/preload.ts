@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startDrag: (fileName: string) => ipcRenderer.send('ondragstart', fileName),
   getFilePath: (file: File) => webUtils.getPathForFile(file),
   getServices: () => ipcRenderer.invoke('getServices'),
+  getBackendAuthToken: (serviceName: string) =>
+    ipcRenderer.invoke('getBackendAuthToken', serviceName),
   updateServiceSettings: (settings: ServiceSettings) =>
     ipcRenderer.invoke('updateServiceSettings', settings),
   uninstall: (serviceName: string) => ipcRenderer.invoke('uninstall', serviceName),
@@ -143,6 +145,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     uninstallCustomNode: (nodeRepoData: ComfyUICustomNodeRepoId) =>
       ipcRenderer.invoke('comfyui:uninstallCustomNode', nodeRepoData),
     listInstalledCustomNodes: () => ipcRenderer.invoke('comfyui:listInstalledCustomNodes'),
+    openInBrowser: () => ipcRenderer.invoke('comfyui:openInBrowser'),
   },
   mcp: {
     listServers: () => ipcRenderer.invoke('mcp:listServers'),

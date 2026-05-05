@@ -2,6 +2,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { LlmBackend } from './textInference'
 import { useBackendServices } from './backendServices'
+import { aipgFetch } from '@/lib/loopbackAuth'
 
 export type ModelPaths = {
   ggufLLM: string
@@ -174,7 +175,9 @@ export const useModels = defineStore(
     }
 
     async function checkIfHuggingFaceUrlExists(repo_id: string) {
-      const response = await fetch(`${aipgBackendUrl()}/api/checkHFRepoExists?repo_id=${repo_id}`)
+      const response = await aipgFetch(
+        `${aipgBackendUrl()}/api/checkHFRepoExists?repo_id=${repo_id}`,
+      )
       const data = await response.json()
       return data.exists
     }
@@ -377,7 +380,7 @@ export const useModels = defineStore(
         model_path: getModelPath(param.type, param.backend),
       }))
 
-      const response = await fetch(`${aipgBackendUrl()}/api/checkModelAlreadyLoaded`, {
+      const response = await aipgFetch(`${aipgBackendUrl()}/api/checkModelAlreadyLoaded`, {
         method: 'POST',
         body: JSON.stringify({ data: paramsWithPaths }),
         headers: {

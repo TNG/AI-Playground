@@ -195,8 +195,15 @@ function injectOvmsImageUrl(workflow: ComfyUIApiWorkflow, url: string): void {
   for (const classType of OVMS_IMAGE_CLASS_TYPES) {
     for (const key of findKeysByClassType(workflow, classType)) {
       const inputs = workflow[key]?.inputs
-      if (inputs && typeof inputs === 'object' && 'base_url' in inputs) {
+      if (!inputs || typeof inputs !== 'object') continue
+      if ('base_url' in inputs) {
         inputs['base_url'] = url
+      }
+      // OVMS registers the served graph under the slash-flattened repo id
+      // (see `--source_model` in openVINOBackendService.ts), so the model
+      // sent in the OpenAI-compatible request must use the same form.
+      if ('model' in inputs && typeof inputs['model'] === 'string') {
+        inputs['model'] = inputs['model'].split('/').join('---')
       }
     }
   }

@@ -175,8 +175,15 @@ export const useModels = defineStore(
     }
 
     async function checkIfHuggingFaceUrlExists(repo_id: string) {
+      // Forward the user's HF token (if configured) so the backend can resolve
+      // private/gated repos. The Authorization Bearer header is the same
+      // convention used by /api/downloadModel for the HF token.
+      const headers: HeadersInit = hfToken.value?.startsWith('hf_')
+        ? { Authorization: `Bearer ${hfToken.value}` }
+        : {}
       const response = await aipgFetch(
         `${aipgBackendUrl()}/api/checkHFRepoExists?repo_id=${repo_id}`,
+        { headers },
       )
       const data = await response.json()
       return data.exists

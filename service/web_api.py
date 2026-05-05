@@ -195,7 +195,12 @@ try:
     @app.get("/api/checkHFRepoExists")
     def check_if_huggingface_repo_exists():
         repo_id = request.args.get("repo_id")
-        downloader = HFPlaygroundDownloader()
+        # Honor the user's HF token so private/gated repos that the user can
+        # actually access are reported as existing. Without this, the renderer
+        # would treat a private OVMS image repo as nonexistent and skip the
+        # download dialog entirely.
+        hf_token = get_bearer_token(request)
+        downloader = HFPlaygroundDownloader(hf_token=hf_token)
         exists = downloader.hf_url_exists(repo_id)
         return jsonify({"exists": exists})
 

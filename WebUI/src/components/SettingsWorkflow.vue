@@ -13,7 +13,7 @@
           <Label class="whitespace-nowrap">
             {{ languages.DEVICE }}
           </Label>
-          <DeviceSelector :backend="backendToService[imageGeneration.backend]" />
+          <DeviceSelector :backend="deviceSelectorBackend" />
         </div>
 
         <div class="flex flex-col gap-2">
@@ -230,6 +230,24 @@ async function openComfyUiInBrowser() {
 const currentPreset = computed(() => {
   return presetsStore.activePreset
 })
+
+// OVMS-backed presets call the OpenAI-compatible image API served by openvino-backend
+// (OVMS), so the device picker should drive the openvino-backend device — picking a
+// device there causes OVMS to be restarted with that device. Other ComfyUI presets
+// keep showing comfyui-backend devices.
+const presetRequiresOvms = computed(() => {
+  const preset = currentPreset.value
+  if (!preset || preset.type !== 'comfy') return false
+  const workflow = preset.comfyUiApiWorkflow ?? {}
+  return Object.values(workflow).some((node) => {
+    const classType = (node as { class_type?: unknown })?.class_type
+    return typeof classType === 'string' && classType.startsWith('OpenAICompatible')
+  })
+})
+
+const deviceSelectorBackend = computed<BackendServiceName>(() =>
+  presetRequiresOvms.value ? 'openvino-backend' : backendToService[imageGeneration.backend],
+)
 
 async function handlePresetChange(presetName: string) {
   await presetSwitching.switchPreset(presetName, {

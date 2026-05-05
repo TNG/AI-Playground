@@ -37,7 +37,7 @@
   "requiredModels": [
     {
       "type": "openvino-image",
-      "model": "OpenVINO/LCM_Dreamshaper_v7-int8-ov"
+      "model": "OpenVINO/dreamshaper-8-inpainting-int8-ov"
     }
   ],
   "requiredPythonPackages": [],
@@ -147,7 +147,7 @@
       "label": "Model id",
       "displayed": false,
       "modifiable": true,
-      "defaultValue": "OpenVINO/LCM_Dreamshaper_v7-int8-ov",
+      "defaultValue": "OpenVINO/dreamshaper-8-inpainting-int8-ov",
       "nodeTitle": "prompt",
       "nodeInput": "model"
     }
@@ -173,7 +173,7 @@
           1
         ],
         "base_url": "http://127.0.0.1:8000/v3",
-        "model": "OpenVINO/LCM_Dreamshaper_v7-int8-ov",
+        "model": "OpenVINO/dreamshaper-8-inpainting-int8-ov",
         "text": "",
         "seed": 0,
         "steps": 50,

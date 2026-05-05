@@ -1,13 +1,29 @@
-import * as filesystem from 'fs-extra'
 import { ChildProcess, spawn } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import { GitService, LongLivedPythonApiService, createEnhancedErrorDetails } from './service.ts'
-import { aipgBaseDir, checkBackend, installBackend, installWheel } from './uvBasedBackends/uv.ts'
+import { aipgBaseDir, checkBackend, installBackend } from './uvBasedBackends/uv.ts'
 import { BrowserWindow } from 'electron'
 import { LocalSettings } from '../main.ts'
 
+export type GpuHardwareDevice = {
+  device: string
+  name: string
+  gpuDeviceId: string | null
+}
+
+export type HardwareDetectionResult = {
+  success: boolean
+  gpuDevices: GpuHardwareDevice[]
+  error?: string
+}
+
 export class AiBackendService extends LongLivedPythonApiService {
   isSetUp: boolean = false
+  // Per-launch loopback auth token. Regenerated on every spawn so that the
+  // env block of a running ai-backend cannot be reused after a restart.
+  private loopbackAuthToken: string = randomBytes(32).toString('hex')
+
   constructor(name: BackendServiceName, port: number, win: BrowserWindow, settings: LocalSettings) {
     super(name, port, win, settings)
 
@@ -20,6 +36,11 @@ export class AiBackendService extends LongLivedPythonApiService {
       this.appLogger.info(`Service ${this.name} isSetUp: ${this.isSetUp}`, this.name)
     })
   }
+
+  getLoopbackAuthToken(): string {
+    return this.loopbackAuthToken
+  }
+
   readonly serviceFolder = 'service'
   readonly baseDir = path.resolve(path.join(aipgBaseDir, this.serviceFolder))
   readonly serviceDir = this.baseDir
@@ -64,14 +85,9 @@ export class AiBackendService extends LongLivedPythonApiService {
         status: 'executing',
         debugMessage: `installing dependencies`,
       }
-      await installBackend(this.serviceFolder)
-
-      this.appLogger.info('scanning for extra wheels', this.name)
-      const wheelFiles = (await filesystem.readdir(this.wheelDir)).filter((e) => e.endsWith('.whl'))
-      this.appLogger.info(`found extra wheels: ${JSON.stringify(wheelFiles)}`, this.name)
-      for (const wheelFile of wheelFiles) {
-        await installWheel(this.serviceFolder, path.join(this.wheelDir, wheelFile))
-      }
+      const extraEnv =
+        this.settings.productMode === 'nvidia' ? { UV_TORCH_BACKEND: 'cu128' } : undefined
+      await installBackend(this.serviceFolder, undefined, extraEnv)
 
       yield {
         serviceName: this.name,
@@ -109,13 +125,22 @@ export class AiBackendService extends LongLivedPythonApiService {
     process: ChildProcess
     didProcessExitEarlyTracker: Promise<boolean>
   }> {
+    const pathSep = process.platform === 'win32' ? ';' : ':'
+    this.loopbackAuthToken = randomBytes(32).toString('hex')
     const additionalEnvVariables = {
       VIRTUAL_ENV: this.pythonEnvDir,
-      PATH: `${path.join(this.pythonEnvDir, 'bin')};${path.join(this.pythonEnvDir, 'Scripts')};${path.join(this.pythonEnvDir, 'Library', 'bin')};${process.env.PATH};${path.join(this.git.dir, 'cmd')}`,
+      PATH: [
+        path.join(this.pythonEnvDir, 'bin'),
+        path.join(this.pythonEnvDir, 'Scripts'),
+        path.join(this.pythonEnvDir, 'Library', 'bin'),
+        process.env.PATH,
+        path.join(this.git.dir, 'cmd'),
+      ].join(pathSep),
       PYTHONNOUSERSITE: 'true',
       PYTHONIOENCODING: 'utf-8',
       HF_ENDPOINT: this.settings.huggingfaceEndpoint,
       PIP_CONFIG_FILE: 'nul',
+      AIPG_LOOPBACK_TOKEN: this.loopbackAuthToken,
     }
 
     const pythonBinary = path.join(

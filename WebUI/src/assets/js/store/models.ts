@@ -2,6 +2,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { LlmBackend } from './textInference'
 import { useBackendServices } from './backendServices'
+import { aipgFetch } from '@/lib/loopbackAuth'
 
 export type ModelPaths = {
   ggufLLM: string
@@ -29,6 +30,18 @@ export type Model = {
   isPredefined?: boolean // true if model is defined in models.json
 }
 
+const devOnlyModels: Model[] = [
+  {
+    name: 'LiquidAI/LFM2.5-350M-GGUF/LFM2.5-350M-Q4_K_M.gguf',
+    downloaded: false,
+    type: 'llamaCPP',
+    supportsToolCalling: true,
+    supportsVision: false,
+    supportsReasoning: false,
+    maxContextSize: 1024,
+  },
+]
+
 export const useModels = defineStore(
   'models',
   () => {
@@ -51,6 +64,9 @@ export const useModels = defineStore(
 
     async function refreshModels() {
       const predefinedModels = (await window.electronAPI.loadModels()) as Model[]
+      if (window.envVars.debugToolsEnabled) {
+        predefinedModels.push(...devOnlyModels)
+      }
       const ggufModels = await window.electronAPI.getDownloadedGGUFLLMs()
       const openVINOLLMModels = await window.electronAPI.getDownloadedOpenVINOLLMModels()
       const embeddingModels = await window.electronAPI.getDownloadedEmbeddingModels()
@@ -159,7 +175,9 @@ export const useModels = defineStore(
     }
 
     async function checkIfHuggingFaceUrlExists(repo_id: string) {
-      const response = await fetch(`${aipgBackendUrl()}/api/checkHFRepoExists?repo_id=${repo_id}`)
+      const response = await aipgFetch(
+        `${aipgBackendUrl()}/api/checkHFRepoExists?repo_id=${repo_id}`,
+      )
       const data = await response.json()
       return data.exists
     }
@@ -365,7 +383,7 @@ export const useModels = defineStore(
         model_path: getModelPath(param.type, param.backend),
       }))
 
-      const response = await fetch(`${aipgBackendUrl()}/api/checkModelAlreadyLoaded`, {
+      const response = await aipgFetch(`${aipgBackendUrl()}/api/checkModelAlreadyLoaded`, {
         method: 'POST',
         body: JSON.stringify({ data: paramsWithPaths }),
         headers: {

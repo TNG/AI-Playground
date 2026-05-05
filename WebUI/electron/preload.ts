@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startDrag: (fileName: string) => ipcRenderer.send('ondragstart', fileName),
   getFilePath: (file: File) => webUtils.getPathForFile(file),
   getServices: () => ipcRenderer.invoke('getServices'),
+  getBackendAuthToken: (serviceName: string) =>
+    ipcRenderer.invoke('getBackendAuthToken', serviceName),
   updateServiceSettings: (settings: ServiceSettings) =>
     ipcRenderer.invoke('updateServiceSettings', settings),
   uninstall: (serviceName: string) => ipcRenderer.invoke('uninstall', serviceName),
@@ -41,6 +43,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getThemeSettings: () => ipcRenderer.invoke('getThemeSettings'),
   updateLocalSettings: (updates: Partial<LocalSettings>) =>
     ipcRenderer.invoke('updateLocalSettings', updates),
+  getLocalSettings: () => ipcRenderer.invoke('getLocalSettings'),
+  detectHardwareForModeRecommendation: () =>
+    ipcRenderer.invoke('detectHardwareForModeRecommendation'),
   getWinSize: () => ipcRenderer.invoke('getWinSize'),
   setWinSize: (width: number, height: number) => ipcRenderer.invoke('setWinSize', width, height),
   showSaveDialog: (options: Electron.SaveDialogOptions) =>
@@ -144,5 +149,56 @@ contextBridge.exposeInMainWorld('electronAPI', {
     uninstallCustomNode: (nodeRepoData: ComfyUICustomNodeRepoId) =>
       ipcRenderer.invoke('comfyui:uninstallCustomNode', nodeRepoData),
     listInstalledCustomNodes: () => ipcRenderer.invoke('comfyui:listInstalledCustomNodes'),
+    openInBrowser: () => ipcRenderer.invoke('comfyui:openInBrowser'),
+  },
+  mcp: {
+    listServers: () => ipcRenderer.invoke('mcp:listServers'),
+    startServer: (serverId: string) => ipcRenderer.invoke('mcp:startServer', serverId),
+    stopServer: (serverId: string) => ipcRenderer.invoke('mcp:stopServer', serverId),
+    getServerStatus: (serverId: string) => ipcRenderer.invoke('mcp:getServerStatus', serverId),
+    listServerTools: (serverId: string) => ipcRenderer.invoke('mcp:listServerTools', serverId),
+    invokeServerTool: (serverId: string, toolName: string, args: Record<string, unknown>) =>
+      ipcRenderer.invoke('mcp:invokeServerTool', serverId, toolName, args),
+    openConfig: () => ipcRenderer.send('mcp:openConfig'),
+    openConfigInFolder: () => ipcRenderer.send('mcp:openConfigInFolder'),
+    reloadConfig: () => ipcRenderer.invoke('mcp:reloadConfig'),
+    addServer: (
+      serverId: string,
+      config:
+        | {
+            type?: 'stdio'
+            command: string
+            args?: string[]
+            displayName?: string
+            instructions?: string
+          }
+        | {
+            type: 'http'
+            url: string
+            headers?: Record<string, string>
+            displayName?: string
+            instructions?: string
+          },
+    ) => ipcRenderer.invoke('mcp:addServer', serverId, config),
+    getServerConfig: (serverId: string) => ipcRenderer.invoke('mcp:getServerConfig', serverId),
+    updateServer: (
+      serverId: string,
+      config:
+        | {
+            type?: 'stdio'
+            command: string
+            args?: string[]
+            displayName?: string
+            instructions?: string
+          }
+        | {
+            type: 'http'
+            url: string
+            headers?: Record<string, string>
+            displayName?: string
+            instructions?: string
+          },
+    ) => ipcRenderer.invoke('mcp:updateServer', serverId, config),
+    removeServer: (serverId: string) => ipcRenderer.invoke('mcp:removeServer', serverId),
   },
 })

@@ -31,10 +31,6 @@
       "model": "Comfy-Org/ERNIE-Image/diffusion_models/ernie-image-turbo.safetensors"
     },
     {
-      "type": "unet",
-      "model": "Comfy-Org/ERNIE-Image/diffusion_models/ernie-image.safetensors"
-    },
-    {
       "type": "clip",
       "model": "Comfy-Org/ERNIE-Image/text_encoders/ministral-3-3b.safetensors"
     },
@@ -159,6 +155,32 @@
     {
       "name": "Standard",
       "overrides": {
+        "requiredModels": [
+          {
+            "type": "unet",
+            "model": "Comfy-Org/ERNIE-Image/diffusion_models/ernie-image.safetensors"
+          },
+          {
+            "type": "clip",
+            "model": "Comfy-Org/ERNIE-Image/text_encoders/ministral-3-3b.safetensors"
+          },
+          {
+            "type": "vae",
+            "model": "Comfy-Org/ERNIE-Image/vae/flux2-vae.safetensors"
+          },
+          {
+            "type": "nsfwdetector",
+            "model": "AdamCodd/vit-base-nsfw-detector/config.json"
+          },
+          {
+            "type": "nsfwdetector",
+            "model": "AdamCodd/vit-base-nsfw-detector/model.safetensors"
+          },
+          {
+            "type": "nsfwdetector",
+            "model": "AdamCodd/vit-base-nsfw-detector/preprocessor_config.json"
+          }
+        ],
         "settings": [
           {
             "type": "number",

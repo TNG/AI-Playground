@@ -24,6 +24,26 @@ model_list_cache = dict()
 model_lock = Lock()
 
 
+def _merge_move(src: str, dst: str) -> None:
+    """Move `src` to `dst`, merging into an existing destination directory tree.
+
+    Plain `shutil.move` raises `shutil.Error: Destination path '...' already exists`
+    when moving a directory whose name already exists at the destination. That happens
+    when two downloads from the same HF repo land files into the same subdirectory
+    (e.g. ERNIE-Image's `diffusion_models/turbo.safetensors` then `diffusion_models/main.safetensors`).
+    We recurse instead, replacing files at the leaves.
+    """
+    if os.path.isdir(src) and os.path.isdir(dst):
+        for item in os.listdir(src):
+            _merge_move(os.path.join(src, item), os.path.join(dst, item))
+        os.rmdir(src)
+        return
+    if os.path.isfile(dst):
+        os.remove(dst)
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    shutil.move(src, dst)
+
+
 class HFFileItem:
     relpath: str
     size: int
@@ -350,9 +370,9 @@ class HFPlaygroundDownloader:
         try:
             if os.path.exists(desired_repo_root_dir_name) or move_to_flat_structure:
                 for item in os.listdir(self.save_path_tmp):
-                    shutil.move(
+                    _merge_move(
                         os.path.join(self.save_path_tmp, item),
-                        desired_repo_root_dir_name,
+                        os.path.join(desired_repo_root_dir_name, item),
                     )
                 shutil.rmtree(self.save_path_tmp)
             else:

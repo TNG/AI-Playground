@@ -371,8 +371,6 @@
             "label": "Inpaint Mask",
             "nodeTitle": "Load Image",
             "nodeInput": "image",
-            "optional": true,
-            "defaultValue": "",
             "displayed": true,
             "modifiable": true
           },

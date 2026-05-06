@@ -411,37 +411,41 @@ function onImageLoad() {
   sourceImageWidth.value = sourceImage.value.naturalWidth
   sourceImageHeight.value = sourceImage.value.naturalHeight
 
-  // Initialize image position: center the image in the canvas
-  const scale = Math.min(
-    props.targetWidth / sourceImageWidth.value,
-    props.targetHeight / sourceImageHeight.value,
-    1, // Don't scale up
-  )
-
-  imageWidth.value = sourceImageWidth.value * scale
-  imageHeight.value = sourceImageHeight.value * scale
-
-  // Center the image
-  imageX.value = (props.targetWidth - imageWidth.value) / 2
-  imageY.value = (props.targetHeight - imageHeight.value) / 2
-
-  // If we have existing padding values, use them to position the image
-  if (props.left !== 0 || props.top !== 0 || props.right !== 0 || props.bottom !== 0) {
-    imageX.value = props.left
-    imageY.value = props.top
-    // Recalculate size based on padding
-    const availableWidth = props.targetWidth - props.left - props.right
-    const availableHeight = props.targetHeight - props.top - props.bottom
-    const sizeScale = Math.min(
-      availableWidth / sourceImageWidth.value,
-      availableHeight / sourceImageHeight.value,
+  /** Fit image inside canvas, centered (fallback when preset padding is invalid). */
+  const resetCenterFit = () => {
+    const scale = Math.min(
+      props.targetWidth / sourceImageWidth.value,
+      props.targetHeight / sourceImageHeight.value,
       1,
     )
-    imageWidth.value = sourceImageWidth.value * sizeScale
-    imageHeight.value = sourceImageHeight.value * sizeScale
+    imageWidth.value = sourceImageWidth.value * scale
+    imageHeight.value = sourceImageHeight.value * scale
+    imageX.value = (props.targetWidth - imageWidth.value) / 2
+    imageY.value = (props.targetHeight - imageHeight.value) / 2
   }
 
-  // Initialize crop to full image
+  resetCenterFit()
+
+  // Honor saved padding only when it leaves a usable region (migration / other-resolution presets)
+  const hasPaddingHints =
+    props.left !== 0 || props.top !== 0 || props.right !== 0 || props.bottom !== 0
+  if (hasPaddingHints) {
+    const availableWidth = Math.max(0, props.targetWidth - props.left - props.right)
+    const availableHeight = Math.max(0, props.targetHeight - props.top - props.bottom)
+    if (availableWidth > 0 && availableHeight > 0) {
+      imageX.value = props.left
+      imageY.value = props.top
+      const sizeScale = Math.min(
+        availableWidth / sourceImageWidth.value,
+        availableHeight / sourceImageHeight.value,
+        1,
+      )
+      imageWidth.value = sourceImageWidth.value * sizeScale
+      imageHeight.value = sourceImageHeight.value * sizeScale
+    }
+  }
+
+  // Initialize crop to full image — must be reapplied after constrain fixes width/height
   cropX.value = 0
   cropY.value = 0
   cropWidth.value = imageWidth.value
@@ -455,21 +459,45 @@ function onImageError() {
   imageLoaded.value = false
 }
 
+const imageMinSizePx = 64
+
+/** Crop is set before constrain can bump dimensions; align crop whenever image bounds change. */
+function syncCropRectangleToImage() {
+  const iw = imageWidth.value
+  const ih = imageHeight.value
+  if (!(iw > 0 && ih > 0)) return
+
+  if (cropWidth.value <= 0 || cropHeight.value <= 0) {
+    cropX.value = 0
+    cropY.value = 0
+    cropWidth.value = iw
+    cropHeight.value = ih
+    return
+  }
+
+  cropX.value = Math.max(0, Math.min(cropX.value, iw - imageMinSizePx))
+  cropY.value = Math.max(0, Math.min(cropY.value, ih - imageMinSizePx))
+  const maxW = iw - cropX.value
+  const maxH = ih - cropY.value
+  cropWidth.value = Math.max(imageMinSizePx, Math.min(cropWidth.value, maxW))
+  cropHeight.value = Math.max(imageMinSizePx, Math.min(cropHeight.value, maxH))
+}
+
 function constrainImagePosition() {
   // Ensure image stays within canvas bounds
   imageX.value = Math.max(0, Math.min(imageX.value, props.targetWidth - imageWidth.value))
   imageY.value = Math.max(0, Math.min(imageY.value, props.targetHeight - imageHeight.value))
 
-  // Ensure minimum size
-  const minSize = 64
-  if (imageWidth.value < minSize) {
-    imageWidth.value = minSize
-    imageX.value = Math.max(0, Math.min(imageX.value, props.targetWidth - minSize))
+  if (imageWidth.value < imageMinSizePx) {
+    imageWidth.value = imageMinSizePx
+    imageX.value = Math.max(0, Math.min(imageX.value, props.targetWidth - imageMinSizePx))
   }
-  if (imageHeight.value < minSize) {
-    imageHeight.value = minSize
-    imageY.value = Math.max(0, Math.min(imageY.value, props.targetHeight - minSize))
+  if (imageHeight.value < imageMinSizePx) {
+    imageHeight.value = imageMinSizePx
+    imageY.value = Math.max(0, Math.min(imageY.value, props.targetHeight - imageMinSizePx))
   }
+
+  syncCropRectangleToImage()
 }
 
 function drawCanvas() {
@@ -1089,8 +1117,8 @@ watch(
       // Padding is relative to the cropped region
       imageX.value = l - cropX.value
       imageY.value = t - cropY.value
-      const availableWidth = props.targetWidth - l - r
-      const availableHeight = props.targetHeight - t - b
+      const availableWidth = Math.max(0, props.targetWidth - l - r)
+      const availableHeight = Math.max(0, props.targetHeight - t - b)
       if (availableWidth > 0 && availableHeight > 0) {
         const scale = Math.min(
           availableWidth / sourceImageWidth.value,

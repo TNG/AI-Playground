@@ -158,7 +158,7 @@
             "label": "Inference Steps",
             "displayed": true,
             "modifiable": true,
-            "defaultValue": 30,
+            "defaultValue": 20,
             "settingName": "inferenceSteps"
           },
           {
@@ -227,7 +227,7 @@
               "model": "OpenVINO/Juggernaut-XL-v9-int8-ov",
               "text": "",
               "seed": 0,
-              "steps": 30,
+              "steps": 20,
               "width": 1024,
               "height": 1024
             },

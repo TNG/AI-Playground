@@ -228,7 +228,9 @@ async function openComfyUiInBrowser() {
 }
 
 const currentPreset = computed(() => {
-  return presetsStore.activePreset
+  // Use the variant-merged preset so a swap to e.g. the OpenVINO variant immediately
+  // reflects in `presetRequiresOvms` (and thus in the device-selector backend).
+  return presetsStore.activePresetWithVariant ?? presetsStore.activePreset
 })
 
 // OVMS-backed presets call the OpenAI-compatible image API served by openvino-backend

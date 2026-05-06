@@ -126,6 +126,13 @@ const BasePresetFieldsSchema = z.object({
       z.object({
         name: z.string(),
         removeSettings: z.array(z.string()).optional(), // Labels of settings to remove
+        // When set, the variant is hidden from the picker if the named backend service is
+        // missing from `backendServices.info` or has status 'notInstalled'.
+        requiresService: z.string().optional(),
+        // When true, the variant's `comfyUiApiWorkflow` fully replaces the base workflow
+        // instead of being deep-merged into it. Use when the variant runs a completely
+        // different graph (e.g. swapping a multi-node native pipeline for a single OVMS node).
+        replaceWorkflow: z.boolean().optional(),
         overrides: z.any(), // DeepPartial<Preset> - using z.any() for flexibility
       }),
     )
@@ -266,6 +273,20 @@ export const usePresets = defineStore(
         merged.settings = merged.settings.filter(
           (setting) => !variant.removeSettings!.includes(setting.label),
         )
+      }
+
+      // Full workflow replacement: opt-in for variants whose workflow is structurally
+      // disjoint from the base (e.g. OVMS single-node graph replacing a native pipeline).
+      // Without this, deepMerge would union both sets of nodes producing a frankenstein.
+      if (
+        variant.replaceWorkflow &&
+        merged.type === 'comfy' &&
+        variant.overrides &&
+        typeof variant.overrides === 'object' &&
+        'comfyUiApiWorkflow' in variant.overrides &&
+        variant.overrides.comfyUiApiWorkflow
+      ) {
+        merged.comfyUiApiWorkflow = variant.overrides.comfyUiApiWorkflow as ComfyUIApiWorkflow
       }
 
       return validatePreset(merged) || basePreset

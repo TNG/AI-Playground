@@ -126,6 +126,128 @@
     {
       "name": "Quality",
       "overrides": {}
+    },
+    {
+      "name": "OpenVINO",
+      "requiresService": "openvino-backend",
+      "replaceWorkflow": true,
+      "removeSettings": ["Negative Prompt"],
+      "overrides": {
+        "tags": ["OVMS", "OpenVINO", "JuggernautXL", "1024x1024"],
+        "description": "High quality SDXL image generation via an OpenAI-compatible image API served by OpenVINO Model Server (Juggernaut-XL v9, 1024x1024)",
+        "extendedDescription": "Runs text-to-image through ComfyUI using a remote /v3/images/generations endpoint backed by OpenVINO/Juggernaut-XL-v9-int8-ov. Produces photorealistic 1024x1024 images via SDXL. For testing, run OVMS locally (default base URL http://127.0.0.1:8000/v3). Adjust the API base URL in settings when your server uses another port.",
+        "resolutionConfig": {
+          "megapixels": [
+            { "label": "0.5", "totalPixels": 495616 },
+            { "label": "0.8", "totalPixels": 802816 },
+            { "label": "1.0", "totalPixels": 1048576 }
+          ],
+          "aspectRatios": ["16/9", "3/2", "4/3", "1/1", "3/4", "2/3", "9/16"]
+        },
+        "requiredCustomNodes": [],
+        "requiredPythonPackages": [],
+        "requiredModels": [
+          {
+            "type": "openvino-image",
+            "model": "OpenVINO/Juggernaut-XL-v9-int8-ov"
+          }
+        ],
+        "settings": [
+          {
+            "type": "number",
+            "label": "Inference Steps",
+            "displayed": true,
+            "modifiable": true,
+            "defaultValue": 30,
+            "settingName": "inferenceSteps"
+          },
+          {
+            "type": "number",
+            "label": "Width",
+            "displayed": false,
+            "modifiable": false,
+            "defaultValue": 1024,
+            "settingName": "width"
+          },
+          {
+            "type": "number",
+            "label": "Height",
+            "displayed": false,
+            "modifiable": false,
+            "defaultValue": 1024,
+            "settingName": "height"
+          },
+          {
+            "type": "string",
+            "label": "Resolution",
+            "displayed": true,
+            "modifiable": true,
+            "defaultValue": "1024x1024",
+            "settingName": "resolution"
+          },
+          {
+            "type": "number",
+            "label": "Batch Size",
+            "displayed": true,
+            "modifiable": true,
+            "defaultValue": 1,
+            "settingName": "batchSize"
+          },
+          {
+            "type": "boolean",
+            "label": "Safety Check",
+            "displayed": true,
+            "modifiable": true,
+            "defaultValue": false,
+            "settingName": "safetyCheck"
+          },
+          {
+            "type": "string",
+            "label": "Image API base URL",
+            "displayed": false,
+            "modifiable": true,
+            "defaultValue": "http://127.0.0.1:8000/v3",
+            "nodeTitle": "prompt",
+            "nodeInput": "base_url"
+          },
+          {
+            "type": "string",
+            "label": "Model id",
+            "displayed": false,
+            "modifiable": true,
+            "defaultValue": "OpenVINO/Juggernaut-XL-v9-int8-ov",
+            "nodeTitle": "prompt",
+            "nodeInput": "model"
+          }
+        ],
+        "comfyUiApiWorkflow": {
+          "1": {
+            "inputs": {
+              "base_url": "http://127.0.0.1:8000/v3",
+              "model": "OpenVINO/Juggernaut-XL-v9-int8-ov",
+              "text": "",
+              "seed": 0,
+              "steps": 30,
+              "width": 1024,
+              "height": 1024
+            },
+            "class_type": "OpenAICompatibleImageGeneration",
+            "_meta": {
+              "title": "prompt"
+            }
+          },
+          "2": {
+            "inputs": {
+              "filename_prefix": "AIPG_OVMS_HD",
+              "images": ["1", 0]
+            },
+            "class_type": "SaveImage",
+            "_meta": {
+              "title": "Save Image"
+            }
+          }
+        }
+      }
     }
   ],
   "settings": [

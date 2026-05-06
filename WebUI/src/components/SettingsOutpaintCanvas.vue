@@ -2,8 +2,7 @@
   <div class="outpaint-canvas-container flex flex-col gap-4">
     <div ref="parentContainer" class="flex justify-center w-full">
       <div
-        ref="canvasContainer"
-        class="relative border-2 border-border rounded-lg bg-muted overflow-hidden"
+        class="relative border-2 border-border rounded-lg bg-muted overflow-hidden touch-none"
         :style="{
           width: `${canvasDisplayWidth}px`,
           height: `${canvasDisplayHeight}px`,
@@ -15,7 +14,7 @@
           ref="canvas"
           :width="targetWidth"
           :height="targetHeight"
-          class="absolute inset-0 w-full h-full"
+          class="absolute inset-0 w-full h-full touch-none"
           :style="{ cursor: canvasCursor }"
           style="image-rendering: pixelated"
           @pointerdown="startDrag"
@@ -87,7 +86,6 @@ const emits = defineEmits<{
 
 const canvas = useTemplateRef<HTMLCanvasElement>('canvas')
 const parentContainer = useTemplateRef<HTMLDivElement>('parentContainer')
-const canvasContainer = useTemplateRef<HTMLDivElement>('canvasContainer')
 const sourceImage = useTemplateRef<HTMLImageElement>('sourceImage')
 
 const imageLoaded = ref(false)
@@ -98,27 +96,57 @@ const containerHeight = ref(0)
 
 // Use ResizeObserver to track parent container size
 let resizeObserver: ResizeObserver | null = null
+let resizeObservedParent: HTMLElement | null = null
+
+/** Canvas stroke/fill ignores CSS var() syntax; resolve theme tokens explicitly. */
+function hslFromCssVariable(cssVarName: string, fallbackHueChannel: string): string {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(cssVarName).trim()
+  return raw ? `hsl(${raw})` : `hsl(${fallbackHueChannel})`
+}
+
+function safeReleasePointerCapture(el: HTMLElement, pointerId: number) {
+  try {
+    if (el.hasPointerCapture(pointerId)) {
+      el.releasePointerCapture(pointerId)
+    }
+  } catch {
+    // Already released or invalid id
+  }
+}
 
 onMounted(() => {
-  if (parentContainer.value) {
+  const parentEl = parentContainer.value
+  if (parentEl) {
+    resizeObservedParent = parentEl
     resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         containerWidth.value = entry.contentRect.width
         containerHeight.value = entry.contentRect.height
       }
     })
-    resizeObserver.observe(parentContainer.value)
+    resizeObserver.observe(parentEl)
+    containerWidth.value = parentEl.clientWidth
+    containerHeight.value = parentEl.clientHeight
+  }
 
-    // Initial size
-    containerWidth.value = parentContainer.value.clientWidth
-    containerHeight.value = parentContainer.value.clientHeight
+  drawCanvas()
+  if (props.imageUrl && props.imageUrl.trim() !== '') {
+    nextTick(() => {
+      if (sourceImage.value) {
+        sourceImage.value.src = props.imageUrl
+      }
+    })
   }
 })
 
 onUnmounted(() => {
-  if (resizeObserver && parentContainer.value) {
-    resizeObserver.unobserve(parentContainer.value)
+  if (resizeObserver) {
+    if (resizeObservedParent) {
+      resizeObserver.unobserve(resizeObservedParent)
+    }
     resizeObserver.disconnect()
+    resizeObserver = null
+    resizeObservedParent = null
   }
 })
 
@@ -532,6 +560,8 @@ function drawCanvas() {
   ctx.fillStyle = 'rgba(156, 163, 175, 0.3)' // neutral gray with transparency
 
   if (imageLoaded.value) {
+    const primaryStroke = hslFromCssVariable('--primary', '280 98% 50%')
+
     // Top padding (above the image)
     if (imageY.value > 0) {
       ctx.fillRect(0, 0, props.targetWidth, imageY.value)
@@ -552,12 +582,12 @@ function drawCanvas() {
     }
 
     // Draw border around full image
-    ctx.strokeStyle = 'hsl(var(--primary))'
+    ctx.strokeStyle = primaryStroke
     ctx.lineWidth = 2
     ctx.strokeRect(imageX.value, imageY.value, imageWidth.value, imageHeight.value)
 
     // Draw border around crop region
-    ctx.strokeStyle = 'hsl(var(--primary))'
+    ctx.strokeStyle = primaryStroke
     ctx.lineWidth = 2
     ctx.setLineDash([4, 4])
     ctx.strokeRect(
@@ -572,7 +602,7 @@ function drawCanvas() {
     const handleSize = 16
     const handleX = imageX.value + imageWidth.value - handleSize / 2
     const handleY = imageY.value + imageHeight.value - handleSize / 2
-    ctx.fillStyle = 'hsl(var(--primary))'
+    ctx.fillStyle = primaryStroke
     ctx.strokeStyle = 'white'
     ctx.lineWidth = 2
     ctx.fillRect(handleX, handleY, handleSize, handleSize)
@@ -605,7 +635,7 @@ function drawCanvas() {
     ]
 
     ctx.fillStyle = 'white'
-    ctx.strokeStyle = 'hsl(var(--primary))'
+    ctx.strokeStyle = primaryStroke
     ctx.lineWidth = 2
     for (const handle of cropHandles) {
       ctx.fillRect(
@@ -625,9 +655,12 @@ function drawCanvas() {
 }
 
 function getCanvasCoordinates(e: PointerEvent): { x: number; y: number } | null {
-  if (!canvas.value || !canvasContainer.value) return null
+  const el = canvas.value
+  if (!el) return null
 
-  const rect = canvasContainer.value.getBoundingClientRect()
+  const rect = el.getBoundingClientRect()
+  if (!rect.width || !rect.height) return null
+
   const scaleX = props.targetWidth / rect.width
   const scaleY = props.targetHeight / rect.height
 
@@ -750,7 +783,8 @@ function startDrag(e: PointerEvent) {
 
   canvas.value.setPointerCapture(e.pointerId)
   canvas.value.addEventListener('pointermove', onDrag)
-  canvas.value.addEventListener('pointerup', stopDrag, { once: true })
+  canvas.value.addEventListener('pointerup', finishMoveDrag)
+  canvas.value.addEventListener('pointercancel', finishMoveDrag)
 }
 
 function onDrag(e: PointerEvent) {
@@ -769,11 +803,19 @@ function onDrag(e: PointerEvent) {
   drawCanvas()
 }
 
-function stopDrag() {
+function finishMoveDrag(e: PointerEvent) {
+  if (!isDragging.value) return
+
+  const el = canvas.value
   isDragging.value = false
-  if (canvas.value) {
-    canvas.value.removeEventListener('pointermove', onDrag)
+
+  if (el) {
+    el.removeEventListener('pointermove', onDrag)
+    el.removeEventListener('pointerup', finishMoveDrag)
+    el.removeEventListener('pointercancel', finishMoveDrag)
+    safeReleasePointerCapture(el, e.pointerId)
   }
+
   emitAllValues()
 }
 
@@ -800,7 +842,8 @@ function startResize(e: PointerEvent) {
 
   canvas.value.setPointerCapture(e.pointerId)
   canvas.value.addEventListener('pointermove', onResize)
-  canvas.value.addEventListener('pointerup', stopResize, { once: true })
+  canvas.value.addEventListener('pointerup', finishResize)
+  canvas.value.addEventListener('pointercancel', finishResize)
 }
 
 function onResize(e: PointerEvent) {
@@ -863,11 +906,19 @@ function onResize(e: PointerEvent) {
   drawCanvas()
 }
 
-function stopResize() {
+function finishResize(e: PointerEvent) {
+  if (!isResizing.value) return
+
+  const el = canvas.value
   isResizing.value = false
-  if (canvas.value) {
-    canvas.value.removeEventListener('pointermove', onResize)
+
+  if (el) {
+    el.removeEventListener('pointermove', onResize)
+    el.removeEventListener('pointerup', finishResize)
+    el.removeEventListener('pointercancel', finishResize)
+    safeReleasePointerCapture(el, e.pointerId)
   }
+
   emitAllValues()
 }
 
@@ -890,7 +941,8 @@ function startCrop(e: PointerEvent, handleType: 'left' | 'right' | 'top' | 'bott
 
   canvas.value.setPointerCapture(e.pointerId)
   canvas.value.addEventListener('pointermove', onCrop)
-  canvas.value.addEventListener('pointerup', stopCrop, { once: true })
+  canvas.value.addEventListener('pointerup', finishCrop)
+  canvas.value.addEventListener('pointercancel', finishCrop)
 }
 
 function onCrop(e: PointerEvent) {
@@ -952,12 +1004,20 @@ function onCrop(e: PointerEvent) {
   drawCanvas()
 }
 
-function stopCrop() {
+function finishCrop(e: PointerEvent) {
+  if (!isCropping.value) return
+
+  const el = canvas.value
   isCropping.value = false
   cropHandle.value = null
-  if (canvas.value) {
-    canvas.value.removeEventListener('pointermove', onCrop)
+
+  if (el) {
+    el.removeEventListener('pointermove', onCrop)
+    el.removeEventListener('pointerup', finishCrop)
+    el.removeEventListener('pointercancel', finishCrop)
+    safeReleasePointerCapture(el, e.pointerId)
   }
+
   emitAllValues()
 }
 
@@ -1045,18 +1105,6 @@ watch(
     }
   },
 )
-
-onMounted(() => {
-  drawCanvas()
-  // Load image if URL is already available
-  if (props.imageUrl && props.imageUrl.trim() !== '') {
-    nextTick(() => {
-      if (sourceImage.value) {
-        sourceImage.value.src = props.imageUrl
-      }
-    })
-  }
-})
 
 watch([imageX, imageY, imageWidth, imageHeight], () => {
   drawCanvas()

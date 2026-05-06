@@ -60,6 +60,7 @@ export class OpenVINOBackendService implements ApiService {
   private currentEmbeddingModel: string | null = null
   private currentTranscriptionModel: string | null = null
   private currentImageModel: string | null = null
+  private currentImageResolution: string | null = null
 
   // Store last startup error details for persistence
   private lastStartupErrorDetails: ErrorDetails | null = null
@@ -839,16 +840,34 @@ export class OpenVINOBackendService implements ApiService {
    * Start image generation server, optionally stopping the LLM server first to free GPU memory.
    * @param modelName - HuggingFace repo id (e.g. 'OpenVINO/LCM_Dreamshaper_v7-int8-ov')
    * @param keepModelsLoaded - If true, don't stop the LLM server before starting image server
+   * @param resolution - Optional resolution in WxH format (e.g. '512x512'). When the selected
+   *   device is NPU the pipeline must be reshaped to a static shape, so this value is required
+   *   for NPU and is passed via OVMS `--resolution`. Ignored on non-NPU devices.
    */
-  async startImageServer(modelName: string, keepModelsLoaded?: boolean): Promise<void> {
+  async startImageServer(
+    modelName: string,
+    keepModelsLoaded?: boolean,
+    resolution?: string,
+  ): Promise<void> {
     try {
-      this.appLogger.info(`Starting image server for model: ${modelName}`, this.name)
+      const selectedDevice = this.devices.find((d) => d.selected)?.id || 'AUTO'
+      const isNpu = selectedDevice.startsWith('NPU')
+      // Resolution only matters for NPU; ignore it on other devices so the model server
+      // keeps a dynamic pipeline and accepts whatever resolution the client asks for.
+      const effectiveResolution = isNpu ? resolution : undefined
 
-      if (this.ovmsImageProcess?.isReady && this.currentImageModel === modelName) {
-        this.appLogger.info(
-          `Image server already running with model: ${modelName}`,
-          this.name,
-        )
+      this.appLogger.info(
+        `Starting image server for model: ${modelName}` +
+          (effectiveResolution ? ` (NPU resolution: ${effectiveResolution})` : ''),
+        this.name,
+      )
+
+      if (
+        this.ovmsImageProcess?.isReady &&
+        this.currentImageModel === modelName &&
+        this.currentImageResolution === (effectiveResolution ?? null)
+      ) {
+        this.appLogger.info(`Image server already running with model: ${modelName}`, this.name)
         return
       }
 
@@ -861,11 +880,8 @@ export class OpenVINOBackendService implements ApiService {
         await this.stopOvmsLlmServer()
       }
 
-      await this.startOvmsImageServer(modelName)
-      this.appLogger.info(
-        `Image server started successfully for model: ${modelName}`,
-        this.name,
-      )
+      await this.startOvmsImageServer(modelName, effectiveResolution)
+      this.appLogger.info(`Image server started successfully for model: ${modelName}`, this.name)
     } catch (error) {
       this.appLogger.error(
         `Failed to start image server for model ${modelName}: ${error}`,
@@ -1308,7 +1324,10 @@ export class OpenVINOBackendService implements ApiService {
     }
   }
 
-  private async startOvmsImageServer(modelRepoId: string): Promise<OvmsServerProcess> {
+  private async startOvmsImageServer(
+    modelRepoId: string,
+    resolution?: string,
+  ): Promise<OvmsServerProcess> {
     try {
       const selectedDevice = this.devices.find((d) => d.selected)?.id || 'AUTO'
       const port = await getPort({ port: portNumbers(29300, 29399) })
@@ -1334,6 +1353,17 @@ export class OpenVINOBackendService implements ApiService {
         '--cache_dir',
         'cache',
       ]
+
+      // NPU requires the image generation pipeline to be reshaped to a static shape.
+      // See: https://docs.openvino.ai/2025/model-server/ovms_docs_parameters.html#image-generation
+      if (selectedDevice.startsWith('NPU')) {
+        if (!resolution) {
+          throw new Error(
+            'OVMS image generation on NPU requires a static resolution but none was provided',
+          )
+        }
+        args.push('--resolution', resolution)
+      }
 
       this.appLogger.info(`OVMS image launch args: ${args.join(' ')}`, this.name)
 
@@ -1378,6 +1408,7 @@ export class OpenVINOBackendService implements ApiService {
         if (this.ovmsImageProcess === ovmsProcess) {
           this.ovmsImageProcess = null
           this.currentImageModel = null
+          this.currentImageResolution = null
         }
       })
 
@@ -1387,6 +1418,7 @@ export class OpenVINOBackendService implements ApiService {
 
       this.ovmsImageProcess = ovmsProcess
       this.currentImageModel = modelRepoId
+      this.currentImageResolution = resolution ?? null
 
       this.appLogger.info(`OVMS image server ready for model: ${modelRepoId}`, this.name)
       return ovmsProcess
@@ -1430,6 +1462,7 @@ export class OpenVINOBackendService implements ApiService {
 
       this.ovmsImageProcess = null
       this.currentImageModel = null
+      this.currentImageResolution = null
     }
   }
 

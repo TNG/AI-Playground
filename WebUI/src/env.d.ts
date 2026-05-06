@@ -264,6 +264,7 @@ type electronAPI = {
     serviceName: string,
     modelName: string,
     keepModelsLoaded?: boolean,
+    resolution?: string,
   ): Promise<{ success: boolean; url?: string; error?: string }>
   stopOvmsImageServer(): Promise<{ success: boolean; error?: string }>
   getOvmsImageServerUrl(): Promise<{ success: boolean; url?: string; error?: string }>

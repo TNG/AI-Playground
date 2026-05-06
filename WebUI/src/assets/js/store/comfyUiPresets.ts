@@ -1088,10 +1088,14 @@ export const useComfyUiPresets = defineStore(
 
       try {
         const { keepModelsLoaded } = useDeveloperSettings()
+        // Pass the current generation resolution so OVMS can statically reshape the image
+        // pipeline when running on NPU (required by the NPU plugin). Ignored on other devices.
+        const resolution = `${imageGeneration.width}x${imageGeneration.height}`
         const result = await window.electronAPI.ensureOvmsImageReady(
           'openvino-backend',
           modelId,
           keepModelsLoaded,
+          resolution,
         )
         if (result.success && result.url) {
           return result.url

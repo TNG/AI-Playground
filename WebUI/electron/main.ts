@@ -1399,6 +1399,7 @@ function initEventHandle() {
       serviceName: string,
       modelName: string,
       keepModelsLoaded?: boolean,
+      resolution?: string,
     ) => {
       if (!serviceRegistry) {
         return { success: false, error: 'Service registry not ready' }
@@ -1410,7 +1411,7 @@ function initEventHandle() {
 
       if ('startImageServer' in service && typeof service.startImageServer === 'function') {
         try {
-          await service.startImageServer(modelName, keepModelsLoaded)
+          await service.startImageServer(modelName, keepModelsLoaded, resolution)
           const url =
             'getImageServerUrl' in service && typeof service.getImageServerUrl === 'function'
               ? service.getImageServerUrl()

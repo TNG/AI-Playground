@@ -1,4 +1,4 @@
-import { ChildProcess, spawn } from 'node:child_process'
+import { ChildProcess, execFile, spawn } from 'node:child_process'
 import path from 'node:path'
 import * as filesystem from 'fs-extra'
 import { app, BrowserWindow, net } from 'electron'
@@ -15,6 +15,45 @@ const execAsync = promisify(exec)
 
 export const LLAMACPP_DEFAULT_PARAMETERS = '--gpu-layers 999 --log-prefix --jinja --no-mmap -fa off'
 const platformExtension = process.platform === 'win32' ? 'zip' : 'tar.gz'
+// Fill this in when the AWS artifact URL is available. Supports {version}, {platformArch}, {extension}.
+const LLAMACPP_SSD_OFFLOAD_DOWNLOAD_URL_TEMPLATE: string =
+  'https://phisonbucket.s3.ap-northeast-1.amazonaws.com/aiDAPTIV_vNXWV_3_05T0B00.zip'
+const LLAMACPP_SSD_OFFLOAD_CONFIG_NAME = 'aidaptiv_config.json'
+const LLAMACPP_SSD_OFFLOAD_LEGACY_CONFIG_NAME = 'aidaptiv(303G0B).json'
+const LLAMACPP_SSD_OFFLOAD_DELETE_SERVICE_SCRIPT = 'wService_delete.bat'
+const LLAMACPP_SSD_OFFLOAD_CREATE_SERVICE_SCRIPT = 'wService_create.bat'
+const LLAMACPP_SSD_OFFLOAD_PROCESS_NAME = 'ada.exe'
+const LLAMACPP_SSD_OFFLOAD_DEFAULT_CONFIG = {
+  common: {
+    seed: '0',
+    flash_attn: 'on',
+    swa_full: true,
+    threads: 10,
+    mmap: false,
+    fit: 'off',
+    context_shift: false,
+    verbose: true,
+    split_mode: 'none',
+    parallel: 1,
+    gpu_layers: '999',
+  },
+  aidaptiv: {
+    offload_path: 'R:\\',
+    debug_log_path: 'R:\\',
+    dram_kv_offload_gb: 0,
+    ssd_kv_offload_gb: 10,
+    kv_cache_resume_policy: true,
+    vram_experts_cached_gb: 10,
+  },
+}
+
+type LlamaCppBuildVariant = 'standard' | 'ssd-offload'
+type StorageTarget = {
+  id: string
+  name: string
+  path: string
+  selected: boolean
+}
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
 
@@ -81,6 +120,8 @@ interface LlamaServerProcess {
   isReady: boolean
 }
 
+const execFileAsync = promisify(execFile)
+
 export class LlamaCppBackendService implements ApiService {
   readonly name = 'llama-cpp-backend' as BackendServiceName
   baseUrl: string
@@ -94,9 +135,11 @@ export class LlamaCppBackendService implements ApiService {
   readonly serviceDir: string
   readonly llamaCppDir: string
   readonly llamaCppExePath: string
+  readonly llamaCppSsdOffloadConfigPath: string
 
   readonly zipPath: string
   devices: InferenceDevice[] = [{ id: '0', name: 'Auto select device', selected: true }]
+  storageTargets: StorageTarget[] = []
 
   // Health endpoint
   healthEndpointUrl: string
@@ -125,6 +168,8 @@ export class LlamaCppBackendService implements ApiService {
   private version = 'b7278'
 
   private llamaCppParametersString: string = LLAMACPP_DEFAULT_PARAMETERS
+  private llamaCppBuildVariant: LlamaCppBuildVariant = 'standard'
+  private llamaCppOffloadDrive: string | null = null
 
   updatePort(newPort: number) {
     this.port = newPort
@@ -144,7 +189,12 @@ export class LlamaCppBackendService implements ApiService {
     this.serviceDir = path.resolve(path.join(this.baseDir, 'LlamaCPP'))
     this.llamaCppDir = path.resolve(path.join(this.serviceDir, 'llama-cpp'))
     this.llamaCppExePath = path.resolve(path.join(this.llamaCppDir, binary('llama-server')))
+    this.llamaCppSsdOffloadConfigPath = path.resolve(
+      path.join(this.serviceDir, LLAMACPP_SSD_OFFLOAD_CONFIG_NAME),
+    )
     this.zipPath = path.resolve(path.join(this.serviceDir, `llama-cpp.${platformExtension}`))
+    this.migrateLegacySsdOffloadConfigFile()
+    this.ensureSsdOffloadConfigFileSync()
 
     // Check if already set up
     this.isSetUp = this.serviceIsSetUp()
@@ -156,6 +206,14 @@ export class LlamaCppBackendService implements ApiService {
         this.updateStatus()
       })
     }
+
+    this.detectStorageTargets()
+      .then(() => {
+        this.updateStatus()
+      })
+      .catch((error) => {
+        this.appLogger.warn(`Failed to detect storage targets on startup: ${error}`, this.name)
+      })
   }
 
   async ensureBackendReadiness(
@@ -239,6 +297,8 @@ export class LlamaCppBackendService implements ApiService {
 
   async detectDevices() {
     try {
+      await this.detectStorageTargets()
+
       // Check if llama-server.exe exists
       if (!filesystem.existsSync(this.llamaCppExePath)) {
         this.appLogger.warn('llama-server.exe not found, using default device', this.name)
@@ -338,6 +398,8 @@ export class LlamaCppBackendService implements ApiService {
       isSetUp: this.isSetUp,
       isRequired: this.isRequired,
       devices: this.devices,
+      storageTargets: this.storageTargets,
+      llamaCppSsdOffloadConfigPath: this.getRelativeSsdOffloadConfigPath(),
       errorDetails: this.lastStartupErrorDetails,
       installedVersion: this.cachedInstalledVersion,
     }
@@ -364,6 +426,32 @@ export class LlamaCppBackendService implements ApiService {
         this.name,
       )
     }
+    if (
+      settings.llamaCppBuildVariant === 'standard' ||
+      settings.llamaCppBuildVariant === 'ssd-offload'
+    ) {
+      this.llamaCppBuildVariant = settings.llamaCppBuildVariant
+      this.appLogger.info(
+        `applied new LlamaCPP build variant: ${this.llamaCppBuildVariant}`,
+        this.name,
+      )
+    }
+    if (
+      typeof settings.llamaCppOffloadDrive === 'string' ||
+      settings.llamaCppOffloadDrive === null
+    ) {
+      this.llamaCppOffloadDrive = this.normalizeOffloadDrivePath(settings.llamaCppOffloadDrive)
+      this.storageTargets = this.storageTargets.map((target) => ({
+        ...target,
+        selected: target.path === this.llamaCppOffloadDrive,
+      }))
+      this.appLogger.info(
+        `applied new LlamaCPP SSD offload drive: ${this.llamaCppOffloadDrive ?? 'none'}`,
+        this.name,
+      )
+      await this.updateSsdOffloadConfig()
+    }
+    this.updateStatus()
   }
 
   async getInstalledVersion(): Promise<{ version?: string; releaseTag?: string } | undefined> {
@@ -430,6 +518,7 @@ export class LlamaCppBackendService implements ApiService {
       if (!filesystem.existsSync(this.serviceDir)) {
         filesystem.mkdirSync(this.serviceDir, { recursive: true })
       }
+      await this.ensureSsdOffloadConfigFile()
 
       currentStep = 'download'
       yield {
@@ -458,6 +547,7 @@ export class LlamaCppBackendService implements ApiService {
       }
 
       await this.extractLlamacpp()
+      await this.ensureSsdOffloadConfigFile()
 
       yield {
         serviceName: this.name,
@@ -466,7 +556,25 @@ export class LlamaCppBackendService implements ApiService {
         debugMessage: 'extraction complete',
       }
 
+      currentStep = 'configure-service'
+      yield {
+        serviceName: this.name,
+        step: currentStep,
+        status: 'executing',
+        debugMessage: 'requesting permission to configure SSD offload Windows service',
+      }
+
+      await this.ensureSsdOffloadWindowsService()
+
+      yield {
+        serviceName: this.name,
+        step: currentStep,
+        status: 'executing',
+        debugMessage: 'SSD offload Windows service configured',
+      }
+
       this.isSetUp = true
+      await this.updateSsdOffloadConfig()
       await this.updateCachedVersion()
       this.setStatus('notYetStarted')
 
@@ -494,13 +602,7 @@ export class LlamaCppBackendService implements ApiService {
   }
 
   private async downloadLlamacpp(): Promise<void> {
-    const platformArchMap: Record<string, string> = {
-      darwin: 'macos-arm64',
-      linux: 'ubuntu-x64',
-      win32: 'win-vulkan-x64',
-    }
-    const platformArch = platformArchMap[process.platform] ?? 'win-vulkan-x64'
-    const downloadUrl = `https://github.com/ggml-org/llama.cpp/releases/download/${this.version}/llama-${this.version}-bin-${platformArch}.${platformExtension}`
+    const downloadUrl = this.resolveDownloadUrl()
     this.appLogger.info(`Downloading Llamacpp from ${downloadUrl}`, this.name)
 
     // Delete existing zip if it exists
@@ -521,13 +623,37 @@ export class LlamaCppBackendService implements ApiService {
     this.appLogger.info(`Llamacpp zip file downloaded successfully`, this.name)
   }
 
+  private resolveDownloadUrl(): string {
+    const platformArchMap: Record<string, string> = {
+      darwin: 'macos-arm64',
+      linux: 'ubuntu-x64',
+      win32: 'win-vulkan-x64',
+    }
+    const platformArch = platformArchMap[process.platform] ?? 'win-vulkan-x64'
+
+    if (this.llamaCppBuildVariant === 'ssd-offload') {
+      if (!LLAMACPP_SSD_OFFLOAD_DOWNLOAD_URL_TEMPLATE) {
+        throw new Error(
+          'Set LLAMACPP_SSD_OFFLOAD_DOWNLOAD_URL_TEMPLATE before installing the SSD offload llama.cpp build',
+        )
+      }
+
+      return LLAMACPP_SSD_OFFLOAD_DOWNLOAD_URL_TEMPLATE.replace('{version}', this.version)
+        .replace('{platformArch}', platformArch)
+        .replace('{extension}', platformExtension)
+    }
+
+    return `https://github.com/ggml-org/llama.cpp/releases/download/${this.version}/llama-${this.version}-bin-${platformArch}.${platformExtension}`
+  }
+
   private async extractLlamacpp(): Promise<void> {
     this.appLogger.info(`Extracting LlamaCPP to ${this.llamaCppDir}`, this.name)
 
     // Delete existing llamacpp directory if it exists
     if (filesystem.existsSync(this.llamaCppDir)) {
+      await this.stopSsdOffloadArtifactsForCleanup()
       this.appLogger.info(`Removing existing LlamaCPP directory`, this.name)
-      filesystem.removeSync(this.llamaCppDir)
+      await this.removeDirectoryWithRetries(this.llamaCppDir)
     }
 
     // Create llamacpp directory
@@ -536,17 +662,14 @@ export class LlamaCppBackendService implements ApiService {
     // Extract zip file using PowerShell's Expand-Archive
     try {
       await extract(this.zipPath, this.llamaCppDir)
-      if (process.platform !== 'win32') {
-        const llamaServerBinary = binary('llama-server')
-        if (!filesystem.existsSync(path.join(this.llamaCppDir, llamaServerBinary))) {
-          const sourceDir = this.findParentOfBinary(this.llamaCppDir, llamaServerBinary)
-          if (!sourceDir) {
-            throw new Error(`Could not find ${llamaServerBinary} in extracted LlamaCPP archive`)
-          }
-          for (const file of filesystem.readdirSync(sourceDir)) {
-            filesystem.renameSync(path.join(sourceDir, file), path.join(this.llamaCppDir, file))
-          }
+      const llamaServerBinary = binary('llama-server')
+      if (!filesystem.existsSync(path.join(this.llamaCppDir, llamaServerBinary))) {
+        const sourceDir = this.findParentOfBinary(this.llamaCppDir, llamaServerBinary)
+        if (!sourceDir) {
+          throw new Error(`Could not find ${llamaServerBinary} in extracted LlamaCPP archive`)
         }
+
+        this.flattenExtractedArchive(sourceDir)
       }
 
       this.appLogger.info(`LlamaCPP extracted successfully`, this.name)
@@ -566,6 +689,260 @@ export class LlamaCppBackendService implements ApiService {
       }
     }
     return undefined
+  }
+
+  private flattenExtractedArchive(sourceDir: string): void {
+    if (path.resolve(sourceDir) === path.resolve(this.llamaCppDir)) {
+      return
+    }
+
+    for (const file of filesystem.readdirSync(sourceDir)) {
+      const sourcePath = path.join(sourceDir, file)
+      const targetPath = path.join(this.llamaCppDir, file)
+
+      if (path.resolve(sourcePath) === path.resolve(targetPath)) {
+        continue
+      }
+
+      filesystem.moveSync(sourcePath, targetPath, { overwrite: true })
+    }
+  }
+
+  private getRelativeSsdOffloadConfigPath(): string {
+    const relativePath = path.relative(this.llamaCppDir, this.llamaCppSsdOffloadConfigPath)
+    return relativePath || path.basename(this.llamaCppSsdOffloadConfigPath)
+  }
+
+  private getLegacySsdOffloadConfigPath(): string {
+    return path.resolve(path.join(this.serviceDir, LLAMACPP_SSD_OFFLOAD_LEGACY_CONFIG_NAME))
+  }
+
+  private getLlamaStartupArguments(): string[] {
+    return this.llamaCppParametersString.split(/\s+/).filter(Boolean)
+  }
+
+  private getEmbeddingStartupArguments(): string[] {
+    return this.llamaCppParametersString.split(/\s+/).filter(Boolean)
+  }
+
+  private normalizeOffloadDrivePath(offloadDrive?: string | null): string | null {
+    if (!offloadDrive) {
+      return null
+    }
+
+    const trimmed = offloadDrive.trim()
+    const driveMatch = trimmed.match(/^([A-Za-z]):/)
+    if (!driveMatch) {
+      return trimmed
+    }
+
+    return `${driveMatch[1].toUpperCase()}:\\`
+  }
+
+  private async updateSsdOffloadConfig(): Promise<void> {
+    await this.ensureSsdOffloadConfigFile()
+
+    if (!filesystem.existsSync(this.llamaCppSsdOffloadConfigPath) || !this.llamaCppOffloadDrive) {
+      return
+    }
+
+    try {
+      const config = await filesystem.readJson(this.llamaCppSsdOffloadConfigPath)
+      const updatedConfig = {
+        ...config,
+        aidaptiv: {
+          ...(config.aidaptiv ?? {}),
+          offload_path: this.llamaCppOffloadDrive,
+          debug_log_path: this.llamaCppOffloadDrive,
+        },
+      }
+      await filesystem.writeJson(this.llamaCppSsdOffloadConfigPath, updatedConfig, { spaces: 2 })
+      this.appLogger.info(
+        `Updated SSD offload config paths to ${this.llamaCppOffloadDrive}`,
+        this.name,
+      )
+    } catch (error) {
+      this.appLogger.warn(`Failed to update SSD offload config: ${error}`, this.name)
+    }
+  }
+
+  private migrateLegacySsdOffloadConfigFile(): void {
+    const legacyConfigPath = this.getLegacySsdOffloadConfigPath()
+    if (
+      filesystem.existsSync(legacyConfigPath) &&
+      !filesystem.existsSync(this.llamaCppSsdOffloadConfigPath)
+    ) {
+      filesystem.moveSync(legacyConfigPath, this.llamaCppSsdOffloadConfigPath)
+    }
+  }
+
+  private ensureSsdOffloadConfigFileSync(): void {
+    this.migrateLegacySsdOffloadConfigFile()
+    if (filesystem.existsSync(this.llamaCppSsdOffloadConfigPath)) {
+      return
+    }
+
+    filesystem.ensureDirSync(this.serviceDir)
+    filesystem.writeJsonSync(
+      this.llamaCppSsdOffloadConfigPath,
+      LLAMACPP_SSD_OFFLOAD_DEFAULT_CONFIG,
+      { spaces: 2 },
+    )
+  }
+
+  private async ensureSsdOffloadConfigFile(): Promise<void> {
+    this.migrateLegacySsdOffloadConfigFile()
+    if (await filesystem.pathExists(this.llamaCppSsdOffloadConfigPath)) {
+      return
+    }
+
+    await filesystem.ensureDir(this.serviceDir)
+    await filesystem.writeJson(
+      this.llamaCppSsdOffloadConfigPath,
+      LLAMACPP_SSD_OFFLOAD_DEFAULT_CONFIG,
+      {
+        spaces: 2,
+      },
+    )
+  }
+
+  private async ensureSsdOffloadWindowsService(): Promise<void> {
+    if (process.platform !== 'win32' || this.llamaCppBuildVariant !== 'ssd-offload') {
+      return
+    }
+
+    const deleteScriptPath = path.join(this.llamaCppDir, LLAMACPP_SSD_OFFLOAD_DELETE_SERVICE_SCRIPT)
+    const createScriptPath = path.join(this.llamaCppDir, LLAMACPP_SSD_OFFLOAD_CREATE_SERVICE_SCRIPT)
+
+    for (const scriptPath of [deleteScriptPath, createScriptPath]) {
+      if (!filesystem.existsSync(scriptPath)) {
+        throw new Error(`Required SSD offload setup script not found: ${scriptPath}`)
+      }
+    }
+
+    await this.runElevatedBatchFile(deleteScriptPath)
+    await this.runElevatedBatchFile(createScriptPath)
+  }
+
+  private async stopSsdOffloadArtifactsForCleanup(): Promise<void> {
+    if (process.platform !== 'win32') {
+      return
+    }
+
+    const deleteScriptPath = path.join(this.llamaCppDir, LLAMACPP_SSD_OFFLOAD_DELETE_SERVICE_SCRIPT)
+
+    if (filesystem.existsSync(deleteScriptPath)) {
+      try {
+        this.appLogger.info(`Stopping SSD offload Windows service before cleanup`, this.name)
+        await this.runElevatedBatchFile(deleteScriptPath)
+      } catch (error) {
+        this.appLogger.warn(
+          `Failed to stop SSD offload service with delete script before cleanup: ${error}`,
+          this.name,
+        )
+      }
+    }
+
+    await this.killSsdOffloadProcess()
+  }
+
+  private async killSsdOffloadProcess(): Promise<void> {
+    if (process.platform !== 'win32') {
+      return
+    }
+
+    this.appLogger.info(
+      `Killing ${LLAMACPP_SSD_OFFLOAD_PROCESS_NAME} before SSD offload cleanup`,
+      this.name,
+    )
+
+    try {
+      await this.runElevatedCommand(
+        'taskkill.exe',
+        ['/F', '/IM', LLAMACPP_SSD_OFFLOAD_PROCESS_NAME, '/T'],
+        this.llamaCppDir,
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const lowerMessage = message.toLowerCase()
+
+      if (
+        lowerMessage.includes('not found') ||
+        lowerMessage.includes('no running instance') ||
+        lowerMessage.includes('not recognized') ||
+        lowerMessage.includes('no instance')
+      ) {
+        return
+      }
+
+      this.appLogger.warn(
+        `Failed to kill ${LLAMACPP_SSD_OFFLOAD_PROCESS_NAME} before cleanup: ${message}`,
+        this.name,
+      )
+    }
+  }
+
+  private async runElevatedBatchFile(scriptPath: string): Promise<void> {
+    await this.runElevatedCommand(scriptPath, [], this.llamaCppDir)
+  }
+
+  private async runElevatedCommand(
+    filePath: string,
+    args: string[],
+    workingDirectory: string,
+  ): Promise<void> {
+    this.appLogger.info(`Running elevated command ${filePath}`, this.name)
+    const escapedFilePath = filePath.replaceAll("'", "''")
+    const escapedWorkingDirectory = workingDirectory.replaceAll("'", "''")
+    const argumentList =
+      args.length > 0
+        ? ` -ArgumentList ${args.map((arg) => `'${arg.replaceAll("'", "''")}'`).join(', ')}`
+        : ''
+
+    const powershellArgs = [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      `Start-Process -FilePath '${escapedFilePath}'${argumentList} -WorkingDirectory '${escapedWorkingDirectory}' -Verb RunAs -Wait`,
+    ]
+
+    try {
+      const { stdout, stderr } = await execFileAsync('powershell.exe', powershellArgs, {
+        windowsHide: true,
+      })
+
+      if (stdout) {
+        this.appLogger.info(stdout, this.name)
+      }
+      if (stderr) {
+        this.appLogger.warn(stderr, this.name)
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`Failed to run elevated command ${filePath}: ${message}`)
+    }
+  }
+
+  private async removeDirectoryWithRetries(targetDir: string): Promise<void> {
+    const maxAttempts = 5
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        filesystem.removeSync(targetDir)
+        return
+      } catch (error) {
+        if (attempt === maxAttempts) {
+          throw error
+        }
+
+        const message = error instanceof Error ? error.message : String(error)
+        this.appLogger.warn(
+          `Failed to remove ${targetDir} on attempt ${attempt}/${maxAttempts}: ${message}`,
+          this.name,
+        )
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+      }
+    }
   }
 
   async start(): Promise<BackendStatus> {
@@ -967,6 +1344,54 @@ export class LlamaCppBackendService implements ApiService {
     throw new Error(`Server failed to start within ${(maxAttempts * delayMs) / 1000} seconds`)
   }
 
+  private async detectStorageTargets(): Promise<void> {
+    if (process.platform !== 'win32') {
+      this.storageTargets = []
+      return
+    }
+
+    try {
+      const command =
+        'powershell -NoProfile -Command "Get-Volume | Where-Object { $_.DriveLetter -and $_.DriveType -eq \'Fixed\' } | Select-Object DriveLetter, FileSystemLabel, FileSystem | ConvertTo-Json -Compress"'
+      const { stdout } = await execAsync(command, {
+        timeout: 10000,
+      })
+      const rawTargets = stdout.trim()
+      if (!rawTargets) {
+        this.storageTargets = []
+        return
+      }
+
+      const parsedTargets = JSON.parse(rawTargets) as
+        | Array<{ DriveLetter?: string; FileSystemLabel?: string; FileSystem?: string }>
+        | { DriveLetter?: string; FileSystemLabel?: string; FileSystem?: string }
+      const normalizedTargets = Array.isArray(parsedTargets) ? parsedTargets : [parsedTargets]
+
+      this.storageTargets = normalizedTargets
+        .filter((target) => typeof target.DriveLetter === 'string' && target.DriveLetter.length > 0)
+        .map((target) => {
+          const path = `${target.DriveLetter}:\\`
+          const labelParts = [`${target.DriveLetter}:`]
+          if (target.FileSystemLabel) {
+            labelParts.push(target.FileSystemLabel)
+          }
+          if (target.FileSystem) {
+            labelParts.push(`(${target.FileSystem})`)
+          }
+
+          return {
+            id: path,
+            name: labelParts.join(' '),
+            path,
+            selected: path === this.llamaCppOffloadDrive,
+          }
+        })
+    } catch (error) {
+      this.appLogger.warn(`Failed to detect storage targets: ${error}`, this.name)
+      this.storageTargets = []
+    }
+  }
+
   // Error management methods for startup failures
   setLastStartupError(errorDetails: ErrorDetails): void {
     this.lastStartupErrorDetails = errorDetails
@@ -982,8 +1407,9 @@ export class LlamaCppBackendService implements ApiService {
 
   async uninstall(): Promise<void> {
     await this.stop()
+    await this.stopSsdOffloadArtifactsForCleanup()
     this.appLogger.info(`removing LlamaCPP service directory`, this.name)
-    await filesystem.remove(this.serviceDir)
+    await this.removeDirectoryWithRetries(this.serviceDir)
     this.appLogger.info(`removed LlamaCPP service directory`, this.name)
     this.setStatus('notInstalled')
     this.isSetUp = false

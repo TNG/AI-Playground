@@ -77,6 +77,8 @@ const getFormSchema = (backend: BackendServiceName) => {
         .object({
           version: z.string().regex(/^b\d+$/, 'Must be a valid build number (e.g. b6048)'),
           llamaCppParameters: z.string().optional(),
+          llamaCppBuildVariant: z.enum(['standard', 'ssd-offload']).default('standard'),
+          llamaCppOffloadDrive: z.string().optional(),
         })
         .passthrough()
 
@@ -158,12 +160,52 @@ const getInitialFormValues = () => {
   if (props.backend === 'llamacpp-backend') {
     return {
       ...values,
-      llamaCppParameters: backendServices.effectiveLlamaCppParameters,
+      llamaCppParameters:
+        backendServices.llamaCppParameters ??
+        getDefaultLlamaCppParameters(backendServices.llamaCppBuildVariant),
+      llamaCppBuildVariant: backendServices.llamaCppBuildVariant,
+      llamaCppOffloadDrive: backendServices.llamaCppOffloadDrive ?? '',
     }
   }
   return values
 }
 
+const llamaCppStorageTargets = computed(
+  () =>
+    backendServices.info.find((service) => service.serviceName === 'llamacpp-backend')
+      ?.storageTargets ?? [],
+)
+
+const llamaCppSsdOffloadConfigPath = computed(
+  () =>
+    backendServices.info.find((service) => service.serviceName === 'llamacpp-backend')
+      ?.llamaCppSsdOffloadConfigPath ?? '',
+)
+
+function getDefaultLlamaCppParameters(buildVariant: 'standard' | 'ssd-offload'): string {
+  if (buildVariant === 'ssd-offload' && llamaCppSsdOffloadConfigPath.value) {
+    return `--config-file ${llamaCppSsdOffloadConfigPath.value}`
+  }
+
+  return backendServices.llamaCppDefaultParameters
+}
+
+function handleLlamaCppBuildVariantChange(
+  nextBuildVariant: 'standard' | 'ssd-offload',
+  currentValues: { llamaCppBuildVariant?: 'standard' | 'ssd-offload'; llamaCppParameters?: string },
+  setFieldValue: (field: string, value: unknown) => void,
+) {
+  const currentBuildVariant = currentValues.llamaCppBuildVariant ?? 'standard'
+  const currentParameters = currentValues.llamaCppParameters ?? ''
+  const currentDefault = getDefaultLlamaCppParameters(currentBuildVariant)
+  const nextDefault = getDefaultLlamaCppParameters(nextBuildVariant)
+
+  setFieldValue('llamaCppBuildVariant', nextBuildVariant)
+
+  if (!currentParameters || currentParameters === currentDefault) {
+    setFieldValue('llamaCppParameters', nextDefault)
+  }
+}
 // Handler for reinstalling a service with enhanced error handling
 const handleReinstall = async () => {
   try {
@@ -328,7 +370,10 @@ const hasUserOverride = computed(
   () =>
     !!backendServices.versionState[props.backend].uiOverride ||
     (props.backend === 'comfyui-backend' && backendServices.comfyUiParameters !== null) ||
-    (props.backend === 'llamacpp-backend' && backendServices.llamaCppParameters !== null),
+    (props.backend === 'llamacpp-backend' &&
+      (backendServices.llamaCppParameters !== null ||
+        backendServices.llamaCppBuildVariant !== 'standard' ||
+        backendServices.llamaCppOffloadDrive !== null)),
 )
 
 // Clear the user override
@@ -339,6 +384,8 @@ const clearOverride = () => {
   }
   if (props.backend === 'llamacpp-backend') {
     backendServices.llamaCppParameters = null
+    backendServices.llamaCppBuildVariant = 'standard'
+    backendServices.llamaCppOffloadDrive = null
   }
   settingsDialogOpen.value = false
   menuOpen.value = false
@@ -400,7 +447,7 @@ const showMenuButton = computed(
 
       <Form
         v-if="showSettings"
-        v-slot="{ handleSubmit }"
+        v-slot="{ handleSubmit, values, setFieldValue }"
         as=""
         :initial-values="getInitialFormValues()"
         keep-values
@@ -457,11 +504,26 @@ const showMenuButton = computed(
                   // Save llamaCppParameters separately (not part of version override)
                   if (props.backend === 'llamacpp-backend' && 'llamaCppParameters' in values) {
                     const params = (values as { llamaCppParameters?: string }).llamaCppParameters
+                    const buildVariant =
+                      (values as { llamaCppBuildVariant?: 'standard' | 'ssd-offload' })
+                        .llamaCppBuildVariant ?? backendServices.llamaCppBuildVariant
                     // Store null if empty or matches default (meaning 'use default')
                     backendServices.llamaCppParameters =
-                      !params || params === backendServices.llamaCppDefaultParameters
+                      !params || params === getDefaultLlamaCppParameters(buildVariant)
                         ? null
                         : params
+                  }
+
+                  if (props.backend === 'llamacpp-backend' && 'llamaCppBuildVariant' in values) {
+                    backendServices.llamaCppBuildVariant =
+                      (values as { llamaCppBuildVariant?: 'standard' | 'ssd-offload' })
+                        .llamaCppBuildVariant ?? 'standard'
+                  }
+
+                  if (props.backend === 'llamacpp-backend' && 'llamaCppOffloadDrive' in values) {
+                    const offloadDrive = (values as { llamaCppOffloadDrive?: string })
+                      .llamaCppOffloadDrive
+                    backendServices.llamaCppOffloadDrive = offloadDrive || null
                   }
 
                   settingsDialogOpen = false
@@ -539,6 +601,84 @@ const showMenuButton = computed(
               <FormField
                 v-if="backend === 'llamacpp-backend'"
                 v-slot="{ componentField }"
+                name="llamaCppBuildVariant"
+              >
+                <FormItem class="mt-4">
+                  <FormLabel>{{
+                    i18nState.BACKEND_LLAMACPP_BUILD_VARIANT_LABEL || 'Build Variant'
+                  }}</FormLabel>
+                  <FormControl>
+                    <select
+                      class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      :name="componentField.name"
+                      :value="values.llamaCppBuildVariant ?? 'standard'"
+                      @blur="componentField.onBlur"
+                      @change="
+                        (event) =>
+                          handleLlamaCppBuildVariantChange(
+                            (event.target as HTMLSelectElement).value as 'standard' | 'ssd-offload',
+                            values as {
+                              llamaCppBuildVariant?: 'standard' | 'ssd-offload'
+                              llamaCppParameters?: string
+                            },
+                            setFieldValue,
+                          )
+                      "
+                    >
+                      <option value="standard">Standard llama.cpp</option>
+                      <option value="ssd-offload">Phison aiDAPTIV+ SSD Offload build</option>
+                    </select>
+                  </FormControl>
+                  <FormDescription>
+                    {{
+                      i18nState.BACKEND_LLAMACPP_BUILD_VARIANT_DESCRIPTION ||
+                      'Install specific builds of llama.cpp including any needed software. If SSD offload is chosen, you must assign an SSD offload drive.'
+                    }}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              </FormField>
+
+              <FormField
+                v-if="backend === 'llamacpp-backend'"
+                v-slot="{ componentField }"
+                name="llamaCppOffloadDrive"
+              >
+                <FormItem class="mt-4">
+                  <FormLabel>{{
+                    i18nState.BACKEND_LLAMACPP_OFFLOAD_DRIVE_LABEL || 'SSD Offload Drive'
+                  }}</FormLabel>
+                  <FormControl>
+                    <select
+                      class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      v-bind="componentField"
+                    >
+                      <option value="">Select a drive</option>
+                      <option
+                        v-for="target in llamaCppStorageTargets"
+                        :key="target.id"
+                        :value="target.path"
+                      >
+                        {{ target.name }}
+                      </option>
+                    </select>
+                  </FormControl>
+                  <FormDescription>
+                    {{
+                      llamaCppStorageTargets.length > 0
+                        ? i18nState.BACKEND_LLAMACPP_OFFLOAD_DRIVE_DESCRIPTION ||
+                          'Assign the drive to offload. Ignored for the standard build.'
+                        : i18nState.BACKEND_LLAMACPP_OFFLOAD_DRIVE_EMPTY ||
+                          'No fixed drives were detected yet. Install the backend or reopen settings and try again.'
+                    }}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              </FormField>
+
+              <FormField
+                v-if="backend === 'llamacpp-backend'"
+                v-slot="{ componentField }"
                 name="llamaCppParameters"
               >
                 <FormItem class="mt-4">
@@ -548,14 +688,19 @@ const showMenuButton = computed(
                   <FormControl>
                     <Input
                       type="text"
-                      :placeholder="backendServices.llamaCppDefaultParameters"
+                      :placeholder="
+                        getDefaultLlamaCppParameters(values.llamaCppBuildVariant ?? 'standard')
+                      "
                       v-bind="componentField"
                     />
                   </FormControl>
                   <FormDescription>
                     {{
-                      i18nState.BACKEND_LLAMACPP_PARAMETERS_DESCRIPTION ||
-                      'Command-line arguments passed to llama-server on startup. Applied on next model load.'
+                      (values.llamaCppBuildVariant ?? 'standard') === 'ssd-offload'
+                        ? i18nState.BACKEND_LLAMACPP_SSD_PARAMETERS_DESCRIPTION ||
+                          'Defaults to the resolved --config-file path for the SSD offload build, but you can still edit it.'
+                        : i18nState.BACKEND_LLAMACPP_PARAMETERS_DESCRIPTION ||
+                          'Command-line arguments passed to llama-server on startup. Applied on next model load.'
                     }}
                   </FormDescription>
                   <FormMessage />

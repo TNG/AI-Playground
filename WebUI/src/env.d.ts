@@ -20,6 +20,8 @@ type ServiceSettings = {
   releaseTag?: string
   comfyUiParameters?: string
   llamaCppParameters?: string
+  llamaCppBuildVariant?: 'standard' | 'ssd-offload'
+  llamaCppOffloadDrive?: string | null
 }
 
 type SamplePrompt = {
@@ -682,9 +684,18 @@ type ApiServiceInformation = {
   isSetUp: boolean
   isRequired: boolean
   devices: InferenceDevice[]
+  storageTargets?: StorageTarget[]
+  llamaCppSsdOffloadConfigPath?: string
   sttDevices?: InferenceDevice[]
   errorDetails: ErrorDetails | null
   installedVersion?: { version: string; releaseTag?: string }
+}
+
+type StorageTarget = {
+  id: string
+  name: string
+  path: string
+  selected: boolean
 }
 
 type Model = {

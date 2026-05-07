@@ -23,6 +23,10 @@ const LLAMACPP_SSD_OFFLOAD_LEGACY_CONFIG_NAME = 'aidaptiv(303G0B).json'
 const LLAMACPP_SSD_OFFLOAD_DELETE_SERVICE_SCRIPT = 'wService_delete.bat'
 const LLAMACPP_SSD_OFFLOAD_CREATE_SERVICE_SCRIPT = 'wService_create.bat'
 const LLAMACPP_SSD_OFFLOAD_PROCESS_NAME = 'ada.exe'
+/** Standard GGUF release extracts here (unchanged path for backward compatibility). */
+const LLAMA_CPP_SUBDIR_STANDARD = 'llama-cpp'
+/** Phison aiDAPTIV+ zip extracts here so it never overwrites standard Llama.cpp. */
+const LLAMA_CPP_SUBDIR_PHISON = 'llama-cpp-phison'
 const LLAMACPP_SSD_OFFLOAD_DEFAULT_CONFIG = {
   common: {
     seed: '0',
@@ -133,11 +137,7 @@ export class LlamaCppBackendService implements ApiService {
   // Service directories
   readonly baseDir = app.isPackaged ? process.resourcesPath : path.join(__dirname, '../../../')
   readonly serviceDir: string
-  readonly llamaCppDir: string
-  readonly llamaCppExePath: string
   readonly llamaCppSsdOffloadConfigPath: string
-
-  readonly zipPath: string
   devices: InferenceDevice[] = [{ id: '0', name: 'Auto select device', selected: true }]
   storageTargets: StorageTarget[] = []
 
@@ -159,8 +159,14 @@ export class LlamaCppBackendService implements ApiService {
   // Store last startup error details for persistence
   private lastStartupErrorDetails: ErrorDetails | null = null
 
-  // Cached installed version for inclusion in service info updates
+  // Cached installed version for inclusion in service info updates (active variant)
   private cachedInstalledVersion: { version: string; releaseTag?: string } | undefined = undefined
+  /** Standard-tree llama-cpp/ — independent of active variant (UI shows both rows). */
+  private cachedStandardInstallVersion: { version: string; releaseTag?: string } | undefined =
+    undefined
+  /** Phison-tree llama-cpp-phison/ */
+  private cachedPhisonInstallVersion: { version: string; releaseTag?: string } | undefined =
+    undefined
 
   // Logger
   readonly appLogger = appLoggerInstance
@@ -177,6 +183,25 @@ export class LlamaCppBackendService implements ApiService {
     this.healthEndpointUrl = `${this.baseUrl}/health`
   }
 
+  private llamaCppDirForVariant(variant: LlamaCppBuildVariant): string {
+    const sub = variant === 'ssd-offload' ? LLAMA_CPP_SUBDIR_PHISON : LLAMA_CPP_SUBDIR_STANDARD
+    return path.resolve(path.join(this.serviceDir, sub))
+  }
+
+  /** Directory for the currently selected build variant (standard vs Phison use separate trees). */
+  private getActiveLlamaCppDir(): string {
+    return this.llamaCppDirForVariant(this.llamaCppBuildVariant)
+  }
+
+  private getActiveLlamaCppExePath(): string {
+    return path.resolve(path.join(this.getActiveLlamaCppDir(), binary('llama-server')))
+  }
+
+  private getZipPathForVariant(variant: LlamaCppBuildVariant): string {
+    const suffix = variant === 'ssd-offload' ? '-phison' : ''
+    return path.resolve(path.join(this.serviceDir, `llama-cpp${suffix}.${platformExtension}`))
+  }
+
   constructor(name: BackendServiceName, port: number, win: BrowserWindow, settings: LocalSettings) {
     this.name = name
     this.port = port
@@ -185,27 +210,17 @@ export class LlamaCppBackendService implements ApiService {
     this.baseUrl = `http://127.0.0.1:${port}`
     this.healthEndpointUrl = `${this.baseUrl}/health`
 
-    // Set up paths
+    // Set up paths (binaries live under getActiveLlamaCppDir() — standard vs Phison use different folders)
     this.serviceDir = path.resolve(path.join(this.baseDir, 'LlamaCPP'))
-    this.llamaCppDir = path.resolve(path.join(this.serviceDir, 'llama-cpp'))
-    this.llamaCppExePath = path.resolve(path.join(this.llamaCppDir, binary('llama-server')))
     this.llamaCppSsdOffloadConfigPath = path.resolve(
       path.join(this.serviceDir, LLAMACPP_SSD_OFFLOAD_CONFIG_NAME),
     )
-    this.zipPath = path.resolve(path.join(this.serviceDir, `llama-cpp.${platformExtension}`))
     this.migrateLegacySsdOffloadConfigFile()
     this.ensureSsdOffloadConfigFileSync()
+    this.migrateLegacyPhisonIntoSeparateDirectory()
 
-    // Check if already set up
-    this.isSetUp = this.serviceIsSetUp()
+    this.syncSetupFlagsFromDisk()
     this.appLogger.info(`Service ${this.name} isSetUp: ${this.isSetUp}`, this.name)
-
-    // Cache version on startup if already set up
-    if (this.isSetUp) {
-      this.updateCachedVersion().then(() => {
-        this.updateStatus()
-      })
-    }
 
     this.detectStorageTargets()
       .then(() => {
@@ -292,7 +307,60 @@ export class LlamaCppBackendService implements ApiService {
   }
 
   serviceIsSetUp(): boolean {
-    return filesystem.existsSync(this.llamaCppExePath)
+    return this.computeIsSetUp()
+  }
+
+  /**
+   * Setup depends on the active variant directory. Standard and Phison installs are separate trees
+   * under LlamaCPP/ so switching variants does not delete the other build.
+   */
+  private computeStandardArtifactsReady(): boolean {
+    const standardDir = this.llamaCppDirForVariant('standard')
+    const exe = path.join(standardDir, binary('llama-server'))
+    if (!filesystem.existsSync(exe)) return false
+    if (filesystem.existsSync(path.join(standardDir, LLAMACPP_SSD_OFFLOAD_PROCESS_NAME))) {
+      return false
+    }
+    return true
+  }
+
+  private computePhisonArtifactsReady(): boolean {
+    const dir = this.llamaCppDirForVariant('ssd-offload')
+    const exe = path.join(dir, binary('llama-server'))
+    if (!filesystem.existsSync(exe)) return false
+    return filesystem.existsSync(path.join(dir, LLAMACPP_SSD_OFFLOAD_PROCESS_NAME))
+  }
+
+  private computeIsSetUp(): boolean {
+    return this.llamaCppBuildVariant === 'ssd-offload'
+      ? this.computePhisonArtifactsReady()
+      : this.computeStandardArtifactsReady()
+  }
+
+  private syncSetupFlagsFromDisk(): void {
+    const wasSetUp = this.isSetUp
+    this.isSetUp = this.computeIsSetUp()
+    if (!this.isSetUp) {
+      if (
+        wasSetUp &&
+        this.currentStatus !== 'installing' &&
+        this.currentStatus !== 'running' &&
+        this.currentStatus !== 'starting'
+      ) {
+        this.currentStatus = 'notInstalled'
+      }
+    } else {
+      if (
+        !wasSetUp &&
+        (this.currentStatus === 'notInstalled' || this.currentStatus === 'uninitializedStatus')
+      ) {
+        this.currentStatus = 'notYetStarted'
+      }
+    }
+    if (this.currentStatus === 'uninitializedStatus') {
+      this.currentStatus = 'notInstalled'
+    }
+    void this.refreshDualVariantVersionCaches().then(() => this.updateStatus())
   }
 
   async detectDevices() {
@@ -300,7 +368,7 @@ export class LlamaCppBackendService implements ApiService {
       await this.detectStorageTargets()
 
       // Check if llama-server.exe exists
-      if (!filesystem.existsSync(this.llamaCppExePath)) {
+      if (!filesystem.existsSync(this.getActiveLlamaCppExePath())) {
         this.appLogger.warn('llama-server.exe not found, using default device', this.name)
         this.devices = [{ id: '0', name: 'Auto select device', selected: true }]
         return
@@ -309,8 +377,8 @@ export class LlamaCppBackendService implements ApiService {
       this.appLogger.info('Detecting devices using llama-server --list-devices', this.name)
 
       // Execute llama-server.exe --list-devices
-      const { stdout } = await execAsync(`"${this.llamaCppExePath}" --list-devices`, {
-        cwd: this.llamaCppDir,
+      const { stdout } = await execAsync(`"${this.getActiveLlamaCppExePath()}" --list-devices`, {
+        cwd: this.getActiveLlamaCppDir(),
         env: {
           ...process.env,
         },
@@ -402,6 +470,10 @@ export class LlamaCppBackendService implements ApiService {
       llamaCppSsdOffloadConfigPath: this.getRelativeSsdOffloadConfigPath(),
       errorDetails: this.lastStartupErrorDetails,
       installedVersion: this.cachedInstalledVersion,
+      llamaCppStandardArtifactReady: this.computeStandardArtifactsReady(),
+      llamaCppPhisonArtifactReady: this.computePhisonArtifactsReady(),
+      llamaCppStandardInstalledVersion: this.cachedStandardInstallVersion,
+      llamaCppPhisonInstalledVersion: this.cachedPhisonInstallVersion,
     }
   }
 
@@ -451,50 +523,74 @@ export class LlamaCppBackendService implements ApiService {
       )
       await this.updateSsdOffloadConfig()
     }
-    this.updateStatus()
+    this.syncSetupFlagsFromDisk()
   }
 
   async getInstalledVersion(): Promise<{ version?: string; releaseTag?: string } | undefined> {
     if (!this.isSetUp) return undefined
+    return this.probeInstalledVersionInDir(this.getActiveLlamaCppDir())
+  }
+
+  private async probeInstalledVersionInDir(
+    binDir: string,
+  ): Promise<{ version: string; releaseTag?: string } | undefined> {
+    const exe = path.join(binDir, binary('llama-server'))
+    if (!filesystem.existsSync(exe)) return undefined
     try {
-      const result = await execAsync(`"${this.llamaCppExePath}" --version`, {
-        cwd: this.llamaCppDir,
+      const result = await execAsync(`"${exe}" --version`, {
+        cwd: binDir,
         env: {
           ...process.env,
         },
-        timeout: 10000, // 10 second timeout
+        timeout: 10000,
       })
-      // Parse output like "version: 7278 (03d9a77b8)"
       const versionMatch = result.stderr.match(/version:\s*(\d+)\s*\([^)]+\)/m)
       this.appLogger.info(
-        `getInstalledVersion: ${result.stdout}, ${result.stderr}, ${versionMatch}`,
+        `probeInstalledVersionInDir: ${result.stdout}, ${result.stderr}, ${versionMatch}`,
         this.name,
       )
       if (versionMatch && versionMatch[1]) {
         return { version: `b${versionMatch[1]}` }
       }
     } catch (e) {
-      this.appLogger.error(`failed to get installed LlamaCPP version: ${e}`, this.name)
+      this.appLogger.warn(`probeInstalledVersionInDir failed: ${e}`, this.name)
     }
     return undefined
   }
 
-  /**
-   * Updates the cached installed version for inclusion in service info updates.
-   */
-  private async updateCachedVersion(): Promise<void> {
+  /** Refreshes per-directory version caches and `cachedInstalledVersion` for the active variant. */
+  private async refreshDualVariantVersionCaches(): Promise<void> {
     try {
-      const version = await this.getInstalledVersion()
-      if (version && version.version) {
-        this.cachedInstalledVersion = {
-          version: version.version,
-          ...(version.releaseTag && { releaseTag: version.releaseTag }),
-        }
-      } else {
-        this.cachedInstalledVersion = undefined
-      }
+      const standardVer = this.computeStandardArtifactsReady()
+        ? await this.probeInstalledVersionInDir(this.llamaCppDirForVariant('standard'))
+        : undefined
+      this.cachedStandardInstallVersion =
+        standardVer?.version !== undefined
+          ? {
+              version: standardVer.version,
+              ...(standardVer.releaseTag && { releaseTag: standardVer.releaseTag }),
+            }
+          : undefined
+
+      const phisonVer = this.computePhisonArtifactsReady()
+        ? await this.probeInstalledVersionInDir(this.llamaCppDirForVariant('ssd-offload'))
+        : undefined
+      this.cachedPhisonInstallVersion =
+        phisonVer?.version !== undefined
+          ? {
+              version: phisonVer.version,
+              ...(phisonVer.releaseTag && { releaseTag: phisonVer.releaseTag }),
+            }
+          : undefined
+
+      this.cachedInstalledVersion =
+        this.llamaCppBuildVariant === 'ssd-offload'
+          ? this.cachedPhisonInstallVersion
+          : this.cachedStandardInstallVersion
     } catch (error) {
-      this.appLogger.warn(`Failed to get installed version: ${error}`, this.name)
+      this.appLogger.warn(`refreshDualVariantVersionCaches: ${error}`, this.name)
+      this.cachedStandardInstallVersion = undefined
+      this.cachedPhisonInstallVersion = undefined
       this.cachedInstalledVersion = undefined
     }
   }
@@ -556,26 +652,27 @@ export class LlamaCppBackendService implements ApiService {
         debugMessage: 'extraction complete',
       }
 
-      currentStep = 'configure-service'
-      yield {
-        serviceName: this.name,
-        step: currentStep,
-        status: 'executing',
-        debugMessage: 'requesting permission to configure SSD offload Windows service',
+      if (this.llamaCppBuildVariant === 'ssd-offload') {
+        currentStep = 'configure-service'
+        yield {
+          serviceName: this.name,
+          step: currentStep,
+          status: 'executing',
+          debugMessage: 'requesting permission to configure SSD offload Windows service',
+        }
+
+        await this.ensureSsdOffloadWindowsService()
+
+        yield {
+          serviceName: this.name,
+          step: currentStep,
+          status: 'executing',
+          debugMessage: 'SSD offload Windows service configured',
+        }
       }
 
-      await this.ensureSsdOffloadWindowsService()
-
-      yield {
-        serviceName: this.name,
-        step: currentStep,
-        status: 'executing',
-        debugMessage: 'SSD offload Windows service configured',
-      }
-
-      this.isSetUp = true
       await this.updateSsdOffloadConfig()
-      await this.updateCachedVersion()
+      this.syncSetupFlagsFromDisk()
       this.setStatus('notYetStarted')
 
       currentStep = 'end'
@@ -602,13 +699,14 @@ export class LlamaCppBackendService implements ApiService {
   }
 
   private async downloadLlamacpp(): Promise<void> {
+    const zipPath = this.getZipPathForVariant(this.llamaCppBuildVariant)
     const downloadUrl = this.resolveDownloadUrl()
     this.appLogger.info(`Downloading Llamacpp from ${downloadUrl}`, this.name)
 
     // Delete existing zip if it exists
-    if (filesystem.existsSync(this.zipPath)) {
+    if (filesystem.existsSync(zipPath)) {
       this.appLogger.info(`Removing existing Llamacpp zip file`, this.name)
-      filesystem.removeSync(this.zipPath)
+      filesystem.removeSync(zipPath)
     }
 
     // Using electron net for better proxy support
@@ -618,7 +716,7 @@ export class LlamaCppBackendService implements ApiService {
     }
 
     const buffer = await response.arrayBuffer()
-    await filesystem.writeFile(this.zipPath, Buffer.from(buffer))
+    await filesystem.writeFile(zipPath, Buffer.from(buffer))
 
     this.appLogger.info(`Llamacpp zip file downloaded successfully`, this.name)
   }
@@ -647,29 +745,33 @@ export class LlamaCppBackendService implements ApiService {
   }
 
   private async extractLlamacpp(): Promise<void> {
-    this.appLogger.info(`Extracting LlamaCPP to ${this.llamaCppDir}`, this.name)
+    const zipPath = this.getZipPathForVariant(this.llamaCppBuildVariant)
+    const targetDir = this.getActiveLlamaCppDir()
+    this.appLogger.info(`Extracting LlamaCPP to ${targetDir}`, this.name)
 
-    // Delete existing llamacpp directory if it exists
-    if (filesystem.existsSync(this.llamaCppDir)) {
-      await this.stopSsdOffloadArtifactsForCleanup()
+    // Delete existing variant directory only (other variant folder is left intact).
+    // Phison-only: stop Windows service scripts + ada.exe before removing llama-cpp-phison/.
+    // Standard GGUF reinstall must not touch ada/Phison — same as pre–SSD-offload behavior.
+    if (filesystem.existsSync(targetDir)) {
+      if (this.llamaCppBuildVariant === 'ssd-offload') {
+        await this.stopSsdOffloadArtifactsForCleanup()
+      }
       this.appLogger.info(`Removing existing LlamaCPP directory`, this.name)
-      await this.removeDirectoryWithRetries(this.llamaCppDir)
+      await this.removeDirectoryWithRetries(targetDir)
     }
 
-    // Create llamacpp directory
-    filesystem.mkdirSync(this.llamaCppDir, { recursive: true })
+    filesystem.mkdirSync(targetDir, { recursive: true })
 
-    // Extract zip file using PowerShell's Expand-Archive
     try {
-      await extract(this.zipPath, this.llamaCppDir)
+      await extract(zipPath, targetDir)
       const llamaServerBinary = binary('llama-server')
-      if (!filesystem.existsSync(path.join(this.llamaCppDir, llamaServerBinary))) {
-        const sourceDir = this.findParentOfBinary(this.llamaCppDir, llamaServerBinary)
+      if (!filesystem.existsSync(path.join(targetDir, llamaServerBinary))) {
+        const sourceDir = this.findParentOfBinary(targetDir, llamaServerBinary)
         if (!sourceDir) {
           throw new Error(`Could not find ${llamaServerBinary} in extracted LlamaCPP archive`)
         }
 
-        this.flattenExtractedArchive(sourceDir)
+        this.flattenExtractedArchive(sourceDir, targetDir)
       }
 
       this.appLogger.info(`LlamaCPP extracted successfully`, this.name)
@@ -691,14 +793,14 @@ export class LlamaCppBackendService implements ApiService {
     return undefined
   }
 
-  private flattenExtractedArchive(sourceDir: string): void {
-    if (path.resolve(sourceDir) === path.resolve(this.llamaCppDir)) {
+  private flattenExtractedArchive(sourceDir: string, targetDir: string): void {
+    if (path.resolve(sourceDir) === path.resolve(targetDir)) {
       return
     }
 
     for (const file of filesystem.readdirSync(sourceDir)) {
       const sourcePath = path.join(sourceDir, file)
-      const targetPath = path.join(this.llamaCppDir, file)
+      const targetPath = path.join(targetDir, file)
 
       if (path.resolve(sourcePath) === path.resolve(targetPath)) {
         continue
@@ -709,7 +811,10 @@ export class LlamaCppBackendService implements ApiService {
   }
 
   private getRelativeSsdOffloadConfigPath(): string {
-    const relativePath = path.relative(this.llamaCppDir, this.llamaCppSsdOffloadConfigPath)
+    const relativePath = path.relative(
+      this.getActiveLlamaCppDir(),
+      this.llamaCppSsdOffloadConfigPath,
+    )
     return relativePath || path.basename(this.llamaCppSsdOffloadConfigPath)
   }
 
@@ -766,6 +871,28 @@ export class LlamaCppBackendService implements ApiService {
     }
   }
 
+  /**
+   * Older builds extracted Phison into `llama-cpp/`. Move that tree to `llama-cpp-phison/` once so
+   * standard GGUF can use `llama-cpp/` again without overwriting Phison.
+   */
+  private migrateLegacyPhisonIntoSeparateDirectory(): void {
+    const standardDir = this.llamaCppDirForVariant('standard')
+    const phisonDir = this.llamaCppDirForVariant('ssd-offload')
+    if (filesystem.existsSync(phisonDir)) return
+    const adaPath = path.join(standardDir, LLAMACPP_SSD_OFFLOAD_PROCESS_NAME)
+    if (!filesystem.existsSync(adaPath)) return
+    try {
+      filesystem.moveSync(standardDir, phisonDir)
+      filesystem.mkdirSync(standardDir, { recursive: true })
+      this.appLogger.info(
+        `Migrated Phison Llama.cpp from ${LLAMA_CPP_SUBDIR_STANDARD}/ to ${LLAMA_CPP_SUBDIR_PHISON}/`,
+        this.name,
+      )
+    } catch (e) {
+      this.appLogger.warn(`Phison directory migration skipped: ${e}`, this.name)
+    }
+  }
+
   private migrateLegacySsdOffloadConfigFile(): void {
     const legacyConfigPath = this.getLegacySsdOffloadConfigPath()
     if (
@@ -811,8 +938,14 @@ export class LlamaCppBackendService implements ApiService {
       return
     }
 
-    const deleteScriptPath = path.join(this.llamaCppDir, LLAMACPP_SSD_OFFLOAD_DELETE_SERVICE_SCRIPT)
-    const createScriptPath = path.join(this.llamaCppDir, LLAMACPP_SSD_OFFLOAD_CREATE_SERVICE_SCRIPT)
+    const deleteScriptPath = path.join(
+      this.getActiveLlamaCppDir(),
+      LLAMACPP_SSD_OFFLOAD_DELETE_SERVICE_SCRIPT,
+    )
+    const createScriptPath = path.join(
+      this.getActiveLlamaCppDir(),
+      LLAMACPP_SSD_OFFLOAD_CREATE_SERVICE_SCRIPT,
+    )
 
     for (const scriptPath of [deleteScriptPath, createScriptPath]) {
       if (!filesystem.existsSync(scriptPath)) {
@@ -829,7 +962,10 @@ export class LlamaCppBackendService implements ApiService {
       return
     }
 
-    const deleteScriptPath = path.join(this.llamaCppDir, LLAMACPP_SSD_OFFLOAD_DELETE_SERVICE_SCRIPT)
+    const deleteScriptPath = path.join(
+      this.getActiveLlamaCppDir(),
+      LLAMACPP_SSD_OFFLOAD_DELETE_SERVICE_SCRIPT,
+    )
 
     if (filesystem.existsSync(deleteScriptPath)) {
       try {
@@ -860,7 +996,7 @@ export class LlamaCppBackendService implements ApiService {
       await this.runElevatedCommand(
         'taskkill.exe',
         ['/F', '/IM', LLAMACPP_SSD_OFFLOAD_PROCESS_NAME, '/T'],
-        this.llamaCppDir,
+        this.getActiveLlamaCppDir(),
       )
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -883,7 +1019,7 @@ export class LlamaCppBackendService implements ApiService {
   }
 
   private async runElevatedBatchFile(scriptPath: string): Promise<void> {
-    await this.runElevatedCommand(scriptPath, [], this.llamaCppDir)
+    await this.runElevatedCommand(scriptPath, [], this.getActiveLlamaCppDir())
   }
 
   private async runElevatedCommand(
@@ -1029,8 +1165,8 @@ export class LlamaCppBackendService implements ApiService {
         this.appLogger.info(`Using mmproj file ${mmprojFile} for model ${modelRepoId}`, this.name)
       }
 
-      const childProcess = spawn(this.llamaCppExePath, args, {
-        cwd: this.llamaCppDir,
+      const childProcess = spawn(this.getActiveLlamaCppExePath(), args, {
+        cwd: this.getActiveLlamaCppDir(),
         windowsHide: true,
         env: {
           ...process.env,
@@ -1128,8 +1264,8 @@ export class LlamaCppBackendService implements ApiService {
         '1024',
       ]
 
-      const childProcess = spawn(this.llamaCppExePath, args, {
-        cwd: this.llamaCppDir,
+      const childProcess = spawn(this.getActiveLlamaCppExePath(), args, {
+        cwd: this.getActiveLlamaCppDir(),
         windowsHide: true,
         env: {
           ...process.env,
@@ -1407,7 +1543,11 @@ export class LlamaCppBackendService implements ApiService {
 
   async uninstall(): Promise<void> {
     await this.stop()
-    await this.stopSsdOffloadArtifactsForCleanup()
+    // Phison / ada.exe teardown uses elevated batch + taskkill — only when replacing SSD-offload.
+    // Standard GGUF reinstall goes through uninstall()+set_up(); variant standard must not prompt UAC.
+    if (this.llamaCppBuildVariant === 'ssd-offload') {
+      await this.stopSsdOffloadArtifactsForCleanup()
+    }
     this.appLogger.info(`removing LlamaCPP service directory`, this.name)
     await this.removeDirectoryWithRetries(this.serviceDir)
     this.appLogger.info(`removed LlamaCPP service directory`, this.name)

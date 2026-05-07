@@ -40,6 +40,9 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import fs from 'fs'
 import { exec } from 'node:child_process'
+import { promisify } from 'node:util'
+
+const execAsync = promisify(exec)
 import { randomUUID } from 'node:crypto'
 import sudo from 'sudo-prompt'
 import { PathsManager } from './pathsManager'
@@ -230,6 +233,8 @@ const LocalSettingsSchema = z.object({
   // Intel NPU memory budgets on most shipping hardware. Override per-machine
   // by editing settings.json, e.g. ["AUTO", "CPU", "GPU", "NPU"] to re-enable.
   openvinoImageGenDevices: z.array(z.string()).default(['CPU', 'GPU']),
+  /** When true, skip hardware probe and treat Phison SSD as detected (optional overlay in userData settings). */
+  PhisonSSDdetected: z.boolean().optional().default(false),
 })
 export type LocalSettings = z.infer<typeof LocalSettingsSchema>
 export type ProductMode = z.infer<typeof ProductModeSchema>
@@ -346,7 +351,7 @@ function applyPresetFilter(
 let settings = LocalSettingsSchema.parse({})
 let demoProfile: DemoProfile | null = null
 
-/** Packaged app: single JSON next to resources. Dev: never write here (Vite watches the repo). */
+/** Packaged: `resources/settings.json` (same role as dev `external/settings-dev.json`). */
 function getPackagedSettingsPath(): string {
   return path.join(process.resourcesPath, 'settings.json')
 }
@@ -356,17 +361,29 @@ function getDevSettingsDefaultsPath(): string {
   return path.join(__dirname, '../../external/settings-dev.json')
 }
 
-/** Writable path: packaged = resources settings; dev = userData overlay (avoids Vite reload loops). */
+/** Dev: userData overlay so edits do not touch the repo (avoids Vite reload loops). */
+function getUserLocalSettingsPath(): string {
+  return path.join(app.getPath('userData'), 'ai-playground-local-settings.json')
+}
+
+/** Packaged: read/write `resources/settings.json`. Dev: read/write userData overlay only. */
 function getWritableSettingsPath(): string {
   if (app.isPackaged) {
     return getPackagedSettingsPath()
   }
-  return path.join(app.getPath('userData'), 'ai-playground-local-settings.json')
+  return getUserLocalSettingsPath()
 }
 
 function persistLocalSettingsToDisk(): void {
   const settingPath = getWritableSettingsPath()
-  const serialized = JSON.stringify(LocalSettingsSchema.parse(settings), null, 2)
+  const parsed = LocalSettingsSchema.parse(settings)
+  // Dev userData overlay wins over settings-dev for most keys — but PhisonSSDdetected must follow
+  // settings-dev.json (repo). Omitting it here avoids persisting zod default false over repo true.
+  const payload =
+    !app.isPackaged && settingPath === getUserLocalSettingsPath()
+      ? Object.fromEntries(Object.entries(parsed).filter(([key]) => key !== 'PhisonSSDdetected'))
+      : parsed
+  const serialized = JSON.stringify(payload, null, 2)
   const tmpPath = `${settingPath}.${randomUUID()}.tmp`
   try {
     fs.mkdirSync(path.dirname(settingPath), { recursive: true })
@@ -411,16 +428,17 @@ async function loadSettings() {
     }
   } else {
     const defaultsPath = getDevSettingsDefaultsPath()
+    let devDefaultsRaw: Record<string, unknown> | null = null
     appLogger.info(`loading dev defaults from ${defaultsPath}`, 'electron-backend')
     if (fs.existsSync(defaultsPath)) {
       try {
-        const raw = JSON.parse(fs.readFileSync(defaultsPath, { encoding: 'utf8' }))
-        settings = LocalSettingsSchema.parse({ ...settings, ...raw })
+        devDefaultsRaw = JSON.parse(fs.readFileSync(defaultsPath, { encoding: 'utf8' }))
+        settings = LocalSettingsSchema.parse({ ...settings, ...devDefaultsRaw })
       } catch (e) {
         appLogger.error(`failed to load dev defaults: ${e}`, 'electron-backend')
       }
     }
-    const userPath = getWritableSettingsPath()
+    const userPath = getUserLocalSettingsPath()
     appLogger.info(`loading dev user settings from ${userPath}`, 'electron-backend')
     if (fs.existsSync(userPath)) {
       try {
@@ -429,6 +447,13 @@ async function loadSettings() {
       } catch (e) {
         appLogger.error(`failed to load dev user settings: ${e}`, 'electron-backend')
       }
+    }
+    // userData can contain stale PhisonSSDdetected: false from older persists; repo file wins.
+    if (devDefaultsRaw && 'PhisonSSDdetected' in devDefaultsRaw) {
+      settings = LocalSettingsSchema.parse({
+        ...settings,
+        PhisonSSDdetected: devDefaultsRaw.PhisonSSDdetected,
+      })
     }
   }
 
@@ -1139,6 +1164,41 @@ function initEventHandle() {
 
   ipcMain.handle('getComfyUiDefaultParameters', () => COMFYUI_DEFAULT_PARAMETERS)
   ipcMain.handle('getLlamaCppDefaultParameters', () => LLAMACPP_DEFAULT_PARAMETERS)
+
+  ipcMain.handle('detectPhisonSsd', async () => {
+    if (settings.PhisonSSDdetected) {
+      appLoggerInstance.info(
+        'detectPhisonSsd: returning true (PhisonSSDdetected in local settings)',
+        'electron-backend',
+      )
+      return { detected: true }
+    }
+    if (process.platform !== 'win32') {
+      return { detected: false }
+    }
+    try {
+      const { stdout } = await execAsync(
+        'powershell -NoProfile -Command "Get-PhysicalDisk | Select-Object DeviceId,FirmwareVersion | ConvertTo-Json -Compress"',
+        { timeout: 20000, windowsHide: true },
+      )
+      const trimmed = stdout.trim()
+      if (!trimmed) {
+        return { detected: false }
+      }
+      const parsed = JSON.parse(trimmed) as
+        | { FirmwareVersion?: string }
+        | Array<{ FirmwareVersion?: string }>
+      const disks = Array.isArray(parsed) ? parsed : [parsed]
+      const detected = disks.some((d) => {
+        const fw = d.FirmwareVersion
+        return typeof fw === 'string' && fw.toUpperCase().startsWith('EVFZ')
+      })
+      return { detected }
+    } catch (e) {
+      appLoggerInstance.warn(`detectPhisonSsd failed: ${e}`, 'electron-backend')
+      return { detected: false }
+    }
+  })
 
   ipcMain.handle('detectDevices', (_event: IpcMainInvokeEvent, serviceName: string) => {
     if (!serviceRegistry) {

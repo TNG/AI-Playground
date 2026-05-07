@@ -74,6 +74,11 @@ declare interface ApiServiceInformation {
   sttDevices?: InferenceDevice[]
   errorDetails: ErrorDetails | null
   installedVersion?: { version: string; releaseTag?: string }
+  /** Populated by llamacpp-backend: GGUF tree under llama-cpp/ */
+  llamaCppStandardArtifactReady?: boolean
+  llamaCppPhisonArtifactReady?: boolean
+  llamaCppStandardInstalledVersion?: { version: string; releaseTag?: string }
+  llamaCppPhisonInstalledVersion?: { version: string; releaseTag?: string }
 }
 
 // Declare ComfyUICustomNodeRepoId type

@@ -64,6 +64,8 @@ type LocalSettings = {
   huggingfaceEndpoint: string
   mcpAutoDetectionDismissed: string[]
   openvinoImageGenDevices: string[]
+  /** Dev unpackaged: set via settings-dev.json / userData overlay. */
+  PhisonSSDdetected?: boolean
 }
 
 type GpuHardwareDevice = {
@@ -237,6 +239,7 @@ type electronAPI = {
   wakeupComfyUIService(): void
   getComfyUiDefaultParameters(): Promise<string>
   getLlamaCppDefaultParameters(): Promise<string>
+  detectPhisonSsd(): Promise<{ detected: boolean }>
   getServices(): Promise<ApiServiceInformation[]>
   getBackendAuthToken(serviceName: string): Promise<string>
   updateServiceSettings(settings: ServiceSettings): Promise<BackendStatus>
@@ -689,6 +692,10 @@ type ApiServiceInformation = {
   sttDevices?: InferenceDevice[]
   errorDetails: ErrorDetails | null
   installedVersion?: { version: string; releaseTag?: string }
+  llamaCppStandardArtifactReady?: boolean
+  llamaCppPhisonArtifactReady?: boolean
+  llamaCppStandardInstalledVersion?: { version: string; releaseTag?: string }
+  llamaCppPhisonInstalledVersion?: { version: string; releaseTag?: string }
 }
 
 type StorageTarget = {

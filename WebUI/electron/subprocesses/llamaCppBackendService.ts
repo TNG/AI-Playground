@@ -376,7 +376,6 @@ export class LlamaCppBackendService implements ApiService {
 
       this.appLogger.info('Detecting devices using llama-server --list-devices', this.name)
 
-      // Execute llama-server.exe --list-devices
       const { stdout } = await execAsync(`"${this.getActiveLlamaCppExePath()}" --list-devices`, {
         cwd: this.getActiveLlamaCppDir(),
         env: {
@@ -385,7 +384,6 @@ export class LlamaCppBackendService implements ApiService {
         timeout: 10000, // 10 second timeout
       })
 
-      // Parse the output
       const availableDevices: Array<{ id: string; name: string }> = []
       const lines = stdout
         .split('\n')
@@ -400,25 +398,20 @@ export class LlamaCppBackendService implements ApiService {
         }
 
         if (foundDevicesSection && line.includes(':')) {
-          // Parse lines like "Vulkan0: Intel(R) Arc(TM) A750 Graphics (7824 MiB, 7824 MiB free)"
           const colonIndex = line.indexOf(':')
           if (colonIndex > 0) {
             let deviceId = line.substring(0, colonIndex).trim()
             const deviceInfo = line.substring(colonIndex + 1).trim()
 
-            // Strip "Vulkan" prefix from device ID (e.g., "Vulkan0" -> "0")
             if (deviceId.startsWith('Vulkan')) {
-              deviceId = deviceId.substring(6) // Remove "Vulkan" prefix
+              deviceId = deviceId.substring(6)
             }
 
-            // Extract just the device name (before the memory info in parentheses)
-            // Look for the last parenthesis that contains memory info like "(7824 MiB, 7824 MiB free)"
             const lastParenIndex = deviceInfo.lastIndexOf('(')
             let deviceName = deviceInfo
 
             if (lastParenIndex > 0) {
               const memoryInfo = deviceInfo.substring(lastParenIndex)
-              // Check if this parenthesis contains memory information (MiB, GiB, etc.)
               if (
                 memoryInfo.includes('MiB') ||
                 memoryInfo.includes('GiB') ||
@@ -441,14 +434,12 @@ export class LlamaCppBackendService implements ApiService {
         this.name,
       )
 
-      // Add AUTO option and set selection (select first Vulkan device if available, otherwise AUTO)
       this.devices = availableDevices.map((d, index) => ({
         ...d,
         selected: index === 0,
       }))
     } catch (error) {
       this.appLogger.error(`Failed to detect devices: ${error}`, this.name)
-      // Fallback to default device on error
       this.devices = [{ id: '0', name: 'Auto select device', selected: true }]
     }
     this.updateStatus()
@@ -1116,6 +1107,15 @@ export class LlamaCppBackendService implements ApiService {
     return 'stopped'
   }
 
+  /** Env only for on-demand llama-server processes (LLM / embedding). Phison build uses GGML_VK_DISABLE_F16. */
+  private llamaModelServerEnv(): NodeJS.ProcessEnv {
+    return {
+      ...process.env,
+      ...vulkanDeviceSelectorEnv(this.devices.find((d) => d.selected)?.id),
+      ...(this.llamaCppBuildVariant === 'ssd-offload' ? { GGML_VK_DISABLE_F16: '1' } : {}),
+    }
+  }
+
   // Model server management methods
   private async startLlamaLlmServer(
     modelRepoId: string,
@@ -1168,10 +1168,7 @@ export class LlamaCppBackendService implements ApiService {
       const childProcess = spawn(this.getActiveLlamaCppExePath(), args, {
         cwd: this.getActiveLlamaCppDir(),
         windowsHide: true,
-        env: {
-          ...process.env,
-          ...vulkanDeviceSelectorEnv(this.devices.find((d) => d.selected)?.id),
-        },
+        env: this.llamaModelServerEnv(),
       })
 
       const llamaProcess: LlamaServerProcess = {
@@ -1267,10 +1264,7 @@ export class LlamaCppBackendService implements ApiService {
       const childProcess = spawn(this.getActiveLlamaCppExePath(), args, {
         cwd: this.getActiveLlamaCppDir(),
         windowsHide: true,
-        env: {
-          ...process.env,
-          ...vulkanDeviceSelectorEnv(this.devices.find((d) => d.selected)?.id),
-        },
+        env: this.llamaModelServerEnv(),
       })
 
       const llamaProcess: LlamaServerProcess = {

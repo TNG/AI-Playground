@@ -377,13 +377,7 @@ function getWritableSettingsPath(): string {
 function persistLocalSettingsToDisk(): void {
   const settingPath = getWritableSettingsPath()
   const parsed = LocalSettingsSchema.parse(settings)
-  // Dev userData overlay wins over settings-dev for most keys — but PhisonSSDdetected must follow
-  // settings-dev.json (repo). Omitting it here avoids persisting zod default false over repo true.
-  const payload =
-    !app.isPackaged && settingPath === getUserLocalSettingsPath()
-      ? Object.fromEntries(Object.entries(parsed).filter(([key]) => key !== 'PhisonSSDdetected'))
-      : parsed
-  const serialized = JSON.stringify(payload, null, 2)
+  const serialized = JSON.stringify(parsed, null, 2)
   const tmpPath = `${settingPath}.${randomUUID()}.tmp`
   try {
     fs.mkdirSync(path.dirname(settingPath), { recursive: true })
@@ -448,11 +442,14 @@ async function loadSettings() {
         appLogger.error(`failed to load dev user settings: ${e}`, 'electron-backend')
       }
     }
-    // userData can contain stale PhisonSSDdetected: false from older persists; repo file wins.
-    if (devDefaultsRaw && 'PhisonSSDdetected' in devDefaultsRaw) {
+    // PhisonSSDdetected: true if userData *or* repo settings-dev says so. Repo true still beats
+    // stale userData false; userData true still works when repo has false (dev Phison UI without hardware).
+    if (devDefaultsRaw) {
+      const repoWantsPhison =
+        'PhisonSSDdetected' in devDefaultsRaw && Boolean(devDefaultsRaw.PhisonSSDdetected)
       settings = LocalSettingsSchema.parse({
         ...settings,
-        PhisonSSDdetected: devDefaultsRaw.PhisonSSDdetected,
+        PhisonSSDdetected: Boolean(settings.PhisonSSDdetected) || repoWantsPhison,
       })
     }
   }

@@ -31,6 +31,7 @@ import {
   net,
   OpenDialogSyncOptions,
   protocol,
+  safeStorage,
   screen,
   shell,
   utilityProcess,
@@ -38,6 +39,7 @@ import {
 } from 'electron'
 import path from 'node:path'
 import fs from 'fs'
+import https from 'node:https'
 import { exec } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import sudo from 'sudo-prompt'
@@ -53,6 +55,7 @@ import {
 } from './subprocesses/comfyUIBackendService'
 import { AiBackendService } from './subprocesses/aiBackendService'
 import { LLAMACPP_DEFAULT_PARAMETERS } from './subprocesses/llamaCppBackendService'
+import { HomeAgentBackendService } from './subprocesses/homeAgentBackendService'
 import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateIntelPresets.ts'
 import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
 import * as comfyuiTools from './subprocesses/comfyuiTools'
@@ -1243,6 +1246,16 @@ function initEventHandle() {
           `Backend ${serviceName} ready for LLM: ${llmModelName}, Embedding: ${embeddingModelName || 'none'}`,
           'electron-backend',
         )
+        // If home-agent is running, update its upstream URL
+        if (serviceRegistry) {
+          const homeAgent = serviceRegistry.getService('home-agent-backend') as HomeAgentBackendService | undefined
+          if (homeAgent && homeAgent.currentStatus === 'running') {
+            const upstreamService = serviceRegistry.getService(serviceName)
+            if (upstreamService?.baseUrl) {
+              void homeAgent.setUpstreamUrl(upstreamService.baseUrl)
+            }
+          }
+        }
         return { success: true }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
@@ -1254,6 +1267,146 @@ function initEventHandle() {
       }
     },
   )
+
+  // ── Home Agent config (safeStorage) ──────────────────────────────────────
+  const homeAgentConfigPath = () => path.join(app.getPath('userData'), 'home-agent-config.json')
+
+
+  async function detectChatIdWithToken(token: string): Promise<{ chatId: string } | { error: string }> {
+    try {
+      // Sanitize token — strip whitespace/newlines that can sneak in from copy-paste
+      const cleanToken = token.trim().replace(/\s+/g, '')
+      appLogger.info(`homeAgent:detectChatId token length=${cleanToken.length} preview="${cleanToken.slice(0, 10)}..."`, 'electron-backend')
+
+      // Validate token with getMe
+      const meResult = await httpsGet(`https://api.telegram.org/bot${cleanToken}/getMe`)
+      appLogger.info(`homeAgent:detectChatId getMe status=${meResult.status} body=${meResult.body.slice(0, 200)}`, 'electron-backend')
+      if (meResult.status !== 200) {
+        let msg = 'Invalid bot token. Copy it again from BotFather.'
+        try {
+          const parsed = JSON.parse(meResult.body) as { description?: string }
+          if (parsed.description) msg = `Telegram error: ${parsed.description}`
+        } catch { /* ignore */ }
+        return { error: `${msg} (token length: ${cleanToken.length})` }
+      }
+
+      // Don't call deleteWebhook here — if the Python bot is running it would cause a 409.
+      // Instead just poll once with offset=0 to read the latest update.
+      const updResult = await httpsGet(`https://api.telegram.org/bot${cleanToken}/getUpdates?limit=10&timeout=0`)
+      appLogger.info(`homeAgent:detectChatId getUpdates status=${updResult.status} body=${updResult.body.slice(0, 300)}`, 'electron-backend')
+      if (updResult.status !== 200) {
+        return { error: `Could not fetch updates: ${updResult.body}` }
+      }
+      const data = JSON.parse(updResult.body) as {
+        ok: boolean
+        result: Array<{ message?: { chat: { id: number } }; my_chat_member?: { chat: { id: number } } }>
+      }
+      if (!data.ok || data.result.length === 0) {
+        return { error: 'No messages received yet. Open your bot in Telegram, send it any message, then click Detect again.' }
+      }
+      const update = data.result[data.result.length - 1]
+      const id = update.message?.chat.id ?? update.my_chat_member?.chat.id
+      const chatId = id !== undefined ? String(id) : ''
+      if (!chatId) return { error: 'Could not extract chat ID. Please send a text message to your bot and try again.' }
+      return { chatId }
+    } catch (e) {
+      return { error: String(e) }
+    }
+  }
+
+  ipcMain.handle('homeAgent:saveConfig', async (_event, token: string, chatId: string) => {
+    try {
+      const cleanToken = token.trim().replace(/\s+/g, '')
+      const cleanChatId = chatId.trim()
+      const encrypted = safeStorage.encryptString(cleanToken)
+      const data = { encryptedToken: encrypted.toJSON(), chatId: cleanChatId }
+      fs.writeFileSync(homeAgentConfigPath(), JSON.stringify(data), 'utf-8')
+      return { success: true }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  })
+
+  ipcMain.handle('homeAgent:loadConfig', async () => {
+    try {
+      const raw = fs.readFileSync(homeAgentConfigPath(), 'utf-8')
+      const data = JSON.parse(raw) as { encryptedToken: { type: string; data: number[] }; chatId: string }
+      const buf = Buffer.from(data.encryptedToken.data)
+      const token = safeStorage.decryptString(buf)
+      return { token, chatId: data.chatId }
+    } catch {
+      return null
+    }
+  })
+
+  ipcMain.handle('homeAgent:clearConfig', async () => {
+    try {
+      fs.unlinkSync(homeAgentConfigPath())
+    } catch {
+      // ignore if not found
+    }
+  })
+
+  ipcMain.handle('homeAgent:testTelegram', async () => {
+    try {
+      const raw = fs.readFileSync(homeAgentConfigPath(), 'utf-8')
+      const data = JSON.parse(raw) as { encryptedToken: { type: string; data: number[] }; chatId: string }
+      const buf = Buffer.from(data.encryptedToken.data)
+      const token = safeStorage.decryptString(buf)
+      const { chatId } = data
+      const url = `https://api.telegram.org/bot${token}/sendMessage`
+      const result = await httpsPost(url, JSON.stringify({ chat_id: chatId, text: '✅ Home Agent is connected!' }))
+      if (result.status === 200) return { success: true }
+      return { success: false, error: result.body }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  })
+
+  ipcMain.handle('homeAgent:detectChatId', async (_event, token: string) => {
+    return detectChatIdWithToken(token)
+  })
+
+  ipcMain.handle('homeAgent:detectChatIdFromSaved', async () => {
+    try {
+      const raw = fs.readFileSync(homeAgentConfigPath(), 'utf-8')
+      const data = JSON.parse(raw) as { encryptedToken: { type: string; data: number[] }; chatId: string }
+      const buf = Buffer.from(data.encryptedToken.data)
+      const token = safeStorage.decryptString(buf)
+      return detectChatIdWithToken(token)
+    } catch (e) {
+      return { error: `Could not read saved config: ${String(e)}` }
+    }
+  })
+
+  ipcMain.handle('homeAgent:pollTelegram', async () => {
+    if (!serviceRegistry) return []
+    const service = serviceRegistry.getService('home-agent-backend')
+    if (!service || service.currentStatus !== 'running') return []
+    try {
+      const result = await httpsGetFromService(`${service.baseUrl}/poll-telegram`)
+      return JSON.parse(result) as Array<{ text: string; chat_id: string }>
+    } catch {
+      return []
+    }
+  })
+
+  ipcMain.handle('homeAgent:sendTelegramReply', async (_event, text: string) => {
+    if (!serviceRegistry) return { success: false, error: 'Service registry not ready' }
+    const service = serviceRegistry.getService('home-agent-backend')
+    if (!service || service.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }
+    try {
+      const url = `${service.baseUrl}/send-telegram-reply`
+      appLogger.info(`homeAgent:sendTelegramReply posting to ${url}: "${text.slice(0, 80)}"`, 'electron-backend')
+      const result = await httpsPost(url, JSON.stringify({ text }))
+      appLogger.info(`homeAgent:sendTelegramReply response: status=${result.status} body=${result.body}`, 'electron-backend')
+      if (result.status === 200) return { success: true }
+      return { success: false, error: result.body }
+    } catch (e) {
+      appLogger.error(`homeAgent:sendTelegramReply error: ${e}`, 'electron-backend')
+      return { success: false, error: String(e) }
+    }
+  })
 
   ipcMain.handle('ensureComfyUIBackendRunning', async () => {
     if (!serviceRegistry) {
@@ -1914,6 +2067,53 @@ function isAdmin(): boolean {
   } finally {
     lib.unload()
   }
+}
+
+import http from 'node:http'
+
+/** GET from a local http service (not https) */
+function httpsGetFromService(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    http.get(url, (res) => {
+      let body = ''
+      res.on('data', (chunk: Buffer) => { body += chunk.toString() })
+      res.on('end', () => resolve(body))
+    }).on('error', reject)
+  })
+}
+
+function httpsGet(url: string): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    https.get(url, (res) => {
+      let body = ''
+      res.on('data', (chunk: Buffer) => { body += chunk.toString() })
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body }))
+    }).on('error', reject)
+  })
+}
+
+function httpsPost(url: string, payload: string): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url)
+    const transport = parsed.protocol === 'https:' ? https : http
+    const req = (transport as typeof https).request(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+        path: parsed.pathname + parsed.search,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+      },
+      (res) => {
+        let body = ''
+        res.on('data', (chunk: Buffer) => { body += chunk.toString() })
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body }))
+      },
+    )
+    req.on('error', reject)
+    req.write(payload)
+    req.end()
+  })
 }
 
 app.whenReady().then(async () => {

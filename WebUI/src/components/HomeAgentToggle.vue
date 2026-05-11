@@ -12,7 +12,7 @@
     <button
       role="switch"
       :aria-checked="isHomeAgentActive"
-      :disabled="!isAvailable"
+      :disabled="!isAvailable || !isReadyToActivate"
       class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
       :class="isHomeAgentActive ? 'bg-primary' : 'bg-muted-foreground/40'"
       @click="toggle"
@@ -41,14 +41,18 @@ const homeAgent = useHomeAgent()
 
 const isHomeAgentActive = computed(() => homeAgent.isHomeAgentActive)
 const isAvailable = computed(() => homeAgent.isAvailable)
+const isTelegramConfigured = computed(() => homeAgent.isTelegramConfigured)
+const isReadyToActivate = computed(() => homeAgent.isReadyToActivate)
 
-const toggleTitle = computed(() =>
-  isAvailable.value
-    ? isHomeAgentActive.value
-      ? 'Switch back to AI Playground'
-      : 'Switch to Home Agent (chat only)'
-    : 'Home Agent is not installed. Install it from App Settings → Installation Management.',
-)
+const toggleTitle = computed(() => {
+  if (!isAvailable.value)
+    return 'Home Agent is not installed. Install it from App Settings → Installation Management.'
+  if (!isTelegramConfigured.value)
+    return 'Configure Telegram in Setup Wizard to enable Home Agent.'
+  if (!isReadyToActivate.value)
+    return 'Verify the Telegram connection in Setup Wizard to enable Home Agent.'
+  return isHomeAgentActive.value ? 'Switch back to AI Playground' : 'Switch to Home Agent (chat only)'
+})
 
 function toggle() {
   homeAgent.toggle()

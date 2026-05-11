@@ -136,15 +136,22 @@ function isVariantAvailable(variant: { requiresService?: string }): boolean {
   return info.status !== 'notInstalled'
 }
 
+// Variants are now grouped by `backend` (defaulting to 'comfyui'). The Backend dropdown
+// in SettingsWorkflow.vue picks which group is active; the quality radio here only shows
+// variants belonging to that group, then further filters by `requiresService` availability.
 const availableVariants = computed(() => {
   if (!selectedPreset.value?.variants) return []
-  return selectedPreset.value.variants.filter((v) => isVariantAvailable(v))
+  const presetName = selectedPreset.value.name
+  const activeBackend = presetsStore.getActiveBackend(presetName) ?? 'comfyui'
+  return selectedPreset.value.variants
+    .filter((v) => (v.backend ?? 'comfyui') === activeBackend)
+    .filter(isVariantAvailable)
 })
 
 const variantSelectorOptions = computed<VariantOption[]>(() => {
   return availableVariants.value.map((variant, index) => ({
     id: `variant-${index}`,
-    name: variant.name,
+    name: variant.displayName ?? variant.name,
     value: variant.name,
   }))
 })

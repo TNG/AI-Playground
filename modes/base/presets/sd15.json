@@ -134,7 +134,9 @@
       "overrides": {}
     },
     {
-      "name": "OpenVINO",
+      "name": "OpenVINO Standard",
+      "displayName": "Standard",
+      "backend": "openvino",
       "requiresService": "openvino-backend",
       "replaceWorkflow": true,
       "removeSettings": ["Negative Prompt"],
@@ -142,13 +144,6 @@
         "tags": ["OVMS", "OpenVINO", "512x512"],
         "description": "Generate images via an OpenAI-compatible image API served by OpenVINO Model Server",
         "extendedDescription": "Runs text-to-image through ComfyUI using a remote /v3/images/generations endpoint. For testing, run OVMS locally (default base URL http://127.0.0.1:8000/v3). Adjust the API base URL in settings when your server uses another port.",
-        "resolutionConfig": {
-          "megapixels": [
-            { "label": "0.26", "totalPixels": 262144 },
-            { "label": "0.5", "totalPixels": 495616 }
-          ],
-          "aspectRatios": ["1/1", "16/9", "9/16", "4/3", "3/4"]
-        },
         "requiredCustomNodes": [],
         "requiredPythonPackages": [],
         "requiredModels": [

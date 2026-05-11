@@ -9,6 +9,18 @@
 
     <TooltipProvider :delay-duration="200">
       <div class="flex flex-col gap-4">
+        <!-- Backend selector - only shown when the active preset declares variants for
+             multiple backends. Mirrors SettingsChat.vue's dropdown pattern. -->
+        <div v-if="!isBackendLocked" class="grid grid-cols-[120px_1fr] items-center gap-4">
+          <Label class="whitespace-nowrap">Backend</Label>
+          <drop-down-new
+            title="Select Backend"
+            :value="activeBackend"
+            :items="backendItems"
+            @change="handleBackendChange"
+          ></drop-down-new>
+        </div>
+
         <div class="grid grid-cols-[120px_1fr] items-center gap-4">
           <Label class="whitespace-nowrap">
             {{ languages.DEVICE }}
@@ -197,6 +209,7 @@ import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import DeviceSelector from '@/components/DeviceSelector.vue'
+import DropDownNew from '@/components/DropDownNew.vue'
 import RandomNumber from '@/components/RandomNumber.vue'
 import {
   backendToService,
@@ -205,6 +218,7 @@ import {
 import ComfyDynamic from '@/components/SettingsImageComfyDynamic.vue'
 import { usePresets } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
+import { useBackendServices } from '@/assets/js/store/backendServices'
 import * as toast from '@/assets/js/toast'
 import AspectRatioPicker from './AspectRatioPicker.vue'
 import PresetSelector from './PresetSelector.vue'
@@ -219,6 +233,20 @@ const _props = defineProps<Props>()
 const imageGeneration = useImageGenerationPresets()
 const presetsStore = usePresets()
 const presetSwitching = usePresetSwitching()
+const backendServices = useBackendServices()
+
+// Friendly labels for backends shown in the dropdown. Add more as new backend ids
+// (e.g. 'tensorrt') are introduced via variant.backend.
+const BACKEND_DISPLAY_NAME: Record<string, string> = {
+  comfyui: 'ComfyUI',
+  openvino: 'OpenVINO',
+}
+// Map backend id (as written on a variant) -> the underlying service whose running
+// state drives the green/grey dot in the dropdown. Mirrors backendToService for chat.
+const BACKEND_TO_SERVICE: Record<string, BackendServiceName | undefined> = {
+  comfyui: 'comfyui-backend',
+  openvino: 'openvino-backend',
+}
 
 async function openComfyUiInBrowser() {
   const result = await window.electronAPI.comfyui.openInBrowser()
@@ -264,6 +292,64 @@ async function handleVariantChange(presetName: string, variantName: string | nul
       skipModeSwitch: true,
     })
   }
+}
+
+// ---- Backend dropdown ------------------------------------------------------
+
+function isBackendServiceRunning(backend: string): boolean {
+  const serviceName = BACKEND_TO_SERVICE[backend]
+  if (!serviceName) return true // Unknown backend ids: don't gate on a service
+  return backendServices.info.find((item) => item.serviceName === serviceName)?.status === 'running'
+}
+
+// Hide a backend whose backing service is not installed at all (e.g. openvino-backend
+// on Linux). Mirrors the `requiresService` filter used for variants in PresetSelector.
+function isBackendInstalled(backend: string): boolean {
+  const serviceName = BACKEND_TO_SERVICE[backend]
+  if (!serviceName) return true
+  const info = backendServices.info.find((item) => item.serviceName === serviceName)
+  if (!info) return false
+  return info.status !== 'notInstalled'
+}
+
+const presetBackends = computed<string[]>(() => {
+  const name = presetsStore.activePresetName
+  if (!name) return []
+  return presetsStore.getDistinctBackendsForPreset(name).filter((backend) => {
+    // Always keep the default ComfyUI option even if its variants need an external
+    // service; the variants themselves are filtered by requiresService elsewhere.
+    // For non-default backends, hide entirely when the service isn't installed.
+    if (backend === 'comfyui') return true
+    return isBackendInstalled(backend)
+  })
+})
+
+const backendItems = computed(() =>
+  presetBackends.value.map((backend) => ({
+    label: BACKEND_DISPLAY_NAME[backend] ?? backend,
+    value: backend,
+    active: isBackendServiceRunning(backend),
+  })),
+)
+
+const isBackendLocked = computed(() => presetBackends.value.length <= 1)
+
+const activeBackend = computed<string>(() => {
+  const name = presetsStore.activePresetName
+  if (!name) return 'comfyui'
+  return presetsStore.getActiveBackend(name) ?? 'comfyui'
+})
+
+async function handleBackendChange(backend: string) {
+  const name = presetsStore.activePresetName
+  if (!name) return
+  if (backend === activeBackend.value) return
+  const variantName = presetsStore.pickInitialVariantForBackend(name, backend)
+  if (!variantName) return
+  await presetSwitching.switchPreset(name, {
+    variant: variantName,
+    skipModeSwitch: true,
+  })
 }
 
 const modifiableOrDisplayed = (settingName: string) =>

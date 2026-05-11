@@ -4,11 +4,11 @@ import z from 'zod'
 import { demoAwareStorage } from '../demoAwareStorage'
 
 const backends = [
-  'openvino-backend',
   'ai-backend',
-  'comfyui-backend',
-  'llamacpp-backend',
   'home-agent-backend',
+  'llamacpp-backend',
+  'openvino-backend',
+  'comfyui-backend',
 ] as const
 
 export type BackendServiceName = (typeof backends)[number]

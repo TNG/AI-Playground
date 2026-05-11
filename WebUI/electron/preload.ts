@@ -170,4 +170,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ) => ipcRenderer.invoke('mcp:updateServer', serverId, config),
     removeServer: (serverId: string) => ipcRenderer.invoke('mcp:removeServer', serverId),
   },
+  homeAgent: {
+    saveConfig: (token: string, chatId: string) =>
+      ipcRenderer.invoke('homeAgent:saveConfig', token, chatId),
+    loadConfig: () => ipcRenderer.invoke('homeAgent:loadConfig'),
+    clearConfig: () => ipcRenderer.invoke('homeAgent:clearConfig'),
+    testTelegram: () => ipcRenderer.invoke('homeAgent:testTelegram'),
+    detectChatId: (token: string) => ipcRenderer.invoke('homeAgent:detectChatId', token),
+    detectChatIdFromSaved: () => ipcRenderer.invoke('homeAgent:detectChatIdFromSaved'),
+    pollTelegram: () => ipcRenderer.invoke('homeAgent:pollTelegram'),
+    sendTelegramReply: (text: string) => ipcRenderer.invoke('homeAgent:sendTelegramReply', text),
+  },
 })

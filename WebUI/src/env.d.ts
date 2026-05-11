@@ -296,6 +296,16 @@ type electronAPI = {
     ): Promise<void>
     removeServer(serverId: string): Promise<void>
   }
+  homeAgent: {
+    saveConfig(token: string, chatId: string): Promise<{ success: boolean; error?: string }>
+    loadConfig(): Promise<{ token: string; chatId: string } | null>
+    clearConfig(): Promise<void>
+    testTelegram(): Promise<{ success: boolean; error?: string }>
+    detectChatId(token: string): Promise<{ chatId: string } | { error: string }>
+    detectChatIdFromSaved(): Promise<{ chatId: string } | { error: string }>
+    pollTelegram(): Promise<Array<{ text: string; chat_id: string }>>
+    sendTelegramReply(text: string): Promise<{ success: boolean; error?: string }>
+  }
 }
 
 type SetupProgress = {

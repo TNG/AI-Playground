@@ -84,6 +84,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   const installSelection = ref(new Set<BackendServiceName>())
   const disabledBackends = ref(new Set<BackendServiceName>())
   const wizardDirty = ref(false)
+  const wizardPage = ref<'main' | 'homeAgentSetup'>('main')
 
   const wizardActivity = ref(new Map<BackendServiceName, string>())
 
@@ -291,6 +292,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       null
     seedInstallSelection()
     wizardDirty.value = false
+    wizardPage.value = 'main'
     globalSetup.loadingState = 'setupWizard'
   }
 
@@ -392,6 +394,14 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       if (anyFailed) return
     }
 
+    const homeAgentEnabled = backendRows.value.find(
+      (r) => r.serviceName === 'home-agent-backend',
+    )?.enabled
+    if (homeAgentEnabled) {
+      wizardPage.value = 'homeAgentSetup'
+      return
+    }
+
     await dismiss()
     await syncPresetsForCurrentProductMode()
   }
@@ -483,6 +493,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     pendingProductMode,
     installSelection,
     wizardDirty,
+    wizardPage,
     backendRows,
     isBusy,
     rowsNeedingInstall,

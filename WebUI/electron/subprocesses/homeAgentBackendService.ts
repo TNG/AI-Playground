@@ -1,8 +1,9 @@
 import { ChildProcess, spawn } from 'node:child_process'
 import path from 'node:path'
+import fs from 'node:fs'
 import { GitService, LongLivedPythonApiService, createEnhancedErrorDetails } from './service.ts'
 import { aipgBaseDir, checkBackend, installBackend } from './uvBasedBackends/uv.ts'
-import { BrowserWindow } from 'electron'
+import { app, BrowserWindow, net, safeStorage } from 'electron'
 import { LocalSettings } from '../main.ts'
 
 export class HomeAgentBackendService extends LongLivedPythonApiService {
@@ -40,6 +41,31 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
   }
 
   async detectDevices() {}
+
+  async setUpstreamUrl(url: string): Promise<void> {
+    try {
+      await net.fetch(`${this.baseUrl}/set-upstream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      })
+    } catch (e) {
+      this.appLogger.warn(`Failed to set upstream URL for home-agent: ${e}`, this.name)
+    }
+  }
+
+  private readTelegramConfig(): { token: string; chatId: string } | null {
+    try {
+      const configPath = path.join(app.getPath('userData'), 'home-agent-config.json')
+      const raw = fs.readFileSync(configPath, 'utf-8')
+      const data = JSON.parse(raw) as { encryptedToken: { type: string; data: number[] }; chatId: string }
+      const buf = Buffer.from(data.encryptedToken.data)
+      const token = safeStorage.decryptString(buf)
+      return { token, chatId: data.chatId }
+    } catch {
+      return null
+    }
+  }
 
   async *set_up(): AsyncIterable<SetupProgress> {
     this.setStatus('installing')
@@ -104,7 +130,8 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
     didProcessExitEarlyTracker: Promise<boolean>
   }> {
     const pathSep = process.platform === 'win32' ? ';' : ':'
-    const additionalEnvVariables = {
+    const telegramConfig = this.readTelegramConfig()
+    const additionalEnvVariables: Record<string, string | undefined> = {
       VIRTUAL_ENV: this.pythonEnvDir,
       PATH: [
         path.join(this.pythonEnvDir, 'bin'),
@@ -116,6 +143,10 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       PYTHONNOUSERSITE: 'true',
       PYTHONIOENCODING: 'utf-8',
       PIP_CONFIG_FILE: 'nul',
+    }
+    if (telegramConfig) {
+      additionalEnvVariables['TELEGRAM_BOT_TOKEN'] = telegramConfig.token
+      additionalEnvVariables['TELEGRAM_CHAT_ID'] = telegramConfig.chatId
     }
 
     const pythonBinary = path.join(

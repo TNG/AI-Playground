@@ -7,6 +7,7 @@ import { Document } from '@langchain/classic/document'
 import { llmBackendTypes } from '@/types/shared'
 import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { usePresets, type ChatPreset } from './presets'
+import { useHomeAgent } from './homeAgent'
 
 const LlmBackendSchema = z.enum(llmBackendTypes)
 export type LlmBackend = z.infer<typeof LlmBackendSchema>
@@ -96,6 +97,7 @@ export const useTextInference = defineStore(
     const dialogStore = useDialogStore()
     const models = useModels()
     const presetsStore = usePresets()
+    const homeAgent = useHomeAgent()
     const backend = ref<LlmBackend>('llamaCPP')
     const ragList = ref<IndexedDocument[]>([])
     const defaultSystemPrompt = `You are a helpful AI assistant embedded in an application called AI Playground, developed by Intel.
@@ -358,11 +360,21 @@ export const useTextInference = defineStore(
     // Per-preset settings persistence
     const settingsPerPreset = ref<Record<string, Record<string, unknown>>>({})
 
-    const currentBackendUrl = computed(
-      () =>
-        backendServices.info.find((item) => item.serviceName === backendToService[backend.value])
-          ?.baseUrl,
-    )
+    const currentBackendUrl = computed(() => {
+      if (homeAgent.isHomeAgentActive && homeAgent.homeAgentBaseUrl) {
+        return homeAgent.homeAgentBaseUrl
+      }
+      return backendServices.info.find((item) => item.serviceName === backendToService[backend.value])
+        ?.baseUrl
+    })
+
+    // When Home Agent is active, the real inference backend URL to proxy through
+    const homeAgentUpstreamUrl = computed(() => {
+      if (!homeAgent.isHomeAgentActive) return undefined
+      return backendServices.info.find(
+        (item) => item.serviceName === backendToService[backend.value],
+      )?.baseUrl
+    })
 
     async function getDownloadParamsForCurrentModelIfRequired(type: 'llm' | 'embedding') {
       let model: string | undefined
@@ -830,6 +842,16 @@ export const useTextInference = defineStore(
           embeddingModelToSend,
           contextSize.value,
         )
+      }
+
+      // If Home Agent is active, also ensure it is running
+      if (homeAgent.isHomeAgentActive) {
+        const homeAgentInfo = backendServices.info.find(
+          (s) => s.serviceName === 'home-agent-backend',
+        )
+        if (homeAgentInfo && homeAgentInfo.isSetUp && homeAgentInfo.status !== 'running') {
+          await backendServices.startService('home-agent-backend')
+        }
       }
     }
 
@@ -1318,6 +1340,9 @@ export const useTextInference = defineStore(
       willUseRag,
       ragRetrievalInProgress: computed(() => ragRetrievalState.inProgress),
       lastRagResults: computed(() => ragRetrievalState.lastResults),
+
+      // Home Agent
+      homeAgentUpstreamUrl,
     }
   },
   {

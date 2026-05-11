@@ -13,6 +13,7 @@ import type { ErrorDetails } from '../../../../electron/subprocesses/service'
 
 const backends: BackendServiceName[] = [
   'ai-backend',
+  'home-agent-backend',
   'llamacpp-backend',
   'openvino-backend',
   'comfyui-backend',
@@ -55,6 +56,7 @@ const knownSteps: Record<BackendServiceName, string[]> = {
     'install builtin custom nodes',
     'install comfyUI manager',
   ],
+  'home-agent-backend': ['start', 'install dependencies'],
 }
 
 const stepDisplayNames: Record<string, string> = {
@@ -517,6 +519,8 @@ function mapServiceNameToDisplayName(serviceName: string) {
       return 'Llama.cpp - GGUF'
     case 'openvino-backend':
       return 'OpenVINO'
+    case 'home-agent-backend':
+      return 'Home Agent'
     default:
       return serviceName
   }

@@ -3,7 +3,13 @@ import { ref, computed, watch } from 'vue'
 import z from 'zod'
 import { demoAwareStorage } from '../demoAwareStorage'
 
-const backends = ['openvino-backend', 'ai-backend', 'comfyui-backend', 'llamacpp-backend'] as const
+const backends = [
+  'openvino-backend',
+  'ai-backend',
+  'comfyui-backend',
+  'llamacpp-backend',
+  'home-agent-backend',
+] as const
 
 export type BackendServiceName = (typeof backends)[number]
 
@@ -34,6 +40,7 @@ export const useBackendServices = defineStore(
       'comfyui-backend': null,
       'llamacpp-backend': null,
       'openvino-backend': null,
+      'home-agent-backend': null,
     })
 
     // User's version overrides (persisted)
@@ -73,6 +80,7 @@ export const useBackendServices = defineStore(
       'comfyui-backend': {},
       'llamacpp-backend': {},
       'openvino-backend': {},
+      'home-agent-backend': {},
     })
 
     // Sync persisted overrides into versionState on init

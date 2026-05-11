@@ -41,14 +41,11 @@ const homeAgent = useHomeAgent()
 
 const isHomeAgentActive = computed(() => homeAgent.isHomeAgentActive)
 const isAvailable = computed(() => homeAgent.isAvailable)
-const isTelegramConfigured = computed(() => homeAgent.isTelegramConfigured)
 const isReadyToActivate = computed(() => homeAgent.isReadyToActivate)
 
 const toggleTitle = computed(() => {
   if (!isAvailable.value)
     return 'Home Agent is not installed. Install it from App Settings → Installation Management.'
-  if (!isTelegramConfigured.value)
-    return 'Configure Telegram in Setup Wizard to enable Home Agent.'
   if (!isReadyToActivate.value)
     return 'Verify the Telegram connection in Setup Wizard to enable Home Agent.'
   return isHomeAgentActive.value ? 'Switch back to AI Playground' : 'Switch to Home Agent (chat only)'

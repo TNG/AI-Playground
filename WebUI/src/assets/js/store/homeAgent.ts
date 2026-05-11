@@ -18,17 +18,20 @@ export const useHomeAgent = defineStore(
     let _pollInterval: ReturnType<typeof setInterval> | null = null
     let _processing = false
 
-    // Load config from safeStorage via IPC on store init
+    // Load token from safeStorage (not persisted to disk for security).
+    // telegramChatId and telegramVerified ARE persisted, so they are already
+    // populated synchronously before this resolves.
     window.electronAPI.homeAgent.loadConfig().then((cfg) => {
       if (cfg) {
         telegramToken.value = cfg.token
         telegramChatId.value = cfg.chatId
       } else {
-        // No config saved — ensure we're not stuck active
-        telegramToken.value = null
-        telegramChatId.value = null
-        telegramVerified.value = false
-        isHomeAgentActive.value = false
+        // No config in safeStorage — clear everything only if nothing was persisted
+        if (!telegramVerified.value) {
+          telegramToken.value = null
+          telegramChatId.value = null
+          isHomeAgentActive.value = false
+        }
       }
     })
 
@@ -36,9 +39,11 @@ export const useHomeAgent = defineStore(
       () => !!telegramToken.value && !!telegramChatId.value,
     )
 
-    const isReadyToActivate = computed(
-      () => isTelegramConfigured.value && telegramVerified.value,
-    )
+    // "Ready to activate" = previously verified. telegramVerified is persisted,
+    // so this is true immediately on startup if the user verified in a previous run.
+    // We do NOT gate on isTelegramConfigured here — that would require the async
+    // safeStorage load to complete before the toggle becomes enabled.
+    const isReadyToActivate = computed(() => telegramVerified.value)
 
     const isAvailable = computed(
       () =>
@@ -49,29 +54,24 @@ export const useHomeAgent = defineStore(
       () => backendServices.info.find((s) => s.serviceName === 'home-agent-backend')?.baseUrl,
     )
 
-    // Auto-activate when the service becomes available and Telegram is verified
+    // When the backend becomes available and Telegram has been verified, auto-activate.
     watch(isAvailable, (val) => {
       if (val && isReadyToActivate.value) {
         isHomeAgentActive.value = true
       }
-    })
-
-    // Deactivate if prerequisites are lost AFTER init (config cleared, verification reset)
-    // immediate:false so we don't fire before loadConfig resolves
-    watch(isReadyToActivate, (val, oldVal) => {
-      if (oldVal === true && val === false) {
-        // Was ready, now not — deactivate
+      if (!val) {
         isHomeAgentActive.value = false
       }
-      if (val === true && isAvailable.value) {
-        // Became ready (e.g. loadConfig resolved) — restore active state if it was persisted
-        // The persisted isHomeAgentActive will already be true if it was before restart;
-        // if somehow it got cleared, re-activate now
-        if (!isHomeAgentActive.value) {
-          isHomeAgentActive.value = true
-        }
+    })
+
+    // When verification state changes, sync active state.
+    watch(isReadyToActivate, (val) => {
+      if (!val) {
+        isHomeAgentActive.value = false
+      } else if (isAvailable.value) {
+        isHomeAgentActive.value = true
       }
-    }, { immediate: false })
+    })
 
     // Start/stop Telegram polling when active state changes
     watch(isHomeAgentActive, (val) => {
@@ -92,9 +92,7 @@ export const useHomeAgent = defineStore(
         const chatStore = useOpenAiCompatibleChat()
         for (const msg of msgs) {
           try {
-            // generate() handles the full LLM inference and appends messages to the chat UI
             await chatStore.generate(msg.text)
-            // Get the last assistant message and send reply back to Telegram
             const allMessages = chatStore.messages
             console.log('[HomeAgent] messages after generate:', allMessages?.length, allMessages?.map(m => m.role))
             if (allMessages && allMessages.length > 0) {
@@ -140,11 +138,15 @@ export const useHomeAgent = defineStore(
     async function saveConfig(token: string, chatId: string) {
       const result = await window.electronAPI.homeAgent.saveConfig(token, chatId)
       if (result.success) {
+        const configChanged =
+          token !== telegramToken.value || chatId !== telegramChatId.value
         telegramToken.value = token
         telegramChatId.value = chatId
-        // Reset verified when config changes — must re-verify
-        telegramVerified.value = false
-        isHomeAgentActive.value = false
+        // Reset verified only when credentials actually change — must re-verify
+        if (configChanged) {
+          telegramVerified.value = false
+          isHomeAgentActive.value = false
+        }
       }
       return result
     }
@@ -206,7 +208,10 @@ export const useHomeAgent = defineStore(
   {
     persist: {
       storage: demoAwareStorage,
-      pick: ['isHomeAgentActive', 'telegramVerified'],
+      // telegramChatId persisted (non-sensitive) for display purposes.
+      // telegramVerified persisted — this is the key flag for "ready to activate".
+      // telegramToken NOT persisted — lives only in safeStorage.
+      pick: ['isHomeAgentActive', 'telegramVerified', 'telegramChatId'],
     },
   },
 )

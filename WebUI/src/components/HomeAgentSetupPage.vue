@@ -123,7 +123,7 @@
                   class="text-xs py-1.5 px-3 rounded bg-primary text-primary-foreground disabled:opacity-40 transition-colors"
                   @click="runDetectChatId"
                 >
-                  <span v-if="detectStatus === 'loading'">Detecting…</span>
+                  <span v-if="detectStatus === 'loading'">{{ detectError ? 'Waiting…' : 'Detecting…' }}</span>
                   <span v-else>Detect</span>
                 </button>
                 <span v-if="detectedChatId" class="text-xs text-green-500">
@@ -222,6 +222,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
+import { useConversations } from '@/assets/js/store/conversations'
 
 const emit = defineEmits<{
   back: []
@@ -229,6 +230,7 @@ const emit = defineEmits<{
 }>()
 
 const homeAgent = useHomeAgent()
+const conversations = useConversations()
 
 const tokenInput = ref('')
 const showToken = ref(false)
@@ -263,21 +265,44 @@ async function runDetectChatId() {
   detectError.value = ''
   let result: { chatId: string } | { error: string }
   if (tokenInput.value) {
-    result = await window.electronAPI.homeAgent.detectChatId(tokenInput.value)
+    // Inject token into running backend so it can start polling (if not already)
+    await window.electronAPI.homeAgent.injectToken(tokenInput.value)
+    // Poll /get-chat-id for up to 30s waiting for a message to arrive
+    result = await pollForChatId(tokenInput.value)
   } else {
-    // Token already saved — use the variant that reads from safeStorage
     result = await window.electronAPI.homeAgent.detectChatIdFromSaved()
   }
   if ('chatId' in result) {
     detectedChatId.value = result.chatId
     detectStatus.value = 'idle'
+    // Discard the message(s) used for detection so they aren't replayed as prompts
+    await window.electronAPI.homeAgent.flushPending()
   } else {
     detectStatus.value = 'error'
     detectError.value = result.error
   }
 }
 
-function openBotInTelegram() {
+async function pollForChatId(token: string): Promise<{ chatId: string } | { error: string }> {
+  // First try immediately (chat ID may already be in backend memory/file)
+  const quick = await window.electronAPI.homeAgent.detectChatId(token)
+  if ('chatId' in quick) return quick
+
+  // Not found yet — tell user to send a message and poll for up to 5s
+  detectError.value = 'Waiting for a message… Open your bot in Telegram and send any message.'
+  const deadline = Date.now() + 5_000
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 2000))
+    const r = await window.electronAPI.homeAgent.detectChatId(token)
+    if ('chatId' in r) {
+      detectError.value = ''
+      return r
+    }
+  }
+  return { error: 'Timed out waiting for a message. Make sure the bot is running and send any message to it, then click Detect again.' }
+}
+
+async function openBotInTelegram() {
   window.electronAPI.openUrl('https://t.me/')
 }
 
@@ -307,8 +332,17 @@ async function saveAndContinue() {
   const token = tokenInput.value
   const chatId = detectedChatId.value || homeAgent.telegramChatId || ''
   if (token && chatId) {
+    // Preserve verified state across the save — if the user already verified
+    // (either in this session or a previous one), keep it true.
+    const wasVerified = homeAgent.telegramVerified
     await homeAgent.saveConfig(token, chatId)
+    if (wasVerified) {
+      homeAgent.setVerified()
+    }
   }
+  // Clear the active conversation so the message sent during detection
+  // isn't picked up as the first user prompt in Home Agent mode.
+  conversations.addNewConversation()
   emit('done')
 }
 

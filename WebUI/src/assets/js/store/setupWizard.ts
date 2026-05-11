@@ -7,6 +7,7 @@ import { usePresets } from './presets'
 import { usePresetSwitching } from './presetSwitching'
 import { useSpeechToText } from './speechToText'
 import { useDemoMode } from './demoMode'
+import { useHomeAgent } from './homeAgent'
 import { mapStatusToColor, mapToDisplayStatus } from '@/lib/utils'
 import * as toast from '@/assets/js/toast'
 import type { ErrorDetails } from '../../../../electron/subprocesses/service'
@@ -260,6 +261,11 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       if (info?.status === 'running') {
         await backendServices.stopService(serviceName)
       }
+      // Clear Home Agent Telegram config when the BE is toggled off
+      if (serviceName === 'home-agent-backend') {
+        const homeAgent = useHomeAgent()
+        await homeAgent.clearConfig()
+      }
     }
     installSelection.value = new Set(installSelection.value)
   }
@@ -422,6 +428,11 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     if (stopStatus !== 'stopped') {
       toast.error('Service failed to stop')
       return
+    }
+    // Clear Home Agent Telegram config on reinstall so user must re-verify
+    if (name === 'home-agent-backend') {
+      const homeAgent = useHomeAgent()
+      await homeAgent.clearConfig()
     }
     await installBackend(name)
   }

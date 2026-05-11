@@ -554,6 +554,10 @@ function getTextAreaPlaceholder() {
 }
 
 function handleSubmitPromptClick() {
+  if (!prompt.value.trim()) {
+    toast.error(languages?.COM_ERROR_NO_MESSAGE || 'Please enter a message before sending.')
+    return
+  }
   emits('autoHideFooter')
   promptStore.submitPrompt(prompt.value)
 }

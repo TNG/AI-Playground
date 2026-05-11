@@ -61,7 +61,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       const data = JSON.parse(raw) as { encryptedToken: { type: string; data: number[] }; chatId: string }
       const buf = Buffer.from(data.encryptedToken.data)
       const token = safeStorage.decryptString(buf)
-      return { token, chatId: data.chatId }
+      return { token, chatId: data.chatId ?? '' }
     } catch {
       return null
     }
@@ -144,9 +144,11 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       PYTHONIOENCODING: 'utf-8',
       PIP_CONFIG_FILE: 'nul',
     }
-    if (telegramConfig) {
+    if (telegramConfig?.token) {
       additionalEnvVariables['TELEGRAM_BOT_TOKEN'] = telegramConfig.token
-      additionalEnvVariables['TELEGRAM_CHAT_ID'] = telegramConfig.chatId
+      if (telegramConfig.chatId) {
+        additionalEnvVariables['TELEGRAM_CHAT_ID'] = telegramConfig.chatId
+      }
     }
 
     const pythonBinary = path.join(

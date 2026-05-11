@@ -1213,9 +1213,8 @@ function initEventHandle() {
   const homeAgentConfigPath = () => path.join(app.getPath('userData'), 'home-agent-config.json')
 
 
-  async function detectChatIdWithToken(token: string): Promise<{ chatId: string } | { error: string }> {
+  async function detectChatIdWithToken(token: string, serviceBaseUrl?: string): Promise<{ chatId: string } | { error: string }> {
     try {
-      // Sanitize token — strip whitespace/newlines that can sneak in from copy-paste
       const cleanToken = token.trim().replace(/\s+/g, '')
       appLogger.info(`homeAgent:detectChatId token length=${cleanToken.length} preview="${cleanToken.slice(0, 10)}..."`, 'electron-backend')
 
@@ -1231,25 +1230,17 @@ function initEventHandle() {
         return { error: `${msg} (token length: ${cleanToken.length})` }
       }
 
-      // Don't call deleteWebhook here — if the Python bot is running it would cause a 409.
-      // Instead just poll once with offset=0 to read the latest update.
-      const updResult = await httpsGet(`https://api.telegram.org/bot${cleanToken}/getUpdates?limit=10&timeout=0`)
-      appLogger.info(`homeAgent:detectChatId getUpdates status=${updResult.status} body=${updResult.body.slice(0, 300)}`, 'electron-backend')
-      if (updResult.status !== 200) {
-        return { error: `Could not fetch updates: ${updResult.body}` }
+      // Ask the backend — it has the chat ID from the bot's polling (memory or .chat_id file)
+      if (serviceBaseUrl) {
+        try {
+          const body = await httpsGetFromService(`${serviceBaseUrl}/get-chat-id`)
+          const data = JSON.parse(body) as { chatId?: string; error?: string }
+          appLogger.info(`homeAgent:detectChatId /get-chat-id returned: ${body.slice(0, 100)}`, 'electron-backend')
+          if (data.chatId) return { chatId: data.chatId }
+        } catch { /* fall through */ }
       }
-      const data = JSON.parse(updResult.body) as {
-        ok: boolean
-        result: Array<{ message?: { chat: { id: number } }; my_chat_member?: { chat: { id: number } } }>
-      }
-      if (!data.ok || data.result.length === 0) {
-        return { error: 'No messages received yet. Open your bot in Telegram, send it any message, then click Detect again.' }
-      }
-      const update = data.result[data.result.length - 1]
-      const id = update.message?.chat.id ?? update.my_chat_member?.chat.id
-      const chatId = id !== undefined ? String(id) : ''
-      if (!chatId) return { error: 'Could not extract chat ID. Please send a text message to your bot and try again.' }
-      return { chatId }
+
+      return { error: 'No messages received yet. Send any message to your bot, then try again.' }
     } catch (e) {
       return { error: String(e) }
     }
@@ -1304,20 +1295,69 @@ function initEventHandle() {
     }
   })
 
+  ipcMain.handle('homeAgent:injectToken', async (_event, token: string) => {
+    if (!serviceRegistry) return { status: 'no_registry' }
+    const service = serviceRegistry.getService('home-agent-backend')
+    if (!service || service.currentStatus !== 'running') return { status: 'not_running' }
+    try {
+      const clean = token.trim().replace(/\s+/g, '')
+      const result = await httpsPost(`${service.baseUrl}/set-telegram-token`, JSON.stringify({ token: clean }))
+      return { status: JSON.parse(result.body)?.status ?? 'ok' }
+    } catch (e) {
+      return { status: `error: ${e}` }
+    }
+  })
+
   ipcMain.handle('homeAgent:detectChatId', async (_event, token: string) => {
-    return detectChatIdWithToken(token)
+    let serviceBaseUrl: string | undefined
+    if (serviceRegistry) {
+      const svc = serviceRegistry.getService('home-agent-backend')
+      if (svc?.currentStatus === 'running') {
+        serviceBaseUrl = svc.baseUrl
+        // Try /get-chat-id first (fastest — no polling conflict)
+        try {
+          const body = await httpsGetFromService(`${serviceBaseUrl}/get-chat-id`)
+          const data = JSON.parse(body) as { chatId?: string; error?: string }
+          if (data.chatId) return { chatId: data.chatId }
+        } catch { /* fall through */ }
+      }
+    }
+    return detectChatIdWithToken(token, serviceBaseUrl)
   })
 
   ipcMain.handle('homeAgent:detectChatIdFromSaved', async () => {
+    let serviceBaseUrl: string | undefined
+    if (serviceRegistry) {
+      const svc = serviceRegistry.getService('home-agent-backend')
+      if (svc?.currentStatus === 'running') {
+        serviceBaseUrl = svc.baseUrl
+        // Try /get-chat-id first
+        try {
+          const body = await httpsGetFromService(`${serviceBaseUrl}/get-chat-id`)
+          const data = JSON.parse(body) as { chatId?: string; error?: string }
+          if (data.chatId) return { chatId: data.chatId }
+        } catch { /* fall through */ }
+      }
+    }
+    // Fall back to decrypting saved token and calling getUpdates (with pause/resume)
     try {
       const raw = fs.readFileSync(homeAgentConfigPath(), 'utf-8')
       const data = JSON.parse(raw) as { encryptedToken: { type: string; data: number[] }; chatId: string }
       const buf = Buffer.from(data.encryptedToken.data)
       const token = safeStorage.decryptString(buf)
-      return detectChatIdWithToken(token)
+      return detectChatIdWithToken(token, serviceBaseUrl)
     } catch (e) {
       return { error: `Could not read saved config: ${String(e)}` }
     }
+  })
+
+  ipcMain.handle('homeAgent:flushPending', async () => {
+    if (!serviceRegistry) return
+    const service = serviceRegistry.getService('home-agent-backend')
+    if (!service || service.currentStatus !== 'running') return
+    try {
+      await httpsPost(`${service.baseUrl}/flush-pending`, '{}')
+    } catch { /* ignore */ }
   })
 
   ipcMain.handle('homeAgent:pollTelegram', async () => {

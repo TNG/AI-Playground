@@ -612,7 +612,12 @@ type CheckModelAlreadyLoadedResult = {
   already_loaded: boolean
 } & CheckModelAlreadyLoadedParameters
 
-type BackendServiceName = 'ai-backend' | 'comfyui-backend' | 'llamacpp-backend' | 'openvino-backend'
+type BackendServiceName =
+  | 'ai-backend'
+  | 'comfyui-backend'
+  | 'llamacpp-backend'
+  | 'openvino-backend'
+  | 'home-agent-backend'
 
 type InferenceDevice = {
   id: string

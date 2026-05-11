@@ -98,6 +98,8 @@ export function mapServiceNameToDisplayName(serviceName: string) {
       return 'Llama.cpp - GGUF'
     case 'openvino-backend':
       return 'OpenVINO'
+    case 'home-agent-backend':
+      return 'Home Agent'
     default:
       return serviceName
   }

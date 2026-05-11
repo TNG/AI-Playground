@@ -14,7 +14,7 @@
     class="main-title text-2xl font-bold flex justify-between items-center px-4 border-b border-border/20 text-foreground bg-background/20"
     :class="{ 'bg-muted/50': theme.active === 'light' }"
   >
-    <div class="flex items-center">
+    <div class="flex items-center gap-4">
       <h1 class="select-none flex gap-2 items-baseline">
         <span class="text-[#00c4fa]">AI</span>
         <span>PLAYGROUND</span>
@@ -28,6 +28,10 @@
       <DemoModeIndicator />
     </div>
     <div class="flex justify-between items-center gap-5">
+      <HomeAgentToggle
+        v-if="globalSetup.loadingState === 'running' && promptStore.getCurrentMode() === 'chat'"
+        class="self-center"
+      />
       <button
         v-if="debugToolsEnabled"
         :title="languages.COM_SETTINGS"
@@ -165,7 +169,7 @@
     <SideModalAppSettings :isVisible="showAppSettings" @close="showAppSettings = false" />
 
     <div class="flex-1 flex flex-col relative justify-center min-h-0">
-      <div class="fixed top-18 left-4 z-5">
+      <div class="fixed top-18 left-4 z-5 flex flex-col gap-2">
         <button
           id="show-history-button"
           v-show="!uiStore.showHistory"
@@ -325,6 +329,7 @@ import DemoModeOverlayDriverJsRef from './components/DemoModeOverlayDriverJs.vue
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import DemoModeNotificationDots from '@/components/DemoModeNotificationDots.vue'
 import DemoModeAutoresetDialog from '@/components/DemoModeAutoresetDialog.vue'
+import HomeAgentToggle from '@/components/HomeAgentToggle.vue'
 
 const theme = useTheme()
 const globalSetup = useGlobalSetup()

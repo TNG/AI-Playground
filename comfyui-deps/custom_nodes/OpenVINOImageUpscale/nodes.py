@@ -1,3 +1,18 @@
+"""ComfyUI node: OpenVINO image upscale via in-process OpenVINO runtime.
+
+Default model: RealESRGAN_x4plus (4x). Weights are read from the existing
+`Comfy-Org/Real-ESRGAN_repackaged/RealESRGAN_x4plus.safetensors` upscale
+model (no separate download), converted to OpenVINO IR with a dynamic
+NCHW shape on first use, and cached to disk. Inference is tile-based so
+arbitrarily large inputs do not OOM.
+
+If a path to a prebuilt OpenVINO `.xml` (or .onnx) is given, that is
+loaded directly.
+"""
+
+from __future__ import annotations
+
+import hashlib
 import logging
 import os
 from pathlib import Path
@@ -9,13 +24,22 @@ from PIL import Image
 try:
     import openvino as ov
 except ImportError:  # pragma: no cover - exercised at runtime in ComfyUI
-    ov = None
+    ov = None  # type: ignore[assignment]
 
 log = logging.getLogger("OpenVINOImageUpscale")
 
 MODEL_ROOT_ENV = "AIPG_OPENVINO_IMAGE_MODELS"
-PREFERRED_MODEL_SUFFIXES = (".xml", ".onnx")
+PREBUILT_MODEL_SUFFIXES = (".xml", ".onnx")
+WEIGHTS_SUFFIXES = (".safetensors", ".pth", ".bin")
+RRDBNET_X4PLUS_TAG = "rrdbnet_x4plus_v1"
+DEFAULT_TILE_SIZE = 512
+TILE_OVERLAP = 32
+MODEL_SCALE = 4
+
 _COMPILED_MODEL_CACHE: dict[tuple[str, str], "ov.CompiledModel"] = {}
+
+
+# --- I/O helpers -----------------------------------------------------------
 
 
 def _tensor_image_to_pil(image: torch.Tensor) -> Image.Image:
@@ -34,24 +58,46 @@ def _pil_to_tensor(image: Image.Image) -> torch.Tensor:
     return torch.from_numpy(array).unsqueeze(0)
 
 
+# --- Model file resolution -------------------------------------------------
+
+
 def _normalize_model_reference(model_ref: str) -> str:
     return model_ref.replace("\\", os.sep).replace("/", os.sep).strip()
 
 
 def _candidate_model_roots() -> list[Path]:
+    """Search roots for `model_path` strings that are not absolute.
+
+    Order: env var -> ComfyUI's `upscale_models` folder (via `folder_paths`)
+    -> local `models/openvino-image` and `models/upscale` siblings.
+    """
     roots: list[Path] = []
+
     env_root = os.environ.get(MODEL_ROOT_ENV)
     if env_root:
         roots.append(Path(env_root).expanduser())
 
+    try:  # pragma: no cover - only available inside ComfyUI
+        import folder_paths  # type: ignore[import-not-found]
+
+        for root in folder_paths.get_folder_paths("upscale_models"):
+            roots.append(Path(root))
+    except Exception:
+        pass
+
     here = Path(__file__).resolve()
     for parent in [here.parent, *here.parents]:
         roots.append(parent / "models" / "openvino-image")
+        roots.append(parent / "models" / "upscale")
+        roots.append(parent / "models" / "ComfyUI" / "upscale_models")
 
     unique_roots: list[Path] = []
     seen: set[Path] = set()
     for root in roots:
-        resolved = root.resolve()
+        try:
+            resolved = root.resolve()
+        except OSError:
+            continue
         if resolved in seen or not resolved.exists():
             continue
         seen.add(resolved)
@@ -59,9 +105,9 @@ def _candidate_model_roots() -> list[Path]:
     return unique_roots
 
 
-def _pick_model_file(directory: Path) -> Path | None:
+def _pick_first_match(directory: Path, suffixes: tuple[str, ...]) -> Path | None:
     files = [path for path in directory.rglob("*") if path.is_file()]
-    for suffix in PREFERRED_MODEL_SUFFIXES:
+    for suffix in suffixes:
         matches = [path for path in files if path.suffix.lower() == suffix]
         if matches:
             return sorted(matches, key=lambda path: (len(path.parts), str(path)))[0]
@@ -69,6 +115,13 @@ def _pick_model_file(directory: Path) -> Path | None:
 
 
 def _resolve_model_file(model_ref: str) -> Path:
+    """Resolve a workflow `model_path` string into an absolute file path.
+
+    Accepts absolute paths, ComfyUI-style relative references like
+    `Comfy-Org---Real-ESRGAN_repackaged/RealESRGAN_x4plus.safetensors`,
+    and bare directory references (in which case the first matching IR
+    or weights file inside is used).
+    """
     normalized_ref = _normalize_model_reference(model_ref)
     if not normalized_ref:
         raise RuntimeError("OpenVINO upscale model path is empty")
@@ -78,11 +131,28 @@ def _resolve_model_file(model_ref: str) -> Path:
         if raw_path.is_file():
             return raw_path
         if raw_path.is_dir():
-            file_path = _pick_model_file(raw_path)
-            if file_path:
-                return file_path
+            picked = _pick_first_match(raw_path, PREBUILT_MODEL_SUFFIXES + WEIGHTS_SUFFIXES)
+            if picked:
+                return picked
         raise RuntimeError(f"OpenVINO upscale model path does not exist: {raw_path}")
 
+    # ComfyUI's `folder_paths.get_full_path` understands forward-slash style refs
+    # under a registered folder type and respects extra_model_paths.yaml.
+    try:  # pragma: no cover - only available inside ComfyUI
+        import folder_paths  # type: ignore[import-not-found]
+
+        forward_ref = normalized_ref.replace(os.sep, "/")
+        resolved = folder_paths.get_full_path("upscale_models", forward_ref)
+        if resolved:
+            resolved_path = Path(resolved)
+            if resolved_path.is_file():
+                return resolved_path
+    except Exception:
+        pass
+
+    # Some shipped paths use `repo---name/file` (Comfy-Org repackaged style)
+    # but the on-disk layout flips the first two segments to a `repo/name`
+    # layout. Try both.
     repo_style_path = raw_path
     repo_parts = normalized_ref.replace("\\", "/").split("/")
     if len(repo_parts) >= 2 and "---" not in repo_parts[0]:
@@ -94,9 +164,11 @@ def _resolve_model_file(model_ref: str) -> Path:
             if candidate.is_file():
                 return candidate
             if candidate.is_dir():
-                file_path = _pick_model_file(candidate)
-                if file_path:
-                    return file_path
+                picked = _pick_first_match(
+                    candidate, PREBUILT_MODEL_SUFFIXES + WEIGHTS_SUFFIXES
+                )
+                if picked:
+                    return picked
 
     searched_roots = ", ".join(str(root) for root in _candidate_model_roots()) or "(none)"
     raise RuntimeError(
@@ -104,12 +176,75 @@ def _resolve_model_file(model_ref: str) -> Path:
     )
 
 
+# --- IR cache (PyTorch weights -> OpenVINO IR) -----------------------------
+
+
+def _ir_cache_root() -> Path:
+    env_root = os.environ.get(MODEL_ROOT_ENV)
+    if env_root:
+        return Path(env_root).expanduser() / "_ir_cache"
+    # Best-effort fallback: sibling of the package directory
+    return Path(__file__).resolve().parent / "_ir_cache"
+
+
+def _hash_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fp:
+        for chunk in iter(lambda: fp.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _is_prebuilt_ir(path: Path) -> bool:
+    return path.suffix.lower() in PREBUILT_MODEL_SUFFIXES
+
+
+def _convert_weights_to_ir(weights_path: Path) -> Path:
+    """Convert RealESRGAN_x4plus weights to OpenVINO IR and cache it on disk.
+
+    Cache key = sha256(weights file bytes) + arch tag. Re-conversion on a
+    second machine is idempotent and bit-for-bit reproducible per (weights,
+    arch).
+    """
+    if ov is None:  # pragma: no cover - guarded by callers
+        raise RuntimeError("OpenVINO Python package is not installed in the ComfyUI environment.")
+
+    from .rrdbnet import load_rrdbnet_x4plus
+
+    digest = _hash_file(weights_path)
+    cache_dir = _ir_cache_root() / RRDBNET_X4PLUS_TAG / digest
+    xml_path = cache_dir / "model.xml"
+    bin_path = cache_dir / "model.bin"
+    if xml_path.is_file() and bin_path.is_file():
+        return xml_path
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    log.info("Converting %s to OpenVINO IR (cache: %s)", weights_path, cache_dir)
+
+    net = load_rrdbnet_x4plus(str(weights_path))
+    net.eval()
+
+    example = torch.randn(1, 3, 64, 64)
+    with torch.no_grad():
+        ov_model = ov.convert_model(
+            net,
+            example_input=example,
+            input=[ov.PartialShape([-1, 3, -1, -1])],
+        )
+    ov.save_model(ov_model, str(xml_path), compress_to_fp16=True)
+    log.info("Saved OpenVINO IR to %s", xml_path)
+    return xml_path
+
+
+# --- Compile + run ---------------------------------------------------------
+
+
 def _normalize_device_name(device: str) -> str:
     value = str(device).strip().upper()
     return value or "AUTO"
 
 
-def _load_compiled_model(model_ref: str, device: str):
+def _load_compiled_model(model_ref: str, device: str) -> "ov.CompiledModel":
     if ov is None:
         raise RuntimeError(
             "OpenVINO Python package is not installed in the ComfyUI environment. "
@@ -117,90 +252,105 @@ def _load_compiled_model(model_ref: str, device: str):
         )
 
     device_name = _normalize_device_name(device)
-    model_path = _resolve_model_file(model_ref)
-    cache_key = (str(model_path), device_name)
+    resolved = _resolve_model_file(model_ref)
+
+    if _is_prebuilt_ir(resolved):
+        ir_path = resolved
+    else:
+        ir_path = _convert_weights_to_ir(resolved)
+
+    cache_key = (str(ir_path), device_name)
     compiled_model = _COMPILED_MODEL_CACHE.get(cache_key)
-    if compiled_model is None:
-        log.info("Compiling OpenVINO upscale model %s on %s", model_path, device_name)
-        core = ov.Core()
-        model = core.read_model(model=str(model_path))
-        compiled_model = core.compile_model(model=model, device_name=device_name)
-        _COMPILED_MODEL_CACHE[cache_key] = compiled_model
+    if compiled_model is not None:
+        return compiled_model
+
+    log.info("Compiling OpenVINO upscale model %s on %s", ir_path, device_name)
+    core = ov.Core()
+    blob_cache = _ir_cache_root() / "_blob_cache"
+    blob_cache.mkdir(parents=True, exist_ok=True)
+    try:
+        core.set_property({"CACHE_DIR": str(blob_cache)})
+    except Exception:  # pragma: no cover - older OpenVINO builds
+        pass
+    model = core.read_model(model=str(ir_path))
+    compiled_model = core.compile_model(model=model, device_name=device_name)
+    _COMPILED_MODEL_CACHE[cache_key] = compiled_model
     return compiled_model
 
 
-def _input_hw_from_port(port, source_size: tuple[int, int]) -> tuple[int, int]:
-    width, height = source_size
-    try:
-        shape = [int(dim) for dim in port.shape]
-    except Exception:  # pragma: no cover - depends on OpenVINO shape API details
-        return width, height
-
-    if len(shape) != 4:
-        return width, height
-
-    input_height = shape[2] if shape[2] > 0 else height
-    input_width = shape[3] if shape[3] > 0 else width
-    return input_width, input_height
+# --- Tile-based inference --------------------------------------------------
 
 
-def _prepare_model_input(image: Image.Image, port) -> tuple[np.ndarray, dict[str, object]]:
-    source_rgb = image.convert("RGB")
-    input_width, input_height = _input_hw_from_port(port, source_rgb.size)
-    channels = 1
-    try:
-        shape = [int(dim) for dim in port.shape]
-        if len(shape) == 4 and shape[1] > 0:
-            channels = shape[1]
-    except Exception:  # pragma: no cover - depends on OpenVINO shape API details
-        pass
-
-    if channels == 1:
-        y_channel, cb_channel, cr_channel = source_rgb.convert("YCbCr").split()
-        y_input = y_channel.resize((input_width, input_height), Image.BICUBIC)
-        input_array = np.asarray(y_input, dtype=np.float32)[None, None, :, :] / 255.0
-        metadata = {
-            "mode": "ycbcr",
-            "cb": cb_channel,
-            "cr": cr_channel,
-            "source_size": source_rgb.size,
-        }
-        return input_array, metadata
-
-    resized = source_rgb.resize((input_width, input_height), Image.BICUBIC)
-    chw = np.asarray(resized, dtype=np.float32).transpose(2, 0, 1)[None, :, :, :] / 255.0
-    metadata = {"mode": "rgb", "source_size": source_rgb.size}
-    return chw, metadata
+def _feather_mask(h: int, w: int, ramp: int) -> np.ndarray:
+    """Build a 2D feather weight that ramps from `1/(ramp+1)` at the very
+    edge up to 1 in the interior. Always strictly positive so we never
+    divide by zero when stitching.
+    """
+    if ramp <= 0:
+        return np.ones((h, w), dtype=np.float32)
+    yy = np.arange(h, dtype=np.float32)
+    xx = np.arange(w, dtype=np.float32)
+    dist_y = np.minimum(np.minimum(yy + 1.0, h - yy), float(ramp + 1))
+    dist_x = np.minimum(np.minimum(xx + 1.0, w - xx), float(ramp + 1))
+    my = dist_y / float(ramp + 1)
+    mx = dist_x / float(ramp + 1)
+    return np.minimum(my[:, None], mx[None, :]).astype(np.float32)
 
 
-def _extract_output_image(output: np.ndarray, metadata: dict[str, object]) -> Image.Image:
-    array = np.asarray(output)
-    if array.ndim == 4:
-        array = array[0]
+def _run_tiled(
+    compiled_model: "ov.CompiledModel",
+    rgb: np.ndarray,
+    tile_size: int,
+    overlap: int,
+    scale: int,
+) -> np.ndarray:
+    """Run a fixed-`scale`x model over `rgb` (HxWx3 float32 in [0,1])
+    using sliding-window tiles with linear-ramp blending. Returns
+    HxWx3 * scale float32 in [0,1].
+    """
+    h, w, _ = rgb.shape
+    out_h, out_w = h * scale, w * scale
+    output = np.zeros((out_h, out_w, 3), dtype=np.float32)
+    weight = np.zeros((out_h, out_w, 1), dtype=np.float32)
 
-    if array.ndim == 3 and array.shape[0] in (1, 3):
-        array = np.transpose(array, (1, 2, 0))
+    stride = max(1, tile_size - overlap)
+    output_port = compiled_model.output(0)
 
-    if array.ndim == 2:
-        array = array[:, :, None]
+    ys = list(range(0, max(1, h - overlap), stride)) if h > tile_size else [0]
+    xs = list(range(0, max(1, w - overlap), stride)) if w > tile_size else [0]
+    if ys[-1] + tile_size < h:
+        ys.append(h - tile_size)
+    if xs[-1] + tile_size < w:
+        xs.append(w - tile_size)
+    ys = sorted(set(max(0, y) for y in ys))
+    xs = sorted(set(max(0, x) for x in xs))
 
-    if array.ndim != 3:
-        raise RuntimeError(f"Unexpected OpenVINO upscale output shape {tuple(np.asarray(output).shape)}")
+    for y0 in ys:
+        for x0 in xs:
+            y1 = min(y0 + tile_size, h)
+            x1 = min(x0 + tile_size, w)
+            tile_in = rgb[y0:y1, x0:x1, :]
+            th, tw = tile_in.shape[:2]
+            chw = tile_in.transpose(2, 0, 1)[None, :, :, :].astype(np.float32)
+            result = compiled_model([chw])[output_port]
+            tile_out = np.asarray(result)[0]
+            tile_out = np.transpose(tile_out, (1, 2, 0)).astype(np.float32)
+            tile_out = np.clip(tile_out, 0.0, 1.0)
 
-    array = np.clip(array, 0.0, 1.0)
-    if array.shape[-1] == 1:
-        if metadata["mode"] != "ycbcr":
-            raise RuntimeError("Single-channel OpenVINO output requires YCbCr preprocessing metadata")
-        y_image = Image.fromarray((array[:, :, 0] * 255.0).round().astype(np.uint8), mode="L")
-        cb_channel = metadata["cb"].resize(y_image.size, Image.BICUBIC)
-        cr_channel = metadata["cr"].resize(y_image.size, Image.BICUBIC)
-        return Image.merge("YCbCr", [y_image, cb_channel, cr_channel]).convert("RGB")
+            mask = _feather_mask(th, tw, overlap)
+            mask_out = np.repeat(np.repeat(mask, scale, axis=0), scale, axis=1)
+            mask_out = mask_out[: th * scale, : tw * scale, None]
 
-    if array.shape[-1] >= 3:
-        rgb = (array[:, :, :3] * 255.0).round().astype(np.uint8)
-        return Image.fromarray(rgb, mode="RGB")
+            oy0, ox0 = y0 * scale, x0 * scale
+            oy1, ox1 = oy0 + th * scale, ox0 + tw * scale
+            output[oy0:oy1, ox0:ox1, :] += tile_out * mask_out
+            weight[oy0:oy1, ox0:ox1, :] += mask_out
 
-    raise RuntimeError(f"Unsupported OpenVINO upscale output channels: {array.shape[-1]}")
+    np.maximum(weight, 1e-8, out=weight)
+    return np.clip(output / weight, 0.0, 1.0)
+
+
+# --- ComfyUI node ----------------------------------------------------------
 
 
 class OpenVINOImageUpscale:
@@ -212,7 +362,8 @@ class OpenVINOImageUpscale:
                 "model_path": (
                     "STRING",
                     {
-                        "default": "onnxmodelzoo---super-resolution-10/super-resolution-10.onnx",
+                        "default": "Comfy-Org---Real-ESRGAN_repackaged/"
+                        "RealESRGAN_x4plus.safetensors",
                         "multiline": False,
                     },
                 ),
@@ -224,6 +375,10 @@ class OpenVINOImageUpscale:
                     "STRING",
                     {"default": "AUTO", "multiline": False},
                 ),
+                "tile_size": (
+                    "INT",
+                    {"default": DEFAULT_TILE_SIZE, "min": 64, "max": 2048, "step": 32},
+                ),
             },
         }
 
@@ -231,23 +386,33 @@ class OpenVINOImageUpscale:
     FUNCTION = "upscale"
     CATEGORY = "AIPG/openvino"
 
-    def upscale(self, image, model_path, target_scale, device):
+    def upscale(self, image, model_path, target_scale, device, tile_size=DEFAULT_TILE_SIZE):
         source = _tensor_image_to_pil(image)
-        if float(target_scale) <= 1.0:
+        target_scale_f = float(target_scale)
+        if target_scale_f <= 1.0:
             return (_pil_to_tensor(source),)
 
         compiled_model = _load_compiled_model(model_path, device)
-        model_input, metadata = _prepare_model_input(source, compiled_model.input(0))
-        result = compiled_model([model_input])
-        output = result[compiled_model.output(0)]
-        upscaled = _extract_output_image(output, metadata)
 
-        target_width = max(1, int(round(source.width * float(target_scale))))
-        target_height = max(1, int(round(source.height * float(target_scale))))
-        if upscaled.size != (target_width, target_height):
-            upscaled = upscaled.resize((target_width, target_height), Image.BICUBIC)
+        rgb = np.asarray(source.convert("RGB"), dtype=np.float32) / 255.0
+        upscaled = _run_tiled(
+            compiled_model,
+            rgb,
+            tile_size=int(tile_size),
+            overlap=TILE_OVERLAP,
+            scale=MODEL_SCALE,
+        )
+        upscaled_uint8 = (upscaled * 255.0).round().astype(np.uint8)
+        upscaled_image = Image.fromarray(upscaled_uint8, mode="RGB")
 
-        return (_pil_to_tensor(upscaled),)
+        target_width = max(1, int(round(source.width * target_scale_f)))
+        target_height = max(1, int(round(source.height * target_scale_f)))
+        if upscaled_image.size != (target_width, target_height):
+            upscaled_image = upscaled_image.resize(
+                (target_width, target_height), Image.BICUBIC
+            )
+
+        return (_pil_to_tensor(upscaled_image),)
 
 
 NODE_CLASS_MAPPINGS = {

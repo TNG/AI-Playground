@@ -25,7 +25,14 @@
           <Label class="whitespace-nowrap">
             {{ languages.DEVICE }}
           </Label>
-          <DeviceSelector :backend="deviceSelectorBackend" />
+          <drop-down-new
+            v-if="usesInProcessOpenVINO"
+            :title="languages.SETTINGS_INFERENCE_DEVICE"
+            :value="inProcessOvDevice"
+            :items="inProcessOvDeviceItems"
+            @change="setInProcessOvDevice"
+          ></drop-down-new>
+          <DeviceSelector v-else :backend="deviceSelectorBackend" />
         </div>
 
         <div class="flex flex-col gap-2">
@@ -202,7 +209,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
@@ -275,6 +282,59 @@ const presetRequiresOvms = computed(() => {
   })
 })
 
+// True when the active variant runs OpenVINO in-process inside ComfyUI
+// (the OpenVINO upscale variant). For these, the global Device dropdown
+// drives the workflow node's `device` input directly instead of restarting
+// any backend service.
+const usesInProcessOpenVINO = computed(() => {
+  const preset = currentPreset.value
+  if (!preset || preset.type !== 'comfy') return false
+  const workflow = preset.comfyUiApiWorkflow ?? {}
+  return Object.values(workflow).some((node) => {
+    const classType = (node as { class_type?: unknown })?.class_type
+    return classType === 'OpenVINOImageUpscale'
+  })
+})
+
+const IN_PROCESS_OV_DEVICE_INPUT = { nodeTitle: 'OpenVINO Upscale', nodeInput: 'device' } as const
+const FALLBACK_OV_DEVICES = ['AUTO', 'CPU', 'GPU', 'NPU'] as const
+
+const inProcessOvDeviceItems = computed(() => {
+  // Prefer real device introspection from openvino-backend when installed
+  // (so e.g. NPU only shows when the platform actually has one). Fall back
+  // to a static list otherwise — the in-process node will surface a real
+  // OpenVINO error if the device is unavailable at compile time.
+  const ovInfo = backendServices.info.find((s) => s.serviceName === 'openvino-backend')
+  const installed = ovInfo && ovInfo.status !== 'notInstalled'
+  if (installed && ovInfo.devices.length > 0) {
+    return ovInfo.devices.map((d) => ({
+      label: `${d.id}: ${d.name}`,
+      value: d.id,
+      active: true,
+    }))
+  }
+  return FALLBACK_OV_DEVICES.map((id) => ({ label: id, value: id, active: true }))
+})
+
+const inProcessOvDeviceComfyInput = computed(() =>
+  imageGeneration.comfyInputs.find(
+    (i) =>
+      i.nodeTitle === IN_PROCESS_OV_DEVICE_INPUT.nodeTitle &&
+      i.nodeInput === IN_PROCESS_OV_DEVICE_INPUT.nodeInput,
+  ),
+)
+
+const inProcessOvDevice = computed<string>(() => {
+  const raw = inProcessOvDeviceComfyInput.value?.current.value
+  return typeof raw === 'string' && raw.length > 0 ? raw : 'AUTO'
+})
+
+function setInProcessOvDevice(value: string) {
+  const input = inProcessOvDeviceComfyInput.value
+  if (!input) return
+  input.current.value = value
+}
+
 const deviceSelectorBackend = computed<BackendServiceName>(() =>
   presetRequiresOvms.value ? 'openvino-backend' : backendToService[imageGeneration.backend],
 )
@@ -302,25 +362,25 @@ function isBackendServiceRunning(backend: string): boolean {
   return backendServices.info.find((item) => item.serviceName === serviceName)?.status === 'running'
 }
 
-// Hide a backend whose backing service is not installed at all (e.g. openvino-backend
-// on Linux). Mirrors the `requiresService` filter used for variants in PresetSelector.
-function isBackendInstalled(backend: string): boolean {
-  const serviceName = BACKEND_TO_SERVICE[backend]
+function isVariantServiceUp(serviceName?: string): boolean {
   if (!serviceName) return true
   const info = backendServices.info.find((item) => item.serviceName === serviceName)
-  if (!info) return false
-  return info.status !== 'notInstalled'
+  return !!info && info.status !== 'notInstalled'
 }
 
 const presetBackends = computed<string[]>(() => {
   const name = presetsStore.activePresetName
   if (!name) return []
   return presetsStore.getDistinctBackendsForPreset(name).filter((backend) => {
-    // Always keep the default ComfyUI option even if its variants need an external
-    // service; the variants themselves are filtered by requiresService elsewhere.
-    // For non-default backends, hide entirely when the service isn't installed.
+    // Always keep the default ComfyUI option.
     if (backend === 'comfyui') return true
-    return isBackendInstalled(backend)
+    // For non-default backends, show the option if at least one of its variants
+    // is currently usable. This correctly keeps `openvino` visible for presets
+    // whose OV variant is in-process inside ComfyUI (no `requiresService`) on
+    // machines where openvino-backend is not installed, and still hides it for
+    // presets whose only OV variants depend on OVMS (the SDXL/inpaint family).
+    const variants = presetsStore.getVariantsForBackend(name, backend)
+    return variants.some((v) => isVariantServiceUp(v.requiresService))
   })
 })
 
@@ -351,6 +411,27 @@ async function handleBackendChange(backend: string) {
     skipModeSwitch: true,
   })
 }
+
+// Auto-heal a stuck backend selection: if the user previously chose a variant
+// whose backend is no longer in `presetBackends` (e.g. they picked the OVMS
+// SDXL variant, then later uninstalled openvino-backend), the Backend dropdown
+// would vanish and leave the preset stuck on a dead variant. Switch them to
+// the first allowed backend so the preset becomes usable again.
+watch(
+  [() => presetsStore.activePresetName, presetBackends, activeBackend],
+  async ([name, allowed, current]) => {
+    if (!name || allowed.length === 0) return
+    if (allowed.includes(current)) return
+    const fallbackBackend = allowed[0]
+    const fallbackVariant = presetsStore.pickInitialVariantForBackend(name, fallbackBackend)
+    if (!fallbackVariant) return
+    await presetSwitching.switchPreset(name, {
+      variant: fallbackVariant,
+      skipModeSwitch: true,
+    })
+  },
+  { immediate: true },
+)
 
 const modifiableOrDisplayed = (settingName: string) =>
   imageGeneration.settingIsRelevant(settingName)

@@ -25,19 +25,18 @@
       "name": "OpenVINO Default",
       "displayName": "Default",
       "backend": "openvino",
-      "requiresService": "openvino-backend",
       "replaceWorkflow": true,
       "overrides": {
         "tags": ["OpenVINO", "no-prompt"],
         "description": "Increase resolution of an image up to 4X with OpenVINO",
-        "extendedDescription": "Select an upscale factor then drag in, or load an image to upscale. Click generate button. No prompt needed. Runs an OpenVINO super-resolution model in-process inside ComfyUI (does not call the OVMS server).",
-        "toolInstructions": "Use this workflow when the user wants to upscale, enhance resolution, or increase the size of an existing image. This is a no-prompt workflow: the prompt parameter is ignored. Simply select this workflow and the image will be upscaled using an OpenVINO super-resolution model, then resized to the requested factor. Best for making small or low-resolution images larger and sharper.",
+        "extendedDescription": "Select an upscale factor then drag in, or load an image to upscale. Click generate button. No prompt needed. Runs RealESRGAN x4plus through OpenVINO in-process inside ComfyUI (does not call the OVMS server). The model is converted to OpenVINO IR with dynamic input shape on first use and cached to disk.",
+        "toolInstructions": "Use this workflow when the user wants to upscale, enhance resolution, or increase the size of an existing image. This is a no-prompt workflow: the prompt parameter is ignored. Simply select this workflow and the image will be upscaled using RealESRGAN x4plus running through OpenVINO, then resized to the requested factor. Best for making small or low-resolution images larger and sharper.",
         "requiredCustomNodes": [],
         "requiredPythonPackages": ["openvino"],
         "requiredModels": [
           {
-            "type": "openvino-image",
-            "model": "onnxmodelzoo/super-resolution-10"
+            "type": "upscale",
+            "model": "Comfy-Org/Real-ESRGAN_repackaged/RealESRGAN_x4plus.safetensors"
           }
         ],
         "settings": [
@@ -58,7 +57,7 @@
             "label": "Model Path",
             "displayed": false,
             "modifiable": true,
-            "defaultValue": "onnxmodelzoo---super-resolution-10/super-resolution-10.onnx",
+            "defaultValue": "Comfy-Org---Real-ESRGAN_repackaged/RealESRGAN_x4plus.safetensors",
             "nodeTitle": "OpenVINO Upscale",
             "nodeInput": "model_path"
           },
@@ -70,6 +69,18 @@
             "defaultValue": "AUTO",
             "nodeTitle": "OpenVINO Upscale",
             "nodeInput": "device"
+          },
+          {
+            "type": "number",
+            "label": "Tile Size",
+            "displayed": false,
+            "modifiable": true,
+            "defaultValue": 512,
+            "min": 64,
+            "max": 2048,
+            "step": 32,
+            "nodeTitle": "OpenVINO Upscale",
+            "nodeInput": "tile_size"
           }
         ],
         "comfyUiApiWorkflow": {
@@ -95,9 +106,10 @@
           "16": {
             "inputs": {
               "image": ["15", 0],
-              "model_path": "onnxmodelzoo---super-resolution-10/super-resolution-10.onnx",
+              "model_path": "Comfy-Org---Real-ESRGAN_repackaged/RealESRGAN_x4plus.safetensors",
               "target_scale": 2,
-              "device": "AUTO"
+              "device": "AUTO",
+              "tile_size": 512
             },
             "class_type": "OpenVINOImageUpscale",
             "_meta": {

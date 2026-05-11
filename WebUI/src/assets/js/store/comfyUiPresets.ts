@@ -632,7 +632,14 @@ export const useComfyUiPresets = defineStore(
       // Browsers cannot set custom headers on WebSocket upgrades, so the
       // bundled aipg-auth middleware accepts the loopback token via query
       // string for the /ws endpoint.
-      const wsToken = await getComfyAuthToken()
+      //
+      // Force-refresh the token: a rejected WS upgrade just shows up as a
+      // close event with no auth-specific status code, so we can't detect
+      // and retry like we do for HTTP 401. Pulling fresh from the Electron
+      // main process on every connect attempt is cheap (single IPC) and
+      // ensures we never connect with a token from a previous ComfyUI spawn
+      // (each spawn regenerates AIPG_LOOPBACK_TOKEN).
+      const wsToken = await getComfyAuthToken(true)
       const comfyWsUrl =
         `ws://localhost:${comfyPort.value}/ws?clientId=${clientId}` +
         (wsToken ? `&token=${encodeURIComponent(wsToken)}` : '')
@@ -665,6 +672,13 @@ export const useComfyUiPresets = defineStore(
           code: event.code,
           reason: event.reason,
         })
+        // Drop the cached token in case the close was caused by an auth
+        // rejection on the upgrade (e.g. ComfyUI restarted with a fresh
+        // AIPG_LOOPBACK_TOKEN). The next connect attempt will pull a fresh
+        // token from the Electron main process. This is also a no-op on a
+        // clean close, since the next force-refresh in connectToComfyUi
+        // will overwrite it anyway.
+        invalidateComfyAuthToken()
       })
 
       websocket.value.addEventListener('error', (error) => {

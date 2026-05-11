@@ -10,11 +10,17 @@ import type { BackendServiceName } from '@/assets/js/store/backendServices'
 
 const tokenCache = new Map<BackendServiceName, string>()
 
-async function loadToken(serviceName: BackendServiceName): Promise<string> {
-  const cached = tokenCache.get(serviceName)
-  if (cached) return cached
+async function loadToken(
+  serviceName: BackendServiceName,
+  forceRefresh = false,
+): Promise<string> {
+  if (!forceRefresh) {
+    const cached = tokenCache.get(serviceName)
+    if (cached) return cached
+  }
   const fresh = await window.electronAPI.getBackendAuthToken(serviceName)
   if (fresh) tokenCache.set(serviceName, fresh)
+  else tokenCache.delete(serviceName)
   return fresh
 }
 
@@ -54,9 +60,14 @@ export async function aipgFetch(input: RequestInfo | URL, init?: RequestInit): P
  * Used both for `Authorization: Bearer ...` headers on HTTP calls and for
  * `?token=...` query parameters on the WebSocket URL (browsers cannot set
  * custom headers on WebSocket upgrades).
+ *
+ * Pass `forceRefresh=true` for code paths where a stale token cannot be
+ * recovered from (e.g. a WebSocket upgrade — a rejected upgrade just looks
+ * like a `close` event with no auth-specific status code, so we cannot do
+ * the same retry-on-401 trick we use for HTTP).
  */
-export async function getComfyAuthToken(): Promise<string> {
-  return loadToken('comfyui-backend')
+export async function getComfyAuthToken(forceRefresh = false): Promise<string> {
+  return loadToken('comfyui-backend', forceRefresh)
 }
 
 /**

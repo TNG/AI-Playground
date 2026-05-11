@@ -36,7 +36,7 @@ DEFAULT_TILE_SIZE = 512
 TILE_OVERLAP = 32
 MODEL_SCALE = 4
 
-_COMPILED_MODEL_CACHE: dict[tuple[str, str], "ov.CompiledModel"] = {}
+_COMPILED_MODEL_CACHE: dict[tuple[str, str, int | None], "ov.CompiledModel"] = {}
 
 
 # --- I/O helpers -----------------------------------------------------------
@@ -244,7 +244,20 @@ def _normalize_device_name(device: str) -> str:
     return value or "AUTO"
 
 
-def _load_compiled_model(model_ref: str, device: str) -> "ov.CompiledModel":
+def _device_needs_static_shape(device_name: str) -> bool:
+    """The Intel NPU compiler rejects unbounded dynamic dimensions (Level0
+    pfnCreate2 fails with `Missing upper bound for one or more nodes`). The
+    safest workaround is to reshape the model to a fully static input size
+    when the user targets NPU; we then pad edge tiles in `_run_tiled` to
+    match. CPU/GPU/AUTO keep the dynamic path which is faster and avoids
+    wasted compute on tiles smaller than `tile_size`.
+    """
+    return "NPU" in device_name
+
+
+def _load_compiled_model(
+    model_ref: str, device: str, tile_size: int
+) -> "ov.CompiledModel":
     if ov is None:
         raise RuntimeError(
             "OpenVINO Python package is not installed in the ComfyUI environment. "
@@ -252,6 +265,7 @@ def _load_compiled_model(model_ref: str, device: str) -> "ov.CompiledModel":
         )
 
     device_name = _normalize_device_name(device)
+    needs_static = _device_needs_static_shape(device_name)
     resolved = _resolve_model_file(model_ref)
 
     if _is_prebuilt_ir(resolved):
@@ -259,7 +273,9 @@ def _load_compiled_model(model_ref: str, device: str) -> "ov.CompiledModel":
     else:
         ir_path = _convert_weights_to_ir(resolved)
 
-    cache_key = (str(ir_path), device_name)
+    # Static reshape produces a different compiled model per tile_size, so
+    # include it in the cache key only when it actually affects compilation.
+    cache_key = (str(ir_path), device_name, tile_size if needs_static else None)
     compiled_model = _COMPILED_MODEL_CACHE.get(cache_key)
     if compiled_model is not None:
         return compiled_model
@@ -273,6 +289,12 @@ def _load_compiled_model(model_ref: str, device: str) -> "ov.CompiledModel":
     except Exception:  # pragma: no cover - older OpenVINO builds
         pass
     model = core.read_model(model=str(ir_path))
+    if needs_static:
+        log.info(
+            "Reshaping model to static [1, 3, %d, %d] for %s", tile_size, tile_size, device_name
+        )
+        input_name = model.input(0).any_name
+        model.reshape({input_name: ov.PartialShape([1, 3, tile_size, tile_size])})
     compiled_model = core.compile_model(model=model, device_name=device_name)
     _COMPILED_MODEL_CACHE[cache_key] = compiled_model
     return compiled_model
@@ -297,6 +319,34 @@ def _feather_mask(h: int, w: int, ramp: int) -> np.ndarray:
     return np.minimum(my[:, None], mx[None, :]).astype(np.float32)
 
 
+def _static_input_hw(compiled_model: "ov.CompiledModel") -> tuple[int, int] | None:
+    """If the compiled model has a fully static NCHW input shape, return its
+    (H, W). Otherwise (dynamic spatial dims), return None.
+    """
+    try:
+        partial_shape = compiled_model.input(0).partial_shape
+    except Exception:
+        return None
+    if not partial_shape.is_static or len(partial_shape) != 4:
+        return None
+    return int(partial_shape[2].get_length()), int(partial_shape[3].get_length())
+
+
+def _pad_to(chw: np.ndarray, target_h: int, target_w: int) -> np.ndarray:
+    """Pad an NCHW float32 tile to (target_h, target_w) using reflection
+    where possible, falling back to edge replication when the tile is too
+    small for reflection (numpy's reflect mode requires pad <= dim - 1).
+    """
+    _, _, h, w = chw.shape
+    if h >= target_h and w >= target_w:
+        return chw
+    pad_b = max(0, target_h - h)
+    pad_r = max(0, target_w - w)
+    pad_spec = ((0, 0), (0, 0), (0, pad_b), (0, pad_r))
+    mode: str = "reflect" if h > pad_b and w > pad_r else "edge"
+    return np.pad(chw, pad_spec, mode=mode)  # type: ignore[arg-type]
+
+
 def _run_tiled(
     compiled_model: "ov.CompiledModel",
     rgb: np.ndarray,
@@ -307,6 +357,10 @@ def _run_tiled(
     """Run a fixed-`scale`x model over `rgb` (HxWx3 float32 in [0,1])
     using sliding-window tiles with linear-ramp blending. Returns
     HxWx3 * scale float32 in [0,1].
+
+    When the compiled model has a static NCHW input shape (NPU path), each
+    tile is padded up to that shape before inference and the corresponding
+    valid region is cropped from the output.
     """
     h, w, _ = rgb.shape
     out_h, out_w = h * scale, w * scale
@@ -315,6 +369,7 @@ def _run_tiled(
 
     stride = max(1, tile_size - overlap)
     output_port = compiled_model.output(0)
+    static_hw = _static_input_hw(compiled_model)
 
     ys = list(range(0, max(1, h - overlap), stride)) if h > tile_size else [0]
     xs = list(range(0, max(1, w - overlap), stride)) if w > tile_size else [0]
@@ -332,9 +387,16 @@ def _run_tiled(
             tile_in = rgb[y0:y1, x0:x1, :]
             th, tw = tile_in.shape[:2]
             chw = tile_in.transpose(2, 0, 1)[None, :, :, :].astype(np.float32)
+
+            if static_hw is not None:
+                chw = _pad_to(chw, static_hw[0], static_hw[1])
+
             result = compiled_model([chw])[output_port]
             tile_out = np.asarray(result)[0]
             tile_out = np.transpose(tile_out, (1, 2, 0)).astype(np.float32)
+
+            if static_hw is not None:
+                tile_out = tile_out[: th * scale, : tw * scale, :]
             tile_out = np.clip(tile_out, 0.0, 1.0)
 
             mask = _feather_mask(th, tw, overlap)
@@ -392,13 +454,14 @@ class OpenVINOImageUpscale:
         if target_scale_f <= 1.0:
             return (_pil_to_tensor(source),)
 
-        compiled_model = _load_compiled_model(model_path, device)
+        tile_size_int = int(tile_size)
+        compiled_model = _load_compiled_model(model_path, device, tile_size_int)
 
         rgb = np.asarray(source.convert("RGB"), dtype=np.float32) / 255.0
         upscaled = _run_tiled(
             compiled_model,
             rgb,
-            tile_size=int(tile_size),
+            tile_size=tile_size_int,
             overlap=TILE_OVERLAP,
             scale=MODEL_SCALE,
         )

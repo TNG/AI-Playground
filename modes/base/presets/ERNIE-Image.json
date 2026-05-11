@@ -1,7 +1,7 @@
 {
   "type": "comfy",
   "name": "Pro 3 Image",
-  "displayPriority": 300,
+  "displayPriority": 250,
   "tags": ["ERNIE-Image", "high-vram"],
   "description": "Generate high-quality images with strong prompt adherence and precise text rendering using ERNIE-Image (8B DiT).",
   "extendedDescription": "ERNIE-Image excels at rendering dense and layout-sensitive text, following complex multi-object instructions, and producing structured visuals like posters, infographics, and multi-panel comics. Write detailed prompts that describe subjects, composition, style, lighting, mood, and any text to render. Use the Turbo variant for fast generation in 8 steps, or the Standard variant for higher fidelity at ~20 steps.",

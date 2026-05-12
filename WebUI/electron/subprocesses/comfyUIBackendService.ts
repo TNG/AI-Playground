@@ -43,15 +43,6 @@ const UPSTREAM_PYPROJECT_BACKUP = 'pyproject.toml.aipg-upstream'
 export class ComfyUiBackendService extends LongLivedPythonApiService {
   constructor(name: BackendServiceName, port: number, win: BrowserWindow, settings: LocalSettings) {
     super(name, port, win, settings)
-
-    this.serviceIsSetUp().then(async (setUp) => {
-      this.isSetUp = setUp
-      if (this.isSetUp) {
-        await this.updateCachedVersion()
-        this.setStatus('notYetStarted')
-      }
-      this.appLogger.info(`Service ${this.name} isSetUp: ${this.isSetUp}`, this.name)
-    })
   }
   readonly isRequired = false
   readonly serviceFolder = 'ComfyUI'
@@ -981,7 +972,7 @@ import sys
 try:
     # Try to get the number of XPU devices
     device_count = torch.xpu.device_count()
-    
+
     # For each device, get its name and print it
     for i in range(device_count):
         try:

@@ -6,16 +6,14 @@ Telegram bot polls for incoming messages and queues them for Electron to pick up
 
 import argparse
 import asyncio
-import json
 import logging
 import os
 import threading
 from pathlib import Path
-from typing import Iterator
 
-import requests
-from flask import Flask, Response, jsonify, request, stream_with_context
+from flask import Flask, jsonify, request
 from flask_cors import CORS
+from llm_proxy import proxy_chat_completions
 
 app = Flask(__name__)
 CORS(app)
@@ -25,16 +23,18 @@ _upstream_url: str | None = None
 _upstream_lock = threading.Lock()
 
 # Telegram state
-_last_seen_chat_id: str | None = None
 _pending_messages: list[dict] = []
 _pending_lock = threading.Lock()
 
-# Reference to the running Application so we can pause/resume its updater
+# Running bot instance + its event loop (set inside _start_telegram_bot)
 _bot_application = None
 _bot_loop: asyncio.AbstractEventLoop | None = None
+_bot_token: str = ""
+_bot_chat_id: str = ""
 
 # Persistent chat ID file — survives restarts
 _CHAT_ID_FILE = Path(__file__).parent / ".chat_id"
+_last_seen_chat_id: str | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ def _persist_chat_id(chat_id: str) -> None:
 
 
 # Load persisted chat ID at startup
-_last_seen_chat_id: str | None = _load_persisted_chat_id()
+_last_seen_chat_id = _load_persisted_chat_id()
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -84,7 +84,7 @@ def set_upstream():
 @app.post("/set-telegram-token")
 def set_telegram_token():
     """Inject bot token at runtime to start the polling bot without restart."""
-    global _bot_application, _bot_loop
+    global _bot_application
     data = request.get_json(silent=True) or {}
     token = data.get("token", "").strip()
     chat_id = data.get("chatId", "")
@@ -96,30 +96,6 @@ def set_telegram_token():
     t.start()
     logger.info("Started Telegram bot via /set-telegram-token")
     return jsonify({"status": "started"})
-    """Pause the Telegram bot polling so getUpdates is free for Electron."""
-    if _bot_application is not None and _bot_loop is not None:
-        future = asyncio.run_coroutine_threadsafe(_bot_application.updater.stop(), _bot_loop)
-        try:
-            future.result(timeout=8)  # block until actually stopped
-            logger.info("Telegram polling paused")
-        except Exception as exc:
-            logger.warning("pause_polling error: %s", exc)
-    return jsonify({"status": "paused"})
-
-
-@app.post("/resume-polling")
-def resume_polling():
-    """Resume the Telegram bot polling."""
-    if _bot_application is not None and _bot_loop is not None:
-        future = asyncio.run_coroutine_threadsafe(
-            _bot_application.updater.start_polling(drop_pending_updates=False), _bot_loop
-        )
-        try:
-            future.result(timeout=8)
-            logger.info("Telegram polling resumed")
-        except Exception as exc:
-            logger.warning("resume_polling error: %s", exc)
-    return jsonify({"status": "resumed"})
 
 
 # ── Chat ID detection ─────────────────────────────────────────────────────────
@@ -127,11 +103,7 @@ def resume_polling():
 @app.get("/get-chat-id")
 def get_chat_id():
     """Return the last chat ID seen by the bot (from memory or persisted file)."""
-    mem = _last_seen_chat_id
-    persisted = _load_persisted_chat_id()
-    logger.info("get-chat-id: memory=%s file=%s file_path=%s file_exists=%s",
-                mem, persisted, _CHAT_ID_FILE, _CHAT_ID_FILE.exists())
-    chat_id = mem or persisted
+    chat_id = _last_seen_chat_id or _load_persisted_chat_id()
     if chat_id:
         return jsonify({"chatId": chat_id})
     return jsonify({"error": "No chat ID detected yet. Send any message to your bot, then click Detect."}), 404
@@ -163,19 +135,15 @@ def send_telegram_reply():
     """Send a reply text back to Telegram. Body: { text: str }"""
     data = request.get_json(silent=True) or {}
     text = data.get("text", "")
-    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
-    if not token or not chat_id:
+    if not _bot_application or not _bot_loop or not _bot_chat_id:
         return jsonify({"error": "Telegram not configured"}), 400
     try:
-        resp = requests.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": text},
-            timeout=10,
+        future = asyncio.run_coroutine_threadsafe(
+            _bot_application.bot.send_message(chat_id=_bot_chat_id, text=text),
+            _bot_loop,
         )
-        if resp.ok:
-            return jsonify({"status": "ok"})
-        return jsonify({"error": resp.text}), 502
+        future.result(timeout=10)
+        return jsonify({"status": "ok"})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
@@ -189,71 +157,28 @@ def chat_completions():
         upstream = upstream or _upstream_url
     if not upstream:
         return jsonify({"error": "No upstream URL provided"}), 400
-
-    upstream_url = upstream.rstrip("/") + "/v1/chat/completions"
-
-    try:
-        body = request.get_data()
-        headers = {
-            k: v
-            for k, v in request.headers
-            if k.lower() not in ("host", "content-length", "x-upstream-url")
-        }
-
-        try:
-            parsed = json.loads(body)
-            stream = parsed.get("stream", False)
-        except Exception:
-            stream = False
-
-        upstream_resp = requests.post(
-            upstream_url,
-            data=body,
-            headers=headers,
-            stream=stream,
-            timeout=None,
-        )
-
-        if stream:
-            def generate() -> Iterator[bytes]:
-                for chunk in upstream_resp.iter_content(chunk_size=None):
-                    yield chunk
-
-            return Response(
-                stream_with_context(generate()),
-                status=upstream_resp.status_code,
-                content_type=upstream_resp.headers.get("Content-Type", "text/event-stream"),
-            )
-        else:
-            return Response(
-                upstream_resp.content,
-                status=upstream_resp.status_code,
-                content_type=upstream_resp.headers.get("Content-Type", "application/json"),
-            )
-    except requests.exceptions.ConnectionError as exc:
-        return jsonify({"error": f"Cannot reach upstream: {exc}"}), 502
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+    return proxy_chat_completions(upstream, request)
 
 
 # ── Telegram bot ──────────────────────────────────────────────────────────────
 
 def _start_telegram_bot(token: str, allowed_chat_id: str) -> None:
     """Runs the Telegram bot in its own asyncio event loop (daemon thread)."""
-    global _bot_application, _bot_loop, _last_seen_chat_id
+    global _bot_application, _bot_loop, _last_seen_chat_id, _bot_token, _bot_chat_id
     from telegram import Update
     from telegram.ext import Application, MessageHandler, filters, ContextTypes
+
+    _bot_token = token
+    _bot_chat_id = allowed_chat_id
 
     async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         global _last_seen_chat_id
         if update.message is None:
             return
         chat_id = str(update.message.chat_id)
-        # Always record the chat ID (even before it's configured) for detection
         if _last_seen_chat_id != chat_id:
             _last_seen_chat_id = chat_id
             _persist_chat_id(chat_id)
-        # If no allowed_chat_id configured yet, accept the first sender for detection only
         if not allowed_chat_id:
             logger.info("Detection mode: received message from chat_id=%s (not yet configured)", chat_id)
             return
@@ -275,32 +200,21 @@ def _start_telegram_bot(token: str, allowed_chat_id: str) -> None:
         await application.start()
         await application.bot.delete_webhook(drop_pending_updates=False)
 
-        # Pre-populate chat ID from pending updates BEFORE polling starts
-        # Pre-populate chat ID from pending updates BEFORE polling starts
+        # Pre-populate chat ID from any pending updates before polling starts
         try:
-            logger.info("Pre-populate: calling getUpdates before polling starts...")
             updates = await application.bot.get_updates(limit=100, timeout=0)
-            logger.info("Pre-populate: got %d updates", len(updates))
-            for i, u in enumerate(updates):
-                logger.info("Pre-populate update[%d]: type=%s message=%s", i, type(u).__name__, u.message)
-                cid = None
-                if u.message:
-                    cid = str(u.message.chat_id)
-                elif hasattr(u, 'my_chat_member') and u.my_chat_member:
-                    cid = str(u.my_chat_member.chat.id)
-                if cid:
-                    _last_seen_chat_id = cid
-                    _persist_chat_id(cid)
-                    logger.info("Pre-populated chat_id from pending updates: %s", cid)
-                    break
-            if not _last_seen_chat_id:
-                # Also check the persisted file
-                persisted = _load_persisted_chat_id()
-                logger.info("Pre-populate: no chat_id from updates, persisted file has: %s", persisted)
-                if persisted:
-                    _last_seen_chat_id = persisted
+            cid = next(
+                (str(u.message.chat_id) for u in updates if u.message),
+                None,
+            )
+            if cid:
+                _last_seen_chat_id = cid
+                _persist_chat_id(cid)
+                logger.info("Pre-populated chat_id from pending updates: %s", cid)
+            elif not _last_seen_chat_id:
+                _last_seen_chat_id = _load_persisted_chat_id()
         except Exception as exc:
-            logger.warning("Could not pre-populate chat_id: %s", exc, exc_info=True)
+            logger.warning("Could not pre-populate chat_id: %s", exc)
 
         await application.updater.start_polling(drop_pending_updates=False)
         await asyncio.Event().wait()
@@ -322,20 +236,16 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
-    print(f"Home Agent backend v2 starting on port {args.port} (chat_id file: {_CHAT_ID_FILE})", flush=True)
+    print(f"Home Agent backend starting on port {args.port} (chat_id file: {_CHAT_ID_FILE})", flush=True)
 
     tg_token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    tg_chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")  # optional — empty means accept all
-    print(f"Telegram config: token={'SET (len='+str(len(tg_token))+')' if tg_token else 'NOT SET'} chat_id={'SET' if tg_chat_id else 'NOT SET'}", flush=True)
+    tg_chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+    print(f"Telegram config: token={'SET' if tg_token else 'NOT SET'} chat_id={'SET' if tg_chat_id else 'NOT SET'}", flush=True)
     if tg_token:
         print(f"Starting Telegram bot (allowed chat: {tg_chat_id or 'any — detecting'})", flush=True)
-        t = threading.Thread(
-            target=_start_telegram_bot, args=(tg_token, tg_chat_id), daemon=True
-        )
-        t.start()
+        threading.Thread(target=_start_telegram_bot, args=(tg_token, tg_chat_id), daemon=True).start()
     else:
         print("No TELEGRAM_BOT_TOKEN — Telegram bot disabled.", flush=True)
 
-    print(f"Home Agent backend starting on port {args.port}", flush=True)
     app.run(host="0.0.0.0", port=args.port)
 

@@ -5,7 +5,6 @@ requires-python = "==3.12.*"
 dependencies = [
   "Flask",
   "flask-cors",
-  "apiflask",
   "Requests",
   "python-telegram-bot",
 ]

@@ -479,10 +479,10 @@ export abstract class LongLivedPythonApiService implements ApiService {
 
   encapsulatedProcess: ChildProcess | null = null
 
-  readonly baseDir = app.isPackaged ? process.resourcesPath : path.join(__dirname, '../../../')
-  readonly wheelDir = path.join(
-    app.isPackaged ? this.baseDir : path.join(__dirname, '../../external/'),
-  )
+  abstract readonly baseDir: string
+  get wheelDir(): string {
+    return path.join(app.isPackaged ? this.baseDir : path.join(__dirname, '../../external/'))
+  }
   abstract readonly pythonEnvDir: string
   abstract readonly serviceDir: string
   abstract isSetUp: boolean
@@ -510,6 +510,16 @@ export abstract class LongLivedPythonApiService implements ApiService {
     this.port = port
     this.baseUrl = `http://127.0.0.1:${port}`
     this.settings = settings
+    // Async init: check setup state and update status. Runs after the subclass constructor
+    // finishes (fields like serviceFolder are already set) because Promise callbacks are microtasks.
+    this.serviceIsSetUp().then(async (setUp) => {
+      this.isSetUp = setUp
+      if (this.isSetUp) {
+        await this.updateCachedVersion()
+        this.setStatus('notYetStarted')
+      }
+      this.appLogger.info(`Service ${this.name} isSetUp: ${this.isSetUp}`, this.name)
+    })
   }
 
   abstract serviceIsSetUp(): Promise<boolean>
@@ -841,7 +851,7 @@ export abstract class LongLivedPythonApiService implements ApiService {
           }
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
         } catch (e: unknown) {
-          //fetch will simply fail while server not up
+          // fetch will simply fail while server not up
         }
         await new Promise<void>((resolve) => setTimeout(resolve, queryIntervalMs))
       }
@@ -917,13 +927,11 @@ export class DeviceService extends ExecutableService {
   async getDevices(): Promise<XpuDevice[]> {
     const result = await this.run()
     const devices: XpuDevice[] = XpuSmiDiscoverySchema.parse(JSON.parse(result)).device_list.map(
-      (d) => {
-        return {
-          id: d.device_id,
-          name: d.device_name,
-          arch: getDeviceArch(this.uuidToChipId(d.uuid)),
-        }
-      },
+      (d) => ({
+        id: d.device_id,
+        name: d.device_name,
+        arch: getDeviceArch(this.uuidToChipId(d.uuid)),
+      }),
     )
     devices.sort((a, b) => getArchPriority(b.arch) - getArchPriority(a.arch))
     return devices

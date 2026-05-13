@@ -70,14 +70,15 @@ export class HomeAgentBackendService extends UvPythonBackendService {
     }
   }
 
-  async injectToken(token: string): Promise<{ status: string }> {
+  async injectToken(token: string, chatId?: string | number): Promise<{ status: string }> {
     if (this.currentStatus !== 'running') return { status: 'not_running' }
     try {
       const clean = token.trim().replace(/\s+/g, '')
+      const cleanedChatId = chatId !== undefined ? String(chatId).trim() : undefined
       const res = await net.fetch(`${this.baseUrl}/set-telegram-token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: clean }),
+        body: JSON.stringify({ token: clean, ...(cleanedChatId ? { chatId: cleanedChatId } : {}) }),
       })
       const body = (await res.json()) as { status?: string }
       return { status: body.status ?? 'ok' }
@@ -203,11 +204,15 @@ export class HomeAgentBackendService extends UvPythonBackendService {
 
   async setUpstreamUrl(url: string): Promise<void> {
     try {
-      await net.fetch(`${this.baseUrl}/set-upstream`, {
+      const res = await net.fetch(`${this.baseUrl}/set-upstream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
       })
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        throw new Error(`set-upstream returned ${res.status}: ${body}`)
+      }
     } catch (e) {
       this.appLogger.warn(`Failed to set upstream URL for home-agent: ${e}`, this.name)
     }
@@ -239,7 +244,9 @@ export class HomeAgentBackendService extends UvPythonBackendService {
     ipcMain.handle('homeAgent:loadConfig', () => this.loadConfig())
     ipcMain.handle('homeAgent:clearConfig', () => this.clearConfig())
     ipcMain.handle('homeAgent:testTelegram', () => this.testTelegram())
-    ipcMain.handle('homeAgent:injectToken', (_event, token: string) => this.injectToken(token))
+    ipcMain.handle('homeAgent:injectToken', (_event, token: string, chatId?: string) =>
+      this.injectToken(token, chatId),
+    )
     ipcMain.handle('homeAgent:detectChatId', (_event, token: string) => this.detectChatId(token))
     ipcMain.handle('homeAgent:detectChatIdFromSaved', () => this.detectChatIdFromSaved())
     ipcMain.handle('homeAgent:pollTelegram', () => this.pollTelegram())

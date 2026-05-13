@@ -33,6 +33,7 @@ export const useHomeAgent = defineStore(
     let _pollInterval: ReturnType<typeof setInterval> | null = null
     const _messageQueue: string[] = []
     let _draining = false
+    let _userDisabled = false
 
     const isTelegramConfigured = computed(() => !!telegramToken.value && !!telegramChatId.value)
 
@@ -52,7 +53,7 @@ export const useHomeAgent = defineStore(
 
     // When the backend becomes available and Telegram has been verified, auto-activate.
     watch(isAvailable, (val) => {
-      if (val && isReadyToActivate.value) {
+      if (val && isReadyToActivate.value && !_userDisabled) {
         isHomeAgentActive.value = true
       }
       if (!val) {
@@ -64,7 +65,7 @@ export const useHomeAgent = defineStore(
     watch(isReadyToActivate, (val) => {
       if (!val) {
         isHomeAgentActive.value = false
-      } else if (isAvailable.value) {
+      } else if (isAvailable.value && !_userDisabled) {
         isHomeAgentActive.value = true
       }
     })
@@ -82,10 +83,11 @@ export const useHomeAgent = defineStore(
       if (_draining) return
       _draining = true
       try {
-        while (_messageQueue.length > 0) {
+        while (_messageQueue.length > 0 && isHomeAgentActive.value) {
           const text = _messageQueue.shift()!
           try {
             await chatStore.generate(text)
+            if (!isHomeAgentActive.value) break
             const reply = extractAssistantReply(chatStore.messages ?? undefined)
             if (reply) {
               await window.electronAPI.homeAgent.sendTelegramReply(reply)
@@ -128,29 +130,44 @@ export const useHomeAgent = defineStore(
         clearInterval(_pollInterval)
         _pollInterval = null
       }
+      _messageQueue.length = 0
     }
 
-    async function saveConfig(token: string, chatId: string) {
-      const result = await window.electronAPI.homeAgent.saveConfig(token, chatId)
-      if (result.success) {
-        const configChanged = token !== telegramToken.value || chatId !== telegramChatId.value
-        telegramToken.value = token
-        telegramChatId.value = chatId
-        // Reset verified only when credentials actually change — must re-verify
-        if (configChanged) {
-          telegramVerified.value = false
-          isHomeAgentActive.value = false
+    async function saveConfig(
+      token: string,
+      chatId: string,
+    ): Promise<{ success: boolean; error?: string }> {
+      try {
+        const result = await window.electronAPI.homeAgent.saveConfig(token, chatId)
+        if (result.success) {
+          const configChanged = token !== telegramToken.value || chatId !== telegramChatId.value
+          telegramToken.value = token
+          telegramChatId.value = chatId
+          // Reset verified only when credentials actually change — must re-verify
+          if (configChanged) {
+            telegramVerified.value = false
+            isHomeAgentActive.value = false
+            _userDisabled = false
+          }
         }
+        return result
+      } catch (e) {
+        console.error('homeAgent.saveConfig failed:', e)
+        return { success: false, error: String(e) }
       }
-      return result
     }
 
-    async function clearConfig() {
-      await window.electronAPI.homeAgent.clearConfig()
+    async function clearConfig(): Promise<void> {
+      try {
+        await window.electronAPI.homeAgent.clearConfig()
+      } catch (e) {
+        console.error('homeAgent.clearConfig failed:', e)
+      }
       telegramToken.value = null
       telegramChatId.value = null
       telegramVerified.value = false
       isHomeAgentActive.value = false
+      _userDisabled = false
     }
 
     function setVerified() {
@@ -168,11 +185,13 @@ export const useHomeAgent = defineStore(
         toast.error('Complete Telegram setup and verify the connection in Setup Wizard.')
         return
       }
+      _userDisabled = false
       isHomeAgentActive.value = true
     }
 
     function toggle() {
       if (isHomeAgentActive.value) {
+        _userDisabled = true
         isHomeAgentActive.value = false
       } else {
         activate()
@@ -183,15 +202,19 @@ export const useHomeAgent = defineStore(
     // telegramChatId and telegramVerified ARE persisted, so they are already
     // populated synchronously before this resolves.
     async function initConfig() {
-      const cfg = await window.electronAPI.homeAgent.loadConfig()
-      if (cfg) {
-        telegramToken.value = cfg.token
-        telegramChatId.value = cfg.chatId
-      } else if (!telegramVerified.value) {
-        // No config in safeStorage — clear everything only if nothing was persisted
-        telegramToken.value = null
-        telegramChatId.value = null
-        isHomeAgentActive.value = false
+      try {
+        const cfg = await window.electronAPI.homeAgent.loadConfig()
+        if (cfg) {
+          telegramToken.value = cfg.token
+          telegramChatId.value = cfg.chatId
+        } else if (!telegramVerified.value) {
+          // No config in safeStorage — clear everything only if nothing was persisted
+          telegramToken.value = null
+          telegramChatId.value = null
+          isHomeAgentActive.value = false
+        }
+      } catch (e) {
+        console.error('homeAgent.initConfig failed:', e)
       }
     }
 

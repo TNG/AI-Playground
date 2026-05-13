@@ -39,8 +39,11 @@ def proxy_chat_completions(upstream_url: str, flask_request: Request) -> Respons
 
     if stream:
         def generate() -> Iterator[bytes]:
-            for chunk in upstream_resp.iter_content(chunk_size=None):
-                yield chunk
+            try:
+                for chunk in upstream_resp.iter_content(chunk_size=None):
+                    yield chunk
+            finally:
+                upstream_resp.close()
 
         return Response(
             stream_with_context(generate()),

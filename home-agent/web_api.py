@@ -242,6 +242,27 @@ def _start_telegram_bot(token: str, allowed_chat_id: str) -> None:
         with _pending_lock:
             _pending_messages.append({"text": "/help", "chat_id": chat_id})
 
+    async def handle_chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /chat <message> — force text chat mode, skip agentic image generation."""
+        global _last_seen_chat_id
+        if update.message is None:
+            return
+        chat_id = str(update.message.chat_id)
+        if _last_seen_chat_id != chat_id:
+            _last_seen_chat_id = chat_id
+            _persist_chat_id(chat_id)
+        if not allowed_chat_id:
+            return
+        if chat_id != allowed_chat_id:
+            logger.warning("Ignoring /chat from unauthorized chat_id: %s", chat_id)
+            return
+        args = context.args or []
+        prompt_part = " ".join(args)
+        full_text = f"/chat {prompt_part}".strip()
+        logger.info("Telegram /chat command received: chat_id=%s message=%r", chat_id, prompt_part)
+        with _pending_lock:
+            _pending_messages.append({"text": full_text, "chat_id": chat_id})
+
     async def handle_imggen_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /imgGen <prompt> as a Telegram command."""
         global _last_seen_chat_id
@@ -278,6 +299,7 @@ def _start_telegram_bot(token: str, allowed_chat_id: str) -> None:
         from telegram.ext import CommandHandler
         application.add_handler(CommandHandler("imgGen", handle_imggen_command))
         application.add_handler(CommandHandler("help", handle_help_command))
+        application.add_handler(CommandHandler("chat", handle_chat_command))
         await application.initialize()
         await application.start()
         await application.bot.delete_webhook(drop_pending_updates=False)

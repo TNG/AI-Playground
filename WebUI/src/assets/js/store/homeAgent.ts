@@ -6,7 +6,6 @@ import { useOpenAiCompatibleChat, type AipgUiMessage } from './openAiCompatibleC
 import { useImageGenerationPresets, isImage } from './imageGenerationPresets'
 import { usePromptStore } from './promptArea'
 import { usePresetSwitching } from './presetSwitching'
-import { HOME_AGENT_HELP_BODY } from '../homeAgentHelpMessage'
 import * as toast from '../toast'
 
 const POLL_INTERVAL_MS = 2000
@@ -87,10 +86,20 @@ export const useHomeAgent = defineStore(
     })
 
     const IMG_GEN_REGEX = /^\/imgGen\s*/i
+    const CHAT_REGEX = /^\/chat\s*/i
     const HELP_REGEX = /^\/help$/i
     const IMG_GEN_TIMEOUT_MS = 120_000
 
-    const HELP_MESSAGE = HOME_AGENT_HELP_BODY
+    const HELP_MESSAGE =
+      '🤖 <b>Available commands</b>\n\n' +
+      '<code>/imgGen </code><i>&lt;prompt&gt;</i>\n' +
+      'Force image generation from a text prompt.\n' +
+      'Example: <code>/imgGen a sunset over snowy mountains</code>\n\n' +
+      '<code>/chat </code><i>&lt;message&gt;</i>\n' +
+      'Force a text chat reply (no image generation).\n\n' +
+      '/help\n' +
+      'Show this help message.\n\n' +
+      'Any other message is handled by the AI in <b>agentic mode</b>: it decides whether to reply with text or generate an image based on your request.'
 
     async function handleChatMessage(text: string): Promise<void> {
       promptStore.setModeOnly('chat')
@@ -99,6 +108,108 @@ export const useHomeAgent = defineStore(
       const reply = extractAssistantReply(chatStore.messages ?? undefined)
       if (reply) {
         await window.electronAPI.homeAgent.sendTelegramReply(reply)
+      }
+    }
+
+    async function extractAndSendToolImages(
+      messages: AipgUiMessage[],
+      caption: string,
+    ): Promise<void> {
+      for (const msg of messages) {
+        for (const part of msg.parts as {
+          type: string
+          state?: string
+          output?: { images?: { type: string; imageUrl?: string; videoUrl?: string }[] }
+        }[]) {
+          // AI SDK stores ComfyUI tool results with type 'tool-comfyUI' / 'tool-comfyUiImageEdit'
+          // and state 'output-available' when generation is complete
+          if (
+            (part.type !== 'tool-comfyUI' && part.type !== 'tool-comfyUiImageEdit') ||
+            part.state !== 'output-available' ||
+            !part.output?.images
+          )
+            continue
+          for (const img of part.output.images) {
+            if (img.type === 'image' && img.imageUrl) {
+              await sendImageToTelegram(img.imageUrl, caption)
+            }
+          }
+        }
+      }
+    }
+
+    // Matches a markdown image embedding an aipg-media:// URL, e.g.:
+    // ![alt text](aipg-media://path/to/file.png)
+    // Captures: [1] text before, [2] the aipg-media URL, [3] text after
+    // Matches a markdown image embedding an aipg-media:// URL, e.g.:
+    // ![alt text](aipg-media://path/to/file.png)
+    // Captures: [1] the aipg-media URL
+    const AIPG_IMAGE_MD_RE = /!\[[^[]*]\((aipg-media:\/\/[^)]+)\)/
+
+    async function handleAgenticMessage(text: string): Promise<void> {
+      promptStore.setModeOnly('chat')
+      await chatStore.generate(text)
+      if (!isHomeAgentActive.value) return
+      const msgs = chatStore.messages ?? []
+
+      const rawReply = extractAssistantReply(msgs) ?? ''
+
+      // Check if the AI text reply embeds an aipg-media image link
+      const mdMatch = AIPG_IMAGE_MD_RE.exec(rawReply)
+      if (mdMatch) {
+        // Split the reply around the image markdown token
+        const matchStart = mdMatch.index
+        const matchEnd = mdMatch.index + mdMatch[0].length
+        const before = rawReply.slice(0, matchStart).trim()
+        const imageUrl = mdMatch[1]
+        const after = rawReply.slice(matchEnd).trim()
+
+        if (before) {
+          await window.electronAPI.homeAgent.sendTelegramReply(before)
+        }
+        await sendImageToTelegram(imageUrl, '')
+        if (after) {
+          await window.electronAPI.homeAgent.sendTelegramReply(after)
+        }
+        return
+      }
+
+      // No inline image link — check for tool-part images (the tool ran but AI didn't embed link)
+      const hasToolImages = msgs.some((msg) =>
+        (
+          msg.parts as {
+            type: string
+            state?: string
+            output?: { images?: { type: string; imageUrl?: string }[] }
+          }[]
+        ).some(
+          (p) =>
+            (p.type === 'tool-comfyUI' || p.type === 'tool-comfyUiImageEdit') &&
+            p.state === 'output-available' &&
+            p.output?.images?.some((i) => i.type === 'image' && i.imageUrl),
+        ),
+      )
+
+      if (hasToolImages) {
+        if (rawReply) {
+          await window.electronAPI.homeAgent.sendTelegramReply(rawReply)
+        }
+        await extractAndSendToolImages(msgs, '🖼️')
+      } else {
+        if (rawReply) {
+          await window.electronAPI.homeAgent.sendTelegramReply(rawReply)
+        }
+      }
+    }
+
+    async function sendImageToTelegram(imageUrl: string, caption: string): Promise<void> {
+      try {
+        const base64 = await imageToBase64(imageUrl)
+        await window.electronAPI.homeAgent.sendTelegramPhoto(base64, caption)
+      } catch (e) {
+        await window.electronAPI.homeAgent.sendTelegramReply(
+          `⚠️ Image was generated but could not be sent: ${e instanceof Error ? e.message : String(e)}`,
+        )
       }
     }
 
@@ -112,17 +223,6 @@ export const useHomeAgent = defineStore(
         binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
       }
       return btoa(binary)
-    }
-
-    async function sendImageToTelegram(imageUrl: string, caption: string): Promise<void> {
-      try {
-        const base64 = await imageToBase64(imageUrl)
-        await window.electronAPI.homeAgent.sendTelegramPhoto(base64, caption)
-      } catch (e) {
-        await window.electronAPI.homeAgent.sendTelegramReply(
-          `⚠️ Image was generated but could not be sent: ${e instanceof Error ? e.message : String(e)}`,
-        )
-      }
     }
 
     /**
@@ -272,8 +372,19 @@ export const useHomeAgent = defineStore(
                   'HTML',
                 )
               }
+            } else if (CHAT_REGEX.test(text)) {
+              const msg = text.replace(CHAT_REGEX, '').trim()
+              if (msg) {
+                await handleChatMessage(msg)
+              } else {
+                await window.electronAPI.homeAgent.sendTelegramReply(
+                  '⚠️ Please add a message after the command.\nExample: <code>/chat Hello, world!</code>',
+                  'HTML',
+                )
+              }
             } else {
-              await handleChatMessage(text)
+              // Agentic mode — AI decides whether to chat or generate an image
+              await handleAgenticMessage(text)
             }
           } catch (e) {
             console.error('Error processing Telegram message:', e)

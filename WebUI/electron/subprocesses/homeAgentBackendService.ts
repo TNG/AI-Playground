@@ -2,7 +2,6 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { app, ipcMain, net, safeStorage } from 'electron'
 import { UvPythonBackendService } from './uvPythonBackendService.ts'
-import { HOME_AGENT_HELP_BODY } from '@/assets/js/homeAgentHelpMessage.ts'
 
 type EncryptedTokenData = { type: string; data: number[] }
 type HomeAgentConfigFile = { encryptedToken: EncryptedTokenData; chatId: string }
@@ -65,7 +64,10 @@ export class HomeAgentBackendService extends UvPythonBackendService {
         body: JSON.stringify({
           chat_id: chatId,
           parse_mode: 'HTML',
-          text: '✅ <b>Home Agent is connected!</b>\n\n' + HOME_AGENT_HELP_BODY,
+          text:
+            '✅ <b>Home Agent is connected!</b>\n\n' +
+            'Send me any message — the AI will decide whether to reply with text or generate an image.\n' +
+            'Use /help to see all explicit command overrides.',
         }),
       })
       if (res.ok) return { success: true }

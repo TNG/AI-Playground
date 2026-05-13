@@ -48,7 +48,9 @@ const toggleTitle = computed(() => {
     return 'Home Agent is not installed. Install it from App Settings → Installation Management.'
   if (!isReadyToActivate.value)
     return 'Verify the Telegram connection in Setup Wizard to enable Home Agent.'
-  return isHomeAgentActive.value ? 'Switch back to AI Playground' : 'Switch to Home Agent (chat only)'
+  return isHomeAgentActive.value
+    ? 'Switch back to AI Playground'
+    : 'Switch to Home Agent (chat only)'
 })
 
 function toggle() {

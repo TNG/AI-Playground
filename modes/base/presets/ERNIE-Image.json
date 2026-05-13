@@ -3,8 +3,8 @@
   "name": "Pro 3 Image",
   "displayPriority": 250,
   "tags": ["ERNIE-Image", "high-vram"],
-  "description": "Generate high-quality images with strong prompt adherence and precise text rendering using ERNIE-Image (8B DiT).",
-  "extendedDescription": "ERNIE-Image excels at rendering dense and layout-sensitive text, following complex multi-object instructions, and producing structured visuals like posters, infographics, and multi-panel comics. Write detailed prompts that describe subjects, composition, style, lighting, mood, and any text to render. Use the Turbo variant for fast generation in 8 steps, or the Standard variant for higher fidelity at ~20 steps.",
+  "description": "Using ERNIE-Image Turbo from Baidu this preset produces high quality images with strong prompt adherence and accurate text in only 8 steps.",
+  "extendedDescription": "Using Pro 3 with long, detailed, and descriptive prompts that describe specifics of what's in the foreground, background, lighting, aesthetic, and style of image. Use this preset especially when wanting to accurately generate text or full sentences in an image, chart or poster-like image.",
   "backend": "comfyui",
   "category": "create-images",
   "mediaType": "image",
@@ -149,12 +149,14 @@
     {
       "name": "Turbo",
       "overrides": {
+        "description": "Using ERNIE-Image Turbo from Baidu this preset produces high quality images with strong prompt adherence and accurate text in only 8 steps.",
         "comfyUiApiWorkflow": {}
       }
     },
     {
       "name": "Standard",
       "overrides": {
+        "description": "Using ERNIE-Image from Baidu this preset produces high quality images with strong prompt adherence and accurate text, including full sentences.",
         "requiredModels": [
           {
             "type": "unet",

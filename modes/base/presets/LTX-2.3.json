@@ -3,8 +3,8 @@
   "name": "LTX-2.3",
   "description": "Text and Image to Video generation using Lightricks LTX-2.3 (22B) with audio. Single-stage distilled pipeline. Recommended for systems with discrete GPUs and high vRAM.",
   "extendedDescription": {
-    "Text2Video": "Generate short video clips with synchronized audio from a text description. Pick an aspect ratio and frame count - 105 frames is a good starting point. Write a prompt that describes the core subject of the video in detail, the action of the subject, the camera movement, and the background of the scene.",
-    "Image2Video": "Generate short video clips with synchronized audio from a starting image. Load an image, set the aspect ratio to match the image, and keep resolution at 0.25-0.5MP. Write a prompt that describes the subject, action, camera movement and background of the scene."
+    "Text2Video": "Generate video clips from a text description. Use a very descriptive prompt that describes the core subject of the video including what words are spoken or type of music is played. Describe the action that transpires, and any camera movement and background of the scene.",
+    "Image2Video": "Generate video clips from an Image and text description. Use a very descriptive prompt that describes the core subject of the video including what words are spoken or type of music is played. Describe the action that transpires, and any camera movement and background of the scene."
   },
   "displayPriority": 350,
   "tags": ["LTX Video", "LTX 2.3", "high-vram"],
@@ -142,7 +142,7 @@
     {
       "name": "Text2Video",
       "overrides": {
-        "description": "Text to Video generation using LTX-2.3 with synchronized audio.",
+        "description": "Video Generation with Audio from a prompt description, using LTX 2.3",
         "comfyUiApiWorkflow": {
           "236": {
             "inputs": {
@@ -329,7 +329,7 @@
     {
       "name": "Image2Video",
       "overrides": {
-        "description": "Image to Video generation using LTX-2.3 with synchronized audio. Load an image as the starting frame and describe how the scene should evolve.",
+        "description": "Video Generation with Audio from an image still and prompt description, using LTX 2.3",
         "settings": [
           {
             "type": "image",

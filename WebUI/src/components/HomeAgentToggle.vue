@@ -51,7 +51,7 @@ const toggleTitle = computed(() => {
     return 'Verify the Telegram connection in Setup Wizard to enable Home Agent.'
   return isHomeAgentActive.value
     ? 'Switch back to AI Playground'
-    : 'Switch to Home Agent (chat only)'
+    : 'Switch to Home Agent (chat + image generation)'
 })
 
 const ariaLabel = computed(() =>

@@ -48,11 +48,13 @@ export const usePromptStore = defineStore('prompt', () => {
   function setCurrentMode(mode: ModeType) {
     const comfyUiModes: ModeType[] = ['imageGen', 'imageEdit', 'video']
 
-    // Guard: Home Agent only supports chat mode
+    // Guard: Home Agent only supports chat and imageGen modes
     if (comfyUiModes.includes(mode)) {
       const homeAgent = useHomeAgent()
-      if (homeAgent.isHomeAgentActive) {
-        toast.error('Home Agent only supports Chat mode. Disable Home Agent to switch modes.')
+      if (homeAgent.isHomeAgentActive && mode !== 'imageGen') {
+        toast.error(
+          'Home Agent only supports Chat and Image Generation modes. Disable Home Agent to use this mode.',
+        )
         return
       }
     }

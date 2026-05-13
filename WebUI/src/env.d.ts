@@ -345,7 +345,14 @@ type electronAPI = {
     injectToken(token: string, chatId?: string): Promise<{ status: string }>
     pollTelegram(): Promise<Array<{ text: string; chat_id: string }>>
     flushPending(): Promise<void>
-    sendTelegramReply(text: string): Promise<{ success: boolean; error?: string }>
+    sendTelegramReply(
+      text: string,
+      parseMode?: string,
+    ): Promise<{ success: boolean; error?: string }>
+    sendTelegramPhoto(
+      imageBase64: string,
+      caption?: string,
+    ): Promise<{ success: boolean; error?: string }>
   }
 }
 

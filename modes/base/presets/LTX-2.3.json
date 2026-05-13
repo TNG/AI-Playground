@@ -31,7 +31,8 @@
     "useLookupTable": false
   },
   "requiredCustomNodes": [
-    "Lightricks/ComfyUI-LTXVideo@2acf7af8991f33b5cc06ec26753cb6e88e057d04"
+    "Lightricks/ComfyUI-LTXVideo@2acf7af8991f33b5cc06ec26753cb6e88e057d04",
+    "evanspearman/ComfyMath@939bb813f1c0ace959b62f20bb2da47190c4e211"
   ],
   "requiredPythonPackages": [],
   "requiredModels": [
@@ -204,7 +205,7 @@
           },
           "239": {
             "inputs": {
-              "frame_rate": ["260", 0],
+              "frame_rate": ["261", 0],
               "positive": ["240", 0],
               "negative": ["247", 0]
             },
@@ -304,9 +305,14 @@
             "class_type": "LTXVAudioVAEDecode",
             "_meta": { "title": "LTXV Audio VAE Decode" }
           },
+          "261": {
+            "inputs": { "a": ["260", 0] },
+            "class_type": "CM_IntToFloat",
+            "_meta": { "title": "Frame rate (float)" }
+          },
           "242": {
             "inputs": {
-              "fps": ["260", 0],
+              "fps": ["261", 0],
               "images": ["251", 0],
               "audio": ["220", 0]
             },
@@ -402,7 +408,7 @@
           },
           "239": {
             "inputs": {
-              "frame_rate": ["260", 0],
+              "frame_rate": ["261", 0],
               "positive": ["240", 0],
               "negative": ["247", 0]
             },
@@ -526,9 +532,14 @@
             "class_type": "LTXVAudioVAEDecode",
             "_meta": { "title": "LTXV Audio VAE Decode" }
           },
+          "261": {
+            "inputs": { "a": ["260", 0] },
+            "class_type": "CM_IntToFloat",
+            "_meta": { "title": "Frame rate (float)" }
+          },
           "242": {
             "inputs": {
-              "fps": ["260", 0],
+              "fps": ["261", 0],
               "images": ["251", 0],
               "audio": ["220", 0]
             },

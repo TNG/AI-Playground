@@ -239,6 +239,7 @@ function modifySettingInWorkflow(
 const COMFY_MODEL_PATH_INPUTS = new Set([
   'ckpt_name',
   'lora_name',
+  'text_encoder',
   'vae_name',
   'unet_name',
   'clip_name',

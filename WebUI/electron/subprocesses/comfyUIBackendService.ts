@@ -1213,7 +1213,6 @@ except Exception as e:
     )
     const parameters = [
       'main.py',
-      '--verbose',
       '--port',
       this.port.toString(),
       '--preview-method',

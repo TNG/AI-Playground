@@ -161,7 +161,25 @@
         </div>
         <div v-else-if="hashError" class="flex flex-col items-center justify-center gap-4">
           <p>{{ errorText }}</p>
-          <button @click="close" class="bg-red-500 py-1 px-4">{{ i18nState.COM_CLOSE }}</button>
+          <p
+            v-if="downloadErrorRetryable"
+            class="text-sm text-muted-foreground text-center max-w-md"
+          >
+            {{ i18nState.ERR_DOWNLOAD_RESUME_HINT }}
+          </p>
+          <div class="flex flex-wrap justify-center items-center gap-4">
+            <button
+              v-if="downloadErrorRetryable"
+              type="button"
+              @click="retryDownload"
+              class="bg-primary py-1 px-4 rounded"
+            >
+              {{ i18nState.COM_RETRY }}
+            </button>
+            <button type="button" @click="close" class="bg-red-500 py-1 px-4 rounded">
+              {{ i18nState.COM_CLOSE }}
+            </button>
+          </div>
         </div>
         <template v-else>
           <progress-bar :text="allDownloadTip" :percent="taskPercent" class="w-3/4"></progress-bar>
@@ -191,6 +209,7 @@ import { EtaEstimator } from '@/lib/etaEstimator'
 import { aipgFetch } from '@/lib/loopbackAuth'
 
 const i18nState = useI18N().state
+const languages = i18nState
 const globalSetup = useGlobalSetup()
 const models = useModels()
 const dialogStore = useDialogStore()
@@ -208,6 +227,7 @@ const showConfirm = ref(false)
 const sizeRequesting = ref(false)
 const hashError = ref(false)
 const errorText = ref('')
+const downloadErrorRetryable = ref(false)
 let abortController: AbortController
 const animate = ref(false)
 const readTerms = ref(false)
@@ -245,23 +265,36 @@ function dataProcess(line: string) {
       break
     case 'error':
       hashError.value = true
+      downloding = false
       abortController?.abort()
       aipgFetch(`${globalSetup.apiHost}/api/stopDownloadModel`)
 
       switch (data.err_type) {
         case 'not_enough_disk_space':
+          downloadErrorRetryable.value = false
           errorText.value = i18nState.ERR_NOT_ENOUGH_DISK_SPACE.replace(
             '{requires_space}',
             data.requires_space,
           ).replace('{free_space}', data.free_space)
           break
+        case 'repositories_not_found':
+          downloadErrorRetryable.value = false
+          errorText.value = i18nState.ERROR_REPO_NOT_EXISTS
+          break
         case 'download_exception':
+          downloadErrorRetryable.value = true
           errorText.value = i18nState.ERR_DOWNLOAD_FAILED
           break
         case 'runtime_error':
+          downloadErrorRetryable.value = false
           errorText.value = i18nState.ERROR_RUNTIME_ERROR
           break
         case 'unknown_exception':
+          downloadErrorRetryable.value = false
+          errorText.value = i18nState.ERROR_GENERATE_UNKONW_EXCEPTION
+          break
+        default:
+          downloadErrorRetryable.value = false
           errorText.value = i18nState.ERROR_GENERATE_UNKONW_EXCEPTION
           break
       }
@@ -293,6 +326,7 @@ async function initializeDownloadDialog() {
   curDownloadTip.value = i18nState.DOWNLOADER_CONFRIM_TIP
   showConfirm.value = true
   hashError.value = false
+  downloadErrorRetryable.value = false
   percent.value = 0
   taskPercent.value = 0
   downloadModelRender.value = downloadList.value.map((item) => {
@@ -414,17 +448,28 @@ function cancelConfirm() {
 function confirmDownload() {
   showConfirm.value = false
   hashError.value = false
+  downloadErrorRetryable.value = false
   return download()
+}
+
+function retryDownload() {
+  etaEstimator.reset()
+  hashError.value = false
+  downloadErrorRetryable.value = false
+  errorText.value = ''
+  download()
 }
 
 function cancelDownload() {
   abortController?.abort()
   aipgFetch(`${globalSetup.apiHost}/api/stopDownloadModel`)
   downloadFailFunction.value?.({ type: 'cancelDownload' })
+  downloding = false
   dialogStore.closeDownloadDialog()
 }
 
 function close() {
+  downloding = false
   dialogStore.closeDownloadDialog()
 }
 </script>

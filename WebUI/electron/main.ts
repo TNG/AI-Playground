@@ -42,7 +42,6 @@ import { exec } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import sudo from 'sudo-prompt'
 import { PathsManager } from './pathsManager'
-import { cleanupTempFolders } from './tempFolderCleanup'
 import { appLoggerInstance } from './logging/logger.ts'
 import {
   aiplaygroundApiServiceRegistry,
@@ -1940,14 +1939,6 @@ app.whenReady().then(async () => {
     app.exit()
   } else {
     const settings = await loadSettings()
-
-    const modelsDir = path.resolve(
-      app.isPackaged
-        ? path.join(process.resourcesPath, 'models')
-        : path.join(__dirname, '../../../models'),
-    )
-    // Start temp-folder cleanup without blocking application startup
-    void cleanupTempFolders(modelsDir)
 
     initEventHandle()
 

@@ -1,10 +1,6 @@
 import { ChildProcess, spawn } from 'node:child_process'
 import path from 'node:path'
-import {
-  GitService,
-  LongLivedPythonApiService,
-  createEnhancedErrorDetails,
-} from './service.ts'
+import { GitService, LongLivedPythonApiService, createEnhancedErrorDetails } from './service.ts'
 import { aipgBaseDir, checkBackend, installBackend } from './uvBasedBackends/uv.ts'
 
 /**

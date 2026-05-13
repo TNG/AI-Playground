@@ -31,7 +31,6 @@ import {
   net,
   OpenDialogSyncOptions,
   protocol,
-  safeStorage,
   screen,
   shell,
   utilityProcess,
@@ -39,7 +38,7 @@ import {
 } from 'electron'
 import path from 'node:path'
 import fs from 'fs'
-import https from 'node:https'
+
 import { exec } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import sudo from 'sudo-prompt'
@@ -657,6 +656,9 @@ app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
 
 async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) {
   serviceRegistry = await aiplaygroundApiServiceRegistry(win, settings)
+  ;(
+    serviceRegistry.getService('home-agent-backend') as HomeAgentBackendService
+  ).registerIpcHandlers()
   return serviceRegistry
 }
 
@@ -1188,15 +1190,9 @@ function initEventHandle() {
           'electron-backend',
         )
         // If home-agent is running, update its upstream URL
-        if (serviceRegistry) {
-          const homeAgent = serviceRegistry.getService('home-agent-backend') as HomeAgentBackendService | undefined
-          if (homeAgent && homeAgent.currentStatus === 'running') {
-            const upstreamService = serviceRegistry.getService(serviceName)
-            if (upstreamService?.baseUrl) {
-              void homeAgent.setUpstreamUrl(upstreamService.baseUrl)
-            }
-          }
-        }
+        ;(
+          serviceRegistry?.getService('home-agent-backend') as HomeAgentBackendService | undefined
+        )?.notifyUpstreamReady(service.baseUrl ?? '')
         return { success: true }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
@@ -1208,186 +1204,6 @@ function initEventHandle() {
       }
     },
   )
-
-  // ── Home Agent config (safeStorage) ──────────────────────────────────────
-  const homeAgentConfigPath = () => path.join(app.getPath('userData'), 'home-agent-config.json')
-
-
-  async function detectChatIdWithToken(token: string, serviceBaseUrl?: string): Promise<{ chatId: string } | { error: string }> {
-    try {
-      const cleanToken = token.trim().replace(/\s+/g, '')
-      appLogger.info(`homeAgent:detectChatId token length=${cleanToken.length} preview="${cleanToken.slice(0, 10)}..."`, 'electron-backend')
-
-      // Validate token with getMe
-      const meResult = await httpsGet(`https://api.telegram.org/bot${cleanToken}/getMe`)
-      appLogger.info(`homeAgent:detectChatId getMe status=${meResult.status} body=${meResult.body.slice(0, 200)}`, 'electron-backend')
-      if (meResult.status !== 200) {
-        let msg = 'Invalid bot token. Copy it again from BotFather.'
-        try {
-          const parsed = JSON.parse(meResult.body) as { description?: string }
-          if (parsed.description) msg = `Telegram error: ${parsed.description}`
-        } catch { /* ignore */ }
-        return { error: `${msg} (token length: ${cleanToken.length})` }
-      }
-
-      // Ask the backend — it has the chat ID from the bot's polling (memory or .chat_id file)
-      if (serviceBaseUrl) {
-        try {
-          const body = await httpsGetFromService(`${serviceBaseUrl}/get-chat-id`)
-          const data = JSON.parse(body) as { chatId?: string; error?: string }
-          appLogger.info(`homeAgent:detectChatId /get-chat-id returned: ${body.slice(0, 100)}`, 'electron-backend')
-          if (data.chatId) return { chatId: data.chatId }
-        } catch { /* fall through */ }
-      }
-
-      return { error: 'No messages received yet. Send any message to your bot, then try again.' }
-    } catch (e) {
-      return { error: String(e) }
-    }
-  }
-
-  ipcMain.handle('homeAgent:saveConfig', async (_event, token: string, chatId: string) => {
-    try {
-      const cleanToken = token.trim().replace(/\s+/g, '')
-      const cleanChatId = chatId.trim()
-      const encrypted = safeStorage.encryptString(cleanToken)
-      const data = { encryptedToken: encrypted.toJSON(), chatId: cleanChatId }
-      fs.writeFileSync(homeAgentConfigPath(), JSON.stringify(data), 'utf-8')
-      return { success: true }
-    } catch (e) {
-      return { success: false, error: String(e) }
-    }
-  })
-
-  ipcMain.handle('homeAgent:loadConfig', async () => {
-    try {
-      const raw = fs.readFileSync(homeAgentConfigPath(), 'utf-8')
-      const data = JSON.parse(raw) as { encryptedToken: { type: string; data: number[] }; chatId: string }
-      const buf = Buffer.from(data.encryptedToken.data)
-      const token = safeStorage.decryptString(buf)
-      return { token, chatId: data.chatId }
-    } catch {
-      return null
-    }
-  })
-
-  ipcMain.handle('homeAgent:clearConfig', async () => {
-    try {
-      fs.unlinkSync(homeAgentConfigPath())
-    } catch {
-      // ignore if not found
-    }
-  })
-
-  ipcMain.handle('homeAgent:testTelegram', async () => {
-    try {
-      const raw = fs.readFileSync(homeAgentConfigPath(), 'utf-8')
-      const data = JSON.parse(raw) as { encryptedToken: { type: string; data: number[] }; chatId: string }
-      const buf = Buffer.from(data.encryptedToken.data)
-      const token = safeStorage.decryptString(buf)
-      const { chatId } = data
-      const url = `https://api.telegram.org/bot${token}/sendMessage`
-      const result = await httpsPost(url, JSON.stringify({ chat_id: chatId, text: '✅ Home Agent is connected!' }))
-      if (result.status === 200) return { success: true }
-      return { success: false, error: result.body }
-    } catch (e) {
-      return { success: false, error: String(e) }
-    }
-  })
-
-  ipcMain.handle('homeAgent:injectToken', async (_event, token: string) => {
-    if (!serviceRegistry) return { status: 'no_registry' }
-    const service = serviceRegistry.getService('home-agent-backend')
-    if (!service || service.currentStatus !== 'running') return { status: 'not_running' }
-    try {
-      const clean = token.trim().replace(/\s+/g, '')
-      const result = await httpsPost(`${service.baseUrl}/set-telegram-token`, JSON.stringify({ token: clean }))
-      return { status: JSON.parse(result.body)?.status ?? 'ok' }
-    } catch (e) {
-      return { status: `error: ${e}` }
-    }
-  })
-
-  ipcMain.handle('homeAgent:detectChatId', async (_event, token: string) => {
-    let serviceBaseUrl: string | undefined
-    if (serviceRegistry) {
-      const svc = serviceRegistry.getService('home-agent-backend')
-      if (svc?.currentStatus === 'running') {
-        serviceBaseUrl = svc.baseUrl
-        // Try /get-chat-id first (fastest — no polling conflict)
-        try {
-          const body = await httpsGetFromService(`${serviceBaseUrl}/get-chat-id`)
-          const data = JSON.parse(body) as { chatId?: string; error?: string }
-          if (data.chatId) return { chatId: data.chatId }
-        } catch { /* fall through */ }
-      }
-    }
-    return detectChatIdWithToken(token, serviceBaseUrl)
-  })
-
-  ipcMain.handle('homeAgent:detectChatIdFromSaved', async () => {
-    let serviceBaseUrl: string | undefined
-    if (serviceRegistry) {
-      const svc = serviceRegistry.getService('home-agent-backend')
-      if (svc?.currentStatus === 'running') {
-        serviceBaseUrl = svc.baseUrl
-        // Try /get-chat-id first
-        try {
-          const body = await httpsGetFromService(`${serviceBaseUrl}/get-chat-id`)
-          const data = JSON.parse(body) as { chatId?: string; error?: string }
-          if (data.chatId) return { chatId: data.chatId }
-        } catch { /* fall through */ }
-      }
-    }
-    // Fall back to decrypting saved token and calling getUpdates (with pause/resume)
-    try {
-      const raw = fs.readFileSync(homeAgentConfigPath(), 'utf-8')
-      const data = JSON.parse(raw) as { encryptedToken: { type: string; data: number[] }; chatId: string }
-      const buf = Buffer.from(data.encryptedToken.data)
-      const token = safeStorage.decryptString(buf)
-      return detectChatIdWithToken(token, serviceBaseUrl)
-    } catch (e) {
-      return { error: `Could not read saved config: ${String(e)}` }
-    }
-  })
-
-  ipcMain.handle('homeAgent:flushPending', async () => {
-    if (!serviceRegistry) return
-    const service = serviceRegistry.getService('home-agent-backend')
-    if (!service || service.currentStatus !== 'running') return
-    try {
-      await httpsPost(`${service.baseUrl}/flush-pending`, '{}')
-    } catch { /* ignore */ }
-  })
-
-  ipcMain.handle('homeAgent:pollTelegram', async () => {
-    if (!serviceRegistry) return []
-    const service = serviceRegistry.getService('home-agent-backend')
-    if (!service || service.currentStatus !== 'running') return []
-    try {
-      const result = await httpsGetFromService(`${service.baseUrl}/poll-telegram`)
-      return JSON.parse(result) as Array<{ text: string; chat_id: string }>
-    } catch {
-      return []
-    }
-  })
-
-  ipcMain.handle('homeAgent:sendTelegramReply', async (_event, text: string) => {
-    if (!serviceRegistry) return { success: false, error: 'Service registry not ready' }
-    const service = serviceRegistry.getService('home-agent-backend')
-    if (!service || service.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }
-    try {
-      const url = `${service.baseUrl}/send-telegram-reply`
-      appLogger.info(`homeAgent:sendTelegramReply posting to ${url}: "${text.slice(0, 80)}"`, 'electron-backend')
-      const result = await httpsPost(url, JSON.stringify({ text }))
-      appLogger.info(`homeAgent:sendTelegramReply response: status=${result.status} body=${result.body}`, 'electron-backend')
-      if (result.status === 200) return { success: true }
-      return { success: false, error: result.body }
-    } catch (e) {
-      appLogger.error(`homeAgent:sendTelegramReply error: ${e}`, 'electron-backend')
-      return { success: false, error: String(e) }
-    }
-  })
 
   ipcMain.handle('ensureComfyUIBackendRunning', async () => {
     if (!serviceRegistry) {
@@ -1949,53 +1765,6 @@ function isAdmin(): boolean {
   } finally {
     lib.unload()
   }
-}
-
-import http from 'node:http'
-
-/** GET from a local http service (not https) */
-function httpsGetFromService(url: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    http.get(url, (res) => {
-      let body = ''
-      res.on('data', (chunk: Buffer) => { body += chunk.toString() })
-      res.on('end', () => resolve(body))
-    }).on('error', reject)
-  })
-}
-
-function httpsGet(url: string): Promise<{ status: number; body: string }> {
-  return new Promise((resolve, reject) => {
-    https.get(url, (res) => {
-      let body = ''
-      res.on('data', (chunk: Buffer) => { body += chunk.toString() })
-      res.on('end', () => resolve({ status: res.statusCode ?? 0, body }))
-    }).on('error', reject)
-  })
-}
-
-function httpsPost(url: string, payload: string): Promise<{ status: number; body: string }> {
-  return new Promise((resolve, reject) => {
-    const parsed = new URL(url)
-    const transport = parsed.protocol === 'https:' ? https : http
-    const req = (transport as typeof https).request(
-      {
-        hostname: parsed.hostname,
-        port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
-        path: parsed.pathname + parsed.search,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
-      },
-      (res) => {
-        let body = ''
-        res.on('data', (chunk: Buffer) => { body += chunk.toString() })
-        res.on('end', () => resolve({ status: res.statusCode ?? 0, body }))
-      },
-    )
-    req.on('error', reject)
-    req.write(payload)
-    req.end()
-  })
 }
 
 app.whenReady().then(async () => {

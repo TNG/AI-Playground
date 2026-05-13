@@ -2,13 +2,28 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
-import { useOpenAiCompatibleChat } from './openAiCompatibleChat'
+import { useOpenAiCompatibleChat, type AipgUiMessage } from './openAiCompatibleChat'
 import * as toast from '../toast'
+
+const POLL_INTERVAL_MS = 2000
+const MAX_QUEUE_SIZE = 20
+
+function extractAssistantReply(messages: AipgUiMessage[] | undefined): string | null {
+  if (!messages || messages.length === 0) return null
+  const last = messages[messages.length - 1]
+  if (last.role !== 'assistant') return null
+  const text = (last.parts as { type: string; text?: string }[])
+    .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+    .map((p) => p.text)
+    .join('')
+  return text || null
+}
 
 export const useHomeAgent = defineStore(
   'homeAgent',
   () => {
     const backendServices = useBackendServices()
+    const chatStore = useOpenAiCompatibleChat()
 
     const isHomeAgentActive = ref(false)
     const telegramToken = ref<string | null>(null)
@@ -16,24 +31,8 @@ export const useHomeAgent = defineStore(
     const telegramVerified = ref(false)
 
     let _pollInterval: ReturnType<typeof setInterval> | null = null
-    let _processing = false
-
-    // Load token from safeStorage (not persisted to disk for security).
-    // telegramChatId and telegramVerified ARE persisted, so they are already
-    // populated synchronously before this resolves.
-    window.electronAPI.homeAgent.loadConfig().then((cfg) => {
-      if (cfg) {
-        telegramToken.value = cfg.token
-        telegramChatId.value = cfg.chatId
-      } else {
-        // No config in safeStorage — clear everything only if nothing was persisted
-        if (!telegramVerified.value) {
-          telegramToken.value = null
-          telegramChatId.value = null
-          isHomeAgentActive.value = false
-        }
-      }
-    })
+    const _messageQueue: string[] = []
+    let _draining = false
 
     const isTelegramConfigured = computed(
       () => !!telegramToken.value && !!telegramChatId.value,
@@ -41,8 +40,6 @@ export const useHomeAgent = defineStore(
 
     // "Ready to activate" = previously verified. telegramVerified is persisted,
     // so this is true immediately on startup if the user verified in a previous run.
-    // We do NOT gate on isTelegramConfigured here — that would require the async
-    // safeStorage load to complete before the toggle becomes enabled.
     const isReadyToActivate = computed(() => telegramVerified.value)
 
     const isAvailable = computed(
@@ -82,42 +79,41 @@ export const useHomeAgent = defineStore(
       }
     })
 
-    async function processTelegramMessages() {
-      if (!isHomeAgentActive.value) return
-      if (_processing) return
+    async function drainQueue() {
+      if (_draining) return
+      _draining = true
       try {
-        const msgs = await window.electronAPI.homeAgent.pollTelegram()
-        if (!msgs || msgs.length === 0) return
-        _processing = true
-        const chatStore = useOpenAiCompatibleChat()
-        for (const msg of msgs) {
+        while (_messageQueue.length > 0) {
+          const text = _messageQueue.shift()!
           try {
-            await chatStore.generate(msg.text)
-            const allMessages = chatStore.messages
-            console.log('[HomeAgent] messages after generate:', allMessages?.length, allMessages?.map(m => m.role))
-            if (allMessages && allMessages.length > 0) {
-              const last = allMessages[allMessages.length - 1]
-              console.log('[HomeAgent] last message role:', last.role, 'parts:', last.parts?.length)
-              if (last.role === 'assistant') {
-                const replyText = last.parts
-                  .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
-                  .map((p) => p.text)
-                  .join('')
-                console.log('[HomeAgent] sending reply to Telegram:', replyText.slice(0, 100))
-                if (replyText) {
-                  const result = await window.electronAPI.homeAgent.sendTelegramReply(replyText)
-                  console.log('[HomeAgent] sendTelegramReply result:', result)
-                }
-              }
+            await chatStore.generate(text)
+            const reply = extractAssistantReply(chatStore.messages ?? undefined)
+            if (reply) {
+              await window.electronAPI.homeAgent.sendTelegramReply(reply)
             }
           } catch (e) {
             console.error('Error processing Telegram message:', e)
           }
         }
+      } finally {
+        _draining = false
+      }
+    }
+
+    async function processTelegramMessages() {
+      try {
+        const msgs = await window.electronAPI.homeAgent.pollTelegram()
+        if (!msgs || msgs.length === 0) return
+        for (const msg of msgs) {
+          if (_messageQueue.length >= MAX_QUEUE_SIZE) {
+            toast.warning('Home Agent: message queue full, dropping oldest message.')
+            _messageQueue.shift()
+          }
+          _messageQueue.push(msg.text)
+        }
+        void drainQueue()
       } catch (e) {
         console.error('Error polling Telegram:', e)
-      } finally {
-        _processing = false
       }
     }
 
@@ -125,7 +121,7 @@ export const useHomeAgent = defineStore(
       if (_pollInterval !== null) return
       _pollInterval = setInterval(() => {
         void processTelegramMessages()
-      }, 2000)
+      }, POLL_INTERVAL_MS)
     }
 
     function stopPolling() {
@@ -138,8 +134,7 @@ export const useHomeAgent = defineStore(
     async function saveConfig(token: string, chatId: string) {
       const result = await window.electronAPI.homeAgent.saveConfig(token, chatId)
       if (result.success) {
-        const configChanged =
-          token !== telegramToken.value || chatId !== telegramChatId.value
+        const configChanged = token !== telegramToken.value || chatId !== telegramChatId.value
         telegramToken.value = token
         telegramChatId.value = chatId
         // Reset verified only when credentials actually change — must re-verify
@@ -177,17 +172,31 @@ export const useHomeAgent = defineStore(
       isHomeAgentActive.value = true
     }
 
-    function deactivate() {
-      isHomeAgentActive.value = false
-    }
-
     function toggle() {
       if (isHomeAgentActive.value) {
-        deactivate()
+        isHomeAgentActive.value = false
       } else {
         activate()
       }
     }
+
+    // Load token from safeStorage (not persisted to disk for security).
+    // telegramChatId and telegramVerified ARE persisted, so they are already
+    // populated synchronously before this resolves.
+    async function initConfig() {
+      const cfg = await window.electronAPI.homeAgent.loadConfig()
+      if (cfg) {
+        telegramToken.value = cfg.token
+        telegramChatId.value = cfg.chatId
+      } else if (!telegramVerified.value) {
+        // No config in safeStorage — clear everything only if nothing was persisted
+        telegramToken.value = null
+        telegramChatId.value = null
+        isHomeAgentActive.value = false
+      }
+    }
+
+    void initConfig()
 
     return {
       isHomeAgentActive,
@@ -198,7 +207,6 @@ export const useHomeAgent = defineStore(
       isAvailable,
       homeAgentBaseUrl,
       activate,
-      deactivate,
       toggle,
       saveConfig,
       clearConfig,
@@ -211,7 +219,9 @@ export const useHomeAgent = defineStore(
       // telegramChatId persisted (non-sensitive) for display purposes.
       // telegramVerified persisted — this is the key flag for "ready to activate".
       // telegramToken NOT persisted — lives only in safeStorage.
-      pick: ['isHomeAgentActive', 'telegramVerified', 'telegramChatId'],
+      // isHomeAgentActive NOT persisted — re-derived on startup by watchers
+      //   (isAvailable is false until the backend service reports ready).
+      pick: ['telegramVerified', 'telegramChatId'],
     },
   },
 )

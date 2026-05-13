@@ -49,18 +49,14 @@
         <div class="flex flex-col gap-4">
           <!-- Step 1: Create bot -->
           <div class="flex gap-3">
-            <div
-              class="w-6 h-6 rounded-full bg-primary/20 text-primary text-xs font-bold flex items-center justify-center shrink-0 mt-0.5"
-            >
-              1
-            </div>
+            <StepBadge :step="1" />
             <div class="flex-1">
               <p class="text-sm font-medium">Create a Telegram Bot</p>
               <p class="text-xs text-muted-foreground pt-0.5">
                 Open Telegram, search for
                 <button
                   class="text-primary underline"
-                  @click="openUrl('https://t.me/BotFather')"
+                  @click="window.electronAPI.openUrl('https://t.me/BotFather')"
                 >@BotFather</button>,
                 send <code class="bg-muted px-1 rounded">/newbot</code>, follow the prompts, and
                 copy the <strong>full</strong> API token it gives you.
@@ -98,12 +94,7 @@
 
           <!-- Step 2: Connect your account (auto-detect chat ID) -->
           <div class="flex gap-3">
-            <div
-              class="w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold"
-              :class="detectedChatId ? 'bg-green-500/20 text-green-500' : 'bg-primary/20 text-primary'"
-            >
-              2
-            </div>
+            <StepBadge :step="2" :done="!!detectedChatId" />
             <div class="flex-1">
               <p class="text-sm font-medium">Connect Your Account</p>
               <p class="text-xs text-muted-foreground pt-0.5">
@@ -114,7 +105,7 @@
               <div v-if="tokenInput || isAlreadyConfigured" class="flex flex-wrap items-center gap-2 pt-2">
                 <button
                   class="text-xs py-1.5 px-3 rounded border border-border hover:bg-muted transition-colors"
-                  @click="openBotInTelegram"
+                  @click="window.electronAPI.openUrl('https://t.me/')"
                 >
                   Open bot in Telegram ↗
                 </button>
@@ -147,12 +138,10 @@
 
           <!-- Step 3: Verify -->
           <div class="flex gap-3">
-            <div
-              class="w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold"
-              :class="(verifyStatus === 'success' || (homeAgent.telegramVerified && verifyStatus === 'idle')) ? 'bg-green-500/20 text-green-500' : 'bg-primary/20 text-primary'"
-            >
-              3
-            </div>
+            <StepBadge
+              :step="3"
+              :done="verifyStatus === 'success' || (homeAgent.telegramVerified && verifyStatus === 'idle')"
+            />
             <div class="flex-1">
               <p class="text-sm font-medium">Verify Connection</p>
               <p class="text-xs text-muted-foreground pt-0.5">
@@ -210,7 +199,7 @@
         <button
           :disabled="!canSave"
           class="bg-primary py-2 px-8 rounded text-primary-foreground text-sm font-medium disabled:opacity-50 transition-colors"
-          @click="saveAndContinue"
+          @click="saveAndContinue().then(() => emit('done'))"
         >
           Save &amp; Continue
         </button>
@@ -220,138 +209,30 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useHomeAgent } from '@/assets/js/store/homeAgent'
-import { useConversations } from '@/assets/js/store/conversations'
+import StepBadge from '@/components/StepBadge.vue'
+import { useHomeAgentSetup } from '@/assets/js/store/useHomeAgentSetup'
 
 const emit = defineEmits<{
   back: []
   done: []
 }>()
 
-const homeAgent = useHomeAgent()
-const conversations = useConversations()
-
-const tokenInput = ref('')
-const showToken = ref(false)
-const detectedChatId = ref('')
-const detectStatus = ref<'idle' | 'loading' | 'error'>('idle')
-const detectError = ref('')
-const verifyStatus = ref<'idle' | 'loading' | 'success' | 'error'>('idle')
-const verifyError = ref('')
-
-const isAlreadyConfigured = computed(() => homeAgent.isTelegramConfigured)
-
-// A valid token is  <digits>:<35 alphanumeric chars>, total ≥ 40 chars with a colon
-const tokenFormatOk = computed(() => {
-  const t = tokenInput.value.trim()
-  return t.includes(':') && t.split(':')[0].length > 0 && t.length >= 40
-})
-
-const canVerify = computed(() => {
-  const hasAnyToken = !!tokenInput.value || isAlreadyConfigured.value
-  const hasAnyChatId = !!detectedChatId.value || isAlreadyConfigured.value
-  return hasAnyToken && hasAnyChatId
-})
-
-const canSave = computed(
-  () =>
-    (!!tokenInput.value || isAlreadyConfigured.value) &&
-    (!!detectedChatId.value || isAlreadyConfigured.value),
-)
-
-async function runDetectChatId() {
-  detectStatus.value = 'loading'
-  detectError.value = ''
-  let result: { chatId: string } | { error: string }
-  if (tokenInput.value) {
-    // Inject token into running backend so it can start polling (if not already)
-    await window.electronAPI.homeAgent.injectToken(tokenInput.value)
-    // Poll /get-chat-id for up to 30s waiting for a message to arrive
-    result = await pollForChatId(tokenInput.value)
-  } else {
-    result = await window.electronAPI.homeAgent.detectChatIdFromSaved()
-  }
-  if ('chatId' in result) {
-    detectedChatId.value = result.chatId
-    detectStatus.value = 'idle'
-    // Discard the message(s) used for detection so they aren't replayed as prompts
-    await window.electronAPI.homeAgent.flushPending()
-  } else {
-    detectStatus.value = 'error'
-    detectError.value = result.error
-  }
-}
-
-async function pollForChatId(token: string): Promise<{ chatId: string } | { error: string }> {
-  // First try immediately (chat ID may already be in backend memory/file)
-  const quick = await window.electronAPI.homeAgent.detectChatId(token)
-  if ('chatId' in quick) return quick
-
-  // Not found yet — tell user to send a message and poll for up to 5s
-  detectError.value = 'Waiting for a message… Open your bot in Telegram and send any message.'
-  const deadline = Date.now() + 5_000
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 2000))
-    const r = await window.electronAPI.homeAgent.detectChatId(token)
-    if ('chatId' in r) {
-      detectError.value = ''
-      return r
-    }
-  }
-  return { error: 'Timed out waiting for a message. Make sure the bot is running and send any message to it, then click Detect again.' }
-}
-
-async function openBotInTelegram() {
-  window.electronAPI.openUrl('https://t.me/')
-}
-
-function openUrl(url: string) {
-  window.electronAPI.openUrl(url)
-}
-
-async function verify() {
-  const token = tokenInput.value
-  const chatId = detectedChatId.value || homeAgent.telegramChatId!
-  if (token && chatId) {
-    await homeAgent.saveConfig(token, chatId)
-  }
-  verifyStatus.value = 'loading'
-  verifyError.value = ''
-  const result = await window.electronAPI.homeAgent.testTelegram()
-  if (result.success) {
-    verifyStatus.value = 'success'
-    homeAgent.setVerified()
-  } else {
-    verifyStatus.value = 'error'
-    verifyError.value = result.error ?? 'Unknown error'
-  }
-}
-
-async function saveAndContinue() {
-  const token = tokenInput.value
-  const chatId = detectedChatId.value || homeAgent.telegramChatId || ''
-  if (token && chatId) {
-    // Preserve verified state across the save — if the user already verified
-    // (either in this session or a previous one), keep it true.
-    const wasVerified = homeAgent.telegramVerified
-    await homeAgent.saveConfig(token, chatId)
-    if (wasVerified) {
-      homeAgent.setVerified()
-    }
-  }
-  // Clear the active conversation so the message sent during detection
-  // isn't picked up as the first user prompt in Home Agent mode.
-  conversations.addNewConversation()
-  emit('done')
-}
-
-async function clearConfig() {
-  await homeAgent.clearConfig()
-  tokenInput.value = ''
-  detectedChatId.value = ''
-  detectStatus.value = 'idle'
-  verifyStatus.value = 'idle'
-}
+const {
+  homeAgent,
+  tokenInput,
+  showToken,
+  detectedChatId,
+  detectStatus,
+  detectError,
+  verifyStatus,
+  verifyError,
+  isAlreadyConfigured,
+  tokenFormatOk,
+  canVerify,
+  canSave,
+  runDetectChatId,
+  verify,
+  saveAndContinue,
+  clearConfig,
+} = useHomeAgentSetup()
 </script>
-

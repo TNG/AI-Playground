@@ -512,14 +512,19 @@ export abstract class LongLivedPythonApiService implements ApiService {
     this.settings = settings
     // Async init: check setup state and update status. Runs after the subclass constructor
     // finishes (fields like serviceFolder are already set) because Promise callbacks are microtasks.
-    this.serviceIsSetUp().then(async (setUp) => {
-      this.isSetUp = setUp
-      if (this.isSetUp) {
-        await this.updateCachedVersion()
-        this.setStatus('notYetStarted')
+    void (async () => {
+      try {
+        this.isSetUp = await this.serviceIsSetUp()
+        if (this.isSetUp) {
+          await this.updateCachedVersion()
+          this.setStatus('notYetStarted')
+        }
+        this.appLogger.info(`Service ${this.name} isSetUp: ${this.isSetUp}`, this.name)
+      } catch (e) {
+        this.isSetUp = false
+        this.appLogger.error(`Service ${this.name} async init failed: ${e}`, this.name)
       }
-      this.appLogger.info(`Service ${this.name} isSetUp: ${this.isSetUp}`, this.name)
-    })
+    })()
   }
 
   abstract serviceIsSetUp(): Promise<boolean>

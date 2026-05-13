@@ -186,7 +186,12 @@ def _start_telegram_bot(token: str, allowed_chat_id: str) -> None:
             logger.warning("Ignoring message from unauthorized chat_id: %s", chat_id)
             return
         user_text = update.message.text or ""
-        logger.info("Telegram message received: %s", user_text)
+        logger.info(
+            "Telegram message received: chat_id=%s message_id=%s length=%d",
+            chat_id,
+            update.message.message_id,
+            len(user_text),
+        )
         with _pending_lock:
             _pending_messages.append({"text": user_text, "chat_id": chat_id})
 

@@ -29,22 +29,36 @@ export function useHomeAgentSetup() {
   const hasAnyChatId = computed(() => !!detectedChatId.value || isAlreadyConfigured.value)
 
   const canVerify = computed(() => hasAnyToken.value && hasAnyChatId.value)
-  const canSave = computed(() => hasAnyToken.value && hasAnyChatId.value)
+  const canSave = computed(
+    () => hasAnyChatId.value && (isAlreadyConfigured.value || tokenFormatOk.value),
+  )
 
   async function pollForChatId(token: string): Promise<{ chatId: string } | { error: string }> {
     // First try immediately (chat ID may already be in backend memory/file)
-    const quick = await window.electronAPI.homeAgent.detectChatId(token)
-    if ('chatId' in quick) return quick
+    try {
+      const quick = await window.electronAPI.homeAgent.detectChatId(token)
+      if ('chatId' in quick) return quick
+    } catch (e) {
+      console.error('pollForChatId initial detectChatId failed:', e)
+      detectError.value = 'Failed to contact Home Agent backend. Is it running?'
+      return { error: detectError.value }
+    }
 
     // Not found yet — tell user to send a message and poll for up to DETECT_TIMEOUT_MS
     detectError.value = 'Waiting for a message… Open your bot in Telegram and send any message.'
     const deadline = Date.now() + DETECT_TIMEOUT_MS
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, DETECT_POLL_INTERVAL_MS))
-      const r = await window.electronAPI.homeAgent.detectChatId(token)
-      if ('chatId' in r) {
-        detectError.value = ''
-        return r
+      try {
+        const r = await window.electronAPI.homeAgent.detectChatId(token)
+        if ('chatId' in r) {
+          detectError.value = ''
+          return r
+        }
+      } catch (e) {
+        console.error('pollForChatId poll detectChatId failed:', e)
+        detectError.value = 'Failed to contact Home Agent backend. Is it running?'
+        return { error: detectError.value }
       }
     }
     return {
@@ -56,67 +70,98 @@ export function useHomeAgentSetup() {
   async function runDetectChatId() {
     detectStatus.value = 'loading'
     detectError.value = ''
-    let result: { chatId: string } | { error: string }
-    if (tokenInput.value) {
-      // Inject token into running backend so it can start polling (if not already)
-      await window.electronAPI.homeAgent.injectToken(tokenInput.value)
-      // Poll /get-chat-id for up to DETECT_TIMEOUT_MS waiting for a message to arrive
-      result = await pollForChatId(tokenInput.value)
-    } else {
-      result = await window.electronAPI.homeAgent.detectChatIdFromSaved()
-    }
-    if ('chatId' in result) {
-      detectedChatId.value = result.chatId
-      detectStatus.value = 'idle'
-      // Discard the message(s) used for detection so they aren't replayed as prompts
-      await window.electronAPI.homeAgent.flushPending()
-    } else {
+    try {
+      let result: { chatId: string } | { error: string }
+      if (tokenInput.value) {
+        // Inject token into running backend so it can start polling (if not already)
+        try {
+          await window.electronAPI.homeAgent.injectToken(tokenInput.value)
+        } catch (e) {
+          console.error('runDetectChatId: injectToken failed:', e)
+          // Non-fatal — proceed to poll anyway; backend may already have it
+        }
+        // Poll /get-chat-id for up to DETECT_TIMEOUT_MS waiting for a message to arrive
+        result = await pollForChatId(tokenInput.value)
+      } else {
+        result = await window.electronAPI.homeAgent.detectChatIdFromSaved()
+      }
+      if ('chatId' in result) {
+        detectedChatId.value = result.chatId
+        detectStatus.value = 'idle'
+        // Discard the message(s) used for detection so they aren't replayed as prompts
+        try {
+          await window.electronAPI.homeAgent.flushPending()
+        } catch (e) {
+          console.error('runDetectChatId: flushPending failed:', e)
+        }
+      } else {
+        detectStatus.value = 'error'
+        detectError.value = result.error
+      }
+    } catch (e) {
+      console.error('runDetectChatId failed:', e)
       detectStatus.value = 'error'
-      detectError.value = result.error
+      detectError.value = e instanceof Error ? e.message : String(e)
     }
   }
 
   async function verify() {
     const token = tokenInput.value
     const chatId = detectedChatId.value || homeAgent.telegramChatId!
-    if (token && chatId) {
-      await homeAgent.saveConfig(token, chatId)
-    }
     verifyStatus.value = 'loading'
     verifyError.value = ''
-    const result = await window.electronAPI.homeAgent.testTelegram()
-    if (result.success) {
-      verifyStatus.value = 'success'
-      homeAgent.setVerified()
-    } else {
+    try {
+      const result = await window.electronAPI.homeAgent.testTelegram()
+      if (result.success) {
+        if (token && chatId) {
+          await homeAgent.saveConfig(token, chatId)
+        }
+        homeAgent.setVerified()
+        verifyStatus.value = 'success'
+      } else {
+        verifyStatus.value = 'error'
+        verifyError.value = result.error ?? 'Unknown error'
+      }
+    } catch (e) {
+      console.error('verify: testTelegram failed:', e)
       verifyStatus.value = 'error'
-      verifyError.value = result.error ?? 'Unknown error'
+      verifyError.value = e instanceof Error ? e.message : 'Verification failed'
     }
   }
 
   async function saveAndContinue() {
-    const token = tokenInput.value
+    const token = tokenInput.value.trim()
     const chatId = detectedChatId.value || homeAgent.telegramChatId || ''
-    if (token && chatId) {
-      // Preserve verified state across the save — if the user already verified
-      // (either in this session or a previous one), keep it true.
-      const wasVerified = homeAgent.telegramVerified
-      await homeAgent.saveConfig(token, chatId)
-      if (wasVerified) {
-        homeAgent.setVerified()
+    try {
+      if (token && chatId) {
+        // Preserve verified state across the save — if the user already verified
+        // (either in this session or a previous one), keep it true.
+        const wasVerified = homeAgent.telegramVerified
+        await homeAgent.saveConfig(token, chatId)
+        if (wasVerified) {
+          homeAgent.setVerified()
+        }
       }
+    } catch (e) {
+      console.error('saveAndContinue: failed to save Home Agent config:', e)
+    } finally {
+      // Clear the active conversation so the message sent during detection
+      // isn't picked up as the first user prompt in Home Agent mode.
+      conversations.addNewConversation()
     }
-    // Clear the active conversation so the message sent during detection
-    // isn't picked up as the first user prompt in Home Agent mode.
-    conversations.addNewConversation()
   }
 
   async function clearConfig() {
-    await homeAgent.clearConfig()
-    tokenInput.value = ''
-    detectedChatId.value = ''
-    detectStatus.value = 'idle'
-    verifyStatus.value = 'idle'
+    try {
+      await homeAgent.clearConfig()
+    } catch (e) {
+      console.error('clearConfig: failed to clear Home Agent config:', e)
+    } finally {
+      tokenInput.value = ''
+      detectedChatId.value = ''
+      detectStatus.value = 'idle'
+      verifyStatus.value = 'idle'
+    }
   }
 
   return {

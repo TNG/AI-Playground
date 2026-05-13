@@ -12,6 +12,7 @@
     <button
       role="switch"
       :aria-checked="isHomeAgentActive"
+      :aria-label="ariaLabel"
       :disabled="!isAvailable || (!isReadyToActivate && !isHomeAgentActive)"
       class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
       :class="isHomeAgentActive ? 'bg-primary' : 'bg-muted-foreground/40'"
@@ -52,6 +53,12 @@ const toggleTitle = computed(() => {
     ? 'Switch back to AI Playground'
     : 'Switch to Home Agent (chat only)'
 })
+
+const ariaLabel = computed(() =>
+  isHomeAgentActive.value
+    ? 'Home Agent active, click to switch to AI Playground'
+    : 'AI Playground active, click to switch to Home Agent',
+)
 
 function toggle() {
   homeAgent.toggle()

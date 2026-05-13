@@ -3,6 +3,10 @@ import { ref, computed, watch } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
 import { useOpenAiCompatibleChat, type AipgUiMessage } from './openAiCompatibleChat'
+import { useImageGenerationPresets, isImage } from './imageGenerationPresets'
+import { usePromptStore } from './promptArea'
+import { usePresetSwitching } from './presetSwitching'
+import { HOME_AGENT_HELP_BODY } from '../homeAgentHelpMessage'
 import * as toast from '../toast'
 
 const POLL_INTERVAL_MS = 2000
@@ -24,6 +28,9 @@ export const useHomeAgent = defineStore(
   () => {
     const backendServices = useBackendServices()
     const chatStore = useOpenAiCompatibleChat()
+    const imageGenStore = useImageGenerationPresets()
+    const promptStore = usePromptStore()
+    const presetSwitching = usePresetSwitching()
 
     const isHomeAgentActive = ref(false)
     const telegramToken = ref<string | null>(null)
@@ -79,6 +86,173 @@ export const useHomeAgent = defineStore(
       }
     })
 
+    const IMG_GEN_REGEX = /^\/imgGen\s*/i
+    const HELP_REGEX = /^\/help$/i
+    const IMG_GEN_TIMEOUT_MS = 120_000
+
+    const HELP_MESSAGE = HOME_AGENT_HELP_BODY
+
+    async function handleChatMessage(text: string): Promise<void> {
+      promptStore.setModeOnly('chat')
+      await chatStore.generate(text)
+      if (!isHomeAgentActive.value) return
+      const reply = extractAssistantReply(chatStore.messages ?? undefined)
+      if (reply) {
+        await window.electronAPI.homeAgent.sendTelegramReply(reply)
+      }
+    }
+
+    async function imageToBase64(imageUrl: string): Promise<string> {
+      const resp = await fetch(imageUrl)
+      const arrayBuf = await resp.arrayBuffer()
+      const bytes = new Uint8Array(arrayBuf)
+      let binary = ''
+      const CHUNK = 8192
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+      }
+      return btoa(binary)
+    }
+
+    async function sendImageToTelegram(imageUrl: string, caption: string): Promise<void> {
+      try {
+        const base64 = await imageToBase64(imageUrl)
+        await window.electronAPI.homeAgent.sendTelegramPhoto(base64, caption)
+      } catch (e) {
+        await window.electronAPI.homeAgent.sendTelegramReply(
+          `⚠️ Image was generated but could not be sent: ${e instanceof Error ? e.message : String(e)}`,
+        )
+      }
+    }
+
+    /**
+     * After generate() is called, wait for all newly enqueued images to finish
+     * (done or stopped/error) sending each one to Telegram as soon as it's ready.
+     * Returns when all images have been handled or the timeout expires.
+     */
+    async function waitAndSendAllImages(newImageIds: Set<string>, prompt: string): Promise<void> {
+      const deadline = Date.now() + IMG_GEN_TIMEOUT_MS
+      const sentIds = new Set<string>()
+
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 500))
+
+        for (const id of newImageIds) {
+          if (sentIds.has(id)) continue
+          const img = imageGenStore.generatedImages.find((i) => i.id === id)
+          if (!img) continue
+
+          if (img.state === 'done' && isImage(img) && img.imageUrl) {
+            sentIds.add(id)
+            await sendImageToTelegram(img.imageUrl, prompt)
+          } else if (img.state === 'stopped') {
+            sentIds.add(id) // count as handled, don't send
+          }
+        }
+
+        // Check for global error state
+        if (imageGenStore.currentState === 'error') {
+          const remaining = [...newImageIds].filter((id) => !sentIds.has(id))
+          if (remaining.length > 0) {
+            await window.electronAPI.homeAgent.sendTelegramReply(
+              '⚠️ Image generation failed. Please check AI Playground for details.',
+            )
+          }
+          return
+        }
+
+        // All images handled
+        if (sentIds.size === newImageIds.size) return
+      }
+
+      // Timeout — report images that never completed
+      const unsent = [...newImageIds].filter((id) => !sentIds.has(id))
+      if (unsent.length > 0) {
+        await window.electronAPI.homeAgent.sendTelegramReply(
+          `⚠️ ${unsent.length} image(s) timed out and were not sent.`,
+        )
+      }
+    }
+
+    async function handleImgGenMessage(prompt: string): Promise<void> {
+      // Check ComfyUI backend
+      const comfyService = backendServices.info.find((s) => s.serviceName === 'comfyui-backend')
+      if (!comfyService || comfyService.status !== 'running') {
+        await window.electronAPI.homeAgent.sendTelegramReply(
+          '⚠️ Image generation is not available — the ComfyUI backend is not running.',
+        )
+        return
+      }
+
+      // Ensure imageGen mode is active and preset is loaded before checking activePreset
+      promptStore.setModeOnly('imageGen')
+      await presetSwitching.switchToLastUsedForCategory(['create-images'], 'comfy', {
+        skipModeSwitch: true,
+      })
+
+      // Check active preset
+      if (!imageGenStore.activePreset) {
+        await window.electronAPI.homeAgent.sendTelegramReply(
+          '⚠️ No image generation preset is selected. Please configure one in AI Playground.',
+        )
+        return
+      }
+
+      // Validate requirements without showing dialogs
+      const validation = await imageGenStore.validatePresetRequirements()
+      if (!validation.backendRunning) {
+        await window.electronAPI.homeAgent.sendTelegramReply(
+          '⚠️ Image generation is not available — the ComfyUI backend is not running.',
+        )
+        return
+      }
+      if (
+        validation.missingCustomNodes.length > 0 ||
+        validation.missingPythonPackages.length > 0 ||
+        validation.missingModels.length > 0
+      ) {
+        const parts: string[] = []
+        if (validation.missingModels.length > 0)
+          parts.push(`missing models: ${validation.missingModels.map((m) => m.repo_id).join(', ')}`)
+        if (validation.missingCustomNodes.length > 0)
+          parts.push(`missing custom nodes: ${validation.missingCustomNodes.join(', ')}`)
+        if (validation.missingPythonPackages.length > 0)
+          parts.push(`missing packages: ${validation.missingPythonPackages.join(', ')}`)
+        await window.electronAPI.homeAgent.sendTelegramReply(
+          `⚠️ Image generation requirements are not met: ${parts.join('; ')}. Please configure AI Playground first.`,
+        )
+        return
+      }
+
+      const knownIdsBefore = new Set(imageGenStore.generatedImages.map((img) => img.id))
+      imageGenStore.prompt = prompt
+      try {
+        await imageGenStore.generate('imageGen')
+      } catch (e) {
+        await window.electronAPI.homeAgent.sendTelegramReply(
+          `⚠️ Image generation failed to start: ${e instanceof Error ? e.message : String(e)}`,
+        )
+        return
+      }
+
+      // Collect IDs of all newly enqueued images (added by generate())
+      const newImageIds = new Set(
+        imageGenStore.generatedImages
+          .filter((img) => !knownIdsBefore.has(img.id))
+          .map((img) => img.id),
+      )
+
+      if (newImageIds.size === 0) {
+        await window.electronAPI.homeAgent.sendTelegramReply(
+          '⚠️ Image generation did not produce any images.',
+        )
+        return
+      }
+
+      // Wait for all images and send each one as it finishes; UI stays in imageGen mode
+      await waitAndSendAllImages(newImageIds, prompt)
+    }
+
     async function drainQueue() {
       if (_draining) return
       _draining = true
@@ -86,11 +260,20 @@ export const useHomeAgent = defineStore(
         while (_messageQueue.length > 0 && isHomeAgentActive.value) {
           const text = _messageQueue.shift()!
           try {
-            await chatStore.generate(text)
-            if (!isHomeAgentActive.value) break
-            const reply = extractAssistantReply(chatStore.messages ?? undefined)
-            if (reply) {
-              await window.electronAPI.homeAgent.sendTelegramReply(reply)
+            if (HELP_REGEX.test(text)) {
+              await window.electronAPI.homeAgent.sendTelegramReply(HELP_MESSAGE, 'HTML')
+            } else if (IMG_GEN_REGEX.test(text)) {
+              const prompt = text.replace(IMG_GEN_REGEX, '').trim()
+              if (prompt) {
+                await handleImgGenMessage(prompt)
+              } else {
+                await window.electronAPI.homeAgent.sendTelegramReply(
+                  '⚠️ Please add a prompt after the command.\nExample: <code>/imgGen a cat on the moon</code>',
+                  'HTML',
+                )
+              }
+            } else {
+              await handleChatMessage(text)
             }
           } catch (e) {
             console.error('Error processing Telegram message:', e)

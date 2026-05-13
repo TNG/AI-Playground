@@ -29,7 +29,10 @@
     </div>
     <div class="flex justify-between items-center gap-5">
       <HomeAgentToggle
-        v-if="globalSetup.loadingState === 'running' && promptStore.getCurrentMode() === 'chat'"
+        v-if="
+          globalSetup.loadingState === 'running' &&
+          (promptStore.getCurrentMode() === 'chat' || promptStore.getCurrentMode() === 'imageGen')
+        "
         class="self-center"
       />
       <button

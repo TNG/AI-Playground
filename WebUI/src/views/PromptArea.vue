@@ -356,9 +356,9 @@ const shouldShowImageUploadButton = computed(() => {
 const modesWithPresets = computed(() => {
   const modes: ModeType[] = []
   if (presetsStore.chatPresets.length > 0) modes.push('chat')
-  // Hide image/video modes when Home Agent is active — it only supports chat
+  // Hide imageEdit and video modes when Home Agent is active — only chat and imageGen are supported
+  if (presetsStore.imageGenPresets.length > 0) modes.push('imageGen')
   if (!homeAgent.isHomeAgentActive) {
-    if (presetsStore.imageGenPresets.length > 0) modes.push('imageGen')
     if (presetsStore.imageEditPresets.length > 0) modes.push('imageEdit')
     if (presetsStore.videoPresets.length > 0) modes.push('video')
   }

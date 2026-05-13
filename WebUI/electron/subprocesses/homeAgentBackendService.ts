@@ -2,6 +2,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { app, ipcMain, net, safeStorage } from 'electron'
 import { UvPythonBackendService } from './uvPythonBackendService.ts'
+import { HOME_AGENT_HELP_BODY } from '@/assets/js/homeAgentHelpMessage.ts'
 
 type EncryptedTokenData = { type: string; data: number[] }
 type HomeAgentConfigFile = { encryptedToken: EncryptedTokenData; chatId: string }
@@ -61,7 +62,11 @@ export class HomeAgentBackendService extends UvPythonBackendService {
       const res = await net.fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text: '✅ Home Agent is connected!' }),
+        body: JSON.stringify({
+          chat_id: chatId,
+          parse_mode: 'HTML',
+          text: '✅ <b>Home Agent is connected!</b>\n\n' + HOME_AGENT_HELP_BODY,
+        }),
       })
       if (res.ok) return { success: true }
       return { success: false, error: await res.text() }
@@ -110,7 +115,30 @@ export class HomeAgentBackendService extends UvPythonBackendService {
     }
   }
 
-  async sendTelegramReply(text: string): Promise<{ success: boolean; error?: string }> {
+  async sendTelegramPhoto(
+    imageBase64: string,
+    caption?: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    if (this.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }
+    try {
+      const url = `${this.baseUrl}/send-telegram-photo`
+      const res = await net.fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photo: imageBase64, caption: caption ?? '' }),
+      })
+      if (res.ok) return { success: true }
+      return { success: false, error: await res.text() }
+    } catch (e) {
+      this.appLogger.error(`sendTelegramPhoto error: ${e}`, this.name)
+      return { success: false, error: String(e) }
+    }
+  }
+
+  async sendTelegramReply(
+    text: string,
+    parseMode?: string,
+  ): Promise<{ success: boolean; error?: string }> {
     if (this.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }
     try {
       const url = `${this.baseUrl}/send-telegram-reply`
@@ -118,7 +146,7 @@ export class HomeAgentBackendService extends UvPythonBackendService {
       const res = await net.fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, ...(parseMode ? { parse_mode: parseMode } : {}) }),
       })
       this.appLogger.info(`sendTelegramReply response: status=${res.status}`, this.name)
       if (res.ok) return { success: true }
@@ -251,8 +279,11 @@ export class HomeAgentBackendService extends UvPythonBackendService {
     ipcMain.handle('homeAgent:detectChatIdFromSaved', () => this.detectChatIdFromSaved())
     ipcMain.handle('homeAgent:pollTelegram', () => this.pollTelegram())
     ipcMain.handle('homeAgent:flushPending', () => this.flushPending())
-    ipcMain.handle('homeAgent:sendTelegramReply', (_event, text: string) =>
-      this.sendTelegramReply(text),
+    ipcMain.handle('homeAgent:sendTelegramReply', (_event, text: string, parseMode?: string) =>
+      this.sendTelegramReply(text, parseMode),
+    )
+    ipcMain.handle('homeAgent:sendTelegramPhoto', (_event, imageBase64: string, caption?: string) =>
+      this.sendTelegramPhoto(imageBase64, caption),
     )
   }
 }

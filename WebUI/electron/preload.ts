@@ -182,6 +182,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('homeAgent:injectToken', token, chatId),
     pollTelegram: () => ipcRenderer.invoke('homeAgent:pollTelegram'),
     flushPending: () => ipcRenderer.invoke('homeAgent:flushPending'),
-    sendTelegramReply: (text: string) => ipcRenderer.invoke('homeAgent:sendTelegramReply', text),
+    sendTelegramReply: (text: string, parseMode?: string) =>
+      ipcRenderer.invoke('homeAgent:sendTelegramReply', text, parseMode),
+    sendTelegramPhoto: (imageBase64: string, caption?: string) =>
+      ipcRenderer.invoke('homeAgent:sendTelegramPhoto', imageBase64, caption),
   },
 })

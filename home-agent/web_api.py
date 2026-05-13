@@ -135,17 +135,43 @@ def flush_pending():
 
 @app.post("/send-telegram-reply")
 def send_telegram_reply():
-    """Send a reply text back to Telegram. Body: { text: str }"""
+    """Send a reply text back to Telegram. Body: { text: str, parse_mode?: str }"""
     data = request.get_json(silent=True) or {}
     text = data.get("text", "")
+    parse_mode = data.get("parse_mode") or None
     if not _bot_application or _bot_application == "starting" or not _bot_loop or not _bot_chat_id:
         return jsonify({"error": "Telegram not configured"}), 400
     try:
         future = asyncio.run_coroutine_threadsafe(
-            _bot_application.bot.send_message(chat_id=_bot_chat_id, text=text),
+            _bot_application.bot.send_message(chat_id=_bot_chat_id, text=text, parse_mode=parse_mode),
             _bot_loop,
         )
         future.result(timeout=10)
+        return jsonify({"status": "ok"})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.post("/send-telegram-photo")
+def send_telegram_photo():
+    """Send a photo back to Telegram. Body: { photo: <base64 str>, caption: str }"""
+    import base64
+    data = request.get_json(silent=True) or {}
+    photo_b64 = data.get("photo", "")
+    caption = data.get("caption", "")
+    if not _bot_application or _bot_application == "starting" or not _bot_loop or not _bot_chat_id:
+        return jsonify({"error": "Telegram not configured"}), 400
+    try:
+        photo_bytes = base64.b64decode(photo_b64)
+        future = asyncio.run_coroutine_threadsafe(
+            _bot_application.bot.send_photo(
+                chat_id=_bot_chat_id,
+                photo=photo_bytes,
+                caption=caption or None,
+            ),
+            _bot_loop,
+        )
+        future.result(timeout=30)
         return jsonify({"status": "ok"})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -198,12 +224,60 @@ def _start_telegram_bot(token: str, allowed_chat_id: str) -> None:
         with _pending_lock:
             _pending_messages.append({"text": user_text, "chat_id": chat_id})
 
+    async def handle_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /help — queue a special help marker for the frontend to reply with."""
+        global _last_seen_chat_id
+        if update.message is None:
+            return
+        chat_id = str(update.message.chat_id)
+        if _last_seen_chat_id != chat_id:
+            _last_seen_chat_id = chat_id
+            _persist_chat_id(chat_id)
+        if not allowed_chat_id:
+            return
+        if chat_id != allowed_chat_id:
+            logger.warning("Ignoring /help from unauthorized chat_id: %s", chat_id)
+            return
+        logger.info("Telegram /help command received: chat_id=%s", chat_id)
+        with _pending_lock:
+            _pending_messages.append({"text": "/help", "chat_id": chat_id})
+
+    async def handle_imggen_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /imgGen <prompt> as a Telegram command."""
+        global _last_seen_chat_id
+        if update.message is None:
+            return
+        chat_id = str(update.message.chat_id)
+        if _last_seen_chat_id != chat_id:
+            _last_seen_chat_id = chat_id
+            _persist_chat_id(chat_id)
+        if not allowed_chat_id:
+            logger.info("Detection mode: received /imgGen from chat_id=%s (not yet configured)", chat_id)
+            return
+        if chat_id != allowed_chat_id:
+            logger.warning("Ignoring /imgGen from unauthorized chat_id: %s", chat_id)
+            return
+        # Reconstruct text as "/imgGen <args>" so the frontend routing works uniformly
+        args = context.args or []
+        prompt_part = " ".join(args)
+        full_text = f"/imgGen {prompt_part}".strip()
+        logger.info(
+            "Telegram /imgGen command received: chat_id=%s prompt=%r",
+            chat_id,
+            prompt_part,
+        )
+        with _pending_lock:
+            _pending_messages.append({"text": full_text, "chat_id": chat_id})
+
     async def run() -> None:
         global _bot_application, _bot_loop, _last_seen_chat_id
         _bot_loop = asyncio.get_event_loop()
         application = Application.builder().token(token).build()
         _bot_application = application
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        from telegram.ext import CommandHandler
+        application.add_handler(CommandHandler("imgGen", handle_imggen_command))
+        application.add_handler(CommandHandler("help", handle_help_command))
         await application.initialize()
         await application.start()
         await application.bot.delete_webhook(drop_pending_updates=False)

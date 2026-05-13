@@ -400,9 +400,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       if (anyFailed) return
     }
 
-    const homeAgentJustInstalled = toInstall.some(
-      (r) => r.serviceName === 'home-agent-backend',
-    )
+    const homeAgentJustInstalled = toInstall.some((r) => r.serviceName === 'home-agent-backend')
     if (homeAgentJustInstalled) {
       wizardPage.value = 'homeAgentSetup'
       return

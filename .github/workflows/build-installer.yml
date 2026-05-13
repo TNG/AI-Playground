@@ -5,6 +5,9 @@ run-name: installer-build-${{ github.sha }}
 on:
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-installer:
     runs-on: windows-latest

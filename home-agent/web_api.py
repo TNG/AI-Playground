@@ -27,10 +27,11 @@ _pending_messages: list[dict] = []
 _pending_lock = threading.Lock()
 
 # Running bot instance + its event loop (set inside _start_telegram_bot)
-_bot_application = None
+_bot_application = None  # None | sentinel str "starting" | Application
 _bot_loop: asyncio.AbstractEventLoop | None = None
 _bot_token: str = ""
 _bot_chat_id: str = ""
+_bot_start_lock = threading.Lock()
 
 # Persistent chat ID file — survives restarts
 _CHAT_ID_FILE = Path(__file__).parent / ".chat_id"
@@ -90,8 +91,10 @@ def set_telegram_token():
     chat_id = data.get("chatId", "")
     if not token:
         return jsonify({"error": "token required"}), 400
-    if _bot_application is not None:
-        return jsonify({"status": "already_running"})
+    with _bot_start_lock:
+        if _bot_application is not None:
+            return jsonify({"status": "already_running"})
+        _bot_application = "starting"  # sentinel: blocks concurrent requests
     t = threading.Thread(target=_start_telegram_bot, args=(token, chat_id), daemon=True)
     t.start()
     logger.info("Started Telegram bot via /set-telegram-token")
@@ -135,7 +138,7 @@ def send_telegram_reply():
     """Send a reply text back to Telegram. Body: { text: str }"""
     data = request.get_json(silent=True) or {}
     text = data.get("text", "")
-    if not _bot_application or not _bot_loop or not _bot_chat_id:
+    if not _bot_application or _bot_application == "starting" or not _bot_loop or not _bot_chat_id:
         return jsonify({"error": "Telegram not configured"}), 400
     try:
         future = asyncio.run_coroutine_threadsafe(
@@ -205,18 +208,24 @@ def _start_telegram_bot(token: str, allowed_chat_id: str) -> None:
         await application.start()
         await application.bot.delete_webhook(drop_pending_updates=False)
 
-        # Pre-populate chat ID from any pending updates before polling starts
+        # Pre-populate chat ID from any pending updates before polling starts,
+        # then acknowledge them so start_polling does not re-deliver them.
         try:
             updates = await application.bot.get_updates(limit=100, timeout=0)
-            cid = next(
-                (str(u.message.chat_id) for u in updates if u.message),
-                None,
-            )
-            if cid:
-                _last_seen_chat_id = cid
-                _persist_chat_id(cid)
-                logger.info("Pre-populated chat_id from pending updates: %s", cid)
-            elif not _last_seen_chat_id:
+            if updates:
+                cid = next(
+                    (str(u.message.chat_id) for u in updates if u.message),
+                    None,
+                )
+                if cid:
+                    _last_seen_chat_id = cid
+                    _persist_chat_id(cid)
+                    logger.info("Pre-populated chat_id from pending updates: %s", cid)
+                # Acknowledge all fetched updates so polling won't re-process them
+                highest_update_id = max(u.update_id for u in updates)
+                await application.bot.get_updates(offset=highest_update_id + 1, limit=1, timeout=0)
+                logger.info("Acknowledged updates up to update_id=%d", highest_update_id)
+            if not _last_seen_chat_id:
                 _last_seen_chat_id = _load_persisted_chat_id()
         except Exception as exc:
             logger.warning("Could not pre-populate chat_id: %s", exc)
@@ -231,6 +240,7 @@ def _start_telegram_bot(token: str, allowed_chat_id: str) -> None:
         loop.run_until_complete(run())
     except Exception as exc:
         logger.error("Telegram bot crashed: %s", exc)
+        _bot_application = None  # allow retry
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

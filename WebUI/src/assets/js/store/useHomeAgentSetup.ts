@@ -106,16 +106,27 @@ export function useHomeAgentSetup() {
   }
 
   async function verify() {
-    const token = tokenInput.value
-    const chatId = detectedChatId.value || homeAgent.telegramChatId!
+    const token = tokenInput.value.trim()
+    const chatId = detectedChatId.value || homeAgent.telegramChatId
     verifyStatus.value = 'loading'
     verifyError.value = ''
     try {
+      // Save config first so testTelegram() can read it from the config file
+      if (token && chatId) {
+        const saveResult = await homeAgent.saveConfig(token, chatId)
+        if (!saveResult.success) {
+          verifyStatus.value = 'error'
+          verifyError.value = saveResult.error ?? 'Failed to save config'
+          return
+        }
+      }
+      if (!chatId) {
+        verifyStatus.value = 'error'
+        verifyError.value = 'No chat ID — complete Step 2 (Detect) first.'
+        return
+      }
       const result = await window.electronAPI.homeAgent.testTelegram()
       if (result.success) {
-        if (token && chatId) {
-          await homeAgent.saveConfig(token, chatId)
-        }
         homeAgent.setVerified()
         verifyStatus.value = 'success'
       } else {
@@ -160,7 +171,9 @@ export function useHomeAgentSetup() {
       tokenInput.value = ''
       detectedChatId.value = ''
       detectStatus.value = 'idle'
+      detectError.value = ''
       verifyStatus.value = 'idle'
+      verifyError.value = ''
     }
   }
 

@@ -80,6 +80,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   const presetSwitching = usePresetSwitching()
   const demoMode = useDemoMode()
   const speechToText = useSpeechToText()
+  const homeAgent = useHomeAgent()
 
   const pendingProductMode = ref<ProductMode | null>(null)
   const installSelection = ref(new Set<BackendServiceName>())
@@ -245,6 +246,11 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     installSelection.value = newSelection
   }
 
+  function isHomeAgentInstalledAndActive(): boolean {
+    const info = backendServices.info.find((s) => s.serviceName === 'home-agent-backend')
+    return info?.isSetUp === true && !disabledBackends.value.has('home-agent-backend')
+  }
+
   async function toggleBackend(serviceName: BackendServiceName, value: boolean) {
     const info = backendServices.info.find((s) => s.serviceName === serviceName)
     if (value) {
@@ -263,7 +269,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       }
       // Clear Home Agent Telegram config when the BE is toggled off
       if (serviceName === 'home-agent-backend') {
-        const homeAgent = useHomeAgent()
         await homeAgent.clearConfig()
       }
     }
@@ -401,7 +406,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     }
 
     const homeAgentJustInstalled = toInstall.some((r) => r.serviceName === 'home-agent-backend')
-    if (homeAgentJustInstalled) {
+    if (homeAgentJustInstalled || isHomeAgentInstalledAndActive()) {
       wizardPage.value = 'homeAgentSetup'
       return
     }
@@ -429,7 +434,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     }
     // Clear Home Agent Telegram config on reinstall so user must re-verify
     if (name === 'home-agent-backend') {
-      const homeAgent = useHomeAgent()
       await homeAgent.clearConfig()
     }
     await installBackend(name)

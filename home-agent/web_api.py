@@ -247,5 +247,5 @@ if __name__ == "__main__":
     else:
         print("No TELEGRAM_BOT_TOKEN — Telegram bot disabled.", flush=True)
 
-    app.run(host="0.0.0.0", port=args.port)
+    app.run(host="0.0.0.0", port=args.port)  # nosec B104 — intentional: local service must bind all interfaces for Electron IPC
 

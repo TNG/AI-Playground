@@ -34,9 +34,7 @@ export const useHomeAgent = defineStore(
     const _messageQueue: string[] = []
     let _draining = false
 
-    const isTelegramConfigured = computed(
-      () => !!telegramToken.value && !!telegramChatId.value,
-    )
+    const isTelegramConfigured = computed(() => !!telegramToken.value && !!telegramChatId.value)
 
     // "Ready to activate" = previously verified. telegramVerified is persisted,
     // so this is true immediately on startup if the user verified in a previous run.

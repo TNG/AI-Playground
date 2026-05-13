@@ -366,8 +366,9 @@ export const useTextInference = defineStore(
       if (homeAgent.isHomeAgentActive && homeAgent.homeAgentBaseUrl) {
         return homeAgent.homeAgentBaseUrl
       }
-      return backendServices.info.find((item) => item.serviceName === backendToService[backend.value])
-        ?.baseUrl
+      return backendServices.info.find(
+        (item) => item.serviceName === backendToService[backend.value],
+      )?.baseUrl
     })
 
     // When Home Agent is active, the real inference backend URL to proxy through

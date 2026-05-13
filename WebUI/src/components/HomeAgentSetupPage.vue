@@ -26,11 +26,7 @@
           </div>
           <div class="flex items-center gap-2">
             <!-- Telegram plane icon -->
-            <svg
-              class="w-5 h-5 text-[#26a5e4]"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-            >
+            <svg class="w-5 h-5 text-[#26a5e4]" viewBox="0 0 24 24" fill="currentColor">
               <path
                 d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"
               />
@@ -57,17 +53,24 @@
                 <button
                   class="text-primary underline"
                   @click="window.electronAPI.openUrl('https://t.me/BotFather')"
-                >@BotFather</button>,
-                send <code class="bg-muted px-1 rounded">/newbot</code>, follow the prompts, and
-                copy the <strong>full</strong> API token it gives you.
-                It looks like <code class="bg-muted px-1 rounded select-all">123456789:ABCDefGhIJKlmNoPQRstUvwXYZabcde12</code>
+                >
+                  @BotFather</button
+                >, send <code class="bg-muted px-1 rounded">/newbot</code>, follow the prompts, and
+                copy the <strong>full</strong> API token it gives you. It looks like
+                <code class="bg-muted px-1 rounded select-all"
+                  >123456789:ABCDefGhIJKlmNoPQRstUvwXYZabcde12</code
+                >
                 — make sure to copy everything including the numbers and colon before the colon.
               </p>
               <div class="pt-2 relative">
                 <input
                   :type="showToken ? 'text' : 'password'"
                   v-model="tokenInput"
-                  :placeholder="isAlreadyConfigured && !tokenInput ? '••••••••  (already saved)' : 'Paste bot token here'"
+                  :placeholder="
+                    isAlreadyConfigured && !tokenInput
+                      ? '••••••••  (already saved)'
+                      : 'Paste bot token here'
+                  "
                   class="w-full text-xs bg-muted/50 border border-border rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary pr-16"
                 />
                 <button
@@ -77,7 +80,11 @@
                   {{ showToken ? 'Hide' : 'Show' }}
                 </button>
               </div>
-              <p v-if="tokenInput" class="text-xs pt-1" :class="tokenFormatOk ? 'text-muted-foreground/70' : 'text-destructive'">
+              <p
+                v-if="tokenInput"
+                class="text-xs pt-1"
+                :class="tokenFormatOk ? 'text-muted-foreground/70' : 'text-destructive'"
+              >
                 <template v-if="tokenFormatOk">
                   ✓ Length: {{ tokenInput.trim().length }} chars · starts with
                   <code class="bg-muted px-1 rounded">{{ tokenInput.trim().slice(0, 6) }}</code>
@@ -85,8 +92,10 @@
                   <code class="bg-muted px-1 rounded">{{ tokenInput.trim().slice(-4) }}</code>
                 </template>
                 <template v-else>
-                  ⚠ Token must contain a colon, e.g. <code class="bg-muted px-1 rounded">123456789:ABCDef…</code>
-                  — currently {{ tokenInput.trim().length }} chars with no colon. Copy the full token from BotFather.
+                  ⚠ Token must contain a colon, e.g.
+                  <code class="bg-muted px-1 rounded">123456789:ABCDef…</code> — currently
+                  {{ tokenInput.trim().length }} chars with no colon. Copy the full token from
+                  BotFather.
                 </template>
               </p>
             </div>
@@ -102,7 +111,10 @@
                 <code class="bg-muted px-1 rounded">/start</code>). Then click
                 <strong>Detect</strong> — the app will find your chat ID automatically.
               </p>
-              <div v-if="tokenInput || isAlreadyConfigured" class="flex flex-wrap items-center gap-2 pt-2">
+              <div
+                v-if="tokenInput || isAlreadyConfigured"
+                class="flex flex-wrap items-center gap-2 pt-2"
+              >
                 <button
                   class="text-xs py-1.5 px-3 rounded border border-border hover:bg-muted transition-colors"
                   @click="window.electronAPI.openUrl('https://t.me/')"
@@ -114,7 +126,9 @@
                   class="text-xs py-1.5 px-3 rounded bg-primary text-primary-foreground disabled:opacity-40 transition-colors"
                   @click="runDetectChatId"
                 >
-                  <span v-if="detectStatus === 'loading'">{{ detectError ? 'Waiting…' : 'Detecting…' }}</span>
+                  <span v-if="detectStatus === 'loading'">{{
+                    detectError ? 'Waiting…' : 'Detecting…'
+                  }}</span>
                   <span v-else>Detect</span>
                 </button>
                 <span v-if="detectedChatId" class="text-xs text-green-500">
@@ -140,12 +154,16 @@
           <div class="flex gap-3">
             <StepBadge
               :step="3"
-              :done="verifyStatus === 'success' || (homeAgent.telegramVerified && verifyStatus === 'idle')"
+              :done="
+                verifyStatus === 'success' ||
+                (homeAgent.telegramVerified && verifyStatus === 'idle')
+              "
             />
             <div class="flex-1">
               <p class="text-sm font-medium">Verify Connection</p>
               <p class="text-xs text-muted-foreground pt-0.5">
-                Send a test message to confirm everything works. The Home Agent toggle will only be enabled after a successful test.
+                Send a test message to confirm everything works. The Home Agent toggle will only be
+                enabled after a successful test.
               </p>
               <div class="flex items-center gap-3 pt-2">
                 <button
@@ -162,7 +180,10 @@
                 <span v-else-if="verifyStatus === 'error'" class="text-xs text-destructive">
                   ❌ {{ verifyError }}
                 </span>
-                <span v-else-if="homeAgent.telegramVerified && verifyStatus === 'idle'" class="text-xs text-green-500">
+                <span
+                  v-else-if="homeAgent.telegramVerified && verifyStatus === 'idle'"
+                  class="text-xs text-green-500"
+                >
                   ✅ Previously verified
                 </span>
               </div>

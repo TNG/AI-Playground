@@ -30,7 +30,7 @@ def proxy_chat_completions(upstream_url: str, flask_request: Request) -> Respons
 
     try:
         upstream_resp = requests.post(
-            target, data=body, headers=headers, stream=stream, timeout=None
+            target, data=body, headers=headers, stream=stream, timeout=(10, None)  # 10 s connect, no read timeout for streaming
         )
     except requests.exceptions.ConnectionError as exc:
         return jsonify({"error": f"Cannot reach upstream: {exc}"}), 502

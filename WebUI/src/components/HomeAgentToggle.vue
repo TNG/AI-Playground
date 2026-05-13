@@ -12,7 +12,7 @@
     <button
       role="switch"
       :aria-checked="isHomeAgentActive"
-      :disabled="!isAvailable || !isReadyToActivate"
+      :disabled="!isAvailable || (!isReadyToActivate && !isHomeAgentActive)"
       class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
       :class="isHomeAgentActive ? 'bg-primary' : 'bg-muted-foreground/40'"
       @click="toggle"

@@ -42,7 +42,8 @@ export const useHomeAgent = defineStore(
 
     const isAvailable = computed(
       () =>
-        backendServices.info.find((s) => s.serviceName === 'home-agent-backend')?.isSetUp ?? false,
+        backendServices.info.find((s) => s.serviceName === 'home-agent-backend')?.status ===
+        'running',
     )
 
     const homeAgentBaseUrl = computed(

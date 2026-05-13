@@ -400,10 +400,10 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       if (anyFailed) return
     }
 
-    const homeAgentEnabled = backendRows.value.find(
+    const homeAgentJustInstalled = toInstall.some(
       (r) => r.serviceName === 'home-agent-backend',
-    )?.enabled
-    if (homeAgentEnabled) {
+    )
+    if (homeAgentJustInstalled) {
       wizardPage.value = 'homeAgentSetup'
       return
     }

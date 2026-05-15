@@ -60,6 +60,7 @@ type LocalSettings = {
   remoteRepository: string
   huggingfaceEndpoint: string
   mcpAutoDetectionDismissed: string[]
+  openvinoImageGenDevices: string[]
 }
 
 type GpuHardwareDevice = {

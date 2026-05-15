@@ -32,7 +32,11 @@
             :items="inProcessOvDeviceItems"
             @change="setInProcessOvDevice"
           ></drop-down-new>
-          <DeviceSelector v-else :backend="deviceSelectorBackend" />
+          <DeviceSelector
+            v-else
+            :backend="deviceSelectorBackend"
+            :allowed-device-prefixes="deviceSelectorAllowedPrefixes"
+          />
         </div>
 
         <div class="flex flex-col gap-2">
@@ -209,7 +213,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
@@ -298,6 +302,36 @@ const usesInProcessOpenVINO = computed(() => {
 
 const IN_PROCESS_OV_DEVICE_INPUT = { nodeTitle: 'OpenVINO Upscale', nodeInput: 'device' } as const
 const FALLBACK_OV_DEVICES = ['AUTO', 'CPU', 'GPU', 'NPU'] as const
+const DEFAULT_OV_IMAGE_GEN_DEVICES = ['CPU', 'GPU'] as const
+
+// settings.json -> openvinoImageGenDevices. Filters which OpenVINO devices
+// appear in image-gen device dropdowns (in-process upscale + OVMS variants).
+// Prefix-matched, case-insensitive. Default excludes NPU because RealESRGAN
+// and SDXL exceed practical NPU memory budgets on most shipping hardware;
+// override per-machine via settings.json to re-enable.
+const openvinoImageGenDevicePrefixes = ref<string[]>([...DEFAULT_OV_IMAGE_GEN_DEVICES])
+onMounted(async () => {
+  try {
+    const settings = await window.electronAPI.getLocalSettings()
+    if (
+      Array.isArray(settings.openvinoImageGenDevices) &&
+      settings.openvinoImageGenDevices.length > 0
+    ) {
+      openvinoImageGenDevicePrefixes.value = settings.openvinoImageGenDevices
+    }
+  } catch (err) {
+    console.warn('Failed to load openvinoImageGenDevices, using default', err)
+  }
+})
+
+function deviceMatchesAllowedPrefixes(deviceId: string, prefixes: string[]): boolean {
+  if (prefixes.length === 0) return true
+  const id = deviceId.toUpperCase()
+  return prefixes.some((p) => {
+    const upper = p.trim().toUpperCase()
+    return upper.length > 0 && id.startsWith(upper)
+  })
+}
 
 const inProcessOvDeviceItems = computed(() => {
   // Prefer real device introspection from openvino-backend when installed
@@ -306,14 +340,12 @@ const inProcessOvDeviceItems = computed(() => {
   // OpenVINO error if the device is unavailable at compile time.
   const ovInfo = backendServices.info.find((s) => s.serviceName === 'openvino-backend')
   const installed = ovInfo && ovInfo.status !== 'notInstalled'
-  if (installed && ovInfo.devices.length > 0) {
-    return ovInfo.devices.map((d) => ({
-      label: `${d.id}: ${d.name}`,
-      value: d.id,
-      active: true,
-    }))
-  }
-  return FALLBACK_OV_DEVICES.map((id) => ({ label: id, value: id, active: true }))
+  const allowed = openvinoImageGenDevicePrefixes.value
+  const items =
+    installed && ovInfo.devices.length > 0
+      ? ovInfo.devices.map((d) => ({ label: `${d.id}: ${d.name}`, value: d.id, active: true }))
+      : FALLBACK_OV_DEVICES.map((id) => ({ label: id, value: id, active: true }))
+  return items.filter((item) => deviceMatchesAllowedPrefixes(item.value, allowed))
 })
 
 const inProcessOvDeviceComfyInput = computed(() =>
@@ -335,8 +367,32 @@ function setInProcessOvDevice(value: string) {
   input.current.value = value
 }
 
+// Auto-heal a stale in-process OpenVINO upscale device pick: if the persisted
+// `OpenVINO Upscale.device` value is no longer in the filtered list (e.g. a
+// fresh install lands on the preset's `AUTO` default while the user's filter
+// is `['CPU', 'GPU']`), silently rewrite it to the first allowed item. This
+// touches only a workflow comfyInput value, no backend restart involved.
+watch(
+  [usesInProcessOpenVINO, inProcessOvDeviceItems, inProcessOvDevice],
+  ([active, items, current]) => {
+    if (!active || items.length === 0) return
+    if (items.some((item) => item.value === current)) return
+    setInProcessOvDevice(items[0].value)
+  },
+  { immediate: true },
+)
+
 const deviceSelectorBackend = computed<BackendServiceName>(() =>
   presetRequiresOvms.value ? 'openvino-backend' : backendToService[imageGeneration.backend],
+)
+
+// Only constrain the OVMS dropdown by the image-gen filter. ComfyUI's native
+// CPU/CUDA/XPU device list uses different naming conventions and is unrelated
+// to OpenVINO hardware support.
+const deviceSelectorAllowedPrefixes = computed<string[] | undefined>(() =>
+  deviceSelectorBackend.value === 'openvino-backend'
+    ? openvinoImageGenDevicePrefixes.value
+    : undefined,
 )
 
 async function handlePresetChange(presetName: string) {

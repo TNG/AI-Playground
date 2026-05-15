@@ -208,6 +208,12 @@ const LocalSettingsSchema = z.object({
   remoteRepository: z.string().default('intel/ai-playground'),
   huggingfaceEndpoint: z.string().default('https://huggingface.co'),
   mcpAutoDetectionDismissed: z.array(z.string()).default([]),
+  // Allowed OpenVINO devices for image-gen dropdowns (in-process upscale +
+  // OVMS image variants). Case-insensitive prefix match against device IDs.
+  // Default excludes NPU because RealESRGAN_x4plus and SDXL exceed current
+  // Intel NPU memory budgets on most shipping hardware. Override per-machine
+  // by editing settings.json, e.g. ["AUTO", "CPU", "GPU", "NPU"] to re-enable.
+  openvinoImageGenDevices: z.array(z.string()).default(['CPU', 'GPU']),
 })
 export type LocalSettings = z.infer<typeof LocalSettingsSchema>
 export type ProductMode = z.infer<typeof ProductModeSchema>

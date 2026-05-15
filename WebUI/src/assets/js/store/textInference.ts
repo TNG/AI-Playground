@@ -990,7 +990,10 @@ export const useTextInference = defineStore(
     }
 
     const isSystemPromptVisible = computed(() => activePreset.value?.advancedMode === true)
-    const isToolsToggleVisible = computed(
+    // Currently unused inside the store; kept (with the convention `_` prefix) as a
+    // ready-to-expose computed for UI components that want to mirror the preset's
+    // tools-toggle visibility without re-deriving the rule.
+    const _isToolsToggleVisible = computed(
       () => activePreset.value?.showTools === true && modelSupportsToolCalling.value,
     )
 

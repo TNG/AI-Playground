@@ -191,34 +191,6 @@ export const useHomeAgent = defineStore(
       'Send a photo (with or without a caption) and the AI will answer based on what it sees. ' +
       'Requires a <b>vision-capable model</b> selected in Chat settings.'
 
-    /** Format the conversation list as an HTML reply for the user. */
-    function formatHistoryReply(): string {
-      const items = listRemoteConversations()
-      if (items.length === 0) {
-        return '📭 No saved Home Agent chat threads yet. Send a message to start one.'
-      }
-      const lines = items.map((item, idx) => {
-        const marker = item.isActive ? ' • <i>(active)</i>' : ''
-        const escapedTitle = item.title.replace(/[&<>"']/g, (c) =>
-          c === '&'
-            ? '&amp;'
-            : c === '<'
-              ? '&lt;'
-              : c === '>'
-                ? '&gt;'
-                : c === '"'
-                  ? '&quot;'
-                  : '&#39;',
-        )
-        return `${idx + 1}. <code>${idx + 1}</code> — ${escapedTitle} (${item.messageCount} msg${marker})`
-      })
-      return (
-        '📜 <b>Your Home Agent chats</b>\n\n' +
-        lines.join('\n') +
-        '\n\nResume one with <code>/load &lt;id&gt;</code>.'
-      )
-    }
-
     function resolveLoadTarget(idArg: string): string | null {
       const items = listRemoteConversations()
       // Allow either the 1-based index from /history or the raw conversation key.
@@ -374,6 +346,45 @@ export const useHomeAgent = defineStore(
     }
 
     /**
+     * Pin the live preset/backend to Home Agent and prep inference so the
+     * summarizer uses the bundled Home Agent model. Returns `false` and replies
+     * to Telegram with an error if readiness fails. Used by both `/load` (bare)
+     * and `/history` before they fan out summary calls.
+     *
+     * Lazy-instantiates `useTextInference` to avoid the documented setup-time
+     * cycle with this store.
+     */
+    async function ensureSummarizerReady(): Promise<boolean> {
+      const textInference = useTextInference()
+      textInference.applyPresetToGlobals(HOME_AGENT_CHAT_PRESET_NAME, null)
+      try {
+        await textInference.ensureReadyForInference()
+        return true
+      } catch (e) {
+        console.error('homeAgent: ensureReadyForInference for summary failed:', e)
+        await window.electronAPI.homeAgent.sendTelegramReply(
+          '⚠️ Could not prepare the model to summarize chats. Try again later.',
+        )
+        return false
+      }
+    }
+
+    /** Minimal HTML escape for chunks of summary text rendered with parse_mode=HTML. */
+    function escapeHtml(input: string): string {
+      return input.replace(/[&<>"']/g, (c) =>
+        c === '&'
+          ? '&amp;'
+          : c === '<'
+            ? '&lt;'
+            : c === '>'
+              ? '&gt;'
+              : c === '"'
+                ? '&quot;'
+                : '&#39;',
+      )
+    }
+
+    /**
      * Handle a bare `/load` (no argument) by sending an inline keyboard with
      * the 3 most recent Home Agent chats. Each button label is an AI-generated
      * 5-word-or-less summary of that thread; tapping a button is equivalent to
@@ -394,20 +405,7 @@ export const useHomeAgent = defineStore(
       // generation can take a few seconds (3 sequential LLM calls worst case).
       await window.electronAPI.homeAgent.sendTelegramReply('🤔 Preparing recent chats…')
 
-      // Pin globals to the Home Agent preset and prep the backend so the
-      // summarizer uses the right model. Lazy-instantiated to avoid the
-      // documented setup-time cycle with textInference.
-      const textInference = useTextInference()
-      textInference.applyPresetToGlobals(HOME_AGENT_CHAT_PRESET_NAME, null)
-      try {
-        await textInference.ensureReadyForInference()
-      } catch (e) {
-        console.error('homeAgent: ensureReadyForInference for /load menu failed:', e)
-        await window.electronAPI.homeAgent.sendTelegramReply(
-          '⚠️ Could not prepare the model to summarize chats. Try again later.',
-        )
-        return
-      }
+      if (!(await ensureSummarizerReady())) return
 
       const items: Array<{ key: string; label: string }> = []
       for (const c of candidates) {
@@ -423,6 +421,71 @@ export const useHomeAgent = defineStore(
         parseMode: 'HTML',
         buttons,
       })
+    }
+
+    /** Cap on the number of /history entries that get AI-generated summaries.
+     *  Keeps the worst-case latency bounded when the user has accumulated many
+     *  Home Agent chats. Entries past the cap are still listed (with their
+     *  timestamp title) plus a footer noting how many were trimmed. */
+    const MAX_HISTORY_SUMMARIES = 10
+
+    /**
+     * Handle `/history` by replying with the full list of Home Agent chats.
+     * Each line gets a 5-word-or-less AI summary (cache-aware) for the most
+     * recent up-to-`MAX_HISTORY_SUMMARIES` threads; older entries fall back to
+     * their timestamp-based title and a "…" placeholder so the user is not
+     * blocked on summarising an old archive.
+     */
+    async function handleHistoryCommand(): Promise<void> {
+      focusRemoteChatDiscussion()
+
+      const items = listRemoteConversations()
+      if (items.length === 0) {
+        await window.electronAPI.homeAgent.sendTelegramReply(
+          '📭 No saved Home Agent chat threads yet. Send a message to start one.',
+        )
+        return
+      }
+
+      const summaryTargets = items.slice(0, MAX_HISTORY_SUMMARIES)
+
+      // Only spin up the model if at least one entry actually needs work.
+      // For all-cache-hit calls this short-circuits and avoids loading the
+      // backend just to format the response.
+      const anyNeedsGen = summaryTargets.some((c) => {
+        const cached = summaryCache.value[c.key]
+        return !cached || cached.messageCount !== c.messageCount
+      })
+      if (anyNeedsGen) {
+        await window.electronAPI.homeAgent.sendTelegramReply('🤔 Preparing chat history…')
+        if (!(await ensureSummarizerReady())) return
+      }
+
+      const summaries: Record<string, string> = {}
+      for (const c of summaryTargets) {
+        summaries[c.key] = await summarizeConversation(c.key)
+      }
+
+      const lines = items.map((item, idx) => {
+        const marker = item.isActive ? ' • <i>(active)</i>' : ''
+        const summary = summaries[item.key] ?? '…'
+        const escapedSummary = escapeHtml(summary)
+        return `${idx + 1}. <code>${idx + 1}</code> — ${escapedSummary} (${item.messageCount} msg)${marker}`
+      })
+
+      const trimmedCount = Math.max(0, items.length - MAX_HISTORY_SUMMARIES)
+      const footer =
+        trimmedCount > 0
+          ? `\n\n…and <b>${trimmedCount}</b> older chat${trimmedCount === 1 ? '' : 's'} (no summary).`
+          : ''
+
+      await window.electronAPI.homeAgent.sendTelegramReply(
+        '📜 <b>Your Home Agent chats</b>\n\n' +
+          lines.join('\n') +
+          footer +
+          '\n\nResume one with <code>/load &lt;id&gt;</code> or just <code>/load</code> for a tap menu.',
+        'HTML',
+      )
     }
 
     /**
@@ -784,8 +847,7 @@ export const useHomeAgent = defineStore(
                 'HTML',
               )
             } else if (HISTORY_REGEX.test(text)) {
-              focusRemoteChatDiscussion()
-              await window.electronAPI.homeAgent.sendTelegramReply(formatHistoryReply(), 'HTML')
+              await handleHistoryCommand()
             } else if (LOAD_BARE_REGEX.test(text)) {
               await handleLoadMenu()
             } else if (LOAD_REGEX.test(text)) {

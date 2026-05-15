@@ -29,18 +29,37 @@
     >
       {{ isHomeAgentActive ? 'On' : 'Off' }}
     </span>
+
+    <button
+      type="button"
+      title="Revisit Home Agent setup"
+      aria-label="Revisit Home Agent setup"
+      class="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      :disabled="!isInstalled"
+      @click="openSetup"
+    >
+      <Cog6ToothIcon class="w-4 h-4" />
+    </button>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { Cog6ToothIcon } from '@heroicons/vue/24/solid'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
+import { useSetupWizard } from '@/assets/js/store/setupWizard'
+import { useBackendServices } from '@/assets/js/store/backendServices'
 
 const homeAgent = useHomeAgent()
+const setupWizard = useSetupWizard()
+const backendServices = useBackendServices()
 
 const isHomeAgentActive = computed(() => homeAgent.isHomeAgentActive)
 const isAvailable = computed(() => homeAgent.isAvailable)
 const isReadyToActivate = computed(() => homeAgent.isReadyToActivate)
+const isInstalled = computed(
+  () => backendServices.info.find((s) => s.serviceName === 'home-agent-backend')?.isSetUp === true,
+)
 
 const toggleTitle = computed(() => {
   if (!isAvailable.value)
@@ -58,5 +77,9 @@ const ariaLabel = computed(() =>
 
 function toggle() {
   homeAgent.toggle()
+}
+
+function openSetup() {
+  void setupWizard.openHomeAgentSetup()
 }
 </script>

@@ -114,7 +114,11 @@ export const useConversations = defineStore(
 
     function addNewConversation() {
       const list = conversationList.value
-      const newKey = addNewConversationIfLatestIsNotEmpty(list)
+      const newKey = addNewConversationIfLatestIsNotEmpty(
+        list,
+        undefined,
+        conversationThreadMeta.value,
+      )
       activeKey.value = newKey
       return newKey
     }
@@ -123,9 +127,20 @@ export const useConversations = defineStore(
 
     watchEffect(() => {
       if (Object.keys(conversationList.value).includes(activeKey.value)) return
-      const latestConversationKey = Object.keys(conversationList.value).at(-1)
-      if (!latestConversationKey) return
-      activeKey.value = latestConversationKey
+      // Prefer the latest MAIN thread so app launch doesn't drop the user into
+      // a Home Agent thread (which would also flip the desktop preset to
+      // Home Agent via the activeKey watcher in textInference).
+      const keys = Object.keys(conversationList.value)
+      const meta = conversationThreadMeta.value
+      let fallback: string | undefined
+      for (let i = keys.length - 1; i >= 0; i--) {
+        if (meta[keys[i]]?.kind === 'homeAgent') continue
+        fallback = keys[i]
+        break
+      }
+      if (!fallback) fallback = keys.at(-1)
+      if (!fallback) return
+      activeKey.value = fallback
     })
 
     return {
@@ -151,9 +166,15 @@ export const useConversations = defineStore(
       storage: demoAwareStorage,
       pick: ['conversationList', 'conversationThreadMeta'],
       afterHydrate: (ctx) => {
-        addNewConversationIfLatestIsNotEmpty(ctx.store.$state.conversationList)
+        // Backfill legacy meta first so the helper below can correctly skip
+        // Home Agent threads when looking for the "latest empty MAIN" tail.
         backfillLegacyHomeAgentThreadMeta(
           ctx.store.$state.conversationList,
+          ctx.store.$state.conversationThreadMeta,
+        )
+        addNewConversationIfLatestIsNotEmpty(
+          ctx.store.$state.conversationList,
+          undefined,
           ctx.store.$state.conversationThreadMeta,
         )
       },
@@ -161,15 +182,38 @@ export const useConversations = defineStore(
   },
 )
 
+/**
+ * Find or allocate the "current empty main bucket" — i.e. the most recently
+ * inserted MAIN-kind conversation, reused when empty so we don't accumulate
+ * a long tail of empty drafts.
+ *
+ * Home Agent threads are intentionally skipped: they form a separate logical
+ * list (driven by Telegram /new and the bundled Home Agent preset). Reusing
+ * an empty Home Agent thread as "the new main thread" would silently retitle
+ * a remote chat AND, via the activeKey watcher in `textInference`, snap the
+ * desktop preset back to Home Agent — observable as "first click on another
+ * preset bounces back, second click sticks".
+ */
 function addNewConversationIfLatestIsNotEmpty(
   list: Record<string, AipgUiMessage[]>,
   conversationKey?: string,
+  meta?: Record<string, ConversationThreadMeta>,
 ): string {
   console.log('Checking if new conversation is needed', { list, conversationKey })
 
-  const lastKey = Object.keys(list).at(-1)
-  if (lastKey && list[lastKey].length === 0) {
-    return lastKey
+  const isHomeAgent = (key: string) => meta?.[key]?.kind === 'homeAgent'
+
+  const keys = Object.keys(list)
+  let latestMainKey: string | undefined
+  for (let i = keys.length - 1; i >= 0; i--) {
+    const k = keys[i]
+    if (isHomeAgent(k)) continue
+    latestMainKey = k
+    break
+  }
+
+  if (latestMainKey && list[latestMainKey].length === 0) {
+    return latestMainKey
   }
 
   const newKey = new Date().getTime().toString()

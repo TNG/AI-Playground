@@ -303,6 +303,20 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     globalSetup.loadingState = 'setupWizard'
   }
 
+  async function openHomeAgentSetup() {
+    if (!productModeStore.hardwareRecommendation) {
+      await productModeStore.detectRecommendation()
+    }
+    pendingProductMode.value =
+      productModeStore.productMode ??
+      productModeStore.hardwareRecommendation?.recommendedMode ??
+      null
+    seedInstallSelection()
+    wizardDirty.value = false
+    wizardPage.value = 'homeAgentSetup'
+    globalSetup.loadingState = 'setupWizard'
+  }
+
   let initialLoadingPollHandle: ReturnType<typeof setTimeout> | null = null
 
   async function initialize() {
@@ -516,6 +530,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
     initialize,
     openWizard,
+    openHomeAgentSetup,
     setPendingMode,
     seedInstallSelection,
     toggleBackend,

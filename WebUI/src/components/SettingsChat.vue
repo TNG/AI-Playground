@@ -21,10 +21,10 @@
            out of remote access if not verified. -->
       <div
         v-if="isHomeAgentPresetActive"
-        class="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-sm text-amber-100"
+        class="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-sm text-foreground"
       >
-        <p class="font-semibold">Global Home Agent Settings</p>
-        <p class="text-xs text-amber-100/80">
+        <p class="font-semibold text-amber-600 dark:text-amber-200">Global Home Agent Settings</p>
+        <p class="text-xs text-muted-foreground">
           The settings for this preset impact all Home Agent conversations. Please verify after
           changing them to ensure that you can still access AI Playground remotely.
         </p>

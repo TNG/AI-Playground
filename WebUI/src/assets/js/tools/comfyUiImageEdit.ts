@@ -229,6 +229,7 @@ function saveCurrentState(
         variant: originalState.variant ?? undefined,
         skipModeSwitch: true,
         skipLastUsedUpdate: true,
+        skipMemoryAlert: true,
       })
     }
   }
@@ -306,6 +307,7 @@ export async function executeImageEdit(
       variant: selectedVariant ?? undefined,
       skipModeSwitch: true,
       skipLastUsedUpdate: true,
+      skipMemoryAlert: true,
     })
     if (!switchResult.success) {
       return createErrorResult(`Failed to switch to preset "${preset.name}"`)

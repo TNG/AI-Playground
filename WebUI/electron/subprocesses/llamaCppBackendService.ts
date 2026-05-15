@@ -66,7 +66,7 @@ export function sanitizeUserLlamaCppParameters(
       warn?.(`Refusing user-supplied non-loopback bind value: ${t}`)
       continue
     }
-      out.push(t)
+    out.push(t)
   }
   return out
 }

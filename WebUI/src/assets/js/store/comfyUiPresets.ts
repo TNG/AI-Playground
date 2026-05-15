@@ -180,15 +180,10 @@ const getInputNameBySettingAndKey = (
   return ''
 }
 
-const OVMS_IMAGE_CLASS_TYPES = [
-  'OpenAICompatibleImageGeneration',
-  'OpenAICompatibleImageEdit',
-]
+const OVMS_IMAGE_CLASS_TYPES = ['OpenAICompatibleImageGeneration', 'OpenAICompatibleImageEdit']
 
 function workflowUsesOvmsImage(workflow: ComfyUIApiWorkflow): boolean {
-  return OVMS_IMAGE_CLASS_TYPES.some(
-    (ct) => findKeysByClassType(workflow, ct).length > 0,
-  )
+  return OVMS_IMAGE_CLASS_TYPES.some((ct) => findKeysByClassType(workflow, ct).length > 0)
 }
 
 function injectOvmsImageUrl(workflow: ComfyUIApiWorkflow, url: string): void {
@@ -943,7 +938,8 @@ export const useComfyUiPresets = defineStore(
         }
 
         // Check if this is a required image input
-        const isImageType = input.type === 'image' || input.type === 'inpaintMask' || input.type === 'outpaintCanvas'
+        const isImageType =
+          input.type === 'image' || input.type === 'inpaintMask' || input.type === 'outpaintCanvas'
         const isDisplayed = input.displayed !== false // defaults to true
         const isModifiable = input.modifiable !== false // defaults to true
         const hasNoDefault = input.defaultValue === '' || input.defaultValue === undefined
@@ -997,7 +993,11 @@ export const useComfyUiPresets = defineStore(
             ;(mutableWorkflow[keys[0]].inputs as any)[input.nodeInput] = value
           }
         }
-        if (input.type === 'image' || input.type === 'inpaintMask' || input.type === 'outpaintCanvas') {
+        if (
+          input.type === 'image' ||
+          input.type === 'inpaintMask' ||
+          input.type === 'outpaintCanvas'
+        ) {
           const rawValue = input.current.value
           const isEmpty = typeof rawValue !== 'string' || rawValue === '' || !isImageUrl(rawValue)
           const isOptional = input.optional === true
@@ -1082,9 +1082,7 @@ export const useComfyUiPresets = defineStore(
      * is running with the correct model. Returns the server URL on success, null if
      * the workflow doesn't need OVMS, or false on failure (caller should abort).
      */
-    async function ensureOvmsImageServerIfNeeded(
-      preset: Preset,
-    ): Promise<string | null | false> {
+    async function ensureOvmsImageServerIfNeeded(preset: Preset): Promise<string | null | false> {
       if (preset.type !== 'comfy') return null
       if (!workflowUsesOvmsImage(preset.comfyUiApiWorkflow)) return null
 

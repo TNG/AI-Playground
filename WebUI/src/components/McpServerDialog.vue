@@ -59,8 +59,8 @@
             placeholder="e.g. Always call get_current_time before answering time-related questions."
           />
           <span class="text-xs text-muted-foreground">
-            Sent to the model as part of the system prompt when this server is connected. Useful
-            for telling smaller models when and how to use this server's tools.
+            Sent to the model as part of the system prompt when this server is connected. Useful for
+            telling smaller models when and how to use this server's tools.
           </span>
         </div>
       </div>

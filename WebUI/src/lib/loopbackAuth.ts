@@ -10,10 +10,7 @@ import type { BackendServiceName } from '@/assets/js/store/backendServices'
 
 const tokenCache = new Map<BackendServiceName, string>()
 
-async function loadToken(
-  serviceName: BackendServiceName,
-  forceRefresh = false,
-): Promise<string> {
+async function loadToken(serviceName: BackendServiceName, forceRefresh = false): Promise<string> {
   if (!forceRefresh) {
     const cached = tokenCache.get(serviceName)
     if (cached) return cached

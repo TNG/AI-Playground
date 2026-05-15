@@ -338,7 +338,9 @@ export async function executeImageEdit(
 
     const imageInput = imageGeneration.comfyInputs.find(
       (input) =>
-        (input.type === 'image' || input.type === 'inpaintMask' || input.type === 'outpaintCanvas') &&
+        (input.type === 'image' ||
+          input.type === 'inpaintMask' ||
+          input.type === 'outpaintCanvas') &&
         input.displayed !== false &&
         input.modifiable !== false &&
         (input.defaultValue === '' || input.defaultValue === undefined),

@@ -876,7 +876,10 @@ export class OpenVINOBackendService implements ApiService {
       }
 
       if (!keepModelsLoaded) {
-        this.appLogger.info('Stopping LLM server to free GPU memory for image generation', this.name)
+        this.appLogger.info(
+          'Stopping LLM server to free GPU memory for image generation',
+          this.name,
+        )
         await this.stopOvmsLlmServer()
       }
 

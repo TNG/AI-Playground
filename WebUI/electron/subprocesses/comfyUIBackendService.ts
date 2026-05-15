@@ -31,10 +31,7 @@ import { getMediaDir } from '../util.ts'
 import { cudaVisibleDevicesEnv, levelZeroDeviceSelectorEnv } from './deviceDetection.ts'
 import { BrowserWindow, app } from 'electron'
 import { LocalSettings } from '../main.ts'
-import {
-  downloadCustomNode,
-  configureComfyUiManagerSecurityLevel,
-} from './comfyuiTools.ts'
+import { downloadCustomNode, configureComfyUiManagerSecurityLevel } from './comfyuiTools.ts'
 import { getBundledComfyUiGitRefSync } from '../remoteUpdates.ts'
 type Device = Omit<InferenceDevice, 'selected'>
 
@@ -76,10 +73,7 @@ function getRendererOrigin(): string {
  *   re-append our locked-down origin after user params),
  * - drop any flag value of `0.0.0.0`.
  */
-export function sanitizeUserComfyUiParameters(
-  raw: string,
-  warn?: (msg: string) => void,
-): string[] {
+export function sanitizeUserComfyUiParameters(raw: string, warn?: (msg: string) => void): string[] {
   const tokens = raw.split(/\s+/).filter(Boolean)
   const out: string[] = []
   for (let i = 0; i < tokens.length; i++) {
@@ -88,9 +82,7 @@ export function sanitizeUserComfyUiParameters(
     if (t.startsWith('--listen=')) {
       const value = t.slice('--listen='.length)
       if (!LOOPBACK_HOSTS.has(value)) {
-        warn?.(
-          `Refusing user-supplied --listen=${value}; only loopback addresses are allowed`,
-        )
+        warn?.(`Refusing user-supplied --listen=${value}; only loopback addresses are allowed`)
         continue
       }
       out.push(t)
@@ -1162,10 +1154,7 @@ except Exception as e:
     try {
       await configureComfyUiManagerSecurityLevel(this.serviceDir, 'strong')
     } catch (error) {
-      this.appLogger.warn(
-        `Failed to enforce ComfyUI-Manager security_level: ${error}`,
-        this.name,
-      )
+      this.appLogger.warn(`Failed to enforce ComfyUI-Manager security_level: ${error}`, this.name)
     }
 
     // Regenerate the per-launch loopback auth token so the env block of any
@@ -1207,9 +1196,8 @@ except Exception as e:
     // addresses (defense against malicious settings injection / accidental
     // misconfiguration).
     const rendererOrigin = getRendererOrigin()
-    const userParameters = sanitizeUserComfyUiParameters(
-      this.comfyUiParametersString,
-      (msg) => this.appLogger.warn(msg, this.name, true),
+    const userParameters = sanitizeUserComfyUiParameters(this.comfyUiParametersString, (msg) =>
+      this.appLogger.warn(msg, this.name, true),
     )
     const parameters = [
       'main.py',

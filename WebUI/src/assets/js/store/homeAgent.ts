@@ -35,6 +35,7 @@ export const useHomeAgent = defineStore(
     const telegramToken = ref<string | null>(null)
     const telegramChatId = ref<string | null>(null)
     const telegramVerified = ref(false)
+    const whisperModelSize = ref<'tiny' | 'base' | 'small'>('base')
 
     let _pollInterval: ReturnType<typeof setInterval> | null = null
     const _messageQueue: string[] = []
@@ -61,6 +62,9 @@ export const useHomeAgent = defineStore(
     watch(isAvailable, (val) => {
       if (val && isReadyToActivate.value && !_userDisabled) {
         isHomeAgentActive.value = true
+      }
+      if (val) {
+        void applyWhisperConfig()
       }
       if (!val) {
         isHomeAgentActive.value = false
@@ -99,6 +103,7 @@ export const useHomeAgent = defineStore(
       'Force a text chat reply (no image generation).\n\n' +
       '/help\n' +
       'Show this help message.\n\n' +
+      '🎙️ <b>Voice messages</b> are automatically transcribed and handled in agentic mode.\n\n' +
       'Any other message is handled by the AI in <b>agentic mode</b>: it decides whether to reply with text or generate an image based on your request.'
 
     async function handleChatMessage(text: string): Promise<void> {
@@ -427,6 +432,15 @@ export const useHomeAgent = defineStore(
       _messageQueue.length = 0
     }
 
+    async function applyWhisperConfig(): Promise<void> {
+      if (!isAvailable.value) return
+      try {
+        await window.electronAPI.homeAgent.setWhisperConfig(whisperModelSize.value)
+      } catch (e) {
+        console.error('homeAgent.applyWhisperConfig failed:', e)
+      }
+    }
+
     async function saveConfig(
       token: string,
       chatId: string,
@@ -522,11 +536,13 @@ export const useHomeAgent = defineStore(
       telegramChatId,
       isAvailable,
       homeAgentBaseUrl,
+      whisperModelSize,
       activate,
       toggle,
       saveConfig,
       clearConfig,
       setVerified,
+      applyWhisperConfig,
     }
   },
   {
@@ -537,7 +553,7 @@ export const useHomeAgent = defineStore(
       // telegramToken NOT persisted — lives only in safeStorage.
       // isHomeAgentActive NOT persisted — re-derived on startup by watchers
       //   (isAvailable is false until the backend service reports ready).
-      pick: ['telegramVerified', 'telegramChatId'],
+      pick: ['telegramVerified', 'telegramChatId', 'whisperModelSize'],
     },
   },
 )

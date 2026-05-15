@@ -198,6 +198,68 @@
               </div>
             </div>
           </div>
+
+          <!-- Step 4: Voice Transcription -->
+          <div class="flex gap-3">
+            <StepBadge :step="4" :done="whisperInstallStatus === 'ready'" />
+            <div class="flex-1">
+              <p class="text-sm font-medium">Voice Transcription (optional)</p>
+              <p class="text-xs text-muted-foreground pt-0.5">
+                Transcribes Telegram voice messages locally using
+                <strong>faster-whisper</strong> on CPU.
+              </p>
+
+              <div class="flex flex-wrap items-center gap-4 pt-2">
+                <!-- Toggle -->
+                <button
+                  role="switch"
+                  :aria-checked="whisperEnabled"
+                  :disabled="whisperInstallStatus === 'downloading'"
+                  class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+                  :class="whisperEnabled ? 'bg-primary' : 'bg-muted-foreground/40'"
+                  @click="toggleWhisper(!whisperEnabled)"
+                >
+                  <span
+                    class="pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform"
+                    :class="whisperEnabled ? 'translate-x-4' : 'translate-x-0'"
+                  />
+                </button>
+
+                <!-- Model size (always visible) -->
+                <div class="flex items-center">
+                  <select
+                    v-model="homeAgent.whisperModelSize"
+                    :disabled="whisperInstallStatus === 'downloading'"
+                    class="text-xs bg-muted/50 border border-border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-40"
+                  >
+                    <option value="tiny">tiny (~80 MB, fastest)</option>
+                    <option value="base">base (~150 MB)</option>
+                    <option value="small">small (~500 MB, best quality)</option>
+                  </select>
+                </div>
+
+                <!-- Status text -->
+                <span v-if="!whisperEnabled" class="text-xs text-muted-foreground">Disabled</span>
+                <span v-else-if="whisperInstallStatus === 'downloading'" class="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <svg class="animate-spin w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                  </svg>
+                  Downloading… this may take a few minutes
+                </span>
+                <span v-else-if="whisperInstallStatus === 'ready'" class="text-xs text-green-500">
+                  ✅ Ready ({{ homeAgent.whisperModelSize }})
+                </span>
+                <span v-else-if="whisperInstallStatus === 'idle'" class="text-xs text-muted-foreground">
+                  Model will be downloaded on enable
+                </span>
+              </div>
+
+              <p v-if="whisperInstallStatus === 'error'" class="text-xs text-destructive pt-1.5">
+                ❌ {{ whisperInstallError }}
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -251,9 +313,13 @@ const {
   tokenFormatOk,
   canVerify,
   canSave,
+  whisperInstallStatus,
+  whisperInstallError,
+  whisperEnabled,
   runDetectChatId,
   verify,
   saveAndContinue,
   clearConfig,
+  toggleWhisper,
 } = useHomeAgentSetup()
 </script>

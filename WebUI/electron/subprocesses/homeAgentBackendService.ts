@@ -258,10 +258,71 @@ export class HomeAgentBackendService extends UvPythonBackendService {
 
   protected override extraProcessEnv(): Record<string, string | undefined> {
     const config = this.loadConfig()
-    if (!config?.token) return {}
     return {
-      TELEGRAM_BOT_TOKEN: config.token,
-      ...(config.chatId ? { TELEGRAM_CHAT_ID: config.chatId } : {}),
+      ...(config?.token ? { TELEGRAM_BOT_TOKEN: config.token } : {}),
+      ...(config?.chatId ? { TELEGRAM_CHAT_ID: config.chatId } : {}),
+    }
+  }
+
+  // ── Whisper config ───────────────────────────────────────────────────────
+
+  async setWhisperConfig(model: string): Promise<{ success: boolean; error?: string }> {
+    if (this.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }
+    try {
+      const res = await net.fetch(`${this.baseUrl}/set-whisper-config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model }),
+      })
+      if (res.ok) return { success: true }
+      return { success: false, error: await res.text() }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  }
+
+  async downloadWhisperModel(model: string): Promise<{ success: boolean; error?: string }> {
+    if (this.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }
+    try {
+      const res = await net.fetch(`${this.baseUrl}/download-whisper-model`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model }),
+      })
+      if (res.ok) return { success: true }
+      return { success: false, error: await res.text() }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  }
+
+  async disableWhisper(): Promise<{ success: boolean; error?: string }> {
+    if (this.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }
+    try {
+      const res = await net.fetch(`${this.baseUrl}/disable-whisper`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      if (res.ok) return { success: true }
+      return { success: false, error: await res.text() }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  }
+
+  async getWhisperStatus(): Promise<{
+    enabled: boolean
+    status: string
+    model: string
+    error: string
+  } | null> {
+    if (this.currentStatus !== 'running') return null
+    try {
+      const res = await net.fetch(`${this.baseUrl}/whisper-status`)
+      return (await res.json()) as { enabled: boolean; status: string; model: string; error: string }
+    } catch {
+      return null
     }
   }
 
@@ -287,5 +348,13 @@ export class HomeAgentBackendService extends UvPythonBackendService {
     ipcMain.handle('homeAgent:sendTelegramPhoto', (_event, imageBase64: string, caption?: string) =>
       this.sendTelegramPhoto(imageBase64, caption),
     )
+    ipcMain.handle('homeAgent:setWhisperConfig', (_event, model: string) =>
+      this.setWhisperConfig(model),
+    )
+    ipcMain.handle('homeAgent:downloadWhisperModel', (_event, model: string) =>
+      this.downloadWhisperModel(model),
+    )
+    ipcMain.handle('homeAgent:disableWhisper', () => this.disableWhisper())
+    ipcMain.handle('homeAgent:getWhisperStatus', () => this.getWhisperStatus())
   }
 }

@@ -74,6 +74,7 @@ export const XPU_SMI_URL = {
   linux: null,
 } as const
 
+
 /**
  * Build configuration interface
  */

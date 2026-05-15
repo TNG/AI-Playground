@@ -17,6 +17,12 @@ export function useHomeAgentSetup() {
   const verifyStatus = ref<'idle' | 'loading' | 'success' | 'error'>('idle')
   const verifyError = ref('')
 
+  // Whisper install state (local to setup session)
+  const whisperInstallStatus = ref<'idle' | 'downloading' | 'ready' | 'error'>('idle')
+  const whisperInstallError = ref('')
+  const whisperEnabled = ref(false)
+  let _whisperPollInterval: ReturnType<typeof setInterval> | null = null
+
   const isAlreadyConfigured = computed(() => homeAgent.isTelegramConfigured)
 
   // A valid token is <digits>:<35 alphanumeric chars>, total ≥ 40 chars with a colon
@@ -177,6 +183,70 @@ export function useHomeAgentSetup() {
     }
   }
 
+  async function installWhisper() {
+    whisperInstallStatus.value = 'downloading'
+    whisperInstallError.value = ''
+    try {
+      await window.electronAPI.homeAgent.downloadWhisperModel(homeAgent.whisperModelSize)
+    } catch (e) {
+      whisperInstallStatus.value = 'error'
+      whisperInstallError.value = String(e)
+      whisperEnabled.value = false
+      return
+    }
+    // Poll until ready or error
+    if (_whisperPollInterval) clearInterval(_whisperPollInterval)
+    _whisperPollInterval = setInterval(async () => {
+      try {
+        const s = await window.electronAPI.homeAgent.getWhisperStatus()
+        if (!s) return
+        if (s.status === 'ready') {
+          whisperInstallStatus.value = 'ready'
+          if (_whisperPollInterval) clearInterval(_whisperPollInterval)
+        } else if (s.status === 'error') {
+          whisperInstallStatus.value = 'error'
+          whisperInstallError.value = s.error
+          whisperEnabled.value = false
+          if (_whisperPollInterval) clearInterval(_whisperPollInterval)
+        }
+      } catch {
+        // ignore transient errors
+      }
+    }, 2000)
+  }
+
+  async function toggleWhisper(value: boolean) {
+    whisperEnabled.value = value
+    if (value) {
+      await installWhisper()
+    } else {
+      if (_whisperPollInterval) clearInterval(_whisperPollInterval)
+      if (whisperInstallStatus.value !== 'idle') {
+        whisperInstallStatus.value = 'idle'
+        whisperInstallError.value = ''
+      }
+      try {
+        await window.electronAPI.homeAgent.disableWhisper()
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  // On mount, check if whisper is already ready
+  async function checkWhisperStatus() {
+    try {
+      const s = await window.electronAPI.homeAgent.getWhisperStatus()
+      if (s?.status === 'ready') {
+        whisperInstallStatus.value = 'ready'
+        whisperEnabled.value = true
+      }
+    } catch {
+      // ignore
+    }
+  }
+  void checkWhisperStatus()
+
   return {
     homeAgent,
     tokenInput,
@@ -190,9 +260,13 @@ export function useHomeAgentSetup() {
     tokenFormatOk,
     canVerify,
     canSave,
+    whisperInstallStatus,
+    whisperInstallError,
+    whisperEnabled,
     runDetectChatId,
     verify,
     saveAndContinue,
     clearConfig,
+    toggleWhisper,
   }
 }

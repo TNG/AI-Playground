@@ -6,9 +6,15 @@ import { appLoggerInstance } from '../logging/logger.ts'
 import getPort, { portNumbers } from 'get-port'
 import { LlamaCppBackendService } from './llamaCppBackendService.ts'
 import { OpenVINOBackendService } from './openVINOBackendService.ts'
+import { HomeAgentBackendService } from './homeAgentBackendService.ts'
 import { LocalSettings } from '../main.ts'
 
-export type backend = 'ai-backend' | 'openvino-backend' | 'comfyui-backend' | 'llamacpp-backend'
+export type backend =
+  | 'ai-backend'
+  | 'openvino-backend'
+  | 'comfyui-backend'
+  | 'llamacpp-backend'
+  | 'home-agent-backend'
 
 export interface ApiServiceRegistry {
   register(apiService: ApiService): void
@@ -158,6 +164,14 @@ export async function aiplaygroundApiServiceRegistry(
       new AiBackendService(
         'ai-backend',
         await getPort({ port: portNumbers(59000, 59999) }),
+        win,
+        settings,
+      ),
+    )
+    instance.register(
+      new HomeAgentBackendService(
+        'home-agent-backend',
+        await getPort({ port: portNumbers(58000, 58999) }),
         win,
         settings,
       ),

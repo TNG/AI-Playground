@@ -335,6 +335,22 @@ type electronAPI = {
     ): Promise<void>
     removeServer(serverId: string): Promise<void>
   }
+  homeAgent: {
+    saveConfig(token: string, chatId: string): Promise<{ success: boolean; error?: string }>
+    loadConfig(): Promise<{ token: string; chatId: string } | null>
+    clearConfig(): Promise<void>
+    testTelegram(): Promise<{ success: boolean; error?: string }>
+    detectChatId(token: string): Promise<{ chatId: string } | { error: string }>
+    detectChatIdFromSaved(): Promise<{ chatId: string } | { error: string }>
+    injectToken(token: string, chatId?: string): Promise<{ status: string }>
+    pollTelegram(): Promise<Array<{ text: string; chat_id: string }>>
+    flushPending(): Promise<void>
+    sendTelegramReply(text: string, parseMode?: string): Promise<{ success: boolean; error?: string }>
+    sendTelegramPhoto(
+      imageBase64: string,
+      caption?: string,
+    ): Promise<{ success: boolean; error?: string }>
+  }
 }
 
 type SetupProgress = {
@@ -612,7 +628,12 @@ type CheckModelAlreadyLoadedResult = {
   already_loaded: boolean
 } & CheckModelAlreadyLoadedParameters
 
-type BackendServiceName = 'ai-backend' | 'comfyui-backend' | 'llamacpp-backend' | 'openvino-backend'
+type BackendServiceName =
+  | 'ai-backend'
+  | 'comfyui-backend'
+  | 'llamacpp-backend'
+  | 'openvino-backend'
+  | 'home-agent-backend'
 
 type InferenceDevice = {
   id: string

@@ -91,6 +91,13 @@ export const useOpenAiCompatibleChat = defineStore(
             requestUrl.hostname = latestBase.hostname
             requestUrl.port = latestBase.port
           }
+          // When Home Agent is active, inject the upstream inference URL as a header
+          const upstreamUrl = textInference.homeAgentUpstreamUrl
+          if (upstreamUrl) {
+            const headers = new Headers(init?.headers)
+            headers.set('X-Upstream-Url', upstreamUrl)
+            return globalThis.fetch(requestUrl.toString(), { ...init, headers })
+          }
           return globalThis.fetch(requestUrl.toString(), init)
         },
       }).chatModel(textInference.activeModel?.split('/').join('---') ?? ''),

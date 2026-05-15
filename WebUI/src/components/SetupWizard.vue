@@ -2,6 +2,13 @@
   <div
     class="z-10 text-foreground rounded-xl bg-background/70 backdrop-blur-sm border border-border shadow-lg"
   >
+    <HomeAgentSetupPage
+      v-if="wizard.wizardPage === 'homeAgentSetup'"
+      @back="wizard.wizardPage = 'main'"
+      @done="wizard.dismiss()"
+    />
+
+    <template v-else>
     <div class="px-12 py-5 max-w-5xl w-5xl">
       <h1 class="text-center py-1 px-4 rounded-sm text-3xl font-bold">
         {{ languages.SETUP_WIZARD_TITLE || 'AI Playground Setup' }}
@@ -276,6 +283,7 @@
       :error-details="wizard.errorModalDetails"
       @close="wizard.closeErrorModal()"
     />
+    </template>
   </div>
 </template>
 
@@ -289,6 +297,7 @@ import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/comp
 import BackendOptions from '@/components/BackendOptions.vue'
 import ErrorDetailsModal from '@/components/ErrorDetailsModal.vue'
 import LanguageSelector from '@/components/LanguageSelector.vue'
+import HomeAgentSetupPage from '@/components/HomeAgentSetupPage.vue'
 
 const wizard = useSetupWizard()
 const productModeStore = useProductMode()

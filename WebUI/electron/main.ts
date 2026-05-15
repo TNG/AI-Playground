@@ -52,6 +52,7 @@ import {
   COMFYUI_DEFAULT_PARAMETERS,
 } from './subprocesses/comfyUIBackendService'
 import { AiBackendService } from './subprocesses/aiBackendService'
+import { HomeAgentBackendService } from './subprocesses/homeAgentBackendService'
 import { LLAMACPP_DEFAULT_PARAMETERS } from './subprocesses/llamaCppBackendService'
 import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateIntelPresets.ts'
 import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
@@ -673,6 +674,10 @@ app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
 
 async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) {
   serviceRegistry = await aiplaygroundApiServiceRegistry(win, settings)
+  const homeAgent = serviceRegistry.getService('home-agent-backend')
+  if (homeAgent instanceof HomeAgentBackendService) {
+    homeAgent.registerIpcHandlers()
+  }
   return serviceRegistry
 }
 
@@ -1243,6 +1248,10 @@ function initEventHandle() {
           `Backend ${serviceName} ready for LLM: ${llmModelName}, Embedding: ${embeddingModelName || 'none'}`,
           'electron-backend',
         )
+        const homeAgentSvc = serviceRegistry?.getService('home-agent-backend')
+        if (homeAgentSvc instanceof HomeAgentBackendService) {
+          homeAgentSvc.notifyUpstreamReady(service.baseUrl ?? '')
+        }
         return { success: true }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)

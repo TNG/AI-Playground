@@ -152,6 +152,10 @@ const BasePresetFieldsSchema = z.object({
   mediaType: z.enum(['image', 'video', 'model3d']).optional(), // Specifies what type of media the preset generates
   toolInstructions: z.string().optional(), // Instructions for the AI on how to generate prompts for this preset
   toolCategory: z.string().optional(), // Category for tool organization (e.g., 'create-images', 'edit-images'). Presets without toolCategory are not available as tools.
+  // When true, hide this preset from the Home Agent (Telegram) /imgGen picker.
+  // Set on presets that need extra UI configuration (e.g. manual sliders, reference
+  // image uploads) and therefore can't be driven cleanly via a chat command.
+  excludeFromHomeAgentPicker: z.boolean().optional(),
 })
 
 // ComfyUI Preset Schema

@@ -490,6 +490,61 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
         with _pending_lock:
             _pending_messages.append({"text": full_text, "chat_id": chat_id})
 
+    async def handle_cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /cancel — clear any pending image-generation prompt (handled by Electron)."""
+        global _last_seen_chat_id, _allowed_chat_id
+        if update.message is None:
+            return
+        chat_id = str(update.message.chat_id)
+        if _last_seen_chat_id != chat_id:
+            _last_seen_chat_id = chat_id
+            _persist_chat_id(chat_id)
+        allow = _allowed_chat_id
+        if not allow:
+            return
+        if chat_id != allow:
+            logger.warning("Ignoring /cancel from unauthorized chat_id: %s", chat_id)
+            return
+        logger.info("Telegram /cancel command received: chat_id=%s", chat_id)
+        with _pending_lock:
+            _pending_messages.append({"text": "/cancel", "chat_id": chat_id})
+
+    async def handle_imggen_callback(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle inline-keyboard taps from the /imgGen preset picker.
+
+        Buttons carry `callback_data` of the form `imgGen:preset:<name>` or
+        `imgGen:cancel`. We ack the query and push a `{callback: ...}` queue
+        item so the frontend can branch without text sentinels.
+        """
+        global _last_seen_chat_id, _allowed_chat_id
+        cq = update.callback_query
+        if cq is None or cq.message is None:
+            return
+        chat_id = str(cq.message.chat_id)
+        if _last_seen_chat_id != chat_id:
+            _last_seen_chat_id = chat_id
+            _persist_chat_id(chat_id)
+        allow = _allowed_chat_id
+        if allow and chat_id != allow:
+            logger.warning("Ignoring imgGen callback from unauthorized chat_id: %s", chat_id)
+            try:
+                await cq.answer()
+            except Exception:
+                pass
+            return
+        data = cq.data or ""
+        try:
+            await cq.answer()
+        except Exception as exc:
+            logger.warning("Failed to ack imgGen callback_query: %s", exc)
+        if not data.startswith("imgGen:"):
+            return
+        logger.info("Telegram imgGen callback: chat_id=%s data=%r", chat_id, data)
+        with _pending_lock:
+            _pending_messages.append({"chat_id": chat_id, "callback": data})
+
     async def handle_load_callback(
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -597,11 +652,15 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
         application.add_handler(CommandHandler("help", handle_help_command))
         application.add_handler(CommandHandler("start", handle_help_command))
         application.add_handler(CommandHandler("chat", handle_chat_command))
+        application.add_handler(CommandHandler("cancel", handle_cancel_command))
         application.add_handler(CommandHandler("new", handle_new_command))
         application.add_handler(CommandHandler("history", handle_history_command))
         application.add_handler(CommandHandler("load", handle_load_command))
         application.add_handler(
             CallbackQueryHandler(handle_load_callback, pattern=r"^loadConv:")
+        )
+        application.add_handler(
+            CallbackQueryHandler(handle_imggen_callback, pattern=r"^imgGen:")
         )
         await application.initialize()
         await application.start()
@@ -614,7 +673,8 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
                 [
                     BotCommand("help", "Show available commands"),
                     BotCommand("chat", "Force a text chat reply (no image generation)"),
-                    BotCommand("imggen", "Generate an image from a text prompt"),
+                    BotCommand("imggen", "Pick a preset and generate an image"),
+                    BotCommand("cancel", "Cancel a pending image-generation prompt"),
                     BotCommand("new", "Start a new Home Agent chat thread"),
                     BotCommand("history", "List your saved Home Agent chats"),
                     BotCommand("load", "Resume a chat (no id = pick from menu)"),

@@ -7,6 +7,7 @@ import { useOpenAiCompatibleChat, type AipgUiMessage } from './openAiCompatibleC
 import { useImageGenerationPresets, isImage } from './imageGenerationPresets'
 import { usePromptStore } from './promptArea'
 import { usePresetSwitching } from './presetSwitching'
+import { usePresets } from './presets'
 // Lazy-instantiated inside helpers to avoid a setup-time cycle with textInference,
 // which already instantiates useHomeAgent() at the top of its own setup.
 import { useTextInference } from './textInference'
@@ -21,10 +22,21 @@ import { markdownToTelegramHtml } from '../telegramMarkdown'
 import * as toast from '../toast'
 
 type TelegramImage = { mime: string; data_base64: string }
-type TelegramQueueItem = { text: string; images?: TelegramImage[] }
+type TelegramQueueItem = { text?: string; images?: TelegramImage[]; callback?: string }
+
+/**
+ * Pending state for the interactive `/imgGen` preset picker.
+ * `awaitingPresetTap` is set after the user runs `/imgGen` until they tap
+ * a preset (or Cancel). `awaitingPrompt` is set after a preset is chosen
+ * until the user sends the next plain-text message as the prompt.
+ */
+type ImgGenPending =
+  | { phase: 'awaitingPresetTap'; cachedPrompt: string; deadline: number }
+  | { phase: 'awaitingPrompt'; presetName: string; deadline: number }
 
 const POLL_INTERVAL_MS = 2000
 const MAX_QUEUE_SIZE = 20
+const IMGGEN_PENDING_TIMEOUT_MS = 5 * 60_000
 
 /** Module-level so Vite HMR does not orphan intervals across Pinia setup closures. */
 let telegramPollIntervalId: ReturnType<typeof setInterval> | null = null
@@ -59,6 +71,7 @@ export const useHomeAgent = defineStore(
     const promptStore = usePromptStore()
     const presetSwitching = usePresetSwitching()
     const conversations = useConversations()
+    const presetsStore = usePresets()
 
     const isHomeAgentActive = ref(false)
     const telegramToken = ref<string | null>(null)
@@ -78,6 +91,13 @@ export const useHomeAgent = defineStore(
         .filter(([_, meta]) => meta?.kind === 'homeAgent')
         .map(([key]) => key),
     )
+
+    /**
+     * Pending state for the interactive `/imgGen` flow. Not persisted —
+     * picker sessions are short-lived (5-minute timeout) and re-routing the
+     * preset choice across restarts would surprise the user.
+     */
+    const pendingImgGen = ref<ImgGenPending | null>(null)
 
     /** Visibility flag for the dedicated Home Agent inference settings panel. */
     const showSettings = ref(false)
@@ -163,6 +183,7 @@ export const useHomeAgent = defineStore(
     const IMG_GEN_REGEX = /^\/imgGen\s*/i
     const CHAT_REGEX = /^\/chat\s*/i
     const HELP_REGEX = /^\/help$/i
+    const CANCEL_REGEX = /^\/cancel\s*$/i
     const NEW_REGEX = /^\/new\s*$/i
     const HISTORY_REGEX = /^\/history\s*$/i
     const LOAD_REGEX = /^\/load\s+(\S+)\s*$/i
@@ -171,9 +192,11 @@ export const useHomeAgent = defineStore(
 
     const HELP_MESSAGE =
       '🤖 <b>Available commands</b>\n\n' +
-      '<code>/imgGen </code><i>&lt;prompt&gt;</i>\n' +
-      'Force image generation from a text prompt.\n' +
-      'Example: <code>/imgGen a sunset over snowy mountains</code>\n\n' +
+      '/imgGen\n' +
+      'Open the image-generation picker. Tap a preset, then send your prompt as the next message.\n' +
+      'You can also pre-fill the prompt with <code>/imgGen </code><i>&lt;prompt&gt;</i> — after you tap a preset the image generates immediately.\n\n' +
+      '/cancel\n' +
+      'Cancel a pending /imgGen flow (or tap the ✖ Cancel button on the picker).\n\n' +
       '<code>/chat </code><i>&lt;message&gt;</i>\n' +
       'Force a text chat reply (no image generation).\n\n' +
       '/new\n' +
@@ -741,8 +764,86 @@ export const useHomeAgent = defineStore(
       }
     }
 
-    async function handleImgGenMessage(prompt: string): Promise<void> {
-      // Check ComfyUI backend
+    /** Clear `pendingImgGen` if its deadline has elapsed. Cheap; safe to call on every queue iteration. */
+    function expireImgGenPendingIfStale(): void {
+      const p = pendingImgGen.value
+      if (p && Date.now() > p.deadline) {
+        pendingImgGen.value = null
+      }
+    }
+
+    /**
+     * Show an inline-keyboard preset picker for /imgGen.
+     *
+     * `cachedPrompt` carries any text the user typed after the slash command
+     * (e.g. `/imgGen a sunset over snowy mountains`) so we can generate
+     * immediately once they tap a preset — no second message required.
+     */
+    async function showImgGenPresetPicker(cachedPrompt: string): Promise<void> {
+      focusRemoteChatDiscussion()
+
+      const comfyService = backendServices.info.find((s) => s.serviceName === 'comfyui-backend')
+      if (!comfyService || comfyService.status !== 'running') {
+        await window.electronAPI.homeAgent.sendTelegramReply(
+          '⚠️ Image generation is not available — the ComfyUI backend is not running.',
+        )
+        return
+      }
+
+      // `getPresetsByCategories` already returns sorted by displayPriority desc.
+      // Drop presets that opt out via the `excludeFromHomeAgentPicker` flag — those
+      // need extra UI configuration (reference images, manual model picks, etc.)
+      // and can't be driven cleanly via a chat command.
+      const presetsList = presetsStore
+        .getPresetsByCategories(['create-images'], 'comfy')
+        .filter((p) => !p.excludeFromHomeAgentPicker)
+      if (presetsList.length === 0) {
+        await window.electronAPI.homeAgent.sendTelegramReply(
+          '⚠️ No image generation presets are available. Configure one in AI Playground.',
+        )
+        return
+      }
+
+      // Telegram caps callback_data at 64 bytes. Preset names in this repo are
+      // short (≤30 chars typical), but guard defensively.
+      const encoder = new TextEncoder()
+      const buttons: Array<Array<{ text: string; callbackData: string }>> = []
+      for (const p of presetsList) {
+        const cb = `imgGen:preset:${p.name}`
+        if (encoder.encode(cb).length > 64) continue
+        const label = p.name.length > 30 ? `${p.name.slice(0, 29)}…` : p.name
+        buttons.push([{ text: label, callbackData: cb }])
+      }
+      if (buttons.length === 0) {
+        await window.electronAPI.homeAgent.sendTelegramReply(
+          '⚠️ No image generation presets with safe-length names. Configure one in AI Playground.',
+        )
+        return
+      }
+      buttons.push([{ text: '✖ Cancel', callbackData: 'imgGen:cancel' }])
+
+      pendingImgGen.value = {
+        phase: 'awaitingPresetTap',
+        cachedPrompt,
+        deadline: Date.now() + IMGGEN_PENDING_TIMEOUT_MS,
+      }
+
+      const intro = cachedPrompt
+        ? '🎨 Pick a preset to generate your image:'
+        : '🎨 Pick a preset, then send your prompt as the next message:'
+      await window.electronAPI.homeAgent.sendTelegramKeyboard({
+        text: intro,
+        parseMode: 'HTML',
+        buttons,
+      })
+    }
+
+    /**
+     * Generate an image using the named preset and the given prompt. Reused by
+     * both the cached-prompt fast-path (preset tap with prompt already supplied)
+     * and the awaitingPrompt → free-text path (preset tap, then prompt arrives).
+     */
+    async function runImgGenWithPreset(presetName: string, prompt: string): Promise<void> {
       const comfyService = backendServices.info.find((s) => s.serviceName === 'comfyui-backend')
       if (!comfyService || comfyService.status !== 'running') {
         await window.electronAPI.homeAgent.sendTelegramReply(
@@ -755,13 +856,20 @@ export const useHomeAgent = defineStore(
 
       try {
         promptStore.setModeOnly('imageGen')
-        if (previousMode !== 'imageGen') {
-          await presetSwitching.switchToLastUsedForCategory(['create-images'], 'comfy', {
-            skipModeSwitch: true,
-          })
+
+        const switchResult = await presetSwitching.switchPreset(presetName, {
+          skipModeSwitch: true,
+        })
+        if (!switchResult.success) {
+          await window.electronAPI.homeAgent.sendTelegramReply(
+            `⚠️ Could not select preset <i>${escapeHtml(presetName)}</i>: ${escapeHtml(
+              switchResult.error ?? 'unknown error',
+            )}`,
+            'HTML',
+          )
+          return
         }
 
-        // Check active preset
         if (!imageGenStore.activePreset) {
           await window.electronAPI.homeAgent.sendTelegramReply(
             '⚠️ No image generation preset is selected. Please configure one in AI Playground.',
@@ -769,7 +877,6 @@ export const useHomeAgent = defineStore(
           return
         }
 
-        // Validate requirements without showing dialogs
         const validation = await imageGenStore.validatePresetRequirements()
         if (!validation.backendRunning) {
           await window.electronAPI.homeAgent.sendTelegramReply(
@@ -827,18 +934,76 @@ export const useHomeAgent = defineStore(
       }
     }
 
+    /**
+     * Handle a preset-button tap from the inline keyboard.
+     *
+     * If the picker was opened with a cached prompt (user ran `/imgGen <text>`),
+     * we generate immediately. Otherwise we transition to `awaitingPrompt` and
+     * wait for the next plain-text message.
+     */
+    async function handleImgGenPresetCallback(presetName: string): Promise<void> {
+      const pending = pendingImgGen.value
+      const cachedPrompt = pending?.phase === 'awaitingPresetTap' ? pending.cachedPrompt.trim() : ''
+
+      if (cachedPrompt) {
+        pendingImgGen.value = null
+        await runImgGenWithPreset(presetName, cachedPrompt)
+        return
+      }
+
+      pendingImgGen.value = {
+        phase: 'awaitingPrompt',
+        presetName,
+        deadline: Date.now() + IMGGEN_PENDING_TIMEOUT_MS,
+      }
+      await window.electronAPI.homeAgent.sendTelegramReply(
+        `✅ Selected <i>${escapeHtml(presetName)}</i>.\nNow send your prompt as the next message, or /cancel to abort.`,
+        'HTML',
+      )
+    }
+
+    /** Cancel button on the picker OR the /cancel slash command. */
+    async function handleImgGenCancel(): Promise<void> {
+      const wasPending = pendingImgGen.value !== null
+      pendingImgGen.value = null
+      await window.electronAPI.homeAgent.sendTelegramReply(
+        wasPending ? '✖ Image generation cancelled.' : 'Nothing to cancel.',
+      )
+    }
+
     async function drainQueue() {
       if (telegramDrainBusy) return
       telegramDrainBusy = true
       try {
         while (_messageQueue.length > 0 && isHomeAgentActive.value) {
           const item = _messageQueue.shift()!
-          const text = item.text
+          expireImgGenPendingIfStale()
+
+          // Inline-keyboard taps from the /imgGen preset picker arrive with a
+          // `callback` field instead of `text` — route them before any
+          // text-based regex matching.
+          if (item.callback) {
+            try {
+              if (item.callback === 'imgGen:cancel') {
+                await handleImgGenCancel()
+              } else if (item.callback.startsWith('imgGen:preset:')) {
+                const name = item.callback.slice('imgGen:preset:'.length)
+                await handleImgGenPresetCallback(name)
+              }
+            } catch (e) {
+              console.error('Error processing Telegram callback:', e)
+            }
+            continue
+          }
+
+          const text = item.text ?? ''
           const images = item.images
           try {
             if (HELP_REGEX.test(text)) {
               focusRemoteChatDiscussion()
               await window.electronAPI.homeAgent.sendTelegramReply(HELP_MESSAGE, 'HTML')
+            } else if (CANCEL_REGEX.test(text)) {
+              await handleImgGenCancel()
             } else if (NEW_REGEX.test(text)) {
               const newKey = createNewRemoteConversation()
               focusRemoteChatDiscussion()
@@ -874,22 +1039,14 @@ export const useHomeAgent = defineStore(
               }
             } else if (IMG_GEN_REGEX.test(text)) {
               const prompt = text.replace(IMG_GEN_REGEX, '').trim()
-              if (prompt) {
-                if (images?.length) {
-                  // /imgGen is text-to-image — the Telegram photo is not used as a reference.
-                  await window.electronAPI.homeAgent.sendTelegramReply(
-                    'ℹ️ <code>/imgGen</code> is text-only — the attached photo is ignored.',
-                    'HTML',
-                  )
-                }
-                await handleImgGenMessage(prompt)
-              } else {
-                focusRemoteChatDiscussion()
+              if (images?.length) {
+                // /imgGen is text-to-image — the Telegram photo is not used as a reference.
                 await window.electronAPI.homeAgent.sendTelegramReply(
-                  '⚠️ Please add a prompt after the command.\nExample: <code>/imgGen a cat on the moon</code>',
+                  'ℹ️ <code>/imgGen</code> is text-only — the attached photo is ignored.',
                   'HTML',
                 )
               }
+              await showImgGenPresetPicker(prompt)
             } else if (CHAT_REGEX.test(text)) {
               const msg = text.replace(CHAT_REGEX, '').trim()
               if (msg || images?.length) {
@@ -901,6 +1058,27 @@ export const useHomeAgent = defineStore(
                   'HTML',
                 )
               }
+            } else if (pendingImgGen.value?.phase === 'awaitingPrompt') {
+              // After the user tapped a preset, the next plain-text message
+              // becomes the prompt. Photo-only messages (text === '[image]')
+              // are rejected with a reminder — /imgGen is text-only.
+              const presetName = pendingImgGen.value.presetName
+              const promptText = images?.length && text === '[image]' ? '' : text.trim()
+              if (!promptText) {
+                await window.electronAPI.homeAgent.sendTelegramReply(
+                  '⚠️ Please send your prompt as text. Photos are ignored for /imgGen. /cancel to abort.',
+                  'HTML',
+                )
+              } else {
+                pendingImgGen.value = null
+                await runImgGenWithPreset(presetName, promptText)
+              }
+            } else if (pendingImgGen.value?.phase === 'awaitingPresetTap' && text.trim()) {
+              // The picker keyboard is still up; remind the user to tap a button.
+              await window.electronAPI.homeAgent.sendTelegramReply(
+                '🖼️ Tap a preset above, or /cancel to dismiss the picker.',
+                'HTML',
+              )
             } else {
               // Agentic mode — AI decides whether to chat or generate an image.
               // For photo-only messages the Python side queues "[image]" as a
@@ -926,7 +1104,7 @@ export const useHomeAgent = defineStore(
             toast.warning('Home Agent: message queue full, dropping oldest message.')
             _messageQueue.shift()
           }
-          _messageQueue.push({ text: msg.text, images: msg.images })
+          _messageQueue.push({ text: msg.text, images: msg.images, callback: msg.callback })
         }
         void drainQueue()
       } catch (e) {

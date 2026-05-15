@@ -256,18 +256,20 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
 
   async pollTelegram(): Promise<
     Array<{
-      text: string
+      text?: string
       chat_id: string
       images?: Array<{ mime: string; data_base64: string }>
+      callback?: string
     }>
   > {
     if (this.currentStatus !== 'running') return []
     try {
       const res = await net.fetch(`${this.baseUrl}/poll-telegram`)
       return (await res.json()) as Array<{
-        text: string
+        text?: string
         chat_id: string
         images?: Array<{ mime: string; data_base64: string }>
+        callback?: string
       }>
     } catch {
       return []

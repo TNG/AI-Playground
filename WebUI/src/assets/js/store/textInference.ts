@@ -1031,29 +1031,31 @@ export const useTextInference = defineStore(
         selectBestBackend(preset)
       }
 
-      // Helper to select the best available backend from preset's allowed list
+      // Helper to select the best available backend from preset's allowed list.
+      //
+      // We intentionally do NOT carry over `backend.value` when the new preset
+      // has no persisted choice: that branch caused per-preset settings to
+      // silently inherit whichever preset was active just before. Concretely,
+      // editing the Home Agent backend would change the Basic Chat backend on
+      // the next switch, because Basic Chat had no saved entry yet and
+      // "if current backend is allowed, keep it" pulled in the Home Agent
+      // value from the global ref. Deterministic per-preset defaults make the
+      // user's explicit choices the only thing that crosses presets.
       function selectBestBackend(preset: ChatPreset) {
         if (!preset.backends || preset.backends.length === 0) return
 
-        // If single backend, auto-select it
         if (preset.backends.length === 1) {
           backend.value = preset.backends[0]
           return
         }
 
-        // If current backend is in allowed list, keep it
-        if (preset.backends.includes(backend.value)) {
-          return
-        }
-
-        // Try to find a running backend from the allowed list
         const runningBackend = preset.backends.find((b) => {
           const serviceName = backendToService[b] as BackendServiceName
           const backendInfo = backendServices.info.find((s) => s.serviceName === serviceName)
           return backendInfo && backendInfo.status === 'running'
         })
 
-        backend.value = runningBackend || preset.backends[0]
+        backend.value = runningBackend ?? preset.backends[0]
       }
 
       const serviceName = backendToService[backend.value] as BackendServiceName

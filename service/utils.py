@@ -4,7 +4,7 @@ import os
 import shlex
 import shutil
 import subprocess
-from typing import IO, List, Optional
+from typing import IO, Optional
 
 # Import from the backend_shared package
 import config

@@ -10,48 +10,33 @@ import { vulkanDeviceSelectorEnv } from './deviceDetection.ts'
 import { LocalSettings } from '../main.ts'
 import getPort, { portNumbers } from 'get-port'
 import { binary, extract } from './tools.ts'
+import {
+  computePhisonArtifactsReady as computePhisonVariantArtifactsReady,
+  computeStandardArtifactsReady as computeStandardVariantArtifactsReady,
+  computeVariantArtifactsReady,
+  ensureSsdOffloadConfigFile as ensurePhisonConfigFile,
+  ensureSsdOffloadConfigFileSync as ensurePhisonConfigFileSync,
+  getActiveLlamaCppExePath as resolveActiveLlamaCppExePath,
+  getLlamaCppDirForVariant as resolveLlamaCppDirForVariant,
+  getModelServerEnvAdditions,
+  getRelativeSsdOffloadConfigPath as resolveRelativeSsdOffloadConfigPath,
+  getSsdOffloadConfigPath,
+  getZipPathForVariant as resolveZipPathForVariant,
+  LLAMACPP_SSD_OFFLOAD_CREATE_SERVICE_SCRIPT,
+  LLAMACPP_SSD_OFFLOAD_DELETE_SERVICE_SCRIPT,
+  LLAMACPP_SSD_OFFLOAD_PROCESS_NAME,
+  type LlamaCppBuildVariant,
+  migrateLegacyPhisonIntoSeparateDirectory as migrateLegacyPhisonInstall,
+  migrateLegacySsdOffloadConfigFile as migrateLegacyPhisonConfigFile,
+  normalizeOffloadDrivePath as normalizePhisonOffloadDrivePath,
+  resolveLlamaCppDownloadUrl,
+  updateSsdOffloadConfig as updatePhisonSsdOffloadConfig,
+} from './llamaCppPhison.ts'
 
 const execAsync = promisify(exec)
 
 export const LLAMACPP_DEFAULT_PARAMETERS = '--gpu-layers 999 --log-prefix --jinja --no-mmap -fa off'
 const platformExtension = process.platform === 'win32' ? 'zip' : 'tar.gz'
-// Fill this in when the AWS artifact URL is available. Supports {version}, {platformArch}, {extension}.
-const LLAMACPP_SSD_OFFLOAD_DOWNLOAD_URL_TEMPLATE: string =
-  'https://phisonbucket.s3.ap-northeast-1.amazonaws.com/aiDAPTIV_vNXWV_3_05T0B00.zip'
-const LLAMACPP_SSD_OFFLOAD_CONFIG_NAME = 'aidaptiv_config.json'
-const LLAMACPP_SSD_OFFLOAD_LEGACY_CONFIG_NAME = 'aidaptiv(303G0B).json'
-const LLAMACPP_SSD_OFFLOAD_DELETE_SERVICE_SCRIPT = 'wService_delete.bat'
-const LLAMACPP_SSD_OFFLOAD_CREATE_SERVICE_SCRIPT = 'wService_create.bat'
-const LLAMACPP_SSD_OFFLOAD_PROCESS_NAME = 'ada.exe'
-/** Standard GGUF release extracts here (unchanged path for backward compatibility). */
-const LLAMA_CPP_SUBDIR_STANDARD = 'llama-cpp'
-/** Phison aiDAPTIV+ zip extracts here so it never overwrites standard Llama.cpp. */
-const LLAMA_CPP_SUBDIR_PHISON = 'llama-cpp-phison'
-const LLAMACPP_SSD_OFFLOAD_DEFAULT_CONFIG = {
-  common: {
-    seed: '0',
-    flash_attn: 'on',
-    swa_full: true,
-    threads: 10,
-    mmap: false,
-    fit: 'off',
-    context_shift: false,
-    verbose: true,
-    split_mode: 'none',
-    parallel: 1,
-    gpu_layers: '999',
-  },
-  aidaptiv: {
-    offload_path: 'R:\\',
-    debug_log_path: 'R:\\',
-    dram_kv_offload_gb: 0,
-    ssd_kv_offload_gb: 10,
-    kv_cache_resume_policy: true,
-    vram_experts_cached_gb: 10,
-  },
-}
-
-type LlamaCppBuildVariant = 'standard' | 'ssd-offload'
 type StorageTarget = {
   id: string
   name: string
@@ -184,8 +169,7 @@ export class LlamaCppBackendService implements ApiService {
   }
 
   private llamaCppDirForVariant(variant: LlamaCppBuildVariant): string {
-    const sub = variant === 'ssd-offload' ? LLAMA_CPP_SUBDIR_PHISON : LLAMA_CPP_SUBDIR_STANDARD
-    return path.resolve(path.join(this.serviceDir, sub))
+    return resolveLlamaCppDirForVariant(this.serviceDir, variant)
   }
 
   /** Directory for the currently selected build variant (standard vs Phison use separate trees). */
@@ -194,12 +178,11 @@ export class LlamaCppBackendService implements ApiService {
   }
 
   private getActiveLlamaCppExePath(): string {
-    return path.resolve(path.join(this.getActiveLlamaCppDir(), binary('llama-server')))
+    return resolveActiveLlamaCppExePath(this.serviceDir, this.llamaCppBuildVariant)
   }
 
   private getZipPathForVariant(variant: LlamaCppBuildVariant): string {
-    const suffix = variant === 'ssd-offload' ? '-phison' : ''
-    return path.resolve(path.join(this.serviceDir, `llama-cpp${suffix}.${platformExtension}`))
+    return resolveZipPathForVariant(this.serviceDir, variant, platformExtension)
   }
 
   constructor(name: BackendServiceName, port: number, win: BrowserWindow, settings: LocalSettings) {
@@ -212,9 +195,7 @@ export class LlamaCppBackendService implements ApiService {
 
     // Set up paths (binaries live under getActiveLlamaCppDir() — standard vs Phison use different folders)
     this.serviceDir = path.resolve(path.join(this.baseDir, 'LlamaCPP'))
-    this.llamaCppSsdOffloadConfigPath = path.resolve(
-      path.join(this.serviceDir, LLAMACPP_SSD_OFFLOAD_CONFIG_NAME),
-    )
+    this.llamaCppSsdOffloadConfigPath = getSsdOffloadConfigPath(this.serviceDir)
     this.migrateLegacySsdOffloadConfigFile()
     this.ensureSsdOffloadConfigFileSync()
     this.migrateLegacyPhisonIntoSeparateDirectory()
@@ -315,26 +296,15 @@ export class LlamaCppBackendService implements ApiService {
    * under LlamaCPP/ so switching variants does not delete the other build.
    */
   private computeStandardArtifactsReady(): boolean {
-    const standardDir = this.llamaCppDirForVariant('standard')
-    const exe = path.join(standardDir, binary('llama-server'))
-    if (!filesystem.existsSync(exe)) return false
-    if (filesystem.existsSync(path.join(standardDir, LLAMACPP_SSD_OFFLOAD_PROCESS_NAME))) {
-      return false
-    }
-    return true
+    return computeStandardVariantArtifactsReady(this.serviceDir)
   }
 
   private computePhisonArtifactsReady(): boolean {
-    const dir = this.llamaCppDirForVariant('ssd-offload')
-    const exe = path.join(dir, binary('llama-server'))
-    if (!filesystem.existsSync(exe)) return false
-    return filesystem.existsSync(path.join(dir, LLAMACPP_SSD_OFFLOAD_PROCESS_NAME))
+    return computePhisonVariantArtifactsReady(this.serviceDir)
   }
 
   private computeIsSetUp(): boolean {
-    return this.llamaCppBuildVariant === 'ssd-offload'
-      ? this.computePhisonArtifactsReady()
-      : this.computeStandardArtifactsReady()
+    return computeVariantArtifactsReady(this.serviceDir, this.llamaCppBuildVariant)
   }
 
   private syncSetupFlagsFromDisk(): void {
@@ -719,20 +689,12 @@ export class LlamaCppBackendService implements ApiService {
       win32: 'win-vulkan-x64',
     }
     const platformArch = platformArchMap[process.platform] ?? 'win-vulkan-x64'
-
-    if (this.llamaCppBuildVariant === 'ssd-offload') {
-      if (!LLAMACPP_SSD_OFFLOAD_DOWNLOAD_URL_TEMPLATE) {
-        throw new Error(
-          'Set LLAMACPP_SSD_OFFLOAD_DOWNLOAD_URL_TEMPLATE before installing the SSD offload llama.cpp build',
-        )
-      }
-
-      return LLAMACPP_SSD_OFFLOAD_DOWNLOAD_URL_TEMPLATE.replace('{version}', this.version)
-        .replace('{platformArch}', platformArch)
-        .replace('{extension}', platformExtension)
-    }
-
-    return `https://github.com/ggml-org/llama.cpp/releases/download/${this.version}/llama-${this.version}-bin-${platformArch}.${platformExtension}`
+    return resolveLlamaCppDownloadUrl(
+      this.version,
+      this.llamaCppBuildVariant,
+      platformExtension,
+      platformArch,
+    )
   }
 
   private async extractLlamacpp(): Promise<void> {
@@ -802,64 +764,23 @@ export class LlamaCppBackendService implements ApiService {
   }
 
   private getRelativeSsdOffloadConfigPath(): string {
-    const relativePath = path.relative(
-      this.getActiveLlamaCppDir(),
+    return resolveRelativeSsdOffloadConfigPath(
+      this.serviceDir,
+      this.llamaCppBuildVariant,
       this.llamaCppSsdOffloadConfigPath,
     )
-    return relativePath || path.basename(this.llamaCppSsdOffloadConfigPath)
-  }
-
-  private getLegacySsdOffloadConfigPath(): string {
-    return path.resolve(path.join(this.serviceDir, LLAMACPP_SSD_OFFLOAD_LEGACY_CONFIG_NAME))
-  }
-
-  private getLlamaStartupArguments(): string[] {
-    return this.llamaCppParametersString.split(/\s+/).filter(Boolean)
-  }
-
-  private getEmbeddingStartupArguments(): string[] {
-    return this.llamaCppParametersString.split(/\s+/).filter(Boolean)
   }
 
   private normalizeOffloadDrivePath(offloadDrive?: string | null): string | null {
-    if (!offloadDrive) {
-      return null
-    }
-
-    const trimmed = offloadDrive.trim()
-    const driveMatch = trimmed.match(/^([A-Za-z]):/)
-    if (!driveMatch) {
-      return trimmed
-    }
-
-    return `${driveMatch[1].toUpperCase()}:\\`
+    return normalizePhisonOffloadDrivePath(offloadDrive)
   }
 
   private async updateSsdOffloadConfig(): Promise<void> {
     await this.ensureSsdOffloadConfigFile()
-
-    if (!filesystem.existsSync(this.llamaCppSsdOffloadConfigPath) || !this.llamaCppOffloadDrive) {
-      return
-    }
-
-    try {
-      const config = await filesystem.readJson(this.llamaCppSsdOffloadConfigPath)
-      const updatedConfig = {
-        ...config,
-        aidaptiv: {
-          ...(config.aidaptiv ?? {}),
-          offload_path: this.llamaCppOffloadDrive,
-          debug_log_path: this.llamaCppOffloadDrive,
-        },
-      }
-      await filesystem.writeJson(this.llamaCppSsdOffloadConfigPath, updatedConfig, { spaces: 2 })
-      this.appLogger.info(
-        `Updated SSD offload config paths to ${this.llamaCppOffloadDrive}`,
-        this.name,
-      )
-    } catch (error) {
-      this.appLogger.warn(`Failed to update SSD offload config: ${error}`, this.name)
-    }
+    await updatePhisonSsdOffloadConfig(this.llamaCppSsdOffloadConfigPath, this.llamaCppOffloadDrive, {
+      info: (message) => this.appLogger.info(message, this.name),
+      warn: (message) => this.appLogger.warn(message, this.name),
+    })
   }
 
   /**
@@ -867,61 +788,22 @@ export class LlamaCppBackendService implements ApiService {
    * standard GGUF can use `llama-cpp/` again without overwriting Phison.
    */
   private migrateLegacyPhisonIntoSeparateDirectory(): void {
-    const standardDir = this.llamaCppDirForVariant('standard')
-    const phisonDir = this.llamaCppDirForVariant('ssd-offload')
-    if (filesystem.existsSync(phisonDir)) return
-    const adaPath = path.join(standardDir, LLAMACPP_SSD_OFFLOAD_PROCESS_NAME)
-    if (!filesystem.existsSync(adaPath)) return
-    try {
-      filesystem.moveSync(standardDir, phisonDir)
-      filesystem.mkdirSync(standardDir, { recursive: true })
-      this.appLogger.info(
-        `Migrated Phison Llama.cpp from ${LLAMA_CPP_SUBDIR_STANDARD}/ to ${LLAMA_CPP_SUBDIR_PHISON}/`,
-        this.name,
-      )
-    } catch (e) {
-      this.appLogger.warn(`Phison directory migration skipped: ${e}`, this.name)
-    }
+    migrateLegacyPhisonInstall(this.serviceDir, {
+      info: (message) => this.appLogger.info(message, this.name),
+      warn: (message) => this.appLogger.warn(message, this.name),
+    })
   }
 
   private migrateLegacySsdOffloadConfigFile(): void {
-    const legacyConfigPath = this.getLegacySsdOffloadConfigPath()
-    if (
-      filesystem.existsSync(legacyConfigPath) &&
-      !filesystem.existsSync(this.llamaCppSsdOffloadConfigPath)
-    ) {
-      filesystem.moveSync(legacyConfigPath, this.llamaCppSsdOffloadConfigPath)
-    }
+    migrateLegacyPhisonConfigFile(this.serviceDir, this.llamaCppSsdOffloadConfigPath)
   }
 
   private ensureSsdOffloadConfigFileSync(): void {
-    this.migrateLegacySsdOffloadConfigFile()
-    if (filesystem.existsSync(this.llamaCppSsdOffloadConfigPath)) {
-      return
-    }
-
-    filesystem.ensureDirSync(this.serviceDir)
-    filesystem.writeJsonSync(
-      this.llamaCppSsdOffloadConfigPath,
-      LLAMACPP_SSD_OFFLOAD_DEFAULT_CONFIG,
-      { spaces: 2 },
-    )
+    ensurePhisonConfigFileSync(this.serviceDir, this.llamaCppSsdOffloadConfigPath)
   }
 
   private async ensureSsdOffloadConfigFile(): Promise<void> {
-    this.migrateLegacySsdOffloadConfigFile()
-    if (await filesystem.pathExists(this.llamaCppSsdOffloadConfigPath)) {
-      return
-    }
-
-    await filesystem.ensureDir(this.serviceDir)
-    await filesystem.writeJson(
-      this.llamaCppSsdOffloadConfigPath,
-      LLAMACPP_SSD_OFFLOAD_DEFAULT_CONFIG,
-      {
-        spaces: 2,
-      },
-    )
+    await ensurePhisonConfigFile(this.serviceDir, this.llamaCppSsdOffloadConfigPath)
   }
 
   private async ensureSsdOffloadWindowsService(): Promise<void> {
@@ -1112,7 +994,7 @@ export class LlamaCppBackendService implements ApiService {
     return {
       ...process.env,
       ...vulkanDeviceSelectorEnv(this.devices.find((d) => d.selected)?.id),
-      ...(this.llamaCppBuildVariant === 'ssd-offload' ? { GGML_VK_DISABLE_F16: '1' } : {}),
+      ...getModelServerEnvAdditions(this.llamaCppBuildVariant),
     }
   }
 

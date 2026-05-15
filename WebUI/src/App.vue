@@ -30,6 +30,7 @@
     <div class="flex justify-between items-center gap-5">
       <HomeAgentToggle
         v-if="
+          homeAgent.isFeatureEnabled &&
           globalSetup.loadingState === 'running' &&
           (promptStore.getCurrentMode() === 'chat' || promptStore.getCurrentMode() === 'imageGen')
         "
@@ -333,6 +334,7 @@ import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import DemoModeNotificationDots from '@/components/DemoModeNotificationDots.vue'
 import DemoModeAutoresetDialog from '@/components/DemoModeAutoresetDialog.vue'
 import HomeAgentToggle from '@/components/HomeAgentToggle.vue'
+import { useHomeAgent } from '@/assets/js/store/homeAgent'
 
 const theme = useTheme()
 const globalSetup = useGlobalSetup()
@@ -342,6 +344,7 @@ const dialogStore = useDialogStore()
 const promptStore = usePromptStore()
 const uiStore = useUIStore()
 const setupWizardStore = useSetupWizard()
+const homeAgent = useHomeAgent()
 
 const addLLMCompt = ref<InstanceType<typeof AddLLMDialog>>()
 const demoModeOverlayDriverJs = ref<InstanceType<typeof DemoModeOverlayDriverJsRef>>()

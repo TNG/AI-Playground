@@ -3,7 +3,7 @@
     class="z-10 text-foreground rounded-xl bg-background/70 backdrop-blur-sm border border-border shadow-lg"
   >
     <HomeAgentSetupPage
-      v-if="wizard.wizardPage === 'homeAgentSetup'"
+      v-if="wizard.wizardPage === 'homeAgentSetup' && homeAgent.isFeatureEnabled"
       @back="wizard.wizardPage = 'main'"
       @done="wizard.dismiss()"
     />
@@ -293,6 +293,7 @@
 import { computed } from 'vue'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import { useProductMode } from '@/assets/js/store/productMode'
+import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useI18N } from '@/assets/js/store/i18n'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
@@ -303,6 +304,7 @@ import HomeAgentSetupPage from '@/components/HomeAgentSetupPage.vue'
 
 const wizard = useSetupWizard()
 const productModeStore = useProductMode()
+const homeAgent = useHomeAgent()
 const i18n = useI18N()
 const languages = i18n.state
 

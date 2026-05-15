@@ -12,13 +12,19 @@ import { mapStatusToColor, mapToDisplayStatus } from '@/lib/utils'
 import * as toast from '@/assets/js/toast'
 import type { ErrorDetails } from '../../../../electron/subprocesses/service'
 
-const backends: BackendServiceName[] = [
+const ALL_BACKENDS: BackendServiceName[] = [
   'ai-backend',
   'home-agent-backend',
   'llamacpp-backend',
   'openvino-backend',
   'comfyui-backend',
 ]
+
+function getBackends(homeAgentEnabled: boolean): BackendServiceName[] {
+  return homeAgentEnabled
+    ? ALL_BACKENDS
+    : ALL_BACKENDS.filter((b) => b !== 'home-agent-backend')
+}
 
 function isBackendAvailableInProductMode(
   mode: ProductMode | null,
@@ -105,7 +111,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   })
 
   const backendRows = computed<BackendRowViewModel[]>(() => {
-    return backends.map((serviceName) => {
+    return getBackends(homeAgent.isFeatureEnabled).map((serviceName) => {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       const available = isBackendAvailableInProductMode(pendingProductMode.value, serviceName)
       const isRequired = info?.isRequired ?? serviceName === 'ai-backend'
@@ -233,7 +239,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
   function seedInstallSelection() {
     const newSelection = new Set<BackendServiceName>()
-    for (const serviceName of backends) {
+    for (const serviceName of getBackends(homeAgent.isFeatureEnabled)) {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       if (!info) continue
       if (info.isRequired) continue
@@ -247,6 +253,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   }
 
   function isHomeAgentInstalledAndActive(): boolean {
+    if (!homeAgent.isFeatureEnabled) return false
     const info = backendServices.info.find((s) => s.serviceName === 'home-agent-backend')
     return info?.isSetUp === true && !disabledBackends.value.has('home-agent-backend')
   }
@@ -273,7 +280,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
   function setPendingMode(mode: ProductMode) {
     pendingProductMode.value = mode
-    for (const sn of backends) {
+    for (const sn of getBackends(homeAgent.isFeatureEnabled)) {
       const wasAvailable = isBackendAvailableInProductMode(
         productModeStore.productMode ?? pendingProductMode.value,
         sn,
@@ -304,6 +311,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   }
 
   async function openHomeAgentSetup() {
+    if (!homeAgent.isFeatureEnabled) return
     if (!productModeStore.hardwareRecommendation) {
       await productModeStore.detectRecommendation()
     }
@@ -415,10 +423,12 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       if (anyFailed) return
     }
 
-    const homeAgentJustInstalled = toInstall.some((r) => r.serviceName === 'home-agent-backend')
-    if (homeAgentJustInstalled || isHomeAgentInstalledAndActive()) {
-      wizardPage.value = 'homeAgentSetup'
-      return
+    if (homeAgent.isFeatureEnabled) {
+      const homeAgentJustInstalled = toInstall.some((r) => r.serviceName === 'home-agent-backend')
+      if (homeAgentJustInstalled || isHomeAgentInstalledAndActive()) {
+        wizardPage.value = 'homeAgentSetup'
+        return
+      }
     }
 
     await dismiss()
@@ -487,7 +497,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     await globalSetup.initSetup()
     globalSetup.loadingState = 'running'
 
-    for (const serviceName of backends) {
+    for (const serviceName of getBackends(homeAgent.isFeatureEnabled)) {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       if (!info?.isSetUp) continue
       if (info.isRequired || installSelection.value.has(serviceName)) {

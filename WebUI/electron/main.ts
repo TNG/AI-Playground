@@ -216,6 +216,9 @@ const LocalSettingsSchema = z.object({
   isDemoModeEnabled: z.boolean().default(false),
   demoModeResetInSeconds: z.number().min(1).nullable().default(null),
   demoModePasscode: z.string().optional(),
+  // Gates the Home Agent feature (Telegram bridge backend, setup wizard surface,
+  // header toggle, bundled preset). Default false: opt-in by editing settings.json.
+  isHomeAgentEnabled: z.boolean().default(false),
   languageOverride: z.string().nullable().default(null),
   remoteRepository: z.string().default('intel/ai-playground'),
   huggingfaceEndpoint: z.string().default('https://huggingface.co'),
@@ -251,12 +254,22 @@ function getPresetLoadConfig(s: LocalSettings): PresetLoadConfig {
   const variant = s.isDemoModeEnabled ? 'demo' : 'presets'
   const modeConfig = loadModeConfig(mode)
   const basePresetsDir = path.join(modesDir, 'base', 'presets')
+  // When the Home Agent feature is disabled, drop its bundled preset so it does
+  // not appear in the chat preset selector. `includePresets` (when defined)
+  // takes precedence over `excludePresets`, so we need to filter both lists.
+  const includePresets = s.isHomeAgentEnabled
+    ? modeConfig?.includePresets
+    : modeConfig?.includePresets?.filter((p) => p !== 'home-agent-chat')
+  const baseExcludePresets = modeConfig?.excludePresets ?? []
+  const excludePresets = s.isHomeAgentEnabled
+    ? modeConfig?.excludePresets
+    : [...baseExcludePresets, 'home-agent-chat']
   return {
     baseDir: path.join(modesDir, 'base', variant),
     modeDir: path.join(modesDir, mode, variant),
     imageFallbackDirs: variant === 'demo' ? [basePresetsDir] : [],
-    includePresets: modeConfig?.includePresets,
-    excludePresets: modeConfig?.excludePresets,
+    includePresets,
+    excludePresets,
   }
 }
 

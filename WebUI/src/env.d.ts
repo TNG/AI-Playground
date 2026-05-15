@@ -56,6 +56,7 @@ type LocalSettings = {
   isDemoModeEnabled: boolean
   demoModeResetInSeconds: number | null
   demoModePasscode?: string
+  isHomeAgentEnabled: boolean
   languageOverride: string | null
   remoteRepository: string
   huggingfaceEndpoint: string

@@ -73,6 +73,13 @@ export const useHomeAgent = defineStore(
     const conversations = useConversations()
     const presetsStore = usePresets()
 
+    /**
+     * Mirrors `isHomeAgentEnabled` from settings.json. Hydrated once on store
+     * setup. When false, every Home Agent surface (UI, polling, auto-activate)
+     * is held inert — defense in depth on top of the main process refusing to
+     * register the backend / IPC handlers / preset.
+     */
+    const isFeatureEnabled = ref(false)
     const isHomeAgentActive = ref(false)
     const telegramToken = ref<string | null>(null)
     const telegramChatId = ref<string | null>(null)
@@ -129,8 +136,9 @@ export const useHomeAgent = defineStore(
 
     const isAvailable = computed(
       () =>
+        isFeatureEnabled.value &&
         backendServices.info.find((s) => s.serviceName === 'home-agent-backend')?.status ===
-        'running',
+          'running',
     )
 
     const homeAgentBaseUrl = computed(
@@ -1195,6 +1203,22 @@ export const useHomeAgent = defineStore(
     // populated synchronously before this resolves.
     async function initConfig() {
       try {
+        // Resolve the feature flag first; when it's off there is no Home Agent
+        // backend / IPC bridge to load credentials from, so skip the rest.
+        try {
+          const localSettings = await window.electronAPI.getLocalSettings()
+          isFeatureEnabled.value = !!localSettings.isHomeAgentEnabled
+        } catch (e) {
+          console.error('homeAgent.initConfig: getLocalSettings failed:', e)
+          isFeatureEnabled.value = false
+        }
+        if (!isFeatureEnabled.value) {
+          telegramToken.value = null
+          telegramChatId.value = null
+          telegramVerified.value = false
+          isHomeAgentActive.value = false
+          return
+        }
         const cfg = await window.electronAPI.homeAgent.loadConfig()
         if (cfg) {
           telegramToken.value = cfg.token
@@ -1213,6 +1237,7 @@ export const useHomeAgent = defineStore(
     void initConfig()
 
     return {
+      isFeatureEnabled,
       isHomeAgentActive,
       isTelegramConfigured,
       isReadyToActivate,

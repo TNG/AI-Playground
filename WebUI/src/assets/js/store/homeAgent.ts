@@ -1,15 +1,43 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
+import type { FileUIPart } from 'ai'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
 import { useOpenAiCompatibleChat, type AipgUiMessage } from './openAiCompatibleChat'
 import { useImageGenerationPresets, isImage } from './imageGenerationPresets'
 import { usePromptStore } from './promptArea'
 import { usePresetSwitching } from './presetSwitching'
+// Lazy-instantiated inside helpers to avoid a setup-time cycle with textInference,
+// which already instantiates useHomeAgent() at the top of its own setup.
+import { useTextInference } from './textInference'
+import {
+  useConversations,
+  HOME_AGENT_CONVERSATION_KEY,
+  HOME_AGENT_CONVERSATION_TITLE,
+  HOME_AGENT_CHAT_PRESET_NAME,
+} from './conversations'
+import { saveImageToMediaInput } from '@/lib/utils'
+import { markdownToTelegramHtml } from '../telegramMarkdown'
 import * as toast from '../toast'
+
+type TelegramImage = { mime: string; data_base64: string }
+type TelegramQueueItem = { text: string; images?: TelegramImage[] }
 
 const POLL_INTERVAL_MS = 2000
 const MAX_QUEUE_SIZE = 20
+
+/** Module-level so Vite HMR does not orphan intervals across Pinia setup closures. */
+let telegramPollIntervalId: ReturnType<typeof setInterval> | null = null
+
+function disposeTelegramPollHandlers() {
+  if (telegramPollIntervalId !== null) {
+    clearInterval(telegramPollIntervalId)
+    telegramPollIntervalId = null
+  }
+}
+
+/** Module-level so HMR release doesn't strand drainQueue mid-patch. */
+let telegramDrainBusy = false
 
 function extractAssistantReply(messages: AipgUiMessage[] | undefined): string | null {
   if (!messages || messages.length === 0) return null
@@ -30,15 +58,47 @@ export const useHomeAgent = defineStore(
     const imageGenStore = useImageGenerationPresets()
     const promptStore = usePromptStore()
     const presetSwitching = usePresetSwitching()
+    const conversations = useConversations()
 
     const isHomeAgentActive = ref(false)
     const telegramToken = ref<string | null>(null)
     const telegramChatId = ref<string | null>(null)
     const telegramVerified = ref(false)
 
-    let _pollInterval: ReturnType<typeof setInterval> | null = null
-    const _messageQueue: string[] = []
-    let _draining = false
+    /**
+     * Conversation key Telegram traffic currently routes into. `null` means
+     * "create one on first use" — covers fresh installs and post-`/new`
+     * sessions before the user sends anything.
+     */
+    const activeRemoteConversationKey = ref<string | null>(null)
+
+    /** All conversation keys whose meta marks them as Home Agent threads. */
+    const remoteConversationKeys = computed(() =>
+      Object.entries(conversations.conversationThreadMeta)
+        .filter(([_, meta]) => meta?.kind === 'homeAgent')
+        .map(([key]) => key),
+    )
+
+    /** Visibility flag for the dedicated Home Agent inference settings panel. */
+    const showSettings = ref(false)
+
+    function openSettings(): void {
+      showSettings.value = true
+    }
+
+    function closeSettings(): void {
+      showSettings.value = false
+    }
+
+    /**
+     * Per-thread summary cache for the bare `/load` menu. Keyed by conversation
+     * key; entries are invalidated whenever the conversation grows (we compare
+     * `messageCount` so any new turn forces a re-summarize on the next /load).
+     * Persisted so summaries survive app restarts.
+     */
+    const summaryCache = ref<Record<string, { messageCount: number; summary: string }>>({})
+
+    const _messageQueue: TelegramQueueItem[] = []
     let _userDisabled = false
 
     const isTelegramConfigured = computed(() => !!telegramToken.value && !!telegramChatId.value)
@@ -65,14 +125,22 @@ export const useHomeAgent = defineStore(
       if (!val) {
         isHomeAgentActive.value = false
       }
-      if (val && telegramToken.value && telegramChatId.value) {
-        void window.electronAPI.homeAgent
-          .injectToken(telegramToken.value, telegramChatId.value)
-          .catch((e: unknown) =>
-            console.error('homeAgent: injectToken when backend available failed:', e),
-          )
-      }
     })
+
+    // Single polling bot start via Flask (/set-telegram-token). Runs when backend + credentials
+    // are ready (token may hydrate after the backend reports running).
+    watch(
+      [isAvailable, telegramToken, telegramChatId],
+      ([avail, tok, cid]) => {
+        const token = tok?.trim()
+        const chatId = cid?.trim()
+        if (!avail || !token || !chatId) return
+        void window.electronAPI.homeAgent
+          .injectToken(token, chatId)
+          .catch((e: unknown) => console.error('homeAgent: injectToken failed:', e))
+      },
+      { flush: 'post', immediate: true },
+    )
 
     // When verification state changes, sync active state.
     watch(isReadyToActivate, (val) => {
@@ -95,6 +163,10 @@ export const useHomeAgent = defineStore(
     const IMG_GEN_REGEX = /^\/imgGen\s*/i
     const CHAT_REGEX = /^\/chat\s*/i
     const HELP_REGEX = /^\/help$/i
+    const NEW_REGEX = /^\/new\s*$/i
+    const HISTORY_REGEX = /^\/history\s*$/i
+    const LOAD_REGEX = /^\/load\s+(\S+)\s*$/i
+    const LOAD_BARE_REGEX = /^\/load\s*$/i
     const IMG_GEN_TIMEOUT_MS = 120_000
 
     const HELP_MESSAGE =
@@ -104,60 +176,368 @@ export const useHomeAgent = defineStore(
       'Example: <code>/imgGen a sunset over snowy mountains</code>\n\n' +
       '<code>/chat </code><i>&lt;message&gt;</i>\n' +
       'Force a text chat reply (no image generation).\n\n' +
+      '/new\n' +
+      'Start a fresh chat thread. Subsequent messages go into it.\n\n' +
+      '/history\n' +
+      'List your saved Home Agent chat threads.\n\n' +
+      '/load\n' +
+      'Pick a recent chat from a tappable menu (the bot summarizes each one).\n\n' +
+      '<code>/load </code><i>&lt;id&gt;</i>\n' +
+      'Resume a specific chat. Use the id from <code>/history</code>.\n\n' +
       '/help\n' +
       'Show this help message.\n\n' +
-      'Any other message is handled by the AI in <b>agentic mode</b>: it decides whether to reply with text or generate an image based on your request.'
+      'Any other message is handled by the AI in <b>agentic mode</b>: it decides whether to reply with text or generate an image based on your request.\n\n' +
+      '📷 <b>Photos</b>\n' +
+      'Send a photo (with or without a caption) and the AI will answer based on what it sees. ' +
+      'Requires a <b>vision-capable model</b> selected in Chat settings.'
 
-    async function handleChatMessage(text: string): Promise<void> {
-      promptStore.setModeOnly('chat')
-      await chatStore.generate(text)
-      if (!isHomeAgentActive.value) return
-      const reply = extractAssistantReply(chatStore.messages ?? undefined)
-      if (reply) {
-        await window.electronAPI.homeAgent.sendTelegramReply(reply)
+    /** Format the conversation list as an HTML reply for the user. */
+    function formatHistoryReply(): string {
+      const items = listRemoteConversations()
+      if (items.length === 0) {
+        return '📭 No saved Home Agent chat threads yet. Send a message to start one.'
+      }
+      const lines = items.map((item, idx) => {
+        const marker = item.isActive ? ' • <i>(active)</i>' : ''
+        const escapedTitle = item.title.replace(/[&<>"']/g, (c) =>
+          c === '&'
+            ? '&amp;'
+            : c === '<'
+              ? '&lt;'
+              : c === '>'
+                ? '&gt;'
+                : c === '"'
+                  ? '&quot;'
+                  : '&#39;',
+        )
+        return `${idx + 1}. <code>${idx + 1}</code> — ${escapedTitle} (${item.messageCount} msg${marker})`
+      })
+      return (
+        '📜 <b>Your Home Agent chats</b>\n\n' +
+        lines.join('\n') +
+        '\n\nResume one with <code>/load &lt;id&gt;</code>.'
+      )
+    }
+
+    function resolveLoadTarget(idArg: string): string | null {
+      const items = listRemoteConversations()
+      // Allow either the 1-based index from /history or the raw conversation key.
+      const asIndex = Number.parseInt(idArg, 10)
+      if (Number.isFinite(asIndex) && asIndex >= 1 && asIndex <= items.length) {
+        return items[asIndex - 1].key
+      }
+      const direct = items.find((i) => i.key === idArg)
+      return direct?.key ?? null
+    }
+
+    function homeAgentTitleFor(key: string): string {
+      // Legacy singleton keeps its historical title for continuity.
+      if (key === HOME_AGENT_CONVERSATION_KEY) return HOME_AGENT_CONVERSATION_TITLE
+      const stamp = new Date(Number(key)).toLocaleString(undefined, {
+        year: '2-digit',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+      return `Home Agent - ${stamp}`
+    }
+
+    function maybeSetHomeAgentConversationTitle(key: string | null) {
+      if (!key) return
+      const msgs = conversations.conversationList[key]
+      const first = msgs?.[0]
+      if (first && !first.metadata?.conversationTitle) {
+        conversations.renameConversationTitle(key, homeAgentTitleFor(key))
       }
     }
 
+    /**
+     * Allocate a brand-new Home Agent conversation, mark it as the routing
+     * target for new Telegram messages, and return its key. If the most-recent
+     * Home Agent conversation is still empty, reuse it instead of stacking
+     * empty buckets.
+     */
+    function createNewRemoteConversation(): string {
+      const existingEmpty = remoteConversationKeys.value.find(
+        (k) => (conversations.conversationList[k] ?? []).length === 0,
+      )
+      if (existingEmpty) {
+        activeRemoteConversationKey.value = existingEmpty
+        return existingEmpty
+      }
+      const newKey = conversations.createConversation({
+        kind: 'homeAgent',
+        presetName: HOME_AGENT_CHAT_PRESET_NAME,
+      })
+      activeRemoteConversationKey.value = newKey
+      return newKey
+    }
+
+    /** Switch which Home Agent thread Telegram messages route into. */
+    function switchRemoteConversation(key: string): boolean {
+      const meta = conversations.getThreadMeta(key)
+      if (meta?.kind !== 'homeAgent') return false
+      activeRemoteConversationKey.value = key
+      return true
+    }
+
+    function ensureActiveRemoteConversation(): string {
+      const current = activeRemoteConversationKey.value
+      if (current && conversations.conversationList[current]) return current
+      // Adopt the legacy singleton if it exists with content; otherwise allocate fresh.
+      if (
+        conversations.conversationList[HOME_AGENT_CONVERSATION_KEY] &&
+        (conversations.conversationList[HOME_AGENT_CONVERSATION_KEY]?.length ?? 0) > 0
+      ) {
+        activeRemoteConversationKey.value = HOME_AGENT_CONVERSATION_KEY
+        return HOME_AGENT_CONVERSATION_KEY
+      }
+      return createNewRemoteConversation()
+    }
+
+    function listRemoteConversations(): Array<{
+      key: string
+      title: string
+      messageCount: number
+      isActive: boolean
+    }> {
+      const entries = remoteConversationKeys.value.map((key) => {
+        const msgs = conversations.conversationList[key] ?? []
+        const titleFromMeta = msgs[0]?.metadata?.conversationTitle as string | undefined
+        return {
+          key,
+          title: titleFromMeta || homeAgentTitleFor(key),
+          messageCount: msgs.length,
+          isActive: key === activeRemoteConversationKey.value,
+        }
+      })
+      // Most recent first. Numeric timestamp keys sort by their integer value so
+      // newer chats land on top; the legacy singleton string key parses to NaN
+      // → 0 so it falls to the bottom (instead of being pushed to the top by
+      // lexical ordering, where '_' > '9').
+      return entries.sort((a, b) => (parseInt(b.key) || 0) - (parseInt(a.key) || 0))
+    }
+
+    /** Show Chat view on the active Home Agent thread so remote traffic is visible. */
+    function focusRemoteChatDiscussion() {
+      const key = ensureActiveRemoteConversation()
+      conversations.ensureConversationBucket(key)
+      conversations.activeKey = key
+      promptStore.setModeOnly('chat')
+    }
+
+    /**
+     * Flatten the last 5 messages of a conversation into a "User: …" /
+     * "Assistant: …" transcript suitable for one-shot summarization.
+     */
+    function flattenForSummary(messages: AipgUiMessage[]): string {
+      const last5 = messages.slice(-5)
+      return last5
+        .map((m) => {
+          const role = m.role === 'user' ? 'User' : 'Assistant'
+          const body = (m.parts as { type: string; text?: string }[])
+            .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+            .map((p) => p.text)
+            .join(' ')
+            .trim()
+          return body ? `${role}: ${body}` : ''
+        })
+        .filter(Boolean)
+        .join('\n')
+    }
+
+    /**
+     * Return a 5-word-or-less label for a conversation suitable for an
+     * inline-keyboard button. Cached per `(conversationKey, messageCount)` so
+     * unchanged threads do not re-summarize on subsequent /load presses.
+     */
+    async function summarizeConversation(key: string): Promise<string> {
+      const msgs = chatStore.getMessagesForKey(key) ?? conversations.conversationList[key] ?? []
+      if (msgs.length === 0) return 'Empty chat'
+
+      const cached = summaryCache.value[key]
+      if (cached && cached.messageCount === msgs.length) return cached.summary
+
+      const transcript = flattenForSummary(msgs)
+      if (!transcript) return 'Untitled chat'
+
+      try {
+        const summary = await chatStore.summarizeMessages(transcript)
+        const clean = summary || 'Untitled chat'
+        summaryCache.value[key] = { messageCount: msgs.length, summary: clean }
+        return clean
+      } catch (e) {
+        console.error('homeAgent: summarizeConversation failed:', e)
+        return 'Untitled chat'
+      }
+    }
+
+    /**
+     * Handle a bare `/load` (no argument) by sending an inline keyboard with
+     * the 3 most recent Home Agent chats. Each button label is an AI-generated
+     * 5-word-or-less summary of that thread; tapping a button is equivalent to
+     * `/load <key>` (handled via the Python CallbackQueryHandler on `loadConv:`).
+     */
+    async function handleLoadMenu(): Promise<void> {
+      focusRemoteChatDiscussion()
+
+      const candidates = listRemoteConversations().slice(0, 3)
+      if (candidates.length === 0) {
+        await window.electronAPI.homeAgent.sendTelegramReply(
+          '📭 No saved chats yet. Send a message to start one.',
+        )
+        return
+      }
+
+      // Quick acknowledgement so the user knows the bot is working — summary
+      // generation can take a few seconds (3 sequential LLM calls worst case).
+      await window.electronAPI.homeAgent.sendTelegramReply('🤔 Preparing recent chats…')
+
+      // Pin globals to the Home Agent preset and prep the backend so the
+      // summarizer uses the right model. Lazy-instantiated to avoid the
+      // documented setup-time cycle with textInference.
+      const textInference = useTextInference()
+      textInference.applyPresetToGlobals(HOME_AGENT_CHAT_PRESET_NAME, null)
+      try {
+        await textInference.ensureReadyForInference()
+      } catch (e) {
+        console.error('homeAgent: ensureReadyForInference for /load menu failed:', e)
+        await window.electronAPI.homeAgent.sendTelegramReply(
+          '⚠️ Could not prepare the model to summarize chats. Try again later.',
+        )
+        return
+      }
+
+      const items: Array<{ key: string; label: string }> = []
+      for (const c of candidates) {
+        const summary = await summarizeConversation(c.key)
+        const label = c.isActive ? `${summary} (active)` : summary
+        items.push({ key: c.key, label })
+      }
+
+      const buttons = items.map((it) => [{ text: it.label, callbackData: `loadConv:${it.key}` }])
+
+      await window.electronAPI.homeAgent.sendTelegramKeyboard({
+        text: '📂 Pick a chat to resume:',
+        parseMode: 'HTML',
+        buttons,
+      })
+    }
+
+    /**
+     * Convert Telegram image payloads into persisted `aipg-media://` URLs and
+     * return them as AI SDK `FileUIPart`s. Returns `undefined` for empty input
+     * so callers can pass the value straight through to `chat.sendMessage`.
+     */
+    async function prepareTelegramFiles(
+      images: TelegramImage[] | undefined,
+    ): Promise<FileUIPart[] | undefined> {
+      if (!images || images.length === 0) return undefined
+      const parts: FileUIPart[] = []
+      for (let i = 0; i < images.length; i++) {
+        const img = images[i]
+        try {
+          const dataUri = `data:${img.mime};base64,${img.data_base64}`
+          const aipgUrl = await saveImageToMediaInput(dataUri)
+          const ext = img.mime === 'image/jpeg' ? 'jpg' : img.mime.replace('image/', '')
+          parts.push({
+            type: 'file',
+            mediaType: img.mime,
+            url: aipgUrl,
+            filename: `telegram-${Date.now()}-${i}.${ext}`,
+          })
+        } catch (e) {
+          console.error('homeAgent: failed to persist Telegram image:', e)
+        }
+      }
+      return parts.length > 0 ? parts : undefined
+    }
+
+    /**
+     * If the active chat model does not support vision, reply to Telegram and
+     * return `false` so the caller skips inference. Returns `true` when it's
+     * safe to proceed (no images, or model supports vision).
+     */
+    async function ensureVisionCapableForImages(hasImages: boolean): Promise<boolean> {
+      if (!hasImages) return true
+      // Lazy instantiation: textInference imports useHomeAgent at top of its setup;
+      // calling useTextInference() here (not in this store's setup body) avoids
+      // a circular setup-time dependency. Same pattern as presetSwitching.
+      const textInference = useTextInference()
+      if (textInference.modelSupportsVision) return true
+      await window.electronAPI.homeAgent.sendTelegramReply(
+        '⚠️ The active chat model does not support images. Select a vision-capable model in Chat settings, then resend the image.',
+      )
+      return false
+    }
+
+    async function handleChatMessage(text: string, images?: TelegramImage[]): Promise<void> {
+      focusRemoteChatDiscussion()
+      const targetKey = ensureActiveRemoteConversation()
+      if (!(await ensureVisionCapableForImages(!!images?.length))) return
+      const files = await prepareTelegramFiles(images)
+      await chatStore.generate(text, {
+        conversationKey: targetKey,
+        clearInputs: false,
+        files,
+      })
+      maybeSetHomeAgentConversationTitle(targetKey)
+      if (!isHomeAgentActive.value) return
+      const reply = extractAssistantReply(chatStore.getMessagesForKey(targetKey))
+      if (reply) {
+        await window.electronAPI.homeAgent.sendTelegramReply(markdownToTelegramHtml(reply), 'HTML')
+      }
+    }
+
+    /**
+     * Send any image-bearing ComfyUI tool outputs found in `message` to Telegram.
+     * Scope this to a single message (typically the last assistant reply) so we
+     * do not resend images attached to earlier turns of the same conversation.
+     */
     async function extractAndSendToolImages(
-      messages: AipgUiMessage[],
+      message: AipgUiMessage | undefined,
       caption: string,
     ): Promise<void> {
-      for (const msg of messages) {
-        for (const part of msg.parts as {
-          type: string
-          state?: string
-          output?: { images?: { type: string; imageUrl?: string; videoUrl?: string }[] }
-        }[]) {
-          // AI SDK stores ComfyUI tool results with type 'tool-comfyUI' / 'tool-comfyUiImageEdit'
-          // and state 'output-available' when generation is complete
-          if (
-            (part.type !== 'tool-comfyUI' && part.type !== 'tool-comfyUiImageEdit') ||
-            part.state !== 'output-available' ||
-            !part.output?.images
-          )
-            continue
-          for (const img of part.output.images) {
-            if (img.type === 'image' && img.imageUrl) {
-              await sendImageToTelegram(img.imageUrl, caption)
-            }
+      if (!message) return
+      for (const part of message.parts as {
+        type: string
+        state?: string
+        output?: { images?: { type: string; imageUrl?: string; videoUrl?: string }[] }
+      }[]) {
+        // AI SDK stores ComfyUI tool results with type 'tool-comfyUI' / 'tool-comfyUiImageEdit'
+        // and state 'output-available' when generation is complete
+        if (
+          (part.type !== 'tool-comfyUI' && part.type !== 'tool-comfyUiImageEdit') ||
+          part.state !== 'output-available' ||
+          !part.output?.images
+        )
+          continue
+        for (const img of part.output.images) {
+          if (img.type === 'image' && img.imageUrl) {
+            await sendImageToTelegram(img.imageUrl, caption)
           }
         }
       }
     }
 
-    // Matches a markdown image embedding an aipg-media:// URL, e.g.:
-    // ![alt text](aipg-media://path/to/file.png)
-    // Captures: [1] text before, [2] the aipg-media URL, [3] text after
-    // Matches a markdown image embedding an aipg-media:// URL, e.g.:
-    // ![alt text](aipg-media://path/to/file.png)
-    // Captures: [1] the aipg-media URL
-    const AIPG_IMAGE_MD_RE = /!\[[^[]*]\((aipg-media:\/\/[^)]+)\)/
+    // Markdown image or link pointing at aipg-media, e.g.:
+    // ![alt](aipg-media://…) or [View image](aipg-media://…)
+    const AIPG_IMAGE_MD_RE = /(?:!\[[^\]]*]|\[[^\]]*])\((aipg-media:\/\/[^)]+)\)/
 
-    async function handleAgenticMessage(text: string): Promise<void> {
-      promptStore.setModeOnly('chat')
-      await chatStore.generate(text)
+    async function handleAgenticMessage(text: string, images?: TelegramImage[]): Promise<void> {
+      focusRemoteChatDiscussion()
+      const targetKey = ensureActiveRemoteConversation()
+      if (!(await ensureVisionCapableForImages(!!images?.length))) return
+      const files = await prepareTelegramFiles(images)
+      await chatStore.generate(text, {
+        conversationKey: targetKey,
+        clearInputs: false,
+        files,
+      })
+      maybeSetHomeAgentConversationTitle(targetKey)
       if (!isHomeAgentActive.value) return
-      const msgs = chatStore.messages ?? []
+      const msgs = chatStore.getMessagesForKey(targetKey) ?? []
 
       const rawReply = extractAssistantReply(msgs) ?? ''
 
@@ -172,40 +552,48 @@ export const useHomeAgent = defineStore(
         const after = rawReply.slice(matchEnd).trim()
 
         if (before) {
-          await window.electronAPI.homeAgent.sendTelegramReply(before)
+          await window.electronAPI.homeAgent.sendTelegramReply(
+            markdownToTelegramHtml(before),
+            'HTML',
+          )
         }
         await sendImageToTelegram(imageUrl, '')
         if (after) {
-          await window.electronAPI.homeAgent.sendTelegramReply(after)
+          await window.electronAPI.homeAgent.sendTelegramReply(
+            markdownToTelegramHtml(after),
+            'HTML',
+          )
         }
         return
       }
 
-      // No inline image link — check for tool-part images (the tool ran but AI didn't embed link)
-      const hasToolImages = msgs.some((msg) =>
-        (
-          msg.parts as {
-            type: string
-            state?: string
-            output?: { images?: { type: string; imageUrl?: string }[] }
-          }[]
-        ).some(
-          (p) =>
-            (p.type === 'tool-comfyUI' || p.type === 'tool-comfyUiImageEdit') &&
-            p.state === 'output-available' &&
-            p.output?.images?.some((i) => i.type === 'image' && i.imageUrl),
-        ),
+      // No inline image link — check the LAST assistant message only for tool-part
+      // images. Looking at the whole conversation would resend images from earlier
+      // turns on every subsequent reply.
+      const lastAssistant = [...msgs].reverse().find((m) => m.role === 'assistant')
+      const lastHasToolImages = (
+        lastAssistant?.parts as
+          | {
+              type: string
+              state?: string
+              output?: { images?: { type: string; imageUrl?: string }[] }
+            }[]
+          | undefined
+      )?.some(
+        (p) =>
+          (p.type === 'tool-comfyUI' || p.type === 'tool-comfyUiImageEdit') &&
+          p.state === 'output-available' &&
+          p.output?.images?.some((i) => i.type === 'image' && i.imageUrl),
       )
 
-      if (hasToolImages) {
-        if (rawReply) {
-          await window.electronAPI.homeAgent.sendTelegramReply(rawReply)
-        }
-        await extractAndSendToolImages(msgs, '🖼️')
-      } else {
-        if (rawReply) {
-          await window.electronAPI.homeAgent.sendTelegramReply(rawReply)
-        }
+      if (rawReply) {
+        await window.electronAPI.homeAgent.sendTelegramReply(
+          markdownToTelegramHtml(rawReply),
+          'HTML',
+        )
+      }
+      if (lastHasToolImages) {
+        await extractAndSendToolImages(lastAssistant, '🖼️')
       }
     }
 
@@ -221,7 +609,16 @@ export const useHomeAgent = defineStore(
     }
 
     async function imageToBase64(imageUrl: string): Promise<string> {
+      if (imageUrl.startsWith('aipg-media://')) {
+        return await window.electronAPI.readAipgMediaAsBase64(imageUrl)
+      }
+      if (imageUrl.startsWith('data:image/')) {
+        const comma = imageUrl.indexOf('base64,')
+        if (comma === -1) throw new Error('Malformed image data URI')
+        return imageUrl.slice(comma + 'base64,'.length)
+      }
       const resp = await fetch(imageUrl)
+      if (!resp.ok) throw new Error(`fetch failed (${resp.status})`)
       const arrayBuf = await resp.arrayBuffer()
       const bytes = new Uint8Array(arrayBuf)
       let binary = ''
@@ -291,89 +688,141 @@ export const useHomeAgent = defineStore(
         return
       }
 
-      // Ensure imageGen mode is active and preset is loaded before checking activePreset
-      promptStore.setModeOnly('imageGen')
-      await presetSwitching.switchToLastUsedForCategory(['create-images'], 'comfy', {
-        skipModeSwitch: true,
-      })
+      const previousMode = promptStore.getCurrentMode()
 
-      // Check active preset
-      if (!imageGenStore.activePreset) {
-        await window.electronAPI.homeAgent.sendTelegramReply(
-          '⚠️ No image generation preset is selected. Please configure one in AI Playground.',
-        )
-        return
-      }
-
-      // Validate requirements without showing dialogs
-      const validation = await imageGenStore.validatePresetRequirements()
-      if (!validation.backendRunning) {
-        await window.electronAPI.homeAgent.sendTelegramReply(
-          '⚠️ Image generation is not available — the ComfyUI backend is not running.',
-        )
-        return
-      }
-      if (
-        validation.missingCustomNodes.length > 0 ||
-        validation.missingPythonPackages.length > 0 ||
-        validation.missingModels.length > 0
-      ) {
-        const parts: string[] = []
-        if (validation.missingModels.length > 0)
-          parts.push(`missing models: ${validation.missingModels.map((m) => m.repo_id).join(', ')}`)
-        if (validation.missingCustomNodes.length > 0)
-          parts.push(`missing custom nodes: ${validation.missingCustomNodes.join(', ')}`)
-        if (validation.missingPythonPackages.length > 0)
-          parts.push(`missing packages: ${validation.missingPythonPackages.join(', ')}`)
-        await window.electronAPI.homeAgent.sendTelegramReply(
-          `⚠️ Image generation requirements are not met: ${parts.join('; ')}. Please configure AI Playground first.`,
-        )
-        return
-      }
-
-      const knownIdsBefore = new Set(imageGenStore.generatedImages.map((img) => img.id))
-      imageGenStore.prompt = prompt
       try {
-        await imageGenStore.generate('imageGen')
-      } catch (e) {
-        await window.electronAPI.homeAgent.sendTelegramReply(
-          `⚠️ Image generation failed to start: ${e instanceof Error ? e.message : String(e)}`,
+        promptStore.setModeOnly('imageGen')
+        if (previousMode !== 'imageGen') {
+          await presetSwitching.switchToLastUsedForCategory(['create-images'], 'comfy', {
+            skipModeSwitch: true,
+          })
+        }
+
+        // Check active preset
+        if (!imageGenStore.activePreset) {
+          await window.electronAPI.homeAgent.sendTelegramReply(
+            '⚠️ No image generation preset is selected. Please configure one in AI Playground.',
+          )
+          return
+        }
+
+        // Validate requirements without showing dialogs
+        const validation = await imageGenStore.validatePresetRequirements()
+        if (!validation.backendRunning) {
+          await window.electronAPI.homeAgent.sendTelegramReply(
+            '⚠️ Image generation is not available — the ComfyUI backend is not running.',
+          )
+          return
+        }
+        if (
+          validation.missingCustomNodes.length > 0 ||
+          validation.missingPythonPackages.length > 0 ||
+          validation.missingModels.length > 0
+        ) {
+          const parts: string[] = []
+          if (validation.missingModels.length > 0)
+            parts.push(
+              `missing models: ${validation.missingModels.map((m) => m.repo_id).join(', ')}`,
+            )
+          if (validation.missingCustomNodes.length > 0)
+            parts.push(`missing custom nodes: ${validation.missingCustomNodes.join(', ')}`)
+          if (validation.missingPythonPackages.length > 0)
+            parts.push(`missing packages: ${validation.missingPythonPackages.join(', ')}`)
+          await window.electronAPI.homeAgent.sendTelegramReply(
+            `⚠️ Image generation requirements are not met: ${parts.join('; ')}. Please configure AI Playground first.`,
+          )
+          return
+        }
+
+        const knownIdsBefore = new Set(imageGenStore.generatedImages.map((img) => img.id))
+        imageGenStore.prompt = prompt
+        try {
+          await imageGenStore.generate('imageGen')
+        } catch (e) {
+          await window.electronAPI.homeAgent.sendTelegramReply(
+            `⚠️ Image generation failed to start: ${e instanceof Error ? e.message : String(e)}`,
+          )
+          return
+        }
+
+        const newImageIds = new Set(
+          imageGenStore.generatedImages
+            .filter((img) => !knownIdsBefore.has(img.id))
+            .map((img) => img.id),
         )
-        return
+
+        if (newImageIds.size === 0) {
+          await window.electronAPI.homeAgent.sendTelegramReply(
+            '⚠️ Image generation did not produce any images.',
+          )
+          return
+        }
+
+        await waitAndSendAllImages(newImageIds, prompt)
+      } finally {
+        promptStore.setModeOnly(previousMode)
       }
-
-      // Collect IDs of all newly enqueued images (added by generate())
-      const newImageIds = new Set(
-        imageGenStore.generatedImages
-          .filter((img) => !knownIdsBefore.has(img.id))
-          .map((img) => img.id),
-      )
-
-      if (newImageIds.size === 0) {
-        await window.electronAPI.homeAgent.sendTelegramReply(
-          '⚠️ Image generation did not produce any images.',
-        )
-        return
-      }
-
-      // Wait for all images and send each one as it finishes; UI stays in imageGen mode
-      await waitAndSendAllImages(newImageIds, prompt)
     }
 
     async function drainQueue() {
-      if (_draining) return
-      _draining = true
+      if (telegramDrainBusy) return
+      telegramDrainBusy = true
       try {
         while (_messageQueue.length > 0 && isHomeAgentActive.value) {
-          const text = _messageQueue.shift()!
+          const item = _messageQueue.shift()!
+          const text = item.text
+          const images = item.images
           try {
             if (HELP_REGEX.test(text)) {
+              focusRemoteChatDiscussion()
               await window.electronAPI.homeAgent.sendTelegramReply(HELP_MESSAGE, 'HTML')
+            } else if (NEW_REGEX.test(text)) {
+              const newKey = createNewRemoteConversation()
+              focusRemoteChatDiscussion()
+              await window.electronAPI.homeAgent.sendTelegramReply(
+                `🆕 Started a new chat thread: <i>${homeAgentTitleFor(newKey).replace(/[<>&]/g, '')}</i>.\nNext message will land in this thread.`,
+                'HTML',
+              )
+            } else if (HISTORY_REGEX.test(text)) {
+              focusRemoteChatDiscussion()
+              await window.electronAPI.homeAgent.sendTelegramReply(formatHistoryReply(), 'HTML')
+            } else if (LOAD_BARE_REGEX.test(text)) {
+              await handleLoadMenu()
+            } else if (LOAD_REGEX.test(text)) {
+              const match = text.match(LOAD_REGEX)
+              const arg = match?.[1] ?? ''
+              const key = resolveLoadTarget(arg)
+              if (!key) {
+                await window.electronAPI.homeAgent.sendTelegramReply(
+                  `⚠️ Couldn't find a chat with id <code>${arg}</code>. Try <code>/history</code> first.`,
+                  'HTML',
+                )
+              } else if (switchRemoteConversation(key)) {
+                focusRemoteChatDiscussion()
+                const items = listRemoteConversations()
+                const item = items.find((i) => i.key === key)
+                await window.electronAPI.homeAgent.sendTelegramReply(
+                  `📂 Loaded <i>${item?.title ?? key}</i>.\nReplies and new messages now use this thread.`,
+                  'HTML',
+                )
+              } else {
+                await window.electronAPI.homeAgent.sendTelegramReply(
+                  '⚠️ Could not load that chat thread.',
+                )
+              }
             } else if (IMG_GEN_REGEX.test(text)) {
               const prompt = text.replace(IMG_GEN_REGEX, '').trim()
               if (prompt) {
+                if (images?.length) {
+                  // /imgGen is text-to-image — the Telegram photo is not used as a reference.
+                  await window.electronAPI.homeAgent.sendTelegramReply(
+                    'ℹ️ <code>/imgGen</code> is text-only — the attached photo is ignored.',
+                    'HTML',
+                  )
+                }
                 await handleImgGenMessage(prompt)
               } else {
+                focusRemoteChatDiscussion()
                 await window.electronAPI.homeAgent.sendTelegramReply(
                   '⚠️ Please add a prompt after the command.\nExample: <code>/imgGen a cat on the moon</code>',
                   'HTML',
@@ -381,24 +830,28 @@ export const useHomeAgent = defineStore(
               }
             } else if (CHAT_REGEX.test(text)) {
               const msg = text.replace(CHAT_REGEX, '').trim()
-              if (msg) {
-                await handleChatMessage(msg)
+              if (msg || images?.length) {
+                await handleChatMessage(msg, images)
               } else {
+                focusRemoteChatDiscussion()
                 await window.electronAPI.homeAgent.sendTelegramReply(
                   '⚠️ Please add a message after the command.\nExample: <code>/chat Hello, world!</code>',
                   'HTML',
                 )
               }
             } else {
-              // Agentic mode — AI decides whether to chat or generate an image
-              await handleAgenticMessage(text)
+              // Agentic mode — AI decides whether to chat or generate an image.
+              // For photo-only messages the Python side queues "[image]" as a
+              // placeholder; clear it so the model isn't biased by a literal token.
+              const agenticText = images?.length && text === '[image]' ? '' : text
+              await handleAgenticMessage(agenticText, images)
             }
           } catch (e) {
             console.error('Error processing Telegram message:', e)
           }
         }
       } finally {
-        _draining = false
+        telegramDrainBusy = false
       }
     }
 
@@ -411,7 +864,7 @@ export const useHomeAgent = defineStore(
             toast.warning('Home Agent: message queue full, dropping oldest message.')
             _messageQueue.shift()
           }
-          _messageQueue.push(msg.text)
+          _messageQueue.push({ text: msg.text, images: msg.images })
         }
         void drainQueue()
       } catch (e) {
@@ -420,17 +873,14 @@ export const useHomeAgent = defineStore(
     }
 
     function startPolling() {
-      if (_pollInterval !== null) return
-      _pollInterval = setInterval(() => {
+      disposeTelegramPollHandlers()
+      telegramPollIntervalId = setInterval(() => {
         void processTelegramMessages()
       }, POLL_INTERVAL_MS)
     }
 
     function stopPolling() {
-      if (_pollInterval !== null) {
-        clearInterval(_pollInterval)
-        _pollInterval = null
-      }
+      disposeTelegramPollHandlers()
       _messageQueue.length = 0
     }
 
@@ -488,6 +938,7 @@ export const useHomeAgent = defineStore(
       }
       _userDisabled = false
       isHomeAgentActive.value = true
+      focusRemoteChatDiscussion()
     }
 
     function toggle() {
@@ -530,6 +981,20 @@ export const useHomeAgent = defineStore(
       telegramToken,
       isAvailable,
       homeAgentBaseUrl,
+      // Remote conversation registry
+      activeRemoteConversationKey,
+      remoteConversationKeys,
+      createNewRemoteConversation,
+      switchRemoteConversation,
+      ensureActiveRemoteConversation,
+      listRemoteConversations,
+      // Settings panel visibility (consumed by App.vue + HomeAgentToggle.vue)
+      showSettings,
+      openSettings,
+      closeSettings,
+      // Bare-/load summary cache (persisted)
+      summaryCache,
+      summarizeConversation,
       activate,
       toggle,
       saveConfig,
@@ -545,11 +1010,18 @@ export const useHomeAgent = defineStore(
       // telegramToken NOT persisted — lives only in safeStorage.
       // isHomeAgentActive NOT persisted — re-derived on startup by watchers
       //   (isAvailable is false until the backend service reports ready).
-      pick: ['telegramVerified', 'telegramChatId'],
+      // activeRemoteConversationKey persisted so /load <id> survives restart and
+      //   the same Telegram thread keeps draining into its conversation bucket.
+      // summaryCache persisted so /load menu summaries survive restarts.
+      pick: ['telegramVerified', 'telegramChatId', 'activeRemoteConversationKey', 'summaryCache'],
     },
   },
 )
 
 if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    disposeTelegramPollHandlers()
+    telegramDrainBusy = false
+  })
   import.meta.hot.accept(acceptHMRUpdate(useHomeAgent, import.meta.hot))
 }

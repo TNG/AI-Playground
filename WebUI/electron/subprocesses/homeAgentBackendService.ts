@@ -152,12 +152,9 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
   }
 
   private getTelegramProcessEnv(): Record<string, string | undefined> {
-    const config = this.loadConfig()
-    if (!config?.token) return {}
-    return {
-      TELEGRAM_BOT_TOKEN: config.token,
-      ...(config.chatId ? { TELEGRAM_CHAT_ID: config.chatId } : {}),
-    }
+    // Never pass TELEGRAM_* into the subprocess: web_api.py would start polling from env while
+    // the renderer also POSTs /set-telegram-token → two concurrent getUpdates → Telegram 409 Conflict.
+    return {}
   }
 
   // ── Config path ──────────────────────────────────────────────────────────
@@ -257,11 +254,21 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
     }
   }
 
-  async pollTelegram(): Promise<Array<{ text: string; chat_id: string }>> {
+  async pollTelegram(): Promise<
+    Array<{
+      text: string
+      chat_id: string
+      images?: Array<{ mime: string; data_base64: string }>
+    }>
+  > {
     if (this.currentStatus !== 'running') return []
     try {
       const res = await net.fetch(`${this.baseUrl}/poll-telegram`)
-      return (await res.json()) as Array<{ text: string; chat_id: string }>
+      return (await res.json()) as Array<{
+        text: string
+        chat_id: string
+        images?: Array<{ mime: string; data_base64: string }>
+      }>
     } catch {
       return []
     }
@@ -305,6 +312,40 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       return { success: false, error: await res.text() }
     } catch (e) {
       this.appLogger.error(`sendTelegramReply error: ${e}`, this.name)
+      return { success: false, error: String(e) }
+    }
+  }
+
+  async sendTelegramKeyboard(opts: {
+    text: string
+    parseMode?: string
+    buttons: Array<Array<{ text: string; callbackData: string }>>
+  }): Promise<{ success: boolean; error?: string }> {
+    if (this.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }
+    try {
+      const url = `${this.baseUrl}/send-telegram-keyboard`
+      // Translate camelCase TS payload -> snake_case JSON expected by web_api.py
+      const body = {
+        text: opts.text,
+        ...(opts.parseMode ? { parse_mode: opts.parseMode } : {}),
+        buttons: opts.buttons.map((row) =>
+          row.map((btn) => ({ text: btn.text, callback_data: btn.callbackData })),
+        ),
+      }
+      this.appLogger.info(
+        `sendTelegramKeyboard posting to ${url}: rows=${opts.buttons.length}`,
+        this.name,
+      )
+      const res = await net.fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      this.appLogger.info(`sendTelegramKeyboard response: status=${res.status}`, this.name)
+      if (res.ok) return { success: true }
+      return { success: false, error: await res.text() }
+    } catch (e) {
+      this.appLogger.error(`sendTelegramKeyboard error: ${e}`, this.name)
       return { success: false, error: String(e) }
     }
   }
@@ -425,6 +466,17 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
     )
     ipcMain.handle('homeAgent:sendTelegramPhoto', (_event, imageBase64: string, caption?: string) =>
       this.sendTelegramPhoto(imageBase64, caption),
+    )
+    ipcMain.handle(
+      'homeAgent:sendTelegramKeyboard',
+      (
+        _event,
+        opts: {
+          text: string
+          parseMode?: string
+          buttons: Array<Array<{ text: string; callbackData: string }>>
+        },
+      ) => this.sendTelegramKeyboard(opts),
     )
   }
 }

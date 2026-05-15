@@ -197,6 +197,7 @@ type electronAPI = {
   getDemoModeSettings(): Promise<DemoModeSettings>
   saveImage(url: string): void
   saveImageToMediaInput(dataUri: string): Promise<string>
+  readAipgMediaAsBase64(url: string): Promise<string>
   openImageWin(url: string, title: string, width: number, height: number): void
   wakeupApiService(): void
   screenChange(callback: (width: number, height: number) => void): void
@@ -343,13 +344,27 @@ type electronAPI = {
     detectChatId(token: string): Promise<{ chatId: string } | { error: string }>
     detectChatIdFromSaved(): Promise<{ chatId: string } | { error: string }>
     injectToken(token: string, chatId?: string): Promise<{ status: string }>
-    pollTelegram(): Promise<Array<{ text: string; chat_id: string }>>
+    pollTelegram(): Promise<
+      Array<{
+        text: string
+        chat_id: string
+        images?: Array<{ mime: string; data_base64: string }>
+      }>
+    >
     flushPending(): Promise<void>
-    sendTelegramReply(text: string, parseMode?: string): Promise<{ success: boolean; error?: string }>
+    sendTelegramReply(
+      text: string,
+      parseMode?: string,
+    ): Promise<{ success: boolean; error?: string }>
     sendTelegramPhoto(
       imageBase64: string,
       caption?: string,
     ): Promise<{ success: boolean; error?: string }>
+    sendTelegramKeyboard(opts: {
+      text: string
+      parseMode?: string
+      buttons: Array<Array<{ text: string; callbackData: string }>>
+    }): Promise<{ success: boolean; error?: string }>
   }
 }
 

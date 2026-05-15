@@ -182,7 +182,6 @@ const images = (conversation: AipgUiMessage[]) => {
 const reversedConversationKeys = computed(() => {
   const list = conversations.conversationList ?? {}
   const keys = Object.keys(list).reverse()
-  console.log('Reversed conversation keys:', list, keys)
   return keys
 })
 
@@ -245,7 +244,6 @@ function saveRename() {
 
 const selectConversation = (key: string) => {
   conversations.activeKey = key
-  console.log('Selected conversation:', key)
   emits('conversationSelected')
 }
 </script>

@@ -180,6 +180,17 @@ const mediaDir = getMediaDir()
 fs.mkdirSync(mediaDir, { recursive: true })
 const mediaInputDir = path.join(mediaDir, 'input')
 fs.mkdirSync(mediaInputDir, { recursive: true })
+
+/** Resolve aipg-media://… to an absolute file path under `mediaDir` (no path traversal). */
+function getLocalPathFromAipgMediaUrl(url: string): string | null {
+  if (typeof url !== 'string' || !url.startsWith('aipg-media://')) return null
+  const decodedUrl = decodeURIComponent(url.replace(/^aipg-media:\/\//i, ''))
+  const fullPath = path.normalize(path.join(mediaDir, decodedUrl))
+  const base = path.resolve(mediaDir)
+  const relative = path.relative(base, fullPath)
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return null
+  return fullPath
+}
 let langchainChild: UtilityProcess | null = null
 
 // 🚧 Use ['ENV_NAME'] avoid vite:define plugin - Vite@2.x
@@ -900,6 +911,17 @@ function initEventHandle() {
     const buffer = Buffer.from(base64Data, 'base64')
     await fs.promises.writeFile(filePath, buffer)
     return `input/${filename}`
+  })
+
+  ipcMain.handle('readAipgMediaAsBase64', async (_event, url: string) => {
+    const filePath = getLocalPathFromAipgMediaUrl(url)
+    if (!filePath) {
+      throw new Error('readAipgMediaAsBase64: invalid or unsafe aipg-media URL')
+    }
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`readAipgMediaAsBase64: file not found (${path.basename(filePath)})`)
+    }
+    return fs.readFileSync(filePath).toString('base64')
   })
 
   /** Get command line parameters when launched from IPOS to decide the default home page */
@@ -1804,8 +1826,7 @@ function initEventHandle() {
   const getAssetPathFromUrl = (url: string) => {
     // Handle aipg-media:// URLs
     if (url.startsWith('aipg-media://')) {
-      const decodedUrl = decodeURIComponent(url.replace(/^aipg-media:\/\//i, ''))
-      return path.join(mediaDir, decodedUrl)
+      return getLocalPathFromAipgMediaUrl(url)
     }
 
     // Existing logic for HTTP URLs

@@ -9,6 +9,7 @@ import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { usePresets, type ChatPreset } from './presets'
 import { useDeveloperSettings } from './developerSettings'
 import { useHomeAgent } from './homeAgent'
+import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 
 const LlmBackendSchema = z.enum(llmBackendTypes)
 export type LlmBackend = z.infer<typeof LlmBackendSchema>
@@ -100,6 +101,7 @@ export const useTextInference = defineStore(
     const presetsStore = usePresets()
     const developerSettings = useDeveloperSettings()
     const homeAgent = useHomeAgent()
+    const conversations = useConversations()
     const backend = ref<LlmBackend>('llamaCPP')
     const ragList = ref<IndexedDocument[]>([])
     const defaultSystemPrompt = `You are a helpful AI assistant embedded in an application called AI Playground, developed by Intel.
@@ -1153,21 +1155,24 @@ export const useTextInference = defineStore(
         metricsEnabled.value = false
       }
 
-      // Load tools enabled (only when user can modify it)
+      // Load tools enabled — always honour savedSettings when present and fall
+      // back to the preset default. The toggle's *visibility* is a UI concern
+      // (preset opt-in + model capability) and must not clobber the persisted
+      // value, particularly during the brief startup window where
+      // `modelSupportsToolCalling` reports false until models hydrate.
       const defaultToolsEnabled = getDefaultToolsEnabled(preset)
+      aipgToolsEnabled.value =
+        (savedSettings.aipgToolsEnabled as boolean | undefined) ?? defaultToolsEnabled
+      mcpToolsEnabled.value =
+        (savedSettings.mcpToolsEnabled as boolean | undefined) ?? defaultToolsEnabled
 
-      if (!isToolsToggleVisible.value) {
-        aipgToolsEnabled.value = defaultToolsEnabled
-        mcpToolsEnabled.value = defaultToolsEnabled
-      } else {
-        aipgToolsEnabled.value =
-          (savedSettings.aipgToolsEnabled as boolean | undefined) ?? defaultToolsEnabled
-        mcpToolsEnabled.value =
-          (savedSettings.mcpToolsEnabled as boolean | undefined) ?? defaultToolsEnabled
-      }
-
-      // Clear flag after loading
-      isLoadingSettings = false
+      // Defer clearing the flag so the persistence watcher (default flush:
+      // 'pre') sees `isLoadingSettings === true` when it runs for the writes
+      // above. Otherwise it would re-save the freshly-loaded values and
+      // potentially clobber persisted state with bootstrapping defaults.
+      nextTick(() => {
+        isLoadingSettings = false
+      })
     }
 
     // Reset settings for active preset to defaults
@@ -1181,6 +1186,98 @@ export const useTextInference = defineStore(
 
       // Reload settings (which will use preset defaults)
       loadSettingsForActivePreset()
+    }
+
+    // ========================================================================
+    // Per-thread preset stamping & reactivation
+    // ========================================================================
+
+    /**
+     * Resolve the chat preset (+ variant) that should drive inference for a
+     * given conversation. Home Agent threads are always pinned to the bundled
+     * Home Agent preset; main threads mirror the live sidebar selection.
+     */
+    function resolvePresetForConversation(
+      conversationKey: string,
+    ): { presetName: string; variant: string | null } | null {
+      const kind = conversations.getThreadKind(conversationKey)
+      if (kind === 'homeAgent') {
+        const meta = conversations.getThreadMeta(conversationKey)
+        return {
+          presetName: HOME_AGENT_CHAT_PRESET_NAME,
+          variant: meta?.variant ?? null,
+        }
+      }
+      const presetName = presetsStore.activePresetName
+      if (!presetName) return null
+      return {
+        presetName,
+        variant: presetsStore.activeVariantName[presetName] ?? null,
+      }
+    }
+
+    /**
+     * Direct-apply preset reactivation: switch globals (active preset, variant,
+     * settings) without going through `presetSwitching` so simple history
+     * clicks don't trigger memory-alert dialogs.
+     *
+     * No-op when target already matches current globals.
+     */
+    function applyPresetToGlobals(presetName: string, variant: string | null): void {
+      const target = presetsStore.presets.find((p) => p.name === presetName)
+      if (!target) {
+        console.warn(`applyPresetToGlobals: preset "${presetName}" not found, ignoring`)
+        return
+      }
+
+      const currentName = presetsStore.activePresetName
+      const currentVariant = currentName
+        ? (presetsStore.activeVariantName[currentName] ?? null)
+        : null
+
+      const sameName = currentName === presetName
+      const sameVariant = (currentVariant ?? null) === (variant ?? null)
+      if (sameName && sameVariant) return
+
+      presetsStore.activePresetName = presetName
+      if (variant !== undefined) {
+        presetsStore.setActiveVariant(presetName, variant)
+      }
+      loadSettingsForActivePreset()
+    }
+
+    /**
+     * Stamp `conversationThreadMeta[conversationKey]` so the thread keeps a
+     * record of which preset (+ variant) drove its most recent inference.
+     * Called from generate/regenerate before running inference.
+     *
+     * For Home Agent threads this also enforces routing to the bundled preset
+     * regardless of what the desktop sidebar happened to show.
+     */
+    function stampMetaForConversation(conversationKey: string): void {
+      const resolved = resolvePresetForConversation(conversationKey)
+      if (!resolved) return
+      const existingKind = conversations.getThreadMeta(conversationKey)?.kind
+      conversations.setThreadMeta(conversationKey, {
+        presetName: resolved.presetName,
+        variant: resolved.variant,
+        kind: existingKind ?? 'main',
+      })
+    }
+
+    /**
+     * Ensure the live sidebar/`textInference` refs match the meta (or kind)
+     * of the target conversation, then return what was applied. Used by
+     * `generate`/`regenerate` so the in-flight stream uses the thread's
+     * preset, not whatever was last selected for an unrelated chat.
+     */
+    function ensureGlobalsMatchConversation(
+      conversationKey: string,
+    ): { presetName: string; variant: string | null } | null {
+      const resolved = resolvePresetForConversation(conversationKey)
+      if (!resolved) return null
+      applyPresetToGlobals(resolved.presetName, resolved.variant)
+      return resolved
     }
 
     // Track if we're currently loading settings to prevent watcher from saving during load
@@ -1247,6 +1344,35 @@ export const useTextInference = defineStore(
         }
       },
       { deep: true },
+    )
+
+    // ========================================================================
+    // Revisit-a-thread → reactivate that thread's last stamped preset
+    // ========================================================================
+    //
+    // When the user opens an existing conversation in the desktop UI, restore
+    // the preset (+ variant) it was last used with so editing/sending keeps
+    // matching that thread's profile until the user changes the picker again.
+    // Empty/unstamped threads do NOT clobber the picker.
+    //
+    // Direct-apply path — does not go through the memory-alert dialog logic in
+    // `presetSwitching` because reading old chat history shouldn't produce
+    // blocking modals.
+    watch(
+      () => conversations.activeKey,
+      (newKey) => {
+        if (!newKey) return
+        const meta = conversations.getThreadMeta(newKey)
+        if (!meta?.presetName) return
+        const exists = presetsStore.presets.some((p) => p.name === meta.presetName)
+        if (!exists) {
+          // Preset removed since last use — leave the sidebar untouched and let
+          // the next outbound generate stamp meta from current globals.
+          return
+        }
+        applyPresetToGlobals(meta.presetName, meta.variant ?? null)
+      },
+      { flush: 'post' },
     )
 
     // Initialize with first chat preset if available and no preset is selected
@@ -1329,6 +1455,11 @@ export const useTextInference = defineStore(
       resetActivePresetSettings,
       settingsPerPreset,
       loadSettingsForActivePreset,
+      // Per-thread stamping & reactivation
+      resolvePresetForConversation,
+      stampMetaForConversation,
+      ensureGlobalsMatchConversation,
+      applyPresetToGlobals,
 
       // Tool calling support
       modelSupportsToolCalling,

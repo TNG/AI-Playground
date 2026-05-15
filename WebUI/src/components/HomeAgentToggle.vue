@@ -1,14 +1,12 @@
 <template>
   <div class="inline-flex items-center gap-2" :title="toggleTitle">
     <span
-      class="text-xs font-medium select-none transition-colors"
+      class="text-xs font-medium select-none text-foreground"
       style="line-height: 1; vertical-align: middle"
-      :class="isHomeAgentActive ? 'text-muted-foreground' : 'text-foreground'"
     >
-      AI Playground
+      Home Agent
     </span>
 
-    <!-- Toggle switch -->
     <button
       role="switch"
       :aria-checked="isHomeAgentActive"
@@ -25,11 +23,11 @@
     </button>
 
     <span
-      class="text-xs font-medium select-none transition-colors"
+      class="text-xs font-medium select-none tabular-nums min-w-6"
       style="line-height: 1; vertical-align: middle"
       :class="isHomeAgentActive ? 'text-foreground' : 'text-muted-foreground'"
     >
-      Home Agent
+      {{ isHomeAgentActive ? 'On' : 'Off' }}
     </span>
   </div>
 </template>
@@ -48,16 +46,14 @@ const toggleTitle = computed(() => {
   if (!isAvailable.value)
     return 'Home Agent is not installed. Install it from App Settings → Installation Management.'
   if (!isReadyToActivate.value)
-    return 'Verify the Telegram connection in Setup Wizard to enable Home Agent.'
+    return 'Verify the Telegram connection in Setup Wizard before turning Home Agent on.'
   return isHomeAgentActive.value
-    ? 'Switch back to AI Playground'
-    : 'Switch to Home Agent (chat + image generation)'
+    ? 'Home Agent is on — answering Telegram; click to turn off.'
+    : 'Home Agent is off — click to enable Telegram messaging.'
 })
 
 const ariaLabel = computed(() =>
-  isHomeAgentActive.value
-    ? 'Home Agent active, click to switch to AI Playground'
-    : 'AI Playground active, click to switch to Home Agent',
+  isHomeAgentActive.value ? 'Home Agent on, click to turn off' : 'Home Agent off, click to turn on',
 )
 
 function toggle() {

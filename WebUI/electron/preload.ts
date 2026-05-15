@@ -67,6 +67,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   reportClientEvent: (eventId: number) => ipcRenderer.send('reportClientEvent', eventId),
   saveImage: (url: string) => ipcRenderer.send('saveImage', url),
   saveImageToMediaInput: (dataUri: string) => ipcRenderer.invoke('saveImageToMediaInput', dataUri),
+  readAipgMediaAsBase64: (url: string) => ipcRenderer.invoke('readAipgMediaAsBase64', url),
   wakeupApiService: () => ipcRenderer.send('wakeupApiService'),
   openImageWin: (url: string, title: string, width: number, height: number) =>
     ipcRenderer.send('openImageWin', url, title, width, height),
@@ -228,5 +229,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('homeAgent:sendTelegramReply', text, parseMode),
     sendTelegramPhoto: (imageBase64: string, caption?: string) =>
       ipcRenderer.invoke('homeAgent:sendTelegramPhoto', imageBase64, caption),
+    sendTelegramKeyboard: (opts: {
+      text: string
+      parseMode?: string
+      buttons: Array<Array<{ text: string; callbackData: string }>>
+    }) => ipcRenderer.invoke('homeAgent:sendTelegramKeyboard', opts),
   },
 })

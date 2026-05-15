@@ -198,6 +198,10 @@ const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).extend({
   filterTxt2TxtOnly: z.boolean().optional(), // Filter out vision AND reasoning models
   lockDeviceToNpu: z.boolean().optional(), // Lock device selector to NPU
   advancedMode: z.boolean().optional(), // Show advanced features: unspecified models + system prompt editing + vision model support
+  // When true, the preset is hidden from the standard chat PresetSelector. Used by built-in
+  // presets that drive a specific feature (e.g. Home Agent / Telegram) and should not be
+  // selectable from the normal Chat Settings picker.
+  excludeFromChatPresetPicker: z.boolean().optional(),
 })
 
 // Discriminated Union for all Preset types
@@ -644,6 +648,11 @@ export const usePresets = defineStore(
           // If type is specified, filter by type
           if (type && preset.type !== type) return false
 
+          // Hide chat presets that opt out of the standard picker (e.g. Home Agent)
+          if (preset.type === 'chat' && (preset as ChatPreset).excludeFromChatPresetPicker) {
+            return false
+          }
+
           // If categories are specified, filter by category
           if (categories.length > 0) {
             const presetCategory = preset.category || 'uncategorized'
@@ -745,6 +754,7 @@ export const usePresets = defineStore(
       return presets.value.filter((p) => {
         if (p.type !== 'chat') return false
         const chatPreset = p as ChatPreset
+        if (chatPreset.excludeFromChatPresetPicker) return false
         if (chatPreset.requiresNpuSupport && !hasNpuDevice) {
           return false
         }

@@ -267,10 +267,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       if (info?.status === 'running') {
         await backendServices.stopService(serviceName)
       }
-      // Clear Home Agent Telegram config when the BE is toggled off
-      if (serviceName === 'home-agent-backend') {
-        await homeAgent.clearConfig()
-      }
     }
     installSelection.value = new Set(installSelection.value)
   }

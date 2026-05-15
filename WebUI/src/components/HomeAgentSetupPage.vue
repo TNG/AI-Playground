@@ -230,6 +230,7 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import StepBadge from '@/components/StepBadge.vue'
 import { useHomeAgentSetup } from '@/assets/js/store/useHomeAgentSetup'
 
@@ -259,5 +260,10 @@ const {
   verify,
   saveAndContinue,
   clearConfig,
+  syncSetupFieldsFromStore,
 } = useHomeAgentSetup()
+
+onMounted(() => {
+  syncSetupFieldsFromStore()
+})
 </script>

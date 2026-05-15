@@ -65,6 +65,13 @@ export const useHomeAgent = defineStore(
       if (!val) {
         isHomeAgentActive.value = false
       }
+      if (val && telegramToken.value && telegramChatId.value) {
+        void window.electronAPI.homeAgent
+          .injectToken(telegramToken.value, telegramChatId.value)
+          .catch((e: unknown) =>
+            console.error('homeAgent: injectToken when backend available failed:', e),
+          )
+      }
     })
 
     // When verification state changes, sync active state.
@@ -520,6 +527,7 @@ export const useHomeAgent = defineStore(
       isReadyToActivate,
       telegramVerified,
       telegramChatId,
+      telegramToken,
       isAvailable,
       homeAgentBaseUrl,
       activate,

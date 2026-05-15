@@ -88,6 +88,14 @@ export function useHomeAgentSetup() {
       if ('chatId' in result) {
         detectedChatId.value = result.chatId
         detectStatus.value = 'idle'
+        const tok = tokenInput.value.trim() || homeAgent.telegramToken?.trim() || ''
+        if (tok) {
+          try {
+            await window.electronAPI.homeAgent.injectToken(tok, result.chatId)
+          } catch (e) {
+            console.error('runDetectChatId: injectToken with chatId failed:', e)
+          }
+        }
         // Discard the message(s) used for detection so they aren't replayed as prompts
         try {
           await window.electronAPI.homeAgent.flushPending()
@@ -129,6 +137,15 @@ export function useHomeAgentSetup() {
       if (result.success) {
         homeAgent.setVerified()
         verifyStatus.value = 'success'
+        const tokForInject = token || homeAgent.telegramToken?.trim()
+        const cidForInject = chatId
+        if (tokForInject && cidForInject) {
+          try {
+            await window.electronAPI.homeAgent.injectToken(tokForInject, cidForInject)
+          } catch (e) {
+            console.error('verify: injectToken failed:', e)
+          }
+        }
       } else {
         verifyStatus.value = 'error'
         verifyError.value = result.error ?? 'Unknown error'
@@ -152,6 +169,11 @@ export function useHomeAgentSetup() {
         if (wasVerified) {
           homeAgent.setVerified()
         }
+        try {
+          await window.electronAPI.homeAgent.injectToken(token, chatId)
+        } catch (e) {
+          console.error('saveAndContinue: injectToken failed:', e)
+        }
       }
     } catch (e) {
       console.error('saveAndContinue: failed to save Home Agent config:', e)
@@ -159,6 +181,13 @@ export function useHomeAgentSetup() {
       // Clear the active conversation so the message sent during detection
       // isn't picked up as the first user prompt in Home Agent mode.
       conversations.addNewConversation()
+    }
+  }
+
+  /** Rehydrate local setup UI from Pinia + safeStorage (e.g. after revisiting the wizard). */
+  function syncSetupFieldsFromStore() {
+    if (homeAgent.telegramChatId) {
+      detectedChatId.value = homeAgent.telegramChatId
     }
   }
 
@@ -194,5 +223,6 @@ export function useHomeAgentSetup() {
     verify,
     saveAndContinue,
     clearConfig,
+    syncSetupFieldsFromStore,
   }
 }

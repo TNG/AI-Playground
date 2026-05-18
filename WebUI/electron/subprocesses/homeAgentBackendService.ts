@@ -2,6 +2,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { app, ipcMain, net, safeStorage } from 'electron'
 import { UvPythonBackendService } from './uvPythonBackendService.ts'
+import { getMediaDir } from '../util.ts'
 
 type EncryptedTokenData = { type: string; data: number[] }
 type HomeAgentConfigFile = { encryptedToken: EncryptedTokenData; chatId: string }
@@ -326,6 +327,23 @@ export class HomeAgentBackendService extends UvPythonBackendService {
     }
   }
 
+  async readImageAsBase64(imageUrl: string): Promise<string> {
+    const mediaDir = getMediaDir()
+    let filePath: string
+    if (imageUrl.startsWith('aipg-media://')) {
+      const decoded = decodeURIComponent(imageUrl.replace(/^aipg-media:\/\//i, ''))
+      filePath = path.normalize(path.join(mediaDir, decoded).replace(/(\/|\\)$/, ''))
+    } else {
+      // HTTP URL from ComfyUI — extract filename/subfolder from query params
+      const parsed = new URL(imageUrl)
+      const subfolder = parsed.searchParams.get('subfolder') ?? ''
+      const filename = parsed.searchParams.get('filename') ?? ''
+      filePath = path.join(mediaDir, subfolder, filename)
+    }
+    const buf = await fs.promises.readFile(filePath)
+    return buf.toString('base64')
+  }
+
   // ── IPC registration ─────────────────────────────────────────────────────
 
   registerIpcHandlers(): void {
@@ -356,5 +374,8 @@ export class HomeAgentBackendService extends UvPythonBackendService {
     )
     ipcMain.handle('homeAgent:disableWhisper', () => this.disableWhisper())
     ipcMain.handle('homeAgent:getWhisperStatus', () => this.getWhisperStatus())
+    ipcMain.handle('homeAgent:readImageAsBase64', (_event, imageUrl: string) =>
+      this.readImageAsBase64(imageUrl),
+    )
   }
 }

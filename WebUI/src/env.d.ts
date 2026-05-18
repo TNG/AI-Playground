@@ -362,6 +362,7 @@ type electronAPI = {
       model: string
       error: string
     } | null>
+    readImageAsBase64(imageUrl: string): Promise<string>
   }
 }
 

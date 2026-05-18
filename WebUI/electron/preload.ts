@@ -234,5 +234,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('homeAgent:downloadWhisperModel', model),
     disableWhisper: () => ipcRenderer.invoke('homeAgent:disableWhisper'),
     getWhisperStatus: () => ipcRenderer.invoke('homeAgent:getWhisperStatus'),
+    readImageAsBase64: (imageUrl: string) =>
+      ipcRenderer.invoke('homeAgent:readImageAsBase64', imageUrl),
   },
 })

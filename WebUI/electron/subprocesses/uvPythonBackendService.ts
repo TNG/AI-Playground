@@ -1,4 +1,5 @@
 import { ChildProcess, spawn } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import { GitService, LongLivedPythonApiService, createEnhancedErrorDetails } from './service.ts'
 import { aipgBaseDir, checkBackend, installBackend } from './uvBasedBackends/uv.ts'
@@ -15,6 +16,14 @@ import { aipgBaseDir, checkBackend, installBackend } from './uvBasedBackends/uv.
  */
 export abstract class UvPythonBackendService extends LongLivedPythonApiService {
   isSetUp: boolean = false
+
+  // Per-launch loopback auth token, regenerated on every spawn. Consumed by
+  // the Python backend via AIPG_LOOPBACK_TOKEN env var.
+  private loopbackAuthToken: string = randomBytes(32).toString('hex')
+
+  getLoopbackAuthToken(): string {
+    return this.loopbackAuthToken
+  }
 
   abstract readonly serviceFolder: string
 
@@ -113,6 +122,7 @@ export abstract class UvPythonBackendService extends LongLivedPythonApiService {
     didProcessExitEarlyTracker: Promise<boolean>
   }> {
     const pathSep = process.platform === 'win32' ? ';' : ':'
+    this.loopbackAuthToken = randomBytes(32).toString('hex')
     const additionalEnvVariables: Record<string, string | undefined> = {
       VIRTUAL_ENV: this.pythonEnvDir,
       PATH: [
@@ -125,6 +135,7 @@ export abstract class UvPythonBackendService extends LongLivedPythonApiService {
       PYTHONNOUSERSITE: 'true',
       PYTHONIOENCODING: 'utf-8',
       PIP_CONFIG_FILE: 'nul',
+      AIPG_LOOPBACK_TOKEN: this.loopbackAuthToken,
       ...this.extraProcessEnv(),
     }
 

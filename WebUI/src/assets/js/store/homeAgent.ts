@@ -145,11 +145,9 @@ export const useHomeAgent = defineStore(
 
     // Matches a markdown image embedding an aipg-media:// URL, e.g.:
     // ![alt text](aipg-media://path/to/file.png)
-    // Captures: [1] text before, [2] the aipg-media URL, [3] text after
-    // Matches a markdown image embedding an aipg-media:// URL, e.g.:
-    // ![alt text](aipg-media://path/to/file.png)
     // Captures: [1] the aipg-media URL
-    const AIPG_IMAGE_MD_RE = /!\[[^[]*]\((aipg-media:\/\/[^)]+)\)/
+    // Global flag so all occurrences in a single reply are found.
+    const AIPG_IMAGE_MD_RE = /!\[[^\]]*]\((aipg-media:\/\/[^)]+)\)/g
 
     async function handleAgenticMessage(text: string): Promise<void> {
       promptStore.setModeOnly('chat')
@@ -159,20 +157,24 @@ export const useHomeAgent = defineStore(
 
       const rawReply = extractAssistantReply(msgs) ?? ''
 
-      // Check if the AI text reply embeds an aipg-media image link
-      const mdMatch = AIPG_IMAGE_MD_RE.exec(rawReply)
-      if (mdMatch) {
-        // Split the reply around the image markdown token
-        const matchStart = mdMatch.index
-        const matchEnd = mdMatch.index + mdMatch[0].length
-        const before = rawReply.slice(0, matchStart).trim()
-        const imageUrl = mdMatch[1]
-        const after = rawReply.slice(matchEnd).trim()
+      // Check if the AI text reply embeds one or more aipg-media image links.
+      // We iterate all matches so every image is sent as a photo and the
+      // surrounding text segments are sent as separate messages — none of the
+      // raw markdown image tokens leak into the text that Telegram receives.
+      AIPG_IMAGE_MD_RE.lastIndex = 0
+      const imageMatches = [...rawReply.matchAll(AIPG_IMAGE_MD_RE)]
 
-        if (before) {
-          await window.electronAPI.homeAgent.sendTelegramReply(before)
+      if (imageMatches.length > 0) {
+        let cursor = 0
+        for (const match of imageMatches) {
+          const before = rawReply.slice(cursor, match.index).trim()
+          if (before) {
+            await window.electronAPI.homeAgent.sendTelegramReply(before)
+          }
+          await sendImageToTelegram(match[1], '')
+          cursor = match.index! + match[0].length
         }
-        await sendImageToTelegram(imageUrl, '')
+        const after = rawReply.slice(cursor).trim()
         if (after) {
           await window.electronAPI.homeAgent.sendTelegramReply(after)
         }
@@ -210,7 +212,10 @@ export const useHomeAgent = defineStore(
     async function sendImageToTelegram(imageUrl: string, caption: string): Promise<void> {
       try {
         const base64 = await imageToBase64(imageUrl)
-        await window.electronAPI.homeAgent.sendTelegramPhoto(base64, caption)
+        const result = await window.electronAPI.homeAgent.sendTelegramPhoto(base64, caption)
+        if (!result.success) {
+          throw new Error(result.error ?? 'sendTelegramPhoto returned failure')
+        }
       } catch (e) {
         await window.electronAPI.homeAgent.sendTelegramReply(
           `⚠️ Image was generated but could not be sent: ${e instanceof Error ? e.message : String(e)}`,
@@ -219,15 +224,7 @@ export const useHomeAgent = defineStore(
     }
 
     async function imageToBase64(imageUrl: string): Promise<string> {
-      const resp = await fetch(imageUrl)
-      const arrayBuf = await resp.arrayBuffer()
-      const bytes = new Uint8Array(arrayBuf)
-      let binary = ''
-      const CHUNK = 8192
-      for (let i = 0; i < bytes.length; i += CHUNK) {
-        binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
-      }
-      return btoa(binary)
+      return window.electronAPI.homeAgent.readImageAsBase64(imageUrl)
     }
 
     /**

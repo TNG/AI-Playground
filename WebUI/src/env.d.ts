@@ -354,12 +354,14 @@ type electronAPI = {
       caption?: string,
     ): Promise<{ success: boolean; error?: string }>
     setWhisperConfig(model: string): Promise<{ success: boolean; error?: string }>
+    setWhisperLanguage(language: string): Promise<{ success: boolean; error?: string }>
     downloadWhisperModel(model: string): Promise<{ success: boolean; error?: string }>
     disableWhisper(): Promise<{ success: boolean; error?: string }>
     getWhisperStatus(): Promise<{
       enabled: boolean
       status: string
       model: string
+      language: string | null
       error: string
     } | null>
     readImageAsBase64(imageUrl: string): Promise<string>

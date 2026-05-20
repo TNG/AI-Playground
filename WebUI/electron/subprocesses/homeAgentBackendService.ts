@@ -267,8 +267,7 @@ export class HomeAgentBackendService extends UvPythonBackendService {
 
   // ── Whisper config ───────────────────────────────────────────────────────
 
-  async setWhisperConfig(model: string): Promise<{ success: boolean; error?: string }> {
-    if (this.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }
+  async setWhisperConfig(model: string): Promise<{ success: boolean; error?: string }> {    if (this.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }
     try {
       const res = await net.fetch(`${this.baseUrl}/set-whisper-config`, {
         method: 'POST',
@@ -297,8 +296,22 @@ export class HomeAgentBackendService extends UvPythonBackendService {
     }
   }
 
-  async disableWhisper(): Promise<{ success: boolean; error?: string }> {
+  async setWhisperLanguage(language: string): Promise<{ success: boolean; error?: string }> {
     if (this.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }
+    try {
+      const res = await net.fetch(`${this.baseUrl}/set-whisper-language`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ language }),
+      })
+      if (res.ok) return { success: true }
+      return { success: false, error: await res.text() }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  }
+
+  async disableWhisper(): Promise<{ success: boolean; error?: string }> {    if (this.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }
     try {
       const res = await net.fetch(`${this.baseUrl}/disable-whisper`, {
         method: 'POST',
@@ -368,6 +381,9 @@ export class HomeAgentBackendService extends UvPythonBackendService {
     )
     ipcMain.handle('homeAgent:setWhisperConfig', (_event, model: string) =>
       this.setWhisperConfig(model),
+    )
+    ipcMain.handle('homeAgent:setWhisperLanguage', (_event, language: string) =>
+      this.setWhisperLanguage(language),
     )
     ipcMain.handle('homeAgent:downloadWhisperModel', (_event, model: string) =>
       this.downloadWhisperModel(model),

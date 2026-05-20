@@ -230,6 +230,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('homeAgent:sendTelegramPhoto', imageBase64, caption),
     setWhisperConfig: (model: string) =>
       ipcRenderer.invoke('homeAgent:setWhisperConfig', model),
+    setWhisperLanguage: (language: string) =>
+      ipcRenderer.invoke('homeAgent:setWhisperLanguage', language),
     downloadWhisperModel: (model: string) =>
       ipcRenderer.invoke('homeAgent:downloadWhisperModel', model),
     disableWhisper: () => ipcRenderer.invoke('homeAgent:disableWhisper'),

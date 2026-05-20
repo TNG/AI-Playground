@@ -7,10 +7,31 @@ import { useConversations } from './conversations'
 import { useImageGenerationPresets, isImage } from './imageGenerationPresets'
 import { usePromptStore } from './promptArea'
 import { usePresetSwitching } from './presetSwitching'
+import { useI18N } from './i18n'
 import * as toast from '../toast'
 
 const POLL_INTERVAL_MS = 2000
 const MAX_QUEUE_SIZE = 20
+
+/**
+ * Map app locale codes (e.g. "en-US", "zh-CN") to Whisper ISO 639-1 language codes.
+ * An empty string means auto-detect.
+ */
+const LOCALE_TO_WHISPER_LANG: Record<string, string> = {
+  'de': 'de',
+  'en-US': 'en',
+  'es': 'es',
+  'id': 'id',
+  'it': 'it',
+  'ja': 'ja',
+  'ko': 'ko',
+  'pl': 'pl',
+  'th': 'th',
+  'tr': 'tr',
+  'vi': 'vi',
+  'zh-CN': 'zh',
+  'zh-TW': 'zh',
+}
 
 function extractAssistantReply(messages: AipgUiMessage[] | undefined): string | null {
   if (!messages || messages.length === 0) return null
@@ -32,6 +53,7 @@ export const useHomeAgent = defineStore(
     const imageGenStore = useImageGenerationPresets()
     const promptStore = usePromptStore()
     const presetSwitching = usePresetSwitching()
+    const i18n = useI18N()
 
     const isHomeAgentActive = ref(false)
     const telegramToken = ref<string | null>(null)
@@ -67,10 +89,16 @@ export const useHomeAgent = defineStore(
       }
       if (val) {
         void applyWhisperConfig()
+        void applyWhisperLanguage()
       }
       if (!val) {
         isHomeAgentActive.value = false
       }
+    })
+
+    // Re-apply the whisper language hint whenever the app language changes.
+    watch(() => i18n.langName, () => {
+      void applyWhisperLanguage()
     })
 
     // When verification state changes, sync active state.
@@ -488,6 +516,16 @@ export const useHomeAgent = defineStore(
         await window.electronAPI.homeAgent.setWhisperConfig(whisperModelSize.value)
       } catch (e) {
         console.error('homeAgent.applyWhisperConfig failed:', e)
+      }
+    }
+
+    async function applyWhisperLanguage(): Promise<void> {
+      if (!isAvailable.value) return
+      const whisperLang = LOCALE_TO_WHISPER_LANG[i18n.langName] ?? ''
+      try {
+        await window.electronAPI.homeAgent.setWhisperLanguage(whisperLang)
+      } catch (e) {
+        console.error('homeAgent.applyWhisperLanguage failed:', e)
       }
     }
 

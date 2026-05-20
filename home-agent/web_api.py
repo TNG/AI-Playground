@@ -46,6 +46,7 @@ _whisper_lock = threading.Lock()
 _whisper_enabled: bool = False  # False until user explicitly installs
 _whisper_download_status: str = "idle"  # "idle" | "downloading" | "ready" | "error"
 _whisper_download_error: str = ""
+_whisper_language: str | None = None  # None = auto-detect; set to ISO 639-1 code to hint
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,11 @@ def _transcribe_ogg_bytes(ogg_bytes: bytes) -> str:
         tmp_path = tmp.name
     try:
         model = _get_whisper_model()
-        segments, _info = model.transcribe(tmp_path, beam_size=5)
+        segments, _info = model.transcribe(
+            tmp_path,
+            beam_size=5,
+            language=_whisper_language or None,
+        )
         return " ".join(seg.text.strip() for seg in segments).strip()
     finally:
         try:
@@ -156,6 +161,17 @@ def set_whisper_config():
     return jsonify({"status": "ok", "model": _whisper_model_size})
 
 
+@app.post("/set-whisper-language")
+def set_whisper_language():
+    """Set the language hint passed to faster-whisper transcribe(). Empty string = auto-detect."""
+    global _whisper_language
+    data = request.get_json(silent=True) or {}
+    language = data.get("language", "").strip() or None
+    _whisper_language = language
+    logger.info("Whisper language hint set to: %s", _whisper_language or "auto")
+    return jsonify({"status": "ok", "language": _whisper_language})
+
+
 @app.post("/download-whisper-model")
 def download_whisper_model():
     """Trigger whisper model download in background. Returns immediately."""
@@ -194,6 +210,7 @@ def whisper_status():
         "enabled": _whisper_enabled,
         "status": _whisper_download_status,
         "model": _whisper_model_size,
+        "language": _whisper_language,
         "error": _whisper_download_error,
     })
 

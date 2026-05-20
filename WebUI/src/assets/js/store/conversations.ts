@@ -9,10 +9,6 @@ export const useConversations = defineStore(
     const conversationList = ref<Record<string, AipgUiMessage[]>>({})
     const activeKey = ref('')
     const activeConversation = computed(() => conversationList.value[activeKey.value])
-    // Persisted set of conversation keys that originated from the Home Agent.
-    // Stored as an array for JSON serialisation; exposed as a computed Set for O(1) lookup.
-    const homeAgentKeyList = ref<string[]>([])
-    const homeAgentKeys = computed(() => new Set(homeAgentKeyList.value))
 
     function updateConversation(messages: AipgUiMessage[], conversationKey: string) {
       conversationList.value[conversationKey] = messages
@@ -20,7 +16,6 @@ export const useConversations = defineStore(
 
     function deleteConversation(conversationKey: string) {
       delete conversationList.value[conversationKey]
-      homeAgentKeyList.value = homeAgentKeyList.value.filter((k) => k !== conversationKey)
     }
 
     function clearConversation(conversationKey: string) {
@@ -28,9 +23,6 @@ export const useConversations = defineStore(
     }
 
     function markConversationAsHomeAgent(conversationKey: string) {
-      if (!homeAgentKeyList.value.includes(conversationKey)) {
-        homeAgentKeyList.value = [...homeAgentKeyList.value, conversationKey]
-      }
       const conversation = conversationList.value[conversationKey]
       if (!conversation || conversation.length === 0) return
       const firstMessage = conversation[0]
@@ -41,7 +33,8 @@ export const useConversations = defineStore(
     }
 
     function isHomeAgentConversation(conversationKey: string): boolean {
-      return homeAgentKeys.value.has(conversationKey)
+      const conversation = conversationList.value[conversationKey]
+      return conversation?.[0]?.metadata?.source === 'homeAgent'
     }
 
     function renameConversationTitle(conversationKey: string, newTitle: string) {
@@ -74,7 +67,6 @@ export const useConversations = defineStore(
       conversationList,
       activeKey,
       activeConversation,
-      homeAgentKeys,
       deleteConversation,
       clearConversation,
       isNewConversation,
@@ -88,7 +80,7 @@ export const useConversations = defineStore(
   {
     persist: {
       storage: demoAwareStorage,
-      pick: ['conversationList', 'homeAgentKeyList'],
+      pick: ['conversationList'],
       afterHydrate: (ctx) =>
         addNewConversationIfLatestIsNotEmpty(ctx.store.$state.conversationList),
     },

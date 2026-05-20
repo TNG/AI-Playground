@@ -139,8 +139,8 @@ export const useHomeAgent = defineStore(
 
     async function handleChatMessage(text: string): Promise<void> {
       promptStore.setModeOnly('chat')
-      conversations.markConversationAsHomeAgent(conversations.activeKey)
       await chatStore.generate(text)
+      conversations.markConversationAsHomeAgent(conversations.activeKey)
       if (!isHomeAgentActive.value) return
       const reply = extractAssistantReply(chatStore.messages ?? undefined)
       if (reply) {
@@ -277,10 +277,10 @@ export const useHomeAgent = defineStore(
       promptStore.setModeOnly('chat')
       const switchResult = await presetSwitching.switchPreset('Agentic', { skipModeSwitch: true })
       console.log('[HomeAgent] switchPreset Agentic result:', switchResult)
-      conversations.markConversationAsHomeAgent(conversations.activeKey)
       const flush = watchAndStreamToTelegram()
       try {
         await chatStore.generate(text)
+        conversations.markConversationAsHomeAgent(conversations.activeKey)
       } finally {
         if (isHomeAgentActive.value) {
           await flush()

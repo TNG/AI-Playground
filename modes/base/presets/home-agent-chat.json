@@ -17,7 +17,7 @@
   "requiresToolCalling": true,
   "showTools": true,
   "toolsEnabledByDefault": true,
-  "enableRAG": false,
+  "enableRAG": true,
   "advancedMode": true,
   "requiredModels": []
 }

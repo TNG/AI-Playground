@@ -188,6 +188,20 @@ export const useHomeAgent = defineStore(
       }
     })
 
+    // When the user selects a Home Agent thread from the desktop UI (e.g. the
+    // HistoryChat list), mirror that into `activeRemoteConversationKey` so the
+    // Telegram bridge keeps routing into the same conversation. Keeps the two
+    // "last active Home Agent thread" stores in lockstep with `/load` and
+    // `focusRemoteChatDiscussion()` from the Telegram side.
+    watch(
+      () => conversations.activeKey,
+      (k) => {
+        if (k && conversations.getThreadKind(k) === 'homeAgent') {
+          activeRemoteConversationKey.value = k
+        }
+      },
+    )
+
     const IMG_GEN_REGEX = /^\/imgGen\s*/i
     const CHAT_REGEX = /^\/chat\s*/i
     const HELP_REGEX = /^\/help$/i

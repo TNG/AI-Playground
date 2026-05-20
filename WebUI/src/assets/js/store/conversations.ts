@@ -1,5 +1,5 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { computed, ref, watchEffect } from 'vue'
+import { computed, ref, watch, watchEffect } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { AipgUiMessage } from './openAiCompatibleChat'
 
@@ -50,6 +50,15 @@ export const useConversations = defineStore(
     const activeKey = ref('')
     const activeConversation = computed(() => conversationList.value[activeKey.value])
 
+    /**
+     * Most-recent main-kind thread the user was on. Mirrors
+     * `homeAgent.activeRemoteConversationKey` for the Home Agent side so the
+     * Local/Home Agent history switch can restore the user's "last active"
+     * conversation per category instead of always snapping to the newest
+     * thread by insertion order.
+     */
+    const lastMainKey = ref<string | null>(null)
+
     function updateConversation(messages: AipgUiMessage[], conversationKey: string) {
       conversationList.value[conversationKey] = messages
     }
@@ -93,6 +102,19 @@ export const useConversations = defineStore(
     function getThreadKind(conversationKey: string): ThreadKind {
       return conversationThreadMeta.value[conversationKey]?.kind ?? 'main'
     }
+
+    // Keep `lastMainKey` synced with the most recently selected main thread so
+    // toggling the history filter back to Local lands on what the user was
+    // working in (not just the newest bucket by timestamp).
+    watch(
+      () => activeKey.value,
+      (k) => {
+        if (k && conversationList.value[k] && getThreadKind(k) === 'main') {
+          lastMainKey.value = k
+        }
+      },
+      { immediate: true },
+    )
 
     /**
      * Allocate a new conversation bucket and (optionally) seed thread metadata.
@@ -148,6 +170,7 @@ export const useConversations = defineStore(
       conversationThreadMeta,
       activeKey,
       activeConversation,
+      lastMainKey,
       deleteConversation,
       clearConversation,
       isNewConversation,
@@ -164,7 +187,7 @@ export const useConversations = defineStore(
   {
     persist: {
       storage: demoAwareStorage,
-      pick: ['conversationList', 'conversationThreadMeta'],
+      pick: ['conversationList', 'conversationThreadMeta', 'lastMainKey'],
       afterHydrate: (ctx) => {
         // Backfill legacy meta first so the helper below can correctly skip
         // Home Agent threads when looking for the "latest empty MAIN" tail.

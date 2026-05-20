@@ -256,7 +256,7 @@ def send_telegram_photo():
             ),
             _bot_loop,
         )
-        future.result(timeout=30)
+        future.result(timeout=120)
         return jsonify({"status": "ok"})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500

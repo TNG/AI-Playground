@@ -37,6 +37,7 @@ import {
   UtilityProcess,
 } from 'electron'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import fs from 'fs'
 import { exec } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -1993,7 +1994,6 @@ app.whenReady().then(async () => {
 
     // Custom protocol docking is file protocol
     protocol.handle('aipg-media', async (request) => {
-      console.log('request', request)
       const decodedUrl = decodeURIComponent(
         request.url.replace(new RegExp(`^aipg-media://`, 'i'), '/'),
       )
@@ -2001,7 +2001,7 @@ app.whenReady().then(async () => {
       const fullPath = path.join(mediaDir, decodedUrl)
 
       const normalizedPath = path.normalize(fullPath.replace(/(\/|\\)$/, ''))
-      const response = await net.fetch(`file://${normalizedPath}`)
+      const response = await net.fetch(pathToFileURL(normalizedPath).href)
       return response
     })
     const window = await createWindow()

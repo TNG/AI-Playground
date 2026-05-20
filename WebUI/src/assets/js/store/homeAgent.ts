@@ -598,117 +598,157 @@ export const useHomeAgent = defineStore(
       }
     }
 
+    // Strip pattern for inline aipg-media image markdown tokens. The streaming
+    // watcher removes them from text parts before sending — ComfyUI tool calls
+    // already produce the same image via their `output.images` array, and the
+    // inline markdown form would otherwise duplicate it on Telegram.
+    const AIPG_IMAGE_MD_STRIP_RE = /!\[[^\]]*]\(aipg-media:\/\/[^)]+\)/g
+
+    type RawPart = {
+      type: string
+      text?: string
+      state?: string
+      input?: { workflow?: string; prompt?: string }
+      output?: { images?: { type: string; imageUrl?: string; videoUrl?: string }[] }
+    }
+
     /**
-     * Send any image-bearing ComfyUI tool outputs found in `message` to Telegram.
-     * Scope this to a single message (typically the last assistant reply) so we
-     * do not resend images attached to earlier turns of the same conversation.
+     * Poll `chatStore.getMessagesForKey(targetKey)` every 250 ms during an
+     * agentic turn and forward each newly-completed reasoning / text / tool
+     * part to Telegram in order. A part is "ready to send" when either its
+     * own state flips to `done` / `output-available`, when a later part now
+     * exists (so the streaming part can no longer grow), or when generation
+     * has fully finished (`done` arg to the final `checkParts`).
+     *
+     * Returns a `flush()` that stops the interval, drains any remaining
+     * parts, and awaits the in-flight send chain.
+     *
+     * Polling (vs. a Vue watcher) keeps this resilient to Pinia store
+     * reactivity boundaries — when `chatStore.messages` is replaced wholesale
+     * mid-generation, a watcher on a captured `messages` ref would miss the
+     * swap.
      */
-    async function extractAndSendToolImages(
-      message: AipgUiMessage | undefined,
-      caption: string,
-    ): Promise<void> {
-      if (!message) return
-      for (const part of message.parts as {
-        type: string
-        state?: string
-        output?: { images?: { type: string; imageUrl?: string; videoUrl?: string }[] }
-      }[]) {
-        // AI SDK stores ComfyUI tool results with type 'tool-comfyUI' / 'tool-comfyUiImageEdit'
-        // and state 'output-available' when generation is complete
-        if (
-          (part.type !== 'tool-comfyUI' && part.type !== 'tool-comfyUiImageEdit') ||
-          part.state !== 'output-available' ||
-          !part.output?.images
-        )
-          continue
-        for (const img of part.output.images) {
-          if (img.type === 'image' && img.imageUrl) {
-            await sendImageToTelegram(img.imageUrl, caption)
+    function watchAndStreamToTelegram(targetKey: string): () => Promise<void> {
+      const sentParts = new WeakSet<object>()
+      const sentToolNotice = new WeakSet<object>()
+      let sendChain: Promise<void> = Promise.resolve()
+      let stopped = false
+
+      function enqueue(fn: () => Promise<unknown>) {
+        sendChain = sendChain
+          .then(() => fn())
+          .then(() => undefined)
+          .catch((e) => console.error('homeAgent stream send failed:', e))
+      }
+
+      function trySendPart(part: RawPart, isLastPart: boolean, done: boolean) {
+        if (sentParts.has(part as object)) return
+        const partDone = part.state === 'done' || !isLastPart || done
+
+        if (part.type === 'reasoning') {
+          const txt = (part.text ?? '').trim()
+          if (txt && partDone) {
+            sentParts.add(part as object)
+            enqueue(() => window.electronAPI.homeAgent.sendTelegramReply(`💭 ${txt}`))
+          }
+        } else if (part.type === 'text') {
+          const cleaned = (part.text ?? '').replace(AIPG_IMAGE_MD_STRIP_RE, '').trim()
+          if (cleaned && partDone) {
+            sentParts.add(part as object)
+            enqueue(() =>
+              window.electronAPI.homeAgent.sendTelegramReply(
+                markdownToTelegramHtml(cleaned),
+                'HTML',
+              ),
+            )
+          }
+        } else if (part.type === 'tool-comfyUI' || part.type === 'tool-comfyUiImageEdit') {
+          // As soon as the tool input is known, send a "generating" notice so
+          // the user sees activity during the (often 30-90 s) image render.
+          const inputKnown =
+            part.state === 'input-available' ||
+            part.state === 'output-available' ||
+            !isLastPart ||
+            done
+          if (inputKnown && !sentToolNotice.has(part as object)) {
+            const { workflow, prompt } = part.input ?? {}
+            if (workflow || prompt) {
+              sentToolNotice.add(part as object)
+              const lines: string[] = []
+              if (workflow) lines.push(`🎨 Generating using the preset *${workflow}*`)
+              if (prompt) lines.push(`_${prompt}_`)
+              const notice = lines.join('\n\n')
+              enqueue(() => window.electronAPI.homeAgent.sendTelegramReply(notice, 'Markdown'))
+            }
+          }
+          if (part.state === 'output-available' && part.output?.images) {
+            sentParts.add(part as object)
+            const images = part.output.images.filter(
+              (i): i is { type: string; imageUrl: string } =>
+                i.type === 'image' && typeof i.imageUrl === 'string',
+            )
+            enqueue(async () => {
+              for (const img of images) {
+                await sendImageToTelegram(img.imageUrl, '')
+              }
+            })
           }
         }
       }
-    }
 
-    // Markdown image or link pointing at aipg-media, e.g.:
-    // ![alt](aipg-media://…) or [View image](aipg-media://…)
-    const AIPG_IMAGE_MD_RE = /(?:!\[[^\]]*]|\[[^\]]*])\((aipg-media:\/\/[^)]+)\)/
+      function checkParts(done: boolean) {
+        const msgs = chatStore.getMessagesForKey(targetKey) ?? []
+        const lastAssistant = [...msgs].reverse().find((m) => m.role === 'assistant')
+        if (!lastAssistant) return
+        const parts = lastAssistant.parts as RawPart[]
+        for (let i = 0; i < parts.length; i++) {
+          trySendPart(parts[i], i === parts.length - 1, done)
+        }
+      }
+
+      const intervalId = setInterval(() => {
+        if (!stopped) checkParts(false)
+      }, 250)
+
+      return async function flush() {
+        stopped = true
+        clearInterval(intervalId)
+        checkParts(true)
+        await sendChain
+      }
+    }
 
     async function handleAgenticMessage(text: string, images?: TelegramImage[]): Promise<void> {
       focusRemoteChatDiscussion()
       const targetKey = ensureActiveRemoteConversation()
       if (!(await ensureVisionCapableForImages(!!images?.length))) return
       const files = await prepareTelegramFiles(images)
-      await chatStore.generate(text, {
-        conversationKey: targetKey,
-        clearInputs: false,
-        files,
-      })
-      maybeSetHomeAgentConversationTitle(targetKey)
-      if (!isHomeAgentActive.value) return
-      const msgs = chatStore.getMessagesForKey(targetKey) ?? []
-
-      const rawReply = extractAssistantReply(msgs) ?? ''
-
-      // Check if the AI text reply embeds an aipg-media image link
-      const mdMatch = AIPG_IMAGE_MD_RE.exec(rawReply)
-      if (mdMatch) {
-        // Split the reply around the image markdown token
-        const matchStart = mdMatch.index
-        const matchEnd = mdMatch.index + mdMatch[0].length
-        const before = rawReply.slice(0, matchStart).trim()
-        const imageUrl = mdMatch[1]
-        const after = rawReply.slice(matchEnd).trim()
-
-        if (before) {
-          await window.electronAPI.homeAgent.sendTelegramReply(
-            markdownToTelegramHtml(before),
-            'HTML',
-          )
+      const flush = watchAndStreamToTelegram(targetKey)
+      try {
+        await chatStore.generate(text, {
+          conversationKey: targetKey,
+          clearInputs: false,
+          files,
+        })
+        maybeSetHomeAgentConversationTitle(targetKey)
+      } finally {
+        if (isHomeAgentActive.value) {
+          await flush()
+        } else {
+          // Home Agent was disabled mid-generation: still drain so already
+          // enqueued sends complete, but do not block the caller.
+          void flush()
         }
-        await sendImageToTelegram(imageUrl, '')
-        if (after) {
-          await window.electronAPI.homeAgent.sendTelegramReply(
-            markdownToTelegramHtml(after),
-            'HTML',
-          )
-        }
-        return
-      }
-
-      // No inline image link — check the LAST assistant message only for tool-part
-      // images. Looking at the whole conversation would resend images from earlier
-      // turns on every subsequent reply.
-      const lastAssistant = [...msgs].reverse().find((m) => m.role === 'assistant')
-      const lastHasToolImages = (
-        lastAssistant?.parts as
-          | {
-              type: string
-              state?: string
-              output?: { images?: { type: string; imageUrl?: string }[] }
-            }[]
-          | undefined
-      )?.some(
-        (p) =>
-          (p.type === 'tool-comfyUI' || p.type === 'tool-comfyUiImageEdit') &&
-          p.state === 'output-available' &&
-          p.output?.images?.some((i) => i.type === 'image' && i.imageUrl),
-      )
-
-      if (rawReply) {
-        await window.electronAPI.homeAgent.sendTelegramReply(
-          markdownToTelegramHtml(rawReply),
-          'HTML',
-        )
-      }
-      if (lastHasToolImages) {
-        await extractAndSendToolImages(lastAssistant, '🖼️')
       }
     }
 
     async function sendImageToTelegram(imageUrl: string, caption: string): Promise<void> {
       try {
         const base64 = await imageToBase64(imageUrl)
-        await window.electronAPI.homeAgent.sendTelegramPhoto(base64, caption)
+        const result = await window.electronAPI.homeAgent.sendTelegramPhoto(base64, caption)
+        if (!result.success) {
+          throw new Error(result.error ?? 'sendTelegramPhoto returned failure')
+        }
       } catch (e) {
         await window.electronAPI.homeAgent.sendTelegramReply(
           `⚠️ Image was generated but could not be sent: ${e instanceof Error ? e.message : String(e)}`,

@@ -17,6 +17,7 @@ export function useHomeAgentSetup() {
   const verifyStatus = ref<'idle' | 'loading' | 'success' | 'error'>('idle')
   const verifyError = ref('')
 
+
   const isAlreadyConfigured = computed(() => homeAgent.isTelegramConfigured)
 
   // A valid token is <digits>:<35 alphanumeric chars>, total ≥ 40 chars with a colon
@@ -205,6 +206,7 @@ export function useHomeAgentSetup() {
       verifyError.value = ''
     }
   }
+
 
   return {
     homeAgent,

@@ -998,8 +998,12 @@ export const useTextInference = defineStore(
     )
 
     function getDefaultToolsEnabled(preset: ChatPreset): boolean {
+      // Presets that require tool calling always enable tools regardless of model capability —
+      // the runtime guard in resolveTools() still prevents tools from being sent if the
+      // active model does not support tool calling.
+      if (preset.requiresToolCalling === true || preset.toolsEnabledByDefault === true) return true
       if (!modelSupportsToolCalling.value) return false
-      return preset.toolsEnabledByDefault ?? preset.requiresToolCalling === true
+      return false
     }
 
     // Load saved settings for the active preset

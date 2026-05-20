@@ -21,9 +21,7 @@ const ALL_BACKENDS: BackendServiceName[] = [
 ]
 
 function getBackends(homeAgentEnabled: boolean): BackendServiceName[] {
-  return homeAgentEnabled
-    ? ALL_BACKENDS
-    : ALL_BACKENDS.filter((b) => b !== 'home-agent-backend')
+  return homeAgentEnabled ? ALL_BACKENDS : ALL_BACKENDS.filter((b) => b !== 'home-agent-backend')
 }
 
 function isBackendAvailableInProductMode(

@@ -79,7 +79,7 @@
     "supportsToolCalling": true,
     "supportsVision": true,
     "supportsReasoning": false,
-    "maxContextSize": 256000
+    "maxContextSize": 16384
   },
   {
     "name": "unsloth/Qwen3-4B-GGUF/Qwen3-4B-Q5_K_S.gguf",

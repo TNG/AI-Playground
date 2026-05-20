@@ -309,6 +309,8 @@ def send_telegram_keyboard():
         return jsonify({"error": str(exc)}), 500
 
 
+
+
 # ── Chat completions proxy ────────────────────────────────────────────────────
 
 @app.post("/v1/chat/completions")
@@ -357,6 +359,29 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
         )
         with _pending_lock:
             _pending_messages.append({"text": user_text, "chat_id": chat_id})
+
+    async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        global _last_seen_chat_id, _allowed_chat_id
+        if update.message is None or update.message.voice is None:
+            return
+        chat_id = str(update.message.chat_id)
+        if _last_seen_chat_id != chat_id:
+            _last_seen_chat_id = chat_id
+            _persist_chat_id(chat_id)
+        allow = _allowed_chat_id
+        if not allow:
+            return
+        if chat_id != allow:
+            logger.warning("Ignoring voice message from unauthorized chat_id: %s", chat_id)
+            return
+        logger.info("Voice message received (audio not supported): chat_id=%s", chat_id)
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Sorry, audio messages cannot be understood yet. Please send a text message.",
+            )
+        except Exception as exc:
+            logger.warning("Failed to send audio-not-supported reply: %s", exc)
 
     async def handle_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /help — queue a special help marker for the frontend to reply with."""
@@ -641,6 +666,7 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
         application = Application.builder().token(token).build()
         _bot_application = application
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        application.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         from telegram import BotCommand
         from telegram.ext import CallbackQueryHandler, CommandHandler

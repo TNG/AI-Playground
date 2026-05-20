@@ -94,6 +94,13 @@ export const useConversations = defineStore(
       return conversationThreadMeta.value[conversationKey]?.kind ?? 'main'
     }
 
+    function hasHomeAgentSource(conversationKey: string): boolean {
+      const msgs = conversationList.value[conversationKey] ?? []
+      return msgs.some(
+        (m) => (m.metadata as { source?: string } | undefined)?.source === 'homeAgent',
+      )
+    }
+
     /**
      * Allocate a new conversation bucket and (optionally) seed thread metadata.
      * Returns the new conversation key. Used by both the main Chat "+" flow
@@ -157,6 +164,7 @@ export const useConversations = defineStore(
       setThreadMeta,
       getThreadMeta,
       getThreadKind,
+      hasHomeAgentSource,
       createConversation,
       addNewConversation,
     }

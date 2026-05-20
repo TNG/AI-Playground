@@ -290,6 +290,7 @@ import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
 import { useProductMode } from '@/assets/js/store/productMode'
 import DemoSamplePrompts from '@/components/DemoSamplePrompts.vue'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
+import { useHomeAgent } from '@/assets/js/store/homeAgent'
 
 const instance = getCurrentInstance()
 const audioRecorder = useAudioRecorder()
@@ -308,6 +309,7 @@ const presetsStore = usePresets()
 const dialogStore = useDialogStore()
 const demoMode = useDemoMode()
 const productModeStore = useProductMode()
+const homeAgent = useHomeAgent()
 
 audioRecorder.registerTranscriptionCallback((text) => (prompt.value = text))
 
@@ -354,9 +356,12 @@ const shouldShowImageUploadButton = computed(() => {
 const modesWithPresets = computed(() => {
   const modes: ModeType[] = []
   if (presetsStore.chatPresets.length > 0) modes.push('chat')
+  // Hide imageEdit and video modes when Home Agent is active — only chat and imageGen are supported
   if (presetsStore.imageGenPresets.length > 0) modes.push('imageGen')
-  if (presetsStore.imageEditPresets.length > 0) modes.push('imageEdit')
-  if (presetsStore.videoPresets.length > 0) modes.push('video')
+  if (!homeAgent.isHomeAgentActive) {
+    if (presetsStore.imageEditPresets.length > 0) modes.push('imageEdit')
+    if (presetsStore.videoPresets.length > 0) modes.push('video')
+  }
   return modes
 })
 

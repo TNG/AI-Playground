@@ -16,6 +16,16 @@ function redact(message: string): string {
   return message.replace(TOKEN_PATTERN, TOKEN_REDACTION)
 }
 
+const terminalSuppressPatterns: { source: string; pattern: RegExp }[] = [
+  { source: 'comfyui-backend', pattern: /^FETCH ComfyRegistry Data:/ },
+  { source: 'home-agent-backend', pattern: /^INFO:httpx:/ },
+  { source: 'home-agent-backend', pattern: /^INFO:werkzeug:/ },
+]
+
+function isSuppressedInTerminal(source: string, message: string): boolean {
+  return terminalSuppressPatterns.some((s) => s.source === source && s.pattern.test(message))
+}
+
 class Logger {
   webContents: WebContents | null = null
   private pathToLogFiles: string = path.resolve(
@@ -42,7 +52,9 @@ class Logger {
     if (alsoLogToFile) {
       this.logMessageToFile(safeMessage, source)
     }
-    console.info(`[${source}]: ${safeMessage}`)
+    if (!isSuppressedInTerminal(source, safeMessage)) {
+      console.info(`[${source}]: ${safeMessage}`)
+    }
     if (this.webContents) {
       try {
         this.webContents.send('debugLog', { level: 'info', source, message: safeMessage })
@@ -59,7 +71,9 @@ class Logger {
     if (alsoLogToFile) {
       this.logMessageToFile(safeMessage, source)
     }
-    console.warn(`[${source}]: ${safeMessage}`)
+    if (!isSuppressedInTerminal(source, safeMessage)) {
+      console.warn(`[${source}]: ${safeMessage}`)
+    }
     if (this.webContents) {
       try {
         this.webContents.send('debugLog', { level: 'warn', source, message: safeMessage })
@@ -67,7 +81,7 @@ class Logger {
         console.error('Could not send debug log to renderer process')
       }
     } else {
-      this.startupMessageCache.push({ level: 'error', source, message: safeMessage })
+      this.startupMessageCache.push({ level: 'warn', source, message: safeMessage })
     }
   }
 
@@ -76,9 +90,9 @@ class Logger {
     if (alsoLogToFile) {
       this.logMessageToFile(safeMessage, source)
     }
-
-    console.error(`[${source}]: ${safeMessage}`)
-
+    if (!isSuppressedInTerminal(source, safeMessage)) {
+      console.error(`[${source}]: ${safeMessage}`)
+    }
     if (this.webContents) {
       try {
         this.webContents.send('debugLog', { level: 'error', source, message: safeMessage })

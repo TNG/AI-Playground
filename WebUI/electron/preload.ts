@@ -234,5 +234,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       parseMode?: string
       buttons: Array<Array<{ text: string; callbackData: string }>>
     }) => ipcRenderer.invoke('homeAgent:sendTelegramKeyboard', opts),
+    readImageAsBase64: (imageUrl: string) =>
+      ipcRenderer.invoke('homeAgent:readImageAsBase64', imageUrl),
   },
 })

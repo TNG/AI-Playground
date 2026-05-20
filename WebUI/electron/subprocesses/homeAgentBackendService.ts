@@ -1,161 +1,15 @@
-import { ChildProcess, spawn } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
-import { app, BrowserWindow, ipcMain, net, safeStorage } from 'electron'
-import { LocalSettings } from '../main.ts'
-import { GitService, LongLivedPythonApiService, createEnhancedErrorDetails } from './service.ts'
-import { aipgBaseDir, checkBackend, installBackend } from './uvBasedBackends/uv.ts'
+import { app, ipcMain, net, safeStorage } from 'electron'
+import { UvPythonBackendService } from './uvPythonBackendService.ts'
+import { getMediaDir } from '../util.ts'
 
 type EncryptedTokenData = { type: string; data: number[] }
 type HomeAgentConfigFile = { encryptedToken: EncryptedTokenData; chatId: string }
 
-export class HomeAgentBackendService extends LongLivedPythonApiService {
+export class HomeAgentBackendService extends UvPythonBackendService {
   readonly serviceFolder = 'home-agent'
-  readonly baseDir = path.resolve(path.join(aipgBaseDir, this.serviceFolder))
-  readonly serviceDir = this.baseDir
-  readonly pythonEnvDir = path.resolve(path.join(this.serviceDir, '.venv'))
-  devices: InferenceDevice[] = [{ id: '*', name: 'Auto select device', selected: true }]
-  readonly git = new GitService()
-
-  isSetUp: boolean = false
   readonly isRequired = false
-  healthEndpointUrl = `${this.baseUrl}/healthy`
-
-  constructor(name: BackendServiceName, port: number, win: BrowserWindow, settings: LocalSettings) {
-    super(name, port, win, settings)
-
-    this.serviceIsSetUp().then(async (setUp) => {
-      this.isSetUp = setUp
-      if (this.isSetUp) {
-        await this.updateCachedVersion()
-        this.setStatus('notYetStarted')
-      }
-      this.appLogger.info(`Service ${this.name} isSetUp: ${this.isSetUp}`, this.name)
-    })
-  }
-
-  async serviceIsSetUp(): Promise<boolean> {
-    const result = await checkBackend(this.serviceFolder)
-      .then(() => true)
-      .catch(() => false)
-    this.appLogger.info(`Service ${this.name} isSetUp: ${result}`, this.name)
-    return result
-  }
-
-  async detectDevices(): Promise<void> {}
-
-  async *set_up(): AsyncIterable<SetupProgress> {
-    this.setStatus('installing')
-    this.appLogger.info('setting up home-agent service', this.name)
-
-    let currentStep = 'start'
-
-    try {
-      currentStep = 'start'
-      yield {
-        serviceName: this.name,
-        step: currentStep,
-        status: 'executing',
-        debugMessage: 'starting to set up environment',
-      }
-
-      await this.git.ensureInstalled()
-
-      currentStep = 'install dependencies'
-      yield {
-        serviceName: this.name,
-        step: currentStep,
-        status: 'executing',
-        debugMessage: 'installing dependencies',
-      }
-
-      await installBackend(this.serviceFolder)
-
-      yield {
-        serviceName: this.name,
-        step: currentStep,
-        status: 'executing',
-        debugMessage: 'dependencies installed',
-      }
-
-      this.setStatus('notYetStarted')
-      currentStep = 'end'
-      yield {
-        serviceName: this.name,
-        step: currentStep,
-        status: 'success',
-        debugMessage: 'home-agent service set up completely',
-      }
-    } catch (e) {
-      this.appLogger.warn(`Set up of home-agent failed due to ${e}`, this.name, true)
-      this.setStatus('installationFailed')
-
-      const errorDetails = await createEnhancedErrorDetails(e, `${currentStep} operation`)
-
-      yield {
-        serviceName: this.name,
-        step: currentStep,
-        status: 'failed',
-        debugMessage: `Failed to setup python environment due to ${e}`,
-        errorDetails,
-      }
-    }
-  }
-
-  async spawnAPIProcess(): Promise<{
-    process: ChildProcess
-    didProcessExitEarlyTracker: Promise<boolean>
-  }> {
-    const pathSep = process.platform === 'win32' ? ';' : ':'
-    const telegramEnv = this.getTelegramProcessEnv()
-    const additionalEnvVariables: Record<string, string | undefined> = {
-      VIRTUAL_ENV: this.pythonEnvDir,
-      PATH: [
-        path.join(this.pythonEnvDir, 'bin'),
-        path.join(this.pythonEnvDir, 'Scripts'),
-        path.join(this.pythonEnvDir, 'Library', 'bin'),
-        process.env.PATH,
-        path.join(this.git.dir, 'cmd'),
-      ].join(pathSep),
-      PYTHONNOUSERSITE: 'true',
-      PYTHONIOENCODING: 'utf-8',
-      PIP_CONFIG_FILE: 'nul',
-      ...telegramEnv,
-    }
-
-    const pythonBinary = path.join(
-      this.pythonEnvDir,
-      process.platform === 'win32' ? 'Scripts' : 'bin',
-      process.platform === 'win32' ? 'python.exe' : 'python',
-    )
-    const apiProcess = spawn(pythonBinary, ['web_api.py', '--port', this.port.toString()], {
-      cwd: this.serviceDir,
-      windowsHide: true,
-      env: Object.assign(process.env, additionalEnvVariables),
-    })
-
-    const didProcessExitEarlyTracker = new Promise<boolean>((resolve, _reject) => {
-      apiProcess.on('error', (error) => {
-        this.appLogger.error(`encountered error of process in ${this.name} : ${error}`, this.name)
-        resolve(true)
-      })
-      apiProcess.on('exit', () => {
-        this.appLogger.error(`encountered unexpected exit in ${this.name}.`, this.name)
-        resolve(true)
-      })
-    })
-
-    return {
-      process: apiProcess,
-      didProcessExitEarlyTracker,
-    }
-  }
-
-  private getTelegramProcessEnv(): Record<string, string | undefined> {
-    // Never pass TELEGRAM_* into the subprocess: web_api.py would start polling from env while
-    // the renderer also POSTs /set-telegram-token → two concurrent getUpdates → Telegram 409 Conflict.
-    return {}
-  }
 
   // ── Config path ──────────────────────────────────────────────────────────
 
@@ -254,23 +108,11 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
     }
   }
 
-  async pollTelegram(): Promise<
-    Array<{
-      text?: string
-      chat_id: string
-      images?: Array<{ mime: string; data_base64: string }>
-      callback?: string
-    }>
-  > {
+  async pollTelegram(): Promise<Array<{ text: string; chat_id: string }>> {
     if (this.currentStatus !== 'running') return []
     try {
       const res = await net.fetch(`${this.baseUrl}/poll-telegram`)
-      return (await res.json()) as Array<{
-        text?: string
-        chat_id: string
-        images?: Array<{ mime: string; data_base64: string }>
-        callback?: string
-      }>
+      return (await res.json()) as Array<{ text: string; chat_id: string }>
     } catch {
       return []
     }
@@ -314,40 +156,6 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       return { success: false, error: await res.text() }
     } catch (e) {
       this.appLogger.error(`sendTelegramReply error: ${e}`, this.name)
-      return { success: false, error: String(e) }
-    }
-  }
-
-  async sendTelegramKeyboard(opts: {
-    text: string
-    parseMode?: string
-    buttons: Array<Array<{ text: string; callbackData: string }>>
-  }): Promise<{ success: boolean; error?: string }> {
-    if (this.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }
-    try {
-      const url = `${this.baseUrl}/send-telegram-keyboard`
-      // Translate camelCase TS payload -> snake_case JSON expected by web_api.py
-      const body = {
-        text: opts.text,
-        ...(opts.parseMode ? { parse_mode: opts.parseMode } : {}),
-        buttons: opts.buttons.map((row) =>
-          row.map((btn) => ({ text: btn.text, callback_data: btn.callbackData })),
-        ),
-      }
-      this.appLogger.info(
-        `sendTelegramKeyboard posting to ${url}: rows=${opts.buttons.length}`,
-        this.name,
-      )
-      const res = await net.fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      this.appLogger.info(`sendTelegramKeyboard response: status=${res.status}`, this.name)
-      if (res.ok) return { success: true }
-      return { success: false, error: await res.text() }
-    } catch (e) {
-      this.appLogger.error(`sendTelegramKeyboard error: ${e}`, this.name)
       return { success: false, error: String(e) }
     }
   }
@@ -447,6 +255,54 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
     }
   }
 
+  // ── Process env (used on spawn) ──────────────────────────────────────────
+
+  protected override extraProcessEnv(): Record<string, string | undefined> {
+    // Never pass TELEGRAM_* into the subprocess: web_api.py would start polling from env while
+    // the renderer also POSTs /set-telegram-token → two concurrent getUpdates → Telegram 409 Conflict.
+    // The token is injected via the /set-telegram-token endpoint after startup.
+    return {}
+  }
+
+
+  async readImageAsBase64(imageUrl: string): Promise<string> {
+    const mediaDir = getMediaDir()
+    let filePath: string
+    if (imageUrl.startsWith('aipg-media://')) {
+      const decoded = decodeURIComponent(imageUrl.replace(/^aipg-media:\/\//i, ''))
+      filePath = path.normalize(path.join(mediaDir, decoded).replace(/(\/|\\)$/, ''))
+    } else {
+      // HTTP URL from ComfyUI — extract filename/subfolder from query params
+      const parsed = new URL(imageUrl)
+      const subfolder = parsed.searchParams.get('subfolder') ?? ''
+      const filename = parsed.searchParams.get('filename') ?? ''
+      filePath = path.join(mediaDir, subfolder, filename)
+    }
+    const buf = await fs.promises.readFile(filePath)
+    return buf.toString('base64')
+  }
+
+  async sendTelegramKeyboard(opts: {
+    text: string
+    parseMode?: string
+    buttons: Array<Array<{ text: string; callbackData: string }>>
+  }): Promise<{ success: boolean; error?: string }> {
+    if (this.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }
+    try {
+      const url = `${this.baseUrl}/send-telegram-keyboard`
+      const res = await net.fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(opts),
+      })
+      if (res.ok) return { success: true }
+      return { success: false, error: await res.text() }
+    } catch (e) {
+      this.appLogger.error(`sendTelegramKeyboard error: ${e}`, this.name)
+      return { success: false, error: String(e) }
+    }
+  }
+
   // ── IPC registration ─────────────────────────────────────────────────────
 
   registerIpcHandlers(): void {
@@ -479,6 +335,9 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
           buttons: Array<Array<{ text: string; callbackData: string }>>
         },
       ) => this.sendTelegramKeyboard(opts),
+    )
+    ipcMain.handle('homeAgent:readImageAsBase64', (_event, imageUrl: string) =>
+      this.readImageAsBase64(imageUrl),
     )
   }
 }

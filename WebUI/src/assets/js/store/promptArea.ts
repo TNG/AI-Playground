@@ -4,6 +4,8 @@ import { usePresetSwitching } from './presetSwitching'
 import { useBackendServices } from './backendServices'
 import { useDialogStore } from './dialogs'
 import { useSetupWizard } from './setupWizard'
+import { useHomeAgent } from './homeAgent'
+import * as toast from '../toast'
 
 /**
  * Maps a mode to its corresponding preset categories.
@@ -45,6 +47,18 @@ export const usePromptStore = defineStore('prompt', () => {
    */
   function setCurrentMode(mode: ModeType) {
     const comfyUiModes: ModeType[] = ['imageGen', 'imageEdit', 'video']
+
+    // Guard: Home Agent only supports chat and imageGen modes
+    if (comfyUiModes.includes(mode)) {
+      const homeAgent = useHomeAgent()
+      if (homeAgent.isHomeAgentActive && mode !== 'imageGen') {
+        toast.error(
+          'Home Agent only supports Chat and Image Generation modes. Disable Home Agent to use this mode.',
+        )
+        return
+      }
+    }
+
     if (comfyUiModes.includes(mode)) {
       const backendServices = useBackendServices()
       const servicesLoaded = backendServices.serviceInfoUpdateReceived

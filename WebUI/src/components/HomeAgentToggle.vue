@@ -11,7 +11,7 @@
       role="switch"
       :aria-checked="isHomeAgentActive"
       :aria-label="ariaLabel"
-      :disabled="!isAvailable || (!isReadyToActivate && !isHomeAgentActive)"
+      :disabled="!isHomeAgentActive && !isAvailable"
       class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
       :class="isHomeAgentActive ? 'bg-primary' : 'bg-muted-foreground/40'"
       @click="toggle"
@@ -44,7 +44,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watchEffect } from 'vue'
 import { Cog6ToothIcon } from '@heroicons/vue/24/solid'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
@@ -61,11 +61,19 @@ const isInstalled = computed(
   () => backendServices.info.find((s) => s.serviceName === 'home-agent-backend')?.isSetUp === true,
 )
 
+// DEBUG_SESSION: trace toggle UI state
+watchEffect(() => {
+  const svc = backendServices.info.find((s) => s.serviceName === 'home-agent-backend')
+  console.log(
+    `DEBUG_SESSION HomeAgentToggle: isHomeAgentActive=${isHomeAgentActive.value} isAvailable=${isAvailable.value} isReadyToActivate=${isReadyToActivate.value} isInstalled=${isInstalled.value} isFeatureEnabled=${homeAgent.isFeatureEnabled} svcStatus=${svc?.status ?? 'not-found'}`,
+  )
+})
+
 const toggleTitle = computed(() => {
   if (!isAvailable.value)
     return 'Home Agent is not installed. Install it from App Settings → Installation Management.'
   if (!isReadyToActivate.value)
-    return 'Verify the Telegram connection in Setup Wizard before turning Home Agent on.'
+    return 'Telegram not yet set up — click to open the setup wizard.'
   return isHomeAgentActive.value
     ? 'Home Agent is on — answering Telegram; click to turn off.'
     : 'Home Agent is off — click to enable Telegram messaging.'
@@ -76,6 +84,10 @@ const ariaLabel = computed(() =>
 )
 
 function toggle() {
+  if (!isHomeAgentActive.value && isAvailable.value && !isReadyToActivate.value) {
+    void setupWizard.openHomeAgentSetup()
+    return
+  }
   homeAgent.toggle()
 }
 

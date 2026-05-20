@@ -37,6 +37,7 @@ import {
   UtilityProcess,
 } from 'electron'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import fs from 'fs'
 import { exec } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -218,7 +219,8 @@ const LocalSettingsSchema = z.object({
   demoModePasscode: z.string().optional(),
   // Gates the Home Agent feature (Telegram bridge backend, setup wizard surface,
   // header toggle, bundled preset). Default false: opt-in by editing settings.json.
-  isHomeAgentEnabled: z.boolean().default(false),
+  // In dev mode (app not packaged) this defaults to true for easier development.
+  isHomeAgentEnabled: z.boolean().default(!app.isPackaged),
   languageOverride: z.string().nullable().default(null),
   remoteRepository: z.string().default('intel/ai-playground'),
   huggingfaceEndpoint: z.string().default('https://huggingface.co'),
@@ -1993,7 +1995,6 @@ app.whenReady().then(async () => {
 
     // Custom protocol docking is file protocol
     protocol.handle('aipg-media', async (request) => {
-      console.log('request', request)
       const decodedUrl = decodeURIComponent(
         request.url.replace(new RegExp(`^aipg-media://`, 'i'), '/'),
       )
@@ -2001,7 +2002,7 @@ app.whenReady().then(async () => {
       const fullPath = path.join(mediaDir, decodedUrl)
 
       const normalizedPath = path.normalize(fullPath.replace(/(\/|\\)$/, ''))
-      const response = await net.fetch(`file://${normalizedPath}`)
+      const response = await net.fetch(pathToFileURL(normalizedPath).href)
       return response
     })
     const window = await createWindow()

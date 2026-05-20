@@ -367,6 +367,7 @@ type electronAPI = {
       parseMode?: string
       buttons: Array<Array<{ text: string; callbackData: string }>>
     }): Promise<{ success: boolean; error?: string }>
+    readImageAsBase64(imageUrl: string): Promise<string>
   }
 }
 

@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
 import { useOpenAiCompatibleChat, type AipgUiMessage } from './openAiCompatibleChat'
+import { useConversations } from './conversations'
 import { useImageGenerationPresets, isImage } from './imageGenerationPresets'
 import { usePromptStore } from './promptArea'
 import { usePresetSwitching } from './presetSwitching'
@@ -27,6 +28,7 @@ export const useHomeAgent = defineStore(
   () => {
     const backendServices = useBackendServices()
     const chatStore = useOpenAiCompatibleChat()
+    const conversations = useConversations()
     const imageGenStore = useImageGenerationPresets()
     const promptStore = usePromptStore()
     const presetSwitching = usePresetSwitching()
@@ -94,6 +96,7 @@ export const useHomeAgent = defineStore(
     const HELP_REGEX = /^\/help$/i
     const IMG_GEN_TIMEOUT_MS = 120_000
 
+
     const HELP_MESSAGE =
       '🤖 <b>Available commands</b>\n\n' +
       '<code>/imgGen </code><i>&lt;prompt&gt;</i>\n' +
@@ -108,6 +111,7 @@ export const useHomeAgent = defineStore(
 
     async function handleChatMessage(text: string): Promise<void> {
       promptStore.setModeOnly('chat')
+      conversations.markConversationAsHomeAgent(conversations.activeKey)
       await chatStore.generate(text)
       if (!isHomeAgentActive.value) return
       const reply = extractAssistantReply(chatStore.messages ?? undefined)
@@ -151,7 +155,17 @@ export const useHomeAgent = defineStore(
 
     async function handleAgenticMessage(text: string): Promise<void> {
       promptStore.setModeOnly('chat')
-      await chatStore.generate(text)
+      const switchResult = await presetSwitching.switchPreset('Agentic', { skipModeSwitch: true })
+      console.log('[HomeAgent] switchPreset Agentic result:', switchResult)
+      conversations.markConversationAsHomeAgent(conversations.activeKey)
+      // Force aipg tools regardless of preset settings, in case switchPreset failed or
+      // the preset's toolsEnabledByDefault didn't apply correctly.
+      chatStore.forceAipgTools = true
+      try {
+        await chatStore.generate(text)
+      } finally {
+        chatStore.forceAipgTools = false
+      }
       if (!isHomeAgentActive.value) return
       const msgs = chatStore.messages ?? []
 

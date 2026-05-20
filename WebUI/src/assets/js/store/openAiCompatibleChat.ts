@@ -60,6 +60,7 @@ export type AipgMetadata = {
   timings?: z.infer<typeof LlamaCppRawValueTimingsSchema>
   ragSource?: string
   usage?: LanguageModelUsage
+  source?: 'homeAgent'
 }
 
 export type AipgUiMessage = UIMessage<AipgMetadata, UIDataTypes, AipgTools>
@@ -111,15 +112,23 @@ export const useOpenAiCompatibleChat = defineStore(
     }
 
     async function resolveTools(): Promise<ToolSet> {
-      if (!textInference.modelSupportsToolCalling) return {}
+      if (!textInference.modelSupportsToolCalling && !forceAipgTools.value) {
+        console.log('[resolveTools] modelSupportsToolCalling=false → no tools')
+        return {}
+      }
 
       const builtinTools = resolveBuiltinTools()
       const mcpTools = await resolveMcpTools()
-      return { ...builtinTools, ...mcpTools }
+      const combined = { ...builtinTools, ...mcpTools }
+      console.log('[resolveTools] resolved tools:', Object.keys(combined))
+      return combined
     }
 
     function resolveBuiltinTools(): ToolSet {
-      if (!textInference.aipgToolsEnabled) return {}
+      if (!textInference.aipgToolsEnabled && !forceAipgTools.value) {
+        console.log('[resolveBuiltinTools] aipgToolsEnabled=false → no builtin tools')
+        return {}
+      }
       return { ...aipgTools }
     }
 
@@ -501,6 +510,9 @@ export const useOpenAiCompatibleChat = defineStore(
     const messageInput = ref('')
     const fileInput = ref<FileUIPart[]>([])
     const temporarySystemPrompt = ref<string | null>(null)
+    // When true, builtin aipg tools are always included regardless of preset settings.
+    // Used by the Home Agent to force tool availability in agentic mode.
+    const forceAipgTools = ref(false)
 
     async function generate(question: string) {
       // 1. Ensure backend and models are ready
@@ -628,6 +640,7 @@ export const useOpenAiCompatibleChat = defineStore(
       usedTokens,
       messageInput,
       fileInput,
+      forceAipgTools,
       generate,
       stop,
       processing,

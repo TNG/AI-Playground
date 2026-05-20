@@ -1,7 +1,24 @@
 <template>
-  <div class="flex flex-col space-y-2 pr-3 h-full overflow-y-auto">
+  <div class="flex flex-col h-full min-h-0">
+    <!-- Filter tabs -->
+    <div class="flex gap-1 mb-3 pr-3 shrink-0">
+      <button
+        v-for="tab in tabs"
+        :key="tab.value"
+        @click="filterTab = tab.value"
+        class="flex-1 py-1 rounded text-xs font-medium transition-colors"
+        :class="
+          filterTab === tab.value
+            ? 'bg-primary text-primary-foreground'
+            : 'bg-muted text-muted-foreground hover:bg-muted/80'
+        "
+      >
+        {{ tab.label }}
+      </button>
+    </div>
+    <div class="flex flex-col space-y-2 pr-3 flex-1 overflow-y-auto">
     <div
-      v-for="key in reversedConversationKeys"
+      v-for="key in filteredConversationKeys"
       :key="key"
       class="flex flex-col items-center justify-between rounded-lg px-3 py-1 transition cursor-pointer border-2"
       :class="
@@ -99,6 +116,7 @@
       </div>
       <ThumbnailPreviewStrip :items="images(conversations.conversationList[key])" />
     </div>
+    </div>
   </div>
 </template>
 
@@ -140,6 +158,16 @@ const conversations = useConversations()
 const emits = defineEmits<{
   (e: 'conversationSelected'): void
 }>()
+
+type FilterTab = 'all' | 'chat' | 'homeAgent'
+
+const tabs: { value: FilterTab; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'chat', label: 'Chat' },
+  { value: 'homeAgent', label: 'Home Agent' },
+]
+
+const filterTab = ref<FilterTab>('all')
 
 const images = (conversation: AipgUiMessage[]) => {
   return conversation.flatMap((msg, msgIndex) =>
@@ -184,6 +212,14 @@ const reversedConversationKeys = computed(() => {
   const keys = Object.keys(list).reverse()
   console.log('Reversed conversation keys:', list, keys)
   return keys
+})
+
+const filteredConversationKeys = computed(() => {
+  if (filterTab.value === 'all') return reversedConversationKeys.value
+  return reversedConversationKeys.value.filter((key) => {
+    const isAgent = conversations.isHomeAgentConversation(key)
+    return filterTab.value === 'homeAgent' ? isAgent : !isAgent
+  })
 })
 
 const conversationTitle = (key: string) => {

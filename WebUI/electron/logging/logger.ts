@@ -3,6 +3,16 @@ import fs from 'fs'
 import path from 'node:path'
 import { app } from 'electron'
 
+const terminalSuppressPatterns: { source: string; pattern: RegExp }[] = [
+  { source: 'comfyui-backend', pattern: /^FETCH ComfyRegistry Data:/ },
+  { source: 'home-agent-backend', pattern: /^INFO:httpx:/ },
+  { source: 'home-agent-backend', pattern: /^INFO:werkzeug:/ },
+]
+
+function isSuppressedInTerminal(source: string, message: string): boolean {
+  return terminalSuppressPatterns.some((s) => s.source === source && s.pattern.test(message))
+}
+
 class Logger {
   webContents: WebContents | null = null
   private pathToLogFiles: string = path.resolve(
@@ -28,7 +38,9 @@ class Logger {
     if (alsoLogToFile) {
       this.logMessageToFile(message, source)
     }
-    console.info(`[${source}]: ${message}`)
+    if (!isSuppressedInTerminal(source, message)) {
+      console.info(`[${source}]: ${message}`)
+    }
     if (this.webContents) {
       try {
         this.webContents.send('debugLog', { level: 'info', source, message })
@@ -44,7 +56,9 @@ class Logger {
     if (alsoLogToFile) {
       this.logMessageToFile(message, source)
     }
-    console.warn(`[${source}]: ${message}`)
+    if (!isSuppressedInTerminal(source, message)) {
+      console.warn(`[${source}]: ${message}`)
+    }
     if (this.webContents) {
       try {
         this.webContents.send('debugLog', { level: 'warn', source, message })
@@ -60,8 +74,9 @@ class Logger {
     if (alsoLogToFile) {
       this.logMessageToFile(message, source)
     }
-
-    console.error(`[${source}]: ${message}`)
+    if (!isSuppressedInTerminal(source, message)) {
+      console.error(`[${source}]: ${message}`)
+    }
 
     if (this.webContents) {
       try {

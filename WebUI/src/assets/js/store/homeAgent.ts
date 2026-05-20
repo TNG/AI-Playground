@@ -158,14 +158,7 @@ export const useHomeAgent = defineStore(
       const switchResult = await presetSwitching.switchPreset('Agentic', { skipModeSwitch: true })
       console.log('[HomeAgent] switchPreset Agentic result:', switchResult)
       conversations.markConversationAsHomeAgent(conversations.activeKey)
-      // Force aipg tools regardless of preset settings, in case switchPreset failed or
-      // the preset's toolsEnabledByDefault didn't apply correctly.
-      chatStore.forceAipgTools = true
-      try {
-        await chatStore.generate(text)
-      } finally {
-        chatStore.forceAipgTools = false
-      }
+      await chatStore.generate(text)
       if (!isHomeAgentActive.value) return
       const msgs = chatStore.messages ?? []
 

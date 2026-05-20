@@ -450,22 +450,27 @@ export const useHomeAgent = defineStore(
       // generation can take a few seconds (3 sequential LLM calls worst case).
       await window.electronAPI.homeAgent.sendTelegramReply('🤔 Preparing recent chats…')
 
-      if (!(await ensureSummarizerReady())) return
+      const stopTyping = startTypingHeartbeat('typing')
+      try {
+        if (!(await ensureSummarizerReady())) return
 
-      const items: Array<{ key: string; label: string }> = []
-      for (const c of candidates) {
-        const summary = await summarizeConversation(c.key)
-        const label = c.isActive ? `${summary} (active)` : summary
-        items.push({ key: c.key, label })
+        const items: Array<{ key: string; label: string }> = []
+        for (const c of candidates) {
+          const summary = await summarizeConversation(c.key)
+          const label = c.isActive ? `${summary} (active)` : summary
+          items.push({ key: c.key, label })
+        }
+
+        const buttons = items.map((it) => [{ text: it.label, callbackData: `loadConv:${it.key}` }])
+
+        await window.electronAPI.homeAgent.sendTelegramKeyboard({
+          text: '📂 Pick a chat to resume:',
+          parseMode: 'HTML',
+          buttons,
+        })
+      } finally {
+        stopTyping()
       }
-
-      const buttons = items.map((it) => [{ text: it.label, callbackData: `loadConv:${it.key}` }])
-
-      await window.electronAPI.homeAgent.sendTelegramKeyboard({
-        text: '📂 Pick a chat to resume:',
-        parseMode: 'HTML',
-        buttons,
-      })
     }
 
     /** Cap on the number of /history entries that get AI-generated summaries.
@@ -501,36 +506,44 @@ export const useHomeAgent = defineStore(
         const cached = summaryCache.value[c.key]
         return !cached || cached.messageCount !== c.messageCount
       })
-      if (anyNeedsGen) {
-        await window.electronAPI.homeAgent.sendTelegramReply('🤔 Preparing chat history…')
-        if (!(await ensureSummarizerReady())) return
+
+      // Heartbeat is only meaningful while we're actually generating; cache-hit
+      // path is essentially instant.
+      const stopTyping = anyNeedsGen ? startTypingHeartbeat('typing') : () => {}
+      try {
+        if (anyNeedsGen) {
+          await window.electronAPI.homeAgent.sendTelegramReply('🤔 Preparing chat history…')
+          if (!(await ensureSummarizerReady())) return
+        }
+
+        const summaries: Record<string, string> = {}
+        for (const c of summaryTargets) {
+          summaries[c.key] = await summarizeConversation(c.key)
+        }
+
+        const lines = items.map((item, idx) => {
+          const marker = item.isActive ? ' • <i>(active)</i>' : ''
+          const summary = summaries[item.key] ?? '…'
+          const escapedSummary = escapeHtml(summary)
+          return `${idx + 1}. <code>${idx + 1}</code> — ${escapedSummary} (${item.messageCount} msg)${marker}`
+        })
+
+        const trimmedCount = Math.max(0, items.length - MAX_HISTORY_SUMMARIES)
+        const footer =
+          trimmedCount > 0
+            ? `\n\n…and <b>${trimmedCount}</b> older chat${trimmedCount === 1 ? '' : 's'} (no summary).`
+            : ''
+
+        await window.electronAPI.homeAgent.sendTelegramReply(
+          '📜 <b>Your Home Agent chats</b>\n\n' +
+            lines.join('\n') +
+            footer +
+            '\n\nResume one with <code>/load &lt;id&gt;</code> or just <code>/load</code> for a tap menu.',
+          'HTML',
+        )
+      } finally {
+        stopTyping()
       }
-
-      const summaries: Record<string, string> = {}
-      for (const c of summaryTargets) {
-        summaries[c.key] = await summarizeConversation(c.key)
-      }
-
-      const lines = items.map((item, idx) => {
-        const marker = item.isActive ? ' • <i>(active)</i>' : ''
-        const summary = summaries[item.key] ?? '…'
-        const escapedSummary = escapeHtml(summary)
-        return `${idx + 1}. <code>${idx + 1}</code> — ${escapedSummary} (${item.messageCount} msg)${marker}`
-      })
-
-      const trimmedCount = Math.max(0, items.length - MAX_HISTORY_SUMMARIES)
-      const footer =
-        trimmedCount > 0
-          ? `\n\n…and <b>${trimmedCount}</b> older chat${trimmedCount === 1 ? '' : 's'} (no summary).`
-          : ''
-
-      await window.electronAPI.homeAgent.sendTelegramReply(
-        '📜 <b>Your Home Agent chats</b>\n\n' +
-          lines.join('\n') +
-          footer +
-          '\n\nResume one with <code>/load &lt;id&gt;</code> or just <code>/load</code> for a tap menu.',
-        'HTML',
-      )
     }
 
     /**
@@ -585,16 +598,46 @@ export const useHomeAgent = defineStore(
       const targetKey = ensureActiveRemoteConversation()
       if (!(await ensureVisionCapableForImages(!!images?.length))) return
       const files = await prepareTelegramFiles(images)
-      await chatStore.generate(text, {
-        conversationKey: targetKey,
-        clearInputs: false,
-        files,
-      })
-      maybeSetHomeAgentConversationTitle(targetKey)
-      if (!isHomeAgentActive.value) return
-      const reply = extractAssistantReply(chatStore.getMessagesForKey(targetKey))
-      if (reply) {
-        await window.electronAPI.homeAgent.sendTelegramReply(markdownToTelegramHtml(reply), 'HTML')
+      const stopTyping = startTypingHeartbeat('typing')
+      try {
+        await chatStore.generate(text, {
+          conversationKey: targetKey,
+          clearInputs: false,
+          files,
+        })
+        maybeSetHomeAgentConversationTitle(targetKey)
+        if (!isHomeAgentActive.value) return
+        const reply = extractAssistantReply(chatStore.getMessagesForKey(targetKey))
+        if (reply) {
+          await window.electronAPI.homeAgent.sendTelegramReply(
+            markdownToTelegramHtml(reply),
+            'HTML',
+          )
+        }
+      } finally {
+        stopTyping()
+      }
+    }
+
+    /**
+     * Show a persistent Telegram "typing…" indicator while a long-running
+     * operation is in flight. Telegram chat actions auto-expire after ~5s
+     * on the client (per https://core.telegram.org/bots/api#sendchataction),
+     * so we fire one immediately and refresh every 4s until stopped.
+     *
+     * Returns a stop function — idempotent, safe to call from a `finally`.
+     */
+    function startTypingHeartbeat(action: string = 'typing'): () => void {
+      let stopped = false
+      void window.electronAPI.homeAgent.sendTelegramChatAction(action)
+      const intervalId = setInterval(() => {
+        if (stopped) return
+        void window.electronAPI.homeAgent.sendTelegramChatAction(action)
+      }, 4000)
+      return () => {
+        if (stopped) return
+        stopped = true
+        clearInterval(intervalId)
       }
     }
 
@@ -723,6 +766,9 @@ export const useHomeAgent = defineStore(
       const targetKey = ensureActiveRemoteConversation()
       if (!(await ensureVisionCapableForImages(!!images?.length))) return
       const files = await prepareTelegramFiles(images)
+      // Show "typing…" the moment we accept the turn — covers the silent
+      // window before the watcher has any reasoning/text/tool part to send.
+      const stopTyping = startTypingHeartbeat('typing')
       const flush = watchAndStreamToTelegram(targetKey)
       try {
         await chatStore.generate(text, {
@@ -732,6 +778,7 @@ export const useHomeAgent = defineStore(
         })
         maybeSetHomeAgentConversationTitle(targetKey)
       } finally {
+        stopTyping()
         if (isHomeAgentActive.value) {
           await flush()
         } else {
@@ -915,6 +962,9 @@ export const useHomeAgent = defineStore(
       }
 
       const previousMode = promptStore.getCurrentMode()
+      // `upload_photo` so Telegram shows "sending a photo…" rather than
+      // "typing…" during the ComfyUI render — matches the eventual delivery.
+      const stopTyping = startTypingHeartbeat('upload_photo')
 
       try {
         promptStore.setModeOnly('imageGen')
@@ -992,6 +1042,7 @@ export const useHomeAgent = defineStore(
 
         await waitAndSendAllImages(newImageIds, prompt)
       } finally {
+        stopTyping()
         promptStore.setModeOnly(previousMode)
       }
     }

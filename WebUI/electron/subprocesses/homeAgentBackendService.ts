@@ -318,6 +318,26 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
     }
   }
 
+  async sendTelegramChatAction(
+    action: string = 'typing',
+  ): Promise<{ success: boolean; error?: string }> {
+    if (this.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }
+    try {
+      const url = `${this.baseUrl}/send-telegram-chat-action`
+      const res = await net.fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+      if (res.ok) return { success: true }
+      return { success: false, error: await res.text() }
+    } catch (e) {
+      // Don't spam the log — heartbeat fires every 4s; if Telegram is briefly
+      // unreachable the next tick will retry.
+      return { success: false, error: String(e) }
+    }
+  }
+
   async sendTelegramKeyboard(opts: {
     text: string
     parseMode?: string
@@ -468,6 +488,9 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
     )
     ipcMain.handle('homeAgent:sendTelegramPhoto', (_event, imageBase64: string, caption?: string) =>
       this.sendTelegramPhoto(imageBase64, caption),
+    )
+    ipcMain.handle('homeAgent:sendTelegramChatAction', (_event, action?: string) =>
+      this.sendTelegramChatAction(action ?? 'typing'),
     )
     ipcMain.handle(
       'homeAgent:sendTelegramKeyboard',

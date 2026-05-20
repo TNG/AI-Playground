@@ -262,6 +262,33 @@ def send_telegram_photo():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.post("/send-telegram-chat-action")
+def send_telegram_chat_action():
+    """Show a chat action (typing, upload_photo, …) in the Telegram chat.
+
+    Body: { action: str } — defaults to "typing".
+
+    Telegram chat actions auto-expire after ~5s on the client, so callers
+    that want a persistent indicator must re-send every 4s for the duration
+    of the long-running operation. See
+    https://core.telegram.org/bots/api#sendchataction
+    """
+    data = request.get_json(silent=True) or {}
+    action = data.get("action") or "typing"
+    target = _outbound_chat_id()
+    if not _bot_application or _bot_application == "starting" or not _bot_loop or not target:
+        return jsonify({"error": "Telegram not configured"}), 400
+    try:
+        future = asyncio.run_coroutine_threadsafe(
+            _bot_application.bot.send_chat_action(chat_id=target, action=action),
+            _bot_loop,
+        )
+        future.result(timeout=10)
+        return jsonify({"status": "ok"})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.post("/send-telegram-keyboard")
 def send_telegram_keyboard():
     """Send a text reply with an InlineKeyboardMarkup attached.

@@ -362,6 +362,7 @@ type electronAPI = {
       imageBase64: string,
       caption?: string,
     ): Promise<{ success: boolean; error?: string }>
+    sendTelegramChatAction(action?: string): Promise<{ success: boolean; error?: string }>
     sendTelegramKeyboard(opts: {
       text: string
       parseMode?: string

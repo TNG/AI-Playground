@@ -647,6 +647,121 @@ export const useHomeAgent = defineStore(
     // inline markdown form would otherwise duplicate it on Telegram.
     const AIPG_IMAGE_MD_STRIP_RE = /!\[[^\]]*]\(aipg-media:\/\/[^)]+\)/g
 
+    // ── Draft streaming helper ────────────────────────────────────────────
+    // Wraps Telegram's sendMessageDraft (Bot API 9.5) for animated, in-place
+    // updates of a single message while it is being generated. See
+    // https://core.telegram.org/bots/api#sendmessagedraft.
+    //
+    // Behavior:
+    //   - 800 ms throttle, "latest text wins" coalescing, to stay under
+    //     Telegram's ~1 msg/sec/chat rate limit.
+    //   - 25 s keep-alive interval so the 30 s ephemeral preview window does
+    //     not lapse during slow phases (model downloads, custom-node installs).
+    //   - All draft sends are best-effort: failures are swallowed so a
+    //     transient Telegram outage never breaks the actual chat turn. The
+    //     final sendMessage (via sendTelegramReply, ie. finalize()) is the
+    //     canonical, persisted message — drafts are pure UX gravy.
+    const DRAFT_THROTTLE_MS = 800
+    const DRAFT_KEEPALIVE_MS = 25_000
+
+    function newDraftId(): number {
+      // Telegram requires a non-zero int draft_id; uniqueness is only needed
+      // across concurrent open drafts in the same chat. Date.now() & 0x7fffffff
+      // gives a stable monotonic 31-bit value that fits Python int and JS
+      // safe-int comfortably.
+      const id = Date.now() & 0x7fffffff
+      return id === 0 ? 1 : id
+    }
+
+    type DraftStream = {
+      update: (text: string) => void
+      finalize: (finalText: string, finalParseMode?: string) => Promise<void>
+      cancel: () => void
+    }
+
+    function createDraftStream(
+      draftId: number,
+      parseMode: 'HTML' | 'Markdown' = 'HTML',
+    ): DraftStream {
+      let lastSentText = ''
+      let pendingText = ''
+      let throttleTimerId: ReturnType<typeof setTimeout> | null = null
+      let keepAliveIntervalId: ReturnType<typeof setInterval> | null = null
+      let stopped = false
+
+      async function send(text: string): Promise<void> {
+        try {
+          await window.electronAPI.homeAgent.sendTelegramDraft({
+            draftId,
+            text,
+            parseMode,
+          })
+          lastSentText = text
+        } catch {
+          // Swallow — drafts are best-effort.
+        }
+      }
+
+      function scheduleSend(): void {
+        if (stopped || throttleTimerId !== null) return
+        throttleTimerId = setTimeout(() => {
+          throttleTimerId = null
+          if (stopped) return
+          if (pendingText !== lastSentText) void send(pendingText)
+        }, DRAFT_THROTTLE_MS)
+      }
+
+      function startKeepAlive(): void {
+        if (keepAliveIntervalId !== null) return
+        keepAliveIntervalId = setInterval(() => {
+          if (stopped) return
+          // Re-send the current text to extend the 30 s preview window.
+          void send(lastSentText || pendingText)
+        }, DRAFT_KEEPALIVE_MS)
+      }
+
+      function update(text: string): void {
+        if (stopped) return
+        pendingText = text
+        if (lastSentText === '' && text !== '') {
+          // First non-empty update: send immediately for low first-frame
+          // latency, and start the keep-alive so the preview survives long
+          // gaps between subsequent updates.
+          startKeepAlive()
+          void send(text)
+          return
+        }
+        scheduleSend()
+      }
+
+      function cancel(): void {
+        stopped = true
+        if (throttleTimerId !== null) {
+          clearTimeout(throttleTimerId)
+          throttleTimerId = null
+        }
+        if (keepAliveIntervalId !== null) {
+          clearInterval(keepAliveIntervalId)
+          keepAliveIntervalId = null
+        }
+      }
+
+      async function finalize(finalText: string, finalParseMode?: string): Promise<void> {
+        cancel()
+        if (!finalText) return
+        try {
+          await window.electronAPI.homeAgent.sendTelegramReply(
+            finalText,
+            finalParseMode ?? parseMode,
+          )
+        } catch (e) {
+          console.error('homeAgent: draft finalize sendTelegramReply failed:', e)
+        }
+      }
+
+      return { update, finalize, cancel }
+    }
+
     type RawPart = {
       type: string
       text?: string
@@ -657,14 +772,17 @@ export const useHomeAgent = defineStore(
 
     /**
      * Poll `chatStore.getMessagesForKey(targetKey)` every 250 ms during an
-     * agentic turn and forward each newly-completed reasoning / text / tool
-     * part to Telegram in order. A part is "ready to send" when either its
-     * own state flips to `done` / `output-available`, when a later part now
-     * exists (so the streaming part can no longer grow), or when generation
-     * has fully finished (`done` arg to the final `checkParts`).
+     * agentic turn and stream the in-flight assistant message to Telegram as a
+     * single animated draft (sendMessageDraft, Bot API 9.5). Reasoning, text,
+     * and tool-call phase markers are concatenated into one growing message
+     * that animates in place on the Telegram client, replacing the older
+     * per-part discrete-bubble flow.
      *
-     * Returns a `flush()` that stops the interval, drains any remaining
-     * parts, and awaits the in-flight send chain.
+     * Photos produced by ComfyUI tool calls (output-available) still ship as
+     * separate `sendPhoto` messages — drafts are text-only. On flush we
+     * finalize the draft with one persisted `sendMessage` carrying the
+     * canonical reply (reasoning + text parts; tool phase markers are dropped
+     * because the photo itself is the durable artifact of that step).
      *
      * Polling (vs. a Vue watcher) keeps this resilient to Pinia store
      * reactivity boundaries — when `chatStore.messages` is replaced wholesale
@@ -672,91 +790,99 @@ export const useHomeAgent = defineStore(
      * swap.
      */
     function watchAndStreamToTelegram(targetKey: string): () => Promise<void> {
-      const sentParts = new WeakSet<object>()
-      const sentToolNotice = new WeakSet<object>()
+      const sentImagesForPart = new WeakSet<object>()
       let sendChain: Promise<void> = Promise.resolve()
       let stopped = false
+      const draft = createDraftStream(newDraftId(), 'HTML')
 
-      function enqueue(fn: () => Promise<unknown>) {
+      function enqueueImage(fn: () => Promise<unknown>) {
         sendChain = sendChain
           .then(() => fn())
           .then(() => undefined)
-          .catch((e) => console.error('homeAgent stream send failed:', e))
+          .catch((e) => console.error('homeAgent stream image send failed:', e))
       }
 
-      function trySendPart(part: RawPart, isLastPart: boolean, done: boolean) {
-        if (sentParts.has(part as object)) return
-        const partDone = part.state === 'done' || !isLastPart || done
-
-        if (part.type === 'reasoning') {
-          const txt = (part.text ?? '').trim()
-          if (txt && partDone) {
-            sentParts.add(part as object)
-            enqueue(() => window.electronAPI.homeAgent.sendTelegramReply(`💭 ${txt}`))
-          }
-        } else if (part.type === 'text') {
-          const cleaned = (part.text ?? '').replace(AIPG_IMAGE_MD_STRIP_RE, '').trim()
-          if (cleaned && partDone) {
-            sentParts.add(part as object)
-            enqueue(() =>
-              window.electronAPI.homeAgent.sendTelegramReply(
-                markdownToTelegramHtml(cleaned),
-                'HTML',
-              ),
-            )
-          }
-        } else if (part.type === 'tool-comfyUI' || part.type === 'tool-comfyUiImageEdit') {
-          // As soon as the tool input is known, send a "generating" notice so
-          // the user sees activity during the (often 30-90 s) image render.
-          const inputKnown =
-            part.state === 'input-available' ||
-            part.state === 'output-available' ||
-            !isLastPart ||
-            done
-          if (inputKnown && !sentToolNotice.has(part as object)) {
+      function buildDraftText(parts: RawPart[]): string {
+        const lines: string[] = []
+        for (const part of parts) {
+          if (part.type === 'reasoning') {
+            const txt = (part.text ?? '').trim()
+            if (txt) lines.push(`💭 <i>${escapeHtml(txt)}</i>`)
+          } else if (part.type === 'text') {
+            const cleaned = (part.text ?? '').replace(AIPG_IMAGE_MD_STRIP_RE, '').trim()
+            if (cleaned) lines.push(markdownToTelegramHtml(cleaned))
+          } else if (part.type === 'tool-comfyUI' || part.type === 'tool-comfyUiImageEdit') {
             const { workflow, prompt } = part.input ?? {}
-            if (workflow || prompt) {
-              sentToolNotice.add(part as object)
-              const lines: string[] = []
-              if (workflow) lines.push(`🎨 Generating using the preset *${workflow}*`)
-              if (prompt) lines.push(`_${prompt}_`)
-              const notice = lines.join('\n\n')
-              enqueue(() => window.electronAPI.homeAgent.sendTelegramReply(notice, 'Markdown'))
-            }
+            if (!workflow && !prompt) continue
+            const phase = part.state === 'output-available' ? '✅' : '🎨'
+            const titleBase = workflow
+              ? `Generating using preset <i>${escapeHtml(workflow)}</i>`
+              : 'Generating image'
+            const noticeLines = [`${phase} ${titleBase}`]
+            if (prompt) noticeLines.push(`<i>${escapeHtml(prompt)}</i>`)
+            lines.push(noticeLines.join('\n'))
           }
-          if (part.state === 'output-available' && part.output?.images) {
-            sentParts.add(part as object)
-            const images = part.output.images.filter(
+        }
+        return lines.join('\n\n')
+      }
+
+      function buildFinalText(parts: RawPart[]): string {
+        const lines: string[] = []
+        for (const part of parts) {
+          if (part.type === 'reasoning') {
+            const txt = (part.text ?? '').trim()
+            if (txt) lines.push(`💭 <i>${escapeHtml(txt)}</i>`)
+          } else if (part.type === 'text') {
+            const cleaned = (part.text ?? '').replace(AIPG_IMAGE_MD_STRIP_RE, '').trim()
+            if (cleaned) lines.push(markdownToTelegramHtml(cleaned))
+          }
+        }
+        return lines.join('\n\n')
+      }
+
+      function shipPendingImages(parts: RawPart[]) {
+        for (const part of parts) {
+          if (part.type !== 'tool-comfyUI' && part.type !== 'tool-comfyUiImageEdit') continue
+          if (part.state !== 'output-available') continue
+          if (sentImagesForPart.has(part as object)) continue
+          sentImagesForPart.add(part as object)
+          const images =
+            part.output?.images?.filter(
               (i): i is { type: string; imageUrl: string } =>
                 i.type === 'image' && typeof i.imageUrl === 'string',
-            )
-            enqueue(async () => {
-              for (const img of images) {
-                await sendImageToTelegram(img.imageUrl, '')
-              }
-            })
-          }
+            ) ?? []
+          if (images.length === 0) continue
+          enqueueImage(async () => {
+            for (const img of images) {
+              await sendImageToTelegram(img.imageUrl, '')
+            }
+          })
         }
       }
 
-      function checkParts(done: boolean) {
+      function tick() {
         const msgs = chatStore.getMessagesForKey(targetKey) ?? []
         const lastAssistant = [...msgs].reverse().find((m) => m.role === 'assistant')
         if (!lastAssistant) return
         const parts = lastAssistant.parts as RawPart[]
-        for (let i = 0; i < parts.length; i++) {
-          trySendPart(parts[i], i === parts.length - 1, done)
-        }
+        const draftText = buildDraftText(parts)
+        if (draftText) draft.update(draftText)
+        shipPendingImages(parts)
       }
 
       const intervalId = setInterval(() => {
-        if (!stopped) checkParts(false)
+        if (!stopped) tick()
       }, 250)
 
       return async function flush() {
         stopped = true
         clearInterval(intervalId)
-        checkParts(true)
+        const msgs = chatStore.getMessagesForKey(targetKey) ?? []
+        const lastAssistant = [...msgs].reverse().find((m) => m.role === 'assistant')
+        const parts = (lastAssistant?.parts as RawPart[] | undefined) ?? []
+        shipPendingImages(parts)
+        const finalText = buildFinalText(parts)
+        await draft.finalize(finalText, 'HTML')
         await sendChain
       }
     }
@@ -948,6 +1074,34 @@ export const useHomeAgent = defineStore(
     }
 
     /**
+     * Map the live ComfyUI/imageGen state machine to a one-line phase string
+     * for the draft preview. Driven on a 500 ms interval inside
+     * `runImgGenWithPreset` so the user sees animated transitions through
+     * `install_workflow_components` → `load_*` → `generating N/M` → photo.
+     */
+    function imgGenPhaseText(presetName: string): string {
+      const state = imageGenStore.currentState
+      const step = imageGenStore.stepText
+      switch (state) {
+        case 'install_workflow_components':
+          return '🛠 Installing workflow components…'
+        case 'load_workflow_components':
+          return '🧠 Loading workflow components…'
+        case 'load_model':
+        case 'load_model_components':
+          return '🎨 Loading model…'
+        case 'generating':
+          return step ? `✨ ${escapeHtml(step)}` : '✨ Generating…'
+        case 'image_out':
+          return '🖼 Finalizing image…'
+        case 'error':
+        case 'no_start':
+        default:
+          return `🎬 Preparing <i>${escapeHtml(presetName)}</i>…`
+      }
+    }
+
+    /**
      * Generate an image using the named preset and the given prompt. Reused by
      * both the cached-prompt fast-path (preset tap with prompt already supplied)
      * and the awaitingPrompt → free-text path (preset tap, then prompt arrives).
@@ -965,6 +1119,24 @@ export const useHomeAgent = defineStore(
       // `upload_photo` so Telegram shows "sending a photo…" rather than
       // "typing…" during the ComfyUI render — matches the eventual delivery.
       const stopTyping = startTypingHeartbeat('upload_photo')
+
+      // Phase-aware draft. Drafts auto-expire 30 s after the last update, so
+      // the keep-alive timer inside `createDraftStream` covers the gap between
+      // ComfyUI state transitions during long model loads.
+      const draft = createDraftStream(newDraftId(), 'HTML')
+      let phaseStopped = false
+      const updateDraftPhase = () => {
+        if (phaseStopped) return
+        draft.update(imgGenPhaseText(presetName))
+      }
+      updateDraftPhase()
+      const phaseIntervalId = setInterval(updateDraftPhase, 500)
+      const stopDraft = () => {
+        if (phaseStopped) return
+        phaseStopped = true
+        clearInterval(phaseIntervalId)
+        draft.cancel()
+      }
 
       try {
         promptStore.setModeOnly('imageGen')
@@ -1042,6 +1214,7 @@ export const useHomeAgent = defineStore(
 
         await waitAndSendAllImages(newImageIds, prompt)
       } finally {
+        stopDraft()
         stopTyping()
         promptStore.setModeOnly(previousMode)
       }

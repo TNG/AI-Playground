@@ -262,6 +262,53 @@ def send_telegram_photo():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.post("/send-telegram-draft")
+def send_telegram_draft():
+    """Stream a partial message via Telegram's sendMessageDraft.
+
+    Body: { draft_id: int (required, non-zero), text?: str, parse_mode?: str }
+
+    Drafts with the same `draft_id` animate in place on the Telegram client. Each
+    draft is ephemeral for ~30 seconds — callers must either re-issue this call
+    (keep-alive) or finalize with `/send-telegram-reply` before the window
+    expires. Drafts target private chats only; we use the bot's allowed chat id.
+
+    See https://core.telegram.org/bots/api#sendmessagedraft.
+    """
+    data = request.get_json(silent=True) or {}
+    raw_draft_id = data.get("draft_id")
+    text = data.get("text", "") or ""
+    parse_mode = data.get("parse_mode") or None
+    try:
+        draft_id = int(raw_draft_id) if raw_draft_id is not None else 0
+    except (TypeError, ValueError):
+        return jsonify({"error": "draft_id must be a non-zero integer"}), 400
+    if draft_id == 0:
+        return jsonify({"error": "draft_id must be a non-zero integer"}), 400
+    target = _outbound_chat_id()
+    if not _bot_application or _bot_application == "starting" or not _bot_loop or not target:
+        return jsonify({"error": "Telegram not configured"}), 400
+    try:
+        # Telegram requires `chat_id` as int for sendMessageDraft (private chats only).
+        try:
+            chat_id_int = int(target)
+        except (TypeError, ValueError):
+            return jsonify({"error": "Configured chat id is not numeric"}), 400
+        future = asyncio.run_coroutine_threadsafe(
+            _bot_application.bot.send_message_draft(
+                chat_id=chat_id_int,
+                draft_id=draft_id,
+                text=text,
+                parse_mode=parse_mode,
+            ),
+            _bot_loop,
+        )
+        future.result(timeout=10)
+        return jsonify({"status": "ok"})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.post("/send-telegram-chat-action")
 def send_telegram_chat_action():
     """Show a chat action (typing, upload_photo, …) in the Telegram chat.

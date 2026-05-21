@@ -363,6 +363,11 @@ type electronAPI = {
       caption?: string,
     ): Promise<{ success: boolean; error?: string }>
     sendTelegramChatAction(action?: string): Promise<{ success: boolean; error?: string }>
+    sendTelegramDraft(opts: {
+      draftId: number
+      text?: string
+      parseMode?: string
+    }): Promise<{ success: boolean; error?: string }>
     sendTelegramKeyboard(opts: {
       text: string
       parseMode?: string

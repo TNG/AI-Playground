@@ -318,6 +318,33 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
     }
   }
 
+  async sendTelegramDraft(opts: {
+    draftId: number
+    text?: string
+    parseMode?: string
+  }): Promise<{ success: boolean; error?: string }> {
+    if (this.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }
+    try {
+      const url = `${this.baseUrl}/send-telegram-draft`
+      const body = {
+        draft_id: opts.draftId,
+        text: opts.text ?? '',
+        ...(opts.parseMode ? { parse_mode: opts.parseMode } : {}),
+      }
+      const res = await net.fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (res.ok) return { success: true }
+      return { success: false, error: await res.text() }
+    } catch (e) {
+      // Drafts are ephemeral UX gravy — log nothing on transient failures so a
+      // brief Telegram outage doesn't spam the console during a streaming turn.
+      return { success: false, error: String(e) }
+    }
+  }
+
   async sendTelegramChatAction(
     action: string = 'typing',
   ): Promise<{ success: boolean; error?: string }> {
@@ -491,6 +518,11 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
     )
     ipcMain.handle('homeAgent:sendTelegramChatAction', (_event, action?: string) =>
       this.sendTelegramChatAction(action ?? 'typing'),
+    )
+    ipcMain.handle(
+      'homeAgent:sendTelegramDraft',
+      (_event, opts: { draftId: number; text?: string; parseMode?: string }) =>
+        this.sendTelegramDraft(opts),
     )
     ipcMain.handle(
       'homeAgent:sendTelegramKeyboard',

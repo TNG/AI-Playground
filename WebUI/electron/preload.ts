@@ -231,6 +231,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('homeAgent:sendTelegramPhoto', imageBase64, caption),
     sendTelegramChatAction: (action?: string) =>
       ipcRenderer.invoke('homeAgent:sendTelegramChatAction', action),
+    sendTelegramDraft: (opts: { draftId: number; text?: string; parseMode?: string }) =>
+      ipcRenderer.invoke('homeAgent:sendTelegramDraft', opts),
     sendTelegramKeyboard: (opts: {
       text: string
       parseMode?: string

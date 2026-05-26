@@ -462,7 +462,8 @@ export const useSetupWizard = defineStore('setupWizard', () => {
           backendServices.phisonSsdDetected &&
           !info.isSetUp &&
           !(info.llamaCppPhisonArtifactReady ?? false) &&
-          !(info.llamaCppStandardArtifactReady ?? false)
+          !(info.llamaCppStandardArtifactReady ?? false) &&
+          backendServices.llamaCppBuildVariant !== 'ssd-offload'
         ) {
           continue
         }

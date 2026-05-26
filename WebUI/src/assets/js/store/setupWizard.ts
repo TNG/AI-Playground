@@ -108,6 +108,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   const disabledBackends = ref(new Set<BackendServiceName>())
   const wizardDirty = ref(false)
   const wizardPage = ref<'main' | 'homeAgentSetup'>('main')
+  const homeAgentSetupOrigin = ref<'install' | 'edit'>('install')
 
   const wizardActivity = ref(new Map<BackendServiceName, string>())
 
@@ -565,6 +566,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       null
     seedInstallSelection()
     wizardDirty.value = false
+    homeAgentSetupOrigin.value = 'edit'
     wizardPage.value = 'homeAgentSetup'
     globalSetup.loadingState = 'setupWizard'
   }
@@ -675,9 +677,10 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       if (anyFailed) return
     }
 
-    if (homeAgent.isFeatureEnabled) {
+    if (homeAgent.isFeatureEnabled && !homeAgent.telegramVerified) {
       const homeAgentJustInstalled = toInstall.some((r) => r.serviceName === 'home-agent-backend')
       if (homeAgentJustInstalled || isHomeAgentInstalledAndActive()) {
+        homeAgentSetupOrigin.value = 'install'
         wizardPage.value = 'homeAgentSetup'
         return
       }
@@ -779,6 +782,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     installSelection,
     wizardDirty,
     wizardPage,
+    homeAgentSetupOrigin,
     backendRows,
     isBusy,
     rowsNeedingInstall,

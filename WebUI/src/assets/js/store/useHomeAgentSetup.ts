@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 import { useHomeAgent } from './homeAgent'
 import { useConversations } from './conversations'
+import * as toast from '@/assets/js/toast'
 
 const DETECT_POLL_INTERVAL_MS = 2000
 const DETECT_TIMEOUT_MS = 5000
@@ -157,15 +158,22 @@ export function useHomeAgentSetup() {
     }
   }
 
-  async function saveAndContinue() {
+  async function saveAndContinue(): Promise<boolean> {
     const token = tokenInput.value.trim()
     const chatId = detectedChatId.value || homeAgent.telegramChatId || ''
+    let success = true
     try {
       if (token && chatId) {
         // Preserve verified state across the save — if the user already verified
         // (either in this session or a previous one), keep it true.
         const wasVerified = homeAgent.telegramVerified
-        await homeAgent.saveConfig(token, chatId)
+        try {
+          await homeAgent.saveConfig(token, chatId)
+        } catch (e) {
+          console.error('saveAndContinue: failed to save Home Agent config:', e)
+          toast.error('Failed to save Home Agent configuration')
+          return false
+        }
         if (wasVerified) {
           homeAgent.setVerified()
         }
@@ -173,15 +181,16 @@ export function useHomeAgentSetup() {
           await window.electronAPI.homeAgent.injectToken(token, chatId)
         } catch (e) {
           console.error('saveAndContinue: injectToken failed:', e)
+          toast.error('Saved config, but failed to apply token to the running service')
+          success = false
         }
       }
-    } catch (e) {
-      console.error('saveAndContinue: failed to save Home Agent config:', e)
     } finally {
       // Clear the active conversation so the message sent during detection
       // isn't picked up as the first user prompt in Home Agent mode.
       conversations.addNewConversation()
     }
+    return success
   }
 
   /** Rehydrate local setup UI from Pinia + safeStorage (e.g. after revisiting the wizard). */

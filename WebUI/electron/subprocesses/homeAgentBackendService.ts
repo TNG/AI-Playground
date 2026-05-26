@@ -131,7 +131,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
     const apiProcess = spawn(pythonBinary, ['web_api.py', '--port', this.port.toString()], {
       cwd: this.serviceDir,
       windowsHide: true,
-      env: Object.assign(process.env, additionalEnvVariables),
+      env: { ...process.env, ...additionalEnvVariables },
     })
 
     const didProcessExitEarlyTracker = new Promise<boolean>((resolve, _reject) => {
@@ -407,7 +407,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
     try {
       const cleanToken = token.trim().replace(/\s+/g, '')
       this.appLogger.info(
-        `detectChatId token length=${cleanToken.length} preview="${cleanToken.slice(0, 10)}..."`,
+        `detectChatId token provided: ${cleanToken ? 'yes' : 'no'} (length=${cleanToken.length})`,
         this.name,
       )
       const meRes = await net.fetch(`https://api.telegram.org/bot${cleanToken}/getMe`)

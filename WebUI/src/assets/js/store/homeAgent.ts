@@ -401,6 +401,14 @@ export const useHomeAgent = defineStore(
      */
     async function ensureSummarizerReady(): Promise<boolean> {
       const textInference = useTextInference()
+      // Snapshot the user's currently selected desktop preset/variant so we can
+      // restore them after we transiently switch to the Home Agent preset for
+      // summarization. Without this, calls like `/history` from Telegram would
+      // permanently overwrite the desktop session's preset.
+      const previousPreset = presetsStore.activePresetName
+      const previousVariant = previousPreset
+        ? (presetsStore.activeVariantName[previousPreset] ?? null)
+        : null
       textInference.applyPresetToGlobals(HOME_AGENT_CHAT_PRESET_NAME, null)
       try {
         await textInference.ensureReadyForInference()
@@ -411,6 +419,14 @@ export const useHomeAgent = defineStore(
           '⚠️ Could not prepare the model to summarize chats. Try again later.',
         )
         return false
+      } finally {
+        if (previousPreset && previousPreset !== HOME_AGENT_CHAT_PRESET_NAME) {
+          try {
+            textInference.applyPresetToGlobals(previousPreset, previousVariant)
+          } catch (e) {
+            console.error('homeAgent: failed to restore previous preset:', e)
+          }
+        }
       }
     }
 
@@ -916,8 +932,7 @@ export const useHomeAgent = defineStore(
         // Same guard as `tick()`: if the stream produced no new assistant (e.g.
         // it errored before any chunk arrived), the prior turn's assistant is
         // still on top — do not finalize with its content.
-        const isStaleAssistant =
-          !lastAssistant || lastAssistant.id === preExistingAssistantId
+        const isStaleAssistant = !lastAssistant || lastAssistant.id === preExistingAssistantId
         const parts = isStaleAssistant ? [] : (lastAssistant!.parts as RawPart[])
         shipPendingImages(parts)
         const finalText = buildFinalText(parts)

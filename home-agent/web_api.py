@@ -94,6 +94,12 @@ _bot_loop: asyncio.AbstractEventLoop | None = None
 _bot_token: str = ""
 _bot_chat_id: str = ""
 _bot_start_lock = threading.Lock()
+# Set inside _start_telegram_bot.run(); awaited there to keep the bot alive.
+# Triggering it from another thread (via call_soon_threadsafe) requests a
+# graceful shutdown so a new token/chat_id can be applied without restarting
+# the Flask process.
+_bot_shutdown_event: asyncio.Event | None = None
+_bot_thread: threading.Thread | None = None
 
 # Persistent chat ID file — survives restarts
 _CHAT_ID_FILE = Path(__file__).parent / ".chat_id"
@@ -148,28 +154,55 @@ def set_upstream():
 
 @app.post("/set-telegram-token")
 def set_telegram_token():
-    """Inject bot token at runtime to start the polling bot without restart."""
-    global _bot_application, _allowed_chat_id, _bot_chat_id
+    """Inject bot token at runtime to start the polling bot without restart.
+
+    If a bot is already running with a different token, gracefully stop it and
+    start a new one so reconfiguration takes effect without a Flask restart.
+    """
+    global _bot_application, _allowed_chat_id, _bot_chat_id, _bot_thread
     data = request.get_json(silent=True) or {}
     token = data.get("token", "").strip()
     raw_chat = data.get("chatId")
     cleaned_chat = str(raw_chat).strip() if raw_chat is not None and str(raw_chat).strip() else ""
     if not token:
         return jsonify({"error": "token required"}), 400
+
+    thread_to_join: threading.Thread | None = None
     with _bot_start_lock:
-        if _bot_application is not None and _bot_application != "starting":
-            # Bot already running (e.g. started in "detection" mode with empty chat).
-            # Apply chat id so incoming messages are queued — without this, users stay
-            # stuck in detection mode forever after Detect + verify.
-            if cleaned_chat:
-                _allowed_chat_id = cleaned_chat
-                _bot_chat_id = cleaned_chat
-                logger.info("Telegram bot already running — applied chat_id=%s", cleaned_chat)
-            return jsonify({"status": "already_running", "chatUpdated": bool(cleaned_chat)})
         if _bot_application == "starting":
             return jsonify({"status": "starting"}), 409
+        if _bot_application is not None:
+            if _bot_token == token:
+                # Same token — just apply chat id so incoming messages are queued.
+                # Without this, users stay stuck in detection mode forever after
+                # Detect + verify.
+                if cleaned_chat:
+                    _allowed_chat_id = cleaned_chat
+                    _bot_chat_id = cleaned_chat
+                    logger.info(
+                        "Telegram bot already running — applied chat_id=%s", cleaned_chat
+                    )
+                return jsonify({"status": "already_running", "chatUpdated": bool(cleaned_chat)})
+            # Token changed — request graceful shutdown and restart with the new token.
+            logger.info("Telegram bot token changed — restarting bot")
+            loop = _bot_loop
+            ev = _bot_shutdown_event
+            if loop is not None and ev is not None:
+                try:
+                    loop.call_soon_threadsafe(ev.set)
+                except Exception as exc:
+                    logger.warning("Could not signal bot shutdown: %s", exc)
+            thread_to_join = _bot_thread
         _bot_application = "starting"  # sentinel: blocks concurrent requests
+
+    # Wait for old bot thread to finish outside the lock (best-effort, bounded).
+    if thread_to_join is not None and thread_to_join.is_alive():
+        thread_to_join.join(timeout=10)
+        if thread_to_join.is_alive():
+            logger.warning("Previous Telegram bot thread did not exit within 10s")
+
     t = threading.Thread(target=_start_telegram_bot, args=(token, cleaned_chat), daemon=True)
+    _bot_thread = t
     t.start()
     logger.info("Started Telegram bot via /set-telegram-token")
     return jsonify({"status": "started"})
@@ -710,8 +743,9 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
             )
 
     async def run() -> None:
-        global _bot_application, _bot_loop, _last_seen_chat_id
+        global _bot_application, _bot_loop, _last_seen_chat_id, _bot_shutdown_event
         _bot_loop = asyncio.get_event_loop()
+        _bot_shutdown_event = asyncio.Event()
         application = Application.builder().token(token).build()
         _bot_application = application
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -781,7 +815,23 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
             logger.warning("Could not pre-populate chat_id: %s", exc)
 
         await application.updater.start_polling(drop_pending_updates=False)
-        await asyncio.Event().wait()
+        try:
+            await _bot_shutdown_event.wait()
+        finally:
+            # Graceful shutdown so a new token can take effect without
+            # restarting the Flask process.
+            try:
+                await application.updater.stop()
+            except Exception as exc:
+                logger.warning("application.updater.stop() failed: %s", exc)
+            try:
+                await application.stop()
+            except Exception as exc:
+                logger.warning("application.stop() failed: %s", exc)
+            try:
+                await application.shutdown()
+            except Exception as exc:
+                logger.warning("application.shutdown() failed: %s", exc)
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -790,7 +840,14 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
         loop.run_until_complete(run())
     except Exception as exc:
         logger.error("Telegram bot crashed: %s", exc)
+    finally:
         _bot_application = None  # allow retry
+        _bot_loop = None
+        _bot_shutdown_event = None
+        try:
+            loop.close()
+        except Exception:
+            pass
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

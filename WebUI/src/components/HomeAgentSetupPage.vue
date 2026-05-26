@@ -221,7 +221,11 @@
         <button
           :disabled="!canSave"
           class="bg-primary py-2 px-8 rounded text-primary-foreground text-sm font-medium disabled:opacity-50 transition-colors"
-          @click="saveAndContinue().then(() => emit('done'))"
+          @click="
+            saveAndContinue().then((ok) => {
+              if (ok) emit('done')
+            })
+          "
         >
           {{ isEditMode ? 'Save' : 'Save &amp; Continue' }}
         </button>

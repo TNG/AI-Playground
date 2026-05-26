@@ -2049,17 +2049,16 @@ app.whenReady().then(async () => {
 
     initEventHandle()
 
-    // Custom protocol docking is file protocol
+    // Custom protocol docking is file protocol.
+    // Use the shared `getLocalPathFromAipgMediaUrl` helper so the protocol
+    // handler enforces the same path-traversal containment as the IPC reader
+    // — without it, crafted `aipg-media://../...` URLs could escape `mediaDir`.
     protocol.handle('aipg-media', async (request) => {
-      const decodedUrl = decodeURIComponent(
-        request.url.replace(new RegExp(`^aipg-media://`, 'i'), '/'),
-      )
-
-      const fullPath = path.join(mediaDir, decodedUrl)
-
-      const normalizedPath = path.normalize(fullPath.replace(/(\/|\\)$/, ''))
-      const response = await net.fetch(pathToFileURL(normalizedPath).href)
-      return response
+      const safePath = getLocalPathFromAipgMediaUrl(request.url)
+      if (!safePath) {
+        return new Response('Not Found', { status: 404 })
+      }
+      return await net.fetch(pathToFileURL(safePath).href)
     })
     const window = await createWindow()
     await initServiceRegistry(window, settings)

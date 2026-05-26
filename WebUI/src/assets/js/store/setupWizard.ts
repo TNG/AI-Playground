@@ -21,9 +21,7 @@ const ALL_BACKENDS: BackendServiceName[] = [
 ]
 
 function getBackends(homeAgentEnabled: boolean): BackendServiceName[] {
-  return homeAgentEnabled
-    ? ALL_BACKENDS
-    : ALL_BACKENDS.filter((b) => b !== 'home-agent-backend')
+  return homeAgentEnabled ? ALL_BACKENDS : ALL_BACKENDS.filter((b) => b !== 'home-agent-backend')
 }
 
 function isBackendAvailableInProductMode(
@@ -680,6 +678,10 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     if (homeAgent.isFeatureEnabled && !homeAgent.telegramVerified) {
       const homeAgentJustInstalled = toInstall.some((r) => r.serviceName === 'home-agent-backend')
       if (homeAgentJustInstalled || isHomeAgentInstalledAndActive()) {
+        // Sync presets *before* swapping the wizard page so the Home Agent setup
+        // step (and anything downstream of it) sees a consistent preset list
+        // that reflects the just-installed backend.
+        await syncPresetsForCurrentProductMode()
         homeAgentSetupOrigin.value = 'install'
         wizardPage.value = 'homeAgentSetup'
         return
@@ -765,6 +767,16 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     speechToText.initialize()
   }
 
+  /**
+   * Finish the Home Agent setup step and close the wizard. Mirrors the normal
+   * install path which calls `dismiss()` followed by `syncPresetsForCurrentProductMode()`,
+   * so leaving the wizard via Home Agent setup also refreshes preset state.
+   */
+  async function finishHomeAgentSetup() {
+    await dismiss()
+    await syncPresetsForCurrentProductMode()
+  }
+
   function showErrorModal(serviceName: BackendServiceName) {
     errorModalServiceName.value = serviceName
     errorModalDetails.value = backendServices.getServiceErrorDetails(serviceName)
@@ -804,6 +816,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     phisonAidaptivRow,
     commitAndInstall,
     dismiss,
+    finishHomeAgentSetup,
     installBackend,
     repairBackend,
     restartBackend,

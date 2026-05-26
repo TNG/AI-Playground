@@ -28,9 +28,13 @@ def proxy_chat_completions(upstream_url: str, flask_request: Request) -> Respons
     except Exception:
         stream = False
 
+    # 10 s connect timeout. Streaming requests keep an open read timeout so long
+    # generations don't get cut off mid-stream; non-streaming requests cap the
+    # read at 5 minutes so a stalled upstream cannot block the proxy forever.
+    timeout = (10, None) if stream else (10, 300)
     try:
         upstream_resp = requests.post(
-            target, data=body, headers=headers, stream=stream, timeout=(10, None)  # 10 s connect, no read timeout for streaming
+            target, data=body, headers=headers, stream=stream, timeout=timeout
         )
     except requests.exceptions.ConnectionError as exc:
         return jsonify({"error": f"Cannot reach upstream: {exc}"}), 502

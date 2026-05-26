@@ -460,7 +460,9 @@ export const useSetupWizard = defineStore('setupWizard', () => {
         if (
           serviceName === 'llamacpp-backend' &&
           backendServices.phisonSsdDetected &&
-          !info.isSetUp
+          !info.isSetUp &&
+          !(info.llamaCppPhisonArtifactReady ?? false) &&
+          !(info.llamaCppStandardArtifactReady ?? false)
         ) {
           continue
         }

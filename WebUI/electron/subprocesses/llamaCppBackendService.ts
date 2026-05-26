@@ -1299,7 +1299,7 @@ export class LlamaCppBackendService implements ApiService {
   }
 
   private async waitForServerReady(healthUrl: string, process: ChildProcess): Promise<void> {
-    const maxAttempts = 120
+    const maxAttempts = this.llamaCppBuildVariant === 'ssd-offload' ? 500 : 120
     const delayMs = 1000
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {

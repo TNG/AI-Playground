@@ -21,10 +21,10 @@
     @scroll="handleScroll"
   >
     <div
-      class="absolute inset-0 flex justify-center items-center bg-background/30 z-10"
+      class="sticky top-0 z-10 flex justify-center items-center bg-background/80 backdrop-blur-sm rounded-md py-4 px-6 mx-auto w-full max-w-md shadow-md"
       v-if="textInference.isPreparingBackend"
     >
-      <loading-bar :text="textInference.preparationMessage" class="w-512px"></loading-bar>
+      <loading-bar :text="textInference.preparationMessage" class="w-full"></loading-bar>
     </div>
 
     <!-- eslint-disable vue/require-v-for-key -->

@@ -663,6 +663,13 @@ export const useHomeAgent = defineStore(
     //     canonical, persisted message — drafts are pure UX gravy.
     const DRAFT_THROTTLE_MS = 800
     const DRAFT_KEEPALIVE_MS = 25_000
+    // Telegram only refreshes the 30 s draft preview window when the text
+    // actually changes between updates — identical sendMessageDraft calls are
+    // no-ops. During quiet phases (LLM paused on a tool call, ComfyUI mid-
+    // render) we'd otherwise watch the preamble expire mid-turn. Appending a
+    // rotating Braille spinner per keep-alive guarantees the payload differs
+    // and incidentally gives the user a small "still working" indicator.
+    const DRAFT_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
     function newDraftId(): number {
       // Telegram requires a non-zero int draft_id; uniqueness is only needed
@@ -683,20 +690,26 @@ export const useHomeAgent = defineStore(
       draftId: number,
       parseMode: 'HTML' | 'Markdown' = 'HTML',
     ): DraftStream {
-      let lastSentText = ''
-      let pendingText = ''
+      // `baseText` is the current authoritative content (no spinner suffix).
+      // `lastSentVariant` is whatever string was last POSTed to Telegram —
+      // possibly with a spinner appended by the keep-alive timer. Tracking
+      // them separately stops keep-alive's spinner from spuriously
+      // invalidating the throttle's "no real change" check on the next tick.
+      let baseText = ''
+      let lastSentVariant = ''
       let throttleTimerId: ReturnType<typeof setTimeout> | null = null
       let keepAliveIntervalId: ReturnType<typeof setInterval> | null = null
       let stopped = false
+      let spinnerFrame = 0
 
-      async function send(text: string): Promise<void> {
+      async function send(variant: string): Promise<void> {
         try {
           await window.electronAPI.homeAgent.sendTelegramDraft({
             draftId,
-            text,
+            text: variant,
             parseMode,
           })
-          lastSentText = text
+          lastSentVariant = variant
         } catch {
           // Swallow — drafts are best-effort.
         }
@@ -706,24 +719,28 @@ export const useHomeAgent = defineStore(
         if (stopped || throttleTimerId !== null) return
         throttleTimerId = setTimeout(() => {
           throttleTimerId = null
-          if (stopped) return
-          if (pendingText !== lastSentText) void send(pendingText)
+          if (stopped || !baseText) return
+          if (baseText !== lastSentVariant) void send(baseText)
         }, DRAFT_THROTTLE_MS)
       }
 
       function startKeepAlive(): void {
         if (keepAliveIntervalId !== null) return
         keepAliveIntervalId = setInterval(() => {
-          if (stopped) return
-          // Re-send the current text to extend the 30 s preview window.
-          void send(lastSentText || pendingText)
+          if (stopped || !baseText) return
+          const frame = DRAFT_SPINNER_FRAMES[spinnerFrame % DRAFT_SPINNER_FRAMES.length]
+          spinnerFrame++
+          void send(`${baseText} ${frame}`)
         }, DRAFT_KEEPALIVE_MS)
       }
 
       function update(text: string): void {
         if (stopped) return
-        pendingText = text
-        if (lastSentText === '' && text !== '') {
+        // Skip no-op updates so the throttle isn't reset by every poll tick
+        // when the source content has not actually advanced.
+        if (text === baseText) return
+        baseText = text
+        if (lastSentVariant === '' && text !== '') {
           // First non-empty update: send immediately for low first-frame
           // latency, and start the keep-alive so the preview survives long
           // gaps between subsequent updates.

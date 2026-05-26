@@ -278,7 +278,7 @@
                   class="svg-icon i-loading flex-none w-5 h-5"
                 ></span>
                 <button
-                  v-else-if="llamacppStandardNeedsInstall(component)"
+                  v-else-if="needsInstall(component)"
                   @click="() => installBackend(component.serviceName)"
                   :disabled="!component.enabled || isSomethingLoading()"
                   class="bg-primary py-1 px-4 rounded"
@@ -603,6 +603,21 @@ function llamacppStandardNeedsInstall(component: ExtendedApiServiceInformation):
   if (backendServices.llamaCppBuildVariant !== 'standard') return false
   if (llamacppStandardRowIsSetUp(component)) return false
   return component.status !== 'installing'
+}
+
+/**
+ * Unified per-row "needs Install button" check. For llamacpp this delegates
+ * to the variant-aware standard helper. For every other backend a fresh
+ * `notInstalled` status is what the Install button is for — previously every
+ * row went through `llamacppStandardNeedsInstall`, which short-circuits
+ * `false` for non-llama services and left the Install column blank for
+ * comfyui/openvino/ai-backend/home-agent on a fresh install.
+ */
+function needsInstall(component: ExtendedApiServiceInformation): boolean {
+  if (component.serviceName === 'llamacpp-backend') {
+    return llamacppStandardNeedsInstall(component)
+  }
+  return component.status === 'notInstalled'
 }
 
 function formatLlamaStandardInstalled(component: ExtendedApiServiceInformation): string {

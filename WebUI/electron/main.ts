@@ -192,9 +192,17 @@ function getLocalPathFromAipgMediaUrl(url: string): string | null {
   // appends one to custom-protocol URLs (e.g. `aipg-media://foo.png/`), and
   // `net.fetch(file://.../foo.png/)` treats the trailing slash as "directory"
   // and fails. Mirrors what the legacy inline handler did.
-  const decodedUrl = decodeURIComponent(
-    url.replace(/^aipg-media:\/\//i, '').replace(/[/\\]+$/, ''),
-  )
+  // `decodeURIComponent` throws `URIError` on malformed `%` sequences (e.g.
+  // `aipg-media://%E0`); treat that as an invalid URL rather than letting the
+  // exception escape into the protocol handler or IPC reply.
+  let decodedUrl: string
+  try {
+    decodedUrl = decodeURIComponent(
+      url.replace(/^aipg-media:\/\//i, '').replace(/[/\\]+$/, ''),
+    )
+  } catch {
+    return null
+  }
   const fullPath = path.normalize(path.join(mediaDir, decodedUrl))
   const base = path.resolve(mediaDir)
   const relative = path.relative(base, fullPath)
@@ -955,16 +963,26 @@ function initEventHandle() {
     return `input/${filename}`
   })
 
-  ipcMain.handle('readAipgMediaAsBase64', async (_event, url: string) => {
-    const filePath = getLocalPathFromAipgMediaUrl(url)
-    if (!filePath) {
-      throw new Error('readAipgMediaAsBase64: invalid or unsafe aipg-media URL')
-    }
-    if (!fs.existsSync(filePath)) {
-      throw new Error(`readAipgMediaAsBase64: file not found (${path.basename(filePath)})`)
-    }
-    return fs.readFileSync(filePath).toString('base64')
-  })
+  ipcMain.handle(
+    'readAipgMediaAsBase64',
+    async (
+      _event,
+      url: string,
+    ): Promise<{ success: true; data: string } | { success: false; error: string }> => {
+      const filePath = getLocalPathFromAipgMediaUrl(url)
+      if (!filePath) {
+        return { success: false, error: 'invalid or unsafe aipg-media URL' }
+      }
+      if (!fs.existsSync(filePath)) {
+        return { success: false, error: `file not found (${path.basename(filePath)})` }
+      }
+      try {
+        return { success: true, data: fs.readFileSync(filePath).toString('base64') }
+      } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+  )
 
   /** Get command line parameters when launched from IPOS to decide the default home page */
   ipcMain.handle('getInitialPage', () => {

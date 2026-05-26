@@ -250,7 +250,10 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
     }
   }
 
-  async injectToken(token: string, chatId?: string | number): Promise<{ status: string }> {
+  async injectToken(
+    token: string,
+    chatId?: string | number,
+  ): Promise<{ status: string; error?: string }> {
     if (this.currentStatus !== 'running') return { status: 'not_running' }
     try {
       const clean = token.trim().replace(/\s+/g, '')
@@ -260,10 +263,24 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
         headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ token: clean, ...(cleanedChatId ? { chatId: cleanedChatId } : {}) }),
       })
+      // Surface non-2xx as failure — `body.status ?? 'ok'` would otherwise
+      // claim success on e.g. 500/4xx responses that still parse as JSON.
+      if (!res.ok) {
+        let errorBody = ''
+        try {
+          errorBody = await res.text()
+        } catch {
+          // ignore
+        }
+        return {
+          status: 'error',
+          error: `HTTP ${res.status} ${res.statusText}${errorBody ? `: ${errorBody}` : ''}`,
+        }
+      }
       const body = (await res.json()) as { status?: string }
       return { status: body.status ?? 'ok' }
     } catch (e) {
-      return { status: `error: ${e}` }
+      return { status: 'error', error: e instanceof Error ? e.message : String(e) }
     }
   }
 
@@ -331,7 +348,12 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
     if (this.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }
     try {
       const url = `${this.baseUrl}/send-telegram-reply`
-      this.appLogger.info(`sendTelegramReply posting to ${url}: "${text.slice(0, 80)}"`, this.name)
+      // Log only metadata — message text is user content and shouldn't end up
+      // in app logs (the logger's token-redactor only covers bot tokens).
+      this.appLogger.info(
+        `sendTelegramReply posting to ${url} (length=${text.length})`,
+        this.name,
+      )
       const res = await net.fetch(url, {
         method: 'POST',
         headers: this.authHeaders({ 'Content-Type': 'application/json' }),

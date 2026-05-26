@@ -43,7 +43,7 @@ declare interface InferenceDevice {
   selected: boolean
 }
 
-declare interface StorageTarget {
+declare type StorageTarget = {
   id: string
   name: string
   path: string

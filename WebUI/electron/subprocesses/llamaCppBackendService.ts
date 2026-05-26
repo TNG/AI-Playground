@@ -458,11 +458,21 @@ export class LlamaCppBackendService implements ApiService {
       settings.llamaCppBuildVariant === 'standard' ||
       settings.llamaCppBuildVariant === 'ssd-offload'
     ) {
+      const variantChanged = this.llamaCppBuildVariant !== settings.llamaCppBuildVariant
       this.llamaCppBuildVariant = settings.llamaCppBuildVariant
       this.appLogger.info(
         `applied new LlamaCPP build variant: ${this.llamaCppBuildVariant}`,
         this.name,
       )
+      // The standard and ssd-offload variants live in different binary trees
+      // (`getActiveLlamaCppDir()` resolves them per-variant). If a server is
+      // already running, it is still using the previous variant's executable —
+      // tear it down so the next `ensureBackendReadiness` call boots the new
+      // binary instead of silently keeping the old one alive.
+      if (variantChanged) {
+        await this.stopLlamaLlmServer()
+        await this.stopLlamaEmbeddingServer()
+      }
     }
     if (
       typeof settings.llamaCppOffloadDrive === 'string' ||

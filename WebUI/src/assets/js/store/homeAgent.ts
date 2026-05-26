@@ -657,11 +657,43 @@ export const useHomeAgent = defineStore(
       }
     }
 
-    // Strip pattern for inline aipg-media image markdown tokens. The streaming
-    // watcher removes them from text parts before sending — ComfyUI tool calls
-    // already produce the same image via their `output.images` array, and the
-    // inline markdown form would otherwise duplicate it on Telegram.
-    const AIPG_IMAGE_MD_STRIP_RE = /!\[[^\]]*]\(aipg-media:\/\/[^)]+\)/g
+    // Strip every `aipg-media://…` reference from a text part before sending it
+    // to Telegram. ComfyUI tool results already produce the image via
+    // `output.images` (shipped as a separate sendPhoto call); the model has the
+    // URL in its tool-result context though and often parrots it back in the
+    // narration ("You can view it here: aipg-media://AIPG_Image_…png"). On
+    // Telegram these URLs are not clickable / addressable, so leaving them in
+    // looks like a broken link next to the actual photo.
+    const AIPG_MEDIA_URL_TOKEN_RE = /aipg-media:\/\/[^\s)\]]+/
+    const AIPG_MEDIA_URL_GLOBAL_RE = /aipg-media:\/\/[^\s)\]]+/g
+    // ![alt](aipg-media://…) — pure image token, drop wholesale.
+    const AIPG_MEDIA_IMAGE_MD_RE = /!\[[^\]]*]\(aipg-media:\/\/[^)\s]+\)/g
+    // [text](aipg-media://…) — markdown link wrapping our URL; drop the whole
+    // link (the inner text is usually "view it here" type filler).
+    const AIPG_MEDIA_LINK_MD_RE = /\[[^\]]*]\(aipg-media:\/\/[^)\s]+\)/g
+    // Optional " · " / "—" / colon-style preamble followed by the URL, possibly
+    // wrapped in parens or angle brackets. Catches common narration patterns
+    // like "view it here: aipg-media://…" or "(file: aipg-media://…)".
+    const AIPG_MEDIA_PHRASING_RE =
+      /(?:[(\[<«]\s*)?(?:(?:you\s+can\s+)?(?:view|see|find|open|download|access|check\s+it\s+out)(?:\s+(?:it|the\s+(?:image|file|photo|result|generated\s+image)))?(?:\s+(?:here|at|out))?|here'?s?\s+(?:the\s+)?(?:image|link|file|url|photo|result|generated\s+image)|available(?:\s+at|\s+here)?|saved\s+(?:to|at)|stored\s+at|link|image|file|url|photo|path|location)\s*[:=]?\s*[(<\[«]?\s*aipg-media:\/\/[^\s)\]>»]+\s*[)\]>»]?/gi
+
+    function stripAipgMediaReferences(input: string): string {
+      if (!input || !AIPG_MEDIA_URL_TOKEN_RE.test(input)) return input
+      let out = input
+        .replace(AIPG_MEDIA_IMAGE_MD_RE, '')
+        .replace(AIPG_MEDIA_LINK_MD_RE, '')
+        .replace(AIPG_MEDIA_PHRASING_RE, '')
+        .replace(AIPG_MEDIA_URL_GLOBAL_RE, '')
+      // Tidy up the gaps left behind: empty parens / brackets, doubled spaces,
+      // and stranded punctuation that used to lead into the URL.
+      out = out
+        .replace(/\(\s*\)|\[\s*\]|<\s*>/g, '')
+        .replace(/[ \t]+([,.!?;])/g, '$1')
+        .replace(/[ \t]{2,}/g, ' ')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+      return out.trim()
+    }
 
     // ── Draft streaming helper ────────────────────────────────────────────
     // Wraps Telegram's sendMessageDraft (Bot API 9.5) for animated, in-place
@@ -812,6 +844,7 @@ export const useHomeAgent = defineStore(
       state?: string
       input?: { workflow?: string; prompt?: string }
       output?: { images?: { type: string; imageUrl?: string; videoUrl?: string }[] }
+      providerMetadata?: { aipg?: { reasoningStarted?: number; reasoningFinished?: number } }
     }
 
     /**
@@ -825,8 +858,9 @@ export const useHomeAgent = defineStore(
      * Photos produced by ComfyUI tool calls (output-available) still ship as
      * separate `sendPhoto` messages — drafts are text-only. On flush we
      * finalize the draft with one persisted `sendMessage` carrying the
-     * canonical reply (reasoning + text parts; tool phase markers are dropped
-     * because the photo itself is the durable artifact of that step).
+     * canonical reply (reasoning + text parts + a "Generated using preset X"
+     * marker for each completed tool call). The marker stays so the chat scroll
+     * preserves the why-this-image context next to the actual photo bubble.
      *
      * Polling (vs. a Vue watcher) keeps this resilient to Pinia store
      * reactivity boundaries — when `chatStore.messages` is replaced wholesale
@@ -860,6 +894,22 @@ export const useHomeAgent = defineStore(
           .catch((e) => console.error('homeAgent stream image send failed:', e))
       }
 
+      // Render a single tool-comfyUI / tool-comfyUiImageEdit part. `verb`
+      // controls the lead phrase so the live draft reads "Generating using …"
+      // (active) and the persisted final reads "Generated using …" (past tense,
+      // since by flush time the tool call has resolved).
+      function renderImageToolPart(part: RawPart, verb: 'Generating' | 'Generated'): string | null {
+        const { workflow, prompt } = part.input ?? {}
+        if (!workflow && !prompt) return null
+        const phase = part.state === 'output-available' ? '✅' : '🎨'
+        const titleBase = workflow
+          ? `${verb} using preset <i>${escapeHtml(workflow)}</i>`
+          : `${verb} image`
+        const noticeLines = [`${phase} ${titleBase}`]
+        if (prompt) noticeLines.push(`<i>${escapeHtml(prompt)}</i>`)
+        return noticeLines.join('\n')
+      }
+
       function buildDraftText(parts: RawPart[]): string {
         const lines: string[] = []
         for (const part of parts) {
@@ -867,18 +917,11 @@ export const useHomeAgent = defineStore(
             const txt = (part.text ?? '').trim()
             if (txt) lines.push(`💭 <i>${escapeHtml(txt)}</i>`)
           } else if (part.type === 'text') {
-            const cleaned = (part.text ?? '').replace(AIPG_IMAGE_MD_STRIP_RE, '').trim()
+            const cleaned = stripAipgMediaReferences(part.text ?? '').trim()
             if (cleaned) lines.push(markdownToTelegramHtml(cleaned))
           } else if (part.type === 'tool-comfyUI' || part.type === 'tool-comfyUiImageEdit') {
-            const { workflow, prompt } = part.input ?? {}
-            if (!workflow && !prompt) continue
-            const phase = part.state === 'output-available' ? '✅' : '🎨'
-            const titleBase = workflow
-              ? `Generating using preset <i>${escapeHtml(workflow)}</i>`
-              : 'Generating image'
-            const noticeLines = [`${phase} ${titleBase}`]
-            if (prompt) noticeLines.push(`<i>${escapeHtml(prompt)}</i>`)
-            lines.push(noticeLines.join('\n'))
+            const marker = renderImageToolPart(part, 'Generating')
+            if (marker) lines.push(marker)
           }
         }
         return lines.join('\n\n')
@@ -886,13 +929,43 @@ export const useHomeAgent = defineStore(
 
       function buildFinalText(parts: RawPart[]): string {
         const lines: string[] = []
+        // Coalesce all reasoning parts in this turn into a single "Thought for
+        // X seconds" line. Each part carries its own start/finish timestamps
+        // via providerMetadata.aipg (set in openAiCompatibleChat's customFetch
+        // onChunk handler), but the SDK can emit several reasoning blocks per
+        // turn (e.g. across tool-call cycles). Sum their per-block elapsed
+        // durations rather than spanning earliest-start → latest-finish so
+        // tool-execution gaps don't inflate the figure.
+        let reasoningElapsedMs = 0
+        let hasReasoning = false
+        for (const part of parts) {
+          if (part.type !== 'reasoning') continue
+          const txt = (part.text ?? '').trim()
+          if (!txt) continue
+          hasReasoning = true
+          const timing = part.providerMetadata?.aipg
+          if (timing?.reasoningStarted && timing?.reasoningFinished) {
+            reasoningElapsedMs += Math.max(0, timing.reasoningFinished - timing.reasoningStarted)
+          }
+        }
+        if (hasReasoning) {
+          const seconds = (reasoningElapsedMs / 1000).toFixed(1)
+          lines.push(`💭 <i>Thought for ${seconds} seconds</i>`)
+        }
         for (const part of parts) {
           if (part.type === 'reasoning') {
-            const txt = (part.text ?? '').trim()
-            if (txt) lines.push(`💭 <i>${escapeHtml(txt)}</i>`)
+            // Replaced by the coalesced summary above.
+            continue
           } else if (part.type === 'text') {
-            const cleaned = (part.text ?? '').replace(AIPG_IMAGE_MD_STRIP_RE, '').trim()
+            const cleaned = stripAipgMediaReferences(part.text ?? '').trim()
             if (cleaned) lines.push(markdownToTelegramHtml(cleaned))
+          } else if (part.type === 'tool-comfyUI' || part.type === 'tool-comfyUiImageEdit') {
+            // Persist the tool marker too — the live draft showed
+            // "Generating using preset X"; the persisted message reads
+            // "Generated using preset X" so the photo bubble below it keeps
+            // its surrounding context.
+            const marker = renderImageToolPart(part, 'Generated')
+            if (marker) lines.push(marker)
           }
         }
         return lines.join('\n\n')
@@ -996,7 +1069,11 @@ export const useHomeAgent = defineStore(
 
     async function imageToBase64(imageUrl: string): Promise<string> {
       if (imageUrl.startsWith('aipg-media://')) {
-        return await window.electronAPI.readAipgMediaAsBase64(imageUrl)
+        const result = await window.electronAPI.readAipgMediaAsBase64(imageUrl)
+        if (!result.success) {
+          throw new Error(`readAipgMediaAsBase64 failed: ${result.error}`)
+        }
+        return result.data
       }
       if (imageUrl.startsWith('data:image/')) {
         const comma = imageUrl.indexOf('base64,')
@@ -1371,8 +1448,11 @@ export const useHomeAgent = defineStore(
               const arg = match?.[1] ?? ''
               const key = resolveLoadTarget(arg)
               if (!key) {
+                // `arg` is user-supplied from `/load <id>` and goes into HTML
+                // parse mode — unescaped `<`/`&` would either be dropped by
+                // Telegram or cause the whole message to be rejected.
                 await window.electronAPI.homeAgent.sendTelegramReply(
-                  `⚠️ Couldn't find a chat with id <code>${arg}</code>. Try <code>/history</code> first.`,
+                  `⚠️ Couldn't find a chat with id <code>${escapeHtml(arg)}</code>. Try <code>/history</code> first.`,
                   'HTML',
                 )
               } else if (switchRemoteConversation(key)) {
@@ -1380,7 +1460,7 @@ export const useHomeAgent = defineStore(
                 const items = listRemoteConversations()
                 const item = items.find((i) => i.key === key)
                 await window.electronAPI.homeAgent.sendTelegramReply(
-                  `📂 Loaded <i>${item?.title ?? key}</i>.\nReplies and new messages now use this thread.`,
+                  `📂 Loaded <i>${escapeHtml(item?.title ?? key)}</i>.\nReplies and new messages now use this thread.`,
                   'HTML',
                 )
               } else {

@@ -158,6 +158,25 @@ def _persist_chat_id(chat_id: str) -> None:
         logger.warning("Could not persist chat_id: %s", exc)
 
 
+def _record_authorized_chat_id(chat_id: str) -> None:
+    """Update `_last_seen_chat_id` + persist on disk only when the incoming
+    chat is authorized.
+
+    Authorized means either (a) detection mode is still active
+    (`_allowed_chat_id` is empty, so `/get-chat-id` can return the first chat
+    that messages the bot during setup) or (b) the chat matches the configured
+    allow id. Without this guard, an unrelated user who messages the bot could
+    overwrite `.chat_id` and confuse `/get-chat-id` / `_outbound_chat_id`.
+    """
+    global _last_seen_chat_id
+    allow = _allowed_chat_id
+    if allow and chat_id != allow:
+        return
+    if _last_seen_chat_id != chat_id:
+        _last_seen_chat_id = chat_id
+        _persist_chat_id(chat_id)
+
+
 # Load persisted chat ID at startup
 _last_seen_chat_id = _load_persisted_chat_id()
 
@@ -478,10 +497,8 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
         if update.message is None:
             return
         chat_id = str(update.message.chat_id)
-        if _last_seen_chat_id != chat_id:
-            _last_seen_chat_id = chat_id
-            _persist_chat_id(chat_id)
         allow = _allowed_chat_id
+        _record_authorized_chat_id(chat_id)
         if not allow:
             logger.info("Detection mode: received message from chat_id=%s (not yet configured)", chat_id)
             return
@@ -504,10 +521,8 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
         if update.message is None:
             return
         chat_id = str(update.message.chat_id)
-        if _last_seen_chat_id != chat_id:
-            _last_seen_chat_id = chat_id
-            _persist_chat_id(chat_id)
         allow = _allowed_chat_id
+        _record_authorized_chat_id(chat_id)
         if not allow:
             return
         if chat_id != allow:
@@ -523,10 +538,8 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
         if update.message is None:
             return
         chat_id = str(update.message.chat_id)
-        if _last_seen_chat_id != chat_id:
-            _last_seen_chat_id = chat_id
-            _persist_chat_id(chat_id)
         allow = _allowed_chat_id
+        _record_authorized_chat_id(chat_id)
         if not allow:
             return
         if chat_id != allow:
@@ -545,10 +558,8 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
         if update.message is None:
             return
         chat_id = str(update.message.chat_id)
-        if _last_seen_chat_id != chat_id:
-            _last_seen_chat_id = chat_id
-            _persist_chat_id(chat_id)
         allow = _allowed_chat_id
+        _record_authorized_chat_id(chat_id)
         if not allow:
             logger.info("Detection mode: received /imgGen from chat_id=%s (not yet configured)", chat_id)
             return
@@ -573,10 +584,8 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
         if update.message is None:
             return
         chat_id = str(update.message.chat_id)
-        if _last_seen_chat_id != chat_id:
-            _last_seen_chat_id = chat_id
-            _persist_chat_id(chat_id)
         allow = _allowed_chat_id
+        _record_authorized_chat_id(chat_id)
         if not allow:
             return
         if chat_id != allow:
@@ -592,10 +601,8 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
         if update.message is None:
             return
         chat_id = str(update.message.chat_id)
-        if _last_seen_chat_id != chat_id:
-            _last_seen_chat_id = chat_id
-            _persist_chat_id(chat_id)
         allow = _allowed_chat_id
+        _record_authorized_chat_id(chat_id)
         if not allow:
             return
         if chat_id != allow:
@@ -611,10 +618,8 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
         if update.message is None:
             return
         chat_id = str(update.message.chat_id)
-        if _last_seen_chat_id != chat_id:
-            _last_seen_chat_id = chat_id
-            _persist_chat_id(chat_id)
         allow = _allowed_chat_id
+        _record_authorized_chat_id(chat_id)
         if not allow:
             return
         if chat_id != allow:
@@ -636,10 +641,8 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
         if update.message is None:
             return
         chat_id = str(update.message.chat_id)
-        if _last_seen_chat_id != chat_id:
-            _last_seen_chat_id = chat_id
-            _persist_chat_id(chat_id)
         allow = _allowed_chat_id
+        _record_authorized_chat_id(chat_id)
         if not allow:
             return
         if chat_id != allow:
@@ -663,10 +666,8 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
         if cq is None or cq.message is None:
             return
         chat_id = str(cq.message.chat_id)
-        if _last_seen_chat_id != chat_id:
-            _last_seen_chat_id = chat_id
-            _persist_chat_id(chat_id)
         allow = _allowed_chat_id
+        _record_authorized_chat_id(chat_id)
         if allow and chat_id != allow:
             logger.warning("Ignoring imgGen callback from unauthorized chat_id: %s", chat_id)
             try:
@@ -700,10 +701,8 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
         if cq is None or cq.message is None:
             return
         chat_id = str(cq.message.chat_id)
-        if _last_seen_chat_id != chat_id:
-            _last_seen_chat_id = chat_id
-            _persist_chat_id(chat_id)
         allow = _allowed_chat_id
+        _record_authorized_chat_id(chat_id)
         if allow and chat_id != allow:
             logger.warning("Ignoring callback from unauthorized chat_id: %s", chat_id)
             try:
@@ -734,10 +733,8 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
         if update.message is None or not update.message.photo:
             return
         chat_id = str(update.message.chat_id)
-        if _last_seen_chat_id != chat_id:
-            _last_seen_chat_id = chat_id
-            _persist_chat_id(chat_id)
         allow = _allowed_chat_id
+        _record_authorized_chat_id(chat_id)
         if not allow:
             logger.info("Detection mode: received photo from chat_id=%s (not yet configured)", chat_id)
             return

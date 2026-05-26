@@ -42,6 +42,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { z } from 'zod'
 import { Cog6ToothIcon } from '@heroicons/vue/24/solid'
+import * as toast from '@/assets/js/toast'
 
 const backendServices = useBackendServices()
 const i18nState = useI18N().state
@@ -110,33 +111,75 @@ async function applySettings(values: Record<string, unknown>) {
   backendServices.llamaCppOffloadDrive = offload
   const def = defaultSsdParameters()
   backendServices.llamaCppParameters = !params || params === def ? null : params
-  await pushPhisonLlamaSettingsToMain()
+  try {
+    await pushPhisonLlamaSettingsToMain()
+  } catch (error) {
+    console.error('Llama.cpp (Phison) settings update failed:', error)
+    toast.error(
+      `Failed to update Phison aiDAPTIV+ settings: ${error instanceof Error ? error.message : String(error)}`,
+    )
+    // Leave dialogs open so the user can retry without losing context.
+    return
+  }
   settingsDialogOpen.value = false
   menuOpen.value = false
 }
 
 async function handlePhisonReinstall() {
+  let allOk = false
   try {
     backendServices.llamaCppBuildVariant = 'ssd-offload'
-    await pushPhisonLlamaSettingsToMain()
-    await backendServices.uninstallService('llamacpp-backend')
-    const setupResult = await backendServices.setUpService('llamacpp-backend')
-    if (setupResult.success) {
-      try {
-        const startStatus = await backendServices.startService('llamacpp-backend')
-        if (startStatus !== 'running') {
-          console.error('Llama.cpp (Phison) failed to start after reinstall.')
-        }
-      } catch (startError) {
-        console.error('Llama.cpp (Phison) startup failed after reinstall:', startError)
-      }
-    } else {
-      console.error('Llama.cpp (Phison) reinstallation failed.')
+    try {
+      await pushPhisonLlamaSettingsToMain()
+    } catch (e) {
+      console.error('Llama.cpp (Phison) settings push failed:', e)
+      toast.error(
+        `Failed to push Phison aiDAPTIV+ settings: ${e instanceof Error ? e.message : String(e)}`,
+      )
+      return
     }
+    try {
+      await backendServices.uninstallService('llamacpp-backend')
+    } catch (e) {
+      console.error('Llama.cpp (Phison) uninstall failed:', e)
+      toast.error(`Failed to uninstall Llama.cpp: ${e instanceof Error ? e.message : String(e)}`)
+      return
+    }
+    const setupResult = await backendServices.setUpService('llamacpp-backend')
+    if (!setupResult.success) {
+      console.error('Llama.cpp (Phison) reinstallation failed:', setupResult)
+      toast.error('Llama.cpp (Phison) reinstallation failed. See logs for details.')
+      return
+    }
+    try {
+      const startStatus = await backendServices.startService('llamacpp-backend')
+      if (startStatus !== 'running') {
+        console.error(
+          `Llama.cpp (Phison) failed to start after reinstall (status=${startStatus}).`,
+        )
+        toast.error(`Llama.cpp (Phison) failed to start after reinstall (status=${startStatus}).`)
+        return
+      }
+    } catch (startError) {
+      console.error('Llama.cpp (Phison) startup failed after reinstall:', startError)
+      toast.error(
+        `Llama.cpp (Phison) startup failed after reinstall: ${
+          startError instanceof Error ? startError.message : String(startError)
+        }`,
+      )
+      return
+    }
+    allOk = true
   } catch (error) {
     console.error('Llama.cpp (Phison) reinstall failed:', error)
+    toast.error(
+      `Llama.cpp (Phison) reinstall failed: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  } finally {
+    // Only collapse the menu when the whole reinstall flow succeeded —
+    // otherwise the user might lose the entry point to retry.
+    if (allOk) menuOpen.value = false
   }
-  menuOpen.value = false
 }
 </script>
 

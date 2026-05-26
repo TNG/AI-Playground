@@ -73,16 +73,20 @@ export function useHomeAgentSetup() {
     detectError.value = ''
     try {
       let result: { chatId: string } | { error: string }
-      if (tokenInput.value) {
+      // Match `verify()` / `saveAndContinue()` — both trim. A pasted token with
+      // a trailing newline would otherwise fail inject/poll even though the
+      // later save path accepts it.
+      const trimmedToken = tokenInput.value.trim()
+      if (trimmedToken) {
         // Inject token into running backend so it can start polling (if not already)
         try {
-          await window.electronAPI.homeAgent.injectToken(tokenInput.value)
+          await window.electronAPI.homeAgent.injectToken(trimmedToken)
         } catch (e) {
           console.error('runDetectChatId: injectToken failed:', e)
           // Non-fatal — proceed to poll anyway; backend may already have it
         }
         // Poll /get-chat-id for up to DETECT_TIMEOUT_MS waiting for a message to arrive
-        result = await pollForChatId(tokenInput.value)
+        result = await pollForChatId(trimmedToken)
       } else {
         result = await window.electronAPI.homeAgent.detectChatIdFromSaved()
       }
@@ -167,11 +171,20 @@ export function useHomeAgentSetup() {
         // Preserve verified state across the save — if the user already verified
         // (either in this session or a previous one), keep it true.
         const wasVerified = homeAgent.telegramVerified
+        // `saveConfig` returns `{ success, error }` and can fail without throwing
+        // (e.g. safeStorage / disk errors). Both code paths need to be handled
+        // so the user isn't told "saved" when the config wasn't actually written.
+        let saveResult: { success: boolean; error?: string }
         try {
-          await homeAgent.saveConfig(token, chatId)
+          saveResult = await homeAgent.saveConfig(token, chatId)
         } catch (e) {
           console.error('saveAndContinue: failed to save Home Agent config:', e)
           toast.error('Failed to save Home Agent configuration')
+          return false
+        }
+        if (!saveResult.success) {
+          console.error('saveAndContinue: saveConfig returned failure:', saveResult.error)
+          toast.error(saveResult.error ?? 'Failed to save Home Agent configuration')
           return false
         }
         if (wasVerified) {

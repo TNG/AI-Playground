@@ -440,9 +440,13 @@ function copyText(text: string) {
 }
 
 function getMessageTextForCopy(message: { parts: { type: string; text?: string }[] }): string {
+  // Mirror the sanitization applied to the rendered MarkdownRenderer
+  // (`stripAipgMediaImages`) so copied text matches what the user actually
+  // sees — otherwise embedded `aipg-media://` image tokens leak into the
+  // clipboard even though they are stripped on screen.
   return message.parts
     .filter((part) => part.type === 'text')
-    .map((part) => part.text ?? '')
+    .map((part) => stripAipgMediaImages(part.text ?? ''))
     .filter((t) => t.length > 0)
     .join('\n\n')
 }

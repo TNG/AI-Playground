@@ -812,6 +812,20 @@ export const useHomeAgent = defineStore(
       let stopped = false
       const draft = createDraftStream(newDraftId(), 'HTML')
 
+      // Snapshot the assistant message that already exists on this thread so we
+      // don't stream/ship parts that belong to a previous turn. `chat.sendMessage`
+      // pushes the new USER message synchronously but only pushes the new
+      // ASSISTANT message on the first stream chunk — until then,
+      // `[...msgs].reverse().find(m => m.role === 'assistant')` resolves to the
+      // PRIOR assistant (loaded from disk after an AIPG restart, that's the
+      // assistant carrying the last generated image's `tool-comfyUI` part with
+      // state='output-available'). Acting on it here would replay the previous
+      // turn's draft text and re-ship its image to Telegram on every new turn.
+      const preExistingMsgs = chatStore.getMessagesForKey(targetKey) ?? []
+      const preExistingAssistantId = [...preExistingMsgs]
+        .reverse()
+        .find((m) => m.role === 'assistant')?.id
+
       function enqueueImage(fn: () => Promise<unknown>) {
         sendChain = sendChain
           .then(() => fn())
@@ -881,6 +895,9 @@ export const useHomeAgent = defineStore(
         const msgs = chatStore.getMessagesForKey(targetKey) ?? []
         const lastAssistant = [...msgs].reverse().find((m) => m.role === 'assistant')
         if (!lastAssistant) return
+        // Ignore the pre-existing assistant from a previous turn — it would
+        // otherwise replay its old draft text and re-ship its old image.
+        if (lastAssistant.id === preExistingAssistantId) return
         const parts = lastAssistant.parts as RawPart[]
         const draftText = buildDraftText(parts)
         if (draftText) draft.update(draftText)
@@ -896,7 +913,12 @@ export const useHomeAgent = defineStore(
         clearInterval(intervalId)
         const msgs = chatStore.getMessagesForKey(targetKey) ?? []
         const lastAssistant = [...msgs].reverse().find((m) => m.role === 'assistant')
-        const parts = (lastAssistant?.parts as RawPart[] | undefined) ?? []
+        // Same guard as `tick()`: if the stream produced no new assistant (e.g.
+        // it errored before any chunk arrived), the prior turn's assistant is
+        // still on top — do not finalize with its content.
+        const isStaleAssistant =
+          !lastAssistant || lastAssistant.id === preExistingAssistantId
+        const parts = isStaleAssistant ? [] : (lastAssistant!.parts as RawPart[])
         shipPendingImages(parts)
         const finalText = buildFinalText(parts)
         await draft.finalize(finalText, 'HTML')

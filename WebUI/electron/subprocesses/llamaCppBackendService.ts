@@ -349,6 +349,10 @@ export class LlamaCppBackendService implements ApiService {
       const availableDevices: Array<{ id: string; name: string }> = []
       // Phison's llama-server fork (and recent upstream builds) write "Available devices:" + entries
       // to stderr, not stdout. Parse both streams so detection is robust across build flavors.
+      // Restrict device-row matching to known llama.cpp backend prefixes so unrelated log lines
+      // emitted on stderr after the "Available devices:" header (e.g. `build:`, `load_backend:`)
+      // aren't mistaken for devices.
+      const devicePrefixRegex = /^(Vulkan|CUDA|SYCL|HIP|ROCm|Metal|CPU)\d+$/
       const lines = `${stdout}\n${stderr}`
         .split('\n')
         .map((line) => line.trim())
@@ -365,6 +369,9 @@ export class LlamaCppBackendService implements ApiService {
           const colonIndex = line.indexOf(':')
           if (colonIndex > 0) {
             let deviceId = line.substring(0, colonIndex).trim()
+            if (!devicePrefixRegex.test(deviceId)) {
+              continue
+            }
             const deviceInfo = line.substring(colonIndex + 1).trim()
 
             if (deviceId.startsWith('Vulkan')) {

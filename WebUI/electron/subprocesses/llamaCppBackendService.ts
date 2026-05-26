@@ -325,16 +325,21 @@ export class LlamaCppBackendService implements ApiService {
 
       this.appLogger.info('Detecting devices using llama-server --list-devices', this.name)
 
-      const { stdout } = await execAsync(`"${this.getActiveLlamaCppExePath()}" --list-devices`, {
-        cwd: this.getActiveLlamaCppDir(),
-        env: {
-          ...process.env,
+      const { stdout, stderr } = await execAsync(
+        `"${this.getActiveLlamaCppExePath()}" --list-devices`,
+        {
+          cwd: this.getActiveLlamaCppDir(),
+          env: {
+            ...process.env,
+          },
+          timeout: 10000, // 10 second timeout
         },
-        timeout: 10000, // 10 second timeout
-      })
+      )
 
       const availableDevices: Array<{ id: string; name: string }> = []
-      const lines = stdout
+      // Phison's llama-server fork (and recent upstream builds) write "Available devices:" + entries
+      // to stderr, not stdout. Parse both streams so detection is robust across build flavors.
+      const lines = `${stdout}\n${stderr}`
         .split('\n')
         .map((line) => line.trim())
         .filter((line) => line !== '')

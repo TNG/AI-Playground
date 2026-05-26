@@ -1117,19 +1117,26 @@ export class LlamaCppBackendService implements ApiService {
         this.name,
       )
 
+      const userParameters = sanitizeUserLlamaCppParameters(this.llamaCppParametersString, (msg) =>
+        this.appLogger.warn(msg, this.name, true),
+      )
       const args = [
         '--embedding',
         '--model',
         modelPath,
         '--port',
         port.toString(),
-        '--host',
-        '127.0.0.1',
         '--log-prefix',
         '-b',
         '1024',
         '-ub',
         '1024',
+        ...userParameters,
+        // Force-append --host AFTER user params so we always win, even if
+        // the user tried to inject their own --host. Defense in depth on
+        // top of llama-server's documented default (127.0.0.1).
+        '--host',
+        '127.0.0.1',
       ]
 
       const childProcess = spawn(this.getActiveLlamaCppExePath(), args, {

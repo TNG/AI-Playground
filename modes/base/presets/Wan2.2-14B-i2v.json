@@ -65,15 +65,6 @@
     },
     {
       "type": "number",
-      "label": "Inference Steps",
-      "displayed": true,
-      "modifiable": true,
-      "defaultValue": 20,
-      "nodeTitle": "Steps",
-      "nodeInput": "value"
-    },
-    {
-      "type": "number",
       "label": "Width",
       "displayed": false,
       "modifiable": false,

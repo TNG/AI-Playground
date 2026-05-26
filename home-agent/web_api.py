@@ -6,6 +6,7 @@ Telegram bot polls for incoming messages and queues them for Electron to pick up
 
 import argparse
 import asyncio
+import hmac
 import logging
 import os
 import re
@@ -18,6 +19,38 @@ from llm_proxy import proxy_chat_completions
 
 app = Flask(__name__)
 CORS(app)
+
+# ── Loopback auth ─────────────────────────────────────────────────────────────
+# The Flask server binds to 127.0.0.1, but on a shared host (multi-user box,
+# host-networked containers, low-IL processes) any local peer can still reach
+# our port. Require an `X-AIPG-Auth` header that matches the per-launch token
+# the Electron main process injected via env. Mirrors the pattern used by the
+# `ai-backend` Flask service.
+_LOOPBACK_AUTH_TOKEN = os.environ.get("AIPG_LOOPBACK_TOKEN", "")
+_LOOPBACK_REMOTE_ADDRS = frozenset({"127.0.0.1", "::1"})
+# `/healthy` must remain reachable so the service registry can probe readiness
+# before it has obtained the token.
+_AUTH_EXEMPT_PATHS = frozenset({"/healthy"})
+
+
+@app.before_request
+def _enforce_loopback_and_auth():
+    if request.remote_addr not in _LOOPBACK_REMOTE_ADDRS:
+        return jsonify({"error": "loopback only"}), 403
+    # CORS preflights do not carry custom headers by design — let flask-cors
+    # handle them in the after_request stage.
+    if request.method == "OPTIONS":
+        return None
+    if request.path in _AUTH_EXEMPT_PATHS:
+        return None
+    if not _LOOPBACK_AUTH_TOKEN:
+        # Service was not provisioned with a token — reject everything except
+        # the health probe to avoid serving unauthenticated traffic.
+        return jsonify({"error": "service not provisioned"}), 503
+    provided = request.headers.get("X-AIPG-Auth", "")
+    if not provided or not hmac.compare_digest(provided, _LOOPBACK_AUTH_TOKEN):
+        return jsonify({"error": "unauthorized"}), 401
+    return None
 
 # ── Log redaction ─────────────────────────────────────────────────────────────
 # Telegram bot tokens look like "<numeric_id>:<base64-ish>" and appear in httpx
@@ -638,8 +671,8 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
             logger.warning("Ignoring imgGen callback from unauthorized chat_id: %s", chat_id)
             try:
                 await cq.answer()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("imgGen unauthorized ack failed: %s", exc)
             return
         data = cq.data or ""
         try:
@@ -675,8 +708,8 @@ def _start_telegram_bot(token: str, initial_chat_id: str) -> None:
             logger.warning("Ignoring callback from unauthorized chat_id: %s", chat_id)
             try:
                 await cq.answer()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("loadConv unauthorized ack failed: %s", exc)
             return
         data = cq.data or ""
         try:
@@ -872,5 +905,9 @@ if __name__ == "__main__":
     else:
         print("No TELEGRAM_BOT_TOKEN — Telegram bot disabled.", flush=True)
 
-    app.run(host="0.0.0.0", port=args.port)  # nosec B104 — intentional: local service must bind all interfaces for Electron IPC
+    # Bind to loopback only — Electron talks to this backend via 127.0.0.1
+    # (see homeAgentBackendService.ts `baseUrl`). Restricting the listener
+    # prevents the Telegram bot/proxy endpoints from being reachable from
+    # other hosts on the network.
+    app.run(host="127.0.0.1", port=args.port)
 

@@ -24,6 +24,7 @@ import * as toast from '../toast'
 import { LanguageModelV2ToolResultOutput, JSONSchema7 } from '@ai-sdk/provider'
 import { dynamicTool, jsonSchema } from '@ai-sdk/provider-utils'
 import { imageUrlToDataUri } from '@/lib/utils'
+import { getHomeAgentAuthToken, invalidateHomeAgentAuthToken } from '@/lib/loopbackAuth'
 
 const LlamaCppRawValueTimingsSchema = z.object({
   cache_n: z.number(),
@@ -90,7 +91,7 @@ export const useOpenAiCompatibleChat = defineStore(
         name: 'model',
         baseURL: `${textInference.currentBackendUrl}/v1/`,
         includeUsage: true,
-        fetch: (url, init) => {
+        fetch: async (url, init) => {
           const requestUrl = new URL(url as string)
           const currentBaseUrl = textInference.currentBackendUrl
           if (currentBaseUrl) {
@@ -98,12 +99,27 @@ export const useOpenAiCompatibleChat = defineStore(
             requestUrl.hostname = latestBase.hostname
             requestUrl.port = latestBase.port
           }
-          // When Home Agent is active, inject the upstream inference URL as a header
+          // When Home Agent is active, the LLM proxy lives behind the Home
+          // Agent Flask service. Attach the upstream inference URL header and
+          // the per-launch loopback auth token so the proxy accepts the call.
           const upstreamUrl = textInference.homeAgentUpstreamUrl
           if (upstreamUrl) {
-            const headers = new Headers(init?.headers)
-            headers.set('X-Upstream-Url', upstreamUrl)
-            return globalThis.fetch(requestUrl.toString(), { ...init, headers })
+            let token = await getHomeAgentAuthToken()
+            const build = (t: string): RequestInit => {
+              const headers = new Headers(init?.headers)
+              headers.set('X-Upstream-Url', upstreamUrl)
+              if (t) headers.set('X-AIPG-Auth', t)
+              return { ...init, headers }
+            }
+            let response = await globalThis.fetch(requestUrl.toString(), build(token))
+            if (response.status === 401) {
+              invalidateHomeAgentAuthToken()
+              token = await getHomeAgentAuthToken(true)
+              if (token) {
+                response = await globalThis.fetch(requestUrl.toString(), build(token))
+              }
+            }
+            return response
           }
           return globalThis.fetch(requestUrl.toString(), init)
         },
@@ -524,15 +540,20 @@ export const useOpenAiCompatibleChat = defineStore(
      * `textInference.ensureReadyForInference()`).
      */
     async function summarizeMessages(messagesText: string): Promise<string> {
-      const { text } = await generateText({
-        model: model.value,
-        prompt:
-          'Summarize this conversation in 5 words or less. ' +
-          'Output only the summary, no quotes, no punctuation.\n\n' +
-          messagesText,
-        maxOutputTokens: 24,
-      })
-      return text.trim().split(/\s+/).slice(0, 5).join(' ')
+      try {
+        const { text } = await generateText({
+          model: model.value,
+          prompt:
+            'Summarize this conversation in 5 words or less. ' +
+            'Output only the summary, no quotes, no punctuation.\n\n' +
+            messagesText,
+          maxOutputTokens: 24,
+        })
+        return text.trim().split(/\s+/).slice(0, 5).join(' ')
+      } catch (error) {
+        console.error('summarizeMessages failed:', error)
+        return ''
+      }
     }
 
     async function generate(question: string, options?: GenerateOptions) {

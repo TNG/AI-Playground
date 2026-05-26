@@ -720,11 +720,16 @@ export const useHomeAgent = defineStore(
 
       async function send(variant: string): Promise<void> {
         try {
-          await window.electronAPI.homeAgent.sendTelegramDraft({
+          const result = await window.electronAPI.homeAgent.sendTelegramDraft({
             draftId,
             text: variant,
             parseMode,
           })
+          if (!result?.success) {
+            // Keep lastSentVariant unchanged so the next throttle tick can retry
+            // with the same content instead of being skipped as a no-op.
+            return
+          }
           lastSentVariant = variant
         } catch {
           // Swallow — drafts are best-effort.
@@ -783,10 +788,16 @@ export const useHomeAgent = defineStore(
         cancel()
         if (!finalText) return
         try {
-          await window.electronAPI.homeAgent.sendTelegramReply(
+          const result = await window.electronAPI.homeAgent.sendTelegramReply(
             finalText,
             finalParseMode ?? parseMode,
           )
+          if (!result?.success) {
+            console.error(
+              'homeAgent: draft finalize sendTelegramReply returned error:',
+              result?.error ?? 'unknown',
+            )
+          }
         } catch (e) {
           console.error('homeAgent: draft finalize sendTelegramReply failed:', e)
         }

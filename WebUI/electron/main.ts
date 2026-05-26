@@ -1095,6 +1095,9 @@ function initEventHandle() {
     if (service instanceof ComfyUiBackendService) {
       return service.getLoopbackAuthToken()
     }
+    if (service instanceof HomeAgentBackendService) {
+      return service.getLoopbackAuthToken()
+    }
     return ''
   })
 

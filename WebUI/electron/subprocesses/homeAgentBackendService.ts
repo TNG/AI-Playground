@@ -1,4 +1,5 @@
 import { ChildProcess, spawn } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import fs from 'node:fs'
 import { app, BrowserWindow, ipcMain, net, safeStorage } from 'electron'
@@ -20,6 +21,27 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
   isSetUp: boolean = false
   readonly isRequired = false
   healthEndpointUrl = `${this.baseUrl}/healthy`
+
+  // Per-launch loopback auth token. The backend binds to 127.0.0.1 so remote
+  // hosts cannot reach it, but on a multi-user / multi-tenant box other local
+  // processes (low-IL services, host-networked containers, other UIDs on the
+  // same machine) could still hit our port. Requiring an `X-AIPG-Auth` header
+  // keyed by a fresh per-launch secret blocks that path. Mirrors the pattern
+  // used by `aiBackendService` and `comfyUIBackendService`.
+  private loopbackAuthToken: string = randomBytes(32).toString('hex')
+
+  getLoopbackAuthToken(): string {
+    return this.loopbackAuthToken
+  }
+
+  /**
+   * Headers to attach to every outbound request from the Electron main process
+   * to this backend. `/healthy` is exempt on the server side, so polling it
+   * before the token is known still works.
+   */
+  private authHeaders(extra?: Record<string, string>): Record<string, string> {
+    return { 'X-AIPG-Auth': this.loopbackAuthToken, ...(extra ?? {}) }
+  }
 
   constructor(name: BackendServiceName, port: number, win: BrowserWindow, settings: LocalSettings) {
     super(name, port, win, settings)
@@ -108,6 +130,9 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
   }> {
     const pathSep = process.platform === 'win32' ? ';' : ':'
     const telegramEnv = this.getTelegramProcessEnv()
+    // Regenerate the token on every spawn so a previously-leaked env block
+    // cannot be reused after a restart.
+    this.loopbackAuthToken = randomBytes(32).toString('hex')
     const additionalEnvVariables: Record<string, string | undefined> = {
       VIRTUAL_ENV: this.pythonEnvDir,
       PATH: [
@@ -120,6 +145,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       PYTHONNOUSERSITE: 'true',
       PYTHONIOENCODING: 'utf-8',
       PIP_CONFIG_FILE: 'nul',
+      AIPG_LOOPBACK_TOKEN: this.loopbackAuthToken,
       ...telegramEnv,
     }
 
@@ -231,7 +257,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       const cleanedChatId = chatId !== undefined ? String(chatId).trim() : undefined
       const res = await net.fetch(`${this.baseUrl}/set-telegram-token`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ token: clean, ...(cleanedChatId ? { chatId: cleanedChatId } : {}) }),
       })
       const body = (await res.json()) as { status?: string }
@@ -246,7 +272,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
     try {
       await net.fetch(`${this.baseUrl}/flush-pending`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: '{}',
       })
     } catch {
@@ -264,7 +290,9 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
   > {
     if (this.currentStatus !== 'running') return []
     try {
-      const res = await net.fetch(`${this.baseUrl}/poll-telegram`)
+      const res = await net.fetch(`${this.baseUrl}/poll-telegram`, {
+        headers: this.authHeaders(),
+      })
       return (await res.json()) as Array<{
         text?: string
         chat_id: string
@@ -285,7 +313,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       const url = `${this.baseUrl}/send-telegram-photo`
       const res = await net.fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ photo: imageBase64, caption: caption ?? '' }),
       })
       if (res.ok) return { success: true }
@@ -306,7 +334,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       this.appLogger.info(`sendTelegramReply posting to ${url}: "${text.slice(0, 80)}"`, this.name)
       const res = await net.fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ text, ...(parseMode ? { parse_mode: parseMode } : {}) }),
       })
       this.appLogger.info(`sendTelegramReply response: status=${res.status}`, this.name)
@@ -333,7 +361,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       }
       const res = await net.fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(body),
       })
       if (res.ok) return { success: true }
@@ -353,7 +381,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       const url = `${this.baseUrl}/send-telegram-chat-action`
       const res = await net.fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ action }),
       })
       if (res.ok) return { success: true }
@@ -387,7 +415,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       )
       const res = await net.fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(body),
       })
       this.appLogger.info(`sendTelegramKeyboard response: status=${res.status}`, this.name)
@@ -428,7 +456,9 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       }
       if (this.currentStatus === 'running') {
         try {
-          const chatRes = await net.fetch(`${this.baseUrl}/get-chat-id`)
+          const chatRes = await net.fetch(`${this.baseUrl}/get-chat-id`, {
+            headers: this.authHeaders(),
+          })
           const data = (await chatRes.json()) as { chatId?: string; error?: string }
           this.appLogger.info(`detectChatId /get-chat-id returned chatId=${data.chatId}`, this.name)
           if (data.chatId) return { chatId: data.chatId }
@@ -445,7 +475,9 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
   async detectChatId(token: string): Promise<{ chatId: string } | { error: string }> {
     if (this.currentStatus === 'running') {
       try {
-        const res = await net.fetch(`${this.baseUrl}/get-chat-id`)
+        const res = await net.fetch(`${this.baseUrl}/get-chat-id`, {
+          headers: this.authHeaders(),
+        })
         const data = (await res.json()) as { chatId?: string; error?: string }
         if (data.chatId) return { chatId: data.chatId }
       } catch {
@@ -458,7 +490,9 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
   async detectChatIdFromSaved(): Promise<{ chatId: string } | { error: string }> {
     if (this.currentStatus === 'running') {
       try {
-        const res = await net.fetch(`${this.baseUrl}/get-chat-id`)
+        const res = await net.fetch(`${this.baseUrl}/get-chat-id`, {
+          headers: this.authHeaders(),
+        })
         const data = (await res.json()) as { chatId?: string; error?: string }
         if (data.chatId) return { chatId: data.chatId }
       } catch {
@@ -476,7 +510,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
     try {
       const res = await net.fetch(`${this.baseUrl}/set-upstream`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ url }),
       })
       if (!res.ok) {

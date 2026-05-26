@@ -266,8 +266,18 @@ export class LlamaCppBackendService implements ApiService {
     this.updateStatus()
   }
 
+  /**
+   * Bootstrap check used by apiServiceRegistry to decide whether to auto-start at app launch.
+   * Main process has no persistence of the active variant, so it cold-starts with
+   * `llamaCppBuildVariant === 'standard'`; the renderer pushes the persisted Phison variant only
+   * after Pinia hydrates. To avoid skipping auto-start when the user has a Phison-only install,
+   * consider the service "set up" if either variant's artifacts are on disk. The active-variant
+   * spawn happens later in ensureBackendReadiness, by which time the renderer has synced settings.
+   *
+   * NOTE: distinct from `this.isSetUp` (UI-facing, variant-specific) on purpose.
+   */
   serviceIsSetUp(): boolean {
-    return this.computeIsSetUp()
+    return this.computeStandardArtifactsReady() || this.computePhisonArtifactsReady()
   }
 
   /**

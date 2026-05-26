@@ -188,7 +188,13 @@ fs.mkdirSync(mediaInputDir, { recursive: true })
 /** Resolve aipg-media://… to an absolute file path under `mediaDir` (no path traversal). */
 function getLocalPathFromAipgMediaUrl(url: string): string | null {
   if (typeof url !== 'string' || !url.startsWith('aipg-media://')) return null
-  const decodedUrl = decodeURIComponent(url.replace(/^aipg-media:\/\//i, ''))
+  // Strip protocol, then strip any trailing slash — Chromium occasionally
+  // appends one to custom-protocol URLs (e.g. `aipg-media://foo.png/`), and
+  // `net.fetch(file://.../foo.png/)` treats the trailing slash as "directory"
+  // and fails. Mirrors what the legacy inline handler did.
+  const decodedUrl = decodeURIComponent(
+    url.replace(/^aipg-media:\/\//i, '').replace(/[/\\]+$/, ''),
+  )
   const fullPath = path.normalize(path.join(mediaDir, decodedUrl))
   const base = path.resolve(mediaDir)
   const relative = path.relative(base, fullPath)

@@ -60,7 +60,9 @@ export function getActiveLlamaCppExePath(
   serviceDir: string,
   variant: LlamaCppBuildVariant,
 ): string {
-  return path.resolve(path.join(getLlamaCppDirForVariant(serviceDir, variant), binary('llama-server')))
+  return path.resolve(
+    path.join(getLlamaCppDirForVariant(serviceDir, variant), binary('llama-server')),
+  )
 }
 
 export function getZipPathForVariant(

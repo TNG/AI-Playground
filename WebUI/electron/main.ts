@@ -198,9 +198,7 @@ function getLocalPathFromAipgMediaUrl(url: string): string | null {
   // exception escape into the protocol handler or IPC reply.
   let decodedUrl: string
   try {
-    decodedUrl = decodeURIComponent(
-      url.replace(/^aipg-media:\/\//i, '').replace(/[/\\]+$/, ''),
-    )
+    decodedUrl = decodeURIComponent(url.replace(/^aipg-media:\/\//i, '').replace(/[/\\]+$/, ''))
   } catch {
     return null
   }
@@ -375,10 +373,7 @@ function applyPresetFilter(
         parsed.variants = filtered
         presets.set(key, { ...file, content: JSON.stringify(parsed) })
       } catch (e) {
-        appLogger.warn(
-          `Failed to filter variants for preset "${key}": ${e}`,
-          'electron-backend',
-        )
+        appLogger.warn(`Failed to filter variants for preset "${key}": ${e}`, 'electron-backend')
       }
     }
   }

@@ -870,8 +870,7 @@ export const useImageGenerationPresets = defineStore(
           // localStorage quota — keep them in memory but scrub the persisted copy.
           // Shared with the `comfyInputsPerPreset` loop below so both stay in sync.
           const isPersistableDataUri = (v: unknown): v is string =>
-            typeof v === 'string' &&
-            (v.startsWith('data:image/') || v.startsWith('data:video/'))
+            typeof v === 'string' && (v.startsWith('data:image/') || v.startsWith('data:video/'))
 
           const filteredInputs: typeof comfyInputsPerPreset = {}
           for (const [presetName, inputs] of Object.entries(comfyInputsPerPreset)) {

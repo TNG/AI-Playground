@@ -811,7 +811,10 @@ export class LlamaCppBackendService implements ApiService {
   }
 
   private ensureSsdOffloadConfigFileSync(): void {
-    llamaCppPhison.ensureSsdOffloadConfigFileSync(this.serviceDir, this.llamaCppSsdOffloadConfigPath)
+    llamaCppPhison.ensureSsdOffloadConfigFileSync(
+      this.serviceDir,
+      this.llamaCppSsdOffloadConfigPath,
+    )
   }
 
   private async ensureSsdOffloadConfigFile(): Promise<void> {

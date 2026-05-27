@@ -543,8 +543,7 @@ function getTextAreaPlaceholder() {
 }
 
 function handleSubmitPromptClick() {
-  const needsPrompt =
-    promptStore.getCurrentMode() === 'chat' || imageGeneration.requiresUserPrompt
+  const needsPrompt = promptStore.getCurrentMode() === 'chat' || imageGeneration.requiresUserPrompt
   if (needsPrompt && !prompt.value.trim()) {
     toast.error(languages?.COM_ERROR_NO_MESSAGE || 'Please enter a message before sending.')
     return

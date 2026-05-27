@@ -350,10 +350,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       const url = `${this.baseUrl}/send-telegram-reply`
       // Log only metadata — message text is user content and shouldn't end up
       // in app logs (the logger's token-redactor only covers bot tokens).
-      this.appLogger.info(
-        `sendTelegramReply posting to ${url} (length=${text.length})`,
-        this.name,
-      )
+      this.appLogger.info(`sendTelegramReply posting to ${url} (length=${text.length})`, this.name)
       const res = await net.fetch(url, {
         method: 'POST',
         headers: this.authHeaders({ 'Content-Type': 'application/json' }),

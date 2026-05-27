@@ -154,9 +154,7 @@ async function handlePhisonReinstall() {
     try {
       const startStatus = await backendServices.startService('llamacpp-backend')
       if (startStatus !== 'running') {
-        console.error(
-          `Llama.cpp (Phison) failed to start after reinstall (status=${startStatus}).`,
-        )
+        console.error(`Llama.cpp (Phison) failed to start after reinstall (status=${startStatus}).`)
         toast.error(`Llama.cpp (Phison) failed to start after reinstall (status=${startStatus}).`)
         return
       }

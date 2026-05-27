@@ -915,7 +915,7 @@ export const useHomeAgent = defineStore(
         for (const part of parts) {
           if (part.type === 'reasoning') {
             const txt = (part.text ?? '').trim()
-            if (txt) lines.push(`💭 <i>${escapeHtml(txt)}</i>`)
+            if (txt) lines.push(`<blockquote>💭 ${escapeHtml(txt)}</blockquote>`)
           } else if (part.type === 'text') {
             const cleaned = stripAipgMediaReferences(part.text ?? '').trim()
             if (cleaned) lines.push(markdownToTelegramHtml(cleaned))
@@ -929,32 +929,38 @@ export const useHomeAgent = defineStore(
 
       function buildFinalText(parts: RawPart[]): string {
         const lines: string[] = []
-        // Coalesce all reasoning parts in this turn into a single "Thought for
-        // X seconds" line. Each part carries its own start/finish timestamps
-        // via providerMetadata.aipg (set in openAiCompatibleChat's customFetch
-        // onChunk handler), but the SDK can emit several reasoning blocks per
-        // turn (e.g. across tool-call cycles). Sum their per-block elapsed
-        // durations rather than spanning earliest-start → latest-finish so
-        // tool-execution gaps don't inflate the figure.
+        // Coalesce all reasoning parts in this turn into a single expandable
+        // blockquote with a "Thought for X.X seconds" header, a blank line,
+        // and the full reasoning transcript. Each reasoning part carries its
+        // own start/finish timestamps via providerMetadata.aipg (set in
+        // openAiCompatibleChat's customFetch onChunk handler); the SDK can
+        // emit several reasoning blocks per turn (e.g. across tool-call
+        // cycles) so we sum per-block elapsed durations rather than spanning
+        // earliest-start → latest-finish — that keeps tool-execution gaps out
+        // of the reported figure.
         let reasoningElapsedMs = 0
-        let hasReasoning = false
+        const reasoningChunks: string[] = []
         for (const part of parts) {
           if (part.type !== 'reasoning') continue
           const txt = (part.text ?? '').trim()
           if (!txt) continue
-          hasReasoning = true
+          reasoningChunks.push(escapeHtml(txt))
           const timing = part.providerMetadata?.aipg
           if (timing?.reasoningStarted && timing?.reasoningFinished) {
             reasoningElapsedMs += Math.max(0, timing.reasoningFinished - timing.reasoningStarted)
           }
         }
-        if (hasReasoning) {
+        if (reasoningChunks.length > 0) {
           const seconds = (reasoningElapsedMs / 1000).toFixed(1)
-          lines.push(`💭 <i>Thought for ${seconds} seconds</i>`)
+          const header = `💭 <i>Thought for ${seconds} seconds</i>`
+          const body = reasoningChunks.join('\n\n')
+          // Single <blockquote expandable> so Telegram collapses both the
+          // header and the transcript together by default.
+          lines.push(`<blockquote expandable>${header}\n\n${body}</blockquote>`)
         }
         for (const part of parts) {
           if (part.type === 'reasoning') {
-            // Replaced by the coalesced summary above.
+            // Replaced by the coalesced expandable summary above.
             continue
           } else if (part.type === 'text') {
             const cleaned = stripAipgMediaReferences(part.text ?? '').trim()

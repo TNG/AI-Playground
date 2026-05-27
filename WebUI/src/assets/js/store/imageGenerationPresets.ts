@@ -6,7 +6,7 @@ import { useDemoMode } from './demoMode'
 import { useI18N } from './i18n'
 import * as toast from '@/assets/js/toast.ts'
 import { useBackendServices } from './backendServices'
-import { usePresets, type ComfyInput } from './presets'
+import { usePresets, presetRequiresUserPrompt, type ComfyInput } from './presets'
 
 /** Convert requiredModels "repo/path/file.safetensors" to ComfyUI format "repo---path\\file.safetensors" */
 function requiredModelToComfyUIName(modelPath: string): string {
@@ -394,6 +394,20 @@ export const useImageGenerationPresets = defineStore(
       )
       return setting?.modifiable ?? false
     }
+
+    /**
+     * Whether the currently active ComfyUI preset requires a user-entered
+     * prompt. Defaults to `true` when no preset is active so that bare-bones
+     * UI states still treat the prompt as required.
+     *
+     * The source of truth is the structured prompt setting (see
+     * `presetRequiresUserPrompt`). Submission/validation code (e.g.
+     * `PromptArea.vue`) MUST consult this flag rather than re-deriving the
+     * contract locally.
+     */
+    const requiresUserPrompt = computed(() =>
+      activePreset.value ? presetRequiresUserPrompt(activePreset.value) : true,
+    )
 
     // Change the settings key to include variant
     function getSettingsKey(): string {
@@ -831,6 +845,7 @@ export const useImageGenerationPresets = defineStore(
       selectedVideoId,
       settingIsRelevant,
       isModifiable,
+      requiresUserPrompt,
       loadSettingsForActivePreset,
       copyImageAsInputForMode,
     }

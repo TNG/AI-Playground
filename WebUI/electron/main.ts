@@ -110,6 +110,7 @@ const ProductModeFileSchema = z.object({
   requiresNvidiaGpu: z.boolean().default(false),
   includePresets: z.array(z.string()).optional(),
   excludePresets: z.array(z.string()).optional(),
+  excludeVariantBackends: z.array(z.string()).optional(),
   ui: z.object({
     i18n: ProductModeUiI18nSchema,
   }),
@@ -267,6 +268,7 @@ type PresetLoadConfig = {
   imageFallbackDirs: string[]
   includePresets?: string[]
   excludePresets?: string[]
+  excludeVariantBackends?: string[]
 }
 
 function getPresetLoadConfig(s: LocalSettings): PresetLoadConfig {
@@ -290,6 +292,7 @@ function getPresetLoadConfig(s: LocalSettings): PresetLoadConfig {
     imageFallbackDirs: variant === 'demo' ? [basePresetsDir] : [],
     includePresets,
     excludePresets,
+    excludeVariantBackends: modeConfig?.excludeVariantBackends,
   }
 }
 
@@ -357,6 +360,26 @@ function applyPresetFilter(
   } else if (config.excludePresets) {
     for (const excluded of config.excludePresets) {
       presets.delete(excluded)
+    }
+  }
+  if (config.excludeVariantBackends?.length) {
+    const excludedBackends = new Set(config.excludeVariantBackends)
+    for (const [key, file] of presets) {
+      try {
+        const parsed = JSON.parse(file.content)
+        if (parsed?.type !== 'comfy' || !Array.isArray(parsed.variants)) continue
+        const filtered = parsed.variants.filter(
+          (v: { backend?: string }) => !(v?.backend && excludedBackends.has(v.backend)),
+        )
+        if (filtered.length === parsed.variants.length) continue
+        parsed.variants = filtered
+        presets.set(key, { ...file, content: JSON.stringify(parsed) })
+      } catch (e) {
+        appLogger.warn(
+          `Failed to filter variants for preset "${key}": ${e}`,
+          'electron-backend',
+        )
+      }
     }
   }
   return presets

@@ -864,22 +864,36 @@ export const useImageGenerationPresets = defineStore(
             Record<string, unknown> | undefined
           >
 
+          // `comfyUiPresets.queueBatch` snapshots each `comfyInputs[i].current.value`
+          // into `MediaItem.dynamicSettings[].current`. Inpaint mask / outpaint
+          // composite data URIs would inflate `generatedImages` past the
+          // localStorage quota — keep them in memory but scrub the persisted copy.
+          // Shared with the `comfyInputsPerPreset` loop below so both stay in sync.
+          const isPersistableDataUri = (v: unknown): v is string =>
+            typeof v === 'string' &&
+            (v.startsWith('data:image/') || v.startsWith('data:video/'))
+
           const filteredInputs: typeof comfyInputsPerPreset = {}
           for (const [presetName, inputs] of Object.entries(comfyInputsPerPreset)) {
             if (inputs === undefined) continue
             const filtered: Record<string, unknown> = {}
             for (const [key, value] of Object.entries(inputs as Record<string, unknown>)) {
-              const isDataUri =
-                typeof value === 'string' &&
-                (value.startsWith('data:image/') || value.startsWith('data:video/'))
-              if (!isDataUri) filtered[key] = value
+              if (!isPersistableDataUri(value)) filtered[key] = value
             }
             filteredInputs[presetName] = filtered
+          }
+          const sanitizeDynamicSettings = (img: MediaItem): MediaItem => {
+            if (!img.dynamicSettings) return img
+            const dynamicSettings = img.dynamicSettings.map((s) =>
+              isPersistableDataUri(s.current) ? { ...s, current: '' as never } : s,
+            )
+            return { ...img, dynamicSettings }
           }
           const imagesToPersist = Array.isArray(state.generatedImages)
             ? state.generatedImages
                 .filter((img) => img && img.state === 'done')
                 .toSorted((a: MediaItem, b: MediaItem) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
+                .map(sanitizeDynamicSettings)
             : state.generatedImages
           return JSON.stringify({
             ...state,

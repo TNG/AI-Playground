@@ -152,6 +152,11 @@ export function getTranslationLabel(prefix: string, label: string) {
 export async function checkIfNsfwBlocked(imageUrl: string): Promise<boolean> {
   return new Promise((resolve) => {
     const img = new Image()
+    // Generated `imageUrl`s are `aipg-media://…`, which is a cross-origin
+    // scheme. Without CORS opt-in, `drawImage` taints the canvas and the
+    // following `getImageData` throws `SecurityError`. `aipg-media` is
+    // registered as `corsEnabled` with `Access-Control-Allow-Origin: *`.
+    img.crossOrigin = 'anonymous'
 
     img.onload = () => {
       // Check if image is exactly 512x512

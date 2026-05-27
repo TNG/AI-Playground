@@ -439,6 +439,10 @@ protocol.registerSchemesAsPrivileged([
       standard: true,
       bypassCSP: true, // impotant
       stream: true,
+      // Required so canvases can read pixels from `aipg-media://` images
+      // (mask / outpaint editors call `getImageData()` / `toDataURL()`).
+      // The handler below must also emit `Access-Control-Allow-Origin`.
+      corsEnabled: true,
     },
   },
 ])
@@ -2108,7 +2112,19 @@ app.whenReady().then(async () => {
       if (!safePath) {
         return new Response('Not Found', { status: 404 })
       }
-      return await net.fetch(pathToFileURL(safePath).href)
+      const upstream = await net.fetch(pathToFileURL(safePath).href)
+      // `getImageData()` / `toDataURL()` on a canvas that drew an
+      // `aipg-media://` image only succeed when the response carries CORS
+      // headers AND the `<img>` opts in via `crossorigin="anonymous"`.
+      // `*` is safe because the scheme only ever serves files under
+      // `mediaDir`, already guarded by `getLocalPathFromAipgMediaUrl`.
+      const headers = new Headers(upstream.headers)
+      headers.set('Access-Control-Allow-Origin', '*')
+      return new Response(upstream.body, {
+        status: upstream.status,
+        statusText: upstream.statusText,
+        headers,
+      })
     })
     const window = await createWindow()
     await initServiceRegistry(window, settings)

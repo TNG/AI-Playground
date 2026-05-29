@@ -196,7 +196,7 @@ type electronAPI = {
   setIgnoreMouseEvents(ignore: boolean): void
   miniWindow(): void
   exitApp(): void
-  getInitialPage(): Promise<ModeType>
+  getInitialPage(): Promise<ModeType | null>
   getDemoModeSettings(): Promise<DemoModeSettings>
   saveImage(url: string): void
   saveImageToMediaInput(dataUri: string): Promise<string>

@@ -1006,11 +1006,15 @@ function initEventHandle() {
     },
   )
 
-  /** Get command line parameters when launched from IPOS to decide the default home page */
-  ipcMain.handle('getInitialPage', (): ModeType => {
+  /** Get command line parameters when launched from IPOS to decide the default home page.
+   * Returns null when --start-page was not provided so the renderer can leave
+   * the persisted mode untouched; returns the validated ModeType (or 'chat' as
+   * a safe fallback for an invalid value) when it was. */
+  ipcMain.handle('getInitialPage', (): ModeType | null => {
     const validModes: ModeType[] = ['chat', 'imageGen', 'imageEdit', 'video']
     const startPageArg = process.argv.find((arg) => arg.startsWith('--start-page='))
-    const parsed = startPageArg?.split('=')[1]
+    if (!startPageArg) return null
+    const parsed = startPageArg.split('=')[1]
     return validModes.includes(parsed as ModeType) ? (parsed as ModeType) : 'chat'
   })
 

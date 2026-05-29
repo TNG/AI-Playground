@@ -16,7 +16,7 @@ const pinia = createPinia()
 pinia.use(piniaPluginPersistedstate)
 app.use(pinia)
 
-if (initialPage !== 'chat') {
+if (initialPage !== null) {
   usePromptStore().setCurrentMode(initialPage)
 }
 

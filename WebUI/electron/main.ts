@@ -1007,9 +1007,11 @@ function initEventHandle() {
   )
 
   /** Get command line parameters when launched from IPOS to decide the default home page */
-  ipcMain.handle('getInitialPage', () => {
+  ipcMain.handle('getInitialPage', (): ModeType => {
+    const validModes: ModeType[] = ['chat', 'imageGen', 'imageEdit', 'video']
     const startPageArg = process.argv.find((arg) => arg.startsWith('--start-page='))
-    return startPageArg ? startPageArg.split('=')[1] : 'create'
+    const parsed = startPageArg?.split('=')[1]
+    return validModes.includes(parsed as ModeType) ? (parsed as ModeType) : 'chat'
   })
 
   /** To check whether demo mode is enabled or not for AIPG */

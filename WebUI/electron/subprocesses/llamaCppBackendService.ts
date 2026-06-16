@@ -1008,6 +1008,27 @@ export class LlamaCppBackendService implements ApiService {
     return 'stopped'
   }
 
+  /**
+   * Re-apply the `loadLlamaOnCpu` device choice to an already-running LLM. The
+   * flag is read at server start, so toggling it mid-session only takes effect
+   * after a restart — stopping the current server here makes the next
+   * `ensureBackendReadiness` boot it on the newly chosen device. No-op when no
+   * LLM server is running (the next start picks up the flag anyway).
+   */
+  async restartLlmForDeviceChange(): Promise<void> {
+    if (!this.llamaLlmProcess) return
+    const model = this.currentLlmModel
+    const ctx = this.currentContextSize ?? undefined
+    if (!model) return
+    this.appLogger.info(
+      `Reloading LLM ${model} to apply CPU/GPU device change (loadLlamaOnCpu=${this.settings.loadLlamaOnCpu})`,
+      this.name,
+    )
+    await this.stopLlamaLlmServer()
+    await this.startLlamaLlmServer(model, ctx)
+    this.start()
+  }
+
   /** Env only for on-demand llama-server processes (LLM / embedding). Phison build uses GGML_VK_DISABLE_F16. */
   private llamaModelServerEnv(): NodeJS.ProcessEnv {
     return {
@@ -1052,6 +1073,17 @@ export class LlamaCppBackendService implements ApiService {
         '--host',
         '127.0.0.1',
       ]
+
+      // "Load Llama on CPU, ComfyUI on GPU" mode (home-agent setting): override
+      // the user's --gpu-layers (default 999) so no model layers are offloaded,
+      // and --no-mmproj-offload so the (VL) vision encoder stays on the CPU too
+      // — otherwise CLIP would keep holding GPU VRAM and defeat the point of
+      // leaving the whole GPU free for image generation. Appended last;
+      // llama-server honours the final --gpu-layers regardless of position.
+      if (this.settings.loadLlamaOnCpu) {
+        args.push('--gpu-layers', '0', '--no-mmproj-offload')
+        this.appLogger.info(`Starting LLM ${modelRepoId} in CPU-only mode (no GPU offload)`, this.name)
+      }
 
       const modelFolder = path.dirname(modelPath)
       // find mmproj*.gguf file in the same folder

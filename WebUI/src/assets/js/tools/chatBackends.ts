@@ -13,6 +13,16 @@ export const chatBackends: BackendServiceName[] = ['llamacpp-backend', 'openvino
 export async function stopChatBackends(): Promise<void> {
   const backendServices = useBackendServices()
 
+  // When "Load Llama on CPU, ComfyUI on GPU" is enabled, llama runs on the CPU
+  // and never competes for VRAM — so we leave it running (keeping its warm KV
+  // cache) instead of stopping it for image generation.
+  let llamaOnCpu = false
+  try {
+    llamaOnCpu = !!(await window.electronAPI.getLocalSettings()).loadLlamaOnCpu
+  } catch (error) {
+    console.warn('[ComfyUI Tool] Could not read loadLlamaOnCpu setting:', error)
+  }
+
   for (const serviceName of chatBackends) {
     const backend = backendServices.info.find((s) => s.serviceName === serviceName)
     try {
@@ -22,6 +32,10 @@ export async function stopChatBackends(): Promise<void> {
           console.warn(`[ComfyUI Tool] Failed to stop OVMS chat servers:`, result.error)
         }
       } else {
+        if (serviceName === 'llamacpp-backend' && llamaOnCpu) {
+          console.log('[ComfyUI Tool] Leaving llamacpp-backend running (CPU mode)')
+          continue
+        }
         if (backend?.status !== 'running') continue
         await backendServices.stopService(serviceName)
       }

@@ -59,7 +59,10 @@ import {
 } from './subprocesses/comfyUIBackendService'
 import { AiBackendService } from './subprocesses/aiBackendService'
 import { HomeAgentBackendService } from './subprocesses/homeAgentBackendService'
-import { LLAMACPP_DEFAULT_PARAMETERS } from './subprocesses/llamaCppBackendService'
+import {
+  LLAMACPP_DEFAULT_PARAMETERS,
+  LlamaCppBackendService,
+} from './subprocesses/llamaCppBackendService'
 import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateIntelPresets.ts'
 import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
 import * as comfyuiTools from './subprocesses/comfyuiTools'
@@ -252,6 +255,10 @@ const LocalSettingsSchema = z.object({
   // Gates the Home Agent feature (Telegram bridge backend, setup wizard surface,
   // header toggle, bundled preset). Default false: opt-in by editing settings.json.
   isHomeAgentEnabled: z.boolean().default(false),
+  // Home Agent option: run the llama LLM entirely on the CPU and leave the GPU
+  // free for ComfyUI image generation. Avoids the per-image llama teardown
+  // (and the prompt-cache loss it causes) at the cost of slower CPU generation.
+  loadLlamaOnCpu: z.boolean().default(false),
   languageOverride: z.string().nullable().default(null),
   remoteRepository: z.string().default('intel/ai-playground'),
   huggingfaceEndpoint: z.string().default('https://huggingface.co'),
@@ -868,6 +875,14 @@ function initEventHandle() {
     }
     persistLocalSettingsToDisk()
     appLogger.info(`Updated local settings: ${JSON.stringify(updates)}`, 'electron-backend')
+    // The llama device choice is read at server start, so a mid-session toggle
+    // needs the running LLM reloaded to actually move it on/off the GPU.
+    if ('loadLlamaOnCpu' in updates && serviceRegistry) {
+      const llamaService = serviceRegistry.getService('llamacpp-backend')
+      if (llamaService instanceof LlamaCppBackendService) {
+        void llamaService.restartLlmForDeviceChange()
+      }
+    }
     return { success: true }
   })
 

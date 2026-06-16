@@ -498,34 +498,48 @@ export const useOpenAiCompatibleChat = defineStore(
         })
       }
 
-      // Keep only the most recent image in the prompt. A vision model re-encodes
-      // (CLIP) every image in the history on every turn, so replaying old images
-      // makes each turn progressively slower as the conversation grows. Scan from
-      // the newest message backwards, keep the first image found, and replace all
-      // earlier ones with a short text placeholder. No-op without vision (images
-      // were already stripped above) or when there is at most one image.
-      if (textInference.modelSupportsVision) {
-        let keptLatestImage = false
-        let droppedImages = 0
+      // Cap how many of the most recent images/videos in the prompt are sent to
+      // the model. A vision model re-encodes (CLIP) every image in the history on
+      // every turn, so replaying old media makes each turn progressively slower as
+      // the conversation grows. Scan from the newest message backwards, keep the
+      // most recent `historyMediaLimit` media parts, and replace earlier ones with
+      // a short text placeholder. Gated by the `limitHistoryMedia` Home Agent
+      // setting (default: keep the newest 1). No-op without vision (images were
+      // already stripped above) or when the limit is disabled.
+      let limitHistoryMedia = true
+      let historyMediaLimit = 1
+      try {
+        const ls = await window.electronAPI.getLocalSettings()
+        limitHistoryMedia = ls.limitHistoryMedia ?? true
+        historyMediaLimit = typeof ls.historyMediaLimit === 'number' ? ls.historyMediaLimit : 1
+      } catch (e) {
+        console.warn('[chat] could not read history media settings, using defaults', e)
+      }
+      if (textInference.modelSupportsVision && limitHistoryMedia) {
+        let keptMedia = 0
+        let droppedMedia = 0
         for (let i = messages.length - 1; i >= 0; i--) {
           const content = messages[i].content
           if (!Array.isArray(content)) continue
           let changed = false
           const newContent = content.map((part) => {
             const p = part as { type: string; mediaType?: string }
-            if (p.type !== 'file' || !p.mediaType?.startsWith('image/')) return part
-            if (!keptLatestImage) {
-              keptLatestImage = true
+            const isMedia =
+              p.type === 'file' &&
+              (p.mediaType?.startsWith('image/') || p.mediaType?.startsWith('video/'))
+            if (!isMedia) return part
+            if (keptMedia < historyMediaLimit) {
+              keptMedia++
               return part
             }
             changed = true
-            droppedImages++
-            return { type: 'text', text: '[earlier image omitted]' } as typeof part
+            droppedMedia++
+            return { type: 'text', text: '[earlier image/video omitted]' } as typeof part
           })
           if (changed) messages[i] = { ...messages[i], content: newContent } as (typeof messages)[number]
         }
-        if (haDiag && (keptLatestImage || droppedImages)) {
-          console.log(`[HA-DIAG] images kept=${keptLatestImage ? 1 : 0} droppedFromHistory=${droppedImages}`)
+        if (haDiag && (keptMedia || droppedMedia)) {
+          console.log(`[HA-DIAG] media kept=${keptMedia} droppedFromHistory=${droppedMedia}`)
         }
       }
 

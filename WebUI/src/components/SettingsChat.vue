@@ -56,6 +56,44 @@
             </Tooltip>
           </TooltipProvider>
         </div>
+        <div class="mt-1 flex items-center gap-2">
+          <Checkbox
+            id="limitHistoryMedia"
+            :model-value="limitHistoryMedia"
+            @click="toggleLimitHistoryMedia"
+          />
+          <Label for="limitHistoryMedia" class="text-sm cursor-pointer"
+            >Limit images/videos loaded from history</Label
+          >
+          <input
+            type="number"
+            min="0"
+            step="1"
+            :disabled="!limitHistoryMedia"
+            :value="historyMediaLimit"
+            @change="onHistoryMediaLimitChange"
+            class="rounded-sm text-foreground text-center h-7 w-16 leading-7 p-0 bg-transparent border border-border disabled:opacity-50"
+          />
+          <TooltipProvider>
+            <Tooltip :delay-duration="100">
+              <TooltipTrigger as-child>
+                <button type="button" class="p-0.5">
+                  <InformationCircleIcon class="size-4 text-muted-foreground" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent class="w-72 bg-card border border-border text-foreground p-3 z-[200]">
+                <p class="text-xs leading-relaxed">
+                  A vision model re-encodes every image/video in the conversation on each turn, so
+                  long histories get slower and slower. When enabled, only the most recent N
+                  images/videos are sent to the model (older ones are replaced with a short text
+                  placeholder); set N here (0 sends none). When disabled, the entire media history
+                  is sent each turn. Most impactful when the model stays resident (Load Llama on
+                  CPU), so the cached context is reused turn to turn.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       </div>
 
       <div class="flex flex-col gap-4">
@@ -279,11 +317,18 @@ const isHomeAgentPresetActive = computed(
 // "Load Llama on CPU, ComfyUI on GPU" — persisted as a local setting; the
 // electron side reloads the llama server on the matching device when toggled.
 const loadLlamaOnCpu = ref(false)
+// "Limit images/videos loaded from history" — caps how many recent media items
+// are sent to the vision LLM each turn (see openAiCompatibleChat trim logic).
+const limitHistoryMedia = ref(true)
+const historyMediaLimit = ref(1)
 onMounted(async () => {
   try {
-    loadLlamaOnCpu.value = !!(await window.electronAPI.getLocalSettings()).loadLlamaOnCpu
+    const ls = await window.electronAPI.getLocalSettings()
+    loadLlamaOnCpu.value = !!ls.loadLlamaOnCpu
+    limitHistoryMedia.value = ls.limitHistoryMedia ?? true
+    historyMediaLimit.value = typeof ls.historyMediaLimit === 'number' ? ls.historyMediaLimit : 1
   } catch (e) {
-    console.error('SettingsChat: failed to read loadLlamaOnCpu setting:', e)
+    console.error('SettingsChat: failed to read Home Agent settings:', e)
   }
 })
 async function toggleLoadLlamaOnCpu() {
@@ -294,6 +339,26 @@ async function toggleLoadLlamaOnCpu() {
   } catch (e) {
     loadLlamaOnCpu.value = !next // revert on failure
     console.error('SettingsChat: failed to update loadLlamaOnCpu setting:', e)
+  }
+}
+async function toggleLimitHistoryMedia() {
+  const next = !limitHistoryMedia.value
+  limitHistoryMedia.value = next
+  try {
+    await window.electronAPI.updateLocalSettings({ limitHistoryMedia: next })
+  } catch (e) {
+    limitHistoryMedia.value = !next // revert on failure
+    console.error('SettingsChat: failed to update limitHistoryMedia setting:', e)
+  }
+}
+async function onHistoryMediaLimitChange(event: Event) {
+  const raw = Number.parseInt((event.target as HTMLInputElement).value, 10)
+  const next = Number.isFinite(raw) && raw >= 0 ? raw : 0
+  historyMediaLimit.value = next
+  try {
+    await window.electronAPI.updateLocalSettings({ historyMediaLimit: next })
+  } catch (e) {
+    console.error('SettingsChat: failed to update historyMediaLimit setting:', e)
   }
 }
 

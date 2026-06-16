@@ -259,6 +259,14 @@ const LocalSettingsSchema = z.object({
   // free for ComfyUI image generation. Avoids the per-image llama teardown
   // (and the prompt-cache loss it causes) at the cost of slower CPU generation.
   loadLlamaOnCpu: z.boolean().default(false),
+  // Home Agent option: cap how many of the most recent images/videos in a
+  // conversation are sent to the (vision) LLM. A VL model re-encodes every
+  // image in history on each turn, so trimming old media keeps turns fast —
+  // most useful when llama stays resident (loadLlamaOnCpu) and the prompt
+  // cache would otherwise be reused. When `limitHistoryMedia` is false the
+  // full history is sent; otherwise only the newest `historyMediaLimit` items.
+  limitHistoryMedia: z.boolean().default(true),
+  historyMediaLimit: z.number().int().min(0).default(1),
   languageOverride: z.string().nullable().default(null),
   remoteRepository: z.string().default('intel/ai-playground'),
   huggingfaceEndpoint: z.string().default('https://huggingface.co'),

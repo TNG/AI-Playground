@@ -58,6 +58,13 @@ import {
 import { AiBackendService } from './subprocesses/aiBackendService'
 import { HomeAgentBackendService } from './subprocesses/homeAgentBackendService'
 import { LLAMACPP_DEFAULT_PARAMETERS } from './subprocesses/llamaCppBackendService'
+import {
+  getKvCacheDir,
+  kvCacheExists,
+  pruneKvCacheToLatest,
+  deleteKvCacheForConversation,
+  clearKvCache,
+} from './subprocesses/kvCache'
 import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateIntelPresets.ts'
 import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
 import * as comfyuiTools from './subprocesses/comfyuiTools'
@@ -236,6 +243,10 @@ const LocalSettingsSchema = z.object({
   // Gates the Home Agent feature (Telegram bridge backend, setup wizard surface,
   // header toggle, bundled preset). Default false: opt-in by editing settings.json.
   isHomeAgentEnabled: z.boolean().default(false),
+  // When true (default), llama-server KV cache is dumped to disk per conversation
+  // and restored on reopen/restart so long chats skip full prompt reprocessing.
+  // No-op for the OpenVINO backend (no slot-persistence API). User can opt out.
+  saveKvCache: z.boolean().default(true),
   languageOverride: z.string().nullable().default(null),
   remoteRepository: z.string().default('intel/ai-playground'),
   huggingfaceEndpoint: z.string().default('https://huggingface.co'),
@@ -813,9 +824,24 @@ function initEventHandle() {
       }
     }
     persistLocalSettingsToDisk()
+    // Opting out of KV cache persistence wipes any dumps left on disk.
+    if ('saveKvCache' in updates && updates.saveKvCache === false) {
+      clearKvCache().catch((e) =>
+        appLogger.error(`Failed to clear KV cache: ${e}`, 'electron-backend'),
+      )
+    }
     appLogger.info(`Updated local settings: ${JSON.stringify(updates)}`, 'electron-backend')
     return { success: true }
   })
+
+  ipcMain.handle('kvCache:getDir', () => getKvCacheDir())
+  ipcMain.handle('kvCache:exists', (_event, filename: string) => kvCacheExists(filename))
+  ipcMain.handle('kvCache:pruneToLatest', (_event, kind: string, keepFilename: string) =>
+    pruneKvCacheToLatest(kind, keepFilename),
+  )
+  ipcMain.handle('kvCache:deleteForConversation', (_event, convKey: string) =>
+    deleteKvCacheForConversation(convKey),
+  )
 
   ipcMain.handle('detectHardwareForModeRecommendation', async () => {
     let detected: GpuHardwareDevice[] = []

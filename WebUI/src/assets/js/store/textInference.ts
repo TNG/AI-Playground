@@ -1193,6 +1193,69 @@ export const useTextInference = defineStore(
       loadSettingsForActivePreset()
     }
 
+    /**
+     * Snapshot the live inference refs into a plain object. Mirrors exactly the
+     * fields the per-preset persistence watcher saves, so the snapshot can be
+     * re-applied via `applySettingsSnapshot`. Stamped per conversation so each
+     * thread reproduces its own profile (not just the shared per-preset one).
+     */
+    function buildCurrentSettingsSnapshot(): Record<string, unknown> {
+      return {
+        backend: backend.value,
+        selectedModels: { ...selectedModels.value },
+        selectedEmbeddingModels: { ...selectedEmbeddingModels.value },
+        selectedDeviceId: getCurrentDeviceId(),
+        maxTokens: maxTokens.value,
+        contextSize: contextSize.value,
+        temperature: temperature.value,
+        systemPrompt: systemPrompt.value,
+        metricsEnabled: metricsEnabled.value,
+        aipgToolsEnabled: aipgToolsEnabled.value,
+        mcpToolsEnabled: mcpToolsEnabled.value,
+      }
+    }
+
+    /**
+     * Apply a previously stamped per-conversation settings snapshot to the live
+     * refs. Guards the persistence watcher (same `isLoadingSettings` + deferred
+     * clear pattern as `loadSettingsForActivePreset`) so re-activating a thread
+     * does not re-save bootstrapping values.
+     */
+    function applySettingsSnapshot(snapshot: Record<string, unknown>): void {
+      isLoadingSettings = true
+      if (snapshot.backend !== undefined) backend.value = snapshot.backend as LlmBackend
+      if (snapshot.selectedModels !== undefined) {
+        selectedModels.value = {
+          ...selectedModels.value,
+          ...(snapshot.selectedModels as LlmBackendKV),
+        }
+      }
+      if (snapshot.selectedEmbeddingModels !== undefined) {
+        selectedEmbeddingModels.value = {
+          ...selectedEmbeddingModels.value,
+          ...(snapshot.selectedEmbeddingModels as LlmBackendKV),
+        }
+      }
+      if (snapshot.maxTokens !== undefined) maxTokens.value = snapshot.maxTokens as number
+      if (snapshot.contextSize !== undefined) contextSize.value = snapshot.contextSize as number
+      if (snapshot.temperature !== undefined) temperature.value = snapshot.temperature as number
+      if (snapshot.systemPrompt !== undefined) systemPrompt.value = snapshot.systemPrompt as string
+      if (snapshot.metricsEnabled !== undefined)
+        metricsEnabled.value = snapshot.metricsEnabled as boolean
+      if (snapshot.aipgToolsEnabled !== undefined)
+        aipgToolsEnabled.value = snapshot.aipgToolsEnabled as boolean
+      if (snapshot.mcpToolsEnabled !== undefined)
+        mcpToolsEnabled.value = snapshot.mcpToolsEnabled as boolean
+      const deviceId = snapshot.selectedDeviceId as string | undefined
+      if (deviceId) {
+        const serviceName = backendToService[backend.value] as BackendServiceName
+        backendServices.selectDevice(serviceName, deviceId)
+      }
+      nextTick(() => {
+        isLoadingSettings = false
+      })
+    }
+
     // ========================================================================
     // Per-thread preset stamping & reactivation
     // ========================================================================
@@ -1267,6 +1330,9 @@ export const useTextInference = defineStore(
         presetName: resolved.presetName,
         variant: resolved.variant,
         kind: existingKind ?? 'main',
+        // Full per-thread profile so reopening restores the exact settings used
+        // here (and keeps any persisted KV cache dump valid).
+        settingsSnapshot: buildCurrentSettingsSnapshot(),
       })
     }
 
@@ -1376,6 +1442,12 @@ export const useTextInference = defineStore(
           return
         }
         applyPresetToGlobals(meta.presetName, meta.variant ?? null)
+        // Overlay the thread's own settings snapshot (model, ctx, temp, system
+        // prompt, …) on top of the preset defaults so revisiting reproduces the
+        // exact profile this thread last generated with.
+        if (meta.settingsSnapshot) {
+          applySettingsSnapshot(meta.settingsSnapshot)
+        }
       },
       // `immediate: true` ensures the restored thread (set during conversations
       // store setup) gets its preset applied on startup — otherwise the very

@@ -17,6 +17,7 @@ import {
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { useTextInference } from './textInference'
 import { useConversations } from './conversations'
+import { buildKvCacheFilename } from './kvCacheKeys'
 import { aipgTools } from '../tools/tools'
 import z from 'zod'
 import { AipgTools } from '../tools/tools'
@@ -78,6 +79,33 @@ export const useOpenAiCompatibleChat = defineStore(
     const textInference = useTextInference()
     const conversations = useConversations()
     const manuallyStopped = ref(false)
+
+    // --- KV cache persistence (llama.cpp only) -----------------------------
+    // Mirrors the `saveKvCache` LocalSetting (default on). Read once at store
+    // init; toggling at runtime takes effect next launch, and opting out also
+    // wipes the dump dir in main.
+    let kvCacheSettingEnabled = true
+    void window.electronAPI
+      .getLocalSettings()
+      .then((s) => {
+        kvCacheSettingEnabled = !!s.saveKvCache
+      })
+      .catch(() => {})
+    // Which conversation's KV cache currently occupies slot 0 in memory, so we
+    // only pay a restore when switching threads (or after a backend restart).
+    let warmSlotConvKey: string | null = null
+
+    /**
+     * Resolve the direct llama-server base URL for /slots calls, or null when KV
+     * cache persistence does not apply. Home Agent traffic normally proxies
+     * through the Flask service, but /slots is not proxied — so we target the
+     * real upstream backend directly. OpenVINO has no slot API → null.
+     */
+    function kvSlotBaseUrl(): string | undefined {
+      if (!kvCacheSettingEnabled) return undefined
+      if (textInference.backend !== 'llamaCPP') return undefined
+      return textInference.homeAgentUpstreamUrl ?? textInference.currentBackendUrl
+    }
 
     const processing = computed(() => {
       // If manually stopped, immediately return false to unblock UI
@@ -326,6 +354,36 @@ export const useOpenAiCompatibleChat = defineStore(
       const availableTools = await resolveTools()
       const hasTools = Object.keys(availableTools).length > 0
 
+      // --- KV cache: restore this conversation's slot dump before generating --
+      // Computed once here and reused in onFinish to save the updated cache.
+      const kvBaseUrl = kvSlotBaseUrl()
+      const kvModel = textInference.activeModel
+      const kvKind = requestConversationKey
+        ? conversations.getThreadKind(requestConversationKey)
+        : 'main'
+      const kvFilename =
+        kvBaseUrl && requestConversationKey && kvModel
+          ? buildKvCacheFilename(kvKind, requestConversationKey, kvModel)
+          : undefined
+      if (kvBaseUrl && kvFilename && warmSlotConvKey !== requestConversationKey) {
+        try {
+          if (await window.electronAPI.kvCache.exists(kvFilename)) {
+            const resp = await globalThis.fetch(`${kvBaseUrl}/slots/0?action=restore`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ filename: kvFilename }),
+            })
+            if (resp.ok) warmSlotConvKey = requestConversationKey ?? null
+          } else {
+            // No dump for this thread — slot still holds the previous thread's
+            // KV; the prefix won't match, llama-server just recomputes.
+            warmSlotConvKey = null
+          }
+        } catch (e) {
+          console.warn('KV cache restore failed (non-fatal)', e)
+        }
+      }
+
       const result = await streamText({
         model: model.value,
         messages,
@@ -418,6 +476,22 @@ export const useOpenAiCompatibleChat = defineStore(
         },
         onFinish: (result) => {
           finishTime = Date.now()
+          // Persist the (now updated) KV cache for this conversation, then prune
+          // so at most the latest dump per kind survives. Fire-and-forget.
+          if (kvBaseUrl && kvFilename) {
+            void globalThis
+              .fetch(`${kvBaseUrl}/slots/0?action=save`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename: kvFilename }),
+              })
+              .then((r) => {
+                if (!r.ok) return
+                warmSlotConvKey = requestConversationKey ?? null
+                return window.electronAPI.kvCache.pruneToLatest(kvKind, kvFilename)
+              })
+              .catch((e) => console.warn('KV cache save failed (non-fatal)', e))
+          }
           if (result.usage) {
             usage = result.usage
           } else if (usageFromRawChunk) {

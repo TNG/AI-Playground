@@ -59,6 +59,7 @@ type LocalSettings = {
   demoModeResetInSeconds: number | null
   demoModePasscode?: string
   isHomeAgentEnabled: boolean
+  saveKvCache: boolean
   languageOverride: string | null
   remoteRepository: string
   huggingfaceEndpoint: string
@@ -184,6 +185,12 @@ type electronAPI = {
   getThemeSettings(): Promise<ThemeSettings>
   updateLocalSettings(updates: Partial<LocalSettings>): Promise<{ success: boolean }>
   getLocalSettings(): Promise<LocalSettings>
+  kvCache: {
+    getDir(): Promise<string>
+    exists(filename: string): Promise<boolean>
+    pruneToLatest(kind: string, keepFilename: string): Promise<string[]>
+    deleteForConversation(convKey: string): Promise<void>
+  }
   detectHardwareForModeRecommendation(): Promise<HardwareRecommendationResult>
   setWinSize(width: number, height: number): Promise<void>
   showSaveDialog(options: Electron.SaveDialogOptions): Promise<Electron.SaveDialogReturnValue>

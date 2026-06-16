@@ -10,6 +10,12 @@ import type { LocalSettings } from '../main.ts'
 import getPort, { portNumbers } from 'get-port'
 import { binary, extract } from './tools.ts'
 import * as llamaCppPhison from './llamaCppPhison.ts'
+import {
+  ensureKvCacheDir,
+  buildRestartKvFilename,
+  deleteKvCacheFile,
+  clearRestartKvDumps,
+} from './kvCache.ts'
 import type { LlamaCppBuildVariant } from './llamaCppPhison.ts'
 
 const execAsync = promisify(exec)
@@ -119,6 +125,13 @@ export class LlamaCppBackendService implements ApiService {
   private currentLlmModel: string | null = null
   private currentContextSize: number | null = null
   private currentEmbeddingModel: string | null = null
+  // Slots saved just before an LLM-server teardown so their warm KV cache can be
+  // restored into the replacement process (e.g. across the llama restart that
+  // frees VRAM for image generation). null when there is nothing to restore.
+  private restartKvSnapshot: { modelRepoId: string; slotIds: number[] } | null = null
+  // llama-server rejects slot save/restore (HTTP 501) for multimodal models, so
+  // the restart snapshot is skipped while an mmproj is loaded.
+  private currentLlmHasMmproj = false
 
   // Store last startup error details for persistence
   private lastStartupErrorDetails: ErrorDetails | null = null
@@ -1037,6 +1050,11 @@ export class LlamaCppBackendService implements ApiService {
       const userParameters = sanitizeUserLlamaCppParameters(this.llamaCppParametersString, (msg) =>
         this.appLogger.warn(msg, this.name, true),
       )
+      // Directory llama-server reads/writes per-conversation KV cache dumps from
+      // when the renderer calls /slots/{id}?action=save|restore. Always passed
+      // (harmless unless those endpoints are hit); the save/restore feature is
+      // gated by the `saveKvCache` setting on the renderer side.
+      const kvCacheDir = await ensureKvCacheDir()
       const args = [
         '--model',
         modelPath,
@@ -1044,6 +1062,8 @@ export class LlamaCppBackendService implements ApiService {
         port.toString(),
         '--ctx-size',
         ctxSize.toString(),
+        '--slot-save-path',
+        kvCacheDir,
         ...userParameters,
         // Force-append --host AFTER user params so we always win, even if
         // the user tried to inject their own --host. Defense in depth on
@@ -1059,6 +1079,7 @@ export class LlamaCppBackendService implements ApiService {
         (file) => file.startsWith('mmproj') && file.endsWith('.gguf'),
       )
       const mmprojFile = mmprojFiles.at(0)
+      this.currentLlmHasMmproj = !!mmprojFile
       if (mmprojFile) {
         const mmprojPath = path.join(modelFolder, mmprojFile)
         args.push('--mmproj', mmprojPath)
@@ -1124,6 +1145,9 @@ export class LlamaCppBackendService implements ApiService {
       this.llamaLlmProcess = llamaProcess
       this.currentLlmModel = modelRepoId
       this.currentContextSize = ctxSize
+
+      // Restore any slots snapshotted before the previous teardown of this model.
+      await this.restoreSlotsAfterRestart(port, modelRepoId)
 
       this.appLogger.info(`LLM server ready for model: ${modelRepoId}`, this.name)
       return llamaProcess
@@ -1239,6 +1263,9 @@ export class LlamaCppBackendService implements ApiService {
   private async stopLlamaLlmServer(): Promise<void> {
     if (this.llamaLlmProcess) {
       this.appLogger.info(`Stopping LLM server for model: ${this.currentLlmModel}`, this.name)
+      // Snapshot warm slots while the server is still alive, so the next process
+      // (same model) can restore them instead of recomputing the prompt.
+      await this.snapshotSlotsForRestart()
       this.llamaLlmProcess.process.kill('SIGTERM')
 
       // Wait a bit for graceful shutdown, then force kill if needed
@@ -1302,6 +1329,104 @@ export class LlamaCppBackendService implements ApiService {
       this.llamaEmbeddingProcess = null
       this.currentEmbeddingModel = null
     }
+  }
+
+  /**
+   * Save every non-empty slot of the running LLM server to disk so its KV cache
+   * survives a process restart. Best-effort and gated by the `saveKvCache`
+   * setting; must run while the server is still alive (before SIGTERM).
+   */
+  private async snapshotSlotsForRestart(): Promise<void> {
+    this.restartKvSnapshot = null
+    const proc = this.llamaLlmProcess
+    const modelRepoId = this.currentLlmModel
+    if (!this.settings.saveKvCache || !proc?.isReady || !modelRepoId) return
+    // llama-server returns 501 for slot save/restore on multimodal models; don't
+    // bother (and avoid the noisy failed requests) when an mmproj is loaded.
+    if (this.currentLlmHasMmproj) {
+      this.appLogger.info('Skipping KV cache snapshot: not supported for multimodal models', this.name)
+      return
+    }
+
+    const base = `http://127.0.0.1:${proc.port}`
+    try {
+      const listResp = await fetch(`${base}/slots`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(2000),
+      })
+      if (!listResp.ok) return
+      const slots = (await listResp.json()) as Array<{ id?: number }>
+      const ids = slots
+        .map((s) => s.id)
+        .filter((id): id is number => typeof id === 'number')
+      const saved: number[] = []
+      for (const id of ids) {
+        const filename = buildRestartKvFilename(id, modelRepoId)
+        try {
+          const resp = await fetch(`${base}/slots/${id}?action=save`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename }),
+            signal: AbortSignal.timeout(60000),
+          })
+          if (!resp.ok) continue
+          // llama-server reports tokens written as `n_saved`; skip empty slots.
+          const body = (await resp.json().catch(() => ({}))) as { n_saved?: number }
+          if (typeof body.n_saved === 'number' && body.n_saved > 0) {
+            saved.push(id)
+          } else {
+            await deleteKvCacheFile(filename)
+          }
+        } catch {
+          await deleteKvCacheFile(filename)
+        }
+      }
+      if (saved.length) {
+        this.restartKvSnapshot = { modelRepoId, slotIds: saved }
+        this.appLogger.info(
+          `Saved KV cache for ${saved.length} slot(s) before LLM restart`,
+          this.name,
+        )
+      }
+    } catch (error) {
+      this.appLogger.warn(`KV cache snapshot before restart failed: ${error}`, this.name)
+    }
+  }
+
+  /**
+   * Restore slots captured by `snapshotSlotsForRestart` into a freshly started
+   * server, but only when it is running the same model. One-shot: the restart
+   * dumps are deleted afterwards so a later cold start never resurrects them.
+   */
+  private async restoreSlotsAfterRestart(port: number, modelRepoId: string): Promise<void> {
+    const snapshot = this.restartKvSnapshot
+    this.restartKvSnapshot = null
+    if (!this.settings.saveKvCache || !snapshot || snapshot.modelRepoId !== modelRepoId) {
+      // Different model (or feature off): drop the stale dumps rather than keep them.
+      if (snapshot) await clearRestartKvDumps()
+      return
+    }
+
+    const base = `http://127.0.0.1:${port}`
+    let restored = 0
+    for (const id of snapshot.slotIds) {
+      const filename = buildRestartKvFilename(id, modelRepoId)
+      try {
+        const resp = await fetch(`${base}/slots/${id}?action=restore`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename }),
+          signal: AbortSignal.timeout(60000),
+        })
+        if (resp.ok) restored++
+      } catch (error) {
+        this.appLogger.warn(`KV cache restore for slot ${id} failed: ${error}`, this.name)
+      }
+    }
+    if (restored) {
+      this.appLogger.info(`Restored KV cache for ${restored} slot(s) after LLM restart`, this.name)
+    }
+    await clearRestartKvDumps()
   }
 
   private resolveModelPath(modelRepoId: string): string {

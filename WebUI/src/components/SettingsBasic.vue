@@ -146,6 +146,27 @@
           </div>
           <Checkbox id="keep-models-loaded" v-model="developerSettings.keepModelsLoaded" />
         </div>
+        <div class="flex justify-between pr-4 items-center gap-4 mb-4">
+          <div class="flex items-center gap-2">
+            <Label class="whitespace-nowrap">{{
+              languages.SETTINGS_DEVELOPER_SAVE_KV_CACHE || 'Save Chat KV Cache'
+            }}</Label>
+            <TooltipProvider :delay-duration="200">
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <span class="svg-icon i-info w-4 h-4 opacity-50 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent side="bottom" class="max-w-[300px]">
+                  {{
+                    languages.SETTINGS_DEVELOPER_SAVE_KV_CACHE_INFO ||
+                    'When enabled (llama.cpp only), each conversation’s KV cache is saved to disk and restored on reopen, skipping full prompt reprocessing for long chats. Keeps the latest cache per chat type.'
+                  }}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+          <Checkbox id="save-kv-cache" v-model="saveKvCache" />
+        </div>
       </div>
       <div class="flex justify-between items-center">
         <p>
@@ -225,6 +246,19 @@ const speechToText = useSpeechToText()
 const developerSettings = useDeveloperSettings()
 const dialogStore = useDialogStore()
 const backendStarting = ref(false)
+
+// KV cache persistence toggle (backend LocalSetting, default on). Loaded once
+// and written back on change; main wipes the cache dir when turned off.
+const saveKvCache = ref(true)
+window.electronAPI
+  .getLocalSettings()
+  .then((s) => {
+    saveKvCache.value = !!s.saveKvCache
+  })
+  .catch(() => {})
+watch(saveKvCache, (val) => {
+  void window.electronAPI.updateLocalSettings({ saveKvCache: val })
+})
 
 const mirrorUrl = ref(models.hfEndpoint)
 const verificationMessage = ref('')

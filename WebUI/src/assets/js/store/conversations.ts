@@ -2,6 +2,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref, watch, watchEffect } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { AipgUiMessage } from './openAiCompatibleChat'
+import { sanitizeConvKey } from './kvCacheKeys'
 
 /**
  * Legacy fixed key for the original singleton Telegram thread. Kept only as a
@@ -34,6 +35,14 @@ export type ConversationThreadMeta = {
   presetName: string
   variant?: string | null
   kind?: ThreadKind
+  /**
+   * Full resolved inference settings used for this thread's most recent
+   * generation (model, ctx size, temperature, system prompt, backend, …),
+   * snapshotted from the live `textInference` refs. Re-applied verbatim when
+   * the thread is reopened so "revisit = reactivate" restores the exact profile
+   * (not just the preset name) and keeps a persisted KV cache dump valid.
+   */
+  settingsSnapshot?: Record<string, unknown>
 }
 
 export type CreateConversationOptions = {
@@ -66,6 +75,10 @@ export const useConversations = defineStore(
     function deleteConversation(conversationKey: string) {
       delete conversationList.value[conversationKey]
       delete conversationThreadMeta.value[conversationKey]
+      // Drop any KV cache dump for this thread so disk doesn't leak.
+      void window.electronAPI?.kvCache
+        ?.deleteForConversation(sanitizeConvKey(conversationKey))
+        .catch(() => {})
     }
 
     function clearConversation(conversationKey: string) {

@@ -44,6 +44,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateLocalSettings: (updates: Partial<LocalSettings>) =>
     ipcRenderer.invoke('updateLocalSettings', updates),
   getLocalSettings: () => ipcRenderer.invoke('getLocalSettings'),
+  kvCache: {
+    getDir: () => ipcRenderer.invoke('kvCache:getDir'),
+    exists: (filename: string) => ipcRenderer.invoke('kvCache:exists', filename),
+    pruneToLatest: (kind: string, keepFilename: string) =>
+      ipcRenderer.invoke('kvCache:pruneToLatest', kind, keepFilename),
+    deleteForConversation: (convKey: string) =>
+      ipcRenderer.invoke('kvCache:deleteForConversation', convKey),
+  },
   detectHardwareForModeRecommendation: () =>
     ipcRenderer.invoke('detectHardwareForModeRecommendation'),
   getWinSize: () => ipcRenderer.invoke('getWinSize'),

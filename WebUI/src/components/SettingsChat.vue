@@ -47,10 +47,12 @@
               <TooltipContent class="w-72 bg-card border border-border text-foreground p-3 z-[200]">
                 <p class="text-xs leading-relaxed">
                   Keeps the chat model loaded on the CPU and leaves the GPU entirely for ComfyUI
-                  image generation. The model stays resident across image generations — no reload,
-                  and follow-up replies reuse the cached context — but CPU text generation is
-                  slower. When off, the model runs on the GPU and is briefly unloaded during each
-                  image generation.
+                  image/video generation. The chat model stays resident (no reload, follow-up
+                  replies reuse the cached context) but CPU text generation is slower. ComfyUI also
+                  keeps its image/video models resident in VRAM between generations and only unloads
+                  them when the next prompt needs different ones — avoiding a full model reload each
+                  time. When off, the chat model runs on the GPU and is briefly unloaded during each
+                  generation, and ComfyUI reloads its models every time.
                 </p>
               </TooltipContent>
             </Tooltip>

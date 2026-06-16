@@ -890,6 +890,12 @@ function initEventHandle() {
       if (llamaService instanceof LlamaCppBackendService) {
         void llamaService.restartLlmForDeviceChange()
       }
+      // ComfyUI's VRAM mode (resident vs low-VRAM) is decided at launch from the
+      // same flag, so relaunch it too to switch model-caching behaviour.
+      const comfyService = serviceRegistry.getService('comfyui-backend')
+      if (comfyService instanceof ComfyUiBackendService) {
+        void comfyService.restartForVramModeChange()
+      }
     }
     return { success: true }
   })

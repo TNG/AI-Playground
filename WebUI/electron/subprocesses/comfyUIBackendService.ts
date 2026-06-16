@@ -43,6 +43,29 @@ export type ComfyUiVariant = 'xpu' | 'cuda' | 'cpu'
 
 export const COMFYUI_DEFAULT_PARAMETERS = '--lowvram --reserve-vram 6.0'
 
+/**
+ * Remove the low-VRAM management flags so ComfyUI keeps models resident across
+ * prompts (NORMAL_VRAM). Strips `--lowvram` and `--reserve-vram <value>` (both
+ * the spaced and `=` forms). Used when the LLM is offloaded to the CPU and the
+ * whole GPU is available for image/video models.
+ */
+export function stripVramManagementParameters(tokens: string[]): string[] {
+  const out: string[] = []
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]
+    if (t === '--lowvram' || t === '--novram') continue
+    if (t === '--reserve-vram') {
+      // skip the following numeric value if present
+      const next = tokens[i + 1]
+      if (next !== undefined && !next.startsWith('--')) i++
+      continue
+    }
+    if (t.startsWith('--reserve-vram=')) continue
+    out.push(t)
+  }
+  return out
+}
+
 const UPSTREAM_PYPROJECT_BACKUP = 'pyproject.toml.aipg-upstream'
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
@@ -1158,6 +1181,22 @@ except Exception as e:
     this.updateStatus()
   }
 
+  /**
+   * Restart the ComfyUI server so a changed VRAM mode takes effect. The
+   * `--lowvram`/`--reserve-vram` flags are decided at launch (gated on
+   * `loadLlamaOnCpu`), so toggling that setting at runtime requires a relaunch.
+   * No-op when ComfyUI is not currently running.
+   */
+  async restartForVramModeChange(): Promise<void> {
+    if (this.currentStatus !== 'running') return
+    this.appLogger.info(
+      `Restarting ComfyUI to apply VRAM mode change (loadLlamaOnCpu=${this.settings.loadLlamaOnCpu})`,
+      this.name,
+    )
+    await this.stop()
+    await this.start()
+  }
+
   async spawnAPIProcess(): Promise<{
     process: ChildProcess
     didProcessExitEarlyTracker: Promise<boolean>
@@ -1210,9 +1249,21 @@ except Exception as e:
     // addresses (defense against malicious settings injection / accidental
     // misconfiguration).
     const rendererOrigin = getRendererOrigin()
-    const userParameters = sanitizeUserComfyUiParameters(this.comfyUiParametersString, (msg) =>
+    let userParameters = sanitizeUserComfyUiParameters(this.comfyUiParametersString, (msg) =>
       this.appLogger.warn(msg, this.name, true),
     )
+    // When "Load Llama on CPU, ComfyUI on GPU" is enabled the whole GPU is free,
+    // so we drop the low-VRAM flags (`--lowvram` / `--reserve-vram`). ComfyUI
+    // then uses NORMAL_VRAM: it keeps the most recently used models resident in
+    // VRAM across prompts and only evicts them when the next prompt needs models
+    // that don't fit — avoiding the full model reload on every generation.
+    if (this.settings.loadLlamaOnCpu) {
+      userParameters = stripVramManagementParameters(userParameters)
+      this.appLogger.info(
+        'loadLlamaOnCpu enabled: launching ComfyUI in resident-model mode (dropped --lowvram/--reserve-vram so models stay loaded between prompts)',
+        this.name,
+      )
+    }
     const parameters = [
       'main.py',
       '--port',

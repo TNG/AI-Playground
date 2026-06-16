@@ -32,8 +32,22 @@ async function stopChatBackend(): Promise<void> {
   console.log('[ComfyUI Tool] Stopping chat backend to free resources for image generation')
   const backendServices = useBackendServices()
 
-  // Stop any running chat backends to free up memory/resources
+  // When "Load Llama on CPU, ComfyUI on GPU" is enabled, llama runs on the CPU
+  // and never competes for VRAM — so we leave it running (keeping its warm KV
+  // cache) instead of stopping it for image generation.
+  let llamaOnCpu = false
+  try {
+    llamaOnCpu = !!(await window.electronAPI.getLocalSettings()).loadLlamaOnCpu
+  } catch (error) {
+    console.warn('[ComfyUI Tool] Could not read loadLlamaOnCpu setting:', error)
+  }
+
+  // Stop any running chat backends to free up memory/resources for image generation.
   for (const serviceName of chatBackends) {
+    if (serviceName === 'llamacpp-backend' && llamaOnCpu) {
+      console.log('[ComfyUI Tool] Leaving llamacpp-backend running (CPU mode)')
+      continue
+    }
     const backend = backendServices.info.find((s) => s.serviceName === serviceName)
     console.log(`[ComfyUI Tool] Checking backend "${serviceName}":`, backend)
     try {

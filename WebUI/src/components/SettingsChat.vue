@@ -28,6 +28,34 @@
           The settings for this preset impact all Home Agent conversations. Please verify after
           changing them to ensure that you can still access AI Playground remotely.
         </p>
+        <div class="mt-1 flex items-center gap-2">
+          <Checkbox
+            id="loadLlamaOnCpu"
+            :model-value="loadLlamaOnCpu"
+            @click="toggleLoadLlamaOnCpu"
+          />
+          <Label for="loadLlamaOnCpu" class="text-sm cursor-pointer"
+            >Load Llama on CPU, ComfyUI on GPU</Label
+          >
+          <TooltipProvider>
+            <Tooltip :delay-duration="100">
+              <TooltipTrigger as-child>
+                <button type="button" class="p-0.5">
+                  <InformationCircleIcon class="size-4 text-muted-foreground" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent class="w-72 bg-card border border-border text-foreground p-3 z-[200]">
+                <p class="text-xs leading-relaxed">
+                  Keeps the chat model loaded on the CPU and leaves the GPU entirely for ComfyUI
+                  image generation. The model stays resident across image generations — no reload,
+                  and follow-up replies reuse the cached context — but CPU text generation is
+                  slower. When off, the model runs on the GPU and is briefly unloaded during each
+                  image generation.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       </div>
 
       <div class="flex flex-col gap-4">
@@ -197,6 +225,8 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
 import { Textarea } from '@/components/ui/textarea'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { InformationCircleIcon } from '@heroicons/vue/24/outline'
 
 import {
   backendToService,
@@ -207,7 +237,7 @@ import {
 import DeviceSelector from '@/components/DeviceSelector.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
 import AddLLMDialog from '@/components/AddLLMDialog.vue'
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18N } from '@/assets/js/store/i18n.ts'
 import Rag from '@/components/Rag.vue'
 import SettingsMcp from '@/components/SettingsMcp.vue'
@@ -236,6 +266,27 @@ const homeAgent = useHomeAgent()
 const isHomeAgentPresetActive = computed(
   () => presetsStore.activePresetName === HOME_AGENT_CHAT_PRESET_NAME,
 )
+
+// "Load Llama on CPU, ComfyUI on GPU" — persisted as a local setting; the
+// electron side reloads the llama server on the matching device when toggled.
+const loadLlamaOnCpu = ref(false)
+onMounted(async () => {
+  try {
+    loadLlamaOnCpu.value = !!(await window.electronAPI.getLocalSettings()).loadLlamaOnCpu
+  } catch (e) {
+    console.error('SettingsChat: failed to read loadLlamaOnCpu setting:', e)
+  }
+})
+async function toggleLoadLlamaOnCpu() {
+  const next = !loadLlamaOnCpu.value
+  loadLlamaOnCpu.value = next
+  try {
+    await window.electronAPI.updateLocalSettings({ loadLlamaOnCpu: next })
+  } catch (e) {
+    loadLlamaOnCpu.value = !next // revert on failure
+    console.error('SettingsChat: failed to update loadLlamaOnCpu setting:', e)
+  }
+}
 
 // Get the active chat preset
 const activeChatPreset = computed(() => {

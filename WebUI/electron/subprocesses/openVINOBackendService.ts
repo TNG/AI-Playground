@@ -905,7 +905,10 @@ export class OpenVINOBackendService implements ApiService {
     if (process.platform !== 'linux') return
     if (devices.some((d) => d.id === 'NPU' || d.id.startsWith('NPU.'))) return
     try {
-      const { stdout } = await execAsync('lspci -nn -d 8086:')
+      // PCI class 1200 = Processing accelerators. NPU silicon is exposed there.
+      // Timeout matches the codebase pattern (other execAsync calls use timeout: 5000);
+      // 2s is plenty for `lspci` which reads from sysfs.
+      const { stdout } = await execAsync('lspci -nn -d 8086:', { timeout: 2000 })
       const hasNpuOnBus = /Processing accelerators \[1200\]/.test(stdout)
       if (!hasNpuOnBus) return
       this.appLogger.warn(
@@ -916,8 +919,13 @@ export class OpenVINOBackendService implements ApiService {
         this.name,
         true,
       )
-    } catch {
-      // lspci unavailable
+    } catch (error) {
+      // Best-effort probe. Log so real failures (missing binary, permissions,
+      // process killed by timeout) are diagnosable instead of silently swallowed.
+      this.appLogger.warn(
+        `NPU PCI probe skipped (lspci unavailable, timed out, or failed): ${error}`,
+        this.name,
+      )
     }
   }
 

@@ -106,6 +106,14 @@ sudo apt-get install -y libvulkan1 mesa-vulkan-drivers vulkan-tools
 - `mesa-vulkan-drivers` → provides `libvulkan_intel.so` (the **ANV** driver that
   drives Arc/DG2 and Gen9+ iGPUs).
 
+### 2d. Render-node permissions
+
+```bash
+sudo gpasswd -a "$USER" render
+sudo gpasswd -a "$USER" video
+# log out/in (or `newgrp render`) so the group membership applies
+```
+
 ### 2e. (Optional) Install the Intel NPU userspace driver
 
 Required only if your CPU has an integrated NPU (Meteor/Lunar/Panther/Arrow Lake)
@@ -147,20 +155,10 @@ ls /usr/lib/x86_64-linux-gnu/libze_intel_npu.so*   # plugin must exist
 > **Kernel pairing.** The NPU userspace ABI is locked to the kernel `intel_vpu`
 > module. Panther Lake needs **kernel ≥ 6.10**; on older Ubuntu kernels
 > install `linux-generic-hwe-24.04`.
-
+>
 > **Proxy.** GitHub release downloads redirect to AWS, which the
 > `*.intel.com` `no_proxy` rule does **not** cover. The `${http_proxy:+--proxy ...}`
 > form above forwards the proxy explicitly when one is set.
-
----
-
-### 2d. Render-node permissions
-
-```bash
-sudo gpasswd -a "$USER" render
-sudo gpasswd -a "$USER" video
-# log out/in (or `newgrp render`) so the group membership applies
-```
 
 ---
 
@@ -214,7 +212,7 @@ the GPU is actually live (`clinfo` lists the device, `/dev/dri` accessible)
 - Confirm the driver bound with `lspci -nnk` → `Kernel driver in use: i915`
   (or `xe`).
 
-#### Verifying live GPU usage (works on both `i915` and `xe`)
+### 4a. Verifying live GPU usage (works on both `i915` and `xe`)
 
 `intel_gpu_top` (from `intel-gpu-tools`) does **not** support the `xe` driver
 yet. To see what's actually using the GPU on a `xe`-driven host, look at

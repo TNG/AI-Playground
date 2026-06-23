@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { BackendVersionSchema, useBackendServices } from '@/assets/js/store/backendServices'
+import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import { useI18N } from '@/assets/js/store/i18n'
 import {
   DropdownMenu,
@@ -47,9 +48,13 @@ const props = defineProps<{
 }>()
 
 const backendServices = useBackendServices()
+const setupWizard = useSetupWizard()
 const i18nState = useI18N().state
 const backendStatus = computed(
   () => backendServices.info.find((s) => s.serviceName === props.backend)?.status ?? 'notInstalled',
+)
+const isSetUp = computed(
+  () => backendServices.info.find((s) => s.serviceName === props.backend)?.isSetUp ?? false,
 )
 
 const menuOpen = ref(false)
@@ -108,6 +113,14 @@ const showReinstall = computed(() => {
 const showSettings = computed(() => {
   return ['comfyui-backend', 'llamacpp-backend', 'openvino-backend'].includes(props.backend)
 })
+const showHomeAgentSetup = computed(() => {
+  return props.backend === 'home-agent-backend' && isSetUp.value
+})
+
+const handleHomeAgentSetup = () => {
+  menuOpen.value = false
+  void setupWizard.openHomeAgentSetup()
+}
 
 // Get backend-specific placeholders and descriptions
 const getVersionPlaceholder = (backend: BackendServiceName) => {
@@ -345,7 +358,11 @@ const clearOverride = () => {
 }
 
 const showMenuButton = computed(
-  () => showReinstall.value || showSettings.value || showVersionAction.value,
+  () =>
+    showReinstall.value ||
+    showSettings.value ||
+    showVersionAction.value ||
+    showHomeAgentSetup.value,
 )
 </script>
 
@@ -363,6 +380,10 @@ const showMenuButton = computed(
       >
         {{ versionActionLabel }}
       </DropdownMenuItem>
+
+      <DropdownMenuItem v-if="showHomeAgentSetup" @select="handleHomeAgentSetup">{{
+        i18nState.COM_GO_TO_SETUP || 'Setup'
+      }}</DropdownMenuItem>
 
       <DropdownMenuItem v-if="showReinstall" @select="reinstallDialogOpen = true">{{
         i18nState.BACKEND_REINSTALL

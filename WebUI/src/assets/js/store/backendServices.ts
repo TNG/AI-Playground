@@ -87,7 +87,9 @@ export const useBackendServices = defineStore(
       }
     }
 
-    void refreshPhisonSsdDetection()
+    refreshPhisonSsdDetection().catch(() => {
+      phisonSsdDetected.value = false
+    })
 
     // Effective parameters: user override or default
     const effectiveLlamaCppParameters = computed(() => {

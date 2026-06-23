@@ -264,11 +264,13 @@ export const useHomeAgent = defineStore(
       // edit must not block resolving the confirmation.
       if (pending.ref) {
         const outcome = outcomeNote ?? (answer ? '✅ Confirmed.' : '❌ Cancelled.')
-        void pending.adapter.editKeyboardMessage(
-          pending.ref,
-          pending.adapter.formatMarkdown(`${pending.summaryMarkdown}\n\n${outcome}`),
-          pending.meta,
-        )
+        pending.adapter
+          .editKeyboardMessage(
+            pending.ref,
+            pending.adapter.formatMarkdown(`${pending.summaryMarkdown}\n\n${outcome}`),
+            pending.meta,
+          )
+          .catch((e: unknown) => console.error('homeAgent: confirmation settle edit failed:', e))
       }
       pending.resolve(answer)
     }
@@ -375,7 +377,7 @@ export const useHomeAgent = defineStore(
             if (identity && !payload[spec.identityField]) {
               payload[spec.identityField] = identity ?? undefined
             }
-            void window.electronAPI.homeAgent.channel
+            window.electronAPI.homeAgent.channel
               .inject(kind, payload)
               .catch((e: unknown) => console.error(`homeAgent: inject(${kind}) failed:`, e))
           },
@@ -638,13 +640,19 @@ export const useHomeAgent = defineStore(
           // Settle the prompt visually in place when possible, else fall back
           // to a fresh message.
           if (pending?.ref) {
-            void adapter.editKeyboardMessage(
-              pending.ref,
-              adapter.formatMarkdown(`${summaryMarkdown}\n\n⌛ No response — cancelled.`),
-              meta,
-            )
+            adapter
+              .editKeyboardMessage(
+                pending.ref,
+                adapter.formatMarkdown(`${summaryMarkdown}\n\n⌛ No response — cancelled.`),
+                meta,
+              )
+              .catch((e: unknown) =>
+                console.error('homeAgent: confirmation timeout edit failed:', e),
+              )
           } else {
-            void reply(adapter, '⌛ No response — cancelled.', meta)
+            reply(adapter, '⌛ No response — cancelled.', meta).catch((e: unknown) =>
+              console.error('homeAgent: confirmation timeout reply failed:', e),
+            )
           }
           resolve(false)
         }, CONFIRM_TIMEOUT_MS)
@@ -665,7 +673,7 @@ export const useHomeAgent = defineStore(
             { text: '✖ Cancel', callbackData: 'confirm:no' },
           ],
         ]
-        void (async () => {
+        ;(async () => {
           // Freeze the in-progress streamed reply first so the prompt (and any
           // follow-up content) lands below a settled message rather than having
           // the message above it rewritten when the turn finalizes.
@@ -686,7 +694,7 @@ export const useHomeAgent = defineStore(
           } catch {
             // best-effort
           }
-        })()
+        })().catch((e: unknown) => console.error('homeAgent: confirmation prompt failed:', e))
       })
     }
 
@@ -1056,7 +1064,7 @@ export const useHomeAgent = defineStore(
         return !cached || cached.messageCount !== c.messageCount
       })
 
-      const stopTyping = anyNeedsGen ? typing(adapter, 'typing', meta) : () => {}
+      const stopTyping = anyNeedsGen ? typing(adapter, 'typing', meta) : () => undefined
       try {
         if (anyNeedsGen) {
           await reply(adapter, '🤔 Preparing chat history…', meta)
@@ -1487,7 +1495,7 @@ export const useHomeAgent = defineStore(
         } else {
           // Home Agent was disabled mid-generation: still drain so already
           // enqueued sends complete, but do not block the caller.
-          void flush()
+          flush().catch((e: unknown) => console.error('homeAgent: final flush failed:', e))
         }
       }
     }
@@ -2165,7 +2173,9 @@ export const useHomeAgent = defineStore(
                 : undefined,
           })
         }
-        void drainCommonQueue(kind)
+        drainCommonQueue(kind).catch((e: unknown) =>
+          console.error(`homeAgent: drainCommonQueue(${kind}) failed:`, e),
+        )
       } catch (e) {
         console.error(`Error polling ${kind}:`, e)
       }
@@ -2174,7 +2184,9 @@ export const useHomeAgent = defineStore(
     function startPolling(kind: ChannelKind) {
       disposePoll(kind)
       pollIntervalIds[kind] = setInterval(() => {
-        void processChannelMessages(kind)
+        processChannelMessages(kind).catch((e: unknown) =>
+          console.error(`homeAgent: processChannelMessages(${kind}) failed:`, e),
+        )
       }, POLL_INTERVAL_MS)
     }
 

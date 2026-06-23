@@ -92,6 +92,8 @@ const masterTitle = computed(() => {
 })
 
 function openSetup() {
-  void setupWizard.openHomeAgentSetup()
+  setupWizard.openHomeAgentSetup().catch((e: unknown) =>
+    console.error('HomeAgentToggle: failed to open setup:', e),
+  )
 }
 </script>

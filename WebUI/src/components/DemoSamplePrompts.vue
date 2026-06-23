@@ -78,7 +78,9 @@ const activeSample = computed(() => {
 
 function applySample(sample: SamplePrompt) {
   if (sample.mode === 'imageEdit') {
-    void populateImageEditHistory(imageGeneration, sample.presetName)
+    populateImageEditHistory(imageGeneration, sample.presetName).catch((e: unknown) =>
+      console.error('DemoSamplePrompts: failed to populate image edit history:', e),
+    )
   }
   promptStore.injectPromptText(sample.prompt)
   document.getElementById('prompt-input')?.focus()

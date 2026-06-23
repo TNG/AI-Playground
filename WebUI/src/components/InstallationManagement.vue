@@ -976,7 +976,7 @@ function getVersionChangeIcon(serviceName: BackendServiceName): string {
 // Get appropriate class: green for upgrade, amber for downgrade
 function getVersionChangeClass(serviceName: BackendServiceName): string {
   const upgrading = isUpgrade(serviceName)
-  if (upgrading === true) return 'text-amber-500'
+  if (upgrading === true) return 'text-green-500'
   return 'text-amber-500'
 }
 

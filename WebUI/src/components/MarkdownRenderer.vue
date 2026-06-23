@@ -44,7 +44,7 @@ async function updateRenderedContent(content: string) {
     }
   } catch (error) {
     console.error('Failed to process markdown:', error)
-    renderedHtml.value = content.replace(/\n/g, '<br>')
+    renderedHtml.value = sanitizeMarkdown(content.replace(/\n/g, '<br>'))
   } finally {
     isProcessing = false
   }

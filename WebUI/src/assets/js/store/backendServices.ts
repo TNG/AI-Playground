@@ -327,6 +327,7 @@ export const useBackendServices = defineStore(
 
     async function setUpService(
       serviceName: BackendServiceName,
+      versionToInstall?: BackendVersion,
     ): Promise<{ success: boolean; logs: SetupProgress[]; errorDetails?: ErrorDetails | null }> {
       console.log('starting setup')
       const listener = serviceListeners.get(serviceName)
@@ -348,7 +349,10 @@ export const useBackendServices = defineStore(
       }
 
       const versions = versionState.value[serviceName]
-      const targetVersionSettings = versions.uiOverride ?? versions.installed ?? versions.target
+      // `versionToInstall` is passed by explicit version actions (Update/Downgrade) and must win
+      // over the currently-installed version — otherwise updating silently re-installs the old one.
+      const targetVersionSettings =
+        versionToInstall ?? versions.uiOverride ?? versions.installed ?? versions.target
       const serviceSettings: ServiceSettings = { serviceName, ...targetVersionSettings }
       if (serviceName === 'comfyui-backend') {
         serviceSettings.comfyUiParameters = effectiveComfyUiParameters.value

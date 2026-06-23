@@ -166,10 +166,15 @@ const getInitialFormValues = () => {
   return values
 }
 // Handler for reinstalling a service with enhanced error handling
-const handleReinstall = async () => {
+const handleReinstall = async (versionToInstall?: { version?: string; releaseTag?: string }) => {
   try {
     await backendServices.uninstallService(props.backend)
-    const setupResult = await backendServices.setUpService(props.backend)
+    const setupResult = await backendServices.setUpService(
+      props.backend,
+      versionToInstall?.version
+        ? { version: versionToInstall.version, releaseTag: versionToInstall.releaseTag }
+        : undefined,
+    )
 
     if (setupResult.success) {
       try {
@@ -321,7 +326,8 @@ const versionActionClass = computed(() => {
 // Handler for version action - clears override and reinstalls
 const handleVersionAction = async () => {
   menuOpen.value = false
-  await handleReinstall()
+  // Install the version the button advertises (uiOverride ?? target), not the one already installed.
+  await handleReinstall(getEffectiveTarget(props.backend))
 }
 
 // Check if user has set a custom override

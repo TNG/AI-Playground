@@ -66,11 +66,14 @@ def get_comfyui_faceswap_facerestore_path(type: str, repo_id: str) -> str:
 # Model path and existence checking
 def get_model_path(type: str, backend: str):
     """Get the model path for a given type and backend"""
-    logging.info(f'getting model path for type {type} and backend {backend}')
+    logging.info('getting model path for type %s and backend %s',
+                 type.replace('\n', ' ').replace('\r', ' '),
+                 backend.replace('\n', ' ').replace('\r', ' '))
     match backend:
         case "default":
             # Default backend (old ipexllm) is no longer supported
-            logging.warning(f'Default backend (ipexllm) is no longer supported. Cannot get model path for type {type}.')
+            logging.warning('Default backend (ipexllm) is no longer supported. Cannot get model path for type %s.',
+                            type.replace('\n', ' ').replace('\r', ' '))
             return None
         case "llama_cpp":
             return config.llama_cpp_model_paths.get(type)

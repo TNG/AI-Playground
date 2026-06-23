@@ -13,7 +13,7 @@ def auditor(event, args):
 try:
     sys.addaudithook(auditor)
 except Exception:
-    pass
+    logging.warning('Failed to install audit hook - optional feature')
 
 
 def get_added_dll_directories():
@@ -47,7 +47,7 @@ try:
 
             sys.modules["torchvision.transforms.functional_tensor"] = functional
         except ImportError:
-            pass
+            logging.warning('torchvision not available - optional feature')
 
     import hmac
     import os
@@ -121,7 +121,9 @@ try:
     def _enforce_loopback_and_auth():
         if request.remote_addr not in _LOOPBACK_REMOTE_ADDRS:
             logging.warning(
-                f"rejecting non-loopback request from {request.remote_addr} to {request.path}"
+                "rejecting non-loopback request from %s to %s",
+                str(request.remote_addr).replace('\n', ' ').replace('\r', ' '),
+                str(request.path).replace('\n', ' ').replace('\r', ' ')
             )
             return jsonify({"error": "loopback only"}), 403
         # CORS preflight requests do NOT carry the X-AIPG-Auth header by

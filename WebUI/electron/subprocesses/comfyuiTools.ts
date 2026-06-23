@@ -1,4 +1,4 @@
-import { exec } from 'node:child_process'
+import { exec, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import path from 'node:path'
 import fs from 'fs'
@@ -12,6 +12,7 @@ import {
 } from './uvBasedBackends/uv'
 
 const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
 
 // Backend name for ComfyUI
 const COMFYUI_BACKEND = 'ComfyUI'
@@ -97,7 +98,7 @@ async function installGitRepo(gitRepoUrl: string, targetDir: string): Promise<vo
     const absoluteTargetDir = path.resolve(targetDir)
     removeExistingResource(absoluteTargetDir)
     const gitPath = getGitBinaryPath()
-    await execAsync(`"${gitPath}" clone ${gitRepoUrl} "${absoluteTargetDir}"`)
+    await execFileAsync(gitPath, ['clone', gitRepoUrl, absoluteTargetDir])
     appLoggerInstance.info(`Cloned ${gitRepoUrl} into ${absoluteTargetDir}`, 'comfyui-tools')
   } catch (error) {
     appLoggerInstance.error(
@@ -125,7 +126,7 @@ async function checkoutGitRef(repoDir: string, gitRef?: string): Promise<void> {
 
   try {
     const gitPath = getGitBinaryPath()
-    await execAsync(`"${gitPath}" checkout ${gitRef}`, { cwd: absoluteRepoDir })
+    await execFileAsync(gitPath, ['checkout', gitRef], { cwd: absoluteRepoDir })
     appLoggerInstance.info(`Checked out ${gitRef} in ${absoluteRepoDir}`, 'comfyui-tools')
   } catch (error) {
     appLoggerInstance.warn(
@@ -145,7 +146,7 @@ export async function getGitRef(repoDir: string): Promise<string | undefined> {
     // Ensure repoDir is an absolute path
     const absoluteRepoDir = path.resolve(repoDir)
     const gitPath = getGitBinaryPath()
-    const { stdout } = await execAsync(`"${gitPath}" rev-parse HEAD`, { cwd: absoluteRepoDir })
+    const { stdout } = await execFileAsync(gitPath, ['rev-parse', 'HEAD'], { cwd: absoluteRepoDir })
     return stdout.trim()
   } catch (error) {
     const absoluteRepoDir = path.resolve(repoDir)

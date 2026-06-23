@@ -42,7 +42,7 @@ import {
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import fs from 'fs'
-import { exec } from 'node:child_process'
+import { exec, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 
 const execAsync = promisify(exec)
@@ -2363,7 +2363,7 @@ function initEventHandle() {
   ipcMain.on('mcp:openConfigInFolder', () => {
     const configPath = getMcpConfigPath()
     if (process.platform === 'win32') {
-      exec(`explorer.exe /select, "${configPath}"`)
+      spawn('explorer.exe', [`/select,${configPath}`], { detached: true, shell: false })
     } else {
       shell.showItemInFolder(configPath)
     }
@@ -2444,7 +2444,7 @@ function initEventHandle() {
 
     // Open the image with the default system image viewer
     if (process.platform === 'win32') {
-      exec(`explorer.exe /select, "${imagePath}"`)
+      spawn('explorer.exe', [`/select,${imagePath}`], { detached: true, shell: false })
     } else {
       shell.showItemInFolder(imagePath)
     }

@@ -176,7 +176,12 @@ class HFPlaygroundDownloader:
 
     def build_queue(self, file_list: list[HFFileItem]):
         for file in file_list:
-            save_filename = path.abspath(path.join(self.save_path_tmp, file.relpath))
+            # Prevent path traversal: verify resolved path stays within save_path_tmp
+            safe_relpath = path.normpath(path.basename(file.relpath) if path.dirname(file.relpath) == '' else file.relpath)
+            save_filename = path.abspath(path.join(self.save_path_tmp, safe_relpath))
+            if not save_filename.startswith(path.abspath(self.save_path_tmp) + os.sep):
+                logging.warning(f'Skipping file with path traversal attempt: {file.relpath}')
+                continue
             if path.exists(save_filename):
                 local_file_size = path.getsize(save_filename)
                 self.download_size += local_file_size

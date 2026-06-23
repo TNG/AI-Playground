@@ -7,7 +7,7 @@
         class="py-10 px-20 w-500px flex flex-col items-center justify-center bg-card rounded-3xl gap-6 text-foreground"
         :class="{ 'animate-scale-in': animate }"
       >
-        <p v-html="warningMessage"></p>
+        <p>{{ warningMessage }}</p>
         <div v-if="warningDontShowAgainKey" class="flex items-center gap-2 self-start">
           <input
             id="warning-dont-show-again"

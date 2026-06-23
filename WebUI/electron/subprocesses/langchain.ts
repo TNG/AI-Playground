@@ -118,7 +118,7 @@ async function embedInputUsingRag(embedInquiry: EmbedInquiry): Promise<Document[
   const cacheBackedEmbeddings = CacheBackedEmbeddings.fromBytesStore(
     underlyingEmbeddings,
     documentEmbeddingStore,
-    { namespace: createHash('md5').update(underlyingEmbeddings.model).digest('hex') },
+    { namespace: createHash('sha256').update(underlyingEmbeddings.model).digest('hex') },
   )
 
   const vectorStore = await MemoryVectorStore.fromDocuments(
@@ -142,7 +142,7 @@ async function embedInputUsingRag(embedInquiry: EmbedInquiry): Promise<Document[
 async function generateFileMD5Hash(filePath: string): Promise<string> {
   try {
     const fileBuffer = await readFile(filePath)
-    const hashSum = createHash('md5')
+    const hashSum = createHash('sha256')
     hashSum.update(fileBuffer)
     const hex = hashSum.digest('hex')
     return hex

@@ -96,7 +96,7 @@ function commandAvailable(cmd) {
 /** A real zip starts with the local-file-header magic "PK\x03\x04". */
 function looksLikeZip(file) {
   try {
-    if (!existsSync(file) || statSync(file).size < 1024) return false
+    if (statSync(file).size < 1024) return false
     const fd = openSync(file, 'r')
     const buf = Buffer.alloc(4)
     readSync(fd, buf, 0, 4, 0)
@@ -108,9 +108,13 @@ function looksLikeZip(file) {
 }
 
 // ── 1. ensure a valid cached zip ────────────────────────────────────────────
-if (existsSync(cacheZip) && !looksLikeZip(cacheZip)) {
-  log('Cached Electron zip is invalid/partial — removing it.')
-  rmSync(cacheZip, { force: true })
+try {
+  if (!looksLikeZip(cacheZip)) {
+    log('Cached Electron zip is invalid/partial — removing it.')
+    rmSync(cacheZip, { force: true })
+  }
+} catch {
+  // If file doesn't exist or other error, rmSync with force: true will handle it
 }
 
 if (!existsSync(cacheZip)) {

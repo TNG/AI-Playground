@@ -153,8 +153,8 @@ async def aipg_auth_middleware(request: web.Request, handler):
     if not _is_loopback_host(host_header):
         _LOG.warning(
             "rejecting request with non-loopback Host header %r to %s",
-            host_header,
-            request.path,
+            host_header.replace('\n', ' ').replace('\r', ' '),
+            request.path.replace('\n', ' ').replace('\r', ' '),
         )
         return web.json_response({"error": "loopback only"}, status=403)
 
@@ -177,8 +177,8 @@ async def aipg_auth_middleware(request: web.Request, handler):
     if not _TOKEN:
         _LOG.warning(
             "AIPG_LOOPBACK_TOKEN is not set; rejecting %s %s",
-            request.method,
-            request.path,
+            request.method.replace('\n', ' ').replace('\r', ' '),
+            request.path.replace('\n', ' ').replace('\r', ' '),
         )
         response = web.json_response(
             {"error": "ComfyUI must be launched via AI Playground"}, status=503
@@ -273,8 +273,10 @@ def _register_routes(routes: web.RouteTableDef) -> None:
             _COOKIE_NAME,
             session_id,
             httponly=True,
+            secure=False,  # False: loopback uses http, not https
             samesite="Strict",
             path="/",
+            max_age=86400,  # 24 hours
         )
         return response
 

@@ -528,7 +528,7 @@ export const useComfyUiPresets = defineStore(
         repoInfoWithPotentialGitRefSplitted.length < 1
       ) {
         console.error(`Could not extract comfyUI node description from ${workflowNodeInfoString}`)
-        throw new Error('Could not extract comfyUI node description from ${workflowNodeInfoString}')
+        throw new Error(`Could not extract comfyUI node description from ${workflowNodeInfoString}`)
       }
       const [repoInfoString, gitRef] = repoInfoWithPotentialGitRefSplitted
       if (!gitRef) {
@@ -537,7 +537,7 @@ export const useComfyUiPresets = defineStore(
       const repoInfoSplitted = repoInfoString.replace(' ', '').split('/')
       if (repoInfoSplitted.length !== 2) {
         console.error(`Could not extract comfyUI node description from ${workflowNodeInfoString}`)
-        throw new Error('Could not extract comfyUI node description from ${workflowNodeInfoString}')
+        throw new Error(`Could not extract comfyUI node description from ${workflowNodeInfoString}`)
       }
       const [username, repoName] = repoInfoSplitted
       return { username: username, repoName: repoName, gitRef: gitRef }

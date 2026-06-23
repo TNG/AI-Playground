@@ -83,7 +83,7 @@ def _candidate_model_roots() -> list[Path]:
         for root in folder_paths.get_folder_paths("upscale_models"):
             roots.append(Path(root))
     except Exception:
-        pass
+        pass  # No upscale models directory found - optional
 
     here = Path(__file__).resolve()
     for parent in [here.parent, *here.parents]:
@@ -148,7 +148,7 @@ def _resolve_model_file(model_ref: str) -> Path:
             if resolved_path.is_file():
                 return resolved_path
     except Exception:
-        pass
+        pass  # Path resolution failed - optional fallback
 
     # Some shipped paths use `repo---name/file` (Comfy-Org repackaged style)
     # but the on-disk layout flips the first two segments to a `repo/name`

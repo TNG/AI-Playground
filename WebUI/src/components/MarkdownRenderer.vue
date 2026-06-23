@@ -2,6 +2,7 @@
 import { base64ToString } from 'uint8array-extras'
 import { parse } from '@/assets/js/markdownParser'
 import { sanitizeMarkdown } from '@/lib/sanitize'
+import DOMPurify from 'dompurify'
 
 const props = defineProps<{
   content: string
@@ -33,7 +34,7 @@ async function updateRenderedContent(content: string) {
       const nextContent = pendingContent
       pendingContent = null
 
-      renderedHtml.value = sanitizeMarkdown(parse(nextContent) as string)
+      renderedHtml.value = DOMPurify.sanitize(sanitizeMarkdown(parse(nextContent) as string))
       nextTick(attachCopyHandlers)
 
       if (pendingContent !== null) {

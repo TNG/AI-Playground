@@ -1,6 +1,6 @@
 <template>
   <div class="v-loading">
-    <p class="v-loading-text" v-html="util.html2Escape(porps.text)"></p>
+    <p class="v-loading-text">{{ util.html2Escape(porps.text) }}</p>
     <div class="v-loading-bar">
       <div class="v-loading-bar-thumb"></div>
     </div>

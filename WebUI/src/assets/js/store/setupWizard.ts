@@ -585,7 +585,9 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       }
       initialLoadingPollHandle = setTimeout(() => {
         initialLoadingPollHandle = null
-        initialize().catch((e: unknown) => console.error('setupWizard: initialize retry failed:', e))
+        initialize().catch((e: unknown) =>
+          console.error('setupWizard: initialize retry failed:', e),
+        )
       }, 1000)
       return
     }

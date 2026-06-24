@@ -10,7 +10,7 @@ const props = withDefaults(defineProps<ProgressRootProps & { class?: HTMLAttribu
   modelValue: 0,
 })
 
-const delegatedProps = reactiveOmit(props, 'class')
+const delegatedProps = reactiveOmit(props, 'class', 'modelValue')
 
 const progressValue = computed(() => Math.min(100, Math.max(0, props.modelValue ?? 0)))
 </script>
@@ -18,6 +18,7 @@ const progressValue = computed(() => Math.min(100, Math.max(0, props.modelValue 
 <template>
   <ProgressRoot
     v-bind="delegatedProps"
+    :model-value="progressValue"
     :class="
       cn(
         'relative h-2 w-full overflow-hidden rounded-full bg-slate-900/20 dark:bg-slate-50/20',

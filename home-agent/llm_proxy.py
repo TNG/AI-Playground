@@ -32,7 +32,7 @@ def _safe_response_content_type(raw_content_type: str | None, default: str) -> s
 
     content_type = raw_content_type.split(";", maxsplit=1)[0].strip().lower()
     if content_type in ("application/json", "text/event-stream"):
-        return raw_content_type
+        return content_type
     return default
 
 

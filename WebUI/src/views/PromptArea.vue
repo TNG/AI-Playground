@@ -173,7 +173,10 @@
                 promptStore.getCurrentMode() === 'chat' && !productModeStore.isNvidiaModeSelected
               "
               @click="handleRecordingClick"
-              :disabled="!speechToText.enabled || audioRecorder.isTranscribing"
+              :disabled="
+                (!speechToText.enabled && !audioRecorder.isRecording) ||
+                audioRecorder.isTranscribing
+              "
               :title="
                 !speechToText.enabled ? 'Enable Speech To Text in settings to use voice input' : ''
               "
@@ -582,15 +585,16 @@ function handleCancelClick() {
 
 async function handleRecordingClick() {
   if (demoMode.triggerFirstTimeHelp('microphone-button')) return
-  if (!speechToText.enabled) return
+  // Stop must stay reachable even if speech-to-text was disabled mid-recording.
   if (audioRecorder.isRecording) {
     audioRecorder.stopRecording()
-  } else {
-    await audioRecorder.startRecording()
+    return
+  }
+  if (!speechToText.enabled) return
+  await audioRecorder.startRecording()
 
-    if (audioRecorder.error) {
-      toast.error(audioRecorder.error)
-    }
+  if (audioRecorder.error) {
+    toast.error(audioRecorder.error)
   }
 }
 

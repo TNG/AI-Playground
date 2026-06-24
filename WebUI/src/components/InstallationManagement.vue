@@ -677,7 +677,11 @@ function getLlamaStandardVersionChangeIcon(component: ExtendedApiServiceInformat
   return '⚠'
 }
 
-function getLlamaStandardVersionChangeClass(_component: ExtendedApiServiceInformation): string {
+function getLlamaStandardVersionChangeClass(component: ExtendedApiServiceInformation): string {
+  if (component.serviceName !== 'llamacpp-backend')
+    return getVersionChangeClass(component.serviceName)
+  const upgrading = isLlamaStandardUpgrade(component)
+  if (upgrading === true) return 'text-green-500'
   return 'text-amber-500'
 }
 

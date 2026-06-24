@@ -66,10 +66,12 @@ import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import { CHANNELS } from '@/assets/js/store/channels/channelRegistry'
+import { useErrors } from '@/assets/js/store/errors'
 
 const homeAgent = useHomeAgent()
 const setupWizard = useSetupWizard()
 const backendServices = useBackendServices()
+const errors = useErrors()
 
 const debugToolsEnabled = window.envVars.debugToolsEnabled
 
@@ -94,6 +96,6 @@ const masterTitle = computed(() => {
 function openSetup() {
   setupWizard
     .openHomeAgentSetup()
-    .catch((e: unknown) => console.error('HomeAgentToggle: failed to open setup:', e))
+    .catch((e: unknown) => errors.report(e, { surface: 'silent' }))
 }
 </script>

@@ -17,7 +17,7 @@ import { readFile } from 'fs/promises'
 import fs from 'fs'
 
 /** OpenAI SDK v6+ rejects empty-string apiKey; local embedding servers ignore this value. */
-const LOCAL_COMPAT_OPENAI_API_KEY = process.env.AIPG_LOCAL_OPENAI_API_KEY ?? randomUUID()
+const LOCAL_COMPAT_OPENAI_API_KEY = process.env.AIPG_LOCAL_OPENAI_API_KEY?.trim() || randomUUID()
 
 let documentEmbeddingStore: LocalFileStore
 

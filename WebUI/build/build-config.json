@@ -30,7 +30,8 @@
     },
     {
       "from": "../comfyui-deps",
-      "to": "comfyui-deps"
+      "to": "comfyui-deps",
+      "filter": ["pyproject.toml", "pyproject-flexible-venv.toml", "uv.lock", "custom_nodes/**/*.py"]
     },
     {
       "from": "../build/resources/7zr.exe",

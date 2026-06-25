@@ -544,9 +544,7 @@ export async function executeComfyGeneration(args: {
         if (timeout) clearTimeout(timeout)
         timeout = setTimeout(() => {
           cleanup()
-          resolve(
-            createErrorResult('ComfyUI generation stalled (no progress for 5 minutes)'),
-          )
+          resolve(createErrorResult('ComfyUI generation stalled (no progress for 5 minutes)'))
         }, GENERATION_IDLE_TIMEOUT_MS)
       }
 

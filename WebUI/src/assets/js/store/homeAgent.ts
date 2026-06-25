@@ -307,6 +307,16 @@ export const useHomeAgent = defineStore(
     // serving a remote chat right now?" — keep that semantic.
     const isHomeAgentActive = computed(() => KINDS.some((k) => channels[k].active))
 
+    // True once at least one channel has actually been set up (verified). The
+    // master toggle is meaningless until then — there is nothing for it to turn
+    // on — so the title-bar toggle stays disabled and reads "Off", mirroring the
+    // Home Agent preset, which is disabled until a channel is live. The mock
+    // channel (dev only, gated by debug tools via MOCK_ENABLED) counts so e2e
+    // tests can still drive the toggle without verifying real credentials.
+    const hasConfiguredChannel = computed(
+      () => MOCK_ENABLED || KINDS.some((k) => channelPrefs[k].verified),
+    )
+
     const isAvailable = computed(
       () =>
         isFeatureEnabled.value &&
@@ -2465,6 +2475,7 @@ export const useHomeAgent = defineStore(
       slackVerified,
       slackUserId,
       isAvailable,
+      hasConfiguredChannel,
       homeAgentBaseUrl,
       // Remote conversation registry
       activeRemoteConversationKey,

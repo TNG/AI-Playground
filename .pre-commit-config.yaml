@@ -1,0 +1,38 @@
+# Pre-commit hooks: formatter + linter for the TS frontend and Python backends.
+# Install once with:  pre-commit install
+# Run on all files :  pre-commit run --all-files
+#
+# Python (service/, home-agent/) is handled by Ruff (matches the Ruff CI check).
+# WebUI is handled by ESLint + Prettier via the existing npm scripts (matches the
+# "Lint TS" CI check). The WebUI hooks lint/format the whole WebUI workspace because
+# ESLint/Prettier resolve their flat config from WebUI/, not the repo root.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20
+    hooks:
+      # Linter (auto-fix what it safely can)
+      - id: ruff
+        name: ruff lint (Python)
+        args: [--fix]
+        files: ^(service|home-agent)/.*\.py$
+      # Formatter
+      - id: ruff-format
+        name: ruff format (Python)
+        files: ^(service|home-agent)/.*\.py$
+
+  - repo: local
+    hooks:
+      # Linter (ESLint with auto-fix)
+      - id: eslint
+        name: eslint (WebUI)
+        language: system
+        entry: bash -c 'cd WebUI && npm run lint:eslint'
+        files: ^WebUI/.*\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|vue)$
+        pass_filenames: false
+      # Formatter (Prettier)
+      - id: prettier
+        name: prettier (WebUI)
+        language: system
+        entry: bash -c 'cd WebUI && npm run format'
+        files: ^WebUI/.*\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|vue|json|css|scss|html|md|ya?ml)$
+        pass_filenames: false

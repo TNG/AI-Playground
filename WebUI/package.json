@@ -9,7 +9,9 @@
     "email": "webadmin@linux.intel.com"
   },
   "scripts": {
+    "setup": "npm install && npm run fetch-external-resources && npm run ensure-electron && npm run install-hooks",
     "ensure-electron": "node ./build/scripts/ensure-electron.mjs",
+    "install-hooks": "node ./build/scripts/ensure-precommit-hook.mjs",
     "predev": "node ./build/scripts/ensure-electron.mjs",
     "dev": "cross-env VITE_DEBUG_TOOLS=\"true\" VITE_PLATFORM_TITLE=\"from Intel®\" AIPG_DEBUGGING_PORT=\"29222\" vite",
     "preview": "vite preview",

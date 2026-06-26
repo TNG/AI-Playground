@@ -311,67 +311,111 @@ export async function imageUrlToDataUri(url: string): Promise<string> {
   })
 }
 
-export async function downscaleImageTo1MP(file: File): Promise<File> {
-  const MAX_PIXELS = 1_000_000 // 1MP
+const MAX_IMAGE_PIXELS = 1_000_000 // 1MP
 
+/** Read a Blob into a base64 data URI string. */
+function blobToDataUri(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result)
+      } else {
+        reject(new Error('Failed to convert blob to data URI'))
+      }
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
+
+/**
+ * Resolve the output MIME type and JPEG/WebP quality for a downscaled image,
+ * preserving JPEG/WebP and falling back to PNG for everything else.
+ */
+function resolveDownscaleEncoding(sourceType: string | undefined): {
+  mimeType: string
+  quality: number | undefined
+} {
+  const fileType = sourceType || 'image/jpeg'
+  const isJPEG = fileType === 'image/jpeg' || fileType === 'image/jpg'
+  const isWebP = fileType === 'image/webp'
+  const mimeType = isJPEG ? 'image/jpeg' : isWebP ? 'image/webp' : 'image/png'
+  const quality = isJPEG || isWebP ? 0.92 : undefined
+  return { mimeType, quality }
+}
+
+/**
+ * Draw a loaded image onto a canvas scaled down so its pixel count does not
+ * exceed 1MP (maintaining aspect ratio) and return the resulting blob. Returns
+ * `null` when the image is already <= 1MP or when the canvas context/blob is
+ * unavailable, signalling callers to keep the original.
+ */
+function downscaleLoadedImageToBlob(
+  img: HTMLImageElement,
+  sourceType: string | undefined,
+): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    const currentPixels = img.width * img.height
+
+    // If image is already <= 1MP, keep the original (return null).
+    if (currentPixels <= MAX_IMAGE_PIXELS) {
+      resolve(null)
+      return
+    }
+
+    // Calculate new dimensions maintaining aspect ratio
+    const scale = Math.sqrt(MAX_IMAGE_PIXELS / currentPixels)
+    const newWidth = Math.round(img.width * scale)
+    const newHeight = Math.round(img.height * scale)
+
+    // Create canvas and draw resized image
+    const canvas = document.createElement('canvas')
+    canvas.width = newWidth
+    canvas.height = newHeight
+    const ctx = canvas.getContext('2d')
+
+    if (!ctx) {
+      console.error('Failed to get canvas context, using original image')
+      resolve(null)
+      return
+    }
+
+    ctx.drawImage(img, 0, 0, newWidth, newHeight)
+
+    const { mimeType, quality } = resolveDownscaleEncoding(sourceType)
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          console.error('Failed to create blob from canvas, using original image')
+          resolve(null)
+          return
+        }
+        resolve(blob)
+      },
+      mimeType,
+      quality,
+    )
+  })
+}
+
+export async function downscaleImageTo1MP(file: File): Promise<File> {
   return new Promise((resolve) => {
     const img = new Image()
     const url = URL.createObjectURL(file)
 
-    img.onload = () => {
+    img.onload = async () => {
       URL.revokeObjectURL(url)
-
-      const currentPixels = img.width * img.height
-
-      // If image is already <= 1MP, return original file
-      if (currentPixels <= MAX_PIXELS) {
+      const blob = await downscaleLoadedImageToBlob(img, file.type)
+      if (!blob) {
         resolve(file)
         return
       }
-
-      // Calculate new dimensions maintaining aspect ratio
-      const scale = Math.sqrt(MAX_PIXELS / currentPixels)
-      const newWidth = Math.round(img.width * scale)
-      const newHeight = Math.round(img.height * scale)
-
-      // Create canvas and draw resized image
-      const canvas = document.createElement('canvas')
-      canvas.width = newWidth
-      canvas.height = newHeight
-      const ctx = canvas.getContext('2d')
-
-      if (!ctx) {
-        console.error('Failed to get canvas context, using original file')
-        resolve(file)
-        return
-      }
-
-      ctx.drawImage(img, 0, 0, newWidth, newHeight)
-
-      // Determine file type and quality
-      const fileType = file.type || 'image/jpeg'
-      const isJPEG = fileType === 'image/jpeg' || fileType === 'image/jpg'
-      const isWebP = fileType === 'image/webp'
-      const mimeType = isJPEG ? 'image/jpeg' : isWebP ? 'image/webp' : 'image/png'
-      const quality = isJPEG || isWebP ? 0.92 : undefined
-
-      // Convert canvas to blob and then to File
-      canvas.toBlob(
-        (blob) => {
-          if (!blob) {
-            console.error('Failed to create blob from canvas, using original file')
-            resolve(file)
-            return
-          }
-
-          const downscaledFile = new File([blob], file.name, {
-            type: mimeType,
-            lastModified: file.lastModified,
-          })
-          resolve(downscaledFile)
-        },
-        mimeType,
-        quality,
+      resolve(
+        new File([blob], file.name, {
+          type: blob.type,
+          lastModified: file.lastModified,
+        }),
       )
     }
 
@@ -382,5 +426,39 @@ export async function downscaleImageTo1MP(file: File): Promise<File> {
     }
 
     img.src = url
+  })
+}
+
+/**
+ * Downscale an image supplied as a base64 data URI so its pixel count does not
+ * exceed 1MP. Returns the original data URI unchanged when it is already small
+ * enough or when downscaling fails. Used for images arriving over remote
+ * channels (e.g. Home Agent) which never pass through the File-based path.
+ */
+export async function downscaleDataUriTo1MP(dataUri: string): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image()
+
+    img.onload = async () => {
+      const sourceType = dataUri.match(/^data:([^;,]+)[;,]/)?.[1]
+      const blob = await downscaleLoadedImageToBlob(img, sourceType)
+      if (!blob) {
+        resolve(dataUri)
+        return
+      }
+      try {
+        resolve(await blobToDataUri(blob))
+      } catch (e) {
+        console.error('Failed to encode downscaled image, using original', e)
+        resolve(dataUri)
+      }
+    }
+
+    img.onerror = () => {
+      console.error('Failed to load image for downscaling, using original')
+      resolve(dataUri)
+    }
+
+    img.src = dataUri
   })
 }

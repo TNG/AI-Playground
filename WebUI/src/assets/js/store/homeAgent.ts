@@ -30,7 +30,7 @@ import {
   HOME_AGENT_CONVERSATION_TITLE,
   HOME_AGENT_CHAT_PRESET_NAME,
 } from './conversations'
-import { saveImageToMediaInput } from '@/lib/utils'
+import { saveImageToMediaInput, downscaleDataUriTo1MP } from '@/lib/utils'
 import { render3dThumbnail } from '@/lib/render3dThumbnail'
 import * as toast from '../toast'
 import {
@@ -1126,7 +1126,10 @@ export const useHomeAgent = defineStore(
         const img = images[i]
         try {
           const dataUri = `data:${img.mime};base64,${img.data_base64}`
-          const aipgUrl = await saveImageToMediaInput(dataUri)
+          // Match the regular chat path: cap images at 1MP before persisting so
+          // oversized remote images aren't passed full-resolution to the model.
+          const downscaledUri = await downscaleDataUriTo1MP(dataUri)
+          const aipgUrl = await saveImageToMediaInput(downscaledUri)
           const ext = img.mime === 'image/jpeg' ? 'jpg' : img.mime.replace('image/', '')
           parts.push({
             type: 'file',

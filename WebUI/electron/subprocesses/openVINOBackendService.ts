@@ -1255,6 +1255,23 @@ export class OpenVINOBackendService implements ApiService {
     }
   }
 
+  /**
+   * Persist exactly which version/releaseTag was installed. Called at the end of
+   * set_up() where this.version/this.releaseTag hold the values that were just
+   * downloaded. This is the authoritative source for getInstalledVersion() — it
+   * also captures the releaseTag, which `ovms --version` cannot report.
+   */
+  private async writeVersionMarker(): Promise<void> {
+    try {
+      await filesystem.writeJson(this.versionMarkerPath, {
+        version: this.version,
+        ...(this.releaseTag && { releaseTag: this.releaseTag }),
+      })
+    } catch (e) {
+      this.appLogger.warn(`Failed to write OpenVINO version marker: ${e}`, this.name)
+    }
+  }
+
   async getInstalledVersion(): Promise<{ version?: string; releaseTag?: string } | undefined> {
     if (!this.isSetUp) return undefined
 

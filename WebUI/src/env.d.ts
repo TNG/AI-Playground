@@ -321,11 +321,9 @@ type electronAPI = {
   getInitSetting(): Promise<SetupData>
   updateModelPaths(modelPaths: ModelPaths): Promise<ModelLists>
   restorePathsSettings(): Promise<void>
-  refreshLLMModles(): Promise<string[]>
   loadModels(): Promise<Model[]>
   zoomIn(): Promise<void>
   zoomOut(): Promise<void>
-  getDownloadedLLMs(): Promise<string[]>
   getDownloadedGGUFLLMs(): Promise<string[]>
   getDownloadedOpenVINOLLMModels(): Promise<string[]>
   getDownloadedEmbeddingModels(): Promise<Model[]>

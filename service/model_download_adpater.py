@@ -14,7 +14,7 @@ from web_request_bodies import DownloadModelData
 class Model_Downloader_Adapter:
     msg_queue: Queue
     finish: bool
-    singal: threading.Event
+    signal: threading.Event
     file_downloader: FileDownloader
     hf_downloader: HFPlaygroundDownloader
     has_error: bool
@@ -24,7 +24,7 @@ class Model_Downloader_Adapter:
         self.msg_queue = Queue(-1)
         self.finish = False
         self.user_stop = False
-        self.singal = threading.Event()
+        self.signal = threading.Event()
         self.file_downloader = FileDownloader()
         self.file_downloader.on_download_progress = (
             self.download_model_progress_callback
@@ -40,7 +40,7 @@ class Model_Downloader_Adapter:
 
     def put_msg(self, data):
         self.msg_queue.put_nowait(data)
-        self.singal.set()
+        self.signal.set()
 
     def download_model_progress_callback(
         self, repo_id: str, download_size: int, total_size: int, speed: int
@@ -101,7 +101,10 @@ class Model_Downloader_Adapter:
 
     def download(self, model_download_list: List[DownloadModelData]):
         self.has_error = False
-        threading.Thread(target=self.__start_download, kwargs={"model_download_list": model_download_list}).start()
+        threading.Thread(
+            target=self.__start_download,
+            kwargs={"model_download_list": model_download_list},
+        ).start()
         return self.generator()
 
     def __start_download(self, model_download_list: List[DownloadModelData]):
@@ -120,7 +123,10 @@ class Model_Downloader_Adapter:
 
                 # Copy faceswap/facerestore models to ComfyUI directory after download completes
                 # This must happen here (not in callback) to ensure file is fully written
-                if item.backend == "comfyui" and item.type in ("faceswap", "facerestore"):
+                if item.backend == "comfyui" and item.type in (
+                    "faceswap",
+                    "facerestore",
+                ):
                     utils.copy_faceswap_facerestore_to_comfyui(
                         item.type,
                         item.repo_id,
@@ -132,7 +138,7 @@ class Model_Downloader_Adapter:
             self.error_callback(ex)
         finally:
             self.finish = True
-            self.singal.set()
+            self.signal.set()
             if _adapter is self:
                 _adapter = None
 
@@ -153,8 +159,8 @@ class Model_Downloader_Adapter:
                 except Empty:
                     break
             if not self.finish:
-                self.singal.clear()
-                self.singal.wait()
+                self.signal.clear()
+                self.signal.wait()
             else:
                 break
 

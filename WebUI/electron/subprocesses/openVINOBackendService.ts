@@ -77,6 +77,10 @@ export class OpenVINOBackendService implements ApiService {
   private currentImageModel: string | null = null
   private currentImageResolution: string | null = null
 
+  // OVMS --kv_cache_precision for the LLM (text_generation) server.
+  // '' means use OVMS's default; 'u4' enables INT4 KV cache compression.
+  private kvCachePrecision: string = ''
+
   // Store last startup error details for persistence
   private lastStartupErrorDetails: ErrorDetails | null = null
 
@@ -1212,6 +1216,22 @@ export class OpenVINOBackendService implements ApiService {
       this.version = settings.version
       this.appLogger.info(`applied new OpenVINO Model Server version ${this.version}`, this.name)
     }
+    if (typeof settings.ovmsKvCachePrecision === 'string') {
+      const next = settings.ovmsKvCachePrecision
+      if (next !== this.kvCachePrecision) {
+        this.kvCachePrecision = next
+        this.appLogger.info(
+          `applied new OVMS kv_cache_precision: '${this.kvCachePrecision || '(default)'}'`,
+          this.name,
+        )
+        // The precision is baked into the LLM server's launch args, so an already
+        // running chat server keeps the old value. Tear down the chat sub-servers
+        // (LLM + embedding) so the next inference reloads with the new precision.
+        if (this.ovmsLlmProcess) {
+          await this.stopChatServers()
+        }
+      }
+    }
   }
 
   /**
@@ -2019,6 +2039,13 @@ export class OpenVINOBackendService implements ApiService {
 
       if (selectedDevice.startsWith('NPU')) {
         args.push('--max_prompt_len', maxPromptLen.toString())
+      }
+
+      // INT4/INT8 KV cache compression (experimental) lowers GPU memory usage,
+      // especially for long contexts. Only pass the flag when explicitly enabled;
+      // an empty value leaves OVMS on its default precision.
+      if (this.kvCachePrecision) {
+        args.push('--kv_cache_precision', this.kvCachePrecision)
       }
 
       this.appLogger.info(`OVMS launch args: ${args.join(' ')}`, this.name)

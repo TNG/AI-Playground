@@ -71,6 +71,14 @@ export const useBackendServices = defineStore(
       llamaCppDefaultParameters.value = v
     })
 
+    // OpenVINO INT4 KV cache precision (experimental, persisted). When true the
+    // OVMS LLM server is launched with `--kv_cache_precision u4` to lower memory
+    // consumption, especially for long contexts.
+    const openvinoKvCacheU4 = ref(false)
+
+    // OVMS --kv_cache_precision value derived from the toggle. '' = OVMS default.
+    const effectiveOvmsKvCachePrecision = computed(() => (openvinoKvCacheU4.value ? 'u4' : ''))
+
     /** Windows: Phison aiDAPTIV-capable SSD (EVFZ firmware prefix). */
     const phisonSsdDetected = ref(false)
 
@@ -408,6 +416,23 @@ export const useBackendServices = defineStore(
       { flush: 'post' },
     )
 
+    /** Sync the OpenVINO KV cache precision toggle to the main process so a
+     * running OVMS service reloads its chat server with the new precision. */
+    watch(
+      openvinoKvCacheU4,
+      async () => {
+        try {
+          await updateServiceSettings({
+            serviceName: 'openvino-backend',
+            ovmsKvCachePrecision: effectiveOvmsKvCachePrecision.value,
+          })
+        } catch (e) {
+          console.warn('Failed to sync OpenVINO KV cache precision to main process:', e)
+        }
+      },
+      { flush: 'post' },
+    )
+
     function selectDevice(serviceName: BackendServiceName, deviceId: string): Promise<void> {
       lastSelectedDeviceIdPerBackend.value[serviceName] = deviceId
       return window.electronAPI.selectDevice(serviceName, deviceId)
@@ -435,6 +460,12 @@ export const useBackendServices = defineStore(
           llamaCppParameters: effectiveLlamaCppParameters.value,
           llamaCppBuildVariant: llamaCppBuildVariant.value,
           llamaCppOffloadDrive: llamaCppOffloadDrive.value,
+        })
+      }
+      if (serviceName === 'openvino-backend') {
+        await updateServiceSettings({
+          serviceName: 'openvino-backend',
+          ovmsKvCachePrecision: effectiveOvmsKvCachePrecision.value,
         })
       }
       return window.electronAPI.startService(serviceName)
@@ -636,6 +667,8 @@ export const useBackendServices = defineStore(
       llamaCppOffloadDrive,
       llamaCppDefaultParameters,
       effectiveLlamaCppParameters,
+      openvinoKvCacheU4,
+      effectiveOvmsKvCachePrecision,
       phisonSsdDetected,
       refreshPhisonSsdDetection,
       updateLastUsedBackend,
@@ -673,6 +706,7 @@ export const useBackendServices = defineStore(
         'llamaCppParameters',
         'llamaCppBuildVariant',
         'llamaCppOffloadDrive',
+        'openvinoKvCacheU4',
       ],
     },
   },

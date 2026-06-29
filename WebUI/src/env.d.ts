@@ -69,6 +69,8 @@ type ServiceSettings = {
   llamaCppParameters?: string
   llamaCppBuildVariant?: 'standard' | 'ssd-offload'
   llamaCppOffloadDrive?: string | null
+  // OVMS --kv_cache_precision value ('u8' | 'u4' | 'f16' | 'fp32'); '' = OVMS default.
+  ovmsKvCachePrecision?: string
 }
 
 type SamplePrompt = {

@@ -333,6 +333,8 @@
   "BACKEND_SAVE_CHANGES": "Save changes",
   "BACKEND_COMFYUI_PARAMETERS_LABEL": "Startup Parameters",
   "BACKEND_COMFYUI_PARAMETERS_DESCRIPTION": "Command-line arguments passed to ComfyUI on startup. Restart required to apply changes.",
+  "BACKEND_OPENVINO_KV_CACHE_U4_LABEL": "INT4 KV Cache precision (experimental)",
+  "BACKEND_OPENVINO_KV_CACHE_U4_DESCRIPTION": "Decreases memory consumption, especially for long contexts. Applied on next model load.",
   "BACKEND_CUSTOM_PARAMETERS_HINT": "Custom startup parameters",
   "COM_ADD_FILE_TO_RAG": "Add file to the list of available documents",
   "COM_ADD_FILE_TO_RAG_CHECKBOX": "Add/Remove file to/from the list of documents used to generate answers",

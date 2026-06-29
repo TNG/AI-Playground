@@ -38,6 +38,7 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
 import { mapServiceNameToDisplayName, compareVersions } from '@/lib/utils'
 import { z } from 'zod'
@@ -97,6 +98,7 @@ const getFormSchema = (backend: BackendServiceName) => {
             .regex(/^[0-9a-f]{6,40}$/, 'Must be a hex commit hash (6-40 characters)')
             .optional()
             .or(z.literal('')),
+          ovmsKvCacheU4: z.boolean().optional(),
         })
         .passthrough()
 
@@ -173,6 +175,12 @@ const getInitialFormValues = () => {
       ...values,
       llamaCppParameters:
         backendServices.llamaCppParameters ?? backendServices.llamaCppDefaultParameters,
+    }
+  }
+  if (props.backend === 'openvino-backend') {
+    return {
+      ...values,
+      ovmsKvCacheU4: backendServices.openvinoKvCacheU4,
     }
   }
   return values
@@ -472,6 +480,12 @@ const showMenuButton = computed(
                   !params || params === backendServices.llamaCppDefaultParameters ? null : params
               }
 
+              // Save OpenVINO KV cache precision toggle (not part of version override)
+              if (props.backend === 'openvino-backend' && 'ovmsKvCacheU4' in values) {
+                backendServices.openvinoKvCacheU4 = !!(values as { ovmsKvCacheU4?: boolean })
+                  .ovmsKvCacheU4
+              }
+
               settingsDialogOpen = false
               menuOpen = false
             })
@@ -510,6 +524,32 @@ const showMenuButton = computed(
                 {{
                   i18nState.BACKEND_OPENVINO_RELEASE_TAG_DESCRIPTION ||
                   'Hex commit hash for weekly builds. Leave empty to use a regular release.'
+                }}
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          </FormField>
+
+          <!-- OpenVINO INT4 KV cache precision (experimental) -->
+          <FormField
+            v-if="backend === 'openvino-backend'"
+            v-slot="{ value, handleChange }"
+            name="ovmsKvCacheU4"
+          >
+            <FormItem class="mt-4">
+              <div class="flex items-center gap-2">
+                <FormControl>
+                  <Checkbox :model-value="value" @update:model-value="handleChange" />
+                </FormControl>
+                <FormLabel class="mt-0!">{{
+                  i18nState.BACKEND_OPENVINO_KV_CACHE_U4_LABEL ||
+                  'INT4 KV Cache precision (experimental)'
+                }}</FormLabel>
+              </div>
+              <FormDescription>
+                {{
+                  i18nState.BACKEND_OPENVINO_KV_CACHE_U4_DESCRIPTION ||
+                  'Decreases memory consumption, especially for long contexts.'
                 }}
               </FormDescription>
               <FormMessage />

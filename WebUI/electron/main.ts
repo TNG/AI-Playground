@@ -1247,16 +1247,6 @@ function initEventHandle() {
     return pathsManager.scanAll()
   })
 
-  ipcMain.handle('refreshLLMModles', (_event) => {
-    // Old ipexllm backend removed - return empty array
-    return []
-  })
-
-  ipcMain.handle('getDownloadedLLMs', (_event) => {
-    // Old ipexllm backend removed - return empty array
-    return []
-  })
-
   ipcMain.handle('getDownloadedGGUFLLMs', (_event) => {
     return pathsManager.scanGGUFLLMModels()
   })

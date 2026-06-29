@@ -271,6 +271,7 @@ import {
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useConversations } from '@/assets/js/store/conversations'
 import { useActivities } from '@/assets/js/store/activities'
+import { useErrors } from '@/assets/js/store/errors'
 import {
   useTextInference,
   type ValidFileExtension,
@@ -312,6 +313,7 @@ const openAiCompatibleChat = useOpenAiCompatibleChat()
 const textInference = useTextInference()
 const conversations = useConversations()
 const activities = useActivities()
+const errors = useErrors()
 const textareaRef = ref<HTMLTextAreaElement>()
 const isTextareaFocused = ref(false)
 const presetsStore = usePresets()
@@ -594,7 +596,11 @@ async function handleRecordingClick() {
   await audioRecorder.startRecording()
 
   if (audioRecorder.error) {
-    toast.error(audioRecorder.error)
+    errors.report(audioRecorder.error, {
+      category: 'inference',
+      code: 'inference/audio-record-failed',
+      userMessage: audioRecorder.error,
+    })
   }
 }
 
@@ -704,8 +710,11 @@ async function handleComfyUIImageUpload(imageFiles: File[]) {
       }
     }
   } catch (error) {
-    console.error('Error processing image:', error)
-    toast.error('Failed to load image')
+    errors.report(error, {
+      category: 'inference',
+      code: 'inference/image-load-failed',
+      userMessage: 'Failed to load image',
+    })
   } finally {
     URL.revokeObjectURL(imageUrl)
   }
@@ -842,8 +851,11 @@ async function addDocumentsToRagList(files: File[]) {
 
       await textInference.addDocumentToRagList(newDocument)
     } catch (error) {
-      console.error('Error adding document to RAG list:', error)
-      toast.error(i18nState.RAG_UPLOAD_TYPE_ERROR)
+      errors.report(error, {
+        category: 'inference',
+        code: 'inference/rag-add-failed',
+        userMessage: i18nState.RAG_UPLOAD_TYPE_ERROR,
+      })
     }
   }
 }

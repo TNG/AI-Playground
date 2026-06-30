@@ -14,7 +14,7 @@ import {
 } from './deviceDetection.ts'
 import type { LocalSettings } from '../main.ts'
 import getPort, { portNumbers } from 'get-port'
-import { binary, extract } from './tools.ts'
+import { binary, extract, restoreTreeWritePermissions } from './tools.ts'
 import * as llamaCppPhison from './llamaCppPhison.ts'
 import type { LlamaCppBuildVariant } from './llamaCppPhison.ts'
 
@@ -990,6 +990,12 @@ export class LlamaCppBackendService implements ApiService {
   private async removeDirectoryWithRetries(targetDir: string): Promise<void> {
     const maxAttempts = 5
 
+    // On Linux/macOS, unlink()/rmdir() need write permission on the parent dir,
+    // so a read-only directory in an extracted release tarball would otherwise
+    // fail every attempt with EACCES (retries don't change permissions). Strip
+    // the read-only bit up front, and again before each retry, so reinstall works.
+    await restoreTreeWritePermissions(targetDir)
+
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         filesystem.removeSync(targetDir)
@@ -1004,6 +1010,9 @@ export class LlamaCppBackendService implements ApiService {
           `Failed to remove ${targetDir} on attempt ${attempt}/${maxAttempts}: ${message}`,
           this.name,
         )
+        if ((error as NodeJS.ErrnoException)?.code === 'EACCES') {
+          await restoreTreeWritePermissions(targetDir)
+        }
         await new Promise((resolve) => setTimeout(resolve, 1000))
       }
     }

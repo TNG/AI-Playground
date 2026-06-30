@@ -41,9 +41,17 @@
             :items="availableBackendItems"
           ></drop-down-new>
         </div>
-        <div v-if="!lockDeviceToNpu" class="grid grid-cols-[120px_1fr] items-center gap-4">
+        <!-- Hybrid Mode swaps the hardware "Device" picker for a remote "Provider" picker. -->
+        <div
+          v-if="textInference.backend === 'hybrid'"
+          class="grid grid-cols-[120px_1fr] items-center gap-4"
+        >
+          <Label class="whitespace-nowrap">Provider</Label>
+          <ProviderSelector />
+        </div>
+        <div v-else-if="!lockDeviceToNpu" class="grid grid-cols-[120px_1fr] items-center gap-4">
           <Label class="whitespace-nowrap">{{ languages.DEVICE }}</Label>
-          <DeviceSelector :backend="backendToService[textInference.backend]" />
+          <DeviceSelector :backend="deviceServiceName" />
         </div>
         <div class="grid grid-cols-[120px_1fr] items-center gap-4">
           <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
@@ -225,6 +233,7 @@ import {
   textInferenceBackendDisplayName,
 } from '@/assets/js/store/textInference.ts'
 import DeviceSelector from '@/components/DeviceSelector.vue'
+import ProviderSelector from '@/components/ProviderSelector.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
 import AddLLMDialog from '@/components/AddLLMDialog.vue'
 import { ref, computed } from 'vue'
@@ -241,6 +250,7 @@ import * as toast from '@/assets/js/toast'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
+import { useHybridMode } from '@/assets/js/store/hybridMode'
 
 const showModelRequestDialog = ref(false)
 const showUploader = ref(false)
@@ -253,6 +263,13 @@ const backendServices = useBackendServices()
 const productModeStore = useProductMode()
 const conversations = useConversations()
 const homeAgent = useHomeAgent()
+const hybridMode = useHybridMode()
+
+// Non-null service name for the local-backend DeviceSelector (only rendered for
+// non-hybrid backends; hybrid uses ProviderSelector instead).
+const deviceServiceName = computed(
+  () => backendToService[textInference.backend] ?? 'llamacpp-backend',
+)
 
 const isHomeAgentPresetActive = computed(
   () => presetsStore.activePresetName === HOME_AGENT_CHAT_PRESET_NAME,
@@ -278,9 +295,13 @@ const advancedMode = computed(() => activeChatPreset.value?.advancedMode ?? fals
 
 // Get available backends from preset (fallback when none configured on preset)
 const availableBackends = computed(() => {
-  const base = activeChatPreset.value?.backends ?? (['llamaCPP', 'openVINO'] as LlmBackend[])
+  let base = activeChatPreset.value?.backends ?? (['llamaCPP', 'openVINO'] as LlmBackend[])
   if (productModeStore.productMode === 'nvidia') {
-    return base.filter((b) => b !== 'openVINO')
+    base = base.filter((b) => b !== 'openVINO')
+  }
+  // Surface Hybrid Mode as a selectable backend whenever the feature is enabled.
+  if (hybridMode.isFeatureEnabled && !base.includes('hybrid')) {
+    base = [...base, 'hybrid']
   }
   return base
 })
@@ -357,6 +378,9 @@ const documentStats = computed(() => {
 })
 
 function isBackendRunning(backend: LlmBackend): boolean {
+  // Hybrid Mode has no local service — it's "ready" once a provider base URL
+  // is configured.
+  if (backend === 'hybrid') return !!hybridMode.activeProviderBaseUrl
   const serviceName = backendToService[backend]
   return backendServices.info.find((item) => item.serviceName === serviceName)?.status === 'running'
 }

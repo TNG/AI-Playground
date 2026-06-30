@@ -8,6 +8,12 @@
       @done="wizard.finishHomeAgentSetup()"
     />
 
+    <HybridModeSetupPage
+      v-else-if="wizard.wizardPage === 'hybridModeSetup' && hybridMode.isFeatureEnabled"
+      @back="wizard.wizardPage = 'main'"
+      @done="wizard.finishHybridModeSetup()"
+    />
+
     <template v-else>
       <div class="px-12 py-5 max-w-5xl w-5xl">
         <h1 class="text-center py-1 px-4 rounded-sm text-3xl font-bold">
@@ -316,6 +322,38 @@
                   <PhisonAidaptivOptions />
                 </div>
               </div>
+
+              <!-- Hybrid Mode: frontend-only component (remote OpenAI-compatible
+                   provider). Not a real backend service, so it has its own row. -->
+              <div
+                class="flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-muted/30 transition-colors border-border"
+              >
+                <span
+                  class="w-2.5 h-2.5 rounded-full shrink-0"
+                  :style="{ backgroundColor: hybridMode.isFeatureEnabled ? '#22c55e' : '#6b7280' }"
+                ></span>
+                <div class="flex-1 min-w-0">
+                  <span class="text-sm font-medium leading-tight">Hybrid Mode</span>
+                  <div class="text-xs text-muted-foreground leading-tight">
+                    Remote OpenAI-compatible provider
+                  </div>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <Switch
+                    :model-value="hybridMode.isFeatureEnabled"
+                    @update:model-value="(v: boolean) => hybridMode.toggleFeature(v)"
+                  />
+                  <button
+                    type="button"
+                    title="Configure Hybrid Mode providers"
+                    class="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    :disabled="!hybridMode.isFeatureEnabled"
+                    @click="wizard.openHybridModeSetup()"
+                  >
+                    <Cog6ToothIcon class="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
             </div>
             <p class="text-xs text-muted-foreground pt-3">
               {{
@@ -377,7 +415,9 @@ import { computed } from 'vue'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
+import { useHybridMode } from '@/assets/js/store/hybridMode'
 import { useI18N } from '@/assets/js/store/i18n'
+import { Cog6ToothIcon } from '@heroicons/vue/24/solid'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import BackendOptions from '@/components/BackendOptions.vue'
@@ -385,10 +425,12 @@ import PhisonAidaptivOptions from '@/components/PhisonAidaptivOptions.vue'
 import ErrorDetailsModal from '@/components/ErrorDetailsModal.vue'
 import LanguageSelector from '@/components/LanguageSelector.vue'
 import HomeAgentSetupPage from '@/components/HomeAgentSetupPage.vue'
+import HybridModeSetupPage from '@/components/HybridModeSetupPage.vue'
 
 const wizard = useSetupWizard()
 const productModeStore = useProductMode()
 const homeAgent = useHomeAgent()
+const hybridMode = useHybridMode()
 const i18n = useI18N()
 const languages = i18n.state
 

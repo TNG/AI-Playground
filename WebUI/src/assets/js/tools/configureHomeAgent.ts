@@ -258,6 +258,10 @@ async function applyConfig(
           name: m.name,
           maxContextSize: m.maxContextSize,
         })),
+        hybrid: mapLlmModels(textInference.llmModels, 'hybrid').map((m) => ({
+          name: m.name,
+          maxContextSize: m.maxContextSize,
+        })),
       },
       embeddingModelNames: [...new Set(textInference.llmEmbeddingModels.map((m) => m.name))],
       deviceIds: devicesForBackend(backendServices.info, targetBackend).map((d) => d.id),
@@ -307,8 +311,11 @@ async function applyConfig(
           textInference.selectEmbeddingModel(targetBackend, change.value as string)
           break
         case 'deviceId':
-          await backendServices.selectDevice(targetService, change.value as string)
-          backendChanged = true
+          // Hybrid Mode has no local service/device to select.
+          if (targetService) {
+            await backendServices.selectDevice(targetService, change.value as string)
+            backendChanged = true
+          }
           break
         case 'temperature':
           textInference.temperature = change.value as number

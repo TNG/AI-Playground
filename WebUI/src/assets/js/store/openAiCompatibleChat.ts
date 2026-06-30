@@ -16,6 +16,7 @@ import {
 } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { useTextInference } from './textInference'
+import { useHybridMode } from './hybridMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import { completeOrphanedToolParts } from './toolMessageSanitize'
 import { useErrors } from './errors'
@@ -86,6 +87,7 @@ export const useOpenAiCompatibleChat = defineStore(
   'openAiCompatibleChat',
   () => {
     const textInference = useTextInference()
+    const hybridMode = useHybridMode()
     const conversations = useConversations()
     const errors = useErrors()
     const activities = useActivities()
@@ -181,6 +183,14 @@ export const useOpenAiCompatibleChat = defineStore(
               requestUrl.hostname = latestBase.hostname
               requestUrl.port = latestBase.port
             }
+            // Hybrid Mode talks directly to a remote OpenAI-compatible
+            // provider — attach the provider's bearer token (if configured).
+            if (textInference.backend === 'hybrid') {
+              const headers = new Headers(init?.headers)
+              const apiKey = hybridMode.activeProviderApiKey
+              if (apiKey) headers.set('Authorization', `Bearer ${apiKey}`)
+              return globalThis.fetch(requestUrl.toString(), { ...init, headers })
+            }
             // When Home Agent is active, the LLM proxy lives behind the Home
             // Agent Flask service. Attach the upstream inference URL header and
             // the per-launch loopback auth token so the proxy accepts the call.
@@ -221,7 +231,13 @@ export const useOpenAiCompatibleChat = defineStore(
             return await doFetch()
           }
         },
-      }).chatModel(textInference.activeModel?.split('/').join('---') ?? ''),
+        // Local backends encode model paths with '---' (a '/' in the repo path
+        // would break the URL). Remote providers expect their model id verbatim.
+      }).chatModel(
+        textInference.backend === 'hybrid'
+          ? (textInference.activeModel ?? '')
+          : (textInference.activeModel?.split('/').join('---') ?? ''),
+      ),
     )
 
     function isToolEnabled(toolName: string): boolean {

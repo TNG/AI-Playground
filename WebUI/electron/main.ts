@@ -32,6 +32,7 @@ import {
   net,
   OpenDialogSyncOptions,
   protocol,
+  safeStorage,
   screen,
   session,
   shell,
@@ -279,6 +280,10 @@ const LocalSettingsSchema = z.object({
   // Gates the Home Agent feature (Telegram bridge backend, setup wizard surface,
   // header toggle, bundled preset). Default false: opt-in by editing settings.json.
   isHomeAgentEnabled: z.boolean().default(false),
+  // Gates the Hybrid Mode feature (remote OpenAI-compatible provider backend,
+  // setup wizard surface, chat backend option). Frontend-only — there is no
+  // Python service. Default false: opt-in by toggling it in the setup wizard.
+  isHybridModeEnabled: z.boolean().default(false),
   languageOverride: z.string().nullable().default(null),
   remoteRepository: z.string().default('intel/ai-playground'),
   huggingfaceEndpoint: z.string().default('https://huggingface.co'),
@@ -952,6 +957,52 @@ function initEventHandle() {
     }
     persistLocalSettingsToDisk()
     appLogger.info(`Updated local settings: ${JSON.stringify(updates)}`, 'electron-backend')
+    return { success: true }
+  })
+
+  // ── Hybrid Mode provider API keys ────────────────────────────────────────
+  // Keys are encrypted at rest via safeStorage and never persisted in the
+  // renderer. Each provider's key lives in its own file keyed by provider id,
+  // mirroring the Home Agent channel-secret layout.
+  const hybridKeyPath = (providerId: string): string =>
+    path.join(app.getPath('userData'), `hybrid-provider-${providerId}.json`)
+
+  ipcMain.handle('hybridProvider:saveKey', (_event, providerId: string, key: string) => {
+    try {
+      const raw = (key ?? '').trim()
+      if (!raw) {
+        // Empty key clears any stored secret.
+        try {
+          fs.unlinkSync(hybridKeyPath(providerId))
+        } catch {
+          /* nothing to remove */
+        }
+        return { success: true }
+      }
+      const blob = safeStorage.encryptString(raw).toJSON()
+      fs.writeFileSync(hybridKeyPath(providerId), JSON.stringify(blob), 'utf-8')
+      return { success: true }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  })
+
+  ipcMain.handle('hybridProvider:getKey', (_event, providerId: string): string | null => {
+    try {
+      const raw = fs.readFileSync(hybridKeyPath(providerId), 'utf-8')
+      const blob = JSON.parse(raw) as { data: number[] }
+      return safeStorage.decryptString(Buffer.from(blob.data))
+    } catch {
+      return null
+    }
+  })
+
+  ipcMain.handle('hybridProvider:deleteKey', (_event, providerId: string) => {
+    try {
+      fs.unlinkSync(hybridKeyPath(providerId))
+    } catch {
+      /* already gone */
+    }
     return { success: true }
   })
 

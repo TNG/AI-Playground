@@ -4,8 +4,8 @@
   "version": "3.1.2-beta",
   "homepage": "https://github.com/intel/AI-Playground",
   "author": {
-    "name": "Intel® Corporation",
-    "email": "TODO"
+    "name": "Intel Corporation",
+    "email": "webadmin@linux.intel.com"
   },
   "scripts": {
     "setup": "npm install && npm run fetch-external-resources && npm run ensure-electron && npm run install-hooks",

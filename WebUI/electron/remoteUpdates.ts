@@ -162,6 +162,42 @@ export function getBundledComfyUiGitRefSync(): string {
   }
 }
 
+const bundledBackendVersionCache: Partial<Record<keyof BackendVersions, BackendVersion>> = {}
+
+/**
+ * Backend version/releaseTag from the **shipped** `external/backend-versions.json`
+ * (not a remote resolve). Used as the build-time default before the UI applies a
+ * resolved/overridden version via updateSettings, so the version lives in exactly
+ * one place (the JSON) rather than being duplicated in service source.
+ */
+export function getBundledBackendVersionSync(
+  serviceName: keyof BackendVersions,
+): BackendVersion | undefined {
+  if (bundledBackendVersionCache[serviceName]) {
+    return bundledBackendVersionCache[serviceName]
+  }
+  const versionsFilePath = path.join(externalResourcesDir(), 'backend-versions.json')
+  try {
+    const raw = fs.readFileSync(versionsFilePath, 'utf-8')
+    const parsed = BackendVersionsSchema.parse(JSON.parse(raw))
+    const v = parsed[serviceName]
+    if (v) {
+      bundledBackendVersionCache[serviceName] = v
+      appLoggerInstance.info(
+        `Bundled ${serviceName} version from local JSON: ${JSON.stringify(v)}`,
+        'backend-version',
+      )
+    }
+    return v
+  } catch (e) {
+    appLoggerInstance.error(
+      `Failed to read bundled ${serviceName} version from ${versionsFilePath}: ${e}`,
+      'backend-version',
+    )
+    return undefined
+  }
+}
+
 const loadLocalModels = async () => {
   const modelsFilePath = path.join(externalResourcesDir(), 'models.json')
   try {

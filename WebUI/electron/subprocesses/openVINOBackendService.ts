@@ -11,7 +11,7 @@ import { LocalSettings } from '../main.ts'
 import getPort, { portNumbers } from 'get-port'
 import { ensureManagedPython, installBackend, uvPipInstallToTarget } from './uvBasedBackends/uv.ts'
 import { binary, extract } from './tools.ts'
-import { resolveModels } from '../remoteUpdates.ts'
+import { getBundledBackendVersionSync, resolveModels } from '../remoteUpdates.ts'
 import {
   getMissingPackages,
   hasAptGet,
@@ -102,8 +102,12 @@ export class OpenVINOBackendService implements ApiService {
   // Logger
   readonly appLogger = appLoggerInstance
 
-  private version = '2026.2.1'
-  private releaseTag: string | undefined = undefined
+  // Build-time default sourced from the shipped backend-versions.json (single
+  // source of truth). The UI overrides these via updateSettings() with the
+  // resolved/overridden version before set_up() runs.
+  private version: string | undefined = getBundledBackendVersionSync('openvino-backend')?.version
+  private releaseTag: string | undefined =
+    getBundledBackendVersionSync('openvino-backend')?.releaseTag
   private readonly linuxRuntimePackages = [
     'python3',
     'python3-venv',
@@ -1451,6 +1455,13 @@ export class OpenVINOBackendService implements ApiService {
   }
 
   private async downloadOvms(): Promise<void> {
+    // The version is normally applied via updateSettings() before set_up(); if it
+    // is still unset the shipped backend-versions.json could not be read.
+    if (!this.version) {
+      throw new Error(
+        'OpenVINO Model Server version is not set (failed to read backend-versions.json)',
+      )
+    }
     // Build an ordered list of candidate URLs to try, most-specific first.
     //
     // Windows – uses the OpenVINO toolkit storage (zip, no version in filename).

@@ -302,8 +302,22 @@ type electronAPI = {
   screenChange(callback: (width: number, height: number) => void): void
   webServiceExit(callback: (serviceName: string, normalExit: string) => void): void
   existsPath(path: string): Promise<boolean>
-  addDocumentToRAGList(doc: IndexedDocument): Promise<IndexedDocument>
+  addDocumentToRAGList(
+    doc: IndexedDocument,
+    phisonKmConfig?: { embeddingServerUrl: string },
+  ): Promise<IndexedDocument>
   embedInputUsingRag(embedInquiry: EmbedInquiry): Promise<LangchainDocument[]>
+  warmupKVCacheForDocument(request: {
+    llmBackendUrl: string
+    mergedGroups: Array<{
+      groupId: string
+      content: string
+      startChunkIdx: number
+      endChunkIdx: number
+    }>
+    modelName: string
+    ragSystemPrefix: string
+  }): Promise<{ success: boolean }>
   getEmbeddingServerUrl(
     serviceName: string,
   ): Promise<{ success: boolean; url?: string; error?: string }>

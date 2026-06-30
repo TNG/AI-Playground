@@ -198,6 +198,12 @@ const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).extend({
   // Only available when the Phison aiDAPTIV+ (ssd-offload) Llama.cpp build is installed.
   // Used by presets bundling large MoE models that rely on SSD offload.
   requiresPhison: z.boolean().optional(),
+  // Capability flag: this preset OFFERS the Phison KM RAG option (token-based
+  // merged-group retrieval + KV cache pre-warming). Selectable at runtime only when
+  // the Phison aiDAPTIV+ build is active and the llamaCPP backend is selected.
+  supportsPhisonKmRag: z.boolean().optional(),
+  // Default retrieval mode when the user has not chosen one for this preset.
+  defaultRagMode: z.enum(['standard', 'phisonKm']).optional(),
   toolsEnabledByDefault: z.boolean().optional(), // Explicit default for tools toggle
   // UI visibility controls
   enableRAG: z.boolean().optional(), // Show "Add Documents" + embeddings selector (default: false)

@@ -6,6 +6,11 @@
   "copyright": "Copyright © Intel. All rights reserved",
   "extraResources": [
     {
+      "from": "../backend_shared",
+      "to": "backend_shared",
+      "filter": ["*.py"]
+    },
+    {
       "from": "../service",
       "to": "service",
       "filter": ["*.py", "model_config.json", "pyproject.toml", "uv.lock"]

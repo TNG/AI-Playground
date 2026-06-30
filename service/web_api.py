@@ -49,11 +49,23 @@ try:
         except ImportError:
             pass
 
-    import hmac
     import os
     import threading
     from flask import jsonify, request, Response, stream_with_context
     from apiflask import APIFlask
+
+    # Shared loopback-auth lives in a sibling backend_shared/ directory so the
+    # same logic is used by every local Python backend (see backend_shared/).
+    sys.path.insert(
+        0,
+        os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "backend_shared"
+        ),
+    )
+    from aipg_loopback_auth import (  # noqa: E402
+        evaluate_loopback_auth,
+        get_loopback_token,
+    )
 
     import model_download_adpater
     import utils
@@ -71,12 +83,7 @@ try:
     # would be reachable by any other process on the box (including low-IL
     # processes and host-networked containers), which is the attack model
     # documented in the CWE-494 report against /api/comfyUi/loadCustomNodes.
-    _LOOPBACK_AUTH_TOKEN = os.environ.get("AIPG_LOOPBACK_TOKEN", "")
-    _LOOPBACK_REMOTE_ADDRS = frozenset({"127.0.0.1", "::1"})
-    # Endpoints that are allowed without a bearer token. /healthy must remain
-    # reachable so the Electron service registry can detect when the service
-    # is up before it has obtained the token.
-    _AUTH_EXEMPT_PATHS = frozenset({"/healthy"})
+    _LOOPBACK_AUTH_TOKEN = get_loopback_token()
     # Loopback hostnames whose Origin we are willing to echo back as
     # Access-Control-Allow-Origin. The renderer may load via 127.0.0.1 or
     # localhost depending on platform/devtools; production Electron loads
@@ -119,27 +126,29 @@ try:
 
     @app.before_request
     def _enforce_loopback_and_auth():
-        if request.remote_addr not in _LOOPBACK_REMOTE_ADDRS:
-            logging.warning(
-                f"rejecting non-loopback request from {request.remote_addr} to {request.path}"
-            )
-            return jsonify({"error": "loopback only"}), 403
+        # Use a dedicated X-AIPG-Auth header so the existing
+        # `Authorization: Bearer <hf_token>` semantics for /api/downloadModel
+        # remain intact.
+        rejection = evaluate_loopback_auth(
+            request.remote_addr,
+            request.method,
+            request.path,
+            request.headers.get("X-AIPG-Auth", ""),
+            expected_token=_LOOPBACK_AUTH_TOKEN,
+        )
+        if rejection is not None:
+            status, message = rejection
+            if status == 403:
+                logging.warning(
+                    f"rejecting non-loopback request from {request.remote_addr} to {request.path}"
+                )
+            return jsonify({"error": message}), status
         # CORS preflight requests do NOT carry the X-AIPG-Auth header by
         # design (the browser strips custom headers from preflight). Reply
         # 204 here and let _attach_cors_headers below add the actual CORS
         # headers; the real request that follows will be authenticated.
         if request.method == "OPTIONS":
             return Response(status=204)
-        if request.path in _AUTH_EXEMPT_PATHS:
-            return None
-        if not _LOOPBACK_AUTH_TOKEN:
-            return jsonify({"error": "service not provisioned"}), 503
-        # Use a dedicated X-AIPG-Auth header so the existing
-        # `Authorization: Bearer <hf_token>` semantics for /api/downloadModel
-        # remain intact.
-        provided = request.headers.get("X-AIPG-Auth", "")
-        if not provided or not hmac.compare_digest(provided, _LOOPBACK_AUTH_TOKEN):
-            return jsonify({"error": "unauthorized"}), 401
         return None
 
     @app.after_request

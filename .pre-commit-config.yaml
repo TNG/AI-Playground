@@ -29,9 +29,6 @@ repos:
         language: system
         entry: bash -c 'uvx ruff@0.15.20 format "$@" && git add -- "$@"' --
         files: ^(service|home-agent)/.*\.py$
-
-  - repo: local
-    hooks:
       # Linter (ESLint with auto-fix)
       - id: eslint
         name: eslint (WebUI)
@@ -43,5 +40,5 @@ repos:
       - id: prettier
         name: prettier (WebUI)
         language: system
-        entry: bash -c 'cd WebUI && npm run format'
+        entry: bash -c 'cd WebUI && files=(); for f in "$@"; do files+=("${f#WebUI/}"); done && npx prettier --write "${files[@]}" && cd .. && git add -- "$@"' --
         files: ^WebUI/.*\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|vue|json|css|scss|html|md|ya?ml)$

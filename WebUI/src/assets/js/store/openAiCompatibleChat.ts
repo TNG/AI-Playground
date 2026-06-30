@@ -93,6 +93,20 @@ export const useOpenAiCompatibleChat = defineStore(
     const i18nState = useI18N().state
     const manuallyStopped = ref(false)
 
+    // True while the model is actively emitting reasoning (i.e. the last content
+    // chunk was a reasoning delta and no text/tool chunk has followed). Driven
+    // straight off the chunk stream so the UI never has to infer "is reasoning
+    // still going?" from part positions or the per-delta `reasoningFinished`
+    // timestamp (which is bumped to "now" on every delta and so always looks
+    // recent). Cleared when the turn ends (see the `processing` safety-net watch).
+    const reasoningInProgress = ref(false)
+    // Wall-clock start of the reasoning block currently in progress. The part's
+    // own `reasoningStarted` metadata isn't attached to the live (still-
+    // streaming) UI part, so the chat view needs this to drive an increasing
+    // "Reasoned for X.Xs" timer; once the block finishes the view falls back to
+    // the part metadata. Updated to the block start whenever a new block begins.
+    const reasoningStartedAt = ref(0)
+
     // Last failure per conversation, captured in the chat `onError` hook. Lets
     // callers (e.g. the Home Agent channel handlers) surface a turn's error even
     // though stream failures are swallowed by `onError` and `generate()` returns
@@ -121,6 +135,7 @@ export const useOpenAiCompatibleChat = defineStore(
       () => processing.value,
       (isProcessing, wasProcessing) => {
         if (wasProcessing && !isProcessing) {
+          reasoningInProgress.value = false
           const key = conversations.activeKey
           activities.endScope(
             (a) =>
@@ -357,6 +372,13 @@ export const useOpenAiCompatibleChat = defineStore(
         typeof m._aipgConversationKey === 'string' ? m._aipgConversationKey : undefined
       delete m._aipgConversationKey
       const reasoningTimings = new Map<string, { started: number; finished: number }>()
+      // A reasoning block is a contiguous run of reasoning deltas. It ends the
+      // moment any non-reasoning content (text/tool) arrives; the next reasoning
+      // delta then starts a fresh block. Using "was reasoning interrupted?"
+      // instead of a time-gap heuristic keeps slow models — whose reasoning
+      // tokens can be >100ms apart — from resetting the block on every token
+      // (which collapsed the displayed elapsed time to ~0.0s).
+      let reasoningInterrupted = true
       const startOfRequestTime: number = Date.now()
       let firstTokenTime: number = 0
       let finishTime: number = 0
@@ -659,6 +681,19 @@ export const useOpenAiCompatibleChat = defineStore(
             sawToolResult = true
             ensureInferenceActivity()
           }
+          // Track whether reasoning is the model's current output. Any non-
+          // reasoning content chunk closes the open reasoning block.
+          if (chunkType === 'reasoning-delta') {
+            reasoningInProgress.value = true
+          } else if (
+            chunkType === 'text-delta' ||
+            chunkType === 'tool-call' ||
+            chunkType === 'tool-input-start' ||
+            chunkType === 'tool-result'
+          ) {
+            reasoningInProgress.value = false
+            reasoningInterrupted = true
+          }
           if (chunk.chunk.type === 'raw') {
             const rawValue = LlamaCppRawValueSchema.safeParse(chunk.chunk.rawValue)
             if (rawValue.success) {
@@ -707,7 +742,8 @@ export const useOpenAiCompatibleChat = defineStore(
           }
           // Track per-block reasoning timing. The SDK reuses the same reasoning ID (e.g., "reasoning-0")
           // across multiple tool call cycles, but onChunk never receives reasoning-start/reasoning-end.
-          // We detect a new reasoning block by a >100ms gap since the last delta (tool execution time).
+          // A new block begins whenever reasoning resumes after being interrupted by other content
+          // (text/tool); otherwise we extend the open block by bumping its `finished` timestamp.
           if (chunk.chunk.type === 'reasoning-delta') {
             if (!firstTokenTime) {
               firstTokenTime = Date.now()
@@ -715,12 +751,14 @@ export const useOpenAiCompatibleChat = defineStore(
             const reasoningId = chunk.chunk.id
             const now = Date.now()
             let timing = reasoningTimings.get(reasoningId)
-            if (!timing || now - timing.finished > 100) {
+            if (!timing || reasoningInterrupted) {
               timing = { started: now, finished: now }
               reasoningTimings.set(reasoningId, timing)
+              reasoningStartedAt.value = now
             } else {
               timing.finished = now
             }
+            reasoningInterrupted = false
             chunk.chunk.providerMetadata = {
               aipg: {
                 reasoningStarted: timing.started,
@@ -765,6 +803,7 @@ export const useOpenAiCompatibleChat = defineStore(
         },
         onFinish: (result) => {
           finishTime = Date.now()
+          reasoningInProgress.value = false
           if (haDiag) {
             console.log(
               `[HA-DIAG] turn done steps=${diagStepIdx} wallMs=${finishTime - diagTurnStart} ` +
@@ -1131,6 +1170,8 @@ export const useOpenAiCompatibleChat = defineStore(
       summarizeMessages,
       stop,
       processing,
+      reasoningInProgress,
+      reasoningStartedAt,
       removeMessage,
       regenerate,
       error,

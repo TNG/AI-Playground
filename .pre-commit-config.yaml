@@ -4,8 +4,13 @@
 #
 # Python (service/, home-agent/) is handled by Ruff (matches the Ruff CI check).
 # WebUI is handled by ESLint + Prettier via the existing npm scripts (matches the
-# "Lint TS" CI check). The WebUI hooks lint/format the whole WebUI workspace because
-# ESLint/Prettier resolve their flat config from WebUI/, not the repo root.
+# "Lint TS" CI check). ESLint resolves its flat config from WebUI/, not the repo
+# root, so the eslint hook runs against the whole WebUI workspace.
+#
+# Formatters (ruff-format, prettier) reformat in place and then `git add` what they
+# changed, so they never abort the commit just because formatting was applied — the
+# reformatted files are restaged and included in the same commit. The linters still
+# fail on genuine, unfixable problems.
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.20
@@ -15,13 +20,15 @@ repos:
         name: ruff lint (Python)
         args: [--fix]
         files: ^(service|home-agent)/.*\.py$
-      # Formatter
-      - id: ruff-format
-        name: ruff format (Python)
-        files: ^(service|home-agent)/.*\.py$
 
   - repo: local
     hooks:
+      # Formatter (Ruff) — format in place, restage, never fail on reformat
+      - id: ruff-format
+        name: ruff format (Python)
+        language: system
+        entry: bash -c 'uvx ruff@0.15.20 format "$@" && git add -- "$@"' --
+        files: ^(service|home-agent)/.*\.py$
       # Linter (ESLint with auto-fix)
       - id: eslint
         name: eslint (WebUI)
@@ -29,10 +36,9 @@ repos:
         entry: bash -c 'cd WebUI && npm run lint:eslint'
         files: ^WebUI/.*\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|vue)$
         pass_filenames: false
-      # Formatter (Prettier)
+      # Formatter (Prettier) — format in place, restage, never fail on reformat
       - id: prettier
         name: prettier (WebUI)
         language: system
-        entry: bash -c 'cd WebUI && npm run format'
+        entry: bash -c 'cd WebUI && files=(); for f in "$@"; do files+=("${f#WebUI/}"); done && npx prettier --write "${files[@]}" && cd .. && git add -- "$@"' --
         files: ^WebUI/.*\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|vue|json|css|scss|html|md|ya?ml)$
-        pass_filenames: false

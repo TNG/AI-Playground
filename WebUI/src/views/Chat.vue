@@ -147,6 +147,10 @@
                     (part as { providerMetadata?: { aipg?: { reasoningFinished?: number } } })
                       .providerMetadata?.aipg?.reasoningFinished
                   "
+                  :streaming="
+                    isReasoningStreaming(message, partIndex, i === activeConversation.length - 1)
+                  "
+                  :liveStartedAt="openAiCompatibleChat.reasoningStartedAt"
                   :onCopy="copyText"
                 />
 
@@ -748,6 +752,22 @@ function webBrowsePartsOf(message: ChatMessage) {
   return (message.parts ?? []).filter((part) =>
     isWebBrowsePart(part as ToolUIPart<AipgTools> | DynamicToolUIPart),
   ) as ToolUIPart<AipgTools>[]
+}
+
+// A reasoning block is "in progress" only when the store — which watches the
+// raw chunk stream — reports reasoning is the model's current output, and this
+// is the latest reasoning part on the last message of the turn. We can't infer
+// this from part positions (a trailing empty text/step-start part can sit after
+// the reasoning part) nor from `reasoningFinished` (bumped to "now" every delta,
+// so it always looks recent). The active block is the last reasoning part.
+function isReasoningStreaming(
+  message: ChatMessage,
+  partIndex: number,
+  isLastMessage: boolean,
+): boolean {
+  if (!isLastMessage || !openAiCompatibleChat.reasoningInProgress) return false
+  const parts = message.parts ?? []
+  return !parts.slice(partIndex + 1).some((part) => part.type === 'reasoning')
 }
 
 // Renders the aggregated component only at the position of the first browse part

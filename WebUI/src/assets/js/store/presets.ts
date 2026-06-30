@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { ref, computed } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
+import { llmBackendTypes } from '@/types/shared'
 
 // DeepPartial utility type
 type DeepPartial<T> = {
@@ -171,8 +172,9 @@ const ComfyUiPresetSchema = BasePresetFieldsSchema.extend({
   resolutionConfig: ResolutionConfigSchema.optional(),
 })
 
-// LLM Backend enum for chat presets
-const LlmBackendEnum = z.enum(['llamaCPP', 'openVINO'])
+// LLM Backend enum for chat presets. Mirrors the shared backend list so presets
+// can also target the remote Hybrid Mode backend.
+const LlmBackendEnum = z.enum(llmBackendTypes)
 
 // Chat Preset Schema - uses 'backends' array instead of single 'backend'
 const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).extend({

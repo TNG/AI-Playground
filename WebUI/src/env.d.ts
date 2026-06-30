@@ -119,6 +119,7 @@ type LocalSettings = {
   demoModeResetInSeconds: number | null
   demoModePasscode?: string
   isHomeAgentEnabled: boolean
+  isHybridModeEnabled: boolean
   languageOverride: string | null
   remoteRepository: string
   huggingfaceEndpoint: string
@@ -534,6 +535,11 @@ type electronAPI = {
         error?: string
       }>
     }
+  }
+  hybridProvider: {
+    saveKey(providerId: string, key: string): Promise<{ success: boolean; error?: string }>
+    getKey(providerId: string): Promise<string | null>
+    deleteKey(providerId: string): Promise<{ success: boolean; error?: string }>
   }
 }
 

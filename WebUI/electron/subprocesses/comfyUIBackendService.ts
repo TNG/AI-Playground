@@ -4,6 +4,7 @@ import path from 'node:path'
 import fs from 'fs'
 import * as filesystem from 'fs-extra'
 import { spawnProcessAsync } from './osProcessHelper.ts'
+import { restoreTreeWritePermissions } from './tools.ts'
 import {
   LongLivedPythonApiService,
   GitService,
@@ -816,6 +817,10 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
       // directory handles. Surface a clear, actionable error if it ultimately
       // cannot be removed rather than letting `git clone` fail later with a
       // confusing "destination path already exists" message.
+      // On Linux/macOS a read-only directory in the tree fails removal with EACCES
+      // (unlink/rmdir needs write permission on the parent); strip the read-only
+      // bit up front, and again on EACCES, so the wipe-and-reclone path works.
+      await restoreTreeWritePermissions(this.serviceDir)
       let lastError: unknown
       for (let attempt = 0; attempt < 5; attempt++) {
         try {
@@ -824,6 +829,9 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
           break
         } catch (removeError) {
           lastError = removeError
+          if ((removeError as NodeJS.ErrnoException)?.code === 'EACCES') {
+            await restoreTreeWritePermissions(this.serviceDir)
+          }
           await new Promise((resolve) => setTimeout(resolve, 1000))
         }
       }

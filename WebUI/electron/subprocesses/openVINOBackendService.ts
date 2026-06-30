@@ -10,7 +10,7 @@ import { exec } from 'child_process'
 import { LocalSettings } from '../main.ts'
 import getPort, { portNumbers } from 'get-port'
 import { ensureManagedPython, installBackend, uvPipInstallToTarget } from './uvBasedBackends/uv.ts'
-import { binary, extract } from './tools.ts'
+import { binary, extract, restoreTreeWritePermissions } from './tools.ts'
 import { getBundledBackendVersionSync, resolveModels } from '../remoteUpdates.ts'
 import {
   getMissingPackages,
@@ -1603,12 +1603,18 @@ export class OpenVINOBackendService implements ApiService {
   }
 
   /**
-   * Remove a directory, retrying on Windows EPERM/EBUSY. Even after the processes
+   * Remove a directory, retrying on transient failures. Even after the processes
    * holding it have been killed, the OS can take a short while to release file
-   * handles on the ovms binary/DLLs, so the first removal may still fail. Retry a
-   * few times with a backoff, then surface a clear, actionable error.
+   * handles on the ovms binary/DLLs (Windows EPERM/EBUSY), so the first removal
+   * may still fail. On Linux a read-only directory in the tree fails with EACCES;
+   * we restore write permissions before retrying. Retry a few times with a
+   * backoff, then surface a clear, actionable error.
    */
   private async removeDirWithRetry(dir: string, attempts = 5): Promise<void> {
+    // Pre-emptively restore write permissions on Linux/macOS so the very first
+    // removal of a read-only tree (e.g. a prior OVMS install) succeeds.
+    await restoreTreeWritePermissions(dir)
+
     let lastError: unknown
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
@@ -1617,11 +1623,19 @@ export class OpenVINOBackendService implements ApiService {
       } catch (e) {
         lastError = e
         const code = (e as NodeJS.ErrnoException)?.code
-        if ((code === 'EPERM' || code === 'EBUSY' || code === 'ENOTEMPTY') && attempt < attempts) {
+        if (
+          (code === 'EPERM' || code === 'EBUSY' || code === 'ENOTEMPTY' || code === 'EACCES') &&
+          attempt < attempts
+        ) {
           this.appLogger.warn(
             `Removal of ${dir} failed with ${code} (attempt ${attempt}/${attempts}), retrying...`,
             this.name,
           )
+          // EACCES means a directory in the tree lost its write bit; re-assert
+          // permissions before the next attempt.
+          if (code === 'EACCES') {
+            await restoreTreeWritePermissions(dir)
+          }
           await new Promise((resolve) => setTimeout(resolve, 1000))
           continue
         }
@@ -2779,7 +2793,7 @@ export class OpenVINOBackendService implements ApiService {
   async uninstall(): Promise<void> {
     await this.stop()
     this.appLogger.info(`removing OpenVINO Model Server directory`, this.name)
-    await filesystem.remove(this.ovmsDir)
+    await this.removeDirWithRetry(this.ovmsDir)
     this.appLogger.info(`removed OpenVINO Model Server directory`, this.name)
     this.setStatus('notInstalled')
     this.isSetUp = false

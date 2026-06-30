@@ -7,6 +7,7 @@ import { app, net, type BrowserWindow } from 'electron'
 import { appLoggerInstance } from '../logging/logger.ts'
 import { packagedResourcesRoot } from '../aipgRoot.ts'
 import { createEnhancedErrorDetails, type ApiService, type ErrorDetails } from './service.ts'
+import { terminateProcessTree, waitForServerReadyOrThrow } from './processLifecycle.ts'
 import {
   vulkanDeviceSelectorEnv,
   withSelectedDevice,
@@ -1350,28 +1351,10 @@ export class LlamaCppBackendService implements ApiService {
   private async stopLlamaLlmServer(): Promise<void> {
     if (this.llamaLlmProcess) {
       this.appLogger.info(`Stopping LLM server for model: ${this.currentLlmModel}`, this.name)
-      this.llamaLlmProcess.process.kill('SIGTERM')
-
-      // Wait a bit for graceful shutdown, then force kill if needed
-      await new Promise<void>((resolve) => {
-        const currentProcess = this.llamaLlmProcess
-        const timeout = setTimeout(() => {
-          if (currentProcess) {
-            this.appLogger.warn(`Force killing LLM server process`, this.name)
-            currentProcess.process.kill('SIGKILL')
-          }
-          resolve()
-        }, 5000)
-
-        if (currentProcess) {
-          currentProcess.process.on('exit', () => {
-            clearTimeout(timeout)
-            resolve()
-          })
-        } else {
-          clearTimeout(timeout)
-          resolve()
-        }
+      await terminateProcessTree(this.llamaLlmProcess.process, {
+        name: this.name,
+        label: 'LLM',
+        appLogger: this.appLogger,
       })
 
       this.llamaLlmProcess = null
@@ -1386,28 +1369,10 @@ export class LlamaCppBackendService implements ApiService {
         `Stopping embedding server for model: ${this.currentEmbeddingModel}`,
         this.name,
       )
-      this.llamaEmbeddingProcess.process.kill('SIGTERM')
-
-      // Wait a bit for graceful shutdown, then force kill if needed
-      await new Promise<void>((resolve) => {
-        const currentProcess = this.llamaEmbeddingProcess
-        const timeout = setTimeout(() => {
-          if (currentProcess) {
-            this.appLogger.warn(`Force killing embedding server process`, this.name)
-            currentProcess.process.kill('SIGKILL')
-          }
-          resolve()
-        }, 5000)
-
-        if (currentProcess) {
-          currentProcess.process.on('exit', () => {
-            clearTimeout(timeout)
-            resolve()
-          })
-        } else {
-          clearTimeout(timeout)
-          resolve()
-        }
+      await terminateProcessTree(this.llamaEmbeddingProcess.process, {
+        name: this.name,
+        label: 'embedding',
+        appLogger: this.appLogger,
       })
 
       this.llamaEmbeddingProcess = null
@@ -1450,58 +1415,12 @@ export class LlamaCppBackendService implements ApiService {
     process: ChildProcess,
     getStartupError?: () => string | null,
   ): Promise<void> {
-    const maxAttempts = this.llamaCppBuildVariant === 'ssd-offload' ? 500 : 120
-    const delayMs = 1000
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      // Abort early with an actionable message if the server has reported a
-      // fatal startup error (e.g. ran out of memory for the context size).
-      const startupError = getStartupError?.()
-      if (startupError) {
-        this.appLogger.error(startupError, this.name)
-        throw new Error(startupError)
-      }
-
-      // Check if process has exited before attempting health check
-      if (!process || process.killed) {
-        this.appLogger.warn(
-          `Process for ${this.name} is not alive, aborting health check`,
-          this.name,
-        )
-        throw new Error(`Process exited before server became ready`)
-      }
-
-      try {
-        const response = await fetch(healthUrl, {
-          method: 'GET',
-          signal: AbortSignal.timeout(1000),
-        })
-
-        if (response.ok) {
-          // Double-check process is still alive before accepting success
-          if (!process || process.killed) {
-            this.appLogger.warn(
-              `Process for ${this.name} exited after health check succeeded, marking as failed`,
-              this.name,
-            )
-            throw new Error(`Process exited after health check succeeded`)
-          }
-          this.appLogger.info(`Server ready at ${healthUrl}`, this.name)
-          return
-        }
-      } catch (_error) {
-        // Server not ready yet, continue waiting
-        // But check if process is still alive
-        if (!process || process.killed) {
-          this.appLogger.warn(`Process for ${this.name} exited during health check wait`, this.name)
-          throw new Error(`Process exited during server startup`)
-        }
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, delayMs))
-    }
-
-    throw new Error(`Server failed to start within ${(maxAttempts * delayMs) / 1000} seconds`)
+    await waitForServerReadyOrThrow(healthUrl, process, {
+      name: this.name,
+      maxAttempts: this.llamaCppBuildVariant === 'ssd-offload' ? 500 : 120,
+      getStartupError,
+      appLogger: this.appLogger,
+    })
   }
 
   private async detectStorageTargets(): Promise<void> {

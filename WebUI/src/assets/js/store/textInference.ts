@@ -9,6 +9,7 @@ import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { usePresets, type ChatPreset } from './presets'
 import { useDeveloperSettings } from './developerSettings'
 import { useHomeAgent } from './homeAgent'
+import { useHybridMode } from './hybridMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import * as toast from '@/assets/js/toast.ts'
 import { useActivities } from './activities'
@@ -18,9 +19,12 @@ const LlmBackendSchema = z.enum(llmBackendTypes)
 export type LlmBackend = z.infer<typeof LlmBackendSchema>
 type LlmBackendKV = { [key in LlmBackend]: string | null }
 
+// `hybrid` has no local Python service — inference is proxied to a remote
+// provider URL — so it maps to null. Callers must tolerate the null lookup.
 export const backendToService = {
   llamaCPP: 'llamacpp-backend',
   openVINO: 'openvino-backend',
+  hybrid: null,
 } as const
 
 export type LlmModel = {
@@ -84,6 +88,7 @@ export const thinkingModels: Record<string, string> = {
 export const textInferenceBackendDisplayName: Record<LlmBackend, string> = {
   llamaCPP: 'llamaCPP - GGUF',
   openVINO: 'OpenVINO',
+  hybrid: 'Hybrid Mode',
 }
 
 export const textInferenceBackendDescription: Record<LlmBackend, string> = {
@@ -91,11 +96,14 @@ export const textInferenceBackendDescription: Record<LlmBackend, string> = {
     'Utilizes Llama.cpp for lightweight and portable AI solutions. Ideal for low-resource environments.',
   openVINO:
     'Optimized for Intel hardware with OpenVINO framework. Provides efficient and fast AI processing.',
+  hybrid:
+    'Connects to a remote OpenAI-compatible provider. Use a hosted or cloud model as if it were local.',
 }
 
 export const textInferenceBackendTags: Record<LlmBackend, string[]> = {
   llamaCPP: ['Lightweight', 'Portable'],
   openVINO: ['Intel', 'Optimized', 'Fast'],
+  hybrid: ['Remote', 'OpenAI-compatible'],
 }
 
 export const useTextInference = defineStore(
@@ -107,6 +115,7 @@ export const useTextInference = defineStore(
     const presetsStore = usePresets()
     const developerSettings = useDeveloperSettings()
     const homeAgent = useHomeAgent()
+    const hybridMode = useHybridMode()
     const conversations = useConversations()
     const activities = useActivities()
     const i18nState = useI18N().state
@@ -122,11 +131,13 @@ export const useTextInference = defineStore(
     const selectedModels = ref<LlmBackendKV>({
       llamaCPP: null,
       openVINO: null,
+      hybrid: null,
     })
 
     const selectedEmbeddingModels = ref<LlmBackendKV>({
       llamaCPP: null,
       openVINO: null,
+      hybrid: null,
     })
 
     // Backend readiness state tracking
@@ -134,10 +145,12 @@ export const useTextInference = defineStore(
       lastUsedModel: {
         llamaCPP: null,
         openVINO: null,
+        hybrid: null,
       } as LlmBackendKV,
       lastUsedContextSize: {
         llamaCPP: null,
         openVINO: null,
+        hybrid: null,
       } as Record<LlmBackend, number | null>,
       isPreparingBackend: false,
     })
@@ -178,6 +191,33 @@ export const useTextInference = defineStore(
           isPredefined: m.isPredefined,
         }
       })
+
+      // Hybrid Mode models are not downloaded locally — they come from the
+      // selected provider's fetched /v1/models list. Surface them as type
+      // 'hybrid' models so the existing model dropdown (filtered by backend)
+      // picks them up.
+      if (hybridMode.isFeatureEnabled && hybridMode.selectedProvider) {
+        const providerModels = hybridMode.selectedProvider.models
+        const selectedHybrid = selectedModels.value.hybrid
+        const hasValidHybridSelection = providerModels.includes(selectedHybrid ?? '')
+        providerModels.forEach((name, index) => {
+          newModels.push({
+            name,
+            mmproj: undefined,
+            type: 'hybrid',
+            downloaded: true, // remote — nothing to download
+            active: name === selectedHybrid || (!hasValidHybridSelection && index === 0),
+            supportsToolCalling: false,
+            supportsVision: false,
+            supportsReasoning: false,
+            supportsThinkingToggle: false,
+            maxContextSize: undefined,
+            npuSupport: undefined,
+            largeMoe: undefined,
+            isPredefined: false,
+          })
+        })
+      }
 
       console.log('llmModels changed', newModels)
       return newModels
@@ -414,6 +454,11 @@ export const useTextInference = defineStore(
     const settingsPerPreset = ref<Record<string, Record<string, unknown>>>({})
 
     const currentBackendUrl = computed(() => {
+      // Hybrid Mode points at the selected remote provider's base URL — there
+      // is no local service to look up.
+      if (backend.value === 'hybrid') {
+        return hybridMode.activeProviderBaseUrl
+      }
       if (homeAgent.isHomeAgentActive && homeAgent.homeAgentBaseUrl) {
         return homeAgent.homeAgentBaseUrl
       }
@@ -431,6 +476,11 @@ export const useTextInference = defineStore(
     })
 
     async function getDownloadParamsForCurrentModelIfRequired(type: 'llm' | 'embedding') {
+      // Hybrid Mode models are served remotely; there is nothing to download.
+      if (backend.value === 'hybrid') return []
+      // Narrow away 'hybrid' (handled above) so the local-backend lookup maps
+      // below — which only have llamaCPP/openVINO keys — type-check.
+      const localBackend = backend.value as Exclude<LlmBackend, 'hybrid'>
       let model: string | undefined
       if (type === 'llm') {
         model = activeModel.value
@@ -440,10 +490,10 @@ export const useTextInference = defineStore(
       if (!model) return []
 
       const modelMetaData = llmModels.value
-        .filter((m) => m.type === backend.value)
+        .filter((m) => m.type === localBackend)
         .find((m) => m.active)
-      const modelType = type === 'embedding' ? 'embedding' : backendToAipgModelType[backend.value]
-      const backendName = backendToAipgBackendName[backend.value]
+      const modelType = type === 'embedding' ? 'embedding' : backendToAipgModelType[localBackend]
+      const backendName = backendToAipgBackendName[localBackend]
 
       const checkList = [
         {
@@ -455,7 +505,7 @@ export const useTextInference = defineStore(
       if (modelMetaData?.mmproj) {
         checkList.push({
           repo_id: modelMetaData.mmproj,
-          type: backendToAipgModelType[backend.value],
+          type: backendToAipgModelType[localBackend],
           backend: backendName,
         })
       }
@@ -933,6 +983,9 @@ export const useTextInference = defineStore(
     }
 
     async function ensureBackendReadiness(): Promise<void> {
+      // Hybrid Mode has no local subprocess and no model to (re)load — the
+      // remote provider is always "ready".
+      if (backend.value === 'hybrid') return
       if (backend.value === 'llamaCPP' || backend.value === 'openVINO') {
         const serviceName = backendToService[backend.value]
         const llmModelName = activeModel.value
@@ -1019,6 +1072,10 @@ export const useTextInference = defineStore(
     async function prepareBackendIfNeeded() {
       console.log('in prepareBackendIfNeeded')
 
+      // Hybrid Mode: nothing to start, load, or device-select. The remote
+      // provider is reached directly via currentBackendUrl.
+      if (backend.value === 'hybrid') return
+
       // Handle NPU device selection if preset locks to NPU
       // This must happen before backend readiness check
       if (activePreset.value?.lockDeviceToNpu) {
@@ -1080,13 +1137,12 @@ export const useTextInference = defineStore(
         }
       }
 
-      const backendToInferenceService: Record<LlmBackend, BackendServiceName> = {
-        llamaCPP: 'llamacpp-backend',
-        openVINO: 'openvino-backend',
+      // hybrid returned early above, so this only runs for local backends.
+      const inferenceBackendService = backendToService[backend.value]
+      if (inferenceBackendService) {
+        await backendServices.resetLastUsedInferenceBackend(inferenceBackendService)
+        backendServices.updateLastUsedBackend(inferenceBackendService)
       }
-      const inferenceBackendService = backendToInferenceService[backend.value]
-      await backendServices.resetLastUsedInferenceBackend(inferenceBackendService)
-      backendServices.updateLastUsedBackend(inferenceBackendService)
     }
 
     async function ensureReadyForInference() {

@@ -29,6 +29,7 @@ function baseContext(overrides: Partial<ConfigContext> = {}): ConfigContext {
         { name: 'model-b', maxContextSize: 4096 },
       ],
       openVINO: [{ name: 'ov-model', maxContextSize: 16384 }],
+      hybrid: [],
     },
     embeddingModelNames: ['embed-a', 'embed-b'],
     deviceIds: ['GPU.0', 'GPU.1', 'NPU'],

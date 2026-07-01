@@ -150,6 +150,8 @@
     "artifactName": "${productName}-${version}.${ext}",
     "category": "Utility",
     "synopsis": "AI inference desktop app for Intel GPUs",
+    "vendor": "Intel Corporation",
+    "maintainer": "Intel Corporation <webadmin@linux.intel.com>",
     "executableArgs": ["--no-sandbox"],
     "desktop": {
       "entry": {

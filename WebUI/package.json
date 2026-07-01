@@ -2,10 +2,11 @@
   "name": "ai-playground",
   "private": true,
   "version": "3.1.2-beta",
+  "license": "MIT",
   "homepage": "https://github.com/intel/AI-Playground",
   "author": {
-    "name": "TODO",
-    "email": "TODO"
+    "name": "Intel Corporation",
+    "email": "webadmin@linux.intel.com"
   },
   "scripts": {
     "ensure-electron": "node ./build/scripts/ensure-electron.mjs",

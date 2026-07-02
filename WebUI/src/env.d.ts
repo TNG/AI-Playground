@@ -540,6 +540,7 @@ type electronAPI = {
     saveKey(providerId: string, key: string): Promise<{ success: boolean; error?: string }>
     getKey(providerId: string): Promise<string | null>
     deleteKey(providerId: string): Promise<{ success: boolean; error?: string }>
+    getProxyUrl(): Promise<string>
   }
 }
 

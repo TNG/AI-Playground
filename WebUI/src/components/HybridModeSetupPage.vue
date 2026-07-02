@@ -115,11 +115,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useHybridMode } from '@/assets/js/store/hybridMode'
+import { useErrors } from '@/assets/js/store/errors'
 import * as toast from '@/assets/js/toast'
 
 const emit = defineEmits<{ (e: 'back'): void; (e: 'done'): void }>()
 
 const hybridMode = useHybridMode()
+const errors = useErrors()
 
 const selectedId = ref(hybridMode.selectedProviderId)
 const fetching = ref(false)
@@ -176,7 +178,15 @@ async function fetchModels() {
     form.models = models
     if (!models.length) toast.warning?.('Provider returned no models.')
   } catch (e) {
-    fetchError.value = e instanceof Error ? e.message : String(e)
+    // Route through the central error sink: it logs the technical detail + cause
+    // to the console once and returns the normalized AppError. Rendered inline
+    // below (surface: 'inline') rather than toasted.
+    const appError = errors.report(e, {
+      category: 'inference',
+      code: 'hybrid/fetch-models-failed',
+      surface: 'inline',
+    })
+    fetchError.value = appError.userMessage
   } finally {
     fetching.value = false
   }

@@ -16,7 +16,7 @@ import {
 } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { useTextInference } from './textInference'
-import { useHybridMode } from './hybridMode'
+import { useHybridMode, HYBRID_DEFAULT_MODEL } from './hybridMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import { completeOrphanedToolParts } from './toolMessageSanitize'
 import { useErrors } from './errors'
@@ -162,16 +162,29 @@ export const useOpenAiCompatibleChat = defineStore(
         // explicit enable_thinking value so the toggle is authoritative regardless of
         // the family's template default (Qwen3 defaults on, gemma4 defaults off). Both
         // llama-server (--jinja) and OVMS (--reasoning_parser qwen3) honor this kwarg.
-        transformRequestBody: (args) =>
-          textInference.modelSupportsThinkingToggle
-            ? {
-                ...args,
-                chat_template_kwargs: {
-                  ...(args.chat_template_kwargs as Record<string, unknown> | undefined),
-                  enable_thinking: textInference.thinkingEnabled,
-                },
-              }
-            : args,
+        transformRequestBody: (args) => {
+          let body: Record<string, unknown> = args
+          // The Hybrid "default" model is a placeholder for providers that serve
+          // a single model / accept a request without one. Omit `model` entirely
+          // so the provider uses its own default instead of a bogus "default" id.
+          if (
+            textInference.backend === 'hybrid' &&
+            textInference.activeModel === HYBRID_DEFAULT_MODEL
+          ) {
+            body = { ...body }
+            delete body.model
+          }
+          if (textInference.modelSupportsThinkingToggle) {
+            body = {
+              ...body,
+              chat_template_kwargs: {
+                ...(body.chat_template_kwargs as Record<string, unknown> | undefined),
+                enable_thinking: textInference.thinkingEnabled,
+              },
+            }
+          }
+          return body
+        },
         fetch: async (url, init) => {
           // Resolve the request against the latest backend URL each call, so a
           // retry after a relaunch picks up the (possibly new) port.
@@ -183,12 +196,16 @@ export const useOpenAiCompatibleChat = defineStore(
               requestUrl.hostname = latestBase.hostname
               requestUrl.port = latestBase.port
             }
-            // Hybrid Mode talks directly to a remote OpenAI-compatible
-            // provider — attach the provider's bearer token (if configured).
+            // Hybrid Mode routes through the main-process loopback proxy (see
+            // hybridProxy.ts): it attaches the API key and calls the provider from
+            // Node, so upstream failures are logged in the Node console. We only
+            // tag the request with the upstream base URL and provider id — the key
+            // never leaves main.
             if (textInference.backend === 'hybrid') {
               const headers = new Headers(init?.headers)
-              const apiKey = hybridMode.activeProviderApiKey
-              if (apiKey) headers.set('Authorization', `Bearer ${apiKey}`)
+              const upstream = hybridMode.activeProviderBaseUrl
+              if (upstream) headers.set('X-Hybrid-Upstream', upstream)
+              headers.set('X-Hybrid-Provider', hybridMode.selectedProviderId)
               return globalThis.fetch(requestUrl.toString(), { ...init, headers })
             }
             // When Home Agent is active, the LLM proxy lives behind the Home

@@ -299,5 +299,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('hybridProvider:getKey', providerId),
     deleteKey: (providerId: string): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('hybridProvider:deleteKey', providerId),
+    getProxyUrl: (): Promise<string> => ipcRenderer.invoke('hybridProvider:getProxyUrl'),
   },
 })

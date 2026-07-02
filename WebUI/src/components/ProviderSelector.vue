@@ -1,7 +1,7 @@
 <template>
   <drop-down-new
     title="Select Provider"
-    @change="hybridMode.selectProvider"
+    @change="handleProviderChange"
     :value="hybridMode.selectedProviderId"
     :items="items"
   ></drop-down-new>
@@ -13,6 +13,13 @@ import DropDownNew from './DropDownNew.vue'
 import { useHybridMode } from '@/assets/js/store/hybridMode'
 
 const hybridMode = useHybridMode()
+
+// Switching provider re-fetches that provider's model list (overwriting it on
+// success), so the model picker reflects what the newly-selected provider serves.
+function handleProviderChange(id: string) {
+  hybridMode.selectProvider(id)
+  hybridMode.refreshSelectedProviderModels()
+}
 
 const items = computed(() =>
   hybridMode.providers.map((p) => ({

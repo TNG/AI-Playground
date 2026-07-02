@@ -343,15 +343,11 @@
                     :model-value="hybridMode.isFeatureEnabled"
                     @update:model-value="(v: boolean) => hybridMode.toggleFeature(v)"
                   />
-                  <button
-                    type="button"
+                  <SettingsButton
                     title="Configure Hybrid Mode providers"
-                    class="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     :disabled="!hybridMode.isFeatureEnabled"
                     @click="wizard.openHybridModeSetup()"
-                  >
-                    <Cog6ToothIcon class="w-4 h-4" />
-                  </button>
+                  />
                 </div>
               </div>
             </div>
@@ -417,10 +413,10 @@ import { useProductMode } from '@/assets/js/store/productMode'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useHybridMode } from '@/assets/js/store/hybridMode'
 import { useI18N } from '@/assets/js/store/i18n'
-import { Cog6ToothIcon } from '@heroicons/vue/24/solid'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import BackendOptions from '@/components/BackendOptions.vue'
+import SettingsButton from '@/components/SettingsButton.vue'
 import PhisonAidaptivOptions from '@/components/PhisonAidaptivOptions.vue'
 import ErrorDetailsModal from '@/components/ErrorDetailsModal.vue'
 import LanguageSelector from '@/components/LanguageSelector.vue'

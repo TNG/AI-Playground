@@ -1,5 +1,6 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { demoAwareStorage } from '../demoAwareStorage'
+import { createAppError, extractMessage } from '../errors/appError'
 
 /**
  * A remote OpenAI-compatible provider (e.g. a self-hosted or cloud LLM
@@ -13,6 +14,12 @@ export type HybridProvider = {
   baseUrl: string
   models: string[]
 }
+
+// Model id offered when a provider exposes no models (none fetched, or the
+// provider doesn't implement /v1/models). Many OpenAI-compatible endpoints serve
+// a single model and accept a request with a placeholder model id, so this lets
+// the user select Hybrid Mode and chat without first specifying a model.
+export const HYBRID_DEFAULT_MODEL = 'default'
 
 // Seed provider shown on first open. The user fills in base URL + key.
 const DEFAULT_PROVIDER: HybridProvider = {
@@ -51,6 +58,18 @@ export const useHybridMode = defineStore(
       const id = selectedProviderId.value
       return id ? apiKeyCache[id] : undefined
     })
+
+    // Loopback base URL of the main-process Hybrid proxy (see hybridProxy.ts).
+    // All hybrid networking flows through it, so upstream failures are logged in
+    // the Node console instead of surfacing as opaque fetch errors in the browser.
+    const proxyUrl = ref<string>('')
+
+    async function ensureProxyUrl(): Promise<string> {
+      if (!proxyUrl.value) {
+        proxyUrl.value = await window.electronAPI.hybridProvider.getProxyUrl()
+      }
+      return proxyUrl.value
+    }
 
     function selectProvider(id: string) {
       selectedProviderId.value = id
@@ -96,8 +115,11 @@ export const useHybridMode = defineStore(
     }
 
     /**
-     * Fetch the provider's model ids from `GET {baseUrl}/v1/models` and store
-     * them on the provider. Returns the list on success.
+     * Fetch the provider's model ids via the main-process proxy
+     * (`GET {proxy}/v1/models`, routed to the provider's `{baseUrl}/v1/models`)
+     * and store them on the provider. The proxy attaches the API key and logs
+     * upstream failures in the Node console; here we only surface a concise
+     * message. Returns the list on success.
      */
     async function fetchModels(id: string): Promise<string[]> {
       const provider = providers.value.find((p) => p.id === id)
@@ -105,23 +127,86 @@ export const useHybridMode = defineStore(
       const base = provider.baseUrl.trim().replace(/\/+$/, '').replace(/\/v1$/, '')
       if (!base) throw new Error('Base URL is required')
 
-      // Ensure we have the key (it may only live on disk after a restart).
-      const key = apiKeyCache[id] ?? (await loadApiKey(id)) ?? ''
-      const headers: HeadersInit = key ? { Authorization: `Bearer ${key}` } : {}
+      const proxy = await ensureProxyUrl()
+      const url = `${proxy}/v1/models`
 
-      const response = await fetch(`${base}/v1/models`, { headers })
-      if (!response.ok) {
-        throw new Error(`Failed to fetch models: HTTP ${response.status}`)
+      let response: Response
+      try {
+        // Only routing headers — the key stays in main and is attached there.
+        response = await fetch(url, {
+          headers: { 'X-Hybrid-Upstream': base, 'X-Hybrid-Provider': id },
+        })
+      } catch (e) {
+        throw createAppError({
+          category: 'inference',
+          code: 'hybrid/fetch-models-unreachable',
+          surface: 'inline',
+          userMessage: 'Could not reach the Hybrid Mode proxy. Try restarting the app.',
+          technicalMessage: `GET ${url} threw: ${extractMessage(e)}`,
+          context: { providerId: id, upstream: base },
+          cause: e,
+        })
       }
-      const json = (await response.json()) as { data?: Array<{ id: string }> }
+
+      if (!response.ok) {
+        // The proxy relays the provider's status/body and has already logged the
+        // full detail to the Node console; surface a concise message here.
+        const body = await response.text().catch(() => '')
+        const snippet = body.trim().slice(0, 300)
+        throw createAppError({
+          category: 'inference',
+          code: 'hybrid/fetch-models-http-error',
+          surface: 'inline',
+          userMessage:
+            `Failed to fetch models: HTTP ${response.status} ${response.statusText}` +
+            (snippet ? ` — ${snippet}` : ''),
+          technicalMessage: `GET ${url} (upstream ${base}) -> ${response.status}: ${body}`,
+          context: { providerId: id, upstream: base, status: response.status },
+        })
+      }
+
+      let json: { data?: Array<{ id: string }> }
+      try {
+        json = (await response.json()) as { data?: Array<{ id: string }> }
+      } catch (e) {
+        throw createAppError({
+          category: 'inference',
+          code: 'hybrid/fetch-models-bad-json',
+          surface: 'inline',
+          userMessage: 'Provider response was not valid JSON (expected an OpenAI /v1/models list).',
+          technicalMessage: `GET ${url} returned unparseable JSON: ${extractMessage(e)}`,
+          context: { providerId: id, upstream: base },
+          cause: e,
+        })
+      }
+
       const ids = (json.data ?? []).map((m) => m.id).filter(Boolean)
       provider.models = ids
       return ids
     }
 
+    /**
+     * Refresh the selected provider's model list, overwriting it only if the
+     * request succeeds. Failures are swallowed here (the main-process proxy logs
+     * the detail in the Node console) so a background refresh never disrupts the
+     * UI or clobbers a previously-fetched list. No-op without a base URL.
+     */
+    async function refreshSelectedProviderModels(): Promise<void> {
+      const id = selectedProviderId.value
+      const provider = providers.value.find((p) => p.id === id)
+      if (!id || !provider?.baseUrl.trim()) return
+      try {
+        await fetchModels(id) // overwrites provider.models on success
+      } catch {
+        /* keep the existing list; the proxy already logged the reason */
+      }
+    }
+
     async function toggleFeature(enabled: boolean) {
       isFeatureEnabled.value = enabled
       await window.electronAPI.updateLocalSettings({ isHybridModeEnabled: enabled })
+      // Warm up the proxy so the chat backend URL is ready before first use.
+      if (enabled) ensureProxyUrl().catch(() => undefined)
     }
 
     /** Hydrate the feature flag and decrypted keys on startup. */
@@ -134,6 +219,8 @@ export const useHybridMode = defineStore(
         isFeatureEnabled.value = false
       }
       if (!isFeatureEnabled.value) return
+      // Start/resolve the proxy up front so the chat backend URL is ready.
+      ensureProxyUrl().catch(() => undefined)
       // Re-load each provider's key from safeStorage into the session cache.
       await Promise.all(providers.value.map((p) => loadApiKey(p.id).catch(() => null)))
     }
@@ -161,6 +248,8 @@ export const useHybridMode = defineStore(
       selectedProvider,
       activeProviderBaseUrl,
       activeProviderApiKey,
+      proxyUrl,
+      ensureProxyUrl,
       selectProvider,
       addProvider,
       updateProvider,
@@ -168,6 +257,7 @@ export const useHybridMode = defineStore(
       saveApiKey,
       loadApiKey,
       fetchModels,
+      refreshSelectedProviderModels,
       toggleFeature,
       initConfig,
     }

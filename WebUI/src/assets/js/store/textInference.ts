@@ -9,7 +9,7 @@ import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { usePresets, type ChatPreset } from './presets'
 import { useDeveloperSettings } from './developerSettings'
 import { useHomeAgent } from './homeAgent'
-import { useHybridMode } from './hybridMode'
+import { useHybridMode, HYBRID_DEFAULT_MODEL } from './hybridMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import * as toast from '@/assets/js/toast.ts'
 import { useActivities } from './activities'
@@ -197,7 +197,12 @@ export const useTextInference = defineStore(
       // 'hybrid' models so the existing model dropdown (filtered by backend)
       // picks them up.
       if (hybridMode.isFeatureEnabled && hybridMode.selectedProvider) {
-        const providerModels = hybridMode.selectedProvider.models
+        // Fall back to a synthetic "default" model when the provider exposes
+        // none, so the backend stays selectable and chattable (many providers
+        // accept a placeholder model id — see HYBRID_DEFAULT_MODEL).
+        const providerModels = hybridMode.selectedProvider.models.length
+          ? hybridMode.selectedProvider.models
+          : [HYBRID_DEFAULT_MODEL]
         const selectedHybrid = selectedModels.value.hybrid
         const hasValidHybridSelection = providerModels.includes(selectedHybrid ?? '')
         providerModels.forEach((name, index) => {
@@ -454,10 +459,11 @@ export const useTextInference = defineStore(
     const settingsPerPreset = ref<Record<string, Record<string, unknown>>>({})
 
     const currentBackendUrl = computed(() => {
-      // Hybrid Mode points at the selected remote provider's base URL — there
-      // is no local service to look up.
+      // Hybrid Mode talks to the main-process loopback proxy (see hybridProxy.ts),
+      // which forwards to the selected remote provider. Networking + error logging
+      // happen in Node, not the renderer.
       if (backend.value === 'hybrid') {
-        return hybridMode.activeProviderBaseUrl
+        return hybridMode.proxyUrl || undefined
       }
       if (homeAgent.isHomeAgentActive && homeAgent.homeAgentBaseUrl) {
         return homeAgent.homeAgentBaseUrl
@@ -1146,6 +1152,11 @@ export const useTextInference = defineStore(
     }
 
     async function ensureReadyForInference() {
+      // Hybrid Mode has no local backend to prepare, but the loopback proxy URL
+      // must be resolved before the first request (it backs currentBackendUrl).
+      if (backend.value === 'hybrid') {
+        await hybridMode.ensureProxyUrl()
+      }
       await checkModelAvailability()
       await prepareBackendIfNeeded()
     }

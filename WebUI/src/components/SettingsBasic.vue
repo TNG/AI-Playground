@@ -1,3 +1,4 @@
+use useErrors if possible
 <template>
   <div class="border-b border-border flex flex-col gap-5 py-4">
     <DemoModeBlocker>
@@ -337,7 +338,9 @@ import { Button } from '@/components/ui/button'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import { useProductMode } from '@/assets/js/store/productMode'
+import { useHybridMode } from '@/assets/js/store/hybridMode'
 
+const hybridMode = useHybridMode()
 const productModeStore = useProductMode()
 const demoMode = useDemoMode()
 const setupWizardStore = useSetupWizard()
@@ -467,10 +470,17 @@ async function executeRestartBackends() {
 }
 
 const displayComponents = computed(() => {
-  return backendServices.info.map((item) => ({
-    serviceName: item.serviceName,
-    status: item.status,
+  const components = backendServices.info.map((item) => ({
+    serviceName: item.serviceName as string,
+    status: item.status as BackendStatus,
   }))
+  // Hybrid Mode is a frontend-only component (remote OpenAI-compatible provider),
+  // so it never appears in backendServices.info. Surface it here as "running"
+  // whenever the feature is enabled so the status panel reflects it like a backend.
+  if (hybridMode.isFeatureEnabled) {
+    components.push({ serviceName: 'hybrid-mode', status: 'running' })
+  }
+  return components
 })
 
 // STT device selection

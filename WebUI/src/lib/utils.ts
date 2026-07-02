@@ -100,6 +100,8 @@ export function mapServiceNameToDisplayName(serviceName: string) {
       return 'OpenVINO'
     case 'home-agent-backend':
       return 'Home Agent'
+    case 'hybrid-mode':
+      return 'Hybrid Mode'
     default:
       return serviceName
   }

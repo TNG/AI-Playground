@@ -42,7 +42,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
 import { mapServiceNameToDisplayName, compareVersions } from '@/lib/utils'
 import { z } from 'zod'
-import { Cog6ToothIcon } from '@heroicons/vue/24/solid'
+import SettingsButton from '@/components/SettingsButton.vue'
 
 const props = defineProps<{
   backend: BackendServiceName
@@ -382,7 +382,7 @@ const showMenuButton = computed(
 
 <template>
   <DropdownMenu v-model:open="menuOpen" v-if="showMenuButton">
-    <DropdownMenuTrigger><Cog6ToothIcon class="size-6" /></DropdownMenuTrigger>
+    <DropdownMenuTrigger as-child><SettingsButton /></DropdownMenuTrigger>
     <DropdownMenuContent>
       <DropdownMenuLabel>{{ mapServiceNameToDisplayName(backend) }}</DropdownMenuLabel>
       <DropdownMenuSeparator />

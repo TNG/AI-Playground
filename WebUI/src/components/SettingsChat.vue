@@ -318,6 +318,11 @@ const availableBackendItems = computed(() => {
 // Handle backend change from dropdown
 function handleBackendChange(newBackend: string) {
   textInference.backend = newBackend as LlmBackend
+  // Switching to Hybrid Mode refreshes the selected provider's model list
+  // (overwriting it on success) so the picker reflects the live provider state.
+  if (newBackend === 'hybrid') {
+    hybridMode.refreshSelectedProviderModels()
+  }
 }
 
 async function handlePresetChange(presetName: string) {

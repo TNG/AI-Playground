@@ -36,13 +36,26 @@
             </span>
           </div>
         </div>
+        <Button variant="secondary" class="mt-3 w-full" @click="addProvider">
+          + Add provider
+        </Button>
       </div>
 
       <!-- Right: selected provider settings -->
       <div class="flex-1 min-w-0">
-        <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-3">
-          Provider Settings
-        </h2>
+        <div class="flex items-center justify-between pb-3">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Provider Settings
+          </h2>
+          <Button
+            variant="ghost"
+            class="text-destructive hover:text-destructive"
+            :disabled="hybridMode.providers.length <= 1"
+            @click="removeSelectedProvider"
+          >
+            Remove provider
+          </Button>
+        </div>
 
         <div class="flex flex-col gap-4">
           <div class="grid grid-cols-[120px_1fr] items-center gap-4">
@@ -146,12 +159,35 @@ function loadForm(id: string) {
   hasStoredKey.value = !!hybridMode.activeProviderApiKey
 }
 
-function selectProvider(id: string) {
+async function selectProvider(id: string) {
   // Persist any edits to the current provider before switching away.
   applyFormToStore()
   selectedId.value = id
   hybridMode.selectProvider(id)
+  // Pull the key into the session cache so the placeholder reflects reality.
+  await hybridMode.loadApiKey(id).catch(() => null)
   loadForm(id)
+}
+
+/** Create a fresh provider, select it, and start editing a blank form. */
+function addProvider() {
+  // Don't lose edits to the provider we're leaving.
+  applyFormToStore()
+  const id = crypto.randomUUID()
+  hybridMode.addProvider({ id, name: 'New provider', baseUrl: '' })
+  selectedId.value = id
+  hybridMode.selectProvider(id)
+  loadForm(id)
+}
+
+/** Remove the selected provider (and its stored key), then select another. */
+async function removeSelectedProvider() {
+  if (hybridMode.providers.length <= 1) return
+  await hybridMode.removeProvider(selectedId.value)
+  const nextId = hybridMode.selectedProviderId
+  selectedId.value = nextId
+  await hybridMode.loadApiKey(nextId).catch(() => null)
+  loadForm(nextId)
 }
 
 /** Write the in-form name/baseURL/models back onto the selected provider. */

@@ -105,16 +105,18 @@ def check_model_exists_with_path(type: str, repo_id: str, model_path: str) -> bo
     
     if type == 'faceswap' or type == 'facerestore':
         storage_path = os.path.join(model_path, flat_repo_local_dir_name(repo_id))
-        
-        # Check if model exists in storage
-        if not os.path.exists(storage_path):
+
+        # Check if model exists in storage. The reactor node requires the flat name
+        # to be the model file itself; a directory (left by an older broken download)
+        # does not count and must trigger a re-download.
+        if not os.path.isfile(storage_path):
             return False
-        
+
         # For faceswap/facerestore, also check and restore to ComfyUI directory
         comfy_ui_path = get_comfyui_faceswap_facerestore_path(type, repo_id)
-        
+
         # If not in ComfyUI directory, restore from storage
-        if not os.path.exists(comfy_ui_path):
+        if not os.path.isfile(comfy_ui_path):
             logging.info(f'Restoring {type} model {repo_id} from storage to ComfyUI directory')
             copy_faceswap_facerestore_to_comfyui(type, repo_id, model_path)
         
@@ -168,17 +170,18 @@ def check_comfyui_model_exists(type: str, repo_id: str) -> bool:
     if type == 'faceswap' or type == 'facerestore':
         # Check ComfyUI's models directory first
         comfy_ui_path = get_comfyui_faceswap_facerestore_path(type, repo_id)
-        
-        # If exists in ComfyUI directory, return True
-        if os.path.exists(comfy_ui_path):
+
+        # If the model file exists in ComfyUI directory, return True. A directory of
+        # the same name (left by an older broken download) does not count.
+        if os.path.isfile(comfy_ui_path):
             return True
-        
+
         # If not in ComfyUI directory, check storage and restore if found
         model_dir = config.comfy_ui_model_paths.get(type)
         flat_name = flat_repo_local_dir_name(repo_id)
         storage_path = os.path.join(os.path.abspath(model_dir), flat_name)
-        
-        if os.path.exists(storage_path):
+
+        if os.path.isfile(storage_path):
             # Restore from storage to ComfyUI directory
             logging.info(f'Restoring {type} model {repo_id} from storage to ComfyUI directory')
             if copy_faceswap_facerestore_to_comfyui(type, repo_id):

@@ -1,8 +1,9 @@
 {
   "type": "chat",
   "category": "chat",
-  "name": "aiDAPTIV™ RAG",
-  "description": "Retrieval-Augmented Generation powered by Phison's Pascari aiDAPTIV™ technology. Add documents and run large Mixture-of-Experts (MoE) models that exceed traditional GPU memory limits, with KV-cache reuse for faster, context-aware answers.",
+  "name": "aiDAPTIV™",
+  "description": "Run large Mixture-of-Experts (MoE) models locally with Phison's Pascari aiDAPTIV™ technology. By intelligently leveraging high-performance storage, aiDAPTIV enables AI models that exceed traditional GPU memory limits.",
+  "extendedDescription": "Combines Phison's RAG algorithm with aiDAPTIV™ KV-cache reuse to reduce time-to-first-token, so users get faster responses and a smoother experience.",
   "displayPriority": 90,
   "tags": ["Phison", "aiDAPTIV+", "MoE", "Large", "RAG"],
   "backends": ["llamaCPP"],

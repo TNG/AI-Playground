@@ -403,9 +403,13 @@ class HFPlaygroundDownloader:
             self.save_path, utils.repo_local_root_dir_name(self.repo_id)
         )
         move_to_flat_structure = False
+        # face restore and insightface models must land as a single flat *file*
+        # named "<owner>---<repo>---<file>" so the reactor node can load them.
+        flatten_to_single_file = False
         # face restore and insightface model need to be in a flat structure to work with reactor node
         if "facerestore" in self.save_path or "insightface" in self.save_path:
             move_to_flat_structure = True
+            flatten_to_single_file = True
             desired_repo_root_dir_name = path.abspath(
                 path.join(self.save_path, self.repo_id.replace("/", "---"))
             )
@@ -418,10 +422,20 @@ class HFPlaygroundDownloader:
                 os.makedirs(desired_repo_root_dir_name)
         try:
             if os.path.exists(desired_repo_root_dir_name) or move_to_flat_structure:
+                if flatten_to_single_file:
+                    # The reactor node expects the flat name to be the file itself,
+                    # not a directory containing it. Clear any stale directory left
+                    # by an earlier (broken) download before moving the file into place.
+                    utils.remove_existing_filesystem_resource(desired_repo_root_dir_name)
                 for item in os.listdir(self.save_path_tmp):
+                    dst = (
+                        desired_repo_root_dir_name
+                        if flatten_to_single_file
+                        else os.path.join(desired_repo_root_dir_name, item)
+                    )
                     _merge_move(
                         os.path.join(self.save_path_tmp, item),
-                        os.path.join(desired_repo_root_dir_name, item),
+                        dst,
                     )
                 shutil.rmtree(self.save_path_tmp)
             else:

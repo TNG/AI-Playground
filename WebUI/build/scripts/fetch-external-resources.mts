@@ -383,14 +383,46 @@ async function main(): Promise<void> {
       }
     }
 
-    // xpu-smi: Win32-only zip contains xpu-smi.exe + xpum.dll; keep file names as-is.
-    if (target.data === 'win32') {
+    // xpu-smi (Win32 only): the release zip nests its payload under a single
+    // top-level folder named after the archive (e.g.
+    // `xpu-smi-v2.0.0-fcd9c37_win/xpu-smi.exe`), so `extractAllTo()` lands the
+    // files one level deep rather than in resourcesDir. Hoist the two runtime
+    // artifacts we actually bundle — `xpu-smi.exe` and its dependent
+    // `xpum-2.dll` (the exact DLL name the exe imports) — to the top of
+    // resourcesDir so they match the paths referenced in build-config.json.
+    if (target.data === 'win32' && buildPaths.resourceUrls.xpuSmiWinZip) {
+      const xpuSmiFiles = ['xpu-smi.exe', 'xpum-2.dll']
+      const extractedDirName = getBaseFileName(buildPaths.resourceUrls.xpuSmiWinZip).replace(
+        /\.zip$/i,
+        '',
+      )
+      const extractedDir = path.join(buildPaths.resourcesDir, extractedDirName)
+
+      for (const fileName of xpuSmiFiles) {
+        const nestedPath = path.join(extractedDir, fileName)
+        const destinationPath = path.join(buildPaths.resourcesDir, fileName)
+        if (existsSync(nestedPath)) {
+          renameSync(nestedPath, destinationPath)
+          console.log(`✅ Moved ${nestedPath} to ${destinationPath}`)
+        }
+      }
+
+      // Remove the extracted folder (and the .lib files we don't ship) so
+      // resourcesDir only holds the bundled runtime artifacts.
+      if (existsSync(extractedDir)) {
+        rmSync(extractedDir, { recursive: true, force: true })
+      }
+
       const xpuSmiExe = path.join(buildPaths.resourcesDir, 'xpu-smi.exe')
-      const xpumDll = path.join(buildPaths.resourcesDir, 'xpum.dll')
+      const xpumDll = path.join(buildPaths.resourcesDir, 'xpum-2.dll')
       if (existsSync(xpuSmiExe) && existsSync(xpumDll)) {
         console.log(`✅ Found xpu-smi resources: ${xpuSmiExe}, ${xpumDll}`)
       } else {
-        console.log('ℹ️  xpu-smi assets not found after extraction (skipping)')
+        console.error(
+          `❌ xpu-smi assets missing after extraction (expected ${xpuSmiExe} and ${xpumDll}). ` +
+            'The release zip layout may have changed.',
+        )
+        process.exit(1)
       }
     }
 

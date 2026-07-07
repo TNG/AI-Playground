@@ -114,8 +114,8 @@
         "to": "device-service/xpu-smi.exe"
       },
       {
-        "from": "../build/resources/xpum.dll",
-        "to": "device-service/xpum.dll"
+        "from": "../build/resources/xpum-2.dll",
+        "to": "device-service/xpum-2.dll"
       }
     ],
     "verifyUpdateCodeSignature": false,

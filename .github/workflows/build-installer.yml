@@ -6,34 +6,70 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-installer:
+  build-windows:
     runs-on: windows-latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Node.js and npm
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '24'
+          cache: npm
+          cache-dependency-path: WebUI/package-lock.json
 
       - name: setup npm project
         working-directory: "WebUI"
-        run: npm install
+        run: npm ci
 
       - name: build installer
         working-directory: "WebUI"
         run: |
-          npm run fetch-build-resources
-          npm run prepare-build
+          npm run fetch-external-resources
           npm run build
 
       - name: upload release
         uses: actions/upload-artifact@v4
         with:
-          name: "installers-${{ github.sha }}"
-          path: WebUI/build/electron/*.exe
+          name: "installer-windows-${{ github.sha }}"
+          path: build/electron/*.exe
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install Node.js and npm
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: WebUI/package-lock.json
+
+      - name: setup npm project
+        working-directory: "WebUI"
+        run: npm ci
+
+      - name: build installer
+        working-directory: "WebUI"
+        run: |
+          npm run fetch-external-resources
+          npm run build:linux
+
+      - name: upload release
+        uses: actions/upload-artifact@v4
+        with:
+          name: "installer-linux-${{ github.sha }}"
+          path: |
+            build/electron/*.AppImage
+            build/electron/*.deb
           if-no-files-found: error
           retention-days: 7
           overwrite: true

@@ -100,6 +100,11 @@ const LINUX_INTEL_GPU_ALT_PACKAGES: string[][] = [
 // Always try to install alongside the Level Zero packages.
 const LINUX_INTEL_GPU_UNCONDITIONAL_PACKAGES: string[] = ['intel-opencl-icd']
 
+// Build toolchain required to set up ComfyUI on Linux: `git` clones the repo,
+// while `build-essential` (C/C++ compiler) and `python3-dev` (CPython headers)
+// are needed to compile source-only wheels such as insightface during uv sync.
+const LINUX_COMFYUI_BUILD_PACKAGES: string[] = ['git', 'build-essential', 'python3-dev']
+
 // Bash script run (as root via pkexec) before the apt-get install step.
 // Adds Intel's GPU repository if neither the Noble nor Jammy package names
 // are already available in apt. Safe to re-run (idempotent).
@@ -383,6 +388,119 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         true,
       )
     }
+  }
+
+  /**
+   * On Linux: ensure the build toolchain required to set up ComfyUI is present.
+   * A fresh Ubuntu lacks `git` (needed to clone ComfyUI) and the C compiler /
+   * Python headers (`build-essential`, `python3-dev`) needed to build source-only
+   * wheels such as insightface during `uv sync`. Without these, setup fails with
+   * a confusing `git clone` error or a wheel compilation error.
+   *
+   * Unlike the Intel GPU step (which falls back to CPU on cancel), these packages
+   * are MANDATORY: setup cannot succeed without them, so cancelling or a failed
+   * install throws. Uses the same pkexec / terminal-emulator pattern as OpenVINO.
+   */
+  private async ensureLinuxBuildDependencies(
+    onProgress?: (message: string) => Promise<void> | void,
+  ): Promise<void> {
+    if (process.platform !== 'linux') return
+
+    const hasApt = await hasAptGet()
+    if (!hasApt) {
+      this.appLogger.warn(
+        'apt-get not found; skipping automatic ComfyUI build dependency install',
+        this.name,
+      )
+      return
+    }
+
+    const missingPackages = await getMissingPackages(LINUX_COMFYUI_BUILD_PACKAGES)
+
+    if (missingPackages.length === 0) {
+      this.appLogger.info('ComfyUI Linux build dependencies are already installed', this.name)
+      return
+    }
+
+    this.appLogger.info(
+      `ComfyUI build packages missing: ${missingPackages.join(', ')}`,
+      this.name,
+      true,
+    )
+
+    const packageListText = missingPackages.map((p) => `- ${p}`).join('\n')
+    const { response } = await dialog.showMessageBox(this.win, {
+      type: 'warning',
+      buttons: ['Install now', 'Cancel setup'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Install ComfyUI Linux dependencies',
+      message: 'ComfyUI requires additional Ubuntu packages before setup can continue.',
+      detail:
+        `Missing packages:\n${packageListText}\n\n` +
+        'AI Playground will request administrator permission and install these packages automatically.',
+    })
+
+    if (response === 1) {
+      throw new Error('ComfyUI setup canceled: Linux build dependencies were not installed')
+    }
+
+    await onProgress?.('Installing Ubuntu build dependencies for ComfyUI')
+
+    const pkexecAvailable = await hasPkexec()
+    if (pkexecAvailable) {
+      const installResult = await runPkexecInstall(missingPackages, 'apt-get update')
+      if (!installResult.success) {
+        const aptMissing = parseAptMissingPackages(installResult.output)
+        if (aptMissing.length > 0) {
+          this.appLogger.error(
+            `ComfyUI dependency install failed. Missing in apt repo: ${aptMissing.join(', ')}`,
+            this.name,
+            true,
+          )
+        } else {
+          this.appLogger.error(
+            `ComfyUI dependency install failed with output: ${installResult.output}`,
+            this.name,
+            true,
+          )
+        }
+      }
+    } else {
+      await onProgress?.('pkexec unavailable, falling back to terminal installer')
+      const terminalExited = await waitForTerminalInstall(missingPackages, 'sudo apt-get update')
+      if (!terminalExited) {
+        throw new Error(
+          `Could not open installer automatically. Please install: ${missingPackages.join(', ')}`,
+        )
+      }
+      this.appLogger.info('Terminal closed. Waiting for apt-cache refresh...', this.name)
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+    }
+
+    let stillMissing: string[] = []
+    for (let retryAttempt = 0; retryAttempt < 5; retryAttempt++) {
+      stillMissing = await getMissingPackages(LINUX_COMFYUI_BUILD_PACKAGES)
+      if (stillMissing.length === 0) {
+        this.appLogger.info('Installed missing Linux build dependencies for ComfyUI', this.name)
+        return
+      }
+      if (retryAttempt < 4) {
+        this.appLogger.info(
+          `Still missing on attempt ${retryAttempt + 1}: ${stillMissing.join(', ')}. Retrying...`,
+          this.name,
+        )
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+      }
+    }
+
+    this.appLogger.error(
+      `ComfyUI build dependencies still missing after installer: ${stillMissing.join(', ')}`,
+      this.name,
+      true,
+    )
+
+    throw new Error(`Dependencies still missing after installer: ${stillMissing.join(', ')}`)
   }
 
   async serviceIsSetUp(): Promise<boolean> {
@@ -768,6 +886,17 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     // Install Level Zero packages before variant detection so that
     // getEffectiveVariant() → linuxHasLevelZeroRuntime() sees them.
     if (process.platform === 'linux') {
+      yield {
+        serviceName: this.name,
+        step: 'linux dependencies',
+        status: 'executing',
+        debugMessage: 'checking and installing ComfyUI build dependencies',
+      }
+      // git + build toolchain must exist before the clone and before uv sync
+      // builds source-only wheels (insightface); this is mandatory and throws
+      // on cancel/failure.
+      await this.ensureLinuxBuildDependencies((msg) => this.appLogger.info(msg, this.name))
+
       yield {
         serviceName: this.name,
         step: 'linux dependencies',

@@ -362,8 +362,13 @@ export class GitService extends ExecutableService {
 
   async install(): Promise<void> {
     if (process.platform !== 'win32') {
-      this.log('git installation not required on non-windows platform, skipping')
-      return
+      // On non-Windows we do not bundle a portable git; it must be provided by
+      // the OS. If check() failed and we reach here, git is genuinely missing,
+      // so fail loudly with an actionable message instead of silently skipping
+      // (which previously surfaced as a confusing downstream `git clone` error).
+      throw new Error(
+        'git not found. Install it with your package manager (Ubuntu: sudo apt-get install git) and retry setup.',
+      )
     }
     this.log('start installing')
 
@@ -377,11 +382,8 @@ export class GitService extends ExecutableService {
   }
 
   async repair(checkError: ServiceCheckError): Promise<void> {
-    if (process.platform !== 'win32') {
-      this.log('git repair not required on non-windows platform, skipping')
-      return
-    }
     assert(checkError.component === this.name)
+    // install() throws an actionable error on non-Windows (git is OS-provided).
     await this.install()
   }
 

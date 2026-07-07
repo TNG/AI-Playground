@@ -168,7 +168,8 @@ root) and a **`.deb`** package for a system-wide install via `apt`.
 
    Alternatively, install the **`.deb`** instead of running the AppImage. `apt`
    resolves the runtime dependencies declared in the package
-   (`libgtk-3-0`, `libnss3`, `libasound2`, `libdbus-1-3`, `pciutils`, `python3`):
+   (`libgtk-3-0`, `libnss3`, `libasound2`, `libdbus-1-3`, `pciutils`, `python3`,
+   `git`):
 
    ```bash
    cd build/electron
@@ -189,6 +190,19 @@ root) and a **`.deb`** package for a system-wide install via `apt`.
    ```bash
    sudo apt-get update
    sudo apt-get install -y python3 python3-venv libtbb12 libhwloc15 libgomp1 libnuma1 ocl-icd-libopencl1 libfuse2t64
+   ```
+
+5. ComfyUI Ubuntu build dependencies are checked during ComfyUI backend setup.
+
+   ComfyUI is cloned with `git` and some of its Python dependencies (e.g.
+   `insightface`) are compiled from source during install, which needs a C
+   compiler and the CPython headers. On a fresh Ubuntu these are missing, so
+   AI Playground prompts to install them automatically. To install them
+   manually:
+
+   ```bash
+   sudo apt-get update
+   sudo apt-get install -y git build-essential python3-dev
    ```
 
 ### Behind a corporate / HTTP proxy

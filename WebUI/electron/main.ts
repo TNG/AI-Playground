@@ -100,6 +100,13 @@ import {
   removeMcpServer,
   type McpServerConfig,
 } from './subprocesses/mcpServers'
+import {
+  cancelAgentTurn,
+  resetAgentSession,
+  setHarnessAgentMainWindow,
+  startAgentTurn,
+  type AgentModeTurnConfig,
+} from './harnessAgentManager'
 import { getAudioDir, getMediaDir } from './util.ts'
 import { packagedResourcesRoot, writableConfigRoot } from './aipgRoot.ts'
 import { loadDemoProfile, type DemoProfile } from './demoProfile.ts'
@@ -659,6 +666,7 @@ async function createWindow() {
     },
   })
   setWebBrowserMainWindow(win)
+  setHarnessAgentMainWindow(win)
   win.on('close', () => {
     // Tear down the headless web-browser window so the app can quit cleanly.
     destroyWebBrowser()
@@ -2537,6 +2545,23 @@ function initEventHandle() {
       return await invokeMcpServerTool(serverId, toolName, args)
     },
   )
+
+  // Agent Mode (Pi harness) IPC handlers — see harnessAgentManager.ts. Stream
+  // chunks are pushed main→renderer on 'agentMode:streamChunk'.
+  ipcMain.handle(
+    'agentMode:startTurn',
+    async (_event, turnId: string, prompt: string, config: AgentModeTurnConfig) => {
+      return await startAgentTurn(turnId, prompt, config)
+    },
+  )
+
+  ipcMain.handle('agentMode:cancel', () => {
+    cancelAgentTurn()
+  })
+
+  ipcMain.handle('agentMode:resetSession', async () => {
+    await resetAgentSession()
+  })
 
   // Web browser IPC handlers — drives the headless BrowserWindow that the chat
   // LLM uses to browse the web (see subprocesses/webBrowserManager.ts).

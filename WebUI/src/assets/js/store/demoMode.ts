@@ -24,7 +24,7 @@ export const FALLBACK_NOTIFICATION_DOT_BUTTONS: DemoButtonId[] = [
   'plus-icon',
 ]
 
-const FALLBACK_ENABLED_MODES: ModeType[] = ['chat', 'imageGen', 'imageEdit', 'video']
+const FALLBACK_ENABLED_MODES: ModeType[] = ['chat', 'agent', 'imageGen', 'imageEdit', 'video']
 
 function createInitialVisitedState(
   notificationDotButtons: DemoButtonId[],

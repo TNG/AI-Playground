@@ -17,6 +17,9 @@ export interface ContextProps extends HoverCardRootProps {
   usage?: {
     inputTokens?: number
     outputTokens?: number
+    inputTokenDetails?: { cacheReadTokens?: number }
+    outputTokenDetails?: { reasoningTokens?: number }
+    // Legacy flat fields (AI SDK <7) still present in persisted conversations.
     cachedInputTokens?: number
     reasoningTokens?: number
   }

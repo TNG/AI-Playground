@@ -169,7 +169,7 @@
                 </template>
 
                 <!-- Tool parts -->
-                <template v-else-if="isToolOrDynamicToolUIPart(part)">
+                <template v-else-if="isToolUIPart(part)">
                   <template v-if="isAipgTool(part) && part.type === 'tool-comfyUI'">
                     <div>
                       <span v-if="part.state === 'input-streaming' && !part.input?.workflow"
@@ -452,7 +452,7 @@ import {
   type GenerateState,
 } from '@/assets/js/store/imageGenerationPresets'
 import { useComfyUiPresets } from '@/assets/js/store/comfyUiPresets'
-import { DynamicToolUIPart, isToolOrDynamicToolUIPart, ToolUIPart } from 'ai'
+import { DynamicToolUIPart, isToolUIPart, ToolUIPart } from 'ai'
 import { aipgTools, AipgTools } from '@/assets/js/tools/tools'
 import { UserCircleIcon } from '@heroicons/vue/24/outline'
 
@@ -489,7 +489,7 @@ function messageHasVisibleContent(message: { parts?: { type: string; text?: stri
     message.parts?.some((part) => {
       if (part.type === 'text') return stripAipgMediaImages(part.text ?? '').length > 0
       if (part.type === 'reasoning') return true
-      return isToolOrDynamicToolUIPart(part as Parameters<typeof isToolOrDynamicToolUIPart>[0])
+      return isToolUIPart(part as Parameters<typeof isToolUIPart>[0])
     }) ?? false
   )
 }

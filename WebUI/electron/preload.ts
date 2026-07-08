@@ -228,6 +228,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ) => ipcRenderer.invoke('mcp:updateServer', serverId, config),
     removeServer: (serverId: string) => ipcRenderer.invoke('mcp:removeServer', serverId),
   },
+  agentMode: {
+    startTurn: (turnId: string, prompt: string, config: unknown) =>
+      ipcRenderer.invoke('agentMode:startTurn', turnId, prompt, config),
+    cancel: () => ipcRenderer.invoke('agentMode:cancel'),
+    resetSession: () => ipcRenderer.invoke('agentMode:resetSession'),
+    onStreamChunk: (callback: (data: { turnId: string; chunk: unknown }) => void) =>
+      ipcRenderer.on('agentMode:streamChunk', (_event, data) => callback(data)),
+    onTurnDone: (callback: (data: { turnId: string }) => void) =>
+      ipcRenderer.on('agentMode:turnDone', (_event, data) => callback(data)),
+  },
   webBrowser: {
     navigate: (url: string) => ipcRenderer.invoke('webBrowser:navigate', url),
     readPage: () => ipcRenderer.invoke('webBrowser:readPage'),

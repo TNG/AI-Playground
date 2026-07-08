@@ -181,6 +181,7 @@ type ContextHelpTarget = ModeType | 'app-settings' | 'advanced-settings'
 
 const contextHelpConfig: Record<ContextHelpTarget, { stepId: string; highlightElement: string }> = {
   chat: { stepId: '#mode-button-chat', highlightElement: '#prompt-input' },
+  agent: { stepId: '#mode-button-agent', highlightElement: '#prompt-input' },
   imageGen: { stepId: '#mode-button-imageGen', highlightElement: '#prompt-input' },
   imageEdit: { stepId: '#mode-button-imageEdit', highlightElement: '#prompt-input' },
   video: { stepId: '#mode-button-video', highlightElement: '#prompt-input' },

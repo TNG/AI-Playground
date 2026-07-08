@@ -32,10 +32,13 @@
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/mcp": "^1.0.52",
-    "@ai-sdk/openai": "^3.0.74",
-    "@ai-sdk/openai-compatible": "^2.0.51",
-    "@ai-sdk/vue": "^3.0.208",
+    "@ai-sdk/harness": "1.0.20",
+    "@ai-sdk/harness-pi": "1.0.20",
+    "@ai-sdk/mcp": "^2.0.7",
+    "@ai-sdk/openai": "^4.0.8",
+    "@ai-sdk/openai-compatible": "^3.0.5",
+    "@ai-sdk/sandbox-just-bash": "1.0.20",
+    "@ai-sdk/vue": "^4.0.16",
     "@google/model-viewer": "^4.3.1",
     "@heroicons/vue": "^2.2.0",
     "@langchain/classic": "^1.0.36",
@@ -45,7 +48,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@radix-icons/vue": "^1.0.0",
     "@vueuse/core": "^14.3.0",
-    "ai": "6.0.208",
+    "ai": "7.0.16",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dompurify": "^3.4.11",
@@ -114,7 +117,7 @@
       "@browserbasehq/stagehand": "^3.4.0",
       "openai": "^6.37.0"
     },
-    "@ai-sdk/provider-utils": "^4.0.30"
+    "@ai-sdk/provider-utils": "^5.0.5"
   },
   "debug": {
     "env": {

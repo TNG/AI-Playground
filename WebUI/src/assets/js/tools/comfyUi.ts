@@ -7,6 +7,7 @@ import { useActivities } from '../store/activities'
 import { useConversations } from '../store/conversations'
 import { useI18N } from '../store/i18n'
 import { usePresets, type Preset, type ComfyUiPreset } from '../store/presets'
+import { useTextInference } from '../store/textInference'
 import { usePresetSwitching } from '../store/presetSwitching'
 import { usePromptStore } from '../store/promptArea'
 import { useDeveloperSettings } from '../store/developerSettings'
@@ -64,6 +65,7 @@ export function getAvailableWorkflows(): Array<{
   }>
 }> {
   const presets = usePresets()
+  const textInference = useTextInference()
 
   return presets.presets
     .filter((preset: Preset) => {
@@ -73,7 +75,11 @@ export function getAvailableWorkflows(): Array<{
       }
       // Presets the create tool can drive from a prompt alone: images and
       // text-to-video. Image-to-video presets live behind the edit tool.
-      return preset.toolCategory === 'create-images' || preset.toolCategory === 'create-videos'
+      if (preset.toolCategory !== 'create-images' && preset.toolCategory !== 'create-videos') {
+        return false
+      }
+      // Honour the per-workflow sub-checkboxes (Settings › Built-in tools).
+      return textInference.isWorkflowPresetEnabled(preset.name)
     })
     .map((preset: Preset) => {
       const comfyPreset = preset as ComfyUiPreset
@@ -234,9 +240,13 @@ export async function executeComfyGeneration(args: {
     return createErrorResult('ComfyUI backend is not running. Please start it first.')
   }
 
-  // Find preset by name - fall back to default workflow if not found
+  // Find preset by name - fall back to the user's default image workflow if not
+  // provided (resolved from the enabled create-images presets, else "Draft Image").
   let preset: Preset | null = null
-  const requestedWorkflow = args.workflow || 'Draft Image'
+  const imageWorkflowNames = getAvailableWorkflows()
+    .filter((w) => w.mediaType !== 'video')
+    .map((w) => w.name)
+  const requestedWorkflow = args.workflow || resolveDefaultImageWorkflow(imageWorkflowNames)
 
   preset = presets.presets.find((p) => p.name === requestedWorkflow) || null
   if (!preset || preset.type !== 'comfy') {
@@ -679,10 +689,34 @@ export async function executeComfyGeneration(args: {
 
 // Tool definition for AI SDK
 // Generate the tool description and schema dynamically based on available workflows
+// User-selectable defaults, resolved per output media type from the enabled
+// presets. These are standalone, explicitly-typed helpers on purpose: keeping the
+// heavy `useTextInference()` store type out of `getToolDefinition` (whose inferred
+// shape feeds the ai-SDK `tool()` generics) avoids a type-instantiation blow-up.
+function resolveDefaultImageWorkflow(imageNames: string[]): string {
+  return useTextInference().getDefaultWorkflow('comfyUI:image', imageNames) ?? 'Draft Image'
+}
+
+function resolveDefaultVideoWorkflow(videoNames: string[]): string | null {
+  return useTextInference().getDefaultWorkflow('comfyUI:video', videoNames)
+}
+
+// Human-readable "<preset> - <Fast variant>" hint for the default image workflow,
+// so the description keeps recommending the least-costly variant.
+function resolveWorkflowVariantHint(workflowName: string): string {
+  const preset = usePresets().presets.find((p) => p.name === workflowName)
+  const fast = preset ? findFastVariant(preset) : null
+  return fast ? `${workflowName} - ${fast}` : workflowName
+}
+
 function getToolDefinition() {
   const availableWorkflows = getAvailableWorkflows()
-  const defaultWorkflow = 'Draft Image'
-  const defaultWorkflowWithVariant = 'Draft Image - Fast'
+
+  const imageNames = availableWorkflows.filter((w) => w.mediaType !== 'video').map((w) => w.name)
+  const videoNames = availableWorkflows.filter((w) => w.mediaType === 'video').map((w) => w.name)
+  const defaultWorkflow = resolveDefaultImageWorkflow(imageNames)
+  const defaultVideoWorkflow = resolveDefaultVideoWorkflow(videoNames)
+  const defaultWorkflowWithVariant = resolveWorkflowVariantHint(defaultWorkflow)
 
   // Get resolution examples for the default workflow
   const defaultResolutionExamples = getResolutionExamplesForWorkflow(defaultWorkflow)
@@ -757,7 +791,9 @@ function getToolDefinition() {
   const workflowOptions = availableWorkflows
     .map((w) => {
       const mediaTypeStr = w.mediaType ? ` (${w.mediaType})` : ''
-      const isDefault = w.name === defaultWorkflow ? ' (default, least resource intensive)' : ''
+      let isDefault = ''
+      if (w.name === defaultWorkflow) isDefault = ' (default, least resource intensive)'
+      else if (w.name === defaultVideoWorkflow) isDefault = ' (default video)'
       return `${w.name}${mediaTypeStr}${isDefault}`
     })
     .join(', ')
@@ -770,8 +806,7 @@ function getToolDefinition() {
     'Use this tool to create, edit, or enhance media content (images, videos, or 3D models) based on text prompts. Only use this tool if the user explicitly asks to create media content.\n\n'
   description +=
     'IMPORTANT: Always generate a detailed, descriptive prompt even if the user provides a simple request. Expand simple requests into full prompts with subject details, composition, style, lighting, colors, mood, and quality tags. For example, if the user asks for "an elephant", expand it to something like "a majestic African elephant standing in golden hour sunlight, detailed wrinkles on skin, photorealistic, 8k, highly detailed, professional photography".\n\n'
-  description +=
-    'VARIANT SUPPORT: Presets may have variants (e.g., "Fast", "Standard", "Quality"). By default, always prefer "Fast" variants when available as they are least resource intensive. The default preset is "Draft Image" with "Fast" variant. The tool will automatically select the "Fast" variant when available. You can optionally specify a variant name in the variant parameter if the user requests a specific quality level.\n\n'
+  description += `VARIANT SUPPORT: Presets may have variants (e.g., "Fast", "Standard", "Quality"). By default, always prefer "Fast" variants when available as they are least resource intensive. The default preset is "${defaultWorkflow}" (equivalent to "${defaultWorkflowWithVariant}"). The tool will automatically select the "Fast" variant when available. You can optionally specify a variant name in the variant parameter if the user requests a specific quality level.\n\n`
 
   // Add resolution guidance
   description += 'RESOLUTION: Specify image size using EITHER:\n'
@@ -804,6 +839,9 @@ function getToolDefinition() {
   // Add explicit warnings for video workflows
   if (videoWorkflows.length > 0) {
     description += `IMPORTANT: Video workflows (${videoWorkflows.map((w) => w.name).join(', ')}) should ONLY be used when the user explicitly requests video generation. Never use video workflows for image requests. Video generation is resource-intensive and should only be used when specifically asked for.`
+    if (defaultVideoWorkflow) {
+      description += ` When the user asks for a video, prefer '${defaultVideoWorkflow}' unless they request a different video workflow.`
+    }
   }
 
   // Build workflow enum or string description

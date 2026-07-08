@@ -404,6 +404,57 @@ export const useTextInference = defineStore(
       builtinToolEnablement.value = { ...builtinToolEnablement.value, [toolName]: enabled }
     }
 
+    // Per-workflow (ComfyUI preset) enablement for preset-backed built-in tools
+    // (Generate media, Edit images), keyed by preset name. Default true so all
+    // workflows stay exposed to the model unless explicitly disabled. Persisted
+    // per chat preset via settingsPerPreset (see the save watcher / loader).
+    const builtinToolPresetEnablement = ref<Record<string, boolean>>({})
+
+    function isWorkflowPresetEnabled(presetName: string): boolean {
+      return builtinToolPresetEnablement.value[presetName] ?? true
+    }
+
+    function setWorkflowPresetEnabled(presetName: string, enabled: boolean): void {
+      builtinToolPresetEnablement.value = {
+        ...builtinToolPresetEnablement.value,
+        [presetName]: enabled,
+      }
+    }
+
+    // Default preset per built-in-tool slot, keyed by "<toolName>:<mediaType>"
+    // (e.g. "comfyUI:image", "comfyUiImageEdit:video"). Lets the user pick which
+    // workflow the assistant reaches for by default per use case. Persisted per
+    // chat preset via settingsPerPreset (mirrors builtinToolPresetEnablement).
+    const builtinToolDefaultPresets = ref<Record<string, string>>({})
+
+    // Initial per-slot defaults, preserving the workflows that used to be
+    // hard-coded in the tool descriptions. Used when the user hasn't explicitly
+    // picked a default yet, so behavior is unchanged out of the box. Slots not
+    // listed here fall back to the first available preset.
+    const INITIAL_DEFAULT_WORKFLOWS: Record<string, string> = {
+      'comfyUI:image': 'Draft Image',
+      'comfyUiImageEdit:image': 'Edit By Prompt',
+    }
+
+    // Resolve the effective default for a slot: the stored choice if it is among
+    // the currently-available (enabled) presets, else the previous hard-coded
+    // default, else the first available. Callers pass the candidate list so this
+    // stays free of preset-grouping logic and can never return a disabled preset.
+    function getDefaultWorkflow(key: string, availableNames: string[]): string | null {
+      const stored = builtinToolDefaultPresets.value[key]
+      if (stored && availableNames.includes(stored)) return stored
+      const initial = INITIAL_DEFAULT_WORKFLOWS[key]
+      if (initial && availableNames.includes(initial)) return initial
+      return availableNames[0] ?? null
+    }
+
+    function setDefaultWorkflow(key: string, presetName: string): void {
+      builtinToolDefaultPresets.value = {
+        ...builtinToolDefaultPresets.value,
+        [key]: presetName,
+      }
+    }
+
     const maxTokens = ref<number>(1024)
     const contextSize = ref<number>(8192)
     const temperature = ref<number>(0.7)
@@ -1374,6 +1425,16 @@ export const useTextInference = defineStore(
       mcpToolsEnabled.value =
         (savedSettings.mcpToolsEnabled as boolean | undefined) ?? defaultToolsEnabled
 
+      // Per-workflow enablement for preset-backed tools (defaults to all-enabled
+      // when unsaved, matching isWorkflowPresetEnabled's default).
+      builtinToolPresetEnablement.value =
+        (savedSettings.builtinToolPresetEnablement as Record<string, boolean> | undefined) ?? {}
+
+      // Per-slot default preset choices (empty when unsaved; getDefaultWorkflow
+      // then falls back to the first available preset for each slot).
+      builtinToolDefaultPresets.value =
+        (savedSettings.builtinToolDefaultPresets as Record<string, string> | undefined) ?? {}
+
       // Load thinking-enabled (defaults to true when unsaved; only takes effect for
       // models that support the toggle via modelSupportsThinkingToggle).
       thinkingEnabled.value = (savedSettings.thinkingEnabled as boolean | undefined) ?? true
@@ -1509,6 +1570,8 @@ export const useTextInference = defineStore(
         metricsEnabled,
         aipgToolsEnabled,
         mcpToolsEnabled,
+        builtinToolPresetEnablement,
+        builtinToolDefaultPresets,
         thinkingEnabled,
       ],
       () => {
@@ -1533,6 +1596,8 @@ export const useTextInference = defineStore(
           metricsEnabled: metricsEnabled.value,
           aipgToolsEnabled: aipgToolsEnabled.value,
           mcpToolsEnabled: mcpToolsEnabled.value,
+          builtinToolPresetEnablement: { ...builtinToolPresetEnablement.value },
+          builtinToolDefaultPresets: { ...builtinToolDefaultPresets.value },
           thinkingEnabled: thinkingEnabled.value,
         }
       },
@@ -1656,6 +1721,12 @@ export const useTextInference = defineStore(
       builtinToolEnablement,
       isBuiltinToolEnabled,
       setBuiltinToolEnabled,
+      builtinToolPresetEnablement,
+      isWorkflowPresetEnabled,
+      setWorkflowPresetEnabled,
+      builtinToolDefaultPresets,
+      getDefaultWorkflow,
+      setDefaultWorkflow,
       screenshotWindow,
       maxTokens,
       contextSize,

@@ -28,6 +28,8 @@ import { useI18N } from './i18n'
 import { createAppError, extractMessage, isCancellation } from '../errors/appError'
 import type { AppError } from '../errors/types'
 import { aipgTools, homeAgentTools } from '../tools/tools'
+import { getAvailableWorkflows } from '../tools/comfyUi'
+import { getAvailableEditWorkflows } from '../tools/comfyUiImageEdit'
 import z from 'zod'
 import { AipgTools } from '../tools/tools'
 import { LanguageModelV2ToolResultOutput, JSONSchema7 } from '@ai-sdk/provider'
@@ -308,6 +310,12 @@ export const useOpenAiCompatibleChat = defineStore(
         if (name === 'screenshotWebPage' && !textInference.modelSupportsVision) {
           continue
         }
+        // Preset-backed tools with every workflow disabled (via the per-workflow
+        // sub-checkboxes) would otherwise fall back to a generic "any workflow"
+        // schema — skip them entirely so the model can't invoke a tool the user
+        // effectively turned off.
+        if (name === 'comfyUI' && getAvailableWorkflows().length === 0) continue
+        if (name === 'comfyUiImageEdit' && getAvailableEditWorkflows().length === 0) continue
         tools[name] = builtinTool
       }
       // The Home Agent self-inspection/configuration tools are only meaningful

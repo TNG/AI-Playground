@@ -8,7 +8,7 @@ const FRIENDLY_LABELS: Record<string, string> = {
   configureHomeAgent: 'Change settings',
   captureScreenshot: 'Capture screenshot',
   comfyUI: 'Generate media',
-  comfyUiImageEdit: 'Edit image',
+  comfyUiImageEdit: 'Transform image',
   visualizeObjectDetections: 'Visualize detections',
 }
 

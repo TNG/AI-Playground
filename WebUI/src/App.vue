@@ -205,6 +205,7 @@
         </DemoModeBlocker>
       </div>
       <Chat v-if="promptStore.getCurrentMode() === 'chat'" ref="chatRef" />
+      <AgentMode v-if="promptStore.getCurrentMode() === 'agent'" />
       <WorkflowResult
         v-if="promptStore.getCurrentMode() === 'imageGen'"
         ref="imageGenRef"
@@ -323,6 +324,7 @@ import { useColorMode } from '@vueuse/core'
 import { useDemoMode } from './assets/js/store/demoMode.ts'
 import WorkflowResult from '@/views/WorkflowResult.vue'
 import Chat from '@/views/Chat.vue'
+import AgentMode from '@/views/AgentMode.vue'
 import { computed, ref, watch } from 'vue'
 import SideModalHistory from '@/components/SideModalHistory.vue'
 import SideModalAppSettings from '@/components/SideModalAppSettings.vue'

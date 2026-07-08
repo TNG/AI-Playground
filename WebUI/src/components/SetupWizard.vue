@@ -343,11 +343,7 @@
                     :model-value="hybridMode.isFeatureEnabled"
                     @update:model-value="(v: boolean) => hybridMode.toggleFeature(v)"
                   />
-                  <SettingsButton
-                    title="Configure Hybrid Mode providers"
-                    :disabled="!hybridMode.isFeatureEnabled"
-                    @click="wizard.openHybridModeSetup()"
-                  />
+                  <HybridModeOptions />
                 </div>
               </div>
             </div>
@@ -416,7 +412,7 @@ import { useI18N } from '@/assets/js/store/i18n'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import BackendOptions from '@/components/BackendOptions.vue'
-import SettingsButton from '@/components/SettingsButton.vue'
+import HybridModeOptions from '@/components/HybridModeOptions.vue'
 import PhisonAidaptivOptions from '@/components/PhisonAidaptivOptions.vue'
 import ErrorDetailsModal from '@/components/ErrorDetailsModal.vue'
 import LanguageSelector from '@/components/LanguageSelector.vue'

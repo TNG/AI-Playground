@@ -45,6 +45,12 @@ const items = computed(() => {
   return textInference.llmModels
     .filter((m) => m.type === textInference.backend)
     .filter((m) => {
+      // Hybrid Mode models come from a remote provider's /v1/models list and
+      // carry no capability metadata (vision/tool-calling/etc. are all unknown,
+      // hence false). The preset-requirement and custom-model filters below would
+      // therefore drop every hybrid model, leaving the picker empty. Remote models
+      // can't be filtered on unknown capabilities, so always surface them.
+      if (textInference.backend === 'hybrid') return true
       // Restrict to large Mixture-of-Experts models only (e.g. the Phison aiDAPTIV+ preset)
       if (requirements.largeMoeOnly && !m.largeMoe) return false
       // Filter by preset requirements

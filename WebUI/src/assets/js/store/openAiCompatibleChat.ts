@@ -12,7 +12,7 @@ import {
   LanguageModelUsage,
   NoSuchToolError,
   streamText,
-  stepCountIs,
+  isStepCount,
   type ToolSet,
   UIDataTypes,
   UIMessage,
@@ -35,8 +35,8 @@ import { getAvailableWorkflows, repairCreateToolInput } from '../tools/comfyUi'
 import { getAvailableEditWorkflows, repairEditToolInput } from '../tools/comfyUiImageEdit'
 import z from 'zod'
 import { AipgTools } from '../tools/tools'
-import { LanguageModelV2ToolResultOutput, JSONSchema7 } from '@ai-sdk/provider'
-import { dynamicTool, jsonSchema } from '@ai-sdk/provider-utils'
+import { JSONSchema7 } from '@ai-sdk/provider'
+import { dynamicTool, jsonSchema, type ToolResultOutput } from '@ai-sdk/provider-utils'
 import { imageUrlToDataUri } from '@/lib/utils'
 import { getHomeAgentAuthToken, invalidateHomeAgentAuthToken } from '@/lib/loopbackAuth'
 import { useQwen3TextToSpeech } from './qwen3TextToSpeech'
@@ -743,7 +743,7 @@ export const useOpenAiCompatibleChat = defineStore(
                 output: {
                   type: 'text',
                   value: 'Object detections visualized on image successfully',
-                } as LanguageModelV2ToolResultOutput,
+                } as ToolResultOutput,
               }
             }
             if (
@@ -804,7 +804,7 @@ export const useOpenAiCompatibleChat = defineStore(
                 output: {
                   type: 'text',
                   value: `Screenshot of "${windowName}" captured. The image is attached in the following message.`,
-                } as LanguageModelV2ToolResultOutput,
+                } as ToolResultOutput,
               }
             }
           }
@@ -932,23 +932,33 @@ export const useOpenAiCompatibleChat = defineStore(
         )
       }
 
+      // Surfaced to each tool's execute() via its `contextSchema` (see
+      // toolContext.ts) so tools (e.g. configureHomeAgent) know which
+      // conversation/channel they are running in. Keyed per tool name as v7's
+      // `toolsContext` requires; extra keys for tools without a contextSchema
+      // are ignored. `availableTools` is a plain ToolSet (tools are resolved
+      // dynamically), so the per-tool context typing can't be inferred here —
+      // hence the cast.
+      const toolsContext = Object.fromEntries(
+        Object.keys(availableTools).map((name) => [
+          name,
+          { conversationKey: requestConversationKey ?? conversations.activeKey },
+        ]),
+      ) as never
+
       const result = await streamText({
         model: model.value,
         messages,
         abortSignal: options.signal,
-        system: systemPromptToUse,
+        instructions: systemPromptToUse,
         maxOutputTokens: textInference.maxTokens,
         temperature: textInference.temperature,
-        includeRawChunks: true,
-        // Surfaced to tool execute() so tools (e.g. configureHomeAgent) know
-        // which conversation/channel they are running in.
-        experimental_context: {
-          conversationKey: requestConversationKey ?? conversations.activeKey,
-        },
+
         ...(hasTools
           ? {
               tools: availableTools,
-              stopWhen: stepCountIs(20),
+              stopWhen: isStepCount(20),
+              toolsContext,
               // Repair a comfy image tool call whose `workflow` the model omitted
               // or set to an unknown value: coerce it to that tool's default
               // workflow. Without this the SDK drops the bad call and the chat
@@ -966,6 +976,7 @@ export const useOpenAiCompatibleChat = defineStore(
               },
             }
           : {}),
+
         onChunk: (chunk) => {
           // Drive the inference activity: content/tool-call means the model is no
           // longer waiting; a tool result means it will process that output next.
@@ -1083,7 +1094,8 @@ export const useOpenAiCompatibleChat = defineStore(
             }
           }
         },
-        onStepFinish: (step) => {
+
+        onStepEnd: (step) => {
           if (haDiag) {
             diagStepIdx++
             const calls = step.toolCalls.map((c) => c.toolName).join(',') || 'none'
@@ -1112,7 +1124,8 @@ export const useOpenAiCompatibleChat = defineStore(
             ensureInferenceActivity()
           }
         },
-        onFinish: (result) => {
+
+        onEnd: (result) => {
           finishTime = Date.now()
           reasoningInProgress.value = false
           if (haDiag) {
@@ -1137,7 +1150,7 @@ export const useOpenAiCompatibleChat = defineStore(
             const inputTokens = effectiveUsage?.inputTokens ?? 0
             const outputTokens = effectiveUsage?.outputTokens ?? 0
             timings = {
-              cache_n: effectiveUsage?.cachedInputTokens ?? 0,
+              cache_n: effectiveUsage?.inputTokenDetails?.cacheReadTokens ?? 0,
               prompt_n: inputTokens,
               prompt_ms: promptMs,
               prompt_per_token_ms: inputTokens > 0 ? promptMs / inputTokens : 0,
@@ -1161,6 +1174,10 @@ export const useOpenAiCompatibleChat = defineStore(
           // for retry.
           reasoningInProgress.value = false
           clearInferenceActivity()
+        },
+
+        include: {
+          rawChunks: true,
         },
       })
 

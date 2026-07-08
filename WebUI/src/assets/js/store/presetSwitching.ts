@@ -48,6 +48,7 @@ type LlmBackend = keyof typeof backendToService
 /** Duplicated from promptArea to avoid pulling presetSwitching into that module's import graph. */
 const MODE_TO_CATEGORIES: Record<ModeType, string[]> = {
   chat: ['chat'],
+  agent: [], // Agent mode has no presets.
   imageGen: ['create-images'],
   imageEdit: ['edit-images'],
   video: ['create-videos'],
@@ -55,6 +56,7 @@ const MODE_TO_CATEGORIES: Record<ModeType, string[]> = {
 
 const MODE_TO_PRESET_TYPE: Record<ModeType, 'chat' | 'comfy'> = {
   chat: 'chat',
+  agent: 'chat', // Unused: agent mode has no presets.
   imageGen: 'comfy',
   imageEdit: 'comfy',
   video: 'comfy',

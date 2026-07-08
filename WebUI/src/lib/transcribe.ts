@@ -1,5 +1,5 @@
 import { createOpenAI } from '@ai-sdk/openai'
-import { experimental_transcribe as transcribe } from 'ai'
+import { transcribe } from 'ai'
 import { convertToWav } from '@/lib/audioUtils'
 import type { TranscriptionEndpoint } from '@/assets/js/store/speechToText'
 

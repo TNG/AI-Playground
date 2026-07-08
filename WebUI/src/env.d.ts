@@ -272,7 +272,26 @@ type WebSearchResults = {
 
 type DemoModePage = 'chat' | 'imageGen' | 'imageEdit' | 'video'
 type WorkflowModeType = 'imageGen' | 'imageEdit' | 'video'
-type ModeType = 'chat' | WorkflowModeType
+type ModeType = 'chat' | 'agent' | WorkflowModeType
+
+// Agent Mode (Pi harness PoC) — mirrors electron/harnessAgentManager.ts.
+type AgentModeModelConfig =
+  | {
+      source: 'local'
+      model: string
+      baseUrl: string
+      contextWindow?: number
+    }
+  | {
+      source: 'cloud'
+      model?: string
+      customEnv?: Record<string, string>
+    }
+
+type AgentModeTurnConfig = {
+  workspaceDir: string
+  modelConfig: AgentModeModelConfig
+}
 
 type electronAPI = {
   startDrag: (fileName: string) => void
@@ -482,6 +501,17 @@ type electronAPI = {
           },
     ): Promise<void>
     removeServer(serverId: string): Promise<void>
+  }
+  agentMode: {
+    startTurn(
+      turnId: string,
+      prompt: string,
+      config: AgentModeTurnConfig,
+    ): Promise<{ success: boolean; error?: string }>
+    cancel(): Promise<void>
+    resetSession(): Promise<void>
+    onStreamChunk(callback: (data: { turnId: string; chunk: unknown }) => void): void
+    onTurnDone(callback: (data: { turnId: string }) => void): void
   }
   webBrowser: {
     navigate(url: string): Promise<WebPageSnapshot>

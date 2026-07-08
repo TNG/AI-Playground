@@ -10,6 +10,7 @@ import { useSetupWizard } from './setupWizard'
  */
 const modeToCategories: Record<ModeType, string[]> = {
   chat: ['chat'],
+  agent: [], // Agent mode has no presets.
   imageGen: ['create-images'],
   imageEdit: ['edit-images'],
   video: ['create-videos'],
@@ -20,6 +21,7 @@ const modeToCategories: Record<ModeType, string[]> = {
  */
 const modeToPresetType: Record<ModeType, 'chat' | 'comfy'> = {
   chat: 'chat',
+  agent: 'chat', // Unused: agent mode skips preset switching entirely.
   imageGen: 'comfy',
   imageEdit: 'comfy',
   video: 'comfy',
@@ -71,6 +73,12 @@ export const usePromptStore = defineStore('prompt', () => {
         )
         return false
       }
+    }
+
+    // Agent mode has no presets — just switch the view.
+    if (mode === 'agent') {
+      currentMode.value = mode
+      return
     }
 
     const presetSwitching = usePresetSwitching()

@@ -338,6 +338,7 @@ import {
   type ImageMediaItem,
 } from '@/assets/js/store/imageGenerationPresets.ts'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
+import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useBackendServices } from '@/assets/js/store/backendServices'
@@ -377,6 +378,7 @@ const promptStore = usePromptStore()
 const imageGeneration = useImageGenerationPresets()
 const processingDebounceTimer = ref<number | null>(null)
 const openAiCompatibleChat = useOpenAiCompatibleChat()
+const agentMode = useAgentMode()
 const textInference = useTextInference()
 const conversations = useConversations()
 const activities = useActivities()
@@ -605,6 +607,9 @@ const shouldShowImageUploadButton = computed(() => {
     return hasRequiredImageInput
   }
 
+  // Agent mode takes text prompts only (PoC).
+  if (mode === 'agent') return false
+
   // For chat mode, use existing logic (vision model + RAG documents)
   return canAttachImages.value || canAttachDocuments.value
 })
@@ -612,6 +617,8 @@ const shouldShowImageUploadButton = computed(() => {
 const modesWithPresets = computed(() => {
   const modes: ModeType[] = []
   if (presetsStore.chatPresets.length > 0) modes.push('chat')
+  // Agent mode (Pi harness PoC) has no presets — always available.
+  modes.push('agent')
   if (presetsStore.imageGenPresets.length > 0) modes.push('imageGen')
   if (presetsStore.imageEditPresets.length > 0) modes.push('imageEdit')
   if (presetsStore.videoPresets.length > 0) modes.push('video')
@@ -670,6 +677,7 @@ const isProcessing = computed(
     // still false); keep the busy state up for it too, so the send/stop control
     // is the single, complete signal for "is the app working on this turn".
     textInference.isPreparingBackend ||
+    agentMode.processing ||
     activities.chatActivity(conversations.activeKey) !== null,
 )
 
@@ -742,8 +750,8 @@ watch(isProcessing, (newValue, oldValue) => {
 
   if (oldValue === true && newValue === false) {
     const currentMode = promptStore.getCurrentMode()
-    // Only clear prompt for chat mode; persist for ComfyUI modes (imageGen, imageEdit, video)
-    if (currentMode === 'chat') {
+    // Only clear prompt for chat/agent modes; persist for ComfyUI modes (imageGen, imageEdit, video)
+    if (currentMode === 'chat' || currentMode === 'agent') {
       processingDebounceTimer.value = window.setTimeout(() => {
         prompt.value = ''
         promptStore.promptSubmitted = false
@@ -804,6 +812,8 @@ function getTextAreaPlaceholder() {
   switch (promptStore.getCurrentMode()) {
     case 'chat':
       return languages?.COM_PROMPT_CHAT || ''
+    case 'agent':
+      return 'Describe a task for the agent to perform in the selected folder...'
     case 'imageGen':
       return languages?.COM_PROMPT_IMAGE_GEN || ''
     case 'imageEdit':
@@ -816,7 +826,8 @@ function getTextAreaPlaceholder() {
 }
 
 function handleSubmitPromptClick() {
-  const needsPrompt = promptStore.getCurrentMode() === 'chat' || imageGeneration.requiresUserPrompt
+  const mode = promptStore.getCurrentMode()
+  const needsPrompt = mode === 'chat' || mode === 'agent' || imageGeneration.requiresUserPrompt
   if (needsPrompt && !prompt.value.trim()) {
     toast.error(languages?.COM_ERROR_NO_MESSAGE || 'Please enter a message before sending.')
     return

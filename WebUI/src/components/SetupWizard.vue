@@ -99,146 +99,18 @@
             </h2>
 
             <div class="flex flex-col gap-1.5">
-              <div
+              <SetupWizardRow
                 v-for="row in wizard.backendRows"
                 :key="row.serviceName"
-                class="flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-muted/30 transition-colors"
-                :class="{
-                  'border-border': row.availableInCurrentMode,
-                  'border-border/50 opacity-50': !row.availableInCurrentMode,
-                }"
+                :row="backendRowView(row)"
+                @toggle="(v) => wizard.toggleBackend(row.serviceName, v)"
+                @repair="wizard.repairBackend(row.serviceName)"
+                @show-error="wizard.showErrorModal(row.serviceName)"
               >
-                <!-- Status bubble -->
-                <TooltipProvider :delay-duration="200">
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <span
-                        class="w-2.5 h-2.5 rounded-full shrink-0"
-                        :style="{ backgroundColor: row.statusColor }"
-                      ></span>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" class="text-xs">
-                      {{ row.statusText }}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-
-                <!-- Name + version + info link -->
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-1.5">
-                    <span class="text-sm font-medium leading-tight">{{ row.displayName }}</span>
-                    <a
-                      v-if="getInfoURL(row.serviceName)"
-                      :href="getInfoURL(row.serviceName)"
-                      target="_blank"
-                      class="text-muted-foreground hover:text-foreground transition-colors shrink-0"
-                      title="Component info &amp; license"
-                    >
-                      <svg
-                        class="w-3.5 h-3.5"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <circle cx="12" cy="12" r="10" />
-                        <path d="M12 16v-4" />
-                        <path d="M12 8h.01" />
-                      </svg>
-                    </a>
-                  </div>
-                  <div class="text-xs text-muted-foreground leading-tight">
-                    {{ row.versionDisplay }}
-                  </div>
-                </div>
-
-                <!-- Unavailable tooltip -->
-                <TooltipProvider v-if="!row.availableInCurrentMode" :delay-duration="200">
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <span class="text-xs text-muted-foreground italic">
-                        {{ languages.SETUP_WIZARD_UNAVAILABLE || 'Unavailable' }}
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="left" class="text-xs max-w-[200px]">
-                      {{
-                        languages.SETUP_WIZARD_UNAVAILABLE_TOOLTIP ||
-                        'This component is not available in the selected product mode.'
-                      }}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-
-                <!-- Per-row action -->
-                <div class="flex items-center gap-2 shrink-0">
-                  <template v-if="row.isInstalling">
-                    <span
-                      v-if="row.installProgressText"
-                      class="text-xs text-muted-foreground whitespace-nowrap"
-                    >
-                      {{ row.installProgressText }}
-                    </span>
-                    <span class="svg-icon i-loading flex-none w-4 h-4"></span>
-                  </template>
-                  <button
-                    v-else-if="
-                      (row.status === 'failed' || row.status === 'installationFailed') &&
-                      row.availableInCurrentMode
-                    "
-                    @click="wizard.repairBackend(row.serviceName)"
-                    :disabled="wizard.isBusy"
-                    class="text-xs bg-primary/80 hover:bg-primary py-0.5 px-2.5 rounded transition-colors disabled:opacity-50"
-                  >
-                    {{ languages.COM_REPAIR || 'Repair' }}
-                  </button>
-                </div>
-
-                <!-- Toggle + gear -->
-                <div class="flex items-center gap-2 shrink-0">
-                  <button
-                    v-if="row.status === 'failed' || row.status === 'installationFailed'"
-                    @click="wizard.showErrorModal(row.serviceName)"
-                    class="text-destructive hover:text-destructive/80 transition-colors"
-                    title="View error log"
-                  >
-                    <svg
-                      class="w-4 h-4"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                      <polyline points="14 2 14 8 20 8" />
-                      <line x1="16" y1="13" x2="8" y2="13" />
-                      <line x1="16" y1="17" x2="8" y2="17" />
-                    </svg>
-                  </button>
-                  <TooltipProvider :delay-duration="300">
-                    <Tooltip>
-                      <TooltipTrigger as-child>
-                        <span class="inline-flex">
-                          <Switch
-                            :model-value="row.enabled"
-                            :disabled="row.toggleDisabled"
-                            @update:model-value="
-                              (v: boolean) => wizard.toggleBackend(row.serviceName, v)
-                            "
-                          />
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent side="left" class="text-xs">
-                        {{ row.toggleTooltip }}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                <template #options>
                   <BackendOptions :backend="row.serviceName" />
-                </div>
-              </div>
+                </template>
+              </SetupWizardRow>
 
               <div
                 v-if="wizard.phisonAidaptivRow"
@@ -324,28 +196,24 @@
               </div>
 
               <!-- Hybrid Mode: frontend-only component (remote OpenAI-compatible
-                   provider). Not a real backend service, so it has its own row. -->
-              <div
-                class="flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-muted/30 transition-colors border-border"
-              >
-                <span
-                  class="w-2.5 h-2.5 rounded-full shrink-0"
-                  :style="{ backgroundColor: hybridMode.isFeatureEnabled ? '#22c55e' : '#6b7280' }"
-                ></span>
-                <div class="flex-1 min-w-0">
-                  <span class="text-sm font-medium leading-tight">Hybrid Mode</span>
-                  <div class="text-xs text-muted-foreground leading-tight">
-                    Remote OpenAI-compatible provider
-                  </div>
-                </div>
-                <div class="flex items-center gap-2 shrink-0">
-                  <Switch
-                    :model-value="hybridMode.isFeatureEnabled"
-                    @update:model-value="(v: boolean) => hybridMode.toggleFeature(v)"
-                  />
-                  <HybridModeOptions />
-                </div>
-              </div>
+                   provider). Not a real backend service, but rendered identically
+                   to a regular backend row via the shared component. -->
+              <SetupWizardRow :row="hybridRow" @toggle="(v) => hybridMode.toggleFeature(v)">
+                <template #options>
+                  <!-- Identical to the Home Agent gear menu (see BackendOptions):
+                       a single "Setup" item that opens the setup page. -->
+                  <SettingsMenu
+                    v-model:open="hybridMenuOpen"
+                    label="Hybrid Mode"
+                    title="Configure Hybrid Mode providers"
+                    :disabled="!hybridMode.isFeatureEnabled"
+                  >
+                    <DropdownMenuItem @select="openHybridSetup">{{
+                      languages.COM_GO_TO_SETUP || 'Setup'
+                    }}</DropdownMenuItem>
+                  </SettingsMenu>
+                </template>
+              </SetupWizardRow>
             </div>
             <p class="text-xs text-muted-foreground pt-3">
               {{
@@ -403,8 +271,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useSetupWizard } from '@/assets/js/store/setupWizard'
+import { computed, ref } from 'vue'
+import { useSetupWizard, type BackendRowViewModel } from '@/assets/js/store/setupWizard'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useHybridMode } from '@/assets/js/store/hybridMode'
@@ -412,7 +280,9 @@ import { useI18N } from '@/assets/js/store/i18n'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import BackendOptions from '@/components/BackendOptions.vue'
-import HybridModeOptions from '@/components/HybridModeOptions.vue'
+import SetupWizardRow, { type SetupWizardRowView } from '@/components/SetupWizardRow.vue'
+import SettingsMenu from '@/components/SettingsMenu.vue'
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import PhisonAidaptivOptions from '@/components/PhisonAidaptivOptions.vue'
 import ErrorDetailsModal from '@/components/ErrorDetailsModal.vue'
 import LanguageSelector from '@/components/LanguageSelector.vue'
@@ -460,6 +330,49 @@ function getInfoURL(serviceName: string): string | undefined {
     default:
       return undefined
   }
+}
+
+// Adapt a backend view model to the shared row's shape, deriving the info link
+// and the failed-state actions (repair button + error log button).
+function backendRowView(row: BackendRowViewModel): SetupWizardRowView {
+  const failed = row.status === 'failed' || row.status === 'installationFailed'
+  return {
+    displayName: row.displayName,
+    statusColor: row.statusColor,
+    statusText: row.statusText,
+    versionDisplay: row.versionDisplay,
+    enabled: row.enabled,
+    toggleDisabled: row.toggleDisabled,
+    toggleTooltip: row.toggleTooltip,
+    isInstalling: row.isInstalling,
+    installProgressText: row.installProgressText,
+    availableInCurrentMode: row.availableInCurrentMode,
+    infoUrl: getInfoURL(row.serviceName),
+    showRepair: failed && row.availableInCurrentMode,
+    repairDisabled: wizard.isBusy,
+    showError: failed,
+  }
+}
+
+// Hybrid Mode is a frontend-only feature, but it presents as a normal backend
+// row: a green/grey status bubble, a subtitle, and an enable toggle.
+const hybridRow = computed<SetupWizardRowView>(() => ({
+  displayName: 'Hybrid Mode',
+  statusColor: hybridMode.isFeatureEnabled ? '#22c55e' : '#6b7280',
+  statusText: hybridMode.isFeatureEnabled
+    ? languages.COM_ENABLED || 'Enabled'
+    : languages.COM_DISABLED || 'Disabled',
+  versionDisplay: 'Remote OpenAI-compatible provider',
+  enabled: hybridMode.isFeatureEnabled,
+  toggleTooltip: hybridMode.isFeatureEnabled
+    ? 'Toggle off to disable Hybrid Mode'
+    : 'Toggle on to enable Hybrid Mode',
+}))
+
+const hybridMenuOpen = ref(false)
+function openHybridSetup() {
+  hybridMenuOpen.value = false
+  void wizard.openHybridModeSetup()
 }
 
 function openDebug() {

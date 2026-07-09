@@ -206,15 +206,22 @@ export const useTextInference = defineStore(
         const selectedCloud = selectedModels.value.cloud
         const hasValidCloudSelection = providerModels.includes(selectedCloud ?? '')
         providerModels.forEach((name, index) => {
+          // Capabilities are parsed from the provider's /v1/models response;
+          // models with no advertised capabilities are assumed fully capable so
+          // capability-gated presets (e.g. Vision) can use them. `enable_thinking`
+          // is a local-template kwarg remote providers may reject, so we never
+          // claim the thinking toggle for cloud models (reasoning still surfaces
+          // via the <think> extraction middleware in the chat store).
+          const caps = cloudMode.capabilitiesFor(name)
           newModels.push({
             name,
             mmproj: undefined,
             type: 'cloud',
             downloaded: true, // remote — nothing to download
             active: name === selectedCloud || (!hasValidCloudSelection && index === 0),
-            supportsToolCalling: false,
-            supportsVision: false,
-            supportsReasoning: false,
+            supportsToolCalling: caps.supportsToolCalling,
+            supportsVision: caps.supportsVision,
+            supportsReasoning: caps.supportsReasoning,
             supportsThinkingToggle: false,
             maxContextSize: undefined,
             npuSupport: undefined,
@@ -1210,8 +1217,14 @@ export const useTextInference = defineStore(
       // Load backend - smart selection based on what's running
       if (savedSettings.backend !== undefined) {
         const savedBackend = savedSettings.backend as LlmBackend
+        // Cloud Mode is a global, feature-flagged backend that SettingsChat offers
+        // for any chat preset (see availableBackends), so a preset rarely lists it
+        // in `backends`. Honor a saved 'cloud' choice whenever the feature is on —
+        // otherwise a temporary preset switch (e.g. an image-gen tool call in an
+        // agentic chat) would restore to llamaCPP instead of Cloud Mode.
+        const cloudAllowed = savedBackend === 'cloud' && cloudMode.isFeatureEnabled
         // Only apply saved backend if it's in the preset's allowed backends
-        if (preset.backends?.includes(savedBackend)) {
+        if (preset.backends?.includes(savedBackend) || cloudAllowed) {
           backend.value = savedBackend
         } else {
           // Fall through to smart selection below

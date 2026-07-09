@@ -8,11 +8,69 @@ import { createAppError, extractMessage } from '../errors/appError'
  * via safeStorage in the main process (see `window.electronAPI.cloudProvider`).
  * `models` holds the ids fetched from the provider's `GET /v1/models`.
  */
+/** Capabilities that gate capability-scoped chat presets (Vision, tool-calling,
+ *  reasoning). Remote providers rarely advertise these in a standard way, so we
+ *  parse what we can and otherwise assume the model is fully capable. */
+export type CloudModelCapabilities = {
+  supportsVision: boolean
+  supportsToolCalling: boolean
+  supportsReasoning: boolean
+}
+
+// Default assumption for a remote model: fully capable. A provider that doesn't
+// advertise capabilities shouldn't have its models filtered out of presets like
+// Vision — better to offer the model and let a genuinely-unsupported request
+// fail loudly than to hide it. Used both per-model (no metadata) and as the
+// whole-fetch fallback when capability parsing throws.
+export const ASSUME_ALL_CAPABILITIES: CloudModelCapabilities = {
+  supportsVision: true,
+  supportsToolCalling: true,
+  supportsReasoning: true,
+}
+
 export type CloudProvider = {
   id: string
   name: string
   baseUrl: string
   models: string[]
+  // Per-model capabilities parsed from the provider's /v1/models response. A
+  // model missing from this map is assumed fully capable (ASSUME_ALL_CAPABILITIES).
+  modelCapabilities?: Record<string, CloudModelCapabilities>
+}
+
+/**
+ * Best-effort capability extraction from a single `/v1/models` entry. Vanilla
+ * OpenAI returns only `{ id }`, but many providers (OpenRouter, vLLM, LiteLLM,
+ * …) attach `capabilities`, `architecture.input_modalities`, or
+ * `supported_parameters`. When an entry advertises none of these we assume it's
+ * fully capable; when it does advertise, a missing signal means "not supported".
+ */
+function parseModelCapabilities(model: Record<string, unknown>): CloudModelCapabilities {
+  const caps = model.capabilities as Record<string, unknown> | undefined
+  const architecture = model.architecture as Record<string, unknown> | undefined
+  const supportedParams = model.supported_parameters
+
+  const asLowerArray = (v: unknown): string[] =>
+    (Array.isArray(v) ? v.map(String) : typeof v === 'string' ? [v] : []).map((s) =>
+      s.toLowerCase(),
+    )
+
+  // OpenRouter uses `input_modalities: ['text','image']`; some use a single
+  // `modality: 'text+image->text'` string — substring matching covers both.
+  const modalities = asLowerArray(architecture?.input_modalities ?? architecture?.modality)
+  const params = asLowerArray(supportedParams)
+
+  const advertised = !!caps || !!architecture || Array.isArray(supportedParams)
+  if (!advertised) return { ...ASSUME_ALL_CAPABILITIES }
+
+  const flag = (v: unknown) => v === true
+  return {
+    supportsVision: flag(caps?.vision) || modalities.some((m) => m.includes('image')),
+    supportsToolCalling:
+      flag(caps?.tools) || flag(caps?.function_calling) || params.includes('tools'),
+    supportsReasoning:
+      flag(caps?.reasoning) || params.includes('reasoning') || params.includes('include_reasoning'),
+  }
 }
 
 // Model id offered when a provider exposes no models (none fetched, or the
@@ -165,9 +223,9 @@ export const useCloudMode = defineStore(
         })
       }
 
-      let json: { data?: Array<{ id: string }> }
+      let json: { data?: Array<Record<string, unknown>> }
       try {
-        json = (await response.json()) as { data?: Array<{ id: string }> }
+        json = (await response.json()) as { data?: Array<Record<string, unknown>> }
       } catch (e) {
         throw createAppError({
           category: 'inference',
@@ -180,9 +238,37 @@ export const useCloudMode = defineStore(
         })
       }
 
-      const ids = (json.data ?? []).map((m) => m.id).filter(Boolean)
+      const data = json.data ?? []
+      const ids = data.map((m) => String(m.id ?? '')).filter(Boolean)
+
+      // Also derive per-model capabilities so capability-gated presets (Vision,
+      // tool-calling, reasoning) can offer these models. If parsing throws for
+      // any reason, drop the map so every model falls back to "fully capable"
+      // (see capabilitiesFor / ASSUME_ALL_CAPABILITIES).
+      try {
+        const caps: Record<string, CloudModelCapabilities> = {}
+        for (const m of data) {
+          const modelId = String(m.id ?? '')
+          if (modelId) caps[modelId] = parseModelCapabilities(m)
+        }
+        provider.modelCapabilities = caps
+      } catch {
+        provider.modelCapabilities = undefined
+      }
+
       provider.models = ids
       return ids
+    }
+
+    /**
+     * Capabilities for a model of the currently-selected provider. Falls back to
+     * fully-capable when the model wasn't seen during a fetch (e.g. the synthetic
+     * CLOUD_DEFAULT_MODEL, a manually-typed id, or a provider that never returned
+     * capability metadata).
+     */
+    function capabilitiesFor(name: string): CloudModelCapabilities {
+      const map = selectedProvider.value?.modelCapabilities
+      return map?.[name] ?? { ...ASSUME_ALL_CAPABILITIES }
     }
 
     /**
@@ -257,6 +343,7 @@ export const useCloudMode = defineStore(
       saveApiKey,
       loadApiKey,
       fetchModels,
+      capabilitiesFor,
       refreshSelectedProviderModels,
       toggleFeature,
       initConfig,

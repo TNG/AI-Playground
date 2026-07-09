@@ -16,7 +16,7 @@ import {
 } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { useTextInference } from './textInference'
-import { useHybridMode, HYBRID_DEFAULT_MODEL } from './hybridMode'
+import { useCloudMode, CLOUD_DEFAULT_MODEL } from './cloudMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import { completeOrphanedToolParts } from './toolMessageSanitize'
 import { useErrors } from './errors'
@@ -87,7 +87,7 @@ export const useOpenAiCompatibleChat = defineStore(
   'openAiCompatibleChat',
   () => {
     const textInference = useTextInference()
-    const hybridMode = useHybridMode()
+    const cloudMode = useCloudMode()
     const conversations = useConversations()
     const errors = useErrors()
     const activities = useActivities()
@@ -164,12 +164,12 @@ export const useOpenAiCompatibleChat = defineStore(
         // llama-server (--jinja) and OVMS (--reasoning_parser qwen3) honor this kwarg.
         transformRequestBody: (args) => {
           let body: Record<string, unknown> = args
-          // The Hybrid "default" model is a placeholder for providers that serve
+          // The Cloud "default" model is a placeholder for providers that serve
           // a single model / accept a request without one. Omit `model` entirely
           // so the provider uses its own default instead of a bogus "default" id.
           if (
-            textInference.backend === 'hybrid' &&
-            textInference.activeModel === HYBRID_DEFAULT_MODEL
+            textInference.backend === 'cloud' &&
+            textInference.activeModel === CLOUD_DEFAULT_MODEL
           ) {
             body = { ...body }
             delete body.model
@@ -196,16 +196,16 @@ export const useOpenAiCompatibleChat = defineStore(
               requestUrl.hostname = latestBase.hostname
               requestUrl.port = latestBase.port
             }
-            // Hybrid Mode routes through the main-process loopback proxy (see
-            // hybridProxy.ts): it attaches the API key and calls the provider from
+            // Cloud Mode routes through the main-process loopback proxy (see
+            // cloudProxy.ts): it attaches the API key and calls the provider from
             // Node, so upstream failures are logged in the Node console. We only
             // tag the request with the upstream base URL and provider id — the key
             // never leaves main.
-            if (textInference.backend === 'hybrid') {
+            if (textInference.backend === 'cloud') {
               const headers = new Headers(init?.headers)
-              const upstream = hybridMode.activeProviderBaseUrl
-              if (upstream) headers.set('X-Hybrid-Upstream', upstream)
-              headers.set('X-Hybrid-Provider', hybridMode.selectedProviderId)
+              const upstream = cloudMode.activeProviderBaseUrl
+              if (upstream) headers.set('X-Cloud-Upstream', upstream)
+              headers.set('X-Cloud-Provider', cloudMode.selectedProviderId)
               return globalThis.fetch(requestUrl.toString(), { ...init, headers })
             }
             // When Home Agent is active, the LLM proxy lives behind the Home
@@ -251,7 +251,7 @@ export const useOpenAiCompatibleChat = defineStore(
         // Local backends encode model paths with '---' (a '/' in the repo path
         // would break the URL). Remote providers expect their model id verbatim.
       }).chatModel(
-        textInference.backend === 'hybrid'
+        textInference.backend === 'cloud'
           ? (textInference.activeModel ?? '')
           : (textInference.activeModel?.split('/').join('---') ?? ''),
       ),

@@ -338,9 +338,9 @@ import { Button } from '@/components/ui/button'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import { useProductMode } from '@/assets/js/store/productMode'
-import { useHybridMode } from '@/assets/js/store/hybridMode'
+import { useCloudMode } from '@/assets/js/store/cloudMode'
 
-const hybridMode = useHybridMode()
+const cloudMode = useCloudMode()
 const productModeStore = useProductMode()
 const demoMode = useDemoMode()
 const setupWizardStore = useSetupWizard()
@@ -474,11 +474,11 @@ const displayComponents = computed(() => {
     serviceName: item.serviceName as string,
     status: item.status as BackendStatus,
   }))
-  // Hybrid Mode is a frontend-only component (remote OpenAI-compatible provider),
+  // Cloud Mode is a frontend-only component (remote OpenAI-compatible provider),
   // so it never appears in backendServices.info. Surface it here as "running"
   // whenever the feature is enabled so the status panel reflects it like a backend.
-  if (hybridMode.isFeatureEnabled) {
-    components.push({ serviceName: 'hybrid-mode', status: 'running' })
+  if (cloudMode.isFeatureEnabled) {
+    components.push({ serviceName: 'cloud-mode', status: 'running' })
   }
   return components
 })

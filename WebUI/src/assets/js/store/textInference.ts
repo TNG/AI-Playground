@@ -9,7 +9,7 @@ import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { usePresets, type ChatPreset } from './presets'
 import { useDeveloperSettings } from './developerSettings'
 import { useHomeAgent } from './homeAgent'
-import { useHybridMode, HYBRID_DEFAULT_MODEL } from './hybridMode'
+import { useCloudMode, CLOUD_DEFAULT_MODEL } from './cloudMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import * as toast from '@/assets/js/toast.ts'
 import { useActivities } from './activities'
@@ -19,12 +19,12 @@ const LlmBackendSchema = z.enum(llmBackendTypes)
 export type LlmBackend = z.infer<typeof LlmBackendSchema>
 type LlmBackendKV = { [key in LlmBackend]: string | null }
 
-// `hybrid` has no local Python service — inference is proxied to a remote
+// `cloud` has no local Python service — inference is proxied to a remote
 // provider URL — so it maps to null. Callers must tolerate the null lookup.
 export const backendToService = {
   llamaCPP: 'llamacpp-backend',
   openVINO: 'openvino-backend',
-  hybrid: null,
+  cloud: null,
 } as const
 
 export type LlmModel = {
@@ -88,7 +88,7 @@ export const thinkingModels: Record<string, string> = {
 export const textInferenceBackendDisplayName: Record<LlmBackend, string> = {
   llamaCPP: 'llamaCPP - GGUF',
   openVINO: 'OpenVINO',
-  hybrid: 'Hybrid Mode',
+  cloud: 'Cloud Mode',
 }
 
 export const textInferenceBackendDescription: Record<LlmBackend, string> = {
@@ -96,14 +96,14 @@ export const textInferenceBackendDescription: Record<LlmBackend, string> = {
     'Utilizes Llama.cpp for lightweight and portable AI solutions. Ideal for low-resource environments.',
   openVINO:
     'Optimized for Intel hardware with OpenVINO framework. Provides efficient and fast AI processing.',
-  hybrid:
+  cloud:
     'Connects to a remote OpenAI-compatible provider. Use a hosted or cloud model as if it were local.',
 }
 
 export const textInferenceBackendTags: Record<LlmBackend, string[]> = {
   llamaCPP: ['Lightweight', 'Portable'],
   openVINO: ['Intel', 'Optimized', 'Fast'],
-  hybrid: ['Remote', 'OpenAI-compatible'],
+  cloud: ['Remote', 'OpenAI-compatible'],
 }
 
 export const useTextInference = defineStore(
@@ -115,7 +115,7 @@ export const useTextInference = defineStore(
     const presetsStore = usePresets()
     const developerSettings = useDeveloperSettings()
     const homeAgent = useHomeAgent()
-    const hybridMode = useHybridMode()
+    const cloudMode = useCloudMode()
     const conversations = useConversations()
     const activities = useActivities()
     const i18nState = useI18N().state
@@ -131,13 +131,13 @@ export const useTextInference = defineStore(
     const selectedModels = ref<LlmBackendKV>({
       llamaCPP: null,
       openVINO: null,
-      hybrid: null,
+      cloud: null,
     })
 
     const selectedEmbeddingModels = ref<LlmBackendKV>({
       llamaCPP: null,
       openVINO: null,
-      hybrid: null,
+      cloud: null,
     })
 
     // Backend readiness state tracking
@@ -145,12 +145,12 @@ export const useTextInference = defineStore(
       lastUsedModel: {
         llamaCPP: null,
         openVINO: null,
-        hybrid: null,
+        cloud: null,
       } as LlmBackendKV,
       lastUsedContextSize: {
         llamaCPP: null,
         openVINO: null,
-        hybrid: null,
+        cloud: null,
       } as Record<LlmBackend, number | null>,
       isPreparingBackend: false,
     })
@@ -192,26 +192,26 @@ export const useTextInference = defineStore(
         }
       })
 
-      // Hybrid Mode models are not downloaded locally — they come from the
+      // Cloud Mode models are not downloaded locally — they come from the
       // selected provider's fetched /v1/models list. Surface them as type
-      // 'hybrid' models so the existing model dropdown (filtered by backend)
+      // 'cloud' models so the existing model dropdown (filtered by backend)
       // picks them up.
-      if (hybridMode.isFeatureEnabled && hybridMode.selectedProvider) {
+      if (cloudMode.isFeatureEnabled && cloudMode.selectedProvider) {
         // Fall back to a synthetic "default" model when the provider exposes
         // none, so the backend stays selectable and chattable (many providers
-        // accept a placeholder model id — see HYBRID_DEFAULT_MODEL).
-        const providerModels = hybridMode.selectedProvider.models.length
-          ? hybridMode.selectedProvider.models
-          : [HYBRID_DEFAULT_MODEL]
-        const selectedHybrid = selectedModels.value.hybrid
-        const hasValidHybridSelection = providerModels.includes(selectedHybrid ?? '')
+        // accept a placeholder model id — see CLOUD_DEFAULT_MODEL).
+        const providerModels = cloudMode.selectedProvider.models.length
+          ? cloudMode.selectedProvider.models
+          : [CLOUD_DEFAULT_MODEL]
+        const selectedCloud = selectedModels.value.cloud
+        const hasValidCloudSelection = providerModels.includes(selectedCloud ?? '')
         providerModels.forEach((name, index) => {
           newModels.push({
             name,
             mmproj: undefined,
-            type: 'hybrid',
+            type: 'cloud',
             downloaded: true, // remote — nothing to download
-            active: name === selectedHybrid || (!hasValidHybridSelection && index === 0),
+            active: name === selectedCloud || (!hasValidCloudSelection && index === 0),
             supportsToolCalling: false,
             supportsVision: false,
             supportsReasoning: false,
@@ -459,11 +459,11 @@ export const useTextInference = defineStore(
     const settingsPerPreset = ref<Record<string, Record<string, unknown>>>({})
 
     const currentBackendUrl = computed(() => {
-      // Hybrid Mode talks to the main-process loopback proxy (see hybridProxy.ts),
+      // Cloud Mode talks to the main-process loopback proxy (see cloudProxy.ts),
       // which forwards to the selected remote provider. Networking + error logging
       // happen in Node, not the renderer.
-      if (backend.value === 'hybrid') {
-        return hybridMode.proxyUrl || undefined
+      if (backend.value === 'cloud') {
+        return cloudMode.proxyUrl || undefined
       }
       if (homeAgent.isHomeAgentActive && homeAgent.homeAgentBaseUrl) {
         return homeAgent.homeAgentBaseUrl
@@ -482,11 +482,11 @@ export const useTextInference = defineStore(
     })
 
     async function getDownloadParamsForCurrentModelIfRequired(type: 'llm' | 'embedding') {
-      // Hybrid Mode models are served remotely; there is nothing to download.
-      if (backend.value === 'hybrid') return []
-      // Narrow away 'hybrid' (handled above) so the local-backend lookup maps
+      // Cloud Mode models are served remotely; there is nothing to download.
+      if (backend.value === 'cloud') return []
+      // Narrow away 'cloud' (handled above) so the local-backend lookup maps
       // below — which only have llamaCPP/openVINO keys — type-check.
-      const localBackend = backend.value as Exclude<LlmBackend, 'hybrid'>
+      const localBackend = backend.value as Exclude<LlmBackend, 'cloud'>
       let model: string | undefined
       if (type === 'llm') {
         model = activeModel.value
@@ -989,9 +989,9 @@ export const useTextInference = defineStore(
     }
 
     async function ensureBackendReadiness(): Promise<void> {
-      // Hybrid Mode has no local subprocess and no model to (re)load — the
+      // Cloud Mode has no local subprocess and no model to (re)load — the
       // remote provider is always "ready".
-      if (backend.value === 'hybrid') return
+      if (backend.value === 'cloud') return
       if (backend.value === 'llamaCPP' || backend.value === 'openVINO') {
         const serviceName = backendToService[backend.value]
         const llmModelName = activeModel.value
@@ -1078,9 +1078,9 @@ export const useTextInference = defineStore(
     async function prepareBackendIfNeeded() {
       console.log('in prepareBackendIfNeeded')
 
-      // Hybrid Mode: nothing to start, load, or device-select. The remote
+      // Cloud Mode: nothing to start, load, or device-select. The remote
       // provider is reached directly via currentBackendUrl.
-      if (backend.value === 'hybrid') return
+      if (backend.value === 'cloud') return
 
       // Handle NPU device selection if preset locks to NPU
       // This must happen before backend readiness check
@@ -1143,7 +1143,7 @@ export const useTextInference = defineStore(
         }
       }
 
-      // hybrid returned early above, so this only runs for local backends.
+      // cloud returned early above, so this only runs for local backends.
       const inferenceBackendService = backendToService[backend.value]
       if (inferenceBackendService) {
         await backendServices.resetLastUsedInferenceBackend(inferenceBackendService)
@@ -1152,10 +1152,10 @@ export const useTextInference = defineStore(
     }
 
     async function ensureReadyForInference() {
-      // Hybrid Mode has no local backend to prepare, but the loopback proxy URL
+      // Cloud Mode has no local backend to prepare, but the loopback proxy URL
       // must be resolved before the first request (it backs currentBackendUrl).
-      if (backend.value === 'hybrid') {
-        await hybridMode.ensureProxyUrl()
+      if (backend.value === 'cloud') {
+        await cloudMode.ensureProxyUrl()
       }
       await checkModelAvailability()
       await prepareBackendIfNeeded()

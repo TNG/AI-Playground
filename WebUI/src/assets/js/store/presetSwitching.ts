@@ -39,8 +39,8 @@ function presetToMode(preset: Preset): ModeType {
 const backendToService = {
   llamaCPP: 'llamacpp-backend',
   openVINO: 'openvino-backend',
-  // Hybrid Mode is a remote backend with no local service.
-  hybrid: null,
+  // Cloud Mode is a remote backend with no local service.
+  cloud: null,
 } as const
 
 type LlmBackend = keyof typeof backendToService

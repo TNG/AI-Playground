@@ -146,8 +146,8 @@ export class PathsManager {
   scanEmbedding(): Model[] {
     const embeddingModels: Model[] = []
     llmBackendTypes.forEach((backend) => {
-      // Hybrid Mode is a remote backend with no local embedding directory.
-      if (backend === 'hybrid') return
+      // Cloud Mode is a remote backend with no local embedding directory.
+      if (backend === 'cloud') return
       const dir = path.join(this.modelPaths.embedding, backend)
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true })

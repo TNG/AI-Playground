@@ -291,14 +291,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ) => ipcRenderer.invoke('channel:send', kind, action, payload),
     },
   },
-  // Hybrid Mode provider secrets, encrypted at rest via safeStorage in main.
-  hybridProvider: {
+  // Cloud Mode provider secrets, encrypted at rest via safeStorage in main.
+  cloudProvider: {
     saveKey: (providerId: string, key: string): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('hybridProvider:saveKey', providerId, key),
+      ipcRenderer.invoke('cloudProvider:saveKey', providerId, key),
     getKey: (providerId: string): Promise<string | null> =>
-      ipcRenderer.invoke('hybridProvider:getKey', providerId),
+      ipcRenderer.invoke('cloudProvider:getKey', providerId),
     deleteKey: (providerId: string): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('hybridProvider:deleteKey', providerId),
-    getProxyUrl: (): Promise<string> => ipcRenderer.invoke('hybridProvider:getProxyUrl'),
+      ipcRenderer.invoke('cloudProvider:deleteKey', providerId),
+    getProxyUrl: (): Promise<string> => ipcRenderer.invoke('cloudProvider:getProxyUrl'),
   },
 })

@@ -9,7 +9,7 @@ import { useSpeechToText } from './speechToText'
 import { useTextToSpeech } from './textToSpeech'
 import { useDemoMode } from './demoMode'
 import { useHomeAgent } from './homeAgent'
-import { useHybridMode } from './hybridMode'
+import { useCloudMode } from './cloudMode'
 import { CHANNELS } from './channels/channelRegistry'
 import { mapStatusToColor, mapToDisplayStatus } from '@/lib/utils'
 import * as toast from '@/assets/js/toast'
@@ -106,14 +106,14 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   const speechToText = useSpeechToText()
   const textToSpeech = useTextToSpeech()
   const homeAgent = useHomeAgent()
-  const hybridMode = useHybridMode()
+  const cloudMode = useCloudMode()
   const errors = useErrors()
 
   const pendingProductMode = ref<ProductMode | null>(null)
   const installSelection = ref(new Set<BackendServiceName>())
   const disabledBackends = ref(new Set<BackendServiceName>())
   const wizardDirty = ref(false)
-  const wizardPage = ref<'main' | 'homeAgentSetup' | 'hybridModeSetup'>('main')
+  const wizardPage = ref<'main' | 'homeAgentSetup' | 'cloudModeSetup'>('main')
   const homeAgentSetupOrigin = ref<'install' | 'edit'>('install')
 
   const wizardActivity = ref(new Map<BackendServiceName, string>())
@@ -813,17 +813,17 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     await syncPresetsForCurrentProductMode()
   }
 
-  /** Open the Hybrid Mode provider setup screen. Frontend-only — no backend
+  /** Open the Cloud Mode provider setup screen. Frontend-only — no backend
    *  install is involved, so this just swaps the wizard page. */
-  async function openHybridModeSetup() {
-    if (!hybridMode.isFeatureEnabled) return
-    wizardPage.value = 'hybridModeSetup'
+  async function openCloudModeSetup() {
+    if (!cloudMode.isFeatureEnabled) return
+    wizardPage.value = 'cloudModeSetup'
     globalSetup.loadingState = 'setupWizard'
   }
 
-  /** Finish Hybrid Mode setup and close the wizard, mirroring the Home Agent
+  /** Finish Cloud Mode setup and close the wizard, mirroring the Home Agent
    *  finish path so preset state is refreshed on exit. */
-  async function finishHybridModeSetup() {
+  async function finishCloudModeSetup() {
     await dismiss()
     wizardPage.value = 'main'
     await syncPresetsForCurrentProductMode()
@@ -869,8 +869,8 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     commitAndInstall,
     dismiss,
     finishHomeAgentSetup,
-    openHybridModeSetup,
-    finishHybridModeSetup,
+    openCloudModeSetup,
+    finishCloudModeSetup,
     installBackend,
     repairBackend,
     restartBackend,

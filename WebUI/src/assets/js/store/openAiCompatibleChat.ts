@@ -6,6 +6,7 @@ import {
   convertToModelMessages,
   type FileUIPart,
   DefaultChatTransport,
+  extractReasoningMiddleware,
   generateText,
   LanguageModelUsage,
   streamText,
@@ -13,6 +14,7 @@ import {
   type ToolSet,
   UIDataTypes,
   UIMessage,
+  wrapLanguageModel,
 } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { useTextInference } from './textInference'
@@ -153,8 +155,8 @@ export const useOpenAiCompatibleChat = defineStore(
       },
     )
 
-    const model = computed(() =>
-      createOpenAICompatible({
+    const model = computed(() => {
+      const base = createOpenAICompatible({
         name: 'model',
         baseURL: `${textInference.currentBackendUrl}/v1/`,
         includeUsage: true,
@@ -254,8 +256,18 @@ export const useOpenAiCompatibleChat = defineStore(
         textInference.backend === 'cloud'
           ? (textInference.activeModel ?? '')
           : (textInference.activeModel?.split('/').join('---') ?? ''),
-      ),
-    )
+      )
+      // Local backends parse chain-of-thought server-side (llama-server --jinja /
+      // OVMS --reasoning_parser qwen3) and emit it as separate reasoning content.
+      // Remote Cloud Mode providers usually don't — <think>…</think> arrives inline
+      // in the text stream, so it would render as answer text. Extract it into
+      // reasoning parts client-side so the UI shows it as collapsible thinking.
+      if (textInference.backend !== 'cloud') return base
+      return wrapLanguageModel({
+        model: base,
+        middleware: extractReasoningMiddleware({ tagName: 'think' }),
+      })
+    })
 
     function isToolEnabled(toolName: string): boolean {
       const name = toolName.toLowerCase()

@@ -13,28 +13,20 @@
           Providers
         </h2>
         <div class="flex flex-col gap-2">
-          <div
+          <SetupSidebarTile
             v-for="provider in cloudMode.providers"
             :key="provider.id"
-            class="flex flex-col gap-1 p-3 rounded-lg border cursor-pointer transition-colors"
-            :class="
-              selectedId === provider.id
-                ? 'border-primary bg-primary/10'
-                : 'border-border hover:bg-muted'
-            "
-            @click="selectProvider(provider.id)"
+            :selected="selectedId === provider.id"
+            @select="selectProvider(provider.id)"
           >
             <span class="text-sm font-medium">{{ provider.name }}</span>
             <span class="text-xs text-muted-foreground truncate">
               {{ provider.baseUrl || 'Not configured' }}
             </span>
-            <span
-              v-if="provider.models.length"
-              class="text-[10px] font-semibold uppercase tracking-wider text-emerald-500"
-            >
+            <span v-if="provider.models.length" class="text-xs font-medium text-green-500">
               {{ provider.models.length }} models
             </span>
-          </div>
+          </SetupSidebarTile>
         </div>
         <Button variant="secondary" class="mt-3 w-full" @click="addProvider">
           + Add provider
@@ -47,49 +39,52 @@
           <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
             Provider Settings
           </h2>
-          <Button
-            variant="ghost"
-            class="text-destructive hover:text-destructive"
+          <button
+            type="button"
+            class="text-sm font-medium text-destructive hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
             :disabled="cloudMode.providers.length <= 1"
             @click="removeSelectedProvider"
           >
             Remove provider
-          </Button>
+          </button>
         </div>
 
         <div class="flex flex-col gap-4">
-          <div class="grid grid-cols-[120px_1fr] items-center gap-4">
+          <div class="flex flex-col gap-1.5">
             <Label>Name</Label>
             <Input v-model="form.name" placeholder="Custom" />
           </div>
-          <div class="grid grid-cols-[120px_1fr] items-center gap-4">
+          <div class="flex flex-col gap-1.5">
             <Label>Base URL</Label>
             <Input v-model="form.baseUrl" placeholder="https://your-provider.example.com" />
           </div>
-          <div class="grid grid-cols-[120px_1fr] items-center gap-4">
+          <div class="flex flex-col gap-1.5">
             <Label>API Key</Label>
             <Input
               v-model="form.apiKey"
               type="password"
               :placeholder="hasStoredKey ? '•••••••• (leave blank to keep)' : 'sk-…'"
             />
+            <span v-if="hasStoredKey" class="text-xs text-green-500">✓ API key saved</span>
           </div>
 
           <div class="flex items-center gap-3">
-            <Button
-              variant="secondary"
-              :disabled="fetching || !form.baseUrl.trim()"
-              @click="fetchModels"
-            >
+            <Button :disabled="fetching || !form.baseUrl.trim()" @click="fetchModels">
               <span v-if="fetching" class="svg-icon i-loading w-4 h-4 mr-1"></span>
               {{ fetching ? 'Fetching…' : 'Fetch models' }}
             </Button>
             <span v-if="fetchError" class="text-xs text-destructive">{{ fetchError }}</span>
+            <span v-else-if="fetchSuccess" class="text-xs text-green-500">
+              ✓ Fetched {{ form.models.length }} models
+            </span>
           </div>
 
           <!-- Fetched models preview -->
-          <div v-if="form.models.length" class="rounded-md border border-border p-3">
-            <p class="text-xs font-semibold text-muted-foreground pb-2">
+          <div
+            v-if="form.models.length"
+            class="rounded-md border border-green-500/30 bg-green-500/5 p-3"
+          >
+            <p class="text-xs font-semibold text-green-500 pb-2">
               Available models ({{ form.models.length }})
             </p>
             <ul class="flex flex-col gap-1 max-h-48 overflow-y-auto">
@@ -101,24 +96,12 @@
     </div>
 
     <!-- Footer actions -->
-    <div class="flex items-center justify-between pt-6">
-      <button
-        @click="emit('back')"
-        class="py-2 px-6 rounded text-sm font-medium border border-border hover:bg-muted transition-colors"
-      >
-        Back
-      </button>
-      <div class="flex gap-3">
+    <SetupWizardFooter :primary-disabled="saving" @back="emit('back')" @primary="saveAndDone">
+      <template #actions>
+        <span v-if="justSaved" class="text-xs text-green-500">✓ Saved</span>
         <Button variant="secondary" @click="saveOnly" :disabled="saving">Save</Button>
-        <button
-          @click="saveAndDone"
-          :disabled="saving"
-          class="bg-primary py-2 px-8 rounded text-primary-foreground text-sm font-medium disabled:opacity-50 transition-colors"
-        >
-          Done
-        </button>
-      </div>
-    </div>
+      </template>
+    </SetupWizardFooter>
   </div>
 </template>
 
@@ -127,6 +110,8 @@ import { reactive, ref, watch, onMounted } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import SetupSidebarTile from '@/components/SetupSidebarTile.vue'
+import SetupWizardFooter from '@/components/SetupWizardFooter.vue'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { useErrors } from '@/assets/js/store/errors'
 import * as toast from '@/assets/js/toast'
@@ -139,7 +124,9 @@ const errors = useErrors()
 const selectedId = ref(cloudMode.selectedProviderId)
 const fetching = ref(false)
 const fetchError = ref('')
+const fetchSuccess = ref(false)
 const saving = ref(false)
+const justSaved = ref(false)
 const hasStoredKey = ref(false)
 
 const form = reactive({
@@ -157,6 +144,10 @@ function loadForm(id: string) {
   form.apiKey = ''
   form.models = [...provider.models]
   hasStoredKey.value = !!cloudMode.activeProviderApiKey
+  // Success hints belong to the provider we just left — clear them on switch.
+  fetchSuccess.value = false
+  justSaved.value = false
+  fetchError.value = ''
 }
 
 async function selectProvider(id: string) {
@@ -201,6 +192,7 @@ function applyFormToStore() {
 
 async function fetchModels() {
   fetchError.value = ''
+  fetchSuccess.value = false
   fetching.value = true
   try {
     applyFormToStore()
@@ -212,6 +204,7 @@ async function fetchModels() {
     }
     const models = await cloudMode.fetchModels(selectedId.value)
     form.models = models
+    fetchSuccess.value = models.length > 0
     if (!models.length) toast.warning?.('Provider returned no models.')
   } catch (e) {
     // Route through the central error sink: it logs the technical detail + cause
@@ -244,6 +237,7 @@ async function persist() {
 
 async function saveOnly() {
   await persist()
+  justSaved.value = true
   toast.success('Provider saved.')
 }
 

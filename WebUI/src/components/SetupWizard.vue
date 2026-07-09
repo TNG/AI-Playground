@@ -8,10 +8,10 @@
       @done="wizard.finishHomeAgentSetup()"
     />
 
-    <HybridModeSetupPage
-      v-else-if="wizard.wizardPage === 'hybridModeSetup' && hybridMode.isFeatureEnabled"
+    <CloudModeSetupPage
+      v-else-if="wizard.wizardPage === 'cloudModeSetup' && cloudMode.isFeatureEnabled"
       @back="wizard.wizardPage = 'main'"
-      @done="wizard.finishHybridModeSetup()"
+      @done="wizard.finishCloudModeSetup()"
     />
 
     <template v-else>
@@ -195,20 +195,20 @@
                 </div>
               </div>
 
-              <!-- Hybrid Mode: frontend-only component (remote OpenAI-compatible
+              <!-- Cloud Mode: frontend-only component (remote OpenAI-compatible
                    provider). Not a real backend service, but rendered identically
                    to a regular backend row via the shared component. -->
-              <SetupWizardRow :row="hybridRow" @toggle="(v) => hybridMode.toggleFeature(v)">
+              <SetupWizardRow :row="cloudRow" @toggle="(v) => cloudMode.toggleFeature(v)">
                 <template #options>
                   <!-- Identical to the Home Agent gear menu (see BackendOptions):
                        a single "Setup" item that opens the setup page. -->
                   <SettingsMenu
-                    v-model:open="hybridMenuOpen"
-                    label="Hybrid Mode"
-                    title="Configure Hybrid Mode providers"
-                    :disabled="!hybridMode.isFeatureEnabled"
+                    v-model:open="cloudMenuOpen"
+                    label="Cloud Mode"
+                    title="Configure Cloud Mode providers"
+                    :disabled="!cloudMode.isFeatureEnabled"
                   >
-                    <DropdownMenuItem @select="openHybridSetup">{{
+                    <DropdownMenuItem @select="openCloudSetup">{{
                       languages.COM_GO_TO_SETUP || 'Setup'
                     }}</DropdownMenuItem>
                   </SettingsMenu>
@@ -275,7 +275,7 @@ import { computed, ref } from 'vue'
 import { useSetupWizard, type BackendRowViewModel } from '@/assets/js/store/setupWizard'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
-import { useHybridMode } from '@/assets/js/store/hybridMode'
+import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { useI18N } from '@/assets/js/store/i18n'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
@@ -287,12 +287,12 @@ import PhisonAidaptivOptions from '@/components/PhisonAidaptivOptions.vue'
 import ErrorDetailsModal from '@/components/ErrorDetailsModal.vue'
 import LanguageSelector from '@/components/LanguageSelector.vue'
 import HomeAgentSetupPage from '@/components/HomeAgentSetupPage.vue'
-import HybridModeSetupPage from '@/components/HybridModeSetupPage.vue'
+import CloudModeSetupPage from '@/components/CloudModeSetupPage.vue'
 
 const wizard = useSetupWizard()
 const productModeStore = useProductMode()
 const homeAgent = useHomeAgent()
-const hybridMode = useHybridMode()
+const cloudMode = useCloudMode()
 const i18n = useI18N()
 const languages = i18n.state
 
@@ -354,25 +354,25 @@ function backendRowView(row: BackendRowViewModel): SetupWizardRowView {
   }
 }
 
-// Hybrid Mode is a frontend-only feature, but it presents as a normal backend
+// Cloud Mode is a frontend-only feature, but it presents as a normal backend
 // row: a green/grey status bubble, a subtitle, and an enable toggle.
-const hybridRow = computed<SetupWizardRowView>(() => ({
-  displayName: 'Hybrid Mode',
-  statusColor: hybridMode.isFeatureEnabled ? '#22c55e' : '#6b7280',
-  statusText: hybridMode.isFeatureEnabled
+const cloudRow = computed<SetupWizardRowView>(() => ({
+  displayName: 'Cloud Mode',
+  statusColor: cloudMode.isFeatureEnabled ? '#22c55e' : '#6b7280',
+  statusText: cloudMode.isFeatureEnabled
     ? languages.COM_ENABLED || 'Enabled'
     : languages.COM_DISABLED || 'Disabled',
-  versionDisplay: 'Remote OpenAI-compatible provider',
-  enabled: hybridMode.isFeatureEnabled,
-  toggleTooltip: hybridMode.isFeatureEnabled
-    ? 'Toggle off to disable Hybrid Mode'
-    : 'Toggle on to enable Hybrid Mode',
+  versionDisplay: '',
+  enabled: cloudMode.isFeatureEnabled,
+  toggleTooltip: cloudMode.isFeatureEnabled
+    ? 'Toggle off to disable Cloud Mode'
+    : 'Toggle on to enable Cloud Mode',
 }))
 
-const hybridMenuOpen = ref(false)
-function openHybridSetup() {
-  hybridMenuOpen.value = false
-  void wizard.openHybridModeSetup()
+const cloudMenuOpen = ref(false)
+function openCloudSetup() {
+  cloudMenuOpen.value = false
+  void wizard.openCloudModeSetup()
 }
 
 function openDebug() {

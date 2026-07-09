@@ -2,9 +2,9 @@ import http from 'node:http'
 import { net } from 'electron'
 import { appLoggerInstance as appLogger } from './logging/logger.ts'
 
-const SOURCE = 'hybrid-proxy'
+const SOURCE = 'cloud-proxy'
 
-export type HybridProxy = {
+export type CloudProxy = {
   /** Loopback base URL the renderer points its OpenAI-compatible client at. */
   url: string
   close: () => void
@@ -21,7 +21,7 @@ const STRIPPED_RESPONSE_HEADERS = new Set([
 ])
 
 /**
- * A tiny loopback HTTP proxy for Hybrid Mode that runs the actual networking to
+ * A tiny loopback HTTP proxy for Cloud Mode that runs the actual networking to
  * the remote OpenAI-compatible provider in the main (Node) process — analogous
  * to how the Home Agent proxies inference. The renderer only ever talks to this
  * loopback URL, so:
@@ -30,19 +30,19 @@ const STRIPPED_RESPONSE_HEADERS = new Set([
  *     instead of surfacing as opaque `TypeError: Failed to fetch` in the browser.
  *
  * Per-request the renderer sends:
- *   - `X-Hybrid-Upstream`: the provider base URL (scheme://host[/...], `/v1`
+ *   - `X-Cloud-Upstream`: the provider base URL (scheme://host[/...], `/v1`
  *     optional — it is normalized away here), and
- *   - `X-Hybrid-Provider`: the provider id, used to look up the encrypted API
+ *   - `X-Cloud-Provider`: the provider id, used to look up the encrypted API
  *     key in the main process (the key never travels through the renderer).
  *
  * `getKey` resolves a provider's decrypted API key (or null) in the main process.
  */
-export async function startHybridProxy(
+export async function startCloudProxy(
   getKey: (providerId: string) => string | null,
-): Promise<HybridProxy> {
+): Promise<CloudProxy> {
   const server = http.createServer((req, res) => {
     // CORS preflight: the renderer's cross-port request carries custom headers
-    // (X-Hybrid-*), so the browser sends an OPTIONS preflight to this loopback
+    // (X-Cloud-*), so the browser sends an OPTIONS preflight to this loopback
     // proxy. Answer it directly — the app's onHeadersReceived hook injects the
     // Access-Control-* headers on localhost responses (see main.ts).
     if (req.method === 'OPTIONS') {
@@ -65,7 +65,7 @@ export async function startHybridProxy(
       }
       res.end(
         JSON.stringify({
-          error: `Hybrid proxy failed: ${e instanceof Error ? e.message : String(e)}`,
+          error: `Cloud proxy failed: ${e instanceof Error ? e.message : String(e)}`,
         }),
       )
     })
@@ -85,12 +85,12 @@ async function handleRequest(
   getKey: (providerId: string) => string | null,
   signal: AbortSignal,
 ): Promise<void> {
-  const upstreamBase = header(req, 'x-hybrid-upstream')?.trim()
-  const providerId = header(req, 'x-hybrid-provider')?.trim()
+  const upstreamBase = header(req, 'x-cloud-upstream')?.trim()
+  const providerId = header(req, 'x-cloud-provider')?.trim()
   if (!upstreamBase) {
-    appLogger.error('request missing X-Hybrid-Upstream header', SOURCE)
+    appLogger.error('request missing X-Cloud-Upstream header', SOURCE)
     res.writeHead(400, { 'content-type': 'application/json' })
-    res.end(JSON.stringify({ error: 'Missing X-Hybrid-Upstream header' }))
+    res.end(JSON.stringify({ error: 'Missing X-Cloud-Upstream header' }))
     return
   }
 

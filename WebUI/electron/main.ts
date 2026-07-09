@@ -61,7 +61,7 @@ import {
 } from './subprocesses/comfyUIBackendService'
 import { AiBackendService } from './subprocesses/aiBackendService'
 import { HomeAgentBackendService } from './subprocesses/homeAgentBackendService'
-import { startHybridProxy, type HybridProxy } from './hybridProxy'
+import { startCloudProxy, type CloudProxy } from './cloudProxy'
 import { LLAMACPP_DEFAULT_PARAMETERS } from './subprocesses/llamaCppBackendService'
 import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateIntelPresets.ts'
 import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
@@ -211,20 +211,20 @@ const appLogger = appLoggerInstance
 let win: BrowserWindow | null
 let serviceRegistry: ApiServiceRegistryImpl | null = null
 
-// Hybrid Mode runs its networking in the main process via a loopback proxy (see
-// hybridProxy.ts), so the renderer never calls remote providers directly. The
+// Cloud Mode runs its networking in the main process via a loopback proxy (see
+// cloudProxy.ts), so the renderer never calls remote providers directly. The
 // proxy is started lazily on first use and torn down on quit.
-let hybridProxy: HybridProxy | null = null
+let cloudProxy: CloudProxy | null = null
 
-function hybridProviderKeyPath(providerId: string): string {
-  return path.join(app.getPath('userData'), `hybrid-provider-${providerId}.json`)
+function cloudProviderKeyPath(providerId: string): string {
+  return path.join(app.getPath('userData'), `cloud-provider-${providerId}.json`)
 }
 
 // Decrypt a provider's API key from safeStorage on disk. Runs in main only —
 // the plaintext key never crosses the IPC boundary into the renderer.
-function readHybridProviderKey(providerId: string): string | null {
+function readCloudProviderKey(providerId: string): string | null {
   try {
-    const raw = fs.readFileSync(hybridProviderKeyPath(providerId), 'utf-8')
+    const raw = fs.readFileSync(cloudProviderKeyPath(providerId), 'utf-8')
     const blob = JSON.parse(raw) as { data: number[] }
     return safeStorage.decryptString(Buffer.from(blob.data))
   } catch {
@@ -232,11 +232,11 @@ function readHybridProviderKey(providerId: string): string | null {
   }
 }
 
-async function getHybridProxy(): Promise<HybridProxy> {
-  if (!hybridProxy) {
-    hybridProxy = await startHybridProxy(readHybridProviderKey)
+async function getCloudProxy(): Promise<CloudProxy> {
+  if (!cloudProxy) {
+    cloudProxy = await startCloudProxy(readCloudProviderKey)
   }
-  return hybridProxy
+  return cloudProxy
 }
 const mediaDir = getMediaDir()
 fs.mkdirSync(mediaDir, { recursive: true })
@@ -309,10 +309,10 @@ const LocalSettingsSchema = z.object({
   // Gates the Home Agent feature (Telegram bridge backend, setup wizard surface,
   // header toggle, bundled preset). Default false: opt-in by editing settings.json.
   isHomeAgentEnabled: z.boolean().default(false),
-  // Gates the Hybrid Mode feature (remote OpenAI-compatible provider backend,
+  // Gates the Cloud Mode feature (remote OpenAI-compatible provider backend,
   // setup wizard surface, chat backend option). Frontend-only — there is no
   // Python service. Default false: opt-in by toggling it in the setup wizard.
-  isHybridModeEnabled: z.boolean().default(false),
+  isCloudModeEnabled: z.boolean().default(false),
   languageOverride: z.string().nullable().default(null),
   remoteRepository: z.string().default('intel/ai-playground'),
   huggingfaceEndpoint: z.string().default('https://huggingface.co'),
@@ -771,10 +771,10 @@ async function createWindow() {
       // authenticate to the ai-backend Flask service. Must be in the
       // preflight allow-list or the browser blocks the request.
       append('Access-Control-Allow-Headers', 'X-AIPG-Auth')
-      // Hybrid Mode proxy routing headers (see hybridProxy.ts) — the renderer
+      // Cloud Mode proxy routing headers (see cloudProxy.ts) — the renderer
       // sends these to the loopback proxy, so they must clear preflight too.
-      append('Access-Control-Allow-Headers', 'X-Hybrid-Upstream')
-      append('Access-Control-Allow-Headers', 'X-Hybrid-Provider')
+      append('Access-Control-Allow-Headers', 'X-Cloud-Upstream')
+      append('Access-Control-Allow-Headers', 'X-Cloud-Provider')
       details.responseHeaders = Object.fromEntries([...headers.entries()].map(([k, v]) => [k, [v]]))
       callback(details)
     } else {
@@ -892,7 +892,7 @@ function handleUtilityFunction<T, R>(
 
 app.on('before-quit', () => {
   destroyWebBrowser()
-  hybridProxy?.close()
+  cloudProxy?.close()
 })
 
 app.on('quit', async () => {
@@ -994,50 +994,50 @@ function initEventHandle() {
     return { success: true }
   })
 
-  // ── Hybrid Mode provider API keys ────────────────────────────────────────
+  // ── Cloud Mode provider API keys ────────────────────────────────────────
   // Keys are encrypted at rest via safeStorage and never persisted in the
   // renderer. Each provider's key lives in its own file keyed by provider id,
   // mirroring the Home Agent channel-secret layout. Reading/decryption happens in
-  // main only (readHybridProviderKey); the proxy attaches the bearer token so the
+  // main only (readCloudProviderKey); the proxy attaches the bearer token so the
   // plaintext key never reaches the renderer.
-  ipcMain.handle('hybridProvider:saveKey', (_event, providerId: string, key: string) => {
+  ipcMain.handle('cloudProvider:saveKey', (_event, providerId: string, key: string) => {
     try {
       const raw = (key ?? '').trim()
       if (!raw) {
         // Empty key clears any stored secret.
         try {
-          fs.unlinkSync(hybridProviderKeyPath(providerId))
+          fs.unlinkSync(cloudProviderKeyPath(providerId))
         } catch {
           /* nothing to remove */
         }
         return { success: true }
       }
       const blob = safeStorage.encryptString(raw).toJSON()
-      fs.writeFileSync(hybridProviderKeyPath(providerId), JSON.stringify(blob), 'utf-8')
+      fs.writeFileSync(cloudProviderKeyPath(providerId), JSON.stringify(blob), 'utf-8')
       return { success: true }
     } catch (e) {
       return { success: false, error: String(e) }
     }
   })
 
-  ipcMain.handle('hybridProvider:getKey', (_event, providerId: string): string | null =>
-    readHybridProviderKey(providerId),
+  ipcMain.handle('cloudProvider:getKey', (_event, providerId: string): string | null =>
+    readCloudProviderKey(providerId),
   )
 
-  ipcMain.handle('hybridProvider:deleteKey', (_event, providerId: string) => {
+  ipcMain.handle('cloudProvider:deleteKey', (_event, providerId: string) => {
     try {
-      fs.unlinkSync(hybridProviderKeyPath(providerId))
+      fs.unlinkSync(cloudProviderKeyPath(providerId))
     } catch {
       /* already gone */
     }
     return { success: true }
   })
 
-  // Loopback URL of the Hybrid Mode proxy. The renderer points its
+  // Loopback URL of the Cloud Mode proxy. The renderer points its
   // OpenAI-compatible client and model-list fetch at this URL and tags each
-  // request with X-Hybrid-Upstream / X-Hybrid-Provider (see hybridProxy.ts).
-  ipcMain.handle('hybridProvider:getProxyUrl', async (): Promise<string> => {
-    return (await getHybridProxy()).url
+  // request with X-Cloud-Upstream / X-Cloud-Provider (see cloudProxy.ts).
+  ipcMain.handle('cloudProvider:getProxyUrl', async (): Promise<string> => {
+    return (await getCloudProxy()).url
   })
 
   ipcMain.handle('detectHardwareForModeRecommendation', async () => {

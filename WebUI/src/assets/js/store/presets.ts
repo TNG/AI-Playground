@@ -173,7 +173,7 @@ const ComfyUiPresetSchema = BasePresetFieldsSchema.extend({
 })
 
 // LLM Backend enum for chat presets. Mirrors the shared backend list so presets
-// can also target the remote Hybrid Mode backend.
+// can also target the remote Cloud Mode backend.
 const LlmBackendEnum = z.enum(llmBackendTypes)
 
 // Chat Preset Schema - uses 'backends' array instead of single 'backend'

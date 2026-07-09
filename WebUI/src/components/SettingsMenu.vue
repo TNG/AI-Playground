@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Shared settings-gear dropdown used by every backend/component row (regular
-// backends, Phison aiDAPTIV+, Hybrid Mode). It bundles the gear button trigger
+// backends, Phison aiDAPTIV+, Cloud Mode). It bundles the gear button trigger
 // together with the DropdownMenu shell (label + separator) so the icon, menu
 // styling, and open/close behavior stay identical everywhere. Callers only
 // provide the label, optional title/disabled state, and the menu items via the

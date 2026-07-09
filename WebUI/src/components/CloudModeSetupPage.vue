@@ -1,9 +1,9 @@
 <template>
   <div class="px-12 py-5 max-w-5xl w-5xl">
-    <h1 class="text-center py-1 px-4 rounded-sm text-3xl font-bold">Hybrid Mode Setup</h1>
+    <h1 class="text-center py-1 px-4 rounded-sm text-3xl font-bold">Cloud Mode Setup</h1>
     <p class="text-center text-xs text-muted-foreground pt-2">
       Connect a remote OpenAI-compatible provider. Models are fetched from the provider and become
-      selectable in chat under the <span class="font-semibold">Hybrid Mode</span> backend.
+      selectable in chat under the <span class="font-semibold">Cloud Mode</span> backend.
     </p>
 
     <div class="flex gap-6 pt-6">
@@ -14,7 +14,7 @@
         </h2>
         <div class="flex flex-col gap-2">
           <div
-            v-for="provider in hybridMode.providers"
+            v-for="provider in cloudMode.providers"
             :key="provider.id"
             class="flex flex-col gap-1 p-3 rounded-lg border cursor-pointer transition-colors"
             :class="
@@ -50,7 +50,7 @@
           <Button
             variant="ghost"
             class="text-destructive hover:text-destructive"
-            :disabled="hybridMode.providers.length <= 1"
+            :disabled="cloudMode.providers.length <= 1"
             @click="removeSelectedProvider"
           >
             Remove provider
@@ -127,16 +127,16 @@ import { reactive, ref, watch, onMounted } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useHybridMode } from '@/assets/js/store/hybridMode'
+import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { useErrors } from '@/assets/js/store/errors'
 import * as toast from '@/assets/js/toast'
 
 const emit = defineEmits<{ (e: 'back'): void; (e: 'done'): void }>()
 
-const hybridMode = useHybridMode()
+const cloudMode = useCloudMode()
 const errors = useErrors()
 
-const selectedId = ref(hybridMode.selectedProviderId)
+const selectedId = ref(cloudMode.selectedProviderId)
 const fetching = ref(false)
 const fetchError = ref('')
 const saving = ref(false)
@@ -150,22 +150,22 @@ const form = reactive({
 })
 
 function loadForm(id: string) {
-  const provider = hybridMode.providers.find((p) => p.id === id)
+  const provider = cloudMode.providers.find((p) => p.id === id)
   if (!provider) return
   form.name = provider.name
   form.baseUrl = provider.baseUrl
   form.apiKey = ''
   form.models = [...provider.models]
-  hasStoredKey.value = !!hybridMode.activeProviderApiKey
+  hasStoredKey.value = !!cloudMode.activeProviderApiKey
 }
 
 async function selectProvider(id: string) {
   // Persist any edits to the current provider before switching away.
   applyFormToStore()
   selectedId.value = id
-  hybridMode.selectProvider(id)
+  cloudMode.selectProvider(id)
   // Pull the key into the session cache so the placeholder reflects reality.
-  await hybridMode.loadApiKey(id).catch(() => null)
+  await cloudMode.loadApiKey(id).catch(() => null)
   loadForm(id)
 }
 
@@ -174,25 +174,25 @@ function addProvider() {
   // Don't lose edits to the provider we're leaving.
   applyFormToStore()
   const id = crypto.randomUUID()
-  hybridMode.addProvider({ id, name: 'New provider', baseUrl: '' })
+  cloudMode.addProvider({ id, name: 'New provider', baseUrl: '' })
   selectedId.value = id
-  hybridMode.selectProvider(id)
+  cloudMode.selectProvider(id)
   loadForm(id)
 }
 
 /** Remove the selected provider (and its stored key), then select another. */
 async function removeSelectedProvider() {
-  if (hybridMode.providers.length <= 1) return
-  await hybridMode.removeProvider(selectedId.value)
-  const nextId = hybridMode.selectedProviderId
+  if (cloudMode.providers.length <= 1) return
+  await cloudMode.removeProvider(selectedId.value)
+  const nextId = cloudMode.selectedProviderId
   selectedId.value = nextId
-  await hybridMode.loadApiKey(nextId).catch(() => null)
+  await cloudMode.loadApiKey(nextId).catch(() => null)
   loadForm(nextId)
 }
 
 /** Write the in-form name/baseURL/models back onto the selected provider. */
 function applyFormToStore() {
-  hybridMode.updateProvider(selectedId.value, {
+  cloudMode.updateProvider(selectedId.value, {
     name: form.name.trim() || 'Custom',
     baseUrl: form.baseUrl.trim(),
     models: form.models,
@@ -206,11 +206,11 @@ async function fetchModels() {
     applyFormToStore()
     // Persist a freshly-entered key first so fetch can authenticate.
     if (form.apiKey.trim()) {
-      await hybridMode.saveApiKey(selectedId.value, form.apiKey.trim())
+      await cloudMode.saveApiKey(selectedId.value, form.apiKey.trim())
       hasStoredKey.value = true
       form.apiKey = ''
     }
-    const models = await hybridMode.fetchModels(selectedId.value)
+    const models = await cloudMode.fetchModels(selectedId.value)
     form.models = models
     if (!models.length) toast.warning?.('Provider returned no models.')
   } catch (e) {
@@ -219,7 +219,7 @@ async function fetchModels() {
     // below (surface: 'inline') rather than toasted.
     const appError = errors.report(e, {
       category: 'inference',
-      code: 'hybrid/fetch-models-failed',
+      code: 'cloud/fetch-models-failed',
       surface: 'inline',
     })
     fetchError.value = appError.userMessage
@@ -233,7 +233,7 @@ async function persist() {
   try {
     applyFormToStore()
     if (form.apiKey.trim()) {
-      await hybridMode.saveApiKey(selectedId.value, form.apiKey.trim())
+      await cloudMode.saveApiKey(selectedId.value, form.apiKey.trim())
       hasStoredKey.value = true
       form.apiKey = ''
     }
@@ -253,7 +253,7 @@ async function saveAndDone() {
 }
 
 watch(
-  () => hybridMode.selectedProviderId,
+  () => cloudMode.selectedProviderId,
   (id) => {
     if (id !== selectedId.value) {
       selectedId.value = id
@@ -265,7 +265,7 @@ watch(
 onMounted(async () => {
   // Ensure the stored key (if any) is in the session cache so the placeholder
   // reflects reality after a restart.
-  await hybridMode.loadApiKey(selectedId.value).catch(() => null)
+  await cloudMode.loadApiKey(selectedId.value).catch(() => null)
   loadForm(selectedId.value)
 })
 </script>

@@ -5,10 +5,10 @@ import { createAppError, extractMessage } from '../errors/appError'
 /**
  * A remote OpenAI-compatible provider (e.g. a self-hosted or cloud LLM
  * endpoint). The API key is NOT stored here — only an encrypted blob on disk
- * via safeStorage in the main process (see `window.electronAPI.hybridProvider`).
+ * via safeStorage in the main process (see `window.electronAPI.cloudProvider`).
  * `models` holds the ids fetched from the provider's `GET /v1/models`.
  */
-export type HybridProvider = {
+export type CloudProvider = {
   id: string
   name: string
   baseUrl: string
@@ -18,31 +18,31 @@ export type HybridProvider = {
 // Model id offered when a provider exposes no models (none fetched, or the
 // provider doesn't implement /v1/models). Many OpenAI-compatible endpoints serve
 // a single model and accept a request with a placeholder model id, so this lets
-// the user select Hybrid Mode and chat without first specifying a model.
-export const HYBRID_DEFAULT_MODEL = 'default'
+// the user select Cloud Mode and chat without first specifying a model.
+export const CLOUD_DEFAULT_MODEL = 'default'
 
 // Seed provider shown on first open. The user fills in base URL + key.
-const DEFAULT_PROVIDER: HybridProvider = {
+const DEFAULT_PROVIDER: CloudProvider = {
   id: 'custom',
   name: 'Custom',
   baseUrl: '',
   models: [],
 }
 
-export const useHybridMode = defineStore(
-  'hybridMode',
+export const useCloudMode = defineStore(
+  'cloudMode',
   () => {
-    // Mirrors `isHybridModeEnabled` from local settings. Hydrated on init().
+    // Mirrors `isCloudModeEnabled` from local settings. Hydrated on init().
     const isFeatureEnabled = ref(false)
 
-    const providers = ref<HybridProvider[]>([{ ...DEFAULT_PROVIDER }])
+    const providers = ref<CloudProvider[]>([{ ...DEFAULT_PROVIDER }])
     const selectedProviderId = ref<string>(DEFAULT_PROVIDER.id)
 
     // Decrypted API keys, kept in memory for the session only (never persisted
     // in the renderer). Populated lazily from safeStorage via loadApiKey().
     const apiKeyCache = reactive<Record<string, string>>({})
 
-    const selectedProvider = computed<HybridProvider | undefined>(() =>
+    const selectedProvider = computed<CloudProvider | undefined>(() =>
       providers.value.find((p) => p.id === selectedProviderId.value),
     )
 
@@ -59,14 +59,14 @@ export const useHybridMode = defineStore(
       return id ? apiKeyCache[id] : undefined
     })
 
-    // Loopback base URL of the main-process Hybrid proxy (see hybridProxy.ts).
-    // All hybrid networking flows through it, so upstream failures are logged in
+    // Loopback base URL of the main-process Cloud proxy (see cloudProxy.ts).
+    // All cloud networking flows through it, so upstream failures are logged in
     // the Node console instead of surfacing as opaque fetch errors in the browser.
     const proxyUrl = ref<string>('')
 
     async function ensureProxyUrl(): Promise<string> {
       if (!proxyUrl.value) {
-        proxyUrl.value = await window.electronAPI.hybridProvider.getProxyUrl()
+        proxyUrl.value = await window.electronAPI.cloudProvider.getProxyUrl()
       }
       return proxyUrl.value
     }
@@ -75,11 +75,11 @@ export const useHybridMode = defineStore(
       selectedProviderId.value = id
     }
 
-    function addProvider(provider: Omit<HybridProvider, 'models'> & { models?: string[] }) {
+    function addProvider(provider: Omit<CloudProvider, 'models'> & { models?: string[] }) {
       providers.value.push({ models: [], ...provider })
     }
 
-    function updateProvider(id: string, patch: Partial<Omit<HybridProvider, 'id'>>) {
+    function updateProvider(id: string, patch: Partial<Omit<CloudProvider, 'id'>>) {
       const provider = providers.value.find((p) => p.id === id)
       if (provider) Object.assign(provider, patch)
     }
@@ -87,7 +87,7 @@ export const useHybridMode = defineStore(
     async function removeProvider(id: string) {
       providers.value = providers.value.filter((p) => p.id !== id)
       delete apiKeyCache[id]
-      await window.electronAPI.hybridProvider.deleteKey(id).catch(() => undefined)
+      await window.electronAPI.cloudProvider.deleteKey(id).catch(() => undefined)
       if (selectedProviderId.value === id) {
         selectedProviderId.value = providers.value[0]?.id ?? ''
       }
@@ -98,7 +98,7 @@ export const useHybridMode = defineStore(
       id: string,
       key: string,
     ): Promise<{ success: boolean; error?: string }> {
-      const result = await window.electronAPI.hybridProvider.saveKey(id, key)
+      const result = await window.electronAPI.cloudProvider.saveKey(id, key)
       if (result.success) {
         const trimmed = key.trim()
         if (trimmed) apiKeyCache[id] = trimmed
@@ -109,7 +109,7 @@ export const useHybridMode = defineStore(
 
     /** Pull the decrypted key from safeStorage into the in-memory cache. */
     async function loadApiKey(id: string): Promise<string | null> {
-      const key = await window.electronAPI.hybridProvider.getKey(id)
+      const key = await window.electronAPI.cloudProvider.getKey(id)
       if (key) apiKeyCache[id] = key
       return key
     }
@@ -134,14 +134,14 @@ export const useHybridMode = defineStore(
       try {
         // Only routing headers — the key stays in main and is attached there.
         response = await fetch(url, {
-          headers: { 'X-Hybrid-Upstream': base, 'X-Hybrid-Provider': id },
+          headers: { 'X-Cloud-Upstream': base, 'X-Cloud-Provider': id },
         })
       } catch (e) {
         throw createAppError({
           category: 'inference',
-          code: 'hybrid/fetch-models-unreachable',
+          code: 'cloud/fetch-models-unreachable',
           surface: 'inline',
-          userMessage: 'Could not reach the Hybrid Mode proxy. Try restarting the app.',
+          userMessage: 'Could not reach the Cloud Mode proxy. Try restarting the app.',
           technicalMessage: `GET ${url} threw: ${extractMessage(e)}`,
           context: { providerId: id, upstream: base },
           cause: e,
@@ -155,7 +155,7 @@ export const useHybridMode = defineStore(
         const snippet = body.trim().slice(0, 300)
         throw createAppError({
           category: 'inference',
-          code: 'hybrid/fetch-models-http-error',
+          code: 'cloud/fetch-models-http-error',
           surface: 'inline',
           userMessage:
             `Failed to fetch models: HTTP ${response.status} ${response.statusText}` +
@@ -171,7 +171,7 @@ export const useHybridMode = defineStore(
       } catch (e) {
         throw createAppError({
           category: 'inference',
-          code: 'hybrid/fetch-models-bad-json',
+          code: 'cloud/fetch-models-bad-json',
           surface: 'inline',
           userMessage: 'Provider response was not valid JSON (expected an OpenAI /v1/models list).',
           technicalMessage: `GET ${url} returned unparseable JSON: ${extractMessage(e)}`,
@@ -204,7 +204,7 @@ export const useHybridMode = defineStore(
 
     async function toggleFeature(enabled: boolean) {
       isFeatureEnabled.value = enabled
-      await window.electronAPI.updateLocalSettings({ isHybridModeEnabled: enabled })
+      await window.electronAPI.updateLocalSettings({ isCloudModeEnabled: enabled })
       // Warm up the proxy so the chat backend URL is ready before first use.
       if (enabled) ensureProxyUrl().catch(() => undefined)
     }
@@ -213,9 +213,9 @@ export const useHybridMode = defineStore(
     async function initConfig() {
       try {
         const localSettings = await window.electronAPI.getLocalSettings()
-        isFeatureEnabled.value = !!localSettings.isHybridModeEnabled
+        isFeatureEnabled.value = !!localSettings.isCloudModeEnabled
       } catch (e) {
-        console.error('hybridMode.initConfig: getLocalSettings failed:', e)
+        console.error('cloudMode.initConfig: getLocalSettings failed:', e)
         isFeatureEnabled.value = false
       }
       if (!isFeatureEnabled.value) return
@@ -272,5 +272,5 @@ export const useHybridMode = defineStore(
 )
 
 if (import.meta.hot) {
-  import.meta.hot.accept(acceptHMRUpdate(useHybridMode, import.meta.hot))
+  import.meta.hot.accept(acceptHMRUpdate(useCloudMode, import.meta.hot))
 }

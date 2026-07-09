@@ -41,9 +41,9 @@
             :items="availableBackendItems"
           ></drop-down-new>
         </div>
-        <!-- Hybrid Mode swaps the hardware "Device" picker for a remote "Provider" picker. -->
+        <!-- Cloud Mode swaps the hardware "Device" picker for a remote "Provider" picker. -->
         <div
-          v-if="textInference.backend === 'hybrid'"
+          v-if="textInference.backend === 'cloud'"
           class="grid grid-cols-[120px_1fr] items-center gap-4"
         >
           <Label class="whitespace-nowrap">Provider</Label>
@@ -250,7 +250,7 @@ import * as toast from '@/assets/js/toast'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
-import { useHybridMode } from '@/assets/js/store/hybridMode'
+import { useCloudMode } from '@/assets/js/store/cloudMode'
 
 const showModelRequestDialog = ref(false)
 const showUploader = ref(false)
@@ -263,10 +263,10 @@ const backendServices = useBackendServices()
 const productModeStore = useProductMode()
 const conversations = useConversations()
 const homeAgent = useHomeAgent()
-const hybridMode = useHybridMode()
+const cloudMode = useCloudMode()
 
 // Non-null service name for the local-backend DeviceSelector (only rendered for
-// non-hybrid backends; hybrid uses ProviderSelector instead).
+// non-cloud backends; cloud uses ProviderSelector instead).
 const deviceServiceName = computed(
   () => backendToService[textInference.backend] ?? 'llamacpp-backend',
 )
@@ -299,9 +299,9 @@ const availableBackends = computed(() => {
   if (productModeStore.productMode === 'nvidia') {
     base = base.filter((b) => b !== 'openVINO')
   }
-  // Surface Hybrid Mode as a selectable backend whenever the feature is enabled.
-  if (hybridMode.isFeatureEnabled && !base.includes('hybrid')) {
-    base = [...base, 'hybrid']
+  // Surface Cloud Mode as a selectable backend whenever the feature is enabled.
+  if (cloudMode.isFeatureEnabled && !base.includes('cloud')) {
+    base = [...base, 'cloud']
   }
   return base
 })
@@ -318,10 +318,10 @@ const availableBackendItems = computed(() => {
 // Handle backend change from dropdown
 function handleBackendChange(newBackend: string) {
   textInference.backend = newBackend as LlmBackend
-  // Switching to Hybrid Mode refreshes the selected provider's model list
+  // Switching to Cloud Mode refreshes the selected provider's model list
   // (overwriting it on success) so the picker reflects the live provider state.
-  if (newBackend === 'hybrid') {
-    hybridMode.refreshSelectedProviderModels()
+  if (newBackend === 'cloud') {
+    cloudMode.refreshSelectedProviderModels()
   }
 }
 
@@ -383,9 +383,9 @@ const documentStats = computed(() => {
 })
 
 function isBackendRunning(backend: LlmBackend): boolean {
-  // Hybrid Mode has no local service — it's "ready" once a provider base URL
+  // Cloud Mode has no local service — it's "ready" once a provider base URL
   // is configured.
-  if (backend === 'hybrid') return !!hybridMode.activeProviderBaseUrl
+  if (backend === 'cloud') return !!cloudMode.activeProviderBaseUrl
   const serviceName = backendToService[backend]
   return backendServices.info.find((item) => item.serviceName === serviceName)?.status === 'running'
 }

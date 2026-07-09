@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Presentational row for the setup wizard's "Components" column. Every regular
-// backend row and the Hybrid Mode row render through this so the status bubble,
+// backend row and the Cloud Mode row render through this so the status bubble,
 // name/version/info-link, install-progress spinner, error/repair actions and the
 // enable toggle stay identical everywhere. The variant-specific settings menu is
 // provided via the #options slot; per-row actions are emitted to the parent.

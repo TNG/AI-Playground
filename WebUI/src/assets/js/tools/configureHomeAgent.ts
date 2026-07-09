@@ -258,7 +258,7 @@ async function applyConfig(
           name: m.name,
           maxContextSize: m.maxContextSize,
         })),
-        hybrid: mapLlmModels(textInference.llmModels, 'hybrid').map((m) => ({
+        cloud: mapLlmModels(textInference.llmModels, 'cloud').map((m) => ({
           name: m.name,
           maxContextSize: m.maxContextSize,
         })),
@@ -311,7 +311,7 @@ async function applyConfig(
           textInference.selectEmbeddingModel(targetBackend, change.value as string)
           break
         case 'deviceId':
-          // Hybrid Mode has no local service/device to select.
+          // Cloud Mode has no local service/device to select.
           if (targetService) {
             await backendServices.selectDevice(targetService, change.value as string)
             backendChanged = true

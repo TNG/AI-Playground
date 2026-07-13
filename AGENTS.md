@@ -67,6 +67,63 @@ Python backend (`service/`) uses **Ruff** for linting (runs in CI via GitHub Act
 - Tests use `describe` / `it` / `expect`. Mock Electron with `vi.mock('electron', ...)`.
 - Tests live alongside source in `electron/test/` (currently unit tests for Electron main process only).
 
+### E2E tests (Playwright, real Electron) — `WebUI/e2e/`
+
+Drives the **real compiled Electron app** (not a mocked renderer) and actually installs
+backends, so runs take minutes. Separate from Vitest: `.spec.ts` files, config
+`playwright-e2e.config.ts`, run with `npm run test:e2e`.
+
+**Architecture:** `vite --mode test` serves only the renderer (the Electron plugin is
+skipped in test mode — see `vite.config.mts`); the fixture launches the built Electron
+main (`dist/main`, built on demand) pointed at that dev server via `VITE_DEV_SERVER_URL`.
+Close any running dev app first — the single-instance lock makes a second launch attach to
+the existing one.
+
+**Files:** `fixtures.ts` (launch + `window`/`app` fixtures), `appDriver.ts` (`AppDriver`,
+the high-level entry point), `pages/*.ts` (Page Objects), `backends.ts` (parametric model +
+types), `helpers.ts`, `install-backends.spec.ts` (reference spec).
+
+**Rules:**
+- **Start every test with the shared setup method:** `await app.installAllBackends()`. It's
+  idempotent (handles fresh-wizard and already-running starts) and is where reusable setup
+  belongs. Keep flows on the driver / page objects, not inlined in specs.
+- **Selectors = interact like a user: role + accessible name/text only.** Use `getByRole`,
+  `getByText`, `getByLabel`. **No test-ids, no CSS classes/`#id`, no xpath/ancestor walking.**
+  If an element has no accessible name (icon-only buttons, anonymous rows), **add minimal
+  ARIA to the app component** (`role="group"`+`aria-label`, `title`/`aria-label` on the
+  control) — a real a11y improvement, not a test hook. See `SetupWizardRow.vue`,
+  `BackendOptions.vue`.
+- **Parametric over per-element.** Backends share one row component; locate a backend's
+  toggle/gear/menu by unique accessible name (`Enable <name>`, `<name> options`).
+- **Type backend params, never `string`.** Use `BackendDisplayName` from `backends.ts`,
+  derived from the app's `BackendServiceName` union via `satisfies Record<...>` (so
+  adding/removing a backend is a compile error here). Import app **types only**
+  (`import type`) — erased at runtime, pulls in no app deps.
+- **Use `test.step(...)`** to label sections.
+- **Fresh app per test** (fixture launches+closes Electron each test): don't depend on
+  prior-test state and don't over-engineer end-of-test cleanup.
+- **Use long timeouts** for install/update waits (`SetupWizardPage.INSTALL_TIMEOUT`).
+
+**Domain gotchas (learned the hard way):**
+- Installing is **one button**: enable each backend's toggle, then click **"Install &
+  Continue"** — there are no per-backend install buttons.
+- **Deactivate a backend with its toggle, not the feature flag.** For "no Home Agent",
+  `wizard.disableBackend('Home Agent')`; do not touch `isHomeAgentEnabled`.
+- **Re-disable on every wizard open** — reopening reseeds install selection and re-enables
+  installed backends, so a toggled-off backend comes back on.
+- **Home Agent left enabled diverts the wizard** to its setup page after install instead of
+  the running app (a common cause of downstream click timeouts).
+- **NVIDIA mode:** OpenVINO is unavailable (dimmed row, disabled toggle) — skip such
+  backends via `wizard.isAvailable(name)`.
+- **Version updates** live in the per-backend gear menu as "Update to <version>", shown only
+  when installed ≠ pinned target.
+- **Settings sidebar re-opens** when returning from the wizard and can occlude controls;
+  `openAppSettings()` is idempotent. Playwright "visible" ignores occlusion.
+
+**Before claiming it works:** `npm run typecheck` (`vue-tsc`; `e2e/` is in the root
+`tsconfig.json`) and a cheap no-launch smoke: `npx playwright test --config
+playwright-e2e.config.ts --list`.
+
 ## Code Style
 
 ### Formatting (enforced by Prettier + EditorConfig)

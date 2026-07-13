@@ -80,7 +80,9 @@ Close any running dev app first — the single-instance lock makes a second laun
 the existing one.
 
 **Files:** `fixtures.ts` (launch + `window`/`app` fixtures), `appDriver.ts` (`AppDriver`,
-the high-level entry point), `pages/*.ts` (Page Objects), `backends.ts` (parametric model +
+the high-level entry point; exposes `wizard`, `shell`, `main`, `settings`), `pages/*.ts`
+(Page Objects: `SetupWizardPage`, `AppShellPage`, `MainPage` = prompt area + results,
+`SpecificSettingsPage` = the preset settings sidebar), `backends.ts` (parametric model +
 types), `helpers.ts`, `install-backends.spec.ts` (reference spec).
 
 **Rules:**
@@ -117,8 +119,21 @@ types), `helpers.ts`, `install-backends.spec.ts` (reference spec).
   backends via `wizard.isAvailable(name)`.
 - **Version updates** live in the per-backend gear menu as "Update to <version>", shown only
   when installed ≠ pinned target.
+- **"Agentic mode" isn't a UI mode** — it's Chat mode with a tool-enabled chat preset (e.g.
+  "Agentic Chat"), which lets the assistant generate/edit images and video from a prompt.
+  Select it via `SpecificSettingsPage` (preset cards are `role="button"`, name = preset name).
+- **Turn completion:** the Send button (`aria-label="Send"`) is removed while a turn runs and
+  returns when done — `MainPage.waitUntilIdle(timeout)` waits on that (image/video runs take
+  minutes; use `IMAGE_TIMEOUT`/`VIDEO_TIMEOUT`). Result assertions use ARIA added to outputs:
+  generated images `alt="Generated result"` (count via `getByRole('img', …)`), videos via
+  `locator('video')`, assistant text via `getByRole('article', { name: 'Assistant response' })`.
 - **Settings sidebar re-opens** when returning from the wizard and can occlude controls;
   `openAppSettings()` is idempotent. Playwright "visible" ignores occlusion.
+- **"Close" is ambiguous** — the header's window-close (X) control is `title="Close"`, so an
+  unscoped `getByRole('button', { name: 'Close' })` can match it and **quit the app**. Scope
+  sidebar closes to their region (`getByRole('region', { name: '<title>' })`, via
+  `SideModalBase`'s `role="region"`), and prefer a uniquely-named button (e.g. the wizard's
+  "Continue") over "Close".
 
 **Before claiming it works:** `npm run typecheck` (`vue-tsc`; `e2e/` is in the root
 `tsconfig.json`) and a cheap no-launch smoke: `npx playwright test --config

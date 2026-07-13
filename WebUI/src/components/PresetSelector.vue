@@ -5,6 +5,9 @@
         <div
           v-for="preset in filteredPresets"
           :key="preset.name"
+          role="button"
+          :aria-label="preset.name"
+          :aria-pressed="selectedPresetName === preset.name"
           class="relative rounded-lg overflow-hidden transition-all duration-200 border-2 aspect-square shadow-md"
           :class="[
             selectedPresetName === preset.name

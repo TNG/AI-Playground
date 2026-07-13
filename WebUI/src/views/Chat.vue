@@ -66,7 +66,12 @@
             </button>
           </div>
         </div>
-        <div v-else-if="message.role === 'assistant'" class="flex items-start gap-3">
+        <div
+          v-else-if="message.role === 'assistant'"
+          role="article"
+          aria-label="Assistant response"
+          class="flex items-start gap-3"
+        >
           <img :class="textInference.iconSizeClass" src="../assets/svg/ai-icon.svg" />
           <div class="flex flex-col gap-3 max-w-[90%] w-full text-wrap wrap-break-word">
             <div class="flex items-center gap-2">

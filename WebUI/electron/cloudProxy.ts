@@ -108,10 +108,11 @@ async function handleRequest(
   const accept = header(req, 'accept')
   if (accept) headers.set('accept', accept)
   const key = providerId ? getKey(providerId) : null
-  if (key) headers.set('authorization', `Bearer ${key}`)
+  const authStyle = header(req, 'x-cloud-auth-style')?.trim() || 'bearer'
+  if (key) applyAuth(headers, authStyle, key)
 
   const method = req.method ?? 'GET'
-  appLogger.info(`${method} ${targetUrl} (auth=${key ? 'yes' : 'no'})`, SOURCE)
+  appLogger.info(`${method} ${targetUrl} (auth=${key ? authStyle : 'no'})`, SOURCE)
 
   let upstream: Response
   try {
@@ -179,6 +180,24 @@ async function handleRequest(
     }
   }
   res.end()
+}
+
+// Attach the provider API key using its declared auth scheme. The request shape
+// is OpenAI-compatible regardless; only the header differs. `bearer` is the
+// default and covers every shipped preset; the variants cover surfaces whose
+// key lives elsewhere (Anthropic `x-api-key`, Azure OpenAI `api-key`).
+function applyAuth(headers: Headers, style: string, key: string): void {
+  switch (style) {
+    case 'x-api-key':
+      headers.set('x-api-key', key)
+      break
+    case 'api-key':
+      headers.set('api-key', key)
+      break
+    case 'bearer':
+    default:
+      headers.set('authorization', `Bearer ${key}`)
+  }
 }
 
 function header(req: http.IncomingMessage, name: string): string | undefined {

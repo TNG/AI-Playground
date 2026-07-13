@@ -775,6 +775,7 @@ async function createWindow() {
       // sends these to the loopback proxy, so they must clear preflight too.
       append('Access-Control-Allow-Headers', 'X-Cloud-Upstream')
       append('Access-Control-Allow-Headers', 'X-Cloud-Provider')
+      append('Access-Control-Allow-Headers', 'X-Cloud-Auth-Style')
       details.responseHeaders = Object.fromEntries([...headers.entries()].map(([k, v]) => [k, [v]]))
       callback(details)
     } else {

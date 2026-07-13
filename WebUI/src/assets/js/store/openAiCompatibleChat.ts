@@ -127,10 +127,37 @@ export const useOpenAiCompatibleChat = defineStore(
     // 'chats' before initialization"). Populated lazily via getOrCreateChat().
     const chats: Record<string, Chat<AipgUiMessage>> = {}
 
+    // In-flight `generate()` calls per conversation key. `generate()` awaits the
+    // whole turn — backend/model prep, then `chat.sendMessage` (which for an
+    // agentic turn resolves only after every step completes) — so this is the
+    // authoritative "a turn is running" signal. The chat `status` alone is not:
+    // it can momentarily read non-streaming between agentic steps and at the very
+    // end before the final content is committed, which briefly flips the send/stop
+    // control back to "Send" mid-turn (letting a second prompt be submitted into a
+    // half-finished turn). A count (not a bool) tolerates re-entrancy.
+    const generatingKeys = ref<Record<string, number>>({})
+    function markGenerating(key: string): void {
+      generatingKeys.value = {
+        ...generatingKeys.value,
+        [key]: (generatingKeys.value[key] ?? 0) + 1,
+      }
+    }
+    function unmarkGenerating(key: string): void {
+      const remaining = (generatingKeys.value[key] ?? 0) - 1
+      const next = { ...generatingKeys.value }
+      if (remaining > 0) next[key] = remaining
+      else delete next[key]
+      generatingKeys.value = next
+    }
+
     const processing = computed(() => {
       // If manually stopped, immediately return false to unblock UI
       if (manuallyStopped.value) return false
-      const status = chats[conversations.activeKey]?.status
+      const key = conversations.activeKey
+      // A running generate() keeps us busy for the entire turn, independent of any
+      // transient chat-status dip between steps or before the last chunk settles.
+      if ((generatingKeys.value[key] ?? 0) > 0) return true
+      const status = chats[key]?.status
       return status === 'submitted' || status === 'streaming'
     })
 
@@ -1038,105 +1065,113 @@ export const useOpenAiCompatibleChat = defineStore(
       const targetKey = sideChannel ? options.conversationKey! : conversations.activeKey
       const clearInputs = options?.clearInputs ?? !sideChannel
 
-      // 1a. Reactivate the target thread's preset (if any) so the stream uses
-      //     the right model/tools/system-prompt for THIS conversation, not
-      //     whatever was last selected for an unrelated chat. For Home Agent
-      //     threads this pins the bundled Home Agent preset.
-      textInference.ensureGlobalsMatchConversation(targetKey)
+      // Mark the turn in flight for its whole duration (prep + all stream steps),
+      // so `processing` stays true until the turn genuinely finishes. Cleared in
+      // `finally` so a thrown/aborted turn can never leave the UI stuck busy.
+      markGenerating(targetKey)
+      try {
+        // 1a. Reactivate the target thread's preset (if any) so the stream uses
+        //     the right model/tools/system-prompt for THIS conversation, not
+        //     whatever was last selected for an unrelated chat. For Home Agent
+        //     threads this pins the bundled Home Agent preset.
+        textInference.ensureGlobalsMatchConversation(targetKey)
 
-      // 1b. Stamp meta so the thread keeps a record of its current profile.
-      textInference.stampMetaForConversation(targetKey)
+        // 1b. Stamp meta so the thread keeps a record of its current profile.
+        textInference.stampMetaForConversation(targetKey)
 
-      // Reset manual stop flag
-      manuallyStopped.value = false
-      // Clear any prior failure so consumeTurnError only ever reflects this turn.
-      turnErrors.delete(targetKey)
+        // Reset manual stop flag
+        manuallyStopped.value = false
+        // Clear any prior failure so consumeTurnError only ever reflects this turn.
+        turnErrors.delete(targetKey)
 
-      // 2. Block if images attached to non-vision model (UI path only). Validate
-      //    before touching the backend so we don't load a model just to reject.
-      if (!sideChannel && fileInput.value.length > 0 && !textInference.modelSupportsVision) {
-        const hasImageFiles = fileInput.value.some((part) => part.mediaType?.startsWith('image/'))
-        if (hasImageFiles) {
-          throw errors.report(
-            createAppError({
-              category: 'validation',
-              code: 'inference/vision-unsupported',
-              userMessage:
-                'The selected model does not support image inputs. Please remove the images or select a vision-capable model.',
-              surface: 'toast',
-              context: { conversationKey: targetKey },
-            }),
-          )
+        // 2. Block if images attached to non-vision model (UI path only). Validate
+        //    before touching the backend so we don't load a model just to reject.
+        if (!sideChannel && fileInput.value.length > 0 && !textInference.modelSupportsVision) {
+          const hasImageFiles = fileInput.value.some((part) => part.mediaType?.startsWith('image/'))
+          if (hasImageFiles) {
+            throw errors.report(
+              createAppError({
+                category: 'validation',
+                code: 'inference/vision-unsupported',
+                userMessage:
+                  'The selected model does not support image inputs. Please remove the images or select a vision-capable model.',
+                surface: 'toast',
+                context: { conversationKey: targetKey },
+              }),
+            )
+          }
         }
-      }
 
-      // 3. Ensure backend/models are ready and prepare RAG context. These run
-      //    before the stream starts, so failures never reach the Chat onError
-      //    hook — report them here (toast for the active desktop conversation).
-      let ragContext: Awaited<ReturnType<typeof textInference.prepareRagContext>>
-      try {
-        await textInference.ensureReadyForInference()
-        ragContext = await textInference.prepareRagContext(question)
-      } catch (error) {
-        // The user cancelling a required model download is not a failure — abort
-        // the turn quietly, keeping their prompt/attachments for a retry.
-        if (isCancellation(error)) return
-        throw errors.report(error, {
-          category: 'inference',
-          code: 'inference/preparation-failed',
-          userMessage: `Could not start generation: ${extractMessage(error)}`,
-          surface: sideChannel ? 'silent' : 'toast',
-          context: { conversationKey: targetKey },
-        })
-      }
-      temporarySystemPrompts[targetKey] = ragContext.systemPrompt
+        // 3. Ensure backend/models are ready and prepare RAG context. These run
+        //    before the stream starts, so failures never reach the Chat onError
+        //    hook — report them here (toast for the active desktop conversation).
+        let ragContext: Awaited<ReturnType<typeof textInference.prepareRagContext>>
+        try {
+          await textInference.ensureReadyForInference()
+          ragContext = await textInference.prepareRagContext(question)
+        } catch (error) {
+          // The user cancelling a required model download is not a failure — abort
+          // the turn quietly, keeping their prompt/attachments for a retry.
+          if (isCancellation(error)) return
+          throw errors.report(error, {
+            category: 'inference',
+            code: 'inference/preparation-failed',
+            userMessage: `Could not start generation: ${extractMessage(error)}`,
+            surface: sideChannel ? 'silent' : 'toast',
+            context: { conversationKey: targetKey },
+          })
+        }
+        temporarySystemPrompts[targetKey] = ragContext.systemPrompt
 
-      // 4. Get chat instance and send message
-      const chat = getOrCreateChat(targetKey)
+        // 4. Get chat instance and send message
+        const chat = getOrCreateChat(targetKey)
 
-      if (!sideChannel) {
-        messageInput.value = question
-      }
-      const effectiveFiles =
-        options?.files && options.files.length > 0
-          ? options.files
-          : !sideChannel && fileInput.value.length > 0
-            ? fileInput.value
-            : undefined
-      try {
-        await chat.sendMessage({
-          text: question,
-          files: effectiveFiles,
-          metadata: {
-            model: textInference.activeModel,
-            timestamp: Date.now(),
-          },
-        })
+        if (!sideChannel) {
+          messageInput.value = question
+        }
+        const effectiveFiles =
+          options?.files && options.files.length > 0
+            ? options.files
+            : !sideChannel && fileInput.value.length > 0
+              ? fileInput.value
+              : undefined
+        try {
+          await chat.sendMessage({
+            text: question,
+            files: effectiveFiles,
+            metadata: {
+              model: textInference.activeModel,
+              timestamp: Date.now(),
+            },
+          })
+        } finally {
+          temporarySystemPrompts[targetKey] = null
+        }
+
+        // The Chat onError hook records stream failures. A failed turn should keep
+        // the user's prompt/attachments for retry instead of clearing them.
+        const hadError = !!chat.error && !manuallyStopped.value
+
+        const outgoingMessages = chat.messages
+
+        // 5. Store RAG source in message metadata
+        if (ragContext.ragSourceText) {
+          const latestMessage = outgoingMessages[outgoingMessages.length - 1]
+          if (latestMessage && latestMessage.role === 'assistant' && latestMessage.metadata) {
+            latestMessage.metadata.ragSource = ragContext.ragSourceText
+          }
+        }
+
+        // 6. Persist conversation (sanitize base64 image parts to aipg-media)
+        conversations.updateConversation(outgoingMessages, targetKey)
+
+        // 7. Clear inputs only on a clean turn, so failures/stops are retryable.
+        if (clearInputs && !hadError) {
+          messageInput.value = ''
+          fileInput.value = []
+        }
       } finally {
-        temporarySystemPrompts[targetKey] = null
-      }
-
-      // The Chat onError hook records stream failures. A failed turn should keep
-      // the user's prompt/attachments for retry instead of clearing them.
-      const hadError = !!chat.error && !manuallyStopped.value
-
-      const outgoingMessages = chat.messages
-
-      // 5. Store RAG source in message metadata
-      if (ragContext.ragSourceText) {
-        const latestMessage = outgoingMessages[outgoingMessages.length - 1]
-        if (latestMessage && latestMessage.role === 'assistant' && latestMessage.metadata) {
-          latestMessage.metadata.ragSource = ragContext.ragSourceText
-        }
-      }
-
-      // 6. Persist conversation (sanitize base64 image parts to aipg-media)
-      conversations.updateConversation(outgoingMessages, targetKey)
-
-      // 7. Clear inputs only on a clean turn, so failures/stops are retryable.
-      if (clearInputs && !hadError) {
-        messageInput.value = ''
-        fileInput.value = []
+        unmarkGenerating(targetKey)
       }
     }
 

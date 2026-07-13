@@ -98,11 +98,15 @@ export class SetupWizardPage {
     await expect(this.heading).toBeHidden({ timeout: SetupWizardPage.INSTALL_TIMEOUT })
   }
 
-  /** Close the wizard when nothing needs installing (used after version checks). */
+  /**
+   * Leave the wizard when nothing needs installing (used after version checks).
+   * Uses the primary button ("Continue"), which dismisses to the running app —
+   * the wizard's "Close" button shares the name "Close" with the header's
+   * window-close (X) control, so it's avoided.
+   */
   async continueOut(): Promise<void> {
-    const close = this.page.getByRole('button', { name: 'Close' })
-    const button = (await close.isVisible()) ? close : this.primaryButton
-    await button.click()
+    await expect(this.primaryButton).toBeEnabled()
+    await this.primaryButton.click()
     await expect(this.heading).toBeHidden({ timeout: 60_000 })
   }
 

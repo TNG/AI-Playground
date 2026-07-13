@@ -90,6 +90,7 @@
           </template>
           <textarea
             id="prompt-input"
+            aria-label="Prompt"
             ref="textareaRef"
             class="resize-none w-full h-48 px-4 pb-16 bg-background/50 rounded-md outline-none border border-border focus-visible:ring-[1px] focus-visible:ring-primary"
             :class="{
@@ -212,6 +213,7 @@
               v-if="readyForNewSubmit"
               @click="handleSubmitPromptClick"
               id="send-button"
+              aria-label="Send"
               class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px]"
             >
               →
@@ -219,6 +221,8 @@
             <Button
               v-else-if="!isStopping"
               @click="handleCancelClick"
+              aria-label="Stop generating"
+              aria-busy="true"
               class="px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-sm min-w-[44px] flex items-center justify-center"
             >
               <i class="svg-icon w-4 h-4 i-stop"></i>
@@ -226,6 +230,8 @@
             <Button
               v-else
               disabled
+              aria-label="Stopping"
+              aria-busy="true"
               class="px-3 py-1.5 bg-red-400 cursor-not-allowed rounded-lg text-sm min-w-[44px] flex items-center justify-center"
             >
               <i class="svg-icon w-4 h-4 i-loading"></i>
@@ -422,6 +428,10 @@ const isProcessing = computed(
   () =>
     openAiCompatibleChat.processing ||
     imageGeneration.processing ||
+    // Model/backend load runs before the chat stream starts (so `processing` is
+    // still false); keep the busy state up for it too, so the send/stop control
+    // is the single, complete signal for "is the app working on this turn".
+    textInference.isPreparingBackend ||
     activities.chatActivity(conversations.activeKey) !== null,
 )
 

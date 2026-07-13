@@ -1,6 +1,8 @@
 import { type Page, test, expect } from '@playwright/test'
 import { SetupWizardPage } from './pages/SetupWizardPage'
 import { AppShellPage } from './pages/AppShellPage'
+import { MainPage } from './pages/MainPage'
+import { SpecificSettingsPage } from './pages/SpecificSettingsPage'
 import { BACKENDS } from './backends'
 
 /**
@@ -12,10 +14,14 @@ import { BACKENDS } from './backends'
 export class AppDriver {
   readonly wizard: SetupWizardPage
   readonly shell: AppShellPage
+  readonly main: MainPage
+  readonly settings: SpecificSettingsPage
 
   constructor(private readonly window: Page) {
     this.wizard = new SetupWizardPage(window)
     this.shell = new AppShellPage(window)
+    this.main = new MainPage(window)
+    this.settings = new SpecificSettingsPage(window)
   }
 
   /**
@@ -63,6 +69,9 @@ export class AppDriver {
 
         await this.wizard.continueOut()
         await this.shell.expectRunning()
+        // Leave a clean main view (the settings sidebar re-opens on return and
+        // would otherwise occlude the prompt area for follow-up steps).
+        await this.shell.ensureSettingsClosed()
       })
     })
   }

@@ -36,19 +36,28 @@ export class AppShellPage {
     await expect(this.setupWizardButton).toBeVisible()
   }
 
-  /** Close the App Settings sidebar via its (responsive) Close button. */
-  async closeAppSettings(): Promise<void> {
-    if (!(await this.isSettingsOpen())) return
-    const closers = this.page.getByRole('button', { name: 'Close' })
-    const count = await closers.count()
-    for (let i = 0; i < count; i++) {
-      const button = closers.nth(i)
-      if (await button.isVisible()) {
-        await button.click()
-        break
+  /**
+   * Ensure the App Settings sidebar is closed, leaving a clean main view. The
+   * sidebar re-opens when returning from the wizard and can occlude the prompt
+   * area; retry the close + assert to ride out the transition.
+   */
+  async ensureSettingsClosed(): Promise<void> {
+    // Scope the Close to the sidebar region — the header's window-close (X) button
+    // is also named "Close" and clicking it would quit the app.
+    const sidebar = this.page.getByRole('region', { name: 'App Settings' })
+    await expect(async () => {
+      if (!(await this.isSettingsOpen())) return
+      const closers = sidebar.getByRole('button', { name: 'Close' })
+      const count = await closers.count()
+      for (let i = 0; i < count; i++) {
+        const button = closers.nth(i)
+        if (await button.isVisible().catch(() => false)) {
+          await button.click({ timeout: 5_000 }).catch(() => {})
+          break
+        }
       }
-    }
-    await expect(this.setupWizardButton).toBeHidden()
+      await expect(this.setupWizardButton).toBeHidden({ timeout: 2_000 })
+    }).toPass({ timeout: 30_000 })
   }
 
   /** Open App Settings and launch the Setup Wizard from the developer section. */

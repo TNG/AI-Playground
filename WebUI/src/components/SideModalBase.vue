@@ -2,6 +2,8 @@
   <transition :name="slideTransition">
     <div
       v-if="isVisible"
+      role="region"
+      :aria-label="title"
       :class="[
         'bg-card shadow-lg flex flex-col z-9 border-border h-full',
         'absolute 2xl:relative top-0',

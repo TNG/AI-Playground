@@ -19,7 +19,10 @@ export default defineConfig({
     timeout: 30_000,
   },
   use: {
-    trace: 'retain-on-failure',
+    // Always keep a trace (not just on failure): passing runs can still show
+    // rendering weirdness (e.g. duplicated reasoning) worth inspecting after the
+    // fact via `npx playwright show-trace`.
+    trace: 'on',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },

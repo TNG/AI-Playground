@@ -44,6 +44,8 @@ const available = computed(() => props.row.availableInCurrentMode ?? true)
 
 <template>
   <div
+    role="group"
+    :aria-label="row.displayName"
     class="flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-muted/30 transition-colors"
     :class="{
       'border-border': available,
@@ -164,6 +166,7 @@ const available = computed(() => props.row.availableInCurrentMode ?? true)
               <Switch
                 :model-value="row.enabled"
                 :disabled="row.toggleDisabled"
+                :aria-label="`Enable ${row.displayName}`"
                 @update:model-value="(v: boolean) => emit('toggle', v)"
               />
             </span>

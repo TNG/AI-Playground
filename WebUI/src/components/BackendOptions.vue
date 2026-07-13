@@ -378,6 +378,7 @@ const showMenuButton = computed(
     v-if="showMenuButton"
     v-model:open="menuOpen"
     :label="mapServiceNameToDisplayName(backend)"
+    :title="`${mapServiceNameToDisplayName(backend)} options`"
   >
     <!-- Version action: Update/Downgrade -->
     <DropdownMenuItem

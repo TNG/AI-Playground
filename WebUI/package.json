@@ -21,6 +21,8 @@
     "build:linux": "cross-env-shell VITE_PLATFORM_TITLE=\"from Intel®\" \"vue-tsc && vite build && electron-builder --config build/build-config.json --linux --x64 --publish never && node --experimental-strip-types ./build/scripts/warn-bundled-wheels.mts\"",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test --config playwright-e2e.config.ts",
+    "test:e2e:ui": "playwright test --config playwright-e2e.config.ts --ui",
     "lint:eslint": "eslint . --fix",
     "lint": "eslint . --fix",
     "format": "prettier --write .",
@@ -75,6 +77,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "^4.3.1",
     "@types/adm-zip": "^0.5.8",
     "@types/dompurify": "^3.2.0",

@@ -8,6 +8,116 @@ import { createAppError, extractMessage } from '../errors/appError'
  * via safeStorage in the main process (see `window.electronAPI.cloudProvider`).
  * `models` holds the ids fetched from the provider's `GET /v1/models`.
  */
+/**
+ * How a provider expects its API key to be attached. The OpenAI-compatible
+ * request/response shape is identical across these — only the auth header
+ * differs, so the proxy (cloudProxy.ts) branches on this alone.
+ *  - `bearer`:    `Authorization: Bearer <key>` — OpenAI and virtually every
+ *                 OpenAI-compatible endpoint (OpenRouter, Groq, Together,
+ *                 Mistral, DeepSeek, xAI, and Anthropic's / Google's compat
+ *                 endpoints, plus local vLLM / Ollama / LM Studio).
+ *  - `x-api-key`: `x-api-key: <key>` — Anthropic's native surface.
+ *  - `api-key`:   `api-key: <key>` — Azure OpenAI.
+ */
+export type CloudAuthStyle = 'bearer' | 'x-api-key' | 'api-key'
+
+/**
+ * A known provider the setup UI can prefill (base URL + auth scheme). Purely a
+ * convenience: the user can still hand-edit every field afterwards, and the
+ * `Custom` seed provider covers anything not listed here.
+ */
+export type CloudProviderPreset = {
+  /** Stable prefill key (not a provider-instance id). */
+  key: string
+  name: string
+  baseUrl: string
+  authStyle: CloudAuthStyle
+  /** Where to get an API key — surfaced as a hint in the setup UI. */
+  apiKeyUrl?: string
+}
+
+// Curated OpenAI-compatible providers. Every entry here works through the
+// existing chat client with only a base URL + key; auth style is carried so the
+// list can later include surfaces that need a different header (Anthropic
+// native, Azure) without changing the plumbing.
+export const CLOUD_PROVIDER_PRESETS: CloudProviderPreset[] = [
+  {
+    key: 'openai',
+    name: 'OpenAI',
+    baseUrl: 'https://api.openai.com/v1',
+    authStyle: 'bearer',
+    apiKeyUrl: 'https://platform.openai.com/api-keys',
+  },
+  {
+    key: 'openrouter',
+    name: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    authStyle: 'bearer',
+    apiKeyUrl: 'https://openrouter.ai/keys',
+  },
+  {
+    key: 'groq',
+    name: 'Groq',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    authStyle: 'bearer',
+    apiKeyUrl: 'https://console.groq.com/keys',
+  },
+  {
+    key: 'together',
+    name: 'Together AI',
+    baseUrl: 'https://api.together.xyz/v1',
+    authStyle: 'bearer',
+    apiKeyUrl: 'https://api.together.ai/settings/api-keys',
+  },
+  {
+    key: 'deepseek',
+    name: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com/v1',
+    authStyle: 'bearer',
+    apiKeyUrl: 'https://platform.deepseek.com/api_keys',
+  },
+  {
+    key: 'mistral',
+    name: 'Mistral',
+    baseUrl: 'https://api.mistral.ai/v1',
+    authStyle: 'bearer',
+    apiKeyUrl: 'https://console.mistral.ai/api-keys',
+  },
+  {
+    key: 'xai',
+    name: 'xAI (Grok)',
+    baseUrl: 'https://api.x.ai/v1',
+    authStyle: 'bearer',
+    apiKeyUrl: 'https://console.x.ai',
+  },
+  {
+    key: 'gemini',
+    name: 'Google Gemini (OpenAI-compatible)',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    authStyle: 'bearer',
+    apiKeyUrl: 'https://aistudio.google.com/apikey',
+  },
+  {
+    key: 'anthropic',
+    name: 'Anthropic (OpenAI-compatible)',
+    baseUrl: 'https://api.anthropic.com/v1',
+    authStyle: 'bearer',
+    apiKeyUrl: 'https://console.anthropic.com/settings/keys',
+  },
+  {
+    key: 'ollama',
+    name: 'Ollama (local)',
+    baseUrl: 'http://localhost:11434/v1',
+    authStyle: 'bearer',
+  },
+  {
+    key: 'lmstudio',
+    name: 'LM Studio (local)',
+    baseUrl: 'http://localhost:1234/v1',
+    authStyle: 'bearer',
+  },
+]
+
 /** Capabilities that gate capability-scoped chat presets (Vision, tool-calling,
  *  reasoning). Remote providers rarely advertise these in a standard way, so we
  *  parse what we can and otherwise assume the model is fully capable. */
@@ -33,6 +143,9 @@ export type CloudProvider = {
   name: string
   baseUrl: string
   models: string[]
+  // How the API key is attached upstream. Absent = 'bearer' (the default and
+  // the scheme every shipped preset uses).
+  authStyle?: CloudAuthStyle
   // Per-model capabilities parsed from the provider's /v1/models response. A
   // model missing from this map is assumed fully capable (ASSUME_ALL_CAPABILITIES).
   modelCapabilities?: Record<string, CloudModelCapabilities>
@@ -117,6 +230,12 @@ export const useCloudMode = defineStore(
       return id ? apiKeyCache[id] : undefined
     })
 
+    // Auth scheme for the selected provider; the chat path sends this to the
+    // proxy so the key is attached with the right header (see cloudProxy.ts).
+    const activeProviderAuthStyle = computed<CloudAuthStyle>(
+      () => selectedProvider.value?.authStyle ?? 'bearer',
+    )
+
     // Loopback base URL of the main-process Cloud proxy (see cloudProxy.ts).
     // All cloud networking flows through it, so upstream failures are logged in
     // the Node console instead of surfacing as opaque fetch errors in the browser.
@@ -190,9 +309,14 @@ export const useCloudMode = defineStore(
 
       let response: Response
       try {
-        // Only routing headers — the key stays in main and is attached there.
+        // Only routing headers — the key stays in main and is attached there,
+        // using the provider's auth scheme.
         response = await fetch(url, {
-          headers: { 'X-Cloud-Upstream': base, 'X-Cloud-Provider': id },
+          headers: {
+            'X-Cloud-Upstream': base,
+            'X-Cloud-Provider': id,
+            'X-Cloud-Auth-Style': provider.authStyle ?? 'bearer',
+          },
         })
       } catch (e) {
         throw createAppError({
@@ -334,6 +458,7 @@ export const useCloudMode = defineStore(
       selectedProvider,
       activeProviderBaseUrl,
       activeProviderApiKey,
+      activeProviderAuthStyle,
       proxyUrl,
       ensureProxyUrl,
       selectProvider,

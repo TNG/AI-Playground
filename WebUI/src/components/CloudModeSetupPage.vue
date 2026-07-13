@@ -51,12 +51,30 @@
 
         <div class="flex flex-col gap-4">
           <div class="flex flex-col gap-1.5">
+            <Label>Prefill from a known provider</Label>
+            <DropDownNew
+              title="Known providers"
+              :items="presetItems"
+              :value="selectedPresetKey"
+              @change="applyPreset"
+            />
+          </div>
+          <div class="flex flex-col gap-1.5">
             <Label>Name</Label>
             <Input v-model="form.name" placeholder="Custom" />
           </div>
           <div class="flex flex-col gap-1.5">
             <Label>Base URL</Label>
             <Input v-model="form.baseUrl" placeholder="https://your-provider.example.com" />
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <Label>Authentication</Label>
+            <DropDownNew
+              title="How the API key is sent"
+              :items="authStyleItems"
+              :value="form.authStyle"
+              @change="setAuthStyle"
+            />
           </div>
           <div class="flex flex-col gap-1.5">
             <Label>API Key</Label>
@@ -106,13 +124,18 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch, onMounted } from 'vue'
+import { computed, reactive, ref, watch, onMounted } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import SetupSidebarTile from '@/components/SetupSidebarTile.vue'
 import SetupWizardFooter from '@/components/SetupWizardFooter.vue'
-import { useCloudMode } from '@/assets/js/store/cloudMode'
+import DropDownNew from '@/components/DropDownNew.vue'
+import {
+  useCloudMode,
+  CLOUD_PROVIDER_PRESETS,
+  type CloudAuthStyle,
+} from '@/assets/js/store/cloudMode'
 import { useErrors } from '@/assets/js/store/errors'
 import * as toast from '@/assets/js/toast'
 
@@ -133,17 +156,55 @@ const form = reactive({
   name: '',
   baseUrl: '',
   apiKey: '',
+  authStyle: 'bearer' as CloudAuthStyle,
   models: [] as string[],
 })
+
+// One-shot "prefill from a known provider" selector. It isn't persisted — it
+// just stamps name/baseUrl/authStyle onto the form — so it resets per provider.
+const selectedPresetKey = ref('')
+const presetItems = computed(() =>
+  CLOUD_PROVIDER_PRESETS.map((p) => ({ label: p.name, value: p.key, active: false })),
+)
+
+const AUTH_STYLE_LABELS: Record<CloudAuthStyle, string> = {
+  bearer: 'Bearer — Authorization header',
+  'x-api-key': 'x-api-key — Anthropic',
+  'api-key': 'api-key — Azure OpenAI',
+}
+const authStyleItems = computed(() =>
+  (Object.keys(AUTH_STYLE_LABELS) as CloudAuthStyle[]).map((value) => ({
+    label: AUTH_STYLE_LABELS[value],
+    value,
+    active: value === form.authStyle,
+  })),
+)
+
+function applyPreset(key: string) {
+  const preset = CLOUD_PROVIDER_PRESETS.find((p) => p.key === key)
+  if (!preset) return
+  selectedPresetKey.value = key
+  form.name = preset.name
+  form.baseUrl = preset.baseUrl
+  form.authStyle = preset.authStyle
+  applyFormToStore()
+}
+
+function setAuthStyle(style: string) {
+  form.authStyle = style as CloudAuthStyle
+}
 
 function loadForm(id: string) {
   const provider = cloudMode.providers.find((p) => p.id === id)
   if (!provider) return
   form.name = provider.name
   form.baseUrl = provider.baseUrl
+  form.authStyle = provider.authStyle ?? 'bearer'
   form.apiKey = ''
   form.models = [...provider.models]
   hasStoredKey.value = !!cloudMode.activeProviderApiKey
+  // The preset selector is a per-provider prefill helper — reset it on switch.
+  selectedPresetKey.value = ''
   // Success hints belong to the provider we just left — clear them on switch.
   fetchSuccess.value = false
   justSaved.value = false
@@ -186,6 +247,7 @@ function applyFormToStore() {
   cloudMode.updateProvider(selectedId.value, {
     name: form.name.trim() || 'Custom',
     baseUrl: form.baseUrl.trim(),
+    authStyle: form.authStyle,
     models: form.models,
   })
 }

@@ -208,6 +208,7 @@ export const useOpenAiCompatibleChat = defineStore(
               const upstream = cloudMode.activeProviderBaseUrl
               if (upstream) headers.set('X-Cloud-Upstream', upstream)
               headers.set('X-Cloud-Provider', cloudMode.selectedProviderId)
+              headers.set('X-Cloud-Auth-Style', cloudMode.activeProviderAuthStyle)
               return globalThis.fetch(requestUrl.toString(), { ...init, headers })
             }
             // When Home Agent is active, the LLM proxy lives behind the Home

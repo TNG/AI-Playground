@@ -242,14 +242,19 @@ async function removeSelectedProvider() {
   loadForm(nextId)
 }
 
-/** Write the in-form name/baseURL/models back onto the selected provider. */
+/** Write the in-form name/baseURL back onto the selected provider. */
 function applyFormToStore() {
+  // Don't push `models` here: the store owns the fetched list (written by
+  // fetchModels) and drops it when the base URL changes — round-tripping the
+  // form's copy would resurrect a stale list under the new URL. Mirror the
+  // store's list back into the form afterwards so the UI reflects any drop.
   cloudMode.updateProvider(selectedId.value, {
     name: form.name.trim() || 'Custom',
     baseUrl: form.baseUrl.trim(),
     authStyle: form.authStyle,
-    models: form.models,
   })
+  const provider = cloudMode.providers.find((p) => p.id === selectedId.value)
+  if (provider) form.models = [...provider.models]
 }
 
 async function fetchModels() {

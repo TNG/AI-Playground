@@ -892,6 +892,19 @@ export const useOpenAiCompatibleChat = defineStore(
             }
           }
         },
+        onError: () => {
+          // streamText does NOT call onFinish when the stream errors (e.g. a
+          // provider rejects a tool schema with HTTP 400 before the first token).
+          // Without this, the inference activity armed above (ensureInferenceActivity)
+          // stays open forever and the UI is wedged showing "Processing prompt…"
+          // until the whole app is restarted — restarting only the backend can't
+          // clear renderer-side activity state. Mirror onFinish's teardown so any
+          // pre-first-token failure settles cleanly. The Chat's own onError hook
+          // still reports the error to the user (toast) and preserves the prompt
+          // for retry.
+          reasoningInProgress.value = false
+          clearInferenceActivity()
+        },
       })
 
       return result.toUIMessageStreamResponse({

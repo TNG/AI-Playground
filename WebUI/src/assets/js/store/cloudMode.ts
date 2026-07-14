@@ -256,9 +256,33 @@ export const useCloudMode = defineStore(
       providers.value.push({ models: [], ...provider })
     }
 
+    // Normalized comparison form of a base URL, so `https://x/v1` and `https://x/`
+    // don't read as a change (callers append `/v1/` — see activeProviderBaseUrl).
+    const normalizeBase = (url: string | undefined): string =>
+      (url ?? '').trim().replace(/\/+$/, '').replace(/\/v1$/, '')
+
+    // A previously fetched model list belongs to a specific endpoint + credential.
+    // Once either changes, the ids may be stale (foreign endpoint) or newly
+    // (un)authorized, so drop them and let the UI re-fetch under the new settings.
+    function dropFetchedModels(provider: CloudProvider) {
+      provider.models = []
+      provider.modelCapabilities = undefined
+    }
+
     function updateProvider(id: string, patch: Partial<Omit<CloudProvider, 'id'>>) {
       const provider = providers.value.find((p) => p.id === id)
-      if (provider) Object.assign(provider, patch)
+      if (!provider) return
+      // A base-URL change invalidates any list fetched from the old endpoint.
+      // Skip when the patch itself carries a fresh `models` array (e.g. fetchModels
+      // results applied through here) so we don't clobber the incoming list.
+      if (
+        patch.baseUrl !== undefined &&
+        patch.models === undefined &&
+        normalizeBase(patch.baseUrl) !== normalizeBase(provider.baseUrl)
+      ) {
+        dropFetchedModels(provider)
+      }
+      Object.assign(provider, patch)
     }
 
     async function removeProvider(id: string) {
@@ -278,8 +302,15 @@ export const useCloudMode = defineStore(
       const result = await window.electronAPI.cloudProvider.saveKey(id, key)
       if (result.success) {
         const trimmed = key.trim()
+        const previous = apiKeyCache[id]
         if (trimmed) apiKeyCache[id] = trimmed
         else delete apiKeyCache[id]
+        // A changed token can grant a different set of models (or revoke legacy
+        // ones the old key could see), so any previously fetched list is stale.
+        if (trimmed !== (previous ?? '')) {
+          const provider = providers.value.find((p) => p.id === id)
+          if (provider) dropFetchedModels(provider)
+        }
       }
       return result
     }

@@ -68,6 +68,17 @@
         </button>
       </div>
       <button
+        v-if="globalSetup.loadingState === 'running'"
+        id="contextual-help-toggle"
+        type="button"
+        class="flex size-7 items-center justify-center rounded-full border border-border text-sm font-bold text-foreground transition-colors hover:bg-muted"
+        :class="{ 'bg-primary text-primary-foreground border-primary': contextualHelp.active }"
+        title="What's this? Click, then click a control to learn about it."
+        @click="contextualHelp.toggle()"
+      >
+        ?
+      </button>
+      <button
         v-if="!demoMode.enabled"
         :title="languages.COM_MINI"
         @click="miniWindow"
@@ -250,6 +261,7 @@
     <DemoModeOverlayDriverJsRef ref="demoModeOverlayDriverJs" />
     <DemoModeNotificationDots />
     <DemoModeAutoresetDialog v-if="demoMode.showResetDialog" />
+    <ContextualHelpLayer />
   </main>
 
   <footer
@@ -339,11 +351,14 @@ import DemoModeAutoresetDialog from '@/components/DemoModeAutoresetDialog.vue'
 import HomeAgentToggle from '@/components/HomeAgentToggle.vue'
 import MockChannelPanel from '@/components/MockChannelPanel.vue'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
+import ContextualHelpLayer from '@/components/ContextualHelpLayer.vue'
+import { useContextualHelp } from '@/assets/js/store/contextualHelp'
 
 const theme = useTheme()
 const globalSetup = useGlobalSetup()
 const productModeStore = useProductMode()
 const demoMode = useDemoMode()
+const contextualHelp = useContextualHelp()
 const dialogStore = useDialogStore()
 const promptStore = usePromptStore()
 const uiStore = useUIStore()

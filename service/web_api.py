@@ -74,6 +74,7 @@ try:
     )
     from exceptions import HFReachabilityError
     from model_downloader import HFPlaygroundDownloader
+    from exceptions import HFReachabilityError
     from psutil._common import bytes2human
 
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)

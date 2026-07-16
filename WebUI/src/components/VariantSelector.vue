@@ -8,6 +8,8 @@ export interface VariantOption {
   name: string
   value: string
   icon?: string
+  /** Parent preset name — used by contextual help mode */
+  presetName?: string
 }
 
 interface Props {
@@ -53,6 +55,8 @@ const gridClass = computed(() => {
       <Label
         :for="option.id"
         :title="option.name"
+        :data-aipg-preset-name="option.presetName ?? undefined"
+        :data-aipg-variant-name="option.presetName ? option.value : undefined"
         class="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover px-2 py-1.5 text-sm min-w-0 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary"
       >
         <span class="truncate max-w-full">{{ option.name }}</span>

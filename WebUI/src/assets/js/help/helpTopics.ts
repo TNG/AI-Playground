@@ -14,6 +14,7 @@ export type HelpTopicId =
   | 'app-settings-button'
   | 'app-settings-sidebar'
   | 'show-history-button'
+  | 'preset-selector'
 
 export type HelpTopic = {
   title: string
@@ -82,6 +83,10 @@ export const HELP_TOPICS: Record<HelpTopicId, HelpTopic> = {
     title: 'History',
     body: 'Reopen past chat and generation history across modes.',
   },
+  'preset-selector': {
+    title: 'Presets',
+    body: 'Each tile is a preset tuned for a task (chat model, image workflow, etc.). Click a tile to select it; use help mode on a tile to read what that preset does.',
+  },
 }
 
 export function getHelpTopic(id: string): HelpTopic | undefined {
@@ -89,28 +94,52 @@ export function getHelpTopic(id: string): HelpTopic | undefined {
 }
 
 const MODE_BUTTON_PREFIX = 'mode-button-'
+const PRESET_NAME_ATTR = 'data-aipg-preset-name'
+const VARIANT_NAME_ATTR = 'data-aipg-variant-name'
 
-export function resolveHelpTarget(from: EventTarget | null): {
-  topicId: HelpTopicId
-  element: HTMLElement
-} | null {
+export type HelpResolveResult =
+  | { element: HTMLElement; kind: 'static'; topicId: HelpTopicId }
+  | { element: HTMLElement; kind: 'preset'; presetName: string }
+  | { element: HTMLElement; kind: 'preset-variant'; presetName: string; variantName: string }
+
+export function resolveHelpTarget(from: EventTarget | null): HelpResolveResult | null {
   let el = from instanceof HTMLElement ? from : null
   while (el && el !== document.body) {
     if (el.id === 'contextual-help-toggle' || el.closest('#contextual-help-panel')) {
       return null
     }
+
+    const variantName = el.getAttribute(VARIANT_NAME_ATTR)
+    const presetNameFromEl = el.getAttribute(PRESET_NAME_ATTR)
+    if (variantName && presetNameFromEl) {
+      return {
+        kind: 'preset-variant',
+        element: el,
+        presetName: presetNameFromEl,
+        variantName,
+      }
+    }
+
+    const presetHost = el.closest(`[${PRESET_NAME_ATTR}]`) as HTMLElement | null
+    if (presetHost) {
+      const presetName = presetHost.getAttribute(PRESET_NAME_ATTR)
+      if (presetName) {
+        return { kind: 'preset', element: presetHost, presetName }
+      }
+    }
+
     const attr = el.getAttribute('data-aipg-help')
     if (attr && getHelpTopic(attr)) {
-      return { topicId: attr as HelpTopicId, element: el }
+      return { kind: 'static', topicId: attr as HelpTopicId, element: el }
     }
     if (el.id && getHelpTopic(el.id)) {
-      return { topicId: el.id as HelpTopicId, element: el }
+      return { kind: 'static', topicId: el.id as HelpTopicId, element: el }
     }
     if (el.id === 'mode-buttons') {
-      return { topicId: 'mode-buttons', element: el }
+      return { kind: 'static', topicId: 'mode-buttons', element: el }
     }
     if (el.id.startsWith(MODE_BUTTON_PREFIX) && getHelpTopic(el.id)) {
-      return { topicId: el.id as HelpTopicId, element: el }
+      return { kind: 'static', topicId: el.id as HelpTopicId, element: el }
     }
     el = el.parentElement
   }

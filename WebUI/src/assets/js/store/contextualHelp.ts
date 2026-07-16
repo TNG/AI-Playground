@@ -1,6 +1,6 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { getHelpTopic, type HelpTopicId } from '@/assets/js/help/helpTopics'
+import { getHelpTopic, type HelpTopic, type HelpTopicId } from '@/assets/js/help/helpTopics'
 
 export type HelpPanelAnchor = {
   top: number
@@ -12,10 +12,11 @@ export type HelpPanelAnchor = {
 export const useContextualHelp = defineStore('contextualHelp', () => {
   const active = ref(false)
   const panelTopicId = ref<HelpTopicId | null>(null)
+  const panelTopicDynamic = ref<HelpTopic | null>(null)
   const anchor = ref<HelpPanelAnchor | null>(null)
 
-  const panelTopic = computed(() =>
-    panelTopicId.value ? getHelpTopic(panelTopicId.value) : undefined,
+  const panelTopic = computed(
+    () => panelTopicDynamic.value ?? (panelTopicId.value ? getHelpTopic(panelTopicId.value) : undefined),
   )
 
   function setAnchorFromElement(el: HTMLElement) {
@@ -28,13 +29,21 @@ export const useContextualHelp = defineStore('contextualHelp', () => {
     }
   }
 
-  function openPanel(topicId: HelpTopicId, el: HTMLElement) {
+  function openPanelForTopic(el: HTMLElement, topic: HelpTopic) {
+    panelTopicId.value = null
+    panelTopicDynamic.value = topic
+    setAnchorFromElement(el)
+  }
+
+  function openPanel(el: HTMLElement, topicId: HelpTopicId) {
+    panelTopicDynamic.value = null
     panelTopicId.value = topicId
     setAnchorFromElement(el)
   }
 
   function closePanel() {
     panelTopicId.value = null
+    panelTopicDynamic.value = null
     anchor.value = null
   }
 
@@ -55,9 +64,11 @@ export const useContextualHelp = defineStore('contextualHelp', () => {
   return {
     active,
     panelTopicId,
+    panelTopicDynamic,
     anchor,
     panelTopic,
     openPanel,
+    openPanelForTopic,
     closePanel,
     activate,
     deactivate,

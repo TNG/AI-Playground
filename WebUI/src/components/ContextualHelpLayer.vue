@@ -7,8 +7,8 @@
       aria-live="polite"
     >
       <div
-        v-if="!contextualHelp.panelTopic"
-        class="pointer-events-none fixed bottom-24 left-1/2 z-[40016] max-w-md -translate-x-1/2 rounded-lg border border-border bg-popover px-4 py-2 text-center text-sm text-popover-foreground shadow-lg"
+        v-if="contextualHelp.active"
+        class="pointer-events-none fixed top-14 left-1/2 z-[40016] max-w-lg -translate-x-1/2 rounded-lg border border-primary/40 bg-primary/15 px-4 py-2.5 text-center text-sm font-medium text-foreground shadow-md backdrop-blur-sm"
       >
         Help mode — click a control to learn about it. Press Esc to exit.
       </div>
@@ -23,7 +23,7 @@
         <h2 :id="headingId" class="mb-2 text-base font-semibold">
           {{ contextualHelp.panelTopic.title }}
         </h2>
-        <p class="text-sm leading-relaxed text-muted-foreground">
+        <p class="text-sm leading-relaxed text-muted-foreground whitespace-pre-line">
           {{ contextualHelp.panelTopic.body }}
         </p>
         <div class="mt-4 flex flex-wrap items-center justify-between gap-2">
@@ -50,10 +50,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, watch } from 'vue'
 import { resolveHelpTarget } from '@/assets/js/help/helpTopics'
+import { helpTopicFromPreset, helpTopicFromPresetVariant } from '@/assets/js/help/presetHelp'
 import { useContextualHelp } from '@/assets/js/store/contextualHelp'
+import { usePresets } from '@/assets/js/store/presets'
 import * as toast from '@/assets/js/toast'
 
 const contextualHelp = useContextualHelp()
+const presetsStore = usePresets()
 const headingId = 'contextual-help-heading'
 
 const HIGHLIGHT_CLASS = 'aipg-help-highlight'
@@ -110,7 +113,23 @@ function onCaptureClick(event: MouseEvent) {
 
   const resolved = resolveHelpTarget(target)
   if (resolved) {
-    contextualHelp.openPanel(resolved.topicId, resolved.element)
+    if (resolved.kind === 'static') {
+      contextualHelp.openPanel(resolved.element, resolved.topicId)
+    } else if (resolved.kind === 'preset') {
+      const basePreset =
+        presetsStore.presets.find((p) => p.name === resolved.presetName) ?? null
+      contextualHelp.openPanelForTopic(
+        resolved.element,
+        helpTopicFromPreset(basePreset, resolved.presetName),
+      )
+    } else {
+      const basePreset =
+        presetsStore.presets.find((p) => p.name === resolved.presetName) ?? null
+      contextualHelp.openPanelForTopic(
+        resolved.element,
+        helpTopicFromPresetVariant(basePreset, resolved.presetName, resolved.variantName),
+      )
+    }
     setHighlight(resolved.element)
     return
   }
@@ -119,7 +138,7 @@ function onCaptureClick(event: MouseEvent) {
 }
 
 function onCaptureMouseMove(event: MouseEvent) {
-  if (!contextualHelp.active || contextualHelp.panelTopicId) return
+  if (!contextualHelp.active || contextualHelp.panelTopic) return
   const target = event.target
   if (!(target instanceof HTMLElement)) {
     setHighlight(null)
@@ -132,7 +151,7 @@ function onCaptureMouseMove(event: MouseEvent) {
 function onKeyDown(event: KeyboardEvent) {
   if (!contextualHelp.active || event.key !== 'Escape') return
   event.preventDefault()
-  if (contextualHelp.panelTopicId) contextualHelp.closePanel()
+  if (contextualHelp.panelTopic) contextualHelp.closePanel()
   else contextualHelp.deactivate()
 }
 
@@ -162,7 +181,7 @@ watch(
 watch(
   () => contextualHelp.panelTopicId,
   (id) => {
-    if (!id) clearHighlight()
+    if (!id && !contextualHelp.panelTopicDynamic) clearHighlight()
   },
 )
 
@@ -192,7 +211,10 @@ body.aipg-help-mode #advanced-settings-button,
 body.aipg-help-mode #app-settings-button,
 body.aipg-help-mode #show-history-button,
 body.aipg-help-mode #app-settings-sidebar,
-body.aipg-help-mode #advanced-settings-sidebar {
+body.aipg-help-mode #advanced-settings-sidebar,
+body.aipg-help-mode [data-aipg-preset-name],
+body.aipg-help-mode [data-aipg-variant-name],
+body.aipg-help-mode #preset-selector {
   cursor: help;
 }
 

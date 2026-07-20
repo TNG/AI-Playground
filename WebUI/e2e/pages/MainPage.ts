@@ -11,10 +11,13 @@ export type ChatMode = 'Chat' | 'Image Gen' | 'Image Edit' | 'Video'
 export class MainPage {
   constructor(private readonly page: Page) {}
 
-  // A chat text turn is quick; image/video generation runs for minutes.
-  static readonly TEXT_TIMEOUT = 2 * 60_000
-  static readonly IMAGE_TIMEOUT = 4 * 60_000
-  static readonly VIDEO_TIMEOUT = 5 * 60_000
+  // Generous per-turn budgets: the default chat model (Qwen3.5-9B) is a reasoning
+  // model whose thinking alone can run for minutes, and image/video generation on
+  // local hardware runs longer still. These bound a single turn *after* any model
+  // download has been handled separately (see DownloadDialogPage).
+  static readonly TEXT_TIMEOUT = 8 * 60_000
+  static readonly IMAGE_TIMEOUT = 8 * 60_000
+  static readonly VIDEO_TIMEOUT = 15 * 60_000
 
   get promptInput(): Locator {
     return this.page.getByRole('textbox', { name: 'Prompt' })
@@ -39,14 +42,39 @@ export class MainPage {
       .or(this.page.getByRole('button', { name: 'Stopping' }))
   }
 
-  /** Main display image of each completed image/edit tool result. */
+  /**
+   * Completed image results. Covers both surfaces: the agentic chat tool card and
+   * the direct Image Gen / Image Edit panel — both tag their output image
+   * `alt="Generated result"`.
+   */
   get generatedImages(): Locator {
     return this.page.getByRole('img', { name: 'Generated result' })
   }
 
-  /** Generated video result(s) in the chat panel. */
+  /** Generated video result(s), in either the chat panel or the direct Video panel. */
   get generatedVideos(): Locator {
     return this.page.locator('video')
+  }
+
+  /** Generated 3D model result (the Image To 3D Model preset), tagged via aria-label. */
+  get generatedModels(): Locator {
+    return this.page.getByLabel('Generated 3D model')
+  }
+
+  /**
+   * The prompt-area attachment file input (the "+" control). Present only when the
+   * active preset allows an attachment: a vision chat model (image) or a RAG preset
+   * (document). Used for chat-mode attachments; ComfyUI reference images are set in
+   * the settings sidebar instead (see {@link SpecificSettingsPage.attachReferenceImages}).
+   */
+  get chatAttachmentInput(): Locator {
+    return this.page.getByLabel('Attach image or document')
+  }
+
+  /** Attach a file (image or document) to the next chat turn via the "+" control. */
+  async attachChatFile(filePath: string): Promise<void> {
+    await this.chatAttachmentInput.waitFor({ state: 'attached', timeout: 60_000 })
+    await this.chatAttachmentInput.setInputFiles(filePath)
   }
 
   get assistantResponses(): Locator {
@@ -130,6 +158,20 @@ export class MainPage {
   }
 
   /**
+   * Submit a generation in a direct ComfyUI mode (Image Gen / Image Edit / Video).
+   * Unlike {@link sendPrompt}, the prompt box may be read-only for some presets
+   * (e.g. Upscale, Colorize, 3D) — those still generate from their fixed workflow,
+   * so we only type when the box is editable, then hit Send.
+   */
+  async submitGeneration(text?: string): Promise<void> {
+    await expect(this.sendButton).toBeVisible()
+    if (text && (await this.promptInput.isEditable().catch(() => false))) {
+      await this.promptInput.fill(text)
+    }
+    await this.sendButton.click()
+  }
+
+  /**
    * Wait for the current turn (backend/model load, "Processing prompt…",
    * reasoning, tool calls and generation) to fully finish. The busy (Stop)
    * control is up for the entire turn and only gives way to Send once everything
@@ -156,7 +198,17 @@ export class MainPage {
    * is that a *reply* — not just a reasoning trace — is on screen.
    */
   async waitForAssistantAnswer(timeout: number = MainPage.TEXT_TIMEOUT): Promise<void> {
-    await expect(this.assistantAnswer.filter({ hasText: /\S/ }).first()).toBeVisible({ timeout })
+    // Wait for the whole turn to finish first (model load, reasoning, tool calls,
+    // generation), then assert a reply is on screen. Once idle, a well-formed turn
+    // must have rendered an "Assistant reply" region — if only a reasoning trace is
+    // present the model closed the turn with an empty final answer. Failing fast
+    // here surfaces that as a clear diagnostic instead of blocking on the full
+    // per-turn budget waiting for a region that will never appear.
+    await this.waitUntilIdle(timeout)
+    await expect(
+      this.assistantAnswer.filter({ hasText: /\S/ }).first(),
+      'model finished the turn but produced no non-empty text reply (reasoning-only response)',
+    ).toBeVisible({ timeout: 5_000 })
   }
 
   async lastAssistantText(): Promise<string> {

@@ -10,7 +10,7 @@ import { useTextToSpeech } from './textToSpeech'
 import { useDemoMode } from './demoMode'
 import { useHomeAgent } from './homeAgent'
 import { useCloudMode } from './cloudMode'
-import { useQwen3Tts } from './qwen3Tts'
+import { useQwen3TextToSpeech } from './qwen3TextToSpeech'
 import { CHANNELS } from './channels/channelRegistry'
 import { mapStatusToColor, mapToDisplayStatus } from '@/lib/utils'
 import * as toast from '@/assets/js/toast'
@@ -117,7 +117,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   const textToSpeech = useTextToSpeech()
   const homeAgent = useHomeAgent()
   const cloudMode = useCloudMode()
-  const qwen3Tts = useQwen3Tts()
+  const qwen3Tts = useQwen3TextToSpeech()
   const errors = useErrors()
 
   const pendingProductMode = ref<ProductMode | null>(null)
@@ -903,7 +903,7 @@ function mapServiceNameToDisplayName(serviceName: string) {
     case 'home-agent-backend':
       return 'Home Agent'
     case 'qwen3-tts-backend':
-      return 'Qwen3-TTS'
+      return 'Text To Speech (Qwen3-TTS)'
     default:
       return serviceName
   }

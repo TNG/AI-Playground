@@ -67,6 +67,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   reportClientEvent: (eventId: number) => ipcRenderer.send('reportClientEvent', eventId),
   saveImage: (url: string) => ipcRenderer.send('saveImage', url),
   saveImageToMediaInput: (dataUri: string) => ipcRenderer.invoke('saveImageToMediaInput', dataUri),
+  saveGeneratedAudio: (audioBase64: string, filename: string) =>
+    ipcRenderer.invoke('saveGeneratedAudio', audioBase64, filename),
+  readLocalAudioAsDataUri: (filePath: string) =>
+    ipcRenderer.invoke('readLocalAudioAsDataUri', filePath),
   readAipgMediaAsBase64: (url: string) => ipcRenderer.invoke('readAipgMediaAsBase64', url),
   wakeupApiService: () => ipcRenderer.send('wakeupApiService'),
   openImageWin: (url: string, title: string, width: number, height: number) =>

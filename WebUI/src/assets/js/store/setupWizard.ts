@@ -10,6 +10,7 @@ import { useTextToSpeech } from './textToSpeech'
 import { useDemoMode } from './demoMode'
 import { useHomeAgent } from './homeAgent'
 import { useCloudMode } from './cloudMode'
+import { useQwen3Tts } from './qwen3Tts'
 import { CHANNELS } from './channels/channelRegistry'
 import { mapStatusToColor, mapToDisplayStatus } from '@/lib/utils'
 import * as toast from '@/assets/js/toast'
@@ -20,13 +21,21 @@ import type { ErrorDetails } from '../../../../electron/subprocesses/service'
 const ALL_BACKENDS: BackendServiceName[] = [
   'ai-backend',
   'home-agent-backend',
+  'qwen3-tts-backend',
   'llamacpp-backend',
   'openvino-backend',
   'comfyui-backend',
 ]
 
-function getBackends(homeAgentEnabled: boolean): BackendServiceName[] {
-  return homeAgentEnabled ? ALL_BACKENDS : ALL_BACKENDS.filter((b) => b !== 'home-agent-backend')
+function getBackends(homeAgentEnabled: boolean, qwen3TtsEnabled: boolean): BackendServiceName[] {
+  let list = ALL_BACKENDS
+  if (!homeAgentEnabled) {
+    list = list.filter((b) => b !== 'home-agent-backend')
+  }
+  if (!qwen3TtsEnabled) {
+    list = list.filter((b) => b !== 'qwen3-tts-backend')
+  }
+  return list
 }
 
 function isBackendAvailableInProductMode(
@@ -81,6 +90,7 @@ const knownSteps: Record<BackendServiceName, string[]> = {
     'install comfyUI manager',
   ],
   'home-agent-backend': ['start', 'install dependencies'],
+  'qwen3-tts-backend': ['start', 'install dependencies'],
 }
 
 const stepDisplayNames: Record<string, string> = {
@@ -107,6 +117,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   const textToSpeech = useTextToSpeech()
   const homeAgent = useHomeAgent()
   const cloudMode = useCloudMode()
+  const qwen3Tts = useQwen3Tts()
   const errors = useErrors()
 
   const pendingProductMode = ref<ProductMode | null>(null)
@@ -241,7 +252,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   })
 
   const backendRows = computed<BackendRowViewModel[]>(() => {
-    return getBackends(homeAgent.isFeatureEnabled).map((serviceName) => {
+    return getBackends(homeAgent.isFeatureEnabled, qwen3Tts.isFeatureEnabled).map((serviceName) => {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       const available = isBackendAvailableInProductMode(pendingProductMode.value, serviceName)
       const isRequired = info?.isRequired ?? serviceName === 'ai-backend'
@@ -457,7 +468,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
   function seedInstallSelection() {
     const newSelection = new Set<BackendServiceName>()
-    for (const serviceName of getBackends(homeAgent.isFeatureEnabled)) {
+    for (const serviceName of getBackends(homeAgent.isFeatureEnabled, qwen3Tts.isFeatureEnabled)) {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       if (!info) continue
       if (info.isRequired) continue
@@ -530,7 +541,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
   function setPendingMode(mode: ProductMode) {
     pendingProductMode.value = mode
-    for (const sn of getBackends(homeAgent.isFeatureEnabled)) {
+    for (const sn of getBackends(homeAgent.isFeatureEnabled, qwen3Tts.isFeatureEnabled)) {
       const wasAvailable = isBackendAvailableInProductMode(
         productModeStore.productMode ?? pendingProductMode.value,
         sn,
@@ -784,7 +795,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     await globalSetup.initSetup()
     globalSetup.loadingState = 'running'
 
-    for (const serviceName of getBackends(homeAgent.isFeatureEnabled)) {
+    for (const serviceName of getBackends(homeAgent.isFeatureEnabled, qwen3Tts.isFeatureEnabled)) {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       if (!info?.isSetUp) continue
       if (info.isRequired || installSelection.value.has(serviceName)) {
@@ -891,6 +902,8 @@ function mapServiceNameToDisplayName(serviceName: string) {
       return 'OpenVINO'
     case 'home-agent-backend':
       return 'Home Agent'
+    case 'qwen3-tts-backend':
+      return 'Qwen3-TTS'
     default:
       return serviceName
   }

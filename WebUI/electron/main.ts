@@ -62,6 +62,7 @@ import {
 import { AiBackendService } from './subprocesses/aiBackendService'
 import { HomeAgentBackendService } from './subprocesses/homeAgentBackendService'
 import { startCloudProxy, type CloudProxy } from './cloudProxy'
+import { Qwen3TtsBackendService } from './subprocesses/qwen3TtsBackendService'
 import { LLAMACPP_DEFAULT_PARAMETERS } from './subprocesses/llamaCppBackendService'
 import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateIntelPresets.ts'
 import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
@@ -99,7 +100,7 @@ import {
   removeMcpServer,
   type McpServerConfig,
 } from './subprocesses/mcpServers'
-import { externalResourcesDir, getMediaDir } from './util.ts'
+import { externalResourcesDir, getAudioDir, getMediaDir } from './util.ts'
 import { packagedResourcesRoot } from './aipgRoot.ts'
 import { loadDemoProfile, type DemoProfile } from './demoProfile.ts'
 import type { ModelPaths } from '@/assets/js/store/models.ts'
@@ -242,6 +243,8 @@ const mediaDir = getMediaDir()
 fs.mkdirSync(mediaDir, { recursive: true })
 const mediaInputDir = path.join(mediaDir, 'input')
 fs.mkdirSync(mediaInputDir, { recursive: true })
+const audioDir = getAudioDir()
+fs.mkdirSync(audioDir, { recursive: true })
 
 /** Resolve aipg-media://… to an absolute file path under `mediaDir` (no path traversal). */
 function getLocalPathFromAipgMediaUrl(url: string): string | null {
@@ -313,6 +316,8 @@ const LocalSettingsSchema = z.object({
   // setup wizard surface, chat backend option). Frontend-only — there is no
   // Python service. Default false: opt-in by toggling it in the setup wizard.
   isCloudModeEnabled: z.boolean().default(false),
+  // Gates the optional Qwen3-TTS Python sidecar (agent synthesizeTextToSpeech tool).
+  isQwen3TtsEnabled: z.boolean().default(false),
   languageOverride: z.string().nullable().default(null),
   remoteRepository: z.string().default('intel/ai-playground'),
   huggingfaceEndpoint: z.string().default('https://huggingface.co'),
@@ -1209,6 +1214,72 @@ function initEventHandle() {
     return `input/${filename}`
   })
 
+  ipcMain.handle(
+    'saveGeneratedAudio',
+    async (
+      _event,
+      audioBase64: string,
+      filename: string,
+    ): Promise<{ success: boolean; filePath?: string; error?: string }> => {
+      try {
+        if (typeof audioBase64 !== 'string' || typeof filename !== 'string') {
+          return { success: false, error: 'invalid arguments' }
+        }
+        const safeName = path.basename(filename).replace(/[^\w.\-]+/g, '_')
+        let outName = safeName.toLowerCase().endsWith('.wav') ? safeName : `${safeName}.wav`
+        await fs.promises.mkdir(audioDir, { recursive: true })
+        let filePath = path.join(audioDir, outName)
+        if (fs.existsSync(filePath)) {
+          const ext = path.extname(outName)
+          const base = outName.slice(0, outName.length - ext.length)
+          let n = 1
+          while (fs.existsSync(filePath)) {
+            outName = `${base}_${n}${ext}`
+            filePath = path.join(audioDir, outName)
+            n++
+          }
+        }
+        await fs.promises.writeFile(filePath, Buffer.from(audioBase64, 'base64'))
+        return { success: true, filePath }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        appLogger.error(`Failed to save generated audio: ${errorMessage}`, 'electron-backend')
+        return { success: false, error: errorMessage }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'readLocalAudioAsDataUri',
+    async (
+      _event,
+      filePath: string,
+    ): Promise<{ success: boolean; dataUri?: string; error?: string }> => {
+      try {
+        if (typeof filePath !== 'string' || !filePath.trim()) {
+          return { success: false, error: 'invalid path' }
+        }
+        const audioRoot = path.normalize(getAudioDir())
+        const full = path.normalize(
+          path.isAbsolute(filePath) ? filePath : path.join(audioRoot, filePath),
+        )
+        if (full !== audioRoot && !full.startsWith(audioRoot + path.sep)) {
+          return { success: false, error: 'path outside audio directory' }
+        }
+        const buf = await fs.promises.readFile(full)
+        const ext = path.extname(full).toLowerCase()
+        const mediaType = ext === '.mp3' ? 'audio/mpeg' : 'audio/wav'
+        return {
+          success: true,
+          dataUri: `data:${mediaType};base64,${buf.toString('base64')}`,
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        return { success: false, error: errorMessage }
+      }
+    },
+  )
+
   // Persist an inbound Home Agent document (base64) to disk so the langchain
   // RAG loaders (which require a real filepath) can index it, and so the
   // persisted ragList entry keeps a stable path. Returns the absolute path.
@@ -1404,6 +1475,9 @@ function initEventHandle() {
       return service.getLoopbackAuthToken()
     }
     if (service instanceof HomeAgentBackendService) {
+      return service.getLoopbackAuthToken()
+    }
+    if (service instanceof Qwen3TtsBackendService) {
       return service.getLoopbackAuthToken()
     }
     return ''

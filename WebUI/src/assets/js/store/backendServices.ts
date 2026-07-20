@@ -6,6 +6,7 @@ import { demoAwareStorage } from '../demoAwareStorage'
 const backends = [
   'ai-backend',
   'home-agent-backend',
+  'qwen3-tts-backend',
   'llamacpp-backend',
   'openvino-backend',
   'comfyui-backend',
@@ -38,6 +39,7 @@ export const useBackendServices = defineStore(
     const lastSelectedDeviceIdPerBackend = ref<Record<BackendServiceName, string | null>>({
       'ai-backend': null,
       'home-agent-backend': null,
+      'qwen3-tts-backend': null,
       'comfyui-backend': null,
       'llamacpp-backend': null,
       'openvino-backend': null,
@@ -124,6 +126,7 @@ export const useBackendServices = defineStore(
     const versionState = ref<BackendVersionState>({
       'ai-backend': {},
       'home-agent-backend': {},
+      'qwen3-tts-backend': {},
       'comfyui-backend': {},
       'llamacpp-backend': {},
       'openvino-backend': {},

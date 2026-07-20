@@ -17,7 +17,7 @@
 #   docker compose -f containers/docker-compose.yml down
 #   docker compose -f containers/docker-compose.yml logs -f
 
-set -euo pipefail
+set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -92,7 +92,7 @@ if [ -z "$DETECTED_DISPLAY" ]; then
         2>/dev/null | grep -i "^Display=" | cut -d= -f2 || true)
 fi
 if [ -z "$DETECTED_DISPLAY" ]; then
-    DETECTED_DISPLAY=$(ls /tmp/.X11-unix/X* 2>/dev/null | head -1 | sed 's|/tmp/.X11-unix/X|:|')
+    DETECTED_DISPLAY=$(find /tmp/.X11-unix -maxdepth 1 -name "X*" 2>/dev/null | head -1 | sed 's|/tmp/.X11-unix/X|:|')
 fi
 [ -n "$DETECTED_DISPLAY" ] || fail "No X11 display found.
   Run from a desktop terminal, or: DISPLAY=:0 ./containers/run.sh"
@@ -122,7 +122,9 @@ FTP_PROXY_VAL="${ftp_proxy:-}"
 VIDEO_GID=""
 RENDER_GID=""
 if [ -d /dev/dri ]; then
-    N=$(ls /dev/dri/renderD* 2>/dev/null | wc -l)
+    # Use find instead of `ls glob | wc` — ls exits non-zero when no files match
+    # the glob, which kills the script under set -e on machines without render nodes.
+    N=$(find /dev/dri -maxdepth 1 -name "renderD*" 2>/dev/null | wc -l)
     ok "Intel GPU: $N render node(s) under /dev/dri"
     VIDEO_GID=$(getent group video  2>/dev/null | cut -d: -f3 || echo "44")
     RENDER_GID=$(getent group render 2>/dev/null | cut -d: -f3 || echo "992")

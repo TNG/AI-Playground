@@ -103,6 +103,22 @@ export const test = base.extend<E2EFixtures>({
     if (process.env.E2E_VERBOSE) {
       window.on('console', (msg) => console.log(`[renderer:${msg.type()}] ${msg.text()}`))
     }
+
+    // The high-memory / video-VRAM warning is an *optional* popup: it fires whenever a
+    // gated preset becomes active — including when merely switching to a mode whose
+    // last-used preset is gated — so it can appear before any step we control and its
+    // backdrop then intercepts clicks. Auto-dismiss it wherever it shows up: tick
+    // "Do not show again" (suppresses future prompts for that preset) and Confirm (which
+    // proceeds with the switch). Scoped by message so it never touches other warnings.
+    const memoryWarning = window
+      .getByRole('dialog', { name: 'Warning' })
+      .filter({ hasText: /high memory use|discrete GPUs with 16GB/i })
+    await window.addLocatorHandler(memoryWarning, async (dialog) => {
+      const dontShowAgain = dialog.getByRole('checkbox')
+      if (await dontShowAgain.isVisible().catch(() => false)) await dontShowAgain.click()
+      await dialog.getByRole('button', { name: 'Confirm', exact: true }).click()
+    })
+
     await use(window)
   },
 

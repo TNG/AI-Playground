@@ -30,8 +30,8 @@ test.describe('Backend installation', () => {
 
     await test.step('Prompt 1: set preset preferences → expect a text reply', async () => {
       await app.main.sendPrompt(PROMPTS.presetPreference)
-      await app.main.waitUntilIdle()
-      // Wait for the actual reply text, not just the end of the reasoning trace.
+      // Waits for the turn to go idle, then asserts the actual reply text is on
+      // screen — not just the end of the reasoning trace.
       await app.main.waitForAssistantAnswer()
       expect(await app.main.lastAssistantText()).not.toEqual('')
       await app.main.assertWellFormedResponse()

@@ -1,0 +1,121 @@
+name: ai-playground
+
+services:
+  aipg:
+    image: ai-playground:latest
+    build:
+      context: ..
+      dockerfile: containers/Dockerfile
+      args:
+        # NPU driver — must match intel_vpu kernel module on the host.
+        # Default matches ENIB (kernel 6.18-intel, NPU driver v1.32.0).
+        # Check host: dpkg -l | grep intel-level-zero-npu
+        NPU_VERSION: ${NPU_VERSION:-v1.32.0}
+        NPU_BUILD: ${NPU_BUILD:-v1.32.0.20260402-23905121947}
+        # Proxy forwarded into RUN steps (apt-get, npm, curl, git)
+        HTTP_PROXY:  ${HTTP_PROXY:-${http_proxy:-}}
+        HTTPS_PROXY: ${HTTPS_PROXY:-${https_proxy:-}}
+        http_proxy:  ${http_proxy:-${HTTP_PROXY:-}}
+        https_proxy: ${https_proxy:-${HTTPS_PROXY:-}}
+        NO_PROXY:    ${NO_PROXY:-${no_proxy:-}}
+
+    container_name: ai-playground
+
+    # ── Display ───────────────────────────────────────────────────────────────
+    # Forwards the Electron window to the host X server via the Unix socket.
+    # The window appears natively on the host desktop — no VNC or browser needed.
+    environment:
+      - DISPLAY=${DISPLAY}
+      - XAUTH_PATH=/tmp/.host-Xauthority
+      - XDG_DATA_HOME=/aipg-data
+      - ELECTRON_DISABLE_GPU=1
+      - HF_ENDPOINT=${HF_ENDPOINT:-https://huggingface.co}
+      # Proxy — used by Electron (net.fetch), git, curl, and pip inside the container
+      - http_proxy=${http_proxy:-}
+      - https_proxy=${https_proxy:-}
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - no_proxy=${no_proxy:-}
+      - NO_PROXY=${NO_PROXY:-}
+      - ftp_proxy=${ftp_proxy:-}
+      # uv does NOT inherit http_proxy by default — set explicitly for backend installs
+      - UV_HTTP_PROXY=${UV_HTTP_PROXY:-${http_proxy:-}}
+      - UV_HTTPS_PROXY=${UV_HTTPS_PROXY:-${https_proxy:-}}
+      # Docker named volumes use a different filesystem from any uv cache,
+      # so hardlinks and CoW clones fail. Force copy to suppress the warning.
+      - UV_LINK_MODE=copy
+      # DBUS_SESSION_BUS_ADDRESS is intentionally NOT set here.
+      # The entrypoint starts dbus-daemon and exports the correct address
+      # before exec-ing Electron, so Electron inherits the live socket path.
+
+    volumes:
+      # X11 socket — required for Electron window forwarding to host display
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      # X authority cookie — authenticates Electron to the host X server
+      - ${XAUTHORITY:-~/.Xauthority}:/tmp/.host-Xauthority:ro
+
+      # Primary data volume: all AIPG runtime data (Python venvs, models, logs,
+      # config, uv cache). XDG_DATA_HOME=/aipg-data routes writableLinuxRoot()
+      # here.  Fully managed by Docker — clean uninstall: docker compose down -v
+      - aipg-data:/aipg-data
+
+      # Generated media (images, videos) from ComfyUI / llama.cpp.
+      # getMediaDir() (util.ts) → $HOME/AI-Playground/media = /root/AI-Playground/media.
+      # Without this volume the output lives in the container layer and is lost
+      # when the container is recreated.
+      - aipg-media:/root/AI-Playground/media
+
+      # Electron userData (window state, devtools position, Electron-internal prefs).
+      # app.getPath('userData') → /root/.config/ai-playground inside the container.
+      # AIPG's own settings.json is already in aipg-data; this persists the rest.
+      - aipg-electron-config:/root/.config/ai-playground
+
+    devices:
+      # Intel Arc / Xe GPU render nodes for Level Zero (ComfyUI XPU, OpenVINO GPU)
+      # and Vulkan (llama.cpp GPU). The entrypoint dynamically resolves the correct
+      # GIDs from the mounted device nodes at startup — no hardcoding needed.
+      - /dev/dri:/dev/dri
+      # Intel NPU — uncomment if /dev/accel/accel0 exists on your machine.
+      # Also check: ls /dev/accel/
+      # - /dev/accel/accel0:/dev/accel/accel0
+
+    # video + render group access for /dev/dri nodes.
+    # GIDs are passed from run.sh (detected at launch time) via .env.
+    # Falls back to common defaults (video=44, render=992) if not set.
+    # Verify on host: getent group video render
+    group_add:
+      - "${VIDEO_GID:-44}"
+      - "${RENDER_GID:-992}"
+
+    # Electron uses shared memory for Chromium IPC
+    ipc: host
+
+    # All backends bind to 127.0.0.1 and are spawned by Electron as child
+    # processes — identical to baremetal. host network makes loopback work.
+    network_mode: host
+
+    restart: "no"
+
+    # Electron's Chromium sandbox uses seccomp-bpf that conflicts with
+    # Docker's default seccomp profile. unconfined is required.
+    security_opt:
+      - seccomp:unconfined
+
+    stdin_open: true
+    tty: true
+
+# ── Persistent named volumes ──────────────────────────────────────────────────
+# All managed by Docker under /var/lib/docker/volumes/.
+# To remove everything: docker compose down -v  (NOT for aipg-data — see below)
+volumes:
+  # aipg-data is declared external so Compose never tries to create it
+  # and won't warn if it already exists from a previous run or baremetal install.
+  # To create fresh: docker volume create aipg-data
+  # To wipe ALL data:  docker volume rm aipg-data  (deletes backends + models!)
+  aipg-data:
+    name: aipg-data
+    external: true
+  aipg-media:
+    name: aipg-media
+  aipg-electron-config:
+    name: aipg-electron-config

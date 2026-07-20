@@ -71,7 +71,9 @@ Python backend (`service/`) uses **Ruff** for linting (runs in CI via GitHub Act
 
 Drives the **real compiled Electron app** (not a mocked renderer) and actually installs
 backends, so runs take minutes. Separate from Vitest: `.spec.ts` files, config
-`playwright-e2e.config.ts`, run with `npm run test:e2e`.
+`playwright-e2e.config.ts`. Two scripts: `npm run e2e` runs only the agentic reference
+flow (`install-backends.spec.ts`); `npm run e2e:full` runs the whole suite (agentic flow
+plus one smoke test per chat/image/video preset in `preset-*.spec.ts`).
 
 **Architecture:** `vite --mode test` serves only the renderer (the Electron plugin is
 skipped in test mode — see `vite.config.mts`); the fixture launches the built Electron
@@ -126,9 +128,31 @@ types), `helpers.ts`, `install-backends.spec.ts` (reference spec).
   returns when done — `MainPage.waitUntilIdle(timeout)` waits on that (image/video runs take
   minutes; use `IMAGE_TIMEOUT`/`VIDEO_TIMEOUT`). Result assertions use ARIA added to outputs:
   generated images `alt="Generated result"` (count via `getByRole('img', …)`), videos via
-  `locator('video')`, assistant text via `getByRole('article', { name: 'Assistant response' })`.
+  `locator('video')`, 3D models `aria-label="Generated 3D model"`, assistant text via
+  `getByRole('article', { name: 'Assistant response' })`. Both the agentic chat tool card
+  (`ChatWorkflowResult.vue`) and the direct Image Gen/Edit/Video panel (`WorkflowResult.vue`)
+  carry the same output ARIA, so one locator covers both surfaces.
+- **Per-preset smoke tests** (`preset-chat/image/video.spec.ts`) are data-driven: each selects
+  one preset via `AppDriver.runChatPreset`/`runComfyPreset`, which `test.skip`s presets absent
+  in the running product mode. Reference-image presets load `e2e/fixtures/input.png` into the
+  settings-sidebar `LoadImage` inputs (accessible name = the field label); chat vision/RAG
+  presets attach a fixture via the prompt-area "+" input (`aria-label="Attach image or document"`).
 - **Settings sidebar re-opens** when returning from the wizard and can occlude controls;
   `openAppSettings()` is idempotent. Playwright "visible" ignores occlusion.
+- **Optional popups intercept clicks.** The high-memory / video-VRAM warning (`WarningDialog`,
+  `role="dialog"` + `aria-label="Warning"`) fires whenever a gated preset becomes active —
+  *including just switching to a mode whose last-used preset is gated* — so it can appear
+  before any step you control and its backdrop then eats clicks. Handle it globally with
+  `page.addLocatorHandler` (registered in the `window` fixture), scoped by message so it
+  never touches unrelated warnings; the handler ticks "Do not show again" and confirms.
+- **First use of a preset downloads its models.** On a fresh machine almost every preset
+  (chat/image/video) opens the blocking model-download dialog (`DownloadDialog`,
+  `role="dialog"` + `aria-label="Model download"`) on the first send/generate. `AppDriver`
+  clears it via `DownloadDialogPage.resolve()` at every send point; gated models with no HF
+  access can't be confirmed, so those tests `test.skip` instead of hanging.
+- **Timeouts:** the default chat model (Qwen3.5-9B) is a *reasoning* model — its thinking
+  alone can exceed 2 min, so per-turn budgets are minutes (`TEXT/IMAGE/VIDEO_TIMEOUT`), applied
+  *after* any model download is handled separately.
 - **"Close" is ambiguous** — the header's window-close (X) control is `title="Close"`, so an
   unscoped `getByRole('button', { name: 'Close' })` can match it and **quit the app**. Scope
   sidebar closes to their region (`getByRole('region', { name: '<title>' })`, via

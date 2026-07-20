@@ -4,6 +4,8 @@
       class="dialog-mask absolute left-0 top-0 w-full h-full bg-background/55 flex justify-center items-center"
     >
       <div
+        role="dialog"
+        aria-label="Model download"
         class="py-20 px-20 min-w-768px flex flex-col items-center justify-center bg-card rounded-3xl gap-8 text-foreground"
         :class="{ 'animate-scale-in': animate }"
       >

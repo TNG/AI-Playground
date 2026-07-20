@@ -1,9 +1,20 @@
 import { type Page, test, expect } from '@playwright/test'
+import path from 'path'
 import { SetupWizardPage } from './pages/SetupWizardPage'
 import { AppShellPage } from './pages/AppShellPage'
-import { MainPage } from './pages/MainPage'
+import { MainPage, type ChatMode } from './pages/MainPage'
 import { SpecificSettingsPage } from './pages/SpecificSettingsPage'
+import { DownloadDialogPage } from './pages/DownloadDialogPage'
 import { BACKENDS } from './backends'
+
+const FIXTURES_DIR = path.join(__dirname, 'fixtures')
+/** A real 768x512 PNG used as the input for edit / image-to-video / reference presets. */
+export const FIXTURE_IMAGE = path.join(FIXTURES_DIR, 'input.png')
+/** A small text document used as the RAG source for the "Chat with RAG" preset. */
+export const FIXTURE_DOC = path.join(FIXTURES_DIR, 'sample.txt')
+
+/** What kind of media a ComfyUI preset is expected to produce. */
+export type ComfyOutput = 'image' | 'video' | 'model3d'
 
 /**
  * High-level entry point for the e2e suite. Every test starts with
@@ -16,12 +27,14 @@ export class AppDriver {
   readonly shell: AppShellPage
   readonly main: MainPage
   readonly settings: SpecificSettingsPage
+  readonly downloads: DownloadDialogPage
 
   constructor(private readonly window: Page) {
     this.wizard = new SetupWizardPage(window)
     this.shell = new AppShellPage(window)
     this.main = new MainPage(window)
     this.settings = new SpecificSettingsPage(window)
+    this.downloads = new DownloadDialogPage(window)
   }
 
   /**
@@ -73,6 +86,133 @@ export class AppDriver {
         // would otherwise occlude the prompt area for follow-up steps).
         await this.shell.ensureSettingsClosed()
       })
+    })
+  }
+
+  /**
+   * Switch to `mode` and select `preset`. Returns false (leaving the settings
+   * sidebar closed) when the preset isn't offered in the current product mode —
+   * either the whole mode has no presets (its prompt-area button is absent) or the
+   * preset card isn't in the grid. On success the sidebar is left open so callers
+   * can set preset-specific inputs (e.g. reference images) before closing it.
+   */
+  private async selectModeAndPreset(mode: ChatMode, preset: string): Promise<boolean> {
+    if (
+      !(await this.main
+        .modeButton(mode)
+        .isVisible()
+        .catch(() => false))
+    ) {
+      return false
+    }
+    await this.main.selectMode(mode)
+    await this.settings.open(mode)
+    if (!(await this.settings.isPresetVisible(preset))) {
+      await this.settings.close(mode)
+      return false
+    }
+    await this.settings.selectPreset(preset)
+    return true
+  }
+
+  /**
+   * Drive one chat preset: select it, optionally attach a fixture (image for a
+   * vision preset, document for a RAG preset), send a prompt and assert a non-empty,
+   * well-formed text reply. Skips the test if the preset isn't available in the
+   * current product mode.
+   */
+  async runChatPreset(opts: {
+    preset: string
+    prompt: string
+    attach?: 'image' | 'document'
+  }): Promise<void> {
+    const available = await test.step(`Select Chat preset "${opts.preset}"`, () =>
+      this.selectModeAndPreset('Chat', opts.preset))
+    test.skip(!available, `Preset "${opts.preset}" is not available in this product mode`)
+
+    await this.settings.close('Chat')
+
+    if (opts.attach === 'image') await this.main.attachChatFile(FIXTURE_IMAGE)
+    if (opts.attach === 'document') {
+      await this.main.attachChatFile(FIXTURE_DOC)
+      // A RAG doc is indexed with an embedding model that may need downloading first.
+      await this.resolveDownloadsOrSkip('the embedding model')
+    }
+
+    await test.step('Send prompt and expect a text reply', async () => {
+      await this.main.sendPrompt(opts.prompt)
+      // First use of a chat model downloads it via the same dialog.
+      await this.resolveDownloadsOrSkip(`the "${opts.preset}" model`)
+      // waitForAssistantAnswer waits for the turn to go idle, then asserts a reply.
+      await this.main.waitForAssistantAnswer()
+      expect(await this.main.lastAssistantText()).not.toEqual('')
+      await this.main.assertWellFormedResponse()
+    })
+  }
+
+  /**
+   * Clear the model-download dialog if it popped up for the current turn, skipping
+   * the test when the required models are gated/unavailable in this environment
+   * (nothing to download without Hugging Face access). No-op when no dialog shows.
+   */
+  private async resolveDownloadsOrSkip(what: string): Promise<void> {
+    const outcome = await this.downloads.resolve()
+    test.skip(
+      outcome === 'blocked',
+      `Skipping: ${what} is gated / unavailable without Hugging Face access in this environment`,
+    )
+  }
+
+  /**
+   * Drive one ComfyUI preset (Image Gen / Image Edit / Video): select it, load the
+   * fixture image into every reference-image slot when the preset needs one, submit,
+   * and assert the expected media (image / video / 3D model) is produced without a
+   * generation error. Skips the test if the preset isn't available in the current
+   * product mode.
+   *
+   * Note: for Image Edit presets the loaded input image is itself surfaced as a
+   * "Generated result", so the image-count assertion there is a liveness check (the
+   * workflow ran to completion without error) rather than a strict new-output count.
+   */
+  async runComfyPreset(opts: {
+    mode: ChatMode
+    preset: string
+    output: ComfyOutput
+    prompt?: string
+    needsImage?: boolean
+    timeout: number
+  }): Promise<void> {
+    const available = await test.step(`Select ${opts.mode} preset "${opts.preset}"`, () =>
+      this.selectModeAndPreset(opts.mode, opts.preset))
+    test.skip(!available, `Preset "${opts.preset}" is not available in this product mode`)
+
+    if (opts.needsImage) {
+      await test.step('Load the fixture image into the reference-image slot(s)', async () => {
+        const filled = await this.settings.attachReferenceImages(opts.mode, FIXTURE_IMAGE)
+        expect(
+          filled,
+          'preset should expose at least one reference-image input',
+        ).toBeGreaterThanOrEqual(1)
+      })
+    }
+
+    await this.settings.close(opts.mode)
+
+    await test.step(`Generate and expect ${opts.output} output`, async () => {
+      await this.main.submitGeneration(opts.prompt)
+      // First use of a preset downloads its models via the download dialog.
+      await this.resolveDownloadsOrSkip(`the models for "${opts.preset}"`)
+      await this.main.waitUntilIdle(opts.timeout)
+      await this.main.assertNoGenerationError()
+
+      const result =
+        opts.output === 'image'
+          ? this.main.generatedImages
+          : opts.output === 'video'
+            ? this.main.generatedVideos
+            : this.main.generatedModels
+      await expect(result.first()).toBeVisible({ timeout: 30_000 })
+      expect(await result.count()).toBeGreaterThanOrEqual(1)
     })
   }
 

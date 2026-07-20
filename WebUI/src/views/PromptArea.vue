@@ -138,6 +138,7 @@
                 type="file"
                 class="hidden"
                 id="file-attachment"
+                aria-label="Attach image or document"
                 :accept="getAcceptedFileTypes()"
                 multiple
                 @change="handleFileInput"

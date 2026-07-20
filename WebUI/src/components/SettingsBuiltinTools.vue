@@ -148,6 +148,40 @@
             </div>
           </div>
         </CollapsibleContent>
+        <div
+          v-if="builtinTool.name === 'synthesizeTextToSpeech' && qwen3Tts.isFeatureEnabled"
+          class="flex flex-col gap-2 pl-1 pt-1"
+        >
+          <p v-if="!qwen3BackendSetUp" class="text-xs text-amber-600 dark:text-amber-300">
+            Install the Qwen3 TTS backend from Installation Management to enable speech synthesis.
+          </p>
+          <div v-else class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div class="flex flex-col gap-1">
+              <Label class="text-xs">Default speaker</Label>
+              <select
+                v-model="qwen3Tts.defaultSpeaker"
+                class="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                :disabled="!textInference.aipgToolsEnabled"
+              >
+                <option v-for="sp in QWEN3_TTS_SPEAKERS" :key="sp.id" :value="sp.id">
+                  {{ sp.id }} — {{ sp.nativeLanguage }}
+                </option>
+              </select>
+            </div>
+            <div class="flex flex-col gap-1">
+              <Label class="text-xs">Default language</Label>
+              <select
+                v-model="qwen3Tts.defaultLanguage"
+                class="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                :disabled="!textInference.aipgToolsEnabled"
+              >
+                <option v-for="lang in QWEN3_TTS_LANGUAGES" :key="lang" :value="lang">
+                  {{ lang }}
+                </option>
+              </select>
+            </div>
+          </div>
+        </div>
 
         <!-- Screenshot tool: bind to a single window -->
         <div
@@ -196,9 +230,14 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import ScreenshotWindowDialog from '@/components/ScreenshotWindowDialog.vue'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { usePresets, type Preset } from '@/assets/js/store/presets'
+import { useQwen3Tts } from '@/assets/js/store/qwen3Tts'
+import { useBackendServices } from '@/assets/js/store/backendServices'
+import { QWEN3_TTS_LANGUAGES, QWEN3_TTS_SPEAKERS } from '@/assets/js/qwen3TtsConstants'
 
 const textInference = useTextInference()
 const presets = usePresets()
+const qwen3Tts = useQwen3Tts()
+const backendServices = useBackendServices()
 const showWindowDialog = ref(false)
 
 // Per-tool expand/collapse state for the preset lists. Collapsed by default.
@@ -363,9 +402,19 @@ const builtinTools: Array<{ name: string; label: string; description: string }> 
       'Let the assistant search the web, open pages in a background browser to read their ' +
       'content, and (on vision models) capture a screenshot of a page.',
   },
+  {
+    name: 'synthesizeTextToSpeech',
+    label: 'Synthesize speech (Qwen3 TTS)',
+    description:
+      'Let the assistant turn scripts into WAV audio using Qwen3-TTS voices and languages.',
+  },
 ]
 
 const modelSupportsVision = computed(() => textInference.modelSupportsVision)
+
+const qwen3BackendSetUp = computed(
+  () => backendServices.info.find((s) => s.serviceName === 'qwen3-tts-backend')?.isSetUp === true,
+)
 
 const boundWindowName = computed(() => textInference.screenshotWindow?.name ?? 'None selected')
 

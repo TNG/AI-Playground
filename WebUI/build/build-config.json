@@ -16,6 +16,11 @@
       "filter": ["*.py", "channels/*.py", "pyproject.toml", "uv.lock"]
     },
     {
+      "from": "../qwen3-tts",
+      "to": "qwen3-tts",
+      "filter": ["*.py", "pyproject.toml", "uv.lock"]
+    },
+    {
       "from": "../OpenVINO",
       "to": "OpenVINO",
       "filter": ["*.py", "pyproject.toml", "uv.lock"]

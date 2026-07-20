@@ -286,6 +286,23 @@
                       </div>
                     </div>
                   </template>
+                  <template
+                    v-else-if="isAipgTool(part) && part.type === 'tool-synthesizeTextToSpeech'"
+                  >
+                    <div>
+                      <ChatTtsToolResult
+                        v-if="part.state === 'output-available'"
+                        :output="(part as any).output"
+                      />
+                      <div
+                        v-else-if="
+                          part.state === 'input-streaming' || part.state === 'input-available'
+                        "
+                      >
+                        <span class="text-muted-foreground">Synthesizing speech…</span>
+                      </div>
+                    </div>
+                  </template>
                   <template v-else-if="isWebBrowsePart(part)">
                     <ChatWebBrowseDisplay
                       v-if="isFirstWebBrowsePart(message, partIndex)"
@@ -425,6 +442,7 @@ import ChatWebBrowseDisplay, { type WebBrowseEntry } from '@/components/ChatWebB
 import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
 import ChatActivityIndicator from '@/components/ChatActivityIndicator.vue'
 import ChatConfirmation from '@/components/ChatConfirmation.vue'
+import ChatTtsToolResult from '@/components/ChatTtsToolResult.vue'
 import { useConversations } from '@/assets/js/store/conversations'
 import { useActivities } from '@/assets/js/store/activities'
 import { useConfirmations } from '@/assets/js/store/confirmations'

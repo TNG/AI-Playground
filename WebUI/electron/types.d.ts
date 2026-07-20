@@ -6,6 +6,7 @@ declare type BackendServiceName =
   | 'llamacpp-backend'
   | 'openvino-backend'
   | 'home-agent-backend'
+  | 'qwen3-tts-backend'
 
 // Declare BackendStatus type
 declare type BackendStatus =

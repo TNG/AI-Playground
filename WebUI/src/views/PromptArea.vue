@@ -67,6 +67,25 @@
           </div>
         </div>
         <div class="relative w-full">
+          <!-- Active preset / model indicator (top-left of the input) -->
+          <div
+            v-if="presetIndicator"
+            class="absolute -top-8 left-0 flex items-center gap-2 max-w-[75%] z-[5] text-xs text-muted-foreground"
+            :title="
+              presetIndicator.model
+                ? `${presetIndicator.name} — ${presetIndicator.model}`
+                : presetIndicator.name
+            "
+          >
+            <img
+              v-if="presetIndicator.image"
+              :src="presetIndicator.image"
+              :alt="presetIndicator.name"
+              class="size-5 rounded object-cover flex-none border border-border"
+            />
+            <span class="text-foreground font-medium truncate">{{ presetIndicator.name }}</span>
+            <span v-if="presetIndicator.model" class="truncate">· {{ presetIndicator.model }}</span>
+          </div>
           <template v-if="demoMode.enabled && isFirstPrompt">
             <Popover :open="isTextareaFocused">
               <PopoverAnchor as-child>
@@ -337,6 +356,34 @@ const activeChatPreset = computed(() => {
   const preset = presetsStore.activePresetWithVariant
   if (preset?.type === 'chat') return preset as ChatPreset
   return null
+})
+
+// Remember the most recent chat preset so the indicator stays stable while a
+// tool call or Home Agent turn temporarily switches the active preset to a
+// ComfyUI one during agentic tool use.
+const stableChatPreset = ref<ChatPreset | null>(null)
+watch(
+  activeChatPreset,
+  (preset) => {
+    if (preset) stableChatPreset.value = preset
+  },
+  { immediate: true },
+)
+
+// Preset/model indicator shown at the top-left of the input. Keyed off the
+// user's selected mode (not `currentMode`) so background comfy switches during
+// agentic / Home Agent tool use don't flip it.
+const presetIndicator = computed(() => {
+  if (promptStore.userSelectedMode === 'chat') {
+    const preset = stableChatPreset.value
+    if (!preset) return null
+    // Match the ModelSelector label: display only the last path segment.
+    const model = textInference.activeModel
+    return { image: preset.image, name: preset.name, model: model?.split('/').at(-1) ?? model }
+  }
+  const preset = imageGeneration.activePreset
+  if (!preset) return null
+  return { image: preset.image, name: preset.name, model: undefined as string | undefined }
 })
 
 // Check if images can be attached (vision model selected)

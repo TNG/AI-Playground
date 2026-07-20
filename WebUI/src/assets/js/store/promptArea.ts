@@ -29,6 +29,12 @@ export const usePromptStore = defineStore('prompt', () => {
   const setupWizard = useSetupWizard()
 
   const currentMode = ref<ModeType>('chat')
+  // The mode the user last deliberately selected from the UI (mode buttons /
+  // navigation). Unlike `currentMode`, this is NOT touched by background flips
+  // via `setModeOnly` (agentic tool use, Home Agent turns), so UI that should
+  // reflect the user's chosen context can stay stable while a tool temporarily
+  // switches the app to a ComfyUI mode under the hood.
+  const userSelectedMode = ref<ModeType>('chat')
   const promptSubmitted = ref(false)
   const injectedPromptText = ref<string | null>(null)
 
@@ -66,8 +72,10 @@ export const usePromptStore = defineStore('prompt', () => {
 
     const presetSwitching = usePresetSwitching()
 
-    // Set the mode first
+    // Set the mode first. This is the genuine foreground path, so also record it
+    // as the user's selected mode.
     currentMode.value = mode
+    userSelectedMode.value = mode
 
     // Get categories for this mode
     const categories = modeToCategories[mode]
@@ -125,6 +133,7 @@ export const usePromptStore = defineStore('prompt', () => {
 
   return {
     currentMode,
+    userSelectedMode,
     promptSubmitted,
     injectedPromptText,
     getCurrentMode,

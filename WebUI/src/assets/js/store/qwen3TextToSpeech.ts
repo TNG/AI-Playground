@@ -13,8 +13,8 @@ import type {
   Qwen3TtsSynthesizeResult,
 } from '@/assets/js/qwen3TtsConstants'
 
-export const useQwen3Tts = defineStore(
-  'qwen3Tts',
+export const useQwen3TextToSpeech = defineStore(
+  'qwen3TextToSpeech',
   () => {
     const backendServices = useBackendServices()
 
@@ -28,7 +28,7 @@ export const useQwen3Tts = defineStore(
       const info = backendServices.info.find((s) => s.serviceName === 'qwen3-tts-backend')
       if (!info?.isSetUp) {
         throw new Error(
-          'Qwen3 TTS is not installed. Install it from Settings → Installation Management, then try again.',
+          'Text To Speech is not installed. Install it from Settings → Installation Management, then try again.',
         )
       }
       if (info.status !== 'running') {
@@ -37,7 +37,7 @@ export const useQwen3Tts = defineStore(
       const running = backendServices.info.find((s) => s.serviceName === 'qwen3-tts-backend')
       const baseUrl = running?.baseUrl
       if (!baseUrl) {
-        throw new Error('Qwen3 TTS backend URL is not available')
+        throw new Error('Text To Speech backend URL is not available')
       }
       return baseUrl.replace(/\/$/, '')
     }
@@ -64,7 +64,7 @@ export const useQwen3Tts = defineStore(
       })
       const payload = (await response.json()) as Qwen3TtsApiResponse<Qwen3TtsSynthesizeResult>
       if (!response.ok || payload.code !== 0 || !payload.data) {
-        throw new Error(payload.message ?? `Qwen3 TTS synthesis failed (${response.status})`)
+        throw new Error(payload.message ?? `Text To Speech synthesis failed (${response.status})`)
       }
       return payload.data
     }
@@ -92,7 +92,7 @@ export const useQwen3Tts = defineStore(
       if (args.speaker) defaultSpeaker.value = args.speaker
       if (args.language) defaultLanguage.value = args.language
       if (args.mode) defaultMode.value = args.mode
-      toast.success('Updated default Qwen3 TTS voice settings for this session')
+      toast.success('Updated default Text To Speech voice settings for this session')
     }
 
     /** Mirrors `isQwen3TtsEnabled` from settings.json (dev: settings-dev.json). */
@@ -103,7 +103,7 @@ export const useQwen3Tts = defineStore(
         const localSettings = await window.electronAPI.getLocalSettings()
         isFeatureEnabled.value = !!localSettings.isQwen3TtsEnabled
       } catch (e) {
-        console.error('qwen3Tts.initFeatureFlag failed:', e)
+        console.error('qwen3TextToSpeech.initFeatureFlag failed:', e)
         isFeatureEnabled.value = false
       }
     }
@@ -130,5 +130,5 @@ export const useQwen3Tts = defineStore(
 )
 
 if (import.meta.hot) {
-  import.meta.hot.accept(acceptHMRUpdate(useQwen3Tts, import.meta.hot))
+  import.meta.hot.accept(acceptHMRUpdate(useQwen3TextToSpeech, import.meta.hot))
 }

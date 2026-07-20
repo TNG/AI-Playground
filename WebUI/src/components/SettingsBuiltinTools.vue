@@ -153,7 +153,8 @@
           class="flex flex-col gap-2 pl-1 pt-1"
         >
           <p v-if="!qwen3BackendSetUp" class="text-xs text-amber-600 dark:text-amber-300">
-            Install the Qwen3 TTS backend from Installation Management to enable speech synthesis.
+            Install the Text To Speech backend from Installation Management to enable speech
+            synthesis.
           </p>
           <div v-else class="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div class="flex flex-col gap-1">
@@ -230,13 +231,13 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import ScreenshotWindowDialog from '@/components/ScreenshotWindowDialog.vue'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { usePresets, type Preset } from '@/assets/js/store/presets'
-import { useQwen3Tts } from '@/assets/js/store/qwen3Tts'
+import { useQwen3TextToSpeech } from '@/assets/js/store/qwen3TextToSpeech'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import { QWEN3_TTS_LANGUAGES, QWEN3_TTS_SPEAKERS } from '@/assets/js/qwen3TtsConstants'
 
 const textInference = useTextInference()
 const presets = usePresets()
-const qwen3Tts = useQwen3Tts()
+const qwen3Tts = useQwen3TextToSpeech()
 const backendServices = useBackendServices()
 const showWindowDialog = ref(false)
 
@@ -404,9 +405,9 @@ const builtinTools: Array<{ name: string; label: string; description: string }> 
   },
   {
     name: 'synthesizeTextToSpeech',
-    label: 'Synthesize speech (Qwen3 TTS)',
+    label: 'Text To Speech (Qwen3-TTS)',
     description:
-      'Let the assistant turn scripts into WAV audio using Qwen3-TTS voices and languages.',
+      'Let the assistant turn text into spoken audio with a choice of voices and languages.',
   },
 ]
 

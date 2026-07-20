@@ -101,7 +101,7 @@ export function mapServiceNameToDisplayName(serviceName: string) {
     case 'home-agent-backend':
       return 'Home Agent'
     case 'qwen3-tts-backend':
-      return 'Qwen3-TTS'
+      return 'Text To Speech'
     case 'cloud-mode':
       return 'Cloud Mode'
     default:

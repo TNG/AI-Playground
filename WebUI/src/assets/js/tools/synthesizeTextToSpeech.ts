@@ -2,7 +2,7 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import { useActivities } from '../store/activities'
 import { useConversations } from '../store/conversations'
-import { useQwen3Tts } from '../store/qwen3Tts'
+import { useQwen3TextToSpeech } from '../store/qwen3TextToSpeech'
 import { QWEN3_TTS_LANGUAGES, QWEN3_TTS_SPEAKERS } from '@/assets/js/qwen3TtsConstants'
 import type { Qwen3TtsLanguage, Qwen3TtsSpeakerId } from '@/assets/js/qwen3TtsConstants'
 import { buildTtsAudioFileName, conversationLabelForTtsFile } from '@/lib/ttsAudioFileName'
@@ -28,15 +28,13 @@ type SynthesizeSpeechOutput = z.infer<typeof SynthesizeSpeechOutputSchema>
 
 export const synthesizeTextToSpeech = tool({
   description:
-    'Synthesize speech from text using Qwen3-TTS and return a WAV audio file. Use this when the user ' +
-    'provides a script, narration, podcast segment, or any text they want read aloud. ' +
-    'For preset voices (Vivian, Ryan, Serena, etc.) use mode "custom_voice" with `speaker` and optional ' +
-    '`instruct` for tone (e.g. "speak cheerfully"). For a fully custom voice described in natural language, ' +
-    'use mode "voice_design" with a detailed `instruct` describing timbre, age, accent, and emotion. ' +
-    'Set `language` explicitly when known (Chinese, English, Japanese, …) or Auto for detection. ' +
-    'When the user asks to change default voice or language for future calls, pass `rememberAsDefault: true`.',
+    'Text-to-speech (TTS): speak `text` aloud and save a playable WAV file. Call this whenever ' +
+    'the user wants text read/said out loud, narrated, voiced, or turned into audio — do not just ' +
+    'reply with the text. Voice: mode "custom_voice" + `speaker` (Vivian, Ryan, Serena, …), or ' +
+    'mode "voice_design" + a natural-language `instruct` (timbre, age, accent, emotion); `instruct` ' +
+    'also sets tone. `language`: a known value or Auto. `rememberAsDefault: true` saves the voice/language default.',
   inputSchema: z.object({
-    text: z.string().min(1).describe('The full script or passage to read aloud'),
+    text: z.string().min(1).describe('The exact words to speak aloud (the full script or passage)'),
     language: z
       .enum(languageIds)
       .optional()
@@ -66,7 +64,7 @@ export const synthesizeTextToSpeech = tool({
   }),
   outputSchema: SynthesizeSpeechOutputSchema,
   execute: async (args, options): Promise<SynthesizeSpeechOutput> => {
-    const qwen3 = useQwen3Tts()
+    const qwen3 = useQwen3TextToSpeech()
     const activities = useActivities()
     const conversations = useConversations()
     const conversationKey = conversationKeyFor(options.experimental_context)

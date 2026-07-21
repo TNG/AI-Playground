@@ -413,6 +413,32 @@ export const useTextInference = defineStore(
     // Per-preset settings persistence
     const settingsPerPreset = ref<Record<string, Record<string, unknown>>>({})
 
+    // Number of inference HTTP requests currently streaming from the chat
+    // backend. Maintained by the chat transport's custom fetch (see
+    // openAiCompatibleChat): incremented when a request starts, decremented when
+    // its response body finishes (completes, is cancelled, or errors). Image
+    // tools consult this via waitForInferenceIdle() so they never tear down the
+    // chat backend while a stream to it is still open (which would reset the
+    // socket mid-stream and surface as a "network error").
+    const activeInferenceStreams = ref(0)
+    function beginInferenceStream() {
+      activeInferenceStreams.value++
+    }
+    function endInferenceStream() {
+      if (activeInferenceStreams.value > 0) activeInferenceStreams.value--
+    }
+    // Resolve once no inference stream is open, or after `timeoutMs` as a
+    // safety valve so a wedged/keep-alive socket can't block image generation
+    // indefinitely. In the common case the stream is already drained (the SDK
+    // finishes each step before running a tool), so this returns immediately.
+    async function waitForInferenceIdle(timeoutMs = 3000): Promise<void> {
+      const start = Date.now()
+      while (activeInferenceStreams.value > 0) {
+        if (Date.now() - start >= timeoutMs) break
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+    }
+
     const currentBackendUrl = computed(() => {
       if (homeAgent.isHomeAgentActive && homeAgent.homeAgentBaseUrl) {
         return homeAgent.homeAgentBaseUrl
@@ -1651,6 +1677,12 @@ export const useTextInference = defineStore(
 
       // Home Agent
       homeAgentUpstreamUrl,
+
+      // In-flight inference stream tracking (used by image tools to avoid
+      // resetting an open chat-backend socket when freeing the GPU)
+      beginInferenceStream,
+      endInferenceStream,
+      waitForInferenceIdle,
     }
   },
   {

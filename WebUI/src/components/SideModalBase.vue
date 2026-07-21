@@ -10,7 +10,7 @@
         side === 'left' ? 'left-0 border-r w-100' : 'right-0 border-l w-130',
       ]"
     >
-      <div class="flex items-center justify-between p-4 border-b border-border">
+      <div v-if="!hideHeader" class="flex items-center justify-between p-4 border-b border-border">
         <h2 class="text-lg font-semibold">{{ title }}</h2>
         <div class="flex gap-3 items-center">
           <slot name="header-buttons" />
@@ -30,7 +30,18 @@
           />
         </div>
       </div>
-      <div class="flex-1 p-4 overflow-y-auto">
+      <div class="flex-1 p-4 overflow-y-auto relative">
+        <!-- When the header banner is hidden, surface a compact close button in
+             the top-right corner of the content instead. -->
+        <button
+          v-if="hideHeader"
+          @click="$emit('close')"
+          :class="[
+            'svg-icon w-5 h-5 absolute top-2 right-2 z-10 text-muted-foreground hover:text-foreground',
+            side === 'left' ? 'i-arrow-left' : 'i-arrow-right',
+          ]"
+          :title="languages.COM_CLOSE"
+        />
         <slot />
       </div>
     </div>
@@ -44,6 +55,9 @@ const props = defineProps<{
   isVisible: boolean
   title: string
   side: 'left' | 'right'
+  // Hide the entire header banner (title + buttons). `title` is still used for
+  // the region's aria-label; a compact close button is shown in the content.
+  hideHeader?: boolean
 }>()
 
 defineEmits<{

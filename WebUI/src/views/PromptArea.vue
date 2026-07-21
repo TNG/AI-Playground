@@ -495,12 +495,23 @@ watch(
   { immediate: true },
 )
 
+// On startup no preset switch has run yet (presets/backends load async), so
+// `activePresetWithVariant` — and thus `stableChatPreset` — can be null even
+// though there is a persisted last-used preset. Fall back to it (or the first
+// available chat preset) so the indicator isn't blank at launch.
+const fallbackChatPreset = computed<ChatPreset | null>(() => {
+  const chatPresets = presetsStore.chatPresets
+  if (chatPresets.length === 0) return null
+  const lastUsed = presetsStore.getLastUsedPreset(['chat'])
+  return chatPresets.find((p) => p.name === lastUsed) ?? chatPresets[0]
+})
+
 // Preset/model indicator shown at the top-left of the input. Keyed off the
 // user's selected mode (not `currentMode`) so background comfy switches during
 // agentic / Home Agent tool use don't flip it.
 const presetIndicator = computed(() => {
   if (promptStore.userSelectedMode === 'chat') {
-    const preset = stableChatPreset.value
+    const preset = stableChatPreset.value ?? fallbackChatPreset.value
     if (!preset) return null
     // Match the ModelSelector label: display only the last path segment.
     const model = textInference.activeModel

@@ -49,7 +49,7 @@ const execAsync = promisify(exec)
 import { randomUUID } from 'node:crypto'
 import sudo from 'sudo-prompt'
 import { PathsManager } from './pathsManager'
-import { applySharedModelPaths } from './installConfig.ts'
+import { ensureSharedModelsDir } from './installConfig.ts'
 import { appLoggerInstance } from './logging/logger.ts'
 import {
   aiplaygroundApiServiceRegistry,
@@ -188,6 +188,11 @@ process.env.VITE_PUBLIC = path.join(__dirname, app.isPackaged ? '../..' : '../..
 const externalRes = path.resolve(
   app.isPackaged ? packagedResourcesRoot() : path.join(__dirname, '../../external/'),
 )
+
+// All-users install with a shared model folder: link `<resources>/models` to
+// the machine-wide shared folder before anything (downloads, scanning, backend
+// model resolution) touches it. No-op for per-user installs.
+if (app.isPackaged) ensureSharedModelsDir(externalRes)
 
 const modesDir = path.resolve(
   app.isPackaged
@@ -1222,15 +1227,9 @@ function initEventHandle() {
     return fs.existsSync(path)
   })
 
-  const modelConfigPath = path.join(
-    externalRes,
-    app.isPackaged ? 'model_config.json' : 'model_config.dev.json',
+  const pathsManager = new PathsManager(
+    path.join(externalRes, app.isPackaged ? 'model_config.json' : 'model_config.dev.json'),
   )
-  // All-users install with a shared model folder: re-root model paths to the
-  // machine-wide directory before PathsManager reads the config. No-op for
-  // per-user installs (no install-config file is written).
-  if (app.isPackaged) applySharedModelPaths(modelConfigPath)
-  const pathsManager = new PathsManager(modelConfigPath)
 
   ipcMain.handle('getInitSetting', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)

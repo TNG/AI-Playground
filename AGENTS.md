@@ -67,7 +67,7 @@ Python backend (`service/`) uses **Ruff** for linting (runs in CI via GitHub Act
 - Tests use `describe` / `it` / `expect`. Mock Electron with `vi.mock('electron', ...)`.
 - Tests live alongside source in `electron/test/` (currently unit tests for Electron main process only).
 
-## Code Style
+## Code Style 
 
 ### Formatting (enforced by Prettier + EditorConfig)
 

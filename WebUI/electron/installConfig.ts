@@ -3,15 +3,21 @@ import path from 'node:path'
 
 /**
  * Reads the machine-wide install configuration written by the all-users
- * installer, and (in "shared" model-folder mode) re-roots the per-user
- * `model_config.json` so every model path points at the shared directory
- * instead of the per-user resources root.
+ * installer and, in "shared" model-folder mode, makes the per-user resources
+ * `models` directory a junction to the machine-wide shared folder.
  *
  * The installer writes a small JSON file to a machine-readable location
  * (`%ProgramData%/AI Playground/install-config.json` on Windows). A per-user
- * install writes no such file, so the app keeps its default per-user paths —
- * i.e. this whole module is a no-op unless an admin chose an all-users install
- * with a shared model folder.
+ * install writes no such file, so the app keeps its own per-user models
+ * directory — i.e. this whole module is a no-op unless an admin chose an
+ * all-users install with a shared model folder.
+ *
+ * Why a junction rather than rewriting `model_config.json`: the download
+ * target, model scanning (PathsManager) and every backend
+ * (llama.cpp/OpenVINO/ComfyUI) independently resolve models under
+ * `<resourcesRoot>/models`. Pointing that single directory at the shared folder
+ * redirects all of them at once; rewriting `model_config.json` would only move
+ * the download/scan side and leave the backends looking in the per-user root.
  */
 
 export type ModelFolderMode = 'shared' | 'per-user'
@@ -21,9 +27,6 @@ export interface InstallConfig {
   /** Absolute path to the shared `models` directory (only in "shared" mode). */
   sharedModelDir?: string
 }
-
-/** All model paths in `model_config.json` are relative to this prefix. */
-const MODELS_PREFIX = './resources/models/'
 
 /** `%ProgramData%` (or a sensible fallback) — machine-wide, world-readable. */
 function programDataDir(): string {
@@ -66,36 +69,49 @@ export function readInstallConfig(): InstallConfig | null {
 }
 
 /**
- * On an all-users install with a shared model folder, rewrite the freshly
- * seeded `model_config.json` so each `./resources/models/...` path becomes an
- * absolute path under the shared directory. Runs once per user (guarded by a
- * marker next to the config); afterwards the user's own path edits win.
+ * On an all-users install with a shared model folder, make
+ * `<resourcesRoot>/models` a junction to the machine-wide shared folder so
+ * downloads, scanning and all backends transparently use the shared location.
  *
- * Must be called BEFORE `PathsManager` reads the config.
+ * Idempotent and best-effort: on any failure (or a per-user install) the app
+ * simply keeps its own per-user models directory. Must run after the resources
+ * root has been seeded and before models are accessed.
  */
-export function applySharedModelPaths(modelConfigPath: string): void {
+export function ensureSharedModelsDir(resourcesRoot: string): void {
   const cfg = readInstallConfig()
   if (!cfg || cfg.modelFolderMode !== 'shared') return
 
   // The installer normally records only the mode; derive the default location
   // unless an explicit path was provided (e.g. an admin pointing at a share).
   const sharedDir = cfg.sharedModelDir || defaultSharedModelDir()
+  const modelsPath = path.join(resourcesRoot, 'models')
 
-  const marker = path.join(path.dirname(modelConfigPath), '.aipg-shared-models-seeded')
-  if (fs.existsSync(marker)) return
+  // Ensure the shared target exists. If it's read-only for this user the link
+  // still works for reads; downloads are disabled elsewhere in that case.
+  try {
+    fs.mkdirSync(sharedDir, { recursive: true })
+  } catch {
+    // ignore — try to link anyway
+  }
 
   try {
-    const raw = JSON.parse(fs.readFileSync(modelConfigPath, 'utf-8')) as Record<string, string>
-    const rewritten: Record<string, string> = {}
-    for (const [key, value] of Object.entries(raw)) {
-      const normalized = value.replace(/\\/g, '/')
-      rewritten[key] = normalized.startsWith(MODELS_PREFIX)
-        ? path.join(sharedDir, normalized.slice(MODELS_PREFIX.length))
-        : value
+    const stat = fs.lstatSync(modelsPath)
+    if (stat.isSymbolicLink()) return // already linked
+    if (stat.isDirectory()) {
+      // Only replace a real directory when empty, so locally-downloaded models
+      // are never discarded. (Fresh installs have no bundled `models` dir.)
+      if (fs.readdirSync(modelsPath).length > 0) return
+      fs.rmdirSync(modelsPath)
     }
-    fs.writeFileSync(modelConfigPath, JSON.stringify(rewritten, null, 4))
-    fs.writeFileSync(marker, sharedDir)
   } catch {
-    // Best effort: on any failure the app falls back to per-user default paths.
+    // modelsPath doesn't exist yet — fall through and create the junction.
+  }
+
+  try {
+    // 'junction' works unelevated for a local target (Windows); on other
+    // platforms Node falls back to a normal symlink.
+    fs.symlinkSync(sharedDir, modelsPath, 'junction')
+  } catch (e) {
+    console.error('[installConfig] failed to link shared models dir:', e)
   }
 }

@@ -206,8 +206,61 @@ export const useOpenAiCompatibleChat = defineStore(
             return globalThis.fetch(requestUrl.toString(), init)
           }
 
+          // Track one attempt as an in-flight inference stream for its whole
+          // lifetime — from dispatch until the response body is fully read,
+          // cancelled, or errored. Image tools wait on this (via
+          // textInference.waitForInferenceIdle) before freeing the GPU, so they
+          // can't stop the chat backend while a stream to it is still open
+          // (which would reset the socket mid-stream => "network error").
+          const runTracked = async (): Promise<Response> => {
+            textInference.beginInferenceStream()
+            let response: Response
+            try {
+              response = await doFetch()
+            } catch (error) {
+              textInference.endInferenceStream()
+              throw error
+            }
+            if (!response.body) {
+              textInference.endInferenceStream()
+              return response
+            }
+            let settled = false
+            const settle = () => {
+              if (settled) return
+              settled = true
+              textInference.endInferenceStream()
+            }
+            const reader = response.body.getReader()
+            const tracked = new ReadableStream<Uint8Array>({
+              async pull(controller) {
+                try {
+                  const { done, value } = await reader.read()
+                  if (done) {
+                    settle()
+                    controller.close()
+                    return
+                  }
+                  controller.enqueue(value)
+                } catch (error) {
+                  settle()
+                  controller.error(error)
+                }
+              },
+              cancel(reason) {
+                settle()
+                return reader.cancel(reason)
+              },
+            })
+            return new Response(tracked, {
+              status: response.status,
+              statusText: response.statusText,
+              headers: response.headers,
+            })
+          }
+
           try {
-            return await doFetch()
+            return await runTracked()
           } catch (error) {
             // A thrown fetch error (vs. an HTTP error status) means the request
             // never reached a live server — typically the llama-server process
@@ -218,7 +271,7 @@ export const useOpenAiCompatibleChat = defineStore(
             if (init?.signal?.aborted) throw error
             console.warn('Inference request failed; relaunching backend and retrying once:', error)
             await textInference.ensureBackendReadiness()
-            return await doFetch()
+            return await runTracked()
           }
         },
       }).chatModel(textInference.activeModel?.split('/').join('---') ?? ''),

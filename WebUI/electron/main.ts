@@ -108,6 +108,13 @@ import {
   type GpuHardwareDevice,
 } from './subprocesses/hardwareDiscovery.ts'
 import z from 'zod'
+import { startHeadlessServer, broadcastSSE, registerApiHandler } from './headlessServer.ts'
+
+// ── Headless mode flag ────────────────────────────────────────────────────────
+// Pass --headless to Electron to run without a BrowserWindow: all backends start
+// as normal but the UI is served as a web app on http://localhost:8080 instead
+// of opening a desktop window. Ideal for containers without a display.
+const isHeadless = process.argv.includes('--headless')
 
 const ProductModeUiI18nSchema = z.object({
   titleOne: z.string(),
@@ -866,6 +873,9 @@ app.on('quit', async () => {
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
 app.on('window-all-closed', async () => {
+  // In headless mode there are no browser windows — do not quit on this event.
+  // The process stays alive serving the HTTP API until explicitly terminated.
+  if (isHeadless) return
   try {
     await stopAllMcpServers()
     await serviceRegistry?.stopAllServices()
@@ -2640,8 +2650,219 @@ app.whenReady().then(async () => {
         headers,
       })
     })
-    const window = await createWindow()
+    let window: BrowserWindow
+    if (isHeadless) {
+      // Headless mode: no real BrowserWindow.
+      // Create a minimal duck-typed object so service files can call
+      // this.win.webContents.send() unchanged — events route to SSE clients.
+      window = {
+        webContents: {
+          send: (channel: string, ...args: unknown[]) => broadcastSSE(channel, args[0]),
+          isDestroyed: () => false,
+          openDevTools: () => {},
+          on: () => win,
+          session: {
+            setPermissionRequestHandler: () => {},
+            webRequest: { onBeforeSendHeaders: () => {}, onHeadersReceived: () => {} },
+          },
+        },
+        isDestroyed: () => false,
+        minimize: () => {}, maximize: () => {}, restore: () => {},
+        setFullScreen: () => {}, setProgressBar: () => {}, setKiosk: () => {},
+        setBounds: () => {}, setIgnoreMouseEvents: () => {},
+        on: () => window, close: () => app.quit(),
+        focus: () => {}, isMinimized: () => false,
+      } as unknown as BrowserWindow
+      win = window
+    } else {
+      window = await createWindow()
+    }
     await initServiceRegistry(window, settings)
     spawnLangchainUtilityProcess()
+
+    if (isHeadless) {
+      registerAllApiHandlers(settings)
+      // Serve the built Vue.js dist from the same directory as index.html.
+      // process.env.DIST = dist-electron/../ = the dist/ root.
+      const distPath = path.resolve(process.env.DIST!)
+      const polyfillPath = path.join(distPath, 'electron-api-polyfill.js')
+      startHeadlessServer(distPath, polyfillPath, 8080)
+      appLogger.info('Headless mode active — open http://localhost:8080', 'electron-backend', true)
+    }
   }
 })
+
+// ── REST API handler registration for headless mode ───────────────────────────
+// Each registerApiHandler call mirrors the corresponding ipcMain.handle in
+// initEventHandle(). The body object contains the arguments passed from the
+// polyfill's fetch() call. Desktop-only features return null stubs.
+function registerAllApiHandlers(settings: LocalSettings) {
+  // ── Service management ──────────────────────────────────────────────────
+  registerApiHandler('getServices', () =>
+    serviceRegistry?.getServiceInformation() ?? []
+  )
+  registerApiHandler('startService', (b) => {
+    const { name } = b as { name: string }
+    return serviceRegistry?.getService(name as BackendServiceName)?.start()
+  })
+  registerApiHandler('stopService', (b) => {
+    const { name } = b as { name: string }
+    return serviceRegistry?.getService(name as BackendServiceName)?.stop()
+  })
+  registerApiHandler('setUpService', (b) => {
+    const { name } = b as { name: string }
+    const svc = serviceRegistry?.getService(name as BackendServiceName)
+    if (svc && 'set_up' in svc) {
+      // Kick off setup and stream progress via SSE
+      ;(async () => {
+        for await (const progress of (svc as { set_up: () => AsyncIterable<SetupProgress> }).set_up()) {
+          broadcastSSE('serviceSetUpProgress', progress)
+        }
+      })()
+    }
+    return { started: true }
+  })
+  registerApiHandler('uninstall', async (b) => {
+    const { name } = b as { name: string }
+    const svc = serviceRegistry?.getService(name as BackendServiceName)
+    if (svc && 'uninstall' in svc) await (svc as { uninstall: () => Promise<void> }).uninstall()
+    return { success: true }
+  })
+  registerApiHandler('detectDevices', async (b) => {
+    const { name } = b as { name: string }
+    return serviceRegistry?.getService(name as BackendServiceName)?.detectDevices?.()
+  })
+  registerApiHandler('selectDevice', (b) => {
+    const { name, deviceId } = b as { name: string; deviceId: string }
+    return serviceRegistry?.getService(name as BackendServiceName)?.setDevice?.(deviceId)
+  })
+  registerApiHandler('selectSttDevice', (b) => {
+    const { name, deviceId } = b as { name: string; deviceId: string }
+    const svc = serviceRegistry?.getService(name as BackendServiceName)
+    return (svc as { setSttDevice?: (id: string) => void })?.setSttDevice?.(deviceId)
+  })
+  registerApiHandler('updateServiceSettings', (b) =>
+    serviceRegistry?.updateServiceSettings(b as ServiceSettings)
+  )
+  registerApiHandler('getBackendAuthToken', (b) => {
+    const { name } = b as { name: string }
+    const svc = serviceRegistry?.getService(name as BackendServiceName)
+    return svc instanceof AiBackendService ? svc.getLoopbackAuthToken() : ''
+  })
+  registerApiHandler('getComfyUiDefaultParameters', () => COMFYUI_DEFAULT_PARAMETERS)
+  registerApiHandler('getLlamaCppDefaultParameters', () => LLAMACPP_DEFAULT_PARAMETERS)
+
+  // ── Settings ────────────────────────────────────────────────────────────
+  registerApiHandler('getLocalSettings', () => LocalSettingsSchema.parse(settings))
+  registerApiHandler('updateLocalSettings', (b) => {
+    Object.assign(settings, b as Partial<LocalSettings>)
+    persistLocalSettingsToDisk()
+    return { success: true }
+  })
+  registerApiHandler('getThemeSettings', () => ({
+    availableThemes: settings.availableThemes,
+    currentTheme: settings.currentTheme,
+  }))
+  registerApiHandler('getLocaleSettings', () => ({
+    locale: app.getLocale(),
+    languageOverride: settings.languageOverride,
+  }))
+  registerApiHandler('getInitSetting', () => ({
+    settings: LocalSettingsSchema.parse(settings),
+    modesDir,
+    externalRes,
+  }))
+  registerApiHandler('getInitialPage', () => settings.productMode ?? null)
+  registerApiHandler('getDemoModeSettings', () => ({
+    isDemoModeEnabled: settings.isDemoModeEnabled,
+    demoModeResetInSeconds: settings.demoModeResetInSeconds,
+  }))
+  registerApiHandler('getPlatform', () => process.platform)
+  registerApiHandler('getGitHubRepoUrl', () => getGitHubRepoUrl(settings))
+
+  // ── Models ──────────────────────────────────────────────────────────────
+  registerApiHandler('loadModels', () => pathsManager?.loadModels?.())
+  registerApiHandler('updateModelPaths', (b) => pathsManager?.updateModelPaths?.(b as ModelPaths))
+  registerApiHandler('getDownloadedGGUFLLMs', () => pathsManager?.getDownloadedGGUFLLMs?.())
+  registerApiHandler('getDownloadedOpenVINOLLMModels', () => pathsManager?.getDownloadedOpenVINOLLMModels?.())
+  registerApiHandler('getDownloadedEmbeddingModels', () => pathsManager?.getDownloadedEmbeddingModels?.())
+  registerApiHandler('getComfyUIModels', (b) => {
+    const { modelType } = b as { modelType: string }
+    return pathsManager?.getComfyUIModels?.(modelType)
+  })
+
+  // ── Backend versions ────────────────────────────────────────────────────
+  registerApiHandler('resolveBackendVersion', async (b) => {
+    const { name } = b as { name: BackendServiceName }
+    return resolveBackendVersion(name, settings)
+  })
+  registerApiHandler('getInstalledBackendVersion', async (b) => {
+    const { name } = b as { name: BackendServiceName }
+    const svc = serviceRegistry?.getService(name)
+    return (svc as { getCachedVersion?: () => string | undefined })?.getCachedVersion?.()
+  })
+
+  // ── Presets ──────────────────────────────────────────────────────────────
+  registerApiHandler('loadUserPresets', async () => {
+    const p = pathsManager?.userPresetsPath
+    if (!p || !fs.existsSync(p)) return []
+    return JSON.parse(await fs.promises.readFile(p, 'utf-8'))
+  })
+  registerApiHandler('saveUserPreset', async (b) => {
+    const { content } = b as { content: string }
+    const p = pathsManager?.userPresetsPath
+    if (p) await fs.promises.writeFile(p, content, 'utf-8')
+    return { success: true }
+  })
+  registerApiHandler('updatePresetsFromIntelRepo', () => updateIntelPresets(settings, modesDir, appLogger))
+
+  // ── ComfyUI tools ────────────────────────────────────────────────────────
+  registerApiHandler('comfyui:isCustomNodeInstalled', (b) => {
+    const { name } = b as { name: string }
+    return comfyuiTools.isCustomNodeInstalled(name)
+  })
+  registerApiHandler('comfyui:downloadCustomNode', async (b) => {
+    const { url } = b as { url: string }
+    const svc = serviceRegistry?.getService('comfyui-backend') as ComfyUiBackendService | undefined
+    if (!svc) throw new Error('ComfyUI not running')
+    return comfyuiTools.downloadCustomNode(url, svc, appLogger)
+  })
+  registerApiHandler('comfyui:isPackageInstalled', (b) => {
+    const { packageSpecifier } = b as { packageSpecifier: string }
+    return comfyuiTools.isPackageInstalled(packageSpecifier)
+  })
+  registerApiHandler('comfyui:openInBrowser', () => {
+    const svc = serviceRegistry?.getService('comfyui-backend') as ComfyUiBackendService | undefined
+    if (svc?.baseUrl) shell.openExternal(svc.baseUrl)
+    return { url: svc?.baseUrl }
+  })
+
+  // ── MCP ──────────────────────────────────────────────────────────────────
+  registerApiHandler('mcp:listServers', () => listMcpServers())
+  registerApiHandler('mcp:startServer',  (b) => startMcpServer((b as { serverId: string }).serverId))
+  registerApiHandler('mcp:stopServer',   (b) => stopMcpServer((b as { serverId: string }).serverId))
+  registerApiHandler('mcp:getServerStatus', (b) => getMcpServerStatus((b as { serverId: string }).serverId))
+  registerApiHandler('mcp:listServerTools', (b) => listMcpServerTools((b as { serverId: string }).serverId))
+  registerApiHandler('mcp:invokeServerTool', (b) => {
+    const { serverId, toolName, args: toolArgs } = b as { serverId: string; toolName: string; args: Record<string, unknown> }
+    return invokeMcpServerTool(serverId, toolName, toolArgs)
+  })
+  registerApiHandler('mcp:getServerConfig', (b) => getMcpServerConfig((b as { serverId: string }).serverId))
+  registerApiHandler('mcp:reloadConfig', async () => detectAndRegisterAutoMcpServers(appLogger))
+
+  // ── Hardware detection ────────────────────────────────────────────────────
+  registerApiHandler('detectHardwareForModeRecommendation', async () => {
+    const { detected, hasNvidia } = await detectGpuHardwareDevices()
+    return { gpuDevices: detected, hasNvidia }
+  })
+  registerApiHandler('detectPhisonSsd', async () => ({ detected: false }))
+
+  // ── Desktop-only stubs (UI still works, features degraded) ────────────────
+  registerApiHandler('showOpenDialog',   () => ({ canceled: true, filePaths: [] }))
+  registerApiHandler('showSaveDialog',   () => ({ canceled: true }))
+  registerApiHandler('getWinSize',       () => ({ width: 1440, height: 900 }))
+  registerApiHandler('setWinSize',       () => null)
+  registerApiHandler('getEmbeddingServerUrl', () => null)
+  registerApiHandler('addDocumentToRAGList',  () => null)
+  registerApiHandler('embedInputUsingRag',    () => null)
+}

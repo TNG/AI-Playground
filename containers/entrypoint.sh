@@ -11,21 +11,27 @@ set -e
 #   5. Exec the AIPG Electron binary with the correct environment
 
 # ── 1. Validate display ────────────────────────────────────────────────────────
-if [ -z "${DISPLAY:-}" ]; then
-    echo "[entrypoint] ERROR: DISPLAY is not set. Pass it from the host:"
-    echo "  -e DISPLAY=\$DISPLAY  (or set DISPLAY in containers/.env)"
-    exit 1
-fi
-if [ ! -d /tmp/.X11-unix ]; then
-    echo "[entrypoint] ERROR: /tmp/.X11-unix is not mounted."
-    echo "  Add to volumes: /tmp/.X11-unix:/tmp/.X11-unix:ro"
-    exit 1
+# In headless mode (AIPG_HEADLESS=1) there is no X11 display — the app runs as
+# an HTTP server accessed via browser. Skip all X11 checks.
+if [ "${AIPG_HEADLESS:-0}" != "1" ]; then
+    if [ -z "${DISPLAY:-}" ]; then
+        echo "[entrypoint] ERROR: DISPLAY is not set. Pass it from the host:"
+        echo "  -e DISPLAY=\$DISPLAY  (or set DISPLAY in containers/.env)"
+        exit 1
+    fi
+    if [ ! -d /tmp/.X11-unix ]; then
+        echo "[entrypoint] ERROR: /tmp/.X11-unix is not mounted."
+        echo "  Add to volumes: /tmp/.X11-unix:/tmp/.X11-unix:ro"
+        exit 1
+    fi
 fi
 
 # ── 2. X authority cookie ──────────────────────────────────────────────────────
-if [ -n "${XAUTH_PATH:-}" ] && [ -f "$XAUTH_PATH" ]; then
-    export XAUTHORITY="$XAUTH_PATH"
-    echo "[entrypoint] Using XAUTHORITY: $XAUTHORITY"
+if [ "${AIPG_HEADLESS:-0}" != "1" ]; then
+    if [ -n "${XAUTH_PATH:-}" ] && [ -f "$XAUTH_PATH" ]; then
+        export XAUTHORITY="$XAUTH_PATH"
+        echo "[entrypoint] Using XAUTHORITY: $XAUTHORITY"
+    fi
 fi
 
 # ── 3. D-Bus session bus ───────────────────────────────────────────────────────
@@ -95,7 +101,8 @@ if [ -z "$AIPG_BIN" ]; then
 fi
 
 echo "[entrypoint] Starting AI Playground: $AIPG_BIN"
-echo "[entrypoint] DISPLAY=$DISPLAY"
+echo "[entrypoint] Mode: ${AIPG_HEADLESS:+headless}${AIPG_HEADLESS:-desktop}"
+echo "[entrypoint] DISPLAY=${DISPLAY:-<not set>}"
 echo "[entrypoint] XDG_DATA_HOME=${XDG_DATA_HOME:-/aipg-data}"
 
 # ── 7. Launch ──────────────────────────────────────────────────────────────────
@@ -103,7 +110,17 @@ echo "[entrypoint] XDG_DATA_HOME=${XDG_DATA_HOME:-/aipg-data}"
 # --disable-gpu: software rasterizer for the Electron/Chromium UI chrome only;
 #                does NOT affect Intel GPU AI compute via /dev/dri (Level Zero /
 #                Vulkan are accessed through Python backends, not Chromium GPU).
-exec "$AIPG_BIN" \
-    --no-sandbox \
-    --disable-gpu \
-    "$@"
+# --headless:    skip BrowserWindow, serve Vue.js on http://0.0.0.0:8080 instead.
+if [ "${AIPG_HEADLESS:-0}" = "1" ]; then
+    echo "[entrypoint] Headless mode — open http://localhost:8080 in your browser"
+    exec "$AIPG_BIN" \
+        --no-sandbox \
+        --disable-gpu \
+        --headless \
+        "$@"
+else
+    exec "$AIPG_BIN" \
+        --no-sandbox \
+        --disable-gpu \
+        "$@"
+fi

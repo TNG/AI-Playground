@@ -49,6 +49,7 @@ const execAsync = promisify(exec)
 import { randomUUID } from 'node:crypto'
 import sudo from 'sudo-prompt'
 import { PathsManager } from './pathsManager'
+import { applySharedModelPaths } from './installConfig.ts'
 import { appLoggerInstance } from './logging/logger.ts'
 import {
   aiplaygroundApiServiceRegistry,
@@ -1221,9 +1222,15 @@ function initEventHandle() {
     return fs.existsSync(path)
   })
 
-  const pathsManager = new PathsManager(
-    path.join(externalRes, app.isPackaged ? 'model_config.json' : 'model_config.dev.json'),
+  const modelConfigPath = path.join(
+    externalRes,
+    app.isPackaged ? 'model_config.json' : 'model_config.dev.json',
   )
+  // All-users install with a shared model folder: re-root model paths to the
+  // machine-wide directory before PathsManager reads the config. No-op for
+  // per-user installs (no install-config file is written).
+  if (app.isPackaged) applySharedModelPaths(modelConfigPath)
+  const pathsManager = new PathsManager(modelConfigPath)
 
   ipcMain.handle('getInitSetting', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
@@ -1235,6 +1242,7 @@ function initEventHandle() {
       modelPaths: pathsManager.modelPaths,
       isAdminExec: settings.isAdminExec,
       version: app.getVersion(),
+      modelFolderReadOnly: !pathsManager.isModelDirWritable(),
     }
   })
 

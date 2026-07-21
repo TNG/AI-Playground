@@ -8,23 +8,56 @@ import fs from 'node:fs'
  * its bundled resources AND its writable working tree (Python interpreter,
  * backend venvs, LlamaCPP/ComfyUI installs, preset edits, settings, logs).
  *
- * On Windows the per-user install directory is writable, so this is simply
+ * The install directory is used directly when it is writable — the default for
+ * a per-user Windows install and for dev — so this is simply
  * `process.resourcesPath` (unchanged behaviour).
  *
- * On Linux the app ships as a **read-only** bundle (AppImage squashfs mount, or
- * a `/opt` install owned by root), so writing backends into `process.resourcesPath`
- * fails with EROFS/ENOENT. To support this we relocate the root to a per-user
- * writable directory and seed it once (per app version) from the read-only
- * bundle. Runtime data created later (venvs, models, `python-interpreter/`, …) is
- * never part of the bundle, so it is preserved across reseeds.
+ * When the install directory is **not** writable we relocate the root to a
+ * per-user writable directory and seed it once (per app version) from the
+ * read-only bundle. Two cases hit this path:
+ *   - Linux: the app ships as a read-only bundle (AppImage squashfs mount, or a
+ *     `/opt` install owned by root), so writes fail with EROFS/ENOENT.
+ *   - Windows all-users install: the app lives under `Program Files` and a
+ *     standard (unelevated) user cannot write there.
+ * Runtime data created later (venvs, models, `python-interpreter/`, …) is never
+ * part of the bundle, so it is preserved across reseeds.
  */
 
-const isLinuxPackaged = (): boolean => app.isPackaged && process.platform === 'linux'
-
-/** `$XDG_DATA_HOME/ai-playground` (no spaces — Python venvs dislike spaces). */
-const writableLinuxRoot = (): string => {
+/**
+ * Per-user writable root. No spaces in the path — Python venvs dislike them.
+ * `%LOCALAPPDATA%/ai-playground/resources` on Windows,
+ * `$XDG_DATA_HOME/ai-playground/resources` (or `~/.local/share/...`) elsewhere.
+ */
+const writableUserRoot = (): string => {
+  if (process.platform === 'win32') {
+    const localAppData =
+      process.env.LOCALAPPDATA?.trim() || path.join(os.homedir(), 'AppData', 'Local')
+    return path.join(localAppData, 'ai-playground', 'resources')
+  }
   const dataHome = process.env.XDG_DATA_HOME?.trim() || path.join(os.homedir(), '.local', 'share')
   return path.join(dataHome, 'ai-playground', 'resources')
+}
+
+/**
+ * Whether `process.resourcesPath` is writable by the current user. Per-user
+ * Windows installs and dev checkouts are writable; a read-only Linux bundle and
+ * an all-users `Program Files` install run unelevated are not. Electron ships
+ * with UAC file/registry virtualization disabled, so a failed write to
+ * `Program Files` surfaces as an error here instead of being silently
+ * redirected to a VirtualStore. Probed once and cached.
+ */
+let installDirWritable: boolean | undefined
+const isInstallDirWritable = (): boolean => {
+  if (installDirWritable !== undefined) return installDirWritable
+  const probe = path.join(process.resourcesPath, `.aipg-write-probe-${process.pid}`)
+  try {
+    fs.writeFileSync(probe, '')
+    fs.rmSync(probe, { force: true })
+    installDirWritable = true
+  } catch {
+    installDirWritable = false
+  }
+  return installDirWritable
 }
 
 // Binaries that must keep their executable bit after being copied out of the
@@ -78,16 +111,19 @@ function seedWritableRoot(root: string): void {
 }
 
 /**
- * The packaged resources root. Writable on Linux (seeded on first use), and
- * `process.resourcesPath` on Windows/macOS. Safe to call before `app` is ready.
+ * The packaged resources root. When the install directory is writable this is
+ * `process.resourcesPath`; otherwise it is a per-user writable directory
+ * (seeded from the read-only bundle on first use). Safe to call before `app` is
+ * ready.
  *
  * Only meaningful when `app.isPackaged` is true; callers keep their own
  * development-mode paths for the unpackaged case.
  */
 export function packagedResourcesRoot(): string {
-  if (!isLinuxPackaged()) return process.resourcesPath
+  if (!app.isPackaged) return process.resourcesPath
+  if (isInstallDirWritable()) return process.resourcesPath
 
-  const root = writableLinuxRoot()
+  const root = writableUserRoot()
   if (!seeded) {
     try {
       seedWritableRoot(root)

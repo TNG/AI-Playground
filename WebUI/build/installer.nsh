@@ -4,7 +4,11 @@
 !macroend
 
 !macro customInstallMode
-    StrCpy $isForceCurrentInstall "1"
+    ; Both flags "0" lets the assisted installer show the install-mode page so a
+    ; system administrator can install for all users (elevated) while a normal
+    ; user can still install just for themselves (unelevated). Previously
+    ; $isForceCurrentInstall was "1", which forced per-user and hid the choice.
+    StrCpy $isForceCurrentInstall "0"
     StrCpy $isForceMachineInstall "0"
 !macroend
 
@@ -38,7 +42,49 @@
 
     end:
         DetailPrint "Installation completed."
-          
+
+    ; --- AI Playground: all-users shared/per-user model folder choice ---
+    ; Only all-users installs get a machine-wide config; a per-user
+    ; (CurrentUser) install keeps the default per-user model paths and writes
+    ; nothing here. Uses $R0-$R3 to avoid clobbering $0-$2 used above.
+    ;   $R0 = %ProgramData%  $R1 = config dir  $R2 = shared models dir
+    ;   $R3 = install-config.json file handle
+    ${if} $installMode != "CurrentUser"
+      ReadEnvStr $R0 "ProgramData"
+      ${if} $R0 == ""
+        StrCpy $R0 "$PROGRAMFILES\..\..\ProgramData"
+      ${endif}
+      StrCpy $R1 "$R0\AI Playground"
+      StrCpy $R2 "$R1\models"
+      CreateDirectory "$R1"
+
+      ; Default to shared (IDYES); silent installs auto-select it via /SD IDYES.
+      MessageBox MB_YESNO|MB_ICONQUESTION \
+        "Share downloaded AI models across all users of this computer?$\r$\n$\r$\nYes (recommended): one shared model folder used by everyone.$\r$\nNo: each user keeps a separate copy." \
+        /SD IDYES IDYES aipgShared IDNO aipgPerUser
+
+      aipgShared:
+        CreateDirectory "$R2"
+        ClearErrors
+        FileOpen $R3 "$R1\install-config.json" w
+        ${ifNot} ${errors}
+          FileWrite $R3 '{$\r$\n  "modelFolderMode": "shared"$\r$\n}$\r$\n'
+          FileClose $R3
+        ${endif}
+        Goto aipgDone
+
+      aipgPerUser:
+        ClearErrors
+        FileOpen $R3 "$R1\install-config.json" w
+        ${ifNot} ${errors}
+          FileWrite $R3 '{$\r$\n  "modelFolderMode": "per-user"$\r$\n}$\r$\n'
+          FileClose $R3
+        ${endif}
+        Goto aipgDone
+
+      aipgDone:
+    ${endif}
+
 !macroend
 
 
@@ -85,4 +131,18 @@
     DetailPrint "Removing existing files..."
     RMDir /r "$INSTDIR"
 
+!macroend
+
+
+!macro customUnInstall
+  ; Remove only the machine-wide install marker so a future reinstall re-prompts
+  ; for the model-folder choice. The shared models directory
+  ; (%ProgramData%\AI Playground\models) and each user's per-user working tree
+  ; (%LOCALAPPDATA%\ai-playground) are intentionally preserved — they may hold
+  ; many GB of admin-provisioned models and cannot be safely enumerated for
+  ; every user profile from a machine-wide uninstaller.
+  ReadEnvStr $R0 "ProgramData"
+  ${if} $R0 != ""
+    Delete "$R0\AI Playground\install-config.json"
+  ${endif}
 !macroend

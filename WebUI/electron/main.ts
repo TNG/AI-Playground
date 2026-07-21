@@ -50,6 +50,7 @@ const execAsync = promisify(exec)
 import { randomUUID } from 'node:crypto'
 import sudo from 'sudo-prompt'
 import { PathsManager } from './pathsManager'
+import { ensureSharedModelsDir } from './installConfig.ts'
 import { appLoggerInstance } from './logging/logger.ts'
 import {
   aiplaygroundApiServiceRegistry,
@@ -190,6 +191,11 @@ process.env.VITE_PUBLIC = path.join(__dirname, app.isPackaged ? '../..' : '../..
 const externalRes = path.resolve(
   app.isPackaged ? packagedResourcesRoot() : path.join(__dirname, '../../external/'),
 )
+
+// All-users install with a shared model folder: link `<resources>/models` to
+// the machine-wide shared folder before anything (downloads, scanning, backend
+// model resolution) touches it. No-op for per-user installs.
+if (app.isPackaged) ensureSharedModelsDir(externalRes)
 
 const modesDir = path.resolve(
   app.isPackaged
@@ -1392,6 +1398,7 @@ function initEventHandle() {
       modelPaths: pathsManager.modelPaths,
       isAdminExec: settings.isAdminExec,
       version: app.getVersion(),
+      modelFolderReadOnly: !pathsManager.isModelDirWritable(),
     }
   })
 

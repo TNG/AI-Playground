@@ -12,6 +12,7 @@ import { useTextInference } from '../store/textInference'
 import { usePresetSwitching } from '../store/presetSwitching'
 import { usePromptStore } from '../store/promptArea'
 import { useDeveloperSettings } from '../store/developerSettings'
+import { useTextInference } from '../store/textInference'
 import { stopChatBackends, restartChatBackend } from './chatBackends'
 import { imageUrlToDataUri } from '@/lib/utils'
 import { isCancellation } from '../errors/appError'
@@ -246,10 +247,6 @@ export async function executeImageEdit(
 ): Promise<ImageEditToolOutput> {
   console.log('[ComfyUIImageEdit Tool] Starting generation with args:', args)
 
-  // avoid network issues from killing the chat BE while tool call is still streaming
-  const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-  await delay(100)
-
   const activities = useActivities()
   const conversations = useConversations()
   const i18nState = useI18N().state
@@ -275,6 +272,12 @@ export async function executeImageEdit(
   }
 
   if (!useDeveloperSettings().keepModelsLoaded) {
+    // Wait for any in-flight chat stream (the request that carried this tool
+    // call) to finish before freeing the GPU, so stopping the chat backend
+    // can't reset an open llama.cpp socket mid-stream (=> "network error").
+    // Replaces a fixed 100ms guess; bounded internally so a stuck stream can't
+    // hang generation.
+    await useTextInference().waitForInferenceIdle()
     await stopChatBackends()
   }
 

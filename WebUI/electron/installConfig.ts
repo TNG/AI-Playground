@@ -33,20 +33,38 @@ function programDataDir(): string {
   return process.env.ProgramData?.trim() || 'C:\\ProgramData'
 }
 
-/** Location of the machine-wide install config written by the installer. */
-function installConfigPath(): string {
+/** Machine-wide config directory the installer writes to. */
+function configDir(): string {
   if (process.platform === 'win32') {
-    return path.join(programDataDir(), 'AI Playground', 'install-config.json')
+    return path.join(programDataDir(), 'AI Playground')
   }
   // No all-users installer flow on non-Windows yet; keep a conventional path so
   // the reader is platform-safe.
-  return '/etc/ai-playground/install-config.json'
+  return '/etc/ai-playground'
+}
+
+/** Location of the machine-wide install config written by the installer. */
+function installConfigPath(): string {
+  return path.join(configDir(), 'install-config.json')
 }
 
 /**
- * Default shared `models` directory when the installer recorded "shared" mode
- * without an explicit path. Kept in sync with the installer, which creates
- * `%ProgramData%/AI Playground/models`.
+ * Sidecar written by the installer's directory picker: the admin-chosen shared
+ * models folder as a raw path (avoids JSON backslash-escaping in NSIS).
+ */
+function readSharedModelDirFile(): string | undefined {
+  try {
+    const raw = fs.readFileSync(path.join(configDir(), 'shared-model-dir.txt'), 'utf-8').trim()
+    return raw || undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Default shared `models` directory when neither the install config nor the
+ * installer's picker recorded a path. Kept in sync with the installer, which
+ * defaults to `%ProgramData%/AI Playground/models`.
  */
 function defaultSharedModelDir(): string {
   return path.join(programDataDir(), 'AI Playground', 'models')
@@ -81,9 +99,13 @@ export function ensureSharedModelsDir(resourcesRoot: string): void {
   const cfg = readInstallConfig()
   if (!cfg || cfg.modelFolderMode !== 'shared') return
 
-  // The installer normally records only the mode; derive the default location
-  // unless an explicit path was provided (e.g. an admin pointing at a share).
-  const sharedDir = cfg.sharedModelDir || defaultSharedModelDir()
+  // Resolve the shared location, in priority order: an explicit path in
+  // install-config.json (manual admin override), the installer's directory
+  // picker sidecar, then the default. path.resolve normalises separators so a
+  // path written with forward slashes still yields a valid junction target.
+  const sharedDir = path.resolve(
+    cfg.sharedModelDir || readSharedModelDirFile() || defaultSharedModelDir(),
+  )
   const modelsPath = path.join(resourcesRoot, 'models')
 
   // Ensure the shared target exists. If it's read-only for this user the link

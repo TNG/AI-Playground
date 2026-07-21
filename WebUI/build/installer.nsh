@@ -48,7 +48,7 @@
     ; (CurrentUser) install keeps the default per-user model paths and writes
     ; nothing here. Uses $R0-$R3 to avoid clobbering $0-$2 used above.
     ;   $R0 = %ProgramData%  $R1 = config dir  $R2 = shared models dir
-    ;   $R3 = install-config.json file handle
+    ;   $R3 = file handle     $R4 = folder-picker result
     ${if} $installMode != "CurrentUser"
       ReadEnvStr $R0 "ProgramData"
       ${if} $R0 == ""
@@ -64,7 +64,27 @@
         /SD IDYES IDYES aipgShared IDNO aipgPerUser
 
       aipgShared:
+        ; Let the administrator choose where the shared models live (defaults to
+        ; %ProgramData%\AI Playground\models). Skipped on silent installs, which
+        ; keep the default. Uses the native "browse for folder" dialog.
+        ${IfNot} ${Silent}
+          nsDialogs::SelectFolderDialog "Choose the shared AI models folder (used by all users of this computer)" "$R2"
+          Pop $R4
+          ${If} $R4 != "error"
+          ${AndIf} $R4 != ""
+            StrCpy $R2 "$R4"
+          ${EndIf}
+        ${EndIf}
         CreateDirectory "$R2"
+        ; Record the chosen path in a plain sidecar file (raw path — avoids
+        ; JSON backslash-escaping in NSIS). The app reads it back and junctions
+        ; <resources>\models to it (see electron/installConfig.ts).
+        ClearErrors
+        FileOpen $R3 "$R1\shared-model-dir.txt" w
+        ${ifNot} ${errors}
+          FileWrite $R3 "$R2"
+          FileClose $R3
+        ${endif}
         ClearErrors
         FileOpen $R3 "$R1\install-config.json" w
         ${ifNot} ${errors}
@@ -74,6 +94,8 @@
         Goto aipgDone
 
       aipgPerUser:
+        ; Drop any stale shared-folder path from a previous shared install.
+        Delete "$R1\shared-model-dir.txt"
         ClearErrors
         FileOpen $R3 "$R1\install-config.json" w
         ${ifNot} ${errors}
@@ -144,5 +166,6 @@
   ReadEnvStr $R0 "ProgramData"
   ${if} $R0 != ""
     Delete "$R0\AI Playground\install-config.json"
+    Delete "$R0\AI Playground\shared-model-dir.txt"
   ${endif}
 !macroend

@@ -165,15 +165,84 @@
             </div>
           </div>
           <div id="mode-buttons" class="absolute bottom-4 left-3 flex gap-2">
-            <Button
+            <Popover
               v-for="mode in modesWithPresets"
-              :variant="promptStore.getCurrentMode() === mode ? 'default' : 'secondary'"
               :key="mode"
-              :id="'mode-button-' + mode"
-              @click="handleModeClick(mode)"
+              :open="openPickerMode === mode"
+              @update:open="(val: boolean) => onPickerOpenChange(mode, val)"
             >
-              {{ mapModeToLabel(mode) }}
-            </Button>
+              <!-- Shared anchor pinned to the left edge of the button row, so every
+                   mode's picker opens from the same point (using the full width) -->
+              <PopoverAnchor as-child>
+                <span
+                  aria-hidden="true"
+                  class="pointer-events-none absolute left-0 top-0 bottom-0 w-0"
+                />
+              </PopoverAnchor>
+              <PopoverTrigger as-child>
+                <Button
+                  :variant="promptStore.getCurrentMode() === mode ? 'default' : 'secondary'"
+                  :id="'mode-button-' + mode"
+                  @click="handleModeClick(mode)"
+                >
+                  {{ mapModeToLabel(mode) }}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="top"
+                align="start"
+                :side-offset="8"
+                class="z-[40010] w-auto max-w-[80vw] rounded-lg border border-border bg-card p-2 shadow-xl"
+                @open-auto-focus.prevent
+              >
+                <div class="flex gap-2 overflow-x-auto max-w-[76vw] pb-1">
+                  <TooltipProvider :delay-duration="200">
+                    <Tooltip v-for="preset in presetsForMode(mode)" :key="preset.name">
+                      <TooltipTrigger as-child>
+                        <button
+                          type="button"
+                          :aria-label="preset.name"
+                          :aria-pressed="presetsStore.activePresetName === preset.name"
+                          class="relative flex-none w-16 h-16 rounded-md overflow-hidden border-2 transition-all duration-150"
+                          :class="
+                            presetsStore.activePresetName === preset.name
+                              ? 'border-primary ring-2 ring-primary'
+                              : 'border-transparent hover:border-primary'
+                          "
+                          @click="selectPresetFromPicker(mode, preset)"
+                        >
+                          <img
+                            v-if="preset.image"
+                            :src="preset.image"
+                            :alt="preset.name"
+                            class="absolute inset-0 w-full h-full object-cover"
+                          />
+                          <div class="absolute bottom-0 w-full bg-background/70 px-0.5 py-0.5">
+                            <span
+                              class="block text-foreground text-[9px] leading-tight font-medium text-center truncate"
+                            >
+                              {{ preset.name }}
+                            </span>
+                          </div>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" class="z-[40011] max-w-[260px]">
+                        <p class="font-semibold">{{ preset.name }}</p>
+                        <p v-if="preset.description" class="mt-1 text-primary-foreground/80">
+                          {{ preset.description }}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  <p
+                    v-if="presetsForMode(mode).length === 0"
+                    class="text-xs text-muted-foreground px-2 py-4 whitespace-nowrap"
+                  >
+                    No presets available
+                  </p>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
           <div class="absolute bottom-4 right-3 flex gap-2">
             <Button
@@ -303,7 +372,9 @@ import {
   type IndexedDocument,
 } from '@/assets/js/store/textInference'
 import { useI18N } from '@/assets/js/store/i18n'
-import { usePresets, type ChatPreset } from '@/assets/js/store/presets'
+import { usePresets, type ChatPreset, type Preset } from '@/assets/js/store/presets'
+import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   PlusIcon,
   PaperClipIcon,
@@ -322,7 +393,7 @@ import CameraCapture from '@/components/CameraCapture.vue'
 import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
 import { useProductMode } from '@/assets/js/store/productMode'
 import DemoSamplePrompts from '@/components/DemoSamplePrompts.vue'
-import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
 const instance = getCurrentInstance()
 const audioRecorder = useAudioRecorder()
@@ -341,7 +412,61 @@ const activities = useActivities()
 const textareaRef = ref<HTMLTextAreaElement>()
 const isTextareaFocused = ref(false)
 const presetsStore = usePresets()
+const presetSwitching = usePresetSwitching()
 const dialogStore = useDialogStore()
+
+// Quick preset picker: which mode's picker popover is currently open (null = none).
+const openPickerMode = ref<ModeType | null>(null)
+
+// Mode -> preset category / type, used to list a mode's presets in the quick picker.
+// Mirrors the mapping in the prompt store.
+const modeToCategories: Record<ModeType, string[]> = {
+  chat: ['chat'],
+  imageGen: ['create-images'],
+  imageEdit: ['edit-images'],
+  video: ['create-videos'],
+}
+const modeToPresetType: Record<ModeType, 'chat' | 'comfy'> = {
+  chat: 'chat',
+  imageGen: 'comfy',
+  imageEdit: 'comfy',
+  video: 'comfy',
+}
+
+function presetsForMode(mode: ModeType): Preset[] {
+  return presetsStore.getPresetsByCategories(modeToCategories[mode], modeToPresetType[mode])
+}
+
+function onPickerOpenChange(mode: ModeType, open: boolean) {
+  // Driven by the popover trigger, outside-click and Escape. Suppressed during
+  // the guided demo so it doesn't collide with the demo help popover.
+  if (demoMode.enabled) {
+    openPickerMode.value = null
+    return
+  }
+  openPickerMode.value = open ? mode : null
+}
+
+async function selectPresetFromPicker(mode: ModeType, preset: Preset) {
+  openPickerMode.value = null // Selecting a preset closes the picker.
+
+  if (presetSwitching.isSwitching) {
+    toast.warning('Please wait for current preset change to complete')
+    return
+  }
+  // No-op if it's already the active preset for this mode.
+  if (preset.name === presetsStore.activePresetName && promptStore.getCurrentMode() === mode) {
+    return
+  }
+
+  // The mode is already set by the button click that opened the picker.
+  const result = await presetSwitching.switchPreset(preset.name, { skipModeSwitch: true })
+  if (result.success) {
+    toast.success(`Switched to ${preset.name}`)
+  } else if (result.error) {
+    toast.error(`Failed to switch preset: ${result.error}`)
+  }
+}
 const demoMode = useDemoMode()
 const productModeStore = useProductMode()
 
@@ -665,6 +790,8 @@ function handleCameraClick() {
 
 function handleModeClick(mode: ModeType) {
   const buttonId = `mode-button-${mode}` as DemoButtonId
+  // Switch mode; the popover's own trigger toggles the quick preset picker
+  // (open state is handled in onPickerOpenChange).
   promptStore.setCurrentMode(mode)
   void nextTick(() => {
     requestAnimationFrame(() => {

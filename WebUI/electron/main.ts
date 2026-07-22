@@ -2751,12 +2751,18 @@ app.whenReady().then(async () => {
     })
     app.exit()
   } else {
+    // Step markers around each startup await, written straight to the log file
+    // (webContents doesn't exist yet), so a hang before the window appears
+    // pinpoints the exact stage instead of leaving no trace.
+    appLogger.info('startup step: loading settings', 'electron-backend', true)
     const settings = await loadSettings()
 
     // Honor *_proxy env vars for all backend downloads (net.fetch) before any
     // service setup kicks off.
+    appLogger.info('startup step: configuring proxy', 'electron-backend', true)
     await configureProxyFromEnv()
 
+    appLogger.info('startup step: initializing event handlers', 'electron-backend', true)
     initEventHandle()
 
     // Custom protocol docking is file protocol.
@@ -2782,8 +2788,12 @@ app.whenReady().then(async () => {
         headers,
       })
     })
+    appLogger.info('startup step: creating window', 'electron-backend', true)
     const window = await createWindow()
+    appLogger.info('startup step: initializing service registry', 'electron-backend', true)
     await initServiceRegistry(window, settings)
+    appLogger.info('startup step: spawning langchain utility process', 'electron-backend', true)
     spawnLangchainUtilityProcess()
+    appLogger.info('startup step: ready', 'electron-backend', true)
   }
 })

@@ -49,12 +49,18 @@ const sharedModeActive = (): boolean => {
 }
 
 /**
- * Machine-wide shared resources root. Named `.../AI Playground/resources` so
- * that relative model paths in `model_config.json` (`./resources/models/...`)
- * anchored to `path.dirname(root)` resolve to `.../AI Playground/resources/models`,
- * exactly mirroring the per-user layout.
+ * Machine-wide shared resources root. The base directory defaults to
+ * `%ProgramData%/AI Playground` but the admin can point it elsewhere (e.g. a
+ * roomier drive) via the installer's folder picker — see `installConfig.ts`.
+ * The `resources` leaf is always appended so relative model paths in
+ * `model_config.json` (`./resources/models/...`), anchored to `path.dirname(root)`,
+ * resolve to `<base>/resources/models`, exactly mirroring the per-user layout.
  */
-const sharedInstallRoot = (): string => path.join(programDataDir(), 'AI Playground', 'resources')
+const sharedInstallRoot = (): string => {
+  const base =
+    readInstallConfig()?.sharedResourcesDir?.trim() || path.join(programDataDir(), 'AI Playground')
+  return path.join(base, 'resources')
+}
 
 /**
  * Per-user writable root. No spaces in the path — Python venvs dislike them.

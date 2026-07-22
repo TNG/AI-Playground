@@ -45,9 +45,18 @@ class Logger {
     this.startupMessageCache = []
   }
 
+  // Before the renderer's webContents exists (i.e. during startup), messages are
+  // only cached in memory and never reach the file — so a hang or crash before
+  // the window comes up leaves no on-disk trace. Force every pre-window message
+  // to the file so startup failures are always diagnosable; afterwards keep the
+  // opt-in `alsoLogToFile` behaviour.
+  private shouldLogToFile(alsoLogToFile: boolean): boolean {
+    return alsoLogToFile || this.webContents === null
+  }
+
   info(message: string, source: string, alsoLogToFile: boolean = false) {
     const safeMessage = redact(message)
-    if (alsoLogToFile) {
+    if (this.shouldLogToFile(alsoLogToFile)) {
       this.logMessageToFile(safeMessage, source)
     }
     console.info(`[${source}]: ${safeMessage}`)
@@ -64,7 +73,7 @@ class Logger {
 
   warn(message: string, source: string, alsoLogToFile: boolean = false) {
     const safeMessage = redact(message)
-    if (alsoLogToFile) {
+    if (this.shouldLogToFile(alsoLogToFile)) {
       this.logMessageToFile(safeMessage, source)
     }
     console.warn(`[${source}]: ${safeMessage}`)
@@ -81,7 +90,7 @@ class Logger {
 
   error(message: string, source: string, alsoLogToFile: boolean = false) {
     const safeMessage = redact(message)
-    if (alsoLogToFile) {
+    if (this.shouldLogToFile(alsoLogToFile)) {
       this.logMessageToFile(safeMessage, source)
     }
 
@@ -107,13 +116,48 @@ class Logger {
 
     const formattedTime = `${hours}:${minutes}:${seconds}`
     const logMessage = `${formattedTime}|${source}|${redact(message)}`
-    const filePath = path.join(this.pathToLogFiles, fileName)
-    const isNewFile = !fs.existsSync(filePath)
-    fs.appendFileSync(filePath, logMessage + '\r\n')
-    // Only check on file creation (once per day) to avoid the cost of a directory
-    // scan on every log line.
-    if (isNewFile) {
-      this.enforceTotalLogSizeLimit()
+
+    // Best-effort write to the primary log dir. If it isn't writable yet (e.g. a
+    // read-only resources root, or a shared/relocated root not seeded yet), fall
+    // back to a guaranteed-writable location so early failures are never lost.
+    // Never throw: logging must not be able to crash startup.
+    if (this.tryAppend(this.pathToLogFiles, fileName, logMessage)) return
+    const fallback = this.fallbackLogDir()
+    if (fallback && fallback !== this.pathToLogFiles) {
+      this.tryAppend(fallback, fileName, logMessage)
+    }
+  }
+
+  /** Append a line to `<dir>/<fileName>`, creating the dir. Returns success. */
+  private tryAppend(dir: string, fileName: string, line: string): boolean {
+    try {
+      fs.mkdirSync(dir, { recursive: true })
+      const filePath = path.join(dir, fileName)
+      const isNewFile = !fs.existsSync(filePath)
+      fs.appendFileSync(filePath, line + '\r\n')
+      // Only check on file creation (once per day) to avoid the cost of a
+      // directory scan on every log line. Size limit only applies to the
+      // primary dir; the fallback is small and short-lived.
+      if (isNewFile && dir === this.pathToLogFiles) {
+        this.enforceTotalLogSizeLimit()
+      }
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * A location that is always writable regardless of install type, used only
+   * when the primary log dir cannot be written (surfaces startup hangs/crashes
+   * that occur before the resources root is usable). Electron's per-user
+   * `userData` is created early and is always writable.
+   */
+  private fallbackLogDir(): string | null {
+    try {
+      return app.getPath('userData')
+    } catch {
+      return null
     }
   }
 

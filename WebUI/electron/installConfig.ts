@@ -22,6 +22,13 @@ export type ModelFolderMode = 'shared' | 'per-user'
 
 export interface InstallConfig {
   modelFolderMode: ModelFolderMode
+  /**
+   * Admin-chosen base directory for the shared resources tree (the parent of
+   * the `resources` folder). Only meaningful in "shared" mode; absent means the
+   * default `%ProgramData%/AI Playground`. Lets the admin place the tens-of-GB
+   * shared tree on a different drive, mirroring the customizable install folder.
+   */
+  sharedResourcesDir?: string
 }
 
 /** `%ProgramData%` (or a sensible fallback) — machine-wide, world-readable. */
@@ -44,6 +51,21 @@ function installConfigPath(): string {
   return path.join(configDir(), 'install-config.json')
 }
 
+/**
+ * Sidecar written by the installer's folder picker: the admin-chosen shared
+ * resources base directory as a raw path. Kept out of `install-config.json`
+ * because NSIS cannot easily emit the backslash-escaping valid JSON needs.
+ * Used as a fallback when the JSON carries no explicit `sharedResourcesDir`.
+ */
+function readSharedResourcesDirFile(): string | undefined {
+  try {
+    const raw = fs.readFileSync(path.join(configDir(), 'shared-resources-dir.txt'), 'utf-8').trim()
+    return raw || undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function readInstallConfig(): InstallConfig | null {
   try {
     const raw = fs.readFileSync(installConfigPath(), 'utf-8')
@@ -51,7 +73,10 @@ export function readInstallConfig(): InstallConfig | null {
     if (parsed.modelFolderMode !== 'shared' && parsed.modelFolderMode !== 'per-user') {
       return null
     }
-    return { modelFolderMode: parsed.modelFolderMode }
+    return {
+      modelFolderMode: parsed.modelFolderMode,
+      sharedResourcesDir: parsed.sharedResourcesDir?.trim() || readSharedResourcesDirFile(),
+    }
   } catch {
     return null
   }

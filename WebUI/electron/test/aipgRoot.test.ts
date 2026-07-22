@@ -29,6 +29,7 @@ async function loadAipgRoot(opts: {
   isPackaged: boolean
   mode: 'shared' | 'per-user' | null
   platform: NodeJS.Platform
+  sharedResourcesDir?: string
 }) {
   vi.resetModules()
   setProp(process, 'platform', opts.platform)
@@ -36,7 +37,10 @@ async function loadAipgRoot(opts: {
     app: { isPackaged: opts.isPackaged, getVersion: () => '0.0.0-test' },
   }))
   vi.doMock('../installConfig.ts', () => ({
-    readInstallConfig: () => (opts.mode ? { modelFolderMode: opts.mode } : null),
+    readInstallConfig: () =>
+      opts.mode
+        ? { modelFolderMode: opts.mode, sharedResourcesDir: opts.sharedResourcesDir }
+        : null,
   }))
   return import('../aipgRoot.ts')
 }
@@ -100,5 +104,19 @@ describe('packagedResourcesRoot', () => {
     expect(mod.packagedResourcesRoot()).toBe(
       path.join(tmpProgramData, 'AI Playground', 'resources'),
     )
+  })
+
+  it('honors an admin-chosen shared resources base dir, appending the resources leaf', async () => {
+    const customBase = path.join(tmpBase, 'CustomShared')
+    const mod = await loadAipgRoot({
+      isPackaged: true,
+      mode: 'shared',
+      platform: 'win32',
+      sharedResourcesDir: customBase,
+    })
+
+    // The `resources` leaf is always appended so model_config's relative
+    // `./resources/models` paths (anchored to path.dirname(root)) still resolve.
+    expect(mod.packagedResourcesRoot()).toBe(path.join(customBase, 'resources'))
   })
 })

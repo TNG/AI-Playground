@@ -2,6 +2,7 @@ import { app } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
+import { readInstallConfig } from './installConfig.ts'
 
 /**
  * Resolves the packaged "resources root" — the directory the app treats as both
@@ -21,7 +22,39 @@ import fs from 'node:fs'
  *     standard (unelevated) user cannot write there.
  * Runtime data created later (venvs, models, `python-interpreter/`, …) is never
  * part of the bundle, so it is preserved across reseeds.
+ *
+ * **Shared all-users install** (`install-config.json` = `"shared"`): the
+ * resources root instead points at the machine-wide
+ * `%ProgramData%/AI Playground/resources`, which the installer makes writable by
+ * all users. The heavy artifacts are provisioned there once (by whichever user
+ * launches first) and read by everyone else. Each user's *mutable* config
+ * (settings, logs, model_config, mcp, embeddingCache, ComfyUI scratch) is kept
+ * private via `writableConfigRoot()` so users do not clobber each other. See
+ * `userConfig.ts`.
  */
+
+/** `%ProgramData%` (or a sensible fallback) — machine-wide. */
+const programDataDir = (): string => process.env.ProgramData?.trim() || 'C:\\ProgramData'
+
+/**
+ * Whether this is a Windows all-users install configured to share the heavy
+ * runtime artifacts across users. Cached — the install config never changes
+ * while the app is running.
+ */
+let sharedMode: boolean | undefined
+const sharedModeActive = (): boolean => {
+  if (sharedMode !== undefined) return sharedMode
+  sharedMode = process.platform === 'win32' && readInstallConfig()?.modelFolderMode === 'shared'
+  return sharedMode
+}
+
+/**
+ * Machine-wide shared resources root. Named `.../AI Playground/resources` so
+ * that relative model paths in `model_config.json` (`./resources/models/...`)
+ * anchored to `path.dirname(root)` resolve to `.../AI Playground/resources/models`,
+ * exactly mirroring the per-user layout.
+ */
+const sharedInstallRoot = (): string => path.join(programDataDir(), 'AI Playground', 'resources')
 
 /**
  * Per-user writable root. No spaces in the path — Python venvs dislike them.
@@ -121,18 +154,44 @@ function seedWritableRoot(root: string): void {
  */
 export function packagedResourcesRoot(): string {
   if (!app.isPackaged) return process.resourcesPath
-  if (isInstallDirWritable()) return process.resourcesPath
 
-  const root = writableUserRoot()
-  if (!seeded) {
-    try {
-      seedWritableRoot(root)
-    } catch (e) {
-      // Logger may not exist this early; fall back to console so the failure is
-      // visible without crashing startup.
-      console.error('[aipgRoot] failed to seed writable resources dir:', e)
+  // Shared all-users install: use the machine-wide root and seed it once from
+  // the read-only bundle. The installer grants all users write access, so the
+  // first user provisions it (bundle + venvs + backends + models) and later
+  // users read it; a stale seed marker after an app update triggers a reseed.
+  const root = sharedModeActive() ? sharedInstallRoot() : writableUserRoot()
+
+  if (sharedModeActive() || !isInstallDirWritable()) {
+    if (!seeded) {
+      try {
+        seedWritableRoot(root)
+      } catch (e) {
+        // Logger may not exist this early; fall back to console so the failure is
+        // visible without crashing startup.
+        console.error('[aipgRoot] failed to seed resources dir:', e)
+      }
+      seeded = true
     }
-    seeded = true
+    return root
   }
-  return root
+
+  // Writable install dir (per-user Windows install, dev): use it directly.
+  return process.resourcesPath
+}
+
+/**
+ * Root for this user's *mutable* config — settings, logs, model_config, mcp,
+ * embeddingCache and ComfyUI scratch. In a shared all-users install this is a
+ * private per-user directory so users never overwrite each other's config; in
+ * every other mode it equals `packagedResourcesRoot()`, keeping current
+ * behaviour unchanged. Callers seed individual files from the shared defaults on
+ * first use (see `userConfig.ts`).
+ */
+export function writableConfigRoot(): string {
+  if (app.isPackaged && sharedModeActive()) {
+    const localAppData =
+      process.env.LOCALAPPDATA?.trim() || path.join(os.homedir(), 'AppData', 'Local')
+    return path.join(localAppData, 'ai-playground', 'config')
+  }
+  return packagedResourcesRoot()
 }

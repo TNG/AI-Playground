@@ -43,48 +43,33 @@
     end:
         DetailPrint "Installation completed."
 
-    ; --- AI Playground: all-users shared/per-user model folder choice ---
+    ; --- AI Playground: all-users shared/per-user resources choice ---
     ; Only all-users installs get a machine-wide config; a per-user
-    ; (CurrentUser) install keeps the default per-user model paths and writes
-    ; nothing here. Uses $R0-$R3 to avoid clobbering $0-$2 used above.
-    ;   $R0 = %ProgramData%  $R1 = config dir  $R2 = shared models dir
-    ;   $R3 = file handle     $R4 = folder-picker result
+    ; (CurrentUser) install keeps the default per-user paths and writes nothing
+    ; here. Uses $R0-$R3 to avoid clobbering $0-$2 used above.
+    ;   $R0 = %ProgramData%  $R1 = config dir  $R3 = file handle / exec result
     ${if} $installMode != "CurrentUser"
       ReadEnvStr $R0 "ProgramData"
       ${if} $R0 == ""
         StrCpy $R0 "$PROGRAMFILES\..\..\ProgramData"
       ${endif}
       StrCpy $R1 "$R0\AI Playground"
-      StrCpy $R2 "$R1\models"
       CreateDirectory "$R1"
 
       ; Default to shared (IDYES); silent installs auto-select it via /SD IDYES.
       MessageBox MB_YESNO|MB_ICONQUESTION \
-        "Share downloaded AI models across all users of this computer?$\r$\n$\r$\nYes (recommended): one shared model folder used by everyone.$\r$\nNo: each user keeps a separate copy." \
+        "Share downloaded models and runtime files across all users of this computer?$\r$\n$\r$\nYes (recommended): one shared copy under ProgramData (models, Python environments and backends - tens of GB of data) used by everyone.$\r$\nNo: each user keeps a separate copy." \
         /SD IDYES IDYES aipgShared IDNO aipgPerUser
 
       aipgShared:
-        ; Let the administrator choose where the shared models live (defaults to
-        ; %ProgramData%\AI Playground\models). Skipped on silent installs, which
-        ; keep the default. Uses the native "browse for folder" dialog.
-        ${IfNot} ${Silent}
-          nsDialogs::SelectFolderDialog "Choose the shared AI models folder (used by all users of this computer)" "$R2"
-          Pop $R4
-          ${If} $R4 != "error"
-          ${AndIf} $R4 != ""
-            StrCpy $R2 "$R4"
-          ${EndIf}
-        ${EndIf}
-        CreateDirectory "$R2"
-        ; Record the chosen path in a plain sidecar file (raw path — avoids
-        ; JSON backslash-escaping in NSIS). The app reads it back and junctions
-        ; <resources>\models to it (see electron/installConfig.ts).
-        ClearErrors
-        FileOpen $R3 "$R1\shared-model-dir.txt" w
-        ${ifNot} ${errors}
-          FileWrite $R3 "$R2"
-          FileClose $R3
-        ${endif}
+        ; Grant all users write access to the shared folder so the first user to
+        ; launch can provision the shared resources (venvs, backends, models -
+        ; tens of GB) and later users can read them (and any user can re-provision
+        ; after an app update). The app creates the <config dir>\resources subtree
+        ; at runtime; the inheritable ACE below propagates to it.
+        ; S-1-5-32-545 = BUILTIN\Users (SID avoids locale-specific group names).
+        nsExec::ExecToLog 'icacls "$R1" /grant "*S-1-5-32-545:(OI)(CI)M" /T /C'
+        Pop $R3
         ClearErrors
         FileOpen $R3 "$R1\install-config.json" w
         ${ifNot} ${errors}
@@ -94,8 +79,6 @@
         Goto aipgDone
 
       aipgPerUser:
-        ; Drop any stale shared-folder path from a previous shared install.
-        Delete "$R1\shared-model-dir.txt"
         ClearErrors
         FileOpen $R3 "$R1\install-config.json" w
         ${ifNot} ${errors}
@@ -166,6 +149,5 @@
   ReadEnvStr $R0 "ProgramData"
   ${if} $R0 != ""
     Delete "$R0\AI Playground\install-config.json"
-    Delete "$R0\AI Playground\shared-model-dir.txt"
   ${endif}
 !macroend

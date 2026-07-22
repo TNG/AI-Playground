@@ -2,7 +2,7 @@ import WebContents = Electron.WebContents
 import fs from 'fs'
 import path from 'node:path'
 import { app } from 'electron'
-import { packagedResourcesRoot } from '../aipgRoot.ts'
+import { writableConfigRoot } from '../aipgRoot.ts'
 
 // Telegram bot tokens (`<id>:<token>`) and similar secrets must never appear in
 // console output, log files, or the renderer debug stream. Belt-and-suspenders
@@ -24,8 +24,10 @@ function redact(message: string): string {
 
 class Logger {
   webContents: WebContents | null = null
+  // In a shared all-users install this is the per-user config root, so each
+  // user's logs stay private; otherwise it equals the resources root (unchanged).
   readonly pathToLogFiles: string = path.resolve(
-    app.isPackaged ? packagedResourcesRoot() : path.join(__dirname, '../../external/'),
+    app.isPackaged ? writableConfigRoot() : path.join(__dirname, '../../external/'),
   )
   private startupMessageCache: {
     message: string

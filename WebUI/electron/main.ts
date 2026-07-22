@@ -48,9 +48,8 @@ import { promisify } from 'node:util'
 
 const execAsync = promisify(exec)
 import { randomUUID } from 'node:crypto'
-import sudo from 'sudo-prompt'
 import { PathsManager } from './pathsManager'
-import { ensureSharedModelsDir } from './installConfig.ts'
+import { writableConfigFile } from './userConfig.ts'
 import { appLoggerInstance } from './logging/logger.ts'
 import {
   aiplaygroundApiServiceRegistry,
@@ -101,8 +100,8 @@ import {
   removeMcpServer,
   type McpServerConfig,
 } from './subprocesses/mcpServers'
-import { externalResourcesDir, getAudioDir, getMediaDir } from './util.ts'
-import { packagedResourcesRoot } from './aipgRoot.ts'
+import { getAudioDir, getMediaDir } from './util.ts'
+import { packagedResourcesRoot, writableConfigRoot } from './aipgRoot.ts'
 import { loadDemoProfile, type DemoProfile } from './demoProfile.ts'
 import type { ModelPaths } from '@/assets/js/store/models.ts'
 import type { IndexedDocument, EmbedInquiry } from '@/assets/js/store/textInference.ts'
@@ -191,11 +190,6 @@ process.env.VITE_PUBLIC = path.join(__dirname, app.isPackaged ? '../..' : '../..
 const externalRes = path.resolve(
   app.isPackaged ? packagedResourcesRoot() : path.join(__dirname, '../../external/'),
 )
-
-// All-users install with a shared model folder: link `<resources>/models` to
-// the machine-wide shared folder before anything (downloads, scanning, backend
-// model resolution) touches it. No-op for per-user installs.
-if (app.isPackaged) ensureSharedModelsDir(externalRes)
 
 const modesDir = path.resolve(
   app.isPackaged
@@ -476,7 +470,7 @@ function applyPresetFilter(
 let settings = LocalSettingsSchema.parse({})
 let demoProfile: DemoProfile | null = null
 
-/** Packaged: `resources/settings.json` (same role as dev `external/settings-dev.json`). */
+/** Packaged read-only default: `resources/settings.json` (dev: `external/settings-dev.json`). */
 function getPackagedSettingsPath(): string {
   return path.join(packagedResourcesRoot(), 'settings.json')
 }
@@ -491,10 +485,14 @@ function getUserLocalSettingsPath(): string {
   return path.join(app.getPath('userData'), 'ai-playground-local-settings.json')
 }
 
-/** Packaged: read/write `resources/settings.json`. Dev: read/write userData overlay only. */
+/**
+ * Where user settings edits are written. Packaged: the per-user config root
+ * (a private folder in a shared all-users install; the resources root — i.e.
+ * `getPackagedSettingsPath()` — otherwise). Dev: userData overlay only.
+ */
 function getWritableSettingsPath(): string {
   if (app.isPackaged) {
-    return getPackagedSettingsPath()
+    return path.join(writableConfigRoot(), 'settings.json')
   }
   return getUserLocalSettingsPath()
 }
@@ -539,6 +537,10 @@ async function loadSettings() {
   settings = LocalSettingsSchema.parse({})
 
   if (app.isPackaged) {
+    // Read the shipped/shared defaults first, then overlay this user's writable
+    // copy. In a shared all-users install these are two different files (shared
+    // read-only default vs. private per-user edits); otherwise they are the same
+    // file and the overlay merge is an idempotent no-op.
     const packagedPath = getPackagedSettingsPath()
     appLogger.info(`loading packaged settings from ${packagedPath}`, 'electron-backend')
     if (fs.existsSync(packagedPath)) {
@@ -547,6 +549,16 @@ async function loadSettings() {
         settings = LocalSettingsSchema.parse({ ...settings, ...raw })
       } catch (e) {
         appLogger.error(`failed to load settings: ${e}`, 'electron-backend')
+      }
+    }
+    const writablePath = getWritableSettingsPath()
+    if (writablePath !== packagedPath && fs.existsSync(writablePath)) {
+      appLogger.info(`loading per-user settings from ${writablePath}`, 'electron-backend')
+      try {
+        const raw = JSON.parse(fs.readFileSync(writablePath, { encoding: 'utf8' }))
+        settings = LocalSettingsSchema.parse({ ...settings, ...raw })
+      } catch (e) {
+        appLogger.error(`failed to load per-user settings: ${e}`, 'electron-backend')
       }
     }
   } else {
@@ -845,7 +857,7 @@ function spawnLangchainUtilityProcess() {
     })
     langchainChild.postMessage({
       type: 'init',
-      embeddingCachePath: path.join(externalResourcesDir(), 'embeddingCache'),
+      embeddingCachePath: path.join(writableConfigRoot(), 'embeddingCache'),
     })
 
     langchainChild.on('message', (message) => {
@@ -1385,7 +1397,12 @@ function initEventHandle() {
   })
 
   const pathsManager = new PathsManager(
-    path.join(externalRes, app.isPackaged ? 'model_config.json' : 'model_config.dev.json'),
+    // Packaged: the per-user writable copy (seeded from the shared default on
+    // first use). Its relative model paths still resolve against the shared
+    // resources root via PathsManager, so downloads/scanning hit shared models.
+    app.isPackaged
+      ? writableConfigFile('model_config.json')
+      : path.join(externalRes, 'model_config.dev.json'),
   )
 
   ipcMain.handle('getInitSetting', (event) => {
@@ -2663,33 +2680,6 @@ ipcMain.handle('showSaveDialog', async (_event, options: Electron.SaveDialogOpti
     })
 })
 
-function needAdminPermission() {
-  return new Promise<boolean>((resolve) => {
-    const filename = path.join(externalRes, `${randomUUID()}.txt`)
-    fs.writeFile(filename, '', (err) => {
-      if (err) {
-        if (err && err.code == 'EPERM') {
-          // windir is only defined on Windows; on Linux/macOS this check is skipped.
-          if (
-            process.platform === 'win32' &&
-            process.env.windir &&
-            path.parse(externalRes).root == path.parse(process.env.windir).root
-          ) {
-            resolve(!isAdmin())
-          } else {
-            resolve(false)
-          }
-        } else {
-          resolve(false)
-        }
-      } else {
-        fs.rmSync(filename)
-        resolve(false)
-      }
-    })
-  })
-}
-
 function isAdmin(): boolean {
   if (process.platform !== 'win32') {
     return false
@@ -2749,21 +2739,6 @@ app.whenReady().then(async () => {
     true,
   )
 
-  /*
-    The current user does not have write permission for files in the program directory and is not an administrator.
-    Close the current program and let the user start the program with administrator privileges
-    */
-  if (await needAdminPermission()) {
-    if (singleInstanceLock) {
-      app.releaseSingleInstanceLock()
-    }
-    //It is possible that the program is installed in a directory that requires administrator privileges
-    const message = `start "" "${process.argv.join(' ').trim()}`
-    sudo.exec(message, (_err, _stdout, _stderr) => {
-      app.exit(0)
-    })
-    return
-  }
   /**Single instance processing */
   if (!singleInstanceLock) {
     dialog.showMessageBoxSync({

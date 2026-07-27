@@ -1515,6 +1515,7 @@ except Exception as e:
       allDevices,
       this.settings.lastSelectedDevicePerBackend,
       this.name,
+      this.settings.preferredDevice,
     )
     this.devices =
       allDevices.length > 0
@@ -1619,6 +1620,7 @@ except Exception as e:
       allDevices,
       this.settings.lastSelectedDevicePerBackend,
       this.name,
+      this.settings.preferredDevice,
     )
     this.devices = withSelectedDevice(
       allDevices.map((d) => ({ ...d, selected: false })),

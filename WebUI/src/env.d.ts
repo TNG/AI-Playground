@@ -126,15 +126,22 @@ type LocalSettings = {
   huggingfaceEndpoint: string
   mcpAutoDetectionDismissed: string[]
   openvinoImageGenDevices: string[]
+  preferredDevice: PreferredDevice | null
   /** Dev unpackaged: set via settings-dev.json / userData overlay. */
   PhisonSSDdetected?: boolean
 }
+
+type DeviceCategory = 'dgpu' | 'igpu' | 'npu' | 'cpu' | 'unknown'
 
 type GpuHardwareDevice = {
   device: string
   name: string
   gpuDeviceId: string | null
+  category?: DeviceCategory
 }
+
+/** User's preferred inference device, chosen in the setup wizard. */
+type PreferredDevice = { kind: 'gpu'; name: string; gpuDeviceId: string | null } | { kind: 'cpu' }
 
 type ProductModeCatalogFeatureI18n = {
   labelKey: string

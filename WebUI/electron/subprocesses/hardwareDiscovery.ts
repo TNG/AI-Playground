@@ -4,7 +4,12 @@ import { z } from 'zod'
 import { spawnProcessAsync } from './osProcessHelper'
 import { appLoggerInstance as appLogger } from '../logging/logger.ts'
 import { buildResources } from './uvBasedBackends/uv.ts'
-import { rankDevicesByCategory, type ReferenceAccelerator } from './deviceArch.ts'
+import {
+  categorizeDevice,
+  rankDevicesByCategory,
+  type DeviceCategory,
+  type ReferenceAccelerator,
+} from './deviceArch.ts'
 
 export type GpuHardwareDevice = {
   device: string
@@ -240,6 +245,24 @@ function toReferenceAccelerator(device: GpuHardwareDevice): ReferenceAccelerator
       ? 'intel'
       : 'unknown'
   return { vendor, name: device.name, gpuDeviceId: device.gpuDeviceId }
+}
+
+export type ClassifiedGpuHardwareDevice = GpuHardwareDevice & { category: DeviceCategory }
+
+/**
+ * Tag each physically detected GPU with a dgpu/igpu category, using the detected
+ * set as its own classification reference (PCI id → arch table for Intel, vendor
+ * for NVIDIA). Consumed by the setup wizard, which can only show raw hardware
+ * pre-install and needs to label each GPU as dedicated vs integrated.
+ */
+export function classifyDetectedDevices(
+  devices: GpuHardwareDevice[],
+): ClassifiedGpuHardwareDevice[] {
+  const reference = devices.map(toReferenceAccelerator)
+  return devices.map((d) => ({
+    ...d,
+    category: categorizeDevice({ id: d.device, name: d.name }, reference),
+  }))
 }
 
 /**

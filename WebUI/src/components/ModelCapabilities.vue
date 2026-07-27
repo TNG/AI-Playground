@@ -17,10 +17,13 @@ const props = withDefaults(
     model: ModelCapabilities
     iconSize?: string
     delayDuration?: number
+    /** Render the model name under the "Model Info" heading (used where the trigger text is truncated). */
+    showName?: boolean
   }>(),
   {
     iconSize: 'size-4',
     delayDuration: 100,
+    showName: false,
   },
 )
 
@@ -46,14 +49,19 @@ const maxContextSizeFormatted = computed(() => formatMaxContextSize(props.model.
   <TooltipProvider>
     <Tooltip :delay-duration="delayDuration">
       <TooltipTrigger as-child>
-        <button type="button" class="p-0.5">
-          <InformationCircleIcon :class="[iconSize, 'text-muted-foreground']" />
-        </button>
+        <slot name="trigger">
+          <button type="button" class="p-0.5">
+            <InformationCircleIcon :class="[iconSize, 'text-muted-foreground']" />
+          </button>
+        </slot>
       </TooltipTrigger>
       <TooltipContent class="w-64 bg-card border border-border text-foreground p-3 z-[200]">
         <div class="space-y-2">
           <div class="space-y-1">
             <h3 class="text-sm font-semibold">Model Info</h3>
+            <p v-if="showName && model.name" class="text-xs text-muted-foreground break-all">
+              {{ model.name }}
+            </p>
             <div v-if="model.maxContextSize" class="space-y-1">
               <p class="text-xs text-muted-foreground">
                 Max Context Size: {{ maxContextSizeFormatted }} tokens

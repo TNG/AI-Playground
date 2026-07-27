@@ -284,13 +284,47 @@ type AgentModeModelConfig =
     }
   | {
       source: 'cloud'
-      model?: string
-      customEnv?: Record<string, string>
+      /** Upstream model id as served by the provider (e.g. 'gpt-4o'). */
+      model: string
+      /** Loopback base URL of the main-process cloud proxy (no /v1). */
+      proxyBaseUrl: string
+      /** Real provider base URL, forwarded as X-Cloud-Upstream. */
+      upstreamBaseUrl: string
+      /** Provider id the proxy uses to look up the stored API key. */
+      providerId: string
+      /** How the proxy attaches the key upstream (bearer | x-api-key | api-key). */
+      authStyle: string
+      contextWindow?: number
     }
 
+type AgentToolSpec = {
+  name: string
+  description: string
+  /** JSON Schema for the tool input (converted from zod in the renderer). */
+  inputSchema: Record<string, unknown>
+  /**
+   * Input keys holding workspace-relative file paths that the main process
+   * must resolve and inline as data URIs before dispatching execution.
+   */
+  workspacePathInputs?: string[]
+}
+
 type AgentModeTurnConfig = {
+  /** Renderer-minted stable session id (one per archived conversation). */
+  sessionId: string
   workspaceDir: string
   modelConfig: AgentModeModelConfig
+  toolSpecs?: AgentToolSpec[]
+  /** IDs of configured MCP servers whose tools are attached to the agent. */
+  mcpServerIds?: string[]
+}
+
+type AgentToolExecuteRequest = {
+  requestId: string
+  /** Model-side tool call id, matching the UI message part (progress keying). */
+  toolCallId: string
+  toolName: string
+  input: Record<string, unknown>
 }
 
 type electronAPI = {
@@ -510,8 +544,12 @@ type electronAPI = {
     ): Promise<{ success: boolean; error?: string }>
     cancel(): Promise<void>
     resetSession(): Promise<void>
+    deleteSession(sessionId: string): Promise<{ success: boolean; error?: string }>
+    compact(customInstructions?: string): Promise<{ success: boolean; error?: string }>
     onStreamChunk(callback: (data: { turnId: string; chunk: unknown }) => void): void
     onTurnDone(callback: (data: { turnId: string }) => void): void
+    onExecuteTool(callback: (data: AgentToolExecuteRequest) => void): void
+    submitToolResult(requestId: string, result: unknown, error?: string): Promise<void>
   }
   webBrowser: {
     navigate(url: string): Promise<WebPageSnapshot>

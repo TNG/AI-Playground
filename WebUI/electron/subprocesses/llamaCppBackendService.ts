@@ -27,7 +27,14 @@ const execAsync = promisify(exec)
 // (Battlemage/B-series) drivers into a device-lost/TDR reset mid-decode. The
 // tiled FA kernel keeps dispatches small and is the stable path on modern Arc
 // Vulkan builds. Users can still override to `-fa off` in backend settings.
-export const LLAMACPP_DEFAULT_PARAMETERS = '--gpu-layers 999 --log-prefix --jinja --no-mmap -fa on'
+//
+// --cache-ram 16384: raise the host-RAM prompt cache (default 8 GiB) so a
+// large parked context — e.g. the parent conversation's KV state while a
+// nested tool agent or Agent Mode subrequest runs on another slot — survives
+// the switch and is restored instead of re-prefilled (idle-slot saving is on
+// by default and depends on this cache).
+export const LLAMACPP_DEFAULT_PARAMETERS =
+  '--gpu-layers 999 --log-prefix --jinja --no-mmap -fa on --cache-ram 16384'
 const platformExtension = process.platform === 'win32' ? 'zip' : 'tar.gz'
 type StorageTarget = {
   id: string

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { ref, computed } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
+import { withDevPresets } from './devPresets'
 import { llmBackendTypes } from '@/types/shared'
 
 // DeepPartial utility type
@@ -544,7 +545,7 @@ export const usePresets = defineStore(
         }
 
         console.log('validatedPresets', validatedPresets)
-        presets.value = validatedPresets
+        presets.value = withDevPresets(validatedPresets)
         console.log(`Loaded ${validatedPresets.length} presets from files`)
       } catch (error) {
         console.error('Failed to load presets from files:', error)
@@ -641,7 +642,7 @@ export const usePresets = defineStore(
         })(),
       ])
       // Update the array only once to avoid multiple reactive triggers
-      presets.value = [...builtInPresets, ...userPresets]
+      presets.value = withDevPresets([...builtInPresets, ...userPresets])
       return syncResponse
     }
 

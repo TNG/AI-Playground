@@ -1,41 +1,31 @@
 <template>
   <div class="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-6 relative" ref="panel">
     <div class="w-full max-w-4xl mx-auto flex flex-col gap-4 pt-20">
-      <!-- Configuration bar -->
-      <div class="rounded-md border border-border bg-muted/20 p-4 flex flex-col gap-3">
-        <div class="flex items-center gap-3 flex-wrap">
-          <Button variant="secondary" @click="agentMode.pickWorkspaceFolder()">
-            Select folder…
-          </Button>
-          <span v-if="agentMode.workspaceDir" class="text-sm text-muted-foreground break-all">
-            {{ agentMode.workspaceDir }}
-          </span>
-          <span v-else class="text-sm text-muted-foreground italic">
-            No workspace folder selected
-          </span>
-          <div class="flex-1"></div>
-          <Button variant="secondary" @click="agentMode.resetSession()">Reset session</Button>
-        </div>
-        <div class="flex items-center gap-3 flex-wrap text-sm text-muted-foreground">
-          <span v-if="agentMode.modelSource === 'local'">
-            Local model: {{ textInference.activeModel ?? 'none selected' }} ({{
-              textInference.backend
-            }}, {{ textInference.contextSize }} ctx)
-          </span>
-          <span v-else>
-            Cloud model: {{ agentMode.cloudModel || 'Pi default' }} ({{ agentMode.cloudProvider }})
-          </span>
-          <span class="text-xs">— change via Agent Settings below</span>
-        </div>
-        <p class="text-xs text-amber-500">
-          The agent runs with all file/shell permissions inside the selected folder (and its parent
-          directory) — proof of concept, use a scratch folder.
+      <!-- Empty state: configuration lives in Agent Settings, model/context in
+           the prompt status bar — so an empty transcript just needs a hint. -->
+      <div
+        v-if="agentMode.messages.length === 0 && !agentMode.processing"
+        class="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground"
+      >
+        <img src="../assets/svg/ai-icon.svg" class="size-10 opacity-60" />
+        <p class="text-sm">
+          The agent works on files in a workspace folder — it can write code, run shell commands,
+          debug web pages and generate media.
+        </p>
+        <p v-if="agentMode.workspaceDir" class="text-xs break-all">
+          Workspace: <span class="text-foreground/80">{{ agentMode.workspaceDir }}</span>
+        </p>
+        <Button v-else variant="secondary" @click="agentMode.pickWorkspaceFolder()">
+          Select a workspace folder…
+        </Button>
+        <p class="text-xs">
+          Configure workspace, model and tools via Agent Settings in the settings sidebar.
         </p>
       </div>
 
       <!-- Messages -->
       <!-- eslint-disable vue/require-v-for-key -->
-      <template v-for="message in agentMode.messages">
+      <template v-for="(message, messageIndex) in agentMode.messages">
         <!-- eslint-enable -->
         <div v-if="message.role === 'user'" class="flex items-start gap-3">
           <UserCircleIcon class="size-6 text-foreground/90" />
@@ -51,8 +41,43 @@
               <ChatReasoningDisplay
                 v-else-if="part.type === 'reasoning'"
                 :text="part.text"
-                :streaming="false"
+                :streaming="part.state === 'streaming'"
+                :startedAt="reasoningTimings[`${messageIndex}:${partIndex}`]?.startedAt"
+                :finishedAt="reasoningTimings[`${messageIndex}:${partIndex}`]?.finishedAt"
+                :liveStartedAt="reasoningTimings[`${messageIndex}:${partIndex}`]?.startedAt"
               />
+              <div
+                v-else-if="asCompaction(part)"
+                class="flex flex-col gap-1 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+              >
+                <div class="flex items-center gap-2 font-medium text-foreground/80">
+                  <ArchiveBoxArrowDownIcon class="size-4" />
+                  <span>
+                    Context compacted
+                    <span class="text-muted-foreground">({{ asCompaction(part)!.trigger }})</span>
+                    <template v-if="compactionDelta(part)"> — {{ compactionDelta(part) }}</template>
+                  </span>
+                </div>
+                <p v-if="asCompaction(part)!.summary" class="whitespace-pre-wrap opacity-80">
+                  {{ asCompaction(part)!.summary }}
+                </p>
+              </div>
+              <!-- Media delegation tool: the nested media agent runs in the
+                   renderer, so its live steps (mediaAgentRuns, keyed by the
+                   bridged toolCallId) and the produced media render inline
+                   while the bridged call is still pending. -->
+              <div v-else-if="mediaToolName(part)" class="flex flex-col gap-2">
+                <ChatToolDisplay :part="asToolPart(part)" :state="asToolPart(part).state" />
+                <MediaAgentTimeline
+                  :tool-call-id="asToolPart(part).toolCallId"
+                  :fallback-steps="mediaToolSteps(part)"
+                />
+                <ChatWorkflowResult
+                  :images="mediaToolImages(part)"
+                  :processing="mediaToolProcessing(part)"
+                  :stepText="mediaToolStepText(part)"
+                />
+              </div>
               <ChatToolDisplay
                 v-else-if="isToolUIPart(part as UIMessagePart<UIDataTypes, UITools>)"
                 :part="asToolPart(part)"
@@ -67,7 +92,8 @@
         v-if="agentMode.processing"
         class="flex items-center gap-2 text-sm text-muted-foreground"
       >
-        <span class="animate-pulse">Agent is working…</span>
+        <span class="inline-block size-2 rounded-full bg-current animate-pulse"></span>
+        <span>{{ busyLabel }}</span>
       </div>
       <div
         v-if="agentMode.chat.error"
@@ -80,22 +106,25 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { isToolUIPart, type UIDataTypes, type UIMessagePart, type UITools } from 'ai'
 import type { DynamicToolUIPart, ToolUIPart, UIMessage } from 'ai'
 import { useAgentMode } from '@/assets/js/store/agentMode'
-import { useTextInference } from '@/assets/js/store/textInference'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import type { AipgTools } from '@/assets/js/tools/tools'
 import { Button } from '@/components/ui/button'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import ChatToolDisplay from '@/components/ChatToolDisplay.vue'
 import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
-import { UserCircleIcon } from '@heroicons/vue/24/outline'
+import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
+import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
+import type { MediaItem } from '@/assets/js/store/imageGenerationPresets'
+import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
+import { ArchiveBoxArrowDownIcon, UserCircleIcon } from '@heroicons/vue/24/outline'
 
 const agentMode = useAgentMode()
-const textInference = useTextInference()
 const promptStore = usePromptStore()
+const mediaRuns = useMediaAgentRuns()
 
 const panel = ref<HTMLElement | null>(null)
 
@@ -113,6 +142,220 @@ function messageText(message: UIMessage): string {
 function asToolPart(part: unknown): ToolUIPart<AipgTools> | DynamicToolUIPart {
   return part as ToolUIPart<AipgTools> | DynamicToolUIPart
 }
+
+// Pi's context compaction surfaces as a dynamic-tool part named 'compaction'
+// (harness maps the `compaction` runtime event to a synthetic tool call+result
+// whose output carries the trigger/summary/token deltas). Render it as a notice
+// instead of a generic tool card.
+type CompactionOutput = {
+  trigger: 'manual' | 'auto'
+  summary: string
+  tokensBefore?: number
+  tokensAfter?: number
+}
+
+function asCompaction(part: unknown): CompactionOutput | null {
+  const p = part as { type?: string; toolName?: string; output?: unknown }
+  if (p?.type !== 'dynamic-tool' || p.toolName !== 'compaction') return null
+  const output = p.output as CompactionOutput | undefined
+  return output && typeof output === 'object' ? output : null
+}
+
+// The bridged `media` delegation tool (and the legacy generateImage/editImage
+// bridged tools). Handles both part encodings: `tool-media` and dynamic-tool
+// named 'media'.
+const MEDIA_BRIDGE_TOOL_NAMES = new Set(['media', 'generateImage', 'editImage'])
+
+type MediaToolPart = {
+  type?: string
+  toolName?: string
+  state?: string
+  output?: { images?: unknown; steps?: unknown }
+}
+
+function mediaToolName(part: unknown): string | undefined {
+  const p = part as MediaToolPart
+  const toolName =
+    p?.type === 'dynamic-tool'
+      ? p.toolName
+      : typeof p?.type === 'string' && p.type.startsWith('tool-')
+        ? p.type.slice('tool-'.length)
+        : undefined
+  return toolName && MEDIA_BRIDGE_TOOL_NAMES.has(toolName) ? toolName : undefined
+}
+
+/** Step lines from a finished result, for runs no longer in the store. */
+function mediaToolSteps(part: unknown): string[] | undefined {
+  const steps = (part as MediaToolPart).output?.steps
+  return Array.isArray(steps) ? (steps as string[]) : undefined
+}
+
+function mediaRun(part: unknown) {
+  return mediaRuns.run(asToolPart(part).toolCallId)
+}
+
+/** Finished media from the tool output, or what the live run has so far. */
+function mediaToolImages(part: unknown): MediaItem[] {
+  const completed = mediaToolItems(part)
+  if (completed.length) return completed
+  return mediaRun(part)?.steps.flatMap((step) => step.media) ?? []
+}
+
+function mediaToolProcessing(part: unknown): boolean {
+  return mediaRun(part)?.state === 'running'
+}
+
+function mediaToolStepText(part: unknown): string | undefined {
+  return mediaRun(part)?.steps.findLast((step) => step.state === 'running')?.label
+}
+
+/**
+ * Completed tool parts whose output carries a comfy-shaped `images` array,
+ * synthesized into full MediaItems so ChatWorkflowResult renders images,
+ * videos and 3D models alike.
+ */
+function mediaToolItems(part: unknown): MediaItem[] {
+  const p = part as MediaToolPart
+  if (!mediaToolName(part) || p.state !== 'output-available') return []
+  const images = p.output?.images
+  if (!Array.isArray(images)) return []
+  return images
+    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+    .map(
+      (item) =>
+        ({
+          mode: 'imageGen',
+          settings: {},
+          ...item,
+          state: 'done',
+        }) as MediaItem,
+    )
+    .filter((item) => {
+      if (item.type === 'image') return !!item.imageUrl
+      if (item.type === 'video') return !!item.videoUrl
+      if (item.type === 'model3d') return !!item.model3dUrl
+      return false
+    })
+}
+
+// Pi reports `tokensBefore` but not `tokensAfter` (the harness's Pi adapter
+// notes this on its `compaction_end` translation), so show the before-size on
+// its own rather than suppressing the counts entirely while waiting for a
+// number that never arrives.
+function compactionDelta(part: unknown): string {
+  const output = asCompaction(part)
+  if (!output || output.tokensBefore === undefined) return ''
+  const before = output.tokensBefore.toLocaleString()
+  if (output.tokensAfter === undefined) return `${before} tokens summarized`
+  return `${before} → ${output.tokensAfter.toLocaleString()} tokens`
+}
+
+// ── Live reasoning timing ────────────────────────────────────────────────────
+//
+// Reasoning UI parts carry a `state` ('streaming' | 'done') but no wall-clock
+// timing, so ChatReasoningDisplay's timer needs a start (and end) supplied by
+// the host. We record first-seen / done timestamps per reasoning part, keyed by
+// its position, so each block shows a live-advancing then final duration.
+const reasoningTimings = reactive<Record<string, { startedAt: number; finishedAt?: number }>>({})
+
+watch(
+  // Lightweight signal: only the last assistant message's part types + states,
+  // so a deep watch over growing (and large) message content is avoided.
+  () => {
+    const messages = agentMode.messages
+    const last = messages.at(-1)
+    if (!last || last.role !== 'assistant') return ''
+    const mi = messages.length - 1
+    return (last.parts ?? [])
+      .map((p, pi) => `${mi}:${pi}:${p.type}:${'state' in p ? p.state : ''}`)
+      .join('|')
+  },
+  () => {
+    const messages = agentMode.messages
+    const mi = messages.length - 1
+    const last = messages[mi]
+    if (!last || last.role !== 'assistant') return
+    ;(last.parts ?? []).forEach((part, pi) => {
+      if (part.type !== 'reasoning') return
+      const key = `${mi}:${pi}`
+      if (!reasoningTimings[key]) reasoningTimings[key] = { startedAt: Date.now() }
+      if (part.state === 'done' && !reasoningTimings[key].finishedAt) {
+        reasoningTimings[key].finishedAt = Date.now()
+      }
+    })
+  },
+)
+
+// ── Descriptive busy label ───────────────────────────────────────────────────
+//
+// Derive "what the agent is doing right now" from the last in-flight part,
+// instead of a generic "Agent is working…". A finished tool (output-available)
+// means the model is deciding its next step → "Thinking…".
+function truncate(value: unknown, max = 48): string {
+  if (typeof value !== 'string') return ''
+  return value.length > max ? `${value.slice(0, max)}…` : value
+}
+
+function toolActionLabel(name: string, input: Record<string, unknown> | undefined): string {
+  const filePath = truncate(input?.file_path)
+  switch (name) {
+    case 'read':
+      return `Reading ${filePath}…`
+    case 'edit':
+      return `Editing ${filePath}…`
+    case 'write':
+      return `Writing ${filePath}…`
+    case 'ls':
+      return 'Listing files…'
+    case 'bash':
+      return `Running: ${truncate(input?.command)}`
+    case 'navigate_page':
+      return input?.url ? `Opening ${truncate(input.url)}…` : 'Navigating…'
+    case 'list_console_messages':
+      return 'Reading browser console…'
+    case 'list_pages':
+      return 'Listing browser pages…'
+    case 'take_screenshot':
+      return 'Taking screenshot…'
+    case 'take_snapshot':
+      return 'Snapshotting page…'
+    case 'evaluate_script':
+      return 'Running script in page…'
+    case 'generateImage':
+      return 'Generating image…'
+    case 'editImage':
+      return 'Editing image…'
+    case 'media':
+      return 'Creating media…'
+    default:
+      return `Running ${name}…`
+  }
+}
+
+const busyLabel = computed<string>(() => {
+  const parts = agentMode.messages.at(-1)?.parts ?? []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const lastPart = parts.at(-1) as any
+  if (!lastPart) return 'Agent is working…'
+  if (lastPart.type === 'reasoning' && lastPart.state !== 'done') return 'Thinking…'
+  if (lastPart.type === 'text' && lastPart.state === 'streaming') return 'Writing response…'
+  const toolName: string | undefined =
+    lastPart.type === 'dynamic-tool'
+      ? lastPart.toolName
+      : typeof lastPart.type === 'string' && lastPart.type.startsWith('tool-')
+        ? lastPart.type.slice('tool-'.length)
+        : undefined
+  if (toolName) {
+    if (lastPart.state === 'input-streaming' || lastPart.state === 'input-available') {
+      // A delegated media call knows more than its own name: say which step of
+      // the nested run is in flight instead of a generic "Creating media…".
+      return mediaToolStepText(lastPart) ?? toolActionLabel(toolName, lastPart.input)
+    }
+    // Tool finished — the model is generating its next move.
+    return 'Thinking…'
+  }
+  return 'Agent is working…'
+})
 
 function handlePromptSubmit(prompt: string) {
   void agentMode.generate(prompt)

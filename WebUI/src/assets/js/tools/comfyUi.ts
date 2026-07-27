@@ -11,6 +11,7 @@ import { useTextInference } from '../store/textInference'
 import { usePresetSwitching } from '../store/presetSwitching'
 import { usePromptStore } from '../store/promptArea'
 import { useDeveloperSettings } from '../store/developerSettings'
+import { DEV_PRESET_NAMES, dummyWorkflowsOnly } from '../store/devPresets'
 import { stopChatBackends, restartChatBackend } from './chatBackends'
 import {
   DEFAULT_RESOLUTION_CONFIG,
@@ -78,6 +79,9 @@ export function getAvailableWorkflows(): Array<{
       if (preset.toolCategory !== 'create-images' && preset.toolCategory !== 'create-videos') {
         return false
       }
+      // Dev-only override (Settings › Developer): offer only the instant dummy
+      // workflows, so a verification run can't wander into a real model.
+      if (dummyWorkflowsOnly()) return DEV_PRESET_NAMES.has(preset.name)
       // Honour the per-workflow sub-checkboxes (Settings › Built-in tools).
       return textInference.isWorkflowPresetEnabled(preset.name)
     })

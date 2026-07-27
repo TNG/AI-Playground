@@ -644,6 +644,36 @@ and pushes every `send_*` out as one Server-Sent Event. Things worth knowing bef
 - The `# nosec B104` on the `0.0.0.0` bind is deliberate (that is what `allowLan` means) — Bandit
   scans the whole repo in CI, so keep the justification with it.
 
+### Verifying media generation (dummy workflows)
+
+Four dev-only ComfyUI presets return placeholder media in ~0.3s instead of running a real
+model, so the media plumbing (tool catalogs, the media specialist agent, workflow input
+substitution, `MediaItem` typing, workspace saving, UI rendering) can be smoke-tested on a
+laptop. They are injected by `WebUI/src/assets/js/store/devPresets.ts` when
+`debugToolsEnabled` is true, mirroring the dev-only test LLM in `models.ts`, and they use
+only core ComfyUI nodes — no models, no custom nodes, no downloads.
+
+| Preset | Mode / tool category | Output | Graph |
+|---|---|---|---|
+| `Dummy Image (test)` | Image Gen / `create-images` | solid-colour PNG | `EmptyImage` → `SaveImage` |
+| `Dummy Edit (test)` | Image Edit / `edit-images` | colour-inverted PNG | `LoadImage` → `ImageInvert` → `SaveImage` |
+| `Dummy Video (test)` | Video / `create-videos` | solid-colour mp4 | `EmptyImage` → `CreateVideo` → `SaveVideo` |
+| `Dummy 3D Model (test)` | Image Edit / `edit-images` | placeholder `.glb` | `Load3D` → `SaveGLB` |
+
+Notes:
+- Prompts are ignored (like the real `Colorize` / `Image To 3D Model` no-prompt presets), so
+  `modifySettingInWorkflow` logs a harmless "No key found for setting prompt" warning. Width,
+  height and batch size are wired for real; the edit dummy inverts colours so a visible change
+  proves the source image actually reached ComfyUI.
+- `Dummy 3D Model (test)` needs two fixture files in ComfyUI's input dir (a ~700-byte pyramid
+  `.glb` and a tiny preview PNG). They are generated in TypeScript and uploaded via
+  `/upload/image` by `ensureDummyWorkflowFixtures()`, called from `comfyUiPresets.generate()`
+  once per session. Its `Load Image` node is deliberately unconsumed: it keeps the
+  "needs a source image" contract (and exercises the upload path) without being executed.
+- `toolInstructions` tell the model these are test-only workflows, so ask for them explicitly
+  ("using only the dummy test workflows, …"). Delegation puts them behind the single `media`
+  tool, so one request can chain image → 3D.
+
 ### Verifying Home Agent features (mock channel)
 
 A dev-only **mock channel** lets you exercise the full Home Agent message pipeline

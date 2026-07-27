@@ -179,7 +179,11 @@
           @click="openHistory"
           class="text-foreground px-3 py-1.5 bg-card border border-border shadow-sm hover:bg-muted rounded-lg text-sm"
         >
-          {{ languages.COM_SHOW_HISTORY }}
+          {{
+            promptStore.getCurrentMode() === 'agent'
+              ? languages.COM_SHOW_SESSIONS
+              : languages.COM_SHOW_HISTORY
+          }}
         </button>
       </div>
       <div

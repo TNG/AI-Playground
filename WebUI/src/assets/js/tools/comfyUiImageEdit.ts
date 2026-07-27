@@ -12,6 +12,7 @@ import { useTextInference } from '../store/textInference'
 import { usePresetSwitching } from '../store/presetSwitching'
 import { usePromptStore } from '../store/promptArea'
 import { useDeveloperSettings } from '../store/developerSettings'
+import { DEV_PRESET_NAMES, dummyWorkflowsOnly } from '../store/devPresets'
 import { stopChatBackends, restartChatBackend } from './chatBackends'
 import { imageUrlToDataUri } from '@/lib/utils'
 import { isCancellation } from '../errors/appError'
@@ -127,7 +128,12 @@ function findLatestImageInConversation(messages: ModelMessage[]): string | null 
       for (const part of msg.content) {
         if (
           part.type === 'tool-result' &&
-          (part.toolName === 'comfyUI' || part.toolName === 'comfyUiImageEdit')
+          // 'media' is the thin delegation tool (tools/media.ts): its
+          // model-facing output carries the same slim `images` array, so a
+          // follow-up edit can chain off a delegated generation.
+          (part.toolName === 'comfyUI' ||
+            part.toolName === 'comfyUiImageEdit' ||
+            part.toolName === 'media')
         ) {
           const image = extractImageGenToolResult(part)
           if (image?.imageUrl) return image.imageUrl
@@ -150,7 +156,7 @@ function findLatestImageInConversation(messages: ModelMessage[]): string | null 
 // Image selection priority:
 // 1. Image dragged into the current prompt (explicit user intent)
 // 2. Most recent image in conversation by message position (generated or uploaded)
-function findSourceImage(messages: ModelMessage[]): string | null {
+export function findSourceImage(messages: ModelMessage[]): string | null {
   return findImageInCurrentPrompt(messages) ?? findLatestImageInConversation(messages)
 }
 
@@ -166,6 +172,9 @@ export function getAvailableEditWorkflows(): Array<{
     .filter((p: Preset) => {
       if (!(p.type === 'comfy' && p.backend === 'comfyui')) return false
       if (p.toolCategory !== 'edit-images') return false
+      // Dev-only override (Settings › Developer): offer only the instant dummy
+      // workflows, so a verification run can't wander into a real model.
+      if (dummyWorkflowsOnly()) return DEV_PRESET_NAMES.has(p.name)
       // Honour the per-workflow sub-checkboxes (Settings › Built-in tools).
       return textInference.isWorkflowPresetEnabled(p.name)
     })

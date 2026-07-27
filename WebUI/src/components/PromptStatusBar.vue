@@ -61,6 +61,10 @@
       :dynamic-context="textInference.contextSizeIsDynamic"
       :usage="contextUsage"
     />
+    <!-- Agent mode reports cumulative session totals instead of a context
+         gauge — see AgentTokenUsage / store/agentMode.ts. -->
+    <div v-if="isAgentMode && agentMode.sessionTokens > 0">·</div>
+    <AgentTokenUsage v-if="isAgentMode && agentMode.sessionTokens > 0" />
     <!-- Font zoom controls (chat only) -->
     <div v-if="isChatMode" class="ml-auto flex flex-none gap-1">
       <button
@@ -89,19 +93,23 @@ import { MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon } from '@heroicons/vu
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
+import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets.ts'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets'
 import { Context } from '@/components/ui/context'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import ModelCapabilities from '@/components/ModelCapabilities.vue'
+import AgentTokenUsage from '@/components/AgentTokenUsage.vue'
 
 const promptStore = usePromptStore()
 const textInference = useTextInference()
 const openAiCompatibleChat = useOpenAiCompatibleChat()
+const agentMode = useAgentMode()
 const imageGeneration = useImageGenerationPresets()
 const presetsStore = usePresets()
 
 const isChatMode = computed(() => promptStore.getCurrentMode() === 'chat')
+const isAgentMode = computed(() => promptStore.getCurrentMode() === 'agent')
 
 // Get active chat preset
 const activeChatPreset = computed(() => {
@@ -147,6 +155,18 @@ const presetIndicator = computed(() => {
       name: preset.name,
       model: model?.split('/').at(-1) ?? model,
       description: basePresetDescription(preset.name),
+    }
+  }
+  if (promptStore.userSelectedMode === 'agent') {
+    // Agent mode has no presets — a generic label plus the shared model
+    // (local backend model or the Cloud Mode model, same as Chat).
+    const model = textInference.activeModel
+    return {
+      image: undefined as string | undefined,
+      name: 'Agent',
+      model: model?.split('/').at(-1) ?? model,
+      description:
+        'Pi coding agent working on files in the workspace folder, using the model shared with Chat.',
     }
   }
   const preset = imageGeneration.activePreset

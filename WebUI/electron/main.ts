@@ -102,9 +102,12 @@ import {
 } from './subprocesses/mcpServers'
 import {
   cancelAgentTurn,
+  compactAgentContext,
+  deleteAgentSession,
   resetAgentSession,
   setHarnessAgentMainWindow,
   startAgentTurn,
+  submitAgentToolResult,
   type AgentModeTurnConfig,
 } from './harnessAgentManager'
 import { getAudioDir, getMediaDir } from './util.ts'
@@ -2562,6 +2565,23 @@ function initEventHandle() {
   ipcMain.handle('agentMode:resetSession', async () => {
     await resetAgentSession()
   })
+
+  ipcMain.handle('agentMode:deleteSession', async (_event, sessionId: string) => {
+    return await deleteAgentSession(sessionId)
+  })
+
+  ipcMain.handle('agentMode:compact', async (_event, customInstructions?: string) => {
+    return await compactAgentContext(customInstructions)
+  })
+
+  // Renderer answers a main→renderer 'agentMode:executeTool' dispatch (bridged
+  // host tool execution, e.g. image generation) with the tool result or error.
+  ipcMain.handle(
+    'agentMode:toolResult',
+    (_event, requestId: string, result: unknown, error?: string) => {
+      submitAgentToolResult(requestId, result, error)
+    },
+  )
 
   // Web browser IPC handlers — drives the headless BrowserWindow that the chat
   // LLM uses to browse the web (see subprocesses/webBrowserManager.ts).

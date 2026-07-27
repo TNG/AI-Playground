@@ -4,6 +4,12 @@
       "displayName": "DateTime MCP",
       "command": "uvx",
       "args": ["mcp-server-time"]
+    },
+    "chrome-devtools": {
+      "displayName": "Chrome DevTools (browser debugging)",
+      "instructions": "Use these tools to debug a web page you built: navigate_page to the page (a file:// URL or a localhost dev server you start with bash), then list_console_messages and evaluate_script to read runtime errors and inspect the DOM, and take_screenshot/take_snapshot to see the rendered result.",
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest", "--isolated"]
     }
   }
 }

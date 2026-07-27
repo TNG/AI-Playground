@@ -233,10 +233,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('agentMode:startTurn', turnId, prompt, config),
     cancel: () => ipcRenderer.invoke('agentMode:cancel'),
     resetSession: () => ipcRenderer.invoke('agentMode:resetSession'),
+    deleteSession: (sessionId: string) => ipcRenderer.invoke('agentMode:deleteSession', sessionId),
+    compact: (customInstructions?: string) =>
+      ipcRenderer.invoke('agentMode:compact', customInstructions),
     onStreamChunk: (callback: (data: { turnId: string; chunk: unknown }) => void) =>
       ipcRenderer.on('agentMode:streamChunk', (_event, data) => callback(data)),
     onTurnDone: (callback: (data: { turnId: string }) => void) =>
       ipcRenderer.on('agentMode:turnDone', (_event, data) => callback(data)),
+    onExecuteTool: (
+      callback: (data: {
+        requestId: string
+        toolCallId: string
+        toolName: string
+        input: unknown
+      }) => void,
+    ) => ipcRenderer.on('agentMode:executeTool', (_event, data) => callback(data)),
+    submitToolResult: (requestId: string, result: unknown, error?: string) =>
+      ipcRenderer.invoke('agentMode:toolResult', requestId, result, error),
   },
   webBrowser: {
     navigate: (url: string) => ipcRenderer.invoke('webBrowser:navigate', url),

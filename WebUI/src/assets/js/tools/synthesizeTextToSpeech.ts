@@ -6,11 +6,7 @@ import { useQwen3TextToSpeech } from '../store/qwen3TextToSpeech'
 import { QWEN3_TTS_LANGUAGES, QWEN3_TTS_SPEAKERS } from '@/assets/js/qwen3TtsConstants'
 import type { Qwen3TtsLanguage, Qwen3TtsSpeakerId } from '@/assets/js/qwen3TtsConstants'
 import { buildTtsAudioFileName, conversationLabelForTtsFile } from '@/lib/ttsAudioFileName'
-
-function conversationKeyFor(experimentalContext: unknown): string {
-  const ctx = experimentalContext as { conversationKey?: string } | undefined
-  return ctx?.conversationKey ?? useConversations().activeKey
-}
+import { ToolConversationContextSchema, conversationKeyFor } from './toolContext'
 
 const speakerIds = QWEN3_TTS_SPEAKERS.map((s) => s.id) as [string, ...string[]]
 const languageIds = QWEN3_TTS_LANGUAGES as [string, ...string[]]
@@ -63,11 +59,12 @@ export const synthesizeTextToSpeech = tool({
       .describe('When true, save speaker/language/mode as the user default for later synthesis'),
   }),
   outputSchema: SynthesizeSpeechOutputSchema,
+  contextSchema: ToolConversationContextSchema,
   execute: async (args, options): Promise<SynthesizeSpeechOutput> => {
     const qwen3 = useQwen3TextToSpeech()
     const activities = useActivities()
     const conversations = useConversations()
-    const conversationKey = conversationKeyFor(options.experimental_context)
+    const conversationKey = conversationKeyFor(options.context)
     const scope = {
       kind: 'chat' as const,
       conversationKey,

@@ -78,7 +78,7 @@ export const usePromptStore = defineStore('prompt', () => {
     // Agent mode has no presets — just switch the view.
     if (mode === 'agent') {
       currentMode.value = mode
-      return
+      return true
     }
 
     const presetSwitching = usePresetSwitching()

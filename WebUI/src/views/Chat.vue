@@ -216,6 +216,42 @@
                       />
                     </div>
                   </template>
+                  <!-- Thin media delegation tool: the nested media agent reports its
+                       steps to mediaAgentRuns (keyed by toolCallId), which the
+                       timeline renders live; the shared imageGeneration store still
+                       feeds ChatWorkflowResult through toolProgressMap. -->
+                  <template v-else-if="isAipgTool(part) && part.type === 'tool-media'">
+                    <div>
+                      <span v-if="part.state === 'input-streaming' && !part.input?.request"
+                        >Creating media…</span
+                      >
+                      <span v-else>
+                        Creating media:
+                        <em>{{ part.input?.request ?? '' }}</em>
+                      </span>
+                      <MediaAgentTimeline
+                        class="mt-2"
+                        :tool-call-id="(part as any).toolCallId"
+                        :fallback-steps="(part as any).output?.steps"
+                      />
+                      <div
+                        v-if="
+                          part.state === 'output-available' &&
+                          (part as any).output?.success === false
+                        "
+                        class="mt-2 text-sm text-destructive"
+                      >
+                        {{ (part as any).output?.message ?? 'Media generation failed.' }}
+                      </div>
+                      <ChatWorkflowResult
+                        :images="getToolImages(part)"
+                        :processing="getToolProcessing(part)"
+                        :currentState="getToolCurrentState(part)"
+                        :stepText="getToolStepText(part)"
+                        :toolCallId="(part as any).toolCallId"
+                      />
+                    </div>
+                  </template>
                   <template
                     v-else-if="isAipgTool(part) && part.type === 'tool-visualizeObjectDetections'"
                   >
@@ -436,6 +472,7 @@ import { useErrors } from '@/assets/js/store/errors'
 import { createAppError } from '@/assets/js/errors/appError'
 import { useTextToSpeech } from '@/assets/js/store/textToSpeech'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
+import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
 import ChatMcpToolDisplay from '@/components/ChatMcpToolDisplay.vue'
 import ChatToolDisplay from '@/components/ChatToolDisplay.vue'
 import ChatWebBrowseDisplay, { type WebBrowseEntry } from '@/components/ChatWebBrowseDisplay.vue'
@@ -702,8 +739,15 @@ watch(
 )
 
 // Helper functions for AIPG tool rendering
+// The tool part types that produce media through the shared imageGeneration
+// store (and therefore share the toolProgressMap live-progress tracking).
+const mediaToolPartTypes = new Set(['tool-comfyUI', 'tool-comfyUiImageEdit', 'tool-media'])
+function isMediaToolPart(part: { type: string }): boolean {
+  return mediaToolPartTypes.has(part.type)
+}
+
 function getToolImages(part: ToolUIPart<AipgTools>): MediaItem[] {
-  if (!(part.type === 'tool-comfyUI' || part.type === 'tool-comfyUiImageEdit')) return []
+  if (!isMediaToolPart(part)) return []
   const toolCallId = part.toolCallId
   const progress = toolProgressMap[toolCallId]
 
@@ -712,10 +756,14 @@ function getToolImages(part: ToolUIPart<AipgTools>): MediaItem[] {
     return progress.images
   }
 
-  // Otherwise, use output images if available
+  // Otherwise, use output images if available (e.g. after a reload)
   if (part.state === 'output-available') {
-    if (!part.output) return []
-    return part.output.images.map((img) => ({ ...img, state: 'done' as const }))
+    const output = part.output as { images?: unknown[] } | undefined
+    if (!output?.images) return []
+    return output.images.map((img) => ({
+      ...(img as MediaItem),
+      state: 'done' as const,
+    }))
   }
 
   return []
@@ -872,7 +920,7 @@ watch(
     // Find tool calls that just started (input-streaming or input-available)
     messages.forEach((msg) => {
       msg.parts.forEach((part) => {
-        if (part.type === 'tool-comfyUI' || part.type === 'tool-comfyUiImageEdit') {
+        if (isMediaToolPart(part) && 'toolCallId' in part) {
           const toolCallId = part.toolCallId
           const state = part.state
 
@@ -911,11 +959,12 @@ watch(
         ?.flatMap((msg) => msg.parts)
         .filter(
           (part) =>
-            (part.type === 'tool-comfyUI' || part.type === 'tool-comfyUiImageEdit') &&
+            isMediaToolPart(part) &&
+            'state' in part &&
             (part.state === 'input-streaming' || part.state === 'input-available'),
         )
         .map((part) => ({
-          toolCallId: part.toolCallId,
+          toolCallId: (part as { toolCallId: string }).toolCallId,
           part,
         })) || []
 
@@ -958,10 +1007,11 @@ watch(
         ?.flatMap((msg) => msg.parts)
         .filter(
           (part) =>
-            (part.type === 'tool-comfyUI' || part.type === 'tool-comfyUiImageEdit') &&
+            isMediaToolPart(part) &&
+            'state' in part &&
             (part.state === 'input-streaming' || part.state === 'input-available'),
         )
-        .map((part) => part.toolCallId) || [],
+        .map((part) => (part as { toolCallId: string }).toolCallId) || [],
     )
 
     Object.keys(toolProgressMap).forEach((toolCallId) => {

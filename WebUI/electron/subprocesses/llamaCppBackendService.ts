@@ -22,7 +22,13 @@ import type { LlamaCppBuildVariant } from './llamaCppPhison.ts'
 
 const execAsync = promisify(exec)
 
-export const LLAMACPP_DEFAULT_PARAMETERS = '--gpu-layers 999 --log-prefix --jinja --no-mmap -fa off'
+// --cache-ram 16384: raise the host-RAM prompt cache (default 8 GiB) so a
+// large parked context — e.g. the parent conversation's KV state while a
+// nested tool agent or Agent Mode subrequest runs on another slot — survives
+// the switch and is restored instead of re-prefilled (idle-slot saving is on
+// by default and depends on this cache).
+export const LLAMACPP_DEFAULT_PARAMETERS =
+  '--gpu-layers 999 --log-prefix --jinja --no-mmap -fa off --cache-ram 16384'
 const platformExtension = process.platform === 'win32' ? 'zip' : 'tar.gz'
 type StorageTarget = {
   id: string

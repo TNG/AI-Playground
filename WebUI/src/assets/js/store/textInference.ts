@@ -391,6 +391,12 @@ export const useTextInference = defineStore(
     const metricsEnabled = ref(true)
     const aipgToolsEnabled = ref(true)
     const mcpToolsEnabled = ref(true)
+    // Route the heavy media tools (comfyUI + comfyUiImageEdit) through the
+    // nested media specialist agent: the parent model sees one thin `media`
+    // tool instead of the full workflow catalog/schemas. In Agent Mode,
+    // flipping this changes the Pi tool set and therefore starts a new Pi
+    // session on the next turn.
+    const toolDelegationEnabled = ref(true)
     // Whether the model should think before answering. Only meaningful for models
     // whose template honors `enable_thinking` (see modelSupportsThinkingToggle);
     // the value is injected as chat_template_kwargs.enable_thinking at inference.
@@ -551,6 +557,16 @@ export const useTextInference = defineStore(
       }
     }
 
+    // Raw URL of the selected local inference backend, without any of the
+    // loopback proxies `currentBackendUrl` prefers. Callers that cannot attach
+    // the proxies' headers (X-AIPG-Auth / X-Upstream-Url for Home Agent,
+    // X-Cloud-* for Cloud Mode) must dial the backend through this.
+    const localBackendUrl = computed(
+      () =>
+        backendServices.info.find((item) => item.serviceName === backendToService[backend.value])
+          ?.baseUrl,
+    )
+
     const currentBackendUrl = computed(() => {
       // Cloud Mode talks to the main-process loopback proxy (see cloudProxy.ts),
       // which forwards to the selected remote provider. Networking + error logging
@@ -561,18 +577,13 @@ export const useTextInference = defineStore(
       if (homeAgent.isHomeAgentActive && homeAgent.homeAgentBaseUrl) {
         return homeAgent.homeAgentBaseUrl
       }
-      return backendServices.info.find(
-        (item) => item.serviceName === backendToService[backend.value],
-      )?.baseUrl
+      return localBackendUrl.value
     })
 
     // When Home Agent is active, the real inference backend URL to proxy through
-    const homeAgentUpstreamUrl = computed(() => {
-      if (!homeAgent.isHomeAgentActive) return undefined
-      return backendServices.info.find(
-        (item) => item.serviceName === backendToService[backend.value],
-      )?.baseUrl
-    })
+    const homeAgentUpstreamUrl = computed(() =>
+      homeAgent.isHomeAgentActive ? localBackendUrl.value : undefined,
+    )
 
     async function getDownloadParamsForCurrentModelIfRequired(type: 'llm' | 'embedding') {
       // Cloud Mode models are served remotely; there is nothing to download.
@@ -1470,6 +1481,8 @@ export const useTextInference = defineStore(
         (savedSettings.aipgToolsEnabled as boolean | undefined) ?? defaultToolsEnabled
       mcpToolsEnabled.value =
         (savedSettings.mcpToolsEnabled as boolean | undefined) ?? defaultToolsEnabled
+      toolDelegationEnabled.value =
+        (savedSettings.toolDelegationEnabled as boolean | undefined) ?? true
 
       // Per-workflow enablement for preset-backed tools (defaults to all-enabled
       // when unsaved, matching isWorkflowPresetEnabled's default).
@@ -1616,6 +1629,7 @@ export const useTextInference = defineStore(
         metricsEnabled,
         aipgToolsEnabled,
         mcpToolsEnabled,
+        toolDelegationEnabled,
         builtinToolPresetEnablement,
         builtinToolDefaultPresets,
         thinkingEnabled,
@@ -1643,6 +1657,7 @@ export const useTextInference = defineStore(
           metricsEnabled: metricsEnabled.value,
           aipgToolsEnabled: aipgToolsEnabled.value,
           mcpToolsEnabled: mcpToolsEnabled.value,
+          toolDelegationEnabled: toolDelegationEnabled.value,
           builtinToolPresetEnablement: { ...builtinToolPresetEnablement.value },
           builtinToolDefaultPresets: { ...builtinToolDefaultPresets.value },
           thinkingEnabled: thinkingEnabled.value,
@@ -1763,9 +1778,11 @@ export const useTextInference = defineStore(
       llmModels,
       llmEmbeddingModels,
       currentBackendUrl,
+      localBackendUrl,
       metricsEnabled,
       aipgToolsEnabled,
       mcpToolsEnabled,
+      toolDelegationEnabled,
       builtinToolEnablement,
       isBuiltinToolEnabled,
       setBuiltinToolEnabled,

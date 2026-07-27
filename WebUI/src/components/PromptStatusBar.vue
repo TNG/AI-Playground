@@ -48,6 +48,30 @@
         </template>
       </ModelCapabilities>
       <span v-else-if="presetIndicator.model" class="truncate">{{ presetIndicator.model }}</span>
+      <!-- Active chat inference backend (llama.cpp / OpenVINO) -->
+      <template v-if="chatBackendBadge">
+        ·
+        <TooltipProvider>
+          <Tooltip :delay-duration="0">
+            <TooltipTrigger as-child>
+              <button
+                type="button"
+                class="flex flex-none items-center cursor-help"
+                :aria-label="`Inference backend: ${chatBackendBadge.name}`"
+              >
+                <CpuChipIcon class="size-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              align="start"
+              class="w-64 bg-card border border-border text-foreground p-3 z-[200]"
+            >
+              <p class="text-sm font-semibold">{{ chatBackendBadge.name }}</p>
+              <p class="mt-1 text-xs text-muted-foreground">{{ chatBackendBadge.description }}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </template>
     </div>
     <!-- Context usage (chat only). Sibling of the status element so the live
          region doesn't re-announce the token percentage on every stream tick. -->
@@ -85,9 +109,13 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon } from '@heroicons/vue/24/outline'
+import {
+  MagnifyingGlassPlusIcon,
+  MagnifyingGlassMinusIcon,
+  CpuChipIcon,
+} from '@heroicons/vue/24/outline'
 import { usePromptStore } from '@/assets/js/store/promptArea'
-import { useTextInference } from '@/assets/js/store/textInference'
+import { useTextInference, textInferenceBackendDisplayName } from '@/assets/js/store/textInference'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets.ts'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets'
@@ -156,6 +184,23 @@ const presetIndicator = computed(() => {
     name: preset.name,
     model: undefined as string | undefined,
     description: basePresetDescription(preset.name),
+  }
+})
+
+// Small badge on the preset/model line showing which local inference backend is
+// active for chat. Keyed off `userSelectedMode` (like presetIndicator) so a
+// background comfy switch during agentic tool use doesn't flip it. Hidden for
+// non-chat modes and for Cloud Mode (no local llama.cpp / OpenVINO engine).
+const chatBackendBadge = computed(() => {
+  if (promptStore.userSelectedMode !== 'chat') return null
+  const backend = textInference.backend
+  if (backend !== 'llamaCPP' && backend !== 'openVINO') return null
+  return {
+    name: textInferenceBackendDisplayName[backend],
+    description:
+      backend === 'llamaCPP'
+        ? 'Chat is running on the llama.cpp backend (GGUF models).'
+        : 'Chat is running on the OpenVINO backend (OpenVINO IR models).',
   }
 })
 

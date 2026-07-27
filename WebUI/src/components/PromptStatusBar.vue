@@ -59,7 +59,11 @@
                 class="flex flex-none items-center cursor-help"
                 :aria-label="`Inference backend: ${chatBackendBadge.name}`"
               >
-                <CpuChipIcon class="size-4" />
+                <img
+                  :src="chatBackendBadge.logo"
+                  :alt="chatBackendBadge.name"
+                  class="size-4 flex-none object-contain"
+                />
               </button>
             </TooltipTrigger>
             <TooltipContent
@@ -68,6 +72,29 @@
             >
               <p class="text-sm font-semibold">{{ chatBackendBadge.name }}</p>
               <p class="mt-1 text-xs text-muted-foreground">{{ chatBackendBadge.description }}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </template>
+      <!-- Selected inference device (GPU / NPU / CPU) -->
+      <template v-if="chatDeviceBadge">
+        <TooltipProvider>
+          <Tooltip :delay-duration="0">
+            <TooltipTrigger as-child>
+              <button
+                type="button"
+                class="flex flex-none items-center cursor-help"
+                :aria-label="`Inference device: ${chatDeviceBadge.name}`"
+              >
+                <component :is="chatDeviceBadge.icon" class="size-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              align="start"
+              class="w-64 bg-card border border-border text-foreground p-3 z-[200]"
+            >
+              <p class="text-sm font-semibold">{{ chatDeviceBadge.name }}</p>
+              <p class="mt-1 text-xs text-muted-foreground">{{ chatDeviceBadge.categoryLabel }}</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -113,9 +140,18 @@ import {
   MagnifyingGlassPlusIcon,
   MagnifyingGlassMinusIcon,
   CpuChipIcon,
+  Squares2X2Icon,
+  BoltIcon,
 } from '@heroicons/vue/24/outline'
+import llamaCppLogo from '@/assets/image/llamacpp.png'
+import openVinoLogo from '@/assets/image/openvino.png'
 import { usePromptStore } from '@/assets/js/store/promptArea'
-import { useTextInference, textInferenceBackendDisplayName } from '@/assets/js/store/textInference'
+import {
+  useTextInference,
+  textInferenceBackendDisplayName,
+  backendToService,
+} from '@/assets/js/store/textInference'
+import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets.ts'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets'
@@ -125,6 +161,7 @@ import ModelCapabilities from '@/components/ModelCapabilities.vue'
 
 const promptStore = usePromptStore()
 const textInference = useTextInference()
+const backendServices = useBackendServices()
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const imageGeneration = useImageGenerationPresets()
 const presetsStore = usePresets()
@@ -168,12 +205,14 @@ const presetIndicator = computed(() => {
   if (promptStore.userSelectedMode === 'chat') {
     const preset = stableChatPreset.value ?? fallbackChatPreset.value
     if (!preset) return null
-    // Match the ModelSelector label: display only the last path segment.
+    // Match the ModelSelector label: display only the last path segment, and
+    // drop the model-file extension (the backend badge now conveys the format).
     const model = textInference.activeModel
+    const lastSegment = model?.split('/').at(-1) ?? model
     return {
       image: preset.image,
       name: preset.name,
-      model: model?.split('/').at(-1) ?? model,
+      model: lastSegment?.replace(/\.(gguf|bin|safetensors)$/i, ''),
       description: basePresetDescription(preset.name),
     }
   }
@@ -201,10 +240,39 @@ const chatBackendBadge = computed(() => {
       backend === 'llamaCPP'
         ? 'Chat is running on the llama.cpp backend (GGUF models).'
         : 'Chat is running on the OpenVINO backend (OpenVINO IR models).',
+    logo: backend === 'llamaCPP' ? llamaCppLogo : openVinoLogo,
   }
 })
 
-// The tooltip shows the base preset's description — the same text as the quick
+// Selected inference device for the active chat backend, shown as a GPU / NPU /
+// CPU icon (device name on hover). Reads the `selected` device from the backend
+// service that the current chat backend maps to. Null when not in chat mode, on
+// Cloud Mode, or before device detection has reported a selection.
+const chatDeviceBadge = computed(() => {
+  if (promptStore.userSelectedMode !== 'chat') return null
+  const backend = textInference.backend
+  if (backend !== 'llamaCPP' && backend !== 'openVINO') return null
+  const serviceName = backendToService[backend]
+  if (!serviceName) return null
+  const info = backendServices.info.find((s) => s.serviceName === serviceName)
+  const device = info?.devices.find((d) => d.selected)
+  if (!device) return null
+
+  // Classify by id/name: OpenVINO uses ids like 'NPU' / 'CPU' / 'GPU.0'; llama.cpp
+  // reports numeric ids with GPU names. Anything not NPU/CPU is treated as GPU
+  // (covers 'GPU.x', 'AUTO', and named GPU devices).
+  const haystack = `${device.id} ${device.name}`.toUpperCase()
+  const category: 'gpu' | 'npu' | 'cpu' = haystack.includes('NPU')
+    ? 'npu'
+    : device.id.toUpperCase() === 'CPU' || /\bCPU\b/.test(haystack)
+      ? 'cpu'
+      : 'gpu'
+  const icon = category === 'npu' ? BoltIcon : category === 'cpu' ? CpuChipIcon : Squares2X2Icon
+  const categoryLabel = category === 'npu' ? 'NPU' : category === 'cpu' ? 'CPU' : 'GPU'
+  return { name: device.name || device.id, category, categoryLabel, icon }
+})
+
+// The tooltip shows the base preset's description — same text as the quick
 // preset picker. `stableChatPreset` / `imageGeneration.activePreset` are
 // variant-merged, where `description` can be a per-variant blurb instead.
 function basePresetDescription(name: string): string | undefined {

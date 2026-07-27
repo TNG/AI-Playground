@@ -13,6 +13,7 @@ import {
   withSelectedDevice,
   linuxHasVulkanLoader,
 } from './deviceDetection.ts'
+import { resolveDefaultDevice } from './defaultDeviceSelection.ts'
 import type { LocalSettings } from '../main.ts'
 import getPort, { portNumbers } from 'get-port'
 import { binary, extract, restoreTreeWritePermissions } from './tools.ts'
@@ -414,12 +415,21 @@ export class LlamaCppBackendService implements ApiService {
       // build, or a Vulkan build without a usable ICD/driver), --list-devices
       // returns nothing. Fall back to a single auto device so the UI selector
       // always has a valid value (otherwise it renders with value=undefined).
+      // On first run (no persisted choice) auto-select the best available device
+      // — dedicated GPU > integrated GPU > NPU > CPU — and persist it as the
+      // user's selection. Falls back to the first device when detection is
+      // inconclusive, preserving the previous default.
+      const bestId = await resolveDefaultDevice(
+        availableDevices,
+        this.settings.lastSelectedDevicePerBackend,
+        this.name,
+      )
       this.devices =
         availableDevices.length > 0
           ? withSelectedDevice(
               availableDevices.map((d) => ({ ...d, selected: false })),
               this.settings.lastSelectedDevicePerBackend[this.name],
-              (ds) => ds[0],
+              (ds) => ds.find((d) => d.id === bestId) ?? ds[0],
             )
           : [{ id: '0', name: 'Auto select device', selected: true }]
     } catch (error) {

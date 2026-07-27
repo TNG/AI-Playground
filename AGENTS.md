@@ -71,9 +71,11 @@ Python backend (`service/`) uses **Ruff** for linting (runs in CI via GitHub Act
 
 Drives the **real compiled Electron app** (not a mocked renderer) and actually installs
 backends, so runs take minutes. Separate from Vitest: `.spec.ts` files, config
-`playwright-e2e.config.ts`. Two scripts: `npm run e2e` runs only the agentic reference
-flow (`install-backends.spec.ts`); `npm run e2e:full` runs the whole suite (agentic flow
-plus one smoke test per chat/image/video preset in `preset-*.spec.ts`).
+`playwright-e2e.config.ts`. Two scripts: `npm run e2e:fast` runs only the quick agentic smoke
+(`agentic-smoke.spec.ts` — install + a haiku text turn + one image turn); `npm run e2e:full`
+runs the whole suite — the full agentic reference flow (`install-backends.spec.ts`, image →
+edit → video) plus one smoke test per chat/image/video preset in `preset-*.spec.ts` — and
+excludes the quick smoke (`--grep-invert "Agentic smoke"`) so backends aren't installed twice.
 
 **Architecture:** `vite --mode test` serves only the renderer (the Electron plugin is
 skipped in test mode — see `vite.config.mts`); the fixture launches the built Electron
@@ -85,7 +87,8 @@ the existing one.
 the high-level entry point; exposes `wizard`, `shell`, `main`, `settings`), `pages/*.ts`
 (Page Objects: `SetupWizardPage`, `AppShellPage`, `MainPage` = prompt area + results,
 `SpecificSettingsPage` = the preset settings sidebar), `backends.ts` (parametric model +
-types), `helpers.ts`, `install-backends.spec.ts` (reference spec).
+types), `helpers.ts`, `agentic-smoke.spec.ts` (quick `e2e` gate),
+`install-backends.spec.ts` (full agentic reference spec).
 
 **Rules:**
 - **Start every test with the shared setup method:** `await app.installAllBackends()`. It's

@@ -27,7 +27,11 @@ const IMAGE_PRESETS: ImageCase[] = [
   { preset: 'Pro Image', mode: 'Image Gen' },
   { preset: 'Pro 2 Image', mode: 'Image Gen' },
   { preset: 'Pro 3 Image', mode: 'Image Gen' },
-  { preset: 'Acer VisionArt', mode: 'Image Gen' },
+  // 'Acer VisionArt' is intentionally excluded: it requires the AcerPartner/VisionArt
+  // ComfyUI node, which talks to an external Acer "AICO" socket service only present on
+  // Acer hardware. Without it the node hangs on socket recv (WinError 10057) and the
+  // generation never completes, timing out this smoke test. Re-enable only on a machine
+  // running the Acer AICO service.
   { preset: 'Manual', mode: 'Image Gen' },
   // create-images that need a reference image
   { preset: 'Control Face', mode: 'Image Gen', needsImage: true },

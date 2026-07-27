@@ -9,57 +9,26 @@ import { type ChatMode } from './MainPage'
 export class SpecificSettingsPage {
   constructor(private readonly page: Page) {}
 
-  private heading(mode: ChatMode): Locator {
-    return this.page.getByRole('heading', { name: `${mode} Settings` })
+  // The settings sidebar renders with `hide-header` (no <h2> banner — see
+  // SideModalSpecificSettings.vue), so its only stable handle is the SideModalBase
+  // region, whose aria-label is `${mode} Settings`.
+  private panel(mode: ChatMode): Locator {
+    return this.page.getByRole('region', { name: `${mode} Settings` })
   }
 
   private openButton(mode: ChatMode): Locator {
     return this.page.getByRole('button', { name: `${mode} Settings` })
   }
 
-  /** Preset cards are role=button with the preset name as their accessible name. */
-  preset(name: string): Locator {
-    return this.page.getByRole('button', { name, exact: true })
-  }
-
   async open(mode: ChatMode = 'Chat'): Promise<void> {
     if (
-      await this.heading(mode)
+      await this.panel(mode)
         .isVisible()
         .catch(() => false)
     )
       return
     await this.openButton(mode).click()
-    await expect(this.heading(mode)).toBeVisible()
-  }
-
-  /** True if the preset card is present in the currently-open settings grid. */
-  async isPresetVisible(name: string): Promise<boolean> {
-    return this.preset(name)
-      .isVisible()
-      .catch(() => false)
-  }
-
-  async selectPreset(name: string): Promise<void> {
-    await expect(this.preset(name)).toBeVisible()
-    await this.preset(name).click()
-    // Gated (high-memory / video-VRAM) presets only apply once their warning popup is
-    // confirmed. It's auto-dismissed globally (see the `window` fixture), but confirm it
-    // here too in case the global handler hasn't fired yet — tolerant of it already
-    // being gone (dismissed) so the two paths never fight.
-    const confirm = this.page
-      .getByRole('dialog', { name: 'Warning' })
-      .getByRole('button', { name: 'Confirm', exact: true })
-    if (
-      await confirm
-        .waitFor({ state: 'visible', timeout: 2_000 })
-        .then(() => true)
-        .catch(() => false)
-    ) {
-      await confirm.click().catch(() => {})
-    }
-    // Generous timeout: the confirm→apply round-trip and settings reload take a moment.
-    await expect(this.preset(name)).toHaveAttribute('aria-pressed', 'true', { timeout: 30_000 })
+    await expect(this.panel(mode)).toBeVisible()
   }
 
   /**

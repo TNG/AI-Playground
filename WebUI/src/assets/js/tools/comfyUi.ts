@@ -699,6 +699,31 @@ function resolveDefaultImageWorkflow(imageNames: string[]): string {
   return useTextInference().getDefaultWorkflow('comfyUI:image', imageNames) ?? 'Draft Image'
 }
 
+/**
+ * Repair a malformed comfyUI (create-image) tool call before execution: if the
+ * model omitted `workflow` or sent a value that isn't a known workflow, coerce
+ * it to the default image workflow. Returns the repaired args as a JSON string,
+ * or null when `workflow` is already valid (nothing to fix) or none exist.
+ * Wired into streamText's experimental_repairToolCall so a bad workflow can't
+ * surface as an "unknown" tool card / failed generation.
+ */
+export function repairCreateToolInput(rawInput: string): string | null {
+  const workflows = getAvailableWorkflows()
+  if (workflows.length === 0) return null
+  let obj: Record<string, unknown>
+  try {
+    const parsed: unknown = JSON.parse(rawInput || '{}')
+    obj = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
+  } catch {
+    obj = {}
+  }
+  const names = workflows.map((w) => w.name)
+  if (typeof obj.workflow === 'string' && names.includes(obj.workflow)) return null
+  const imageNames = workflows.filter((w) => w.mediaType !== 'video').map((w) => w.name)
+  obj.workflow = resolveDefaultImageWorkflow(imageNames)
+  return JSON.stringify(obj)
+}
+
 function resolveDefaultVideoWorkflow(videoNames: string[]): string | null {
   return useTextInference().getDefaultWorkflow('comfyUI:video', videoNames)
 }

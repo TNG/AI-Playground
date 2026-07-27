@@ -147,8 +147,43 @@ export class MainPage {
     return this.page.getByRole('button', { name: label, exact: true })
   }
 
-  async selectMode(label: ChatMode): Promise<void> {
-    await this.modeButton(label).click()
+  /** A preset thumbnail inside the prompt-area quick-preset picker popover; each
+   *  carries the preset name as its accessible name (`aria-label`). */
+  private presetCard(name: string): Locator {
+    return this.page.getByRole('button', { name, exact: true })
+  }
+
+  /** The active-preset indicator at the top-left of the input. Its accessible
+   *  name is `Active preset: <name>` (a live `status` region), so it's the
+   *  stable signal that an async preset switch has landed. */
+  activePresetIndicator(name: string): Locator {
+    return this.page.getByRole('status', { name: `Active preset: ${name}` })
+  }
+
+  /**
+   * Switch to `mode` and pick `preset` from the quick preset picker. The mode
+   * button doubles as the picker popover's trigger, so clicking it both switches
+   * mode and opens the picker (see PromptArea.vue). Returns false — leaving
+   * nothing open — when the preset isn't offered for this mode, so callers can
+   * skip. On success the picker has closed and the switch has completed.
+   */
+  async selectPreset(mode: ChatMode, preset: string): Promise<boolean> {
+    await this.modeButton(mode).click()
+    const card = this.presetCard(preset)
+    const present = await card
+      .waitFor({ state: 'visible', timeout: 15_000 })
+      .then(() => true)
+      .catch(() => false)
+    if (!present) {
+      // Not available in this mode — close the picker (Escape) and bail.
+      await this.page.keyboard.press('Escape')
+      return false
+    }
+    await card.click()
+    // Selecting closes the popover and kicks off an async preset switch (a
+    // backend reload can take a while); the indicator flips once it lands.
+    await expect(this.activePresetIndicator(preset)).toBeVisible({ timeout: 30_000 })
+    return true
   }
 
   async sendPrompt(text: string): Promise<void> {

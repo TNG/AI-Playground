@@ -423,6 +423,7 @@ export class LlamaCppBackendService implements ApiService {
         availableDevices,
         this.settings.lastSelectedDevicePerBackend,
         this.name,
+        this.settings.preferredDevice,
       )
       this.devices =
         availableDevices.length > 0

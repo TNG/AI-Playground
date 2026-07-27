@@ -107,6 +107,7 @@ import type { ModelPaths } from '@/assets/js/store/models.ts'
 import type { IndexedDocument, EmbedInquiry } from '@/assets/js/store/textInference.ts'
 import { BackendServiceName } from '@/assets/js/store/backendServices.ts'
 import {
+  classifyDetectedDevices,
   detectGpuHardwareDevices,
   type GpuHardwareDevice,
 } from './subprocesses/hardwareDiscovery.ts'
@@ -300,6 +301,19 @@ const appSize = {
 }
 const ThemeSchema = z.enum(['dark', 'lnl', 'bmg', 'light'])
 const ProductModeSchema = z.enum(['studio', 'essentials', 'nvidia'])
+// User's preferred inference device, captured in the setup wizard. A GPU is
+// identified by name (+ PCI id when known) so it can be matched to each backend's
+// own device enumeration; 'cpu' means "prefer CPU only" (best-effort per backend).
+const PreferredDeviceSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('gpu'),
+    name: z.string(),
+    gpuDeviceId: z.string().nullable(),
+  }),
+  z.object({ kind: z.literal('cpu') }),
+])
+export type PreferredDevice = z.infer<typeof PreferredDeviceSchema>
+
 const LocalSettingsSchema = z.object({
   debug: z.boolean().default(false),
   deviceArchOverride: z.enum(['bmg', 'acm', 'arl_h', 'wcl', 'lnl', 'mtl']).nullable().default(null),
@@ -334,6 +348,12 @@ const LocalSettingsSchema = z.object({
   // sub-device. Restored at boot in each service's detectDevices() so the app
   // does not reset to the default GPU (iGPU) on every restart.
   lastSelectedDevicePerBackend: z.record(z.string(), z.string()).default({}),
+  // Machine-wide preferred inference device, chosen in the setup wizard from the
+  // raw pre-install hardware probe. Consulted by each backend's detectDevices()
+  // (when it has no per-backend selection yet) to pick a matching device, before
+  // falling back to the automatic dGPU > iGPU > NPU > CPU ranking. null = no
+  // explicit preference (use the automatic ranking).
+  preferredDevice: PreferredDeviceSchema.nullable().default(null),
   /** When true, skip hardware probe and treat Phison SSD as detected (optional overlay in userData settings). */
   PhisonSSDdetected: z.boolean().optional().default(false),
 })
@@ -1116,7 +1136,7 @@ function initEventHandle() {
     return {
       success: detectSuccess,
       recommendedMode,
-      detectedDevices: detected,
+      detectedDevices: classifyDetectedDevices(detected),
       hasNvidiaGpu: hasNvidia,
       modeCatalog,
     }

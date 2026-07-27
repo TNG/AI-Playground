@@ -121,6 +121,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   const errors = useErrors()
 
   const pendingProductMode = ref<ProductMode | null>(null)
+  const pendingPreferredDevice = ref<PreferredDevice | null>(null)
   const installSelection = ref(new Set<BackendServiceName>())
   const disabledBackends = ref(new Set<BackendServiceName>())
   const wizardDirty = ref(false)
@@ -128,6 +129,83 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   const homeAgentSetupOrigin = ref<'install' | 'edit'>('install')
 
   const wizardActivity = ref(new Map<BackendServiceName, string>())
+
+  // Preferred-device picker on the wizard's first page. Pre-install we only have
+  // the raw GPU probe, so options are the detected GPUs (labeled dedicated /
+  // integrated) plus a CPU-only choice. The selection is persisted as a
+  // machine-wide preference and each backend maps it to its own device on install.
+  const DEVICE_CATEGORY_RANK: Record<DeviceCategory, number> = {
+    dgpu: 4,
+    igpu: 3,
+    npu: 2,
+    cpu: 1,
+    unknown: 0,
+  }
+
+  type PreferredDeviceOption = {
+    key: string
+    label: string
+    category: DeviceCategory
+    value: PreferredDevice
+  }
+
+  function preferredDeviceKey(pref: PreferredDevice | null): string | null {
+    if (!pref) return null
+    return pref.kind === 'cpu' ? 'cpu' : `gpu:${pref.gpuDeviceId ?? pref.name}`
+  }
+
+  const preferredDeviceOptions = computed<PreferredDeviceOption[]>(() => {
+    const detected = productModeStore.hardwareRecommendation?.detectedDevices ?? []
+    const gpuOptions: PreferredDeviceOption[] = detected
+      .map((d) => ({
+        key: `gpu:${d.gpuDeviceId ?? d.name}`,
+        label: d.name,
+        category: d.category ?? ('igpu' as DeviceCategory),
+        value: { kind: 'gpu' as const, name: d.name, gpuDeviceId: d.gpuDeviceId },
+      }))
+      .sort((a, b) => DEVICE_CATEGORY_RANK[b.category] - DEVICE_CATEGORY_RANK[a.category])
+    const cpuOption: PreferredDeviceOption = {
+      key: 'cpu',
+      label: 'CPU only',
+      category: 'cpu',
+      value: { kind: 'cpu' as const },
+    }
+    return [...gpuOptions, cpuOption]
+  })
+
+  /** Best default preference: the highest-category detected device, else CPU. */
+  function defaultPreferredDevice(): PreferredDevice | null {
+    return preferredDeviceOptions.value[0]?.value ?? null
+  }
+
+  // The preference only feeds resolveDefaultDevice() when a backend runs
+  // detectDevices() with no prior per-backend selection — i.e. on first install.
+  // Once every inference backend is set up, changing it here would no longer do
+  // anything (a manual per-backend choice already exists and takes precedence),
+  // so the selector is hidden.
+  const INFERENCE_BACKENDS: BackendServiceName[] = [
+    'llamacpp-backend',
+    'openvino-backend',
+    'comfyui-backend',
+  ]
+  const showPreferredDeviceSelector = computed(() =>
+    backendServices.info.some(
+      (s) => INFERENCE_BACKENDS.includes(s.serviceName as BackendServiceName) && !s.isSetUp,
+    ),
+  )
+
+  function setPendingPreferredDevice(pref: PreferredDevice) {
+    pendingPreferredDevice.value = pref
+  }
+
+  async function initPendingPreferredDevice() {
+    try {
+      const s = await window.electronAPI.getLocalSettings()
+      pendingPreferredDevice.value = s.preferredDevice ?? defaultPreferredDevice()
+    } catch {
+      pendingPreferredDevice.value = defaultPreferredDevice()
+    }
+  }
 
   const errorModalOpen = ref(false)
   const errorModalServiceName = ref<BackendServiceName | null>(null)
@@ -566,6 +644,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       productModeStore.productMode ??
       productModeStore.hardwareRecommendation?.recommendedMode ??
       null
+    await initPendingPreferredDevice()
     seedInstallSelection()
     wizardDirty.value = false
     wizardPage.value = 'main'
@@ -670,6 +749,15 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
   async function commitAndInstall() {
     if (!pendingProductMode.value) return
+
+    // Persist the preferred device BEFORE any install runs: installBackend →
+    // restartBackend → detectDevices() reads it (via the shared settings object)
+    // to pick each backend's matching default device.
+    if (pendingPreferredDevice.value) {
+      await window.electronAPI.updateLocalSettings({
+        preferredDevice: pendingPreferredDevice.value,
+      })
+    }
 
     // Capture what needs installing BEFORE syncing mode — syncing resets the
     // variant-switch detection because current and pending modes become equal.
@@ -854,6 +942,11 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
   return {
     pendingProductMode,
+    pendingPreferredDevice,
+    preferredDeviceOptions,
+    preferredDeviceKey,
+    setPendingPreferredDevice,
+    showPreferredDeviceSelector,
     installSelection,
     wizardDirty,
     wizardPage,

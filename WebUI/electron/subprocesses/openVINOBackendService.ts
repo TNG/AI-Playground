@@ -25,6 +25,7 @@ import {
   runPkexecInstall,
   waitForTerminalInstall,
 } from './linuxPackageInstaller.ts'
+import { resolveDefaultDevice } from './defaultDeviceSelection.ts'
 
 const execAsync = promisify(exec)
 
@@ -885,7 +886,7 @@ export class OpenVINOBackendService implements ApiService {
       // Try Python-based detection first (provides full device names)
       const pythonDevices = await this.detectDevicesWithPython()
       if (pythonDevices) {
-        this.applyDetectedDevices(pythonDevices)
+        await this.applyDetectedDevices(pythonDevices)
         await this.warnIfNpuSiliconMissingDriver(pythonDevices)
         this.updateStatus()
         return
@@ -900,7 +901,7 @@ export class OpenVINOBackendService implements ApiService {
     // Fallback to OVMS-based detection
     try {
       const ovmsDevices = await this.detectDevicesWithOvms()
-      this.applyDetectedDevices(ovmsDevices)
+      await this.applyDetectedDevices(ovmsDevices)
       await this.warnIfNpuSiliconMissingDriver(ovmsDevices)
     } catch (error) {
       this.appLogger.error(`Failed to detect devices: ${error}`, this.name)
@@ -1124,7 +1125,7 @@ export class OpenVINOBackendService implements ApiService {
   /**
    * Apply detected devices to the service state.
    */
-  private applyDetectedDevices(devices: { id: string; name: string }[]): void {
+  private async applyDetectedDevices(devices: { id: string; name: string }[]): Promise<void> {
     const mappedDevices: InferenceDevice[] = devices.map((device) => ({
       id: device.id,
       name: device.name,
@@ -1161,10 +1162,17 @@ export class OpenVINOBackendService implements ApiService {
       return result
     }
 
-    // LLM devices: persisted > priority GPU > AUTO
+    // LLM devices: persisted > best physical device (dGPU > iGPU > NPU > CPU) > AUTO.
+    // On first run this auto-selects and persists the best device as the user's
+    // choice; selectByPriority then simply honors that persisted id.
+    const bestLlmId = await resolveDefaultDevice(
+      mappedDevices,
+      this.settings.lastSelectedDevicePerBackend,
+      this.name,
+    )
     this.devices = selectByPriority(
       baseDevices,
-      ['GPU'],
+      bestLlmId ? [bestLlmId] : ['GPU'],
       this.settings.lastSelectedDevicePerBackend[this.name],
     )
 

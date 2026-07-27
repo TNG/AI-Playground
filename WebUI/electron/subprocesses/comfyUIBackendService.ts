@@ -39,6 +39,7 @@ import {
   linuxHasLevelZeroRuntime,
   withSelectedDevice,
 } from './deviceDetection.ts'
+import { resolveDefaultDevice } from './defaultDeviceSelection.ts'
 import {
   getMissingPackages,
   hasAptGet,
@@ -1510,11 +1511,17 @@ except Exception as e:
     }
 
     this.appLogger.info(`detected devices: ${JSON.stringify(allDevices, null, 2)}`, this.name)
+    const bestCudaId = await resolveDefaultDevice(
+      allDevices,
+      this.settings.lastSelectedDevicePerBackend,
+      this.name,
+    )
     this.devices =
       allDevices.length > 0
         ? withSelectedDevice(
             allDevices.map((d) => ({ ...d, selected: false })),
             this.settings.lastSelectedDevicePerBackend[this.name],
+            (ds) => ds.find((d) => d.id === bestCudaId) ?? ds[0],
           )
         : availableDevices
     this.updateStatus()
@@ -1608,9 +1615,15 @@ except Exception as e:
     // A device probe positively confirmed at least one usable XPU device, so it
     // is safe for spawnAPIProcess() to launch as the XPU variant.
     this.usableXpuConfirmed = true
+    const bestXpuId = await resolveDefaultDevice(
+      allDevices,
+      this.settings.lastSelectedDevicePerBackend,
+      this.name,
+    )
     this.devices = withSelectedDevice(
       allDevices.map((d) => ({ ...d, selected: false })),
       this.settings.lastSelectedDevicePerBackend[this.name],
+      (ds) => ds.find((d) => d.id === bestXpuId) ?? ds[0],
     )
     this.updateStatus()
   }

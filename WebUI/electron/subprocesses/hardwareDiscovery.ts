@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { spawnProcessAsync } from './osProcessHelper'
 import { appLoggerInstance as appLogger } from '../logging/logger.ts'
 import { buildResources } from './uvBasedBackends/uv.ts'
+import { rankDevicesByCategory, type ReferenceAccelerator } from './deviceArch.ts'
 
 export type GpuHardwareDevice = {
   device: string
@@ -230,6 +231,39 @@ export async function detectGpuHardwareDevices(): Promise<{
 
   const detected = [...nvidia, ...finalIntel]
   return { detected, hasNvidia: nvidia.length > 0 }
+}
+
+function toReferenceAccelerator(device: GpuHardwareDevice): ReferenceAccelerator {
+  const vendor: ReferenceAccelerator['vendor'] = device.device.startsWith('NVIDIA')
+    ? 'nvidia'
+    : device.device.startsWith('INTEL')
+      ? 'intel'
+      : 'unknown'
+  return { vendor, name: device.name, gpuDeviceId: device.gpuDeviceId }
+}
+
+/**
+ * Pick the id of the best device from a backend's own detected list, preferring
+ * dedicated GPU > integrated GPU > NPU > CPU. Uses the physical GPU probe as the
+ * discreteness reference; if that probe fails or is empty, GPUs rank equally and
+ * the first-detected device wins — matching the previous "first device" default.
+ * Returns undefined only for an empty input list.
+ */
+export async function pickBestDeviceId(
+  devices: { id: string; name: string }[],
+): Promise<string | undefined> {
+  if (devices.length === 0) return undefined
+  let reference: ReferenceAccelerator[] = []
+  try {
+    const probe = await detectGpuHardwareDevices()
+    reference = probe.detected.map(toReferenceAccelerator)
+  } catch (e) {
+    appLogger.warn(
+      `pickBestDeviceId: GPU probe failed, falling back to detection order: ${JSON.stringify(e)}`,
+      'electron-backend',
+    )
+  }
+  return rankDevicesByCategory(devices, reference)[0]?.id
 }
 
 function enrichWithPowerShellIds(

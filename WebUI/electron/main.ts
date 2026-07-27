@@ -110,6 +110,7 @@ import {
   detectGpuHardwareDevices,
   type GpuHardwareDevice,
 } from './subprocesses/hardwareDiscovery.ts'
+import { registerSettingsPersist } from './subprocesses/defaultDeviceSelection.ts'
 import z from 'zod'
 
 const ProductModeUiI18nSchema = z.object({
@@ -515,6 +516,10 @@ function persistLocalSettingsToDisk(): void {
     appLogger.error(`failed to persist local settings: ${e}`, 'electron-backend')
   }
 }
+
+// Let backend services persist the settings they auto-populate (e.g. the default
+// device chosen after install) without importing main.ts's private writer.
+registerSettingsPersist(persistLocalSettingsToDisk)
 
 protocol.registerSchemesAsPrivileged([
   {

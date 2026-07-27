@@ -1,43 +1,12 @@
 <template>
   <div id="prompt-area" class="text-foreground flex flex-col w-full pt-4">
-    <div class="group flex flex-col items-center gap-7 text-base px-4">
+    <div class="group flex flex-col items-center gap-3 text-base px-4">
       <div v-if="contextError" class="flex items-center gap-3">
         <p class="text-red-500">{{ contextError }}</p>
       </div>
-      <div class="grid grid-cols-3 items-center gap-3 h-10">
-        <p class="text-2xl col-start-2 font-bold">Let's Generate</p>
-        <Context
-          v-if="promptStore.getCurrentMode() === 'chat'"
-          :used-tokens="contextUsedTokens"
-          :max-tokens="contextMaxTokens"
-          :max-context-size="textInference.maxContextSizeFromModel"
-          :dynamic-context="textInference.contextSizeIsDynamic"
-          :usage="contextUsage"
-        />
-      </div>
-      <div class="relative w-full max-w-3xl">
-        <!-- Zoom Controls (only in chat mode) -->
-        <div
-          v-if="promptStore.getCurrentMode() === 'chat'"
-          class="absolute -top-8 right-0 flex gap-1 z-[5]"
-        >
-          <button
-            @click="textInference.decreaseFontSize()"
-            :disabled="textInference.isMinSize"
-            class="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            title="Decrease font size"
-          >
-            <MagnifyingGlassMinusIcon class="size-5" />
-          </button>
-          <button
-            @click="textInference.increaseFontSize()"
-            :disabled="textInference.isMaxSize"
-            class="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            title="Increase font size"
-          >
-            <MagnifyingGlassPlusIcon class="size-5" />
-          </button>
-        </div>
+      <p class="text-2xl font-bold">Let's Generate</p>
+      <div class="w-full max-w-3xl flex flex-col">
+        <PromptStatusBar />
         <!-- RAG Documents Display (only when RAG is enabled and has documents) -->
         <div
           v-if="
@@ -67,27 +36,6 @@
           </div>
         </div>
         <div class="relative w-full">
-          <!-- Active preset / model indicator (top-left of the input) -->
-          <div
-            v-if="presetIndicator"
-            role="status"
-            :aria-label="`Active preset: ${presetIndicator.name}`"
-            class="absolute -top-8 left-0 flex items-center gap-2 max-w-[75%] z-[5] text-xs text-muted-foreground"
-            :title="
-              presetIndicator.model
-                ? `${presetIndicator.name} — ${presetIndicator.model}`
-                : presetIndicator.name
-            "
-          >
-            <img
-              v-if="presetIndicator.image"
-              :src="presetIndicator.image"
-              :alt="presetIndicator.name"
-              class="size-5 rounded object-cover flex-none border border-border"
-            />
-            <span class="text-foreground font-medium truncate">{{ presetIndicator.name }}</span>
-            <span v-if="presetIndicator.model" class="truncate">· {{ presetIndicator.model }}</span>
-          </div>
           <template v-if="demoMode.enabled && isFirstPrompt">
             <Popover :open="isTextareaFocused">
               <PopoverAnchor as-child>
@@ -378,19 +326,13 @@ import { useI18N } from '@/assets/js/store/i18n'
 import { usePresets, type ChatPreset, type Preset } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import {
-  PlusIcon,
-  PaperClipIcon,
-  XMarkIcon,
-  MagnifyingGlassPlusIcon,
-  MagnifyingGlassMinusIcon,
-} from '@heroicons/vue/24/outline'
+import { PlusIcon, PaperClipIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { CameraIcon } from '@heroicons/vue/24/solid'
 import { Label } from '@/components/ui/label'
 import { useDropZone, useEventListener } from '@vueuse/core'
 import * as toast from '@/assets/js/toast'
-import { Context } from '@/components/ui/context'
 import Button from '@/components/ui/button/Button.vue'
+import PromptStatusBar from '@/components/PromptStatusBar.vue'
 import { useDialogStore } from '@/assets/js/store/dialogs'
 import CameraCapture from '@/components/CameraCapture.vue'
 import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
@@ -485,45 +427,6 @@ const activeChatPreset = computed(() => {
   const preset = presetsStore.activePresetWithVariant
   if (preset?.type === 'chat') return preset as ChatPreset
   return null
-})
-
-// Remember the most recent chat preset so the indicator stays stable while a
-// tool call or Home Agent turn temporarily switches the active preset to a
-// ComfyUI one during agentic tool use.
-const stableChatPreset = ref<ChatPreset | null>(null)
-watch(
-  activeChatPreset,
-  (preset) => {
-    if (preset) stableChatPreset.value = preset
-  },
-  { immediate: true },
-)
-
-// On startup no preset switch has run yet (presets/backends load async), so
-// `activePresetWithVariant` — and thus `stableChatPreset` — can be null even
-// though there is a persisted last-used preset. Fall back to it (or the first
-// available chat preset) so the indicator isn't blank at launch.
-const fallbackChatPreset = computed<ChatPreset | null>(() => {
-  const chatPresets = presetsStore.chatPresets
-  if (chatPresets.length === 0) return null
-  const lastUsed = presetsStore.getLastUsedPreset(['chat'])
-  return chatPresets.find((p) => p.name === lastUsed) ?? chatPresets[0]
-})
-
-// Preset/model indicator shown at the top-left of the input. Keyed off the
-// user's selected mode (not `currentMode`) so background comfy switches during
-// agentic / Home Agent tool use don't flip it.
-const presetIndicator = computed(() => {
-  if (promptStore.userSelectedMode === 'chat') {
-    const preset = stableChatPreset.value ?? fallbackChatPreset.value
-    if (!preset) return null
-    // Match the ModelSelector label: display only the last path segment.
-    const model = textInference.activeModel
-    return { image: preset.image, name: preset.name, model: model?.split('/').at(-1) ?? model }
-  }
-  const preset = imageGeneration.activePreset
-  if (!preset) return null
-  return { image: preset.image, name: preset.name, model: undefined as string | undefined }
 })
 
 // Check if images can be attached (vision model selected)
@@ -682,14 +585,6 @@ const isTextAreaDisabled = computed(() => {
   return !readyForNewSubmit.value || !isPromptModifiable.value
 })
 
-// Context usage data for Context component
-const contextUsedTokens = computed(() => openAiCompatibleChat.usedTokens)
-const contextMaxTokens = computed(() =>
-  textInference.contextSizeIsDynamic
-    ? (textInference.maxContextSizeFromModel ?? 0)
-    : textInference.contextSize,
-)
-const contextUsage = computed(() => openAiCompatibleChat.contextUsage)
 const contextError = computed(() => openAiCompatibleChat.error)
 
 watch(isProcessing, (newValue, oldValue) => {

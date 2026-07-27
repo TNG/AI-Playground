@@ -6,7 +6,7 @@ import { useForwardPropsEmits } from 'reka-ui'
 import { InformationCircleIcon } from '@heroicons/vue/24/outline'
 import { HoverCard, HoverCardTrigger, HoverCardContent } from '../hover-card'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../tooltip'
-import { Button } from '../button'
+import { Button, type ButtonVariants } from '../button'
 import ContextIcon from './ContextIcon.vue'
 
 export interface ContextProps extends HoverCardRootProps {
@@ -21,11 +21,13 @@ export interface ContextProps extends HoverCardRootProps {
     reasoningTokens?: number
   }
   modelId?: string
+  triggerSize?: ButtonVariants['size']
 }
 
 const props = withDefaults(defineProps<ContextProps>(), {
   closeDelay: 0,
   openDelay: 0,
+  triggerSize: 'default',
 })
 
 const emits = defineEmits<HoverCardRootEmits>()
@@ -39,6 +41,7 @@ const hoverCardProps = reactiveOmit(
   'dynamicContext',
   'usage',
   'modelId',
+  'triggerSize',
 )
 const forwarded = useForwardPropsEmits(hoverCardProps, emits)
 
@@ -72,14 +75,17 @@ const outputTokensFormatted = computed(() => formatNumber(props.usage?.outputTok
 <template>
   <HoverCard v-bind="forwarded">
     <HoverCardTrigger as-child>
-      <Button type="button" variant="ghost">
+      <Button type="button" variant="ghost" :size="triggerSize" class="px-0">
         <span class="font-medium text-muted-foreground">
           {{ renderedPercent }}
         </span>
         <ContextIcon :used-tokens="usedTokens" :max-tokens="maxTokens" />
       </Button>
     </HoverCardTrigger>
-    <HoverCardContent class="min-w-60 divide-y overflow-hidden p-0">
+    <HoverCardContent
+      side="top"
+      class="min-w-60 divide-y overflow-hidden p-0 bg-card border-border text-foreground"
+    >
       <div class="w-full p-3 space-y-2 text-xs">
         <div class="flex items-center justify-between">
           <h2 class="text-sm font-semibold">Context Usage</h2>

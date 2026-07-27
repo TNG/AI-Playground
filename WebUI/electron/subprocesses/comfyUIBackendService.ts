@@ -30,6 +30,7 @@ import {
 import { ProcessError } from './osProcessHelper.ts'
 import { killStaleProcessesByCommandLine } from './processLifecycle.ts'
 import { getMediaDir } from '../util.ts'
+import { packagedResourcesRoot, writableConfigRoot } from '../aipgRoot.ts'
 import {
   clearLevelZeroRuntimeCache,
   cudaVisibleDevicesEnv,
@@ -1721,6 +1722,35 @@ except Exception as e:
 
     const additionalEnvVariables = this.getEnvVars()
     const mediaDir = getMediaDir()
+
+    // Shared all-users install: ComfyUI's install (this.serviceDir) lives in the
+    // read-only/shared resources root, so redirect its per-run scratch (user
+    // settings/workflows, temp, uploaded inputs) into this user's private config
+    // root. Output already goes to the per-user media dir below. In non-shared
+    // modes writableConfigRoot() === the resources root, so scratch keeps its
+    // default in-tree location and behaviour is unchanged.
+    const comfyScratchFlags: string[] = []
+    if (writableConfigRoot() !== packagedResourcesRoot()) {
+      const scratch = path.join(writableConfigRoot(), 'comfyui')
+      const userDir = path.join(scratch, 'user')
+      const tempDir = path.join(scratch, 'temp')
+      const inputDir = path.join(scratch, 'input')
+      for (const dir of [userDir, tempDir, inputDir]) {
+        try {
+          filesystem.mkdirSync(dir, { recursive: true })
+        } catch {
+          /* best effort — ComfyUI will surface a clearer error if a dir is missing */
+        }
+      }
+      comfyScratchFlags.push(
+        '--user-directory',
+        userDir,
+        '--temp-directory',
+        tempDir,
+        '--input-directory',
+        inputDir,
+      )
+    }
     // --enable-cors-header is required so ComfyUI's origin_only_middleware
     // doesn't 403 our cross-origin requests from the renderer (Vite dev origin
     // / file:// in prod both trigger Sec-Fetch-Site: cross-site against
@@ -1769,6 +1799,7 @@ except Exception as e:
       'auto',
       '--output-directory',
       mediaDir,
+      ...comfyScratchFlags,
       ...userParameters,
       // For the CPU variant (e.g. Linux studio/essentials without a usable Intel
       // GPU runtime), force ComfyUI onto CPU. Without this, ComfyUI's device

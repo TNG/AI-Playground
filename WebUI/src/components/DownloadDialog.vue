@@ -142,7 +142,13 @@
               }}
             </span>
           </div>
-          <label class="flex items-center gap-2">
+          <div
+            v-if="modelFolderReadOnly"
+            class="flex flex-col items-center gap-2 p-4 border border-amber-500 bg-amber-500/10 rounded-lg"
+          >
+            <span class="text-left">{{ languages.DOWNLOADER_READONLY_MODEL_DIR }}</span>
+          </div>
+          <label v-if="!modelFolderReadOnly" class="flex items-center gap-2">
             <Checkbox v-model="readTerms" />
             <span class="text-sm text-left">{{ languages.DOWNLOADER_TERMS_TIP }}</span>
           </label>
@@ -153,7 +159,10 @@
             <button
               @click="confirmDownload"
               :disabled="
-                sizeRequesting || !readTerms || downloadModelRender.every((i) => !i.accessGranted)
+                modelFolderReadOnly ||
+                sizeRequesting ||
+                !readTerms ||
+                downloadModelRender.every((i) => !i.accessGranted)
               "
               class="bg-primary py-1 px-4 rounded"
             >
@@ -196,7 +205,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useGlobalSetup } from '@/assets/js/store/globalSetup'
 import ProgressBar from './ProgressBar.vue'
@@ -213,6 +222,7 @@ import { createCancellation } from '@/assets/js/errors/appError'
 const i18nState = useI18N().state
 const languages = i18nState
 const globalSetup = useGlobalSetup()
+const modelFolderReadOnly = computed(() => globalSetup.state.modelFolderReadOnly === true)
 const models = useModels()
 const dialogStore = useDialogStore()
 

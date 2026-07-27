@@ -70,6 +70,8 @@
           <!-- Active preset / model indicator (top-left of the input) -->
           <div
             v-if="presetIndicator"
+            role="status"
+            :aria-label="`Active preset: ${presetIndicator.name}`"
             class="absolute -top-8 left-0 flex items-center gap-2 max-w-[75%] z-[5] text-xs text-muted-foreground"
             :title="
               presetIndicator.model

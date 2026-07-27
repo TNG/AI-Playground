@@ -105,13 +105,15 @@ export class AppDriver {
     ) {
       return false
     }
-    await this.main.selectMode(mode)
-    await this.settings.open(mode)
-    if (!(await this.settings.isPresetVisible(preset))) {
-      await this.settings.close(mode)
+    // Preset selection lives in the prompt-area quick picker (the mode button is
+    // its popover trigger), not the settings sidebar. Returns false when the
+    // preset isn't offered for this mode so the caller can skip.
+    if (!(await this.main.selectPreset(mode, preset))) {
       return false
     }
-    await this.settings.selectPreset(preset)
+    // Leave the mode-settings sidebar open so callers can set preset-specific
+    // inputs (e.g. reference images) before closing it.
+    await this.settings.open(mode)
     return true
   }
 

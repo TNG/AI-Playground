@@ -546,6 +546,33 @@ function resolveDefaultEditWorkflow(imageNames: string[]): string {
   )
 }
 
+/**
+ * Repair a malformed comfyUiImageEdit tool call before execution: if the model
+ * omitted `workflow` or sent a value that isn't a known edit workflow, coerce it
+ * to the default edit workflow. Returns the repaired args as a JSON string, or
+ * null when `workflow` is already valid (nothing to fix) or none exist. Wired
+ * into streamText's experimental_repairToolCall so a bad workflow can't surface
+ * as an "unknown" tool card / failed edit.
+ */
+export function repairEditToolInput(rawInput: string): string | null {
+  const workflows = getAvailableEditWorkflows()
+  if (workflows.length === 0) return null
+  let obj: Record<string, unknown>
+  try {
+    const parsed: unknown = JSON.parse(rawInput || '{}')
+    obj = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
+  } catch {
+    obj = {}
+  }
+  const names = workflows.map((w) => w.name)
+  if (typeof obj.workflow === 'string' && names.includes(obj.workflow)) return null
+  const imageNames = workflows
+    .filter((w) => (w.mediaType ?? 'image') === 'image')
+    .map((w) => w.name)
+  obj.workflow = resolveDefaultEditWorkflow(imageNames)
+  return JSON.stringify(obj)
+}
+
 function resolveDefaultAnimateWorkflow(videoNames: string[]): string | null {
   return useTextInference().getDefaultWorkflow('comfyUiImageEdit:video', videoNames)
 }

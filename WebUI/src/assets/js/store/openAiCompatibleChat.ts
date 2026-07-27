@@ -9,6 +9,7 @@ import {
   extractReasoningMiddleware,
   generateText,
   LanguageModelUsage,
+  NoSuchToolError,
   streamText,
   stepCountIs,
   type ToolSet,
@@ -29,8 +30,8 @@ import { useI18N } from './i18n'
 import { createAppError, extractMessage, isCancellation } from '../errors/appError'
 import type { AppError } from '../errors/types'
 import { aipgTools, homeAgentTools } from '../tools/tools'
-import { getAvailableWorkflows } from '../tools/comfyUi'
-import { getAvailableEditWorkflows } from '../tools/comfyUiImageEdit'
+import { getAvailableWorkflows, repairCreateToolInput } from '../tools/comfyUi'
+import { getAvailableEditWorkflows, repairEditToolInput } from '../tools/comfyUiImageEdit'
 import z from 'zod'
 import { AipgTools } from '../tools/tools'
 import { LanguageModelV2ToolResultOutput, JSONSchema7 } from '@ai-sdk/provider'
@@ -816,6 +817,21 @@ export const useOpenAiCompatibleChat = defineStore(
           ? {
               tools: availableTools,
               stopWhen: stepCountIs(20),
+              // Repair a comfy image tool call whose `workflow` the model omitted
+              // or set to an unknown value: coerce it to that tool's default
+              // workflow. Without this the SDK drops the bad call and the chat
+              // renders an "unknown preset" card / failed generation.
+              experimental_repairToolCall: async ({ toolCall, error }) => {
+                if (NoSuchToolError.isInstance(error)) return null
+                const repaired =
+                  toolCall.toolName === 'comfyUiImageEdit'
+                    ? repairEditToolInput(toolCall.input)
+                    : toolCall.toolName === 'comfyUI'
+                      ? repairCreateToolInput(toolCall.input)
+                      : null
+                if (repaired === null) return null
+                return { ...toolCall, input: repaired }
+              },
             }
           : {}),
         onChunk: (chunk) => {

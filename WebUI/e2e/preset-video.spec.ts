@@ -12,7 +12,9 @@ const ANIMATE_PROMPT =
 const VIDEO_PRESETS: { preset: string; needsImage?: boolean }[] = [
   { preset: 'LTX-2.3' }, // text-to-video
   { preset: 'LTX-2.3-i2v', needsImage: true }, // image-to-video
-  { preset: 'LTX-Video', needsImage: true },
+  // LTX-Video defaults to its Text2Video variant (text-to-video), which drops the
+  // reference-image input — so it takes no input image, like LTX-2.3.
+  { preset: 'LTX-Video' },
   { preset: 'Wan2.2-14B-i2v', needsImage: true },
 ]
 

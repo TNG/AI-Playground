@@ -22,10 +22,7 @@ test.describe('Backend installation', () => {
     await app.installAllBackends()
 
     await test.step('Switch to agentic mode (Chat + "Agentic" preset)', async () => {
-      await app.main.selectMode('Chat')
-      await app.settings.open('Chat')
-      await app.settings.selectPreset(AGENTIC_PRESET)
-      await app.settings.close()
+      await app.main.selectPreset('Chat', AGENTIC_PRESET)
     })
 
     await test.step('Prompt 1: set preset preferences → expect a text reply', async () => {

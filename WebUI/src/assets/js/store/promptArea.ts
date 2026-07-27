@@ -46,10 +46,13 @@ export const usePromptStore = defineStore('prompt', () => {
   }
 
   /**
-   * Set the current mode and switch to the last-used preset for that mode.
-   * Uses the preset switching orchestrator to ensure proper settings loading.
+   * Set the current mode as a deliberate user selection and switch to the
+   * last-used preset for that mode (via the preset switching orchestrator).
+   * With `skipPresetSwitch` the caller selects the preset itself (quick picker).
+   * Returns false when the mode is unavailable (ComfyUI missing → install
+   * warning shown) and nothing was changed.
    */
-  function setCurrentMode(mode: ModeType) {
+  function setCurrentMode(mode: ModeType, options: { skipPresetSwitch?: boolean } = {}): boolean {
     const comfyUiModes: ModeType[] = ['imageGen', 'imageEdit', 'video']
     if (comfyUiModes.includes(mode)) {
       const backendServices = useBackendServices()
@@ -66,7 +69,7 @@ export const usePromptStore = defineStore('prompt', () => {
             dialogStore.closeWarningDialog()
           },
         )
-        return
+        return false
       }
     }
 
@@ -77,14 +80,17 @@ export const usePromptStore = defineStore('prompt', () => {
     currentMode.value = mode
     userSelectedMode.value = mode
 
-    // Get categories for this mode
-    const categories = modeToCategories[mode]
-    const presetType = modeToPresetType[mode]
+    if (!options.skipPresetSwitch) {
+      // Get categories for this mode
+      const categories = modeToCategories[mode]
+      const presetType = modeToPresetType[mode]
 
-    // Switch to last-used preset for this mode using orchestrator
-    presetSwitching.switchToLastUsedForCategory(categories, presetType, {
-      skipModeSwitch: true, // We already set the mode above
-    })
+      // Switch to last-used preset for this mode using orchestrator
+      presetSwitching.switchToLastUsedForCategory(categories, presetType, {
+        skipModeSwitch: true, // We already set the mode above
+      })
+    }
+    return true
   }
 
   function submitPrompt(promptText: string) {

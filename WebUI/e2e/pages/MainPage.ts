@@ -161,14 +161,16 @@ export class MainPage {
   }
 
   /**
-   * Switch to `mode` and pick `preset` from the quick preset picker. The mode
-   * button doubles as the picker popover's trigger, so clicking it both switches
-   * mode and opens the picker (see PromptArea.vue). Returns false — leaving
-   * nothing open — when the preset isn't offered for this mode, so callers can
-   * skip. On success the picker has closed and the switch has completed.
+   * Switch to `mode` and pick `preset` from the quick preset picker. The picker
+   * opens on hover of the mode button (no mode switch yet); picking a card then
+   * performs the mode + preset switch (see PromptArea.vue). Returns false —
+   * leaving nothing open — when the preset isn't offered for this mode, so
+   * callers can skip. On success the picker has closed and the switch completed.
    */
   async selectPreset(mode: ChatMode, preset: string): Promise<boolean> {
-    await this.modeButton(mode).click()
+    // Hovering the button opens the picker; it stays open while the pointer
+    // rests there, and moving onto a preset card keeps it open too.
+    await this.modeButton(mode).hover()
     const card = this.presetCard(preset)
     const present = await card
       .waitFor({ state: 'visible', timeout: 15_000 })

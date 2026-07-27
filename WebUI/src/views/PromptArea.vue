@@ -114,7 +114,11 @@
               />
             </div>
           </div>
-          <div id="mode-buttons" class="absolute bottom-4 left-3 flex gap-2">
+          <div
+            id="mode-buttons"
+            class="absolute bottom-4 left-3 flex gap-2"
+            @pointerleave="schedulePickerClose"
+          >
             <Popover
               v-for="mode in modesWithPresets"
               :key="mode"
@@ -133,6 +137,10 @@
                 <Button
                   :variant="promptStore.getCurrentMode() === mode ? 'default' : 'secondary'"
                   :id="'mode-button-' + mode"
+                  @pointerenter="(e: PointerEvent) => onPickerPointerEnter(mode, e)"
+                  @pointerdown="onPickerPointerDown"
+                  @focus="(e: FocusEvent) => onPickerFocus(mode, e)"
+                  @blur="schedulePickerClose()"
                   @click="handleModeClick(mode)"
                 >
                   {{ mapModeToLabel(mode) }}
@@ -144,8 +152,15 @@
                 :side-offset="8"
                 class="z-[40010] w-auto max-w-[80vw] rounded-lg border border-border bg-card p-2 shadow-xl"
                 @open-auto-focus.prevent
+                @close-auto-focus.prevent
               >
-                <div class="flex gap-2 overflow-x-auto max-w-[76vw] pb-1">
+                <!-- Hover handlers live on this inner div rather than <PopoverContent>:
+                     that wrapper's root is a Teleport (PopoverPortal), which drops attrs. -->
+                <div
+                  class="flex gap-2 overflow-x-auto max-w-[76vw] pb-1"
+                  @pointerenter="cancelPickerClose"
+                  @pointerleave="schedulePickerClose"
+                >
                   <TooltipProvider :delay-duration="200">
                     <Tooltip v-for="preset in presetsForMode(mode)" :key="preset.name">
                       <TooltipTrigger as-child>
@@ -383,18 +398,83 @@ function presetsForMode(mode: ModeType): Preset[] {
   return presetsStore.getPresetsByCategories(modeToCategories[mode], modeToPresetType[mode])
 }
 
-function onPickerOpenChange(mode: ModeType, open: boolean) {
-  // Driven by the popover trigger, outside-click and Escape. Suppressed during
-  // the guided demo so it doesn't collide with the demo help popover.
-  if (demoMode.enabled) {
+// The picker opens on hover (mouse) with a small delay, and closes shortly after the
+// pointer leaves the button row / picker — the grace delay bridges the offset gap
+// between the two so the menu doesn't flicker on the way up.
+const PICKER_OPEN_DELAY = 80
+const PICKER_CLOSE_DELAY = 150
+let pickerOpenTimer: number | null = null
+let pickerCloseTimer: number | null = null
+// Touch/pen users get no hover, so for them the trigger click may still open the picker.
+let lastPickerPointerType = 'mouse'
+
+function clearPickerTimers() {
+  if (pickerOpenTimer !== null) {
+    window.clearTimeout(pickerOpenTimer)
+    pickerOpenTimer = null
+  }
+  if (pickerCloseTimer !== null) {
+    window.clearTimeout(pickerCloseTimer)
+    pickerCloseTimer = null
+  }
+}
+
+function openPicker(mode: ModeType) {
+  clearPickerTimers()
+  // Suppressed during the guided demo so it doesn't collide with the demo help popover.
+  if (demoMode.enabled) return
+  if (openPickerMode.value === mode) return
+  pickerOpenTimer = window.setTimeout(() => {
+    pickerOpenTimer = null
+    openPickerMode.value = mode
+  }, PICKER_OPEN_DELAY)
+}
+
+function schedulePickerClose() {
+  clearPickerTimers()
+  pickerCloseTimer = window.setTimeout(() => {
+    pickerCloseTimer = null
     openPickerMode.value = null
+  }, PICKER_CLOSE_DELAY)
+}
+
+function cancelPickerClose() {
+  clearPickerTimers()
+}
+
+function closePicker() {
+  clearPickerTimers()
+  openPickerMode.value = null
+}
+
+function onPickerPointerEnter(mode: ModeType, event: PointerEvent) {
+  if (event.pointerType === 'mouse') openPicker(mode)
+}
+
+function onPickerFocus(mode: ModeType, event: FocusEvent) {
+  // Open for keyboard focus only: clicking the button focuses it too, and that
+  // click is a mode switch, not a request to open the picker.
+  const target = event.target as HTMLElement | null
+  if (target?.matches(':focus-visible')) openPicker(mode)
+}
+
+function onPickerPointerDown(event: PointerEvent) {
+  lastPickerPointerType = event.pointerType
+}
+
+function onPickerOpenChange(mode: ModeType, open: boolean) {
+  // Reka asks to open on trigger click; hover is the only opener for mouse users,
+  // so only close requests (outside click / Escape) are honored there. Touch/pen
+  // taps get no hover, so their click still opens the picker as before.
+  if (!open) {
+    closePicker()
     return
   }
-  openPickerMode.value = open ? mode : null
+  if (lastPickerPointerType !== 'mouse' && !demoMode.enabled) openPickerMode.value = mode
 }
 
 async function selectPresetFromPicker(mode: ModeType, preset: Preset) {
-  openPickerMode.value = null // Selecting a preset closes the picker.
+  closePicker() // Selecting a preset closes the picker.
 
   if (presetSwitching.isSwitching) {
     toast.warning('Please wait for current preset change to complete')
@@ -405,7 +485,9 @@ async function selectPresetFromPicker(mode: ModeType, preset: Preset) {
     return
   }
 
-  // The mode is already set by the button click that opened the picker.
+  // Hovering only opened the picker, so selecting the preset performs the mode
+  // switch too (skipPresetSwitch: we pick the preset ourselves right after).
+  if (!promptStore.setCurrentMode(mode, { skipPresetSwitch: true })) return
   const result = await presetSwitching.switchPreset(preset.name, { skipModeSwitch: true })
   if (result.success) {
     toast.success(`Switched to ${preset.name}`)
@@ -704,8 +786,10 @@ function handleCameraClick() {
 
 function handleModeClick(mode: ModeType) {
   const buttonId = `mode-button-${mode}` as DemoButtonId
-  // Switch mode; the popover's own trigger toggles the quick preset picker
-  // (open state is handled in onPickerOpenChange).
+  // Clicking switches the mode only; the quick preset picker opens on hover, and
+  // closing it here keeps the menu from being dragged along by the layout shift
+  // a mode switch can cause.
+  closePicker()
   promptStore.setCurrentMode(mode)
   void nextTick(() => {
     requestAnimationFrame(() => {

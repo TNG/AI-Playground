@@ -34,7 +34,7 @@
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
-      ·
+      <div v-if="presetIndicator.model && currentModel">·</div>
       <ModelCapabilities
         v-if="presetIndicator.model && currentModel"
         :model="currentModel"
@@ -51,7 +51,7 @@
     </div>
     <!-- Context usage (chat only). Sibling of the status element so the live
          region doesn't re-announce the token percentage on every stream tick. -->
-    ·
+    <div v-if="isChatMode">·</div>
     <Context
       v-if="isChatMode"
       trigger-size="xs"

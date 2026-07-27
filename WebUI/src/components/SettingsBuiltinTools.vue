@@ -1,6 +1,30 @@
 <template>
   <TooltipProvider>
     <div class="flex flex-col gap-3 border border-border rounded-md p-3 mr-4">
+      <!-- Media specialist delegation: one thin `media` tool instead of the two
+           full comfy tool schemas in the model's context. -->
+      <div class="flex items-center justify-between gap-3 pb-2 border-b border-border">
+        <div class="flex items-center gap-1.5 min-w-0">
+          <Label class="whitespace-nowrap">Media specialist agent</Label>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <span class="svg-icon i-info w-4 h-4 shrink-0 opacity-50 cursor-help" />
+            </TooltipTrigger>
+            <TooltipContent side="right" class="max-w-[300px] text-sm">
+              Route media generation through a nested specialist agent: the assistant sees a single
+              lightweight "media" tool instead of the full workflow catalog, keeping its context
+              small, and multi-step requests (e.g. image → 3D model) run in one call. In Agent Mode,
+              changing this starts a new agent session on the next message.
+            </TooltipContent>
+          </Tooltip>
+        </div>
+        <Checkbox
+          id="builtin-tool-delegation"
+          :disabled="!textInference.aipgToolsEnabled"
+          :model-value="textInference.toolDelegationEnabled"
+          @click="textInference.toolDelegationEnabled = !textInference.toolDelegationEnabled"
+        />
+      </div>
       <Collapsible
         v-for="builtinTool in builtinTools"
         :key="builtinTool.name"

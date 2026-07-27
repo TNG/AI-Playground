@@ -431,12 +431,14 @@ const openPickerMode = ref<ModeType | null>(null)
 // Mirrors the mapping in the prompt store.
 const modeToCategories: Record<ModeType, string[]> = {
   chat: ['chat'],
+  agent: [], // Agent mode has no presets.
   imageGen: ['create-images'],
   imageEdit: ['edit-images'],
   video: ['create-videos'],
 }
 const modeToPresetType: Record<ModeType, 'chat' | 'comfy'> = {
   chat: 'chat',
+  agent: 'chat', // Unused: agent mode has no presets to list.
   imageGen: 'comfy',
   imageEdit: 'comfy',
   video: 'comfy',

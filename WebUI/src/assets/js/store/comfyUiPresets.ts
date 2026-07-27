@@ -2,6 +2,7 @@ import { defineStore, acceptHMRUpdate } from 'pinia'
 import { WebSocket } from 'partysocket'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { ComfyUIApiWorkflow, type Preset } from './presets'
+import { ensureDummyWorkflowFixtures } from './devPresets'
 import { useDeveloperSettings } from './developerSettings'
 import {
   useImageGenerationPresets,
@@ -1209,6 +1210,8 @@ export const useComfyUiPresets = defineStore(
         imageGeneration.processing = true
         imageGeneration.currentState = 'install_workflow_components'
         await installCustomNodesForActivePresetFully()
+
+        await ensureDummyWorkflowFixtures(preset, comfyBaseUrl.value)
 
         // Ensure OVMS image server is ready if the workflow uses OpenAI-compatible image nodes
         const ovmsImageUrl = await ensureOvmsImageServerIfNeeded(preset)

@@ -5,6 +5,12 @@
       "description": "Gives the assistant the real current date and time and lets it convert times between time zones — so answers aren't guessed. Once connected, just ask things like \"what time is it in Tokyo?\" or \"convert 3pm New York time to UTC\".",
       "command": "uvx",
       "args": ["--with", "mcp<2.0.0", "mcp-server-time"]
+    },
+    "chrome-devtools": {
+      "displayName": "Chrome DevTools (browser debugging)",
+      "instructions": "Use these tools to debug a web page you built: navigate_page to the page (a file:// URL or a localhost dev server you start with bash), then list_console_messages and evaluate_script to read runtime errors and inspect the DOM, and take_screenshot/take_snapshot to see the rendered result.",
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest", "--isolated"]
     }
   }
 }

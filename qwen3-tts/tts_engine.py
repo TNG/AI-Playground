@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import logging
 import os
-import contextlib
 import threading
 from typing import Any, Literal
 
@@ -95,7 +95,8 @@ def _xpu_usable() -> bool:
         if not torch.xpu.is_available():
             return False
         return torch.xpu.device_count() > 0
-    except Exception:
+    except Exception:  # noqa: BLE001 — any import/probe failure just means "no XPU"
+        logger.debug("XPU probe failed; treating XPU as unavailable", exc_info=True)
         return False
 
 
@@ -110,8 +111,8 @@ def _resolve_device_map() -> str:
             return "xpu"
         if torch.cuda.is_available():
             return "cuda:0"
-    except Exception:
-        pass
+    except Exception:  # noqa: BLE001 — any import/probe failure falls back to CPU
+        logger.debug("Accelerator probe failed; falling back to CPU", exc_info=True)
     return "cpu"
 
 

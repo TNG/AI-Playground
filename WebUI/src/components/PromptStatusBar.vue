@@ -76,7 +76,7 @@
           </Tooltip>
         </TooltipProvider>
       </template>
-      <!-- Selected inference device (GPU / NPU / CPU) -->
+      <!-- Selected inference device (GPU / NPU / CPU) as a text badge -->
       <template v-if="chatDeviceBadge">
         <TooltipProvider>
           <Tooltip :delay-duration="0">
@@ -86,7 +86,11 @@
                 class="flex flex-none items-center cursor-help"
                 :aria-label="`Inference device: ${chatDeviceBadge.name}`"
               >
-                <component :is="chatDeviceBadge.icon" class="size-4" />
+                <span
+                  class="flex-none rounded border border-border px-1 text-[10px] font-semibold leading-4 tracking-tight text-muted-foreground"
+                >
+                  {{ chatDeviceBadge.categoryLabel }}
+                </span>
               </button>
             </TooltipTrigger>
             <TooltipContent
@@ -136,15 +140,11 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import {
-  MagnifyingGlassPlusIcon,
-  MagnifyingGlassMinusIcon,
-  CpuChipIcon,
-  Squares2X2Icon,
-  BoltIcon,
-} from '@heroicons/vue/24/outline'
-import llamaCppLogo from '@/assets/image/llamacpp.png'
-import openVinoLogo from '@/assets/image/openvino.png'
+import { MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon } from '@heroicons/vue/24/outline'
+import llamaCppLogoDark from '@/assets/image/llamacpp-dark.svg'
+import llamaCppLogoLight from '@/assets/image/llamacpp-light.svg'
+import openVinoLogoDark from '@/assets/image/openvino-dark.svg'
+import openVinoLogoLight from '@/assets/image/openvino-light.svg'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import {
   useTextInference,
@@ -155,6 +155,7 @@ import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets.ts'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets'
+import { useTheme } from '@/assets/js/store/theme'
 import { Context } from '@/components/ui/context'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import ModelCapabilities from '@/components/ModelCapabilities.vue'
@@ -165,6 +166,11 @@ const backendServices = useBackendServices()
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const imageGeneration = useImageGenerationPresets()
 const presetsStore = usePresets()
+const theme = useTheme()
+
+// The backend badge logos ship as light/dark variants; only the `light` theme
+// needs the dark-fill icon, all other themes are dark-background.
+const isLightTheme = computed(() => theme.active === 'light')
 
 const isChatMode = computed(() => promptStore.getCurrentMode() === 'chat')
 
@@ -240,12 +246,20 @@ const chatBackendBadge = computed(() => {
       backend === 'llamaCPP'
         ? 'Chat is running on the llama.cpp backend (GGUF models).'
         : 'Chat is running on the OpenVINO backend (OpenVINO IR models).',
-    logo: backend === 'llamaCPP' ? llamaCppLogo : openVinoLogo,
+    logo:
+      backend === 'llamaCPP'
+        ? isLightTheme.value
+          ? llamaCppLogoLight
+          : llamaCppLogoDark
+        : isLightTheme.value
+          ? openVinoLogoLight
+          : openVinoLogoDark,
   }
 })
 
-// Selected inference device for the active chat backend, shown as a GPU / NPU /
-// CPU icon (device name on hover). Reads the `selected` device from the backend
+// Selected inference device for the active chat backend, shown as a short text
+// badge (GPU / NPU / CPU), device name on hover. Reads the `selected`
+// device from the backend
 // service that the current chat backend maps to. Null when not in chat mode, on
 // Cloud Mode, or before device detection has reported a selection.
 const chatDeviceBadge = computed(() => {
@@ -260,16 +274,17 @@ const chatDeviceBadge = computed(() => {
 
   // Classify by id/name: OpenVINO uses ids like 'NPU' / 'CPU' / 'GPU.0'; llama.cpp
   // reports numeric ids with GPU names. Anything not NPU/CPU is treated as GPU
-  // (covers 'GPU.x', 'AUTO', and named GPU devices).
+  // (covers 'GPU.x', 'AUTO', and named GPU devices). We deliberately don't split
+  // integrated vs discrete: `InferenceDevice` carries no reliable flag for it
+  // (that only lives on `GpuHardwareDevice.category`), so any guess is unreliable.
   const haystack = `${device.id} ${device.name}`.toUpperCase()
   const category: 'gpu' | 'npu' | 'cpu' = haystack.includes('NPU')
     ? 'npu'
     : device.id.toUpperCase() === 'CPU' || /\bCPU\b/.test(haystack)
       ? 'cpu'
       : 'gpu'
-  const icon = category === 'npu' ? BoltIcon : category === 'cpu' ? CpuChipIcon : Squares2X2Icon
   const categoryLabel = category === 'npu' ? 'NPU' : category === 'cpu' ? 'CPU' : 'GPU'
-  return { name: device.name || device.id, category, categoryLabel, icon }
+  return { name: device.name || device.id, category, categoryLabel }
 })
 
 // The tooltip shows the base preset's description — same text as the quick

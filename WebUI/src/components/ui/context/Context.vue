@@ -74,7 +74,7 @@ const outputTokensFormatted = computed(() => formatNumber(props.usage?.outputTok
         class="px-0"
         :aria-label="`Context usage: ${usedTokensFormatted ?? 0} of ${maxTokensFormatted ?? 0} tokens`"
       >
-        <div class="relative h-4 w-11 overflow-hidden rounded-sm bg-muted">
+        <div class="relative h-4 w-16 overflow-hidden rounded-sm bg-muted">
           <div
             class="absolute inset-y-0 left-0 bg-[#00c4fa]/40 transition-all"
             :style="{ width: `${Math.min(100, Math.max(0, usedPercent * 100))}%` }"
@@ -82,7 +82,7 @@ const outputTokensFormatted = computed(() => formatNumber(props.usage?.outputTok
           <span
             class="pointer-events-none absolute inset-0 flex items-center justify-center text-[10px] font-medium tabular-nums text-foreground"
           >
-            {{ maxTokens > 0 ? maxTokensFormatted : '—' }}
+            {{ maxTokens > 0 ? `${usedTokensFormatted ?? 0}/${maxTokensFormatted}` : '—' }}
           </span>
         </div>
       </Button>

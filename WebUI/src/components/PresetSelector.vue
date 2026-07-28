@@ -1,7 +1,14 @@
 <template>
-  <div class="flex flex-col gap-6">
-    <div v-if="selectedPreset" class="flex flex-col gap-4">
-      <div class="flex items-start gap-4">
+  <div v-if="selectedPreset" class="flex flex-col gap-6">
+    <!-- Informational card: thumbnail, name, description and tags. The extra
+         right padding keeps the sidebar's floating close arrow (rendered by
+         SideModalBase with hide-header) off the card content. -->
+    <section
+      role="group"
+      :aria-label="`${selectedPreset.name} preset information`"
+      class="flex flex-col gap-3 rounded-lg border border-border bg-muted/40 p-3 pr-8"
+    >
+      <div class="flex flex-row items-start gap-3">
         <div
           :aria-label="selectedPreset.name"
           class="relative shrink-0 w-28 h-28 rounded-lg overflow-hidden border border-border shadow-md"
@@ -18,32 +25,41 @@
             </span>
           </div>
         </div>
-        <p v-if="infoDescription" class="flex-1 text-sm text-muted-foreground whitespace-pre-line">
-          {{ infoDescription }}
-        </p>
+        <div class="flex flex-col gap-1 min-w-0">
+          <p v-if="infoDescription" class="text-sm text-muted-foreground whitespace-pre-line">
+            {{ infoDescription }}
+          </p>
+        </div>
       </div>
-      <VariantSelector
-        v-if="selectedPreset.variants && selectedPreset.variants.length > 0"
-        v-model="selectedVariantValue"
-        :options="variantSelectorOptions"
-        :columns="Math.min(variantSelectorOptions.length, 3)"
-      />
 
       <div
         v-if="
           presetsStore.activePresetWithVariant?.tags &&
           presetsStore.activePresetWithVariant.tags.length > 0
         "
-        class="flex gap-2"
+        class="flex flex-wrap gap-2"
       >
         <span
           v-for="tag in presetsStore.activePresetWithVariant.tags"
           :key="tag"
-          class="px-3 py-1 text-xs bg-primary rounded-full"
+          class="px-2 py-0.5 text-xs bg-primary text-primary-foreground rounded-full"
         >
           {{ tag }}
         </span>
       </div>
+    </section>
+
+    <!-- Variant picker, aligned with the label/control grid used by the other settings. -->
+    <div
+      v-if="variantSelectorOptions.length > 1"
+      class="grid grid-cols-[120px_1fr] items-center gap-4"
+    >
+      <Label class="whitespace-nowrap">Variant</Label>
+      <VariantSelector
+        v-model="selectedVariantValue"
+        :options="variantSelectorOptions"
+        :columns="Math.min(variantSelectorOptions.length, 3)"
+      />
     </div>
   </div>
 </template>
@@ -52,6 +68,7 @@
 import { computed, watch, onMounted } from 'vue'
 import { usePresets } from '@/assets/js/store/presets'
 import { useBackendServices } from '@/assets/js/store/backendServices'
+import { Label } from '@/components/ui/label'
 import VariantSelector, { type VariantOption } from '@/components/VariantSelector.vue'
 interface Props {
   categories?: string[]

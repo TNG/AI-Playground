@@ -14,19 +14,18 @@ import re
 import sys
 import threading
 
+from channels import registry
+from channels.types import ALL_CHANNEL_KINDS
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from llm_proxy import proxy_chat_completions
-
-from channels import registry
-from channels.types import ALL_CHANNEL_KINDS
 
 # Shared loopback-auth lives in a sibling backend_shared/ directory so the same
 # logic is used by every local Python backend (see backend_shared/).
 sys.path.insert(
     0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend_shared")
 )
-from aipg_loopback_auth import evaluate_loopback_auth, get_loopback_token  # noqa: E402
+from aipg_loopback_auth import evaluate_loopback_auth, get_loopback_token
 
 app = Flask(__name__)
 CORS(app)
@@ -95,7 +94,7 @@ class _PollAccessFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             message = record.getMessage()
-        except Exception:
+        except Exception:  # noqa: BLE001 — a malformed record must not break logging; don't log inside a filter
             return True
         return not any(path in message for path in self._noisy_paths)
 

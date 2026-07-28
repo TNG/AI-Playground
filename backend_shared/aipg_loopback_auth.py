@@ -15,7 +15,7 @@ lives in a sibling `backend_shared/` directory that each backend adds to
 
 import hmac
 import os
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 # Remote addresses we treat as loopback.
 LOOPBACK_REMOTE_ADDRS = frozenset({"127.0.0.1", "::1"})
@@ -31,14 +31,14 @@ def get_loopback_token() -> str:
 
 
 def evaluate_loopback_auth(
-    remote_addr: Optional[str],
+    remote_addr: str | None,
     method: str,
     path: str,
     provided_token: str,
     *,
     expected_token: str,
     exempt_paths: Iterable[str] = DEFAULT_AUTH_EXEMPT_PATHS,
-) -> Optional[tuple[int, str]]:
+) -> tuple[int, str] | None:
     """Decide whether a request is allowed.
 
     Returns ``None`` when the request should be allowed to proceed, or a

@@ -1755,7 +1755,7 @@ export const useTextInference = defineStore(
           if (!activeIsChatPreset) {
             const lastUsed = presetsStore.getLastUsedPreset(['chat'])
             const fallback =
-              (lastUsed && chatPresets.find((p) => p.name === lastUsed)) ??
+              (lastUsed ? chatPresets.find((p) => p.name === lastUsed) : undefined) ??
               [...chatPresets].sort(
                 (a, b) => (b.displayPriority || 0) - (a.displayPriority || 0),
               )[0]

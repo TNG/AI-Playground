@@ -3,6 +3,7 @@ import {
   getDeviceArch,
   getArchPriority,
   getBestDevice,
+  bestNameMatch,
   categorizeDevice,
   rankDevicesByCategory,
   type ReferenceAccelerator,
@@ -91,6 +92,26 @@ describe('deviceArch', () => {
     it('treats an unmatched GPU as integrated (never mislabeled discrete)', () => {
       expect(categorizeDevice({ id: '0', name: 'Some Unknown GPU' }, reference)).toBe('igpu')
       expect(categorizeDevice({ id: '0', name: 'Intel Arc A770' }, [])).toBe('igpu')
+    })
+  })
+
+  describe('bestNameMatch', () => {
+    const devices = [
+      { id: '0', name: 'Intel(R) Arc(TM) A770 Graphics' },
+      { id: '1', name: 'Intel(R) Arc(TM) Graphics' },
+    ]
+
+    it('matches a device name ignoring punctuation/casing differences', () => {
+      expect(bestNameMatch('Intel Arc A770 Graphics', devices)?.id).toBe('0')
+    })
+
+    it('returns undefined when nothing is a confident match', () => {
+      expect(bestNameMatch('NVIDIA GeForce RTX 4090', devices)).toBeUndefined()
+    })
+
+    it('returns undefined for empty inputs', () => {
+      expect(bestNameMatch('', devices)).toBeUndefined()
+      expect(bestNameMatch('Intel Arc A770', [])).toBeUndefined()
     })
   })
 

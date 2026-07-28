@@ -154,28 +154,37 @@ function normalizeName(name: string): string {
 }
 
 /**
- * Best-effort match of a backend-reported device name to a physically detected
- * accelerator. Returns the closest reference by normalized edit distance, but
+ * Best-effort match of a target device name against a list of named candidates.
+ * Returns the candidate whose normalized name is closest by edit distance, but
  * only when the match is confident (distance under half the longer name) so
- * unrelated names aren't force-matched.
+ * unrelated names aren't force-matched. Used both to map a backend device to a
+ * physically detected accelerator and to map the user's preferred device (chosen
+ * pre-install from raw hardware names) onto a backend's own device list.
  */
+export function bestNameMatch<T extends { name: string }>(
+  target: string,
+  candidates: T[],
+): T | undefined {
+  const normalizedTarget = normalizeName(target)
+  if (normalizedTarget === '' || candidates.length === 0) return undefined
+  let best: { candidate: T; distance: number; length: number } | undefined
+  for (const candidate of candidates) {
+    const normalized = normalizeName(candidate.name)
+    if (normalized === '') continue
+    const distance = levenshteinDistance(normalizedTarget, normalized)
+    if (best === undefined || distance < best.distance) {
+      best = { candidate, distance, length: Math.max(normalizedTarget.length, normalized.length) }
+    }
+  }
+  if (best === undefined) return undefined
+  return best.distance <= best.length * 0.5 ? best.candidate : undefined
+}
+
 function matchReference(
   name: string,
   reference: ReferenceAccelerator[],
 ): ReferenceAccelerator | undefined {
-  const target = normalizeName(name)
-  if (target === '' || reference.length === 0) return undefined
-  let best: { ref: ReferenceAccelerator; distance: number; length: number } | undefined
-  for (const ref of reference) {
-    const candidate = normalizeName(ref.name)
-    if (candidate === '') continue
-    const distance = levenshteinDistance(target, candidate)
-    if (best === undefined || distance < best.distance) {
-      best = { ref, distance, length: Math.max(target.length, candidate.length) }
-    }
-  }
-  if (best === undefined) return undefined
-  return best.distance <= best.length * 0.5 ? best.ref : undefined
+  return bestNameMatch(name, reference)
 }
 
 /**

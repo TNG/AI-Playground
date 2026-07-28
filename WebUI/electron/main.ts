@@ -107,6 +107,7 @@ import type { ModelPaths } from '@/assets/js/store/models.ts'
 import type { IndexedDocument, EmbedInquiry } from '@/assets/js/store/textInference.ts'
 import { BackendServiceName } from '@/assets/js/store/backendServices.ts'
 import {
+  classifyDetectedDevices,
   detectGpuHardwareDevices,
   type GpuHardwareDevice,
 } from './subprocesses/hardwareDiscovery.ts'
@@ -300,6 +301,22 @@ const appSize = {
 }
 const ThemeSchema = z.enum(['dark', 'lnl', 'bmg', 'light'])
 const ProductModeSchema = z.enum(['studio', 'essentials', 'nvidia'])
+// User's preferred inference device, captured in the setup wizard. A GPU is
+// identified by name (+ PCI id when known) so it can be matched to each backend's
+// own device enumeration; 'cpu' means "prefer CPU only" (best-effort per backend).
+const PreferredDeviceSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('gpu'),
+    name: z.string(),
+    gpuDeviceId: z.string().nullable(),
+    // Stable vendor UUID when the pre-install probe supplied one; preferred over
+    // name/PCI when matching this device onto a backend's own detected list.
+    uuid: z.string().nullable().optional(),
+  }),
+  z.object({ kind: z.literal('cpu') }),
+])
+export type PreferredDevice = z.infer<typeof PreferredDeviceSchema>
+
 const LocalSettingsSchema = z.object({
   debug: z.boolean().default(false),
   deviceArchOverride: z.enum(['bmg', 'acm', 'arl_h', 'wcl', 'lnl', 'mtl']).nullable().default(null),
@@ -334,6 +351,17 @@ const LocalSettingsSchema = z.object({
   // sub-device. Restored at boot in each service's detectDevices() so the app
   // does not reset to the default GPU (iGPU) on every restart.
   lastSelectedDevicePerBackend: z.record(z.string(), z.string()).default({}),
+  // UUID counterpart of lastSelectedDevicePerBackend, same keys. Lets a backend
+  // re-find the chosen device (and re-derive its current selector id) after a
+  // driver update or enumeration reorder shifts the backend-local id. Empty when
+  // the chosen device exposes no UUID (e.g. OpenVINO/llama.cpp devices).
+  lastSelectedDeviceUuidPerBackend: z.record(z.string(), z.string()).default({}),
+  // Machine-wide preferred inference device, chosen in the setup wizard from the
+  // raw pre-install hardware probe. Consulted by each backend's detectDevices()
+  // (when it has no per-backend selection yet) to pick a matching device, before
+  // falling back to the automatic dGPU > iGPU > NPU > CPU ranking. null = no
+  // explicit preference (use the automatic ranking).
+  preferredDevice: PreferredDeviceSchema.nullable().default(null),
   /** When true, skip hardware probe and treat Phison SSD as detected (optional overlay in userData settings). */
   PhisonSSDdetected: z.boolean().optional().default(false),
 })
@@ -1116,7 +1144,7 @@ function initEventHandle() {
     return {
       success: detectSuccess,
       recommendedMode,
-      detectedDevices: detected,
+      detectedDevices: classifyDetectedDevices(detected),
       hasNvidiaGpu: hasNvidia,
       modeCatalog,
     }
@@ -1634,8 +1662,17 @@ function initEventHandle() {
         return
       }
       // Persist so the boot-time auto-start can restore this device instead of
-      // resetting to the default GPU on the next restart.
+      // resetting to the default GPU on the next restart. Record the device's
+      // UUID too (when known) so the choice survives a selector-id shift.
       settings.lastSelectedDevicePerBackend[serviceName] = deviceId
+      const selectedDevice = (service as { devices?: InferenceDevice[] }).devices?.find(
+        (d) => d.id === deviceId,
+      )
+      if (selectedDevice?.uuid) {
+        settings.lastSelectedDeviceUuidPerBackend[serviceName] = selectedDevice.uuid
+      } else {
+        delete settings.lastSelectedDeviceUuidPerBackend[serviceName]
+      }
       persistLocalSettingsToDisk()
       return service.selectDevice(deviceId)
     },
@@ -1659,6 +1696,14 @@ function initEventHandle() {
       }
       if ('selectSttDevice' in service && typeof service.selectSttDevice === 'function') {
         settings.lastSelectedDevicePerBackend[`${serviceName}:stt`] = deviceId
+        const selectedStt = (service as { sttDevices?: InferenceDevice[] }).sttDevices?.find(
+          (d) => d.id === deviceId,
+        )
+        if (selectedStt?.uuid) {
+          settings.lastSelectedDeviceUuidPerBackend[`${serviceName}:stt`] = selectedStt.uuid
+        } else {
+          delete settings.lastSelectedDeviceUuidPerBackend[`${serviceName}:stt`]
+        }
         persistLocalSettingsToDisk()
         return service.selectSttDevice(deviceId)
       }

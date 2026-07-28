@@ -4,12 +4,22 @@ import { z } from 'zod'
 import { spawnProcessAsync } from './osProcessHelper'
 import { appLoggerInstance as appLogger } from '../logging/logger.ts'
 import { buildResources } from './uvBasedBackends/uv.ts'
-import { rankDevicesByCategory, type ReferenceAccelerator } from './deviceArch.ts'
+import { normalizeDeviceUuid } from './deviceDetection.ts'
+import {
+  categorizeDevice,
+  rankDevicesByCategory,
+  type DeviceCategory,
+  type ReferenceAccelerator,
+} from './deviceArch.ts'
 
 export type GpuHardwareDevice = {
   device: string
   name: string
+  /** PCI model id (Intel, e.g. `0x56A0`); for NVIDIA this is null (see `uuid`). */
   gpuDeviceId: string | null
+  /** Stable vendor UUID when the probe can supply one (NVIDIA nvidia-smi, Intel
+   *  xpu-smi). null on the PowerShell/lspci fallbacks, which expose no UUID. */
+  uuid?: string | null
 }
 
 const XpuSmiDiscoverySchema = z.object({
@@ -58,6 +68,7 @@ export async function detectIntelGpusViaXpuSmi(): Promise<GpuHardwareDevice[]> {
       device: `INTEL_GPU:${d.device_id}`,
       name: d.device_name,
       gpuDeviceId: d.pci_device_id ?? null,
+      uuid: normalizeDeviceUuid(d.uuid),
     }))
   } catch (e) {
     appLogger.warn(
@@ -197,7 +208,9 @@ export async function detectNvidiaGpusViaSmi(): Promise<GpuHardwareDevice[]> {
     return gpus.map((g) => ({
       device: `NVIDIA_GPU:${g.index}`,
       name: g.name,
-      gpuDeviceId: g.uuid ?? null,
+      // NVIDIA has no PCI model id here; its stable identity is the UUID.
+      gpuDeviceId: null,
+      uuid: normalizeDeviceUuid(g.uuid),
     }))
   } catch (e) {
     appLogger.warn(
@@ -240,6 +253,24 @@ function toReferenceAccelerator(device: GpuHardwareDevice): ReferenceAccelerator
       ? 'intel'
       : 'unknown'
   return { vendor, name: device.name, gpuDeviceId: device.gpuDeviceId }
+}
+
+export type ClassifiedGpuHardwareDevice = GpuHardwareDevice & { category: DeviceCategory }
+
+/**
+ * Tag each physically detected GPU with a dgpu/igpu category, using the detected
+ * set as its own classification reference (PCI id → arch table for Intel, vendor
+ * for NVIDIA). Consumed by the setup wizard, which can only show raw hardware
+ * pre-install and needs to label each GPU as dedicated vs integrated.
+ */
+export function classifyDetectedDevices(
+  devices: GpuHardwareDevice[],
+): ClassifiedGpuHardwareDevice[] {
+  const reference = devices.map(toReferenceAccelerator)
+  return devices.map((d) => ({
+    ...d,
+    category: categorizeDevice({ id: d.device, name: d.name }, reference),
+  }))
 }
 
 /**

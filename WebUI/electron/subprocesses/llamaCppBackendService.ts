@@ -423,6 +423,8 @@ export class LlamaCppBackendService implements ApiService {
         availableDevices,
         this.settings.lastSelectedDevicePerBackend,
         this.name,
+        this.settings.preferredDevice,
+        this.settings.lastSelectedDeviceUuidPerBackend,
       )
       this.devices =
         availableDevices.length > 0
@@ -430,6 +432,7 @@ export class LlamaCppBackendService implements ApiService {
               availableDevices.map((d) => ({ ...d, selected: false })),
               this.settings.lastSelectedDevicePerBackend[this.name],
               (ds) => ds.find((d) => d.id === bestId) ?? ds[0],
+              this.settings.lastSelectedDeviceUuidPerBackend[this.name],
             )
           : [{ id: '0', name: 'Auto select device', selected: true }]
     } catch (error) {

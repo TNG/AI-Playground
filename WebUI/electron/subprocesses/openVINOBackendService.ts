@@ -1169,6 +1169,8 @@ export class OpenVINOBackendService implements ApiService {
       mappedDevices,
       this.settings.lastSelectedDevicePerBackend,
       this.name,
+      this.settings.preferredDevice,
+      this.settings.lastSelectedDeviceUuidPerBackend,
     )
     this.devices = selectByPriority(
       baseDevices,

@@ -30,18 +30,19 @@
           />
         </div>
       </div>
+      <!-- When the header banner is hidden, surface a compact close button instead.
+           Anchored to the sidebar (not the scroll container) so it stays put while the
+           content scrolls, and positioned to sit in the top-right padding of the
+           preset info card (which reserves that corner via pr-8). -->
+      <button
+        v-if="hideHeader"
+        @click="$emit('close')"
+        class="absolute top-5 right-5 z-10 flex items-center justify-center w-7 h-7 rounded-full border border-border/60 bg-card/50 backdrop-blur-[1px] shadow-sm text-muted-foreground hover:text-foreground hover:bg-muted"
+        :title="languages.COM_CLOSE"
+      >
+        <span :class="['svg-icon w-5 h-5', side === 'left' ? 'i-arrow-left' : 'i-arrow-right']" />
+      </button>
       <div class="flex-1 p-4 overflow-y-auto relative">
-        <!-- When the header banner is hidden, surface a compact close button in
-             the top-right corner of the content instead. -->
-        <button
-          v-if="hideHeader"
-          @click="$emit('close')"
-          :class="[
-            'svg-icon w-5 h-5 absolute top-2 right-2 z-10 text-muted-foreground hover:text-foreground',
-            side === 'left' ? 'i-arrow-left' : 'i-arrow-right',
-          ]"
-          :title="languages.COM_CLOSE"
-        />
         <slot />
       </div>
     </div>

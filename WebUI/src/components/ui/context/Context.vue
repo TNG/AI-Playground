@@ -7,7 +7,6 @@ import { InformationCircleIcon } from '@heroicons/vue/24/outline'
 import { HoverCard, HoverCardTrigger, HoverCardContent } from '../hover-card'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../tooltip'
 import { Button, type ButtonVariants } from '../button'
-import ContextIcon from './ContextIcon.vue'
 
 export interface ContextProps extends HoverCardRootProps {
   usedTokens: number
@@ -51,13 +50,6 @@ const usedPercent = computed(() => {
   return props.usedTokens / props.maxTokens
 })
 
-const renderedPercent = computed(() => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'percent',
-    maximumFractionDigits: 1,
-  }).format(usedPercent.value)
-})
-
 const formatNumber = (value?: number) => {
   if (value === undefined || value === null) return null
   return new Intl.NumberFormat('en-US', {
@@ -75,11 +67,24 @@ const outputTokensFormatted = computed(() => formatNumber(props.usage?.outputTok
 <template>
   <HoverCard v-bind="forwarded">
     <HoverCardTrigger as-child>
-      <Button type="button" variant="ghost" :size="triggerSize" class="px-0">
-        <span class="font-medium text-muted-foreground">
-          {{ renderedPercent }}
-        </span>
-        <ContextIcon :used-tokens="usedTokens" :max-tokens="maxTokens" />
+      <Button
+        type="button"
+        variant="ghost"
+        :size="triggerSize"
+        class="px-0"
+        :aria-label="`Context usage: ${usedTokensFormatted ?? 0} of ${maxTokensFormatted ?? 0} tokens`"
+      >
+        <div class="relative h-4 w-16 overflow-hidden rounded-sm bg-muted">
+          <div
+            class="absolute inset-y-0 left-0 bg-[#00c4fa]/40 transition-all"
+            :style="{ width: `${Math.min(100, Math.max(0, usedPercent * 100))}%` }"
+          ></div>
+          <span
+            class="pointer-events-none absolute inset-0 flex items-center justify-center text-[10px] font-medium tabular-nums text-foreground"
+          >
+            {{ maxTokens > 0 ? `${usedTokensFormatted ?? 0}/${maxTokensFormatted}` : '—' }}
+          </span>
+        </div>
       </Button>
     </HoverCardTrigger>
     <HoverCardContent

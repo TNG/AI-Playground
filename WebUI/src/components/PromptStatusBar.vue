@@ -48,6 +48,61 @@
         </template>
       </ModelCapabilities>
       <span v-else-if="presetIndicator.model" class="truncate">{{ presetIndicator.model }}</span>
+      <!-- Active chat inference backend (llama.cpp / OpenVINO) -->
+      <template v-if="chatBackendBadge">
+        ·
+        <TooltipProvider>
+          <Tooltip :delay-duration="0">
+            <TooltipTrigger as-child>
+              <button
+                type="button"
+                class="flex flex-none items-center cursor-help"
+                :aria-label="`Inference backend: ${chatBackendBadge.name}`"
+              >
+                <img
+                  :src="chatBackendBadge.logo"
+                  :alt="chatBackendBadge.name"
+                  class="size-4 flex-none object-contain"
+                />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              align="start"
+              class="w-64 bg-card border border-border text-foreground p-3 z-[200]"
+            >
+              <p class="text-sm font-semibold">{{ chatBackendBadge.name }}</p>
+              <p class="mt-1 text-xs text-muted-foreground">{{ chatBackendBadge.description }}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </template>
+      <!-- Selected inference device (GPU / NPU / CPU) as a text badge -->
+      <template v-if="chatDeviceBadge">
+        <TooltipProvider>
+          <Tooltip :delay-duration="0">
+            <TooltipTrigger as-child>
+              <button
+                type="button"
+                class="flex flex-none items-center cursor-help"
+                :aria-label="`Inference device: ${chatDeviceBadge.name}`"
+              >
+                <span
+                  class="flex-none rounded border border-border px-1 text-[10px] font-semibold leading-4 tracking-tight text-muted-foreground"
+                >
+                  {{ chatDeviceBadge.categoryLabel }}
+                </span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              align="start"
+              class="w-64 bg-card border border-border text-foreground p-3 z-[200]"
+            >
+              <p class="text-sm font-semibold">{{ chatDeviceBadge.name }}</p>
+              <p class="mt-1 text-xs text-muted-foreground">{{ chatDeviceBadge.categoryLabel }}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </template>
     </div>
     <!-- Context usage (chat only). Sibling of the status element so the live
          region doesn't re-announce the token percentage on every stream tick. -->
@@ -86,20 +141,36 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon } from '@heroicons/vue/24/outline'
+import llamaCppLogoDark from '@/assets/image/llamacpp-dark.svg'
+import llamaCppLogoLight from '@/assets/image/llamacpp-light.svg'
+import openVinoLogoDark from '@/assets/image/openvino-dark.svg'
+import openVinoLogoLight from '@/assets/image/openvino-light.svg'
 import { usePromptStore } from '@/assets/js/store/promptArea'
-import { useTextInference } from '@/assets/js/store/textInference'
+import {
+  useTextInference,
+  textInferenceBackendDisplayName,
+  backendToService,
+} from '@/assets/js/store/textInference'
+import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets.ts'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets'
+import { useTheme } from '@/assets/js/store/theme'
 import { Context } from '@/components/ui/context'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import ModelCapabilities from '@/components/ModelCapabilities.vue'
 
 const promptStore = usePromptStore()
 const textInference = useTextInference()
+const backendServices = useBackendServices()
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const imageGeneration = useImageGenerationPresets()
 const presetsStore = usePresets()
+const theme = useTheme()
+
+// The backend badge logos ship as light/dark variants; only the `light` theme
+// needs the dark-fill icon, all other themes are dark-background.
+const isLightTheme = computed(() => theme.active === 'light')
 
 const isChatMode = computed(() => promptStore.getCurrentMode() === 'chat')
 
@@ -140,12 +211,14 @@ const presetIndicator = computed(() => {
   if (promptStore.userSelectedMode === 'chat') {
     const preset = stableChatPreset.value ?? fallbackChatPreset.value
     if (!preset) return null
-    // Match the ModelSelector label: display only the last path segment.
+    // Match the ModelSelector label: display only the last path segment, and
+    // drop the model-file extension (the backend badge now conveys the format).
     const model = textInference.activeModel
+    const lastSegment = model?.split('/').at(-1) ?? model
     return {
       image: preset.image,
       name: preset.name,
-      model: model?.split('/').at(-1) ?? model,
+      model: lastSegment?.replace(/\.(gguf|bin|safetensors)$/i, ''),
       description: basePresetDescription(preset.name),
     }
   }
@@ -159,7 +232,62 @@ const presetIndicator = computed(() => {
   }
 })
 
-// The tooltip shows the base preset's description — the same text as the quick
+// Small badge on the preset/model line showing which local inference backend is
+// active for chat. Keyed off `userSelectedMode` (like presetIndicator) so a
+// background comfy switch during agentic tool use doesn't flip it. Hidden for
+// non-chat modes and for Cloud Mode (no local llama.cpp / OpenVINO engine).
+const chatBackendBadge = computed(() => {
+  if (promptStore.userSelectedMode !== 'chat') return null
+  const backend = textInference.backend
+  if (backend !== 'llamaCPP' && backend !== 'openVINO') return null
+  return {
+    name: textInferenceBackendDisplayName[backend],
+    description:
+      backend === 'llamaCPP'
+        ? 'Chat is running on the llama.cpp backend (GGUF models).'
+        : 'Chat is running on the OpenVINO backend (OpenVINO IR models).',
+    logo:
+      backend === 'llamaCPP'
+        ? isLightTheme.value
+          ? llamaCppLogoLight
+          : llamaCppLogoDark
+        : isLightTheme.value
+          ? openVinoLogoLight
+          : openVinoLogoDark,
+  }
+})
+
+// Selected inference device for the active chat backend, shown as a short text
+// badge (GPU / NPU / CPU), device name on hover. Reads the `selected`
+// device from the backend
+// service that the current chat backend maps to. Null when not in chat mode, on
+// Cloud Mode, or before device detection has reported a selection.
+const chatDeviceBadge = computed(() => {
+  if (promptStore.userSelectedMode !== 'chat') return null
+  const backend = textInference.backend
+  if (backend !== 'llamaCPP' && backend !== 'openVINO') return null
+  const serviceName = backendToService[backend]
+  if (!serviceName) return null
+  const info = backendServices.info.find((s) => s.serviceName === serviceName)
+  const device = info?.devices.find((d) => d.selected)
+  if (!device) return null
+
+  // Classify by id/name: OpenVINO uses ids like 'NPU' / 'CPU' / 'GPU.0'; llama.cpp
+  // reports numeric ids with GPU names. Anything not NPU/CPU is treated as GPU
+  // (covers 'GPU.x', 'AUTO', and named GPU devices). We deliberately don't split
+  // integrated vs discrete: `InferenceDevice` carries no reliable flag for it
+  // (that only lives on `GpuHardwareDevice.category`), so any guess is unreliable.
+  const haystack = `${device.id} ${device.name}`.toUpperCase()
+  const category: 'gpu' | 'npu' | 'cpu' = haystack.includes('NPU')
+    ? 'npu'
+    : device.id.toUpperCase() === 'CPU' || /\bCPU\b/.test(haystack)
+      ? 'cpu'
+      : 'gpu'
+  const categoryLabel = category === 'npu' ? 'NPU' : category === 'cpu' ? 'CPU' : 'GPU'
+  return { name: device.name || device.id, category, categoryLabel }
+})
+
+// The tooltip shows the base preset's description — same text as the quick
 // preset picker. `stableChatPreset` / `imageGeneration.activePreset` are
 // variant-merged, where `description` can be a per-variant blurb instead.
 function basePresetDescription(name: string): string | undefined {

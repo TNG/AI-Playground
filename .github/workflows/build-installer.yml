@@ -76,3 +76,46 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           overwrite: true
+
+  # Publishes the built installers as public GitHub Release assets. Runs only for
+  # `v*` tag pushes on the TNG/AI-Playground fork (manual workflow_dispatch runs and
+  # other forks just upload artifacts above). The release is named after the pushed
+  # tag (e.g. v3.1.2-beta.rc1), and is upserted: re-pushing/moving the tag re-triggers
+  # the build and refreshes the existing release's assets in place rather than failing.
+  release:
+    needs: [build-windows, build-linux]
+    if: startsWith(github.ref, 'refs/tags/') && github.repository == 'TNG/AI-Playground'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download built installers
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          tag="${GITHUB_REF_NAME}"
+          notes="Automated build from commit ${GITHUB_SHA}."
+          # download-artifact places each artifact in its own subdirectory, so
+          # the installers live exactly one level deep under artifacts/.
+          files=(artifacts/*/*.exe artifacts/*/*.AppImage artifacts/*/*.deb)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No installer files found to attach to the release."
+            exit 1
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Refreshing existing release $tag"
+            gh release edit "$tag" --prerelease --notes "$notes"
+            gh release upload "$tag" "${files[@]}" --clobber
+          else
+            echo "Creating release $tag"
+            gh release create "$tag" --title "$tag" --prerelease --notes "$notes" "${files[@]}"
+          fi

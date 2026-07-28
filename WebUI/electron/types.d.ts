@@ -42,6 +42,9 @@ declare interface InferenceDevice {
   id: string
   name: string
   selected: boolean
+  /** Stable vendor UUID when the backend can supply one; used to re-identify a
+   *  device across driver/enumeration changes. undefined/null when unavailable. */
+  uuid?: string | null
 }
 
 declare type StorageTarget = {

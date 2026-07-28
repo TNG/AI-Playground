@@ -291,6 +291,15 @@ export const useTextInference = defineStore(
       return serviceInfo?.devices.find((d) => d.selected)?.id ?? null
     }
 
+    // Stable UUID of the currently selected device, when the backend exposes one.
+    // Persisted alongside the id so a preset re-binds to the same physical device
+    // even if its backend-local id shifts (driver update / enumeration reorder).
+    const getCurrentDeviceUuid = (): string | null => {
+      const serviceName = backendToService[backend.value] as BackendServiceName
+      const serviceInfo = backendServices.info.find((s) => s.serviceName === serviceName)
+      return serviceInfo?.devices.find((d) => d.selected)?.uuid ?? null
+    }
+
     const backendToAipgBackendName = {
       openVINO: 'openvino',
       llamaCPP: 'llama_cpp',
@@ -1345,11 +1354,22 @@ export const useTextInference = defineStore(
         // NPU Chat: Force NPU selection (handled in prepareBackendIfNeeded)
         // Don't override here - let the existing lockDeviceToNpu logic handle it
       } else if (savedSettings.selectedDeviceId !== undefined) {
-        // Restore saved device preference
+        // Restore saved device preference. Prefer the saved UUID so the preset
+        // re-binds to the same physical device even if its id shifted (driver
+        // update / enumeration reorder); fall back to the saved id.
         const savedDeviceId = savedSettings.selectedDeviceId as string
-        const deviceExists = serviceInfo?.devices.some((d) => d.id === savedDeviceId)
-        if (deviceExists) {
-          backendServices.selectDevice(serviceName, savedDeviceId)
+        const savedDeviceUuid =
+          typeof savedSettings.selectedDeviceUuid === 'string'
+            ? savedSettings.selectedDeviceUuid
+            : null
+        const byUuid = savedDeviceUuid
+          ? serviceInfo?.devices.find((d) => d.uuid != null && d.uuid === savedDeviceUuid)
+          : undefined
+        const targetId =
+          byUuid?.id ??
+          (serviceInfo?.devices.some((d) => d.id === savedDeviceId) ? savedDeviceId : undefined)
+        if (targetId !== undefined) {
+          backendServices.selectDevice(serviceName, targetId)
         }
       } else {
         // Default to GPU if no preference saved
@@ -1615,6 +1635,7 @@ export const useTextInference = defineStore(
           selectedModels: { ...selectedModels.value },
           selectedEmbeddingModels: { ...selectedEmbeddingModels.value },
           selectedDeviceId: getCurrentDeviceId(),
+          selectedDeviceUuid: getCurrentDeviceUuid(),
           maxTokens: maxTokens.value,
           contextSize: contextSize.value,
           temperature: temperature.value,
@@ -1645,6 +1666,7 @@ export const useTextInference = defineStore(
           settingsPerPreset.value[settingsKey] = {
             ...settingsPerPreset.value[settingsKey],
             selectedDeviceId: currentDeviceId,
+            selectedDeviceUuid: getCurrentDeviceUuid(),
           }
         }
       },

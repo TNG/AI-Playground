@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { spawnProcessAsync } from './osProcessHelper'
 import { appLoggerInstance as appLogger } from '../logging/logger.ts'
 import { buildResources } from './uvBasedBackends/uv.ts'
+import { normalizeDeviceUuid } from './deviceDetection.ts'
 import {
   categorizeDevice,
   rankDevicesByCategory,
@@ -14,7 +15,11 @@ import {
 export type GpuHardwareDevice = {
   device: string
   name: string
+  /** PCI model id (Intel, e.g. `0x56A0`); for NVIDIA this is null (see `uuid`). */
   gpuDeviceId: string | null
+  /** Stable vendor UUID when the probe can supply one (NVIDIA nvidia-smi, Intel
+   *  xpu-smi). null on the PowerShell/lspci fallbacks, which expose no UUID. */
+  uuid?: string | null
 }
 
 const XpuSmiDiscoverySchema = z.object({
@@ -63,6 +68,7 @@ export async function detectIntelGpusViaXpuSmi(): Promise<GpuHardwareDevice[]> {
       device: `INTEL_GPU:${d.device_id}`,
       name: d.device_name,
       gpuDeviceId: d.pci_device_id ?? null,
+      uuid: normalizeDeviceUuid(d.uuid),
     }))
   } catch (e) {
     appLogger.warn(
@@ -202,7 +208,9 @@ export async function detectNvidiaGpusViaSmi(): Promise<GpuHardwareDevice[]> {
     return gpus.map((g) => ({
       device: `NVIDIA_GPU:${g.index}`,
       name: g.name,
-      gpuDeviceId: g.uuid ?? null,
+      // NVIDIA has no PCI model id here; its stable identity is the UUID.
+      gpuDeviceId: null,
+      uuid: normalizeDeviceUuid(g.uuid),
     }))
   } catch (e) {
     appLogger.warn(

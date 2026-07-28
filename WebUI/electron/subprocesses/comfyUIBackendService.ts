@@ -37,6 +37,7 @@ import {
   levelZeroDeviceSelectorEnv,
   linuxHasIntelGpuPciDevice,
   linuxHasLevelZeroRuntime,
+  normalizeDeviceUuid,
   withSelectedDevice,
 } from './deviceDetection.ts'
 import { resolveDefaultDevice } from './defaultDeviceSelection.ts'
@@ -1472,9 +1473,15 @@ try:
     for i in range(device_count):
         try:
             device_name = torch.cuda.get_device_name(i)
-            print(f"{i}|{device_name}")
         except Exception:
-            print(f"{i}|Unknown Device")
+            device_name = "Unknown Device"
+        try:
+            # torch exposes the same GPU UUID as nvidia-smi (bare hex vs "GPU-"
+            # prefix); the TS side normalizes both so they compare equal.
+            uuid = str(getattr(torch.cuda.get_device_properties(i), "uuid", "") or "")
+        except Exception:
+            uuid = ""
+        print(f"{i}|{device_name}|{uuid}")
 except Exception as e:
     print(f"Error detecting CUDA devices: {str(e)}")
     sys.exit(1)
@@ -1501,9 +1508,9 @@ except Exception as e:
           console.error(line)
           continue
         }
-        const parts = line.split('|', 2)
-        if (parts.length === 2) {
-          allDevices.push({ id: parts[0], name: parts[1] })
+        const parts = line.split('|', 3)
+        if (parts.length >= 2) {
+          allDevices.push({ id: parts[0], name: parts[1], uuid: normalizeDeviceUuid(parts[2]) })
         }
       }
     } catch (error) {
@@ -1521,6 +1528,7 @@ except Exception as e:
         this.settings.lastSelectedDevicePerBackend,
         this.name,
         this.settings.preferredDevice,
+        this.settings.lastSelectedDeviceUuidPerBackend,
       )
     } catch (error) {
       this.appLogger.warn(
@@ -1534,6 +1542,7 @@ except Exception as e:
             allDevices.map((d) => ({ ...d, selected: false })),
             this.settings.lastSelectedDevicePerBackend[this.name],
             (ds) => ds.find((d) => d.id === bestCudaId) ?? ds[0],
+            this.settings.lastSelectedDeviceUuidPerBackend[this.name],
           )
         : availableDevices
     this.updateStatus()
@@ -1565,13 +1574,17 @@ try:
     # Try to get the number of XPU devices
     device_count = torch.xpu.device_count()
 
-    # For each device, get its name and print it
+    # For each device, get its name (and UUID when the build exposes it) and print it
     for i in range(device_count):
         try:
             device_name = torch.xpu.get_device_name(i)
-            print(f"{i}|{device_name}")
-        except Exception as e:
-            print(f"{i}|Unknown Device")
+        except Exception:
+            device_name = "Unknown Device"
+        try:
+            uuid = str(getattr(torch.xpu.get_device_properties(i), "uuid", "") or "")
+        except Exception:
+            uuid = ""
+        print(f"{i}|{device_name}|{uuid}")
 except Exception as e:
     print(f"Error detecting XPU devices: {str(e)}")
     sys.exit(1)
@@ -1605,12 +1618,12 @@ except Exception as e:
             continue
           }
 
-          const parts = line.split('|', 2)
-          if (parts.length == 2) {
+          const parts = line.split('|', 3)
+          if (parts.length >= 2) {
             const id = `${i}`
             const name = parts[1]
 
-            devices.push({ id, name })
+            devices.push({ id, name, uuid: normalizeDeviceUuid(parts[2]) })
           }
         }
         i = i + 1
@@ -1651,6 +1664,7 @@ except Exception as e:
         this.settings.lastSelectedDevicePerBackend,
         this.name,
         this.settings.preferredDevice,
+        this.settings.lastSelectedDeviceUuidPerBackend,
       )
     } catch (error) {
       this.appLogger.warn(
@@ -1662,6 +1676,7 @@ except Exception as e:
       allDevices.map((d) => ({ ...d, selected: false })),
       this.settings.lastSelectedDevicePerBackend[this.name],
       (ds) => ds.find((d) => d.id === bestXpuId) ?? ds[0],
+      this.settings.lastSelectedDeviceUuidPerBackend[this.name],
     )
     this.updateStatus()
   }

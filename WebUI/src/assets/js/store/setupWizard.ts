@@ -1,9 +1,10 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, toRaw } from 'vue'
 import { useBackendServices, type BackendServiceName } from './backendServices'
 import { useProductMode } from './productMode'
 import { useGlobalSetup } from './globalSetup'
 import { usePresets } from './presets'
+import { backendToService } from './textInference'
 import { usePresetSwitching } from './presetSwitching'
 import { useSpeechToText } from './speechToText'
 import { useTextToSpeech } from './textToSpeech'
@@ -164,13 +165,17 @@ export const useSetupWizard = defineStore('setupWizard', () => {
         value: { kind: 'gpu' as const, name: d.name, gpuDeviceId: d.gpuDeviceId },
       }))
       .sort((a, b) => DEVICE_CATEGORY_RANK[b.category] - DEVICE_CATEGORY_RANK[a.category])
+    // CPU is only ever honored by OpenVINO and is pointless in GPU-only
+    // configurations (e.g. CUDA/nvidia mode), so only offer it as a last
+    // resort when no GPU was detected — otherwise the list would be empty.
+    if (gpuOptions.length > 0) return gpuOptions
     const cpuOption: PreferredDeviceOption = {
       key: 'cpu',
       label: 'CPU only',
       category: 'cpu',
       value: { kind: 'cpu' as const },
     }
-    return [...gpuOptions, cpuOption]
+    return [cpuOption]
   })
 
   /** Best default preference: the highest-category detected device, else CPU. */
@@ -178,24 +183,66 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     return preferredDeviceOptions.value[0]?.value ?? null
   }
 
-  // The preference only feeds resolveDefaultDevice() when a backend runs
-  // detectDevices() with no prior per-backend selection — i.e. on first install.
-  // Once every inference backend is set up, changing it here would no longer do
-  // anything (a manual per-backend choice already exists and takes precedence),
-  // so the selector is hidden.
-  const INFERENCE_BACKENDS: BackendServiceName[] = [
-    'llamacpp-backend',
-    'openvino-backend',
-    'comfyui-backend',
-  ]
-  const showPreferredDeviceSelector = computed(() =>
-    backendServices.info.some(
-      (s) => INFERENCE_BACKENDS.includes(s.serviceName as BackendServiceName) && !s.isSetUp,
-    ),
-  )
-
   function setPendingPreferredDevice(pref: PreferredDevice) {
     pendingPreferredDevice.value = pref
+  }
+
+  // Optional "override existing user selection": when on, committing the wizard
+  // rewrites every preset's saved device pick to the chosen default device.
+  // Default off; the toggle is only offered when a preset actually has a pick.
+  const overrideExistingDeviceSelection = ref(false)
+
+  /** Best device id on `serviceName` matching the chosen preferred device:
+   *  by name for a GPU (exact, then substring, then first GPU), or the CPU
+   *  device for a CPU preference. Returns undefined if nothing detected. */
+  function matchDeviceIdForService(
+    serviceName: BackendServiceName,
+    pref: PreferredDevice,
+  ): string | undefined {
+    const devices = backendServices.info.find((s) => s.serviceName === serviceName)?.devices ?? []
+    if (devices.length === 0) return undefined
+    if (pref.kind === 'cpu') {
+      return devices.find((d) => d.id.toUpperCase() === 'CPU' || d.name.toUpperCase() === 'CPU')?.id
+    }
+    const byName =
+      devices.find((d) => d.name === pref.name) ??
+      devices.find((d) => d.name.includes(pref.name) || pref.name.includes(d.name))
+    if (byName) return byName.id
+    return devices.find((d) => d.id.toUpperCase().includes('GPU'))?.id ?? devices[0]?.id
+  }
+
+  /** Overwrite every preset's saved device pick with the chosen preferred
+   *  device, mapped to each preset backend's own device id. The active preset's
+   *  running backend is also switched live so the change applies immediately,
+   *  not only the next time that preset is loaded. */
+  async function overwritePresetDeviceSelections(pref: PreferredDevice) {
+    const activeName = presetsStore.activePresetName
+    let liveUpdate: { serviceName: BackendServiceName; deviceId: string } | null = null
+    for (const [name, saved] of Object.entries(presetsStore.settingsPerPreset)) {
+      if (saved.selectedDeviceId == null) continue
+      const backendKey = typeof saved.backend === 'string' ? saved.backend : undefined
+      const serviceName =
+        backendKey && backendKey in backendToService
+          ? backendToService[backendKey as keyof typeof backendToService]
+          : null
+      if (!serviceName) continue
+      const id = matchDeviceIdForService(serviceName, pref)
+      if (id === undefined) continue
+      presetsStore.saveSettingsForPreset(name, { selectedDeviceId: id })
+      if (name === activeName) liveUpdate = { serviceName, deviceId: id }
+    }
+
+    if (!liveUpdate) return
+    const { serviceName, deviceId } = liveUpdate
+    const info = backendServices.info.find((s) => s.serviceName === serviceName)
+    if (info?.devices.find((d) => d.selected)?.id === deviceId) return
+    await backendServices.selectDevice(serviceName, deviceId)
+    // A restart is what actually rebinds the backend to the new device
+    // (mirrors DeviceSelector). Only needed when it's currently running.
+    if (info?.status === 'running') {
+      await backendServices.stopService(serviceName)
+      await backendServices.startService(serviceName)
+    }
   }
 
   async function initPendingPreferredDevice() {
@@ -203,6 +250,12 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       const s = await window.electronAPI.getLocalSettings()
       pendingPreferredDevice.value = s.preferredDevice ?? defaultPreferredDevice()
     } catch {
+      pendingPreferredDevice.value = defaultPreferredDevice()
+    }
+    // A persisted CPU preference is meaningless once GPUs are offered (CPU is
+    // hidden then), which would leave nothing selected — fall back to the default.
+    const key = preferredDeviceKey(pendingPreferredDevice.value)
+    if (!preferredDeviceOptions.value.some((o) => o.key === key)) {
       pendingPreferredDevice.value = defaultPreferredDevice()
     }
   }
@@ -645,6 +698,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       productModeStore.hardwareRecommendation?.recommendedMode ??
       null
     await initPendingPreferredDevice()
+    overrideExistingDeviceSelection.value = false
     seedInstallSelection()
     wizardDirty.value = false
     wizardPage.value = 'main'
@@ -721,6 +775,11 @@ export const useSetupWizard = defineStore('setupWizard', () => {
         productModeStore.hardwareRecommendation?.recommendedMode ??
         null
       await backendServices.refreshPhisonSsdDetection()
+      // Seed the default-device selection here too (like openWizard): the
+      // first-run wizard is shown via this path, and without it the Default
+      // Device radio would render with nothing selected.
+      await initPendingPreferredDevice()
+      overrideExistingDeviceSelection.value = false
       seedInstallSelection()
       wizardDirty.value = false
       globalSetup.loadingState = 'setupWizard'
@@ -754,9 +813,15 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     // restartBackend → detectDevices() reads it (via the shared settings object)
     // to pick each backend's matching default device.
     if (pendingPreferredDevice.value) {
-      await window.electronAPI.updateLocalSettings({
-        preferredDevice: pendingPreferredDevice.value,
-      })
+      // toRaw: strip the Vue reactive proxy so the object survives Electron's
+      // structured-clone IPC ("An object could not be cloned" otherwise).
+      const preferredDevice = toRaw(pendingPreferredDevice.value)
+      await window.electronAPI.updateLocalSettings({ preferredDevice })
+      // Optionally push the chosen default onto every preset that already has
+      // its own device pick, discarding the prior per-preset selections.
+      if (overrideExistingDeviceSelection.value) {
+        await overwritePresetDeviceSelections(preferredDevice)
+      }
     }
 
     // Capture what needs installing BEFORE syncing mode — syncing resets the
@@ -946,7 +1011,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     preferredDeviceOptions,
     preferredDeviceKey,
     setPendingPreferredDevice,
-    showPreferredDeviceSelector,
+    overrideExistingDeviceSelection,
     installSelection,
     wizardDirty,
     wizardPage,

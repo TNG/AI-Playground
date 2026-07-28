@@ -1731,24 +1731,38 @@ export const useTextInference = defineStore(
     let initialSettingsLoaded = false
 
     // Initialize chat preset settings on startup.
-    // This handles two cases:
-    // 1. First launch: activePresetName is null → select first chat preset
-    // 2. Subsequent launches: activePresetName is persisted → load settings directly
-    // Note: We call loadSettingsForActivePreset() directly here instead of using
-    // presetSwitching.switchPreset() because the watcher is synchronous.
+    // The app always boots into chat mode (the `prompt` store isn't persisted),
+    // so `activePresetName` must resolve to a *chat* preset here. It may not:
+    //   1. First launch: activePresetName is null.
+    //   2. Subsequent launches: the persisted activePresetName can point at a
+    //      non-chat preset (e.g. an image preset left active after the last
+    //      image-gen session, or a picker-excluded one like Home Agent).
+    // In both cases, reconcile it to the last-used chat preset (falling back to
+    // the highest-priority one). Without this, Chat Settings' PresetSelector —
+    // which filters to chat presets — can't find the active preset and renders
+    // blank, even though the status bar shows the right preset via its own
+    // last-used fallback. Keeping the two in sync is the whole point here.
+    // Note: We set activePresetName / call loadSettingsForActivePreset() directly
+    // instead of presetSwitching.switchPreset() because the watcher is synchronous.
     watch(
       () => presetsStore.chatPresets,
       (chatPresets) => {
         if (chatPresets.length > 0 && !initialSettingsLoaded) {
-          // First launch: no preset is selected, so initialize with the first chat preset
-          if (!presetsStore.activePresetName) {
-            const sortedPresets = [...chatPresets].sort(
-              (a, b) => (b.displayPriority || 0) - (a.displayPriority || 0),
-            )
-            presetsStore.activePresetName = sortedPresets[0].name
+          const activeIsChatPreset =
+            presetsStore.activePresetName != null &&
+            chatPresets.some((p) => p.name === presetsStore.activePresetName)
+
+          if (!activeIsChatPreset) {
+            const lastUsed = presetsStore.getLastUsedPreset(['chat'])
+            const fallback =
+              (lastUsed && chatPresets.find((p) => p.name === lastUsed)) ??
+              [...chatPresets].sort(
+                (a, b) => (b.displayPriority || 0) - (a.displayPriority || 0),
+              )[0]
+            presetsStore.activePresetName = fallback.name
           }
 
-          // Load settings for the active preset (works for both cases)
+          // Load settings for the (now guaranteed chat) active preset
           loadSettingsForActivePreset()
           initialSettingsLoaded = true
         }

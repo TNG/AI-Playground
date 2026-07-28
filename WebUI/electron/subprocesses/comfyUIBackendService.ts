@@ -1511,12 +1511,23 @@ except Exception as e:
     }
 
     this.appLogger.info(`detected devices: ${JSON.stringify(allDevices, null, 2)}`, this.name)
-    const bestCudaId = await resolveDefaultDevice(
-      allDevices,
-      this.settings.lastSelectedDevicePerBackend,
-      this.name,
-      this.settings.preferredDevice,
-    )
+    // Best-effort: a failure here (e.g. resolving the preferred device) must not
+    // discard a successfully detected list, or the UI silently falls back to the
+    // "Auto select device" placeholder while the real GPU is in use.
+    let bestCudaId: string | undefined
+    try {
+      bestCudaId = await resolveDefaultDevice(
+        allDevices,
+        this.settings.lastSelectedDevicePerBackend,
+        this.name,
+        this.settings.preferredDevice,
+      )
+    } catch (error) {
+      this.appLogger.warn(
+        `Default CUDA device resolution failed; using first detected device: ${error}`,
+        this.name,
+      )
+    }
     this.devices =
       allDevices.length > 0
         ? withSelectedDevice(
@@ -1532,10 +1543,25 @@ except Exception as e:
     let allDevices: Device[] = []
     try {
       const pythonScript = `
-import torch
 import sys
 
 try:
+    import torch
+    # Intel-torch builds that predate native XPU (torch < 2.5) only register the
+    # torch.xpu backend after intel_extension_for_pytorch is imported. Without
+    # this, torch.xpu.device_count() returns 0 on those builds and the GPU is
+    # wrongly reported as absent (device dropdown falls back to "Auto"). On
+    # native-XPU torch the import is unnecessary and its absence is non-fatal, so
+    # both supported ComfyUI variants enumerate the Intel GPU consistently.
+    try:
+        import intel_extension_for_pytorch  # noqa: F401
+    except Exception:
+        pass
+
+    if not hasattr(torch, "xpu"):
+        print("Error detecting XPU devices: torch has no xpu backend")
+        sys.exit(1)
+
     # Try to get the number of XPU devices
     device_count = torch.xpu.device_count()
 
@@ -1616,12 +1642,22 @@ except Exception as e:
     // A device probe positively confirmed at least one usable XPU device, so it
     // is safe for spawnAPIProcess() to launch as the XPU variant.
     this.usableXpuConfirmed = true
-    const bestXpuId = await resolveDefaultDevice(
-      allDevices,
-      this.settings.lastSelectedDevicePerBackend,
-      this.name,
-      this.settings.preferredDevice,
-    )
+    // Best-effort (see detectCudaDevicesWithTorch): don't let default-device
+    // resolution errors blank an already-detected device list.
+    let bestXpuId: string | undefined
+    try {
+      bestXpuId = await resolveDefaultDevice(
+        allDevices,
+        this.settings.lastSelectedDevicePerBackend,
+        this.name,
+        this.settings.preferredDevice,
+      )
+    } catch (error) {
+      this.appLogger.warn(
+        `Default XPU device resolution failed; using first detected device: ${error}`,
+        this.name,
+      )
+    }
     this.devices = withSelectedDevice(
       allDevices.map((d) => ({ ...d, selected: false })),
       this.settings.lastSelectedDevicePerBackend[this.name],

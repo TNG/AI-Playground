@@ -90,6 +90,77 @@
                 </div>
               </label>
             </div>
+
+            <!-- Default device selection. Lives inside the left column,
+                 directly under the mode options, so it shares that column's
+                 width instead of spanning the whole wizard and leaving a gap. -->
+            <div class="pt-6">
+              <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-3">
+                {{ languages.SETUP_WIZARD_DEVICE_SECTION || 'Default Device' }}
+              </h2>
+              <div class="flex flex-col gap-2">
+                <label
+                  v-for="option in wizard.preferredDeviceOptions"
+                  :key="option.key"
+                  class="flex items-center gap-2.5 p-3 rounded-lg border cursor-pointer transition-colors"
+                  :class="
+                    wizard.preferredDeviceKey(wizard.pendingPreferredDevice) === option.key
+                      ? 'border-primary bg-primary/10'
+                      : 'border-border hover:border-muted/50'
+                  "
+                  @click="wizard.setPendingPreferredDevice(option.value)"
+                >
+                  <div
+                    class="w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors shrink-0"
+                    :class="
+                      wizard.preferredDeviceKey(wizard.pendingPreferredDevice) === option.key
+                        ? 'border-primary bg-primary'
+                        : 'border-muted-foreground'
+                    "
+                  >
+                    <svg
+                      v-if="wizard.preferredDeviceKey(wizard.pendingPreferredDevice) === option.key"
+                      class="w-2.5 h-2.5 text-primary-foreground"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="3"
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  </div>
+                  <div class="min-w-0">
+                    <div class="text-xs font-medium truncate">{{ option.label }}</div>
+                    <div
+                      v-if="option.category === 'dgpu' || option.category === 'igpu'"
+                      class="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground"
+                    >
+                      {{
+                        option.category === 'dgpu'
+                          ? languages.SETUP_WIZARD_DEVICE_DEDICATED || 'Dedicated GPU'
+                          : languages.SETUP_WIZARD_DEVICE_INTEGRATED || 'Integrated GPU'
+                      }}
+                    </div>
+                  </div>
+                </label>
+              </div>
+
+              <!-- Override toggle: always offered. When on, committing
+                   overwrites every preset's saved device with the chosen
+                   default above (and switches the active preset live). -->
+              <label class="flex items-center gap-2.5 pt-3 cursor-pointer">
+                <Switch
+                  :model-value="wizard.overrideExistingDeviceSelection"
+                  @update:model-value="(v: boolean) => (wizard.overrideExistingDeviceSelection = v)"
+                />
+                <span class="text-xs text-muted-foreground">
+                  {{
+                    languages.SETUP_WIZARD_DEVICE_OVERRIDE ||
+                    'Override existing preset device selections'
+                  }}
+                </span>
+              </label>
+            </div>
           </div>
 
           <!-- Right column: Components -->
@@ -221,59 +292,6 @@
                 'Required components will be installed automatically. Optional components can be toggled on or off.'
               }}
             </p>
-          </div>
-        </div>
-
-        <!-- Default device selection (only while it can still take effect) -->
-        <div v-if="wizard.showPreferredDeviceSelector" class="pt-6">
-          <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-3">
-            {{ languages.SETUP_WIZARD_DEVICE_SECTION || 'Default Device' }}
-          </h2>
-          <div class="flex flex-col gap-2">
-            <label
-              v-for="option in wizard.preferredDeviceOptions"
-              :key="option.key"
-              class="flex items-center gap-2.5 p-3 rounded-lg border cursor-pointer transition-colors"
-              :class="
-                wizard.preferredDeviceKey(wizard.pendingPreferredDevice) === option.key
-                  ? 'border-primary bg-primary/10'
-                  : 'border-border hover:border-muted/50'
-              "
-              @click="wizard.setPendingPreferredDevice(option.value)"
-            >
-              <div
-                class="w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors shrink-0"
-                :class="
-                  wizard.preferredDeviceKey(wizard.pendingPreferredDevice) === option.key
-                    ? 'border-primary bg-primary'
-                    : 'border-muted-foreground'
-                "
-              >
-                <svg
-                  v-if="wizard.preferredDeviceKey(wizard.pendingPreferredDevice) === option.key"
-                  class="w-2.5 h-2.5 text-primary-foreground"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="3"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              </div>
-              <div class="min-w-0">
-                <div class="text-xs font-medium truncate">{{ option.label }}</div>
-                <div
-                  v-if="option.category === 'dgpu' || option.category === 'igpu'"
-                  class="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground"
-                >
-                  {{
-                    option.category === 'dgpu'
-                      ? languages.SETUP_WIZARD_DEVICE_DEDICATED || 'Dedicated GPU'
-                      : languages.SETUP_WIZARD_DEVICE_INTEGRATED || 'Integrated GPU'
-                  }}
-                </div>
-              </div>
-            </label>
           </div>
         </div>
 

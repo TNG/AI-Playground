@@ -421,6 +421,7 @@
   "SETUP_WIZARD_DEVICE_SECTION": "Default Device",
   "SETUP_WIZARD_DEVICE_DEDICATED": "Dedicated GPU",
   "SETUP_WIZARD_DEVICE_INTEGRATED": "Integrated GPU",
+  "SETUP_WIZARD_DEVICE_OVERRIDE": "Override existing preset device selections",
   "SETUP_WIZARD_BACKENDS_INTRO": "Required components will be installed automatically. Optional components can be toggled on or off.",
   "SETUP_WIZARD_UNAVAILABLE": "Unavailable",
   "SETUP_WIZARD_UNAVAILABLE_TOOLTIP": "This component is not available in the selected hardware mode.",

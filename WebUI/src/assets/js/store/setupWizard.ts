@@ -3,7 +3,7 @@ import { ref, computed, toRaw } from 'vue'
 import { useBackendServices, type BackendServiceName } from './backendServices'
 import { useProductMode } from './productMode'
 import { useGlobalSetup } from './globalSetup'
-import { usePresets } from './presets'
+import { usePresets, type ChatPreset } from './presets'
 import { backendToService } from './textInference'
 import { usePresetSwitching } from './presetSwitching'
 import { useSpeechToText } from './speechToText'
@@ -150,19 +150,26 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     value: PreferredDevice
   }
 
+  // Key by the strongest available identity (UUID → PCI id → name) so two
+  // identically-named GPUs don't collide and the selection stays stable.
   function preferredDeviceKey(pref: PreferredDevice | null): string | null {
     if (!pref) return null
-    return pref.kind === 'cpu' ? 'cpu' : `gpu:${pref.gpuDeviceId ?? pref.name}`
+    return pref.kind === 'cpu' ? 'cpu' : `gpu:${pref.uuid ?? pref.gpuDeviceId ?? pref.name}`
   }
 
   const preferredDeviceOptions = computed<PreferredDeviceOption[]>(() => {
     const detected = productModeStore.hardwareRecommendation?.detectedDevices ?? []
     const gpuOptions: PreferredDeviceOption[] = detected
       .map((d) => ({
-        key: `gpu:${d.gpuDeviceId ?? d.name}`,
+        key: `gpu:${d.uuid ?? d.gpuDeviceId ?? d.name}`,
         label: d.name,
         category: d.category ?? ('igpu' as DeviceCategory),
-        value: { kind: 'gpu' as const, name: d.name, gpuDeviceId: d.gpuDeviceId },
+        value: {
+          kind: 'gpu' as const,
+          name: d.name,
+          gpuDeviceId: d.gpuDeviceId,
+          uuid: d.uuid ?? null,
+        },
       }))
       .sort((a, b) => DEVICE_CATEGORY_RANK[b.category] - DEVICE_CATEGORY_RANK[a.category])
     // CPU is only ever honored by OpenVINO and is pointless in GPU-only
@@ -192,44 +199,90 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   // Default off; the toggle is only offered when a preset actually has a pick.
   const overrideExistingDeviceSelection = ref(false)
 
-  /** Best device id on `serviceName` matching the chosen preferred device:
-   *  by name for a GPU (exact, then substring, then first GPU), or the CPU
-   *  device for a CPU preference. Returns undefined if nothing detected. */
-  function matchDeviceIdForService(
+  /** Best device on `serviceName` matching the chosen preferred device:
+   *  UUID first (deterministic), then name (exact → substring → first GPU) for a
+   *  GPU, or the CPU device for a CPU preference. undefined if nothing detected. */
+  function matchDeviceForService(
     serviceName: BackendServiceName,
     pref: PreferredDevice,
-  ): string | undefined {
+  ): InferenceDevice | undefined {
     const devices = backendServices.info.find((s) => s.serviceName === serviceName)?.devices ?? []
     if (devices.length === 0) return undefined
     if (pref.kind === 'cpu') {
-      return devices.find((d) => d.id.toUpperCase() === 'CPU' || d.name.toUpperCase() === 'CPU')?.id
+      return devices.find((d) => d.id.toUpperCase() === 'CPU' || d.name.toUpperCase() === 'CPU')
+    }
+    if (pref.uuid) {
+      const byUuid = devices.find((d) => d.uuid != null && d.uuid === pref.uuid)
+      if (byUuid) return byUuid
     }
     const byName =
       devices.find((d) => d.name === pref.name) ??
       devices.find((d) => d.name.includes(pref.name) || pref.name.includes(d.name))
-    if (byName) return byName.id
-    return devices.find((d) => d.id.toUpperCase().includes('GPU'))?.id ?? devices[0]?.id
+    if (byName) return byName
+    return devices.find((d) => d.id.toUpperCase().includes('GPU')) ?? devices[0]
   }
 
-  /** Overwrite every preset's saved device pick with the chosen preferred
-   *  device, mapped to each preset backend's own device id. The active preset's
-   *  running backend is also switched live so the change applies immediately,
-   *  not only the next time that preset is loaded. */
+  /** Backend service a chat preset should target: its already-persisted backend
+   *  choice if any, else the first non-cloud backend it declares. null when the
+   *  preset is cloud-only (no local device). */
+  function chatPresetServiceName(preset: ChatPreset): BackendServiceName | null {
+    const saved = presetsStore.settingsPerPreset[preset.name]
+    const savedBackend = typeof saved?.backend === 'string' ? saved.backend : undefined
+    const backendKey =
+      savedBackend ?? preset.backends.find((b) => b !== 'cloud') ?? preset.backends[0]
+    return backendKey && backendKey in backendToService
+      ? backendToService[backendKey as keyof typeof backendToService]
+      : null
+  }
+
+  /** Overwrite EVERY chat preset's device pick with the chosen preferred device
+   *  (not only presets the user has already opened). The backend-local id is
+   *  matched from the backend's own device list; the preferred UUID is always
+   *  persisted so the preset still re-binds to the right device on next load even
+   *  when the backend can't be matched right now. The active preset's running
+   *  backend is switched live so the change applies immediately. Image-generation
+   *  (ComfyUI) presets use a separate store and are intentionally not touched. */
   async function overwritePresetDeviceSelections(pref: PreferredDevice) {
     const activeName = presetsStore.activePresetName
+    const prefUuid = pref.kind === 'gpu' ? (pref.uuid ?? null) : null
+    const chatPresets = presetsStore.presets.filter((p): p is ChatPreset => p.type === 'chat')
+
+    // At wizard-commit time an installed backend may report no devices yet,
+    // which would make every match below a silent no-op. Refresh detection
+    // (best-effort) for the backends actually referenced by the presets.
+    const services = new Set<BackendServiceName>()
+    for (const p of chatPresets) {
+      const s = chatPresetServiceName(p)
+      if (s) services.add(s)
+    }
+    for (const s of services) {
+      const info = backendServices.info.find((i) => i.serviceName === s)
+      if (info?.isSetUp && (info.devices?.length ?? 0) === 0) {
+        try {
+          await backendServices.detectDevices(s)
+        } catch {
+          /* best-effort; fall back to the UUID-only write below */
+        }
+      }
+    }
+
     let liveUpdate: { serviceName: BackendServiceName; deviceId: string } | null = null
-    for (const [name, saved] of Object.entries(presetsStore.settingsPerPreset)) {
-      if (saved.selectedDeviceId == null) continue
-      const backendKey = typeof saved.backend === 'string' ? saved.backend : undefined
-      const serviceName =
-        backendKey && backendKey in backendToService
-          ? backendToService[backendKey as keyof typeof backendToService]
-          : null
+    for (const preset of chatPresets) {
+      const serviceName = chatPresetServiceName(preset)
       if (!serviceName) continue
-      const id = matchDeviceIdForService(serviceName, pref)
-      if (id === undefined) continue
-      presetsStore.saveSettingsForPreset(name, { selectedDeviceId: id })
-      if (name === activeName) liveUpdate = { serviceName, deviceId: id }
+      const device = matchDeviceForService(serviceName, pref)
+      if (device) {
+        presetsStore.saveSettingsForPreset(preset.name, {
+          selectedDeviceId: device.id,
+          selectedDeviceUuid: device.uuid ?? prefUuid,
+        })
+        if (preset.name === activeName) liveUpdate = { serviceName, deviceId: device.id }
+      } else if (prefUuid) {
+        // No usable device list for this backend right now — persist the
+        // preferred UUID; textInference resolves it to the backend's current id
+        // the next time this preset loads with the backend running.
+        presetsStore.saveSettingsForPreset(preset.name, { selectedDeviceUuid: prefUuid })
+      }
     }
 
     if (!liveUpdate) return

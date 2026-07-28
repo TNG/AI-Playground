@@ -137,11 +137,18 @@ type GpuHardwareDevice = {
   device: string
   name: string
   gpuDeviceId: string | null
+  /** Stable vendor UUID when the probe can supply one (NVIDIA via nvidia-smi,
+   *  Intel via xpu-smi). null on the PowerShell/lspci fallbacks. Preferred over
+   *  name for identifying a device across driver/enumeration changes. */
+  uuid?: string | null
   category?: DeviceCategory
 }
 
-/** User's preferred inference device, chosen in the setup wizard. */
-type PreferredDevice = { kind: 'gpu'; name: string; gpuDeviceId: string | null } | { kind: 'cpu' }
+/** User's preferred inference device, chosen in the setup wizard. `uuid` is the
+ *  stable identity (when known); `gpuDeviceId` is the weaker PCI model id. */
+type PreferredDevice =
+  | { kind: 'gpu'; name: string; gpuDeviceId: string | null; uuid?: string | null }
+  | { kind: 'cpu' }
 
 type ProductModeCatalogFeatureI18n = {
   labelKey: string
@@ -847,6 +854,9 @@ type InferenceDevice = {
   id: string
   name: string
   selected: boolean
+  /** Stable vendor UUID when the backend can supply one; used to re-identify a
+   *  device across driver/enumeration changes. undefined/null when unavailable. */
+  uuid?: string | null
 }
 
 type ErrorDetails = {

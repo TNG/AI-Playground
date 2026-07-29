@@ -15,6 +15,8 @@ describe('deviceArch', () => {
       expect(getDeviceArch(0x4f80)).toBe('acm')
       expect(getDeviceArch(0x7d40)).toBe('mtl')
       expect(getDeviceArch(0xe202)).toBe('bmg')
+      expect(getDeviceArch(0xe211)).toBe('bmg') // Arc Pro B60
+      expect(getDeviceArch(0xe212)).toBe('bmg') // Arc Pro B50
       expect(getDeviceArch(0xfd80)).toBe('wcl')
       expect(getDeviceArch(0xfd81)).toBe('wcl')
     })
@@ -77,6 +79,17 @@ describe('deviceArch', () => {
       expect(
         categorizeDevice({ id: 'GPU.1', name: 'Intel(R) Arc(TM) A770 Graphics' }, reference),
       ).toBe('dgpu')
+    })
+
+    it('classifies an Arc Pro B60 (Battlemage) as dgpu, outranking the iGPU', () => {
+      const withB60: ReferenceAccelerator[] = [
+        { vendor: 'intel', name: 'Intel(R) Arc(TM) Pro B60 Graphics', gpuDeviceId: '0xE211' },
+        { vendor: 'intel', name: 'Intel(R) Graphics', gpuDeviceId: '0x7D55' },
+      ]
+      expect(
+        categorizeDevice({ id: 'GPU.1', name: 'Intel(R) Arc(TM) Pro B60 Graphics' }, withB60),
+      ).toBe('dgpu')
+      expect(categorizeDevice({ id: 'GPU.0', name: 'Intel(R) Graphics' }, withB60)).toBe('igpu')
     })
 
     it('classifies an integrated Intel GPU as igpu', () => {

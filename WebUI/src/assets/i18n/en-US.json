@@ -418,7 +418,7 @@
   "SETUP_WIZARD_TITLE": "AI Playground Setup",
   "SETUP_WIZARD_MODE_SECTION": "Hardware Mode",
   "SETUP_WIZARD_BACKENDS_SECTION": "Components",
-  "SETUP_WIZARD_DEVICE_SECTION": "Default Device",
+  "SETUP_WIZARD_DEVICE_SECTION": "Default GPU",
   "SETUP_WIZARD_DEVICE_DEDICATED": "Dedicated GPU",
   "SETUP_WIZARD_DEVICE_INTEGRATED": "Integrated GPU",
   "SETUP_WIZARD_DEVICE_OVERRIDE": "Override existing preset device selections",

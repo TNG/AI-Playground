@@ -33,9 +33,8 @@ export type DetectedDevice = {
  *      persisted (`uuidMap`) and still matches a detected device, that device's
  *      current id is returned — so a driver/enumeration change that shifts the
  *      backend-local id doesn't strand the selection on the wrong device.
- *   2. the user's wizard-chosen `preferred` device, matched to this backend's
- *      own detected list: UUID → PCI id → name (edit distance) for a GPU, or the
- *      CPU device for a CPU preference.
+ *   2. the user's wizard-chosen `preferred` GPU, matched to this backend's own
+ *      detected list: UUID → PCI id → name (edit distance).
  *   3. the automatic ranking (dedicated GPU > integrated GPU > NPU > CPU).
  * The resolved id (and its UUID, when known) is written back and persisted, so
  * the choice survives restarts and later detection changes.
@@ -61,7 +60,7 @@ export async function resolveDefaultDevice(
   let chosenId: string | undefined
   let source = 'auto-ranked'
 
-  if (preferred?.kind === 'gpu') {
+  if (preferred) {
     // UUID is deterministic; PCI id disambiguates the model; name is the
     // last-resort fuzzy match (the previous behavior).
     if (preferred.uuid) {
@@ -76,14 +75,6 @@ export async function resolveDefaultDevice(
       chosenId = bestNameMatch(preferred.name, devices)?.id
       if (chosenId !== undefined) source = 'wizard preference (name)'
     }
-  } else if (preferred?.kind === 'cpu') {
-    // Only backends that enumerate a CPU device (e.g. OpenVINO) can honor a
-    // CPU-only preference here; llama.cpp / ComfyUI list GPUs only and fall
-    // through to the automatic ranking.
-    chosenId = devices.find(
-      (d) => d.id.toUpperCase() === 'CPU' || d.name.toUpperCase() === 'CPU',
-    )?.id
-    if (chosenId !== undefined) source = 'wizard preference (CPU)'
   }
 
   if (chosenId === undefined) {

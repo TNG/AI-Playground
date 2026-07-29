@@ -2,10 +2,19 @@
 const ID2ARCH: { [key: number]: Arch } = {
   // bmg
   0xe202: 'bmg',
-  0xe20b: 'bmg',
-  0xe20c: 'bmg',
+  0xe209: 'bmg', // Arc B580
+  0xe20b: 'bmg', // Arc B580
+  0xe20c: 'bmg', // Arc B570
   0xe20d: 'bmg',
-  0xe212: 'bmg',
+  0xe210: 'bmg',
+  0xe211: 'bmg', // Arc Pro B60
+  0xe212: 'bmg', // Arc Pro B50
+  0xe215: 'bmg',
+  0xe216: 'bmg',
+  0xe220: 'bmg',
+  0xe221: 'bmg',
+  0xe222: 'bmg', // Arc Pro B65
+  0xe223: 'bmg', // Arc Pro B70
 
   // lnl
   0x6420: 'lnl',

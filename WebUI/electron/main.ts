@@ -301,20 +301,19 @@ const appSize = {
 }
 const ThemeSchema = z.enum(['dark', 'lnl', 'bmg', 'light'])
 const ProductModeSchema = z.enum(['studio', 'essentials', 'nvidia'])
-// User's preferred inference device, captured in the setup wizard. A GPU is
-// identified by name (+ PCI id when known) so it can be matched to each backend's
-// own device enumeration; 'cpu' means "prefer CPU only" (best-effort per backend).
-const PreferredDeviceSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('gpu'),
-    name: z.string(),
-    gpuDeviceId: z.string().nullable(),
-    // Stable vendor UUID when the pre-install probe supplied one; preferred over
-    // name/PCI when matching this device onto a backend's own detected list.
-    uuid: z.string().nullable().optional(),
-  }),
-  z.object({ kind: z.literal('cpu') }),
-])
+// User's preferred GPU, captured in the setup wizard. Identified by name
+// (+ PCI id when known) so it can be matched to each backend's own device
+// enumeration.
+const PreferredDeviceSchema = z.object({
+  name: z.string(),
+  gpuDeviceId: z.string().nullable(),
+  // Stable vendor UUID when the pre-install probe supplied one; preferred over
+  // name/PCI when matching this device onto a backend's own detected list.
+  uuid: z.string().nullable().optional(),
+  // Per-instance probe id (GpuHardwareDevice.device); disambiguates two
+  // identically-named GPUs in the wizard when no UUID is available.
+  instanceId: z.string().optional(),
+})
 export type PreferredDevice = z.infer<typeof PreferredDeviceSchema>
 
 const LocalSettingsSchema = z.object({

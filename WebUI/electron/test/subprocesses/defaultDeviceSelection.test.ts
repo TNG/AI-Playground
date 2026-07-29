@@ -13,7 +13,6 @@ import type { PreferredDevice } from '../../main'
 // no mocking required. persistSettings is a no-op unless a writer is registered.
 
 const gpu = (uuid: string | null, name: string, gpuDeviceId: string | null): PreferredDevice => ({
-  kind: 'gpu',
   name,
   gpuDeviceId,
   uuid,
@@ -76,14 +75,5 @@ describe('resolveDefaultDevice', () => {
       gpu(null, 'NVIDIA GeForce RTX 4090', null),
     )
     expect(id).toBe('1')
-  })
-
-  it('honors a CPU preference on a backend that enumerates a CPU device', async () => {
-    const devices: DetectedDevice[] = [
-      { id: 'GPU', name: 'GPU' },
-      { id: 'CPU', name: 'CPU' },
-    ]
-    const id = await resolveDefaultDevice(devices, {}, 'k', { kind: 'cpu' })
-    expect(id).toBe('CPU')
   })
 })

@@ -146,9 +146,15 @@ type GpuHardwareDevice = {
 
 /** User's preferred inference device, chosen in the setup wizard. `uuid` is the
  *  stable identity (when known); `gpuDeviceId` is the weaker PCI model id. */
-type PreferredDevice =
-  | { kind: 'gpu'; name: string; gpuDeviceId: string | null; uuid?: string | null }
-  | { kind: 'cpu' }
+type PreferredDevice = {
+  name: string
+  gpuDeviceId: string | null
+  uuid?: string | null
+  /** Per-instance id from the hardware probe (`GpuHardwareDevice.device`).
+   *  Disambiguates two identically-named GPUs in the wizard when no UUID is
+   *  available (PowerShell/lspci fallback). */
+  instanceId?: string
+}
 
 type ProductModeCatalogFeatureI18n = {
   labelKey: string

@@ -15,7 +15,6 @@ import threading
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-
 from tts_engine import (
     CUSTOM_VOICE_SPEAKERS,
     LANGUAGES,
@@ -131,8 +130,11 @@ def _warmup_model():
                 instruct=None,
                 mode="custom_voice",
             )
-        except Exception:
-            logger.warning("Qwen3-TTS warmup failed (first user request will retry load)")
+        except (ImportError, OSError, RuntimeError, ValueError):
+            # Warmup is best-effort; the first real request retries the load.
+            logger.warning(
+                "Qwen3-TTS warmup failed (first user request will retry load)"
+            )
 
     threading.Thread(target=_run, name="qwen3-tts-warmup", daemon=True).start()
 

@@ -51,8 +51,9 @@ try:
 
     import os
     import threading
-    from flask import jsonify, request, Response, stream_with_context
+
     from apiflask import APIFlask
+    from flask import Response, jsonify, request, stream_with_context
 
     # Shared loopback-auth lives in a sibling backend_shared/ directory so the
     # same logic is used by every local Python backend (see backend_shared/).
@@ -62,18 +63,18 @@ try:
             os.path.dirname(os.path.abspath(__file__)), "..", "backend_shared"
         ),
     )
-    from aipg_loopback_auth import (  # noqa: E402
-        evaluate_loopback_auth,
-        get_loopback_token,
-    )
+    import logging
+    import traceback
 
     import model_download_adpater
     import utils
-    from model_downloader import HFPlaygroundDownloader
+    from aipg_loopback_auth import (
+        evaluate_loopback_auth,
+        get_loopback_token,
+    )
     from exceptions import HFReachabilityError
+    from model_downloader import HFPlaygroundDownloader
     from psutil._common import bytes2human
-    import traceback
-    import logging
 
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
@@ -331,7 +332,7 @@ try:
             traceback.print_exc()
 
             model_download_adpater._adapter.stop_download()
-            ex_str = '{{"type": "error", "err_type": "{}"}}'.format(e)
+            ex_str = f'{{"type": "error", "err_type": "{e}"}}'
             return Response(
                 stream_with_context([ex_str]), content_type="text/event-stream"
             )
@@ -353,10 +354,11 @@ try:
         app.run(host="127.0.0.1", port=args.port)
 
 except OSError as e:
+    import json
     import os
     import sys
+
     import psutil
-    import json
 
     info = {
         "errno": getattr(e, "errno", None),

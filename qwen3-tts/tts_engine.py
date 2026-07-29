@@ -14,15 +14,51 @@ logger = logging.getLogger(__name__)
 SynthesisMode = Literal["custom_voice", "voice_design"]
 
 CUSTOM_VOICE_SPEAKERS: list[dict[str, str]] = [
-    {"id": "Vivian", "description": "Bright, slightly edgy young female voice.", "nativeLanguage": "Chinese"},
-    {"id": "Serena", "description": "Warm, gentle young female voice.", "nativeLanguage": "Chinese"},
-    {"id": "Uncle_Fu", "description": "Seasoned male voice with a low, mellow timbre.", "nativeLanguage": "Chinese"},
-    {"id": "Dylan", "description": "Youthful Beijing male voice.", "nativeLanguage": "Chinese (Beijing Dialect)"},
-    {"id": "Eric", "description": "Lively Chengdu male voice.", "nativeLanguage": "Chinese (Sichuan Dialect)"},
-    {"id": "Ryan", "description": "Dynamic male voice with strong rhythmic drive.", "nativeLanguage": "English"},
-    {"id": "Aiden", "description": "Sunny American male voice.", "nativeLanguage": "English"},
-    {"id": "Ono_Anna", "description": "Playful Japanese female voice.", "nativeLanguage": "Japanese"},
-    {"id": "Sohee", "description": "Warm Korean female voice.", "nativeLanguage": "Korean"},
+    {
+        "id": "Vivian",
+        "description": "Bright, slightly edgy young female voice.",
+        "nativeLanguage": "Chinese",
+    },
+    {
+        "id": "Serena",
+        "description": "Warm, gentle young female voice.",
+        "nativeLanguage": "Chinese",
+    },
+    {
+        "id": "Uncle_Fu",
+        "description": "Seasoned male voice with a low, mellow timbre.",
+        "nativeLanguage": "Chinese",
+    },
+    {
+        "id": "Dylan",
+        "description": "Youthful Beijing male voice.",
+        "nativeLanguage": "Chinese (Beijing Dialect)",
+    },
+    {
+        "id": "Eric",
+        "description": "Lively Chengdu male voice.",
+        "nativeLanguage": "Chinese (Sichuan Dialect)",
+    },
+    {
+        "id": "Ryan",
+        "description": "Dynamic male voice with strong rhythmic drive.",
+        "nativeLanguage": "English",
+    },
+    {
+        "id": "Aiden",
+        "description": "Sunny American male voice.",
+        "nativeLanguage": "English",
+    },
+    {
+        "id": "Ono_Anna",
+        "description": "Playful Japanese female voice.",
+        "nativeLanguage": "Japanese",
+    },
+    {
+        "id": "Sohee",
+        "description": "Warm Korean female voice.",
+        "nativeLanguage": "Korean",
+    },
 ]
 
 LANGUAGES = [
@@ -95,7 +131,9 @@ def _xpu_usable() -> bool:
         if not torch.xpu.is_available():
             return False
         return torch.xpu.device_count() > 0
-    except Exception:  # noqa: BLE001 — any import/probe failure just means "no XPU"
+    except (ImportError, AttributeError, RuntimeError, OSError):
+        # torch missing, an unexpected API surface, or a driver/runtime probe
+        # failure all just mean "no usable XPU".
         logger.debug("XPU probe failed; treating XPU as unavailable", exc_info=True)
         return False
 
@@ -111,7 +149,8 @@ def _resolve_device_map() -> str:
             return "xpu"
         if torch.cuda.is_available():
             return "cuda:0"
-    except Exception:  # noqa: BLE001 — any import/probe failure falls back to CPU
+    except (ImportError, AttributeError, RuntimeError, OSError):
+        # Any import/API/driver probe failure falls back to CPU.
         logger.debug("Accelerator probe failed; falling back to CPU", exc_info=True)
     return "cpu"
 
@@ -146,7 +185,12 @@ def _load_model(model_id: str) -> Any:
             # Cache under its id; any already-loaded model for the other mode
             # stays resident so we never reload on a mode switch.
             _models[model_id] = model
-            logger.info("Qwen3-TTS model loaded: %s (device=%s, attn=%s)", model_id, device_map, attn or "default")
+            logger.info(
+                "Qwen3-TTS model loaded: %s (device=%s, attn=%s)",
+                model_id,
+                device_map,
+                attn or "default",
+            )
             return model
         except Exception as exc:
             _load_error = str(exc)

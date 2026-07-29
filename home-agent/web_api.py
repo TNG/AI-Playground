@@ -94,7 +94,7 @@ class _PollAccessFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             message = record.getMessage()
-        except Exception:  # noqa: BLE001 — a malformed record must not break logging; don't log inside a filter
+        except Exception:
             return True
         return not any(path in message for path in self._noisy_paths)
 

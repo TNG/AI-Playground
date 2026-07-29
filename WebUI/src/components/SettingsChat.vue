@@ -30,7 +30,10 @@
         </p>
       </div>
 
-      <div class="flex flex-col gap-4">
+      <!-- TTS preset: a direct Qwen3-TTS synthesizer, no LLM controls. -->
+      <SettingsTts v-if="isTtsPreset" />
+
+      <div v-else class="flex flex-col gap-4">
         <!-- Backend selector - only shown when multiple backends are available -->
         <div v-if="!isBackendLocked" class="grid grid-cols-[120px_1fr] items-center gap-4">
           <Label class="whitespace-nowrap">Backend</Label>
@@ -241,6 +244,7 @@ import { useI18N } from '@/assets/js/store/i18n.ts'
 import Rag from '@/components/Rag.vue'
 import SettingsMcp from '@/components/SettingsMcp.vue'
 import SettingsBuiltinTools from '@/components/SettingsBuiltinTools.vue'
+import SettingsTts from '@/components/SettingsTts.vue'
 import { useBackendServices } from '@/assets/js/store/backendServices.ts'
 import DropDownNew from '@/components/DropDownNew.vue'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets.ts'
@@ -286,6 +290,9 @@ const activeChatPreset = computed(() => {
 const isBackendLocked = computed(() => {
   return activeChatPreset.value?.backends?.length === 1
 })
+
+// Direct Text-to-Speech preset: hides all LLM controls in favour of SettingsTts.
+const isTtsPreset = computed(() => activeChatPreset.value?.ttsPreset === true)
 
 // UI visibility flags from preset
 const enableRAG = computed(() => activeChatPreset.value?.enableRAG ?? false)

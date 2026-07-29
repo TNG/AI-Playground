@@ -201,6 +201,11 @@ const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).extend({
   // Used by presets bundling large MoE models that rely on SSD offload.
   requiresPhison: z.boolean().optional(),
   toolsEnabledByDefault: z.boolean().optional(), // Explicit default for tools toggle
+  // When true, this "chat" preset is a direct Text-to-Speech generator rather than an LLM
+  // chat: selecting it turns the prompt box into a synthesizer (typed text -> Qwen3-TTS
+  // audio, no LLM loaded). The `backends` array is a schema-required placeholder and is
+  // unused. See SettingsTts.vue and the direct-synthesis branch in openAiCompatibleChat.
+  ttsPreset: z.boolean().optional(),
   // UI visibility controls
   enableRAG: z.boolean().optional(), // Show "Add Documents" + embeddings selector (default: false)
   showTools: z.boolean().optional(), // Show "Enable Tools" toggle (default: false)

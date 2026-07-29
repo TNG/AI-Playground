@@ -332,6 +332,10 @@ type electronAPI = {
   getEmbeddingServerUrl(
     serviceName: string,
   ): Promise<{ success: boolean; url?: string; error?: string }>
+  ensureEmbeddingServerReady(
+    serviceName: string,
+    embeddingModelName: string,
+  ): Promise<{ success: boolean; error?: string }>
   getInitSetting(): Promise<SetupData>
   updateModelPaths(modelPaths: ModelPaths): Promise<ModelLists>
   restorePathsSettings(): Promise<void>

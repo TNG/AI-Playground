@@ -1871,6 +1871,47 @@ function initEventHandle() {
   )
 
   ipcMain.handle(
+    'ensureEmbeddingServerReady',
+    async (_event: IpcMainInvokeEvent, serviceName: string, embeddingModelName: string) => {
+      if (!serviceRegistry) {
+        return { success: false, error: 'Service registry not ready' }
+      }
+      const service = serviceRegistry.getService(serviceName)
+      if (!service) {
+        return { success: false, error: `Service ${serviceName} not found` }
+      }
+
+      // Only the local LLM backends (llamaCPP / openVINO) can host an embedding
+      // server. Used by Cloud Mode RAG to embed locally while chatting remotely.
+      if (
+        'ensureEmbeddingServerReady' in service &&
+        typeof service.ensureEmbeddingServerReady === 'function'
+      ) {
+        try {
+          await service.ensureEmbeddingServerReady(embeddingModelName)
+          appLogger.info(
+            `Embedding server ready for ${serviceName} with model: ${embeddingModelName}`,
+            'electron-backend',
+          )
+          return { success: true }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          appLogger.error(
+            `Failed to ensure embedding server ready for ${serviceName}: ${errorMessage}`,
+            'electron-backend',
+          )
+          return { success: false, error: errorMessage }
+        }
+      }
+
+      return {
+        success: false,
+        error: `Service ${serviceName} does not support a standalone embedding server`,
+      }
+    },
+  )
+
+  ipcMain.handle(
     'startTranscriptionServer',
     async (_event: IpcMainInvokeEvent, modelName: string) => {
       if (!serviceRegistry) {

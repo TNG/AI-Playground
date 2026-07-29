@@ -523,6 +523,24 @@ export const useBackendServices = defineStore(
       }
     }
 
+    async function ensureEmbeddingServerReady(
+      serviceName: BackendServiceName,
+      embeddingModelName: string,
+    ): Promise<void> {
+      try {
+        const result = await window.electronAPI.ensureEmbeddingServerReady(
+          serviceName,
+          embeddingModelName,
+        )
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to ensure embedding server ready')
+        }
+      } catch (error) {
+        console.error(`Failed to ensure embedding server ready for ${serviceName}:`, error)
+        throw error
+      }
+    }
+
     async function startTranscriptionServer(modelName: string): Promise<void> {
       try {
         const result = await window.electronAPI.startTranscriptionServer(modelName)
@@ -686,6 +704,7 @@ export const useBackendServices = defineStore(
       selectDevice,
       selectSttDevice,
       ensureBackendReadiness,
+      ensureEmbeddingServerReady,
       startTranscriptionServer,
       stopTranscriptionServer,
       getTranscriptionServerUrl,

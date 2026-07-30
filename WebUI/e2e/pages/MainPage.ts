@@ -62,6 +62,16 @@ export class MainPage {
   }
 
   /**
+   * The <audio> player rendered by ChatTtsToolResult in the last assistant turn. It
+   * appears only once synthesis succeeds AND the saved WAV has been loaded into a
+   * playback source (before that the bubble shows "Loading audio…"), so its presence
+   * is a strong success signal for a Text-to-Speech turn.
+   */
+  get ttsAudioPlayer(): Locator {
+    return this.assistantResponses.last().locator('audio')
+  }
+
+  /**
    * The prompt-area attachment file input (the "+" control). Present only when the
    * active preset allows an attachment: a vision chat model (image) or a RAG preset
    * (document). Used for chat-mode attachments; ComfyUI reference images are set in
@@ -246,6 +256,20 @@ export class MainPage {
       this.assistantAnswer.filter({ hasText: /\S/ }).first(),
       'model finished the turn but produced no non-empty text reply (reasoning-only response)',
     ).toBeVisible({ timeout: 5_000 })
+  }
+
+  /**
+   * Wait for a Text-to-Speech turn to finish and render a playable audio result.
+   * The synthesizeTextToSpeech tool emits a ChatTtsToolResult bubble with an
+   * `<audio controls>` element once the WAV is produced and loaded.
+   */
+  async waitForTtsAudio(timeout: number = MainPage.TEXT_TIMEOUT): Promise<void> {
+    await this.waitUntilIdle(timeout)
+    await this.assertNoGenerationError()
+    await expect(
+      this.ttsAudioPlayer.first(),
+      'the Text-to-Speech turn finished but produced no playable audio result',
+    ).toBeVisible({ timeout: 15_000 })
   }
 
   async lastAssistantText(): Promise<string> {

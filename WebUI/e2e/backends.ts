@@ -9,7 +9,7 @@ import type { BackendServiceName } from '@/assets/js/store/backendServices'
 export const BACKEND_DISPLAY_NAMES = {
   'ai-backend': 'AI Playground',
   'home-agent-backend': 'Home Agent',
-  'qwen3-tts-backend': 'Qwen3-TTS',
+  'qwen3-tts-backend': 'Text To Speech (Qwen3-TTS)',
   'llamacpp-backend': 'Llama.cpp - GGUF',
   'openvino-backend': 'OpenVINO',
   'comfyui-backend': 'ComfyUI',

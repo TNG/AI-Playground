@@ -5,7 +5,7 @@ import { AppShellPage } from './pages/AppShellPage'
 import { MainPage, type ChatMode } from './pages/MainPage'
 import { SpecificSettingsPage } from './pages/SpecificSettingsPage'
 import { DownloadDialogPage } from './pages/DownloadDialogPage'
-import { BACKENDS } from './backends'
+import { BACKENDS, BACKEND_DISPLAY_NAMES } from './backends'
 
 const FIXTURES_DIR = path.join(__dirname, 'fixtures')
 /** A real 768x512 PNG used as the input for edit / image-to-video / reference presets. */
@@ -82,6 +82,12 @@ export class AppDriver {
           })
         }
 
+        // Re-point every preset at the default GPU so tests run on a consistent
+        // device regardless of any device selections persisted from earlier runs.
+        // Applied on commit (continueOut) below; no-op where no GPU section is shown.
+        await test.step('Override all preset device selections to the default GPU', () =>
+          this.wizard.overrideDeviceSelections())
+
         await this.wizard.continueOut()
         await this.shell.expectRunning()
         // Leave a clean main view (the settings sidebar re-opens on return and
@@ -136,6 +142,20 @@ export class AppDriver {
       this.selectModeAndPreset('Chat', opts.preset))
     test.skip(!available, `Preset "${opts.preset}" is not available in this product mode`)
 
+    // Randomly run on llama.cpp or OpenVINO when the preset offers both. OpenVINO is
+    // only offered on Intel/OpenVINO product modes — in NVIDIA mode the app filters it
+    // out (SettingsChat.vue), so this is a clean no-op there and the default backend
+    // (llama.cpp) is used. Done while the settings sidebar is still open.
+    let chosenBackend = 'default'
+    const offered = await test.step('Read chat backends', () =>
+      this.settings.availableBackends('Chat'))
+    if (offered.includes('OpenVINO')) {
+      chosenBackend = Math.random() < 0.5 ? 'OpenVINO' : 'llamaCPP - GGUF'
+      await test.step(`Switch chat backend to ${chosenBackend}`, () =>
+        this.settings.selectBackend(chosenBackend, 'Chat'))
+    }
+    test.info().annotations.push({ type: 'chat-backend', description: chosenBackend })
+
     await this.settings.close('Chat')
 
     if (opts.attach === 'image') await this.main.attachChatFile(FIXTURE_IMAGE)
@@ -153,6 +173,54 @@ export class AppDriver {
       await this.main.waitForAssistantAnswer()
       expect(await this.main.lastAssistantText()).not.toEqual('')
       await this.main.assertWellFormedResponse()
+    })
+  }
+
+  /**
+   * Ensure the (feature-flagged, audio-only) Qwen3-TTS backend is installed. Kept
+   * out of {@link installAllBackends} on purpose: it pulls a heavy TTS model that
+   * only the Text-to-Speech test needs, so the other specs shouldn't pay for it.
+   * Opens the wizard, enables the backend if it's offered in this product mode, and
+   * installs it. Returns false (leaving the app running) when TTS isn't available —
+   * the feature flag is off or the mode doesn't offer it — so the caller can skip.
+   */
+  async ensureTtsBackendInstalled(): Promise<boolean> {
+    return test.step('Ensure the Text-to-Speech backend is installed', async () => {
+      await this.shell.openSetupWizard()
+      await this.wizard.expectVisible()
+      // Re-opening the wizard re-enables installed backends; keep Home Agent off so
+      // it doesn't divert to its setup page after install.
+      await this.wizard.disableBackend('Home Agent')
+
+      const ttsRow = BACKEND_DISPLAY_NAMES['qwen3-tts-backend']
+      const available = await this.wizard.isAvailable(ttsRow)
+      if (available) await this.wizard.enable(ttsRow)
+
+      // "Install & Continue" when TTS is pending, otherwise a no-op "Continue".
+      await this.wizard.installAndContinue()
+      await this.shell.expectRunning()
+      await this.shell.ensureSettingsClosed()
+      return available
+    })
+  }
+
+  /**
+   * Drive the "Text to Speech" preset: select it, type text, synthesize and assert a
+   * playable audio result is produced (no text reply — TTS answers with an audio
+   * bubble). Skips the test if the preset isn't offered in the current product mode.
+   */
+  async runTtsPreset(opts: { text: string }): Promise<void> {
+    const available = await test.step('Select Chat preset "Text to Speech"', () =>
+      this.selectModeAndPreset('Chat', 'Text to Speech'))
+    test.skip(!available, 'Preset "Text to Speech" is not available in this product mode')
+
+    await this.settings.close('Chat')
+
+    await test.step('Synthesize speech and expect an audio result', async () => {
+      await this.main.sendPrompt(opts.text)
+      // First synthesis may download the TTS model via the same dialog.
+      await this.resolveDownloadsOrSkip('the Text-to-Speech model')
+      await this.main.waitForTtsAudio()
     })
   }
 

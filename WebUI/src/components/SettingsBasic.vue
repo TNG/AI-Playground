@@ -475,11 +475,13 @@ const displayComponents = computed(() => {
     status: item.status as BackendStatus,
   }))
   // Cloud Mode is a frontend-only component (remote OpenAI-compatible provider),
-  // so it never appears in backendServices.info. Surface it here as "running"
-  // whenever the feature is enabled so the status panel reflects it like a backend.
-  if (cloudMode.isFeatureEnabled) {
-    components.push({ serviceName: 'cloud-mode', status: 'running' })
-  }
+  // so it never appears in backendServices.info. Always surface it here so the status
+  // panel lists it like a backend: "running" when the feature is enabled, otherwise
+  // "not installed" (rather than hiding the row entirely when it's off).
+  components.push({
+    serviceName: 'cloud-mode',
+    status: cloudMode.isFeatureEnabled ? 'running' : 'notInstalled',
+  })
   return components
 })
 

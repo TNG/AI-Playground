@@ -64,10 +64,8 @@ function cleanupSingletonLock(): void {
   }
 }
 
-export async function launchElectronApp(): Promise<ElectronApplication> {
-  const mainPath = resolveMainEntry()
+async function launchOnce(mainPath: string): Promise<ElectronApplication> {
   cleanupSingletonLock()
-
   return electron.launch({
     args: [mainPath],
     cwd: WEBUI_DIR,
@@ -81,6 +79,31 @@ export async function launchElectronApp(): Promise<ElectronApplication> {
     },
     timeout: 60_000,
   })
+}
+
+export async function launchElectronApp(): Promise<ElectronApplication> {
+  const mainPath = resolveMainEntry()
+
+  // Launch, then confirm the renderer window actually appears. A previous test's
+  // Electron (or its backend subprocesses) not being fully reaped can make the new
+  // instance hit the single-instance guard and quit with no window — especially on
+  // Windows, where the guard is a named mutex we can't clear from disk. That surfaces
+  // as "No Electron windows appeared within 30s". Rather than fail the test on this
+  // harness-level flake, tear the dud down and relaunch once.
+  const MAX_ATTEMPTS = 2
+  let lastError: unknown
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const app = await launchOnce(mainPath)
+    try {
+      await getMainWindow(app)
+      return app
+    } catch (error) {
+      lastError = error
+      await app.close().catch(() => {})
+      if (attempt < MAX_ATTEMPTS) await new Promise((r) => setTimeout(r, 3_000))
+    }
+  }
+  throw lastError
 }
 
 type E2EFixtures = {

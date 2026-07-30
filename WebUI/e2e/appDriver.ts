@@ -12,6 +12,8 @@ const FIXTURES_DIR = path.join(__dirname, 'fixtures')
 export const FIXTURE_IMAGE = path.join(FIXTURES_DIR, 'input.png')
 /** A small text document used as the RAG source for the "Chat with RAG" preset. */
 export const FIXTURE_DOC = path.join(FIXTURES_DIR, 'sample.txt')
+/** Same fact as {@link FIXTURE_DOC} but as a PDF, to cover the PDF ingestion path. */
+export const FIXTURE_DOC_PDF = path.join(FIXTURES_DIR, 'sample.pdf')
 
 /** What kind of media a ComfyUI preset is expected to produce. */
 export type ComfyOutput = 'image' | 'video' | 'model3d'
@@ -127,6 +129,8 @@ export class AppDriver {
     preset: string
     prompt: string
     attach?: 'image' | 'document'
+    /** Which RAG document format to attach when `attach === 'document'`. Defaults to txt. */
+    doc?: 'txt' | 'pdf'
   }): Promise<void> {
     const available = await test.step(`Select Chat preset "${opts.preset}"`, () =>
       this.selectModeAndPreset('Chat', opts.preset))
@@ -136,7 +140,7 @@ export class AppDriver {
 
     if (opts.attach === 'image') await this.main.attachChatFile(FIXTURE_IMAGE)
     if (opts.attach === 'document') {
-      await this.main.attachChatFile(FIXTURE_DOC)
+      await this.main.attachChatFile(opts.doc === 'pdf' ? FIXTURE_DOC_PDF : FIXTURE_DOC)
       // A RAG doc is indexed with an embedding model that may need downloading first.
       await this.resolveDownloadsOrSkip('the embedding model')
     }

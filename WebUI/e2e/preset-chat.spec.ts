@@ -10,6 +10,9 @@ type ChatCase = {
   preset: string
   prompt: string
   attach?: 'image' | 'document'
+  doc?: 'txt' | 'pdf'
+  /** Appended to the test title to distinguish same-preset variants (e.g. txt vs pdf). */
+  label?: string
 }
 
 const CHAT_PRESETS: ChatCase[] = [
@@ -27,15 +30,28 @@ const CHAT_PRESETS: ChatCase[] = [
     prompt:
       'According to the attached document, what is the secret passphrase for the AI Playground e2e suite?',
     attach: 'document',
+    doc: 'txt',
+    label: 'txt source',
+  },
+  {
+    preset: 'Chat with RAG',
+    prompt:
+      'According to the attached document, what is the secret passphrase for the AI Playground e2e suite?',
+    attach: 'document',
+    doc: 'pdf',
+    label: 'pdf source',
   },
 ]
 
 test.describe('Chat presets', () => {
-  for (const { preset, prompt, attach } of CHAT_PRESETS) {
-    test(`"${preset}" preset replies to a prompt`, async ({ app }) => {
+  for (const { preset, prompt, attach, doc, label } of CHAT_PRESETS) {
+    const title = label
+      ? `"${preset}" preset replies to a prompt (${label})`
+      : `"${preset}" preset replies to a prompt`
+    test(title, async ({ app }) => {
       test.setTimeout(40 * 60_000)
       await app.installAllBackends()
-      await app.runChatPreset({ preset, prompt, attach })
+      await app.runChatPreset({ preset, prompt, attach, doc })
     })
   }
 })

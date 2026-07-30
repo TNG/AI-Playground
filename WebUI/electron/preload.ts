@@ -89,6 +89,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('embedInputUsingRag', embedInquiry),
   getEmbeddingServerUrl: (serviceName: string) =>
     ipcRenderer.invoke('getEmbeddingServerUrl', serviceName),
+  ensureEmbeddingServerReady: (serviceName: string, embeddingModelName: string) =>
+    ipcRenderer.invoke('ensureEmbeddingServerReady', serviceName, embeddingModelName),
   getInitSetting: () => ipcRenderer.invoke('getInitSetting'),
   updateModelPaths: (modelPaths: ModelPaths) => ipcRenderer.invoke('updateModelPaths', modelPaths),
   restorePathsSettings: () => ipcRenderer.invoke('restorePathsSettings'),

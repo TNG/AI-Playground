@@ -264,6 +264,27 @@ export class LlamaCppBackendService implements ApiService {
   }
 
   /**
+   * Start (or reuse) ONLY the embedding server, without touching the LLM server.
+   * Used by Cloud Mode RAG: the chat LLM is remote, but embeddings must run on a
+   * local server. Mirrors the embedding branch of ensureBackendReadiness.
+   */
+  async ensureEmbeddingServerReady(embeddingModelName: string): Promise<void> {
+    const needsEmbeddingRestart =
+      this.currentEmbeddingModel !== embeddingModelName || !this.llamaEmbeddingProcess?.isReady
+
+    if (needsEmbeddingRestart) {
+      await this.stopLlamaEmbeddingServer()
+      await this.startLlamaEmbeddingServer(embeddingModelName)
+      this.appLogger.info(`Embedding server ready with model: ${embeddingModelName}`, this.name)
+    } else {
+      this.appLogger.info(
+        `Embedding server already running with model: ${embeddingModelName}`,
+        this.name,
+      )
+    }
+  }
+
+  /**
    * Get the embedding server URL if an embedding server is running
    * @returns The embedding server base URL, or null if no embedding server is running
    */

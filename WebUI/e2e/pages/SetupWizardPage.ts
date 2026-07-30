@@ -82,6 +82,23 @@ export class SetupWizardPage {
     }
   }
 
+  /**
+   * Turn on "Override existing preset device selections" in the Default GPU section,
+   * so committing the wizard re-points every preset at the default GPU. The switch is
+   * a role=switch button with no accessible name of its own (its caption lives in a
+   * sibling span), so it's located via the wrapping <label>. No-op when the section
+   * isn't shown — e.g. no selectable GPUs in this environment.
+   */
+  async overrideDeviceSelections(): Promise<void> {
+    const toggle = this.page
+      .locator('label', { hasText: 'Override existing preset device selections' })
+      .getByRole('switch')
+    if ((await toggle.count()) === 0) return
+    if (await toggle.isChecked()) return
+    await toggle.click()
+    await expect(toggle).toBeChecked()
+  }
+
   /** The single wizard CTA: "Install & Continue" (installs pending) or "Continue". */
   get primaryButton(): Locator {
     return this.page.getByRole('button', { name: /^(Install & Continue|Continue)$/ })

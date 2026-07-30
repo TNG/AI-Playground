@@ -12,7 +12,9 @@ const AGENTIC_PRESET = 'Agentic'
 
 const PROMPTS = {
   haiku: 'Write a haiku about a friendly, goofy surfer-dude lizard.',
-  toImage: 'Now turn that haiku into an image.',
+  // Pin the "Draft Image" preset (fast SD1.5, 512x512) so this cheap gate uses the
+  // quickest image path rather than whatever preset the agent would otherwise pick.
+  toImage: 'Now turn that haiku into an image using the "Draft Image" preset.',
 }
 
 test.describe('Agentic smoke', () => {

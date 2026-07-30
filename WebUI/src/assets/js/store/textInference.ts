@@ -317,11 +317,30 @@ export const useTextInference = defineStore(
       console.log('activeModel changed', newActiveModel)
       return newActiveModel
     })
+    // The local backend used to compute RAG embeddings. For a local chat backend
+    // this is the chat backend itself. In Cloud Mode the chat LLM is remote and
+    // cannot embed, so fall back to a local backend that has an embedding model —
+    // preferring one whose service is already set up. This lets documents be
+    // embedded/retrieved locally while chatting with a remote model.
+    const localEmbeddingBackends = ['llamaCPP', 'openVINO'] as const
+    const embeddingBackend = computed<Exclude<LlmBackend, 'cloud'>>(() => {
+      if (backend.value !== 'cloud') return backend.value
+      const hasEmbeddingModel = (b: Exclude<LlmBackend, 'cloud'>) =>
+        llmEmbeddingModels.value.some((m) => m.type === b)
+      const isSetUp = (b: Exclude<LlmBackend, 'cloud'>) =>
+        backendServices.info.find((s) => s.serviceName === backendToService[b])?.isSetUp === true
+      return (
+        localEmbeddingBackends.find((b) => isSetUp(b) && hasEmbeddingModel(b)) ??
+        localEmbeddingBackends.find((b) => hasEmbeddingModel(b)) ??
+        localEmbeddingBackends.find((b) => isSetUp(b)) ??
+        'llamaCPP'
+      )
+    })
+
     const activeEmbeddingModel: Ref<string | undefined> = computed(() => {
       const newActiveEmbeddingModel = llmEmbeddingModels.value
-        .filter((m) => m.type === backend.value)
+        .filter((m) => m.type === embeddingBackend.value)
         .find((m) => m.active)?.name
-      console.log(llmEmbeddingModels)
       console.log('activeEmbeddingModel changed', newActiveEmbeddingModel)
       return newActiveEmbeddingModel
     })
@@ -575,11 +594,16 @@ export const useTextInference = defineStore(
     })
 
     async function getDownloadParamsForCurrentModelIfRequired(type: 'llm' | 'embedding') {
-      // Cloud Mode models are served remotely; there is nothing to download.
-      if (backend.value === 'cloud') return []
-      // Narrow away 'cloud' (handled above) so the local-backend lookup maps
-      // below — which only have llamaCPP/openVINO keys — type-check.
-      const localBackend = backend.value as Exclude<LlmBackend, 'cloud'>
+      // Cloud Mode chat LLMs are served remotely — nothing to download. Embedding
+      // models, however, run on a LOCAL backend even in Cloud Mode (see
+      // embeddingBackend), so an embedding download can still be required.
+      if (backend.value === 'cloud' && type === 'llm') return []
+      // For embeddings, resolve against the (possibly local-fallback) embedding
+      // backend; for the LLM, use the chat backend (never 'cloud' here).
+      const localBackend =
+        type === 'embedding'
+          ? embeddingBackend.value
+          : (backend.value as Exclude<LlmBackend, 'cloud'>)
       let model: string | undefined
       if (type === 'llm') {
         model = activeModel.value
@@ -601,7 +625,9 @@ export const useTextInference = defineStore(
           backend: backendName,
         },
       ]
-      if (modelMetaData?.mmproj) {
+      // The multimodal projector only applies to a vision LLM — never pull it for
+      // an embedding-only download (its "active model" lookup is incidental here).
+      if (type === 'llm' && modelMetaData?.mmproj) {
         checkList.push({
           repo_id: modelMetaData.mmproj,
           type: backendToAipgModelType[localBackend],
@@ -695,27 +721,22 @@ export const useTextInference = defineStore(
       if (checkedRagList.length === 0) {
         throw new Error('No documents selected')
       }
-      if (!currentBackendUrl.value) {
-        throw new Error('Backend service not found')
-      }
       if (!activeEmbeddingModel.value) {
         throw new Error('No embedding model selected')
       }
 
-      // For llamaCPP and openVINO backends, get the embedding server URL (runs on different port)
-      let backendBaseUrl = currentBackendUrl.value
-      if (backend.value === 'llamaCPP' || backend.value === 'openVINO') {
-        const serviceName = backendToService[backend.value]
-        const embeddingUrlResult = await window.electronAPI.getEmbeddingServerUrl(serviceName)
-        if (embeddingUrlResult.success && embeddingUrlResult.url) {
-          backendBaseUrl = embeddingUrlResult.url
-        } else {
-          throw new Error(
-            embeddingUrlResult.error ||
-              'Embedding server not available. Please ensure the embedding model is loaded.',
-          )
-        }
+      // Embeddings always run on a LOCAL backend's embedding server (its own
+      // port), even in Cloud Mode where the chat LLM is remote. Resolve that
+      // server's URL from the embedding backend rather than the chat backend.
+      const serviceName = backendToService[embeddingBackend.value]
+      const embeddingUrlResult = await window.electronAPI.getEmbeddingServerUrl(serviceName)
+      if (!embeddingUrlResult.success || !embeddingUrlResult.url) {
+        throw new Error(
+          embeddingUrlResult.error ||
+            'Embedding server not available. Please ensure the embedding model is loaded.',
+        )
       }
+      const backendBaseUrl = embeddingUrlResult.url
 
       const newEmbedInquiry: EmbedInquiry = {
         prompt: prompt,
@@ -761,9 +782,11 @@ export const useTextInference = defineStore(
       try {
         ragRetrievalState.inProgress = true
 
-        // For llamaCPP and openVINO, ensure embedding server is ready before attempting RAG retrieval
-        if (backend.value === 'llamaCPP' || backend.value === 'openVINO') {
-          const serviceName = backendToService[backend.value]
+        // Embeddings always run on a LOCAL embedding server (see embeddingBackend),
+        // even in Cloud Mode. Ensure a model is selected and the server is up
+        // before attempting retrieval, skipping RAG gracefully otherwise.
+        {
+          const serviceName = backendToService[embeddingBackend.value]
           if (!activeEmbeddingModel.value) {
             console.warn('No embedding model selected for RAG, skipping RAG retrieval')
             ragRetrievalState.inProgress = false
@@ -1168,12 +1191,42 @@ export const useTextInference = defineStore(
       })
     }
 
+    // Cloud Mode RAG: the chat LLM is remote and cannot embed, so bring up a
+    // LOCAL embedding server (embeddingBackend) to embed documents + the query
+    // before sending retrieved snippets to the remote model. No local LLM is
+    // started. Missing/undownloaded models are handled by checkModelAvailability
+    // (which prompts a download) ahead of this call; a truly absent local
+    // embedding model surfaces a toast and RAG is skipped downstream.
+    async function ensureCloudRagEmbeddingServer() {
+      const embeddingModelName = activeEmbeddingModel.value
+      if (!embeddingModelName) {
+        toast.error(
+          'RAG needs a local embedding model. Install one to use documents with Cloud Mode.',
+        )
+        return
+      }
+      const serviceName = backendToService[embeddingBackend.value]
+      startBackendPreparation()
+      try {
+        await backendServices.ensureEmbeddingServerReady(serviceName, embeddingModelName)
+        completeBackendPreparation()
+      } catch (error) {
+        completeBackendPreparation()
+        toast.error(error instanceof Error ? error.message : String(error))
+        throw error
+      }
+    }
+
     async function prepareBackendIfNeeded() {
       console.log('in prepareBackendIfNeeded')
 
-      // Cloud Mode: nothing to start, load, or device-select. The remote
-      // provider is reached directly via currentBackendUrl.
-      if (backend.value === 'cloud') return
+      // Cloud Mode: the chat LLM is remote — nothing to start, load, or
+      // device-select for chat. But when RAG is active we still need a LOCAL
+      // embedding server running to embed docs + query (see embeddingBackend).
+      if (backend.value === 'cloud') {
+        if (willUseRag.value) await ensureCloudRagEmbeddingServer()
+        return
+      }
 
       // Handle NPU device selection if preset locks to NPU
       // This must happen before backend readiness check

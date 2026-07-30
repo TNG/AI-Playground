@@ -1781,6 +1781,31 @@ export class OpenVINOBackendService implements ApiService {
   }
 
   /**
+   * Start (or reuse) ONLY the embedding server, without touching the LLM server.
+   * Used by Cloud Mode RAG: the chat LLM is remote, but embeddings must run on a
+   * local server. Mirrors the embedding branch of ensureBackendReadiness.
+   */
+  async ensureEmbeddingServerReady(embeddingModelName: string): Promise<void> {
+    if (process.platform === 'linux') {
+      await this.ensureLinuxRuntimeDependenciesForStartup()
+    }
+
+    const needsEmbeddingRestart =
+      this.currentEmbeddingModel !== embeddingModelName || !this.ovmsEmbeddingProcess?.isReady
+
+    if (needsEmbeddingRestart) {
+      await this.stopOvmsEmbeddingServer()
+      await this.startOvmsEmbeddingServer(embeddingModelName)
+      this.appLogger.info(`Embedding server ready with model: ${embeddingModelName}`, this.name)
+    } else {
+      this.appLogger.info(
+        `Embedding server already running with model: ${embeddingModelName}`,
+        this.name,
+      )
+    }
+  }
+
+  /**
    * Get the embedding server URL if an embedding server is running
    * @returns The embedding server base URL, or null if no embedding server is running
    */

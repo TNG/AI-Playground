@@ -106,8 +106,11 @@ async function detectIntelGpusViaLspci(): Promise<GpuHardwareDevice[]> {
         // would truncate to just "DG2").
         const nameMatch = line.match(/Intel Corporation (.+?)\s*\[8086:/)
         if (deviceMatch) {
+          // The PCI bus address (first token, e.g. "03:00.0") is unique per
+          // card, keeping two identical Intel GPUs distinguishable on Linux.
+          const busId = line.trim().split(/\s+/)[0]
           devices.push({
-            device: 'INTEL_GPU_LSPCI',
+            device: busId ? `INTEL_GPU_LSPCI:${busId}` : 'INTEL_GPU_LSPCI',
             name: nameMatch ? nameMatch[1].trim() : 'Intel GPU',
             gpuDeviceId: `0x${deviceMatch[1].toUpperCase()}`,
           })
@@ -144,7 +147,10 @@ export function parsePowerShellGpuOutput(output: string): GpuHardwareDevice[] {
     if (!m) continue
     const devId = `0x${m[1].toUpperCase()}`
     devices.push({
-      device: `INTEL_GPU_PNP`,
+      // The full PNP instance path is unique per physical card, so two
+      // identically-named GPUs (e.g. dual Arc Pro B60) stay distinguishable
+      // even though this fallback carries no UUID.
+      device: `INTEL_GPU_PNP:${pnp.toUpperCase()}`,
       name: entry.Name,
       gpuDeviceId: devId,
     })

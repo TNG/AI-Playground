@@ -131,10 +131,11 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
   const wizardActivity = ref(new Map<BackendServiceName, string>())
 
-  // Preferred-device picker on the wizard's first page. Pre-install we only have
+  // Preferred-GPU picker on the wizard's first page. Pre-install we only have
   // the raw GPU probe, so options are the detected GPUs (labeled dedicated /
-  // integrated) plus a CPU-only choice. The selection is persisted as a
-  // machine-wide preference and each backend maps it to its own device on install.
+  // integrated); when none are found the picker is hidden entirely. The selection
+  // is persisted as a machine-wide preference and each backend maps it to its own
+  // device on install.
   const DEVICE_CATEGORY_RANK: Record<DeviceCategory, number> = {
     dgpu: 4,
     igpu: 3,
@@ -154,35 +155,33 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   // identically-named GPUs don't collide and the selection stays stable.
   function preferredDeviceKey(pref: PreferredDevice | null): string | null {
     if (!pref) return null
-    return pref.kind === 'cpu' ? 'cpu' : `gpu:${pref.uuid ?? pref.gpuDeviceId ?? pref.name}`
+    return `gpu:${pref.uuid ?? pref.instanceId ?? pref.gpuDeviceId ?? pref.name}`
   }
 
   const preferredDeviceOptions = computed<PreferredDeviceOption[]>(() => {
     const detected = productModeStore.hardwareRecommendation?.detectedDevices ?? []
     const gpuOptions: PreferredDeviceOption[] = detected
-      .map((d) => ({
-        key: `gpu:${d.uuid ?? d.gpuDeviceId ?? d.name}`,
-        label: d.name,
-        category: d.category ?? ('igpu' as DeviceCategory),
-        value: {
-          kind: 'gpu' as const,
+      .map((d) => {
+        const value: PreferredDevice = {
           name: d.name,
           gpuDeviceId: d.gpuDeviceId,
           uuid: d.uuid ?? null,
-        },
-      }))
+          // Carry the probe's per-instance id so two identically-named GPUs
+          // (e.g. dual Arc Pro B60) get distinct keys and stay independently
+          // selectable even without a UUID.
+          instanceId: d.device,
+        }
+        return {
+          key: preferredDeviceKey(value)!,
+          label: d.name,
+          category: d.category ?? ('igpu' as DeviceCategory),
+          value,
+        }
+      })
       .sort((a, b) => DEVICE_CATEGORY_RANK[b.category] - DEVICE_CATEGORY_RANK[a.category])
-    // CPU is only ever honored by OpenVINO and is pointless in GPU-only
-    // configurations (e.g. CUDA/nvidia mode), so only offer it as a last
-    // resort when no GPU was detected — otherwise the list would be empty.
-    if (gpuOptions.length > 0) return gpuOptions
-    const cpuOption: PreferredDeviceOption = {
-      key: 'cpu',
-      label: 'CPU only',
-      category: 'cpu',
-      value: { kind: 'cpu' as const },
-    }
-    return [cpuOption]
+    // GPU-only picker: when no GPU is detected the list is empty and the wizard
+    // hides the "Default GPU" section entirely (there is nothing to choose).
+    return gpuOptions
   })
 
   /** Best default preference: the highest-category detected device, else CPU. */
@@ -199,18 +198,15 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   // Default off; the toggle is only offered when a preset actually has a pick.
   const overrideExistingDeviceSelection = ref(false)
 
-  /** Best device on `serviceName` matching the chosen preferred device:
-   *  UUID first (deterministic), then name (exact → substring → first GPU) for a
-   *  GPU, or the CPU device for a CPU preference. undefined if nothing detected. */
+  /** Best device on `serviceName` matching the chosen preferred GPU:
+   *  UUID first (deterministic), then name (exact → substring → first GPU).
+   *  undefined if nothing detected. */
   function matchDeviceForService(
     serviceName: BackendServiceName,
     pref: PreferredDevice,
   ): InferenceDevice | undefined {
     const devices = backendServices.info.find((s) => s.serviceName === serviceName)?.devices ?? []
     if (devices.length === 0) return undefined
-    if (pref.kind === 'cpu') {
-      return devices.find((d) => d.id.toUpperCase() === 'CPU' || d.name.toUpperCase() === 'CPU')
-    }
     if (pref.uuid) {
       const byUuid = devices.find((d) => d.uuid != null && d.uuid === pref.uuid)
       if (byUuid) return byUuid
@@ -244,7 +240,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
    *  (ComfyUI) presets use a separate store and are intentionally not touched. */
   async function overwritePresetDeviceSelections(pref: PreferredDevice) {
     const activeName = presetsStore.activePresetName
-    const prefUuid = pref.kind === 'gpu' ? (pref.uuid ?? null) : null
+    const prefUuid = pref.uuid ?? null
     const chatPresets = presetsStore.presets.filter((p): p is ChatPreset => p.type === 'chat')
 
     // At wizard-commit time an installed backend may report no devices yet,

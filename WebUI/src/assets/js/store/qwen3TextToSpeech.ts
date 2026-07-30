@@ -23,6 +23,9 @@ export const useQwen3TextToSpeech = defineStore(
     const defaultLanguage = ref<Qwen3TtsLanguage>('Auto')
     /** `voice_design` uses natural-language voice descriptions via `instruct`. */
     const defaultMode = ref<Qwen3TtsSynthesisMode>('custom_voice')
+    /** Free-form voice description used when `mode === 'voice_design'` and no per-call
+     *  `instruct` is supplied (e.g. the direct-synthesis TTS preset). */
+    const defaultInstruct = ref<string>('')
 
     async function ensureBackendRunning(): Promise<string> {
       const info = backendServices.info.find((s) => s.serviceName === 'qwen3-tts-backend')
@@ -50,12 +53,14 @@ export const useQwen3TextToSpeech = defineStore(
       mode?: Qwen3TtsSynthesisMode
     }): Promise<Qwen3TtsSynthesizeResult> {
       const baseUrl = await ensureBackendRunning()
+      const mode = args.mode ?? defaultMode.value
       const body = {
         text: args.text,
         language: args.language ?? defaultLanguage.value,
         speaker: args.speaker ?? defaultSpeaker.value,
-        instruct: args.instruct,
-        mode: args.mode ?? defaultMode.value,
+        // For voice_design fall back to the saved description when the caller omits one.
+        instruct: args.instruct ?? (mode === 'voice_design' ? defaultInstruct.value : undefined),
+        mode,
       }
       const response = await qwen3TtsFetch(`${baseUrl}/api/synthesize`, {
         method: 'POST',
@@ -113,6 +118,7 @@ export const useQwen3TextToSpeech = defineStore(
       defaultSpeaker,
       defaultLanguage,
       defaultMode,
+      defaultInstruct,
       isFeatureEnabled,
       synthesize,
       saveWavToDisk,
@@ -124,7 +130,7 @@ export const useQwen3TextToSpeech = defineStore(
   {
     persist: {
       storage: demoAwareStorage,
-      pick: ['defaultSpeaker', 'defaultLanguage', 'defaultMode'],
+      pick: ['defaultSpeaker', 'defaultLanguage', 'defaultMode', 'defaultInstruct'],
     },
   },
 )

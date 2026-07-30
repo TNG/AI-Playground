@@ -61,6 +61,49 @@ export class SpecificSettingsPage {
     return count
   }
 
+  /**
+   * The chat "Backend" picker trigger (a DropDownNew button). Present only when the
+   * active preset allows more than one backend (see SettingsChat.vue `isBackendLocked`);
+   * located via its "Backend" label row inside the settings region.
+   */
+  private backendTrigger(mode: ChatMode): Locator {
+    return this.panel(mode).locator('div.grid', { hasText: 'Backend' }).getByRole('button')
+  }
+
+  /**
+   * Backend labels offered by the picker (e.g. 'llamaCPP - GGUF', 'OpenVINO'), or an
+   * empty list when the preset is locked to one backend / the picker isn't shown.
+   * Opens and closes the dropdown without changing the selection.
+   */
+  async availableBackends(mode: ChatMode = 'Chat'): Promise<string[]> {
+    const trigger = this.backendTrigger(mode)
+    if (!(await trigger.isVisible().catch(() => false))) return []
+    await trigger.click()
+    const menu = this.page.getByRole('menu')
+    await menu.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {})
+    const labels = (await menu.getByRole('menuitem').allInnerTexts())
+      .map((l) => l.trim())
+      .filter(Boolean)
+    await this.page.keyboard.press('Escape')
+    await menu.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {})
+    return labels
+  }
+
+  /**
+   * Select a chat backend by its picker label and wait for the switch to land (the
+   * trigger's label reflects the active backend). Must be called with the settings
+   * sidebar open. Switching backend can kick off a backend (re)start, so callers
+   * should let the app settle (and resolve any model-download dialog) before sending.
+   */
+  async selectBackend(label: string, mode: ChatMode = 'Chat'): Promise<void> {
+    const trigger = this.backendTrigger(mode)
+    await trigger.click()
+    const menu = this.page.getByRole('menu')
+    await menu.getByRole('menuitem', { name: label, exact: true }).click()
+    await menu.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {})
+    await expect(trigger).toContainText(label, { timeout: 15_000 })
+  }
+
   /** Close the sidebar via its (responsive) Close button, scoped to the sidebar
    *  region so it can't match the header's window-close (X) button. */
   async close(mode: ChatMode = 'Chat'): Promise<void> {

@@ -38,6 +38,8 @@ import { LanguageModelV2ToolResultOutput, JSONSchema7 } from '@ai-sdk/provider'
 import { dynamicTool, jsonSchema } from '@ai-sdk/provider-utils'
 import { imageUrlToDataUri } from '@/lib/utils'
 import { getHomeAgentAuthToken, invalidateHomeAgentAuthToken } from '@/lib/loopbackAuth'
+import { useQwen3TextToSpeech } from './qwen3TextToSpeech'
+import { buildTtsAudioFileName, conversationLabelForTtsFile } from '@/lib/ttsAudioFileName'
 
 // Web tools that share browseWeb's single "Browse the web" enablement toggle:
 // they all act on the same background browser browseWeb drives.
@@ -1158,6 +1160,93 @@ export const useOpenAiCompatibleChat = defineStore(
       }
     }
 
+    /**
+     * Direct Text-to-Speech turn (no LLM). Used when the active preset is a TTS
+     * preset: synthesize the typed text with Qwen3-TTS and append the same
+     * `tool-synthesizeTextToSpeech` assistant part the agentic tool emits, so the
+     * chat renders a ChatTtsToolResult audio bubble. Voice/language/mode come from
+     * the shared qwen3TextToSpeech store (edited in SettingsTts).
+     */
+    async function synthesizeDirect(
+      question: string,
+      targetKey: string,
+      opts: { clearInputs: boolean; sideChannel: boolean },
+    ): Promise<void> {
+      const qwen3 = useQwen3TextToSpeech()
+      let output: {
+        ok: boolean
+        message: string
+        savedFilePath: string
+        speaker: string
+        language: string
+        mode: string
+      }
+      try {
+        const result = await qwen3.synthesize({ text: question })
+        const label = conversationLabelForTtsFile({
+          conversationKey: targetKey,
+          messages: getMessagesForKey(targetKey),
+          threadMeta: conversations.getThreadMeta(targetKey),
+        })
+        const fileName = buildTtsAudioFileName({
+          conversationKey: targetKey,
+          conversationLabel: label,
+        })
+        const savedFilePath = await qwen3.saveWavToDisk(result.audioBase64, fileName)
+        output = {
+          ok: true,
+          message: `Synthesized ${result.mode} speech (${result.language}, ${result.speaker}).`,
+          savedFilePath,
+          speaker: result.speaker,
+          language: result.language,
+          mode: result.mode,
+        }
+      } catch (error) {
+        // Keep the prompt for a retry (ensureBackendRunning throws a friendly
+        // "not installed" message when the backend is missing).
+        errors.report(error, {
+          category: 'inference',
+          code: 'inference/tts-failed',
+          userMessage: `Text To Speech failed: ${extractMessage(error)}`,
+          surface: opts.sideChannel ? 'silent' : 'toast',
+          context: { conversationKey: targetKey },
+        })
+        return
+      }
+
+      const chat = getOrCreateChat(targetKey)
+      // Cast to the message type: the AI SDK's inferred tool-UI-part shape is wider
+      // than what we construct by hand, but this part mirrors exactly what the tool
+      // produces (see synthesizeTextToSpeech + toolMessageSanitize fixtures).
+      const userMessage = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        parts: [{ type: 'text', text: question }],
+        metadata: { timestamp: Date.now() },
+      } as unknown as AipgUiMessage
+      const assistantMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        parts: [
+          {
+            type: 'tool-synthesizeTextToSpeech',
+            toolCallId: crypto.randomUUID(),
+            state: 'output-available',
+            input: { text: question },
+            output,
+          },
+        ],
+        metadata: { model: 'Qwen TTS', timestamp: Date.now() },
+      } as unknown as AipgUiMessage
+      chat.messages.push(userMessage, assistantMessage)
+      conversations.updateConversation(chat.messages, targetKey)
+
+      if (opts.clearInputs) {
+        messageInput.value = ''
+        fileInput.value = []
+      }
+    }
+
     async function generate(question: string, options?: GenerateOptions) {
       const sideChannel = options?.conversationKey !== undefined
       const targetKey = sideChannel ? options.conversationKey! : conversations.activeKey
@@ -1181,6 +1270,13 @@ export const useOpenAiCompatibleChat = defineStore(
         manuallyStopped.value = false
         // Clear any prior failure so consumeTurnError only ever reflects this turn.
         turnErrors.delete(targetKey)
+
+        // TTS preset: synthesize directly from the typed text, bypassing the LLM
+        // entirely (no model load, no tool calling).
+        if (textInference.activePreset?.ttsPreset) {
+          await synthesizeDirect(question, targetKey, { clearInputs, sideChannel })
+          return
+        }
 
         // 2. Block if images attached to non-vision model (UI path only). Validate
         //    before touching the backend so we don't load a model just to reject.

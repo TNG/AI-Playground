@@ -301,20 +301,19 @@ const appSize = {
 }
 const ThemeSchema = z.enum(['dark', 'lnl', 'bmg', 'light'])
 const ProductModeSchema = z.enum(['studio', 'essentials', 'nvidia'])
-// User's preferred inference device, captured in the setup wizard. A GPU is
-// identified by name (+ PCI id when known) so it can be matched to each backend's
-// own device enumeration; 'cpu' means "prefer CPU only" (best-effort per backend).
-const PreferredDeviceSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('gpu'),
-    name: z.string(),
-    gpuDeviceId: z.string().nullable(),
-    // Stable vendor UUID when the pre-install probe supplied one; preferred over
-    // name/PCI when matching this device onto a backend's own detected list.
-    uuid: z.string().nullable().optional(),
-  }),
-  z.object({ kind: z.literal('cpu') }),
-])
+// User's preferred GPU, captured in the setup wizard. Identified by name
+// (+ PCI id when known) so it can be matched to each backend's own device
+// enumeration.
+const PreferredDeviceSchema = z.object({
+  name: z.string(),
+  gpuDeviceId: z.string().nullable(),
+  // Stable vendor UUID when the pre-install probe supplied one; preferred over
+  // name/PCI when matching this device onto a backend's own detected list.
+  uuid: z.string().nullable().optional(),
+  // Per-instance probe id (GpuHardwareDevice.device); disambiguates two
+  // identically-named GPUs in the wizard when no UUID is available.
+  instanceId: z.string().optional(),
+})
 export type PreferredDevice = z.infer<typeof PreferredDeviceSchema>
 
 const LocalSettingsSchema = z.object({
@@ -1867,6 +1866,47 @@ function initEventHandle() {
 
       // For other backends, return the base URL (they might use the same server)
       return { success: true, url: service.baseUrl }
+    },
+  )
+
+  ipcMain.handle(
+    'ensureEmbeddingServerReady',
+    async (_event: IpcMainInvokeEvent, serviceName: string, embeddingModelName: string) => {
+      if (!serviceRegistry) {
+        return { success: false, error: 'Service registry not ready' }
+      }
+      const service = serviceRegistry.getService(serviceName)
+      if (!service) {
+        return { success: false, error: `Service ${serviceName} not found` }
+      }
+
+      // Only the local LLM backends (llamaCPP / openVINO) can host an embedding
+      // server. Used by Cloud Mode RAG to embed locally while chatting remotely.
+      if (
+        'ensureEmbeddingServerReady' in service &&
+        typeof service.ensureEmbeddingServerReady === 'function'
+      ) {
+        try {
+          await service.ensureEmbeddingServerReady(embeddingModelName)
+          appLogger.info(
+            `Embedding server ready for ${serviceName} with model: ${embeddingModelName}`,
+            'electron-backend',
+          )
+          return { success: true }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          appLogger.error(
+            `Failed to ensure embedding server ready for ${serviceName}: ${errorMessage}`,
+            'electron-backend',
+          )
+          return { success: false, error: errorMessage }
+        }
+      }
+
+      return {
+        success: false,
+        error: `Service ${serviceName} does not support a standalone embedding server`,
+      }
     },
   )
 

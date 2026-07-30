@@ -11,7 +11,6 @@ import { useTextInference } from '../store/textInference'
 import { usePresetSwitching } from '../store/presetSwitching'
 import { usePromptStore } from '../store/promptArea'
 import { useDeveloperSettings } from '../store/developerSettings'
-import { useTextInference } from '../store/textInference'
 import { stopChatBackends, restartChatBackend } from './chatBackends'
 import {
   DEFAULT_RESOLUTION_CONFIG,

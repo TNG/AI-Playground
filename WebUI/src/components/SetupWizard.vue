@@ -135,31 +135,29 @@
                     </svg>
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuRadioGroup
-                    :model-value="wizard.preferredDeviceKey(wizard.pendingPreferredDevice) ?? ''"
-                    @update:model-value="onSelectPreferredDevice"
+                <DropdownMenuContent
+                  align="start"
+                  class="w-[var(--reka-dropdown-menu-trigger-width)] min-w-0"
+                >
+                  <DropdownMenuItem
+                    v-for="option in wizard.preferredDeviceOptions"
+                    :key="option.key"
+                    @select="onSelectPreferredDevice(option.key)"
                   >
-                    <DropdownMenuRadioItem
-                      v-for="option in wizard.preferredDeviceOptions"
-                      :key="option.key"
-                      :value="option.key"
-                    >
-                      <span class="min-w-0">
-                        <span class="block text-xs font-medium truncate">{{ option.label }}</span>
-                        <span
-                          v-if="option.category === 'dgpu' || option.category === 'igpu'"
-                          class="block text-[9px] font-semibold uppercase tracking-wider text-muted-foreground"
-                        >
-                          {{
-                            option.category === 'dgpu'
-                              ? languages.SETUP_WIZARD_DEVICE_DEDICATED || 'Dedicated GPU'
-                              : languages.SETUP_WIZARD_DEVICE_INTEGRATED || 'Integrated GPU'
-                          }}
-                        </span>
+                    <span class="min-w-0">
+                      <span class="block text-xs font-medium truncate">{{ option.label }}</span>
+                      <span
+                        v-if="option.category === 'dgpu' || option.category === 'igpu'"
+                        class="block text-[9px] font-semibold uppercase tracking-wider text-muted-foreground"
+                      >
+                        {{
+                          option.category === 'dgpu'
+                            ? languages.SETUP_WIZARD_DEVICE_DEDICATED || 'Dedicated GPU'
+                            : languages.SETUP_WIZARD_DEVICE_INTEGRATED || 'Integrated GPU'
+                        }}
                       </span>
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
+                    </span>
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
 
@@ -375,8 +373,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import PhisonAidaptivOptions from '@/components/PhisonAidaptivOptions.vue'

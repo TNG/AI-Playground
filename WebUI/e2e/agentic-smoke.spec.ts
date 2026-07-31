@@ -41,7 +41,9 @@ test.describe('Agentic smoke', () => {
 
     await test.step('Prompt 2: turn the haiku into an image → expect an image', async () => {
       await app.main.sendPrompt(PROMPTS.toImage)
-      await app.main.waitUntilIdle(MainPage.IMAGE_TIMEOUT)
+      // The agent pulls the Draft Image model mid-turn; confirm the download dialog
+      // when it appears, then wait for the generation to finish.
+      await app.waitForAgenticMediaTurn(MainPage.IMAGE_TIMEOUT)
       await app.main.assertNoGenerationError()
       await app.main.assertWellFormedResponse()
       expect(await app.main.generatedImages.count()).toBeGreaterThanOrEqual(1)

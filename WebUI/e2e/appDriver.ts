@@ -238,6 +238,36 @@ export class AppDriver {
   }
 
   /**
+   * Wait for an agentic media turn (image/video) to finish, confirming the model-
+   * download dialog each time the agent opens it mid-turn. Up-front resolution can't
+   * work here: unlike the direct ComfyUI flows (submit → resolve → wait), the agent
+   * only opens the dialog *after* it finishes reasoning and decides to generate —
+   * which can outlast the dialog's appearance window — and may open it more than
+   * once in a turn (e.g. a video step pulls several models). Skips the test when a
+   * required model is gated/unavailable rather than hanging on an unconfirmable
+   * dialog. Throws if the turn hasn't gone idle within `timeout`.
+   */
+  async waitForAgenticMediaTurn(timeout: number): Promise<void> {
+    const deadline = Date.now() + timeout
+    // Make sure the turn started before we start polling for idle, so we don't
+    // return before the agent has even begun working.
+    await this.main.expectTurnStarted()
+    while (Date.now() < deadline) {
+      if (await this.downloads.isOpen()) {
+        const outcome = await this.downloads.resolve(deadline - Date.now())
+        test.skip(
+          outcome === 'blocked',
+          'Skipping: a model needed for this generation is gated / unavailable without Hugging Face access',
+        )
+        continue
+      }
+      if (!(await this.main.isBusy())) return
+      await this.main.pause()
+    }
+    throw new Error(`Agentic media turn did not finish within ${timeout}ms`)
+  }
+
+  /**
    * Drive one ComfyUI preset (Image Gen / Image Edit / Video): select it, load the
    * fixture image into every reference-image slot when the preset needs one, submit,
    * and assert the expected media (image / video / 3D model) is produced without a

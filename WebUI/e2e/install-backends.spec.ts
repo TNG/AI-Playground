@@ -39,7 +39,9 @@ test.describe('Backend installation', () => {
 
     await test.step('Prompt 2: generate the lizard image → expect an image', async () => {
       await app.main.sendPrompt(PROMPTS.generateImage)
-      await app.main.waitUntilIdle(MainPage.IMAGE_TIMEOUT)
+      // The agent pulls the image model mid-turn; confirm the download dialog when
+      // it appears, then wait for the generation to finish.
+      await app.waitForAgenticMediaTurn(MainPage.IMAGE_TIMEOUT)
       await app.main.assertNoGenerationError()
       await app.main.assertWellFormedResponse()
       expect(await app.main.generatedImages.count()).toBeGreaterThanOrEqual(1)
@@ -47,7 +49,7 @@ test.describe('Backend installation', () => {
 
     await test.step('Prompt 3: edit the image (sunglasses + hair) → expect another image', async () => {
       await app.main.sendPrompt(PROMPTS.editImage)
-      await app.main.waitUntilIdle(MainPage.IMAGE_TIMEOUT)
+      await app.waitForAgenticMediaTurn(MainPage.IMAGE_TIMEOUT)
       await app.main.assertNoGenerationError()
       await app.main.assertWellFormedResponse()
       expect(await app.main.generatedImages.count()).toBeGreaterThanOrEqual(2)
@@ -55,7 +57,7 @@ test.describe('Backend installation', () => {
 
     await test.step('Prompt 4: animate the image with LTX → expect a video', async () => {
       await app.main.sendPrompt(PROMPTS.animateToVideo)
-      await app.main.waitUntilIdle(MainPage.VIDEO_TIMEOUT)
+      await app.waitForAgenticMediaTurn(MainPage.VIDEO_TIMEOUT)
       await app.main.assertNoGenerationError()
       await app.main.assertWellFormedResponse()
       expect(await app.main.generatedVideos.count()).toBeGreaterThanOrEqual(1)

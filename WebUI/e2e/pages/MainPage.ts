@@ -238,6 +238,29 @@ export class MainPage {
   }
 
   /**
+   * Confirm the turn actually started (busy control shown). Tolerates a very fast
+   * turn that finishes before the busy state is observed. Used by callers that then
+   * poll {@link isBusy} themselves (e.g. resolving a mid-turn download dialog).
+   */
+  async expectTurnStarted(): Promise<void> {
+    try {
+      await expect(this.busyButton).toBeVisible({ timeout: 20_000 })
+    } catch {
+      // A very fast turn may finish before the busy state is observed.
+    }
+  }
+
+  /** True while a turn is running (the busy/Stop control is present). */
+  async isBusy(): Promise<boolean> {
+    return this.busyButton.isVisible().catch(() => false)
+  }
+
+  /** Short pause between poll iterations. */
+  async pause(ms = 1_000): Promise<void> {
+    await this.page.waitForTimeout(ms)
+  }
+
+  /**
    * Wait until the last assistant turn has rendered a non-empty text answer, i.e.
    * the model has moved past reasoning/tool steps and actually replied. Prefer
    * this over relying on {@link waitUntilIdle} alone for text turns: the idle

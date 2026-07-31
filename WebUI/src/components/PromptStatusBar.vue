@@ -204,6 +204,13 @@ const fallbackChatPreset = computed<ChatPreset | null>(() => {
   return chatPresets.find((p) => p.name === lastUsed) ?? chatPresets[0]
 })
 
+// The direct Text-to-Speech preset runs the Qwen3-TTS backend, not an LLM. It's
+// still "chat" mode, so without this the bar would show the leftover chat model
+// (e.g. llama) and the chat backend's device. Treat it specially throughout.
+const isTtsPreset = computed(
+  () => (stableChatPreset.value ?? fallbackChatPreset.value)?.ttsPreset === true,
+)
+
 // Preset/model indicator shown at the left of the bar. Keyed off the user's
 // selected mode (not `currentMode`) so background comfy switches during
 // agentic / Home Agent tool use don't flip it.
@@ -213,7 +220,8 @@ const presetIndicator = computed(() => {
     if (!preset) return null
     // Match the ModelSelector label: display only the last path segment, and
     // drop the model-file extension (the backend badge now conveys the format).
-    const model = textInference.activeModel
+    // TTS has no LLM model, so leave it blank.
+    const model = isTtsPreset.value ? undefined : textInference.activeModel
     const lastSegment = model?.split('/').at(-1) ?? model
     return {
       image: preset.image,
@@ -238,6 +246,8 @@ const presetIndicator = computed(() => {
 // non-chat modes and for Cloud Mode (no local llama.cpp / OpenVINO engine).
 const chatBackendBadge = computed(() => {
   if (promptStore.userSelectedMode !== 'chat') return null
+  // TTS doesn't run on llama.cpp / OpenVINO, so no engine badge for it.
+  if (isTtsPreset.value) return null
   const backend = textInference.backend
   if (backend !== 'llamaCPP' && backend !== 'openVINO') return null
   return {
@@ -264,6 +274,7 @@ const chatBackendBadge = computed(() => {
 // Cloud Mode, or before device detection has reported a selection.
 const chatDeviceBadge = computed(() => {
   if (promptStore.userSelectedMode !== 'chat') return null
+  if (isTtsPreset.value) return ttsDeviceBadge.value
   const backend = textInference.backend
   if (backend !== 'llamaCPP' && backend !== 'openVINO') return null
   const serviceName = backendToService[backend]
@@ -285,6 +296,18 @@ const chatDeviceBadge = computed(() => {
       : 'gpu'
   const categoryLabel = category === 'npu' ? 'NPU' : category === 'cpu' ? 'CPU' : 'GPU'
   return { name: device.name || device.id, category, categoryLabel }
+})
+
+// Device badge for the TTS preset, read from the qwen3-tts-backend service. Its
+// device ids are QWEN3_TTS_DEVICE values ('xpu:N' / 'cuda:N' / 'cpu'), so an
+// xpu/cuda id is a GPU and anything else is CPU.
+const ttsDeviceBadge = computed(() => {
+  const info = backendServices.info.find((s) => s.serviceName === 'qwen3-tts-backend')
+  const selected = info?.devices.find((d) => d.selected)
+  if (!selected) return null
+  const category: 'gpu' | 'cpu' = /^(xpu|cuda)/i.test(selected.id) ? 'gpu' : 'cpu'
+  const categoryLabel = category === 'gpu' ? 'GPU' : 'CPU'
+  return { name: selected.name || selected.id, category, categoryLabel }
 })
 
 // The tooltip shows the base preset's description — same text as the quick

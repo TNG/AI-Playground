@@ -21,6 +21,13 @@
       ></drop-down-new>
     </div>
 
+    <!-- Hardware: which accelerator the TTS model loads on. Changing it restarts
+         the backend so the model reloads on the chosen device. -->
+    <div v-if="qwen3BackendSetUp" class="grid grid-cols-[120px_1fr] items-center gap-4">
+      <Label class="whitespace-nowrap">{{ languages.SETTINGS_INFERENCE_DEVICE }}</Label>
+      <device-selector backend="qwen3-tts-backend" name-only></device-selector>
+    </div>
+
     <!-- Synthesis mode: named speaker vs. free-form voice description. -->
     <div class="grid grid-cols-[120px_1fr] items-center gap-4">
       <Label class="whitespace-nowrap">Mode</Label>
@@ -74,6 +81,7 @@ import { computed } from 'vue'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import DropDownNew from '@/components/DropDownNew.vue'
+import DeviceSelector from '@/components/DeviceSelector.vue'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useQwen3TextToSpeech } from '@/assets/js/store/qwen3TextToSpeech'
 import { useBackendServices } from '@/assets/js/store/backendServices'

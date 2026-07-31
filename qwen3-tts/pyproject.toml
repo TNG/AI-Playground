@@ -8,9 +8,25 @@ dependencies = [
   "qwen-tts",
   "soundfile",
   "numpy",
+]
+
+# torch ships from a different index per accelerator, so it lives in mutually
+# exclusive extras (mirrors comfyui-deps). The Electron service installs exactly
+# one: 'cuda' in NVIDIA product mode, 'xpu' on Windows, 'cpu' elsewhere. triton-xpu
+# is Intel-only and must NOT be pulled for the CUDA build, so it lives in `xpu`.
+[project.optional-dependencies]
+xpu = [
   "torch>=2.12.0",
   "torchaudio>=2.11.0",
   "triton-xpu>=3.6.0; sys_platform == 'win32' or sys_platform == 'linux'",
+]
+cuda = [
+  "torch>=2.12.0",
+  "torchaudio>=2.11.0",
+]
+cpu = [
+  "torch>=2.12.0",
+  "torchaudio>=2.11.0",
 ]
 
 [tool.uv]
@@ -18,28 +34,44 @@ python-preference = "only-managed"
 link-mode = "clone"
 no-build = true
 index-strategy = "unsafe-best-match"
+# Hard ceiling: torch 2.13 breaks on Linux (driver issues), same as comfyui-deps.
+# Pins the CUDA extra to 2.12.x instead of letting the cu130 index pull 2.13.
+constraint-dependencies = ["torch<2.13"]
 required-environments = [
   "sys_platform == 'win32'",
   "sys_platform == 'darwin'",
   "sys_platform == 'linux'",
 ]
-override-dependencies = [
-  "torch>=2.12.0",
-  "torchaudio>=2.11.0",
+environments = [
+  "sys_platform == 'win32'",
+  "sys_platform == 'darwin'",
+  "sys_platform == 'linux'",
+]
+conflicts = [
+  [
+    { extra = "xpu" },
+    { extra = "cpu" },
+    { extra = "cuda" },
+  ],
 ]
 
-[tool.uv.pip]
-torch-backend = "xpu"
-
 [tool.uv.sources]
-torch = [{ index = "pytorch-xpu", marker = "sys_platform == 'win32'" },
-         { index = "pytorch-cpu", marker = "sys_platform == 'darwin'" },
-         { index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
-torchaudio = [{ index = "pytorch-xpu", marker = "sys_platform == 'win32'" },
-              { index = "pytorch-cpu", marker = "sys_platform == 'darwin'" },
-              { index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torch = [
+  { index = "pytorch-xpu", extra = "xpu", marker = "sys_platform != 'darwin'" },
+  { index = "pytorch-cuda", extra = "cuda", marker = "sys_platform != 'darwin'" },
+  { index = "pytorch-cpu", extra = "xpu", marker = "sys_platform == 'darwin'" },
+  { index = "pytorch-cpu", extra = "cuda", marker = "sys_platform == 'darwin'" },
+  { index = "pytorch-cpu", extra = "cpu" },
+]
+torchaudio = [
+  { index = "pytorch-xpu", extra = "xpu", marker = "sys_platform != 'darwin'" },
+  { index = "pytorch-cuda", extra = "cuda", marker = "sys_platform != 'darwin'" },
+  { index = "pytorch-cpu", extra = "xpu", marker = "sys_platform == 'darwin'" },
+  { index = "pytorch-cpu", extra = "cuda", marker = "sys_platform == 'darwin'" },
+  { index = "pytorch-cpu", extra = "cpu" },
+]
 triton-xpu = [
-  { index = "pytorch-xpu", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
+  { index = "pytorch-xpu", extra = "xpu", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
 ]
 
 [[tool.uv.index]]
@@ -50,4 +82,9 @@ explicit = true
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cuda"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true

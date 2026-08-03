@@ -10,7 +10,7 @@ import { BACKENDS, BACKEND_DISPLAY_NAMES } from './backends'
 const FIXTURES_DIR = path.join(__dirname, 'fixtures')
 /** A real 768x512 PNG used as the input for edit / image-to-video / reference presets. */
 export const FIXTURE_IMAGE = path.join(FIXTURES_DIR, 'input.png')
-/** A small text document used as the RAG source for the "Chat with RAG" preset. */
+/** A small text document used as the RAG source for the "Assistant" preset's RAG flow. */
 export const FIXTURE_DOC = path.join(FIXTURES_DIR, 'sample.txt')
 /** Same fact as {@link FIXTURE_DOC} but as a PDF, to cover the PDF ingestion path. */
 export const FIXTURE_DOC_PDF = path.join(FIXTURES_DIR, 'sample.pdf')

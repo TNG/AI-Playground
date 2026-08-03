@@ -1,11 +1,13 @@
 import { test } from './fixtures'
 
-// One smoke test per chat preset: install backends, select the preset, (optionally
-// attach a fixture), send a prompt and assert the expected result — a non-empty,
-// well-formed text reply for normal chat presets, or a playable audio result for the
-// Text-to-Speech preset. Excludes "aiDAPTIV™" (Phison) and "Home Agent" per request;
-// "Agentic" has its own richer flow in install-backends.spec.ts. A preset not offered
-// in the running product mode skips itself.
+// Smoke tests covering the unified "Assistant" chat preset across its capabilities
+// (plain text, reasoning, vision, RAG) plus the separate Text-to-Speech preset:
+// install backends, select the preset, (optionally attach a fixture), send a prompt
+// and assert the expected result — a non-empty, well-formed text reply, or a playable
+// audio result for the Text-to-Speech preset. Excludes "aiDAPTIV™" (Phison) and
+// "Home Agent" per request; the Assistant agentic/tool flow has its own richer
+// coverage in install-backends.spec.ts. A preset not offered in the running product
+// mode skips itself.
 
 type ChatCase = {
   preset: string
@@ -19,30 +21,35 @@ type ChatCase = {
 }
 
 const CHAT_PRESETS: ChatCase[] = [
-  { preset: 'Basic Chat', prompt: 'In one short sentence, what is a large language model?' },
-  { preset: 'Advanced Chat', prompt: 'In one short sentence, what is a large language model?' },
-  { preset: 'Reasoning', prompt: 'What is 17 multiplied by 23? Reply with just the number.' },
-  { preset: 'NPU Chat', prompt: 'In one short sentence, what is a large language model?' },
   {
-    preset: 'Vision',
-    prompt: 'Describe what you see in this image in one short sentence.',
-    attach: 'image',
+    preset: 'Assistant',
+    prompt: 'In one short sentence, what is a large language model?',
+    label: 'plain text',
   },
   {
-    preset: 'Chat with RAG',
+    preset: 'Assistant',
+    prompt: 'What is 17 multiplied by 23? Reply with just the number.',
+    label: 'reasoning',
+  },
+  // NOTE: A vision case is intentionally omitted here. Attaching an image is gated
+  // on the selected model supporting vision (PromptArea.vue `canAttachImages`), and
+  // Assistant's default model is text-only. Exercising vision now requires selecting
+  // a vision-capable model in the picker, which `runChatPreset` doesn't do.
+  {
+    preset: 'Assistant',
     prompt:
       'According to the attached document, what is the secret passphrase for the AI Playground e2e suite?',
     attach: 'document',
     doc: 'txt',
-    label: 'txt source',
+    label: 'RAG txt source',
   },
   {
-    preset: 'Chat with RAG',
+    preset: 'Assistant',
     prompt:
       'According to the attached document, what is the secret passphrase for the AI Playground e2e suite?',
     attach: 'document',
     doc: 'pdf',
-    label: 'pdf source',
+    label: 'RAG pdf source',
   },
   {
     preset: 'Text to Speech',

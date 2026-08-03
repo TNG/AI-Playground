@@ -2,7 +2,7 @@ import { test, expect } from './fixtures'
 import { MainPage } from './pages/MainPage'
 
 // The chat preset that puts the assistant in agentic mode (built-in tools on).
-const AGENTIC_PRESET = 'Agentic'
+const AGENTIC_PRESET = 'Assistant'
 
 const PROMPTS = {
   presetPreference:
@@ -21,7 +21,7 @@ test.describe('Backend installation', () => {
 
     await app.installAllBackends()
 
-    await test.step('Switch to agentic mode (Chat + "Agentic" preset)', async () => {
+    await test.step('Switch to agentic mode (Chat + "Assistant" preset)', async () => {
       await app.main.selectPreset('Chat', AGENTIC_PRESET)
     })
 

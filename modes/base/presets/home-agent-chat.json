@@ -1,6 +1,6 @@
 {
   "type": "chat",
-  "category": "home-agent",
+  "category": "chat",
   "name": "Home Agent",
   "description": "Inference profile used exclusively by the Home Agent (Telegram bridge). Tuned for tool-calling agentic behaviour over the wire.",
   "displayPriority": 0,

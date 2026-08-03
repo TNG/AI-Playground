@@ -168,12 +168,16 @@
                           type="button"
                           :aria-label="preset.name"
                           :aria-pressed="presetsStore.activePresetName === preset.name"
+                          :aria-disabled="!presetGate(preset).enabled"
                           class="relative flex-none w-16 h-16 rounded-md overflow-hidden border-2 transition-all duration-150"
-                          :class="
+                          :class="[
                             presetsStore.activePresetName === preset.name
                               ? 'border-primary ring-2 ring-primary'
-                              : 'border-transparent hover:border-primary'
-                          "
+                              : 'border-transparent',
+                            presetGate(preset).enabled
+                              ? 'hover:border-primary'
+                              : 'opacity-40 grayscale cursor-not-allowed',
+                          ]"
                           @click="selectPresetFromPicker(mode, preset)"
                         >
                           <img
@@ -195,6 +199,9 @@
                         <p class="font-semibold">{{ preset.name }}</p>
                         <p v-if="preset.description" class="mt-1 text-primary-foreground/80">
                           {{ preset.description }}
+                        </p>
+                        <p v-if="!presetGate(preset).enabled" class="mt-1 text-amber-400 text-xs">
+                          {{ presetGate(preset).reason }}
                         </p>
                       </TooltipContent>
                     </Tooltip>
@@ -329,7 +336,9 @@ import {
   type ImageMediaItem,
 } from '@/assets/js/store/imageGenerationPresets.ts'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
-import { useConversations } from '@/assets/js/store/conversations'
+import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
+import { useHomeAgent } from '@/assets/js/store/homeAgent'
+import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useActivities } from '@/assets/js/store/activities'
 import { useErrors } from '@/assets/js/store/errors'
 import {
@@ -374,7 +383,42 @@ const textareaRef = ref<HTMLTextAreaElement>()
 const isTextareaFocused = ref(false)
 const presetsStore = usePresets()
 const presetSwitching = usePresetSwitching()
+const homeAgent = useHomeAgent()
+const backendServices = useBackendServices()
 const dialogStore = useDialogStore()
+
+// Some chat presets are gated on a feature that the user can enable/install but
+// that may currently be off. They stay visible in the picker but greyed-out and
+// non-selectable (with a reason), unlike presets that are entirely unavailable on
+// this system — those are filtered out upstream (e.g. aiDAPTIV™/Phison without the
+// SSD, or Home Agent when the feature flag is off, which then isn't loaded at all).
+const phisonUsable = computed(
+  () =>
+    backendServices.phisonSsdDetected &&
+    (backendServices.info.find((s) => s.serviceName === 'llamacpp-backend')
+      ?.llamaCppPhisonArtifactReady ??
+      false) &&
+    backendServices.llamaCppBuildVariant === 'ssd-offload',
+)
+
+/** Whether a picker preset is currently selectable, plus why not when disabled. */
+function presetGate(preset: Preset): { enabled: boolean; reason?: string } {
+  if (preset.type === 'chat' && (preset as ChatPreset).requiresPhison) {
+    return phisonUsable.value
+      ? { enabled: true }
+      : { enabled: false, reason: 'Install and activate the aiDAPTIV™ build to use this preset.' }
+  }
+  if (preset.name === HOME_AGENT_CHAT_PRESET_NAME) {
+    if (!homeAgent.masterEnabled) {
+      return { enabled: false, reason: 'Enable the Home Agent in settings to use this preset.' }
+    }
+    if (!homeAgent.isAvailable) {
+      return { enabled: false, reason: 'The Home Agent backend is not installed or running yet.' }
+    }
+    return { enabled: true }
+  }
+  return { enabled: true }
+}
 
 // Quick preset picker: which mode's picker popover is currently open (null = none).
 const openPickerMode = ref<ModeType | null>(null)
@@ -474,6 +518,13 @@ function onPickerOpenChange(mode: ModeType, open: boolean) {
 }
 
 async function selectPresetFromPicker(mode: ModeType, preset: Preset) {
+  // Greyed-out presets (feature off / not installed) aren't selectable — explain why.
+  const gate = presetGate(preset)
+  if (!gate.enabled) {
+    toast.warning(gate.reason ?? 'This preset is not available yet.')
+    return
+  }
+
   closePicker() // Selecting a preset closes the picker.
 
   if (presetSwitching.isSwitching) {
@@ -488,8 +539,20 @@ async function selectPresetFromPicker(mode: ModeType, preset: Preset) {
   // Hovering only opened the picker, so selecting the preset performs the mode
   // switch too (skipPresetSwitch: we pick the preset ourselves right after).
   if (!promptStore.setCurrentMode(mode, { skipPresetSwitch: true })) return
+
+  // Route the active conversation alongside the preset, mirroring SettingsChat:
+  // Home Agent jumps to its remote thread; leaving a Home Agent thread for another
+  // preset spawns a fresh main conversation so we don't write into Home Agent state.
+  const switchingToHomeAgent = preset.name === HOME_AGENT_CHAT_PRESET_NAME
+  const onHomeAgentThread = conversations.getThreadKind(conversations.activeKey) === 'homeAgent'
+
   const result = await presetSwitching.switchPreset(preset.name, { skipModeSwitch: true })
   if (result.success) {
+    if (switchingToHomeAgent) {
+      conversations.activeKey = homeAgent.ensureActiveRemoteConversation()
+    } else if (onHomeAgentThread) {
+      conversations.addNewConversation()
+    }
     toast.success(`Switched to ${preset.name}`)
   } else if (result.error) {
     toast.error(`Failed to switch preset: ${result.error}`)
@@ -972,7 +1035,7 @@ async function handleFileInput(event: Event) {
   // Validate document attachments
   if (documentFiles.length > 0 && !canAttachDocuments.value) {
     toast.error(
-      'Document attachments are not enabled for this preset. Use "Chat with RAG" or similar preset.',
+      'Document attachments are not enabled for this preset. Use the "Assistant" preset or similar.',
     )
     documentFiles.length = 0
   }
@@ -1078,7 +1141,7 @@ async function onDrop(files: File[] | null) {
   // Validate document attachments
   if (documentFiles.length > 0 && !canAttachDocuments.value) {
     toast.error(
-      'Document attachments are not enabled for this preset. Use "Chat with RAG" or similar preset.',
+      'Document attachments are not enabled for this preset. Use the "Assistant" preset or similar.',
     )
     documentFiles.length = 0
   }

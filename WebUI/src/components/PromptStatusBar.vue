@@ -48,6 +48,13 @@
         </template>
       </ModelCapabilities>
       <span v-else-if="presetIndicator.model" class="truncate">{{ presetIndicator.model }}</span>
+      <!-- Capability icons for the active model, only in the Assistant preset -->
+      <CapabilityIcons
+        v-if="isAssistantPreset && presetIndicator.model && currentModel"
+        :model="currentModel"
+        icon-size="size-3.5"
+        :delay-duration="0"
+      />
       <!-- Active chat inference backend (llama.cpp / OpenVINO) -->
       <template v-if="chatBackendBadge">
         ·
@@ -159,6 +166,7 @@ import { useTheme } from '@/assets/js/store/theme'
 import { Context } from '@/components/ui/context'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import ModelCapabilities from '@/components/ModelCapabilities.vue'
+import CapabilityIcons from '@/components/CapabilityIcons.vue'
 
 const promptStore = usePromptStore()
 const textInference = useTextInference()
@@ -322,6 +330,10 @@ function basePresetDescription(name: string): string | undefined {
 const currentModel = computed(() =>
   textInference.llmModels.find((m) => m.active && m.type === textInference.backend),
 )
+
+// The merged Assistant preset shows per-capability icons in the banner; other
+// presets keep just the ModelCapabilities info tooltip.
+const isAssistantPreset = computed(() => presetIndicator.value?.name === 'Assistant')
 
 // Context usage data for Context component
 const contextUsedTokens = computed(() => openAiCompatibleChat.usedTokens)

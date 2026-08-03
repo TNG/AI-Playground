@@ -58,7 +58,12 @@
         </div>
         <div class="grid grid-cols-[120px_1fr] items-center gap-4">
           <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
-          <ModelSelector />
+          <div class="flex items-center gap-2 min-w-0">
+            <div class="flex-1 min-w-0">
+              <ModelSelector />
+            </div>
+            <CapabilityIcons v-if="currentModel" :model="currentModel" />
+          </div>
         </div>
         <Button
           variant="secondary"
@@ -130,47 +135,70 @@
             @click="() => (textInference.thinkingEnabled = !textInference.thinkingEnabled)"
           />
         </div>
-        <!-- Built-in Tools toggle - only shown when preset has showTools enabled -->
-        <div
-          v-if="showTools && textInference.modelSupportsToolCalling"
-          class="grid grid-cols-[120px_1fr] items-center gap-4"
-        >
-          <Label class="whitespace-nowrap">Built-in tools:</Label>
-          <Checkbox
-            id="tools"
-            :model-value="textInference.aipgToolsEnabled"
-            @click="() => (textInference.aipgToolsEnabled = !textInference.aipgToolsEnabled)"
-          />
-        </div>
+        <!-- Tools require a tool-calling model. The toggles stay visible so the
+             option is discoverable, but are disabled (greyed) when the selected
+             model can't call tools. -->
+        <template v-if="showTools">
+          <!-- Built-in Tools toggle -->
+          <div
+            class="grid grid-cols-[120px_1fr] items-center gap-4"
+            :class="{ 'opacity-50': !textInference.modelSupportsToolCalling }"
+            :title="
+              !textInference.modelSupportsToolCalling
+                ? 'The selected model does not support tool calling.'
+                : undefined
+            "
+          >
+            <Label class="whitespace-nowrap">Built-in tools:</Label>
+            <Checkbox
+              id="tools"
+              :disabled="!textInference.modelSupportsToolCalling"
+              :model-value="textInference.aipgToolsEnabled"
+              @click="
+                textInference.modelSupportsToolCalling &&
+                (textInference.aipgToolsEnabled = !textInference.aipgToolsEnabled)
+              "
+            />
+          </div>
 
-        <div
-          v-if="showTools && textInference.modelSupportsToolCalling"
-          class="pl-2"
-          :class="{ 'opacity-50': !textInference.aipgToolsEnabled }"
-        >
-          <SettingsBuiltinTools />
-        </div>
+          <div
+            v-if="textInference.modelSupportsToolCalling"
+            class="pl-2"
+            :class="{ 'opacity-50': !textInference.aipgToolsEnabled }"
+          >
+            <SettingsBuiltinTools />
+          </div>
 
-        <!-- MCP Tools toggle -->
-        <div
-          v-if="showTools && textInference.modelSupportsToolCalling"
-          class="grid grid-cols-[120px_1fr] items-center gap-4"
-        >
-          <Label class="whitespace-nowrap">MCP tools:</Label>
-          <Checkbox
-            id="mcp-tools"
-            :model-value="textInference.mcpToolsEnabled"
-            @click="() => (textInference.mcpToolsEnabled = !textInference.mcpToolsEnabled)"
-          />
-        </div>
+          <!-- MCP Tools toggle -->
+          <div
+            class="grid grid-cols-[120px_1fr] items-center gap-4"
+            :class="{ 'opacity-50': !textInference.modelSupportsToolCalling }"
+            :title="
+              !textInference.modelSupportsToolCalling
+                ? 'The selected model does not support tool calling.'
+                : undefined
+            "
+          >
+            <Label class="whitespace-nowrap">MCP tools:</Label>
+            <Checkbox
+              id="mcp-tools"
+              :disabled="!textInference.modelSupportsToolCalling"
+              :model-value="textInference.mcpToolsEnabled"
+              @click="
+                textInference.modelSupportsToolCalling &&
+                (textInference.mcpToolsEnabled = !textInference.mcpToolsEnabled)
+              "
+            />
+          </div>
 
-        <div
-          v-if="showTools && textInference.modelSupportsToolCalling"
-          class="pl-2 pt-2"
-          :class="{ 'opacity-50': !textInference.mcpToolsEnabled }"
-        >
-          <SettingsMcp />
-        </div>
+          <div
+            v-if="textInference.modelSupportsToolCalling"
+            class="pl-2 pt-2"
+            :class="{ 'opacity-50': !textInference.mcpToolsEnabled }"
+          >
+            <SettingsMcp />
+          </div>
+        </template>
 
         <!-- Embeddings selector - only shown when RAG is enabled -->
         <div v-if="enableRAG" class="grid grid-cols-[120px_1fr] items-center gap-4">
@@ -238,6 +266,7 @@ import {
 import DeviceSelector from '@/components/DeviceSelector.vue'
 import ProviderSelector from '@/components/ProviderSelector.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
+import CapabilityIcons from '@/components/CapabilityIcons.vue'
 import AddLLMDialog from '@/components/AddLLMDialog.vue'
 import { ref, computed } from 'vue'
 import { useI18N } from '@/assets/js/store/i18n.ts'
@@ -293,6 +322,12 @@ const isBackendLocked = computed(() => {
 
 // Direct Text-to-Speech preset: hides all LLM controls in favour of SettingsTts.
 const isTtsPreset = computed(() => activeChatPreset.value?.ttsPreset === true)
+
+// Active model (capabilities) for the icon row next to the selector — same
+// source as ModelSelector / PromptStatusBar.
+const currentModel = computed(() =>
+  textInference.llmModels.find((m) => m.active && m.type === textInference.backend),
+)
 
 // UI visibility flags from preset
 const enableRAG = computed(() => activeChatPreset.value?.enableRAG ?? false)

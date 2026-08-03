@@ -304,20 +304,13 @@ type electronAPI = {
   existsPath(path: string): Promise<boolean>
   addDocumentToRAGList(
     doc: IndexedDocument,
-    phisonKmConfig?: { embeddingServerUrl: string },
+    phisonKmConfig?: PhisonKmIngestConfig,
   ): Promise<IndexedDocument>
   embedInputUsingRag(embedInquiry: EmbedInquiry): Promise<LangchainDocument[]>
-  warmupKVCacheForDocument(request: {
-    llmBackendUrl: string
-    mergedGroups: Array<{
-      groupId: string
-      content: string
-      startChunkIdx: number
-      endChunkIdx: number
-    }>
-    modelName: string
-    ragSystemPrefix: string
-  }): Promise<{ success: boolean }>
+  // mergedGroups here carries `content` (derived from splitDB just before the call) —
+  // this WarmupRequest payload is transient IPC, never persisted, unlike the
+  // boundary-only MergedGroup stored on IndexedDocument.
+  warmupKVCacheForDocument(request: WarmupRequest): Promise<{ success: boolean }>
   getEmbeddingServerUrl(
     serviceName: string,
   ): Promise<{ success: boolean; url?: string; error?: string }>

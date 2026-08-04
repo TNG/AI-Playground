@@ -1228,54 +1228,6 @@ export const useTextInference = defineStore(
         return
       }
 
-      // Handle NPU device selection if preset locks to NPU
-      // This must happen before backend readiness check
-      if (activePreset.value?.lockDeviceToNpu) {
-        const serviceName = backendToService[backend.value] as BackendServiceName
-        const serviceInfo = backendServices.info.find((s) => s.serviceName === serviceName)
-        const npuDevice = serviceInfo?.devices.find((d) => d.id.includes('NPU'))
-
-        if (npuDevice && !npuDevice.selected) {
-          console.log('Selecting NPU device for preset:', activePreset.value.name)
-          startBackendPreparation()
-
-          try {
-            await backendServices.selectDevice(serviceName, npuDevice.id)
-
-            // Restart backend with timeout protection
-            await backendServices.stopService(serviceName)
-
-            // Wait for backend to fully start with timeout
-            const startTimeout = 30000 // 30 seconds
-            const startTime = Date.now()
-            await backendServices.startService(serviceName)
-
-            // Poll until backend is actually running
-            while (Date.now() - startTime < startTimeout) {
-              const currentInfo = backendServices.info.find((s) => s.serviceName === serviceName)
-              if (currentInfo?.status === 'running') {
-                break
-              }
-              if (currentInfo?.status === 'failed') {
-                throw new Error(`Backend failed to start: ${serviceName}`)
-              }
-              await new Promise((resolve) => setTimeout(resolve, 500))
-            }
-
-            const finalInfo = backendServices.info.find((s) => s.serviceName === serviceName)
-            if (finalInfo?.status !== 'running') {
-              throw new Error(`Backend restart timeout: ${serviceName}`)
-            }
-
-            // NPU handling completed successfully
-            completeBackendPreparation()
-          } catch (error) {
-            completeBackendPreparation() // Reset state on error
-            throw error
-          }
-        }
-      }
-
       // Always show loading bar for llamaCPP/openVINO when ensuring backend readiness
       // This ensures consistent UX even when switching back to a previously-used backend
       if (backend.value === 'llamaCPP' || backend.value === 'openVINO') {
@@ -1403,10 +1355,7 @@ export const useTextInference = defineStore(
       const serviceName = backendToService[backend.value] as BackendServiceName
       const serviceInfo = backendServices.info.find((s) => s.serviceName === serviceName)
 
-      if (preset.lockDeviceToNpu) {
-        // NPU Chat: Force NPU selection (handled in prepareBackendIfNeeded)
-        // Don't override here - let the existing lockDeviceToNpu logic handle it
-      } else if (savedSettings.selectedDeviceId !== undefined) {
+      if (savedSettings.selectedDeviceId !== undefined) {
         // Restore saved device preference. Prefer the saved UUID so the preset
         // re-binds to the same physical device even if its id shifted (driver
         // update / enumeration reorder); fall back to the saved id.

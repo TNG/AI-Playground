@@ -218,6 +218,14 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     return devices.find((d) => d.id.toUpperCase().includes('GPU')) ?? devices[0]
   }
 
+  /** Local backend service for a preset backend key ('llamaCPP'/'openVINO'/…), or null
+   *  when the key has no local service (e.g. 'cloud'). */
+  function backendServiceName(backendKey: string | undefined): BackendServiceName | null {
+    return backendKey && backendKey in backendToService
+      ? backendToService[backendKey as keyof typeof backendToService]
+      : null
+  }
+
   /** Backend service a chat preset should target: its already-persisted backend
    *  choice if any, else the first non-cloud backend it declares. null when the
    *  preset is cloud-only (no local device). */
@@ -226,9 +234,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     const savedBackend = typeof saved?.backend === 'string' ? saved.backend : undefined
     const backendKey =
       savedBackend ?? preset.backends.find((b) => b !== 'cloud') ?? preset.backends[0]
-    return backendKey && backendKey in backendToService
-      ? backendToService[backendKey as keyof typeof backendToService]
-      : null
+    return backendServiceName(backendKey)
   }
 
   /** Overwrite EVERY chat preset's device pick with the chosen preferred device
@@ -239,17 +245,24 @@ export const useSetupWizard = defineStore('setupWizard', () => {
    *  backend is switched live so the change applies immediately. Image-generation
    *  (ComfyUI) presets use a separate store and are intentionally not touched. */
   async function overwritePresetDeviceSelections(pref: PreferredDevice) {
-    const activeName = presetsStore.activePresetName
     const prefUuid = pref.uuid ?? null
     const chatPresets = presetsStore.presets.filter((p): p is ChatPreset => p.type === 'chat')
 
     // At wizard-commit time an installed backend may report no devices yet,
     // which would make every match below a silent no-op. Refresh detection
     // (best-effort) for the backends actually referenced by the presets.
+    //
+    // Collect EVERY candidate backend of each preset, not just the primary one
+    // (`chatPresetServiceName`): a preset like "Assistant" lists both llama.cpp and
+    // OpenVINO, and the per-backend device re-point below must reach OpenVINO too —
+    // otherwise it keeps its prior device (this is how OVMS stayed on NPU after a
+    // "default GPU" override). Cloud has no local service (maps to null) and is skipped.
     const services = new Set<BackendServiceName>()
     for (const p of chatPresets) {
-      const s = chatPresetServiceName(p)
-      if (s) services.add(s)
+      for (const backendKey of p.backends) {
+        const s = backendServiceName(backendKey)
+        if (s) services.add(s)
+      }
     }
     for (const s of services) {
       const info = backendServices.info.find((i) => i.serviceName === s)
@@ -262,7 +275,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       }
     }
 
-    let liveUpdate: { serviceName: BackendServiceName; deviceId: string } | null = null
     for (const preset of chatPresets) {
       const serviceName = chatPresetServiceName(preset)
       if (!serviceName) continue
@@ -272,7 +284,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
           selectedDeviceId: device.id,
           selectedDeviceUuid: device.uuid ?? prefUuid,
         })
-        if (preset.name === activeName) liveUpdate = { serviceName, deviceId: device.id }
       } else if (prefUuid) {
         // No usable device list for this backend right now — persist the
         // preferred UUID; textInference resolves it to the backend's current id
@@ -281,16 +292,23 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       }
     }
 
-    if (!liveUpdate) return
-    const { serviceName, deviceId } = liveUpdate
-    const info = backendServices.info.find((s) => s.serviceName === serviceName)
-    if (info?.devices.find((d) => d.selected)?.id === deviceId) return
-    await backendServices.selectDevice(serviceName, deviceId)
-    // A restart is what actually rebinds the backend to the new device
-    // (mirrors DeviceSelector). Only needed when it's currently running.
-    if (info?.status === 'running') {
-      await backendServices.stopService(serviceName)
-      await backendServices.startService(serviceName)
+    // Re-point each chat backend's OWN device selection (lastSelectedDevicePerBackend),
+    // not only the presets'. A multi-backend preset (e.g. "Assistant" on llama.cpp OR
+    // OpenVINO) stores a single device pick tied to `chatPresetServiceName`'s primary
+    // backend, so the secondary backend keeps whatever it had — which is how OVMS ended
+    // up stuck on NPU after a "default GPU" override. Match the preferred device against
+    // each referenced backend's own device list and select it, restarting any that are
+    // running so the change binds immediately (mirrors DeviceSelector).
+    for (const serviceName of services) {
+      const device = matchDeviceForService(serviceName, pref)
+      if (!device) continue
+      const info = backendServices.info.find((s) => s.serviceName === serviceName)
+      if (info?.devices.find((d) => d.selected)?.id === device.id) continue
+      await backendServices.selectDevice(serviceName, device.id)
+      if (info?.status === 'running') {
+        await backendServices.stopService(serviceName)
+        await backendServices.startService(serviceName)
+      }
     }
   }
 

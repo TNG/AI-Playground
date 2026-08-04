@@ -1,13 +1,14 @@
 {
   "mcpServers": {
     "datetime": {
-      "displayName": "DateTime MCP!",
+      "displayName": "DateTime MCP",
       "command": "uvx",
-      "args": ["mcp-server-time"]
+      "args": ["--with", "mcp<2.0.0", "mcp-server-time"]
     },
     "blender": {
-      "displayName": "Blender MCP (official)",
-      "command": "C:\\Users\\username\\src\\blender\\blender_mcp\\venv\\Scripts\\blender-mcp.exe"
+      "displayName": "Blender MCP",
+      "command": "uvx",
+      "args": ["blender-mcp"]
     }
   }
 }

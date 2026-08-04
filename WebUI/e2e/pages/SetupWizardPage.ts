@@ -1,5 +1,6 @@
 import { type Locator, type Page, expect } from '@playwright/test'
 import { type BackendDisplayName } from '../backends'
+import { setRekaToggle } from './uiControls'
 
 /**
  * Page object for the Setup Wizard — the first screen on a fresh start and the
@@ -83,20 +84,39 @@ export class SetupWizardPage {
   }
 
   /**
-   * Turn on "Override existing preset device selections" in the Default GPU section,
-   * so committing the wizard re-points every preset at the default GPU. The switch is
-   * a role=switch button with no accessible name of its own (its caption lives in a
-   * sibling span), so it's located via the wrapping <label>. No-op when the section
-   * isn't shown — e.g. no selectable GPUs in this environment.
+   * Turn on "Override existing preset device selections" in the Default GPU section and
+   * VERIFY the toggle actually engaged before the wizard is committed — so a switch that
+   * silently fails to flip (which would leave presets/backends on their old devices, e.g.
+   * OpenVINO stuck on NPU) fails the test here instead of masquerading as a passing
+   * override. The switch is a reka-ui role=switch button with no accessible name of its
+   * own (its caption lives in a sibling span), so it's located via the wrapping <label>.
+   * Skipped only when the Default GPU section isn't rendered at all (no selectable GPU in
+   * this environment) — there is nothing to override then. Returns whether it engaged.
    */
-  async overrideDeviceSelections(): Promise<void> {
+  async overrideDeviceSelections(): Promise<boolean> {
     const toggle = this.page
       .locator('label', { hasText: 'Override existing preset device selections' })
       .getByRole('switch')
-    if ((await toggle.count()) === 0) return
-    if (await toggle.isChecked()) return
-    await toggle.click()
-    await expect(toggle).toBeChecked()
+    // The Default GPU section (and this toggle) renders only once async device
+    // detection has populated `preferredDeviceOptions`. Sampling count() immediately
+    // races that: the e2e is fast enough to check before the section mounts, silently
+    // skip the override, and leave backends (e.g. OpenVINO) on their old device — while
+    // doing it by hand "works" only because a human is slow enough to see it rendered.
+    // Wait for the toggle; only treat a genuine timeout as "no selectable GPU".
+    try {
+      await toggle.waitFor({ state: 'visible', timeout: 15_000 })
+    } catch {
+      return false
+    }
+    // Flip it on and assert it engaged (authoritative post-condition): if the click
+    // didn't take, this fails now — in the wizard, before commit — surfacing the broken
+    // toggle rather than silently leaving backends on their old devices.
+    await setRekaToggle(
+      toggle,
+      true,
+      'the "Override existing preset device selections" toggle should be ON before committing the wizard',
+    )
+    return true
   }
 
   /** The single wizard CTA: "Install & Continue" (installs pending) or "Continue". */

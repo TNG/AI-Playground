@@ -22,7 +22,12 @@ import type { LlamaCppBuildVariant } from './llamaCppPhison.ts'
 
 const execAsync = promisify(exec)
 
-export const LLAMACPP_DEFAULT_PARAMETERS = '--gpu-layers 999 --log-prefix --jinja --no-mmap -fa off'
+// Flash attention defaults to `on`: with it off, attention materializes a full
+// seq×seq softmax buffer, and that single large Vulkan dispatch trips Intel Arc
+// (Battlemage/B-series) drivers into a device-lost/TDR reset mid-decode. The
+// tiled FA kernel keeps dispatches small and is the stable path on modern Arc
+// Vulkan builds. Users can still override to `-fa off` in backend settings.
+export const LLAMACPP_DEFAULT_PARAMETERS = '--gpu-layers 999 --log-prefix --jinja --no-mmap -fa on'
 const platformExtension = process.platform === 'win32' ? 'zip' : 'tar.gz'
 type StorageTarget = {
   id: string

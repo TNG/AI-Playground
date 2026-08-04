@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { Chat } from '@ai-sdk/vue'
 import {
+  APICallError,
   convertToModelMessages,
   type FileUIPart,
   DefaultChatTransport,
@@ -44,6 +45,42 @@ import { buildTtsAudioFileName, conversationLabelForTtsFile } from '@/lib/ttsAud
 // Web tools that share browseWeb's single "Browse the web" enablement toggle:
 // they all act on the same background browser browseWeb drives.
 const WEB_COMPANION_TOOLS = new Set(['searchWeb', 'interactWithWebPage', 'screenshotWebPage'])
+
+// toUIMessageStreamResponse's default onError returns a generic "An error
+// occurred." to avoid leaking server details to a browser client. Here the
+// "server" is a loopback inference backend (llama.cpp / OVMS) in the same
+// desktop app, so that default only hides the one thing we need: e.g. an OVMS
+// HTTP 400 whose response body explains why a request was rejected. Surface the
+// underlying status + body so failures are diagnosable (in the toast, the error
+// ring buffer, and e2e smoke-test output) instead of an opaque "An error occurred."
+function describeInferenceError(error: unknown): string {
+  if (APICallError.isInstance(error)) {
+    const body = typeof error.responseBody === 'string' ? error.responseBody.trim() : ''
+    const detail = body || error.message
+    const status = error.statusCode ? `HTTP ${error.statusCode}` : ''
+    // Cap the body so a verbose backend error can't blow up the toast/log line.
+    const capped = detail.length > 500 ? `${detail.slice(0, 500)}…` : detail
+    return [status, capped].filter(Boolean).join(': ') || 'Inference request failed'
+  }
+  return extractMessage(error)
+}
+
+// Map opaque GPU/driver faults from the local inference backend to an actionable
+// hint. A Vulkan `ErrorDeviceLost` (a.k.a. device-lost / TDR reset) means the GPU
+// was torn down mid-decode — almost always a driver-level fault on Intel Arc
+// (Battlemage / B-series), not user error. Surface what actually fixes it instead
+// of leaving the raw `vk::Device::getFenceStatus: ErrorDeviceLost` string alone.
+export function inferenceFailureHint(message: string): string | null {
+  const lower = message.toLowerCase()
+  if (
+    lower.includes('devicelost') ||
+    lower.includes('device lost') ||
+    lower.includes('device_lost')
+  ) {
+    return 'The GPU was reset during generation. Update your GPU drivers to the latest version; if it keeps happening, reduce the context size or try a smaller model.'
+  }
+  return null
+}
 
 const LlamaCppRawValueTimingsSchema = z.object({
   cache_n: z.number(),
@@ -189,10 +226,23 @@ export const useOpenAiCompatibleChat = defineStore(
       },
     )
 
+    // Full OpenAI-compatible API base for the active backend. The version segment is
+    // NOT uniform across backends: llama.cpp, the Cloud proxy and the Home Agent proxy
+    // serve under /v1 (added here), while OVMS serves under /v3 — already baked into its
+    // baseUrl (openVINOBackendService: `http://127.0.0.1:<port>/v3`). Detect a base that
+    // already carries a /vN path and use it as-is; otherwise append /v1. Kept in one
+    // place so the provider baseURL and the per-call re-rooting below can never disagree
+    // (e.g. a mid-turn backend switch that changes /v1 → /v3).
+    function resolveInferenceApiBaseUrl(): string | undefined {
+      const base = textInference.currentBackendUrl
+      if (!base) return undefined
+      return /\/v\d+\/?$/.test(base) ? base.replace(/\/$/, '') : `${base}/v1`
+    }
+
     const model = computed(() => {
       const base = createOpenAICompatible({
         name: 'model',
-        baseURL: `${textInference.currentBackendUrl}/v1/`,
+        baseURL: `${resolveInferenceApiBaseUrl() ?? textInference.currentBackendUrl}/`,
         includeUsage: true,
         // For models that support toggling thinking (Qwen3 family, gemma4), send the
         // explicit enable_thinking value so the toggle is authoritative regardless of
@@ -226,11 +276,25 @@ export const useOpenAiCompatibleChat = defineStore(
           // retry after a relaunch picks up the (possibly new) port.
           const doFetch = async (): Promise<Response> => {
             const requestUrl = new URL(url as string)
-            const currentBaseUrl = textInference.currentBackendUrl
-            if (currentBaseUrl) {
-              const latestBase = new URL(currentBaseUrl)
-              requestUrl.hostname = latestBase.hostname
-              requestUrl.port = latestBase.port
+            // Re-root the request onto the LATEST API base each call. The provider's
+            // baseURL is captured when `model` is created; a mid-turn backend relaunch
+            // (new port) or switch (e.g. llama.cpp /v1 ⇄ OVMS /v3) must be honored. We
+            // graft the OpenAI operation path (the tail after the base's /vN segment,
+            // e.g. "chat/completions") onto the current base — carrying host, port AND
+            // path — instead of only syncing host+port, which would otherwise keep a
+            // stale /v1 while the live backend expects /v3 (→ "Invalid request URL").
+            const latestApiBase = resolveInferenceApiBaseUrl()
+            if (latestApiBase) {
+              const apiBase = new URL(latestApiBase)
+              const endpointMatch = requestUrl.pathname.match(/\/v\d+\/(.+)$/)
+              const endpoint = endpointMatch
+                ? endpointMatch[1]
+                : requestUrl.pathname.replace(/^\//, '')
+              const basePath = apiBase.pathname.replace(/\/$/, '')
+              requestUrl.protocol = apiBase.protocol
+              requestUrl.hostname = apiBase.hostname
+              requestUrl.port = apiBase.port
+              requestUrl.pathname = `${basePath}/${endpoint}`
             }
             // Cloud Mode routes through the main-process loopback proxy (see
             // cloudProxy.ts): it attaches the API key and calls the provider from
@@ -270,6 +334,51 @@ export const useOpenAiCompatibleChat = defineStore(
             return globalThis.fetch(requestUrl.toString(), init)
           }
 
+          // A local inference server briefly answers with a transient error right after
+          // it (re)starts: it accepts connections and reports healthy a beat before it
+          // can actually serve a completion. Two shapes seen, both after the agentic
+          // image tool stops + restarts the chat server mid-turn (comfyUi.ts →
+          // restartChatBackend) and immediately issues a follow-up completion:
+          //   • 400 {"error":"Invalid request URL"} — the OpenAI REST route isn't mounted
+          //     yet (OVMS after /v2/health/ready; llama.cpp before routing is fully up).
+          //   • 404 {"error":"Mediapipe graph definition with requested name is not found"}
+          //     — OVMS's text-generation graph hasn't registered yet.
+          // The backend now gates readiness on the model graph too (openVINOBackendService),
+          // so this is a belt-and-suspenders backstop. Re-issue the request (plain JSON
+          // body — safe to replay) until it clears or a time budget elapses. Time-based,
+          // not a fixed attempt count, so a remount that lags the health gate by a couple
+          // seconds isn't overshot. Scoped to local backends (never cloud, which isn't
+          // restarted mid-turn) and to these exact signals so a genuine, persistent 4xx
+          // is never masked — only the final response is returned/logged.
+          const isTransientRestartSignal = (status: number, body: string): boolean => {
+            const lower = body.toLowerCase()
+            if (status === 400 && lower.includes('invalid request url')) return true
+            if (status === 404 && lower.includes('graph definition') && lower.includes('not found'))
+              return true
+            return false
+          }
+          const doFetchWithRouteRetry = async (): Promise<Response> => {
+            const retryDelayMs = 400
+            const retryBudgetMs = 20_000
+            const isLocalInferenceBackend =
+              textInference.backend === 'openVINO' || textInference.backend === 'llamaCPP'
+            const deadline = Date.now() + retryBudgetMs
+            let response = await doFetch()
+            while (!response.ok && isLocalInferenceBackend) {
+              let body: string
+              try {
+                body = await response.clone().text()
+              } catch {
+                break
+              }
+              if (!isTransientRestartSignal(response.status, body)) break
+              if (Date.now() >= deadline) break
+              await new Promise((resolve) => setTimeout(resolve, retryDelayMs))
+              response = await doFetch()
+            }
+            return response
+          }
+
           // Track one attempt as an in-flight inference stream for its whole
           // lifetime — from dispatch until the response body is fully read,
           // cancelled, or errored. Image tools wait on this (via
@@ -280,10 +389,31 @@ export const useOpenAiCompatibleChat = defineStore(
             textInference.beginInferenceStream()
             let response: Response
             try {
-              response = await doFetch()
+              response = await doFetchWithRouteRetry()
             } catch (error) {
               textInference.endInferenceStream()
               throw error
+            }
+            // Surface a failed inference response body straight to the console. The
+            // AI SDK reads the original body to build its APICallError, so we read a
+            // *clone* to avoid consuming it. This makes the backend's actual reason
+            // (e.g. an OVMS HTTP 400 rejecting an unsupported request) visible in
+            // logs and e2e screenshots even when downstream plumbing would otherwise
+            // mask it as a generic "An error occurred."
+            if (!response.ok) {
+              response
+                .clone()
+                .text()
+                .then((body) =>
+                  console.error(
+                    `[inference] backend responded ${response.status} ${response.statusText}: ${
+                      body?.trim() || '(empty body)'
+                    } (url=${response.url || '(none)'}, backend=${
+                      textInference.backend
+                    }, backendUrl=${textInference.currentBackendUrl ?? '(none)'})`,
+                  ),
+                )
+                .catch(() => {})
             }
             if (!response.body) {
               textInference.endInferenceStream()
@@ -1035,6 +1165,7 @@ export const useOpenAiCompatibleChat = defineStore(
       })
 
       return result.toUIMessageStreamResponse({
+        onError: describeInferenceError,
         sendReasoning: true,
         messageMetadata: (options) => {
           if (options.part.type === 'text-delta' || options.part.type === 'reasoning-delta') {
@@ -1081,12 +1212,16 @@ export const useOpenAiCompatibleChat = defineStore(
         onError: (error) => {
           if (manuallyStopped.value) return
           const isActiveDesktop = conversationKey === conversations.activeKey
+          const detail = extractMessage(error)
+          const hint = inferenceFailureHint(detail)
           turnErrors.set(
             conversationKey,
             errors.report(error, {
               category: 'inference',
               code: 'inference/stream-failed',
-              userMessage: `Generation failed: ${extractMessage(error)}`,
+              userMessage: hint
+                ? `Generation failed: ${detail}. ${hint}`
+                : `Generation failed: ${detail}`,
               surface: isActiveDesktop ? 'toast' : 'silent',
               context: { conversationKey },
             }),

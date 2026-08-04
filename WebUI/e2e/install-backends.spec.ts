@@ -5,8 +5,12 @@ import { MainPage } from './pages/MainPage'
 const AGENTIC_PRESET = 'Assistant'
 
 const PROMPTS = {
+  // Directive + demands a short explicit answer so the reasoning model closes the turn
+  // with a real reply instead of a reasoning-only (empty-answer) turn.
   presetPreference:
-    'When generating an image use Pro 2 preset unless told otherwise. If editing an image use Edit By Prompt 2 unless told otherwise',
+    'When generating an image, use the Pro 2 preset unless told otherwise; when editing ' +
+    'an image, use Edit By Prompt 2 unless told otherwise. Reply with a brief one-sentence ' +
+    'confirmation and nothing else.',
   generateImage:
     'Generate an image of a lizard character, he is muscular fun and friendly and designed for an animated film. He is a surfer dude, and with a goofy but friendly vibe. Generate in 1:1 aspect ratio',
   editImage: 'Edit this image giving this character sunglasses and classic surfer hair',
@@ -24,6 +28,17 @@ test.describe('Backend installation', () => {
     await test.step('Switch to agentic mode (Chat + "Assistant" preset)', async () => {
       await app.main.selectPreset('Chat', AGENTIC_PRESET)
     })
+
+    // Enforce the app-default tool selection (all built-in tools except Capture
+    // screenshot, MCP on, all workflows enabled). Enforced rather than assumed because
+    // settings persist to disk, so a prior fast-smoke run that trimmed tools/workflows
+    // would otherwise leak into this flow.
+    await app.configureAgenticTools('defaults')
+
+    // The 'defaults' tool set fills most of the context, so give the reasoning model
+    // room to emit a final answer (max tokens up, thinking off) — otherwise the first
+    // turn can finish reasoning-only with an empty reply.
+    await app.relaxChatGenerationBudget()
 
     await test.step('Prompt 1: set preset preferences → expect a text reply', async () => {
       await app.main.sendPrompt(PROMPTS.presetPreference)

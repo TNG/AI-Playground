@@ -5,7 +5,13 @@ import { AppShellPage } from './pages/AppShellPage'
 import { MainPage, type ChatMode } from './pages/MainPage'
 import { SpecificSettingsPage } from './pages/SpecificSettingsPage'
 import { DownloadDialogPage } from './pages/DownloadDialogPage'
+import { McpSettingsPage } from './pages/McpSettingsPage'
+import { ToolSettingsPage } from './pages/ToolSettingsPage'
+import { setRekaToggle, settingsRegion } from './pages/uiControls'
 import { BACKENDS, BACKEND_DISPLAY_NAMES } from './backends'
+
+/** The chat preset that puts the assistant in agentic mode (built-in + MCP tools on). */
+const AGENTIC_PRESET = 'Assistant'
 
 const FIXTURES_DIR = path.join(__dirname, 'fixtures')
 /** A real 768x512 PNG used as the input for edit / image-to-video / reference presets. */
@@ -30,6 +36,8 @@ export class AppDriver {
   readonly main: MainPage
   readonly settings: SpecificSettingsPage
   readonly downloads: DownloadDialogPage
+  readonly mcp: McpSettingsPage
+  readonly tools: ToolSettingsPage
 
   constructor(private readonly window: Page) {
     this.wizard = new SetupWizardPage(window)
@@ -37,6 +45,8 @@ export class AppDriver {
     this.main = new MainPage(window)
     this.settings = new SpecificSettingsPage(window)
     this.downloads = new DownloadDialogPage(window)
+    this.mcp = new McpSettingsPage(window)
+    this.tools = new ToolSettingsPage(window)
   }
 
   /**
@@ -84,9 +94,18 @@ export class AppDriver {
 
         // Re-point every preset at the default GPU so tests run on a consistent
         // device regardless of any device selections persisted from earlier runs.
-        // Applied on commit (continueOut) below; no-op where no GPU section is shown.
-        await test.step('Override all preset device selections to the default GPU', () =>
-          this.wizard.overrideDeviceSelections())
+        // overrideDeviceSelections() toggles the switch AND asserts it engaged (fails
+        // here if the toggle silently doesn't flip); the effect is applied on commit
+        // (continueOut) below. No-op where no GPU section is shown.
+        await test.step('Override all preset device selections to the default GPU', async () => {
+          const engaged = await this.wizard.overrideDeviceSelections()
+          test.info().annotations.push({
+            type: 'device-override',
+            description: engaged
+              ? 'toggle engaged; presets re-pointed to default GPU on commit'
+              : 'no Default GPU section (no selectable GPU) — override skipped',
+          })
+        })
 
         await this.wizard.continueOut()
         await this.shell.expectRunning()
@@ -222,6 +241,109 @@ export class AppDriver {
       await this.resolveDownloadsOrSkip('the Text-to-Speech model')
       await this.main.waitForTtsAudio()
     })
+  }
+
+  /**
+   * Pin the active chat preset's backend to `label` (e.g. 'llamaCPP - GGUF', 'OpenVINO'),
+   * so an agentic test runs on a known backend instead of "whichever happens to be
+   * running". Returns false when that backend isn't available for the active preset in
+   * the current product mode, so an optional-backend variant can skip.
+   *
+   * Availability: when the preset exposes a backend picker we honor its list (and select
+   * `label` from it). When it doesn't (a single-backend preset, no picker), we can't
+   * switch — that lone backend is llama.cpp (the universal default), so a mandatory
+   * (`optional === false`) request counts as satisfied and any other as unavailable.
+   */
+  async selectChatBackendOrSkip(label: string, optional: boolean): Promise<boolean> {
+    return test.step(`Pin chat backend: ${label}`, async () => {
+      await this.settings.open('Chat')
+      const offered = await this.settings.availableBackends('Chat')
+      let available: boolean
+      if (offered.length === 0) {
+        // No picker → the preset is locked to its single (llama.cpp) backend.
+        available = !optional
+      } else {
+        available = offered.includes(label)
+        if (available) await this.settings.selectBackend(label, 'Chat')
+      }
+      await this.settings.close('Chat')
+      return available
+    })
+  }
+
+  /**
+   * Enforce a deterministic tool selection for an agentic turn, so the model's context
+   * isn't bloated by tool schemas it doesn't need. Expects the agentic "Assistant"
+   * preset to already be active. `'minimal-image'` (fast smoke) enables only "Generate
+   * media" with only the "Draft Image" workflow and turns MCP + all other tools off;
+   * `'defaults'` (full flow) restores app defaults (all built-in tools except Capture
+   * screenshot, MCP on, all workflows enabled). No-op if the tools section isn't shown.
+   */
+  async configureAgenticTools(profile: 'minimal-image' | 'defaults'): Promise<void> {
+    await test.step(`Enforce agentic tool selection: ${profile}`, async () => {
+      await this.settings.open('Chat')
+      const applied =
+        profile === 'minimal-image'
+          ? await this.tools.applyMinimalImageTools()
+          : await this.tools.applyDefaultTools()
+      if (!applied) {
+        test.info().annotations.push({
+          type: 'tools',
+          description: 'tools section not shown (model without tool calling?) — skipped',
+        })
+      }
+      await this.settings.close('Chat')
+    })
+  }
+
+  /**
+   * Give a reasoning model room to emit a real final answer instead of a reasoning-only
+   * turn: raise max-new-tokens to its ceiling and turn thinking off. A heavy-context
+   * agentic turn (the 'defaults' tool set fills most of the 8192 window) can otherwise
+   * spend its whole output budget inside <think> and finish with an empty reply, which
+   * reads as "no assistant response". Expects the Chat "Assistant" preset active; each
+   * control is a best-effort no-op when the model/preset doesn't expose it.
+   */
+  async relaxChatGenerationBudget(): Promise<void> {
+    await test.step('Raise max tokens and disable thinking for a reliable final answer', async () => {
+      await this.settings.open('Chat')
+      const region = settingsRegion(this.window)
+      const maxTokens = region.locator('input[type="number"][max="4096"]')
+      if (await maxTokens.isVisible().catch(() => false)) {
+        await maxTokens.fill('4096')
+      }
+      const thinking = region.locator('#thinking')
+      if (await thinking.isVisible().catch(() => false)) {
+        await setRekaToggle(thinking, false)
+      }
+      await this.settings.close('Chat')
+    })
+  }
+
+  /**
+   * Switch to agentic mode (Chat + "Assistant" preset), enable MCP tools and connect
+   * one MCP server by its mcp.json displayName (e.g. "DateTime MCP", "Blender MCP"),
+   * leaving the sidebar closed and the preset active. Returns false when the preset,
+   * the MCP section, or the server itself is unavailable in this environment (e.g.
+   * `uvx`/network access missing) so the caller can skip rather than fail.
+   */
+  async connectMcpServerOrSkip(displayName: string): Promise<boolean> {
+    return test.step(`Enable MCP tools and connect "${displayName}"`, async () => {
+      if (!(await this.main.selectPreset('Chat', AGENTIC_PRESET))) return false
+      await this.settings.open('Chat')
+      const connected = await this.mcp.connectServer(displayName)
+      await this.settings.close('Chat')
+      return connected
+    })
+  }
+
+  /**
+   * Public wrapper around the model-download dialog resolver for specs that drive a
+   * turn directly (e.g. the MCP specs) rather than through runChatPreset. Skips the
+   * test when the model is gated/unavailable in this environment.
+   */
+  async resolveModelDownloadOrSkip(what: string): Promise<void> {
+    await this.resolveDownloadsOrSkip(what)
   }
 
   /**

@@ -2072,6 +2072,7 @@ export class OpenVINOBackendService implements ApiService {
       const selectedDevice = this.devices.find((d) => d.selected)?.id || 'AUTO'
       const maxPromptLen = contextSize ?? 8192
       const toolParser = await this.resolveToolParser(modelRepoId)
+      const servedModelName = modelRepoId.split('/').join('---')
 
       this.appLogger.info(
         `Starting OVMS server for model: ${modelRepoId} on port ${this.port} with device ${selectedDevice}`,
@@ -2159,8 +2160,28 @@ export class OpenVINOBackendService implements ApiService {
         }
       })
 
-      // Wait for server to be ready
+      // Wait for the server process to accept connections (/v2/health/ready).
       await this.waitForServerReady(healthUrl, childProcess)
+
+      // /v2/health/ready flips ready when the *server* is up, but the MediaPipe
+      // text-generation graph that backs /v3/chat/completions can register a beat
+      // later — so a request racing that window 404s with "Mediapipe graph definition
+      // with requested name is not found". This bites the agentic image flow, which
+      // stops + restarts the chat server mid-turn (chatBackends → restartChatBackend)
+      // and then immediately issues a follow-up completion. Gate on the model's own
+      // KServe readiness endpoint so we only report ready once the graph is servable.
+      // Best-effort: some OVMS versions may not expose this per-graph — on timeout we
+      // log and proceed (the renderer's route-retry is the backstop) rather than fail
+      // an otherwise-healthy server.
+      const modelReadyUrl = `http://127.0.0.1:${this.port}/v2/models/${servedModelName}/ready`
+      try {
+        await this.waitForServerReady(modelReadyUrl, childProcess, 60)
+      } catch (graphError) {
+        this.appLogger.warn(
+          `OVMS graph readiness probe for "${servedModelName}" did not confirm within budget: ${graphError}`,
+          this.name,
+        )
+      }
       ovmsProcess.isReady = true
 
       this.ovmsLlmProcess = ovmsProcess

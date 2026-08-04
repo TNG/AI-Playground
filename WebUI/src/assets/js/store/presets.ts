@@ -211,7 +211,6 @@ const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).extend({
   showTools: z.boolean().optional(), // Show "Enable Tools" toggle (default: false)
   filterTxt2TxtOnly: z.boolean().optional(), // Filter out vision AND reasoning models
   filterLargeMoeOnly: z.boolean().optional(), // Only show large Mixture-of-Experts models (e.g. for the Phison aiDAPTIV+ preset)
-  lockDeviceToNpu: z.boolean().optional(), // Lock device selector to NPU
   advancedMode: z.boolean().optional(), // Show advanced features: unspecified models + system prompt editing + vision model support
   // When true, the preset is hidden from the standard chat PresetSelector. Used by built-in
   // presets that drive a specific feature (e.g. Home Agent / Telegram) and should not be

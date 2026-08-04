@@ -52,7 +52,7 @@
           <Label class="whitespace-nowrap">Provider</Label>
           <ProviderSelector />
         </div>
-        <div v-else-if="!lockDeviceToNpu" class="grid grid-cols-[120px_1fr] items-center gap-4">
+        <div v-else class="grid grid-cols-[120px_1fr] items-center gap-4">
           <Label class="whitespace-nowrap">{{ languages.DEVICE }}</Label>
           <DeviceSelector :backend="deviceServiceName" />
         </div>
@@ -332,7 +332,6 @@ const currentModel = computed(() =>
 // UI visibility flags from preset
 const enableRAG = computed(() => activeChatPreset.value?.enableRAG ?? false)
 const showTools = computed(() => activeChatPreset.value?.showTools ?? false)
-const lockDeviceToNpu = computed(() => activeChatPreset.value?.lockDeviceToNpu ?? false)
 const advancedMode = computed(() => activeChatPreset.value?.advancedMode ?? false)
 
 // Get available backends from preset (fallback when none configured on preset)

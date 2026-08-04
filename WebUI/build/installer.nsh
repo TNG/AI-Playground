@@ -42,9 +42,9 @@
 
     ; Seed defaults the first time the page is shown (and after a Back/Next).
     ${if} $AipgSharedDir == ""
-      ReadEnvStr $0 "ProgramData"
+      ReadEnvStr $0 "PUBLIC"
       ${if} $0 == ""
-        StrCpy $0 "$PROGRAMFILES\..\..\ProgramData"
+        StrCpy $0 "C:\Users\Public"
       ${endif}
       StrCpy $AipgSharedDir "$0\AI Playground"
     ${endif}
@@ -162,12 +162,12 @@
     ; here. The choice (and, when shared, the folder) comes from the custom
     ; "Shared resources" wizard page ($AipgShareState / $AipgSharedDir above).
     ; Uses $R0-$R3 to avoid clobbering $0-$2 used above.
-    ;   $R0 = %ProgramData%  $R1 = config dir  $R2 = shared resources base dir
+    ;   $R0 = %PUBLIC%  $R1 = config dir  $R2 = shared resources base dir
     ;   $R3 = file handle / exec result
     ${if} $installMode != "CurrentUser"
-      ReadEnvStr $R0 "ProgramData"
+      ReadEnvStr $R0 "PUBLIC"
       ${if} $R0 == ""
-        StrCpy $R0 "$PROGRAMFILES\..\..\ProgramData"
+        StrCpy $R0 "C:\Users\Public"
       ${endif}
       StrCpy $R1 "$R0\AI Playground"
       CreateDirectory "$R1"
@@ -184,11 +184,15 @@
       ${if} $AipgShareState == "1"
         StrCpy $R2 "$AipgSharedDir"
         CreateDirectory "$R2"
-        ; Grant all users write access to the shared folder so the first user to
-        ; launch can provision the shared resources (venvs, backends, models -
-        ; tens of GB) and later users can read them (and any user can re-provision
-        ; after an app update). The app creates the <shared base>\resources subtree
-        ; at runtime; the inheritable ACE below propagates to it.
+        ; The default base under C:\Users\Public is already writable by all users
+        ; via its inherited ACLs, so no grant is needed there. But the admin can
+        ; point $AipgSharedDir at an arbitrary folder (e.g. a roomier drive) that
+        ; may not be world-writable, so we still grant all users write access here
+        ; so the first user to launch can provision the shared resources (venvs,
+        ; backends, models - tens of GB) and later users can read them (and any
+        ; user can re-provision after an app update). The app creates the
+        ; <shared base>\resources subtree at runtime; the inheritable ACE below
+        ; propagates to it. On the default Public path this is a harmless no-op.
         ; S-1-5-32-545 = BUILTIN\Users (SID avoids locale-specific group names).
         nsExec::ExecToLog 'icacls "$R2" /grant "*S-1-5-32-545:(OI)(CI)M" /T /C'
         Pop $R3
@@ -271,12 +275,15 @@
 !macro customUnInstall
   ; Remove only the machine-wide install markers (mode + shared-folder path) so a
   ; future reinstall re-prompts for the choices. The shared resources tree (under
-  ; %ProgramData%\AI Playground\resources by default, or the admin-chosen folder)
+  ; %PUBLIC%\AI Playground\resources by default, or the admin-chosen folder)
   ; and each user's per-user working tree (%LOCALAPPDATA%\ai-playground) are
   ; intentionally preserved — they may hold many GB of admin-provisioned models
   ; and cannot be safely enumerated for every user profile from a machine-wide
   ; uninstaller.
-  ReadEnvStr $R0 "ProgramData"
+  ReadEnvStr $R0 "PUBLIC"
+  ${if} $R0 == ""
+    StrCpy $R0 "C:\Users\Public"
+  ${endif}
   ${if} $R0 != ""
     Delete "$R0\AI Playground\install-config.json"
     Delete "$R0\AI Playground\shared-resources-dir.txt"

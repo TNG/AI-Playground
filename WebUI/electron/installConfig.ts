@@ -8,14 +8,15 @@ import path from 'node:path'
  * are shared across all users of the machine or kept per-user.
  *
  * The installer writes a small JSON file to a machine-readable location
- * (`%ProgramData%/AI Playground/install-config.json` on Windows). A per-user
- * install writes no such file, so `readInstallConfig()` returns null and the app
- * keeps its default per-user paths.
+ * (`%PUBLIC%/AI Playground/install-config.json`, i.e. under `C:\Users\Public`,
+ * on Windows). A per-user install writes no such file, so `readInstallConfig()`
+ * returns null and the app keeps its default per-user paths.
  *
  * In "shared" mode `aipgRoot.ts` points the resources root at
- * `%ProgramData%/AI Playground/resources` (read/write for all users via an ACL
- * the installer grants) and relocates each user's mutable config to a private
- * per-user folder. See `aipgRoot.ts` and `userConfig.ts`.
+ * `%PUBLIC%/AI Playground/resources`. `C:\Users\Public` inherits permissive
+ * all-users ACLs out of the box, so it is read/write for every user without the
+ * installer having to grant a custom ACL. Each user's mutable config is
+ * relocated to a private per-user folder. See `aipgRoot.ts` and `userConfig.ts`.
  */
 
 export type ModelFolderMode = 'shared' | 'per-user'
@@ -25,21 +26,24 @@ export interface InstallConfig {
   /**
    * Admin-chosen base directory for the shared resources tree (the parent of
    * the `resources` folder). Only meaningful in "shared" mode; absent means the
-   * default `%ProgramData%/AI Playground`. Lets the admin place the tens-of-GB
+   * default `%PUBLIC%/AI Playground`. Lets the admin place the tens-of-GB
    * shared tree on a different drive, mirroring the customizable install folder.
    */
   sharedResourcesDir?: string
 }
 
-/** `%ProgramData%` (or a sensible fallback) — machine-wide, world-readable. */
-function programDataDir(): string {
-  return process.env.ProgramData?.trim() || 'C:\\ProgramData'
+/**
+ * `%PUBLIC%` (`C:\Users\Public`, or a sensible fallback) — machine-wide and
+ * writable by all users out of the box thanks to its default ACLs.
+ */
+function publicDir(): string {
+  return process.env.PUBLIC?.trim() || 'C:\\Users\\Public'
 }
 
 /** Machine-wide config directory the installer writes to. */
 function configDir(): string {
   if (process.platform === 'win32') {
-    return path.join(programDataDir(), 'AI Playground')
+    return path.join(publicDir(), 'AI Playground')
   }
   // No all-users installer flow on non-Windows yet; keep a conventional path so
   // the reader is platform-safe.

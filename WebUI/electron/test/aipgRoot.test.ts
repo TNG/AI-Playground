@@ -7,18 +7,18 @@ import path from 'node:path'
 // so each scenario loads a fresh module instance with its own electron /
 // installConfig mocks via vi.resetModules() + dynamic import.
 //
-// All of %ProgramData%, %LOCALAPPDATA% and process.resourcesPath are pointed at
+// All of %PUBLIC%, %LOCALAPPDATA% and process.resourcesPath are pointed at
 // temp dirs so that shared mode — which seeds the shared root — never touches a
 // real machine-wide location.
 
 const origPlatform = process.platform
 const origResourcesPath = (process as { resourcesPath?: string }).resourcesPath
-const origProgramData = process.env.ProgramData
+const origPublic = process.env.PUBLIC
 const origLocalAppData = process.env.LOCALAPPDATA
 
 let tmpBase = ''
 let tmpResources = ''
-let tmpProgramData = ''
+let tmpPublic = ''
 let tmpLocalAppData = ''
 
 function setProp(obj: object, key: string, value: unknown) {
@@ -48,11 +48,11 @@ async function loadAipgRoot(opts: {
 beforeEach(() => {
   tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), `aipg-root-${process.pid}-`))
   tmpResources = path.join(tmpBase, 'bundle')
-  tmpProgramData = path.join(tmpBase, 'ProgramData')
+  tmpPublic = path.join(tmpBase, 'Public')
   tmpLocalAppData = path.join(tmpBase, 'LocalAppData')
   fs.mkdirSync(tmpResources, { recursive: true })
   setProp(process, 'resourcesPath', tmpResources)
-  process.env.ProgramData = tmpProgramData
+  process.env.PUBLIC = tmpPublic
   process.env.LOCALAPPDATA = tmpLocalAppData
 })
 
@@ -62,7 +62,7 @@ afterEach(() => {
   vi.resetModules()
   setProp(process, 'platform', origPlatform)
   setProp(process, 'resourcesPath', origResourcesPath)
-  process.env.ProgramData = origProgramData
+  process.env.PUBLIC = origPublic
   process.env.LOCALAPPDATA = origLocalAppData
   fs.rmSync(tmpBase, { recursive: true, force: true })
 })
@@ -101,9 +101,7 @@ describe('packagedResourcesRoot', () => {
   it('points at the machine-wide shared resources root in shared mode', async () => {
     const mod = await loadAipgRoot({ isPackaged: true, mode: 'shared', platform: 'win32' })
 
-    expect(mod.packagedResourcesRoot()).toBe(
-      path.join(tmpProgramData, 'AI Playground', 'resources'),
-    )
+    expect(mod.packagedResourcesRoot()).toBe(path.join(tmpPublic, 'AI Playground', 'resources'))
   })
 
   it('honors an admin-chosen shared resources base dir, appending the resources leaf', async () => {

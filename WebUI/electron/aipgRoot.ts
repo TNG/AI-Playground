@@ -25,16 +25,17 @@ import { readInstallConfig } from './installConfig.ts'
  *
  * **Shared all-users install** (`install-config.json` = `"shared"`): the
  * resources root instead points at the machine-wide
- * `%ProgramData%/AI Playground/resources`, which the installer makes writable by
- * all users. The heavy artifacts are provisioned there once (by whichever user
+ * `%PUBLIC%/AI Playground/resources` (under `C:\Users\Public`), which is
+ * writable by all users out of the box via its default ACLs. The heavy
+ * artifacts are provisioned there once (by whichever user
  * launches first) and read by everyone else. Each user's *mutable* config
  * (settings, logs, model_config, mcp, embeddingCache, ComfyUI scratch) is kept
  * private via `writableConfigRoot()` so users do not clobber each other. See
  * `userConfig.ts`.
  */
 
-/** `%ProgramData%` (or a sensible fallback) — machine-wide. */
-const programDataDir = (): string => process.env.ProgramData?.trim() || 'C:\\ProgramData'
+/** `%PUBLIC%` (`C:\Users\Public`, or a sensible fallback) — machine-wide, world-writable by default. */
+const publicDir = (): string => process.env.PUBLIC?.trim() || 'C:\\Users\\Public'
 
 /**
  * Whether this is a Windows all-users install configured to share the heavy
@@ -50,7 +51,7 @@ const sharedModeActive = (): boolean => {
 
 /**
  * Machine-wide shared resources root. The base directory defaults to
- * `%ProgramData%/AI Playground` but the admin can point it elsewhere (e.g. a
+ * `%PUBLIC%/AI Playground` but the admin can point it elsewhere (e.g. a
  * roomier drive) via the installer's folder picker — see `installConfig.ts`.
  * The `resources` leaf is always appended so relative model paths in
  * `model_config.json` (`./resources/models/...`), anchored to `path.dirname(root)`,
@@ -58,7 +59,7 @@ const sharedModeActive = (): boolean => {
  */
 const sharedInstallRoot = (): string => {
   const base =
-    readInstallConfig()?.sharedResourcesDir?.trim() || path.join(programDataDir(), 'AI Playground')
+    readInstallConfig()?.sharedResourcesDir?.trim() || path.join(publicDir(), 'AI Playground')
   return path.join(base, 'resources')
 }
 
@@ -162,9 +163,10 @@ export function packagedResourcesRoot(): string {
   if (!app.isPackaged) return process.resourcesPath
 
   // Shared all-users install: use the machine-wide root and seed it once from
-  // the read-only bundle. The installer grants all users write access, so the
-  // first user provisions it (bundle + venvs + backends + models) and later
-  // users read it; a stale seed marker after an app update triggers a reseed.
+  // the read-only bundle. The root lives under C:\Users\Public and is writable
+  // by all users by default, so the first user provisions it (bundle + venvs +
+  // backends + models) and later users read it; a stale seed marker after an
+  // app update triggers a reseed.
   const root = sharedModeActive() ? sharedInstallRoot() : writableUserRoot()
 
   if (sharedModeActive() || !isInstallDirWritable()) {

@@ -232,7 +232,6 @@ watchEffect(() => {
                   supportsVision: item.supportsVision,
                   supportsToolCalling: item.supportsToolCalling,
                   supportsReasoning: item.supportsReasoning,
-                  npuSupport: item.npuSupport,
                 }"
                 icon-size="size-3.5"
               />

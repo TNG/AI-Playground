@@ -4,14 +4,13 @@
 // flags in `store/models.ts` / `store/textInference.ts`.
 import { Eye, Brain, Wrench, type LucideIcon } from 'lucide-vue-next'
 
-export type CapabilityKey = 'vision' | 'reasoning' | 'tools' | 'npu'
+export type CapabilityKey = 'vision' | 'reasoning' | 'tools'
 
 /** The subset of a model's flags that the capability UI reads. */
 export type CapabilityFlags = {
   supportsVision?: boolean
   supportsReasoning?: boolean
   supportsToolCalling?: boolean
-  npuSupport?: boolean
 }
 
 export type CapabilityDescriptor = {
@@ -20,12 +19,8 @@ export type CapabilityDescriptor = {
   flag: keyof CapabilityFlags
   label: string
   tooltip: string
-  /** Lucide icon; omitted for capabilities rendered as a text badge (NPU). */
-  icon?: LucideIcon
-  /** Text badge shown when there is no icon. */
-  badge?: string
-  /** NPU hardware only exists on Intel builds, never in the NVIDIA product mode. */
-  intelOnly?: boolean
+  /** Lucide icon. */
+  icon: LucideIcon
 }
 
 export const CAPABILITIES: CapabilityDescriptor[] = [
@@ -49,14 +44,6 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
     label: 'Tool calling',
     tooltip: 'Can call built-in and MCP tools / functions.',
     icon: Wrench,
-  },
-  {
-    key: 'npu',
-    flag: 'npuSupport',
-    label: 'NPU',
-    tooltip: 'Runs on the NPU. Only used when the OpenVINO backend is selected with an NPU device.',
-    badge: 'NPU',
-    intelOnly: true,
   },
 ]
 

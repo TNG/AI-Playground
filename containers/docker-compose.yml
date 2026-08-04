@@ -1,0 +1,84 @@
+name: ai-playground
+
+services:
+  aipg:
+    image: ai-playground:latest
+    build:
+      context: ..
+      dockerfile: containers/Dockerfile
+      args:
+        NPU_VERSION: ${NPU_VERSION:-v1.32.0}
+        NPU_BUILD: ${NPU_BUILD:-v1.32.0.20260402-23905121947}
+        HTTP_PROXY:  ${HTTP_PROXY:-${http_proxy:-}}
+        HTTPS_PROXY: ${HTTPS_PROXY:-${https_proxy:-}}
+        http_proxy:  ${http_proxy:-${HTTP_PROXY:-}}
+        https_proxy: ${https_proxy:-${HTTPS_PROXY:-}}
+        NO_PROXY:    ${NO_PROXY:-${no_proxy:-}}
+
+    container_name: ai-playground
+
+    # ── Mode selection ────────────────────────────────────────────────────────
+    # AIPG_HEADLESS=0  → desktop mode: Electron window via X11 forwarding (default)
+    # AIPG_HEADLESS=1  → headless mode: web server on port 8080, no display needed
+    environment:
+      - AIPG_HEADLESS=${AIPG_HEADLESS:-0}
+      # Desktop mode only — ignored when AIPG_HEADLESS=1
+      - DISPLAY=${DISPLAY:-:0}
+      - XAUTH_PATH=/tmp/.host-Xauthority
+      - XDG_DATA_HOME=/aipg-data
+      - ELECTRON_DISABLE_GPU=1
+      - HF_ENDPOINT=${HF_ENDPOINT:-https://huggingface.co}
+      - http_proxy=${http_proxy:-}
+      - https_proxy=${https_proxy:-}
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - no_proxy=${no_proxy:-}
+      - NO_PROXY=${NO_PROXY:-}
+      - ftp_proxy=${ftp_proxy:-}
+      - UV_HTTP_PROXY=${UV_HTTP_PROXY:-${http_proxy:-}}
+      - UV_HTTPS_PROXY=${UV_HTTPS_PROXY:-${https_proxy:-}}
+      - UV_LINK_MODE=copy
+
+    volumes:
+      # X11 (desktop mode only — harmless if headless, /tmp/.X11-unix always exists)
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      - ${XAUTHORITY:-~/.Xauthority}:/tmp/.host-Xauthority:ro
+      - aipg-data:/aipg-data
+      - aipg-media:/root/AI-Playground/media
+      - aipg-electron-config:/root/.config/ai-playground
+
+    # Headless mode: expose port 8080 for browser access.
+    # Desktop mode: port not needed (window appears on host display).
+    ports:
+      - "${AIPG_PORT:-8080}:8080"
+
+    devices:
+      - /dev/dri:/dev/dri
+
+    group_add:
+      - "${VIDEO_GID:-44}"
+      - "${RENDER_GID:-992}"
+
+    ipc: host
+    network_mode: host
+    restart: "no"
+    security_opt:
+      - seccomp:unconfined
+    stdin_open: true
+    tty: true
+
+# ── Persistent named volumes ──────────────────────────────────────────────────
+# All managed by Docker under /var/lib/docker/volumes/.
+# To remove everything: docker compose down -v  (NOT for aipg-data — see below)
+volumes:
+  # aipg-data is declared external so Compose never tries to create it
+  # and won't warn if it already exists from a previous run or baremetal install.
+  # To create fresh: docker volume create aipg-data
+  # To wipe ALL data:  docker volume rm aipg-data  (deletes backends + models!)
+  aipg-data:
+    name: aipg-data
+    external: true
+  aipg-media:
+    name: aipg-media
+  aipg-electron-config:
+    name: aipg-electron-config

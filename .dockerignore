@@ -1,0 +1,47 @@
+# Exclude large directories that don't belong in the Docker build context.
+# The builder stage only needs source code — not downloaded binaries or data.
+
+# Node modules — reinstalled by npm ci in the builder stage
+WebUI/node_modules/
+
+# Electron build outputs — built fresh in the builder stage
+build/dist/
+build/electron/
+
+# Downloaded binary resources — fetched by npm run fetch-external-resources
+build/resources/uv.exe
+build/resources/uvx.exe
+build/resources/uvw.exe
+build/resources/7zr.exe
+build/resources/*.exe
+
+# Runtime data directories — not source code; created at runtime inside Docker volumes
+# ComfyUI and LlamaCPP are git-cloned / downloaded by the app on first use
+ComfyUI/
+LlamaCPP/
+# NOTE: OpenVINO/ contains SOURCE FILES (detect_devices.py, pyproject.toml, uv.lock)
+# that electron-builder bundles as extraResources. Only exclude the large runtime
+# artifacts (downloaded OVMS binary and Python venv), NOT the source files.
+OpenVINO/ovms/
+OpenVINO/.venv/
+OpenVINO/*.tar.gz
+models/
+python-interpreter/
+
+# Container-generated files
+.env
+containers/.env
+*.log
+*.tmp
+
+# Git history not needed to build the .deb
+.git/
+
+# CI and developer tooling not needed in the image
+.github/
+.pre-commit-config.yaml
+docs/
+
+# IDE / OS artifacts
+.idea/
+.DS_Store

@@ -103,14 +103,59 @@
       Backend, device/provider, model and context size are shared with Chat mode.
     </p>
 
-    <!-- Tools (built-in media tools + MCP servers) -->
+    <!-- Capabilities (built-in capability set + MCP servers) -->
     <div class="border-t border-border pt-4 flex flex-col gap-3">
-      <Label class="whitespace-nowrap">Agent tools</Label>
+      <Label class="whitespace-nowrap">Capabilities</Label>
       <p class="text-xs text-muted-foreground">
-        The agent always has the AI Playground media tools (image generation and editing). Attach
-        MCP servers below to extend it — e.g. Chrome DevTools lets it open a page it built and read
-        the browser console/DOM to debug.
+        What the agent is equipped with, on top of its file and shell tools. Each capability adds
+        its tools and instructions to the session.
       </p>
+      <div class="flex flex-col gap-2">
+        <label
+          v-for="capability in builtInCapabilities"
+          :key="capability.id"
+          class="flex items-start gap-2 text-sm"
+        >
+          <input
+            type="checkbox"
+            class="mt-0.5"
+            :disabled="!!capability.unavailableReason"
+            :checked="agentMode.isCapabilityEnabled(capability.id)"
+            @change="toggleCapability(capability.id, $event)"
+          />
+          <span class="flex flex-col">
+            <span class="text-foreground">{{ capability.label }}</span>
+            <span class="text-xs text-muted-foreground">{{ capability.summary }}</span>
+            <span v-if="capability.requires.length > 0" class="text-xs text-muted-foreground">
+              Also enables: {{ capabilityLabels(capability.requires) }}
+            </span>
+            <span v-if="capability.unavailableReason" class="text-xs text-amber-500">
+              {{ capability.unavailableReason }}
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <!-- Slash commands of the enabled capabilities: sending one as a prompt is
+           exactly how the agent's own input dispatches it. -->
+      <div v-if="capabilityCommands.length > 0" class="flex flex-col gap-2">
+        <Label class="whitespace-nowrap mt-2">Capability commands</Label>
+        <div class="flex flex-wrap gap-2">
+          <Button
+            v-for="command in capabilityCommands"
+            :key="command.command"
+            variant="secondary"
+            class="px-3 py-1.5 rounded text-sm"
+            :disabled="agentMode.processing"
+            :title="command.description"
+            @click="agentMode.generate(command.command)"
+          >
+            {{ command.command }}
+          </Button>
+        </div>
+      </div>
+
+      <Label class="whitespace-nowrap mt-2">MCP servers</Label>
       <div v-if="mcp.allServers.length > 0" class="flex flex-col gap-2">
         <label
           v-for="server in mcp.allServers"
@@ -120,8 +165,8 @@
           <input
             type="checkbox"
             class="mt-0.5"
-            :checked="agentMode.mcpServerIds.includes(server.id)"
-            @change="toggleMcpServer(server.id)"
+            :checked="agentMode.isCapabilityEnabled(mcpCapabilityId(server.id))"
+            @change="toggleCapability(mcpCapabilityId(server.id), $event)"
           />
           <span class="flex flex-col">
             <span class="text-foreground">{{ server.name }}</span>
@@ -135,8 +180,8 @@
         No MCP servers configured. Add one under App Settings → MCP.
       </p>
       <p class="text-xs text-amber-500">
-        Attached MCP servers are started on the next turn (Chrome DevTools launches a browser via
-        npx — first run downloads it). Changing this list starts a fresh Pi session.
+        Changes take effect on the next turn, which starts a fresh Pi session. Attached MCP servers
+        are started then too (Chrome DevTools launches a browser via npx — first run downloads it).
       </p>
     </div>
 
@@ -170,7 +215,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import DropDownNew from '@/components/DropDownNew.vue'
@@ -186,6 +231,7 @@ import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { useMcp } from '@/assets/js/store/mcp'
+import { getAgentToolSpecs } from '@/assets/js/tools/agentBridge'
 import ProviderSelector from '@/components/ProviderSelector.vue'
 
 const agentMode = useAgentMode()
@@ -195,21 +241,48 @@ const cloudMode = useCloudMode()
 const productModeStore = useProductMode()
 const mcp = useMcp()
 
-onMounted(() => {
+// The capability catalog lives in the main process (it is what the Pi session is
+// actually built from), so the checkbox list — including which capabilities are
+// unavailable and why — is fetched rather than duplicated here.
+const capabilityCatalog = ref<AgentCapabilityInfo[]>([])
+const builtInCapabilities = computed(() =>
+  capabilityCatalog.value.filter((capability) => !capability.id.startsWith('mcp:')),
+)
+
+// Only the enabled capabilities' commands: an extension that is not part of the
+// session cannot answer them.
+const capabilityCommands = computed(() =>
+  capabilityCatalog.value
+    .filter((capability) => agentMode.isCapabilityEnabled(capability.id))
+    .flatMap((capability) => capability.commands),
+)
+
+onMounted(async () => {
   void mcp.refreshAvailableServers()
+  capabilityCatalog.value = await window.electronAPI.agentMode.listCapabilities({
+    workspaceDir: agentMode.workspaceDir,
+    toolSpecs: getAgentToolSpecs(),
+  })
 })
+
+function mcpCapabilityId(serverId: string): string {
+  return `mcp:${serverId}`
+}
+
+function capabilityLabels(ids: string[]): string {
+  return ids
+    .map((id) => capabilityCatalog.value.find((entry) => entry.id === id)?.label ?? id)
+    .join(', ')
+}
+
+function toggleCapability(id: string, event: Event): void {
+  agentMode.setCapabilityEnabled(id, (event.target as HTMLInputElement).checked)
+}
 
 // Consent is stored per workspace folder, so this only ever affects the folder
 // currently selected — pointing the agent elsewhere needs a fresh opt-in.
 function toggleUnsandboxed(event: Event): void {
   agentMode.setUnsandboxed((event.target as HTMLInputElement).checked)
-}
-
-function toggleMcpServer(serverId: string): void {
-  const current = agentMode.mcpServerIds
-  agentMode.mcpServerIds = current.includes(serverId)
-    ? current.filter((id) => id !== serverId)
-    : [...current, serverId]
 }
 
 // Non-null service name for the DeviceSelector: only rendered for non-cloud

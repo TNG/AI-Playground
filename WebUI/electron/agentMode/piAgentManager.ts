@@ -4,22 +4,29 @@ import fs from 'node:fs'
 import type {
   AgentSession,
   AgentSessionEvent,
-  AuthStorage,
   CompactionResult,
-  ModelRegistry,
+  ExtensionUIContext,
+  ModelRuntime,
   ToolDefinition,
 } from '@earendil-works/pi-coding-agent'
 import { appLoggerInstance } from '../logging/logger.ts'
 import { loadPi } from './piRuntime.ts'
 import { closeBrowserSession } from '../subprocesses/agentBrowser.ts'
 import {
-  buildCustomTools,
   buildSkillsPromptSection,
   rejectAllPendingToolCalls,
   setToolBridgeWindow,
   submitAgentToolResult,
   writeAgentSkills,
 } from './piCustomTools.ts'
+import {
+  DEFAULT_CAPABILITY_IDS,
+  listCapabilities,
+  mcpCapabilityId,
+  resolveCapabilities,
+  type CapabilityHost,
+  type CapabilityInfo,
+} from './capabilities/index.ts'
 import { createAgentToolAccess, type AgentToolAccess } from './piToolOperations.ts'
 import {
   buildWorkspaceInstructions,
@@ -204,31 +211,35 @@ function piSessionDir(): string {
 
 // ── Model registration ───────────────────────────────────────────────────────
 
-let authStorage: AuthStorage | null = null
-let modelRegistry: ModelRegistry | null = null
+let modelRuntime: ModelRuntime | null = null
 
 /**
- * A registry with no models.json behind it: every model the app offers is
- * registered here at runtime, which also keeps Pi's builtin catalog out of the
- * way (a cloud model id like 'gpt-4o' would otherwise resolve to Pi's own
- * `openai` provider and fail on missing credentials).
+ * The model runtime every session shares. No `models.json` behind it (`modelsPath:
+ * null`): every model the app offers is registered at runtime, and models are
+ * always looked up by our own provider id, so Pi's builtin catalog can never
+ * capture a request (a cloud model id like 'gpt-4o' would otherwise resolve to
+ * Pi's own `openai` provider and fail on missing credentials). Credentials stay
+ * in memory — `setRuntimeApiKey` is an in-memory overlay and the auth file we
+ * point at is only ever read, since agent mode never logs a provider in.
  */
-async function ensureModelRegistry(): Promise<ModelRegistry> {
-  if (modelRegistry) return modelRegistry
+async function ensureModelRuntime(): Promise<ModelRuntime> {
+  if (modelRuntime) return modelRuntime
   const pi = await loadPi()
-  authStorage = pi.AuthStorage.inMemory()
-  modelRegistry = pi.ModelRegistry.inMemory(authStorage)
-  return modelRegistry
+  modelRuntime = await pi.ModelRuntime.create({
+    authPath: path.join(piAgentDir(), 'auth.json'),
+    modelsPath: null,
+  })
+  return modelRuntime
 }
 
 /** Register the turn's model as a provider entry and return its Pi model id. */
 async function registerModel(
   config: AgentModeModelConfig,
 ): Promise<{ provider: string; modelId: string }> {
-  const registry = await ensureModelRegistry()
+  const runtime = await ensureModelRuntime()
   if (config.source === 'local') {
     const contextWindow = config.contextWindow ?? 8192
-    registry.registerProvider(LOCAL_PROVIDER, {
+    runtime.registerProvider(LOCAL_PROVIDER, {
       name: 'AI Playground local backend',
       baseUrl: config.baseUrl,
       api: 'openai-completions',
@@ -246,7 +257,7 @@ async function registerModel(
         },
       ],
     })
-    authStorage?.setRuntimeApiKey(LOCAL_PROVIDER, 'unused')
+    await runtime.setRuntimeApiKey(LOCAL_PROVIDER, 'unused')
     return { provider: LOCAL_PROVIDER, modelId: config.model }
   }
 
@@ -254,7 +265,7 @@ async function registerModel(
   // stored key to inject, so `authHeader: false` suppresses Pi's own
   // Authorization header and the api key is a placeholder.
   const contextWindow = config.contextWindow ?? CLOUD_DEFAULT_CONTEXT_WINDOW
-  registry.registerProvider(CLOUD_PROVIDER, {
+  runtime.registerProvider(CLOUD_PROVIDER, {
     name: 'AI Playground cloud proxy',
     baseUrl: `${config.proxyBaseUrl}/v1`,
     api: 'openai-completions',
@@ -277,7 +288,7 @@ async function registerModel(
       },
     ],
   })
-  authStorage?.setRuntimeApiKey(CLOUD_PROVIDER, 'unused')
+  await runtime.setRuntimeApiKey(CLOUD_PROVIDER, 'unused')
   return { provider: CLOUD_PROVIDER, modelId: config.model }
 }
 
@@ -300,20 +311,40 @@ let activeAbort: AbortController | null = null
 /** Session id of the most recent session (for reset to clear its pointer). */
 let lastSessionId: string | null = null
 /** Per-turn sink: set for the duration of a turn, so events can be routed. */
-let currentTurn: { turnId: string; onEvent: (event: AgentSessionEvent) => void } | null = null
+let currentTurn: {
+  turnId: string
+  onEvent: (event: AgentSessionEvent) => void
+  /** Host-side text (an extension's slash command output) for the transcript. */
+  notice?: (text: string) => void
+} | null = null
 
 function configKeyOf(config: AgentModeTurnConfig): string {
   // The tool set is fixed at session construction, so a changed tool set needs a
-  // rebuild. The session id is part of the key too: switching conversations in
-  // the renderer must rebuild even when everything else matches.
+  // rebuild — including the enabled capabilities, which decide what tools,
+  // skills and extensions the session gets. The session id is part of the key
+  // too: switching conversations in the renderer must rebuild even when
+  // everything else matches.
   return JSON.stringify([
     config.sessionId,
     config.workspaceDir,
     config.modelConfig,
     config.toolSpecs ?? [],
-    config.mcpServerIds ?? [],
+    enabledCapabilityIds(config),
     config.unsandboxed ?? false,
   ])
+}
+
+/**
+ * The capabilities this turn asks for. Older persisted sessions (and any caller
+ * that has not been updated) carry no list, so they fall back to the defaults
+ * plus whatever MCP servers they had attached.
+ */
+function enabledCapabilityIds(config: AgentModeTurnConfig): string[] {
+  const ids = config.capabilities ?? [
+    ...DEFAULT_CAPABILITY_IDS,
+    ...(config.mcpServerIds ?? []).map((serverId) => mcpCapabilityId(serverId)),
+  ]
+  return [...new Set(ids)].sort()
 }
 
 function sendChunk(turnId: string, chunk: StreamChunk): void {
@@ -326,12 +357,29 @@ async function endActiveSession(): Promise<void> {
   rejectAllPendingToolCalls('Agent session ended.')
   if (!current) return
   current.unsubscribe()
+  await shutdownSessionExtensions(current.session)
   try {
     current.session.dispose()
   } catch (error) {
     logger.warn(`failed to dispose agent session: ${error}`, LOG_SOURCE)
   }
   await current.access.dispose()
+}
+
+/**
+ * Give extensions their `session_shutdown` before the session goes away. Pi's own
+ * front-ends do this from `AgentSessionRuntime.dispose()`, which we do not use
+ * (we own the session directly), and `AgentSession.dispose()` alone does not
+ * emit it — without this, persistent memory would never flush what it learned
+ * and its SQLite handle would be left behind.
+ */
+async function shutdownSessionExtensions(session: AgentSession): Promise<void> {
+  try {
+    if (!session.extensionRunner.hasHandlers('session_shutdown')) return
+    await session.extensionRunner.emit({ type: 'session_shutdown', reason: 'quit' })
+  } catch (error) {
+    logger.warn(`extension shutdown failed: ${briefly(error)}`, LOG_SOURCE)
+  }
 }
 
 async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession> {
@@ -347,22 +395,35 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
 
   const pi = await loadPi()
   const { provider, modelId } = await registerModel(config.modelConfig)
-  const registry = await ensureModelRegistry()
-  const model = registry.find(provider, modelId)
+  const models = await ensureModelRuntime()
+  const model = models.getModel(provider, modelId)
   if (!model) {
     throw new Error(`Model '${modelId}' could not be registered with Pi.`)
   }
 
-  // Skills are progressive disclosure: only name + description sit in the system
-  // prompt until the model reads one, so the web-debug and media workflows cost
-  // almost nothing per step. The media skill only applies when the thin `media`
-  // delegation tool is actually bridged.
-  const toolSpecs = config.toolSpecs ?? []
-  const skillsDir = path.join(piAgentDir(), 'skills')
-  const skills = writeAgentSkills(
-    skillsDir,
-    toolSpecs.some((spec) => spec.name === 'media'),
+  // Everything optional the agent can do is a capability the user enabled for
+  // this session (capabilities/index.ts): its tools, skills and Pi extensions.
+  const capabilityHost: CapabilityHost = {
+    sessionId,
+    workspaceDir,
+    toolSpecs: config.toolSpecs ?? [],
+    agentDir: piAgentDir(),
+    contextWindow: config.modelConfig.contextWindow,
+  }
+  const capabilities = await resolveCapabilities(capabilityHost, enabledCapabilityIds(config))
+  logger.info(
+    `capabilities: ${capabilities.resolved.map(({ capability }) => capability.id).join(', ') || 'none'}` +
+      (capabilities.dormantIds.length > 0
+        ? ` (dormant: ${capabilities.dormantIds.join(', ')})`
+        : ''),
+    LOG_SOURCE,
   )
+
+  // Skills are progressive disclosure: only name + description sit in the system
+  // prompt until the model reads one, so a capability's workflow instructions
+  // cost almost nothing per step.
+  const skillsDir = path.join(piAgentDir(), 'skills')
+  const skills = writeAgentSkills(skillsDir, capabilities.skillSources)
 
   const access = await createAgentToolAccess({ workspaceDir, unsandboxed, skillsDir, skills })
 
@@ -370,12 +431,6 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   // HTTP instead of file://. The runtime is keyed by session so the port stays
   // stable for the whole conversation.
   const runtime = await ensureWorkspaceRuntime(sessionId, workspaceDir)
-  const customTools = await buildCustomTools({
-    sessionId,
-    workspaceDir,
-    toolSpecs,
-    mcpServerIds: config.mcpServerIds ?? [],
-  })
 
   const instructions = buildWorkspaceInstructions({
     cwd: access.cwd,
@@ -392,22 +447,37 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     logger.info(`resumed Pi session ${sessionId} (${workspaceDir})`, LOG_SOURCE)
   }
 
+  const announcedSkills = skills.filter((skill) =>
+    capabilities.announcedSkillNames.includes(skill.name),
+  )
   const resourceLoader = new pi.DefaultResourceLoader({
     cwd: workspaceDir,
     agentDir: piAgentDir(),
-    // No third-party extensions, themes or prompt templates in the host app, and
-    // no skill loading either: Pi would advertise the skills at their host path,
-    // which the sandboxed read tool cannot open. They are announced below with a
-    // location that matches the active mode instead.
+    // `noExtensions` only suppresses auto-discovery of the user's own extensions;
+    // the capability factories and bundled package paths below still load. No
+    // themes or prompt templates in the host app, and no skill loading either:
+    // Pi would advertise the skills at their host path, which the sandboxed read
+    // tool cannot open. They are announced below with a location that matches
+    // the active mode instead.
     noExtensions: true,
     noThemes: true,
     noPromptTemplates: true,
     noSkills: true,
+    // `noSkills` only stops path discovery: an extension can still contribute
+    // skill directories through `resources_discover` (persistent memory
+    // contributes the ones it wrote itself), and Pi would then announce them at
+    // their host path. Those skills reach the model through the capability's
+    // `buildSkills` instead, so Pi's own skill list stays empty in every mode.
+    skillsOverride: () => ({ skills: [], diagnostics: [] }),
+    extensionFactories: capabilities.extensionFactories,
+    additionalExtensionPaths: capabilities.extensionPaths,
     // The workspace orientation the model would otherwise have to guess. Built
     // fresh on every session build, so it always carries the live preview URL.
-    appendSystemPrompt: [instructions, buildSkillsPromptSection(skills, access.skillsRoot)].filter(
-      (section) => section !== '',
-    ),
+    appendSystemPrompt: [
+      instructions,
+      buildSkillsPromptSection(announcedSkills, access.skillsRoot),
+      capabilities.dormantPromptSection,
+    ].filter((section) => section !== ''),
   })
   await resourceLoader.reload()
 
@@ -415,16 +485,22 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     cwd: access.cwd,
     agentDir: piAgentDir(),
     model,
-    authStorage: authStorage ?? pi.AuthStorage.inMemory(),
-    modelRegistry: registry,
+    modelRuntime: models,
     sessionManager,
     settingsManager: pi.SettingsManager.inMemory(),
     // Pi's own file/shell tools are replaced by the mode-specific ones built in
-    // piToolOperations.ts, so its builtins are switched off entirely.
+    // piToolOperations.ts, so its builtins are switched off entirely. Capability
+    // tools arrive through their extensions, not here.
     noTools: 'builtin',
-    customTools: [...access.definitions, ...customTools],
+    customTools: access.definitions,
     resourceLoader,
   })
+
+  // createAgentSession loads extensions but does not start them: `session_start`
+  // and `resources_discover` only fire from bindExtensions, and third-party
+  // extensions (persistent memory) do all their work there.
+  await bindSessionExtensions(session)
+  hideDormantTools(session, capabilities.dormantToolNames)
 
   const unsubscribe = session.subscribe((event) => currentTurn?.onEvent(event))
   savePointer({
@@ -443,6 +519,122 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     instructedBaseUrl: runtime.baseUrl,
     unsubscribe,
   }
+}
+
+/**
+ * What the agent could do in a session built right now, for the settings UI.
+ * Comes from the same catalog the session build uses, so the checkboxes cannot
+ * drift from what the agent actually gets — including which capabilities are
+ * unavailable and why.
+ */
+export function listAgentCapabilities(options: {
+  workspaceDir?: string
+  toolSpecs?: AgentToolSpec[]
+  mcpServerIds?: string[]
+}): CapabilityInfo[] {
+  return listCapabilities(
+    {
+      sessionId: 'capability-listing',
+      workspaceDir: options.workspaceDir ?? '',
+      toolSpecs: options.toolSpecs ?? [],
+      agentDir: piAgentDir(),
+    },
+    options.mcpServerIds ?? [],
+  )
+}
+
+/**
+ * Start the session's extensions. Pi's own front-ends do this after building a
+ * session; the bindings are what an extension's `ctx` can reach, so the ones
+ * that make no sense without a terminal UI (forking, session switching, tree
+ * navigation) are refused with a clear message instead of pretending to work.
+ */
+async function bindSessionExtensions(session: AgentSession): Promise<void> {
+  const unsupported = (action: string) => async () => {
+    throw new Error(`'${action}' is not available in AI Playground's agent mode.`)
+  }
+  await session.bindExtensions({
+    // Not an interactive terminal: no UI prompts, and output is a message
+    // stream the renderer consumes.
+    mode: 'rpc',
+    uiContext: extensionUiContext(),
+    commandContextActions: {
+      waitForIdle: () => session.agent.waitForIdle(),
+      reload: () => session.reload(),
+      newSession: unsupported('new session'),
+      fork: unsupported('fork'),
+      navigateTree: unsupported('navigate tree'),
+      switchSession: unsupported('switch session'),
+    },
+    abortHandler: () => session.abort(),
+    shutdownHandler: async () => {
+      logger.info('extension requested shutdown; ending the agent session', LOG_SOURCE)
+      await endActiveSession()
+    },
+    onError: (error) => logger.warn(`extension error: ${briefly(error)}`, LOG_SOURCE),
+  })
+}
+
+/**
+ * What an extension's `ctx.ui` can do here. Pi's default in `rpc` mode is a
+ * silent no-op, which would swallow the output of every slash command (memory's
+ * `/memory-insights` writes its whole report through `notify`), so notifications
+ * are routed into the running turn's transcript instead. Everything interactive
+ * stays unavailable — there is no terminal to prompt in, and an extension asking
+ * for input must fall back rather than hang.
+ */
+function extensionUiContext(): ExtensionUIContext {
+  const surface = (message: string, type?: 'info' | 'warning' | 'error') => {
+    if (type === 'error') logger.warn(`extension notice: ${briefly(message)}`, LOG_SOURCE)
+    else logger.info(`extension notice: ${briefly(message)}`, LOG_SOURCE)
+    currentTurn?.notice?.(message)
+  }
+  const context = {
+    notify: surface,
+    select: async () => undefined,
+    confirm: async () => false,
+    input: async () => undefined,
+    custom: async () => undefined,
+    onTerminalInput: () => () => {},
+    setStatus: (_key: string, text: string | undefined) => {
+      if (text) surface(text)
+    },
+    setWorkingMessage: () => {},
+    setWorkingVisible: () => {},
+    setWorkingIndicator: () => {},
+    setHiddenThinkingLabel: () => {},
+    setWidget: () => {},
+    setFooter: () => {},
+    setHeader: () => {},
+    setTitle: () => {},
+    pasteToEditor: () => {},
+    setEditorText: () => {},
+    getEditorText: () => '',
+    editor: async () => undefined,
+    addAutocompleteProvider: () => {},
+    setEditorComponent: () => {},
+    getEditorComponent: () => undefined,
+    getAllThemes: () => [],
+    getTheme: () => undefined,
+    setTheme: () => ({ success: false, error: 'Agent mode has no theme support.' }),
+    getToolsExpanded: () => false,
+    setToolsExpanded: () => {},
+  }
+  // The TUI-only members (`theme`, component factories) have no meaning outside
+  // a terminal; the cast keeps the stub to what an extension can usefully call.
+  return context as unknown as ExtensionUIContext
+}
+
+/**
+ * Hide the tools of capabilities that start dormant. Everything Pi registered is
+ * active by default, which is the fast path (see
+ * docs/agent-capability-benchmark.md), so this narrows rather than pins the set —
+ * tools a third-party extension registered for itself stay untouched.
+ */
+function hideDormantTools(session: AgentSession, dormantToolNames: string[]): void {
+  if (dormantToolNames.length === 0) return
+  const dormant = new Set(dormantToolNames)
+  session.setActiveToolsByName(session.getActiveToolNames().filter((name) => !dormant.has(name)))
 }
 
 async function ensureSession(config: AgentModeTurnConfig): Promise<ActiveSession> {
@@ -631,6 +823,7 @@ export async function startAgentTurn(
         translator.handle(event)
         if (USAGE_SAMPLE_EVENTS.has(event.type)) sampleUsage()
       },
+      notice: (text) => translator.notice(text),
     }
     const onAbort = () => current.session.abort()
     abortController.signal.addEventListener('abort', onAbort, { once: true })
@@ -722,6 +915,18 @@ export async function resetAgentSession(): Promise<void> {
   const sessionId = active?.sessionId ?? lastSessionId
   await endActiveSession()
   if (sessionId) clearPointer(sessionId)
+  closeWorkspaceRuntime()
+}
+
+/**
+ * Shut the agent down for app exit: the live session gets its extension
+ * `session_shutdown` (persistent memory flushes there) and the preview
+ * server/browser are closed. Unlike `resetAgentSession` the persisted pointer
+ * survives, so the conversation resumes on the next launch.
+ */
+export async function shutdownAgentMode(): Promise<void> {
+  cancelAgentTurn()
+  await endActiveSession()
   closeWorkspaceRuntime()
 }
 

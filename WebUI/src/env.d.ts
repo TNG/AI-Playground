@@ -309,12 +309,30 @@ type AgentToolSpec = {
   workspacePathInputs?: string[]
 }
 
+/** One user-toggleable chunk of agent functionality (see capabilities/index.ts). */
+type AgentCapabilityInfo = {
+  id: string
+  label: string
+  summary: string
+  /** Capability ids enabling this one also pulls in. */
+  requires: string[]
+  /** Slash commands the capability answers, sendable as a prompt of their own. */
+  commands: { command: string; description: string }[]
+  /** Set when the capability cannot be used right now, with the reason. */
+  unavailableReason?: string
+}
+
 type AgentModeTurnConfig = {
   /** Renderer-minted stable session id (one per archived conversation). */
   sessionId: string
   workspaceDir: string
   modelConfig: AgentModeModelConfig
   toolSpecs?: AgentToolSpec[]
+  /**
+   * Capability ids enabled for this session ('media', 'web-debug',
+   * `mcp:<serverId>`, …). Omitted means the defaults.
+   */
+  capabilities?: string[]
   /** IDs of configured MCP servers whose tools are attached to the agent. */
   mcpServerIds?: string[]
   /**
@@ -340,6 +358,15 @@ type AgentToolProgress = {
   toolCallId: string
   toolName: string
   text: string
+}
+
+/** An image a tool produced, shown to the user under that tool's card. */
+type AgentToolImage = {
+  toolCallId: string
+  /** The image itself, inlined — it never enters the model's context. */
+  dataUri: string
+  /** What the image is, e.g. the workspace path it was saved to. */
+  label: string
 }
 
 type AgentToolExecuteRequest = {
@@ -569,8 +596,14 @@ type electronAPI = {
     resetSession(): Promise<void>
     deleteSession(sessionId: string): Promise<{ success: boolean; error?: string }>
     compact(customInstructions?: string): Promise<AgentCompactionResult>
+    listCapabilities(options: {
+      workspaceDir?: string
+      toolSpecs?: AgentToolSpec[]
+      mcpServerIds?: string[]
+    }): Promise<AgentCapabilityInfo[]>
     onStreamChunk(callback: (data: { turnId: string; chunk: unknown }) => void): void
     onToolProgress(callback: (data: AgentToolProgress) => void): void
+    onToolImage(callback: (data: AgentToolImage) => void): void
     onTurnDone(callback: (data: { turnId: string }) => void): void
     onExecuteTool(callback: (data: AgentToolExecuteRequest) => void): void
     submitToolResult(requestId: string, result: unknown, error?: string): Promise<void>

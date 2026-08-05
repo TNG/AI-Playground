@@ -2,6 +2,8 @@
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "YourAppID",
   "asar": true,
+  "asarUnpack": ["**/node_modules/pi-hermes-memory/**", "**/node_modules/better-sqlite3/**"],
+  "npmRebuild": true,
   "afterPack": "build/scripts/after-pack.cjs",
   "copyright": "Copyright © Intel. All rights reserved",
   "extraResources": [

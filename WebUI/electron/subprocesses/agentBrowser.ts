@@ -89,6 +89,13 @@ export type BrowserToolInput = {
   script?: string
 }
 
+export type BrowserActionResult = {
+  /** What the model is told. */
+  text: string
+  /** Workspace-relative path of a screenshot this action produced, for the UI. */
+  screenshotPath?: string
+}
+
 /**
  * Execute one browser action for a session. Runs in the Electron main process
  * against a hidden BrowserWindow (bundled Chromium). Returns a plain string for
@@ -99,24 +106,49 @@ export async function runBrowserAction(
   sessionId: string,
   workspaceDir: string,
   input: BrowserToolInput,
-): Promise<string> {
+): Promise<BrowserActionResult> {
   const session = ensureBrowserSession(sessionId)
   switch (input.action) {
     case 'open': {
       if (!input.url) throw new Error("browser 'open' requires a url")
       session.logs.length = 0
-      await session.win.loadURL(input.url)
+      // `loadURL` resolves for an error response just as it does for a page, so
+      // without the navigation status a 404/500 looks like a successful open and
+      // the model debugs a page the server never served.
+      let status = 0
+      let statusText = ''
+      const onNavigate = (_event: unknown, _url: string, code: number, text: string) => {
+        status = code
+        statusText = text
+      }
+      session.win.webContents.on('did-navigate', onNavigate)
+      try {
+        await session.win.loadURL(input.url)
+      } finally {
+        session.win.webContents.off('did-navigate', onNavigate)
+      }
       // Let late async console output / errors settle before returning.
       await delay(400)
+      if (status >= 400) {
+        const body = await session.win.webContents
+          .executeJavaScript('document.body?.innerText ?? ""', true)
+          .catch(() => '')
+        const detail = String(body).trim().slice(0, 300)
+        return {
+          text:
+            `Failed to open ${input.url}: HTTP ${status} ${statusText}.` +
+            (detail ? ` The server said: ${detail}` : ''),
+        }
+      }
       const title = session.win.webContents.getTitle()
-      return `Opened ${input.url}${title ? ` (title: ${title})` : ''}.`
+      return { text: `Opened ${input.url}${title ? ` (title: ${title})` : ''}.` }
     }
     case 'console':
-      return session.logs.length > 0 ? session.logs.join('\n') : '<no console messages>'
+      return { text: session.logs.length > 0 ? session.logs.join('\n') : '<no console messages>' }
     case 'eval': {
       if (!input.script) throw new Error("browser 'eval' requires a script")
       const result = await session.win.webContents.executeJavaScript(input.script, true)
-      return typeof result === 'string' ? result : JSON.stringify(result ?? null)
+      return { text: typeof result === 'string' ? result : JSON.stringify(result ?? null) }
     }
     case 'screenshot': {
       const image = await session.win.webContents.capturePage()
@@ -124,7 +156,8 @@ export async function runBrowserAction(
       fs.mkdirSync(generatedDir, { recursive: true })
       const filename = `screenshot-${Date.now()}.png`
       fs.writeFileSync(path.join(generatedDir, filename), image.toPNG())
-      return `Saved screenshot to ${path.posix.join('generated', filename)}`
+      const relativePath = path.posix.join('generated', filename)
+      return { text: `Saved screenshot to ${relativePath}`, screenshotPath: relativePath }
     }
     default:
       throw new Error(`Unknown browser action: ${String((input as BrowserToolInput).action)}`)

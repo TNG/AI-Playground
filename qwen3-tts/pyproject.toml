@@ -5,9 +5,17 @@ requires-python = "==3.12.*"
 dependencies = [
   "Flask",
   "flask-cors",
-  "qwen-tts",
   "soundfile",
   "numpy",
+  # Direct deps of the vendored Qwen3-TTS modelling code (vendor/README.md). These were
+  # previously inherited from the `qwen-tts` package, which pinned transformers/accelerate by
+  # equality and pulled gradio for a demo CLI we never import.
+  # transformers is capped below 5: the modelling code uses internal APIs that 5.x reworked
+  # (masking_utils, modeling_rope_utils, config-owned generation attrs) and does not run there.
+  "transformers>=4.57.3,<5",
+  "accelerate>=1.12.0",
+  "librosa",
+  "huggingface_hub",
 ]
 
 # torch ships from a different index per accelerator, so it lives in mutually
@@ -17,16 +25,13 @@ dependencies = [
 [project.optional-dependencies]
 xpu = [
   "torch>=2.12.0",
-  "torchaudio>=2.11.0",
   "triton-xpu>=3.6.0; sys_platform == 'win32' or sys_platform == 'linux'",
 ]
 cuda = [
   "torch>=2.12.0",
-  "torchaudio>=2.11.0",
 ]
 cpu = [
   "torch>=2.12.0",
-  "torchaudio>=2.11.0",
 ]
 
 [tool.uv]
@@ -57,13 +62,6 @@ conflicts = [
 
 [tool.uv.sources]
 torch = [
-  { index = "pytorch-xpu", extra = "xpu", marker = "sys_platform != 'darwin'" },
-  { index = "pytorch-cuda", extra = "cuda", marker = "sys_platform != 'darwin'" },
-  { index = "pytorch-cpu", extra = "xpu", marker = "sys_platform == 'darwin'" },
-  { index = "pytorch-cpu", extra = "cuda", marker = "sys_platform == 'darwin'" },
-  { index = "pytorch-cpu", extra = "cpu" },
-]
-torchaudio = [
   { index = "pytorch-xpu", extra = "xpu", marker = "sys_platform != 'darwin'" },
   { index = "pytorch-cuda", extra = "cuda", marker = "sys_platform != 'darwin'" },
   { index = "pytorch-cpu", extra = "xpu", marker = "sys_platform == 'darwin'" },

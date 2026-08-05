@@ -305,6 +305,31 @@ Slack commands must be lowercase; use `queued`/`telegram_aliases` in `commands.p
 spellings (e.g. `/imgGen`). The dev mock channel bypasses all of this (it injects raw text straight
 into the dispatcher), so a command working there does NOT prove it works on Telegram/Slack.
 
+## i18n / Translations (English is the Source of Truth)
+
+Locale files live in `WebUI/src/assets/i18n/` (`en-US.json` + 12 others: `de`, `es`, `id`, `it`,
+`ja`, `ko`, `pl`, `th`, `tr`, `vi`, `zh-CN`, `zh-TW`). **`en-US.json` is the single source of
+truth.** The loader (`store/i18n.ts`) merges `en-US` as a fallback under the active locale, so a
+missing key renders in English rather than crashing — but a missing/stale key is still a bug to fix,
+not a feature.
+
+**Whenever you add, change, or remove a key in `en-US.json`, apply the same change to all 12 other
+locale files in the same commit:**
+- **Added key** → add it to every locale with a translation of the new English value.
+- **Changed English value** → re-generate (re-translate) that key in every locale so translations
+  don't drift from the current English wording.
+- **Removed key** → remove it from every locale (no orphan/extra keys).
+
+Rules for the locale files:
+- Every locale must have the **exact same key set** as `en-US.json` — no missing, no extra keys.
+- Preserve `{placeholder}` tokens verbatim (e.g. `{tool}`, `{error}`) — same set per key as English.
+- Do **not** translate product/technical names: `AI Playground`, `ComfyUI`, `HuggingFace`, `MCP`,
+  `GPU`, `vRAM`, `OpenVINO`, `INT4`, `KV Cache`, model ids; keep mode names `Chat`/`Image Gen`/`Image Edit`.
+- Match file format: UTF-8 (raw non-ASCII, not `\u` escaped), 2-space indent, trailing newline.
+
+To keep this mechanical, a parity check is a plain script: load `en-US.json` and each locale, diff
+the key sets, and diff the `{...}` placeholder set per key. Add English keys first, then translate.
+
 ## CI Checks
 
 - **ESLint + Prettier**: runs on every push/PR (`eslint-prettier.yml`)

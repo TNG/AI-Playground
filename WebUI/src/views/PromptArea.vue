@@ -793,6 +793,12 @@ watch(
 )
 
 function getTextAreaPlaceholder() {
+  // The TTS preset runs in 'chat' mode but takes literal text to speak, not a
+  // chat prompt — so it needs its own placeholder.
+  const active = presetsStore.activePreset
+  if (active?.type === 'chat' && active.ttsPreset) {
+    return languages?.COM_PROMPT_TTS || ''
+  }
   switch (promptStore.getCurrentMode()) {
     case 'chat':
       return languages?.COM_PROMPT_CHAT || ''

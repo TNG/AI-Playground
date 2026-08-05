@@ -84,6 +84,65 @@
         >
           <span>{{ documentButtonText }}</span>
         </Button>
+
+        <!-- Retrieval mode toggle — three-state logic:
+             HIDDEN  : no Phison SSD detected on this machine
+             GRAYED  : SSD present but build not active / artifact not installed /
+                       model's context ceiling below the KM floor
+             ENABLED : SSD present AND ssd-offload build active AND artifact ready
+                       AND the model can reach the KM floor
+             Only shown for presets that offer KM optionally (supportsPhisonKmRag, not requiresPhison).
+             Highlight follows the EFFECTIVE mode, not the persisted preference: when KM is
+             unavailable, standard RAG is what actually runs, so Standard is what's shown as
+             selected — with the reason spelled out below rather than hidden in a tooltip. -->
+        <div
+          v-if="showRetrievalModeToggle"
+          class="grid grid-cols-[120px_1fr] items-center gap-x-4 gap-y-1"
+        >
+          <Label class="whitespace-nowrap">
+            {{ languages.RAG_RETRIEVAL_MODE }}
+          </Label>
+          <div
+            class="inline-flex w-fit overflow-hidden rounded-md border border-border"
+            :title="retrievalModeUnavailableReason"
+          >
+            <!-- Standard stays selectable even when KM is unavailable so the user can
+                 clear a persisted phisonKm preference while effective mode is Standard. -->
+            <button
+              type="button"
+              class="h-8 px-3 text-sm transition-colors"
+              :class="[
+                effectiveRagMode === 'standard'
+                  ? 'bg-primary text-foreground'
+                  : 'bg-transparent hover:bg-primary/20',
+              ]"
+              @click="textInference.ragMode = 'standard'"
+            >
+              {{ languages.RAG_MODE_STANDARD }}
+            </button>
+            <button
+              type="button"
+              :disabled="disableRetrievalModeToggle"
+              class="h-8 border-l border-border px-3 text-sm transition-colors"
+              :class="[
+                effectiveRagMode === 'phisonKm'
+                  ? 'bg-primary text-foreground'
+                  : 'bg-transparent hover:bg-primary/20',
+                disableRetrievalModeToggle ? 'cursor-not-allowed opacity-50' : '',
+              ]"
+              @click="textInference.ragMode = 'phisonKm'"
+            >
+              {{ languages.RAG_MODE_PHISON_KM }}
+            </button>
+          </div>
+          <p
+            v-if="retrievalModeUnavailableReason"
+            class="col-start-2 text-xs text-muted-foreground"
+          >
+            {{ retrievalModeUnavailableReason }}
+          </p>
+        </div>
+
         <div class="grid grid-cols-[120px_1fr] items-center gap-4">
           <label class="whitespace-nowrap">{{ languages.ANSWER_MAX_TOKENS }}</label>
           <input
@@ -103,17 +162,24 @@
         </div>
         <div
           v-if="textInference.contextSizeSettingSupported"
-          class="grid grid-cols-[120px_1fr] items-center gap-4"
+          class="grid grid-cols-[120px_1fr] items-center gap-x-4 gap-y-1"
         >
           <Label class="whitespace-nowrap">{{ languages.ANSWER_CONTEXT_SIZE }}</Label>
           <input
             type="number"
             v-model="textInference.contextSize"
-            min="512"
+            :min="textInference.enforceKmContextFloor ? PHISON_KM_CONTEXT_FLOOR : 512"
             max="131072"
             step="512"
             class="rounded-sm text-foreground text-center h-7 w-20 leading-7 p-0 bg-transparent border border-border"
           />
+          <!-- Phison KM requires a >= 16384 window for KV-cache reuse to be effective -->
+          <p
+            v-if="textInference.enforceKmContextFloor"
+            class="col-start-2 text-xs text-muted-foreground"
+          >
+            {{ languages.PHISON_KM_CONTEXT_HINT }}
+          </p>
         </div>
         <div class="grid grid-cols-[120px_1fr] items-center gap-4">
           <Label class="whitespace-nowrap">{{ languages.ANSWER_METRICS }}</Label>
@@ -282,6 +348,7 @@ import PresetSelector from '@/components/PresetSelector.vue'
 import * as toast from '@/assets/js/toast'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
+import { PHISON_KM_CONTEXT_FLOOR } from '@/assets/js/phisonKmRag'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
 
@@ -332,6 +399,33 @@ const currentModel = computed(() =>
 // UI visibility flags from preset
 const enableRAG = computed(() => activeChatPreset.value?.enableRAG ?? false)
 const showTools = computed(() => activeChatPreset.value?.showTools ?? false)
+
+// Retrieval mode toggle visibility / enablement.
+// Show only for presets that offer KM as an option (supportsPhisonKmRag) but don't
+// hard-require Phison (requiresPhison presets force KM and need no toggle), and only
+// when Phison SSD hardware is detected on this machine.
+const showRetrievalModeToggle = computed(
+  () =>
+    enableRAG.value &&
+    activeChatPreset.value?.supportsPhisonKmRag === true &&
+    activeChatPreset.value?.requiresPhison !== true &&
+    textInference.phisonSsdPresent,
+)
+// Grayed out when SSD is present but the KM stack isn't fully active.
+const disableRetrievalModeToggle = computed(() => !textInference.phisonKmAvailable)
+// What actually runs, as opposed to what the user last picked — the toggle highlights
+// this so it never shows "aiDAPTIV+ KV-Cache" as selected while standard RAG is really
+// being used (e.g. the ssd-offload build isn't active, or the model's context ceiling
+// can't reach the KM floor).
+const effectiveRagMode = computed(() => (textInference.isPhisonKmRag ? 'phisonKm' : 'standard'))
+// Why KM can't be used right now, or '' when it can. Shown as visible text under the
+// toggle (and as its tooltip) so the gray-out is never unexplained.
+const retrievalModeUnavailableReason = computed(() => {
+  if (textInference.phisonKmAvailable) return ''
+  return textInference.kmContextFloorReachable
+    ? i18nState.PHISON_KM_UNAVAILABLE_BUILD_HINT
+    : i18nState.PHISON_KM_UNAVAILABLE_CONTEXT_HINT
+})
 const advancedMode = computed(() => activeChatPreset.value?.advancedMode ?? false)
 
 // Get available backends from preset (fallback when none configured on preset)

@@ -61,10 +61,10 @@
       :dynamic-context="textInference.contextSizeIsDynamic"
       :usage="contextUsage"
     />
-    <!-- Agent mode reports cumulative session totals instead of a context
-         gauge — see AgentTokenUsage / store/agentMode.ts. -->
-    <div v-if="isAgentMode && agentMode.sessionTokens > 0">·</div>
-    <AgentTokenUsage v-if="isAgentMode && agentMode.sessionTokens > 0" />
+    <!-- Same gauge in agent mode, fed by Pi's context report instead of the chat
+         store — see AgentTokenUsage / store/agentMode.ts. -->
+    <div v-if="isAgentMode">·</div>
+    <AgentTokenUsage v-if="isAgentMode" />
     <!-- Font zoom controls (chat only) -->
     <div v-if="isChatMode" class="ml-auto flex flex-none gap-1">
       <button
@@ -93,7 +93,6 @@ import { MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon } from '@heroicons/vu
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
-import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets.ts'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets'
 import { Context } from '@/components/ui/context'
@@ -104,7 +103,6 @@ import AgentTokenUsage from '@/components/AgentTokenUsage.vue'
 const promptStore = usePromptStore()
 const textInference = useTextInference()
 const openAiCompatibleChat = useOpenAiCompatibleChat()
-const agentMode = useAgentMode()
 const imageGeneration = useImageGenerationPresets()
 const presetsStore = usePresets()
 
@@ -194,10 +192,6 @@ const currentModel = computed(() =>
 
 // Context usage data for Context component
 const contextUsedTokens = computed(() => openAiCompatibleChat.usedTokens)
-const contextMaxTokens = computed(() =>
-  textInference.contextSizeIsDynamic
-    ? (textInference.maxContextSizeFromModel ?? 0)
-    : textInference.contextSize,
-)
+const contextMaxTokens = computed(() => textInference.effectiveContextWindow)
 const contextUsage = computed(() => openAiCompatibleChat.contextUsage)
 </script>

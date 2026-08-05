@@ -349,7 +349,7 @@
                     <ChatMcpToolDisplay :part="part" :state="part.state" />
                   </template>
                   <template v-else>
-                    <ChatToolDisplay :part="part" :state="part.state" />
+                    <ChatToolDisplay :part="part" :state="part.state" :input="part.input" />
                   </template>
                 </template>
               </template>

@@ -13,8 +13,39 @@
         <span v-else class="text-sm text-muted-foreground italic">No folder selected</span>
       </div>
       <p class="text-xs text-amber-500">
-        The agent runs with all file/shell permissions inside this folder (and its parent directory)
-        — proof of concept, use a scratch folder.
+        The agent reads and writes files freely inside this folder — use a scratch folder.
+      </p>
+    </div>
+
+    <!-- Shell sandbox (per-workspace opt-in) -->
+    <div class="flex flex-col gap-2">
+      <Label class="whitespace-nowrap">Shell</Label>
+      <label class="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          class="mt-0.5"
+          :disabled="!agentMode.workspaceDir"
+          :checked="agentMode.unsandboxed"
+          @change="toggleUnsandboxed"
+        />
+        <span class="flex flex-col">
+          <span class="text-foreground">Use the real system shell in this folder</span>
+          <span class="text-xs text-muted-foreground">
+            Off by default: the agent gets an emulated shell with no network and no package
+            managers, and its file access cannot leave the workspace folder. Turning this on gives
+            it a real shell with node, npm, python and live network access, so it can install
+            dependencies and run builds.
+          </span>
+        </span>
+      </label>
+      <p v-if="agentMode.unsandboxed" class="text-xs text-amber-500">
+        Commands run on your machine with your user's permissions and can reach the network. File
+        writes are still limited to the workspace, but a command can do anything you could do in a
+        terminal. This applies only to {{ agentMode.workspaceDir }} — selecting another folder
+        returns to the sandboxed shell.
+      </p>
+      <p v-else-if="!agentMode.workspaceDir" class="text-xs text-muted-foreground italic">
+        Select a workspace folder first.
       </p>
     </div>
 
@@ -167,6 +198,12 @@ const mcp = useMcp()
 onMounted(() => {
   void mcp.refreshAvailableServers()
 })
+
+// Consent is stored per workspace folder, so this only ever affects the folder
+// currently selected — pointing the agent elsewhere needs a fresh opt-in.
+function toggleUnsandboxed(event: Event): void {
+  agentMode.setUnsandboxed((event.target as HTMLInputElement).checked)
+}
 
 function toggleMcpServer(serverId: string): void {
   const current = agentMode.mcpServerIds

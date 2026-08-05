@@ -105,11 +105,10 @@ import {
   compactAgentContext,
   deleteAgentSession,
   resetAgentSession,
-  setHarnessAgentMainWindow,
+  setAgentModeMainWindow,
   startAgentTurn,
   submitAgentToolResult,
-  type AgentModeTurnConfig,
-} from './harnessAgentManager'
+} from './agentMode/piAgentManager'
 import { getAudioDir, getMediaDir } from './util.ts'
 import { packagedResourcesRoot, writableConfigRoot } from './aipgRoot.ts'
 import { loadDemoProfile, type DemoProfile } from './demoProfile.ts'
@@ -669,7 +668,7 @@ async function createWindow() {
     },
   })
   setWebBrowserMainWindow(win)
-  setHarnessAgentMainWindow(win)
+  setAgentModeMainWindow(win)
   win.on('close', () => {
     // Tear down the headless web-browser window so the app can quit cleanly.
     destroyWebBrowser()
@@ -2549,8 +2548,9 @@ function initEventHandle() {
     },
   )
 
-  // Agent Mode (Pi harness) IPC handlers — see harnessAgentManager.ts. Stream
-  // chunks are pushed main→renderer on 'agentMode:streamChunk'.
+  // Agent Mode (Pi coding agent) IPC handlers — see agentMode/piAgentManager.ts.
+  // Stream chunks are pushed main→renderer on 'agentMode:streamChunk', live tool
+  // output on 'agentMode:toolProgress'.
   ipcMain.handle(
     'agentMode:startTurn',
     async (_event, turnId: string, prompt: string, config: AgentModeTurnConfig) => {

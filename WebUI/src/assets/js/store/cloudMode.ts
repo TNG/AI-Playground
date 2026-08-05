@@ -125,6 +125,8 @@ export type CloudModelCapabilities = {
   supportsVision: boolean
   supportsToolCalling: boolean
   supportsReasoning: boolean
+  /** Model's context window in tokens; undefined when the provider is silent. */
+  contextLength?: number
 }
 
 // Default assumption for a remote model: fully capable. A provider that doesn't
@@ -151,17 +153,41 @@ export type CloudProvider = {
   modelCapabilities?: Record<string, CloudModelCapabilities>
 }
 
+/** A positive integer token count, or undefined for anything else. */
+function tokenCount(value: unknown): number | undefined {
+  const parsed = typeof value === 'string' ? Number(value) : value
+  if (typeof parsed !== 'number' || !Number.isFinite(parsed) || parsed <= 0) return undefined
+  return Math.floor(parsed)
+}
+
+/**
+ * Context window of a single `/v1/models` entry. OpenRouter-style payloads carry
+ * `context_length` at the top level and repeat it under `top_provider`; vLLM
+ * reports `max_model_len`. First hit wins.
+ */
+function parseContextLength(model: Record<string, unknown>): number | undefined {
+  const topProvider = model.top_provider as Record<string, unknown> | undefined
+  return (
+    tokenCount(model.context_length) ??
+    tokenCount(topProvider?.context_length) ??
+    tokenCount(model.max_model_len)
+  )
+}
+
 /**
  * Best-effort capability extraction from a single `/v1/models` entry. Vanilla
  * OpenAI returns only `{ id }`, but many providers (OpenRouter, vLLM, LiteLLM,
- * …) attach `capabilities`, `architecture.input_modalities`, or
- * `supported_parameters`. When an entry advertises none of these we assume it's
- * fully capable; when it does advertise, a missing signal means "not supported".
+ * …) attach `capabilities`, `architecture.input_modalities`,
+ * `supported_parameters` or `context_length`. When an entry advertises no
+ * capabilities we assume it's fully capable; when it does advertise, a missing
+ * signal means "not supported". The context window is independent of that
+ * guess — either the provider reports one or we don't know it.
  */
-function parseModelCapabilities(model: Record<string, unknown>): CloudModelCapabilities {
+export function parseModelCapabilities(model: Record<string, unknown>): CloudModelCapabilities {
   const caps = model.capabilities as Record<string, unknown> | undefined
   const architecture = model.architecture as Record<string, unknown> | undefined
   const supportedParams = model.supported_parameters
+  const contextLength = parseContextLength(model)
 
   const asLowerArray = (v: unknown): string[] =>
     (Array.isArray(v) ? v.map(String) : typeof v === 'string' ? [v] : []).map((s) =>
@@ -174,7 +200,7 @@ function parseModelCapabilities(model: Record<string, unknown>): CloudModelCapab
   const params = asLowerArray(supportedParams)
 
   const advertised = !!caps || !!architecture || Array.isArray(supportedParams)
-  if (!advertised) return { ...ASSUME_ALL_CAPABILITIES }
+  if (!advertised) return { ...ASSUME_ALL_CAPABILITIES, contextLength }
 
   const flag = (v: unknown) => v === true
   return {
@@ -182,7 +208,14 @@ function parseModelCapabilities(model: Record<string, unknown>): CloudModelCapab
     supportsToolCalling:
       flag(caps?.tools) || flag(caps?.function_calling) || params.includes('tools'),
     supportsReasoning:
-      flag(caps?.reasoning) || params.includes('reasoning') || params.includes('include_reasoning'),
+      flag(caps?.reasoning) ||
+      // OpenRouter-style payloads describe reasoning as an object and expose the
+      // knob as `reasoning_effort` rather than `reasoning`.
+      !!model.reasoning ||
+      params.some(
+        (p) => p === 'reasoning' || p === 'include_reasoning' || p === 'reasoning_effort',
+      ),
+    contextLength,
   }
 }
 
@@ -396,10 +429,11 @@ export const useCloudMode = defineStore(
       const data = json.data ?? []
       const ids = data.map((m) => String(m.id ?? '')).filter(Boolean)
 
-      // Also derive per-model capabilities so capability-gated presets (Vision,
-      // tool-calling, reasoning) can offer these models. If parsing throws for
-      // any reason, drop the map so every model falls back to "fully capable"
-      // (see capabilitiesFor / ASSUME_ALL_CAPABILITIES).
+      // Also derive per-model capabilities and context window, so capability-gated
+      // presets (Vision, tool-calling, reasoning) can offer these models and the
+      // context gauge / agent session know how big the window is. If parsing
+      // throws for any reason, drop the map so every model falls back to "fully
+      // capable, unknown window" (see capabilitiesFor / ASSUME_ALL_CAPABILITIES).
       try {
         const caps: Record<string, CloudModelCapabilities> = {}
         for (const m of data) {

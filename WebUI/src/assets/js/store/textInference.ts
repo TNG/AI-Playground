@@ -223,7 +223,9 @@ export const useTextInference = defineStore(
             supportsVision: caps.supportsVision,
             supportsReasoning: caps.supportsReasoning,
             supportsThinkingToggle: false,
-            maxContextSize: undefined,
+            // From the provider's `context_length`; undefined when it stays
+            // silent, in which case consumers fall back to their own defaults.
+            maxContextSize: caps.contextLength,
             npuSupport: undefined,
             largeMoe: undefined,
             isPredefined: false,
@@ -482,6 +484,17 @@ export const useTextInference = defineStore(
       return currentModel?.maxContextSize
     })
 
+    // The window the current turn actually gets, i.e. the denominator of the
+    // context gauge. `contextSize` is what we ask a local backend to allocate, so
+    // it only speaks for the window when the backend is ours: OpenVINO on GPU
+    // sizes it at runtime, and a cloud provider's window comes from its
+    // /v1/models `context_length`.
+    const effectiveContextWindow = computed(() => {
+      if (contextSizeIsDynamic.value) return maxContextSizeFromModel.value ?? 0
+      if (backend.value === 'cloud') return maxContextSizeFromModel.value ?? contextSize.value
+      return contextSize.value
+    })
+
     // Check if the active model supports tool calling
     const modelSupportsToolCalling = computed(() => {
       const currentModel = llmModels.value
@@ -518,10 +531,14 @@ export const useTextInference = defineStore(
       return hasCheckedDocuments && presetEnablesRag
     })
 
-    // Enforce maxContextSize as hard limit when contextSize changes
+    // Enforce maxContextSize as hard limit when contextSize changes. Cloud Mode
+    // is exempt: contextSize is the size we ask a local backend to allocate and
+    // is never sent to a provider, so a remote model's window must not shrink the
+    // setting that llama.cpp/OpenVINO will be started with later.
     watch(
       () => contextSize.value,
       (newValue) => {
+        if (backend.value === 'cloud') return
         if (maxContextSizeFromModel.value && newValue > maxContextSizeFromModel.value) {
           contextSize.value = maxContextSizeFromModel.value
         }
@@ -1796,6 +1813,7 @@ export const useTextInference = defineStore(
       maxTokens,
       contextSize,
       maxContextSizeFromModel,
+      effectiveContextWindow,
       temperature,
       fontSizeClass,
       nameSizeClass,

@@ -149,8 +149,8 @@ onto transformers 5.x is not dependency hygiene, it is porting model internals (
 RoPE, cache) with no reference output to validate against beyond listening to the audio.
 
 So the `transformers==4.57.3` pin is load-bearing. Fixing those three advisories requires
-either vendoring and *properly* porting the modeling code — a fork of ~450 KB of model code
-we would then own — or replacing the runner entirely.
+either vendoring and *properly* porting the modeling code — a fork we would then own, scoped
+in [§5.4](#54-scoping-the-vendor-and-port-option) — or replacing the runner entirely.
 
 Note this also rules out a tempting simpler idea: **`trust_remote_code` is not an option**
 either. The `Qwen3-TTS-12Hz-*` repos ship no modeling `.py` and no `auto_map`, and upstream
@@ -184,9 +184,10 @@ Regenerate with `uv lock --directory qwen3-tts` (and `--upgrade-package pillow
 torch indexes are unreachable from the Cursor Cloud VM this evaluation ran in, which is why
 this repo change is proposed rather than applied here.
 
-Residual, worth knowing but not advisories: `sox` (1.4.1, wrapper around a CLI binary we
-don't ship) and `onnxruntime` are imported at package-import time via the 25 Hz tokenizer
-path, which our 12 Hz models never execute. They can only be removed by vendoring.
+Residual, worth knowing but not advisories: `sox` (1.4.1, a wrapper around a CLI binary we
+don't ship), `onnxruntime`, `torchaudio` and `einops` are all imported at package-import time
+via `core/tokenizer_25hz/vq/`, a path our 12 Hz models never execute — and by nothing else in
+the wheel or in our sidecar. They can only be removed by vendoring ([§5.4](#54-scoping-the-vendor-and-port-option)).
 
 ### 5.3 If the `transformers` pin must go
 
@@ -194,9 +195,8 @@ In rough order of cost:
 
 1. **Ask upstream.** A `transformers` 5.x compatible `qwen-tts` release, or at least a range
    instead of `==`, fixes this for everyone. `QwenLM/Qwen3-TTS` is stale but not archived.
-2. **Vendor the 12 Hz subset and port it.** ~450 KB of Apache-2.0 model code (drop
-   `cli/`, `tokenizer_25hz/`, which also drops `gradio`, `sox` and `onnxruntime`), then do
-   §5.1 properly with A/B audio comparison against the current stack. We own it afterwards.
+2. **Vendor the 12 Hz subset and port it** — scoped in [§5.4](#54-scoping-the-vendor-and-port-option).
+   The vendoring and the porting are separable, and only the second half is expensive.
 3. **Revisit vLLM-Omni** once vLLM ships Windows and pre-built XPU wheels. Worth re-checking
    periodically, since the capability fit is genuinely good.
 
@@ -204,6 +204,95 @@ Note that even option 3 does not remove `transformers` risk: `vllm-omni` require
 `transformers>=5.5.3`, which is *newer* than the fixed versions here — so simply being able
 to track a current `transformers` is most of the benefit, and options 1 and 2 get it without
 changing platforms.
+
+### 5.4 Scoping the vendor-and-port option
+
+The important structural point: **vendoring and porting are two separable changes**, and they
+have very different risk profiles.
+
+**Step A — vendor at `transformers` 4.57.3.** Pure deletion, no behavior change. Keep the
+12 Hz path, drop the 25 Hz tokenizer and the demo CLI:
+
+| | Files | Lines | |
+|---|---|---|---|
+| `core/models/` | 4 | 2924 | keep (`modeling_qwen3_tts.py` alone is 2299) |
+| `core/tokenizer_12hz/` | 2 | 1199 | keep |
+| `inference/` | 2 | 1287 | keep |
+| `core/tokenizer_25hz/` | 5 | 3145 | **drop** |
+| `cli/demo.py` | 1 | 634 | **drop** |
+
+So ~5.4k lines kept of 9.3k, spanning ~51 classes (26 plain `nn.Module`, 4 `PreTrainedModel`,
+6 config classes, 4 `ModelOutput`, 1 subclass of transformers' `MimiModel`).
+
+Dependency effect, measured in one harness (`uv lock`, same `environments`, torch from PyPI so
+the three are comparable):
+
+| Dependency set | Packages |
+|---|---|
+| current, `qwen-tts` as-is | 114 |
+| `gradio` excluded via override ([§5.2](#52-recommended-now-drop-the-gradio-subtree-and-relock)) | 79 |
+| 12 Hz vendored, no `qwen-tts` dependency | 72 |
+
+The extra 7 are `qwen-tts`, `sox`, `onnxruntime`, `protobuf`, `flatbuffers`, `torchaudio` and
+`einops` — chunkier than the count suggests, since `onnxruntime` and `torchaudio` are native
+wheels, and `torchaudio` is currently installed per-accelerator from the PyTorch index for
+nothing. What remains is `torch`, `transformers`, `accelerate` (for `device_map`), `numpy`,
+`librosa`, `soundfile`, `huggingface_hub`, plus our Flask.
+
+Step A is cheap and verifiable, but note it **does not fix the three `transformers`
+advisories** — it only buys the freedom to change the pin ourselves, plus a smaller install.
+
+**Step B — port to `transformers` 5.x.** This is the real cost. Of the 35 transformers symbols
+the kept files import, 18 are unchanged between 4.57.3 and 5.14.1 and 17 differ — but ~9 of
+those are cosmetic (`Optional[X]` → `X | None`, `PretrainedConfig` → `PreTrainedConfig` in
+annotations). The behavioral ones:
+
+| Change | Sites |
+|---|---|
+| `check_model_inputs` decorator factory → plain decorator | 1 |
+| `ROPE_INIT_FUNCTIONS` lost `"default"` (gained `"proportional"`) | 3 |
+| `rope_config_validation` now takes `RotaryEmbeddingConfigMixin`, not a config | config classes must adopt the mixin |
+| `create_causal_mask` / `create_sliding_window_causal_mask`: `input_embeds` → `inputs_embeds`, `cache_position` dropped, `block_sequence_ids`/`layer_idx` added | 3 |
+| generation attrs (`pad_token_id`, …) removed from `PretrainedConfig` | 2 |
+| `MimiConfig` is keyword-only and replaced `rope_theta` with `rope_parameters` | see below |
+
+Two things make this more than a mechanical sweep:
+
+- **The NaN failure is not on that list.** Shimming the five loud breakages took ~5 edits and
+  got the model loading and generating, and then the logits were NaN
+  ([§5.1](#51-tested-unpin-transformers-fails)). Diagnosing that means bisecting mask and
+  position semantics against a reference implementation, and it is the part that cannot be
+  estimated from an API diff.
+- **We inherit an upstream model, and config translation is silent.**
+  `Qwen3TTSTokenizerV2Model.__init__` unconditionally builds `Qwen3TTSTokenizerV2Encoder`,
+  which **subclasses transformers' `MimiModel`** — so even CustomVoice/VoiceDesign, which
+  never encode reference audio, drag in Mimi's internals. The checkpoints ship a
+  `speech_tokenizer/config.json` written for 4.x (`rope_theta`, `_frame_rate`). Feeding it to
+  5.14.1's `MimiConfig` does **not** raise: `rope_theta` is silently dropped and re-derived
+  from the new `rope_parameters` default. Here that default happens to be the same 10000.0, so
+  it works *by luck*; a checkpoint with a non-default theta would be silently mis-modelled.
+  A vendored port therefore needs an explicit config-translation shim, and owes upstream Mimi
+  a re-check on every `transformers` bump.
+
+**A/B can be numeric, not by ear.** Better than feared: generation is bit-reproducible on a
+fixed stack. Same seed, two runs, sampled *and* greedy — `max_abs_diff = 0.000e+00` for both
+(§6). So the harness is a frozen corpus (texts × the 9 speakers × languages × both modes)
+generated once on the pinned 4.57.3 stack, storing **talker codec token sequences** plus
+waveform hashes, and the port must reproduce them. Compare token sequences under greedy
+decoding as the primary assertion — they are immune to RNG and pin down the model math; the
+waveform comparison then covers the decoder stage. Budget ~30–45 s per case on 4 CPU cores at
+fp32, so a 12–24 case corpus is 10–20 minutes per stack: a manual or nightly gate, not a
+per-commit check. One caveat: bit-equality *across* transformers versions is stricter than
+correctness — a single differing logit from kernel dispatch or mask dtype will diverge a
+sampled sequence completely, so the harness needs to report the first point of divergence
+rather than just pass/fail.
+
+**What we own afterwards:** ~5.4k lines of model code including a subclass of an upstream
+transformers model, a config-translation shim, and the A/B corpus — re-validated on every
+`transformers` bump. That is why the sequencing matters: [§5.2](#52-recommended-now-drop-the-gradio-subtree-and-relock)
+clears 14 of 18 advisories for two lines, so vendoring is only worth starting if the three
+`transformers` advisories become a hard gate, and even then Step A should land and be verified
+on its own before Step B is attempted.
 
 ## 6. Reproducing the evidence
 
@@ -255,3 +344,18 @@ transformers 4.57.3  accelerate 1.12.0  librosa 0.11.0  sox 1.4.1  onnxruntime 1
 The `environments` restriction is what makes this work: without it, uv's universal resolver
 treats `sys_platform == 'nonexistent'` as potentially satisfiable by some hypothetical
 platform and keeps `gradio` in the lock anyway.
+
+**Generation is bit-reproducible**, which is what makes a numeric A/B possible. Same seed,
+two runs each, on the pinned stack:
+
+```
+transformers=4.57.3 torch=2.12.1+cu130
+sampled (do_sample=True, seed=1234): len=84480/84480   identical=True max_abs_diff=0.000e+00
+greedy  (do_sample=False):           len=145920/145920 identical=True max_abs_diff=0.000e+00
+```
+
+**The transformers API surface was diffed symbol by symbol.** All 35 symbols the 12 Hz subset
+imports from `transformers` were probed under both versions for existence and signature
+(`inspect.signature`, plus dict contents for `ACT2FN` and `ROPE_INIT_FUNCTIONS`): 18 unchanged,
+17 changed, of which ~9 are typing-only. `ACT2FN` still has `silu` and `gelu`, the only entries
+this code selects.

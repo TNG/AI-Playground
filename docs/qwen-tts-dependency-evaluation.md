@@ -18,6 +18,10 @@ replaced with [`vllm-omni`](https://github.com/vllm-project/vllm-omni), motivate
 >   1 medium advisory, one of them reachable from our load path). That is *not* fixable by
 >   unpinning: `qwen-tts` 0.1.1 does not run on transformers 5.x. Verified — see
 >   [§5.1](#51-tested-unpin-transformers-fails).
+>
+> **Status:** the vendoring half ([§5.4](#54-scoping-the-vendor-and-port-option) Step A) has
+> landed — `qwen3-tts/vendor/qwen_tts/`, 145 → 99 locked packages, output verified bit-exact
+> against the upstream package. The transformers port (Step B) has not been attempted.
 
 ---
 
@@ -157,7 +161,12 @@ either. The `Qwen3-TTS-12Hz-*` repos ship no modeling `.py` and no `auto_map`, a
 `transformers` has no native `qwen3_tts` architecture (only `qwen3_omni_moe` and `mimi`), so
 the model code has to come from a package.
 
-### 5.2 Recommended now: drop the `gradio` subtree and relock
+### 5.2 Superseded: drop the `gradio` subtree with a uv override
+
+> Kept for the reasoning; the implemented change was
+> [§5.4](#54-scoping-the-vendor-and-port-option) Step A, which removes the `qwen-tts`
+> dependency outright and so needs no override.
+
 
 `gradio` is imported in exactly one file, `qwen_tts/cli/demo.py`, which nothing in our
 sidecar touches — so it is pure install weight. Excluding it via a uv override (verified,
@@ -177,12 +186,9 @@ deliberate `torch` ceiling.
 override-dependencies = ["gradio; sys_platform == 'nonexistent'"]
 ```
 
-`pyproject.toml` and `uv.lock` must change together — `checkBackend()` runs `uv sync
---check`, so a lock that lags the manifest makes the service report itself as not set up.
-Regenerate with `uv lock --directory qwen3-tts` (and `--upgrade-package pillow
---upgrade-package setuptools`) on a machine that can reach `download.pytorch.org`; the
-torch indexes are unreachable from the Cursor Cloud VM this evaluation ran in, which is why
-this repo change is proposed rather than applied here.
+Either way, `pyproject.toml` and `uv.lock` must change together — `checkBackend()` runs
+`uv sync --check`, so a lock that lags the manifest makes the service report itself as not
+set up.
 
 Residual, worth knowing but not advisories: `sox` (1.4.1, a wrapper around a CLI binary we
 don't ship), `onnxruntime`, `torchaudio` and `einops` are all imported at package-import time
@@ -210,8 +216,10 @@ changing platforms.
 The important structural point: **vendoring and porting are two separable changes**, and they
 have very different risk profiles.
 
-**Step A — vendor at `transformers` 4.57.3.** Pure deletion, no behavior change. Keep the
-12 Hz path, drop the 25 Hz tokenizer and the demo CLI:
+**Step A — vendor at `transformers` 4.57.3.** Pure deletion, no behavior change. **Done** —
+`qwen3-tts/vendor/qwen_tts/`, see [`vendor/README.md`](../qwen3-tts/vendor/README.md) for
+provenance and the exact local edits. Keep the 12 Hz path, drop the 25 Hz tokenizer and the
+demo CLI:
 
 | | Files | Lines | |
 |---|---|---|---|
@@ -230,8 +238,11 @@ the three are comparable):
 | Dependency set | Packages |
 |---|---|
 | current, `qwen-tts` as-is | 114 |
-| `gradio` excluded via override ([§5.2](#52-recommended-now-drop-the-gradio-subtree-and-relock)) | 79 |
+| `gradio` excluded via override ([§5.2](#52-superseded-drop-the-gradio-subtree-with-a-uv-override)) | 79 |
 | 12 Hz vendored, no `qwen-tts` dependency | 72 |
+
+In the real `qwen3-tts/uv.lock`, which also carries the per-accelerator torch extras, the same
+change took the lock from **145 to 99** package entries.
 
 The extra 7 are `qwen-tts`, `sox`, `onnxruntime`, `protobuf`, `flatbuffers`, `torchaudio` and
 `einops` — chunkier than the count suggests, since `onnxruntime` and `torchaudio` are native
@@ -241,6 +252,14 @@ nothing. What remains is `torch`, `transformers`, `accelerate` (for `device_map`
 
 Step A is cheap and verifiable, but note it **does not fix the three `transformers`
 advisories** — it only buys the freedom to change the pin ourselves, plus a smaller install.
+As landed, 8 of the 10 vendored files are byte-identical to the wheel; the two that differ do
+so by 2 and 51 lines, all of it removing the 25 Hz tokenizer's imports, `Auto*` registrations
+and `decode()` branch. `modeling_qwen3_tts.py`, the 2299-line core, is untouched. Two guards
+keep it that way: [`tests/test_vendor.py`](../qwen3-tts/tests/test_vendor.py) (stdlib-only,
+0.1 s — asserts the file inventory, that no vendored module imports anything
+`pyproject.toml` does not declare, and that the removed 25 Hz dependencies stay gone) and
+[`tests/vendor_parity.py`](../qwen3-tts/tests/vendor_parity.py) (the bit-exact A/B described
+below).
 
 **Step B — port to `transformers` 5.x.** This is the real cost. Of the 35 transformers symbols
 the kept files import, 18 are unchanged between 4.57.3 and 5.14.1 and 17 differ — but ~9 of
@@ -276,23 +295,31 @@ Two things make this more than a mechanical sweep:
 
 **A/B can be numeric, not by ear.** Better than feared: generation is bit-reproducible on a
 fixed stack. Same seed, two runs, sampled *and* greedy — `max_abs_diff = 0.000e+00` for both
-(§6). So the harness is a frozen corpus (texts × the 9 speakers × languages × both modes)
-generated once on the pinned 4.57.3 stack, storing **talker codec token sequences** plus
-waveform hashes, and the port must reproduce them. Compare token sequences under greedy
-decoding as the primary assertion — they are immune to RNG and pin down the model math; the
-waveform comparison then covers the decoder stage. Budget ~30–45 s per case on 4 CPU cores at
-fp32, so a 12–24 case corpus is 10–20 minutes per stack: a manual or nightly gate, not a
-per-commit check. One caveat: bit-equality *across* transformers versions is stricter than
-correctness — a single differing logit from kernel dispatch or mask dtype will diverge a
-sampled sequence completely, so the harness needs to report the first point of divergence
-rather than just pass/fail.
+(§6). That is what [`tests/vendor_parity.py`](../qwen3-tts/tests/vendor_parity.py) exploits: it
+runs a fixed case list (English, German, and one greedy case that removes sampling from the
+picture) under both implementations and compares **talker codec token sequences** as well as
+waveforms. Codes are the primary signal — integers, immune to RNG, and they localize a
+mismatch to the talker rather than the codec decoder. Step A passes it bit-exactly on both
+torch builds tested (`2.12.1+cpu` and `2.12.1+cu130`).
 
-**What we own afterwards:** ~5.4k lines of model code including a subclass of an upstream
-transformers model, a config-translation shim, and the A/B corpus — re-validated on every
-`transformers` bump. That is why the sequencing matters: [§5.2](#52-recommended-now-drop-the-gradio-subtree-and-relock)
-clears 14 of 18 advisories for two lines, so vendoring is only worth starting if the three
-`transformers` advisories become a hard gate, and even then Step A should land and be verified
-on its own before Step B is attempted.
+Budget ~30–45 s per case on 4 CPU cores at fp32, so the tool is a manual gate, not a
+per-commit check. One caveat for Step B: bit-equality *across* transformers versions is
+stricter than correctness — a single differing logit from kernel dispatch or mask dtype will
+diverge a sampled sequence completely, so a port should be judged on the greedy case first and
+on where the codes first diverge, not on pass/fail alone.
+
+Two practical notes for whoever runs it. The two implementations cannot share a process:
+both register `qwen3_tts` with transformers' `Auto*` registries and registering one
+`model_type` from two classes is an error, so each runs in its own subprocess. And importing
+*upstream* now fails in the service venv, because its `__init__` reaches the 25 Hz tokenizer
+whose imports we deliberately removed — the tool stubs those modules in the upstream child
+rather than reinstalling them (with real `__spec__`s, or `torch._dynamo`'s module scan raises
+`ValueError: onnxruntime.__spec__ is None`).
+
+**What Step B would add to what we own:** a port of ~5.4k lines that includes a subclass of an
+upstream transformers model, plus a config-translation shim, re-validated on every
+`transformers` bump. Step A on its own carries none of that — the code is upstream's, byte for
+byte, apart from deletions — which is why it landed first and separately.
 
 ## 6. Reproducing the evidence
 
@@ -359,3 +386,31 @@ imports from `transformers` were probed under both versions for existence and si
 (`inspect.signature`, plus dict contents for `ACT2FN` and `ROPE_INIT_FUNCTIONS`): 18 unchanged,
 17 changed, of which ~9 are typing-only. `ACT2FN` still has `silu` and `gelu`, the only entries
 this code selects.
+
+**The vendored tree produces bit-identical audio** (`tests/vendor_parity.py`, in the service's
+own venv, `transformers` 4.57.3 / `torch` 2.12.1+cpu):
+
+```
+  english-ryan (seed=1234):  codes_equal=True wav_bit_exact=True sample_rate=24000/24000
+  english-aiden (seed=7):    codes_equal=True wav_bit_exact=True sample_rate=24000/24000
+  german-serena (seed=99):   codes_equal=True wav_bit_exact=True sample_rate=24000/24000
+  greedy (seed=5):           codes_equal=True wav_bit_exact=True sample_rate=24000/24000
+
+PARITY: bit-exact
+```
+
+**And the sidecar serves it.** `uv sync --extra cpu` from the new lock, then `web_api.py`:
+`/healthy` ok, an unauthenticated `/api/config` correctly 401s, and `/api/synthesize` returned
+5.12 s of 24 kHz WAV for `custom_voice` (0.6B) and 2.80 s for `voice_design` (1.7B, the second
+model-cache slot) — both in bfloat16, the dtype the Electron service uses. `uv sync --check`,
+which is what `checkBackend()` runs to decide whether the service is set up, reports "Would
+make no changes".
+
+> Note on regenerating the lock here: this VM's egress blocks `download-r2.pytorch.org`, the
+> CDN host the PyTorch indexes link to, while the identical paths on `download.pytorch.org`
+> are reachable — but only with matching SNI *and* `Host` (a mismatched `Host` returns 403).
+> A local proxy that terminates TLS for the r2 host and re-originates to `download.pytorch.org`
+> is enough to run `uv lock`, and because uv still sees the original index HTML, the lock it
+> writes keeps the normal r2 URLs and hashes: identical to one produced with unrestricted
+> egress (verified — 12 r2 URLs, no localhost, `torch` block unchanged). The clean fix is to
+> allowlist `download-r2.pytorch.org`.

@@ -28,6 +28,11 @@ type FakeSession = {
   dispose: ReturnType<typeof vi.fn>
   sendCustomMessage: ReturnType<typeof vi.fn>
   subscribe: ReturnType<typeof vi.fn>
+  bindExtensions: ReturnType<typeof vi.fn>
+  setActiveToolsByName: ReturnType<typeof vi.fn>
+  getActiveToolNames: () => string[]
+  reload: ReturnType<typeof vi.fn>
+  agent: { waitForIdle: ReturnType<typeof vi.fn>; state: { systemPrompt: string } }
   getSessionStats: () => {
     sessionFile: string
     tokens: Record<string, number>
@@ -55,6 +60,11 @@ async function makeAgentSession(): Promise<{ session: FakeSession }> {
       disposed.push(session)
     }),
     sendCustomMessage: vi.fn(async () => {}),
+    bindExtensions: vi.fn(async () => {}),
+    setActiveToolsByName: vi.fn(),
+    getActiveToolNames: () => ['read', 'bash', 'media', 'browser'],
+    reload: vi.fn(async () => {}),
+    agent: { waitForIdle: vi.fn(async () => {}), state: { systemPrompt: 'system' } },
     subscribe: vi.fn((callback: (event: unknown) => void) => {
       listener = callback
       return () => {
@@ -95,11 +105,11 @@ vi.mock('../../logging/logger.ts', () => ({
 // mocking the loader is what stands in for the real agent.
 vi.mock('../../agentMode/piRuntime.ts', () => ({
   loadPi: async () => ({
-    AuthStorage: { inMemory: () => ({ setRuntimeApiKey: vi.fn() }) },
-    ModelRegistry: {
-      inMemory: () => ({
+    ModelRuntime: {
+      create: async () => ({
         registerProvider,
-        find: (provider: string, modelId: string) => ({ provider, id: modelId }),
+        setRuntimeApiKey: vi.fn(async () => {}),
+        getModel: (provider: string, modelId: string) => ({ provider, id: modelId }),
       }),
     },
     SessionManager: { open: openSession, create: createSessionManager },
@@ -121,12 +131,29 @@ vi.mock('../../agentMode/piToolOperations', () => ({
 }))
 
 vi.mock('../../agentMode/piCustomTools', () => ({
-  buildCustomTools: vi.fn(async () => []),
   writeAgentSkills: vi.fn(() => []),
   buildSkillsPromptSection: vi.fn(() => ''),
   setToolBridgeWindow: vi.fn(),
   submitAgentToolResult: vi.fn(),
   rejectAllPendingToolCalls: vi.fn(),
+}))
+
+// The capability registry reaches the MCP manager and the renderer bridge; what
+// matters here is only that the manager feeds its result into the session.
+vi.mock('../../agentMode/capabilities/index.ts', () => ({
+  DEFAULT_CAPABILITY_IDS: ['media', 'web-debug'],
+  mcpCapabilityId: (serverId: string) => `mcp:${serverId}`,
+  listCapabilities: vi.fn(() => []),
+  resolveCapabilities: vi.fn(async () => ({
+    resolved: [],
+    extensionFactories: [],
+    extensionPaths: [],
+    skillSources: [],
+    announcedSkillNames: [],
+    dormantToolNames: [],
+    dormantIds: [],
+    dormantPromptSection: '',
+  })),
 }))
 
 vi.mock('../../agentMode/piWorkspaceRuntime', () => ({
@@ -159,7 +186,7 @@ function configFor(overrides: Partial<AgentModeTurnConfig> = {}): AgentModeTurnC
       contextWindow: 32768,
     },
     toolSpecs: [],
-    mcpServerIds: [],
+    capabilities: ['media', 'web-debug'],
     ...overrides,
   }
 }
@@ -212,7 +239,7 @@ describe('session reuse', () => {
     ['the model changes', { modelConfig: { source: 'local', model: 'other', baseUrl: 'u' } }],
     ['the workspace changes', {}],
     ['the tool set changes', { toolSpecs: [{ name: 'media', description: 'x', inputSchema: {} }] }],
-    ['MCP servers change', { mcpServerIds: ['filesystem'] }],
+    ['capabilities change', { capabilities: ['media', 'web-debug', 'mcp:filesystem'] }],
     ['the shell mode changes', { unsandboxed: true }],
     ['the conversation changes', { sessionId: 'aipg-agent-2' }],
   ] as [string, Partial<AgentModeTurnConfig>][])('rebuilds when %s', async (label, overrides) => {
@@ -248,6 +275,62 @@ describe('session reuse', () => {
     expect(await first).toEqual({ success: false, error: 'cancelled' })
     // Once it settled, the next turn is accepted again.
     expect(await manager.startAgentTurn('t3', 'third', configFor())).toEqual({ success: true })
+  })
+})
+
+describe('capability wiring', () => {
+  const resolution = {
+    resolved: [] as unknown[],
+    extensionFactories: [] as unknown[],
+    extensionPaths: [] as string[],
+    skillSources: [] as unknown[],
+    announcedSkillNames: [] as string[],
+    dormantToolNames: [] as string[],
+    dormantIds: [] as string[],
+    dormantPromptSection: '',
+  }
+
+  async function managerWith(overrides: Partial<typeof resolution> = {}) {
+    const capabilities = await import('../../agentMode/capabilities/index.ts')
+    vi.mocked(capabilities.resolveCapabilities).mockResolvedValue({
+      ...resolution,
+      ...overrides,
+    } as never)
+    return loadManager()
+  }
+
+  async function liveSession(): Promise<FakeSession> {
+    return (await createAgentSession.mock.results[0].value).session as FakeSession
+  }
+
+  // Extensions are loaded by createAgentSession but only START in bindExtensions:
+  // without it, session_start and resources_discover never fire and a capability
+  // like persistent memory silently does nothing.
+  it('starts the session extensions', async () => {
+    const manager = await managerWith()
+    await manager.startAgentTurn('t1', 'hello', configFor())
+
+    const session = await liveSession()
+    expect(session.bindExtensions).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'rpc', uiContext: expect.any(Object) }),
+    )
+  })
+
+  it('hides the tools of capabilities that start dormant', async () => {
+    const manager = await managerWith({ dormantToolNames: ['media', 'browser'] })
+    await manager.startAgentTurn('t1', 'hello', configFor())
+
+    const session = await liveSession()
+    // Narrowed, not pinned: the file/shell tools and anything an extension
+    // registered for itself stay active.
+    expect(session.setActiveToolsByName).toHaveBeenCalledWith(['read', 'bash'])
+  })
+
+  it('leaves the tool set alone when everything is eager', async () => {
+    const manager = await managerWith()
+    await manager.startAgentTurn('t1', 'hello', configFor())
+
+    expect((await liveSession()).setActiveToolsByName).not.toHaveBeenCalled()
   })
 })
 

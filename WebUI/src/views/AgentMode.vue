@@ -98,6 +98,20 @@
                   class="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
                   >{{ toolProgressText(part) }}</pre
                 >
+                <!-- What the tool saw: a browser screenshot never reaches the
+                     model as pixels, so this is the only place it is visible. -->
+                <figure
+                  v-for="image in toolImages(part)"
+                  :key="image.dataUri"
+                  class="flex flex-col gap-1"
+                >
+                  <img
+                    :src="image.dataUri"
+                    :alt="`Screenshot: ${image.label}`"
+                    class="max-h-96 w-auto self-start rounded-md border border-border"
+                  />
+                  <figcaption class="text-xs text-muted-foreground">{{ image.label }}</figcaption>
+                </figure>
               </div>
             </template>
           </div>
@@ -175,6 +189,10 @@ function toolProgressText(part: unknown): string | undefined {
   const text = agentMode.toolProgress[toolPart.toolCallId] ?? streamedArgument(toolPart.input)
   if (!text) return undefined
   return text.split('\n').slice(-MAX_PROGRESS_LINES).join('\n')
+}
+
+function toolImages(part: unknown): AgentToolImage[] {
+  return agentMode.toolImages[asToolPart(part).toolCallId] ?? []
 }
 
 function streamedArgument(input: unknown): string | undefined {

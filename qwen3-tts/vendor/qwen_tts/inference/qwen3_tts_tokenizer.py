@@ -26,6 +26,7 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoConfig, AutoFeatureExtractor, AutoModel
 
+from .._compat import reset_rotary_buffers
 from ..core import (
     Qwen3TTSTokenizerV2Config,
     Qwen3TTSTokenizerV2Model,
@@ -81,6 +82,9 @@ class Qwen3TTSTokenizer:
 
         inst.feature_extractor = AutoFeatureExtractor.from_pretrained(pretrained_model_name_or_path)
         inst.model = AutoModel.from_pretrained(pretrained_model_name_or_path, **kwargs)
+        # inv_freq is a non-persistent buffer, so it is not part of the checkpoint and
+        # transformers 5 leaves it uninitialized for these classes. See _compat.
+        reset_rotary_buffers(inst.model)
         inst.config = inst.model.config
 
         inst.device = getattr(inst.model, "device", None)

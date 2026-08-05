@@ -29,20 +29,20 @@ from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.generation import GenerationMixin
 from transformers.integrations import use_kernel_forward_from_hub
-from transformers.masking_utils import (create_causal_mask,
-                                        create_sliding_window_causal_mask)
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_layers import GradientCheckpointingLayer
 from transformers.modeling_outputs import (BaseModelOutputWithPast,
                                            CausalLMOutputWithPast, ModelOutput)
-from transformers.modeling_rope_utils import (ROPE_INIT_FUNCTIONS,
-                                              dynamic_rope_update)
+from transformers.modeling_rope_utils import dynamic_rope_update
 from transformers.modeling_utils import (ALL_ATTENTION_FUNCTIONS,
                                          PreTrainedModel)
 from transformers.processing_utils import Unpack
 from transformers.utils import can_return_tuple, logging
 from transformers.utils.hub import cached_file
 
+from ..._compat import (align_position_ids, create_causal_mask,
+                        create_sliding_window_causal_mask,
+                        reset_rotary_buffers, rope_init_fn)
 from ...inference.qwen3_tts_tokenizer import Qwen3TTSTokenizer
 from .configuration_qwen3_tts import (Qwen3TTSConfig,
                                       Qwen3TTSSpeakerEncoderConfig,
@@ -535,7 +535,7 @@ class Qwen3TTSTalkerRotaryEmbedding(nn.Module):
         self.original_max_seq_len = config.max_position_embeddings
 
         self.config = config
-        self.rope_init_fn = ROPE_INIT_FUNCTIONS[self.rope_type]
+        self.rope_init_fn = rope_init_fn(self.rope_type)
 
         inv_freq, self.attention_scaling = self.rope_init_fn(self.config, device)
         self.register_buffer("inv_freq", inv_freq, persistent=False)
@@ -570,7 +570,7 @@ class Qwen3TTSRotaryEmbedding(nn.Module):
         self.original_max_seq_len = config.max_position_embeddings
 
         self.config = config
-        self.rope_init_fn = ROPE_INIT_FUNCTIONS[self.rope_type]
+        self.rope_init_fn = rope_init_fn(self.rope_type)
 
         inv_freq, self.attention_scaling = self.rope_init_fn(self.config, device)
         self.register_buffer("inv_freq", inv_freq, persistent=False)
@@ -1018,7 +1018,11 @@ class Qwen3TTSTalkerCodePredictorModel(Qwen3TTSPreTrainedModel):
 
     def __init__(self, config: Qwen3TTSTalkerCodePredictorConfig, embedding_dim: int):
         super().__init__(config)
-        self.padding_idx = config.pad_token_id
+        # transformers 5 removed the generation token ids from PreTrainedConfig, so a config
+        # that does not define one raises instead of returning None. Both Qwen3-TTS talker
+        # configs fall in that case (verified: `pad_token_id` is None on 4.57.3), so this is
+        # the same value, not a new default.
+        self.padding_idx = getattr(config, "pad_token_id", None)
         self.vocab_size = config.vocab_size
         self.layers = nn.ModuleList(
             [Qwen3TTSDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
@@ -1090,6 +1094,9 @@ class Qwen3TTSTalkerCodePredictorModel(Qwen3TTSPreTrainedModel):
 
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
+        # transformers 5 accumulates position_ids across decoding steps; keep only the
+        # positions of the tokens in this forward pass. See _compat.align_position_ids.
+        position_ids = align_position_ids(position_ids, inputs_embeds.shape[1])
 
         # It may already have been prepared by e.g. `generate`
         if not isinstance(causal_mask_mapping := attention_mask, dict):
@@ -1430,7 +1437,11 @@ class Qwen3TTSTalkerModel(Qwen3TTSTalkerTextPreTrainedModel):
 
     def __init__(self, config):
         super().__init__(config)
-        self.padding_idx = config.pad_token_id
+        # transformers 5 removed the generation token ids from PreTrainedConfig, so a config
+        # that does not define one raises instead of returning None. Both Qwen3-TTS talker
+        # configs fall in that case (verified: `pad_token_id` is None on 4.57.3), so this is
+        # the same value, not a new default.
+        self.padding_idx = getattr(config, "pad_token_id", None)
         self.vocab_size = config.vocab_size
         self.layers = nn.ModuleList(
             [Qwen3TTSTalkerDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
@@ -1494,6 +1505,10 @@ class Qwen3TTSTalkerModel(Qwen3TTSTalkerTextPreTrainedModel):
             cache_position = torch.arange(
                 past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
             )
+
+        # transformers 5 accumulates position_ids across decoding steps; keep only the
+        # positions of the tokens in this forward pass. See _compat.align_position_ids.
+        position_ids = align_position_ids(position_ids, inputs_embeds.shape[1])
 
         # the hard coded `3` is for temporal, height and width.
         if position_ids is None:
@@ -1888,6 +1903,9 @@ class Qwen3TTSForConditionalGeneration(Qwen3TTSPreTrainedModel, GenerationMixin)
             attn_implementation=requested_attn_implementation,
             **kwargs,
         )
+        # inv_freq is a non-persistent buffer, so it is not part of the checkpoint and
+        # transformers 5 leaves it uninitialized for these classes. See _compat.
+        reset_rotary_buffers(model)
         if not local_files_only and not os.path.isdir(pretrained_model_name_or_path):
             download_cache_dir = kwargs.get("cache_dir", cache_dir)
             download_revision = kwargs.get("revision", revision)

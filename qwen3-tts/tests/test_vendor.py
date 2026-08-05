@@ -68,7 +68,11 @@ STDLIB_PREFIXES = {
     "warnings",
 }
 
-EXPECTED_FILES = {
+# Files in the vendored tree that are ours rather than upstream's, and so are exempt from the
+# "upstream notice preserved" check.
+OUR_FILES = {"_compat.py"}
+
+EXPECTED_FILES = OUR_FILES | {
     "__init__.py",
     "core/__init__.py",
     "core/models/__init__.py",
@@ -185,7 +189,8 @@ class TestVendoredTree(unittest.TestCase):
         missing = [
             str(p.relative_to(VENDOR_DIR))
             for p in _python_files()
-            if not any(
+            if str(p.relative_to(VENDOR_DIR)).replace("\\", "/") not in OUR_FILES
+            and not any(
                 notice in p.read_text(encoding="utf-8")[:1200]
                 for notice in (
                     "SPDX-License-Identifier: Apache-2.0",

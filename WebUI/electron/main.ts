@@ -104,8 +104,10 @@ import {
   cancelAgentTurn,
   compactAgentContext,
   deleteAgentSession,
+  listAgentCapabilities,
   resetAgentSession,
   setAgentModeMainWindow,
+  shutdownAgentMode,
   startAgentTurn,
   submitAgentToolResult,
 } from './agentMode/piAgentManager'
@@ -875,7 +877,28 @@ async function createWindow() {
     if (url.startsWith('http://127.0.0.1')) shell.openExternal(url)
     return { action: 'deny' }
   })
+  // The handler above only covers `window.open` / `target="_blank"`. A plain
+  // link — an agent-provided workspace preview URL, a dropped file — navigates
+  // this window instead, which replaces the whole app UI with that page and
+  // leaves no way back. Only the app's own document may load here.
+  win.webContents.on('will-navigate', (event, url) => {
+    if (isAppDocumentUrl(url)) return
+    event.preventDefault()
+    void shell.openExternal(url)
+  })
   return win
+}
+
+/** The renderer's own document — everything else belongs in the user's browser. */
+function isAppDocumentUrl(url: string): boolean {
+  if (VITE_DEV_SERVER_URL) {
+    try {
+      return new URL(url).origin === new URL(VITE_DEV_SERVER_URL).origin
+    } catch {
+      return false
+    }
+  }
+  return url.startsWith(pathToFileURL(path.join(process.env.DIST, 'index.html')).href)
 }
 
 function spawnLangchainUtilityProcess() {
@@ -973,6 +996,9 @@ app.on('quit', async () => {
 // explicitly with Cmd + Q.
 app.on('window-all-closed', async () => {
   try {
+    // Before the services: the agent's extensions flush their state on shutdown
+    // (persistent memory writes what it learned this session).
+    await shutdownAgentMode()
     await stopAllMcpServers()
     await serviceRegistry?.stopAllServices()
   } catch {}
@@ -2573,6 +2599,18 @@ function initEventHandle() {
   ipcMain.handle('agentMode:compact', async (_event, customInstructions?: string) => {
     return await compactAgentContext(customInstructions)
   })
+
+  // What the agent can be equipped with, for the Capabilities checkboxes in
+  // Agent Settings (availability depends on the turn's tool specs / MCP config).
+  ipcMain.handle(
+    'agentMode:listCapabilities',
+    (
+      _event,
+      options: { workspaceDir?: string; toolSpecs?: AgentToolSpec[]; mcpServerIds?: string[] },
+    ) => {
+      return listAgentCapabilities(options ?? {})
+    },
+  )
 
   // Renderer answers a main→renderer 'agentMode:executeTool' dispatch (bridged
   // host tool execution, e.g. image generation) with the tool result or error.

@@ -76,6 +76,12 @@ export type StreamTranslator = {
    * and the gauge in the UI follows along instead of jumping at turn end.
    */
   update: (summary: TurnSummary) => void
+  /**
+   * Emit host-side text as its own assistant text part. Used for output that
+   * does not come from the model: an extension's slash command reporting back,
+   * for instance.
+   */
+  notice: (text: string) => void
   /** Emit the closing `finish-step` / `finish` pair with usage metadata. */
   finish: (summary: TurnSummary) => void
   /** Emit a terminal error chunk (turn failed before/while streaming). */
@@ -392,6 +398,18 @@ export function createStreamTranslator(options: StreamTranslatorOptions): Stream
     emit({ type: 'message-metadata', messageMetadata: summary })
   }
 
+  // Its own block id, outside the model's `messageIndex` numbering, so it can
+  // never collide with a text part the model is streaming at the same time.
+  let noticeCount = 0
+  function notice(text: string): void {
+    if (!text) return
+    ensureStep()
+    const id = `notice-${(noticeCount += 1)}`
+    emit({ type: 'text-start', id })
+    emit({ type: 'text-delta', id, delta: text })
+    emit({ type: 'text-end', id })
+  }
+
   function finish(summary: TurnSummary): void {
     ensureStarted()
     closeAllBlocks()
@@ -409,5 +427,5 @@ export function createStreamTranslator(options: StreamTranslatorOptions): Stream
     emit({ type: 'error', errorText: message })
   }
 
-  return { handle, update, finish, fail }
+  return { handle, update, notice, finish, fail }
 }

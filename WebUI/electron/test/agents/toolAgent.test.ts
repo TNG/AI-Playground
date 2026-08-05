@@ -253,6 +253,39 @@ describe('createToolAgent', () => {
     })
   })
 
+  it('lets a running tool see the abort, so it can stop work it started elsewhere', async () => {
+    // The generation tools hand their work to ComfyUI and then wait. Cancelling
+    // a turn only stops that render if the abort reaches the tool while it is
+    // waiting — otherwise the backend keeps rendering for nobody.
+    const stopButton = new AbortController()
+    let interrupted = false
+    const model = new MockLanguageModelV3({
+      doStream: async () => toolCallResponse('makeImage', { prompt: 'a castle' }, 'c1'),
+    })
+    const makeImage = tool({
+      inputSchema: z.object({ prompt: z.string() }),
+      execute: async (_args, { abortSignal }): Promise<{ images: unknown[] }> =>
+        await new Promise((resolve) => {
+          abortSignal?.addEventListener('abort', () => {
+            interrupted = true
+            resolve({ images: [] })
+          })
+          setTimeout(() => stopButton.abort(), 0)
+        }),
+    })
+
+    const agent = createToolAgent({
+      name: 'abortAgent',
+      system: () => 'sys',
+      tools: () => ({ makeImage }),
+    })
+    await agent
+      .run({ model, request: 'make a castle image', abortSignal: stopButton.signal })
+      .catch(() => undefined)
+
+    expect(interrupted).toBe(true)
+  })
+
   it('rethrows a stream error instead of resolving empty', async () => {
     const model = new MockLanguageModelV3({
       doStream: async () => stream({ type: 'error', error: new Error('context overflow') }),

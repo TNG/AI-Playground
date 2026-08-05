@@ -22,6 +22,10 @@ All commands run from the **`WebUI/`** directory.
 # Install dependencies
 npm install
 
+# Build native addons (better-sqlite3) for Electron's ABI — runs from predev too.
+# Without it the persistent-memory capability reports itself unavailable.
+npm run ensure-native-modules
+
 # Start dev server + Electron
 npm run dev
 
@@ -198,6 +202,13 @@ playwright-e2e.config.ts --list`.
 - Use setup syntax: `defineStore('name', () => { ... })`.
 - Enable persistence with `{ persist: true }` option where needed. Properties picked for persistence need to be returned, even if they are not used externally.
 - Add HMR support: `if (import.meta.hot) import.meta.hot.accept(acceptHMRUpdate(...))`.
+- **HMR would eat plain-object state**: Pinia's hot-update merge skips every entry of a
+  `ref<Record<…>>` (its `patchObject` only keeps keys the freshly created store already has), and
+  the persistence plugin saves the emptied map straight after the swap — editing a store file with
+  the dev server running used to permanently delete agent sessions, chat conversations and the
+  per-preset settings maps. `preserveStateAcrossHmr`
+  (`src/assets/js/piniaHmrStatePreservation.ts`, registered in `main.ts`) re-applies the old
+  entries during the update. It is inert in production builds, which have no hot update hook.
 - Store files: **camelCase** in `WebUI/src/assets/js/store/` (e.g., `backendServices.ts`).
 - Store hooks use `use` prefix: `useBackendServices`, `useTextInference`.
 - Stores may import other stores for composition.

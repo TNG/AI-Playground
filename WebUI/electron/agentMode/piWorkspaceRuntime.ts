@@ -89,18 +89,40 @@ function startWorkspaceServer(root: string): Promise<{ server: http.Server; base
           return
         }
       }
-      const type =
-        WORKSPACE_CONTENT_TYPES[path.extname(fullPath).toLowerCase()] ?? 'application/octet-stream'
-      res.writeHead(200, {
-        'Content-Type': type,
+      const headers = {
+        'Content-Type':
+          WORKSPACE_CONTENT_TYPES[path.extname(fullPath).toLowerCase()] ??
+          'application/octet-stream',
         'Content-Length': stat.size,
         'Cache-Control': 'no-store',
-      })
+      }
       if (req.method === 'HEAD') {
+        res.writeHead(200, headers)
         res.end()
         return
       }
-      fs.createReadStream(fullPath).pipe(res)
+      // A successful stat does not mean the read will succeed — macOS hands out
+      // metadata for a protected folder while refusing its contents (EPERM), and
+      // a file can vanish between the two calls. `pipe()` does not forward
+      // stream errors, and an unhandled one on a file stream takes down the main
+      // process, so the response waits for the file to actually open.
+      const stream = fs.createReadStream(fullPath)
+      stream.once('open', () => {
+        res.writeHead(200, headers)
+        stream.pipe(res)
+      })
+      stream.once('error', (error: NodeJS.ErrnoException) => {
+        logger.warn(`preview server cannot read ${fullPath}: ${error}`, LOG_SOURCE)
+        stream.destroy()
+        if (res.headersSent) {
+          res.destroy()
+          return
+        }
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' })
+        res.end(`Cannot read ${path.basename(fullPath)} (${error.code ?? 'read failed'})`)
+      })
+      // Client gone (reload, navigation) — release the descriptor.
+      res.once('close', () => stream.destroy())
     } catch {
       res.writeHead(500)
       res.end('Internal Server Error')

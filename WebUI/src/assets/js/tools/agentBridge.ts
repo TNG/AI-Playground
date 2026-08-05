@@ -117,6 +117,7 @@ export async function executeAgentTool(
   toolName: string,
   input: Record<string, unknown>,
   toolCallId?: string,
+  abortSignal?: AbortSignal,
 ): Promise<unknown> {
   if (toolName === 'media') {
     const { request, sourceImagePath } = input
@@ -130,6 +131,7 @@ export async function executeAgentTool(
       request: String(request ?? ''),
       sourceImage,
       model: createChatModel(),
+      abortSignal,
       // Matches the tool part rendered in Agent Mode, so the timeline can show
       // this run's progress while the bridged call blocks.
       runId: toolCallId,
@@ -152,7 +154,9 @@ export async function executeAgentTool(
     }
   }
   if (toolName === 'generateImage') {
-    return await executeComfyGeneration(input as Parameters<typeof executeComfyGeneration>[0])
+    return await executeComfyGeneration(input as Parameters<typeof executeComfyGeneration>[0], {
+      abortSignal,
+    })
   }
   if (toolName === 'editImage') {
     const { sourceImagePath, ...args } = input
@@ -162,9 +166,11 @@ export async function executeAgentTool(
     }
     // executeImageEdit discovers its source image from conversation messages;
     // synthesize a single user message carrying the inlined image.
-    return await executeImageEdit(args as Parameters<typeof executeImageEdit>[0], [
-      dataUriMessage(sourceImagePath),
-    ])
+    return await executeImageEdit(
+      args as Parameters<typeof executeImageEdit>[0],
+      [dataUriMessage(sourceImagePath)],
+      { abortSignal },
+    )
   }
   throw new Error(`Unknown agent tool: ${toolName}`)
 }

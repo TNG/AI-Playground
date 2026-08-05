@@ -108,13 +108,48 @@ function assertInsideSandboxWorkspace(candidate: string, action: string): void {
 // ── Sandboxed mode ──────────────────────────────────────────────────────────
 
 /**
+ * Restate a host filesystem refusal in terms the model can act on.
+ *
+ * The virtual filesystem reports these with the mount-relative path — a write
+ * to `/workspace/index.html` that the operating system refuses comes back as
+ * `EPERM: write '/index.html'`. That reads like a bad argument, so the model
+ * "fixes" the path and writes somewhere else entirely instead of reporting that
+ * the folder is unusable. macOS produces exactly this for folders under
+ * Documents, Desktop and Downloads.
+ */
+async function reportingHostDenials<T>(
+  action: string,
+  sandboxPath: string,
+  workspaceDir: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const denial = /^(EPERM|EACCES|EROFS)\b/.exec(message)
+    if (!denial) throw error
+    throw new Error(
+      `Cannot ${action} ${sandboxPath}: the operating system denied access to the workspace ` +
+        `folder on disk (${denial[1]}). The path is correct, so retrying with a different one ` +
+        `will not help. Report this to the user: the app needs permission for ${workspaceDir}, ` +
+        'or they should pick a workspace folder outside a protected location (on macOS the ' +
+        'Documents, Desktop and Downloads folders are protected).',
+    )
+  }
+}
+
+/**
  * Operations backed by the sandbox's virtual filesystem. Pi hands these
  * absolute sandbox paths (rooted at SANDBOX_WORKDIR), which is exactly the
  * namespace the MountableFs understands, so no translation is needed.
  */
-function sandboxFsOperations(vfs: IFileSystem) {
+function sandboxFsOperations(vfs: IFileSystem, workspaceDir: string) {
   const read: ReadOperations = {
-    readFile: async (absolutePath) => Buffer.from(await vfs.readFileBuffer(absolutePath)),
+    readFile: async (absolutePath) =>
+      await reportingHostDenials('read', absolutePath, workspaceDir, async () =>
+        Buffer.from(await vfs.readFileBuffer(absolutePath)),
+      ),
     access: async (absolutePath) => {
       if (!(await vfs.exists(absolutePath))) {
         throw new Error(`File not found: ${absolutePath}`)
@@ -125,12 +160,16 @@ function sandboxFsOperations(vfs: IFileSystem) {
   const write: WriteOperations = {
     writeFile: async (absolutePath, content) => {
       assertInsideSandboxWorkspace(absolutePath, 'write')
-      await vfs.mkdir(path.posix.dirname(absolutePath), { recursive: true })
-      await vfs.writeFile(absolutePath, content)
+      await reportingHostDenials('write', absolutePath, workspaceDir, async () => {
+        await vfs.mkdir(path.posix.dirname(absolutePath), { recursive: true })
+        await vfs.writeFile(absolutePath, content)
+      })
     },
     mkdir: async (dir) => {
       assertInsideSandboxWorkspace(dir, 'create a directory')
-      await vfs.mkdir(dir, { recursive: true })
+      await reportingHostDenials('create a directory at', dir, workspaceDir, async () => {
+        await vfs.mkdir(dir, { recursive: true })
+      })
     },
   }
 
@@ -138,7 +177,9 @@ function sandboxFsOperations(vfs: IFileSystem) {
     readFile: read.readFile,
     writeFile: async (absolutePath, content) => {
       assertInsideSandboxWorkspace(absolutePath, 'edit')
-      await vfs.writeFile(absolutePath, content)
+      await reportingHostDenials('edit', absolutePath, workspaceDir, async () => {
+        await vfs.writeFile(absolutePath, content)
+      })
     },
     access: read.access,
   }
@@ -321,7 +362,7 @@ function createSandboxAccess(
     defenseInDepth: false,
   })
 
-  const operations = sandboxFsOperations(vfs)
+  const operations = sandboxFsOperations(vfs, workspaceDir)
   const bash: BashOperations = {
     // just-bash resolves the whole script in-process and returns its output at
     // once, so there is a single onData call rather than incremental streaming.
@@ -390,22 +431,34 @@ function guardedWriteOperations(workspaceDir: string): WriteOperations {
   return {
     writeFile: async (absolutePath, content) => {
       assertContained(workspaceDir, absolutePath, 'write')
-      await fsp.mkdir(path.dirname(absolutePath), { recursive: true })
-      await fsp.writeFile(absolutePath, content, 'utf8')
+      await reportingHostDenials('write', absolutePath, workspaceDir, async () => {
+        await fsp.mkdir(path.dirname(absolutePath), { recursive: true })
+        await fsp.writeFile(absolutePath, content, 'utf8')
+      })
     },
     mkdir: async (dir) => {
       assertContained(workspaceDir, dir, 'create a directory')
-      await fsp.mkdir(dir, { recursive: true })
+      await reportingHostDenials('create a directory at', dir, workspaceDir, async () => {
+        await fsp.mkdir(dir, { recursive: true })
+      })
     },
   }
 }
 
 function guardedEditOperations(workspaceDir: string): EditOperations {
   return {
-    readFile: async (absolutePath) => await fsp.readFile(absolutePath),
+    readFile: async (absolutePath) =>
+      await reportingHostDenials(
+        'read',
+        absolutePath,
+        workspaceDir,
+        async () => await fsp.readFile(absolutePath),
+      ),
     writeFile: async (absolutePath, content) => {
       assertContained(workspaceDir, absolutePath, 'edit')
-      await fsp.writeFile(absolutePath, content, 'utf8')
+      await reportingHostDenials('edit', absolutePath, workspaceDir, async () => {
+        await fsp.writeFile(absolutePath, content, 'utf8')
+      })
     },
     access: async (absolutePath) => {
       assertContained(workspaceDir, absolutePath, 'edit')
@@ -435,4 +488,5 @@ export const testables = {
   containedIn,
   assertContained,
   assertInsideSandboxWorkspace,
+  reportingHostDenials,
 }

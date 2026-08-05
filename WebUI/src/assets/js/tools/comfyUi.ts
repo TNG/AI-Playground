@@ -180,18 +180,21 @@ function findFastVariant(preset: Preset): string | null {
 }
 
 // Helper function to execute ComfyUI generation for tool calls
-export async function executeComfyGeneration(args: {
-  workflow?: string
-  variant?: string
-  prompt: string
-  negativePrompt?: string
-  aspectRatio?: string
-  megapixels?: string
-  resolution?: string
-  inferenceSteps?: number
-  seed?: number
-  batchSize?: number
-}): Promise<ComfyUiToolOutput> {
+export async function executeComfyGeneration(
+  args: {
+    workflow?: string
+    variant?: string
+    prompt: string
+    negativePrompt?: string
+    aspectRatio?: string
+    megapixels?: string
+    resolution?: string
+    inferenceSteps?: number
+    seed?: number
+    batchSize?: number
+  },
+  options: { abortSignal?: AbortSignal } = {},
+): Promise<ComfyUiToolOutput> {
   console.log('[ComfyUI Tool] Starting generation with args:', args)
 
   const activities = useActivities()
@@ -526,6 +529,10 @@ export async function executeComfyGeneration(args: {
       }
     })
 
+    // Cancelled while the preset was switching or a model downloading — don't
+    // queue a prompt (and pull in a multi-GB model) nobody is waiting for.
+    if (options.abortSignal?.aborted) return createErrorResult('Generation cancelled.')
+
     console.log('[ComfyUI Tool] Starting generation with imageIds:', imageIds)
     // Reset progress state before starting (this is done in imageGenerationPresets.generate() but we're calling comfyUi.generate() directly)
     imageGeneration.currentState = 'no_start'
@@ -542,6 +549,7 @@ export async function executeComfyGeneration(args: {
     const result = await new Promise<ComfyUiToolOutput>((resolve) => {
       let timeout: ReturnType<typeof setTimeout> | null = null
       let stopWatcher: (() => void) | null = null
+      let stopListeningForAbort: (() => void) | null = null
 
       const cleanup = () => {
         if (timeout) {
@@ -552,6 +560,29 @@ export async function executeComfyGeneration(args: {
           stopWatcher()
           stopWatcher = null
         }
+        if (stopListeningForAbort) {
+          stopListeningForAbort()
+          stopListeningForAbort = null
+        }
+      }
+
+      // Cancelling the turn has to reach ComfyUI: it has already accepted the
+      // prompt and will happily load a 30 GB model and render it while nobody
+      // waits for the result. `stop()` clears the queue, interrupts the run and
+      // settles the tracked items.
+      const onAbort = () => {
+        cleanup()
+        void comfyUi.stop()
+        resolve(createErrorResult('Generation cancelled.'))
+      }
+      if (options.abortSignal) {
+        if (options.abortSignal.aborted) {
+          onAbort()
+          return
+        }
+        const signal = options.abortSignal
+        signal.addEventListener('abort', onAbort, { once: true })
+        stopListeningForAbort = () => signal.removeEventListener('abort', onAbort)
       }
 
       // (Re)arm the idle watchdog. Called on every progress signal so the timer
@@ -946,19 +977,22 @@ export const comfyUI = tool({
     return getToolDefinition().inputSchema
   },
   outputSchema: ComfyUiToolOutputSchema,
-  execute: async (args: {
-    workflow?: string
-    variant?: string
-    prompt: string
-    negativePrompt?: string
-    aspectRatio?: string
-    megapixels?: string
-    resolution?: string
-    inferenceSteps?: number
-    seed?: number
-    batchSize?: number
-  }) => {
-    const result = await executeComfyGeneration(args)
+  execute: async (
+    args: {
+      workflow?: string
+      variant?: string
+      prompt: string
+      negativePrompt?: string
+      aspectRatio?: string
+      megapixels?: string
+      resolution?: string
+      inferenceSteps?: number
+      seed?: number
+      batchSize?: number
+    },
+    { abortSignal }: { abortSignal?: AbortSignal },
+  ) => {
+    const result = await executeComfyGeneration(args, { abortSignal })
     console.log('### comfyUI.execute', args, result)
     return result
   },

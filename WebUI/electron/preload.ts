@@ -236,6 +236,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteSession: (sessionId: string) => ipcRenderer.invoke('agentMode:deleteSession', sessionId),
     compact: (customInstructions?: string) =>
       ipcRenderer.invoke('agentMode:compact', customInstructions),
+    listCapabilities: (options: {
+      workspaceDir?: string
+      toolSpecs?: unknown[]
+      mcpServerIds?: string[]
+    }) => ipcRenderer.invoke('agentMode:listCapabilities', options),
     onStreamChunk: (callback: (data: { turnId: string; chunk: unknown }) => void) =>
       ipcRenderer.on('agentMode:streamChunk', (_event, data) => callback(data)),
     onToolProgress: (
@@ -246,6 +251,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
         text: string
       }) => void,
     ) => ipcRenderer.on('agentMode:toolProgress', (_event, data) => callback(data)),
+    onToolImage: (
+      callback: (data: { toolCallId: string; dataUri: string; label: string }) => void,
+    ) => ipcRenderer.on('agentMode:toolImage', (_event, data) => callback(data)),
     onTurnDone: (callback: (data: { turnId: string }) => void) =>
       ipcRenderer.on('agentMode:turnDone', (_event, data) => callback(data)),
     onExecuteTool: (

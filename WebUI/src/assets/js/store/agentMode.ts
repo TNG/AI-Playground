@@ -1,5 +1,5 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { computed, markRaw, ref } from 'vue'
+import { computed, markRaw, ref, watch } from 'vue'
 import { Chat } from '@ai-sdk/vue'
 import type { ChatTransport, UIMessage, UIMessageChunk } from 'ai'
 import { useTextInference } from './textInference'
@@ -34,7 +34,22 @@ export type AgentSessionRecord = {
   messages: UIMessage[]
   createdAt: number
   updatedAt: number
+  /**
+   * Capability ids the session runs with. Frozen when the session starts, so
+   * changing the defaults never re-equips an ongoing conversation behind the
+   * user's back (it would also restart its Pi session).
+   */
+  capabilities?: string[]
 }
+
+/**
+ * Capabilities a new session starts with. Mirrors DEFAULT_CAPABILITY_IDS in
+ * electron/agentMode/capabilities/index.ts, which is the authority — this is the
+ * starting point of the user's own list, persisted from then on.
+ */
+const DEFAULT_CAPABILITIES = ['media', 'web-debug']
+
+const MCP_CAPABILITY_PREFIX = 'mcp:'
 
 export const useAgentMode = defineStore(
   'agentMode',
@@ -44,11 +59,13 @@ export const useAgentMode = defineStore(
     const errors = useErrors()
 
     const workspaceDir = ref<string>('')
-    // MCP servers (from mcp.json) whose tools are attached to the agent.
-    // Web debugging is provided by the built-in Electron `browser` tool +
-    // `browser-debugging` skill (see piCustomTools), which reuse the bundled
-    // Chromium at ~1 tool schema instead of the 29-schema Chrome DevTools MCP.
-    // MCP servers are opt-in (attach extras via Agent Settings).
+
+    // What the agent is equipped with, as capability ids (see
+    // electron/agentMode/capabilities): 'media', 'web-debug', 'memory',
+    // 'game-studio', and one `mcp:<serverId>` per attached MCP server. The user
+    // edits this list in Agent Settings; each new session freezes a copy of it.
+    const defaultCapabilities = ref<string[]>([...DEFAULT_CAPABILITIES])
+    /** Legacy field, migrated into `mcp:<id>` capabilities on hydration. */
     const mcpServerIds = ref<string[]>([])
 
     // Workspace folders the user explicitly allowed to run with the real host
@@ -77,9 +94,52 @@ export const useAgentMode = defineStore(
     const sessions = ref<Record<string, AgentSessionRecord>>({})
     const activeSessionId = ref<string>('')
 
+    /** The capability set the next turn will run with. */
+    const capabilities = computed<string[]>(
+      () => sessions.value[activeSessionId.value]?.capabilities ?? defaultCapabilities.value,
+    )
+
+    function isCapabilityEnabled(id: string): boolean {
+      return capabilities.value.includes(id)
+    }
+
+    /**
+     * Toggle a capability for the next turn. A session that has already started
+     * carries its own frozen list, so the change is written there too — the main
+     * process rebuilds its Pi session when the capability set changes.
+     */
+    function setCapabilityEnabled(id: string, enabled: boolean): void {
+      const current = capabilities.value
+      const next = enabled
+        ? [...new Set([...current, id])]
+        : current.filter((entry) => entry !== id)
+      defaultCapabilities.value = next
+      const session = sessions.value[activeSessionId.value]
+      if (!session) return
+      sessions.value = {
+        ...sessions.value,
+        [activeSessionId.value]: { ...session, capabilities: next },
+      }
+    }
+
+    /** Fold the pre-capability `mcpServerIds` setting into the capability list. */
+    function migrateMcpServerIds(): void {
+      if (mcpServerIds.value.length === 0) return
+      const migrated = mcpServerIds.value.map((serverId) => `${MCP_CAPABILITY_PREFIX}${serverId}`)
+      defaultCapabilities.value = [...new Set([...defaultCapabilities.value, ...migrated])]
+      mcpServerIds.value = []
+    }
+
     const processing = ref(false)
     /** Latest streamed output per running tool call, keyed by toolCallId. */
     const toolProgress = ref<Record<string, string>>({})
+    /** Images tools produced (e.g. browser screenshots), keyed by toolCallId. */
+    const toolImages = ref<Record<string, AgentToolImage[]>>({})
+    // Bridged tool implementations run HERE, not in the Pi session, so aborting
+    // the turn in the main process only unblocks Pi — the renderer would keep
+    // driving ComfyUI. Their abort controllers live here so stop() can settle
+    // the work the user actually asked to stop.
+    const runningTools = new Map<string, AbortController>()
     let turnCounter = 0
     let activeTurn: ActiveTurn | null = null
 
@@ -100,6 +160,16 @@ export const useAgentMode = defineStore(
       if (!activeTurn || activeTurn.turnId !== turnId) return
       toolProgress.value = { ...toolProgress.value, [toolCallId]: text }
     })
+    // Images a tool produced. They are decorations of the transcript on screen,
+    // never part of the message stream, so they live and die with the loaded
+    // conversation rather than with the turn.
+    window.electronAPI.agentMode.onToolImage((image) => {
+      const shown = toolImages.value[image.toolCallId] ?? []
+      toolImages.value = { ...toolImages.value, [image.toolCallId]: [...shown, image] }
+    })
+    watch(activeSessionId, () => {
+      toolImages.value = {}
+    })
     window.electronAPI.agentMode.onTurnDone(({ turnId }) => {
       if (!activeTurn || activeTurn.turnId !== turnId || activeTurn.closed) return
       activeTurn.closed = true
@@ -116,8 +186,10 @@ export const useAgentMode = defineStore(
     // silently (the model surfaces/handles the failure in its reply).
     window.electronAPI.agentMode.onExecuteTool(
       async ({ requestId, toolCallId, toolName, input }) => {
+        const abort = new AbortController()
+        runningTools.set(requestId, abort)
         try {
-          const result = await executeAgentTool(toolName, input, toolCallId)
+          const result = await executeAgentTool(toolName, input, toolCallId, abort.signal)
           // IPC structured clone rejects Vue reactive proxies / class instances
           // that tool outputs can contain (e.g. MediaItem.settings) — flatten to
           // plain JSON first.
@@ -135,14 +207,16 @@ export const useAgentMode = defineStore(
             undefined,
             extractMessage(error),
           )
+        } finally {
+          runningTools.delete(requestId)
         }
       },
     )
 
     async function buildTurnConfig(): Promise<AgentModeTurnConfig> {
       const toolSpecs = getAgentToolSpecs()
-      const attachedMcpServerIds = [...mcpServerIds.value]
       const sessionId = ensureActiveSessionId()
+      const enabledCapabilities = [...capabilities.value]
       // Fully shared model selection: the agent uses whatever backend/model
       // Chat is configured for — including Cloud Mode, which routes through
       // the same main-process loopback proxy (the key never leaves main).
@@ -171,7 +245,7 @@ export const useAgentMode = defineStore(
               : undefined,
           },
           toolSpecs,
-          mcpServerIds: attachedMcpServerIds,
+          capabilities: enabledCapabilities,
           unsandboxed: unsandboxed.value,
         }
       }
@@ -199,7 +273,7 @@ export const useAgentMode = defineStore(
           contextWindow: textInference.effectiveContextWindow,
         },
         toolSpecs,
-        mcpServerIds: attachedMcpServerIds,
+        capabilities: enabledCapabilities,
         unsandboxed: unsandboxed.value,
       }
     }
@@ -352,6 +426,8 @@ export const useAgentMode = defineStore(
           messages: plainMessages,
           createdAt: existing?.createdAt ?? Date.now(),
           updatedAt: Date.now(),
+          // Freeze the set this conversation actually ran with.
+          capabilities: existing?.capabilities ?? [...defaultCapabilities.value],
         },
       }
     }
@@ -455,6 +531,8 @@ export const useAgentMode = defineStore(
 
     async function stop(): Promise<void> {
       await window.electronAPI.agentMode.cancel()
+      for (const abort of runningTools.values()) abort.abort()
+      runningTools.clear()
       await chat.stop()
       processing.value = false
       snapshotActiveSession()
@@ -499,6 +577,11 @@ export const useAgentMode = defineStore(
     return {
       workspaceDir,
       mcpServerIds,
+      defaultCapabilities,
+      capabilities,
+      isCapabilityEnabled,
+      setCapabilityEnabled,
+      migrateMcpServerIds,
       unsandboxedWorkspaces,
       unsandboxed,
       setUnsandboxed,
@@ -506,6 +589,7 @@ export const useAgentMode = defineStore(
       compacting,
       messages,
       toolProgress,
+      toolImages,
       sessionUsage,
       sessionTokens,
       contextUsage,
@@ -528,11 +612,15 @@ export const useAgentMode = defineStore(
       pick: [
         'workspaceDir',
         'mcpServerIds',
+        'defaultCapabilities',
         'unsandboxedWorkspaces',
         'sessions',
         'activeSessionId',
       ],
       afterHydrate: (ctx) => {
+        // Settings saved before capabilities existed listed MCP servers on their
+        // own; carry them over so attached servers stay attached.
+        ctx.store.migrateMcpServerIds()
         // Restore the active session's visible transcript so the chat isn't
         // empty on launch (Pi restores its own context separately, keyed by
         // the same session id).

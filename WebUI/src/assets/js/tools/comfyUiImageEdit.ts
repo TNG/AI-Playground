@@ -252,6 +252,7 @@ function saveCurrentState(
 export async function executeImageEdit(
   args: ImageEditArgs,
   messages: ModelMessage[],
+  options: { abortSignal?: AbortSignal } = {},
 ): Promise<ImageEditToolOutput> {
   console.log('[ComfyUIImageEdit Tool] Starting generation with args:', args)
 
@@ -401,11 +402,16 @@ export async function executeImageEdit(
     imageGeneration.currentState = 'no_start'
     imageGeneration.stepText = ''
 
+    // Cancelled while the preset was switching or a model downloading — don't
+    // queue a prompt nobody is waiting for.
+    if (options.abortSignal?.aborted) return createErrorResult('Image edit cancelled.')
+
     await comfyUi.generate([imageId], 'imageEdit', sourceImageUrl)
 
     const result = await new Promise<ImageEditToolOutput>((resolve) => {
       let timeout: ReturnType<typeof setTimeout> | null = null
       let stopWatcher: (() => void) | null = null
+      let stopListeningForAbort: (() => void) | null = null
 
       const cleanup = () => {
         if (timeout) {
@@ -416,6 +422,27 @@ export async function executeImageEdit(
           stopWatcher()
           stopWatcher = null
         }
+        if (stopListeningForAbort) {
+          stopListeningForAbort()
+          stopListeningForAbort = null
+        }
+      }
+
+      // ComfyUI has the prompt already; only an interrupt stops the render (and
+      // settles the item this watcher waits on).
+      const onAbort = () => {
+        cleanup()
+        void comfyUi.stop()
+        resolve(createErrorResult('Image edit cancelled.'))
+      }
+      if (options.abortSignal) {
+        if (options.abortSignal.aborted) {
+          onAbort()
+          return
+        }
+        const signal = options.abortSignal
+        signal.addEventListener('abort', onAbort, { once: true })
+        stopListeningForAbort = () => signal.removeEventListener('abort', onAbort)
       }
 
       // (Re)arm the idle watchdog. Called on every progress signal so the timer
@@ -690,7 +717,10 @@ export const comfyUiImageEdit = tool({
     return getToolDefinition().inputSchema
   },
   outputSchema: ImageEditToolOutputSchema,
-  execute: async (args: ImageEditArgs, { messages }: { messages: ModelMessage[] }) => {
-    return await executeImageEdit(args, messages)
+  execute: async (
+    args: ImageEditArgs,
+    { messages, abortSignal }: { messages: ModelMessage[]; abortSignal?: AbortSignal },
+  ) => {
+    return await executeImageEdit(args, messages, { abortSignal })
   },
 })

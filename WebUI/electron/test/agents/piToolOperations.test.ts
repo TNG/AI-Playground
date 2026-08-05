@@ -99,6 +99,20 @@ describe('sandboxed access', () => {
     expect(resultText(read)).toContain('# todo')
   })
 
+  it('blames the folder, not the path, when the host refuses a write', async () => {
+    const locked = path.join(workspace, 'locked.html')
+    fs.writeFileSync(locked, '<h1>hi</h1>')
+    fs.chmodSync(locked, 0o444)
+
+    // The virtual filesystem reports this as `EACCES: write '/locked.html'`,
+    // which reads like a wrong argument and makes models retry elsewhere.
+    await expect(
+      invoke(toolOf(access, 'write'), { path: `${SANDBOX_WORKDIR}/locked.html`, content: 'nope' }),
+    ).rejects.toThrow(/denied access to the workspace folder on disk \(EACCES\)/)
+
+    expect(fs.readFileSync(locked, 'utf8')).toBe('<h1>hi</h1>')
+  })
+
   it('cannot write outside the mounted workspace', async () => {
     await expect(
       invoke(toolOf(access, 'write'), { path: outsideFile, content: 'overwritten' }),
@@ -289,6 +303,16 @@ describe('containment helpers', () => {
     expect(() => testables.assertContained('/work', '/etc/passwd', 'write')).toThrow(
       /Refusing to write outside the workspace folder/,
     )
+  })
+
+  it('leaves failures that are not permission denials alone', async () => {
+    const original = new Error("ENOENT: no such file or directory, open '/gone.txt'")
+
+    await expect(
+      testables.reportingHostDenials('read', '/workspace/gone.txt', '/work', async () => {
+        throw original
+      }),
+    ).rejects.toBe(original)
   })
 
   it('translates globs so ** spans directories and * does not', () => {

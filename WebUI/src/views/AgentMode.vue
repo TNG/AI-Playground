@@ -25,7 +25,7 @@
 
       <!-- Messages -->
       <!-- eslint-disable vue/require-v-for-key -->
-      <template v-for="(message, messageIndex) in agentMode.messages">
+      <template v-for="message in agentMode.messages">
         <!-- eslint-enable -->
         <div v-if="message.role === 'user'" class="flex items-start gap-3">
           <UserCircleIcon class="size-6 text-foreground/90" />
@@ -42,9 +42,13 @@
                 v-else-if="part.type === 'reasoning'"
                 :text="part.text"
                 :streaming="part.state === 'streaming'"
-                :startedAt="reasoningTimings[`${messageIndex}:${partIndex}`]?.startedAt"
-                :finishedAt="reasoningTimings[`${messageIndex}:${partIndex}`]?.finishedAt"
-                :liveStartedAt="reasoningTimings[`${messageIndex}:${partIndex}`]?.startedAt"
+                :startedAt="reasoningTimings[reasoningTimingKey(message.id, partIndex)]?.startedAt"
+                :finishedAt="
+                  reasoningTimings[reasoningTimingKey(message.id, partIndex)]?.finishedAt
+                "
+                :liveStartedAt="
+                  reasoningTimings[reasoningTimingKey(message.id, partIndex)]?.startedAt
+                "
               />
               <div
                 v-else-if="asCompaction(part)"
@@ -149,6 +153,11 @@ import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
 import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
 import type { MediaItem } from '@/assets/js/store/imageGenerationPresets'
+import {
+  reasoningTimingKey,
+  trackReasoningTimings,
+  type ReasoningTiming,
+} from '@/lib/reasoningTimings'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
 import { ArchiveBoxArrowDownIcon, UserCircleIcon } from '@heroicons/vue/24/outline'
 
@@ -311,36 +320,28 @@ function compactionDelta(part: unknown): string {
 //
 // Reasoning UI parts carry a `state` ('streaming' | 'done') but no wall-clock
 // timing, so ChatReasoningDisplay's timer needs a start (and end) supplied by
-// the host. We record first-seen / done timestamps per reasoning part, keyed by
-// its position, so each block shows a live-advancing then final duration.
-const reasoningTimings = reactive<Record<string, { startedAt: number; finishedAt?: number }>>({})
+// the host. `trackReasoningTimings` records them per part, so each block shows a
+// live-advancing then final duration.
+const reasoningTimings = reactive<Record<string, ReasoningTiming>>({})
 
 watch(
   // Lightweight signal: only the last assistant message's part types + states,
   // so a deep watch over growing (and large) message content is avoided.
   () => {
-    const messages = agentMode.messages
-    const last = messages.at(-1)
+    const last = agentMode.messages.at(-1)
     if (!last || last.role !== 'assistant') return ''
-    const mi = messages.length - 1
     return (last.parts ?? [])
-      .map((p, pi) => `${mi}:${pi}:${p.type}:${'state' in p ? p.state : ''}`)
+      .map((p, pi) => `${last.id}:${pi}:${p.type}:${'state' in p ? p.state : ''}`)
       .join('|')
   },
   () => {
-    const messages = agentMode.messages
-    const mi = messages.length - 1
-    const last = messages[mi]
+    const last = agentMode.messages.at(-1)
     if (!last || last.role !== 'assistant') return
-    ;(last.parts ?? []).forEach((part, pi) => {
-      if (part.type !== 'reasoning') return
-      const key = `${mi}:${pi}`
-      if (!reasoningTimings[key]) reasoningTimings[key] = { startedAt: Date.now() }
-      if (part.state === 'done' && !reasoningTimings[key].finishedAt) {
-        reasoningTimings[key].finishedAt = Date.now()
-      }
-    })
+    trackReasoningTimings(reasoningTimings, last, { live: agentMode.processing })
   },
+  // Immediate, so a view mounted mid-turn (switching modes and back) still times
+  // the block that is already streaming.
+  { immediate: true },
 )
 
 // ── Descriptive busy label ───────────────────────────────────────────────────

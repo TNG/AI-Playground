@@ -103,7 +103,7 @@ export class MainPage {
   /**
    * The rendered final text answer(s) of the last assistant turn. Scoped to the
    * "Assistant reply" region(s) so it excludes the collapsible reasoning trace —
-   * whose "Reasoned for …" / "Done Reasoning …" status line otherwise leaks into
+   * whose "Reasoning for …" / "Done Reasoning …" status line otherwise leaks into
    * the article's text and makes a bare non-empty check pass on reasoning alone,
    * before the model has actually replied.
    */
@@ -136,14 +136,12 @@ export class MainPage {
 
   /** The collapsible "reasoning" trace toggle(s) in the last assistant turn. */
   get reasoningBlocks(): Locator {
-    return this.assistantResponses
-      .last()
-      .getByRole('button', { name: /Reasoned for|Done Reasoning/i })
+    return this.assistantResponses.last().getByRole('button', { name: /Reasoning/i })
   }
 
   /**
    * Assert the last assistant turn rendered cleanly, not in the malformed shapes
-   * we've hit: the reasoning trace duplicated into several "Reasoned for…" pills,
+   * we've hit: the reasoning trace duplicated into several "Reasoning…" pills,
    * or a tool card that never resolved its preset and shows the "unknown"
    * fallback. A malformed turn can still "pass" the image/video count checks, so
    * these are asserted explicitly.

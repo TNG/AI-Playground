@@ -66,6 +66,8 @@ export type StreamTranslatorOptions = {
   emit: (chunk: StreamChunk) => void
   /** Called with each tool progress update instead of the chunk stream. */
   onToolProgress?: (update: { toolCallId: string; toolName: string; text: string }) => void
+  /** Clock for reasoning durations; injectable so tests can pin them. */
+  now?: () => number
 }
 
 export type StreamTranslator = {
@@ -136,6 +138,7 @@ function toolCallAt(
 
 export function createStreamTranslator(options: StreamTranslatorOptions): StreamTranslator {
   const { emit, onToolProgress } = options
+  const now = options.now ?? Date.now
 
   // Pi restarts content indices per message, so scope block ids by message.
   let messageIndex = 0
@@ -144,6 +147,12 @@ export function createStreamTranslator(options: StreamTranslatorOptions): Stream
   // Open text/reasoning block ids, so an unterminated block can still be closed
   // when the message ends (a provider can drop the closing event on abort).
   const openBlocks = new Map<string, 'text' | 'reasoning'>()
+  // Wall-clock start of each open reasoning block. Pi's events carry no timing,
+  // so the durations the UI shows ("Reasoned for 4.2 seconds") are measured
+  // here and travel as provider metadata on the reasoning part — which persists
+  // with the transcript, so a restored session keeps them. Same `aipg` keys
+  // Chat mode stamps, so both surfaces read timings the same way.
+  const reasoningStarts = new Map<string, number>()
   const toolNames = new Map<string, string>()
   // Tool calls whose arguments are still streaming from the model, keyed by
   // message + content index (Pi's toolcall_* events identify the block, not the
@@ -170,19 +179,43 @@ export function createStreamTranslator(options: StreamTranslatorOptions): Stream
     const id = blockId(kind, contentIndex)
     if (!openBlocks.has(id)) {
       openBlocks.set(id, kind)
+      if (kind === 'reasoning') {
+        const startedAt = now()
+        reasoningStarts.set(id, startedAt)
+        // Already on the start chunk, so the timer of a block that is still
+        // streaming counts from its real start rather than from its end.
+        emit({ type: 'reasoning-start', id, providerMetadata: timing(startedAt) })
+        return id
+      }
       emit({ type: `${kind}-start`, id })
     }
     return id
   }
 
+  function timing(startedAt: number, finishedAt?: number): StreamChunk {
+    return {
+      aipg: {
+        reasoningStarted: startedAt,
+        ...(finishedAt === undefined ? {} : { reasoningFinished: finishedAt }),
+      },
+    }
+  }
+
+  function endChunk(kind: 'text' | 'reasoning', id: string): StreamChunk {
+    const startedAt = reasoningStarts.get(id)
+    if (startedAt === undefined) return { type: `${kind}-end`, id }
+    reasoningStarts.delete(id)
+    return { type: `${kind}-end`, id, providerMetadata: timing(startedAt, now()) }
+  }
+
   function closeBlock(kind: 'text' | 'reasoning', contentIndex: number | undefined): void {
     const id = blockId(kind, contentIndex)
     if (!openBlocks.delete(id)) return
-    emit({ type: `${kind}-end`, id })
+    emit(endChunk(kind, id))
   }
 
   function closeAllBlocks(): void {
-    for (const [id, kind] of openBlocks) emit({ type: `${kind}-end`, id })
+    for (const [id, kind] of openBlocks) emit(endChunk(kind, id))
     openBlocks.clear()
   }
 

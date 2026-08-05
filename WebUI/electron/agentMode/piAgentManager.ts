@@ -773,6 +773,33 @@ function lastStepUsage(session: AgentSession): StepUsage | undefined {
 }
 
 /**
+ * A turn ends when the model stops asking for tools, so a reply that carries
+ * neither an answer nor a tool call ends it mid-task: the model meant to call a
+ * tool but emitted the call markup inside its thinking channel, the provider
+ * reported a plain `stop` with no tool call, and Pi's loop had nothing left to
+ * run. Nothing failed, so without this check the UI simply goes idle halfway
+ * through the job — which reads as the agent being interrupted.
+ */
+function endedWithoutReplyOrToolCall(session: AgentSession): boolean {
+  const last = session.messages.at(-1) as { role?: string; content?: unknown } | undefined
+  if (last?.role !== 'assistant') return false
+  const content = last.content
+  if (typeof content === 'string') return content.trim() === ''
+  if (!Array.isArray(content)) return false
+  return !content.some((entry) => {
+    const part = entry as { type?: string; text?: string }
+    if (part.type === 'toolCall') return true
+    return part.type === 'text' && (part.text ?? '').trim() !== ''
+  })
+}
+
+/** Spent once per turn to buy back a task that a malformed tool call cut short. */
+const CONTINUE_AFTER_SILENT_TURN =
+  'Your previous message ended without a reply and without a tool call, so nothing ran — the ' +
+  'tool call you meant to make did not come through. Pick the task back up: either make that ' +
+  'call again, with all of its required arguments, or write your answer.'
+
+/**
  * Points in the turn where context occupancy has moved enough to be worth
  * re-reading: the prompt landing, each assistant reply (the only source of real
  * usage numbers), every tool result the reply pulled in, and compaction.
@@ -829,6 +856,18 @@ export async function startAgentTurn(
     abortController.signal.addEventListener('abort', onAbort, { once: true })
     try {
       await current.session.prompt(prompt)
+      const stalled = () =>
+        !abortController.signal.aborted && endedWithoutReplyOrToolCall(current.session)
+      if (stalled()) {
+        logger.warn('turn ended with neither a reply nor a tool call; nudging once', LOG_SOURCE)
+        await current.session.prompt(CONTINUE_AFTER_SILENT_TURN)
+        if (stalled()) {
+          translator.notice(
+            'The model ended its turn without an answer and without running a tool, and did not ' +
+              'pick the task back up when asked to continue. Send a message to carry on.',
+          )
+        }
+      }
     } finally {
       abortController.signal.removeEventListener('abort', onAbort)
     }

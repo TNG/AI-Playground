@@ -15,15 +15,22 @@ import {
 type Recorded = { chunks: StreamChunk[]; progress: ProgressUpdate[] }
 type ProgressUpdate = { toolCallId: string; toolName: string; text: string }
 
-function run(events: AgentSessionEvent[]): Recorded {
+function run(events: AgentSessionEvent[], now?: () => number): Recorded {
   const chunks: StreamChunk[] = []
   const progress: ProgressUpdate[] = []
   const translator = createStreamTranslator({
     emit: (chunk) => chunks.push(chunk),
     onToolProgress: (update) => progress.push(update),
+    now,
   })
   for (const event of events) translator.handle(event)
   return { chunks, progress }
+}
+
+/** A clock that advances by the given step on every reading. */
+function clockFrom(start: number, step: number): () => number {
+  let value = start - step
+  return () => (value += step)
 }
 
 function types(chunks: StreamChunk[]): string[] {
@@ -91,6 +98,50 @@ describe('createStreamTranslator', () => {
       'text-end',
     ])
     expect(chunks[2].id).not.toBe(chunks[5].id)
+  })
+
+  // Pi's events carry no timing, so the translator measures how long each
+  // thinking block ran and ships it as provider metadata — which persists with
+  // the message, so a restored session can still say "Reasoned for 2.5 seconds"
+  // instead of showing an untimed trace.
+  it('stamps reasoning blocks with the wall clock they ran for', () => {
+    const { chunks } = run(
+      [
+        turnStart,
+        messageStart,
+        message({ type: 'thinking_start', contentIndex: 0 }),
+        message({ type: 'thinking_delta', contentIndex: 0, delta: 'hmm' }),
+        message({ type: 'thinking_end', contentIndex: 0 }),
+        messageEnd,
+      ],
+      clockFrom(1_000, 2_500),
+    )
+
+    const started = chunks.find((chunk) => chunk.type === 'reasoning-start')
+    const ended = chunks.find((chunk) => chunk.type === 'reasoning-end')
+    // On the start chunk too, so the live timer counts from the real start.
+    expect(started?.providerMetadata).toEqual({ aipg: { reasoningStarted: 1_000 } })
+    expect(ended?.providerMetadata).toEqual({
+      aipg: { reasoningStarted: 1_000, reasoningFinished: 3_500 },
+    })
+  })
+
+  it('times a reasoning block that only gets closed when the message ends', () => {
+    const { chunks } = run(
+      [
+        turnStart,
+        messageStart,
+        message({ type: 'thinking_delta', contentIndex: 0, delta: 'cut off' }),
+        messageEnd,
+      ],
+      clockFrom(1_000, 500),
+    )
+
+    expect(chunks.at(-1)).toEqual({
+      type: 'reasoning-end',
+      id: expect.any(String),
+      providerMetadata: { aipg: { reasoningStarted: 1_000, reasoningFinished: 1_500 } },
+    })
   })
 
   it('keeps block ids unique across messages that reuse content indices', () => {

@@ -1,41 +1,46 @@
-export type ReasoningTiming = { startedAt: number; finishedAt?: number }
+// Reasoning durations are measured where the stream is produced — Chat mode in
+// `openAiCompatibleChat`, Agent Mode in the Pi stream translator — and travel as
+// `aipg` provider metadata on the reasoning part. Reading them from the part
+// keeps every surface (chat view, agent transcript, Home Agent channels) on one
+// set of timings that survives persistence and reload.
 
-type ReasoningMessage = {
-  id: string
-  parts?: readonly { type: string; state?: string }[]
+export type ReasoningTiming = { startedAt?: number; finishedAt?: number }
+
+type TimedPartShape = {
+  type?: unknown
+  providerMetadata?: { aipg?: { reasoningStarted?: unknown; reasoningFinished?: unknown } }
 }
 
-/** Part positions are stable within a message; the message id keeps them apart. */
-export function reasoningTimingKey(messageId: string, partIndex: number): string {
-  return `${messageId}:${partIndex}`
+function shapeOf(part: unknown): TimedPartShape {
+  return typeof part === 'object' && part !== null ? (part as TimedPartShape) : {}
+}
+
+function stamp(value: unknown): number | undefined {
+  return typeof value === 'number' && value > 0 ? value : undefined
+}
+
+/** Timing of one reasoning part; both stamps are absent for older transcripts. */
+export function reasoningTimingOf(part: unknown): ReasoningTiming {
+  const timing = shapeOf(part).providerMetadata?.aipg
+  return {
+    startedAt: stamp(timing?.reasoningStarted),
+    finishedAt: stamp(timing?.reasoningFinished),
+  }
 }
 
 /**
- * Reasoning parts carry a `state` but no wall clock, so the view records when it
- * first saw each one and how long it ran.
- *
- * Only a block seen streaming during a live turn gets a start, so no duration is
- * ever invented: a restored transcript would otherwise be stamped with "now",
- * both inventing timings for history and handing them to the next turn — keys
- * used to be positional, so a brand-new "Hi!" inherited the start of the
- * reasoning block that sat at the same position before it and claimed 15 minutes
- * of thinking. Finishing an already-started block is always allowed, since a
- * turn can settle after it stops being live.
+ * Total time spent reasoning across the given parts. A turn interleaves thinking
+ * with tool calls, so per-block durations are summed rather than spanning
+ * earliest start → latest finish, which would count tool execution as thinking.
  */
-export function trackReasoningTimings(
-  timings: Record<string, ReasoningTiming>,
-  message: ReasoningMessage,
-  options: { live: boolean; now?: () => number },
-): void {
-  const now = options.now ?? Date.now
-  message.parts?.forEach((part, partIndex) => {
-    if (part.type !== 'reasoning') return
-    const key = reasoningTimingKey(message.id, partIndex)
-    const timing = timings[key]
-    if (!timing) {
-      if (options.live && part.state === 'streaming') timings[key] = { startedAt: now() }
-      return
+export function reasoningElapsedMsFromParts(parts: readonly unknown[]): number {
+  let total = 0
+  for (const part of parts) {
+    if (shapeOf(part).type !== 'reasoning') continue
+    const { startedAt, finishedAt } = reasoningTimingOf(part)
+    if (startedAt !== undefined && finishedAt !== undefined) {
+      total += Math.max(0, finishedAt - startedAt)
     }
-    if (part.state !== 'streaming' && timing.finishedAt === undefined) timing.finishedAt = now()
-  })
+  }
+  return total
 }

@@ -4,10 +4,8 @@
          right padding keeps the sidebar's floating close arrow (rendered by
          SideModalBase with hide-header) off the card content. -->
     <section
-      id="preset-selector"
       role="group"
       :aria-label="`${selectedPreset.name} preset information`"
-      data-aipg-help="preset-selector"
       :data-aipg-preset-name="selectedPreset.name"
       class="flex flex-col gap-3 rounded-lg border border-border bg-muted/40 p-3 pr-8"
     >

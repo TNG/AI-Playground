@@ -157,6 +157,7 @@
                 <!-- Hover handlers live on this inner div rather than <PopoverContent>:
                      that wrapper's root is a Teleport (PopoverPortal), which drops attrs. -->
                 <div
+                  data-aipg-help="preset-selector"
                   class="flex gap-2 overflow-x-auto max-w-[76vw] pb-1"
                   @pointerenter="cancelPickerClose"
                   @pointerleave="schedulePickerClose"

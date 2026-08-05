@@ -18,7 +18,10 @@ export function extendedDescriptionText(
   return typeof first === 'string' ? first : undefined
 }
 
-export function helpTopicFromPreset(preset: Preset | null | undefined, presetName: string): HelpTopic {
+export function helpTopicFromPreset(
+  preset: Preset | null | undefined,
+  presetName: string,
+): HelpTopic {
   if (!preset) {
     return {
       title: presetName,
@@ -40,6 +43,20 @@ export function helpTopicFromPreset(preset: Preset | null | undefined, presetNam
       parts.join('\n\n') ||
       `Use the ${preset.name} preset for this workflow. Select it to load its default settings.`,
   }
+}
+
+/**
+ * Presets are addressed by name in the DOM, and a chat preset can share a name with
+ * a comfy one, so prefer the type that matches the mode the user is looking at.
+ */
+export function findPresetByName(
+  presets: Preset[],
+  name: string,
+  preferredType?: 'chat' | 'comfy',
+): Preset | null {
+  const matches = presets.filter((p) => p.name === name)
+  if (matches.length === 0) return null
+  return matches.find((p) => p.type === preferredType) ?? matches[0]
 }
 
 export function helpTopicFromPresetVariant(

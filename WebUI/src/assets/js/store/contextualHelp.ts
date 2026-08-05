@@ -16,8 +16,12 @@ export const useContextualHelp = defineStore('contextualHelp', () => {
   const anchor = ref<HelpPanelAnchor | null>(null)
 
   const panelTopic = computed(
-    () => panelTopicDynamic.value ?? (panelTopicId.value ? getHelpTopic(panelTopicId.value) : undefined),
+    () =>
+      panelTopicDynamic.value ??
+      (panelTopicId.value ? getHelpTopic(panelTopicId.value) : undefined),
   )
+
+  const panelOpen = computed(() => panelTopic.value !== undefined && anchor.value !== null)
 
   function setAnchorFromElement(el: HTMLElement) {
     const rect = el.getBoundingClientRect()
@@ -67,6 +71,8 @@ export const useContextualHelp = defineStore('contextualHelp', () => {
     panelTopicDynamic,
     anchor,
     panelTopic,
+    panelOpen,
+    setAnchorFromElement,
     openPanel,
     openPanelForTopic,
     closePanel,

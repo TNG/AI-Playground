@@ -74,6 +74,8 @@
         class="flex size-7 items-center justify-center rounded-full border border-border text-sm font-bold text-foreground transition-colors hover:bg-muted"
         :class="{ 'bg-primary text-primary-foreground border-primary': contextualHelp.active }"
         title="What's this? Click, then click a control to learn about it."
+        aria-label="Toggle help mode"
+        :aria-pressed="contextualHelp.active"
         @click="contextualHelp.toggle()"
       >
         ?

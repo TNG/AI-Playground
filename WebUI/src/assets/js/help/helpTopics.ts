@@ -1,3 +1,8 @@
+/**
+ * Canonical list of DOM ids that carry help copy. The demo-mode tour
+ * (`tourSteps.ts`) anchors its steps to the same ids, so keeping the list in one
+ * place is what stops the two surfaces from drifting apart.
+ */
 export type HelpTopicId =
   | 'prompt-input'
   | 'plus-icon'
@@ -21,7 +26,12 @@ export type HelpTopic = {
   body: string
 }
 
-/** POC copy — aligned with demo tour text; move to i18n when productizing. */
+/**
+ * Short "what is this" copy for click-to-learn help mode. The demo tour uses the
+ * longer, guided-narration variants in `tourSteps.ts` for the same anchors.
+ *
+ * POC copy — move to i18n (`src/assets/i18n/*.json`) when productizing.
+ */
 export const HELP_TOPICS: Record<HelpTopicId, HelpTopic> = {
   'prompt-input': {
     title: 'Unified Prompt',
@@ -90,10 +100,15 @@ export const HELP_TOPICS: Record<HelpTopicId, HelpTopic> = {
 }
 
 export function getHelpTopic(id: string): HelpTopic | undefined {
-  return HELP_TOPICS[id as HelpTopicId]
+  return Object.prototype.hasOwnProperty.call(HELP_TOPICS, id)
+    ? HELP_TOPICS[id as HelpTopicId]
+    : undefined
 }
 
-const MODE_BUTTON_PREFIX = 'mode-button-'
+export const HELP_TOGGLE_ID = 'contextual-help-toggle'
+export const HELP_PANEL_ID = 'contextual-help-panel'
+
+const HELP_ATTR = 'data-aipg-help'
 const PRESET_NAME_ATTR = 'data-aipg-preset-name'
 const VARIANT_NAME_ATTR = 'data-aipg-variant-name'
 
@@ -102,50 +117,38 @@ export type HelpResolveResult =
   | { element: HTMLElement; kind: 'preset'; presetName: string }
   | { element: HTMLElement; kind: 'preset-variant'; presetName: string; variantName: string }
 
-export function resolveHelpTarget(from: EventTarget | null): HelpResolveResult | null {
-  let el = from instanceof HTMLElement ? from : null
-  while (el && el !== document.body) {
-    if (el.id === 'contextual-help-toggle' || el.closest('#contextual-help-panel')) {
-      return null
-    }
-
-    const variantName = el.getAttribute(VARIANT_NAME_ATTR)
-    const presetNameFromEl = el.getAttribute(PRESET_NAME_ATTR)
-    if (variantName && presetNameFromEl) {
-      return {
-        kind: 'preset-variant',
-        element: el,
-        presetName: presetNameFromEl,
-        variantName,
-      }
-    }
-
-    const presetHost = el.closest(`[${PRESET_NAME_ATTR}]`) as HTMLElement | null
-    if (presetHost) {
-      const presetName = presetHost.getAttribute(PRESET_NAME_ATTR)
-      if (presetName) {
-        return { kind: 'preset', element: presetHost, presetName }
-      }
-    }
-
-    const attr = el.getAttribute('data-aipg-help')
-    if (attr && getHelpTopic(attr)) {
-      return { kind: 'static', topicId: attr as HelpTopicId, element: el }
-    }
-    if (el.id && getHelpTopic(el.id)) {
-      return { kind: 'static', topicId: el.id as HelpTopicId, element: el }
-    }
-    if (el.id === 'mode-buttons') {
-      return { kind: 'static', topicId: 'mode-buttons', element: el }
-    }
-    if (el.id.startsWith(MODE_BUTTON_PREFIX) && getHelpTopic(el.id)) {
-      return { kind: 'static', topicId: el.id as HelpTopicId, element: el }
-    }
-    el = el.parentElement
+function isOwnChrome(from: HTMLElement): boolean {
+  for (let el: HTMLElement | null = from; el; el = el.parentElement) {
+    if (el.id === HELP_TOGGLE_ID || el.id === HELP_PANEL_ID) return true
   }
-  return null
+  return false
 }
 
-export function isHelpAnnotatedElement(el: HTMLElement): boolean {
-  return resolveHelpTarget(el) !== null
+/**
+ * Walks up from an event target to the nearest element carrying help metadata.
+ * Own chrome (the toggle and the panel) resolves to `null` so help mode never
+ * explains itself.
+ */
+export function resolveHelpTarget(from: EventTarget | null): HelpResolveResult | null {
+  if (!(from instanceof HTMLElement)) return null
+  if (isOwnChrome(from)) return null
+
+  for (let el: HTMLElement | null = from; el && el !== document.body; el = el.parentElement) {
+    // A variant tile carries both attributes; the variant name is the internal
+    // name, not the display label, so preset lookups line up.
+    const presetName = el.getAttribute(PRESET_NAME_ATTR)
+    const variantName = el.getAttribute(VARIANT_NAME_ATTR)
+    if (presetName && variantName) {
+      return { kind: 'preset-variant', element: el, presetName, variantName }
+    }
+    if (presetName) {
+      return { kind: 'preset', element: el, presetName }
+    }
+
+    const topicId = el.getAttribute(HELP_ATTR) ?? el.id
+    if (getHelpTopic(topicId)) {
+      return { kind: 'static', topicId: topicId as HelpTopicId, element: el }
+    }
+  }
+  return null
 }

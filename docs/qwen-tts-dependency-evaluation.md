@@ -19,9 +19,12 @@ replaced with [`vllm-omni`](https://github.com/vllm-project/vllm-omni), motivate
 >   unpinning: `qwen-tts` 0.1.1 does not run on transformers 5.x. Verified — see
 >   [§5.1](#51-tested-unpin-transformers-fails).
 >
-> **Status:** the vendoring half ([§5.4](#54-scoping-the-vendor-and-port-option) Step A) has
-> landed — `qwen3-tts/vendor/qwen_tts/`, 145 → 99 locked packages, output verified bit-exact
-> against the upstream package. The transformers port (Step B) has not been attempted.
+> **Status: both halves have landed.** The 12 Hz subset is vendored
+> ([§5.4](#54-scoping-the-vendor-and-port-option) Step A) and ported to `transformers` 5.14.1
+> (Step B, [§5.5](#55-the-transformers-5-port-as-landed)). The lock went 145 → 110 packages
+> and the advisory count **18 → 2**, the remainder being a deliberate `torch` ceiling and an
+> unreachable `setuptools` sdist issue. Audio is bit-identical to the upstream package
+> throughout.
 
 ---
 
@@ -66,13 +69,20 @@ the GitHub Advisory Database. 18 matches, and they cluster sharply:
 | `setuptools` | 81.0.0 | 1 (medium) | `torch` | No — see below |
 | `torch` | 2.12.1 | 1 (low) | ours | No — we ceiling `torch<2.13` deliberately |
 
-Re-running the same audit after the vendoring ([§5.4](#54-scoping-the-vendor-and-port-option))
-gives **5 matches over 95 packages**: the 13 `pillow` ones are gone with `gradio`, and what
-remains is the three `transformers` advisories plus two deliberate residuals. `torch` is held
-below 2.13 on purpose. `setuptools` is an unbounded requirement of `torch` that resolves to
-81.0.0 and does not move on `uv lock --upgrade-package setuptools`; the advisory is an sdist
-`MANIFEST.in` bypass on macOS filesystems, which is unreachable for a service that never builds
-an sdist, so it is not worth adding a floor on a transitive build tool to silence.
+Re-running the same audit after each step:
+
+| Lock | Packages | Advisories |
+|---|---|---|
+| original, `qwen-tts` dependency | 137 | 18 |
+| after vendoring ([§5.4](#54-scoping-the-vendor-and-port-option)) | 95 | 5 |
+| after the `transformers` 5 port ([§5.5](#55-the-transformers-5-port-as-landed)) | 106 | **2** |
+
+Vendoring removed the 13 `pillow` advisories along with `gradio`; the port removed the three
+`transformers` ones. The two that remain are deliberate. `torch` is held below 2.13 on purpose.
+`setuptools` is an unbounded requirement of `torch` that resolves to 81.0.0 and does not move on
+`uv lock --upgrade-package setuptools`; the advisory is an sdist `MANIFEST.in` bypass on macOS
+filesystems, which is unreachable for a service that never builds an sdist, so it is not worth
+adding a floor on a transitive build tool to silence.
 
 Two things follow:
 
@@ -140,11 +150,12 @@ launch `vllm serve` instead of `web_api.py`, and `synthesizeTextToSpeech` would 
 
 ## 5. Alternatives, and what we measured
 
-### 5.1 Tested: unpin `transformers` (fails)
+### 5.1 Tested: unpin `transformers` without touching the code (fails)
 
-The attractive cheap fix is to override `qwen-tts`'s pin and move to transformers 5.x,
-fixing all three advisories. It does not work. Against transformers 5.14.1, `qwen-tts`
-0.1.1 fails progressively, and each fix reveals the next breakage:
+The attractive cheap fix is to override `qwen-tts`'s pin and move to transformers 5.x, fixing
+all three advisories with no code changes. That does not work — the code has to be ported,
+which is what [§5.5](#55-the-transformers-5-port-as-landed) did. Against transformers 5.14.1,
+`qwen-tts` 0.1.1 fails progressively, and each mechanical fix reveals the next breakage:
 
 | # | Failure | API change |
 |---|---|---|
@@ -155,14 +166,15 @@ fixing all three advisories. It does not work. Against transformers 5.14.1, `qwe
 | 5 | `create_causal_mask() got an unexpected keyword argument 'cache_position'` | replaced by `position_ids` |
 | 6 | `RuntimeError: probability tensor contains either inf, nan or element < 0` | **numerical**, not an API error |
 
-Failure 6 is the important one. After five mechanical shims the model loads and runs, then
-produces NaN logits — a shim changed attention/mask semantics silently. Re-basing this code
-onto transformers 5.x is not dependency hygiene, it is porting model internals (masking,
-RoPE, cache) with no reference output to validate against beyond listening to the audio.
+Failure 6 is the important one, and it is what made this a port rather than a version bump:
+after five mechanical shims the model loads and runs, and then produces NaN logits. Guessing
+does not close that gap — [§5.5](#55-the-transformers-5-port-as-landed) records what actually
+caused it.
 
-So the `transformers==4.57.3` pin is load-bearing. Fixing those three advisories requires
-either vendoring and *properly* porting the modeling code — a fork we would then own, scoped
-in [§5.4](#54-scoping-the-vendor-and-port-option) — or replacing the runner entirely.
+So the `transformers==4.57.3` pin is load-bearing *for the unmodified package*. Fixing those
+three advisories requires either vendoring and properly porting the modelling code — scoped in
+[§5.4](#54-scoping-the-vendor-and-port-option), landed in
+[§5.5](#55-the-transformers-5-port-as-landed) — or replacing the runner entirely.
 
 Note this also rules out a tempting simpler idea: **`trust_remote_code` is not an option**
 either. The `Qwen3-TTS-12Hz-*` repos ship no modeling `.py` and no `auto_map`, and upstream
@@ -324,10 +336,77 @@ whose imports we deliberately removed — the tool stubs those modules in the up
 rather than reinstalling them (with real `__spec__`s, or `torch._dynamo`'s module scan raises
 `ValueError: onnxruntime.__spec__ is None`).
 
-**What Step B would add to what we own:** a port of ~5.4k lines that includes a subclass of an
-upstream transformers model, plus a config-translation shim, re-validated on every
-`transformers` bump. Step A on its own carries none of that — the code is upstream's, byte for
-byte, apart from deletions — which is why it landed first and separately.
+**What Step B adds to what we own:** a compatibility layer over model code that uses internal
+transformers APIs, re-validated on every `transformers` bump. Step A on its own carries none of
+that — the code is upstream's, byte for byte, apart from deletions — which is why it landed
+first and separately.
+
+### 5.5 The `transformers` 5 port, as landed
+
+Cheaper than [§5.4](#54-scoping-the-vendor-and-port-option) feared, but only because the two
+non-obvious failures were found by instrumenting rather than guessing. The work lives in
+`vendor/qwen_tts/_compat.py`, which bridges both versions rather than rewriting against 5.x —
+that matters because the upstream package only runs on 4.57.3, so keeping 4.x working is what
+keeps `tests/vendor_parity.py` able to compare against upstream at all.
+
+Three of the six failures from [§5.1](#51-tested-unpin-transformers-without-touching-the-code-fails)
+were signature bridging (the `check_model_inputs` decorator form, the `"default"` RoPE entry,
+the mask builders' renamed/dropped arguments). Two were narrower than they looked:
+`config.pad_token_id` resolves to `None` on 4.57.3 for these checkpoints, so reading it through
+`getattr` is the same value rather than a new default; and `rope_config_validation` only
+validates, so it is skipped where 5.x expects the `rope_parameters` schema these configs do not
+use. Several things that looked like they would need work did not: `Cache.update()` still
+absorbs the old `cache_kwargs` positionally, `ALL_ATTENTION_FUNCTIONS[...]` still supports
+indexing, and the `PretrainedConfig` rename is aliased.
+
+The two real problems, both silent:
+
+**Uninitialized `inv_freq` — the NaN.** `inv_freq` is a *non-persistent* buffer, computed in
+`__init__` and never stored in a checkpoint. transformers 5 builds the module tree on the meta
+device and then restores such buffers only for rotary modules that its own
+`PreTrainedModel._init_weights` recognizes, which it decides by looking for `"RotaryEmbedding"`
+in the class name plus an `original_inv_freq` attribute. None of the three rotary classes here
+qualify: the talker's two define `original_inv_freq` but this model overrides `_init_weights`
+without delegating to `super()`, and the codec decoder's class is spelled
+`Qwen3TTSTokenizerV2Decoder**Rotatory**Embedding` upstream, so the name test fails outright.
+The result was `inv_freq` holding uninitialized memory (`1.6e-31, 0.0, 0.0, …` with a NaN),
+which is why the first forward pass produced NaN logits. `reset_rotary_buffers()` recomputes it
+after each `from_pretrained`; recomputation is deterministic and idempotent, so it is a no-op
+on 4.57.3. Diagnosing this took one dump of the loaded buffers — the model's *inputs* were
+identical across versions, so the difference had to be in state, not in the forward path.
+
+**Accumulated `position_ids` — the shape mismatch.** 4.x's `prepare_inputs_for_generation`
+handed the model only the current step's positions; 5.x's
+`_update_model_kwargs_for_generation` instead *concatenates* the next positions onto the
+running tensor. So on the first decode step the model received `position_ids` of length 20
+alongside an `inputs_embeds` of length 1, computed cos/sin for the whole sequence, and failed
+in `o_proj` with `mat1 and mat2 shapes cannot be multiplied (1x40960 and 2048x1024)`.
+`align_position_ids()` trims to the query length at the three forwards that accept
+`position_ids`, which is again a no-op on 4.57.3.
+
+**Verification.** The chain from [§5.4](#54-scoping-the-vendor-and-port-option) closed exactly
+as designed, on one torch build (`2.12.1+cpu`) so that `transformers` is the only variable:
+
+| Comparison | Result |
+|---|---|
+| upstream `qwen-tts` @ 4.57.3 vs vendored @ 4.57.3 | codes equal, waveforms bit-exact (4/4 cases) |
+| vendored @ 4.57.3 vs vendored @ 5.14.1 | codes equal, waveforms bit-exact (4/4 cases) |
+| all 144 shared model buffers after load, 4.57.3 vs 5.14.1 | identical |
+
+The waveform hashes are also unchanged from the pre-port Step A run, so the port did not move
+the output at all. Both product modes then ran through the sidecar API on 5.14.1
+(`custom_voice` on the 0.6B model, `voice_design` on the 1.7B one). The buffer comparison was
+worth doing separately: uninitialized memory does not have to contain NaN, so a second
+mis-restored buffer could have shifted output subtly instead of failing loudly.
+
+**Cost.** `transformers` 5 pulls `typer` (it grew a CLI) and with it `rich`, `markdown-it-py`,
+`mdurl`, `pygments` and `shellingham`, and `huggingface-hub` moves to 1.x: 99 → 110 packages.
+That is the price of closing two high-severity RCEs, one of which was reachable from
+`tts_engine._load_model()`.
+
+**Constraint.** `transformers>=5.14.0,<6` — floor is the version verification ran on, not the
+oldest version that merely clears the advisories (5.5.0), since the two failures above were
+version-specific behaviours and there is no reason to claim untested ground.
 
 ## 6. Reproducing the evidence
 

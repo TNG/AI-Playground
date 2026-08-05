@@ -84,19 +84,19 @@
         </TooltipProvider>
       </template>
       <!-- Selected inference device (GPU / NPU / CPU) as a text badge -->
-      <template v-if="chatDeviceBadge">
+      <template v-if="deviceBadge">
         <TooltipProvider>
           <Tooltip :delay-duration="0">
             <TooltipTrigger as-child>
               <button
                 type="button"
                 class="flex flex-none items-center cursor-help"
-                :aria-label="`Inference device: ${chatDeviceBadge.name}`"
+                :aria-label="`Inference device: ${deviceBadge.name}`"
               >
                 <span
                   class="flex-none rounded border border-border px-1 text-[10px] font-semibold leading-4 tracking-tight text-muted-foreground"
                 >
-                  {{ chatDeviceBadge.categoryLabel }}
+                  {{ deviceBadge.categoryLabel }}
                 </span>
               </button>
             </TooltipTrigger>
@@ -104,8 +104,8 @@
               align="start"
               class="w-64 bg-card border border-border text-foreground p-3 z-[200]"
             >
-              <p class="text-sm font-semibold">{{ chatDeviceBadge.name }}</p>
-              <p class="mt-1 text-xs text-muted-foreground">{{ chatDeviceBadge.categoryLabel }}</p>
+              <p class="text-sm font-semibold">{{ deviceBadge.name }}</p>
+              <p class="mt-1 text-xs text-muted-foreground">{{ deviceBadge.categoryLabel }}</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -275,27 +275,13 @@ const chatBackendBadge = computed(() => {
   }
 })
 
-// Selected inference device for the active chat backend, shown as a short text
-// badge (GPU / NPU / CPU), device name on hover. Reads the `selected`
-// device from the backend
-// service that the current chat backend maps to. Null when not in chat mode, on
-// Cloud Mode, or before device detection has reported a selection.
-const chatDeviceBadge = computed(() => {
-  if (promptStore.userSelectedMode !== 'chat') return null
-  if (isTtsPreset.value) return ttsDeviceBadge.value
-  const backend = textInference.backend
-  if (backend !== 'llamaCPP' && backend !== 'openVINO') return null
-  const serviceName = backendToService[backend]
-  if (!serviceName) return null
-  const info = backendServices.info.find((s) => s.serviceName === serviceName)
-  const device = info?.devices.find((d) => d.selected)
-  if (!device) return null
-
-  // Classify by id/name: OpenVINO uses ids like 'NPU' / 'CPU' / 'GPU.0'; llama.cpp
-  // reports numeric ids with GPU names. Anything not NPU/CPU is treated as GPU
-  // (covers 'GPU.x', 'AUTO', and named GPU devices). We deliberately don't split
-  // integrated vs discrete: `InferenceDevice` carries no reliable flag for it
-  // (that only lives on `GpuHardwareDevice.category`), so any guess is unreliable.
+// Classify any InferenceDevice into a short GPU / NPU / CPU badge. OpenVINO uses ids
+// like 'NPU' / 'CPU' / 'GPU.0'; llama.cpp reports numeric ids with GPU names; ComfyUI
+// reports numeric GPU indices; TTS uses torch strings ('xpu:N' / 'cuda:N' / 'cpu').
+// Anything not NPU/CPU is treated as GPU (covers 'GPU.x', 'AUTO', 'xpu:N', 'cuda:N' and
+// named GPU devices). We deliberately don't split integrated vs discrete: `InferenceDevice`
+// carries no reliable flag for it (that only lives on `GpuHardwareDevice.category`).
+function classifyInferenceDevice(device: InferenceDevice) {
   const haystack = `${device.id} ${device.name}`.toUpperCase()
   const category: 'gpu' | 'npu' | 'cpu' = haystack.includes('NPU')
     ? 'npu'
@@ -304,18 +290,31 @@ const chatDeviceBadge = computed(() => {
       : 'gpu'
   const categoryLabel = category === 'npu' ? 'NPU' : category === 'cpu' ? 'CPU' : 'GPU'
   return { name: device.name || device.id, category, categoryLabel }
-})
+}
 
-// Device badge for the TTS preset, read from the qwen3-tts-backend service. Its
-// device ids are QWEN3_TTS_DEVICE values ('xpu:N' / 'cuda:N' / 'cpu'), so an
-// xpu/cuda id is a GPU and anything else is CPU.
-const ttsDeviceBadge = computed(() => {
-  const info = backendServices.info.find((s) => s.serviceName === 'qwen3-tts-backend')
-  const selected = info?.devices.find((d) => d.selected)
-  if (!selected) return null
-  const category: 'gpu' | 'cpu' = /^(xpu|cuda)/i.test(selected.id) ? 'gpu' : 'cpu'
-  const categoryLabel = category === 'gpu' ? 'GPU' : 'CPU'
-  return { name: selected.name || selected.id, category, categoryLabel }
+// The selected-device badge for a backend service, or null when it isn't running /
+// hasn't reported a device selection yet.
+function selectedDeviceBadgeFor(serviceName: BackendServiceName) {
+  const info = backendServices.info.find((s) => s.serviceName === serviceName)
+  const device = info?.devices.find((d) => d.selected)
+  return device ? classifyInferenceDevice(device) : null
+}
+
+// Selected inference device shown as a short text badge (GPU / NPU / CPU), device name
+// on hover — for whichever backend the active mode actually runs on, not just the chat
+// engine: llama.cpp / OpenVINO (or TTS) in chat mode, and ComfyUI in the Image / Image
+// Edit / Video modes. Null on Cloud Mode (remote — no local hardware) and before device
+// detection has reported a selection.
+const deviceBadge = computed(() => {
+  if (promptStore.userSelectedMode === 'chat') {
+    if (isTtsPreset.value) return selectedDeviceBadgeFor('qwen3-tts-backend')
+    const backend = textInference.backend
+    if (backend === 'cloud') return null
+    const serviceName = backendToService[backend]
+    return serviceName ? selectedDeviceBadgeFor(serviceName) : null
+  }
+  // Image / Image Edit / Video modes all run on the ComfyUI backend.
+  return selectedDeviceBadgeFor('comfyui-backend')
 })
 
 // The tooltip shows the base preset's description — same text as the quick

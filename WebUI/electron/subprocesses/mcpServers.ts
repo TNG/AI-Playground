@@ -13,6 +13,7 @@ export type McpServerConfig =
       env?: Record<string, string>
       displayName?: string
       instructions?: string
+      description?: string
     }
   | {
       type: 'http'
@@ -20,6 +21,7 @@ export type McpServerConfig =
       headers?: Record<string, string>
       displayName?: string
       instructions?: string
+      description?: string
     }
 
 type McpConfigFile = {

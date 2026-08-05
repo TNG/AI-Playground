@@ -36,87 +36,17 @@
         <div v-else-if="message.role === 'assistant'" class="flex items-start gap-3">
           <img src="../assets/svg/ai-icon.svg" class="size-6" />
           <div class="flex flex-col gap-3 w-full max-w-4/5">
-            <template v-for="(part, partIndex) in message.parts" :key="partIndex">
-              <MarkdownRenderer v-if="part.type === 'text'" :content="part.text ?? ''" />
-              <ChatReasoningDisplay
-                v-else-if="part.type === 'reasoning'"
-                :text="part.text"
-                :streaming="part.state === 'streaming'"
-                :startedAt="reasoningTimings[reasoningTimingKey(message.id, partIndex)]?.startedAt"
-                :finishedAt="
-                  reasoningTimings[reasoningTimingKey(message.id, partIndex)]?.finishedAt
-                "
-                :liveStartedAt="
-                  reasoningTimings[reasoningTimingKey(message.id, partIndex)]?.startedAt
-                "
-              />
-              <div
-                v-else-if="asCompaction(part)"
-                class="flex flex-col gap-1 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
-              >
-                <div class="flex items-center gap-2 font-medium text-foreground/80">
-                  <ArchiveBoxArrowDownIcon class="size-4" />
-                  <span>
-                    Context compacted
-                    <span class="text-muted-foreground">({{ asCompaction(part)!.trigger }})</span>
-                    <template v-if="compactionDelta(part)"> — {{ compactionDelta(part) }}</template>
-                  </span>
-                </div>
-                <p v-if="asCompaction(part)!.summary" class="whitespace-pre-wrap opacity-80">
-                  {{ asCompaction(part)!.summary }}
-                </p>
-              </div>
-              <!-- Media delegation tool: the nested media agent runs in the
-                   renderer, so its live steps (mediaAgentRuns, keyed by the
-                   bridged toolCallId) and the produced media render inline
-                   while the bridged call is still pending. -->
-              <div v-else-if="mediaToolName(part)" class="flex flex-col gap-2">
-                <ChatToolDisplay
-                  :part="asToolPart(part)"
-                  :state="asToolPart(part).state"
-                  :input="asToolPart(part).input"
+            <template v-for="segment in segmentsOf(message)" :key="segment.key">
+              <AgentMessagePart v-if="segment.kind === 'part'" :part="asPart(segment.part)" />
+              <!-- A finished stretch of thinking and tool calls, folded away so
+                   the answer and the media it produced stay in view. -->
+              <AgentActivitySummary v-else :summary="segment.summary">
+                <AgentMessagePart
+                  v-for="(part, index) in segment.parts"
+                  :key="index"
+                  :part="asPart(part)"
                 />
-                <MediaAgentTimeline
-                  :tool-call-id="asToolPart(part).toolCallId"
-                  :fallback-steps="mediaToolSteps(part)"
-                />
-                <ChatWorkflowResult
-                  :images="mediaToolImages(part)"
-                  :processing="mediaToolProcessing(part)"
-                  :stepText="mediaToolStepText(part)"
-                />
-              </div>
-              <div
-                v-else-if="isToolUIPart(part as UIMessagePart<UIDataTypes, UITools>)"
-                class="flex flex-col gap-1"
-              >
-                <ChatToolDisplay
-                  :part="asToolPart(part)"
-                  :state="asToolPart(part).state"
-                  :input="asToolPart(part).input"
-                />
-                <!-- Live output while the tool is still running (Pi streams
-                     partial results, e.g. a long-running bash command). -->
-                <pre
-                  v-if="toolProgressText(part)"
-                  class="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
-                  >{{ toolProgressText(part) }}</pre
-                >
-                <!-- What the tool saw: a browser screenshot never reaches the
-                     model as pixels, so this is the only place it is visible. -->
-                <figure
-                  v-for="image in toolImages(part)"
-                  :key="image.dataUri"
-                  class="flex flex-col gap-1"
-                >
-                  <img
-                    :src="image.dataUri"
-                    :alt="`Screenshot: ${image.label}`"
-                    class="max-h-96 w-auto self-start rounded-md border border-border"
-                  />
-                  <figcaption class="text-xs text-muted-foreground">{{ image.label }}</figcaption>
-                </figure>
-              </div>
+              </AgentActivitySummary>
             </template>
           </div>
         </div>
@@ -140,26 +70,24 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { isToolUIPart, type UIDataTypes, type UIMessagePart, type UITools } from 'ai'
-import type { DynamicToolUIPart, ToolUIPart, UIMessage } from 'ai'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import type { UIDataTypes, UIMessagePart, UITools, UIMessage } from 'ai'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { usePromptStore } from '@/assets/js/store/promptArea'
-import type { AipgTools } from '@/assets/js/tools/tools'
 import { Button } from '@/components/ui/button'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
-import ChatToolDisplay from '@/components/ChatToolDisplay.vue'
-import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
-import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
-import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
-import type { MediaItem } from '@/assets/js/store/imageGenerationPresets'
+import AgentMessagePart from '@/components/AgentMessagePart.vue'
+import AgentActivitySummary from '@/components/AgentActivitySummary.vue'
 import {
-  reasoningTimingKey,
-  trackReasoningTimings,
-  type ReasoningTiming,
-} from '@/lib/reasoningTimings'
+  compactionOutputOf,
+  groupTranscriptParts,
+  isReasoningPart,
+  mediaToolNameOf,
+  toolPartNameOf,
+  type TranscriptSegment,
+} from '@/lib/agentTranscript'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
-import { ArchiveBoxArrowDownIcon, UserCircleIcon } from '@heroicons/vue/24/outline'
+import { UserCircleIcon } from '@heroicons/vue/24/outline'
 
 const agentMode = useAgentMode()
 const promptStore = usePromptStore()
@@ -176,173 +104,42 @@ function messageText(message: UIMessage): string {
   )
 }
 
-// Pi's tool parts (tool-bash, tool-read, …) are not part of AipgTools, but the
-// generic ChatToolDisplay only reads name/state/input/output — cast for reuse.
-function asToolPart(part: unknown): ToolUIPart<AipgTools> | DynamicToolUIPart {
-  return part as ToolUIPart<AipgTools> | DynamicToolUIPart
+// The AI SDK grows a part by mutating it, so the same object reference would
+// leave AgentMessagePart showing whatever the part held when it mounted — the
+// hazard ChatToolDisplay works around by taking `state`/`input` as their own
+// props. A copy per render generalizes that: every mutated field (streaming
+// text, tool state, output) arrives as a changed prop.
+function asPart(part: unknown): UIMessagePart<UIDataTypes, UITools> {
+  return { ...(part as object) } as UIMessagePart<UIDataTypes, UITools>
 }
 
-/** Tail of a running tool's streamed output kept on screen. */
-const MAX_PROGRESS_LINES = 12
-
-/** Arguments long enough to be worth watching arrive (file bodies, patches). */
-const STREAMED_ARGUMENT_KEYS = ['content', 'new_string', 'command']
-
-// Two kinds of live text can sit under a tool card, both keyed to a call that
-// has not finished: the output Pi streams back over its own IPC channel (merged
-// into the store by tool call id), and — before the tool even runs — the
-// arguments the model is still dictating, which for a file write is the file.
-function toolProgressText(part: unknown): string | undefined {
-  const toolPart = asToolPart(part)
-  if (toolPart.state !== 'input-available' && toolPart.state !== 'input-streaming') return undefined
-  const text = agentMode.toolProgress[toolPart.toolCallId] ?? streamedArgument(toolPart.input)
-  if (!text) return undefined
-  return text.split('\n').slice(-MAX_PROGRESS_LINES).join('\n')
-}
-
-function toolImages(part: unknown): AgentToolImage[] {
-  return agentMode.toolImages[asToolPart(part).toolCallId] ?? []
-}
-
-function streamedArgument(input: unknown): string | undefined {
-  if (typeof input !== 'object' || input === null) return undefined
-  const record = input as Record<string, unknown>
-  const key = STREAMED_ARGUMENT_KEYS.find((candidate) => typeof record[candidate] === 'string')
-  return key ? (record[key] as string) : undefined
-}
-
-// Pi's context compaction surfaces as a dynamic-tool part named 'compaction'
-// (the stream translator turns the compaction events into a synthetic tool
-// call+result whose output carries the trigger/summary/token counts). Render it
-// as a notice instead of a generic tool card.
-type CompactionOutput = {
-  trigger: 'manual' | 'threshold' | 'overflow'
-  summary: string
-  tokensBefore?: number
-  tokensAfter?: number
-}
-
-function asCompaction(part: unknown): CompactionOutput | null {
-  const p = part as { type?: string; toolName?: string; output?: unknown }
-  if (p?.type !== 'dynamic-tool' || p.toolName !== 'compaction') return null
-  const output = p.output as CompactionOutput | undefined
-  return output && typeof output === 'object' ? output : null
-}
-
-// The bridged `media` delegation tool (and the legacy generateImage/editImage
-// bridged tools). Handles both part encodings: `tool-media` and dynamic-tool
-// named 'media'.
-const MEDIA_BRIDGE_TOOL_NAMES = new Set(['media', 'generateImage', 'editImage'])
-
-type MediaToolPart = {
-  type?: string
-  toolName?: string
-  state?: string
-  output?: { images?: unknown; steps?: unknown }
-}
-
-function mediaToolName(part: unknown): string | undefined {
-  const p = part as MediaToolPart
-  const toolName =
-    p?.type === 'dynamic-tool'
-      ? p.toolName
-      : typeof p?.type === 'string' && p.type.startsWith('tool-')
-        ? p.type.slice('tool-'.length)
-        : undefined
-  return toolName && MEDIA_BRIDGE_TOOL_NAMES.has(toolName) ? toolName : undefined
-}
-
-/** Step lines from a finished result, for runs no longer in the store. */
-function mediaToolSteps(part: unknown): string[] | undefined {
-  const steps = (part as MediaToolPart).output?.steps
-  return Array.isArray(steps) ? (steps as string[]) : undefined
-}
-
-function mediaRun(part: unknown) {
-  return mediaRuns.run(asToolPart(part).toolCallId)
-}
-
-/** Finished media from the tool output, or what the live run has so far. */
-function mediaToolImages(part: unknown): MediaItem[] {
-  const completed = mediaToolItems(part)
-  if (completed.length) return completed
-  return mediaRun(part)?.steps.flatMap((step) => step.media) ?? []
-}
-
-function mediaToolProcessing(part: unknown): boolean {
-  return mediaRun(part)?.state === 'running'
-}
-
-function mediaToolStepText(part: unknown): string | undefined {
-  return mediaRun(part)?.steps.findLast((step) => step.state === 'running')?.label
-}
-
-/**
- * Completed tool parts whose output carries a comfy-shaped `images` array,
- * synthesized into full MediaItems so ChatWorkflowResult renders images,
- * videos and 3D models alike.
- */
-function mediaToolItems(part: unknown): MediaItem[] {
-  const p = part as MediaToolPart
-  if (!mediaToolName(part) || p.state !== 'output-available') return []
-  const images = p.output?.images
-  if (!Array.isArray(images)) return []
-  return images
-    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
-    .map(
-      (item) =>
-        ({
-          mode: 'imageGen',
-          settings: {},
-          ...item,
-          state: 'done',
-        }) as MediaItem,
-    )
-    .filter((item) => {
-      if (item.type === 'image') return !!item.imageUrl
-      if (item.type === 'video') return !!item.videoUrl
-      if (item.type === 'model3d') return !!item.model3dUrl
-      return false
-    })
-}
-
-// Pi's post-compaction size is an estimate it cannot always produce, so fall
-// back to reporting just how much was summarized.
-function compactionDelta(part: unknown): string {
-  const output = asCompaction(part)
-  if (!output || output.tokensBefore === undefined) return ''
-  const before = output.tokensBefore.toLocaleString()
-  if (output.tokensAfter === undefined) return `${before} tokens summarized`
-  return `${before} → ${output.tokensAfter.toLocaleString()} tokens`
-}
-
-// ── Live reasoning timing ────────────────────────────────────────────────────
+// ── Folding finished work ────────────────────────────────────────────────────
 //
-// Reasoning UI parts carry a `state` ('streaming' | 'done') but no wall-clock
-// timing, so ChatReasoningDisplay's timer needs a start (and end) supplied by
-// the host. `trackReasoningTimings` records them per part, so each block shows a
-// live-advancing then final duration.
-const reasoningTimings = reactive<Record<string, ReasoningTiming>>({})
+// Reasoning blocks and tool cards are what the agent did, not what it produced,
+// and a single request makes dozens of them. Once the turn is over they collapse
+// into one summary line; a part carrying something to look at stays out of the
+// fold.
+function segmentsOf(message: UIMessage): TranscriptSegment[] {
+  // `step-start` is the SDK's step bookkeeping and renders nothing, so it is
+  // dropped rather than left to split a run of foldable parts in two.
+  const parts = (message.parts ?? []).filter((part) => part.type !== 'step-start')
+  return groupTranscriptParts(parts, {
+    messageId: message.id,
+    live: agentMode.processing && message.id === agentMode.messages.at(-1)?.id,
+    foldable: isFoldable,
+  })
+}
 
-watch(
-  // Lightweight signal: only the last assistant message's part types + states,
-  // so a deep watch over growing (and large) message content is avoided.
-  () => {
-    const last = agentMode.messages.at(-1)
-    if (!last || last.role !== 'assistant') return ''
-    return (last.parts ?? [])
-      .map((p, pi) => `${last.id}:${pi}:${p.type}:${'state' in p ? p.state : ''}`)
-      .join('|')
-  },
-  () => {
-    const last = agentMode.messages.at(-1)
-    if (!last || last.role !== 'assistant') return
-    trackReasoningTimings(reasoningTimings, last, { live: agentMode.processing })
-  },
-  // Immediate, so a view mounted mid-turn (switching modes and back) still times
-  // the block that is already streaming.
-  { immediate: true },
-)
+function isFoldable(part: unknown): boolean {
+  if (isReasoningPart(part)) return true
+  if (toolPartNameOf(part) === undefined) return false
+  // Compaction is its own notice, media tools render what they generated, and a
+  // browser screenshot is only ever visible here — none of it is noise.
+  if (compactionOutputOf(part)) return false
+  if (mediaToolNameOf(part)) return false
+  const toolCallId = (part as { toolCallId?: string }).toolCallId
+  return !(toolCallId && agentMode.toolImages[toolCallId]?.length)
+}
 
 // ── Descriptive busy label ───────────────────────────────────────────────────
 //
@@ -395,19 +192,16 @@ const busyLabel = computed<string>(() => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const lastPart = parts.at(-1) as any
   if (!lastPart) return 'Agent is working…'
-  if (lastPart.type === 'reasoning' && lastPart.state !== 'done') return 'Thinking…'
+  if (isReasoningPart(lastPart) && lastPart.state !== 'done') return 'Thinking…'
   if (lastPart.type === 'text' && lastPart.state === 'streaming') return 'Writing response…'
-  const toolName: string | undefined =
-    lastPart.type === 'dynamic-tool'
-      ? lastPart.toolName
-      : typeof lastPart.type === 'string' && lastPart.type.startsWith('tool-')
-        ? lastPart.type.slice('tool-'.length)
-        : undefined
+  const toolName = toolPartNameOf(lastPart)
   if (toolName) {
     if (lastPart.state === 'input-streaming' || lastPart.state === 'input-available') {
       // A delegated media call knows more than its own name: say which step of
       // the nested run is in flight instead of a generic "Creating media…".
-      return mediaToolStepText(lastPart) ?? toolActionLabel(toolName, lastPart.input)
+      return (
+        mediaRuns.activeStepLabel(lastPart.toolCallId) ?? toolActionLabel(toolName, lastPart.input)
+      )
     }
     // Tool finished — the model is generating its next move.
     return 'Thinking…'

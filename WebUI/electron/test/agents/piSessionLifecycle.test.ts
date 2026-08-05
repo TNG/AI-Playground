@@ -538,6 +538,78 @@ describe('turn streaming', () => {
     })
   })
 
+  // Qwen has been seen emitting its tool call inside the thinking channel: the
+  // provider then reports a normal `stop` with no tool call, Pi's loop has
+  // nothing to run, and the task is abandoned halfway with nothing on screen.
+  describe('a turn that ends with neither a reply nor a tool call', () => {
+    /** A session whose turns end with the given assistant messages, in order. */
+    async function sessionEndingWith(...finalMessages: unknown[]): Promise<FakeSession> {
+      const created = await makeAgentSession()
+      const session = created.session
+      session.prompt.mockImplementation(async () => {
+        const next = finalMessages.shift()
+        if (next) session.messages = [...session.messages, next]
+      })
+      createAgentSession.mockImplementationOnce(async () => created)
+      return session
+    }
+
+    const silent = { role: 'assistant', content: [{ type: 'thinking', thinking: '…</tool_call>' }] }
+    const answered = { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] }
+
+    function noticeTexts(): string[] {
+      return sent
+        .filter((message) => message.channel === 'agentMode:streamChunk')
+        .map((message) => message.payload.chunk as Record<string, unknown>)
+        .filter((chunk) => chunk.type === 'text-delta' && String(chunk.id).startsWith('notice-'))
+        .map((chunk) => String(chunk.delta))
+    }
+
+    it('asks the model to continue, and stays quiet when it does', async () => {
+      const session = await sessionEndingWith(silent, answered)
+      const manager = await loadManager()
+
+      await manager.startAgentTurn('t1', 'summarize the article', configFor())
+
+      expect(session.prompt).toHaveBeenCalledTimes(2)
+      expect(session.prompt.mock.calls[1][0]).toMatch(/without a reply and without a tool call/)
+      expect(noticeTexts()).toEqual([])
+    })
+
+    it('says so when the model will not pick the task back up', async () => {
+      const session = await sessionEndingWith(silent, silent)
+      const manager = await loadManager()
+
+      await manager.startAgentTurn('t1', 'summarize the article', configFor())
+
+      expect(session.prompt).toHaveBeenCalledTimes(2)
+      expect(noticeTexts().join('')).toMatch(/without an answer and without running a tool/)
+    })
+
+    it('leaves a cancelled turn alone', async () => {
+      const session = await sessionEndingWith(silent)
+      const manager = await loadManager()
+      session.prompt.mockImplementationOnce(async () => {
+        manager.cancelAgentTurn()
+        session.messages = [...session.messages, silent]
+      })
+
+      await manager.startAgentTurn('t1', 'summarize the article', configFor())
+
+      expect(session.prompt).toHaveBeenCalledTimes(1)
+      expect(noticeTexts()).toEqual([])
+    })
+
+    it('lets a normal turn finish in one prompt', async () => {
+      const session = await sessionEndingWith(answered)
+      const manager = await loadManager()
+
+      await manager.startAgentTurn('t1', 'summarize the article', configFor())
+
+      expect(session.prompt).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it('re-asserts the preview URL when the port changed', async () => {
     const runtime = await import('../../agentMode/piWorkspaceRuntime')
     const manager = await loadManager()

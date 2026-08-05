@@ -225,6 +225,15 @@ export function buildWorkspaceInstructions(options: WorkspaceInstructionsOptions
           ' cannot install packages, and you never need to start a web server — one is already' +
           ' running (see below).',
   )
+  if (!unsandboxed) {
+    lines.push(
+      '- Nothing in that shell reaches the internet: there is no curl or wget, and python cannot' +
+        ' open URLs. Read web pages with the browser tool instead.',
+      "- Pass multi-line scripts to python3 through a heredoc (`python3 <<'PY' … PY`) or write" +
+        ' a .py file into the workspace and run it. A multi-line `python3 -c "…"` loses the' +
+        ' indentation of its continued lines and fails with IndentationError.',
+    )
+  }
   if (baseUrl) {
     lines.push(
       `- A local static web server already serves this workspace at: ${baseUrl}`,

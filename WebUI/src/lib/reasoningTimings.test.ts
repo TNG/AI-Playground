@@ -1,101 +1,54 @@
 import { describe, expect, it } from 'vitest'
-import { reasoningTimingKey, trackReasoningTimings, type ReasoningTiming } from './reasoningTimings'
+import { reasoningElapsedMsFromParts, reasoningTimingOf } from './reasoningTimings'
 
-function reasoning(state: 'streaming' | 'done') {
-  return { type: 'reasoning', state }
+function reasoning(startedAt?: number, finishedAt?: number) {
+  return {
+    type: 'reasoning',
+    providerMetadata: {
+      aipg: {
+        ...(startedAt === undefined ? {} : { reasoningStarted: startedAt }),
+        ...(finishedAt === undefined ? {} : { reasoningFinished: finishedAt }),
+      },
+    },
+  }
 }
 
-describe('trackReasoningTimings', () => {
-  it('times a block from the first streaming update to its last', () => {
-    const timings: Record<string, ReasoningTiming> = {}
-    const message = { id: 'm1', parts: [reasoning('streaming')] }
-
-    trackReasoningTimings(timings, message, { live: true, now: () => 1_000 })
-    trackReasoningTimings(timings, message, { live: true, now: () => 1_500 })
-    trackReasoningTimings(
-      timings,
-      { id: 'm1', parts: [reasoning('done')] },
-      { live: true, now: () => 4_000 },
-    )
-
-    expect(timings[reasoningTimingKey('m1', 0)]).toEqual({ startedAt: 1_000, finishedAt: 4_000 })
-  })
-
-  it('leaves a restored transcript untimed instead of stamping it with "now"', () => {
-    const timings: Record<string, ReasoningTiming> = {}
-
-    trackReasoningTimings(
-      timings,
-      { id: 'restored', parts: [reasoning('done')] },
-      { live: false, now: () => 9_000 },
-    )
-
-    expect(timings).toEqual({})
-  })
-
-  it('does not let one turn inherit the previous turn\u2019s start', () => {
-    // The bug this guards: timings were keyed by position, so the reasoning
-    // block of a fresh turn found the entry of the block that sat at the same
-    // position before it — and reported the age of that one (a new "Hi!"
-    // claiming 15 minutes of thinking).
-    const timings: Record<string, ReasoningTiming> = {}
-    trackReasoningTimings(
-      timings,
-      { id: 'earlier-turn', parts: [reasoning('streaming')] },
-      { live: true, now: () => 1_000 },
-    )
-
-    trackReasoningTimings(
-      timings,
-      { id: 'later-turn', parts: [reasoning('streaming')] },
-      { live: true, now: () => 908_000 },
-    )
-
-    expect(timings[reasoningTimingKey('later-turn', 0)]).toEqual({ startedAt: 908_000 })
-  })
-
-  it('still settles a block that finishes after the turn stopped being live', () => {
-    const timings: Record<string, ReasoningTiming> = {}
-    trackReasoningTimings(
-      timings,
-      { id: 'm1', parts: [reasoning('streaming')] },
-      { live: true, now: () => 1_000 },
-    )
-
-    trackReasoningTimings(
-      timings,
-      { id: 'm1', parts: [reasoning('done')] },
-      { live: false, now: () => 2_500 },
-    )
-
-    expect(timings[reasoningTimingKey('m1', 0)]?.finishedAt).toBe(2_500)
-  })
-
-  it('times each reasoning block of a multi-step turn separately', () => {
-    const timings: Record<string, ReasoningTiming> = {}
-    const step = (state: 'streaming' | 'done') => ({
-      id: 'm1',
-      parts: [reasoning('done'), { type: 'text' }, reasoning(state)],
-    })
-
-    trackReasoningTimings(timings, step('streaming'), { live: true, now: () => 1_000 })
-    trackReasoningTimings(timings, step('done'), { live: true, now: () => 3_000 })
-
-    expect(timings).toEqual({
-      [reasoningTimingKey('m1', 2)]: { startedAt: 1_000, finishedAt: 3_000 },
+describe('reasoningTimingOf', () => {
+  it('reads the stamps a producer put on the part', () => {
+    expect(reasoningTimingOf(reasoning(1_000, 4_200))).toEqual({
+      startedAt: 1_000,
+      finishedAt: 4_200,
     })
   })
 
-  it('reports no duration for a block it never saw streaming', () => {
-    // Joining a turn late (mode switched away and back) beats inventing a start.
-    const timings: Record<string, ReasoningTiming> = {}
+  it('reports a block that is still streaming as started but unfinished', () => {
+    expect(reasoningTimingOf(reasoning(1_000))).toEqual({
+      startedAt: 1_000,
+      finishedAt: undefined,
+    })
+  })
 
-    trackReasoningTimings(
-      timings,
-      { id: 'm1', parts: [reasoning('done')] },
-      { live: true, now: () => 5_000 },
-    )
+  it('invents nothing for a transcript recorded before timings existed', () => {
+    expect(reasoningTimingOf({ type: 'reasoning' })).toEqual({
+      startedAt: undefined,
+      finishedAt: undefined,
+    })
+  })
+})
 
-    expect(timings).toEqual({})
+describe('reasoningElapsedMsFromParts', () => {
+  it('sums per-block durations so tool execution is not counted as thinking', () => {
+    const parts = [
+      reasoning(1_000, 2_000),
+      // A tool ran for a minute between the two blocks.
+      { type: 'dynamic-tool', toolName: 'bash', state: 'output-available' },
+      reasoning(62_000, 62_500),
+    ]
+
+    expect(reasoningElapsedMsFromParts(parts)).toBe(1_500)
+  })
+
+  it('skips blocks that never finished, and non-reasoning parts', () => {
+    expect(reasoningElapsedMsFromParts([reasoning(1_000), { type: 'text' }])).toBe(0)
   })
 })

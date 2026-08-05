@@ -62,6 +62,11 @@ export const useMediaAgentRuns = defineStore('mediaAgentRuns', () => {
     return runs.value.find((item) => item.id === runId) ?? null
   }
 
+  /** Status line of the step in flight — "what is this run doing right now". */
+  function activeStepLabel(runId: string | undefined): string | undefined {
+    return run(runId)?.steps.findLast((step) => step.state === 'running')?.label
+  }
+
   function patchRun(runId: string, patch: (current: MediaRun) => MediaRun): void {
     runs.value = runs.value.map((item) => (item.id === runId ? patch(item) : item))
   }
@@ -192,6 +197,7 @@ export const useMediaAgentRuns = defineStore('mediaAgentRuns', () => {
   return {
     runs,
     run,
+    activeStepLabel,
     beginRun,
     setPhase,
     appendNarration,

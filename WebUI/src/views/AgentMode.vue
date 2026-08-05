@@ -67,7 +67,11 @@
                    bridged toolCallId) and the produced media render inline
                    while the bridged call is still pending. -->
               <div v-else-if="mediaToolName(part)" class="flex flex-col gap-2">
-                <ChatToolDisplay :part="asToolPart(part)" :state="asToolPart(part).state" />
+                <ChatToolDisplay
+                  :part="asToolPart(part)"
+                  :state="asToolPart(part).state"
+                  :input="asToolPart(part).input"
+                />
                 <MediaAgentTimeline
                   :tool-call-id="asToolPart(part).toolCallId"
                   :fallback-steps="mediaToolSteps(part)"
@@ -78,11 +82,23 @@
                   :stepText="mediaToolStepText(part)"
                 />
               </div>
-              <ChatToolDisplay
+              <div
                 v-else-if="isToolUIPart(part as UIMessagePart<UIDataTypes, UITools>)"
-                :part="asToolPart(part)"
-                :state="asToolPart(part).state"
-              />
+                class="flex flex-col gap-1"
+              >
+                <ChatToolDisplay
+                  :part="asToolPart(part)"
+                  :state="asToolPart(part).state"
+                  :input="asToolPart(part).input"
+                />
+                <!-- Live output while the tool is still running (Pi streams
+                     partial results, e.g. a long-running bash command). -->
+                <pre
+                  v-if="toolProgressText(part)"
+                  class="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+                  >{{ toolProgressText(part) }}</pre
+                >
+              </div>
             </template>
           </div>
         </div>
@@ -143,12 +159,37 @@ function asToolPart(part: unknown): ToolUIPart<AipgTools> | DynamicToolUIPart {
   return part as ToolUIPart<AipgTools> | DynamicToolUIPart
 }
 
+/** Tail of a running tool's streamed output kept on screen. */
+const MAX_PROGRESS_LINES = 12
+
+/** Arguments long enough to be worth watching arrive (file bodies, patches). */
+const STREAMED_ARGUMENT_KEYS = ['content', 'new_string', 'command']
+
+// Two kinds of live text can sit under a tool card, both keyed to a call that
+// has not finished: the output Pi streams back over its own IPC channel (merged
+// into the store by tool call id), and — before the tool even runs — the
+// arguments the model is still dictating, which for a file write is the file.
+function toolProgressText(part: unknown): string | undefined {
+  const toolPart = asToolPart(part)
+  if (toolPart.state !== 'input-available' && toolPart.state !== 'input-streaming') return undefined
+  const text = agentMode.toolProgress[toolPart.toolCallId] ?? streamedArgument(toolPart.input)
+  if (!text) return undefined
+  return text.split('\n').slice(-MAX_PROGRESS_LINES).join('\n')
+}
+
+function streamedArgument(input: unknown): string | undefined {
+  if (typeof input !== 'object' || input === null) return undefined
+  const record = input as Record<string, unknown>
+  const key = STREAMED_ARGUMENT_KEYS.find((candidate) => typeof record[candidate] === 'string')
+  return key ? (record[key] as string) : undefined
+}
+
 // Pi's context compaction surfaces as a dynamic-tool part named 'compaction'
-// (harness maps the `compaction` runtime event to a synthetic tool call+result
-// whose output carries the trigger/summary/token deltas). Render it as a notice
-// instead of a generic tool card.
+// (the stream translator turns the compaction events into a synthetic tool
+// call+result whose output carries the trigger/summary/token counts). Render it
+// as a notice instead of a generic tool card.
 type CompactionOutput = {
-  trigger: 'manual' | 'auto'
+  trigger: 'manual' | 'threshold' | 'overflow'
   summary: string
   tokensBefore?: number
   tokensAfter?: number
@@ -238,10 +279,8 @@ function mediaToolItems(part: unknown): MediaItem[] {
     })
 }
 
-// Pi reports `tokensBefore` but not `tokensAfter` (the harness's Pi adapter
-// notes this on its `compaction_end` translation), so show the before-size on
-// its own rather than suppressing the counts entirely while waiting for a
-// number that never arrives.
+// Pi's post-compaction size is an estimate it cannot always produce, so fall
+// back to reporting just how much was summarized.
 function compactionDelta(part: unknown): string {
   const output = asCompaction(part)
   if (!output || output.tokensBefore === undefined) return ''

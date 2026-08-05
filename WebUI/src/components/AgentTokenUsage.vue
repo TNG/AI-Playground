@@ -1,60 +1,77 @@
 <template>
-  <HoverCard :open-delay="0" :close-delay="0">
-    <HoverCardTrigger as-child>
-      <button
-        type="button"
-        class="cursor-help font-medium text-muted-foreground"
-        aria-label="Agent session token usage"
-      >
-        {{ totalFormatted }} tokens
-      </button>
-    </HoverCardTrigger>
-    <HoverCardContent
-      side="top"
-      class="min-w-60 overflow-hidden p-0 bg-card border-border text-foreground"
-    >
-      <div class="w-full p-3 space-y-2 text-xs">
-        <div class="flex items-center justify-between">
-          <h2 class="text-sm font-semibold">Session Tokens</h2>
-          <h2 class="text-sm font-medium">Tokens</h2>
-        </div>
-        <div class="flex items-center justify-between">
-          <span class="text-muted-foreground">Total</span>
-          <span>{{ totalFormatted }}</span>
-        </div>
-        <div class="flex items-center justify-between">
-          <span class="text-muted-foreground">Input</span>
-          <span>{{ inputFormatted }}</span>
-        </div>
-        <div class="flex items-center justify-between">
-          <span class="text-muted-foreground">Output</span>
-          <span>{{ outputFormatted }}</span>
-        </div>
-        <p class="pt-1 text-muted-foreground/80">
-          Totals for the whole agent session, not current context usage — each step re-sends the
-          conversation, so this grows past the model's context window. The agent compacts its
-          context automatically when it fills up.
-        </p>
+  <Context
+    :used-tokens="contextTokens"
+    :used-tokens-unknown="contextUnknown"
+    :max-tokens="contextWindow"
+    :max-context-size="contextWindow"
+    :usage="lastStepUsage"
+    trigger-size="xs"
+  >
+    <template #details>
+      <div class="pt-1 flex items-center justify-between">
+        <span class="text-muted-foreground">Session total</span>
+        <span>{{ format(sessionTokens) }}</span>
       </div>
-    </HoverCardContent>
-  </HoverCard>
+      <div v-if="costFormatted" class="flex items-center justify-between">
+        <span class="text-muted-foreground">Session cost</span>
+        <span>{{ costFormatted }}</span>
+      </div>
+      <p class="pt-1 text-muted-foreground/80">
+        Input and Output are the agent's most recent model call. The session total counts every step
+        of the agentic run, so it grows far past the window — the agent compacts its context
+        automatically when it fills up.
+      </p>
+    </template>
+  </Context>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
+import Context from '@/components/ui/context/Context.vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useTextInference } from '@/assets/js/store/textInference'
 
-// Agent-mode counterpart of the chat Context widget. Deliberately NOT a
-// gauge: what the Pi harness reports is a cumulative session total (see the
-// usage comment in store/agentMode.ts), so there is no meaningful percentage
-// to show against the context window.
+// Agent Mode reuses the chat Context widget so both modes label context the same
+// way, and adds the two figures only an agentic run has: the cumulative session
+// total across all steps and its cost (see store/agentMode.ts).
 const agentMode = useAgentMode()
+const textInference = useTextInference()
 
 const format = (value: number) =>
   new Intl.NumberFormat('en-US', { notation: 'compact' }).format(value)
 
-const totalFormatted = computed(() => format(agentMode.sessionTokens))
-const inputFormatted = computed(() => format(agentMode.sessionUsage?.inputTokens ?? 0))
-const outputFormatted = computed(() => format(agentMode.sessionUsage?.outputTokens ?? 0))
+const contextTokens = computed(() => agentMode.contextUsage?.tokens ?? 0)
+
+// Pi only reports the window once a session exists; until then it is the same
+// window Chat would use, which is also what the next turn will hand to Pi.
+const contextWindow = computed(
+  () => agentMode.contextUsage?.contextWindow || textInference.effectiveContextWindow,
+)
+
+// Pi cannot estimate occupancy between a compaction and the next model response.
+const contextUnknown = computed(
+  () => !!agentMode.contextUsage && agentMode.contextUsage.tokens === null,
+)
+
+const lastStepUsage = computed(() => {
+  const step = agentMode.lastStepUsage
+  if (!step) return undefined
+  return {
+    inputTokens: step.inputTokens,
+    outputTokens: step.outputTokens,
+    inputTokenDetails: { cacheReadTokens: step.cacheReadTokens },
+  }
+})
+
+const sessionTokens = computed(() => agentMode.sessionTokens)
+
+const costFormatted = computed(() => {
+  const cost = agentMode.sessionUsage?.costUsd
+  if (!cost) return ''
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: cost < 1 ? 3 : 2,
+  }).format(cost)
+})
 </script>

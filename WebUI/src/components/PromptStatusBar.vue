@@ -123,10 +123,10 @@
       :dynamic-context="textInference.contextSizeIsDynamic"
       :usage="contextUsage"
     />
-    <!-- Agent mode reports cumulative session totals instead of a context
-         gauge — see AgentTokenUsage / store/agentMode.ts. -->
-    <div v-if="isAgentMode && agentMode.sessionTokens > 0">·</div>
-    <AgentTokenUsage v-if="isAgentMode && agentMode.sessionTokens > 0" />
+    <!-- Same gauge in agent mode, fed by Pi's context report instead of the chat
+         store — see AgentTokenUsage / store/agentMode.ts. -->
+    <div v-if="isAgentMode">·</div>
+    <AgentTokenUsage v-if="isAgentMode" />
     <!-- Font zoom controls (chat only) -->
     <div v-if="isChatMode" class="ml-auto flex flex-none gap-1">
       <button
@@ -164,7 +164,6 @@ import {
 } from '@/assets/js/store/textInference'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
-import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets.ts'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets'
 import { useTheme } from '@/assets/js/store/theme'
@@ -178,7 +177,6 @@ const promptStore = usePromptStore()
 const textInference = useTextInference()
 const backendServices = useBackendServices()
 const openAiCompatibleChat = useOpenAiCompatibleChat()
-const agentMode = useAgentMode()
 const imageGeneration = useImageGenerationPresets()
 const presetsStore = usePresets()
 const theme = useTheme()
@@ -356,10 +354,6 @@ const isAssistantPreset = computed(() => presetIndicator.value?.name === 'Assist
 
 // Context usage data for Context component
 const contextUsedTokens = computed(() => openAiCompatibleChat.usedTokens)
-const contextMaxTokens = computed(() =>
-  textInference.contextSizeIsDynamic
-    ? (textInference.maxContextSizeFromModel ?? 0)
-    : textInference.contextSize,
-)
+const contextMaxTokens = computed(() => textInference.effectiveContextWindow)
 const contextUsage = computed(() => openAiCompatibleChat.contextUsage)
 </script>

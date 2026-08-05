@@ -13,6 +13,11 @@ export interface ContextProps extends HoverCardRootProps {
   maxTokens: number
   maxContextSize?: number
   dynamicContext?: boolean
+  /**
+   * Occupancy is momentarily unknowable (the agent just compacted its context
+   * and has not called the model since) — shown as '—' rather than a false 0%.
+   */
+  usedTokensUnknown?: boolean
   usage?: {
     inputTokens?: number
     outputTokens?: number
@@ -41,6 +46,7 @@ const hoverCardProps = reactiveOmit(
   'maxTokens',
   'maxContextSize',
   'dynamicContext',
+  'usedTokensUnknown',
   'usage',
   'modelId',
   'triggerSize',
@@ -62,7 +68,9 @@ const formatNumber = (value?: number) => {
 
 const maxContextSizeFormatted = computed(() => formatNumber(props.maxContextSize))
 const maxTokensFormatted = computed(() => formatNumber(props.maxTokens))
-const usedTokensFormatted = computed(() => formatNumber(props.usedTokens))
+const usedTokensFormatted = computed(() =>
+  props.usedTokensUnknown ? '—' : formatNumber(props.usedTokens),
+)
 const inputTokensFormatted = computed(() => formatNumber(props.usage?.inputTokens))
 const outputTokensFormatted = computed(() => formatNumber(props.usage?.outputTokens))
 </script>
@@ -121,7 +129,12 @@ const outputTokensFormatted = computed(() => formatNumber(props.usage?.outputTok
             </Tooltip>
           </TooltipProvider>
         </div>
-        <div v-else-if="maxTokensFormatted" class="flex items-center justify-between">
+        <!-- Skipped when it just restates the model's window (cloud providers own
+             their context size; there is nothing configured on our side). -->
+        <div
+          v-else-if="maxTokensFormatted && maxTokens !== maxContextSize"
+          class="flex items-center justify-between"
+        >
           <span class="text-muted-foreground">Configured Context Size</span>
           <span>{{ maxTokensFormatted }}</span>
         </div>
@@ -137,6 +150,10 @@ const outputTokensFormatted = computed(() => formatNumber(props.usage?.outputTok
           <span class="text-muted-foreground">Output</span>
           <span>{{ outputTokensFormatted }}</span>
         </div>
+        <!-- Extra rows for modes that track more than one turn (see
+             AgentTokenUsage.vue), kept below the shared rows so the numbers
+             above mean the same thing everywhere. -->
+        <slot name="details" />
       </div>
     </HoverCardContent>
   </HoverCard>

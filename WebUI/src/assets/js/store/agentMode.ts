@@ -7,16 +7,18 @@ import { useCloudMode, CLOUD_DEFAULT_MODEL } from './cloudMode'
 import { useErrors } from './errors'
 import { extractMessage } from '../errors/appError'
 import { executeAgentTool, getAgentToolSpecs } from '../tools/agentBridge'
+import * as toast from '../toast'
 
-// ── Agent Mode (PoC): renderer side of the Pi harness integration ───────────
+// ── Agent Mode: renderer side of the Pi coding-agent integration ─────────────
 //
-// The HarnessAgent runs in the Electron main process (harnessAgentManager.ts).
-// This store owns the UI state (workspace folder) and a custom ChatTransport
-// whose sendMessages() triggers `agentMode:startTurn` over IPC and
-// reconstructs the UI message chunk stream from `agentMode:streamChunk`
-// pushes — feeding a standard @ai-sdk/vue Chat instance so the existing part
-// renderers work unchanged. Backend/model selection is fully shared with Chat
-// (textInference + cloudMode) — no agent-specific model settings.
+// The Pi session runs in the Electron main process
+// (electron/agentMode/piAgentManager.ts). This store owns the UI state
+// (workspace folder, sandbox consent) and a custom ChatTransport whose
+// sendMessages() triggers `agentMode:startTurn` over IPC and reconstructs the UI
+// message chunk stream from `agentMode:streamChunk` pushes — feeding a standard
+// @ai-sdk/vue Chat instance so the existing part renderers work unchanged.
+// Backend/model selection is fully shared with Chat (textInference + cloudMode)
+// — no agent-specific model settings.
 
 type ActiveTurn = {
   turnId: string
@@ -44,10 +46,28 @@ export const useAgentMode = defineStore(
     const workspaceDir = ref<string>('')
     // MCP servers (from mcp.json) whose tools are attached to the agent.
     // Web debugging is provided by the built-in Electron `browser` tool +
-    // `browser-debugging` skill (see harnessAgentManager), which reuse the
-    // bundled Chromium at ~1 tool schema instead of the 29-schema Chrome
-    // DevTools MCP. MCP servers are opt-in (attach extras via Agent Settings).
+    // `browser-debugging` skill (see piCustomTools), which reuse the bundled
+    // Chromium at ~1 tool schema instead of the 29-schema Chrome DevTools MCP.
+    // MCP servers are opt-in (attach extras via Agent Settings).
     const mcpServerIds = ref<string[]>([])
+
+    // Workspace folders the user explicitly allowed to run with the real host
+    // shell instead of the emulated sandbox (node/npm/python/curl and live
+    // network). Consent is per folder, so pointing the agent at a different
+    // folder silently drops back to the sandboxed default until it is granted
+    // again for that folder.
+    const unsandboxedWorkspaces = ref<string[]>([])
+
+    const unsandboxed = computed(
+      () => !!workspaceDir.value && unsandboxedWorkspaces.value.includes(workspaceDir.value),
+    )
+
+    function setUnsandboxed(enabled: boolean): void {
+      const folder = workspaceDir.value
+      if (!folder) return
+      const others = unsandboxedWorkspaces.value.filter((entry) => entry !== folder)
+      unsandboxedWorkspaces.value = enabled ? [...others, folder] : others
+    }
 
     // Multi-session persistence: each conversation is a session record keyed
     // by a minted session id (also the Pi sessionId on the main side, so both
@@ -58,6 +78,8 @@ export const useAgentMode = defineStore(
     const activeSessionId = ref<string>('')
 
     const processing = ref(false)
+    /** Latest streamed output per running tool call, keyed by toolCallId. */
+    const toolProgress = ref<Record<string, string>>({})
     let turnCounter = 0
     let activeTurn: ActiveTurn | null = null
 
@@ -70,6 +92,13 @@ export const useAgentMode = defineStore(
       } catch {
         // Stream already closed (e.g. user aborted) — drop the chunk.
       }
+    })
+    // Live tool output (Pi's tool_execution_update). Not part of the UI message
+    // protocol, so it rides its own channel and is merged by tool call id — the
+    // tool part renderers read it while the call is still running.
+    window.electronAPI.agentMode.onToolProgress(({ turnId, toolCallId, text }) => {
+      if (!activeTurn || activeTurn.turnId !== turnId) return
+      toolProgress.value = { ...toolProgress.value, [toolCallId]: text }
     })
     window.electronAPI.agentMode.onTurnDone(({ turnId }) => {
       if (!activeTurn || activeTurn.turnId !== turnId || activeTurn.closed) return
@@ -135,12 +164,15 @@ export const useAgentMode = defineStore(
             upstreamBaseUrl,
             providerId: cloudMode.selectedProviderId,
             authStyle: cloudMode.activeProviderAuthStyle,
-            // Cloud model metadata rarely includes a context window; the main
-            // process falls back to a generous default when undefined.
-            contextWindow: textInference.maxContextSizeFromModel,
+            // From the provider's /v1/models `context_length` when it reports
+            // one; the main process falls back to a generous default otherwise.
+            contextWindow: textInference.maxContextSizeFromModel
+              ? textInference.effectiveContextWindow
+              : undefined,
           },
           toolSpecs,
           mcpServerIds: attachedMcpServerIds,
+          unsandboxed: unsandboxed.value,
         }
       }
       const servedModelId = textInference.activeModel?.split('/').join('---') ?? ''
@@ -161,10 +193,14 @@ export const useAgentMode = defineStore(
           // requests (401) without headers only the chat store attaches. Pi
           // dials this endpoint itself from the main process.
           baseUrl: `${baseUrl}/v1`,
-          contextWindow: textInference.contextSize,
+          // The window the turn actually gets, matching the chat gauge's
+          // denominator: with a dynamically sized backend (OpenVINO on GPU) the
+          // configured `contextSize` is not what the model ends up with.
+          contextWindow: textInference.effectiveContextWindow,
         },
         toolSpecs,
         mcpServerIds: attachedMcpServerIds,
+        unsandboxed: unsandboxed.value,
       }
     }
 
@@ -232,30 +268,48 @@ export const useAgentMode = defineStore(
 
     const messages = computed(() => chat.messages)
 
-    // Token usage the main process attaches to the assistant message metadata
-    // (see harnessAgentManager toUIMessageStream.messageMetadata).
+    // Usage the main process attaches to the assistant message metadata, both
+    // during the turn (`message-metadata` chunks, so the gauge tracks a long
+    // agentic turn) and at its end (see piAgentManager's turnSummary). Two
+    // different things arrive together:
     //
-    // These are CUMULATIVE SESSION TOTALS, not current context occupancy: the
-    // Pi harness derives its usage from `getSessionStats().tokens`, which Pi
-    // documents as "assistant usage totals for the current session state" —
-    // every agentic step re-sends the conversation, so the input total climbs
-    // far past the model's context window. Pi's real context estimate lives in
-    // a sibling `contextUsage` field the harness does not forward and its
-    // session API does not expose, so the UI reports these as session totals
-    // rather than pretending they gauge the window. The only exact context
-    // figures we receive are tokensBefore/tokensAfter on compaction parts.
-    type UsageMetadata = { usage?: { inputTokens?: number; outputTokens?: number } }
+    //  - `usage`: CUMULATIVE SESSION TOTALS from Pi's getSessionStats(). Every
+    //    agentic step re-sends the conversation, so the input total climbs far
+    //    past the model's context window — it is a cost figure, not occupancy.
+    //  - `contextUsage`: Pi's estimate of how full the context window actually
+    //    is right now, which is what the gauge in the UI shows.
+    //  - `lastStep`: usage of the newest model call — the same figure Chat mode's
+    //    gauge reports, so Input/Output mean one thing across both modes.
+    type TurnMetadata = {
+      usage?: {
+        inputTokens?: number
+        outputTokens?: number
+        cacheReadTokens?: number
+        cacheWriteTokens?: number
+        costUsd?: number
+      }
+      contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null }
+      lastStep?: { inputTokens: number; outputTokens: number; cacheReadTokens: number }
+    }
 
-    const sessionUsage = computed(() => {
-      const lastWithUsage = [...messages.value]
+    function latestMetadata<K extends keyof TurnMetadata>(key: K): TurnMetadata[K] {
+      const latest = [...messages.value]
         .reverse()
-        .find((m) => (m.metadata as UsageMetadata | undefined)?.usage)
-      return (lastWithUsage?.metadata as UsageMetadata | undefined)?.usage
-    })
+        .find((m) => (m.metadata as TurnMetadata | undefined)?.[key])
+      return (latest?.metadata as TurnMetadata | undefined)?.[key]
+    }
+
+    const sessionUsage = computed(() => latestMetadata('usage'))
 
     const sessionTokens = computed(
       () => (sessionUsage.value?.inputTokens ?? 0) + (sessionUsage.value?.outputTokens ?? 0),
     )
+
+    /** How full the model's context window is, straight from Pi. */
+    const contextUsage = computed(() => latestMetadata('contextUsage'))
+
+    /** Usage of the most recent model call within the session. */
+    const lastStepUsage = computed(() => latestMetadata('lastStep'))
 
     function mintSessionId(): string {
       return `aipg-agent-${crypto.randomUUID()}`
@@ -327,8 +381,8 @@ export const useAgentMode = defineStore(
       restoreActiveSession()
     }
 
-    // Drop a session's transcript record AND its main-side state (persisted
-    // resume pointer + the Pi session file in the workspace).
+    // Drop a session's transcript record AND its main-side state (the stored
+    // session pointer plus Pi's session file).
     async function deleteSession(id: string): Promise<void> {
       const next = { ...sessions.value }
       delete next[id]
@@ -387,13 +441,14 @@ export const useAgentMode = defineStore(
       // need a much larger window than the 8k chat default).
       await textInference.ensureReadyForInference()
       ensureActiveSessionId()
+      toolProgress.value = {}
       processing.value = true
       try {
         await chat.sendMessage({ text: prompt })
       } finally {
         processing.value = false
-        // Persist the transcript after every turn (mirrors the main-process
-        // detach+persist of Pi's session), so a restart restores both sides.
+        // Persist the transcript after every turn (Pi persists its own session
+        // file on every message), so a restart restores both sides.
         snapshotActiveSession()
       }
     }
@@ -407,9 +462,10 @@ export const useAgentMode = defineStore(
 
     const compacting = ref(false)
 
-    // Manually trigger Pi's built-in context compaction. The detailed result
-    // (trigger/summary/token deltas) surfaces on the next turn as a
-    // 'compaction' dynamic-tool part; here we just report success/failure.
+    // Manually trigger Pi's built-in context compaction. Compaction between
+    // turns has no message stream to render a 'compaction' part into (only
+    // auto-compaction, which happens mid-turn, does), so the token counts come
+    // back in the result and are reported as a toast.
     async function compact(): Promise<void> {
       if (compacting.value || processing.value) return
       compacting.value = true
@@ -422,7 +478,19 @@ export const useAgentMode = defineStore(
             userMessage: result.error ?? 'Context compaction failed.',
             surface: 'toast',
           })
+          return
         }
+        if (result.noop) {
+          toast.success('Context is still small — nothing to compact yet.')
+          return
+        }
+        const { tokensBefore, tokensAfter } = result
+        const tokens = new Intl.NumberFormat('en-US', { notation: 'compact' })
+        toast.success(
+          tokensBefore !== undefined && tokensAfter !== undefined
+            ? `Context compacted: ${tokens.format(tokensBefore)} → ${tokens.format(tokensAfter)} tokens.`
+            : 'Context compacted.',
+        )
       } finally {
         compacting.value = false
       }
@@ -431,11 +499,17 @@ export const useAgentMode = defineStore(
     return {
       workspaceDir,
       mcpServerIds,
+      unsandboxedWorkspaces,
+      unsandboxed,
+      setUnsandboxed,
       processing,
       compacting,
       messages,
+      toolProgress,
       sessionUsage,
       sessionTokens,
+      contextUsage,
+      lastStepUsage,
       chat,
       sessions,
       activeSessionId,
@@ -451,7 +525,13 @@ export const useAgentMode = defineStore(
   },
   {
     persist: {
-      pick: ['workspaceDir', 'mcpServerIds', 'sessions', 'activeSessionId'],
+      pick: [
+        'workspaceDir',
+        'mcpServerIds',
+        'unsandboxedWorkspaces',
+        'sessions',
+        'activeSessionId',
+      ],
       afterHydrate: (ctx) => {
         // Restore the active session's visible transcript so the chat isn't
         // empty on launch (Pi restores its own context separately, keyed by

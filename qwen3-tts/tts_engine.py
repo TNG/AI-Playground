@@ -122,6 +122,26 @@ def model_status() -> dict[str, object]:
         }
 
 
+def model_id_for_mode(mode: SynthesisMode) -> str:
+    return voice_design_model_id() if mode == "voice_design" else default_model_id()
+
+
+def is_model_downloaded(mode: SynthesisMode = "custom_voice") -> bool:
+    """Whether the weights for `mode` are present locally.
+
+    Electron points `QWEN3_TTS_MODEL` / `QWEN3_TTS_VOICE_DESIGN_MODEL` at the
+    downloaded directory, so a local dir means "installed". A bare HF repo id
+    (the default when nothing is downloaded) is not — and with HF offline we must
+    never try to fetch it.
+    """
+    return os.path.isdir(model_id_for_mode(mode))
+
+
+def ensure_loaded(mode: SynthesisMode) -> None:
+    """Load (and cache) the model for `mode`; a no-op once resident."""
+    _load_model(model_id_for_mode(mode))
+
+
 def _xpu_usable() -> bool:
     try:
         import torch

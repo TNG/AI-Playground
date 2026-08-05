@@ -1,9 +1,11 @@
 import { ChildProcess, execFile, spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
+import fs from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { BrowserWindow } from 'electron'
 import { LocalSettings } from '../main.ts'
+import { getSharedModelDir } from '../pathsManager.ts'
 import { GitService, LongLivedPythonApiService, createEnhancedErrorDetails } from './service.ts'
 import {
   aipgBaseDir,
@@ -12,6 +14,7 @@ import {
   type UvExtra,
 } from './uvBasedBackends/uv.ts'
 import { levelZeroDeviceSelectorEnv, withSelectedDevice } from './deviceDetection.ts'
+import { QWEN3_TTS_MODEL_REPOS } from '@/assets/js/qwen3TtsConstants'
 
 const execFileAsync = promisify(execFile)
 
@@ -185,6 +188,15 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
         debugMessage: 'dependencies installed',
       }
 
+      // The env now exists on disk, but `isSetUp` was resolved to false when the
+      // constructor ran (before this install). Flip it and re-probe the
+      // accelerators now so the GPU shows up in the device picker immediately —
+      // without this, detectDevices() skips the real torch probe (it is gated on
+      // isSetUp) and the box stays CPU-only until the next app restart.
+      this.isSetUp = true
+      this.devicesDetected = false
+      await this.detectDevices()
+
       this.setStatus('notYetStarted')
       currentStep = 'end'
       yield {
@@ -207,6 +219,33 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
         errorDetails,
       }
     }
+  }
+
+  /**
+   * The local directory a downloaded Qwen3-TTS repo lives in. The standard
+   * model-download popup writes HF repos into the shared TTS model dir under the
+   * `owner---repo` name (see service/utils.repo_local_root_dir_name), so we mirror
+   * that naming here. `from_pretrained` loads a local directory directly, so we
+   * point the engine at these paths instead of letting it hit the network.
+   */
+  private localModelDir(repoId: string): string | undefined {
+    const ttsDir = getSharedModelDir('TTS')
+    if (!ttsDir) return undefined
+    const dir = path.join(ttsDir, repoId.replace('/', '---'))
+    return fs.existsSync(dir) ? dir : undefined
+  }
+
+  /**
+   * Env pointing the engine at locally-downloaded weights, plus HF offline so the
+   * sidecar never silently downloads a model — installs go through the popup only.
+   */
+  private get modelPathEnv(): Record<string, string> {
+    const env: Record<string, string> = { HF_HUB_OFFLINE: '1', TRANSFORMERS_OFFLINE: '1' }
+    const custom = this.localModelDir(QWEN3_TTS_MODEL_REPOS.customVoice)
+    const voiceDesign = this.localModelDir(QWEN3_TTS_MODEL_REPOS.voiceDesign)
+    if (custom) env.QWEN3_TTS_MODEL = custom
+    if (voiceDesign) env.QWEN3_TTS_VOICE_DESIGN_MODEL = voiceDesign
+    return env
   }
 
   async spawnAPIProcess(): Promise<{
@@ -234,6 +273,7 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
       SYCL_ENABLE_DEFAULT_CONTEXTS: '1',
       SYCL_CACHE_PERSISTENT: '1',
       ...levelZeroDeviceSelectorEnv('*'),
+      ...this.modelPathEnv,
       ...deviceEnv,
     }
 

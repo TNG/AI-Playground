@@ -19,6 +19,8 @@ from tts_engine import (
     CUSTOM_VOICE_SPEAKERS,
     LANGUAGES,
     default_model_id,
+    ensure_loaded,
+    is_model_downloaded,
     model_status,
     synthesize_wav,
     voice_design_model_id,
@@ -74,6 +76,26 @@ def get_config():
     )
 
 
+@app.post("/api/load")
+def load_model():
+    """Load the model for a mode without generating audio.
+
+    Lets the UI show a distinct "loading model" phase before the (separate)
+    "generating audio" phase, since the load otherwise happens invisibly inside
+    the first /api/synthesize call. Fast no-op when the model is already resident.
+    """
+    body = request.get_json(silent=True) or {}
+    mode = body.get("mode", "custom_voice")
+    if mode not in ("custom_voice", "voice_design"):
+        return jsonify({"code": -1, "message": f"unsupported mode: {mode}"}), 400
+    try:
+        ensure_loaded(mode)
+        return jsonify({"code": 0, "data": model_status()})
+    except Exception as exc:
+        logger.exception("model load failed")
+        return jsonify({"code": -1, "message": str(exc)}), 500
+
+
 @app.post("/api/synthesize")
 def synthesize():
     body = request.get_json(silent=True) or {}
@@ -119,6 +141,12 @@ def _warmup_model():
         return
     _warmup_started = True
     if os.environ.get("QWEN3_TTS_WARMUP", "1") != "1":
+        return
+    # Only warm up when the weights are already downloaded locally. Otherwise a
+    # warmup would try to fetch the model — exactly the silent auto-download we
+    # now replace with the explicit install popup (and HF is offline anyway).
+    if not is_model_downloaded("custom_voice"):
+        logger.info("Qwen3-TTS warmup skipped: model not downloaded yet")
         return
 
     def _run():

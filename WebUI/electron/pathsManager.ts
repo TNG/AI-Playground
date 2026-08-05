@@ -17,6 +17,17 @@ function modelPathResolveBaseDir(): string {
   return app.isPackaged ? path.dirname(packagedResourcesRoot()) : process.cwd()
 }
 
+// The single app-wide PathsManager, exposed so background services (e.g. the
+// qwen3-tts sidecar) can resolve model directories without threading the
+// instance through their constructors. Set when the manager is created in main.ts.
+let sharedPathsManager: PathsManager | null = null
+
+/** Absolute directory configured for a model type (e.g. 'TTS'), or undefined. */
+export function getSharedModelDir(type: string): string | undefined {
+  const paths = sharedPathsManager?.modelPaths as Record<string, string> | undefined
+  return paths?.[type]
+}
+
 export class PathsManager {
   modelPaths: ModelPaths = {
     ggufLLM: '',
@@ -28,6 +39,8 @@ export class PathsManager {
   constructor(configPath: string) {
     this.configPath = configPath
     this.loadConfig()
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- expose the single app-wide instance
+    sharedPathsManager = this
   }
   loadConfig() {
     this.initModelPaths(JSON.parse(fs.readFileSync(this.configPath).toString()) as ModelPaths)

@@ -30,8 +30,9 @@ export const synthesizeTextToSpeech = tool({
   description:
     'Text-to-speech (TTS): speak `text` aloud and save a playable WAV file. Call this whenever ' +
     'the user wants text read/said out loud, narrated, voiced, or turned into audio — do not just ' +
-    'reply with the text. Voice: mode "custom_voice" + `speaker` (Vivian, Ryan, Serena, …), or ' +
-    'mode "voice_design" + a natural-language `instruct` (timbre, age, accent, emotion); `instruct` ' +
+    "reply with the text. Voice: a saved voice by name via `voiceName` (the user's named voices, " +
+    'e.g. "read this in Tammy\'s voice"), or mode "custom_voice" + `speaker` (Vivian, Ryan, Serena, …), ' +
+    'or mode "voice_design" + a natural-language `instruct` (timbre, age, accent, emotion); `instruct` ' +
     'also sets tone. `language`: a known value or Auto. `rememberAsDefault: true` saves the voice/language default.',
   inputSchema: z.object({
     text: z.string().min(1).describe('The exact words to speak aloud (the full script or passage)'),
@@ -43,6 +44,13 @@ export const synthesizeTextToSpeech = tool({
       .enum(speakerIds)
       .optional()
       .describe('Preset speaker for custom_voice mode (Ryan, Vivian, Aiden, …)'),
+    voiceName: z
+      .string()
+      .optional()
+      .describe(
+        "Name of one of the user's saved voices (case-insensitive). Overrides speaker/mode/instruct " +
+          'with that saved voice description. Use when the user refers to a voice by name.',
+      ),
     instruct: z
       .string()
       .optional()
@@ -73,54 +81,70 @@ export const synthesizeTextToSpeech = tool({
       conversationKey,
     }
 
-    return activities.track(
-      { category: 'tools', label: 'Synthesizing speech…', scope },
-      async () => {
-        try {
-          if (args.rememberAsDefault) {
-            await qwen3.applyUserVoicePreference({
-              speaker: args.speaker as Qwen3TtsSpeakerId | undefined,
-              language: args.language as Qwen3TtsLanguage | undefined,
-              mode: args.mode,
-            })
-          }
+    // Two visible phases: loading the model (slow on the first call / may prompt the
+    // install popup) then generating the audio file. Uses begin/update/end so the
+    // status line changes mid-flight; the activity is always ended (even on throw).
+    // A saved voice always resolves to voice_design; otherwise use the given mode.
+    const loadMode = args.voiceName ? 'voice_design' : args.mode
+    // Skip the "loading" phase when the model is already resident, so the status is
+    // accurate (only shows "Loading voice model…" when it genuinely has to load).
+    const alreadyLoaded = await qwen3.isModelLoaded(loadMode)
+    const activityId = activities.begin({
+      category: 'tools',
+      label: alreadyLoaded ? 'Generating audio file…' : 'Loading voice model…',
+      scope,
+    })
+    try {
+      if (args.rememberAsDefault) {
+        await qwen3.applyUserVoicePreference({
+          speaker: args.speaker as Qwen3TtsSpeakerId | undefined,
+          language: args.language as Qwen3TtsLanguage | undefined,
+          mode: args.mode,
+        })
+      }
 
-          const result = await qwen3.synthesize({
-            text: args.text,
-            language: args.language as Qwen3TtsLanguage | undefined,
-            speaker: args.speaker as Qwen3TtsSpeakerId | undefined,
-            instruct: args.instruct,
-            mode: args.mode,
-          })
+      if (!alreadyLoaded) {
+        await qwen3.ensureModelLoaded(loadMode)
+        activities.update(activityId, { label: 'Generating audio file…' })
+      }
 
-          const label = conversationLabelForTtsFile({
-            conversationKey,
-            messages: conversations.conversationList[conversationKey],
-            threadMeta: conversations.getThreadMeta(conversationKey),
-          })
-          const fileName = buildTtsAudioFileName({
-            conversationKey,
-            conversationLabel: label,
-            userSlug: args.outputFileName,
-          })
-          const savedFilePath = await qwen3.saveWavToDisk(result.audioBase64, fileName)
+      const result = await qwen3.synthesize({
+        text: args.text,
+        language: args.language as Qwen3TtsLanguage | undefined,
+        speaker: args.speaker as Qwen3TtsSpeakerId | undefined,
+        instruct: args.instruct,
+        mode: args.mode,
+        voiceName: args.voiceName,
+      })
 
-          return {
-            ok: true,
-            message:
-              `Synthesized ${result.mode} speech (${result.language}, ${result.speaker}). ` +
-              `Saved to ${savedFilePath}. The audio player is shown in the chat.`,
-            savedFilePath,
-            speaker: result.speaker,
-            language: result.language,
-            mode: result.mode,
-          }
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          return { ok: false, message }
-        }
-      },
-    )
+      const label = conversationLabelForTtsFile({
+        conversationKey,
+        messages: conversations.conversationList[conversationKey],
+        threadMeta: conversations.getThreadMeta(conversationKey),
+      })
+      const fileName = buildTtsAudioFileName({
+        conversationKey,
+        conversationLabel: label,
+        userSlug: args.outputFileName,
+      })
+      const savedFilePath = await qwen3.saveWavToDisk(result.audioBase64, fileName)
+
+      activities.end(activityId, 'done')
+      return {
+        ok: true,
+        message:
+          `Synthesized ${result.mode} speech (${result.language}, ${result.speaker}). ` +
+          `Saved to ${savedFilePath}. The audio player is shown in the chat.`,
+        savedFilePath,
+        speaker: result.speaker,
+        language: result.language,
+        mode: result.mode,
+      }
+    } catch (error) {
+      activities.end(activityId, 'failed')
+      const message = error instanceof Error ? error.message : String(error)
+      return { ok: false, message }
+    }
   },
   toModelOutput: ({ output }) => {
     if (!output.ok) {

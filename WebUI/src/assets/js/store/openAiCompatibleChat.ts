@@ -1308,6 +1308,36 @@ export const useOpenAiCompatibleChat = defineStore(
       opts: { clearInputs: boolean; sideChannel: boolean },
     ): Promise<void> {
       const qwen3 = useQwen3TextToSpeech()
+      const chat = getOrCreateChat(targetKey)
+
+      // Show the user's message right away so the turn isn't blank while we
+      // synthesize — this path has no streaming LLM to fill the bubble, and the
+      // audio can take a while to generate.
+      const userMessage = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        parts: [{ type: 'text', text: question }],
+        metadata: { timestamp: Date.now() },
+      } as unknown as AipgUiMessage
+      chat.messages.push(userMessage)
+      conversations.updateConversation(chat.messages, targetKey)
+      if (opts.clearInputs) {
+        messageInput.value = ''
+        fileInput.value = []
+      }
+
+      // Surface progress while synthesizing: "Loading voice model…" (first use /
+      // backend start) then "Generating audio file…". The standalone
+      // ChatActivityIndicator renders this because the last message is the user's
+      // (no assistant bubble exists yet).
+      const ttsScope = { kind: 'chat' as const, conversationKey: targetKey }
+      const alreadyLoaded = await qwen3.isModelLoaded()
+      const ttsActivityId = activities.begin({
+        category: 'tools',
+        label: alreadyLoaded ? 'Generating audio file…' : 'Loading voice model…',
+        scope: ttsScope,
+      })
+
       let output: {
         ok: boolean
         message: string
@@ -1317,6 +1347,10 @@ export const useOpenAiCompatibleChat = defineStore(
         mode: string
       }
       try {
+        if (!alreadyLoaded) {
+          await qwen3.ensureModelLoaded()
+          activities.update(ttsActivityId, { label: 'Generating audio file…' })
+        }
         const result = await qwen3.synthesize({ text: question })
         const label = conversationLabelForTtsFile({
           conversationKey: targetKey,
@@ -1337,8 +1371,6 @@ export const useOpenAiCompatibleChat = defineStore(
           mode: result.mode,
         }
       } catch (error) {
-        // Keep the prompt for a retry (ensureBackendRunning throws a friendly
-        // "not installed" message when the backend is missing).
         errors.report(error, {
           category: 'inference',
           code: 'inference/tts-failed',
@@ -1347,18 +1379,13 @@ export const useOpenAiCompatibleChat = defineStore(
           context: { conversationKey: targetKey },
         })
         return
+      } finally {
+        activities.end(ttsActivityId)
       }
 
-      const chat = getOrCreateChat(targetKey)
       // Cast to the message type: the AI SDK's inferred tool-UI-part shape is wider
       // than what we construct by hand, but this part mirrors exactly what the tool
       // produces (see synthesizeTextToSpeech + toolMessageSanitize fixtures).
-      const userMessage = {
-        id: crypto.randomUUID(),
-        role: 'user',
-        parts: [{ type: 'text', text: question }],
-        metadata: { timestamp: Date.now() },
-      } as unknown as AipgUiMessage
       const assistantMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
@@ -1373,13 +1400,8 @@ export const useOpenAiCompatibleChat = defineStore(
         ],
         metadata: { model: 'Qwen TTS', timestamp: Date.now() },
       } as unknown as AipgUiMessage
-      chat.messages.push(userMessage, assistantMessage)
+      chat.messages.push(assistantMessage)
       conversations.updateConversation(chat.messages, targetKey)
-
-      if (opts.clearInputs) {
-        messageInput.value = ''
-        fileInput.value = []
-      }
     }
 
     async function generate(question: string, options?: GenerateOptions) {

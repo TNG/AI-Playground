@@ -165,6 +165,24 @@ describe('sandboxed access', () => {
     expect(resultText(result)).toContain('42')
   })
 
+  // The emulated shell loses the indentation of continued lines inside a quoted
+  // argument, so a multi-line `python3 -c` dies with an IndentationError while
+  // the same script works from a heredoc. Models walk into this and then flail,
+  // so the workspace instructions warn about it — when this test starts failing,
+  // just-bash has fixed it and that warning can go.
+  it('needs a heredoc for a multi-line python script', async () => {
+    const script = ['for value in [1, 2]:', '    print(value * 2)'].join('\n')
+
+    await expect(
+      invoke(toolOf(access, 'bash'), { command: `python3 -c "${script}"` }),
+    ).rejects.toThrow(/IndentationError/)
+
+    const heredoc = await invoke(toolOf(access, 'bash'), {
+      command: `python3 <<'PY'\n${script}\nPY`,
+    })
+    expect(resultText(heredoc)).toContain('4')
+  })
+
   it('lists workspace entries through the virtual filesystem', async () => {
     fs.writeFileSync(path.join(workspace, 'a.txt'), 'a')
     fs.mkdirSync(path.join(workspace, 'src'))

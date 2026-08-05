@@ -240,6 +240,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('agentMode:compact', customInstructions),
     onStreamChunk: (callback: (data: { turnId: string; chunk: unknown }) => void) =>
       ipcRenderer.on('agentMode:streamChunk', (_event, data) => callback(data)),
+    onToolProgress: (
+      callback: (data: {
+        turnId: string
+        toolCallId: string
+        toolName: string
+        text: string
+      }) => void,
+    ) => ipcRenderer.on('agentMode:toolProgress', (_event, data) => callback(data)),
     onTurnDone: (callback: (data: { turnId: string }) => void) =>
       ipcRenderer.on('agentMode:turnDone', (_event, data) => callback(data)),
     onExecuteTool: (

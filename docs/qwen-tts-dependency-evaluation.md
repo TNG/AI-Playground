@@ -63,8 +63,16 @@ the GitHub Advisory Database. 18 matches, and they cluster sharply:
 |---|---|---|---|---|
 | `pillow` | 12.2.0 | **13** (10 high, 3 medium) | `gradio` → `qwen-tts` | Yes — `pillow` 12.3.0 exists and `gradio` allows `pillow<13.0` |
 | `transformers` | 4.57.3 | **3** (2 high, 1 medium) | `qwen-tts` (`==4.57.3`) | **No** — the pin blocks it |
-| `setuptools` | 81.0.0 | 1 (medium) | build-time | Yes — 83.0.0 |
+| `setuptools` | 81.0.0 | 1 (medium) | `torch` | No — see below |
 | `torch` | 2.12.1 | 1 (low) | ours | No — we ceiling `torch<2.13` deliberately |
+
+Re-running the same audit after the vendoring ([§5.4](#54-scoping-the-vendor-and-port-option))
+gives **5 matches over 95 packages**: the 13 `pillow` ones are gone with `gradio`, and what
+remains is the three `transformers` advisories plus two deliberate residuals. `torch` is held
+below 2.13 on purpose. `setuptools` is an unbounded requirement of `torch` that resolves to
+81.0.0 and does not move on `uv lock --upgrade-package setuptools`; the advisory is an sdist
+`MANIFEST.in` bypass on macOS filesystems, which is unreachable for a service that never builds
+an sdist, so it is not worth adding a floor on a transitive build tool to silence.
 
 Two things follow:
 

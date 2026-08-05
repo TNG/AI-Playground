@@ -15,7 +15,7 @@ import { createAppError, extractMessage } from '../errors/appError'
  *  - `bearer`:    `Authorization: Bearer <key>` — OpenAI and virtually every
  *                 OpenAI-compatible endpoint (OpenRouter, Groq, Together,
  *                 Mistral, DeepSeek, xAI, and Anthropic's / Google's compat
- *                 endpoints, plus local vLLM / Ollama / LM Studio).
+ *                 endpoints, plus local vLLM).
  *  - `x-api-key`: `x-api-key: <key>` — Anthropic's native surface.
  *  - `api-key`:   `api-key: <key>` — Azure OpenAI.
  */
@@ -103,18 +103,6 @@ export const CLOUD_PROVIDER_PRESETS: CloudProviderPreset[] = [
     baseUrl: 'https://api.anthropic.com/v1',
     authStyle: 'bearer',
     apiKeyUrl: 'https://console.anthropic.com/settings/keys',
-  },
-  {
-    key: 'ollama',
-    name: 'Ollama (local)',
-    baseUrl: 'http://localhost:11434/v1',
-    authStyle: 'bearer',
-  },
-  {
-    key: 'lmstudio',
-    name: 'LM Studio (local)',
-    baseUrl: 'http://localhost:1234/v1',
-    authStyle: 'bearer',
   },
 ]
 

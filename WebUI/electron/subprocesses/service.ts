@@ -15,7 +15,6 @@ import { promisify } from 'util'
 import { Arch, getArchPriority, getDeviceArch } from './deviceArch.ts'
 import { z } from 'zod'
 import { LocalSettings } from '../main.ts'
-import { terminateProcessTree } from './processLifecycle.ts'
 
 const exec = promisify(childProcess.exec)
 

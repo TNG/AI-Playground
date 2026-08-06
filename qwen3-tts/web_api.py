@@ -1,7 +1,7 @@
 """
 Qwen3-TTS sidecar for AI Playground — synthesizes speech for the agent tool.
 
-Run: python web_api.py --port 69001
+Run: python web_api.py --port 57001
 """
 
 from __future__ import annotations
@@ -169,7 +169,10 @@ def _warmup_model():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=69001)
+    # Default only matters when running the sidecar by hand; the Electron service always
+    # passes --port from the 57000-57999 range it allocates (apiServiceRegistry.ts). The
+    # previous default of 69001 is above the TCP maximum and silently wrapped to 3465.
+    parser.add_argument("--port", type=int, default=57001)
     args = parser.parse_args()
     _warmup_model()
     app.run(host="127.0.0.1", port=args.port, threaded=True)

@@ -19,6 +19,9 @@ extend-exclude = [
     "OpenVINO",
     "build",
     "**/.venv",
+    # Qwen3-TTS modelling code copied from the qwen-tts wheel; kept diffable against
+    # upstream, so it must not be reformatted. See qwen3-tts/vendor/README.md.
+    "qwen3-tts/vendor",
 ]
 
 [lint]

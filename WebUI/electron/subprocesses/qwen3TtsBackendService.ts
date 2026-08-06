@@ -175,7 +175,7 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
         serviceName: this.name,
         step: currentStep,
         status: 'executing',
-        debugMessage: 'installing dependencies (qwen-tts may take several minutes)',
+        debugMessage: 'installing dependencies (torch may take several minutes)',
       }
 
       this.appLogger.info(`installing qwen3-tts with torch extra '${this.torchExtra}'`, this.name)

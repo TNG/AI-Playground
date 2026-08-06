@@ -199,7 +199,7 @@ def _load_model(model_id: str) -> Any:
         try:
             # qwen_tts prints a flash-attn install banner on import; we use SDPA instead.
             with contextlib.redirect_stdout(io.StringIO()):
-                from qwen_tts import Qwen3TTSModel
+                from vendor.qwen_tts import Qwen3TTSModel
 
             model = Qwen3TTSModel.from_pretrained(model_id, **kwargs)
             # Cache under its id; any already-loaded model for the other mode

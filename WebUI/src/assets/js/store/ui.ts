@@ -5,6 +5,10 @@ export const useUIStore = defineStore('ui', () => {
   // History modal state
   const showHistory = ref(false)
 
+  // Model management overlay. Deliberately not tied to `promptArea.currentMode`:
+  // closing it should return the user to exactly the view they were in.
+  const showModelManager = ref(false)
+
   function openHistory() {
     showHistory.value = true
   }
@@ -13,9 +17,20 @@ export const useUIStore = defineStore('ui', () => {
     showHistory.value = false
   }
 
+  function openModelManager() {
+    showModelManager.value = true
+  }
+
+  function closeModelManager() {
+    showModelManager.value = false
+  }
+
   return {
     showHistory,
     openHistory,
     closeHistory,
+    showModelManager,
+    openModelManager,
+    closeModelManager,
   }
 })

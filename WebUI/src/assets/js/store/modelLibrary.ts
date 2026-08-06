@@ -1,0 +1,326 @@
+import { acceptHMRUpdate, defineStore } from 'pinia'
+import { computed, ref } from 'vue'
+import { useModels } from './models'
+import { useModelPreferences } from './modelPreferences'
+import { usePresets } from './presets'
+import { useDialogStore } from './dialogs'
+import { useGlobalSetup } from './globalSetup'
+import { useTextInference } from './textInference'
+import { useErrors } from './errors'
+import { createAppError } from '../errors/appError'
+import { entriesToDownloadParams } from '../models/downloadParams'
+import {
+  DEFAULT_FILTERS,
+  DEFAULT_SORT,
+  buildEntries,
+  countByUseCase,
+  filterEntries,
+  sortEntries,
+  type ModelLibraryFilters,
+  type ModelSort,
+  type ModelSortKey,
+  type RequiredModelInput,
+} from '../models/library'
+import type { ModelCapabilityValues, ModelEntry, ScannedModel } from '../models/types'
+
+/**
+ * The model management view's state: the unified entry list, its filters and
+ * selection, and the actions on a model (reveal, delete, hide, favorite, edit
+ * capabilities, download).
+ *
+ * Derivation and filtering live in `assets/js/models/library.ts` as pure
+ * functions; this store only holds reactive state and talks to the other stores.
+ */
+export const useModelLibrary = defineStore('modelLibrary', () => {
+  const models = useModels()
+  const modelPreferences = useModelPreferences()
+  const presets = usePresets()
+  const dialogs = useDialogStore()
+  const globalSetup = useGlobalSetup()
+  const textInference = useTextInference()
+  const errors = useErrors()
+
+  const scanned = ref<ScannedModel[]>([])
+  const failedPathKeys = ref<string[]>([])
+  const scanning = ref(false)
+  const deleting = ref(false)
+  const filters = ref<ModelLibraryFilters>({ ...DEFAULT_FILTERS })
+  const sort = ref<ModelSort>({ ...DEFAULT_SORT })
+  const selection = ref<Set<string>>(new Set())
+
+  /**
+   * Media models come from the presets rather than a catalog file: the
+   * downloadable set is exactly "models some preset can use", which needs no
+   * second list to maintain and yields the "used by" column for free.
+   */
+  const requiredModels = computed<RequiredModelInput[]>(() =>
+    presets.presets.flatMap((preset) =>
+      (preset.requiredModels ?? []).map((required) => ({
+        presetName: preset.name,
+        type: required.type,
+        model: required.model,
+        additionalLicenceLink: required.additionalLicenceLink,
+      })),
+    ),
+  )
+
+  const entries = computed<ModelEntry[]>(() =>
+    buildEntries({
+      catalogModels: models.models,
+      scanned: scanned.value,
+      requiredModels: requiredModels.value,
+      preferences: modelPreferences.preferences,
+    }),
+  )
+
+  const useCaseCounts = computed(() => countByUseCase(entries.value))
+
+  const visibleEntries = computed(() =>
+    sortEntries(filterEntries(entries.value, filters.value), sort.value),
+  )
+
+  const selectedEntries = computed(() =>
+    visibleEntries.value.filter((entry) => selection.value.has(entry.id)),
+  )
+
+  const selectedDownloadable = computed(() =>
+    selectedEntries.value.filter((entry) => !entry.downloaded),
+  )
+
+  const selectedDeletable = computed(() =>
+    selectedEntries.value.filter((entry) => entry.downloaded && entry.absolutePath),
+  )
+
+  const allVisibleSelected = computed(
+    () =>
+      visibleEntries.value.length > 0 &&
+      selectedEntries.value.length === visibleEntries.value.length,
+  )
+
+  /** Set when a destructive action is impossible, so the UI can explain itself. */
+  const readOnly = computed(() => globalSetup.state.modelFolderReadOnly === true)
+
+  function byId(id: string): ModelEntry | undefined {
+    return entries.value.find((entry) => entry.id === id)
+  }
+
+  async function refresh() {
+    scanning.value = true
+    try {
+      const scan = await window.electronAPI.scanModelLibrary()
+      scanned.value = scan.models
+      failedPathKeys.value = scan.failedPathKeys
+      if (scan.failedPathKeys.length > 0) {
+        // Report but keep going: one unreadable directory must not blank the table.
+        errors.report(
+          createAppError({
+            category: 'model',
+            code: 'model/scan-failed',
+            severity: 'warning',
+            userMessage: `Some model folders could not be read: ${scan.failedPathKeys.join(', ')}.`,
+          }),
+        )
+      }
+      await models.refreshModels()
+    } catch (error) {
+      errors.report(error, {
+        category: 'model',
+        code: 'model/scan-failed',
+        userMessage: 'Could not read the model folders.',
+      })
+    } finally {
+      scanning.value = false
+    }
+  }
+
+  function setFilters(patch: Partial<ModelLibraryFilters>) {
+    filters.value = { ...filters.value, ...patch }
+    // Selecting a row and then filtering it away would hide what a batch action
+    // is about to act on, so the selection is pruned to what stays visible.
+    pruneSelection()
+  }
+
+  function resetFilters() {
+    filters.value = { ...DEFAULT_FILTERS }
+    pruneSelection()
+  }
+
+  function toggleSortKey(key: ModelSortKey) {
+    sort.value =
+      sort.value.key === key
+        ? { key, direction: sort.value.direction === 'asc' ? 'desc' : 'asc' }
+        : { key, direction: 'asc' }
+  }
+
+  function pruneSelection() {
+    const visible = new Set(visibleEntries.value.map((entry) => entry.id))
+    selection.value = new Set([...selection.value].filter((id) => visible.has(id)))
+  }
+
+  function toggleSelected(id: string) {
+    const next = new Set(selection.value)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    selection.value = next
+  }
+
+  function toggleSelectAllVisible() {
+    selection.value = allVisibleSelected.value
+      ? new Set()
+      : new Set(visibleEntries.value.map((entry) => entry.id))
+  }
+
+  function clearSelection() {
+    selection.value = new Set()
+  }
+
+  function setHidden(id: string, hidden: boolean) {
+    modelPreferences.setHidden(id, hidden)
+  }
+
+  function setFavorite(id: string, favorite: boolean) {
+    modelPreferences.setFavorite(id, favorite)
+  }
+
+  function saveCapabilities(id: string, capabilities: Partial<ModelCapabilityValues>) {
+    modelPreferences.setCapabilities(id, capabilities)
+    // Chat pickers and the request kwargs read from `models.models`, so the edit
+    // has to be folded back in before it shows up anywhere else.
+    return models.refreshModels()
+  }
+
+  function resetCapabilities(id: string) {
+    modelPreferences.resetCapabilities(id)
+    return models.refreshModels()
+  }
+
+  async function revealInFolder(id: string) {
+    const entry = byId(id)
+    if (!entry?.absolutePath) return
+    const result = await window.electronAPI.showModelInFolder(entry.absolutePath)
+    if (!result.success) {
+      errors.report(
+        createAppError({
+          category: 'model',
+          code: 'model/reveal-failed',
+          userMessage: `Could not open the folder for ${entry.label}.`,
+          technicalMessage: result.error,
+        }),
+      )
+    }
+  }
+
+  /** Drop a user-added entry from the catalog (files, if any, are unaffected). */
+  async function removeFromList(id: string) {
+    const entry = byId(id)
+    if (!entry || entry.source !== 'custom') return
+    await models.removeCustomModel(entry.name)
+    modelPreferences.reset(id)
+    selection.value = new Set([...selection.value].filter((selected) => selected !== id))
+  }
+
+  /**
+   * Permanently delete the given models' files. Irreversible by design — the
+   * space is reclaimed immediately — so the caller is expected to have confirmed
+   * with the user first (see DeleteModelDialog).
+   */
+  async function deleteFromDisk(ids: string[]): Promise<{ deleted: number; failed: number }> {
+    if (readOnly.value) return { deleted: 0, failed: ids.length }
+    deleting.value = true
+    let deleted = 0
+    let failed = 0
+    try {
+      for (const id of ids) {
+        const entry = byId(id)
+        if (!entry?.absolutePath) continue
+        const result = await window.electronAPI.deleteModelPath(entry.absolutePath)
+        if (result.success) {
+          deleted += 1
+          // A model that is gone should not stay selected in Chat Settings.
+          textInference.clearSelectionOfModel(entry.name)
+        } else {
+          failed += 1
+          errors.report(
+            createAppError({
+              category: 'model',
+              code: 'model/delete-failed',
+              userMessage: `Could not delete ${entry.label}. ${
+                result.error?.includes('EBUSY') || result.error?.includes('resource busy')
+                  ? 'It looks like the model is still loaded — stop the backend and try again.'
+                  : ''
+              }`.trim(),
+              technicalMessage: result.error,
+            }),
+          )
+        }
+      }
+    } finally {
+      deleting.value = false
+      await refresh()
+      clearSelection()
+    }
+    return { deleted, failed }
+  }
+
+  /** Queue downloads through the existing (already multi-model) download dialog. */
+  function download(entriesToDownload: ModelEntry[]) {
+    const params = entriesToDownloadParams(entriesToDownload, models.getModelPath)
+    if (params.length === 0) return
+    dialogs.showDownloadDialog(
+      params,
+      () => {
+        refresh()
+        clearSelection()
+      },
+      () => refresh(),
+    )
+  }
+
+  function downloadOne(id: string) {
+    const entry = byId(id)
+    if (entry) download([entry])
+  }
+
+  function downloadSelected() {
+    download(selectedDownloadable.value)
+  }
+
+  return {
+    entries,
+    visibleEntries,
+    useCaseCounts,
+    filters,
+    sort,
+    selection,
+    selectedEntries,
+    selectedDownloadable,
+    selectedDeletable,
+    allVisibleSelected,
+    scanning,
+    deleting,
+    failedPathKeys,
+    readOnly,
+    byId,
+    refresh,
+    setFilters,
+    resetFilters,
+    toggleSortKey,
+    toggleSelected,
+    toggleSelectAllVisible,
+    clearSelection,
+    setHidden,
+    setFavorite,
+    saveCapabilities,
+    resetCapabilities,
+    revealInFolder,
+    removeFromList,
+    deleteFromDisk,
+    download,
+    downloadOne,
+    downloadSelected,
+  }
+})
+
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useModelLibrary, import.meta.hot))
+}

@@ -66,84 +66,84 @@ const items = computed(() => {
   }
   const searchLc = search.value.trim().toLowerCase()
 
-  return sortFavoritesFirst(
-    textInference.llmModels.filter((m) => m.type === textInference.backend),
+  return (
+    sortFavoritesFirst(textInference.llmModels.filter((m) => m.type === textInference.backend))
+      // Models the user hid in Model Management. The current selection is never
+      // hidden away — that would strand it with no way to switch back.
+      .filter((m) => isVisibleInPicker(m, { selected: value.value }))
+      .filter((m) => {
+        // Case-insensitive substring search on the visible label (last path segment).
+        // Applied to every backend, including cloud.
+        if (!searchLc) return true
+        const label = (m.name.split('/').at(-1) ?? m.name).toLowerCase()
+        return label.includes(searchLc)
+      })
+      .filter((m) => {
+        // Cloud Mode models come from a remote provider's /v1/models list and
+        // carry no capability metadata (vision/tool-calling/etc. are all unknown,
+        // hence false). The preset-requirement and custom-model filters below would
+        // therefore drop every cloud model, leaving the picker empty. Remote models
+        // can't be filtered on unknown capabilities, so always surface them.
+        if (textInference.backend === 'cloud') return true
+        // Large MoE models only load via Phison aiDAPTIV+ SSD offload. On systems where
+        // Phison isn't detected they can't run, so hide them from every chat preset's
+        // picker (e.g. Agentic on a non-Phison box) instead of leaking them in. This
+        // mirrors how the aiDAPTIV™ preset itself is gated on `phisonSsdDetected`.
+        if (m.largeMoe && !backendServices.phisonSsdDetected) return false
+        // Restrict to large Mixture-of-Experts models only (e.g. the Phison aiDAPTIV+ preset)
+        if (requirements.largeMoeOnly && !m.largeMoe) return false
+        // Filter by preset requirements
+        if (requirements.vision && !m.supportsVision) return false
+        if (requirements.toolCalling && !m.supportsToolCalling) return false
+        if (requirements.reasoning && !m.supportsReasoning) return false
+        if (requirements.npuSupport && !m.npuSupport) return false
+        if (textInference.backend === 'openVINO') {
+          if (textInference.runningOnOpenvinoNpu && !m.npuSupport) return false
+          if (!textInference.runningOnOpenvinoNpu && m.npuSupport) return false
+        }
+        // Filter out vision and reasoning models for txt2txt only presets
+        if (requirements.txt2TxtOnly && (m.supportsVision || m.supportsReasoning)) return false
+        // User-selected capability filters (AND): only show models with every
+        // selected capability. Deselected capabilities don't filter.
+        for (const key of activeFilters.value) {
+          if (!modelHasCapability(m, key)) return false
+        }
+        // Only show predefined models unless advancedMode is enabled OR
+        // custom model explicitly matches the preset's requirements
+        if (!requirements.advancedMode && !m.isPredefined) {
+          // For custom models, only show if they match at least one requirement
+          const hasMatchingRequirement =
+            (requirements.vision && m.supportsVision) ||
+            (requirements.toolCalling && m.supportsToolCalling) ||
+            (requirements.reasoning && m.supportsReasoning) ||
+            (requirements.npuSupport && m.npuSupport)
+
+          // Show basic models in txt2txt presets only if they don't have vision/reasoning
+          const qualifiesForTxt2Txt =
+            requirements.txt2TxtOnly &&
+            !m.supportsVision &&
+            !m.supportsReasoning &&
+            !m.supportsToolCalling &&
+            !m.npuSupport
+
+          if (!hasMatchingRequirement && !qualifiesForTxt2Txt) return false
+        }
+        return true
+      })
+      .map((item) => ({
+        label: item.name.split('/').at(-1) ?? item.name,
+        value: item.name,
+        active: item.downloaded,
+        supportsToolCalling: item.supportsToolCalling,
+        supportsVision: item.supportsVision,
+        supportsReasoning: item.supportsReasoning,
+        maxContextSize: item.maxContextSize,
+        npuSupport: item.npuSupport,
+        favorite: item.favorite === true,
+        // Only ever true for the selected model, which stays listed on purpose.
+        hidden: item.hidden === true,
+      }))
   )
-    // Models the user hid in Model Management. The current selection is never
-    // hidden away — that would strand it with no way to switch back.
-    .filter((m) => isVisibleInPicker(m, { selected: value.value }))
-    .filter((m) => {
-      // Case-insensitive substring search on the visible label (last path segment).
-      // Applied to every backend, including cloud.
-      if (!searchLc) return true
-      const label = (m.name.split('/').at(-1) ?? m.name).toLowerCase()
-      return label.includes(searchLc)
-    })
-    .filter((m) => {
-      // Cloud Mode models come from a remote provider's /v1/models list and
-      // carry no capability metadata (vision/tool-calling/etc. are all unknown,
-      // hence false). The preset-requirement and custom-model filters below would
-      // therefore drop every cloud model, leaving the picker empty. Remote models
-      // can't be filtered on unknown capabilities, so always surface them.
-      if (textInference.backend === 'cloud') return true
-      // Large MoE models only load via Phison aiDAPTIV+ SSD offload. On systems where
-      // Phison isn't detected they can't run, so hide them from every chat preset's
-      // picker (e.g. Agentic on a non-Phison box) instead of leaking them in. This
-      // mirrors how the aiDAPTIV™ preset itself is gated on `phisonSsdDetected`.
-      if (m.largeMoe && !backendServices.phisonSsdDetected) return false
-      // Restrict to large Mixture-of-Experts models only (e.g. the Phison aiDAPTIV+ preset)
-      if (requirements.largeMoeOnly && !m.largeMoe) return false
-      // Filter by preset requirements
-      if (requirements.vision && !m.supportsVision) return false
-      if (requirements.toolCalling && !m.supportsToolCalling) return false
-      if (requirements.reasoning && !m.supportsReasoning) return false
-      if (requirements.npuSupport && !m.npuSupport) return false
-      if (textInference.backend === 'openVINO') {
-        if (textInference.runningOnOpenvinoNpu && !m.npuSupport) return false
-        if (!textInference.runningOnOpenvinoNpu && m.npuSupport) return false
-      }
-      // Filter out vision and reasoning models for txt2txt only presets
-      if (requirements.txt2TxtOnly && (m.supportsVision || m.supportsReasoning)) return false
-      // User-selected capability filters (AND): only show models with every
-      // selected capability. Deselected capabilities don't filter.
-      for (const key of activeFilters.value) {
-        if (!modelHasCapability(m, key)) return false
-      }
-      // Only show predefined models unless advancedMode is enabled OR
-      // custom model explicitly matches the preset's requirements
-      if (!requirements.advancedMode && !m.isPredefined) {
-        // For custom models, only show if they match at least one requirement
-        const hasMatchingRequirement =
-          (requirements.vision && m.supportsVision) ||
-          (requirements.toolCalling && m.supportsToolCalling) ||
-          (requirements.reasoning && m.supportsReasoning) ||
-          (requirements.npuSupport && m.npuSupport)
-
-        // Show basic models in txt2txt presets only if they don't have vision/reasoning
-        const qualifiesForTxt2Txt =
-          requirements.txt2TxtOnly &&
-          !m.supportsVision &&
-          !m.supportsReasoning &&
-          !m.supportsToolCalling &&
-          !m.npuSupport
-
-        if (!hasMatchingRequirement && !qualifiesForTxt2Txt) return false
-      }
-      return true
-    })
-    .map((item) => ({
-      label: item.name.split('/').at(-1) ?? item.name,
-      value: item.name,
-      active: item.downloaded,
-      supportsToolCalling: item.supportsToolCalling,
-      supportsVision: item.supportsVision,
-      supportsReasoning: item.supportsReasoning,
-      maxContextSize: item.maxContextSize,
-      npuSupport: item.npuSupport,
-      favorite: item.favorite === true,
-      // Only ever true for the selected model, which stays listed on purpose.
-      hidden: item.hidden === true,
-    }))
 })
 
 const selectedItem = computed(() => {

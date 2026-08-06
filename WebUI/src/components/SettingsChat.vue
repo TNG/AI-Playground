@@ -65,13 +65,22 @@
             <CapabilityIcons v-if="currentModel" :model="currentModel" />
           </div>
         </div>
-        <Button
-          variant="secondary"
-          class="self-start w-auto px-3 py-1.5 rounded text-sm"
-          @click="() => (showModelRequestDialog = true)"
-        >
-          {{ languages.COM_ADD + ' ' + languages.MODEL }}
-        </Button>
+        <div class="flex flex-wrap items-center gap-2">
+          <Button
+            variant="secondary"
+            class="w-auto px-3 py-1.5 rounded text-sm"
+            @click="() => (showModelRequestDialog = true)"
+          >
+            {{ languages.COM_ADD + ' ' + languages.MODEL }}
+          </Button>
+          <Button
+            variant="secondary"
+            class="w-auto px-3 py-1.5 rounded text-sm"
+            @click="uiStore.openModelManager()"
+          >
+            {{ languages.MODEL_MANAGER_MANAGE }}
+          </Button>
+        </div>
 
         <!-- Add Documents button - only shown when RAG is enabled -->
         <Button
@@ -273,6 +282,7 @@ import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { isVisibleInPicker, sortFavoritesFirst } from '@/assets/js/models/visibility'
+import { useUIStore } from '@/assets/js/store/ui'
 
 const showModelRequestDialog = ref(false)
 const showUploader = ref(false)
@@ -286,6 +296,7 @@ const productModeStore = useProductMode()
 const conversations = useConversations()
 const homeAgent = useHomeAgent()
 const cloudMode = useCloudMode()
+const uiStore = useUIStore()
 
 // Non-null service name for the local-backend DeviceSelector (only rendered for
 // non-cloud backends; cloud uses ProviderSelector instead).

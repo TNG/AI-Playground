@@ -306,6 +306,23 @@ export const useTextInference = defineStore(
       selectedEmbeddingModels.value[backend] = modelName
     }
 
+    /**
+     * Forget a model that no longer exists, e.g. after its files were deleted in
+     * Model Management. Leaving it selected would make the next chat turn try to
+     * load weights that are gone; clearing it lets the usual "first available
+     * model" fallback take over.
+     */
+    const clearSelectionOfModel = (modelName: string) => {
+      for (const key of Object.keys(selectedModels.value) as LlmBackend[]) {
+        if (selectedModels.value[key] === modelName) selectedModels.value[key] = null
+      }
+      for (const key of Object.keys(selectedEmbeddingModels.value) as LlmBackend[]) {
+        if (selectedEmbeddingModels.value[key] === modelName) {
+          selectedEmbeddingModels.value[key] = null
+        }
+      }
+    }
+
     // Get the currently selected device ID for the active backend
     const getCurrentDeviceId = (): string | null => {
       const serviceName = backendToService[backend.value] as BackendServiceName
@@ -1829,6 +1846,7 @@ export const useTextInference = defineStore(
       systemPrompt,
       selectModel,
       selectEmbeddingModel,
+      clearSelectionOfModel,
       getDownloadParamsForCurrentModelIfRequired,
       toggleMetrics,
       increaseFontSize,

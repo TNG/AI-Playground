@@ -56,6 +56,27 @@ describe('PathsManager.updateModelPaths', () => {
 
     expect(Object.keys(readConfig()).sort()).toEqual(Object.keys(defaultConfig()).sort())
   })
+
+  it('leaves untouched directories spelled exactly as they were', () => {
+    // The config ships portable relative paths. Rewriting all of them as absolute
+    // on every edit dirties the file for directories the user never moved.
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        ggufLLM: '../models/LLM/ggufLLM',
+        openvinoLLM: '../models/LLM/openvino',
+        embedding: '../models/LLM/embedding',
+      }),
+    )
+    const manager = new PathsManager(configPath)
+
+    manager.updateModelPaths({ ggufLLM: path.join(root, 'moved') })
+
+    const saved = readConfig()
+    expect(saved.openvinoLLM).toBe('../models/LLM/openvino')
+    expect(saved.embedding).toBe('../models/LLM/embedding')
+    expect(saved.ggufLLM).toBe(path.join(root, 'moved'))
+  })
 })
 
 describe('PathsManager default model paths', () => {
@@ -92,6 +113,39 @@ describe('PathsManager default model paths', () => {
     expect(manager.modelPaths.ggufLLM).toBe(defaultConfig().ggufLLM)
     expect(manager.modelPaths.checkpoints).toBe(defaultConfig().checkpoints)
     expect(manager.modelPaths.lora).toBe(defaultConfig().lora)
+  })
+
+  it('restores the config byte-for-byte, not a re-resolved equivalent', () => {
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        ggufLLM: '../models/LLM/ggufLLM',
+        openvinoLLM: '../models/LLM/openvino',
+        embedding: '../models/LLM/embedding',
+      }),
+    )
+    const manager = new PathsManager(configPath)
+    const pristine = fs.readFileSync(defaultsPath, 'utf8')
+    manager.updateModelPaths({ ggufLLM: path.join(root, 'moved') })
+
+    manager.restoreDefaultModelPaths()
+
+    expect(fs.readFileSync(configPath, 'utf8')).toBe(pristine)
+  })
+
+  it("keeps the file's own indentation when saving", () => {
+    fs.writeFileSync(
+      configPath,
+      `{\n  "ggufLLM": "../models/LLM/ggufLLM",\n  "openvinoLLM": "../models/LLM/openvino",\n  "embedding": "../models/LLM/embedding"\n}\n`,
+    )
+    const manager = new PathsManager(configPath)
+
+    manager.updateModelPaths({ ggufLLM: path.join(root, 'moved') })
+
+    // Re-indenting turns a one-directory change into a whole-file diff.
+    const saved = fs.readFileSync(configPath, 'utf8')
+    expect(saved).toContain('\n  "openvinoLLM"')
+    expect(saved.endsWith('\n')).toBe(true)
   })
 
   it('leaves the paths untouched when there is no snapshot to restore', () => {

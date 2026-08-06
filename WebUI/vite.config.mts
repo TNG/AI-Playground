@@ -121,6 +121,12 @@ export default defineConfig(({ command, mode }) => {
       watch: {
         usePolling: true,
         interval: 300,
+        // The app writes its model directories back to `external/model_config*.json`
+        // (Model folders dialog). That file lives inside the Vite root, so saving a
+        // folder would otherwise trigger a full page reload and throw the user out
+        // of the view they are editing. Nothing in the renderer imports it — the
+        // main process reads it with fs — so ignoring it costs no reactivity.
+        ignored: ['**/external/model_config*.json'],
       },
     },
   }

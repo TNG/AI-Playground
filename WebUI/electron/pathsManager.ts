@@ -43,6 +43,15 @@ export class PathsManager {
   }
   configPath: string
   /**
+   * The config's values exactly as written on disk, before resolution. Keeping
+   * them means a key the user did not touch is written back verbatim instead of
+   * being rewritten as an absolute path, so editing one directory produces a
+   * one-line change rather than rewriting the whole file.
+   */
+  private rawModelPaths: Record<string, string> = {}
+  /** Indentation width of the config file, preserved across writes. */
+  private indent = 4
+  /**
    * Sibling file holding the model directories as they were the first time the
    * app read the config, so "restore defaults" has something to restore to.
    *
@@ -62,7 +71,13 @@ export class PathsManager {
     sharedPathsManager = this
   }
   loadConfig() {
-    this.initModelPaths(JSON.parse(fs.readFileSync(this.configPath).toString()) as ModelPaths)
+    const text = fs.readFileSync(this.configPath).toString()
+    const raw = JSON.parse(text) as ModelPaths
+    this.rawModelPaths = { ...raw }
+    // Keep the file's own indentation so editing one directory doesn't reformat
+    // every line of it.
+    this.indent = text.match(/\n(\s+)"/)?.[1]?.length ?? 4
+    this.initModelPaths(raw)
   }
 
   /** Write the defaults snapshot once, from the config as first seen. */
@@ -83,18 +98,28 @@ export class PathsManager {
    * passing a partial map used to throw on the first missing key.
    */
   updateModelPaths(modelPaths: Partial<ModelPaths>) {
+    const baseDir = modelPathResolveBaseDir()
+    const previous = { ...this.modelPaths }
     this.initModelPaths(modelPaths as ModelPaths)
-    const workDir = modelPathResolveBaseDir()
-    const savePaths = Object.assign({}, this.modelPaths)
-    Object.keys(savePaths).forEach((key) => {
-      let modelPath = path.resolve(modelPaths[key] ?? this.modelPaths[key])
+    const savePaths: Record<string, string> = {}
+    Object.keys(this.modelPaths).forEach((key) => {
+      const raw = this.rawModelPaths[key]
+      const unchanged = previous[key] !== undefined && previous[key] === this.modelPaths[key]
+      if (unchanged && raw !== undefined) {
+        // Preserve the spelling on disk (usually relative and portable) for every
+        // directory this call did not actually move.
+        savePaths[key] = raw
+        return
+      }
+      let modelPath = path.resolve(this.modelPaths[key])
       //if the path is in the workDir, save the relative path
-      if (modelPath.startsWith(workDir)) {
-        modelPath = path.relative(workDir, modelPath)
+      if (modelPath.startsWith(baseDir)) {
+        modelPath = path.relative(baseDir, modelPath)
       }
       savePaths[key] = modelPath
     })
-    fs.writeFileSync(this.configPath, JSON.stringify(savePaths, null, 4))
+    this.rawModelPaths = savePaths
+    fs.writeFileSync(this.configPath, `${JSON.stringify(savePaths, null, this.indent)}\n`)
   }
 
   /**
@@ -104,8 +129,10 @@ export class PathsManager {
    */
   restoreDefaultModelPaths(): ModelPaths {
     if (fs.existsSync(this.defaultsPath)) {
-      const defaults = JSON.parse(fs.readFileSync(this.defaultsPath).toString()) as ModelPaths
-      this.updateModelPaths(defaults)
+      // Copy the snapshot back rather than re-serialising it, so restoring is
+      // byte-identical to the config the app shipped.
+      fs.copyFileSync(this.defaultsPath, this.configPath)
+      this.loadConfig()
     }
     return this.modelPaths
   }

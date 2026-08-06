@@ -3,8 +3,8 @@
 Plan for a dedicated **Model Management** view (an LM Studio–style "My Models" page, simplified and
 tailored to AI Playground) plus the data-layer work it needs.
 
-Status: **implemented** (phases 1–3). This document is kept as the design record — the reasoning, the
-constraints and the decisions behind the shipped code. See [§12](#12-implementation-notes) for what
+Status: **implemented** (all four phases). This document is kept as the design record — the reasoning,
+the constraints and the decisions behind the shipped code. See [§12](#12-implementation-notes) for what
 changed while building it and what remains open.
 
 All renderer paths below are relative to `WebUI/src/`, all main-process paths to `WebUI/electron/`.
@@ -790,17 +790,52 @@ when adding any source directory whose name collides with an ignored artifact di
   `ModelManager` is mounted *before* the dialog layer in `App.vue`; mounted after, it covered the very
   download dialog it opens.
 
-### 12.4 Still open
+### 12.4 Phase 4
 
-- **Phase 4 items** from [§9](#9-phasing) are not done: no speech-model *catalog* (STT/TTS models are
-  listed when found on disk, since the scan covers those directories, but the hard-coded repo ids in
-  `speechToText.ts` / `textToSpeech.ts` / `qwen3TextToSpeech.ts` are not surfaced as downloadable
-  rows), no model-paths editor, and the dead code named there is not yet retired.
-- **No Playwright e2e spec yet.** The flows were verified manually against the running app; the
-  `ModelManagerPage` page object and spec described in [§10](#10-testing) are still to write.
-- **Size computation is single-pass** with no cache. It was not measurably slow on a small model
-  directory, but that is not a real-world test — the lazy path in [§8](#8-cross-cutting-concerns)
-  remains the fallback if it bites.
+**Speech is a real use case now.** The four repo ids the speech features load (`WHISPER_MODEL_NAME`,
+`SPEECHT5_MODEL_NAME` and the two `QWEN3_TTS_MODEL_REPOS`) are listed in the library, so they can be
+seen, pre-fetched and reclaimed. Neither STT nor TTS has a model picker — each just loads a fixed
+repo — so before this they were invisible until the feature downloaded them on first use. This is
+what turned `requiredByPresets` into `requiredBy`: what needs a model is a preset for media models
+and a *feature* for speech ones, and the delete warning should say so either way.
+
+**The model-paths editor exposed a broken IPC rather than an incomplete one.**
+`restorePathsSettings` passed `updateModelPaths` only the three LLM keys, and `updateModelPaths` read
+`modelPaths[key]` for *every* configured key — so it threw a `TypeError` on the first ComfyUI key it
+could not find. It could never have completed. `updateModelPaths` now leaves unlisted directories as
+they are, and three details make it behave in a project checkout:
+
+- **Defaults come from a snapshot** written on first load. In every install mode except a shared
+  all-users one, the config the app writes *is* the file it shipped, so once a user edits a path
+  there is nothing left to restore to. Restoring copies the snapshot back verbatim.
+- **Untouched directories keep their spelling.** The config ships portable relative paths, and
+  re-resolving all 19 to absolute on every edit turned a one-folder change into a whole-file rewrite.
+- **The file's own indentation and trailing newline are preserved**, for the same reason.
+
+**Vite had to stop watching that file.** It lives inside the Vite root, so writing it triggered a full
+page reload that threw the user out of the view they were editing — the dialog appeared to close
+itself. Nothing in the renderer imports it (the main process reads it with `fs`), so
+`server.watch.ignored` costs no reactivity. Packaged builds were never affected.
+
+**Size caching was measured and rejected.** On a fixture of 1920 files across 445 models — 40 GGUF
+repos with three quantizations each, 25 directory models of 60 shards, 300 ComfyUI weights — the scan
+takes a **9 ms median warm and 28 ms with the page cache dropped**. The lazy names-first path in
+[§8](#8-cross-cutting-concerns) would be complexity bought for nothing, so the single pass stands.
+
+**The e2e spec found two bugs in its own page object**, which is the argument for writing it: the
+header row counts as a model if you locate rows by "has a checkbox" (it holds the select-all box), and
+reading a cell column via `rows.getByRole('cell').nth(2)` flattens across rows and collapses to one
+result. Both were caught by running it against the real app rather than by it passing.
+
+### 12.5 Still open
+
+- **The `models.json` media entries** decision ([§11](#11-decisions), question 4) stands: media models
+  stay preset-derived. Nothing to do unless that is revisited.
 - **`nsfwdetector` disk names do not round-trip.** Those weights land under
   `vit-base-nsfw-detector/` rather than `owner---repo/`, so a scanned copy does not match its catalog
   entry and shows as a separate disk-only row. Cosmetic, and only for that one path key.
+- **The e2e spec has not run in a full suite** on a machine that installs backends. Its locators were
+  validated against the real app, but the `installAllBackends()` prologue it shares with every other
+  spec was not exercised here.
+- **Changing a model folder does not move existing files.** The dialog says so, but offering to move
+  them (or at least to scan the old location) would be the kinder behaviour.

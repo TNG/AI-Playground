@@ -157,6 +157,7 @@
                 <!-- Hover handlers live on this inner div rather than <PopoverContent>:
                      that wrapper's root is a Teleport (PopoverPortal), which drops attrs. -->
                 <div
+                  data-aipg-help="preset-selector"
                   class="flex gap-2 overflow-x-auto max-w-[76vw] pb-1"
                   @pointerenter="cancelPickerClose"
                   @pointerleave="schedulePickerClose"
@@ -169,6 +170,7 @@
                           :aria-label="preset.name"
                           :aria-pressed="presetsStore.activePresetName === preset.name"
                           :aria-disabled="!presetGate(preset).enabled"
+                          :data-aipg-preset-name="preset.name"
                           class="relative flex-none w-16 h-16 rounded-md overflow-hidden border-2 transition-all duration-150"
                           :class="[
                             presetsStore.activePresetName === preset.name

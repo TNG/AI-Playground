@@ -6,6 +6,7 @@
     <section
       role="group"
       :aria-label="`${selectedPreset.name} preset information`"
+      :data-aipg-preset-name="selectedPreset.name"
       class="flex flex-col gap-3 rounded-lg border border-border bg-muted/40 p-3 pr-8"
     >
       <div class="flex flex-row items-start gap-3">
@@ -68,6 +69,7 @@
 import { computed, watch, onMounted } from 'vue'
 import { usePresets } from '@/assets/js/store/presets'
 import { useBackendServices } from '@/assets/js/store/backendServices'
+import { extendedDescriptionText } from '@/assets/js/help/presetHelp'
 import { Label } from '@/components/ui/label'
 import VariantSelector, { type VariantOption } from '@/components/VariantSelector.vue'
 interface Props {
@@ -128,10 +130,12 @@ const availableVariants = computed(() => {
 })
 
 const variantSelectorOptions = computed<VariantOption[]>(() => {
+  const presetName = selectedPreset.value?.name ?? ''
   return availableVariants.value.map((variant, index) => ({
     id: `variant-${index}`,
     name: variant.displayName ?? variant.name,
     value: variant.name,
+    presetName,
   }))
 })
 
@@ -171,16 +175,9 @@ watch(
   { immediate: true },
 )
 
-const extendedDescription = computed(() => {
-  const preset = selectedPreset.value
-  const raw = preset?.extendedDescription
-  if (raw == null) return undefined
-  if (typeof raw === 'string') return raw
-  const variant = activeVariantName.value
-  if (variant && variant in raw) return raw[variant]
-  const first = Object.values(raw)[0]
-  return typeof first === 'string' ? first : undefined
-})
+const extendedDescription = computed(() =>
+  extendedDescriptionText(selectedPreset.value, activeVariantName.value),
+)
 
 // The "info" description shown beside the preset icon: the extended how-to text
 // (same content the info box used to show), falling back to the preset's base

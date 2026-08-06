@@ -53,20 +53,6 @@
       >
         <ServerStackIcon class="size-6 text-foreground"></ServerStackIcon>
       </button>
-      <div
-        id="demo-buttons-group"
-        v-if="demoMode.enabled && globalSetup.loadingState === 'running'"
-        class="flex gap-2"
-      >
-        <button
-          id="demo-need-help-button"
-          class="bg-demo-button text-white px-3 rounded text-xs cursor-pointer"
-          style="height: 30px; min-width: 90px"
-          @click="triggerHelpForCurrentMode(true)"
-        >
-          {{ languages.DEMO_NEED_HELP }}
-        </button>
-      </div>
       <button
         v-if="globalSetup.loadingState === 'running'"
         id="contextual-help-toggle"
@@ -511,14 +497,6 @@ function openSpecificSettings() {
 function openAppSettings() {
   if (demoMode.triggerFirstTimeHelp('app-settings-button')) return
   showAppSettings.value = true
-}
-
-function triggerHelpForCurrentMode(_force = false) {
-  demoModeOverlayDriverJs.value?.triggerContextHelp?.(
-    promptStore.getCurrentMode(),
-    showAppSettings.value,
-    showSpecificSettings.value,
-  )
 }
 
 function startTour() {

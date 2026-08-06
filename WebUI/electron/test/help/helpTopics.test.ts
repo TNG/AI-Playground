@@ -6,16 +6,15 @@ import {
   getHelpTopic,
   resolveHelpTarget,
 } from '@/assets/js/help/helpTopics'
-import { TOUR_STEPS, TOUR_STEPS_ALTERNATIVE } from '@/assets/js/help/tourSteps'
+import { TOUR_ONLY_ANCHORS, TOUR_STEPS, TOUR_STEPS_ALTERNATIVE } from '@/assets/js/help/tourSteps'
 
-// Anchors the demo tour uses that are intentionally not click-to-learn targets.
-const TOUR_ONLY_ANCHORS = new Set(['#demo-buttons-group'])
+const tourOnly = new Set<string>(TOUR_ONLY_ANCHORS)
 
 describe('help topic registry', () => {
   it('gives every demo-tour anchor a click-to-learn topic', () => {
     const anchors = [...TOUR_STEPS, ...TOUR_STEPS_ALTERNATIVE]
       .map((step) => step.id)
-      .filter((id) => !TOUR_ONLY_ANCHORS.has(id))
+      .filter((id) => !tourOnly.has(id))
 
     expect(anchors.length).toBeGreaterThan(0)
     for (const anchor of anchors) {
@@ -23,6 +22,18 @@ describe('help topic registry', () => {
         getHelpTopic(anchor.replace('#', '')),
         `missing help topic for ${anchor}`,
       ).toBeDefined()
+    }
+  })
+
+  // The tour may point at help mode's own chrome; the click-to-learn layer must not,
+  // or clicking the toggle in help mode would try to explain the toggle.
+  it('keeps tour-only anchors out of the click-to-learn topics', () => {
+    expect(TOUR_ONLY_ANCHORS.length).toBeGreaterThan(0)
+    for (const anchor of TOUR_ONLY_ANCHORS) {
+      expect(
+        getHelpTopic(anchor.replace('#', '')),
+        `${anchor} should not be a help topic`,
+      ).toBeUndefined()
     }
   })
 

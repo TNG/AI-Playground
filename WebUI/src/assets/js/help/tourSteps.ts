@@ -1,11 +1,14 @@
 import type { HelpTopicId } from '@/assets/js/help/helpTopics'
 
 /**
- * Anchors the demo tour uses that are not click-to-learn help targets.
- * Everything else must be a `HelpTopicId`, so renaming an id in one surface
- * fails type-check in the other instead of silently orphaning a step.
+ * Anchors the demo tour uses that are deliberately not click-to-learn targets.
+ * The help toggle is one: help mode refuses to explain its own chrome. Everything
+ * else must be a `HelpTopicId`, so renaming an id in one surface fails type-check
+ * in the other instead of silently orphaning a step.
  */
-type TourOnlyAnchor = '#demo-buttons-group'
+export const TOUR_ONLY_ANCHORS = ['#contextual-help-toggle'] as const
+
+type TourOnlyAnchor = (typeof TOUR_ONLY_ANCHORS)[number]
 
 export type TourStep = {
   id: `#${HelpTopicId}` | TourOnlyAnchor
@@ -14,13 +17,13 @@ export type TourStep = {
   align?: 'start' | 'center' | 'end'
 }
 
-/** Guided-narration copy for the demo-mode walkthrough (`Need Help` → full tour). */
+/** Guided-narration copy for the demo-mode walkthrough, auto-started in demo mode. */
 export const TOUR_STEPS: TourStep[] = [
   {
-    id: '#demo-buttons-group',
+    id: '#contextual-help-toggle',
     title: 'Welcome to Intel AI-Playground!',
     descr:
-      'Intel AI-Playground is a generative AI app that provides local-powered chat, image, and video capabilities. You can get context-specific help with the "Need Help" button. Click "Next" or press "Right" to start the tour.',
+      'Intel AI-Playground is a generative AI app that provides local-powered chat, image, and video capabilities. Whenever you want to know what something does, click this "?" button and then click the control — help mode explains it without changing anything. Click "Next" or press "Right" to start the tour.',
   },
   {
     id: '#mode-buttons',

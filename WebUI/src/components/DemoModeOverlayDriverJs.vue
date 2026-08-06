@@ -77,20 +77,6 @@ function startMiniTour(driverSteps: DriveStep[]) {
   miniDriver.drive()
 }
 
-type ContextHelpTarget = ModeType | 'app-settings' | 'advanced-settings'
-
-const contextHelpConfig: Record<ContextHelpTarget, { stepId: string; highlightElement: string }> = {
-  chat: { stepId: '#mode-button-chat', highlightElement: '#prompt-input' },
-  imageGen: { stepId: '#mode-button-imageGen', highlightElement: '#prompt-input' },
-  imageEdit: { stepId: '#mode-button-imageEdit', highlightElement: '#prompt-input' },
-  video: { stepId: '#mode-button-video', highlightElement: '#prompt-input' },
-  'app-settings': { stepId: '#app-settings-button', highlightElement: '#app-settings-sidebar' },
-  'advanced-settings': {
-    stepId: '#advanced-settings-button',
-    highlightElement: '#advanced-settings-sidebar',
-  },
-}
-
 const firstTimeHelpConfig: Record<DemoButtonId, { stepId: string; highlightElement: string }> = {
   'plus-icon': { stepId: '#plus-icon', highlightElement: '#plus-icon' },
   'app-settings-button': {
@@ -125,44 +111,6 @@ const firstTimeHelpConfig: Record<DemoButtonId, { stepId: string; highlightEleme
     stepId: '#microphone-button',
     highlightElement: '#microphone-button',
   },
-}
-
-function resolveDriverStep(target: ContextHelpTarget): DriveStep | null {
-  const config = contextHelpConfig[target]
-  const step = TOUR_STEPS_ALTERNATIVE.find((s) => s.id === config.stepId)
-  if (!step) {
-    console.warn(`triggerContextHelp: No step definition found for "${target}"`)
-    return null
-  }
-  if (!isStepEnabled(step)) return null
-  if (!document.querySelector(config.highlightElement)) {
-    console.warn(`triggerContextHelp: DOM element "${config.highlightElement}" not found`)
-    return null
-  }
-  return {
-    element: config.highlightElement,
-    popover: {
-      title: step.title,
-      description: step.descr,
-      side: 'top',
-      align: step.align,
-    },
-  }
-}
-
-function triggerContextHelp(
-  mode: ModeType,
-  appSettingsOpen: boolean,
-  advancedSettingsOpen: boolean,
-) {
-  const targets: ContextHelpTarget[] = []
-  if (appSettingsOpen) targets.push('app-settings')
-  if (advancedSettingsOpen) targets.push('advanced-settings')
-  targets.push(mode)
-
-  const driverSteps = targets.map((target) => resolveDriverStep(target)).filter((s) => s !== null)
-
-  startMiniTour(driverSteps)
 }
 
 function triggerFirstTimeHelp(buttonId: DemoButtonId) {
@@ -200,7 +148,6 @@ function triggerFirstTimeHelp(buttonId: DemoButtonId) {
 
 defineExpose({
   startTour,
-  triggerContextHelp,
   triggerFirstTimeHelp,
 })
 </script>

@@ -224,6 +224,29 @@ export class AppDriver {
   }
 
   /**
+   * Ensure the Home Agent backend is installed and the app is running. Mirrors
+   * {@link ensureTtsBackendInstalled}: {@link installAllBackends} deliberately
+   * turns Home Agent OFF (it diverts to its own setup page after install), so the
+   * Home-Agent specs re-enable and install it explicitly. Returns false (app left
+   * running) when Home Agent isn't offered in this product mode so the caller can
+   * skip.
+   */
+  async ensureHomeAgentBackendInstalled(): Promise<boolean> {
+    return test.step('Ensure the Home Agent backend is installed', async () => {
+      await this.shell.openSetupWizard()
+      await this.wizard.expectVisible()
+      const available = await this.wizard.isAvailable('Home Agent')
+      if (available) await this.wizard.enable('Home Agent')
+      // "Install & Continue" when Home Agent is pending; else a no-op "Continue".
+      // Enabling Home Agent routes to its own setup page after install, so we do
+      // NOT assert the running shell here — the caller (HomeAgentPage) drives the
+      // setup screen next, whether we landed on it directly or on the shell.
+      await this.wizard.installAndContinue()
+      return available
+    })
+  }
+
+  /**
    * Drive the "Text to Speech" preset end to end: select it, synthesize once with the
    * default voice, then create a custom ("designed") voice and synthesize again with
    * it — asserting a *second*, distinct audio result appears (TTS answers with an audio

@@ -53,6 +53,7 @@ import { isAppError, extractMessage, createAppError, createCancellation } from '
 import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
 import { createMockAdapter, mockChannelBus, type MockInboundMessage } from './channels/mockAdapter'
+import { createLocalWebAdapter } from './channels/localWebAdapter'
 
 // ── Channel registry ────────────────────────────────────────────────────────
 // Kinds we manage in this store. Adding a third one means appending to this
@@ -63,7 +64,7 @@ import { createMockAdapter, mockChannelBus, type MockInboundMessage } from './ch
 // when debug tools are enabled (i.e. `npm run dev`).
 const MOCK_ENABLED = !!window.envVars?.debugToolsEnabled
 const KINDS = (
-  MOCK_ENABLED ? ['telegram', 'slack', 'mock'] : ['telegram', 'slack']
+  MOCK_ENABLED ? ['telegram', 'slack', 'local-web', 'mock'] : ['telegram', 'slack', 'local-web']
 ) as readonly ChannelKind[]
 
 /**
@@ -168,6 +169,7 @@ export const useHomeAgent = defineStore(
       slack: emptyPrefs(),
       discord: emptyPrefs(),
       mock: emptyPrefs(),
+      'local-web': emptyPrefs(),
     })
 
     // Runtime-only per-channel state (secret config + derived `active`). Never
@@ -177,6 +179,7 @@ export const useHomeAgent = defineStore(
       slack: emptyRuntimeState('slack'),
       discord: emptyRuntimeState('discord'),
       mock: emptyRuntimeState('mock'),
+      'local-web': emptyRuntimeState('local-web'),
     })
 
     // Per-channel message queues — `channels[kind].active` flips the polling
@@ -186,6 +189,7 @@ export const useHomeAgent = defineStore(
       slack: [] as ChannelQueueItem[],
       discord: [] as ChannelQueueItem[],
       mock: [] as ChannelQueueItem[],
+      'local-web': [] as ChannelQueueItem[],
     } satisfies Record<ChannelKind, ChannelQueueItem[]>
 
     // Adapter instances — one per kind. Created at setup time; their methods
@@ -196,6 +200,7 @@ export const useHomeAgent = defineStore(
       slack: createSlackAdapter(),
       discord: null, // populated when Discord lands
       mock: MOCK_ENABLED ? createMockAdapter() : null,
+      'local-web': createLocalWebAdapter(),
     }
 
     /**

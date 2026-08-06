@@ -15,15 +15,29 @@ vi.stubGlobal('window', {
 
 import { createTelegramAdapter } from '../../../src/assets/js/store/channels/telegramAdapter'
 import { createSlackAdapter } from '../../../src/assets/js/store/channels/slackAdapter'
+import { createLocalWebAdapter } from '../../../src/assets/js/store/channels/localWebAdapter'
 import type { RawPart } from '../../../src/assets/js/store/channels/adapter'
 
 describe('channel adapters', () => {
   const telegram = createTelegramAdapter()
   const slack = createSlackAdapter()
+  const localWeb = createLocalWebAdapter()
 
   it('expose their kind', () => {
     expect(telegram.kind).toBe('telegram')
     expect(slack.kind).toBe('slack')
+    expect(localWeb.kind).toBe('local-web')
+  })
+
+  it('local web routes sends through the generic local-web channel', async () => {
+    sendMock.mockClear()
+    sendMock.mockResolvedValueOnce({ success: true })
+    await localWeb.reply('Here is your haiku')
+    expect(sendMock).toHaveBeenCalledWith(
+      'local-web',
+      'reply',
+      expect.objectContaining({ text: 'Here is your haiku' }),
+    )
   })
 
   it('format italic per-channel', () => {

@@ -276,6 +276,11 @@ if __name__ == "__main__":
             "appToken": os.environ.get("SLACK_APP_TOKEN", ""),
             "userId": os.environ.get("SLACK_USER_ID", ""),
         },
+        "local-web": {
+            "password": os.environ.get("LOCAL_WEB_PASSWORD", ""),
+            "port": os.environ.get("LOCAL_WEB_PORT", "8765"),
+            "allowLan": os.environ.get("LOCAL_WEB_ALLOW_LAN", "false"),
+        },
     }
     for kind, seed in _env_seeds.items():
         # Only auto-start when *every* required field is populated.

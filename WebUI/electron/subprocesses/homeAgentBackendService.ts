@@ -1,5 +1,6 @@
 import { ChildProcess, spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
+import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
 import { app, BrowserWindow, ipcMain, net, safeStorage } from 'electron'
@@ -12,7 +13,7 @@ import { aipgBaseDir, checkBackend, installBackend } from './uvBasedBackends/uv.
 // copy avoids the renderer-side store importing electron types and vice
 // versa; the contract is small enough that drift is easy to spot.
 
-type ChannelKind = 'telegram' | 'slack' | 'discord'
+type ChannelKind = 'telegram' | 'slack' | 'discord' | 'local-web'
 
 type EncryptedField = { type: string; data: number[] }
 
@@ -87,11 +88,13 @@ const SECRET_FIELDS: Record<ChannelKind, string[]> = {
   telegram: ['token'],
   slack: ['botToken', 'appToken'],
   discord: ['botToken'],
+  'local-web': ['password'],
 }
 const PUBLIC_FIELDS: Record<ChannelKind, string[]> = {
   telegram: ['chatId'],
   slack: ['userId'],
   discord: ['userId'],
+  'local-web': ['port', 'allowLan', 'sessionId'],
 }
 
 export class HomeAgentBackendService extends LongLivedPythonApiService {
@@ -650,7 +653,38 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
   async channelTest(kind: ChannelKind): Promise<{ success: boolean; error?: string }> {
     if (kind === 'telegram') return this.testTelegram()
     if (kind === 'slack') return this.testSlack()
+    if (kind === 'local-web') return this.testLocalWeb()
     return { success: false, error: `verification not implemented for ${kind}` }
+  }
+
+  /** Verify the local web channel by actually (re)starting its HTTP server in
+   *  the backend with the saved config. Unlike Telegram/Slack there is no cloud
+   *  API to ping — a successful bind IS the verification. */
+  private async testLocalWeb(): Promise<{ success: boolean; error?: string }> {
+    if (this.currentStatus !== 'running') {
+      return { success: false, error: 'Home Agent backend is not running yet.' }
+    }
+    const config = this.loadChannelConfig('local-web')
+    if (!config || !config.password) {
+      return { success: false, error: 'Choose a password for the LAN chat first.' }
+    }
+    const res = await this.channelSetConfig('local-web', config)
+    if (res.status === 'started' || res.status === 'already_running') return { success: true }
+    return { success: false, error: res.error ?? 'Could not start the LAN chat server.' }
+  }
+
+  /** LAN addresses the local web chat is reachable at, for the given port.
+   *  Pure OS-info helper — enumerates non-internal IPv4 interfaces; it does NOT
+   *  stand up any server (the server lives in the Python backend). */
+  getLocalWebUrls(port: number): string[] {
+    const hosts = new Set<string>(['127.0.0.1', 'localhost'])
+    const nets = os.networkInterfaces()
+    for (const entries of Object.values(nets)) {
+      for (const entry of entries ?? []) {
+        if (entry.family === 'IPv4' && !entry.internal) hosts.add(entry.address)
+      }
+    }
+    return [...hosts].map((host) => `http://${host}:${port}/`)
   }
 
   // ── Identity detection ──────────────────────────────────────────────────
@@ -789,6 +823,12 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
         this.saveChannelPrefs(kind, prefs),
     )
     ipcMain.handle('channel:loadPrefs', (_event, kind: ChannelKind) => this.loadChannelPrefs(kind))
+
+    // Local web chat: expose the LAN URLs the served page is reachable at.
+    // Pure OS-info lookup — the chat server itself lives in the Python backend.
+    ipcMain.handle('homeAgent:localWeb:getUrls', (_event, port: number) =>
+      this.getLocalWebUrls(port),
+    )
 
     // Backend dispatch — channel-keyed by first arg.
     ipcMain.handle('channel:test', (_event, kind: ChannelKind) => this.channelTest(kind))

@@ -477,7 +477,7 @@
   "MODEL_MANAGER_DELETE_FILE": "檔案",
   "MODEL_MANAGER_DELETE_FOLDER": "資料夾",
   "MODEL_MANAGER_DELETE_RECLAIM": "釋放空間：",
-  "MODEL_MANAGER_DELETE_REQUIRED_BY": "以下預設需要它：",
+  "MODEL_MANAGER_DELETE_REQUIRED_BY": "以下需要它：",
   "MODEL_MANAGER_DELETE_CURRENTLY_SELECTED": "目前已在 Chat 設定中選取：",
   "MODEL_MANAGER_DELETE_STAYS_LISTED": "目錄中的模型此後仍會列出，可隨時重新下載。",
   "MODEL_MANAGER_DELETE_CONFIRM": "永久刪除",
@@ -492,5 +492,9 @@
   "MODEL_MANAGER_CAP_TOOL_PARSER": "工具解析器",
   "MODEL_MANAGER_CAP_TOOL_PARSER_HINT": "決定 OpenVINO 如何解析該模型的工具呼叫。解析器選錯會讓工具呼叫無聲失敗；留空則使用 hermes3。",
   "MODEL_MANAGER_PHISON_DETECTED": "本機可使用 Phison aiDAPTIV+。",
-  "MODEL_MANAGER_PHISON_NOT_DETECTED": "未偵測到 Phison aiDAPTIV+，因此該模型會從選擇器中隱藏。"
+  "MODEL_MANAGER_PHISON_NOT_DETECTED": "未偵測到 Phison aiDAPTIV+，因此該模型會從選擇器中隱藏。",
+  "MODEL_MANAGER_FOLDERS_TITLE": "模型資料夾",
+  "MODEL_MANAGER_FOLDERS_DESCRIPTION": "各類模型在磁碟上的存放位置。變更資料夾不會移動現有檔案——請指向已存放模型的資料夾，或重新下載。",
+  "MODEL_MANAGER_FOLDERS_MOVE_HINT": "已下載的模型會留在原處；程式庫中將列出在新資料夾裡找到的內容。",
+  "MODEL_MANAGER_FOLDERS_RESTORE": "恢復預設值"
 }

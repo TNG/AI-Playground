@@ -42,22 +42,52 @@ export class PathsManager {
     embedding: '',
   }
   configPath: string
+  /**
+   * Sibling file holding the model directories as they were the first time the
+   * app read the config, so "restore defaults" has something to restore to.
+   *
+   * There is no pristine copy at runtime otherwise: in every install mode except
+   * a shared all-users one the config file the app writes *is* the file it
+   * shipped, so the defaults are gone the moment a user edits a path. Snapshotting
+   * on first load is the only source that survives.
+   */
+  private readonly defaultsPath: string
 
   constructor(configPath: string) {
     this.configPath = configPath
+    this.defaultsPath = configPath.replace(/\.json$/, '.defaults.json')
     this.loadConfig()
+    this.snapshotDefaults()
     // eslint-disable-next-line @typescript-eslint/no-this-alias -- expose the single app-wide instance
     sharedPathsManager = this
   }
   loadConfig() {
     this.initModelPaths(JSON.parse(fs.readFileSync(this.configPath).toString()) as ModelPaths)
   }
-  updateModelPaths(modelPaths: ModelPaths) {
-    this.initModelPaths(modelPaths)
+
+  /** Write the defaults snapshot once, from the config as first seen. */
+  private snapshotDefaults() {
+    if (fs.existsSync(this.defaultsPath)) return
+    try {
+      fs.copyFileSync(this.configPath, this.defaultsPath)
+    } catch (error) {
+      // A read-only install has nothing to restore to, which is fine: the paths
+      // there cannot be edited either.
+      console.error(`Could not snapshot default model paths to ${this.defaultsPath}`, error)
+    }
+  }
+
+  /**
+   * Persist model directories. Keys absent from `modelPaths` keep their current
+   * value, so a caller can update one directory without having to pass all 19 —
+   * passing a partial map used to throw on the first missing key.
+   */
+  updateModelPaths(modelPaths: Partial<ModelPaths>) {
+    this.initModelPaths(modelPaths as ModelPaths)
     const workDir = modelPathResolveBaseDir()
     const savePaths = Object.assign({}, this.modelPaths)
     Object.keys(savePaths).forEach((key) => {
-      let modelPath = path.resolve(modelPaths[key])
+      let modelPath = path.resolve(modelPaths[key] ?? this.modelPaths[key])
       //if the path is in the workDir, save the relative path
       if (modelPath.startsWith(workDir)) {
         modelPath = path.relative(workDir, modelPath)
@@ -65,6 +95,19 @@ export class PathsManager {
       savePaths[key] = modelPath
     })
     fs.writeFileSync(this.configPath, JSON.stringify(savePaths, null, 4))
+  }
+
+  /**
+   * Restore every model directory to the snapshot taken on first load. The old
+   * implementation hard-coded only the three LLM keys and threw on the first
+   * ComfyUI key it could not find, so it never completed.
+   */
+  restoreDefaultModelPaths(): ModelPaths {
+    if (fs.existsSync(this.defaultsPath)) {
+      const defaults = JSON.parse(fs.readFileSync(this.defaultsPath).toString()) as ModelPaths
+      this.updateModelPaths(defaults)
+    }
+    return this.modelPaths
   }
   private initModelPaths(modelPaths: ModelPaths) {
     const baseDir = modelPathResolveBaseDir()

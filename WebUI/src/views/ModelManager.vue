@@ -8,6 +8,7 @@ import ModelLibraryTable from '@/components/models/ModelLibraryTable.vue'
 import EditModelCapabilitiesDialog from '@/components/models/EditModelCapabilitiesDialog.vue'
 import DeleteModelDialog from '@/components/models/DeleteModelDialog.vue'
 import AddLLMDialog from '@/components/AddLLMDialog.vue'
+import ModelFoldersDialog from '@/components/models/ModelFoldersDialog.vue'
 import { Spinner } from '@/components/ui/spinner'
 import { useModelLibrary } from '@/assets/js/store/modelLibrary'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -22,6 +23,7 @@ const i18nState = useI18N().state
 const editing = ref<ModelEntry | null>(null)
 const deleting = ref<ModelEntry[] | null>(null)
 const showAddModel = ref(false)
+const showFolders = ref(false)
 
 const useCases: (ModelUseCase | 'all')[] = ['all', 'llm', 'embedding', 'media', 'speech']
 
@@ -114,6 +116,7 @@ async function confirmDelete() {
       <div class="flex min-w-0 flex-1 flex-col">
         <ModelLibraryToolbar
           @add-model="showAddModel = true"
+          @edit-folders="showFolders = true"
           @delete-selected="deleting = library.selectedDeletable"
         />
         <ModelLibraryTable
@@ -146,6 +149,13 @@ async function confirmDelete() {
           library.refresh()
         }
       "
+    />
+
+    <!-- Moving a folder changes what the scan finds, so the library reloads. -->
+    <ModelFoldersDialog
+      v-if="showFolders"
+      @close="showFolders = false"
+      @saved="library.refresh()"
     />
   </div>
 </template>

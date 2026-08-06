@@ -47,7 +47,7 @@ function repoOf(entry: ModelEntry): string {
 
 /** A widely-shared model can be required by a dozen presets; the full list is in the title. */
 function usedBySummary(entry: ModelEntry): string {
-  const [first, second, ...rest] = entry.requiredByPresets
+  const [first, second, ...rest] = entry.requiredBy
   const shown = [first, second].filter(Boolean).join(', ')
   return rest.length > 0 ? `${shown} +${rest.length}` : shown
 }
@@ -129,9 +129,9 @@ function usedBySummary(entry: ModelEntry): string {
               {{ repoOf(entry) }}
             </span>
             <span
-              v-if="entry.requiredByPresets.length > 0"
+              v-if="entry.requiredBy.length > 0"
               class="block truncate text-xs text-muted-foreground"
-              :title="entry.requiredByPresets.join(', ')"
+              :title="entry.requiredBy.join(', ')"
             >
               {{ languages.MODEL_MANAGER_USED_BY }} {{ usedBySummary(entry) }}
             </span>

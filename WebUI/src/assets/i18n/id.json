@@ -477,7 +477,7 @@
   "MODEL_MANAGER_DELETE_FILE": "berkas",
   "MODEL_MANAGER_DELETE_FOLDER": "folder",
   "MODEL_MANAGER_DELETE_RECLAIM": "Ruang yang dibebaskan:",
-  "MODEL_MANAGER_DELETE_REQUIRED_BY": "dibutuhkan oleh preset berikut:",
+  "MODEL_MANAGER_DELETE_REQUIRED_BY": "dibutuhkan oleh:",
   "MODEL_MANAGER_DELETE_CURRENTLY_SELECTED": "Saat ini dipilih di pengaturan Chat:",
   "MODEL_MANAGER_DELETE_STAYS_LISTED": "Model dari katalog tetap terdaftar setelahnya dan dapat diunduh kembali kapan saja.",
   "MODEL_MANAGER_DELETE_CONFIRM": "Hapus permanen",
@@ -492,5 +492,9 @@
   "MODEL_MANAGER_CAP_TOOL_PARSER": "Pengurai alat",
   "MODEL_MANAGER_CAP_TOOL_PARSER_HINT": "Cara OpenVINO membaca pemanggilan alat model ini. Pengurai yang salah membuat pemanggilan alat gagal tanpa pesan; biarkan kosong untuk memakai hermes3.",
   "MODEL_MANAGER_PHISON_DETECTED": "Phison aiDAPTIV+ tersedia di komputer ini.",
-  "MODEL_MANAGER_PHISON_NOT_DETECTED": "Phison aiDAPTIV+ tidak terdeteksi, jadi model ini akan disembunyikan dari pemilih model."
+  "MODEL_MANAGER_PHISON_NOT_DETECTED": "Phison aiDAPTIV+ tidak terdeteksi, jadi model ini akan disembunyikan dari pemilih model.",
+  "MODEL_MANAGER_FOLDERS_TITLE": "Folder model",
+  "MODEL_MANAGER_FOLDERS_DESCRIPTION": "Tempat setiap jenis model disimpan di disk. Mengubah folder tidak memindahkan berkas yang sudah ada — arahkan ke folder yang sudah berisi model Anda, atau unduh ulang.",
+  "MODEL_MANAGER_FOLDERS_MOVE_HINT": "Model yang sudah diunduh tetap di tempatnya; pustaka akan menampilkan apa yang ditemukan di folder baru.",
+  "MODEL_MANAGER_FOLDERS_RESTORE": "Kembalikan ke bawaan"
 }

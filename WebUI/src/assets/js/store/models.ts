@@ -52,8 +52,6 @@ export const useModels = defineStore(
     // Store custom model metadata (for models not in models.json)
     const customModelMetadata = ref<Record<string, Partial<Model>>>({})
 
-    const downloadList = ref<DownloadModelParam[]>([])
-
     // Model paths - single source of truth for model directory locations
     const paths = ref<ModelPaths>({
       ggufLLM: '',
@@ -162,7 +160,6 @@ export const useModels = defineStore(
       console.log('Models refreshed', models.value)
     }
 
-    async function download(_models: DownloadModelParam[]) {}
     async function addModel(model: Model) {
       // Store metadata for custom models
       if (!model.isPredefined) {
@@ -541,13 +538,11 @@ export const useModels = defineStore(
       hfEndpointIsValid: computed(() => isValidUrl(hfEndpoint.value)),
       verifyHfEndpoint,
       updateHfEndpoint,
-      downloadList,
       paths,
       customModelMetadata,
       addModel,
       removeCustomModel,
       refreshModels,
-      download,
       checkIfHuggingFaceUrlExists,
       checkModelAlreadyLoaded,
       getModelPath,

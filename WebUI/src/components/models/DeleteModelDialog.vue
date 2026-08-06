@@ -20,8 +20,8 @@ const totalBytes = computed(() =>
 
 const requiredWarnings = computed(() =>
   props.entries
-    .filter((entry) => entry.requiredByPresets.length > 0)
-    .map((entry) => ({ label: entry.label, presets: entry.requiredByPresets.join(', ') })),
+    .filter((entry) => entry.requiredBy.length > 0)
+    .map((entry) => ({ label: entry.label, requiredBy: entry.requiredBy.join(', ') })),
 )
 
 const selectedWarnings = computed(() =>
@@ -81,7 +81,7 @@ const selectedWarnings = computed(() =>
           class="rounded-md border border-amber-600 bg-amber-600/10 p-3 text-sm"
         >
           {{ warning.label }} — {{ languages.MODEL_MANAGER_DELETE_REQUIRED_BY }}
-          {{ warning.presets }}
+          {{ warning.requiredBy }}
         </p>
 
         <p

@@ -477,7 +477,7 @@
   "MODEL_MANAGER_DELETE_FILE": "Datei",
   "MODEL_MANAGER_DELETE_FOLDER": "Ordner",
   "MODEL_MANAGER_DELETE_RECLAIM": "Freigegebener Speicherplatz:",
-  "MODEL_MANAGER_DELETE_REQUIRED_BY": "wird von diesen Presets benötigt:",
+  "MODEL_MANAGER_DELETE_REQUIRED_BY": "benötigt von:",
   "MODEL_MANAGER_DELETE_CURRENTLY_SELECTED": "Aktuell in den Chat-Einstellungen ausgewählt:",
   "MODEL_MANAGER_DELETE_STAYS_LISTED": "Modelle aus dem Katalog bleiben danach gelistet und können jederzeit erneut heruntergeladen werden.",
   "MODEL_MANAGER_DELETE_CONFIRM": "Dauerhaft löschen",
@@ -492,5 +492,9 @@
   "MODEL_MANAGER_CAP_TOOL_PARSER": "Tool-Parser",
   "MODEL_MANAGER_CAP_TOOL_PARSER_HINT": "Legt fest, wie OpenVINO die Tool-Aufrufe dieses Modells liest. Ein falscher Parser lässt Tool-Aufrufe stillschweigend fehlschlagen; ohne Auswahl wird hermes3 verwendet.",
   "MODEL_MANAGER_PHISON_DETECTED": "Phison aiDAPTIV+ ist auf diesem Rechner verfügbar.",
-  "MODEL_MANAGER_PHISON_NOT_DETECTED": "Phison aiDAPTIV+ wurde nicht erkannt, daher wird dieses Modell in den Auswahllisten ausgeblendet."
+  "MODEL_MANAGER_PHISON_NOT_DETECTED": "Phison aiDAPTIV+ wurde nicht erkannt, daher wird dieses Modell in den Auswahllisten ausgeblendet.",
+  "MODEL_MANAGER_FOLDERS_TITLE": "Modellordner",
+  "MODEL_MANAGER_FOLDERS_DESCRIPTION": "Wo die einzelnen Modellarten auf der Festplatte liegen. Das Ändern eines Ordners verschiebt vorhandene Dateien nicht — wählen Sie einen Ordner, der Ihre Modelle bereits enthält, oder laden Sie sie erneut herunter.",
+  "MODEL_MANAGER_FOLDERS_MOVE_HINT": "Bereits heruntergeladene Modelle bleiben, wo sie sind; die Bibliothek listet auf, was sie in den neuen Ordnern findet.",
+  "MODEL_MANAGER_FOLDERS_RESTORE": "Standardwerte wiederherstellen"
 }

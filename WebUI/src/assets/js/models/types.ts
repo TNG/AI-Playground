@@ -98,8 +98,11 @@ export type ModelEntry = {
   hasCapabilityOverrides: boolean
   hidden: boolean
   favorite: boolean
-  /** Presets listing this model in `requiredModels` — "used by" column + delete warning. */
-  requiredByPresets: string[]
+  /**
+   * What needs this model: preset names for media models, feature names for
+   * speech models. Drives the "used by" column and the delete warning.
+   */
+  requiredBy: string[]
   /** Extra licence the user must acknowledge before downloading (media models). */
   additionalLicenseLink?: string
 }

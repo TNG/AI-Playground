@@ -62,6 +62,27 @@ export class SpecificSettingsPage {
   }
 
   /**
+   * Model names offered by the chat model picker. The picker's trigger is named
+   * after the current selection, so it is reached through the stable
+   * `role="group"` the Model row carries (SettingsChat.vue).
+   *
+   * Opens and closes the dropdown without changing the selection.
+   */
+  async availableModels(mode: ChatMode = 'Chat'): Promise<string[]> {
+    const trigger = this.panel(mode).getByRole('group', { name: 'Model' }).getByRole('button')
+    if (!(await trigger.isVisible().catch(() => false))) return []
+    await trigger.click()
+    const menu = this.page.getByRole('menu')
+    await menu.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {})
+    const labels = (await menu.getByRole('menuitem').allInnerTexts())
+      .map((l) => l.trim())
+      .filter(Boolean)
+    await this.page.keyboard.press('Escape')
+    await menu.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {})
+    return labels
+  }
+
+  /**
    * The chat "Backend" picker trigger (a DropDownNew button). Present only when the
    * active preset allows more than one backend (see SettingsChat.vue `isBackendLocked`);
    * located via its "Backend" label row inside the settings region.

@@ -95,6 +95,19 @@ export type RequiredModelInput = {
   additionalLicenceLink?: string
 }
 
+/**
+ * A speech model the app knows about. Unlike LLM and media models these are not
+ * in a catalog file or a preset — each is a constant a feature loads — so the
+ * feature that needs it is what "used by" reports.
+ */
+export type SpeechModelInput = {
+  name: string
+  /** `STT` or `TTS`; also the download API's `type`. */
+  pathKey: string
+  /** The feature that loads it, e.g. "Speech To Text". */
+  usedBy: string
+}
+
 export type ModelPreferencesInput = {
   hidden?: boolean
   favorite?: boolean
@@ -108,6 +121,8 @@ export type BuildEntriesInput = {
   scanned: ScannedModel[]
   /** Flattened `requiredModels` across all presets — the media catalog. */
   requiredModels: RequiredModelInput[]
+  /** The speech models the STT/TTS features load. */
+  speechModels: SpeechModelInput[]
   /** User preferences keyed by `ModelEntry.id`. */
   preferences: Record<string, ModelPreferencesInput>
 }
@@ -138,14 +153,23 @@ export function buildEntries(input: BuildEntriesInput): ModelEntry[] {
   const entries: ModelEntry[] = []
   const seen = new Set<string>()
 
-  const requiredByPresets = new Map<string, string[]>()
+  const requiredBy = new Map<string, string[]>()
   const requiredMeta = new Map<string, RequiredModelInput>()
+  const addRequiredBy = (id: string, requiredByName: string) => {
+    const names = requiredBy.get(id) ?? []
+    if (!names.includes(requiredByName)) names.push(requiredByName)
+    requiredBy.set(id, names)
+  }
   for (const required of input.requiredModels) {
     const id = modelEntryId(canonicalPathKey(required.type), required.model)
-    const presets = requiredByPresets.get(id) ?? []
-    if (!presets.includes(required.presetName)) presets.push(required.presetName)
-    requiredByPresets.set(id, presets)
+    addRequiredBy(id, required.presetName)
     if (!requiredMeta.has(id)) requiredMeta.set(id, required)
+  }
+  const speechById = new Map<string, SpeechModelInput>()
+  for (const speech of input.speechModels) {
+    const id = modelEntryId(speech.pathKey, speech.name)
+    addRequiredBy(id, speech.usedBy)
+    if (!speechById.has(id)) speechById.set(id, speech)
   }
 
   const push = (
@@ -157,7 +181,7 @@ export function buildEntries(input: BuildEntriesInput): ModelEntry[] {
       | 'favorite'
       | 'capabilities'
       | 'hasCapabilityOverrides'
-      | 'requiredByPresets'
+      | 'requiredBy'
     > & {
       baseCapabilities: ModelCapabilityValues
     },
@@ -175,7 +199,7 @@ export function buildEntries(input: BuildEntriesInput): ModelEntry[] {
       hasCapabilityOverrides: hasCapabilityOverrides(preferences?.capabilities),
       hidden: preferences?.hidden === true,
       favorite: preferences?.favorite === true,
-      requiredByPresets: requiredByPresets.get(id) ?? [],
+      requiredBy: requiredBy.get(id) ?? [],
     })
   }
 
@@ -216,12 +240,15 @@ export function buildEntries(input: BuildEntriesInput): ModelEntry[] {
     if (model.useCase === 'llm' || model.useCase === 'embedding') continue
     const pathKey = canonicalPathKey(model.pathKey)
     const id = modelEntryId(pathKey, model.name)
+    const known = requiredMeta.get(id) ?? speechById.get(id)
     push({
-      name: requiredMeta.get(id)?.model ?? readableModelName(model.name),
+      // Prefer the catalog spelling: on disk the repo separator is `---`.
+      name:
+        requiredMeta.get(id)?.model ?? speechById.get(id)?.name ?? readableModelName(model.name),
       useCase: model.useCase,
       pathKey,
       serviceBackend: model.serviceBackend,
-      source: requiredMeta.has(id) ? 'catalog' : 'disk',
+      source: known ? 'catalog' : 'disk',
       downloaded: true,
       absolutePath: model.absolutePath,
       sizeBytes: model.sizeBytes,
@@ -245,6 +272,24 @@ export function buildEntries(input: BuildEntriesInput): ModelEntry[] {
       source: 'catalog',
       downloaded: false,
       additionalLicenseLink: required.additionalLicenceLink,
+      baseCapabilities: {},
+    })
+  }
+
+  // Speech models the STT/TTS features would download on first use. Listing them
+  // is the only way a user can see, pre-fetch or reclaim them: neither feature
+  // has a model picker, they just load a fixed repo.
+  for (const [id, speech] of speechById) {
+    if (seen.has(id)) continue
+    push({
+      name: speech.name,
+      useCase: 'speech',
+      pathKey: speech.pathKey,
+      // Both the Whisper/Kokoro OVMS models and the Qwen3-TTS sidecar weights
+      // live in the OpenVINO model directories.
+      serviceBackend: 'openvino',
+      source: 'catalog',
+      downloaded: false,
       baseCapabilities: {},
     })
   }

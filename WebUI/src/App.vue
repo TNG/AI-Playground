@@ -324,7 +324,6 @@ import { useProductMode } from './assets/js/store/productMode'
 import DownloadDialog from '@/components/DownloadDialog.vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useTheme } from './assets/js/store/theme.ts'
-import AddLLMDialog from '@/components/AddLLMDialog.vue'
 import WarningDialog from '@/components/WarningDialog.vue'
 import PresetRequirementsDialog from '@/components/PresetRequirementsDialog.vue'
 import InstallationProgressDialog from '@/components/InstallationProgressDialog.vue'
@@ -366,7 +365,6 @@ const uiStore = useUIStore()
 const setupWizardStore = useSetupWizard()
 const homeAgent = useHomeAgent()
 
-const addLLMCompt = ref<InstanceType<typeof AddLLMDialog>>()
 const demoModeOverlayDriverJs = ref<InstanceType<typeof DemoModeOverlayDriverJsRef>>()
 const showSettingBtn = ref<HTMLButtonElement>()
 const chatRef = ref<{
@@ -380,7 +378,6 @@ const videoRef = ref<{ handleSubmitPromptClick: (prompt: string) => void }>()
 const isOpen = ref(false)
 const footerExpanded = ref(true)
 const showAppSettings = ref(false)
-const showModelRequestDialog = ref(false)
 const fullscreen = ref(false)
 const showSpecificSettings = ref(false)
 
@@ -485,14 +482,6 @@ function closeWindow() {
 
 function openDevTools() {
   window.electronAPI.openDevTools()
-}
-
-// todo: Why is this not used
-function _showModelRequest() {
-  showModelRequestDialog.value = true
-  nextTick(() => {
-    addLLMCompt.value!.onShow()
-  })
 }
 
 function handleAutoHideFooter() {

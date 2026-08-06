@@ -12,7 +12,11 @@ import { BACKEND_LABELS, type ModelDownloadState } from '@/assets/js/models/libr
 import type { CapabilityKey } from '@/assets/js/capabilities'
 import type { ModelServiceBackend } from '@/assets/js/models/types'
 
-const emit = defineEmits<{ (e: 'add-model'): void; (e: 'delete-selected'): void }>()
+const emit = defineEmits<{
+  (e: 'add-model'): void
+  (e: 'delete-selected'): void
+  (e: 'edit-folders'): void
+}>()
 
 const library = useModelLibrary()
 // `languages` is a template-only global, so dropdown items built in script need
@@ -109,6 +113,9 @@ const statusItems = computed(() => [
           @click="library.refresh()"
         >
           {{ languages.MODEL_MANAGER_REFRESH }}
+        </Button>
+        <Button variant="secondary" class="h-8 px-3 text-sm" @click="emit('edit-folders')">
+          {{ languages.MODEL_MANAGER_FOLDERS_TITLE }}
         </Button>
         <Button variant="secondary" class="h-8 px-3 text-sm" @click="emit('add-model')">
           {{ languages.COM_ADD + ' ' + languages.MODEL }}

@@ -7,6 +7,9 @@ import { useDialogStore } from './dialogs'
 import { useGlobalSetup } from './globalSetup'
 import { useTextInference } from './textInference'
 import { useErrors } from './errors'
+import { WHISPER_MODEL_NAME } from './speechToText'
+import { SPEECHT5_MODEL_NAME } from './textToSpeech'
+import { QWEN3_TTS_MODEL_REPOS } from '../qwen3TtsConstants'
 import { createAppError } from '../errors/appError'
 import { entriesToDownloadParams } from '../models/downloadParams'
 import {
@@ -20,6 +23,7 @@ import {
   type ModelSort,
   type ModelSortKey,
   type RequiredModelInput,
+  type SpeechModelInput,
 } from '../models/library'
 import type { ModelCapabilityValues, ModelEntry, ScannedModel } from '../models/types'
 
@@ -64,11 +68,33 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     ),
   )
 
+  /**
+   * The speech models the app can load. Neither STT nor TTS has a model picker —
+   * each feature loads one fixed repo — so without this list they are invisible
+   * until the feature downloads them, and there is no way to pre-fetch one or to
+   * reclaim its disk space.
+   */
+  const speechModels: SpeechModelInput[] = [
+    { name: WHISPER_MODEL_NAME, pathKey: 'STT', usedBy: 'Speech To Text' },
+    { name: SPEECHT5_MODEL_NAME, pathKey: 'TTS', usedBy: 'Text To Speech' },
+    {
+      name: QWEN3_TTS_MODEL_REPOS.customVoice,
+      pathKey: 'TTS',
+      usedBy: 'Text To Speech (Qwen3-TTS custom voice)',
+    },
+    {
+      name: QWEN3_TTS_MODEL_REPOS.voiceDesign,
+      pathKey: 'TTS',
+      usedBy: 'Text To Speech (Qwen3-TTS voice design)',
+    },
+  ]
+
   const entries = computed<ModelEntry[]>(() =>
     buildEntries({
       catalogModels: models.models,
       scanned: scanned.value,
       requiredModels: requiredModels.value,
+      speechModels,
       preferences: modelPreferences.preferences,
     }),
   )

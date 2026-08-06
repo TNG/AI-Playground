@@ -18,7 +18,7 @@ const entry = (name: string, overrides: Partial<ModelEntry> = {}): ModelEntry =>
   hasCapabilityOverrides: false,
   hidden: false,
   favorite: false,
-  requiredByPresets: [],
+  requiredBy: [],
   ...overrides,
 })
 

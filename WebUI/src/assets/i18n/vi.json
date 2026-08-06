@@ -477,7 +477,7 @@
   "MODEL_MANAGER_DELETE_FILE": "tệp",
   "MODEL_MANAGER_DELETE_FOLDER": "thư mục",
   "MODEL_MANAGER_DELETE_RECLAIM": "Dung lượng thu hồi:",
-  "MODEL_MANAGER_DELETE_REQUIRED_BY": "được các preset sau yêu cầu:",
+  "MODEL_MANAGER_DELETE_REQUIRED_BY": "được yêu cầu bởi:",
   "MODEL_MANAGER_DELETE_CURRENTLY_SELECTED": "Đang được chọn trong cài đặt Chat:",
   "MODEL_MANAGER_DELETE_STAYS_LISTED": "Các mô hình trong danh mục vẫn được liệt kê sau đó và có thể tải lại bất cứ lúc nào.",
   "MODEL_MANAGER_DELETE_CONFIRM": "Xóa vĩnh viễn",
@@ -492,5 +492,9 @@
   "MODEL_MANAGER_CAP_TOOL_PARSER": "Bộ phân tích công cụ",
   "MODEL_MANAGER_CAP_TOOL_PARSER_HINT": "Cách OpenVINO đọc các lệnh gọi công cụ của mô hình này. Bộ phân tích sai sẽ làm việc gọi công cụ thất bại âm thầm; để trống để dùng hermes3.",
   "MODEL_MANAGER_PHISON_DETECTED": "Máy này có Phison aiDAPTIV+.",
-  "MODEL_MANAGER_PHISON_NOT_DETECTED": "Không phát hiện Phison aiDAPTIV+, nên mô hình này sẽ bị ẩn khỏi các bộ chọn."
+  "MODEL_MANAGER_PHISON_NOT_DETECTED": "Không phát hiện Phison aiDAPTIV+, nên mô hình này sẽ bị ẩn khỏi các bộ chọn.",
+  "MODEL_MANAGER_FOLDERS_TITLE": "Thư mục mô hình",
+  "MODEL_MANAGER_FOLDERS_DESCRIPTION": "Nơi lưu từng loại mô hình trên đĩa. Đổi thư mục không di chuyển các tệp hiện có — hãy trỏ tới thư mục đã chứa mô hình của bạn, hoặc tải lại.",
+  "MODEL_MANAGER_FOLDERS_MOVE_HINT": "Các mô hình đã tải vẫn ở nguyên chỗ cũ; thư viện sẽ liệt kê những gì tìm thấy trong thư mục mới.",
+  "MODEL_MANAGER_FOLDERS_RESTORE": "Khôi phục mặc định"
 }

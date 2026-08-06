@@ -477,7 +477,7 @@
   "MODEL_MANAGER_DELETE_FILE": "plik",
   "MODEL_MANAGER_DELETE_FOLDER": "folder",
   "MODEL_MANAGER_DELETE_RECLAIM": "Odzyskane miejsce:",
-  "MODEL_MANAGER_DELETE_REQUIRED_BY": "wymagany przez te presety:",
+  "MODEL_MANAGER_DELETE_REQUIRED_BY": "wymagany przez:",
   "MODEL_MANAGER_DELETE_CURRENTLY_SELECTED": "Aktualnie wybrany w ustawieniach Chat:",
   "MODEL_MANAGER_DELETE_STAYS_LISTED": "Modele z katalogu pozostają na liście i można je pobrać ponownie w dowolnym momencie.",
   "MODEL_MANAGER_DELETE_CONFIRM": "Usuń trwale",
@@ -492,5 +492,9 @@
   "MODEL_MANAGER_CAP_TOOL_PARSER": "Parser narzędzi",
   "MODEL_MANAGER_CAP_TOOL_PARSER_HINT": "Sposób, w jaki OpenVINO czyta wywołania narzędzi tego modelu. Zły parser cicho psuje wywoływanie narzędzi; pozostaw nieustawiony, aby użyć hermes3.",
   "MODEL_MANAGER_PHISON_DETECTED": "Phison aiDAPTIV+ jest dostępny na tym komputerze.",
-  "MODEL_MANAGER_PHISON_NOT_DETECTED": "Nie wykryto Phison aiDAPTIV+, więc ten model zostanie ukryty w listach wyboru."
+  "MODEL_MANAGER_PHISON_NOT_DETECTED": "Nie wykryto Phison aiDAPTIV+, więc ten model zostanie ukryty w listach wyboru.",
+  "MODEL_MANAGER_FOLDERS_TITLE": "Foldery modeli",
+  "MODEL_MANAGER_FOLDERS_DESCRIPTION": "Gdzie na dysku przechowywany jest każdy rodzaj modeli. Zmiana folderu nie przenosi istniejących plików — wskaż folder, który już zawiera Twoje modele, albo pobierz je ponownie.",
+  "MODEL_MANAGER_FOLDERS_MOVE_HINT": "Już pobrane modele pozostają na miejscu; biblioteka wyświetli to, co znajdzie w nowych folderach.",
+  "MODEL_MANAGER_FOLDERS_RESTORE": "Przywróć domyślne"
 }

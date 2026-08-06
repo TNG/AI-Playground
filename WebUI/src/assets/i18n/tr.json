@@ -477,7 +477,7 @@
   "MODEL_MANAGER_DELETE_FILE": "dosya",
   "MODEL_MANAGER_DELETE_FOLDER": "klasör",
   "MODEL_MANAGER_DELETE_RECLAIM": "Geri kazanılan alan:",
-  "MODEL_MANAGER_DELETE_REQUIRED_BY": "şu ön ayarlar için gerekli:",
+  "MODEL_MANAGER_DELETE_REQUIRED_BY": "şunlar için gerekli:",
   "MODEL_MANAGER_DELETE_CURRENTLY_SELECTED": "Şu anda Chat ayarlarında seçili:",
   "MODEL_MANAGER_DELETE_STAYS_LISTED": "Katalogdaki modeller listede kalmaya devam eder ve istediğiniz zaman yeniden indirilebilir.",
   "MODEL_MANAGER_DELETE_CONFIRM": "Kalıcı olarak sil",
@@ -492,5 +492,9 @@
   "MODEL_MANAGER_CAP_TOOL_PARSER": "Araç çözümleyici",
   "MODEL_MANAGER_CAP_TOOL_PARSER_HINT": "OpenVINO’nun bu modelin araç çağrılarını nasıl okuduğunu belirler. Yanlış çözümleyici araç çağırmayı sessizce bozar; hermes3 kullanmak için boş bırakın.",
   "MODEL_MANAGER_PHISON_DETECTED": "Bu makinede Phison aiDAPTIV+ kullanılabilir.",
-  "MODEL_MANAGER_PHISON_NOT_DETECTED": "Phison aiDAPTIV+ algılanmadı, bu nedenle bu model seçicilerde gizlenecek."
+  "MODEL_MANAGER_PHISON_NOT_DETECTED": "Phison aiDAPTIV+ algılanmadı, bu nedenle bu model seçicilerde gizlenecek.",
+  "MODEL_MANAGER_FOLDERS_TITLE": "Model klasörleri",
+  "MODEL_MANAGER_FOLDERS_DESCRIPTION": "Her model türünün diskte nerede saklandığı. Klasörü değiştirmek mevcut dosyaları taşımaz — modellerinizin zaten bulunduğu bir klasörü gösterin ya da yeniden indirin.",
+  "MODEL_MANAGER_FOLDERS_MOVE_HINT": "Zaten indirilmiş modeller yerinde kalır; kitaplık yeni klasörlerde bulduklarını listeler.",
+  "MODEL_MANAGER_FOLDERS_RESTORE": "Varsayılanları geri yükle"
 }

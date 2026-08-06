@@ -477,7 +477,7 @@
   "MODEL_MANAGER_DELETE_FILE": "ไฟล์",
   "MODEL_MANAGER_DELETE_FOLDER": "โฟลเดอร์",
   "MODEL_MANAGER_DELETE_RECLAIM": "พื้นที่ที่จะได้คืน:",
-  "MODEL_MANAGER_DELETE_REQUIRED_BY": "จำเป็นสำหรับพรีเซ็ตเหล่านี้:",
+  "MODEL_MANAGER_DELETE_REQUIRED_BY": "จำเป็นสำหรับ:",
   "MODEL_MANAGER_DELETE_CURRENTLY_SELECTED": "กำลังถูกเลือกในการตั้งค่า Chat:",
   "MODEL_MANAGER_DELETE_STAYS_LISTED": "โมเดลจากแค็ตตาล็อกจะยังอยู่ในรายการและดาวน์โหลดใหม่ได้ทุกเมื่อ",
   "MODEL_MANAGER_DELETE_CONFIRM": "ลบอย่างถาวร",
@@ -492,5 +492,9 @@
   "MODEL_MANAGER_CAP_TOOL_PARSER": "ตัวแยกวิเคราะห์เครื่องมือ",
   "MODEL_MANAGER_CAP_TOOL_PARSER_HINT": "กำหนดวิธีที่ OpenVINO อ่านการเรียกใช้เครื่องมือของโมเดลนี้ ตัวแยกวิเคราะห์ที่ไม่ถูกต้องจะทำให้การเรียกใช้เครื่องมือล้มเหลวโดยไม่แจ้งเตือน ปล่อยว่างไว้เพื่อใช้ hermes3",
   "MODEL_MANAGER_PHISON_DETECTED": "เครื่องนี้มี Phison aiDAPTIV+ พร้อมใช้งาน",
-  "MODEL_MANAGER_PHISON_NOT_DETECTED": "ไม่พบ Phison aiDAPTIV+ จึงจะซ่อนโมเดลนี้จากตัวเลือกโมเดล"
+  "MODEL_MANAGER_PHISON_NOT_DETECTED": "ไม่พบ Phison aiDAPTIV+ จึงจะซ่อนโมเดลนี้จากตัวเลือกโมเดล",
+  "MODEL_MANAGER_FOLDERS_TITLE": "โฟลเดอร์โมเดล",
+  "MODEL_MANAGER_FOLDERS_DESCRIPTION": "ตำแหน่งที่จัดเก็บโมเดลแต่ละประเภทบนดิสก์ การเปลี่ยนโฟลเดอร์จะไม่ย้ายไฟล์ที่มีอยู่ — ให้ชี้ไปยังโฟลเดอร์ที่มีโมเดลของคุณอยู่แล้ว หรือดาวน์โหลดใหม่",
+  "MODEL_MANAGER_FOLDERS_MOVE_HINT": "โมเดลที่ดาวน์โหลดไว้แล้วจะยังอยู่ที่เดิม ไลบรารีจะแสดงสิ่งที่พบในโฟลเดอร์ใหม่",
+  "MODEL_MANAGER_FOLDERS_RESTORE": "คืนค่าเริ่มต้น"
 }

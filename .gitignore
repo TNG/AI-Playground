@@ -11,6 +11,9 @@ WebUI/external/device-service/
 WebUI/external/service/
 WebUI/external/workflows_intel/
 WebUI/external/workflows_bak/
+# Snapshot of the model directories as first loaded, written at runtime so
+# "restore defaults" has a pristine copy to restore to (see PathsManager).
+WebUI/external/*.defaults.json
 
 *.DS_Store
 *.pyc

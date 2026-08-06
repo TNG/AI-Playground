@@ -477,7 +477,7 @@
   "MODEL_MANAGER_DELETE_FILE": "ファイル",
   "MODEL_MANAGER_DELETE_FOLDER": "フォルダー",
   "MODEL_MANAGER_DELETE_RECLAIM": "解放される容量:",
-  "MODEL_MANAGER_DELETE_REQUIRED_BY": "次のプリセットが必要としています:",
+  "MODEL_MANAGER_DELETE_REQUIRED_BY": "必要としています:",
   "MODEL_MANAGER_DELETE_CURRENTLY_SELECTED": "現在 Chat 設定で選択中:",
   "MODEL_MANAGER_DELETE_STAYS_LISTED": "カタログのモデルは削除後も一覧に残り、いつでも再ダウンロードできます。",
   "MODEL_MANAGER_DELETE_CONFIRM": "完全に削除",
@@ -492,5 +492,9 @@
   "MODEL_MANAGER_CAP_TOOL_PARSER": "ツールパーサー",
   "MODEL_MANAGER_CAP_TOOL_PARSER_HINT": "OpenVINO がこのモデルのツール呼び出しをどう解釈するかを決めます。誤ったパーサーではツール呼び出しが静かに失敗します。未設定なら hermes3 が使われます。",
   "MODEL_MANAGER_PHISON_DETECTED": "このマシンでは Phison aiDAPTIV+ を利用できます。",
-  "MODEL_MANAGER_PHISON_NOT_DETECTED": "Phison aiDAPTIV+ が検出されなかったため、このモデルは選択リストから非表示になります。"
+  "MODEL_MANAGER_PHISON_NOT_DETECTED": "Phison aiDAPTIV+ が検出されなかったため、このモデルは選択リストから非表示になります。",
+  "MODEL_MANAGER_FOLDERS_TITLE": "モデルフォルダー",
+  "MODEL_MANAGER_FOLDERS_DESCRIPTION": "それぞれの種類のモデルをディスク上のどこに保存するか。フォルダーを変更しても既存のファイルは移動しません。すでにモデルがあるフォルダーを指定するか、再度ダウンロードしてください。",
+  "MODEL_MANAGER_FOLDERS_MOVE_HINT": "ダウンロード済みのモデルはそのまま残ります。ライブラリには新しいフォルダーで見つかったものが表示されます。",
+  "MODEL_MANAGER_FOLDERS_RESTORE": "既定値に戻す"
 }

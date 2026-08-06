@@ -56,7 +56,13 @@
           <Label class="whitespace-nowrap">{{ languages.DEVICE }}</Label>
           <DeviceSelector :backend="deviceServiceName" />
         </div>
-        <div class="grid grid-cols-[120px_1fr] items-center gap-4">
+        <!-- The picker's trigger is named after whichever model is selected, so the
+             row carries the stable name that identifies what the control is for. -->
+        <div
+          role="group"
+          :aria-label="languages.MODEL"
+          class="grid grid-cols-[120px_1fr] items-center gap-4"
+        >
           <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
           <div class="flex items-center gap-2 min-w-0">
             <div class="flex-1 min-w-0">

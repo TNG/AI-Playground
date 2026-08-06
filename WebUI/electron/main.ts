@@ -1179,18 +1179,7 @@ function initEventHandle() {
   })
 
   ipcMain.handle('restorePathsSettings', (_event: IpcMainInvokeEvent) => {
-    const paths = app.isPackaged
-      ? {
-          ggufLLM: './resources/models/LLM/ggufLLM',
-          openvinoLLM: './resources/models/LLM/openvino',
-          embedding: './resources/models/LLM/embedding',
-        }
-      : {
-          ggufLLM: '../models/LLM/ggufLLM',
-          openvinoLLM: '../models/LLM/openvino',
-          embedding: '../models/LLM/embedding',
-        }
-    pathsManager.updateModelPaths(paths)
+    pathsManager.restoreDefaultModelPaths()
   })
 
   ipcMain.on('miniWindow', () => {

@@ -114,6 +114,7 @@ function input(overrides: Partial<BuildEntriesInput> = {}): BuildEntriesInput {
     catalogModels: [],
     scanned: [],
     requiredModels: [],
+    speechModels: [],
     preferences: {},
     ...overrides,
   }
@@ -217,7 +218,7 @@ describe('buildEntries', () => {
     // The catalog name wins over the on-disk spelling, and both presets are credited.
     expect(onDisk.name).toBe('org/repo/sd.safetensors')
     expect(onDisk.downloaded).toBe(true)
-    expect(onDisk.requiredByPresets).toEqual(['Fast Image', 'Quality Image'])
+    expect(onDisk.requiredBy).toEqual(['Fast Image', 'Quality Image'])
 
     const missing = entries.find((e) => e.pathKey === 'vae')!
     expect(missing.downloaded).toBe(false)
@@ -248,7 +249,84 @@ describe('buildEntries', () => {
 
     expect(entries).toHaveLength(1)
     expect(entries[0].pathKey).toBe('lora')
-    expect(entries[0].requiredByPresets).toEqual(['Preset'])
+    expect(entries[0].requiredBy).toEqual(['Preset'])
+  })
+
+  it('lists a speech model the app can load but has not downloaded', () => {
+    const entries = buildEntries(
+      input({
+        speechModels: [
+          { name: 'OpenVINO/whisper-base-int8-ov', pathKey: 'STT', usedBy: 'Speech To Text' },
+        ],
+      }),
+    )
+
+    // Neither STT nor TTS has a model picker, so the library is the only place
+    // these are visible before the feature downloads them on first use.
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      name: 'OpenVINO/whisper-base-int8-ov',
+      useCase: 'speech',
+      pathKey: 'STT',
+      serviceBackend: 'openvino',
+      source: 'catalog',
+      downloaded: false,
+      requiredBy: ['Speech To Text'],
+    })
+  })
+
+  it('matches a downloaded speech model to its feature', () => {
+    const entries = buildEntries(
+      input({
+        scanned: [
+          {
+            pathKey: 'TTS',
+            useCase: 'speech',
+            serviceBackend: 'openvino',
+            name: 'tngtech---Kokoro-82M-int8-ov',
+            absolutePath: '/models/TTS/tngtech---Kokoro-82M-int8-ov',
+            sizeBytes: 4096,
+            modifiedAt: 5,
+            isDirectory: true,
+          },
+        ],
+        speechModels: [
+          { name: 'tngtech/Kokoro-82M-int8-ov', pathKey: 'TTS', usedBy: 'Text To Speech' },
+        ],
+      }),
+    )
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      // The catalog spelling wins over the `---` form found on disk.
+      name: 'tngtech/Kokoro-82M-int8-ov',
+      downloaded: true,
+      source: 'catalog',
+      sizeBytes: 4096,
+      requiredBy: ['Text To Speech'],
+    })
+  })
+
+  it('keeps two speech models that share the TTS directory apart', () => {
+    const entries = buildEntries(
+      input({
+        speechModels: [
+          {
+            name: 'Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice',
+            pathKey: 'TTS',
+            usedBy: 'Text To Speech (Qwen3-TTS custom voice)',
+          },
+          {
+            name: 'Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign',
+            pathKey: 'TTS',
+            usedBy: 'Text To Speech (Qwen3-TTS voice design)',
+          },
+        ],
+      }),
+    )
+
+    expect(entries).toHaveLength(2)
+    expect(new Set(entries.map((e) => e.id)).size).toBe(2)
   })
 
   it('applies user preferences on top of the catalog', () => {
@@ -288,7 +366,7 @@ const entry = (overrides: Partial<ModelEntry> & Pick<ModelEntry, 'id' | 'name'>)
   hasCapabilityOverrides: false,
   hidden: false,
   favorite: false,
-  requiredByPresets: [],
+  requiredBy: [],
   ...overrides,
 })
 

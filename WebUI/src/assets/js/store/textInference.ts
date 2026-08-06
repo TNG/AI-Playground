@@ -15,6 +15,8 @@ import * as toast from '@/assets/js/toast.ts'
 import { useActivities } from './activities'
 import { useI18N } from './i18n'
 import { useModelPreferences } from './modelPreferences'
+import { pathKeyForCatalogModel } from '../models/library'
+import { withPreferenceFlags } from '../models/visibility'
 
 const LlmBackendSchema = z.enum(llmBackendTypes)
 export type LlmBackend = z.infer<typeof LlmBackendSchema>
@@ -168,6 +170,20 @@ export const useTextInference = defineStore(
 
     // Track if we're currently switching presets (for UI feedback)
 
+    /**
+     * A model's `hidden`/`favorite` flags, resolved from `modelPreferences` at the
+     * point a list is derived. They deliberately do not live on the
+     * `models.models` snapshot: that snapshot is only rebuilt by
+     * `refreshModels()`, so a flag stored in it stays stale until the next catalog
+     * refresh, while the computeds below re-run on the preference write itself.
+     */
+    const flagsForCatalogModel = (type: string, backend: string | undefined, name: string) => {
+      const placement = pathKeyForCatalogModel(type, backend)
+      return placement
+        ? modelPreferences.flagsFor(placement.pathKey, name)
+        : { hidden: false, favorite: false }
+    }
+
     const llmModels: Ref<LlmModel[]> = computed(() => {
       const llmTypeModels = models.models.filter((m) =>
         (llmBackendTypes as readonly string[]).includes(m.type),
@@ -181,33 +197,36 @@ export const useTextInference = defineStore(
         }
       }
 
-      const newModels = llmTypeModels.map((m) => {
-        const selectedModelForType = selectedModels.value[m.type as LlmBackend]
-        const hasValidSelection = llmTypeModels.some((model) => model.name === selectedModelForType)
-        const isFirstForType = m.name === firstModelByType.get(m.type)
+      // `hidden` is carried, never filtered here: this list also resolves
+      // `activeModel`, the capability computeds and the download params, so
+      // dropping hidden models would break inference for anyone who hides their
+      // selection. Pickers filter via `models/visibility.ts` instead.
+      const newModels: LlmModel[] = withPreferenceFlags(
+        llmTypeModels.map((m) => {
+          const selectedModelForType = selectedModels.value[m.type as LlmBackend]
+          const hasValidSelection = llmTypeModels.some(
+            (model) => model.name === selectedModelForType,
+          )
+          const isFirstForType = m.name === firstModelByType.get(m.type)
 
-        return {
-          name: m.name,
-          mmproj: m.mmproj,
-          type: m.type as LlmBackend,
-          downloaded: m.downloaded ?? false,
-          active: m.name === selectedModelForType || (!hasValidSelection && isFirstForType),
-          supportsToolCalling: m.supportsToolCalling,
-          supportsVision: m.supportsVision,
-          supportsReasoning: m.supportsReasoning,
-          supportsThinkingToggle: m.supportsThinkingToggle,
-          maxContextSize: m.maxContextSize,
-          npuSupport: m.npuSupport,
-          largeMoe: m.largeMoe,
-          isPredefined: m.isPredefined,
-          // Carried, never filtered here: this list also resolves `activeModel`,
-          // the capability computeds and the download params, so dropping hidden
-          // models would break inference for anyone who hides their selection.
-          // Pickers filter via `models/visibility.ts` instead.
-          hidden: m.hidden,
-          favorite: m.favorite,
-        }
-      })
+          return {
+            name: m.name,
+            mmproj: m.mmproj,
+            type: m.type as LlmBackend,
+            downloaded: m.downloaded ?? false,
+            active: m.name === selectedModelForType || (!hasValidSelection && isFirstForType),
+            supportsToolCalling: m.supportsToolCalling,
+            supportsVision: m.supportsVision,
+            supportsReasoning: m.supportsReasoning,
+            supportsThinkingToggle: m.supportsThinkingToggle,
+            maxContextSize: m.maxContextSize,
+            npuSupport: m.npuSupport,
+            largeMoe: m.largeMoe,
+            isPredefined: m.isPredefined,
+          }
+        }),
+        (m) => flagsForCatalogModel(m.type, undefined, m.name),
+      )
 
       // Cloud Mode models are not downloaded locally — they come from the
       // selected provider's fetched /v1/models list. Surface them as type
@@ -268,23 +287,27 @@ export const useTextInference = defineStore(
         }
       }
 
-      const newEmbeddingModels = llmEmbeddingTypeModels.map((m) => {
-        const selectedEmbeddingModelForType = selectedEmbeddingModels.value[m.backend as LlmBackend]
-        const hasValidSelection = llmEmbeddingTypeModels.some(
-          (model) => model.name === selectedEmbeddingModelForType,
-        )
-        const isFirstForBackend = m.name === firstEmbeddingByBackend.get(m.backend as string)
+      const newEmbeddingModels: LlmModel[] = withPreferenceFlags(
+        llmEmbeddingTypeModels.map((m) => {
+          const selectedEmbeddingModelForType =
+            selectedEmbeddingModels.value[m.backend as LlmBackend]
+          const hasValidSelection = llmEmbeddingTypeModels.some(
+            (model) => model.name === selectedEmbeddingModelForType,
+          )
+          const isFirstForBackend = m.name === firstEmbeddingByBackend.get(m.backend as string)
 
-        return {
-          name: m.name,
-          type: m.backend as LlmBackend,
-          downloaded: m.downloaded ?? false,
-          active:
-            m.name === selectedEmbeddingModelForType || (!hasValidSelection && isFirstForBackend),
-          hidden: m.hidden,
-          favorite: m.favorite,
-        }
-      })
+          return {
+            name: m.name,
+            type: m.backend as LlmBackend,
+            downloaded: m.downloaded ?? false,
+            active:
+              m.name === selectedEmbeddingModelForType || (!hasValidSelection && isFirstForBackend),
+          }
+        }),
+        // An embedding model's path key depends on its backend, which the mapped
+        // shape carries as `type`.
+        (m) => flagsForCatalogModel('embedding', m.type, m.name),
+      )
 
       console.log('llmEmbeddingModels changed', newEmbeddingModels)
       return newEmbeddingModels

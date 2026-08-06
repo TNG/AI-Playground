@@ -17,6 +17,28 @@ export type HideableModel = {
   favorite?: boolean
 }
 
+export type PreferenceFlags = {
+  hidden: boolean
+  favorite: boolean
+}
+
+/**
+ * Attach the user's `hidden`/`favorite` flags to a list of models.
+ *
+ * The flags are looked up here, at the point the list is derived, instead of
+ * being stored on the catalog snapshot: a snapshot is only rebuilt by a catalog
+ * refresh, so a flag written into one goes stale the moment the user toggles a
+ * preference and the pickers keep showing the old value. Called from a computed
+ * with a lookup that reads the preferences ref, the flags re-resolve on every
+ * write with no refresh involved.
+ */
+export function withPreferenceFlags<T extends { name: string }>(
+  models: readonly T[],
+  flagsFor: (model: T) => PreferenceFlags,
+): (T & PreferenceFlags)[] {
+  return models.map((model) => ({ ...model, ...flagsFor(model) }))
+}
+
 export type VisibilityOptions = {
   /** Never hide the current selection — it would strand it with no way back. */
   selected?: string | null

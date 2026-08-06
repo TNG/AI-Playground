@@ -26,11 +26,6 @@ export type Model = ModelCapabilityValues & {
   type: ModelType
   backend?: LlmBackend
   isPredefined?: boolean // true if model is defined in models.json
-  // User preferences from `store/modelPreferences.ts`. Carried as fields rather
-  // than filtered out here: `hidden` is a presentation preference and must not
-  // reach model resolution (activeModel, capability computeds, download params).
-  hidden?: boolean
-  favorite?: boolean
 }
 
 const devOnlyModels: Model[] = [
@@ -148,9 +143,6 @@ export const useModels = defineStore(
             ? modelPreferences.capabilityOverridesFor(placement.pathKey, m.name)
             : undefined
           const capabilities = mergeCapabilities(customMetadata, predefinedModel, overrides)
-          const flags = placement
-            ? modelPreferences.flagsFor(placement.pathKey, m.name)
-            : { hidden: false, favorite: false }
 
           const model: Model = {
             ...capabilities,
@@ -162,8 +154,6 @@ export const useModels = defineStore(
             supportsVision:
               capabilities.supportsVision ?? ((capabilities.mmproj ?? mmproj) ? true : undefined),
             isPredefined: !!predefinedModel, // true if model is defined in models.json
-            hidden: flags.hidden,
-            favorite: flags.favorite,
           }
           return model
         })

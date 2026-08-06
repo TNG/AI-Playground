@@ -4,6 +4,7 @@ import {
   filterVisibleNames,
   isVisibleInPicker,
   sortFavoritesFirst,
+  withPreferenceFlags,
 } from './visibility'
 
 // These cases are the two invariants the whole "hide a model" feature rests on:
@@ -73,6 +74,53 @@ describe('sortFavoritesFirst', () => {
       'first',
       'second',
     ])
+  })
+})
+
+describe('withPreferenceFlags', () => {
+  const flagsFrom = (hidden: ReadonlySet<string>) => (model: { name: string }) => ({
+    hidden: hidden.has(model.name),
+    favorite: false,
+  })
+
+  it('attaches the looked-up flags without touching the rest of the model', () => {
+    const models = [{ name: 'a', downloaded: true }, { name: 'b' }]
+
+    const withFlags = withPreferenceFlags(models, flagsFrom(new Set(['b'])))
+
+    expect(withFlags).toEqual([
+      { name: 'a', downloaded: true, hidden: false, favorite: false },
+      { name: 'b', hidden: true, favorite: false },
+    ])
+  })
+
+  it('reads through the lookup on every call', () => {
+    // The bug this guards against: flags baked into a catalog snapshot that is
+    // only rebuilt on refresh, so hiding a model left every picker showing the
+    // stale value. Resolving through the lookup each time is the whole point.
+    const models = [{ name: 'a' }]
+    const hidden = new Set<string>()
+    const flagsFor = flagsFrom(hidden)
+
+    expect(withPreferenceFlags(models, flagsFor)[0].hidden).toBe(false)
+    hidden.add('a')
+    expect(withPreferenceFlags(models, flagsFor)[0].hidden).toBe(true)
+  })
+
+  it('overrides any flags already on the incoming model', () => {
+    const models = [{ name: 'a', hidden: true, favorite: true }]
+
+    expect(withPreferenceFlags(models, flagsFrom(new Set()))).toEqual([
+      { name: 'a', hidden: false, favorite: false },
+    ])
+  })
+
+  it('feeds a picker filter that then hides the model', () => {
+    const models = [{ name: 'a' }, { name: 'b' }]
+
+    const visible = filterVisibleModels(withPreferenceFlags(models, flagsFrom(new Set(['b']))))
+
+    expect(visible.map((m) => m.name)).toEqual(['a'])
   })
 })
 

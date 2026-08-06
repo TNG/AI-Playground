@@ -16,16 +16,16 @@ dependencies = [
 # is Intel-only and must NOT be pulled for the CUDA build, so it lives in `xpu`.
 [project.optional-dependencies]
 xpu = [
-  "torch>=2.12.0",
+  "torch>=2.13.0",
   "torchaudio>=2.11.0",
   "triton-xpu>=3.6.0; sys_platform == 'win32' or sys_platform == 'linux'",
 ]
 cuda = [
-  "torch>=2.12.0",
+  "torch>=2.13.0",
   "torchaudio>=2.11.0",
 ]
 cpu = [
-  "torch>=2.12.0",
+  "torch>=2.13.0",
   "torchaudio>=2.11.0",
 ]
 
@@ -34,9 +34,10 @@ python-preference = "only-managed"
 link-mode = "clone"
 no-build = true
 index-strategy = "unsafe-best-match"
-# Hard ceiling: torch 2.13 breaks on Linux (driver issues), same as comfyui-deps.
-# Pins the CUDA extra to 2.12.x instead of letting the cu130 index pull 2.13.
-constraint-dependencies = ["torch<2.13"]
+# torch 2.13.x from the cu130 index, same as comfyui-deps. The earlier 2.13 Linux
+# breakage was a driver-version mismatch, not a code bug — the cu130 / xpu wheels
+# require a recent NVIDIA / Intel GPU driver on Linux. Ensure the target driver
+# floor is met before deploying.
 required-environments = [
   "sys_platform == 'win32'",
   "sys_platform == 'darwin'",

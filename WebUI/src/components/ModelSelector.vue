@@ -2,6 +2,7 @@
 import { nextTick, ref } from 'vue'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { usePresets } from '@/assets/js/store/presets'
+import { useBackendServices } from '@/assets/js/store/backendServices'
 import {
   DropdownMenu,
   DropdownMenuItem,
@@ -16,6 +17,7 @@ import { modelHasCapability, type CapabilityKey } from '@/assets/js/capabilities
 
 const textInference = useTextInference()
 const presetsStore = usePresets()
+const backendServices = useBackendServices()
 
 const value = computed(
   () =>
@@ -79,6 +81,11 @@ const items = computed(() => {
       // therefore drop every cloud model, leaving the picker empty. Remote models
       // can't be filtered on unknown capabilities, so always surface them.
       if (textInference.backend === 'cloud') return true
+      // Large MoE models only load via Phison aiDAPTIV+ SSD offload. On systems where
+      // Phison isn't detected they can't run, so hide them from every chat preset's
+      // picker (e.g. Agentic on a non-Phison box) instead of leaking them in. This
+      // mirrors how the aiDAPTIV™ preset itself is gated on `phisonSsdDetected`.
+      if (m.largeMoe && !backendServices.phisonSsdDetected) return false
       // Restrict to large Mixture-of-Experts models only (e.g. the Phison aiDAPTIV+ preset)
       if (requirements.largeMoeOnly && !m.largeMoe) return false
       // Filter by preset requirements

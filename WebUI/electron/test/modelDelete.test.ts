@@ -104,6 +104,51 @@ describe('PathsManager.resolveModelPath', () => {
   })
 })
 
+describe('PathsManager.pruneEmptyModelDirs', () => {
+  it('removes the repo directory a deleted model leaves empty', () => {
+    const repoDir = path.join(ggufDir, 'org---repo')
+    const modelPath = path.join(repoDir, 'model.gguf')
+    fs.mkdirSync(repoDir, { recursive: true })
+    fs.writeFileSync(modelPath, 'weights')
+    fs.rmSync(modelPath)
+
+    manager.pruneEmptyModelDirs(modelPath)
+
+    expect(fs.existsSync(repoDir)).toBe(false)
+  })
+
+  it('keeps a repo directory that still holds another quantization', () => {
+    const repoDir = path.join(ggufDir, 'org---repo')
+    fs.mkdirSync(repoDir, { recursive: true })
+    fs.writeFileSync(path.join(repoDir, 'kept-Q8.gguf'), 'weights')
+    const removed = path.join(repoDir, 'gone-Q4.gguf')
+
+    manager.pruneEmptyModelDirs(removed)
+
+    expect(fs.existsSync(repoDir)).toBe(true)
+  })
+
+  it('never removes the configured model directory itself', () => {
+    const modelPath = path.join(ggufDir, 'loose.gguf')
+    fs.writeFileSync(modelPath, 'weights')
+    fs.rmSync(modelPath)
+
+    manager.pruneEmptyModelDirs(modelPath)
+
+    expect(fs.existsSync(ggufDir)).toBe(true)
+  })
+
+  it('does not walk outside the model directories', () => {
+    const stray = path.join(outsideDir, 'nested')
+    fs.mkdirSync(stray)
+
+    manager.pruneEmptyModelDirs(path.join(stray, 'whatever'))
+
+    expect(fs.existsSync(stray)).toBe(true)
+    expect(fs.existsSync(outsideDir)).toBe(true)
+  })
+})
+
 describe('PathsManager.mirroredModelPaths', () => {
   it('finds the ComfyUI copy of a faceswap model', () => {
     const storage = path.join(root, 'models', 'ComfyUI', 'insightface')

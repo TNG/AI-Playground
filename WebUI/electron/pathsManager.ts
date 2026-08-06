@@ -319,6 +319,38 @@ export class PathsManager {
   }
 
   /**
+   * Remove directories left empty by a delete, stopping at the configured model
+   * directory. Deleting one quantization out of `owner---repo/` otherwise leaves
+   * an empty repo folder behind forever, and those accumulate.
+   */
+  pruneEmptyModelDirs(deletedPath: string): void {
+    const roots = Object.values(this.modelPaths)
+      .filter(Boolean)
+      .map((dir) => {
+        try {
+          return fs.realpathSync(path.resolve(dir))
+        } catch {
+          return path.resolve(dir)
+        }
+      })
+    let dir = path.dirname(deletedPath)
+    while (!roots.includes(dir)) {
+      // Stop at the filesystem root, and never touch a directory outside the
+      // configured model tree.
+      const parent = path.dirname(dir)
+      if (parent === dir) return
+      if (!roots.some((root) => !path.relative(root, dir).startsWith('..'))) return
+      try {
+        if (fs.readdirSync(dir).length > 0) return
+        fs.rmdirSync(dir)
+      } catch {
+        return
+      }
+      dir = parent
+    }
+  }
+
+  /**
    * Extra copies of a model that must go when it is deleted. `faceswap` and
    * `facerestore` weights are copied into ComfyUI's own model tree so the reactor
    * node can load them, so deleting only the storage copy would leave the model

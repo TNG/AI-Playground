@@ -1505,6 +1505,7 @@ function initEventHandle() {
       // No `force`: a path that vanished should be reported, not silently
       // treated as a successful delete.
       fs.rmSync(resolved.path, { recursive: true })
+      pathsManager.pruneEmptyModelDirs(resolved.path)
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) }
     }

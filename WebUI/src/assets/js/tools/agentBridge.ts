@@ -2,6 +2,7 @@ import { asSchema, type ModelMessage } from 'ai'
 import { z } from 'zod'
 import { comfyUI, executeComfyGeneration } from './comfyUi'
 import { comfyUiImageEdit, executeImageEdit } from './comfyUiImageEdit'
+import { queueMediaRequest } from './mediaPipeline'
 import { mediaAgentHasTools, runMediaAgent } from '../agents/mediaAgent'
 import { useTextInference } from '../store/textInference'
 import { createChatModel } from '@/lib/chatModel'
@@ -113,7 +114,25 @@ function dataUriMessage(dataUri: string): ModelMessage {
   }
 }
 
-export async function executeAgentTool(
+/**
+ * Pi executes tool calls concurrently, and a model illustrating a game asks for
+ * all of its art at once — so every bridged call queues on the shared media
+ * pipeline (see mediaPipeline.ts) instead of racing the others over the one
+ * ComfyUI server and the one generation store.
+ */
+export function executeAgentTool(
+  toolName: string,
+  input: Record<string, unknown>,
+  toolCallId?: string,
+  abortSignal?: AbortSignal,
+): Promise<unknown> {
+  return queueMediaRequest(
+    () => runAgentTool(toolName, input, toolCallId, abortSignal),
+    abortSignal,
+  )
+}
+
+async function runAgentTool(
   toolName: string,
   input: Record<string, unknown>,
   toolCallId?: string,

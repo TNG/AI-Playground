@@ -14,6 +14,7 @@ import { usePromptStore } from '../store/promptArea'
 import { useDeveloperSettings } from '../store/developerSettings'
 import { DEV_PRESET_NAMES, dummyWorkflowsOnly } from '../store/devPresets'
 import { stopChatBackends, restartChatBackend } from './chatBackends'
+import { queueComfyRun } from './mediaPipeline'
 import { imageUrlToDataUri } from '@/lib/utils'
 import { isCancellation } from '../errors/appError'
 
@@ -249,7 +250,19 @@ function saveCurrentState(
   return restoreState
 }
 
-export async function executeImageEdit(
+/**
+ * Runs one edit for a tool call. Shares ComfyUI and the global generation store
+ * with every other media run, so concurrent callers queue — see mediaPipeline.ts.
+ */
+export function executeImageEdit(
+  args: ImageEditArgs,
+  messages: ModelMessage[],
+  options: { abortSignal?: AbortSignal } = {},
+): Promise<ImageEditToolOutput> {
+  return queueComfyRun(() => runImageEdit(args, messages, options), options.abortSignal)
+}
+
+async function runImageEdit(
   args: ImageEditArgs,
   messages: ModelMessage[],
   options: { abortSignal?: AbortSignal } = {},

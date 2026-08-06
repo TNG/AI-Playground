@@ -4,6 +4,7 @@ import { Chat } from '@ai-sdk/vue'
 import type { ChatTransport, UIMessage, UIMessageChunk } from 'ai'
 import { useTextInference } from './textInference'
 import { useCloudMode, CLOUD_DEFAULT_MODEL } from './cloudMode'
+import { usePresets, type ChatPreset } from './presets'
 import { useErrors } from './errors'
 import { extractMessage } from '../errors/appError'
 import { executeAgentTool, getAgentToolSpecs } from '../tools/agentBridge'
@@ -56,9 +57,70 @@ export const useAgentMode = defineStore(
   () => {
     const textInference = useTextInference()
     const cloudMode = useCloudMode()
+    const presetsStore = usePresets()
     const errors = useErrors()
 
     const workspaceDir = ref<string>('')
+
+    /**
+     * The agent preset driving the session, if any. Agent Mode is entered by
+     * selecting a chat preset marked `agentPreset` (Agent, Game Maker), and that
+     * preset supplies the extra instructions and the capability set.
+     *
+     * Remembered rather than read live, because the active preset is borrowed
+     * mid-turn: a `media` call switches to an image-gen preset for the duration of
+     * the generation. Following that would swap the session's capabilities,
+     * instructions and workspace policy while the agent is working — and the
+     * workspace watcher below would stop the very turn that made the call.
+     */
+    const agentPresetName = ref<string>('')
+
+    const activeAgentPreset = computed<ChatPreset | null>(() => {
+      const active = presetsStore.activePresetWithVariant
+      // Prefer the live preset (variant merged in) while it is the remembered one.
+      if (active?.type === 'chat' && active.name === agentPresetName.value) {
+        return active as ChatPreset
+      }
+      const remembered = presetsStore.presets.find((p) => p.name === agentPresetName.value)
+      return remembered?.type === 'chat' ? (remembered as ChatPreset) : null
+    })
+
+    watch(
+      () => presetsStore.activePresetWithVariant,
+      (preset) => {
+        // Only agent presets are remembered: a plain chat preset becoming active
+        // (whether the user picked it or a tool call borrowed it) leaves the last
+        // agent preset in place, where it is inert until Agent Mode renders again.
+        if (preset?.type === 'chat' && (preset as ChatPreset).agentPreset) {
+          agentPresetName.value = preset.name
+        }
+      },
+      { immediate: true },
+    )
+
+    /** Capabilities the active preset prescribes, or null when it has no opinion. */
+    const presetCapabilities = computed<string[] | null>(() => {
+      const declared = activeAgentPreset.value?.agentCapabilities
+      return declared && declared.length > 0 ? declared : null
+    })
+
+    /**
+     * How the workspace is chosen: 'pick' asks the user for any folder, 'games'
+     * has the app mint one folder per game under the games library.
+     */
+    const agentWorkspaceKind = computed<'pick' | 'games'>(
+      () => activeAgentPreset.value?.agentWorkspace ?? 'pick',
+    )
+
+    /** The game the workspace folder holds, when it is a game folder. */
+    const currentGame = ref<GameLibraryEntry | null>(null)
+
+    /**
+     * Last workspace per kind. The two kinds mean unrelated folders (a game the app
+     * created vs. a folder the user picked), so switching preset returns to the one
+     * that belongs to it instead of pointing Game Maker at, say, a source checkout.
+     */
+    const lastWorkspaceByKind = ref<Record<string, string>>({})
 
     // What the agent is equipped with, as capability ids (see
     // electron/agentMode/capabilities): 'media', 'web-debug', 'memory',
@@ -94,9 +156,19 @@ export const useAgentMode = defineStore(
     const sessions = ref<Record<string, AgentSessionRecord>>({})
     const activeSessionId = ref<string>('')
 
+    /**
+     * Toggles made for a preset-driven session that has not been archived yet
+     * (an archived one carries its own frozen list). Dropped when the session is.
+     */
+    const sessionCapabilities = ref<string[] | null>(null)
+
     /** The capability set the next turn will run with. */
     const capabilities = computed<string[]>(
-      () => sessions.value[activeSessionId.value]?.capabilities ?? defaultCapabilities.value,
+      () =>
+        sessions.value[activeSessionId.value]?.capabilities ??
+        sessionCapabilities.value ??
+        presetCapabilities.value ??
+        defaultCapabilities.value,
     )
 
     function isCapabilityEnabled(id: string): boolean {
@@ -113,7 +185,10 @@ export const useAgentMode = defineStore(
       const next = enabled
         ? [...new Set([...current, id])]
         : current.filter((entry) => entry !== id)
-      defaultCapabilities.value = next
+      // A preset that prescribes its capabilities owns the starting point, so the
+      // change belongs to this session instead of the user's stored default.
+      if (presetCapabilities.value) sessionCapabilities.value = next
+      else defaultCapabilities.value = next
       const session = sessions.value[activeSessionId.value]
       if (!session) return
       sessions.value = {
@@ -217,6 +292,9 @@ export const useAgentMode = defineStore(
       const toolSpecs = getAgentToolSpecs()
       const sessionId = ensureActiveSessionId()
       const enabledCapabilities = [...capabilities.value]
+      // The preset's system prompt is what specializes the agent (e.g. into a game
+      // maker); it is appended to the harness's own instructions in the main process.
+      const instructions = activeAgentPreset.value?.systemPrompt?.trim() ?? ''
       // Fully shared model selection: the agent uses whatever backend/model
       // Chat is configured for — including Cloud Mode, which routes through
       // the same main-process loopback proxy (the key never leaves main).
@@ -245,6 +323,7 @@ export const useAgentMode = defineStore(
               : undefined,
           },
           toolSpecs,
+          instructions,
           capabilities: enabledCapabilities,
           unsandboxed: unsandboxed.value,
         }
@@ -273,6 +352,7 @@ export const useAgentMode = defineStore(
           contextWindow: textInference.effectiveContextWindow,
         },
         toolSpecs,
+        instructions,
         capabilities: enabledCapabilities,
         unsandboxed: unsandboxed.value,
       }
@@ -427,7 +507,7 @@ export const useAgentMode = defineStore(
           createdAt: existing?.createdAt ?? Date.now(),
           updatedAt: Date.now(),
           // Freeze the set this conversation actually ran with.
-          capabilities: existing?.capabilities ?? [...defaultCapabilities.value],
+          capabilities: existing?.capabilities ?? [...capabilities.value],
         },
       }
     }
@@ -444,6 +524,7 @@ export const useAgentMode = defineStore(
     async function newSession(): Promise<void> {
       await stop()
       activeSessionId.value = mintSessionId()
+      sessionCapabilities.value = null
       chat.messages = []
     }
 
@@ -453,6 +534,7 @@ export const useAgentMode = defineStore(
       if (!target) return
       await stop()
       activeSessionId.value = id
+      sessionCapabilities.value = null
       workspaceDir.value = target.workspaceDir
       restoreActiveSession()
     }
@@ -466,6 +548,7 @@ export const useAgentMode = defineStore(
       if (id === activeSessionId.value) {
         await stop()
         activeSessionId.value = mintSessionId()
+        sessionCapabilities.value = null
         chat.messages = []
       }
       const result = await window.electronAPI.agentMode.deleteSession(id)
@@ -479,28 +562,73 @@ export const useAgentMode = defineStore(
       }
     }
 
+    /**
+     * Park the current conversation and continue in `dir`: pick up its most recent
+     * session when one exists, else start fresh (a new id is minted on the first
+     * turn).
+     */
+    async function adoptWorkspace(dir: string): Promise<void> {
+      await stop()
+      workspaceDir.value = dir
+      const latest = Object.values(sessions.value)
+        .filter((s) => s.workspaceDir === dir)
+        .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+      activeSessionId.value = latest?.id ?? ''
+      sessionCapabilities.value = null
+      restoreActiveSession()
+      await refreshCurrentGame()
+    }
+
     async function pickWorkspaceFolder(): Promise<void> {
       const result = await window.electronAPI.showOpenDialog({
         properties: ['openDirectory', 'createDirectory'],
         title: 'Select the agent workspace folder',
       })
       if (result.canceled || result.filePaths.length === 0) return
-      const previous = workspaceDir.value
       const next = result.filePaths[0]
-      if (previous === next) return
-      // Park the current conversation and continue in the new workspace: pick
-      // up its most recent session when one exists, else start fresh (a new id
-      // is minted on the first turn).
-      await stop()
-      workspaceDir.value = next
-      const latest = Object.values(sessions.value)
-        .filter((s) => s.workspaceDir === next)
-        .sort((a, b) => b.updatedAt - a.updatedAt)[0]
-      activeSessionId.value = latest?.id ?? ''
-      restoreActiveSession()
+      if (workspaceDir.value === next) return
+      await adoptWorkspace(next)
     }
 
+    /** Re-read the workspace's `game.json` (the agent edits it through its tools). */
+    async function refreshCurrentGame(): Promise<void> {
+      const dir = workspaceDir.value
+      currentGame.value = dir ? await window.electronAPI.games.read(dir) : null
+    }
+
+    /**
+     * Start a game from scratch: no folder yet, so the first turn creates one named
+     * after what the user asked for (see `generate`). The previous game's session
+     * stays in the Sessions panel, grouped under its own folder.
+     */
+    async function newGame(): Promise<void> {
+      await stop()
+      workspaceDir.value = ''
+      activeSessionId.value = ''
+      sessionCapabilities.value = null
+      currentGame.value = null
+      chat.messages = []
+    }
+
+    // Switching between an app-managed games workspace and a user-picked one moves
+    // to the folder that kind was last using, so neither preset inherits the
+    // other's folder.
+    watch(agentWorkspaceKind, async (kind, previous) => {
+      if (kind === previous) return
+      lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, [previous]: workspaceDir.value }
+      const restored = lastWorkspaceByKind.value[kind] ?? ''
+      if (restored !== workspaceDir.value) await adoptWorkspace(restored)
+    })
+
     async function generate(prompt: string): Promise<void> {
+      // Game Maker never asks for a folder: the first turn of a game mints one,
+      // named after the request, and everything the agent writes lands in it.
+      if (agentWorkspaceKind.value === 'games' && !workspaceDir.value) {
+        const game = await window.electronAPI.games.create(prompt)
+        workspaceDir.value = game.dir
+        lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, games: game.dir }
+        currentGame.value = game
+      }
       if (!workspaceDir.value) {
         errors.report(new Error('Select a workspace folder before starting the agent.'), {
           category: 'validation',
@@ -526,6 +654,9 @@ export const useAgentMode = defineStore(
         // Persist the transcript after every turn (Pi persists its own session
         // file on every message), so a restart restores both sides.
         snapshotActiveSession()
+        // The turn may have named the game or given it an icon (the `game` tool
+        // writes straight to game.json), so the game bar re-reads it.
+        await refreshCurrentGame()
       }
     }
 
@@ -576,6 +707,10 @@ export const useAgentMode = defineStore(
 
     return {
       workspaceDir,
+      activeAgentPreset,
+      agentWorkspaceKind,
+      currentGame,
+      lastWorkspaceByKind,
       mcpServerIds,
       defaultCapabilities,
       capabilities,
@@ -598,6 +733,8 @@ export const useAgentMode = defineStore(
       sessions,
       activeSessionId,
       pickWorkspaceFolder,
+      refreshCurrentGame,
+      newGame,
       generate,
       stop,
       newSession,
@@ -611,6 +748,7 @@ export const useAgentMode = defineStore(
     persist: {
       pick: [
         'workspaceDir',
+        'lastWorkspaceByKind',
         'mcpServerIds',
         'defaultCapabilities',
         'unsandboxedWorkspaces',
@@ -625,6 +763,9 @@ export const useAgentMode = defineStore(
         // empty on launch (Pi restores its own context separately, keyed by
         // the same session id).
         ctx.store.restoreActiveSession()
+        // Whether the restored workspace is a game (and what it is called) lives
+        // on disk, not in this store.
+        void ctx.store.refreshCurrentGame()
       },
     },
   },

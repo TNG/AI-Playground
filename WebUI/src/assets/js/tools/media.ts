@@ -3,6 +3,7 @@ import type { ToolResultOutput } from '@ai-sdk/provider-utils'
 import { z } from 'zod'
 import { runMediaAgent, MediaAgentMediaSchema } from '../agents/mediaAgent'
 import { findSourceImage } from './comfyUiImageEdit'
+import { queueMediaRequest } from './mediaPipeline'
 import { createChatModel } from '@/lib/chatModel'
 import { useActivities } from '../store/activities'
 import { useConversations } from '../store/conversations'
@@ -66,15 +67,22 @@ export const media = tool({
         label: i18nState.COM_ACTIVITY_CREATING_MEDIA,
         scope: { kind: 'chat', conversationKey: conversations.activeKey },
       },
+      // One request at a time: a model that asks for several images in one step
+      // gets parallel tool calls from the AI SDK, and they all share one ComfyUI
+      // and one generation store (see mediaPipeline.ts).
       () =>
-        runMediaAgent({
-          request: args.request,
-          sourceImage,
-          model: createChatModel(),
+        queueMediaRequest(
+          () =>
+            runMediaAgent({
+              request: args.request,
+              sourceImage,
+              model: createChatModel(),
+              abortSignal,
+              // Keys the live timeline to this tool part (see mediaAgentRuns).
+              runId: toolCallId,
+            }),
           abortSignal,
-          // Keys the live timeline to this tool part (see mediaAgentRuns).
-          runId: toolCallId,
-        }),
+        ),
     )
   },
   toModelOutput: ({ output }) => slimMediaModelOutput(output),

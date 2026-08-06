@@ -1,17 +1,25 @@
-import type { SkillSource } from '../piCustomTools.ts'
-import type { AgentCapability } from './types.ts'
+import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
+import { jsonSchemaParameters, textResult, type SkillSource } from '../piCustomTools.ts'
+import { loadPi } from '../piRuntime.ts'
+import { readGame, setGameIcon, updateGame } from '../../gameLibrary.ts'
+import type { AgentCapability, CapabilityHost } from './types.ts'
 
 // ── game-studio capability ───────────────────────────────────────────────────
 //
-// No tools of its own: it teaches the workflow that ties the other capabilities
-// together — write a playable HTML5 game with the file tools, illustrate it with
-// `media`, then open it in the browser and fix what the console reports. Enabling
-// it pulls `media` and `web-debug` in (see `requires`), because the procedure is
-// worthless without them.
+// Mostly a workflow: write a playable HTML5 game with the file tools, illustrate
+// it with `media`, then open it in the browser and fix what the console reports.
+// Enabling it pulls `media` and `web-debug` in (see `requires`), because the
+// procedure is worthless without them.
 //
-// Skills are the right shape for this: only the name and description sit in the
-// system prompt, and the model reads the body when a request actually calls for a
-// game (see docs/agent-capability-benchmark.md on why that is the cheap direction).
+// Skills are the right shape for that part: only the name and description sit in
+// the system prompt, and the model reads the body when a request actually calls
+// for a game (see docs/agent-capability-benchmark.md on why that is the cheap
+// direction).
+//
+// The one tool it does add is `game`, which writes the library card — title,
+// description, icon. That is metadata about the folder the agent is working in, so
+// no file tool can express it, and it is what the game library and the generated
+// hub page display.
 
 const GAME_STUDIO_SKILL: SkillSource = {
   name: 'html-game-studio',
@@ -33,7 +41,9 @@ const GAME_STUDIO_SKILL: SkillSource = {
     '3. Generate the art with the `media` tool, one call per asset group, and use the',
     '   workspace-relative paths it reports under "savedFiles" (e.g.',
     '   `<img src="generated/AIPG_00001_.png">`). Ask for transparent-looking sprites on a plain',
-    '   background; nothing here removes a background for you.',
+    '   background; nothing here removes a background for you. Media calls are served one at a',
+    '   time, so several calls at once finish no sooner than one after another — describe all the',
+    '   sprites you need in a single request instead.',
     '4. Load images before the first frame and keep a plain-colour fallback for each, so a missing',
     '   asset degrades instead of throwing.',
     '5. Test it: `browser {"action":"open","url":"index.html"}`, then',
@@ -42,6 +52,13 @@ const GAME_STUDIO_SKILL: SkillSource = {
     '   `browser {"action":"screenshot"}` for a look at the result.',
     '6. Only then add polish: score, sound (WebAudio, generated in code — no audio files),',
     '   difficulty ramp, a title and game-over screen.',
+    '7. Finish by filling in the library card, so the game shows up as a game and not as a',
+    '   folder name:',
+    '   - `game {"action":"set_metadata","name":"Space Dodger","description":"Dodge asteroids',
+    '     for as long as you can."}` — a real title (2-4 words) and one sentence on how it plays.',
+    '   - Generate a square cover image with the `media` tool, then',
+    '     `game {"action":"set_icon","path":"generated/AIPG_00002_.png"}`.',
+    '   Then tell the user the game is ready to play and can be saved to their library.',
     '',
     '## Pitfalls',
     '',
@@ -56,6 +73,94 @@ const GAME_STUDIO_SKILL: SkillSource = {
   ].join('\n'),
 }
 
+const GAME_INPUT_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['set_metadata', 'set_icon', 'get'],
+      description:
+        'set_metadata: set the title and/or description shown in the library; ' +
+        'set_icon: use a generated image as the cover; get: read the current card.',
+    },
+    name: { type: 'string', description: 'Title of the game (action=set_metadata).' },
+    description: {
+      type: 'string',
+      description: 'One sentence on how the game plays (action=set_metadata).',
+    },
+    path: {
+      type: 'string',
+      description:
+        'Workspace-relative image to use as the cover, e.g. "generated/AIPG_00001_.png" ' +
+        '(action=set_icon).',
+    },
+  },
+  required: ['action'],
+}
+
+type GameToolParams = {
+  action: 'set_metadata' | 'set_icon' | 'get'
+  name?: string
+  description?: string
+  path?: string
+}
+
+async function buildGameTool(host: CapabilityHost): Promise<ToolDefinition[]> {
+  const pi = await loadPi()
+  return [
+    pi.defineTool({
+      name: 'game',
+      label: 'game',
+      description:
+        "Describe the game in this workspace for the user's game library: its title, a " +
+        'one-sentence description, and a cover image you generated. Call it once the game runs.',
+      parameters: jsonSchemaParameters(GAME_INPUT_SCHEMA),
+      execute: async (_toolCallId, params) => {
+        const { action, name, description, path: iconPath } = params as GameToolParams
+        // The workspace IS the game folder for the Game Maker preset. Any other
+        // workspace has no card to write, and saying so is more useful than a
+        // filesystem error.
+        if (!readGame(host.workspaceDir)) {
+          return textResult(
+            'This workspace is not a game folder, so it has no library card. Select the Game ' +
+              'Maker preset to work on a game.',
+          )
+        }
+        switch (action) {
+          case 'set_metadata': {
+            if (!name?.trim() && description === undefined) {
+              return textResult('Provide a name and/or a description.')
+            }
+            const game = updateGame(host.workspaceDir, {
+              ...(name?.trim() ? { name: name.trim() } : {}),
+              ...(description !== undefined ? { description } : {}),
+            })
+            return textResult(`Library card updated: ${game.name} — ${game.description}`)
+          }
+          case 'set_icon': {
+            if (!iconPath) return textResult('Provide the path of the image to use as the cover.')
+            try {
+              const game = setGameIcon(host.workspaceDir, iconPath)
+              return textResult(`Cover image set to ${game.icon}.`)
+            } catch (error) {
+              return textResult(error instanceof Error ? error.message : String(error))
+            }
+          }
+          default: {
+            const game = readGame(host.workspaceDir)
+            return textResult(
+              `name: ${game?.name}\ndescription: ${game?.description || '(none)'}\nicon: ${
+                game?.icon ?? '(none)'
+              }\nsaved to library: ${game?.published ? 'yes' : 'not yet'}`,
+            )
+          }
+        }
+      },
+    }) as ToolDefinition,
+  ]
+}
+
 export const gameStudioCapability: AgentCapability = {
   id: 'game-studio',
   label: 'Game studio',
@@ -64,12 +169,14 @@ export const gameStudioCapability: AgentCapability = {
     'media generation and web debugging.',
   requires: ['media', 'web-debug'],
   skills: [GAME_STUDIO_SKILL],
+  buildTools: buildGameTool,
   // The procedure is written around the `media` tool, so without media workflows
   // it would send the agent after a tool that is not there.
   unavailableReason: (host) =>
     host.toolSpecs.length === 0
       ? 'Needs media generation — install a ComfyUI image workflow first.'
       : undefined,
-  // Nothing to defer: a skills-only capability costs one name + description line.
+  // Nothing worth deferring: a skill costs one name + description line, and the
+  // `game` tool is one small schema the closing step needs anyway.
   lazyEligible: false,
 }

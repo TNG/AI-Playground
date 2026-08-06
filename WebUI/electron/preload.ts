@@ -111,6 +111,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getComfyUiDefaultParameters: () => ipcRenderer.invoke('getComfyUiDefaultParameters'),
   getLlamaCppDefaultParameters: () => ipcRenderer.invoke('getLlamaCppDefaultParameters'),
   detectPhisonSsd: () => ipcRenderer.invoke('detectPhisonSsd') as Promise<{ detected: boolean }>,
+  detectOem: () => ipcRenderer.invoke('detectOem'),
   onServiceSetUpProgress: (callback: (data: SetupProgress) => void) =>
     ipcRenderer.on('serviceSetUpProgress', (_event, value) => callback(value)),
   onServiceInfoUpdate: (callback: (service: ApiServiceInformation) => void) =>
@@ -268,6 +269,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ) => ipcRenderer.on('agentMode:executeTool', (_event, data) => callback(data)),
     submitToolResult: (requestId: string, result: unknown, error?: string) =>
       ipcRenderer.invoke('agentMode:toolResult', requestId, result, error),
+  },
+  games: {
+    list: () => ipcRenderer.invoke('games:list'),
+    read: (dir: string) => ipcRenderer.invoke('games:read', dir),
+    create: (name?: string) => ipcRenderer.invoke('games:create', name),
+    publish: (dir: string, fields: { name?: string; description?: string }) =>
+      ipcRenderer.invoke('games:publish', dir, fields),
+    openFolder: (dir?: string) => ipcRenderer.invoke('games:openFolder', dir),
+    play: (dir: string) => ipcRenderer.invoke('games:play', dir),
+    openHub: () => ipcRenderer.invoke('games:openHub'),
   },
   webBrowser: {
     navigate: (url: string) => ipcRenderer.invoke('webBrowser:navigate', url),

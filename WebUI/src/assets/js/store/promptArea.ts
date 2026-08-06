@@ -1,31 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { MODE_TO_CATEGORIES, MODE_TO_PRESET_TYPE } from '@/lib/presetModes'
 import { usePresetSwitching } from './presetSwitching'
 import { useBackendServices } from './backendServices'
 import { useDialogStore } from './dialogs'
 import { useSetupWizard } from './setupWizard'
-
-/**
- * Maps a mode to its corresponding preset categories.
- */
-const modeToCategories: Record<ModeType, string[]> = {
-  chat: ['chat'],
-  agent: [], // Agent mode has no presets.
-  imageGen: ['create-images'],
-  imageEdit: ['edit-images'],
-  video: ['create-videos'],
-}
-
-/**
- * Maps a mode to its corresponding preset type.
- */
-const modeToPresetType: Record<ModeType, 'chat' | 'comfy'> = {
-  chat: 'chat',
-  agent: 'chat', // Unused: agent mode skips preset switching entirely.
-  imageGen: 'comfy',
-  imageEdit: 'comfy',
-  video: 'comfy',
-}
 
 export const usePromptStore = defineStore('prompt', () => {
   const setupWizard = useSetupWizard()
@@ -75,12 +54,6 @@ export const usePromptStore = defineStore('prompt', () => {
       }
     }
 
-    // Agent mode has no presets — just switch the view.
-    if (mode === 'agent') {
-      currentMode.value = mode
-      return true
-    }
-
     const presetSwitching = usePresetSwitching()
 
     // Set the mode first. This is the genuine foreground path, so also record it
@@ -90,13 +63,13 @@ export const usePromptStore = defineStore('prompt', () => {
 
     if (!options.skipPresetSwitch) {
       // Get categories for this mode
-      const categories = modeToCategories[mode]
-      const presetType = modeToPresetType[mode]
+      const categories = MODE_TO_CATEGORIES[mode]
+      const presetType = MODE_TO_PRESET_TYPE[mode]
 
-      // Switch to last-used preset for this mode using orchestrator
-      presetSwitching.switchToLastUsedForCategory(categories, presetType, {
-        skipModeSwitch: true, // We already set the mode above
-      })
+      // Switch to last-used preset for this mode using orchestrator. The mode is
+      // deliberately NOT pinned here: chat and agent share the chat category, so
+      // the preset that comes back decides which of the two actually renders.
+      presetSwitching.switchToLastUsedForCategory(categories, presetType)
     }
     return true
   }
@@ -141,6 +114,17 @@ export const usePromptStore = defineStore('prompt', () => {
     currentMode.value = mode
   }
 
+  /**
+   * Set the mode a freshly selected preset belongs to. Used by the preset
+   * switching orchestrator on foreground switches: the preset itself may move the
+   * app between Chat and Agent Mode, and that is a deliberate user choice, so
+   * `userSelectedMode` follows (UI such as the status bar reads it).
+   */
+  function setModeForPreset(mode: ModeType) {
+    currentMode.value = mode
+    userSelectedMode.value = mode
+  }
+
   function injectPromptText(text: string) {
     injectedPromptText.value = text
   }
@@ -153,6 +137,7 @@ export const usePromptStore = defineStore('prompt', () => {
     getCurrentMode,
     setCurrentMode,
     setModeOnly,
+    setModeForPreset,
     submitPrompt,
     cancelProcessing,
     registerSubmitCallback,

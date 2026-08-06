@@ -111,7 +111,16 @@ import {
   startAgentTurn,
   submitAgentToolResult,
 } from './agentMode/piAgentManager'
-import { getAudioDir, getMediaDir } from './util.ts'
+import { getAudioDir, getGamesDir, getMediaDir } from './util.ts'
+import {
+  createGame,
+  listGames,
+  provisionalName,
+  publishGame,
+  readGame,
+  writeHub,
+} from './gameLibrary.ts'
+import { detectOem } from './subprocesses/oemDetection.ts'
 import { packagedResourcesRoot, writableConfigRoot } from './aipgRoot.ts'
 import { loadDemoProfile, type DemoProfile } from './demoProfile.ts'
 import type { ModelPaths } from '@/assets/js/store/models.ts'
@@ -374,6 +383,11 @@ const LocalSettingsSchema = z.object({
   preferredDevice: PreferredDeviceSchema.nullable().default(null),
   /** When true, skip hardware probe and treat Phison SSD as detected (optional overlay in userData settings). */
   PhisonSSDdetected: z.boolean().optional().default(false),
+  /**
+   * Pretend the machine came from this OEM ('acer', …) instead of probing the
+   * firmware, so partner branding can be exercised on any dev box.
+   */
+  oemVendorOverride: z.string().nullable().optional().default(null),
 })
 export type LocalSettings = z.infer<typeof LocalSettingsSchema>
 export type ProductMode = z.infer<typeof ProductModeSchema>
@@ -1629,6 +1643,9 @@ function initEventHandle() {
   ipcMain.handle('getComfyUiDefaultParameters', () => COMFYUI_DEFAULT_PARAMETERS)
   ipcMain.handle('getLlamaCppDefaultParameters', () => LLAMACPP_DEFAULT_PARAMETERS)
 
+  // Which OEM's machine this is, for co-branding (see subprocesses/oemDetection.ts).
+  ipcMain.handle('detectOem', () => detectOem(settings.oemVendorOverride))
+
   ipcMain.handle('detectPhisonSsd', async () => {
     if (settings.PhisonSSDdetected) {
       appLoggerInstance.info(
@@ -2660,6 +2677,56 @@ function initEventHandle() {
       submitAgentToolResult(requestId, result, error)
     },
   )
+
+  // Game library (see gameLibrary.ts): the folders the Game Maker preset writes
+  // into, plus the generated gallery page.
+  ipcMain.handle('games:list', () => listGames())
+
+  ipcMain.handle('games:read', (_event, dir: string) => readGame(dir))
+
+  // `name` is the request that started the game, not a title: shorten it to
+  // something that reads as one, until the agent sets a real one.
+  ipcMain.handle('games:create', (_event, name?: string) =>
+    createGame({ name: name ? provisionalName(name) : undefined }),
+  )
+
+  ipcMain.handle(
+    'games:publish',
+    async (_event, dir: string, fields: { name?: string; description?: string }) => {
+      try {
+        const { vendor } = await detectOem(settings.oemVendorOverride)
+        return { success: true, game: publishGame(dir, fields ?? {}, { vendor }) }
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    },
+  )
+
+  // A game's own folder, or the library root when none is given.
+  ipcMain.handle('games:openFolder', (_event, dir?: string) => {
+    const target = dir ?? getGamesDir()
+    fs.mkdirSync(target, { recursive: true })
+    shell.openPath(target)
+  })
+
+  ipcMain.handle('games:play', async (_event, dir: string) => {
+    const game = readGame(dir)
+    if (!game) return { success: false, error: `Not a game folder: ${dir}` }
+    if (!fs.existsSync(game.entryPath)) {
+      return { success: false, error: 'This game has no playable file yet.' }
+    }
+    // The default browser, not an app window: a game is the user's to keep.
+    const error = await shell.openPath(game.entryPath)
+    return error ? { success: false, error } : { success: true }
+  })
+
+  // Regenerated on open so the gallery reflects the library as it is now.
+  ipcMain.handle('games:openHub', async () => {
+    const { vendor } = await detectOem(settings.oemVendorOverride)
+    const { hubPath } = writeHub({ vendor })
+    const error = await shell.openPath(hubPath)
+    return error ? { success: false, error } : { success: true, path: hubPath }
+  })
 
   // Web browser IPC handlers — drives the headless BrowserWindow that the chat
   // LLM uses to browse the web (see subprocesses/webBrowserManager.ts).

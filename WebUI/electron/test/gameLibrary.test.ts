@@ -1,0 +1,236 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
+// gameLibrary reaches Electron only through util.ts's lazy getGamesDir(); every
+// call here passes an explicit root, so the mock just keeps the import graph quiet.
+vi.mock('electron', () => ({ app: { isPackaged: false, getAppPath: () => '/app' } }))
+
+const {
+  createGame,
+  listGames,
+  provisionalName,
+  publishGame,
+  readGame,
+  setGameIcon,
+  slugify,
+  updateGame,
+  writeHub,
+} = await import('../gameLibrary.ts')
+
+let root: string
+
+beforeEach(() => {
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'aipg-games-'))
+})
+
+afterEach(() => {
+  fs.rmSync(root, { recursive: true, force: true })
+})
+
+describe('slugify', () => {
+  it('turns a request into a readable folder name', () => {
+    expect(slugify('Space Dodger')).toBe('space-dodger')
+    expect(slugify('  A one-button, endless RUNNER!  ')).toBe('a-one-button-endless-runner')
+  })
+
+  it('falls back to a generic name when nothing survives', () => {
+    expect(slugify('🎮🎮')).toBe('game')
+    expect(slugify('')).toBe('game')
+  })
+
+  it('stays short enough to read in a file dialog', () => {
+    expect(slugify('a'.repeat(120)).length).toBeLessThanOrEqual(40)
+  })
+
+  it('cuts between words, since the name is often a whole sentence', () => {
+    // The first turn's prompt is the name, so a naive cut leaves half a word.
+    expect(slugify('a one-button endless runner where I dodge asteroids')).toBe(
+      'a-one-button-endless-runner-where-i',
+    )
+  })
+})
+
+describe('provisionalName', () => {
+  it('shortens the request into something that reads as a title', () => {
+    expect(provisionalName('a one-button endless runner where I dodge asteroids')).toBe(
+      'a one-button endless runner where I…',
+    )
+  })
+
+  it('leaves a short request alone', () => {
+    expect(provisionalName('  space dodger  ')).toBe('space dodger')
+  })
+
+  it('falls back when there is nothing to shorten', () => {
+    expect(provisionalName('   ')).toBe('New game')
+  })
+})
+
+describe('createGame', () => {
+  it('writes a draft card into a folder named after the request', () => {
+    const game = createGame({ name: 'Space Dodger' }, root)
+    expect(path.basename(game.dir)).toBe('space-dodger')
+    expect(game.id).toBe('space-dodger')
+    expect(game.published).toBe(false)
+    expect(game.entryPath).toBe(path.join(game.dir, 'index.html'))
+    expect(JSON.parse(fs.readFileSync(path.join(game.dir, 'game.json'), 'utf-8'))).toMatchObject({
+      id: 'space-dodger',
+      name: 'Space Dodger',
+      entry: 'index.html',
+      published: false,
+    })
+  })
+
+  it('gives a second game of the same name its own folder', () => {
+    const first = createGame({ name: 'Space Dodger' }, root)
+    const second = createGame({ name: 'Space Dodger' }, root)
+    expect(second.dir).not.toBe(first.dir)
+    expect(path.basename(second.dir)).toMatch(/^space-dodger-[0-9a-f]{4}$/)
+    expect(fs.existsSync(path.join(first.dir, 'game.json'))).toBe(true)
+  })
+})
+
+describe('readGame', () => {
+  it('reports a folder that is not a game', () => {
+    fs.mkdirSync(path.join(root, 'not-a-game'))
+    expect(readGame(path.join(root, 'not-a-game'))).toBeNull()
+  })
+
+  it('reports a card it cannot parse rather than throwing', () => {
+    const dir = path.join(root, 'broken')
+    fs.mkdirSync(dir)
+    fs.writeFileSync(path.join(dir, 'game.json'), '{ not json')
+    expect(readGame(dir)).toBeNull()
+  })
+})
+
+describe('updateGame', () => {
+  it('keeps fields it was not told about and bumps updatedAt', () => {
+    const game = createGame({ name: 'Draft' }, root)
+    const updated = updateGame(game.dir, { name: 'Space Dodger' })
+    expect(updated.name).toBe('Space Dodger')
+    expect(updated.entry).toBe(game.entry)
+    expect(updated.createdAt).toBe(game.createdAt)
+    expect(updated.updatedAt).toBeGreaterThanOrEqual(game.updatedAt)
+  })
+
+  it('refuses a folder without a card', () => {
+    expect(() => updateGame(path.join(root, 'nope'), { name: 'x' })).toThrow(/Not a game folder/)
+  })
+})
+
+describe('setGameIcon', () => {
+  it('adopts generated art as the cover', () => {
+    const game = createGame({ name: 'Space Dodger' }, root)
+    fs.mkdirSync(path.join(game.dir, 'generated'))
+    fs.writeFileSync(path.join(game.dir, 'generated', 'AIPG_00001_.png'), 'png')
+    const updated = setGameIcon(game.dir, 'generated/AIPG_00001_.png')
+    expect(updated.icon).toBe('icon.png')
+    // Copied, so cleaning up `generated/` cannot take the icon with it.
+    expect(fs.readFileSync(path.join(game.dir, 'icon.png'), 'utf-8')).toBe('png')
+    expect(updated.iconPath).toBe(path.join(game.dir, 'icon.png'))
+  })
+
+  it('rejects a path outside the game folder', () => {
+    const game = createGame({ name: 'Space Dodger' }, root)
+    fs.writeFileSync(path.join(root, 'elsewhere.png'), 'png')
+    expect(() => setGameIcon(game.dir, '../elsewhere.png')).toThrow(/inside the game folder/)
+  })
+
+  it('rejects an icon that does not exist', () => {
+    const game = createGame({ name: 'Space Dodger' }, root)
+    expect(() => setGameIcon(game.dir, 'generated/missing.png')).toThrow(/does not exist/)
+  })
+})
+
+describe('listGames', () => {
+  it('finds games by their cards, ignoring anything else in the folder', () => {
+    const first = createGame({ name: 'First' }, root)
+    createGame({ name: 'Second' }, root)
+    fs.mkdirSync(path.join(root, 'stray-folder'))
+    fs.writeFileSync(path.join(root, 'library.json'), '{}')
+    updateGame(first.dir, { description: 'touched last' })
+
+    const games = listGames(root)
+    expect(games.map((game) => game.id)).toEqual(['first', 'second'])
+    expect(games[0].description).toBe('touched last')
+  })
+
+  it('is empty for a library that does not exist yet', () => {
+    expect(listGames(path.join(root, 'missing'))).toEqual([])
+  })
+})
+
+describe('publishGame and writeHub', () => {
+  it('saves the confirmed name and description into the library', () => {
+    const game = createGame({ name: 'draft name' }, root)
+    const published = publishGame(
+      game.dir,
+      { name: 'Space Dodger', description: 'Dodge asteroids.' },
+      { root },
+    )
+    expect(published).toMatchObject({
+      published: true,
+      name: 'Space Dodger',
+      description: 'Dodge asteroids.',
+    })
+  })
+
+  it('inlines the manifest into a gallery that works without the app', () => {
+    const game = createGame({ name: 'Space Dodger' }, root)
+    fs.writeFileSync(path.join(game.dir, 'index.html'), '<html></html>')
+    publishGame(game.dir, { description: 'Dodge asteroids.' }, { root })
+
+    const hub = fs.readFileSync(path.join(root, 'index.html'), 'utf-8')
+    const inlined = hub.match(/<script type="application\/json" id="library">(.*?)<\/script>/s)
+    expect(inlined, 'gallery carries no inlined manifest').not.toBeNull()
+    expect(JSON.parse(inlined![1])).toEqual([
+      {
+        id: 'space-dodger',
+        name: 'Space Dodger',
+        description: 'Dodge asteroids.',
+        entry: 'space-dodger/index.html',
+        createdAt: expect.any(Number),
+        updatedAt: expect.any(Number),
+      },
+    ])
+    // No fetch of a sibling file, which a file:// page would be refused.
+    expect(hub).not.toMatch(/fetch\(/)
+  })
+
+  it('writes library.json as the stable input for uploading a library', () => {
+    const game = createGame({ name: 'Space Dodger' }, root)
+    publishGame(game.dir, {}, { root, vendor: 'acer' })
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, 'library.json'), 'utf-8'))
+    expect(manifest).toMatchObject({ vendor: 'acer' })
+    expect(manifest.games).toHaveLength(1)
+  })
+
+  it('shows only games the user saved', () => {
+    const saved = createGame({ name: 'Saved' }, root)
+    createGame({ name: 'Draft' }, root)
+    publishGame(saved.dir, {}, { root })
+
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, 'library.json'), 'utf-8'))
+    expect(manifest.games.map((entry: { id: string }) => entry.id)).toEqual(['saved'])
+  })
+
+  it('brands the gallery for Acer only when the machine is one', () => {
+    createGame({ name: 'Space Dodger' }, root)
+    writeHub({ root, vendor: 'acer' })
+    expect(fs.readFileSync(path.join(root, 'index.html'), 'utf-8')).toContain('Acer')
+    writeHub({ root, vendor: 'unknown' })
+    expect(fs.readFileSync(path.join(root, 'index.html'), 'utf-8')).not.toContain('Acer')
+  })
+
+  it('escapes a game name so it cannot break out of the page', () => {
+    const game = createGame({ name: 'Space Dodger' }, root)
+    publishGame(game.dir, { name: '</script><img src=x onerror=alert(1)>' }, { root })
+    const hub = fs.readFileSync(path.join(root, 'index.html'), 'utf-8')
+    // The name is rendered via textContent from the inlined JSON, so the closing
+    // tag must not survive as markup.
+    expect(hub).not.toContain('<img src=x')
+  })
+})

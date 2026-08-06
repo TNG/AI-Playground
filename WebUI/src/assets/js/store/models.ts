@@ -26,6 +26,9 @@ export type Model = {
   toolParser?: string // OVMS --tool_parser override; defaults to 'hermes3'
   supportsVision?: boolean
   supportsReasoning?: boolean
+  // Good enough at writing code to drive a coding preset (Game Maker). Not a
+  // hard capability like vision — a judgement about the model's training.
+  supportsCoding?: boolean
   supportsThinkingToggle?: boolean // Template honors enable_thinking toggle (Qwen3 family, gemma4)
   maxContextSize?: number
   npuSupport?: boolean
@@ -140,6 +143,7 @@ export const useModels = defineStore(
             supportsToolCalling: combinedModel.supportsToolCalling,
             supportsVision: combinedModel.supportsVision ?? (mmproj ? true : undefined),
             supportsReasoning: combinedModel.supportsReasoning,
+            supportsCoding: combinedModel.supportsCoding,
             supportsThinkingToggle: combinedModel.supportsThinkingToggle,
             maxContextSize: combinedModel.maxContextSize,
             npuSupport: combinedModel.npuSupport,

@@ -1,0 +1,19 @@
+{
+  "type": "chat",
+  "category": "chat",
+  "name": "Agent",
+  "description": "Give the model a task and a folder to work in. It writes and runs files, browses its own pages, and can generate images and video along the way.",
+  "displayPriority": 50,
+  "tags": ["Agent", "Coding", "Tools"],
+  "backends": ["llamaCPP", "openVINO"],
+  "agentPreset": true,
+  "agentWorkspace": "pick",
+  "preferredModels": {
+    "openVINO": "OpenVINO/Qwen3.5-9B-int4-ov",
+    "llamaCPP": "unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-Q4_K_M.gguf"
+  },
+  "contextSize": 32768,
+  "maxNewTokens": 4096,
+  "requiresToolCalling": true,
+  "requiredModels": []
+}

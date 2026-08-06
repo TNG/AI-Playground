@@ -1,7 +1,40 @@
 <template>
   <div class="flex flex-col gap-6 p-1">
+    <!-- Same picker as Chat Settings: agent presets are chat presets, so this is how
+         the user gets back to a plain chat preset (and vice versa). -->
+    <PresetSelector
+      type="chat"
+      :model-value="presetsStore.activePresetName || undefined"
+      @update:model-value="handlePresetChange"
+    />
+
+    <!-- Managed workspace: the app owns one folder per game, so there is nothing
+         to pick — only the game to start over with. -->
+    <div v-if="isManagedWorkspace" class="flex flex-col gap-2">
+      <Label class="whitespace-nowrap">Game folder</Label>
+      <div class="flex items-center gap-3">
+        <Button
+          variant="secondary"
+          class="px-3 py-1.5 rounded text-sm"
+          @click="agentMode.newGame()"
+        >
+          New game
+        </Button>
+        <span v-if="agentMode.workspaceDir" class="text-sm text-muted-foreground break-all">
+          {{ agentMode.workspaceDir }}
+        </span>
+        <span v-else class="text-sm text-muted-foreground italic">
+          Created when you describe your first game
+        </span>
+      </div>
+      <p class="text-xs text-muted-foreground">
+        Each game gets its own folder in your game library, and each folder its own session (Show
+        Sessions).
+      </p>
+    </div>
+
     <!-- Workspace folder -->
-    <div class="flex flex-col gap-2">
+    <div v-else class="flex flex-col gap-2">
       <Label class="whitespace-nowrap">Workspace folder</Label>
       <div class="flex items-center gap-3">
         <Button variant="secondary" class="px-3 py-1.5 rounded text-sm" @click="pickFolder">
@@ -18,7 +51,7 @@
     </div>
 
     <!-- Shell sandbox (per-workspace opt-in) -->
-    <div class="flex flex-col gap-2">
+    <div v-if="!isManagedWorkspace" class="flex flex-col gap-2">
       <Label class="whitespace-nowrap">Shell</Label>
       <label class="flex items-start gap-2 text-sm">
         <input
@@ -73,12 +106,14 @@
     </div>
     <div class="grid grid-cols-[120px_1fr] items-center gap-4">
       <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
-      <drop-down-new
-        title="Select Model"
-        :value="activeModelName"
-        :items="modelItems"
-        @change="(value: string) => textInference.selectModel(textInference.backend, value)"
-      ></drop-down-new>
+      <!-- Same picker as Chat Settings, so an agent preset's requirements (tool
+           calling, and coding for Game Maker) filter the list here too. -->
+      <div class="flex items-center gap-2 min-w-0">
+        <div class="flex-1 min-w-0">
+          <ModelSelector />
+        </div>
+        <CapabilityIcons v-if="currentModel" :model="currentModel" />
+      </div>
     </div>
     <div
       v-if="textInference.contextSizeSettingSupported"
@@ -220,6 +255,8 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import DropDownNew from '@/components/DropDownNew.vue'
 import DeviceSelector from '@/components/DeviceSelector.vue'
+import ModelSelector from '@/components/ModelSelector.vue'
+import CapabilityIcons from '@/components/CapabilityIcons.vue'
 import {
   backendToService,
   type LlmBackend,
@@ -233,8 +270,14 @@ import { useProductMode } from '@/assets/js/store/productMode'
 import { useMcp } from '@/assets/js/store/mcp'
 import { getAgentToolSpecs } from '@/assets/js/tools/agentBridge'
 import ProviderSelector from '@/components/ProviderSelector.vue'
+import PresetSelector from '@/components/PresetSelector.vue'
+import { usePresets } from '@/assets/js/store/presets'
+import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
+import * as toast from '@/assets/js/toast'
 
 const agentMode = useAgentMode()
+const presetsStore = usePresets()
+const presetSwitching = usePresetSwitching()
 const textInference = useTextInference()
 const backendServices = useBackendServices()
 const cloudMode = useCloudMode()
@@ -265,6 +308,10 @@ onMounted(async () => {
   })
 })
 
+// Game Maker's folders are the app's to create, and they stay sandboxed: a game is
+// plain HTML with no build step, so a real shell would only add risk.
+const isManagedWorkspace = computed(() => agentMode.agentWorkspaceKind === 'games')
+
 function mcpCapabilityId(serverId: string): string {
   return `mcp:${serverId}`
 }
@@ -291,11 +338,13 @@ const deviceServiceName = computed(
   () => backendToService[textInference.backend] ?? 'llamacpp-backend',
 )
 
-// Mirrors SettingsChat's availableBackends, minus preset gating (agent mode
-// has no presets): local backends, filtered by product mode, plus Cloud Mode
-// when its feature flag is on.
+// Mirrors SettingsChat's availableBackends: the preset's backends, filtered by
+// product mode, plus Cloud Mode when its feature flag is on.
 const availableBackends = computed<LlmBackend[]>(() => {
-  let base: LlmBackend[] = ['llamaCPP', 'openVINO']
+  const preset = agentMode.activeAgentPreset
+  let base: LlmBackend[] = (preset?.backends as LlmBackend[] | undefined)?.filter(
+    (b) => b !== 'cloud',
+  ) ?? ['llamaCPP', 'openVINO']
   if (productModeStore.productMode === 'nvidia') {
     base = base.filter((b) => b !== 'openVINO')
   }
@@ -330,26 +379,22 @@ function handleBackendChange(newBackend: string) {
   }
 }
 
-// Unlike ModelSelector.vue this deliberately skips chat-preset capability
-// filtering (and its auto-select watcher): agent mode has no presets, and the
-// last active chat preset must not constrain or silently switch the model.
-const modelItems = computed(() =>
-  textInference.llmModels
-    .filter((m) => m.type === textInference.backend)
-    .map((m) => ({
-      label: m.name.split('/').at(-1) ?? m.name,
-      value: m.name,
-      active: m.downloaded,
-    })),
-)
-
-const activeModelName = computed(
-  () =>
-    textInference.llmModels.filter((m) => m.type === textInference.backend).find((m) => m.active)
-      ?.name ?? '',
+// Active model (capabilities) for the icon row next to the selector — same source
+// as SettingsChat / PromptStatusBar.
+const currentModel = computed(() =>
+  textInference.llmModels.find((m) => m.active && m.type === textInference.backend),
 )
 
 async function pickFolder() {
   await agentMode.pickWorkspaceFolder()
+}
+
+async function handlePresetChange(presetName: string) {
+  const result = await presetSwitching.switchPreset(presetName)
+  if (result.success) {
+    toast.success(`Switched to ${presetName}`)
+  } else if (result.error) {
+    toast.error(`Failed to switch preset: ${result.error}`)
+  }
 }
 </script>

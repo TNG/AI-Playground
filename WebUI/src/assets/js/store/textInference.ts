@@ -14,6 +14,7 @@ import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import * as toast from '@/assets/js/toast.ts'
 import { useActivities } from './activities'
 import { useI18N } from './i18n'
+import { useModelPreferences } from './modelPreferences'
 
 const LlmBackendSchema = z.enum(llmBackendTypes)
 export type LlmBackend = z.infer<typeof LlmBackendSchema>
@@ -41,7 +42,16 @@ export type LlmModel = {
   npuSupport?: boolean
   largeMoe?: boolean
   isPredefined?: boolean
+  /** User preference from `store/modelPreferences.ts`; applied by pickers, not here. */
+  hidden?: boolean
+  favorite?: boolean
 }
+
+/**
+ * Cloud model ids are remote and have no model directory, but hiding one should
+ * still work, so their preferences are keyed under this synthetic path key.
+ */
+export const CLOUD_MODEL_PATH_KEY = 'cloud'
 
 export type ValidFileExtension = 'txt' | 'doc' | 'docx' | 'md' | 'pdf'
 
@@ -118,6 +128,7 @@ export const useTextInference = defineStore(
     const cloudMode = useCloudMode()
     const conversations = useConversations()
     const activities = useActivities()
+    const modelPreferences = useModelPreferences()
     const i18nState = useI18N().state
     // Tracks the in-flight backend-preparation activity (begin/end are paired with
     // start/completeBackendPreparation).
@@ -189,6 +200,12 @@ export const useTextInference = defineStore(
           npuSupport: m.npuSupport,
           largeMoe: m.largeMoe,
           isPredefined: m.isPredefined,
+          // Carried, never filtered here: this list also resolves `activeModel`,
+          // the capability computeds and the download params, so dropping hidden
+          // models would break inference for anyone who hides their selection.
+          // Pickers filter via `models/visibility.ts` instead.
+          hidden: m.hidden,
+          favorite: m.favorite,
         }
       })
 
@@ -227,6 +244,9 @@ export const useTextInference = defineStore(
             npuSupport: undefined,
             largeMoe: undefined,
             isPredefined: false,
+            // Cloud model ids have no path key of their own; they are keyed under
+            // the chat path key so hiding a noisy provider entry works too.
+            ...modelPreferences.flagsFor(CLOUD_MODEL_PATH_KEY, name),
           })
         })
       }
@@ -261,6 +281,8 @@ export const useTextInference = defineStore(
           downloaded: m.downloaded ?? false,
           active:
             m.name === selectedEmbeddingModelForType || (!hasValidSelection && isFirstForBackend),
+          hidden: m.hidden,
+          favorite: m.favorite,
         }
       })
 

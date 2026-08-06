@@ -206,20 +206,8 @@
           <drop-down-new
             :title="languages.RAG_DOCUMENT_EMBEDDING_MODEL"
             @change="(item) => textInference.selectEmbeddingModel(textInference.backend, item)"
-            :value="
-              textInference.llmEmbeddingModels
-                .filter((m) => m.type === textInference.backend)
-                .find((m) => m.active)?.name ?? ''
-            "
-            :items="
-              textInference.llmEmbeddingModels
-                .filter((m) => m.type === textInference.backend)
-                .map((item) => ({
-                  label: item.name.split('/').at(-1) ?? item.name,
-                  value: item.name,
-                  active: item.downloaded,
-                }))
-            "
+            :value="activeEmbeddingModelName"
+            :items="embeddingModelItems"
           ></drop-down-new>
         </div>
 
@@ -284,6 +272,7 @@ import { useProductMode } from '@/assets/js/store/productMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
+import { isVisibleInPicker, sortFavoritesFirst } from '@/assets/js/models/visibility'
 
 const showModelRequestDialog = ref(false)
 const showUploader = ref(false)
@@ -327,6 +316,27 @@ const isTtsPreset = computed(() => activeChatPreset.value?.ttsPreset === true)
 // source as ModelSelector / PromptStatusBar.
 const currentModel = computed(() =>
   textInference.llmModels.find((m) => m.active && m.type === textInference.backend),
+)
+
+const activeEmbeddingModelName = computed(
+  () =>
+    textInference.llmEmbeddingModels
+      .filter((m) => m.type === textInference.backend)
+      .find((m) => m.active)?.name ?? '',
+)
+
+// Same treatment as the chat model picker: models hidden in Model Management drop
+// out, favorites float to the top, and the current selection always stays.
+const embeddingModelItems = computed(() =>
+  sortFavoritesFirst(
+    textInference.llmEmbeddingModels.filter((m) => m.type === textInference.backend),
+  )
+    .filter((m) => isVisibleInPicker(m, { selected: activeEmbeddingModelName.value }))
+    .map((item) => ({
+      label: item.name.split('/').at(-1) ?? item.name,
+      value: item.name,
+      active: item.downloaded,
+    })),
 )
 
 // UI visibility flags from preset

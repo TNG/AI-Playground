@@ -1476,6 +1476,60 @@ function initEventHandle() {
     return pathsManager.scanComfyUIModels(modelType)
   })
 
+  ipcMain.handle('scanModelLibrary', (_event) => {
+    return pathsManager.scanModelLibrary()
+  })
+
+  ipcMain.handle('showModelInFolder', (_event, modelPath: string) => {
+    const resolved = pathsManager.resolveModelPath(modelPath)
+    if ('error' in resolved) {
+      return { success: false, error: resolved.error }
+    }
+    if (process.platform === 'win32') {
+      exec(`explorer.exe /select, "${resolved.path}"`)
+    } else {
+      shell.showItemInFolder(resolved.path)
+    }
+    return { success: true }
+  })
+
+  // Permanent deletion, deliberately not a move to trash: freeing the disk space
+  // immediately is the reason a user deletes a model. Every path is validated
+  // against the configured model directories first — see resolveModelPath.
+  ipcMain.handle('deleteModelPath', (_event, modelPath: string) => {
+    const resolved = pathsManager.resolveModelPath(modelPath)
+    if ('error' in resolved) {
+      return { success: false, error: resolved.error }
+    }
+    try {
+      // No `force`: a path that vanished should be reported, not silently
+      // treated as a successful delete.
+      fs.rmSync(resolved.path, { recursive: true })
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+
+    const comfyService = serviceRegistry?.getService('comfyui-backend') as
+      | ComfyUiBackendService
+      | undefined
+    const comfyUiModelsRoot = comfyService?.serviceDir
+      ? path.join(comfyService.serviceDir, 'models')
+      : undefined
+    for (const mirror of pathsManager.mirroredModelPaths(resolved.path, comfyUiModelsRoot)) {
+      try {
+        fs.rmSync(mirror, { recursive: true, force: true })
+      } catch (error) {
+        // The primary copy is already gone; a failed mirror cleanup is worth a
+        // log but must not report the delete as failed.
+        appLogger.warn(
+          `Could not remove mirrored model copy ${mirror}: ${error}`,
+          'electron-backend',
+        )
+      }
+    }
+    return { success: true }
+  })
+
   ipcMain.handle('getPlatform', () => process.platform)
 
   ipcMain.handle('addDocumentToRAGList', (_event, document: IndexedDocument) => {

@@ -10,10 +10,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { ChevronDownIcon, MagnifyingGlassIcon } from '@heroicons/vue/24/solid'
+import { ChevronDownIcon, MagnifyingGlassIcon, StarIcon } from '@heroicons/vue/24/solid'
 import ModelCapabilities from './ModelCapabilities.vue'
 import CapabilityIcons from './CapabilityIcons.vue'
 import { modelHasCapability, type CapabilityKey } from '@/assets/js/capabilities'
+import { isVisibleInPicker, sortFavoritesFirst } from '@/assets/js/models/visibility'
 
 const textInference = useTextInference()
 const presetsStore = usePresets()
@@ -65,8 +66,12 @@ const items = computed(() => {
   }
   const searchLc = search.value.trim().toLowerCase()
 
-  return textInference.llmModels
-    .filter((m) => m.type === textInference.backend)
+  return sortFavoritesFirst(
+    textInference.llmModels.filter((m) => m.type === textInference.backend),
+  )
+    // Models the user hid in Model Management. The current selection is never
+    // hidden away — that would strand it with no way to switch back.
+    .filter((m) => isVisibleInPicker(m, { selected: value.value }))
     .filter((m) => {
       // Case-insensitive substring search on the visible label (last path segment).
       // Applied to every backend, including cloud.
@@ -135,6 +140,9 @@ const items = computed(() => {
       supportsReasoning: item.supportsReasoning,
       maxContextSize: item.maxContextSize,
       npuSupport: item.npuSupport,
+      favorite: item.favorite === true,
+      // Only ever true for the selected model, which stays listed on purpose.
+      hidden: item.hidden === true,
     }))
 })
 
@@ -232,7 +240,15 @@ watchEffect(() => {
               class="w-2 h-2 rounded-full mr-2 shrink-0"
               :class="item.active ? 'bg-primary' : 'bg-muted-foreground'"
             ></div>
+            <StarIcon v-if="item.favorite" class="size-3 mr-1.5 shrink-0 text-primary" />
             <span class="flex-1 truncate">{{ item.label }}</span>
+            <span
+              v-if="item.hidden"
+              class="ml-2 shrink-0 rounded border border-border px-1 text-[10px] text-muted-foreground"
+              :title="languages.MODEL_MANAGER_HIDDEN_SELECTED_HINT"
+            >
+              {{ languages.MODEL_MANAGER_HIDDEN }}
+            </span>
             <div class="flex gap-1 ml-2 shrink-0">
               <CapabilityIcons
                 :model="{

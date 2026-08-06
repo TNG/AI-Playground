@@ -8,6 +8,9 @@ import { useErrors } from './errors'
 import { createAppError } from '../errors/appError'
 import { useBackendServices } from './backendServices'
 import { usePresets, presetRequiresUserPrompt, type ComfyInput } from './presets'
+import { useModelPreferences } from './modelPreferences'
+import { canonicalPathKey } from '../models/library'
+import { filterVisibleNames } from '../models/visibility'
 
 /** Convert requiredModels "repo/path/file.safetensors" to ComfyUI format "repo---path\\file.safetensors" */
 function requiredModelToComfyUIName(modelPath: string): string {
@@ -174,6 +177,7 @@ export const useImageGenerationPresets = defineStore(
     const errors = useErrors()
     const i18nState = useI18N().state
     const homeAgent = useHomeAgent()
+    const modelPreferences = useModelPreferences()
 
     const activePreset = computed(() => {
       console.log('### activePreset', presetsStore.activePresetWithVariant)
@@ -362,6 +366,21 @@ export const useImageGenerationPresets = defineStore(
       const optionalModelTypes = new Set(
         modelInputs.filter((s) => s.optional === true).map((s) => s.modelType),
       )
+      // Whatever each model input currently points at, so hiding a model can
+      // never blank out a live selection.
+      const settingsKey = getSettingsKey()
+      const selectedByModelType = new Map<string, string[]>()
+      for (const input of modelInputs) {
+        const raw = settingsKey
+          ? (comfyInputsPerPreset.value[settingsKey]?.[`${input.nodeTitle}.${input.nodeInput}`] ??
+            input.defaultValue)
+          : input.defaultValue
+        if (typeof raw !== 'string' || !raw) continue
+        const existing = selectedByModelType.get(input.modelType) ?? []
+        existing.push(normalizeComfyUIModelName(raw))
+        selectedByModelType.set(input.modelType, existing)
+      }
+
       const nextOptions: Record<string, string[]> = {}
       for (const modelType of modelTypes) {
         let fromDisk: string[] = []
@@ -377,6 +396,15 @@ export const useImageGenerationPresets = defineStore(
         const normalizedRequired = fromRequired.map(normalizeComfyUIModelName)
         const normalizedDisk = fromDisk.map(normalizeComfyUIModelName)
         let merged = [...new Set([...normalizedRequired, ...normalizedDisk])]
+        // Drop models hidden in Model Management, but never one this preset
+        // requires: hiding is a presentation preference and must not break a
+        // generation. The current value stays too, so a hidden selection can
+        // still be seen and changed.
+        merged = filterVisibleNames(
+          merged,
+          (name) => modelPreferences.isHidden(canonicalPathKey(modelType), name),
+          [...normalizedRequired, ...(selectedByModelType.get(modelType) ?? [])],
+        )
         if (optionalModelTypes.has(modelType)) {
           merged = [OPTIONAL_MODEL_NONE, ...merged]
         }

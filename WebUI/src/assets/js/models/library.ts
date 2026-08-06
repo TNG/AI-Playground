@@ -1,0 +1,386 @@
+// Pure derivation, filtering and sorting for the model library. No Pinia, no
+// Vue: everything here is a plain function over plain data so the behaviour the
+// management view depends on can be unit-tested directly.
+import { type CapabilityKey, modelHasCapability } from '../capabilities'
+import { hasCapabilityOverrides, mergeCapabilities } from './overrides'
+import {
+  type ModelCapabilityValues,
+  type ModelEntry,
+  type ModelServiceBackend,
+  type ModelUseCase,
+  type ScannedModel,
+} from './types'
+
+/**
+ * Downloaded models are stored with `/` replaced by `---` (see
+ * `service/utils.py`), sometimes only in the repo root (`owner---repo/file.gguf`)
+ * and sometimes throughout (`owner---repo---file.onnx`), and with OS path
+ * separators that differ per platform. Collapsing all of those to `/` gives one
+ * key that a catalog name and its on-disk form both reduce to, which is how a
+ * scanned file is matched to its catalog entry.
+ */
+export function normalizeModelKey(name: string): string {
+  return name
+    .replace(/\\/g, '/')
+    .replace(/---/g, '/')
+    .replace(/\/+/g, '/')
+    .replace(/^\/|\/$/g, '')
+    .toLowerCase()
+}
+
+/** Stable row identity. The same file name can exist under two path keys. */
+export function modelEntryId(pathKey: string, name: string): string {
+  return `${pathKey}:${normalizeModelKey(name)}`
+}
+
+/** What the pickers already display: the last path segment. */
+export function modelLabel(name: string): string {
+  return name.split('/').at(-1) ?? name
+}
+
+/** Human-readable form of an on-disk name (`---` and separators become `/`). */
+export function readableModelName(name: string): string {
+  return name.replace(/\\/g, '/').replace(/---/g, '/')
+}
+
+/**
+ * `model_config.json` and the presets both carry historical aliases for the same
+ * directory (`loras`/`lora`, `checkpoint`/`checkpoints`). Canonicalising avoids
+ * listing one file twice under two path keys.
+ */
+export function canonicalPathKey(pathKey: string): string {
+  if (pathKey === 'loras') return 'lora'
+  if (pathKey === 'checkpoint') return 'checkpoints'
+  return pathKey
+}
+
+/** Chat-store model type + backend mapped onto a scan/download path key. */
+export function pathKeyForCatalogModel(
+  type: string,
+  backend: string | undefined,
+): { pathKey: string; useCase: ModelUseCase; serviceBackend: ModelServiceBackend } | undefined {
+  if (type === 'llamaCPP') {
+    return { pathKey: 'ggufLLM', useCase: 'llm', serviceBackend: 'llama_cpp' }
+  }
+  if (type === 'openVINO') {
+    return { pathKey: 'openvinoLLM', useCase: 'llm', serviceBackend: 'openvino' }
+  }
+  if (type === 'embedding') {
+    // The embedding directory has one sub-directory per backend, so an embedding
+    // model without a backend can't be placed and is not actionable here.
+    if (backend === 'llamaCPP') {
+      return { pathKey: 'embedding', useCase: 'embedding', serviceBackend: 'llama_cpp' }
+    }
+    if (backend === 'openVINO') {
+      return { pathKey: 'embedding', useCase: 'embedding', serviceBackend: 'openvino' }
+    }
+  }
+  // 'cloud' models are remote and 'undefined' ones can't be placed on disk.
+  return undefined
+}
+
+/** The `models.ts` shape this module consumes, kept structural to avoid a store import. */
+export type CatalogModelInput = ModelCapabilityValues & {
+  name: string
+  type: string
+  backend?: string
+  downloaded: boolean
+  isPredefined?: boolean
+}
+
+export type RequiredModelInput = {
+  presetName: string
+  type: string
+  model: string
+  additionalLicenceLink?: string
+}
+
+export type ModelPreferencesInput = {
+  hidden?: boolean
+  favorite?: boolean
+  capabilities?: Partial<ModelCapabilityValues>
+}
+
+export type BuildEntriesInput = {
+  /** LLM + embedding models from `store/models.ts` (already merged and downloaded-checked). */
+  catalogModels: CatalogModelInput[]
+  /** Everything found on disk, from the `scanModelLibrary` IPC. */
+  scanned: ScannedModel[]
+  /** Flattened `requiredModels` across all presets — the media catalog. */
+  requiredModels: RequiredModelInput[]
+  /** User preferences keyed by `ModelEntry.id`. */
+  preferences: Record<string, ModelPreferencesInput>
+}
+
+type ScanIndex = Map<string, ScannedModel>
+
+function indexScan(scanned: ScannedModel[]): ScanIndex {
+  const index: ScanIndex = new Map()
+  for (const model of scanned) {
+    const id = modelEntryId(canonicalPathKey(model.pathKey), model.name)
+    // A model can appear twice when two path-key aliases point at one directory;
+    // the first hit wins so the row stays stable across scans.
+    if (!index.has(id)) index.set(id, model)
+  }
+  return index
+}
+
+/**
+ * Build the unified row list.
+ *
+ * LLM and embedding rows come from the chat catalog, which already computes
+ * `downloaded` correctly, and are only *enriched* with size/mtime/path from the
+ * scan. Media and speech rows are built from the scan plus preset
+ * `requiredModels`, since no catalog file describes them.
+ */
+export function buildEntries(input: BuildEntriesInput): ModelEntry[] {
+  const scanIndex = indexScan(input.scanned)
+  const entries: ModelEntry[] = []
+  const seen = new Set<string>()
+
+  const requiredByPresets = new Map<string, string[]>()
+  const requiredMeta = new Map<string, RequiredModelInput>()
+  for (const required of input.requiredModels) {
+    const id = modelEntryId(canonicalPathKey(required.type), required.model)
+    const presets = requiredByPresets.get(id) ?? []
+    if (!presets.includes(required.presetName)) presets.push(required.presetName)
+    requiredByPresets.set(id, presets)
+    if (!requiredMeta.has(id)) requiredMeta.set(id, required)
+  }
+
+  const push = (
+    entry: Omit<
+      ModelEntry,
+      | 'id'
+      | 'label'
+      | 'hidden'
+      | 'favorite'
+      | 'capabilities'
+      | 'hasCapabilityOverrides'
+      | 'requiredByPresets'
+    > & {
+      baseCapabilities: ModelCapabilityValues
+    },
+  ) => {
+    const id = modelEntryId(entry.pathKey, entry.name)
+    if (seen.has(id)) return
+    seen.add(id)
+    const preferences = input.preferences[id]
+    const { baseCapabilities, ...rest } = entry
+    entries.push({
+      ...rest,
+      id,
+      label: modelLabel(entry.name),
+      capabilities: mergeCapabilities(baseCapabilities, preferences?.capabilities),
+      hasCapabilityOverrides: hasCapabilityOverrides(preferences?.capabilities),
+      hidden: preferences?.hidden === true,
+      favorite: preferences?.favorite === true,
+      requiredByPresets: requiredByPresets.get(id) ?? [],
+    })
+  }
+
+  for (const model of input.catalogModels) {
+    const placement = pathKeyForCatalogModel(model.type, model.backend)
+    if (!placement) continue
+    const id = modelEntryId(placement.pathKey, model.name)
+    const onDisk = scanIndex.get(id)
+    push({
+      name: model.name,
+      useCase: placement.useCase,
+      pathKey: placement.pathKey,
+      serviceBackend: placement.serviceBackend,
+      source: model.isPredefined ? 'catalog' : model.downloaded ? 'disk' : 'custom',
+      downloaded: model.downloaded,
+      absolutePath: onDisk?.absolutePath,
+      sizeBytes: onDisk?.sizeBytes,
+      modifiedAt: onDisk?.modifiedAt,
+      isDirectory: onDisk?.isDirectory,
+      baseCapabilities: {
+        mmproj: model.mmproj,
+        supportsToolCalling: model.supportsToolCalling,
+        toolParser: model.toolParser,
+        supportsVision: model.supportsVision,
+        supportsReasoning: model.supportsReasoning,
+        supportsThinkingToggle: model.supportsThinkingToggle,
+        maxContextSize: model.maxContextSize,
+        npuSupport: model.npuSupport,
+        largeMoe: model.largeMoe,
+      },
+    })
+  }
+
+  // Media/speech models present on disk. LLM/embedding path keys are skipped
+  // because the chat catalog above already covers them (including models found
+  // only on disk, which it merges in as non-predefined entries).
+  for (const model of input.scanned) {
+    if (model.useCase === 'llm' || model.useCase === 'embedding') continue
+    const pathKey = canonicalPathKey(model.pathKey)
+    const id = modelEntryId(pathKey, model.name)
+    push({
+      name: requiredMeta.get(id)?.model ?? readableModelName(model.name),
+      useCase: model.useCase,
+      pathKey,
+      serviceBackend: model.serviceBackend,
+      source: requiredMeta.has(id) ? 'catalog' : 'disk',
+      downloaded: true,
+      absolutePath: model.absolutePath,
+      sizeBytes: model.sizeBytes,
+      modifiedAt: model.modifiedAt,
+      isDirectory: model.isDirectory,
+      additionalLicenseLink: requiredMeta.get(id)?.additionalLicenceLink,
+      baseCapabilities: {},
+    })
+  }
+
+  // Media models a preset needs but which aren't on disk yet — the downloadable
+  // side of the media catalog.
+  for (const [id, required] of requiredMeta) {
+    if (seen.has(id)) continue
+    const pathKey = canonicalPathKey(required.type)
+    push({
+      name: required.model,
+      useCase: 'media',
+      pathKey,
+      serviceBackend: 'comfyui',
+      source: 'catalog',
+      downloaded: false,
+      additionalLicenseLink: required.additionalLicenceLink,
+      baseCapabilities: {},
+    })
+  }
+
+  return entries
+}
+
+export type ModelDownloadState = 'all' | 'downloaded' | 'notDownloaded'
+
+export type ModelLibraryFilters = {
+  search: string
+  useCase: ModelUseCase | 'all'
+  backend: ModelServiceBackend | 'all'
+  capabilities: CapabilityKey[]
+  downloadState: ModelDownloadState
+  showHidden: boolean
+}
+
+export const DEFAULT_FILTERS: ModelLibraryFilters = {
+  search: '',
+  useCase: 'all',
+  backend: 'all',
+  capabilities: [],
+  downloadState: 'all',
+  showHidden: false,
+}
+
+/**
+ * Same search semantics as the chat model picker: case-insensitive substring on
+ * the visible label, so a user's muscle memory carries over between the two.
+ */
+export function matchesSearch(entry: ModelEntry, search: string): boolean {
+  const needle = search.trim().toLowerCase()
+  if (!needle) return true
+  return entry.label.toLowerCase().includes(needle)
+}
+
+export function filterEntries(
+  entries: ModelEntry[],
+  filters: ModelLibraryFilters,
+  options: { alwaysInclude?: ReadonlySet<string> } = {},
+): ModelEntry[] {
+  return entries.filter((entry) => {
+    if (options.alwaysInclude?.has(entry.id)) return true
+    if (!filters.showHidden && entry.hidden) return false
+    if (filters.useCase !== 'all' && entry.useCase !== filters.useCase) return false
+    if (filters.backend !== 'all' && entry.serviceBackend !== filters.backend) return false
+    if (filters.downloadState === 'downloaded' && !entry.downloaded) return false
+    if (filters.downloadState === 'notDownloaded' && entry.downloaded) return false
+    if (!matchesSearch(entry, filters.search)) return false
+    // AND across selected capabilities; deselected ones don't filter — matching
+    // the model picker's capability row.
+    for (const key of filters.capabilities) {
+      if (!modelHasCapability(entry.capabilities, key)) return false
+    }
+    return true
+  })
+}
+
+export type ModelSortKey = 'name' | 'size' | 'modified'
+export type ModelSortDirection = 'asc' | 'desc'
+
+export type ModelSort = {
+  key: ModelSortKey
+  direction: ModelSortDirection
+}
+
+export const DEFAULT_SORT: ModelSort = { key: 'name', direction: 'asc' }
+
+/**
+ * Favorites are always pinned to the top, then the chosen column, then models on
+ * disk before ones that still need downloading, then name as a stable tiebreak.
+ */
+export function sortEntries(entries: ModelEntry[], sort: ModelSort): ModelEntry[] {
+  const factor = sort.direction === 'asc' ? 1 : -1
+  return [...entries].sort((a, b) => {
+    if (a.favorite !== b.favorite) return a.favorite ? -1 : 1
+    if (sort.key === 'size') {
+      const diff = (a.sizeBytes ?? -1) - (b.sizeBytes ?? -1)
+      if (diff !== 0) return diff * factor
+    } else if (sort.key === 'modified') {
+      const diff = (a.modifiedAt ?? -1) - (b.modifiedAt ?? -1)
+      if (diff !== 0) return diff * factor
+    }
+    if (a.downloaded !== b.downloaded) return a.downloaded ? -1 : 1
+    return a.label.localeCompare(b.label) * (sort.key === 'name' ? factor : 1)
+  })
+}
+
+export function countByUseCase(entries: ModelEntry[]): Record<ModelUseCase | 'all', number> {
+  const counts: Record<ModelUseCase | 'all', number> = {
+    all: 0,
+    llm: 0,
+    embedding: 0,
+    media: 0,
+    speech: 0,
+  }
+  for (const entry of entries) {
+    counts.all += 1
+    counts[entry.useCase] += 1
+  }
+  return counts
+}
+
+const SIZE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB']
+
+export function formatBytes(bytes: number | undefined): string {
+  if (bytes === undefined) return '—'
+  if (bytes === 0) return '0 B'
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), SIZE_UNITS.length - 1)
+  const value = bytes / 1024 ** exponent
+  return `${value.toFixed(value >= 10 || exponent === 0 ? 0 : 1)} ${SIZE_UNITS[exponent]}`
+}
+
+export function formatModifiedAt(modifiedAt: number | undefined, now = Date.now()): string {
+  if (modifiedAt === undefined) return '—'
+  const seconds = Math.max(0, Math.round((now - modifiedAt) / 1000))
+  if (seconds < 60) return 'just now'
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.round(hours / 24)
+  if (days < 31) return `${days}d ago`
+  return new Date(modifiedAt).toLocaleDateString()
+}
+
+export const USE_CASE_LABELS: Record<ModelUseCase, string> = {
+  llm: 'LLM',
+  embedding: 'Embedding',
+  media: 'Media creation',
+  speech: 'Speech',
+}
+
+export const BACKEND_LABELS: Record<ModelServiceBackend, string> = {
+  llama_cpp: 'Llama.cpp',
+  openvino: 'OpenVINO',
+  comfyui: 'ComfyUI',
+}

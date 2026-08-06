@@ -12,9 +12,10 @@ All renderer paths below are relative to `WebUI/src/`, all main-process paths to
 1. One row type, `ModelEntry`, unifies the three model universes that exist today (LLM/embedding in
    the `models` store, media models in `imageGenerationPresets`, speech models in the STT/TTS stores).
 2. A new `modelPreferences` store adds the missing user layer — hidden, favorite, capability
-   overrides — as the top-precedence override on any model, whatever its source.
+   overrides — as the top-precedence override on any model, whatever its source. `hidden` applies to
+   every picker and to the Home Agent tools, but deliberately never to model *resolution*.
 3. Three new main-process capabilities: a scan that also reports size / mtime / absolute path, reveal
-   in file manager, and a path-guarded delete.
+   in file manager, and a permanent, path-guarded delete.
 4. A full-screen `ModelManager.vue` view on top of that, which reuses the existing (already
    multi-model) `DownloadDialog` for both single and batch downloads.
 
@@ -31,7 +32,7 @@ The target is a single place where a user can see **every** model the app knows 
 | Interaction | Applies to |
 |---|---|
 | Show in folder | downloaded models |
-| Delete from disk | downloaded models |
+| Delete from disk (permanent, with a warning) | downloaded models |
 | Hide from the model picker | any model |
 | Favorite (sorts to top) | any model |
 | Edit capabilities | LLM models (vision / reasoning / tools / thinking toggle / NPU / context) |
@@ -314,15 +315,24 @@ per type.
 (`explorer.exe /select,` on Windows, `shell.showItemInFolder` elsewhere), with the same containment
 guard as (c).
 
-**(c) `deleteModelPath(absolutePath)`** — returns `{ success, error? }` per the IPC convention:
+**(c) `deleteModelPath(absolutePath)`** — a **hard delete** (`fs.rm`), not a move to trash, so the
+disk space is reclaimed immediately, which is normally the whole point of deleting a model. Returns
+`{ success, error? }` per the IPC convention:
 
 1. Resolve with `fs.realpathSync` and require the result to sit inside one of
    `pathsManager.modelPaths` (reject `..`, symlink escapes, and the model root itself).
 2. Refuse when `!pathsManager.isModelDirWritable()`.
-3. Prefer `shell.trashItem()` — recoverable, unlike LM Studio's hard delete. Fall back to
-   `fs.rm({ recursive: true })` only when trashing is unavailable, and tell the user which happened.
+3. `fs.rm(resolved, { recursive: true })` — no `force`, so a vanished path is an error the UI can
+   report rather than a silent success.
 4. Also remove the mirrored ComfyUI copy for `faceswap` / `facerestore` (see [§3](#3-constraints-discovered-while-surveying-these-shape-the-design)); the copy locations are a
    short explicit table, covered by a unit test.
+
+Because the deletion is irreversible, the guard in step 1 is the single most important piece of code
+in this feature — it is what stands between a mis-derived path and a user's unrelated files. It gets
+its own test file, and the renderer only ever passes it a path that came from a scan
+([§3](#3-constraints-discovered-while-surveying-these-shape-the-design)). The confirmation dialog
+warns explicitly that the files are removed permanently, not trashed
+([§5.4](#54-row-actions)).
 
 ### 4.5 Reuse, not reinvention
 
@@ -416,10 +426,21 @@ accessible name — the e2e rules in `AGENTS.md` forbid test-ids):
 | Remove from list | `source === 'custom'` | drops the `customModelMetadata` entry — the "I typo'd a model name" escape hatch that is missing today |
 | Delete from disk | `downloaded && !modelFolderReadOnly` | confirmation dialog, see below |
 
-Delete confirmation states plainly: what will be removed (file vs folder), that it goes to the
-system trash where possible, that a predefined model **stays listed** and can be re-downloaded, and —
-when applicable — a warning listing the presets in `requiredByPresets`, or that the model is currently
-selected in Chat Settings.
+Delete is a **permanent** removal from disk, so its confirmation carries a real warning rather than a
+neutral "are you sure". It states plainly:
+
+- that the files are deleted **permanently and cannot be recovered** — they do not go to the system
+  trash (the confirming button is labelled for the destructive action, e.g. "Delete permanently",
+  never a bare "OK", and is styled as destructive);
+- exactly what will be removed: the absolute path, whether it is a single file or a whole folder, and
+  the space that will be reclaimed;
+- that a predefined model **stays listed** afterwards and can be re-downloaded, so deleting is not
+  the same as removing it from the app;
+- when applicable, that the model is **required by presets** (listing `requiredByPresets`) or is the
+  model **currently selected** in Chat Settings — the two cases where deleting visibly breaks
+  something the user is using.
+
+Batch delete uses the same dialog, listing every affected model and the total space reclaimed.
 
 ### 5.5 Batch download
 
@@ -432,8 +453,8 @@ It maps the selection to `DownloadModelParam[]` (adding `mmproj` companions for 
 flag gated repos, collect the terms acknowledgement once, and run the downloads with one overall
 progress bar. On success the callback triggers `modelLibrary.refresh()`.
 
-Batch **delete** falls out of the same selection mechanism for free; it is worth including behind the
-same confirmation dialog (which then lists every affected model and the total space reclaimed).
+Batch **delete** falls out of the same selection mechanism for free, behind the same confirmation
+dialog described in [§5.4](#54-row-actions).
 
 ### 5.6 Editing capabilities
 
@@ -443,9 +464,24 @@ override, with a per-dialog **Reset to defaults**. Saving writes `modelPreferenc
 and calls `models.refreshModels()`, so `ModelSelector`, `ModelCapabilities.vue` and the chat request
 kwargs pick the change up immediately.
 
-`toolParser` (today only settable via `models.json`, consumed by
-`openVINOBackendService.resolveToolParser`) becomes editable here for OpenVINO models — a small, real
-win, since a wrong parser breaks tool calling with no UI recourse today.
+The editor is available in **both product modes**, `essentials` included. Capability metadata is how a
+model becomes usable at all — a vision model whose `supportsVision` is missing simply cannot be picked
+by a vision preset — so gating the fix behind `studio` would leave `essentials` users with a broken
+model and no recourse.
+
+Two fields beyond the `AddLLMDialog` set are editable here, both of which need a tooltip because their
+effect is not obvious from the label:
+
+- **`toolParser`** (OpenVINO only) — today settable only via `models.json` and consumed by
+  `openVINOBackendService.resolveToolParser`; a wrong parser breaks tool calling with no UI recourse.
+- **`largeMoe`** — this is not a plain capability flag but a **hardware gate**. `ModelSelector`
+  contains `if (m.largeMoe && !backendServices.phisonSsdDetected) return false`, because such models
+  only load via Phison aiDAPTIV+ SSD offload. So ticking it on a machine without that hardware makes
+  the model **disappear from the picker**, which looks exactly like a bug unless the UI says so. The
+  tooltip must state both halves: that it marks a Mixture-of-Experts model too large for VRAM, and
+  that it restricts the model to machines with Phison aiDAPTIV+ SSD offload. Worth showing the
+  machine's current detection state (`backendServices.phisonSsdDetected`) inline next to the field, so
+  the consequence is concrete rather than hypothetical.
 
 ### 5.7 New files
 
@@ -453,6 +489,7 @@ win, since a wrong parser breaks tool calling with no UI recourse today.
 |---|---|
 | `assets/js/models/types.ts` | `ModelEntry`, `ModelUseCase`, `ModelCapabilityValues`, path-key → use-case table |
 | `assets/js/models/library.ts` | pure derivation + filter/sort predicates (unit-tested, no Pinia) |
+| `assets/js/models/visibility.ts` | the shared hidden/keep-selected picker predicate every existing picker imports ([§6.1](#61-where-hidden-must-be-applied--and-where-it-must-not)) |
 | `assets/js/store/modelPreferences.ts` | persisted hidden / favorite / capability overrides |
 | `assets/js/store/modelLibrary.ts` | entries, filters, selection, actions |
 | `views/ModelManager.vue` | overlay shell + layout |
@@ -469,16 +506,55 @@ all new types use `type`, and no classes are introduced (per the mandatory rules
 
 ---
 
-## 6. What a user sees change outside the new view
+## 6. What changes outside the new view
 
-- `ModelSelector.vue`: hidden models are filtered out; favorites sort to the top. The **currently
-  selected** model is never hidden from the list (it would strand the selection) — it renders with a
-  `Hidden` badge instead.
-- `SettingsChat.vue` embedding dropdown: same hidden filter.
-- `SettingsImageComfyDynamic.vue` model dropdowns: hidden media models are excluded from the
-  `modelOptionsByType` options built by `loadModelOptionsForActivePreset`, **except** models the
-  active preset requires.
-- `SettingsChat.vue`: gains the "Manage models" button.
+Hidden means hidden **everywhere**, not just in the chat picker, so this section enumerates every
+surface — missing one is what makes a preference like this feel broken.
+
+### 6.1 Where `hidden` must be applied — and where it must not
+
+The tempting implementation is to filter `textInference.llmModels`, since everything reads from it.
+**That would be wrong.** `llmModels` is not only a picker source: `activeModel`, the capability
+computeds, `getDownloadParamsForCurrentModelIfRequired` and therefore inference itself all resolve
+through it. Filtering it would mean hiding the selected model silently breaks the next chat turn.
+
+So `hidden` and `favorite` become **fields** on `LlmModel` (which already carries every capability
+field and is mapped one-to-one in the `llmModels` computed), and filtering happens at each
+*presentation* site through one shared predicate in `assets/js/models/visibility.ts` that always keeps
+the currently selected value. Resolution keeps seeing the full list; only humans and the LLM see the
+filtered one.
+
+| Surface | Behaviour |
+|---|---|
+| `ModelSelector.vue` | hidden filtered out, favorites sorted to the top; the currently selected model always stays in the list, rendered with a `Hidden` badge |
+| `SettingsChat.vue` embedding dropdown | same filter, same keep-selected rule |
+| `SettingsImageComfyDynamic.vue` model inputs | hidden media models dropped from the `modelOptionsByType` options built by `loadModelOptionsForActivePreset`, **except** models the active preset requires ([§7](#7-behavior-contracts) invariant 1) and except the currently selected value |
+| Cloud Mode models | the cloud branch of the `llmModels` computed carries `hidden` from preferences too, keyed by model name, so a noisy provider list can be trimmed |
+| `listHomeAgentModels` (`assets/js/tools/configureHomeAgent.ts`) | hidden models are omitted from the JSON catalog handed to the LLM — otherwise the agent happily offers a model the user has deliberately retired |
+| `configureHomeAgent` (same file) | rejects a hidden model name with a message saying it is hidden, rather than silently switching to it |
+| `PromptStatusBar.vue`, `SettingsChat.vue` capability icons | unchanged — they display the *active* model, which is resolved, never filtered |
+
+### 6.2 Surfaces that are deliberately unaffected
+
+Worth stating explicitly, since "agentic model choice" sounds like it belongs in the table above:
+
+- **The agentic ComfyUI tools choose presets, not models.** `getAvailableWorkflows()` in
+  `assets/js/tools/comfyUi.ts` and `getAvailableEditWorkflows()` in
+  `assets/js/tools/comfyUiImageEdit.ts` build a `z.enum` of *preset names*, already filtered by
+  `textInference.isWorkflowPresetEnabled`. Hiding a model changes nothing there. The Home Agent config
+  tools above are the only agentic surface that picks a model.
+- **The Home Agent `/imgGen` picker lists presets too** (`showImgGenPresetPicker` reads
+  `getPresetsByCategories(['create-images'], 'comfy')` and filters `excludeFromHomeAgentPicker`), so
+  it is unaffected — and a preset's required media models stay downloadable even when hidden, per
+  invariant 1.
+- **Hiding a *preset*** is out of scope. `excludeFromHomeAgentPicker` and
+  `excludeFromChatPresetPicker` are preset-authoring flags, not user preferences, and presets are not
+  models.
+
+### 6.3 Other changes
+
+- `SettingsChat.vue` gains a "Manage models" button next to "Add Model".
+- The title bar gains a model-management button.
 
 ---
 
@@ -491,9 +567,11 @@ broken app:
    that preset's picker and is still downloaded by `ensureModelsAreAvailable()`. Hiding is a
    *presentation* preference, never a capability gate.
 2. **Hiding never strands a selection.** The currently selected chat/embedding model always remains
-   selectable.
+   selectable, and `hidden` never reaches the resolution path (`activeModel`, capability computeds,
+   download-param derivation) — see [§6.1](#61-where-hidden-must-be-applied--and-where-it-must-not).
 3. **Delete is path-guarded.** `deleteModelPath` only ever removes a real path inside a configured
-   model directory, and only paths that came from a scan.
+   model directory, and only paths that came from a scan. Since the delete is permanent, this guard is
+   the feature's most safety-critical code and is tested on its own.
 4. **Delete is honest about consequences.** A predefined model stays in the catalog as
    `downloaded: false`; only a `custom` entry can be removed from the list, and that is a separate
    action.
@@ -539,9 +617,9 @@ quits the app.
 **Demo mode**: destructive actions (delete, remove from list) are wrapped in `DemoModeBlocker`, like
 the existing dev-tools button.
 
-**Product mode**: nothing in the view is mode-specific, but in `essentials` mode the capability editor
-and `toolParser` field should stay behind the same reasoning that hides advanced options elsewhere —
-confirm with design (see [§11](#11-open-questions)).
+**Product mode**: nothing in the view is mode-specific. The capability editor, including `toolParser`
+and `largeMoe`, is exposed in `essentials` as well as `studio` — see
+[§5.6](#56-editing-capabilities) for why.
 
 **Performance**: adding `statSync` to the existing walk is cheap for hundreds of files but the
 recursive size of HF snapshot directories could be noticeable on a spinning disk with many models.
@@ -562,10 +640,14 @@ Each phase is independently shippable and independently verifiable.
 - `refreshModels()` precedence fix + `pickDefined()`; capability overrides applied
 - `scanModelLibrary` IPC (scan with stats), existing scanners refactored to wrappers
 - `showModelInFolder` + `deleteModelPath` IPC with the containment guard
-- `ModelSelector` / embedding dropdown / comfy model options honour `hidden` + `favorite`
+- `hidden` / `favorite` added as fields on `LlmModel`, plus the shared keep-selected picker predicate
+- every surface in [§6.1](#61-where-hidden-must-be-applied--and-where-it-must-not) honours them:
+  `ModelSelector`, the embedding dropdown, the comfy model inputs, the cloud branch, and the
+  `listHomeAgentModels` / `configureHomeAgent` tools
 
-Verification: Vitest unit tests (below) + a manual check that hiding a model via the dev console
-removes it from the picker and that nothing else changed.
+Verification: Vitest unit tests (below) + a manual check that hiding the *selected* model via the dev
+console removes it from the picker while a chat turn still runs (invariant 2), and that nothing else
+changed.
 
 ### Phase 2 — the view
 
@@ -599,8 +681,6 @@ dev model `LFM2.5-350M-Q4_K_M.gguf` end-to-end.
 - Lazy size computation + cache, if measurement calls for it
 - Retire dead code this work supersedes: `models.download()` stub, `models.downloadList`,
   `ModelDropDownItem.vue`, the unused `AddLLMDialog` import in `App.vue`
-- Optionally extend `models.json` with media entries (`pathKey` + license + capability metadata) so
-  media models are catalog-described rather than preset-derived
 
 ---
 
@@ -611,8 +691,9 @@ dev model `LFM2.5-350M-Q4_K_M.gguf` end-to-end.
 | Test | Subject |
 |---|---|
 | `electron/test/pathsManager.scan.test.ts` | `scanModelDir` on temp dirs: `---` reversal, nested GGUF quants, directory models, size/mtime, missing + unreadable dir |
-| `electron/test/modelDelete.test.ts` | containment guard: rejects `..`, symlink escape, the model root itself; accepts a nested path; faceswap/facerestore mirror removal |
+| `electron/test/modelDelete.test.ts` | containment guard: rejects `..`, symlink escape, the model root itself, and a path outside every configured model dir; accepts a nested path; removes a directory model recursively; removes the faceswap/facerestore ComfyUI mirror; errors (not silently succeeds) on a vanished path |
 | `src/assets/js/models/library.test.ts` | entry derivation + dedupe by `id`, use-case mapping, filter predicates (search / capability AND / backend / status / hidden), favorites-first sort |
+| `src/assets/js/models/visibility.test.ts` | the shared picker predicate: hidden models dropped, the **currently selected** model kept even when hidden, and a preset-required media model kept even when hidden (invariants 1 and 2) |
 | `src/assets/js/models/overrides.test.ts` | merge precedence incl. `pickDefined` (an override of a predefined model wins; `undefined` never clobbers) |
 | `src/assets/js/models/downloadParams.test.ts` | `ModelEntry[] → DownloadModelParam[]`: `mmproj` companion, media `additionalLicenceLink`, dedupe by `repo_id` |
 
@@ -627,20 +708,26 @@ Before claiming completion: `npm run lint:ci`, `npm run format:ci`, `npx vue-tsc
 
 ---
 
-## 11. Open questions
+## 11. Decisions
 
-1. **Delete semantics** — system trash (recoverable, proposed) or hard delete (matches LM Studio and
-   actually frees the space immediately, which is usually *why* the user is deleting)? Proposal:
-   trash by default, with the confirmation dialog stating where it goes.
-2. **Are `hidden` / `favorite` per machine or per profile?** Proposal: `localStorage` like every other
-   model preference today. If they should follow a user across installs, they need to move into
-   main-process `settings.json` instead.
-3. **Does hiding also hide from the Home Agent** `/imgGen` preset picker and from agentic tool model
-   choice? Proposal: yes — hidden means hidden everywhere except where a preset requires it
-   (invariant 1).
-4. **Should the media catalog stay preset-derived** (proposed, zero new data to maintain) or should
-   `models.json` grow media entries so media models get real metadata and can be downloaded without a
-   preset referencing them?
-5. **Capability editing in `essentials` product mode** — expose, or keep it a studio-mode affordance?
-6. **`largeMoe`** is currently hidden unless a Phison SSD is detected. Should it be an editable
-   capability at all, or remain catalog-only?
+The six questions this plan opened have been answered; the body above already reflects them. Recorded
+here so the reasoning is not lost, and so a later reader does not re-litigate them.
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | Trash or hard delete? | **Hard delete, with an explicit warning.** Freeing the space immediately is the point of deleting a model. See [§4.4(c)](#44-new-main-process-capabilities) and the confirmation copy in [§5.4](#54-row-actions). |
+| 2 | Are `hidden` / `favorite` per machine or per profile? | **Per machine**, in `localStorage` via `demoAwareStorage`, like every other model preference today ([§4.2](#42-new-preference-store)). |
+| 3 | Does hiding apply to the Home Agent and agentic paths? | **Yes — hidden everywhere**, except where a preset requires the model. Enumerated in [§6.1](#61-where-hidden-must-be-applied--and-where-it-must-not); note that the only agentic surface that picks a *model* is the Home Agent config tools, since the agentic ComfyUI tools pick presets ([§6.2](#62-surfaces-that-are-deliberately-unaffected)). |
+| 4 | Preset-derived media catalog, or grow `models.json`? | **Stays preset-derived** ([§4.3](#43-new-store-for-the-view)) — no second catalog to maintain, and it yields `requiredByPresets` for free. |
+| 5 | Capability editing in `essentials`? | **Exposed in both modes.** Missing capability metadata makes a model unusable, so the fix cannot be studio-only ([§5.6](#56-editing-capabilities)). |
+| 6 | Is `largeMoe` editable? | **Yes, with a tooltip.** It is a hardware gate, not a plain capability — ticking it hides the model on machines without Phison aiDAPTIV+ SSD offload, so the tooltip must say so and the field shows the current detection state ([§5.6](#56-editing-capabilities)). |
+
+Two consequences are worth flagging to reviewers, because they are where this feature can bite:
+
+- **Delete is irreversible.** The path-containment guard in `deleteModelPath` is the only thing
+  standing between a mis-derived path and unrelated user files, which is why the renderer never
+  constructs a path and why the guard gets its own test file.
+- **`hidden` must not reach model resolution.** Filtering `textInference.llmModels` — the obvious
+  implementation — would break inference the moment a user hides the selected model. The plan carries
+  `hidden` as a field and filters at each presentation site instead
+  ([§6.1](#61-where-hidden-must-be-applied--and-where-it-must-not)).

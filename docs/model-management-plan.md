@@ -3,7 +3,9 @@
 Plan for a dedicated **Model Management** view (an LM Studio–style "My Models" page, simplified and
 tailored to AI Playground) plus the data-layer work it needs.
 
-Status: **proposal**. Nothing in this document is implemented yet.
+Status: **implemented** (phases 1–3). This document is kept as the design record — the reasoning, the
+constraints and the decisions behind the shipped code. See [§12](#12-implementation-notes) for what
+changed while building it and what remains open.
 
 All renderer paths below are relative to `WebUI/src/`, all main-process paths to `WebUI/electron/`.
 
@@ -731,3 +733,74 @@ Two consequences are worth flagging to reviewers, because they are where this fe
   implementation — would break inference the moment a user hides the selected model. The plan carries
   `hidden` as a field and filters at each presentation site instead
   ([§6.1](#61-where-hidden-must-be-applied--and-where-it-must-not)).
+
+---
+
+## 12. Implementation notes
+
+What actually happened when the plan above was built, kept because most of it is the sort of thing the
+next person will otherwise rediscover the hard way.
+
+### 12.1 A bug the design invited, and the fix
+
+`hidden` / `favorite` were first written into the `Model` objects that `refreshModels()` builds. That
+looked consistent with how capability overrides are handled, and it passed every unit test — but
+`models.models` is a plain `ref` that only changes when `refreshModels()` runs, and toggling a
+*preference* does not trigger a catalog refresh. So hiding a model removed its row from the management
+table (whose `entries` is a computed over the preferences ref) while leaving it in the chat picker
+(which read the stale snapshot). Manual testing caught it; instrumented logging confirmed the model
+reaching the picker with `hidden: false` while the preference was set, and confirmed it was not the
+"never hide the selection" rule keeping it there.
+
+The fix is the distinction the plan should have drawn in the first place: **capabilities are catalog
+data being overridden, preferences are not catalog data at all.** Capabilities stay in the
+`refreshModels()` merge (and `saveCapabilities` refreshes the catalog itself, so they propagate).
+`hidden` / `favorite` came off the `Model` type entirely and are now resolved inside the `llmModels`
+and `llmEmbeddingModels` computeds via `withPreferenceFlags(models, flagsFor)` in
+`assets/js/models/visibility.ts`, which reads the preferences ref on every evaluation. The regression
+test asserts exactly that: that the helper reads through its lookup rather than caching.
+
+The general lesson: a value derived from a `ref` inside a *function* that only runs on demand is a
+snapshot, and mixing snapshot-derived and computed-derived views of the same state produces exactly
+this class of half-updated UI.
+
+### 12.2 `.gitignore` swallowed the new source directories
+
+The repo ignores `models/`, intended for downloaded weights, but gitignore patterns match *any*
+directory of that name — so `WebUI/src/assets/js/models/` and `WebUI/src/components/models/` were
+silently excluded, and the first two commits landed without the types, the pure helpers, their tests
+and half the components. Nothing would have built from a fresh clone. The rule now negates the three
+source directories by name (the vendored Qwen3-TTS tree had already hit this once). Worth remembering
+when adding any source directory whose name collides with an ignored artifact directory.
+
+### 12.3 Smaller things learned while testing
+
+- **Deleting a file model left an empty repo directory.** `owner---repo/` sticks around after its last
+  quantization goes, and those accumulate, so `pruneEmptyModelDirs` walks up from the deleted path
+  removing empty directories and stops at the configured model directory.
+- **The label alone is ambiguous.** Two different repos ship `ae.safetensors`, and the pickers'
+  "last path segment" convention made them indistinguishable in the table, so each row shows the
+  repository on a second line. A model required by many presets showed a "Used by" list three lines
+  tall, so it is capped at two names plus a count, with the full list in the title.
+- **`languages` is a template-only global.** It is registered via `app.config.globalProperties`, so
+  anything building strings in `<script setup>` (dropdown item labels) needs `useI18N().state`.
+- **The overlay must be opaque.** At `bg-background/95` the chat view and settings sidebar showed
+  through as ghost text behind the table.
+- **DOM order decides the dialog stacking.** The view and `DownloadDialog` share a z-index, so
+  `ModelManager` is mounted *before* the dialog layer in `App.vue`; mounted after, it covered the very
+  download dialog it opens.
+
+### 12.4 Still open
+
+- **Phase 4 items** from [§9](#9-phasing) are not done: no speech-model *catalog* (STT/TTS models are
+  listed when found on disk, since the scan covers those directories, but the hard-coded repo ids in
+  `speechToText.ts` / `textToSpeech.ts` / `qwen3TextToSpeech.ts` are not surfaced as downloadable
+  rows), no model-paths editor, and the dead code named there is not yet retired.
+- **No Playwright e2e spec yet.** The flows were verified manually against the running app; the
+  `ModelManagerPage` page object and spec described in [§10](#10-testing) are still to write.
+- **Size computation is single-pass** with no cache. It was not measurably slow on a small model
+  directory, but that is not a real-world test — the lazy path in [§8](#8-cross-cutting-concerns)
+  remains the fallback if it bites.
+- **`nsfwdetector` disk names do not round-trip.** Those weights land under
+  `vit-base-nsfw-detector/` rather than `owner---repo/`, so a scanned copy does not match its catalog
+  entry and shows as a separate disk-only row. Cosmetic, and only for that one path key.

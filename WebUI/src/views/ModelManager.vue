@@ -56,10 +56,12 @@ async function confirmDelete() {
 </script>
 
 <template>
+  <!-- Opaque background: at 95% the chat view and settings sidebar bled through
+       as ghost text behind the table. -->
   <div
     role="dialog"
     :aria-label="languages.MODEL_MANAGER_TITLE"
-    class="absolute inset-0 z-10 flex flex-col bg-background/95 text-foreground"
+    class="absolute inset-0 z-10 flex flex-col bg-background text-foreground"
     @keydown.esc="emit('close')"
   >
     <header class="flex items-center justify-between border-b border-border px-4 py-3">

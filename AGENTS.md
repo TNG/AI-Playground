@@ -628,6 +628,13 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
 - Smoke it in seconds by asking for a trivial game and naming the `Dummy Image (test)`
   workflow for the cover, then Save → Play. A 9B model often stops after generating the
   image; one follow-up ("finish the library card") exercises the `game` tool.
+- A session belongs to the preset it was held with (`AgentSessionRecord.presetName`): the
+  Sessions panel lists only the active preset's own, resuming one switches back to its preset,
+  and the panel's **+** means "new game" under Game Maker (`agentMode.startNew()`). Sessions
+  from before this carry no preset and are migrated on hydration by their folder.
+- The game bar's cover image goes through `aipg-media://games/<folder>/<icon>` — the app window
+  cannot load `file://` images, so the scheme serves the game library as a second root next to
+  the media folder (`aipgMediaRoots` in `electron/main.ts`).
 - Pretend to be on an Acer machine with the `oemVendorOverride` local setting
   (`window.electronAPI.updateLocalSettings({ oemVendorOverride: 'acer' })`, then reload):
   the preset reads "Acer Game Maker", the game bar gains the **Acer Game Hub** button and the
@@ -643,6 +650,9 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   ComfyUI run, nested in that order only. Without it the queued runs saw no progress and their
   watchers failed them as "stalled (no progress for 5 minutes)", and the runs stole each other's
   preset and generated items. Never take the ComfyUI lane and then wait on the request lane.
+  With **Keep Models Loaded** off, a run that still sees work queued behind it
+  (`comfyRunsWaiting()`) skips freeing ComfyUI and reloading the LLM, so a batch of generations
+  costs one model swap instead of one each; the last run out does the cleanup.
 
 ### Verifying Home Agent features (mock channel)
 

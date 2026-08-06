@@ -237,8 +237,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     cancel: () => ipcRenderer.invoke('agentMode:cancel'),
     resetSession: () => ipcRenderer.invoke('agentMode:resetSession'),
     deleteSession: (sessionId: string) => ipcRenderer.invoke('agentMode:deleteSession', sessionId),
-    compact: (customInstructions?: string) =>
-      ipcRenderer.invoke('agentMode:compact', customInstructions),
     listCapabilities: (options: {
       workspaceDir?: string
       toolSpecs?: unknown[]

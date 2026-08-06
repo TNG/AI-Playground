@@ -83,6 +83,46 @@ function ensureBrowserSession(sessionId: string): BrowserSession {
   return session
 }
 
+/** Whether the script is a single expression (`document.title`) rather than statements. */
+function parsesAsExpression(script: string): boolean {
+  try {
+    // Compiled as a syntax check only — never called, and never in the page.
+    new Function(`return (\n${script}\n)`)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Run the script inside its own try/catch in the page, reporting what actually
+ * went wrong. Electron rejects a throwing `executeJavaScript` with one fixed
+ * sentence ("Script failed to execute … check the renderer console"), which is
+ * useless to a model that cannot read that console: it just guesses another
+ * script. The real message ("move is not defined") ends the guessing.
+ *
+ * Models write both forms — a bare expression and a statement list ending in
+ * `return` — so the script goes into a function body, and an expression is
+ * returned from it.
+ */
+function wrapForEval(script: string): string {
+  const body = parsesAsExpression(script) ? `return (\n${script}\n)` : script
+  return `(async () => {
+    try {
+      const value = await (async () => { ${body} })()
+      // Stringified in the page: the result may be a DOM node or a cycle, which
+      // could not cross the IPC boundary as-is.
+      try {
+        return { ok: true, text: typeof value === 'string' ? value : JSON.stringify(value) }
+      } catch {
+        return { ok: true, text: String(value) }
+      }
+    } catch (error) {
+      return { ok: false, error: String((error && error.stack) || error) }
+    }
+  })()`
+}
+
 export type BrowserToolInput = {
   action: 'open' | 'console' | 'eval' | 'screenshot'
   url?: string
@@ -147,8 +187,14 @@ export async function runBrowserAction(
       return { text: session.logs.length > 0 ? session.logs.join('\n') : '<no console messages>' }
     case 'eval': {
       if (!input.script) throw new Error("browser 'eval' requires a script")
-      const result = await session.win.webContents.executeJavaScript(input.script, true)
-      return { text: typeof result === 'string' ? result : JSON.stringify(result ?? null) }
+      const outcome = (await session.win.webContents.executeJavaScript(
+        wrapForEval(input.script),
+        true,
+      )) as { ok: boolean; text?: string; error?: string }
+      if (!outcome?.ok) {
+        throw new Error(`The script threw: ${outcome?.error ?? 'unknown error'}`)
+      }
+      return { text: outcome.text ?? 'undefined' }
     }
     case 'screenshot': {
       const image = await session.win.webContents.capturePage()

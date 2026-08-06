@@ -133,6 +133,20 @@ describe('setGameIcon', () => {
     expect(updated.iconPath).toBe(path.join(game.dir, 'icon.png'))
   })
 
+  // The app window cannot load a `file://` image, so the card carries a URL on
+  // the scheme that serves the library (see aipgMediaRoots in main.ts).
+  it('offers the cover as a URL the app window can load', () => {
+    const game = createGame({ name: 'Space Dodger' }, root)
+    fs.writeFileSync(path.join(game.dir, 'cover art.png'), 'png')
+    expect(setGameIcon(game.dir, 'cover art.png').iconUrl).toBe(
+      'aipg-media://games/space-dodger/icon.png',
+    )
+  })
+
+  it('offers no cover URL until there is a cover', () => {
+    expect(createGame({ name: 'Space Dodger' }, root).iconUrl).toBeUndefined()
+  })
+
   it('rejects a path outside the game folder', () => {
     const game = createGame({ name: 'Space Dodger' }, root)
     fs.writeFileSync(path.join(root, 'elsewhere.png'), 'png')

@@ -13,8 +13,8 @@ import { usePresetSwitching } from '../store/presetSwitching'
 import { usePromptStore } from '../store/promptArea'
 import { useDeveloperSettings } from '../store/developerSettings'
 import { DEV_PRESET_NAMES, dummyWorkflowsOnly } from '../store/devPresets'
-import { stopChatBackends, restartChatBackend } from './chatBackends'
-import { queueComfyRun } from './mediaPipeline'
+import { stopChatBackends, returnGpuToChat } from './chatBackends'
+import { comfyRunsWaiting, queueComfyRun } from './mediaPipeline'
 import { imageUrlToDataUri } from '@/lib/utils'
 import { isCancellation } from '../errors/appError'
 
@@ -575,10 +575,11 @@ async function runImageEdit(
     // Keep the activity alive through cleanup (GPU free + chat backend restart) so
     // the window before the LLM's final response isn't silent.
     await restoreState()
-    if (!useDeveloperSettings().keepModelsLoaded) {
+    // Queued generations want ComfyUI loaded and not the LLM, so the last run out
+    // of the lane does the swapping back (see comfyRunsWaiting).
+    if (!useDeveloperSettings().keepModelsLoaded && !comfyRunsWaiting()) {
       activities.update(toolActivityId, { label: i18nState.COM_ACTIVITY_RELOADING_CHAT })
-      await comfyUi.free()
-      await restartChatBackend()
+      await returnGpuToChat(() => comfyUi.free())
     }
     finishToolActivity()
   }

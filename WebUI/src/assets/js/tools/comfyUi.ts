@@ -12,8 +12,8 @@ import { usePresetSwitching } from '../store/presetSwitching'
 import { usePromptStore } from '../store/promptArea'
 import { useDeveloperSettings } from '../store/developerSettings'
 import { DEV_PRESET_NAMES, dummyWorkflowsOnly } from '../store/devPresets'
-import { stopChatBackends, restartChatBackend } from './chatBackends'
-import { queueComfyRun } from './mediaPipeline'
+import { stopChatBackends, returnGpuToChat } from './chatBackends'
+import { comfyRunsWaiting, queueComfyRun } from './mediaPipeline'
 import {
   DEFAULT_RESOLUTION_CONFIG,
   getResolutionsFromConfig,
@@ -730,10 +730,11 @@ async function runComfyGeneration(
     // frees the GPU and restarts the chat backend — several seconds) isn't silent.
     // Relabel it to reflect what's actually happening before the LLM responds.
     await restoreState()
-    if (!useDeveloperSettings().keepModelsLoaded) {
+    // Nothing to hand back to while the queue still holds generations: they want
+    // ComfyUI loaded and have no use for the LLM (see comfyRunsWaiting).
+    if (!useDeveloperSettings().keepModelsLoaded && !comfyRunsWaiting()) {
       activities.update(toolActivityId, { label: i18nState.COM_ACTIVITY_RELOADING_CHAT })
-      await comfyUi.free()
-      await restartChatBackend()
+      await returnGpuToChat(() => comfyUi.free())
     }
     finishToolActivity()
   }

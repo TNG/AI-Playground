@@ -1,9 +1,14 @@
 <template>
   <div class="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-6 relative" ref="panel">
-    <div class="w-full max-w-4xl mx-auto flex flex-col gap-4 pt-20">
+    <div class="w-full max-w-4xl mx-auto flex flex-col gap-4">
       <!-- Game Maker works on one game at a time, and what to do with that game
-           (play it, save it to the library, open its folder) belongs next to it. -->
-      <GameBar v-if="isGameMaker" />
+           (play it, save it to the library, open its folder) belongs next to it —
+           and stays reachable once the transcript has scrolled past it. Pinned to
+           the top, it shares that line with the floating "Show Sessions" button
+           (App.vue), so it takes only the width it needs and keeps to the right. -->
+      <div v-if="isGameMaker" class="sticky top-0 z-5 flex justify-end pl-32 pr-32">
+        <GameBar />
+      </div>
 
       <!-- Empty state: configuration lives in Agent Settings, model/context in
            the prompt status bar — so an empty transcript just needs a hint. -->

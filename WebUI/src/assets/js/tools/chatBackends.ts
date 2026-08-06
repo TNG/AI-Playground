@@ -1,5 +1,6 @@
 import { useBackendServices, type BackendServiceName } from '@/assets/js/store/backendServices'
 import { useTextInference } from '@/assets/js/store/textInference'
+import { useErrors } from '@/assets/js/store/errors'
 
 export const chatBackends: BackendServiceName[] = ['llamacpp-backend', 'openvino-backend']
 
@@ -39,4 +40,30 @@ export async function stopChatBackends(): Promise<void> {
 export async function restartChatBackend(): Promise<void> {
   const textInference = useTextInference()
   await textInference.ensureBackendReadiness()
+}
+
+/**
+ * Gives the GPU back to chat once a generation is done: free the image models,
+ * then load the chat model again.
+ *
+ * Failures are reported, never thrown. This runs in the generation's `finally`,
+ * where throwing would replace a finished result (images and all) with a
+ * cleanup error — and the chat model does not have to come back here anyway,
+ * since the next turn loads it via `ensureReadyForInference()`. Surfaced
+ * silently for the same reason: that next attempt is where the user can act on
+ * it.
+ */
+export async function returnGpuToChat(freeGenerationModels: () => Promise<void>): Promise<void> {
+  try {
+    await freeGenerationModels()
+    await restartChatBackend()
+  } catch (error) {
+    useErrors().report(error, {
+      category: 'backend',
+      code: 'generation/chat-reload-failed',
+      userMessage:
+        'Could not load the chat model again after generating. It retries on the next message.',
+      surface: 'silent',
+    })
+  }
 }

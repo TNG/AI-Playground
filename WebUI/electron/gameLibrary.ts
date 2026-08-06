@@ -49,6 +49,12 @@ export type GameEntry = GameMetadata & {
   entryPath: string
   /** Absolute path of the icon, when one is set and present on disk. */
   iconPath?: string
+  /**
+   * The icon as the renderer can load it. A `file://` image is blocked in the
+   * app window, so it goes through the `aipg-media` scheme, whose `games`
+   * authority serves this library (see `aipgMediaRoots` in main.ts).
+   */
+  iconUrl?: string
 }
 
 const METADATA_FILE = 'game.json'
@@ -116,11 +122,20 @@ function readMetadata(dir: string): GameMetadata | null {
 
 function toEntry(dir: string, metadata: GameMetadata): GameEntry {
   const iconPath = metadata.icon ? path.join(dir, metadata.icon) : undefined
+  const hasIcon = !!iconPath && fs.existsSync(iconPath)
   return {
     ...metadata,
     dir,
     entryPath: path.join(dir, metadata.entry),
-    iconPath: iconPath && fs.existsSync(iconPath) ? iconPath : undefined,
+    iconPath: hasIcon ? iconPath : undefined,
+    // Every game folder sits directly under the library root, so the URL path is
+    // the folder name plus the folder-relative icon.
+    iconUrl: hasIcon
+      ? `aipg-media://games/${encodeURIComponent(path.basename(dir))}/${metadata
+          .icon!.split(/[/\\]/)
+          .map(encodeURIComponent)
+          .join('/')}`
+      : undefined,
   }
 }
 

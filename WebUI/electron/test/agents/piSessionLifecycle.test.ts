@@ -490,81 +490,41 @@ describe('turn streaming', () => {
     expect(sent.at(-1)?.channel).toBe('agentMode:turnDone')
   })
 
-  it('rejects compaction without a session and runs it on the live one', async () => {
-    const manager = await loadManager()
-
-    expect(await manager.compactAgentContext()).toMatchObject({ success: false })
-
-    await manager.startAgentTurn('t1', 'hello', configFor())
-    const session = (await createAgentSession.mock.results[0].value).session as FakeSession
-    // Compaction happens between turns, so the numbers are only reachable
-    // through the returned result — nothing is streaming to the UI.
-    session.compact.mockImplementationOnce(async () => {
-      session.emit({
-        type: 'compaction_end',
-        reason: 'manual',
-        result: { tokensBefore: 42_000, estimatedTokensAfter: 8_000 },
-      })
+  /** A session whose turns end with the given assistant messages, in order. */
+  async function sessionEndingWith(...finalMessages: unknown[]): Promise<FakeSession> {
+    const created = await makeAgentSession()
+    const session = created.session
+    session.prompt.mockImplementation(async () => {
+      const next = finalMessages.shift()
+      if (next) session.messages = [...session.messages, next]
     })
+    createAgentSession.mockImplementationOnce(async () => created)
+    return session
+  }
 
-    expect(await manager.compactAgentContext('keep the API notes')).toEqual({
-      success: true,
-      tokensBefore: 42_000,
-      tokensAfter: 8_000,
-    })
-    expect(session.compact).toHaveBeenCalledWith('keep the API notes')
-  })
+  const silent = { role: 'assistant', content: [{ type: 'thinking', thinking: '…</tool_call>' }] }
+  const answered = { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] }
 
-  // Pi rejects compacting a small session; that is a no-op the UI reports
-  // calmly, not a failure worth an error toast.
-  it('reports a too-small session as a no-op', async () => {
-    const manager = await loadManager()
-    await manager.startAgentTurn('t1', 'hello', configFor())
-    const session = (await createAgentSession.mock.results[0].value).session as FakeSession
-    session.compact.mockRejectedValueOnce(new Error('Nothing to compact (session too small)'))
+  function noticeTexts(): string[] {
+    return sent
+      .filter((message) => message.channel === 'agentMode:streamChunk')
+      .map((message) => message.payload.chunk as Record<string, unknown>)
+      .filter((chunk) => chunk.type === 'text-delta' && String(chunk.id).startsWith('notice-'))
+      .map((chunk) => String(chunk.delta))
+  }
 
-    expect(await manager.compactAgentContext()).toEqual({ success: true, noop: true })
-  })
-
-  it('reports a real compaction failure', async () => {
-    const manager = await loadManager()
-    await manager.startAgentTurn('t1', 'hello', configFor())
-    const session = (await createAgentSession.mock.results[0].value).session as FakeSession
-    session.compact.mockRejectedValueOnce(new Error('summarizer request failed'))
-
-    expect(await manager.compactAgentContext()).toEqual({
-      success: false,
-      error: 'summarizer request failed',
-    })
-  })
+  function errorTexts(): string[] {
+    return sent
+      .filter((message) => message.channel === 'agentMode:streamChunk')
+      .map((message) => message.payload.chunk as Record<string, unknown>)
+      .filter((chunk) => chunk.type === 'error')
+      .map((chunk) => String(chunk.errorText))
+  }
 
   // Qwen has been seen emitting its tool call inside the thinking channel: the
   // provider then reports a normal `stop` with no tool call, Pi's loop has
   // nothing to run, and the task is abandoned halfway with nothing on screen.
   describe('a turn that ends with neither a reply nor a tool call', () => {
-    /** A session whose turns end with the given assistant messages, in order. */
-    async function sessionEndingWith(...finalMessages: unknown[]): Promise<FakeSession> {
-      const created = await makeAgentSession()
-      const session = created.session
-      session.prompt.mockImplementation(async () => {
-        const next = finalMessages.shift()
-        if (next) session.messages = [...session.messages, next]
-      })
-      createAgentSession.mockImplementationOnce(async () => created)
-      return session
-    }
-
-    const silent = { role: 'assistant', content: [{ type: 'thinking', thinking: '…</tool_call>' }] }
-    const answered = { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] }
-
-    function noticeTexts(): string[] {
-      return sent
-        .filter((message) => message.channel === 'agentMode:streamChunk')
-        .map((message) => message.payload.chunk as Record<string, unknown>)
-        .filter((chunk) => chunk.type === 'text-delta' && String(chunk.id).startsWith('notice-'))
-        .map((chunk) => String(chunk.delta))
-    }
-
     it('asks the model to continue, and stays quiet when it does', async () => {
       const session = await sessionEndingWith(silent, answered)
       const manager = await loadManager()
@@ -607,6 +567,79 @@ describe('turn streaming', () => {
       await manager.startAgentTurn('t1', 'summarize the article', configFor())
 
       expect(session.prompt).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  // A model call the provider refuses (a retired model id, a revoked key) comes
+  // back as an assistant message with stopReason 'error' and Pi resolves the
+  // prompt normally, so it used to be mistaken for a silent turn: the user was
+  // told the model "ended its turn without an answer" and the real 422 only
+  // existed in the log.
+  describe('a model call the provider refuses', () => {
+    /** How Pi records a failed call: no content, stopReason 'error'. */
+    function refused(errorMessage: string): unknown {
+      return { role: 'assistant', content: [], stopReason: 'error', errorMessage }
+    }
+
+    const unavailable =
+      'POST /v1/chat/completions -> 422 : ' +
+      '{"error":{"type":"invalid_request_error","code":"model_unavailable",' +
+      '"message":"Requested model name \'Qwen/Qwen3.6-35B\' is currently not available."},' +
+      '"extra_fields":{"provider":"skainet","latency":1089}}'
+
+    it('reports the provider message instead of nudging the model', async () => {
+      const session = await sessionEndingWith(refused(unavailable))
+      const manager = await loadManager()
+
+      const result = await manager.startAgentTurn('t1', 'build a sokoban clone', configFor())
+
+      expect(session.prompt).toHaveBeenCalledTimes(1)
+      expect(result.success).toBe(false)
+      expect(result.error).toContain("Requested model name 'Qwen/Qwen3.6-35B' is currently not")
+      expect(noticeTexts()).toEqual([])
+    })
+
+    it('keeps the status line and drops the routing metadata', async () => {
+      await sessionEndingWith(refused(unavailable))
+      const manager = await loadManager()
+
+      await manager.startAgentTurn('t1', 'build a sokoban clone', configFor())
+
+      const reported = errorTexts().at(-1) ?? ''
+      expect(reported).toMatch(/^POST \/v1\/chat\/completions -> 422: Requested model name/)
+      expect(reported).not.toContain('extra_fields')
+    })
+
+    it('falls back to the raw text when the error carries no JSON', async () => {
+      await sessionEndingWith(refused('upstream closed the connection'))
+      const manager = await loadManager()
+
+      const result = await manager.startAgentTurn('t1', 'hello', configFor())
+
+      expect(result.error).toBe('upstream closed the connection')
+    })
+
+    it('reports a failure that follows the nudge', async () => {
+      const session = await sessionEndingWith(silent, refused(unavailable))
+      const manager = await loadManager()
+
+      const result = await manager.startAgentTurn('t1', 'hello', configFor())
+
+      expect(session.prompt).toHaveBeenCalledTimes(2)
+      expect(result.success).toBe(false)
+      expect(noticeTexts()).toEqual([])
+    })
+
+    it('stays quiet when the turn was cancelled', async () => {
+      const session = await sessionEndingWith()
+      const manager = await loadManager()
+      session.prompt.mockImplementationOnce(async () => {
+        manager.cancelAgentTurn()
+        session.messages = [...session.messages, refused('aborted by the user')]
+      })
+
+      expect(await manager.startAgentTurn('t1', 'hello', configFor())).toEqual({ success: true })
+      expect(errorTexts()).toEqual([])
     })
   })
 

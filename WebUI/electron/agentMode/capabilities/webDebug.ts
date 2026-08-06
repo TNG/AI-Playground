@@ -60,7 +60,9 @@ const BROWSER_DEBUGGING_SKILL: SkillSource = {
     '2. browser {"action":"console"} — read console logs AND uncaught errors since the open.',
     '3. Edit the workspace file (relative path, e.g. "index.html") to fix the root cause.',
     '4. Repeat open + console until there are no errors.',
-    '5. browser {"action":"eval","script":"document.title"} — run JS to inspect page state.',
+    '5. browser {"action":"eval","script":"document.title"} — run JS to inspect page state;',
+    '   either an expression or statements ending in `return`. A script that throws comes back',
+    '   with its own error message, so read that instead of guessing another script.',
     '6. browser {"action":"screenshot"} — save a PNG into the workspace and get its path.',
   ].join('\n'),
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { queueComfyRun, queueMediaRequest } from '@/assets/js/tools/mediaPipeline'
+import { comfyRunsWaiting, queueComfyRun, queueMediaRequest } from '@/assets/js/tools/mediaPipeline'
 
 /** A promise plus the handles to settle it from the test. */
 function deferred<T>() {
@@ -55,6 +55,39 @@ describe('media pipeline lanes', () => {
     await running
     await expect(waiting).rejects.toThrow(/Cancelled while waiting for the media pipeline/)
     expect(started).toBe(false)
+  })
+
+  it('tells a run whether generations are queued behind it', async () => {
+    // What lets consecutive generations share one model swap: only the last one
+    // out frees ComfyUI and brings the LLM back.
+    const seen: boolean[] = []
+    const gate = deferred<void>()
+
+    const a = queueComfyRun(async () => {
+      await gate.promise
+      seen.push(comfyRunsWaiting())
+    })
+    const b = queueComfyRun(async () => {
+      seen.push(comfyRunsWaiting())
+    })
+
+    gate.resolve()
+    await Promise.all([a, b])
+    expect(seen).toEqual([true, false])
+    expect(comfyRunsWaiting()).toBe(false)
+  })
+
+  it('stops counting a waiter that was cancelled at the gate', async () => {
+    const gate = deferred<void>()
+    const running = queueComfyRun(() => gate.promise)
+    const abort = new AbortController()
+    const cancelled = queueComfyRun(() => Promise.resolve(), abort.signal)
+    abort.abort()
+
+    gate.resolve()
+    await running
+    await expect(cancelled).rejects.toThrow(/Cancelled while waiting/)
+    expect(comfyRunsWaiting()).toBe(false)
   })
 
   it('lets a queued request run its generations without deadlocking', async () => {

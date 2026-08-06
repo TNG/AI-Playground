@@ -4,7 +4,6 @@ import fs from 'node:fs'
 import type {
   AgentSession,
   AgentSessionEvent,
-  CompactionResult,
   ExtensionUIContext,
   ModelRuntime,
   ToolDefinition,
@@ -71,16 +70,6 @@ const CLOUD_DEFAULT_CONTEXT_WINDOW = 128000
 export type AgentModeStreamChunk = {
   turnId: string
   chunk: unknown
-}
-
-/** Outcome of a manual compaction, including Pi's real before/after sizes. */
-export type AgentModeCompactionResult = {
-  success: boolean
-  error?: string
-  /** True when the session was already small enough to leave alone. */
-  noop?: boolean
-  tokensBefore?: number
-  tokensAfter?: number
 }
 
 export type AgentModeToolProgress = {
@@ -799,6 +788,54 @@ function endedWithoutReplyOrToolCall(session: AgentSession): boolean {
   })
 }
 
+/**
+ * The provider's complaint when the model call itself failed. Pi records a
+ * failed call as an assistant message with `stopReason: 'error'` and resolves
+ * the prompt normally instead of throwing, so an unusable model — a model id the
+ * provider has retired, a revoked key, a rejected payload — arrives here looking
+ * exactly like a turn that ended without a reply, and the nudge above would
+ * answer a 422 with "the model ended its turn without an answer".
+ */
+function modelCallError(session: AgentSession): string | undefined {
+  const last = session.messages.at(-1) as
+    | { role?: string; stopReason?: string; errorMessage?: string }
+    | undefined
+  if (last?.role !== 'assistant' || last.stopReason !== 'error') return undefined
+  return readableProviderError(last.errorMessage) ?? 'The model call failed without a reason.'
+}
+
+/**
+ * The part of a provider error worth reading. OpenAI-compatible endpoints answer
+ * with `{"error": {"message": …}}`, usually wrapped in status text and routing
+ * metadata that buries the one sentence naming the actual problem.
+ */
+function readableProviderError(raw: string | undefined): string | undefined {
+  const text = raw?.trim()
+  if (!text) return undefined
+  const jsonStart = text.indexOf('{')
+  if (jsonStart !== -1) {
+    try {
+      const payload = JSON.parse(text.slice(jsonStart)) as {
+        error?: { message?: string }
+        message?: string
+      }
+      const message = payload.error?.message ?? payload.message
+      if (message) {
+        const prefix = text
+          .slice(0, jsonStart)
+          .replace(/[\s:]+$/, '')
+          .trim()
+        return prefix ? `${prefix}: ${message}` : message
+      }
+    } catch {
+      // Not JSON, or truncated mid-payload: fall through to the raw text.
+    }
+  }
+  return text.length > PROVIDER_ERROR_MAX ? `${text.slice(0, PROVIDER_ERROR_MAX)}…` : text
+}
+
+const PROVIDER_ERROR_MAX = 1000
+
 /** Spent once per turn to buy back a task that a malformed tool call cut short. */
 const CONTINUE_AFTER_SILENT_TURN =
   'Your previous message ended without a reply and without a tool call, so nothing ran — the ' +
@@ -861,12 +898,21 @@ export async function startAgentTurn(
     const onAbort = () => current.session.abort()
     abortController.signal.addEventListener('abort', onAbort, { once: true })
     try {
+      // A failed model call is reported, not nudged: asking a model the provider
+      // just refused to serve only produces the same refusal again.
+      const failIfModelErrored = () => {
+        if (abortController.signal.aborted) return
+        const failure = modelCallError(current.session)
+        if (failure) throw new Error(failure)
+      }
       await current.session.prompt(prompt)
+      failIfModelErrored()
       const stalled = () =>
         !abortController.signal.aborted && endedWithoutReplyOrToolCall(current.session)
       if (stalled()) {
         logger.warn('turn ended with neither a reply nor a tool call; nudging once', LOG_SOURCE)
         await current.session.prompt(CONTINUE_AFTER_SILENT_TURN)
+        failIfModelErrored()
         if (stalled()) {
           translator.notice(
             'The model ended its turn without an answer and without running a tool, and did not ' +
@@ -901,53 +947,6 @@ export async function startAgentTurn(
 
 export function cancelAgentTurn(): void {
   activeAbort?.abort()
-}
-
-/**
- * Manually trigger Pi's context compaction on the live session. Only valid
- * between turns: the renderer's message stream is a per-turn stream, so there is
- * no transcript to append a `compaction` part to (auto-compaction, which happens
- * mid-turn, does render one). The token counts come back in the result instead,
- * for the caller to surface.
- */
-export async function compactAgentContext(
-  customInstructions?: string,
-): Promise<AgentModeCompactionResult> {
-  if (activeAbort) {
-    return { success: false, error: 'Cannot compact while an agent turn is running.' }
-  }
-  if (!active) {
-    return { success: false, error: 'No active agent session yet — run a turn before compacting.' }
-  }
-  const current = active
-  let result: CompactionResult | undefined
-  currentTurn = {
-    turnId: `compaction-${Date.now()}`,
-    onEvent: (event) => {
-      if (verboseLogging()) logEvent(event)
-      if (event.type === 'compaction_end') result = event.result
-    },
-  }
-  try {
-    await current.session.compact(customInstructions)
-    return {
-      success: true,
-      tokensBefore: result?.tokensBefore,
-      tokensAfter: result?.estimatedTokensAfter,
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    // Pi refuses to compact a session that is already small; that is a no-op,
-    // not a failure the user needs to act on.
-    if (/too small|nothing to compact/i.test(message)) {
-      logger.info(`manual compaction skipped: ${message}`, LOG_SOURCE)
-      return { success: true, noop: true }
-    }
-    logger.warn(`manual compaction failed: ${message}`, LOG_SOURCE)
-    return { success: false, error: message }
-  } finally {
-    currentTurn = null
-  }
 }
 
 /**

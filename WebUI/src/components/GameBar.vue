@@ -2,14 +2,15 @@
   <!-- The Game Maker equivalent of the image panel's result toolbar: what game is
        being worked on, and what can be done with it. Agent Mode has no results
        panel, so it lives above the transcript. -->
+  <!-- Opaque, because it is pinned: the transcript scrolls underneath it. -->
   <div
     role="group"
     aria-label="Current game"
-    class="flex items-center gap-3 rounded-md border border-border bg-card/70 px-3 py-2"
+    class="flex min-w-0 max-w-full items-center gap-3 rounded-md border border-border bg-card px-3 py-2 shadow-sm"
   >
     <img
-      v-if="iconUrl"
-      :src="iconUrl"
+      v-if="game?.iconUrl"
+      :src="game.iconUrl"
       alt=""
       class="size-8 rounded object-cover border border-border"
     />
@@ -118,12 +119,6 @@ const subtitle = computed(() => {
   if (game.value.description) return game.value.description
   return game.value.published ? 'In your library' : 'Draft — not saved to the library yet'
 })
-
-// The icon is a file on disk; the media protocol handler is scoped to the media
-// folder, so it is shown through a plain file URL.
-const iconUrl = computed(() =>
-  game.value?.iconPath ? `file://${encodeURI(game.value.iconPath.replaceAll('\\', '/'))}` : '',
-)
 
 const saveDialogOpen = ref(false)
 const draftName = ref('')

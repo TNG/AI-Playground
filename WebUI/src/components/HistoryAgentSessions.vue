@@ -1,7 +1,7 @@
 <template>
   <div class="flex flex-col space-y-3 pr-3 h-full overflow-y-auto">
     <div v-if="groups.length === 0" class="px-2 py-4 text-xs text-muted-foreground italic">
-      No agent sessions yet. Sessions are archived automatically after each turn.
+      {{ emptyMessage }}
     </div>
     <div v-for="group in groups" :key="group.workspaceDir" class="flex flex-col gap-1">
       <p
@@ -73,14 +73,16 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { useAgentMode, type AgentSessionRecord } from '@/assets/js/store/agentMode'
+import { useOemBranding } from '@/assets/js/store/oemBranding'
 
 const agentMode = useAgentMode()
+const oemBranding = useOemBranding()
 
-// Sessions grouped by workspace folder; groups and rows both ordered by most
-// recent activity.
+// The active preset's sessions, grouped by workspace folder; groups and rows
+// both ordered by most recent activity.
 const groups = computed(() => {
   const byWorkspace = new Map<string, AgentSessionRecord[]>()
-  for (const session of Object.values(agentMode.sessions)) {
+  for (const session of agentMode.presetSessions) {
     const list = byWorkspace.get(session.workspaceDir) ?? []
     list.push(session)
     byWorkspace.set(session.workspaceDir, list)
@@ -91,6 +93,14 @@ const groups = computed(() => {
       sessions: [...sessions].sort((a, b) => b.updatedAt - a.updatedAt),
     }))
     .sort((a, b) => b.sessions[0].updatedAt - a.sessions[0].updatedAt)
+})
+
+// Named after the preset, because the list only holds its sessions — otherwise
+// "no sessions yet" reads as a lie next to another preset's history.
+const emptyMessage = computed(() => {
+  const preset = agentMode.activeAgentPreset?.name
+  const label = preset ? oemBranding.presetLabel(preset) : 'Agent'
+  return `No ${label} sessions yet. Sessions are archived automatically after each turn.`
 })
 
 function relativeTime(timestamp: number): string {

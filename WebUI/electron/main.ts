@@ -102,7 +102,6 @@ import {
 } from './subprocesses/mcpServers'
 import {
   cancelAgentTurn,
-  compactAgentContext,
   deleteAgentSession,
   listAgentCapabilities,
   resetAgentSession,
@@ -268,26 +267,38 @@ fs.mkdirSync(mediaInputDir, { recursive: true })
 const audioDir = getAudioDir()
 fs.mkdirSync(audioDir, { recursive: true })
 
-/** Resolve aipg-media://… to an absolute file path under `mediaDir` (no path traversal). */
+/**
+ * Roots the `aipg-media` scheme serves, keyed by URL authority: generated media
+ * and the game library (a game's icon lives next to its HTML, not in the media
+ * folder — see gameLibrary.ts).
+ */
+function aipgMediaRoots(): Record<string, string> {
+  return { media: mediaDir, games: getGamesDir() }
+}
+
+/** Resolve aipg-media://… to an absolute file path under a served root (no path traversal). */
 function getLocalPathFromAipgMediaUrl(url: string): string | null {
   if (typeof url !== 'string' || !url.startsWith('aipg-media://')) return null
   // `aipg-media` is registered as a *standard* scheme, so Chromium parses the
   // segment after `://` as the URL authority and lowercases it. The current
-  // URL format therefore keeps the media-relative path in the URL *path* under
-  // a constant `media` authority (see `mediaUrl()` in `src/lib/utils.ts`) so
-  // case-sensitive filenames survive on case-sensitive filesystems (Linux).
+  // URL format therefore keeps the root-relative path in the URL *path* under a
+  // constant authority naming the root (see `mediaUrl()` in `src/lib/utils.ts`)
+  // so case-sensitive filenames survive on case-sensitive filesystems (Linux).
   //
   // Legacy URLs (`aipg-media://<relative-path>`) put the path directly in the
-  // authority; keep resolving those for already-persisted media references.
-  // (Their case was lost to the authority lowercasing, so they only ever
-  // resolved on case-insensitive filesystems — unchanged by this branch.)
+  // authority; keep resolving those against the media folder for
+  // already-persisted media references. (Their case was lost to the authority
+  // lowercasing, so they only ever resolved on case-insensitive filesystems —
+  // unchanged by this branch.)
   let parsed: URL
   try {
     parsed = new URL(url)
   } catch {
     return null
   }
-  const relativeRaw = parsed.host === 'media' ? parsed.pathname : parsed.host + parsed.pathname
+  const roots = aipgMediaRoots()
+  const root = roots[parsed.host] ?? mediaDir
+  const relativeRaw = roots[parsed.host] ? parsed.pathname : parsed.host + parsed.pathname
   // Strip any trailing slash — Chromium occasionally appends one to
   // custom-protocol URLs (e.g. `…/foo.png/`), and `net.fetch(file://.../foo.png/)`
   // treats the trailing slash as "directory" and fails.
@@ -300,8 +311,8 @@ function getLocalPathFromAipgMediaUrl(url: string): string | null {
   } catch {
     return null
   }
-  const fullPath = path.normalize(path.join(mediaDir, decodedUrl))
-  const base = path.resolve(mediaDir)
+  const fullPath = path.normalize(path.join(root, decodedUrl))
+  const base = path.resolve(root)
   const relative = path.relative(base, fullPath)
   if (relative.startsWith('..') || path.isAbsolute(relative)) return null
   return fullPath
@@ -2653,10 +2664,6 @@ function initEventHandle() {
     return await deleteAgentSession(sessionId)
   })
 
-  ipcMain.handle('agentMode:compact', async (_event, customInstructions?: string) => {
-    return await compactAgentContext(customInstructions)
-  })
-
   // What the agent can be equipped with, for the Capabilities checkboxes in
   // Agent Settings (availability depends on the turn's tool specs / MCP config).
   ipcMain.handle(
@@ -3008,8 +3015,8 @@ app.whenReady().then(async () => {
       // `getImageData()` / `toDataURL()` on a canvas that drew an
       // `aipg-media://` image only succeed when the response carries CORS
       // headers AND the `<img>` opts in via `crossorigin="anonymous"`.
-      // `*` is safe because the scheme only ever serves files under
-      // `mediaDir`, already guarded by `getLocalPathFromAipgMediaUrl`.
+      // `*` is safe because the scheme only ever serves files under the roots
+      // guarded by `getLocalPathFromAipgMediaUrl`.
       const headers = new Headers(upstream.headers)
       headers.set('Access-Control-Allow-Origin', '*')
       return new Response(upstream.body, {

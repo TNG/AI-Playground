@@ -219,33 +219,6 @@
         are started then too (Chrome DevTools launches a browser via npx — first run downloads it).
       </p>
     </div>
-
-    <!-- Session -->
-    <div class="border-t border-border pt-4 flex flex-col gap-2">
-      <div class="flex items-center gap-2 flex-wrap">
-        <Button
-          variant="secondary"
-          class="px-3 py-1.5 rounded text-sm"
-          :disabled="agentMode.processing || agentMode.compacting"
-          title="Compact the agent's conversation context (Pi built-in)"
-          @click="agentMode.compact()"
-        >
-          {{ agentMode.compacting ? 'Compacting…' : 'Compact context' }}
-        </Button>
-        <Button
-          variant="secondary"
-          class="px-3 py-1.5 rounded text-sm"
-          @click="agentMode.newSession()"
-        >
-          New session
-        </Button>
-      </div>
-      <p class="text-xs text-muted-foreground">
-        Compacting summarizes older conversation context to free up the model's window. New session
-        archives the current conversation (find it again under Show Sessions) and starts a fresh Pi
-        session.
-      </p>
-    </div>
   </div>
 </template>
 

@@ -5,10 +5,10 @@ import type { ChatTransport, UIMessage, UIMessageChunk } from 'ai'
 import { useTextInference } from './textInference'
 import { useCloudMode, CLOUD_DEFAULT_MODEL } from './cloudMode'
 import { usePresets, type ChatPreset } from './presets'
+import { usePresetSwitching } from './presetSwitching'
 import { useErrors } from './errors'
 import { extractMessage } from '../errors/appError'
 import { executeAgentTool, getAgentToolSpecs } from '../tools/agentBridge'
-import * as toast from '../toast'
 
 // ── Agent Mode: renderer side of the Pi coding-agent integration ─────────────
 //
@@ -41,6 +41,14 @@ export type AgentSessionRecord = {
    * user's back (it would also restart its Pi session).
    */
   capabilities?: string[]
+  /**
+   * The agent preset the conversation was held with (Agent, Game Maker). A
+   * session only makes sense under it — the instructions, capabilities and
+   * surrounding UI all come from the preset — so resuming one switches back to
+   * it, and the Sessions panel only lists the active preset's own sessions.
+   * Absent on sessions archived before presets drove Agent Mode.
+   */
+  presetName?: string
 }
 
 /**
@@ -52,12 +60,21 @@ const DEFAULT_CAPABILITIES = ['media', 'web-debug']
 
 const MCP_CAPABILITY_PREFIX = 'mcp:'
 
+/**
+ * The two agent presets sessions can predate `presetName` (see
+ * `migrateSessionPresets`). Named rather than looked up, because the migration
+ * runs on hydration, before the preset catalog is loaded.
+ */
+const GAME_MAKER_PRESET = 'Game Maker'
+const AGENT_PRESET = 'Agent'
+
 export const useAgentMode = defineStore(
   'agentMode',
   () => {
     const textInference = useTextInference()
     const cloudMode = useCloudMode()
     const presetsStore = usePresets()
+    const presetSwitching = usePresetSwitching()
     const errors = useErrors()
 
     const workspaceDir = ref<string>('')
@@ -156,6 +173,23 @@ export const useAgentMode = defineStore(
     const sessions = ref<Record<string, AgentSessionRecord>>({})
     const activeSessionId = ref<string>('')
 
+    /** True while `switchSession` restores a session (see the watcher below). */
+    let restoringSession = false
+
+    /**
+     * The sessions the Sessions panel lists: those of the active agent preset. A
+     * preset supplies the instructions, capabilities and workspace policy a
+     * conversation ran under, so listing the plain Agent's folders alongside Game
+     * Maker's games would only offer conversations to resume under the wrong
+     * rules. Sessions archived before presets drove Agent Mode name none, and
+     * stay visible under every preset rather than disappearing.
+     */
+    const presetSessions = computed(() =>
+      Object.values(sessions.value).filter(
+        (session) => !session.presetName || session.presetName === agentPresetName.value,
+      ),
+    )
+
     /**
      * Toggles made for a preset-driven session that has not been archived yet
      * (an archived one carries its own frozen list). Dropped when the session is.
@@ -195,6 +229,27 @@ export const useAgentMode = defineStore(
         ...sessions.value,
         [activeSessionId.value]: { ...session, capabilities: next },
       }
+    }
+
+    /**
+     * Give sessions archived before presets drove Agent Mode the preset they were
+     * really held with, so they show up in one list rather than in every one. The
+     * workspace folder says which: a folder in the game library was Game Maker's,
+     * anything else was the folder-picking Agent.
+     */
+    async function migrateSessionPresets(): Promise<void> {
+      const legacy = Object.values(sessions.value).filter((session) => !session.presetName)
+      if (legacy.length === 0) return
+      const games = await window.electronAPI.games.list()
+      const gameFolders = new Set(games.map((game) => game.dir))
+      const next = { ...sessions.value }
+      for (const session of legacy) {
+        next[session.id] = {
+          ...session,
+          presetName: gameFolders.has(session.workspaceDir) ? GAME_MAKER_PRESET : AGENT_PRESET,
+        }
+      }
+      sessions.value = next
     }
 
     /** Fold the pre-capability `mcpServerIds` setting into the capability list. */
@@ -508,6 +563,7 @@ export const useAgentMode = defineStore(
           updatedAt: Date.now(),
           // Freeze the set this conversation actually ran with.
           capabilities: existing?.capabilities ?? [...capabilities.value],
+          presetName: existing?.presetName ?? agentPresetName.value,
         },
       }
     }
@@ -533,10 +589,26 @@ export const useAgentMode = defineStore(
       const target = sessions.value[id]
       if (!target) return
       await stop()
-      activeSessionId.value = id
-      sessionCapabilities.value = null
-      workspaceDir.value = target.workspaceDir
-      restoreActiveSession()
+      restoringSession = true
+      try {
+        // A session belongs to the preset it was held with, so resuming a Game
+        // Maker conversation goes back to Game Maker rather than showing its
+        // transcript under whatever preset happens to be active.
+        if (target.presetName && target.presetName !== agentPresetName.value) {
+          await presetSwitching.switchPreset(target.presetName)
+        }
+        activeSessionId.value = id
+        sessionCapabilities.value = null
+        workspaceDir.value = target.workspaceDir
+        lastWorkspaceByKind.value = {
+          ...lastWorkspaceByKind.value,
+          [agentWorkspaceKind.value]: target.workspaceDir,
+        }
+        restoreActiveSession()
+        await refreshCurrentGame()
+      } finally {
+        restoringSession = false
+      }
     }
 
     // Drop a session's transcript record AND its main-side state (the stored
@@ -610,11 +682,24 @@ export const useAgentMode = defineStore(
       chat.messages = []
     }
 
+    /**
+     * What "start something new" means under the active preset, for the single
+     * plus button in the Sessions panel: a fresh game (own folder, own session)
+     * for Game Maker, a fresh conversation in the same workspace otherwise.
+     */
+    async function startNew(): Promise<void> {
+      if (agentWorkspaceKind.value === 'games') await newGame()
+      else await newSession()
+    }
+
     // Switching between an app-managed games workspace and a user-picked one moves
     // to the folder that kind was last using, so neither preset inherits the
-    // other's folder.
+    // other's folder. Resuming a session from the panel is the one case where the
+    // kind changes and this must stay out of the way: the preset switch it makes
+    // is a consequence of the folder and transcript already chosen, not a reason
+    // to pick different ones.
     watch(agentWorkspaceKind, async (kind, previous) => {
-      if (kind === previous) return
+      if (kind === previous || restoringSession) return
       lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, [previous]: workspaceDir.value }
       const restored = lastWorkspaceByKind.value[kind] ?? ''
       if (restored !== workspaceDir.value) await adoptWorkspace(restored)
@@ -669,42 +754,6 @@ export const useAgentMode = defineStore(
       snapshotActiveSession()
     }
 
-    const compacting = ref(false)
-
-    // Manually trigger Pi's built-in context compaction. Compaction between
-    // turns has no message stream to render a 'compaction' part into (only
-    // auto-compaction, which happens mid-turn, does), so the token counts come
-    // back in the result and are reported as a toast.
-    async function compact(): Promise<void> {
-      if (compacting.value || processing.value) return
-      compacting.value = true
-      try {
-        const result = await window.electronAPI.agentMode.compact()
-        if (!result.success) {
-          errors.report(new Error(result.error ?? 'Compaction failed.'), {
-            category: 'inference',
-            code: 'agent/compaction-failed',
-            userMessage: result.error ?? 'Context compaction failed.',
-            surface: 'toast',
-          })
-          return
-        }
-        if (result.noop) {
-          toast.success('Context is still small — nothing to compact yet.')
-          return
-        }
-        const { tokensBefore, tokensAfter } = result
-        const tokens = new Intl.NumberFormat('en-US', { notation: 'compact' })
-        toast.success(
-          tokensBefore !== undefined && tokensAfter !== undefined
-            ? `Context compacted: ${tokens.format(tokensBefore)} → ${tokens.format(tokensAfter)} tokens.`
-            : 'Context compacted.',
-        )
-      } finally {
-        compacting.value = false
-      }
-    }
-
     return {
       workspaceDir,
       activeAgentPreset,
@@ -717,11 +766,11 @@ export const useAgentMode = defineStore(
       isCapabilityEnabled,
       setCapabilityEnabled,
       migrateMcpServerIds,
+      migrateSessionPresets,
       unsandboxedWorkspaces,
       unsandboxed,
       setUnsandboxed,
       processing,
-      compacting,
       messages,
       toolProgress,
       toolImages,
@@ -731,17 +780,18 @@ export const useAgentMode = defineStore(
       lastStepUsage,
       chat,
       sessions,
+      presetSessions,
       activeSessionId,
       pickWorkspaceFolder,
       refreshCurrentGame,
       newGame,
+      startNew,
       generate,
       stop,
       newSession,
       switchSession,
       deleteSession,
       restoreActiveSession,
-      compact,
     }
   },
   {
@@ -759,6 +809,8 @@ export const useAgentMode = defineStore(
         // Settings saved before capabilities existed listed MCP servers on their
         // own; carry them over so attached servers stay attached.
         ctx.store.migrateMcpServerIds()
+        // Sessions from before presets drove Agent Mode belong to one of them.
+        void ctx.store.migrateSessionPresets()
         // Restore the active session's visible transcript so the chat isn't
         // empty on launch (Pi restores its own context separately, keyed by
         // the same session id).

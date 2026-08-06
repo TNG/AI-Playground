@@ -348,16 +348,6 @@ type AgentModeTurnConfig = {
   unsandboxed?: boolean
 }
 
-/** Outcome of a manual compaction, carrying Pi's real before/after sizes. */
-type AgentCompactionResult = {
-  success: boolean
-  error?: string
-  /** True when the session was already small enough to leave alone. */
-  noop?: boolean
-  tokensBefore?: number
-  tokensAfter?: number
-}
-
 /** Streaming output of a running tool, keyed by the tool call it belongs to. */
 type AgentToolProgress = {
   turnId: string
@@ -382,6 +372,8 @@ type GameLibraryEntry = {
   dir: string
   entryPath: string
   iconPath?: string
+  /** The icon as an `aipg-media://games/…` URL, loadable in the app window. */
+  iconUrl?: string
 }
 
 /** An image a tool produced, shown to the user under that tool's card. */
@@ -621,7 +613,6 @@ type electronAPI = {
     cancel(): Promise<void>
     resetSession(): Promise<void>
     deleteSession(sessionId: string): Promise<{ success: boolean; error?: string }>
-    compact(customInstructions?: string): Promise<AgentCompactionResult>
     listCapabilities(options: {
       workspaceDir?: string
       toolSpecs?: AgentToolSpec[]

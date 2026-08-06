@@ -82,11 +82,22 @@ export const useTextToSpeech = defineStore(
     }
 
     /**
-     * Resolve which speech endpoint to use. Prefers the OVMS text2speech server
-     * when it is running, otherwise falls back to the configured
-     * OpenAI-compatible endpoint. Returns `null` when neither is available.
+     * Resolve which speech endpoint to use. A configured fallback wins: it is an
+     * explicit choice, and it is the only endpoint that works where OVMS is
+     * installed but cannot run (macOS, where its binary is not executable).
+     * Otherwise the OVMS text2speech server serves synthesis. Returns `null`
+     * when neither is available.
      */
     async function resolveSpeech(): Promise<SpeechEndpoint | null> {
+      if (hasFallback()) {
+        return {
+          baseURL: fallback.value.baseUrl.trim(),
+          model: fallback.value.model.trim() || 'tts-1',
+          voice: fallback.value.voice.trim() || 'af_heart',
+          apiKey: fallback.value.apiKey,
+        }
+      }
+
       try {
         const ovmsUrl = await backendServices.getSpeechServerUrl()
         if (ovmsUrl) {
@@ -101,15 +112,6 @@ export const useTextToSpeech = defineStore(
         console.error('Failed to resolve OVMS speech server URL:', error)
       }
 
-      if (hasFallback()) {
-        return {
-          baseURL: fallback.value.baseUrl.trim(),
-          model: fallback.value.model.trim() || 'tts-1',
-          voice: fallback.value.voice.trim() || 'af_heart',
-          apiKey: fallback.value.apiKey,
-        }
-      }
-
       return null
     }
 
@@ -120,11 +122,12 @@ export const useTextToSpeech = defineStore(
     async function ensureSpeechServerRunning(): Promise<void> {
       if (!enabled.value) return
 
-      const openVinoService = backendServices.info.find((s) => s.serviceName === 'openvino-backend')
+      // A configured fallback serves synthesis, so there is no OVMS server to
+      // start — and trying anyway is what used to break TTS on hosts where OVMS
+      // is installed but cannot execute.
+      if (hasFallback()) return
 
-      // Only start if OVMS is set up. When OVMS is unavailable but a fallback
-      // endpoint is configured, synthesis is served by the fallback so there
-      // is nothing to start here.
+      const openVinoService = backendServices.info.find((s) => s.serviceName === 'openvino-backend')
       if (!openVinoService?.isSetUp) return
 
       const modelExists = await models.checkSpeechModelExists(SPEECHT5_MODEL_NAME)
@@ -155,14 +158,15 @@ export const useTextToSpeech = defineStore(
       initializing.value = true
 
       try {
+        // A configured fallback needs no local prerequisites: stay enabled and
+        // leave OVMS alone.
+        if (hasFallback()) return
+
         const openVinoService = backendServices.info.find(
           (s) => s.serviceName === 'openvino-backend',
         )
 
         if (!openVinoService?.isSetUp) {
-          // OVMS not installed: keep TTS enabled if a fallback endpoint is
-          // configured (e.g. on macOS), otherwise disable it.
-          if (hasFallback()) return
           enabled.value = false
           toast.warning('Text To Speech disabled: OpenVINO backend is not installed')
           return
@@ -198,18 +202,19 @@ export const useTextToSpeech = defineStore(
       }
 
       if (isEnabled) {
+        // A configured fallback endpoint is the speech source, whatever state
+        // OVMS is in: nothing to install, download or start.
+        if (hasFallback()) {
+          enabled.value = true
+          toast.success('Text To Speech enabled (using fallback speech endpoint)')
+          return
+        }
+
         const openVinoService = backendServices.info.find(
           (s) => s.serviceName === 'openvino-backend',
         )
 
         if (!openVinoService || !openVinoService.isSetUp) {
-          // Allow enabling TTS against the configured fallback endpoint when
-          // OVMS is not installed (e.g. macOS dev). Otherwise require OVMS.
-          if (hasFallback()) {
-            enabled.value = true
-            toast.success('Text To Speech enabled (using fallback speech endpoint)')
-            return
-          }
           dialogStore.showWarningDialog(
             'OpenVINO backend is required for Text To Speech. Please install it first, or configure a fallback speech endpoint in Settings.',
             () => {
@@ -250,6 +255,10 @@ export const useTextToSpeech = defineStore(
         } catch (error) {
           toast.error(`Failed to start speech server: ${error}`)
         }
+      } else if (hasFallback()) {
+        // Nothing was started locally, so turning TTS off is just a flag.
+        enabled.value = false
+        toast.success('Text To Speech disabled')
       } else {
         try {
           await backendServices.stopSpeechServer()

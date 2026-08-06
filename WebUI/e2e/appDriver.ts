@@ -224,22 +224,42 @@ export class AppDriver {
   }
 
   /**
-   * Drive the "Text to Speech" preset: select it, type text, synthesize and assert a
-   * playable audio result is produced (no text reply — TTS answers with an audio
-   * bubble). Skips the test if the preset isn't offered in the current product mode.
+   * Drive the "Text to Speech" preset end to end: select it, synthesize once with the
+   * default voice, then create a custom ("designed") voice and synthesize again with
+   * it — asserting a *second*, distinct audio result appears (TTS answers with an audio
+   * bubble, never a text reply). The Text-to-Speech flow must always run to completion:
+   * an unavailable preset or a gated model is a failure, never a skip.
    */
-  async runTtsPreset(opts: { text: string }): Promise<void> {
+  async runTtsPreset(opts: {
+    text: string
+    newVoice: { name: string; description: string; text: string }
+  }): Promise<void> {
     const available = await test.step('Select Chat preset "Text to Speech"', () =>
       this.selectModeAndPreset('Chat', 'Text to Speech'))
-    test.skip(!available, 'Preset "Text to Speech" is not available in this product mode')
+    expect(available, 'Preset "Text to Speech" must be available in this product mode').toBe(true)
 
     await this.settings.close('Chat')
 
-    await test.step('Synthesize speech and expect an audio result', async () => {
+    await test.step('Synthesize speech with the default voice', async () => {
       await this.main.sendPrompt(opts.text)
       // First synthesis may download the TTS model via the same dialog.
-      await this.resolveDownloadsOrSkip('the Text-to-Speech model')
-      await this.main.waitForTtsAudio()
+      await this.resolveDownloadsOrFail('the Text-to-Speech model')
+      await this.main.waitForTtsAudioCount(1)
+    })
+
+    await test.step('Create a custom voice and synthesize a second audio with it', async () => {
+      await this.settings.open('Chat')
+      await this.settings.createTtsVoice({
+        name: opts.newVoice.name,
+        description: opts.newVoice.description,
+      })
+      await this.settings.close('Chat')
+
+      await this.main.sendPrompt(opts.newVoice.text)
+      // A designed voice uses different model weights than the presets, so this turn
+      // may pull its own model via the same download dialog.
+      await this.resolveDownloadsOrFail('the custom-voice Text-to-Speech model')
+      await this.main.waitForTtsAudioCount(2)
     })
   }
 
@@ -268,6 +288,47 @@ export class AppDriver {
       }
       await this.settings.close('Chat')
       return available
+    })
+  }
+
+  /**
+   * Open the Chat settings and select the first inference device whose label contains
+   * `substring` (e.g. 'NPU'). Returns false when the active backend exposes no matching
+   * device (or no device picker at all). Selecting a device restarts the backend, so
+   * callers should resolve any model-download dialog before asserting the next turn.
+   */
+  async selectChatDeviceOrSkip(substring: string): Promise<boolean> {
+    return test.step(`Select chat inference device: ${substring}`, async () => {
+      await this.settings.open('Chat')
+      const selected = await this.settings.selectDeviceContaining(substring, 'Chat')
+      await this.settings.close('Chat')
+      return selected
+    })
+  }
+
+  /**
+   * Assistant-on-NPU smoke: pin the OpenVINO chat backend, switch its inference device
+   * to the NPU, then run a single text turn (compose a haiku) and assert a non-empty,
+   * well-formed reply. Skips when OpenVINO isn't offered in this product mode or the
+   * machine exposes no NPU device — NPU hardware is environment-specific. Expects the
+   * agentic "Assistant" preset to already be active. (The default-GPU override applied
+   * by {@link installAllBackends} is irrelevant here — the NPU device is picked after.)
+   */
+  async runNpuHaiku(prompt: string): Promise<void> {
+    // OpenVINO (OVMS) is the only backend that exposes the NPU as an inference device.
+    const pinned = await this.selectChatBackendOrSkip('OpenVINO', true)
+    test.skip(!pinned, 'OpenVINO chat backend is not available in this product mode')
+
+    const onNpu = await this.selectChatDeviceOrSkip('NPU')
+    test.skip(!onNpu, 'No NPU inference device is available on this machine')
+
+    await test.step('Compose a haiku on the NPU and expect a text reply', async () => {
+      await this.main.sendPrompt(prompt)
+      // Switching to the NPU restarts OpenVINO; first use may pull the model via the dialog.
+      await this.resolveDownloadsOrSkip('the OpenVINO model on the NPU')
+      await this.main.waitForAssistantAnswer()
+      expect(await this.main.lastAssistantText()).not.toEqual('')
+      await this.main.assertWellFormedResponse()
     })
   }
 
@@ -357,6 +418,20 @@ export class AppDriver {
       outcome === 'blocked',
       `Skipping: ${what} is gated / unavailable without Hugging Face access in this environment`,
     )
+  }
+
+  /**
+   * Like {@link resolveDownloadsOrSkip}, but FAILS the test instead of skipping when
+   * the model is gated/unavailable. Used by the Text-to-Speech flow, which must always
+   * run to completion in this environment — a blocked download there is a real failure,
+   * not an environment gap to skip past.
+   */
+  private async resolveDownloadsOrFail(what: string): Promise<void> {
+    const outcome = await this.downloads.resolve()
+    expect(
+      outcome,
+      `${what} is gated / unavailable — it must be downloadable for the Text-to-Speech test`,
+    ).not.toBe('blocked')
   }
 
   /**

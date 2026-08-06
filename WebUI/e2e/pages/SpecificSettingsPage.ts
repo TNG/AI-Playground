@@ -104,6 +104,96 @@ export class SpecificSettingsPage {
     await expect(trigger).toContainText(label, { timeout: 15_000 })
   }
 
+  /**
+   * The chat "Device" (inference hardware) picker trigger — a DropDownNew button in the
+   * "Device" label row (SettingsChat.vue). Shown for local backends; Cloud Mode swaps
+   * it for a Provider picker, so it's absent there.
+   */
+  private deviceTrigger(mode: ChatMode): Locator {
+    return this.panel(mode).locator('div.grid', { hasText: 'Device' }).getByRole('button')
+  }
+
+  /**
+   * Inference-device labels offered by the chat "Device" picker (e.g. "GPU.0: Intel…",
+   * "NPU: Intel(R) AI Boost", "CPU"), or an empty list when no device picker is shown
+   * (cloud backend, or a backend with no selectable device). Opens and closes the
+   * dropdown without changing the selection.
+   */
+  async availableDevices(mode: ChatMode = 'Chat'): Promise<string[]> {
+    const trigger = this.deviceTrigger(mode)
+    if (!(await trigger.isVisible().catch(() => false))) return []
+    await trigger.click()
+    const menu = this.page.getByRole('menu')
+    await menu.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {})
+    const labels = (await menu.getByRole('menuitem').allInnerTexts())
+      .map((l) => l.trim())
+      .filter(Boolean)
+    await this.page.keyboard.press('Escape')
+    await menu.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {})
+    return labels
+  }
+
+  /**
+   * Select the first chat inference device whose label contains `substring`
+   * (case-insensitive) — e.g. "NPU". Must be called with the settings sidebar open.
+   * Switching device restarts the backend, so callers should let the app settle (and
+   * resolve any model-download dialog) before sending. Returns false — selection
+   * unchanged — when no device matches or no device picker is shown.
+   */
+  async selectDeviceContaining(substring: string, mode: ChatMode = 'Chat'): Promise<boolean> {
+    const trigger = this.deviceTrigger(mode)
+    if (!(await trigger.isVisible().catch(() => false))) return false
+    await trigger.click()
+    const menu = this.page.getByRole('menu')
+    await menu.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {})
+    const match = menu
+      .getByRole('menuitem')
+      .filter({ hasText: new RegExp(substring, 'i') })
+      .first()
+    if ((await match.count()) === 0) {
+      await this.page.keyboard.press('Escape')
+      await menu.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {})
+      return false
+    }
+    await match.click()
+    await menu.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {})
+    // The trigger's label reflects the active device once the switch (and backend
+    // restart) lands.
+    await expect(trigger).toContainText(new RegExp(substring, 'i'), { timeout: 30_000 })
+    return true
+  }
+
+  /**
+   * Create a custom ("designed") TTS voice from the Text-to-Speech preset's settings
+   * (SettingsTts.vue "Create a custom voice" form): fill the name + description, save,
+   * and confirm it lands in the "Your voices" list. Saving makes the new voice the
+   * active one (see `saveCurrentVoice` → `applySavedVoice`), so the next synthesis uses
+   * it. Requires the settings sidebar open with the "Text to Speech" preset active.
+   */
+  async createTtsVoice(
+    opts: { name: string; description: string },
+    mode: ChatMode = 'Chat',
+  ): Promise<void> {
+    const panel = this.panel(mode)
+    // The form fields are the only inputs carrying these placeholders (name = "e.g.
+    // Tammy", description = the "…British man…" example), so they're stable handles
+    // that don't depend on label wiring.
+    await panel.getByPlaceholder('e.g. Tammy').fill(opts.name)
+    await panel.getByPlaceholder(/British man/).fill(opts.description)
+
+    const save = panel.getByRole('button', { name: 'Save voice' })
+    await expect(save, 'Save voice is disabled until name + description are filled').toBeEnabled()
+    await save.click()
+
+    // Saved voices render in the "Your voices" list; our new one proves the save landed.
+    // Match the name exactly and take the first hit: the active-voice dropdown also shows
+    // it (as "<name> (your voice)"), so a loose match would be ambiguous under strict mode.
+    await expect(
+      panel.getByText(opts.name, { exact: true }).first(),
+      'the newly created voice should appear in the "Your voices" list',
+    ).toBeVisible({ timeout: 5_000 })
+  }
+
   /** Close the sidebar via its (responsive) Close button, scoped to the sidebar
    *  region so it can't match the header's window-close (X) button. */
   async close(mode: ChatMode = 'Chat'): Promise<void> {

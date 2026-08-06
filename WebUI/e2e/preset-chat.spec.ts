@@ -1,10 +1,11 @@
-import { test } from './fixtures'
+import { test, expect } from './fixtures'
 
 // Smoke tests covering the unified "Assistant" chat preset across its capabilities
 // (plain text, reasoning, vision, RAG) plus the separate Text-to-Speech preset:
 // install backends, select the preset, (optionally attach a fixture), send a prompt
-// and assert the expected result — a non-empty, well-formed text reply, or a playable
-// audio result for the Text-to-Speech preset. Excludes "aiDAPTIV™" (Phison) and
+// and assert the expected result — a non-empty, well-formed text reply, or (for the
+// Text-to-Speech preset) two playable audio results: one from the default voice and a
+// second from a custom voice created mid-test. Excludes "aiDAPTIV™" (Phison) and
 // "Home Agent" per request; the Assistant agentic/tool flow has its own richer
 // coverage in install-backends.spec.ts. A preset not offered in the running product
 // mode skips itself.
@@ -67,14 +68,23 @@ test.describe('Chat presets', () => {
       await app.installAllBackends()
 
       if (kind === 'tts') {
-        // The Text-to-Speech backend is feature-flagged and pulls a heavy model, so
-        // it's installed on demand here rather than in installAllBackends.
+        // The Text-to-Speech backend pulls a heavy model, so it's installed on demand
+        // here rather than in installAllBackends. It must be available — TTS is a
+        // required capability in this suite, so an unavailable backend fails the test
+        // rather than skipping.
         const ttsAvailable = await app.ensureTtsBackendInstalled()
-        test.skip(
-          !ttsAvailable,
-          'Text-to-Speech is not available (feature flag off or unsupported mode)',
-        )
-        await app.runTtsPreset({ text: prompt })
+        expect(
+          ttsAvailable,
+          'Text-to-Speech must be available (feature flag on and mode supported)',
+        ).toBe(true)
+        await app.runTtsPreset({
+          text: prompt,
+          newVoice: {
+            name: 'E2E Custom Voice',
+            description: 'A calm, warm middle-aged British man, reassuring and clear.',
+            text: 'This line is spoken by a custom voice created during the end-to-end test.',
+          },
+        })
       } else {
         await app.runChatPreset({ preset, prompt, attach, doc })
       }

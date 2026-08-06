@@ -72,6 +72,15 @@ export class MainPage {
   }
 
   /**
+   * Every rendered TTS `<audio>` player across the whole conversation — one per
+   * successful synthesis. Used to prove a *second* Text-to-Speech turn produced a
+   * new audio bubble rather than the first one lingering.
+   */
+  get ttsAudioPlayers(): Locator {
+    return this.assistantResponses.locator('audio')
+  }
+
+  /**
    * The prompt-area attachment file input (the "+" control). Present only when the
    * active preset allows an attachment: a vision chat model (image) or a RAG preset
    * (document). Used for chat-mode attachments; ComfyUI reference images are set in
@@ -293,6 +302,24 @@ export class MainPage {
       this.ttsAudioPlayer.first(),
       'the Text-to-Speech turn finished but produced no playable audio result',
     ).toBeVisible({ timeout: 15_000 })
+  }
+
+  /**
+   * Wait for a Text-to-Speech turn to finish and assert exactly `expectedCount`
+   * playable audio results are present across the conversation. Counting (rather
+   * than just "the last turn has audio") is what proves a follow-up synthesis added
+   * a *new* audio bubble — e.g. a second turn spoken by a freshly created voice.
+   */
+  async waitForTtsAudioCount(
+    expectedCount: number,
+    timeout: number = MainPage.TEXT_TIMEOUT,
+  ): Promise<void> {
+    await this.waitUntilIdle(timeout)
+    await this.assertNoGenerationError()
+    await expect(
+      this.ttsAudioPlayers,
+      `the Text-to-Speech conversation should hold ${expectedCount} playable audio result(s)`,
+    ).toHaveCount(expectedCount, { timeout: 15_000 })
   }
 
   /**

@@ -167,6 +167,7 @@ import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets.ts'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets'
 import { useTheme } from '@/assets/js/store/theme'
+import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { Context } from '@/components/ui/context'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import ModelCapabilities from '@/components/ModelCapabilities.vue'
@@ -180,6 +181,7 @@ const openAiCompatibleChat = useOpenAiCompatibleChat()
 const imageGeneration = useImageGenerationPresets()
 const presetsStore = usePresets()
 const theme = useTheme()
+const oemBranding = useOemBranding()
 
 // The backend badge logos ship as light/dark variants; only the `light` theme
 // needs the dark-fill icon, all other themes are dark-background.
@@ -229,7 +231,9 @@ const isTtsPreset = computed(
 // selected mode (not `currentMode`) so background comfy switches during
 // agentic / Home Agent tool use don't flip it.
 const presetIndicator = computed(() => {
-  if (promptStore.userSelectedMode === 'chat') {
+  // Agent Mode is reached by selecting an agent preset from the chat list, so its
+  // indicator is the same preset indicator — only the view behind it differs.
+  if (promptStore.userSelectedMode === 'chat' || promptStore.userSelectedMode === 'agent') {
     const preset = stableChatPreset.value ?? fallbackChatPreset.value
     if (!preset) return null
     // Match the ModelSelector label: display only the last path segment, and
@@ -239,21 +243,9 @@ const presetIndicator = computed(() => {
     const lastSegment = model?.split('/').at(-1) ?? model
     return {
       image: preset.image,
-      name: preset.name,
+      name: oemBranding.presetLabel(preset.name),
       model: lastSegment?.replace(/\.(gguf|bin|safetensors)$/i, ''),
       description: basePresetDescription(preset.name),
-    }
-  }
-  if (promptStore.userSelectedMode === 'agent') {
-    // Agent mode has no presets — a generic label plus the shared model
-    // (local backend model or the Cloud Mode model, same as Chat).
-    const model = textInference.activeModel
-    return {
-      image: undefined as string | undefined,
-      name: 'Agent',
-      model: model?.split('/').at(-1) ?? model,
-      description:
-        'Pi coding agent working on files in the workspace folder, using the model shared with Chat.',
     }
   }
   const preset = imageGeneration.activePreset

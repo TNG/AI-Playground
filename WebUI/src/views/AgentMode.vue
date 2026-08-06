@@ -1,6 +1,10 @@
 <template>
   <div class="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-6 relative" ref="panel">
     <div class="w-full max-w-4xl mx-auto flex flex-col gap-4 pt-20">
+      <!-- Game Maker works on one game at a time, and what to do with that game
+           (play it, save it to the library, open its folder) belongs next to it. -->
+      <GameBar v-if="isGameMaker" />
+
       <!-- Empty state: configuration lives in Agent Settings, model/context in
            the prompt status bar — so an empty transcript just needs a hint. -->
       <div
@@ -8,19 +12,28 @@
         class="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground"
       >
         <img src="../assets/svg/ai-icon.svg" class="size-10 opacity-60" />
-        <p class="text-sm">
-          The agent works on files in a workspace folder — it can write code, run shell commands,
-          debug web pages and generate media.
-        </p>
-        <p v-if="agentMode.workspaceDir" class="text-xs break-all">
-          Workspace: <span class="text-foreground/80">{{ agentMode.workspaceDir }}</span>
-        </p>
-        <Button v-else variant="secondary" @click="agentMode.pickWorkspaceFolder()">
-          Select a workspace folder…
-        </Button>
-        <p class="text-xs">
-          Configure workspace, model and tools via Agent Settings in the settings sidebar.
-        </p>
+        <template v-if="isGameMaker">
+          <p class="text-sm">
+            Describe the game you want — the agent writes it as a single HTML page, draws the art,
+            play-tests it in a browser and saves it to your library.
+          </p>
+          <p class="text-xs">Try: “a one-button endless runner where I dodge asteroids”.</p>
+        </template>
+        <template v-else>
+          <p class="text-sm">
+            The agent works on files in a workspace folder — it can write code, run shell commands,
+            debug web pages and generate media.
+          </p>
+          <p v-if="agentMode.workspaceDir" class="text-xs break-all">
+            Workspace: <span class="text-foreground/80">{{ agentMode.workspaceDir }}</span>
+          </p>
+          <Button v-else variant="secondary" @click="agentMode.pickWorkspaceFolder()">
+            Select a workspace folder…
+          </Button>
+          <p class="text-xs">
+            Configure workspace, model and tools via Agent Settings in the settings sidebar.
+          </p>
+        </template>
       </div>
 
       <!-- Messages -->
@@ -78,6 +91,7 @@ import { Button } from '@/components/ui/button'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import AgentMessagePart from '@/components/AgentMessagePart.vue'
 import AgentActivitySummary from '@/components/AgentActivitySummary.vue'
+import GameBar from '@/components/GameBar.vue'
 import {
   compactionOutputOf,
   groupTranscriptParts,
@@ -94,6 +108,10 @@ const promptStore = usePromptStore()
 const mediaRuns = useMediaAgentRuns()
 
 const panel = ref<HTMLElement | null>(null)
+
+// The game bar and the game-specific empty state belong to the preset that works
+// on a managed game folder, not to Agent Mode in general.
+const isGameMaker = computed(() => agentMode.agentWorkspaceKind === 'games')
 
 function messageText(message: UIMessage): string {
   return (

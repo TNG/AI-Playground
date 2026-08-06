@@ -329,6 +329,9 @@ function configKeyOf(config: AgentModeTurnConfig): string {
     config.workspaceDir,
     config.modelConfig,
     config.toolSpecs ?? [],
+    // Part of the system prompt, which is fixed once the session exists: editing
+    // the preset's instructions (or switching preset) has to rebuild.
+    config.instructions ?? '',
     enabledCapabilityIds(config),
     config.unsandboxed ?? false,
   ])
@@ -475,8 +478,11 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     // fresh on every session build, so it always carries the live preview URL.
     appendSystemPrompt: [
       instructions,
+      // The preset's own instructions come last so they read as the task the app
+      // was opened for, after the environment it is working in.
       buildSkillsPromptSection(announcedSkills, access.skillsRoot),
       capabilities.dormantPromptSection,
+      (config.instructions ?? '').trim(),
     ].filter((section) => section !== ''),
   })
   await resourceLoader.reload()

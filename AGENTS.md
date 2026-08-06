@@ -396,8 +396,11 @@ This section eliminates the need for codebase exploration at the start of each s
 
 There is **no Vue Router**. Navigation is state-driven:
 - `App.vue` checks `globalSetup.loadingState` (`verifyBackend` → `manageInstallations` → `loading` → `running`/`failed`)
-- Once running, `promptStore.currentMode` controls which view renders: `chat` → `Chat.vue`, `imageGen`/`imageEdit`/`video` → `WorkflowResult.vue`
+- Once running, `promptStore.currentMode` controls which view renders: `chat` → `Chat.vue`, `agent` → `AgentMode.vue`, `imageGen`/`imageEdit`/`video` → `WorkflowResult.vue`
 - `PromptArea.vue` is the shared prompt input bar across all modes
+- **The preset picks the mode**, via `presetToMode()` in `src/lib/presetModes.ts`. A chat preset
+  with `agentPreset: true` (Agent, Game Maker) renders Agent Mode, so there is no Agent mode
+  button — it is entered by picking one of those presets from the chat list.
 
 ### Backend Services (4 services, dynamic ports)
 
@@ -684,6 +687,37 @@ Notes:
 - `toolInstructions` tell the model these are test-only workflows, so ask for them explicitly
   ("using only the dummy test workflows, …"). Delegation puts them behind the single `media`
   tool, so one request can chain image → 3D.
+
+### Verifying the Game Maker preset (game library)
+
+`Game Maker` is a chat preset that runs on the agent harness (`agentPreset: true`) with the
+`media`, `web-debug` and `game-studio` capabilities. Its workspace is app-managed
+(`agentWorkspace: 'games'`): the first turn mints `<games>/<slug>/` — `~/Documents/AI-Playground/games`
+on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds its own
+`game.json` (`WebUI/electron/gameLibrary.ts`; no central index, `listGames()` scans for cards).
+
+- The agent fills the library card itself with the `game` tool (`set_metadata`, `set_icon`),
+  following the `html-game-studio` skill; **Save to library** in the game bar flips
+  `published` and regenerates `games/index.html` + `games/library.json`. The gallery inlines
+  its manifest because a `file://` page cannot `fetch` a sibling json.
+- Smoke it in seconds by asking for a trivial game and naming the `Dummy Image (test)`
+  workflow for the cover, then Save → Play. A 9B model often stops after generating the
+  image; one follow-up ("finish the library card") exercises the `game` tool.
+- Pretend to be on an Acer machine with the `oemVendorOverride` local setting
+  (`window.electronAPI.updateLocalSettings({ oemVendorOverride: 'acer' })`, then reload):
+  the preset reads "Acer Game Maker", the game bar gains the **Acer Game Hub** button and the
+  gallery is Acer-branded. Detection itself (`electron/subprocesses/oemDetection.ts`) is
+  Windows-only, so without the override every machine is `unknown`.
+- **Gotcha:** a `media` call temporarily switches the active preset to an image-gen one, so
+  anything derived from the active preset must not follow it — `agentMode.activeAgentPreset`
+  remembers the last agent preset for exactly this reason (following it live aborted the turn
+  that made the call).
+- **Gotcha:** models ask for a game's whole spritesheet in one step, and both Pi and the AI SDK
+  dispatch those tool calls in parallel. All media work therefore queues on
+  `assets/js/tools/mediaPipeline.ts` — one lane for a whole `media` request, one for a single
+  ComfyUI run, nested in that order only. Without it the queued runs saw no progress and their
+  watchers failed them as "stalled (no progress for 5 minutes)", and the runs stole each other's
+  preset and generated items. Never take the ComfyUI lane and then wait on the request lane.
 
 ### Verifying Home Agent features (mock channel)
 

@@ -13,6 +13,7 @@ import { usePromptStore } from '../store/promptArea'
 import { useDeveloperSettings } from '../store/developerSettings'
 import { DEV_PRESET_NAMES, dummyWorkflowsOnly } from '../store/devPresets'
 import { stopChatBackends, restartChatBackend } from './chatBackends'
+import { queueComfyRun } from './mediaPipeline'
 import {
   DEFAULT_RESOLUTION_CONFIG,
   getResolutionsFromConfig,
@@ -179,20 +180,34 @@ function findFastVariant(preset: Preset): string | null {
   return fastVariant ? fastVariant.name : null
 }
 
-// Helper function to execute ComfyUI generation for tool calls
-export async function executeComfyGeneration(
-  args: {
-    workflow?: string
-    variant?: string
-    prompt: string
-    negativePrompt?: string
-    aspectRatio?: string
-    megapixels?: string
-    resolution?: string
-    inferenceSteps?: number
-    seed?: number
-    batchSize?: number
-  },
+type ComfyGenerationArgs = {
+  workflow?: string
+  variant?: string
+  prompt: string
+  negativePrompt?: string
+  aspectRatio?: string
+  megapixels?: string
+  resolution?: string
+  inferenceSteps?: number
+  seed?: number
+  batchSize?: number
+}
+
+/**
+ * Runs one generation for a tool call. ComfyUI serves prompts one at a time and
+ * the whole run drives the single global generation store (preset switch, item
+ * tracking, the idle watchdog below), so concurrent callers queue rather than
+ * interleave — see mediaPipeline.ts.
+ */
+export function executeComfyGeneration(
+  args: ComfyGenerationArgs,
+  options: { abortSignal?: AbortSignal } = {},
+): Promise<ComfyUiToolOutput> {
+  return queueComfyRun(() => runComfyGeneration(args, options), options.abortSignal)
+}
+
+async function runComfyGeneration(
+  args: ComfyGenerationArgs,
   options: { abortSignal?: AbortSignal } = {},
 ): Promise<ComfyUiToolOutput> {
   console.log('[ComfyUI Tool] Starting generation with args:', args)

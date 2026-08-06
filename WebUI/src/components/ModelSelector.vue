@@ -58,6 +58,7 @@ const items = computed(() => {
     vision: activePreset?.type === 'chat' && activePreset.requiresVision === true,
     toolCalling: activePreset?.type === 'chat' && activePreset.requiresToolCalling === true,
     reasoning: activePreset?.type === 'chat' && activePreset.requiresReasoning === true,
+    coding: activePreset?.type === 'chat' && activePreset.requiresCoding === true,
     npuSupport: activePreset?.type === 'chat' && activePreset.requiresNpuSupport === true,
     txt2TxtOnly: activePreset?.type === 'chat' && activePreset.filterTxt2TxtOnly === true,
     largeMoeOnly: activePreset?.type === 'chat' && activePreset.filterLargeMoeOnly === true,
@@ -92,6 +93,10 @@ const items = computed(() => {
       if (requirements.vision && !m.supportsVision) return false
       if (requirements.toolCalling && !m.supportsToolCalling) return false
       if (requirements.reasoning && !m.supportsReasoning) return false
+      // Game Maker asks the model to write a whole game in one file; the small
+      // general-purpose models in the list cannot, so they are hidden rather than
+      // left to disappoint.
+      if (requirements.coding && !m.supportsCoding) return false
       if (requirements.npuSupport && !m.npuSupport) return false
       if (textInference.backend === 'openVINO') {
         if (textInference.runningOnOpenvinoNpu && !m.npuSupport) return false
@@ -112,6 +117,7 @@ const items = computed(() => {
           (requirements.vision && m.supportsVision) ||
           (requirements.toolCalling && m.supportsToolCalling) ||
           (requirements.reasoning && m.supportsReasoning) ||
+          (requirements.coding && m.supportsCoding) ||
           (requirements.npuSupport && m.npuSupport)
 
         // Show basic models in txt2txt presets only if they don't have vision/reasoning

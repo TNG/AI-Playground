@@ -347,6 +347,8 @@ import MockChannelPanel from '@/components/MockChannelPanel.vue'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import ContextualHelpLayer from '@/components/ContextualHelpLayer.vue'
 import { useContextualHelp } from '@/assets/js/store/contextualHelp'
+import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
+import { useOemBranding } from '@/assets/js/store/oemBranding'
 
 const theme = useTheme()
 const globalSetup = useGlobalSetup()
@@ -358,6 +360,8 @@ const promptStore = usePromptStore()
 const uiStore = useUIStore()
 const setupWizardStore = useSetupWizard()
 const homeAgent = useHomeAgent()
+const presetSwitching = usePresetSwitching()
+const oemBranding = useOemBranding()
 
 const addLLMCompt = ref<InstanceType<typeof AddLLMDialog>>()
 const demoModeOverlayDriverJs = ref<InstanceType<typeof DemoModeOverlayDriverJsRef>>()
@@ -433,6 +437,9 @@ onBeforeMount(async () => {
 onMounted(async () => {
   // Fetch dynamic GitHub repo URL for footer links
   gitHubRepoUrl.value = await window.electronAPI.getGitHubRepoUrl()
+
+  // Which OEM's machine this is decides co-branded labels (e.g. Acer Game Maker).
+  void oemBranding.initialize()
 
   // Apply theme class to document root for CSS variables
   watch(
@@ -512,7 +519,11 @@ function startTour() {
 watch(
   () => globalSetup.loadingState,
   (state) => {
-    if (state === 'running' && demoMode.enabled) {
+    if (state !== 'running') return
+    // The prompt store isn't persisted, so the app boots in chat mode while the
+    // active preset comes back from disk — and an agent preset means Agent Mode.
+    presetSwitching.syncModeWithActivePreset()
+    if (demoMode.enabled) {
       void demoMode.applyExplicitDefaults()
       window.setTimeout(startTour, 2200)
     }

@@ -329,6 +329,12 @@ type AgentModeTurnConfig = {
   modelConfig: AgentModeModelConfig
   toolSpecs?: AgentToolSpec[]
   /**
+   * Extra instructions appended to the agent's system prompt — the active
+   * preset's `systemPrompt`, which is what makes Game Maker a game maker rather
+   * than a generic agent.
+   */
+  instructions?: string
+  /**
    * Capability ids enabled for this session ('media', 'web-debug',
    * `mcp:<serverId>`, …). Omitted means the defaults.
    */
@@ -358,6 +364,24 @@ type AgentToolProgress = {
   toolCallId: string
   toolName: string
   text: string
+}
+
+/**
+ * A game in the library (see electron/gameLibrary.ts). `dir` is the game's folder,
+ * which is also the agent's workspace for it, and doubles as the id.
+ */
+type GameLibraryEntry = {
+  id: string
+  name: string
+  description: string
+  entry: string
+  icon?: string
+  published: boolean
+  createdAt: number
+  updatedAt: number
+  dir: string
+  entryPath: string
+  iconPath?: string
 }
 
 /** An image a tool produced, shown to the user under that tool's card. */
@@ -470,6 +494,8 @@ type electronAPI = {
   getComfyUiDefaultParameters(): Promise<string>
   getLlamaCppDefaultParameters(): Promise<string>
   detectPhisonSsd(): Promise<{ detected: boolean }>
+  /** Which OEM this machine came from, for partner co-branding. */
+  detectOem(): Promise<{ vendor: string; manufacturer: string; overridden: boolean }>
   getServices(): Promise<ApiServiceInformation[]>
   getBackendAuthToken(serviceName: string): Promise<string>
   updateServiceSettings(settings: ServiceSettings): Promise<BackendStatus>
@@ -607,6 +633,19 @@ type electronAPI = {
     onTurnDone(callback: (data: { turnId: string }) => void): void
     onExecuteTool(callback: (data: AgentToolExecuteRequest) => void): void
     submitToolResult(requestId: string, result: unknown, error?: string): Promise<void>
+  }
+  games: {
+    list(): Promise<GameLibraryEntry[]>
+    read(dir: string): Promise<GameLibraryEntry | null>
+    /** Mints a folder for a new game; `name` is a starting point, not final. */
+    create(name?: string): Promise<GameLibraryEntry>
+    publish(
+      dir: string,
+      fields: { name?: string; description?: string },
+    ): Promise<{ success: boolean; error?: string; game?: GameLibraryEntry }>
+    openFolder(dir?: string): Promise<void>
+    play(dir: string): Promise<{ success: boolean; error?: string }>
+    openHub(): Promise<{ success: boolean; error?: string; path?: string }>
   }
   webBrowser: {
     navigate(url: string): Promise<WebPageSnapshot>

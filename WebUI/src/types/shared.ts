@@ -35,6 +35,9 @@ export const ModelSchema = z.object({
   // OVMS tool-call parser override; defaults to 'hermes3' when omitted.
   toolParser: z.enum(ovmsToolParsers).optional(),
   supportsVision: z.boolean().optional(),
+  // Good enough at writing code to drive a coding preset (Game Maker). A judgement
+  // about the model's training rather than a hard capability like vision.
+  supportsCoding: z.boolean().optional(),
   maxContextSize: z.number().optional(),
   npuSupport: z.boolean().optional(),
   largeMoe: z.boolean().optional(), // Large Mixture-of-Experts model; Phison aiDAPTIV+ SSD offload enables loading models larger than VRAM

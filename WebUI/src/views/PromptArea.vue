@@ -135,7 +135,9 @@
               </PopoverAnchor>
               <PopoverTrigger as-child>
                 <Button
-                  :variant="promptStore.getCurrentMode() === mode ? 'default' : 'secondary'"
+                  :variant="
+                    buttonModeFor(promptStore.getCurrentMode()) === mode ? 'default' : 'secondary'
+                  "
                   :id="'mode-button-' + mode"
                   @pointerenter="(e: PointerEvent) => onPickerPointerEnter(mode, e)"
                   @pointerdown="onPickerPointerDown"
@@ -167,7 +169,7 @@
                       <TooltipTrigger as-child>
                         <button
                           type="button"
-                          :aria-label="preset.name"
+                          :aria-label="oemBranding.presetLabel(preset.name)"
                           :aria-pressed="presetsStore.activePresetName === preset.name"
                           :aria-disabled="!presetGate(preset).enabled"
                           :data-aipg-preset-name="preset.name"
@@ -185,20 +187,20 @@
                           <img
                             v-if="preset.image"
                             :src="preset.image"
-                            :alt="preset.name"
+                            :alt="oemBranding.presetLabel(preset.name)"
                             class="absolute inset-0 w-full h-full object-cover"
                           />
                           <div class="absolute bottom-0 w-full bg-background/70 px-0.5 py-0.5">
                             <span
                               class="block text-foreground text-[9px] leading-tight font-medium text-center truncate"
                             >
-                              {{ preset.name }}
+                              {{ oemBranding.presetLabel(preset.name) }}
                             </span>
                           </div>
                         </button>
                       </TooltipTrigger>
                       <TooltipContent side="top" class="z-[40011] max-w-[260px]">
-                        <p class="font-semibold">{{ preset.name }}</p>
+                        <p class="font-semibold">{{ oemBranding.presetLabel(preset.name) }}</p>
                         <p v-if="preset.description" class="mt-1 text-primary-foreground/80">
                           {{ preset.description }}
                         </p>
@@ -339,6 +341,8 @@ import {
 } from '@/assets/js/store/imageGenerationPresets.ts'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useOemBranding } from '@/assets/js/store/oemBranding'
+import { MODE_TO_CATEGORIES, MODE_TO_PRESET_TYPE, buttonModeFor } from '@/lib/presetModes'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useBackendServices } from '@/assets/js/store/backendServices'
@@ -379,6 +383,7 @@ const imageGeneration = useImageGenerationPresets()
 const processingDebounceTimer = ref<number | null>(null)
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const agentMode = useAgentMode()
+const oemBranding = useOemBranding()
 const textInference = useTextInference()
 const conversations = useConversations()
 const activities = useActivities()
@@ -427,25 +432,8 @@ function presetGate(preset: Preset): { enabled: boolean; reason?: string } {
 // Quick preset picker: which mode's picker popover is currently open (null = none).
 const openPickerMode = ref<ModeType | null>(null)
 
-// Mode -> preset category / type, used to list a mode's presets in the quick picker.
-// Mirrors the mapping in the prompt store.
-const modeToCategories: Record<ModeType, string[]> = {
-  chat: ['chat'],
-  agent: [], // Agent mode has no presets.
-  imageGen: ['create-images'],
-  imageEdit: ['edit-images'],
-  video: ['create-videos'],
-}
-const modeToPresetType: Record<ModeType, 'chat' | 'comfy'> = {
-  chat: 'chat',
-  agent: 'chat', // Unused: agent mode has no presets to list.
-  imageGen: 'comfy',
-  imageEdit: 'comfy',
-  video: 'comfy',
-}
-
 function presetsForMode(mode: ModeType): Preset[] {
-  return presetsStore.getPresetsByCategories(modeToCategories[mode], modeToPresetType[mode])
+  return presetsStore.getPresetsByCategories(MODE_TO_CATEGORIES[mode], MODE_TO_PRESET_TYPE[mode])
 }
 
 // The picker opens on hover (mouse) with a small delay, and closes shortly after the
@@ -538,7 +526,10 @@ async function selectPresetFromPicker(mode: ModeType, preset: Preset) {
     return
   }
   // No-op if it's already the active preset for this mode.
-  if (preset.name === presetsStore.activePresetName && promptStore.getCurrentMode() === mode) {
+  if (
+    preset.name === presetsStore.activePresetName &&
+    buttonModeFor(promptStore.getCurrentMode()) === mode
+  ) {
     return
   }
 
@@ -552,7 +543,9 @@ async function selectPresetFromPicker(mode: ModeType, preset: Preset) {
   const switchingToHomeAgent = preset.name === HOME_AGENT_CHAT_PRESET_NAME
   const onHomeAgentThread = conversations.getThreadKind(conversations.activeKey) === 'homeAgent'
 
-  const result = await presetSwitching.switchPreset(preset.name, { skipModeSwitch: true })
+  // The mode is left to the switch: an agent preset from the chat list moves the app
+  // to Agent Mode, which the button above cannot know.
+  const result = await presetSwitching.switchPreset(preset.name)
   if (result.success) {
     if (switchingToHomeAgent) {
       conversations.activeKey = homeAgent.ensureActiveRemoteConversation()
@@ -619,8 +612,6 @@ const shouldShowImageUploadButton = computed(() => {
 const modesWithPresets = computed(() => {
   const modes: ModeType[] = []
   if (presetsStore.chatPresets.length > 0) modes.push('chat')
-  // Agent mode (Pi harness PoC) has no presets — always available.
-  modes.push('agent')
   if (presetsStore.imageGenPresets.length > 0) modes.push('imageGen')
   if (presetsStore.imageEditPresets.length > 0) modes.push('imageEdit')
   if (presetsStore.videoPresets.length > 0) modes.push('video')
@@ -628,7 +619,7 @@ const modesWithPresets = computed(() => {
 })
 
 watch([modesWithPresets, () => promptStore.getCurrentMode()], ([modes, currentMode]) => {
-  if (modes.length > 0 && currentMode && !modes.includes(currentMode)) {
+  if (modes.length > 0 && currentMode && !modes.includes(buttonModeFor(currentMode))) {
     promptStore.setCurrentMode(modes[0])
   }
 })
@@ -810,6 +801,13 @@ function getTextAreaPlaceholder() {
   const active = presetsStore.activePreset
   if (active?.type === 'chat' && active.ttsPreset) {
     return languages?.COM_PROMPT_TTS || ''
+  }
+  // Agent presets differ in what they ask for: Game Maker wants a game, the plain
+  // agent a task in the chosen folder.
+  if (active?.type === 'chat' && active.agentPreset) {
+    return active.agentWorkspace === 'games'
+      ? 'Describe the game you want to play — the agent will build it...'
+      : 'Describe a task for the agent to perform in the selected folder...'
   }
   switch (promptStore.getCurrentMode()) {
     case 'chat':

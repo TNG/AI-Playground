@@ -376,9 +376,9 @@ async function handlePresetChange(presetName: string) {
   const switchingToHomeAgent = presetName === HOME_AGENT_CHAT_PRESET_NAME
   const onHomeAgentThread = conversations.getThreadKind(conversations.activeKey) === 'homeAgent'
 
-  const result = await presetSwitching.switchPreset(presetName, {
-    skipModeSwitch: true, // We're already in chat mode
-  })
+  // The mode follows the preset: an agent preset in this list switches the app to
+  // Agent Mode, so the switch is not told to stay put.
+  const result = await presetSwitching.switchPreset(presetName)
 
   if (result.success) {
     // Only reroute the conversation after the preset switch actually succeeds —

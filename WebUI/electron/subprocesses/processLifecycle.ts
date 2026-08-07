@@ -4,8 +4,67 @@ import { promisify } from 'node:util'
 import { appLoggerInstance } from '../logging/logger.ts'
 
 const execAsync = promisify(childProcess.exec)
+const execFileAsync = promisify(childProcess.execFile)
 
 type AppLogger = Pick<typeof appLoggerInstance, 'info' | 'warn' | 'error'>
+
+export type SpawnBackendOptions = Omit<childProcess.SpawnOptions, 'detached'>
+
+/**
+ * Spawn a long-lived backend so that its whole descendant tree can be killed
+ * later.
+ *
+ * On POSIX `detached` makes the child a process-group leader, which is the only
+ * thing that lets terminateProcessTree() reach its grandchildren: a plain
+ * `kill(pid)` fells the leader alone and the OS reparents everything below it to
+ * init, where it keeps holding ports and GPU memory. On Windows `detached` would
+ * instead open a console window, and `taskkill /T` already walks the tree, so it
+ * stays off there.
+ *
+ * The child is deliberately NOT unref()'d — we still want its exit events.
+ */
+export function spawnBackend(
+  command: string,
+  args: readonly string[],
+  options: SpawnBackendOptions = {},
+): ChildProcess {
+  return childProcess.spawn(command, [...args], {
+    ...options,
+    detached: process.platform !== 'win32',
+  })
+}
+
+/**
+ * Signal a whole POSIX process group. Returns false when there is no group to
+ * signal (the child was not spawned via spawnBackend, or it and its children are
+ * already gone), so the caller can fall back to the direct child.
+ */
+function killProcessGroup(pid: number, signal: NodeJS.Signals): boolean {
+  try {
+    process.kill(-pid, signal)
+    return true
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code
+    if (code === 'ESRCH' || code === 'EPERM') return false
+    throw e
+  }
+}
+
+/**
+ * Best-effort signal to a backend and everything it spawned. Use instead of
+ * `proc.kill(signal)` for anything started with spawnBackend(); a bare kill
+ * fells the leader and leaves its children behind.
+ */
+export function signalBackendTree(proc: ChildProcess, signal: NodeJS.Signals): void {
+  if (
+    process.platform !== 'win32' &&
+    proc.pid !== undefined &&
+    killProcessGroup(proc.pid, signal)
+  ) {
+    return
+  }
+  proc.kill(signal)
+}
 
 export interface TerminateProcessTreeOptions {
   /** Backend name, used as the logging tag. */
@@ -72,12 +131,17 @@ export async function terminateProcessTree(
     return
   }
 
-  // POSIX: try a cooperative shutdown first, then SIGKILL the child.
-  proc.kill('SIGTERM')
+  // POSIX: signal the whole process group so grandchildren die with their
+  // leader. Backends spawned through spawnBackend() are group leaders; anything
+  // else falls back to the direct child, which is what this used to do for all
+  // of them (and what left ComfyUI's python workers and the OVMS sub-servers
+  // running under init).
+  // Cooperative shutdown first, then SIGKILL.
+  signalBackendTree(proc, 'SIGTERM')
   if (await waitForExit(gracefulMs)) return
 
   appLogger.warn(`${tag} did not exit within ${gracefulMs}ms, force killing`, name)
-  proc.kill('SIGKILL')
+  signalBackendTree(proc, 'SIGKILL')
   if (!(await waitForExit(forceMs))) {
     appLogger.warn(`${tag} not confirmed exited after SIGKILL`, name)
   }
@@ -86,6 +150,12 @@ export async function terminateProcessTree(
 export interface KillStaleProcessesOptions {
   name: string
   label?: string
+  /**
+   * Pids that must never be killed even when their command line matches — the
+   * backends this session already owns. Without it, a sweep run after startup
+   * would shoot down the very process it is guarding.
+   */
+  excludePids?: readonly number[]
   appLogger?: AppLogger
 }
 
@@ -103,12 +173,13 @@ export async function killStaleProcessesByCommandLine(
   signature: string,
   opts: KillStaleProcessesOptions,
 ): Promise<void> {
-  const { name, label } = opts
+  const { name, label, excludePids = [] } = opts
   const appLogger = opts.appLogger ?? appLoggerInstance
   const tag = label ? `${name} ${label}` : name
 
   try {
-    const pids = await findPidsByCommandLine(signature)
+    const matched = await findPidsByCommandLine(signature)
+    const pids = matched.filter((pid) => !excludePids.includes(pid))
     if (pids.length === 0) return
     appLogger.warn(
       `Found ${pids.length} stale ${tag} process(es) (${pids.join(', ')}); terminating before start`,
@@ -118,7 +189,8 @@ export async function killStaleProcessesByCommandLine(
       try {
         if (process.platform === 'win32') {
           await execAsync(`taskkill /PID ${pid} /T /F`)
-        } else {
+        } else if (!killProcessGroup(pid, 'SIGKILL')) {
+          // Left over from a build that spawned without a process group.
           process.kill(pid, 'SIGKILL')
         }
       } catch (e) {
@@ -131,6 +203,48 @@ export async function killStaleProcessesByCommandLine(
   }
 }
 
+export interface OrphanReaperTarget {
+  /** Backend name, used as the logging tag. */
+  name: string
+  /**
+   * Absolute paths that only this backend's own processes can carry in their
+   * command line (its venv interpreter, its server binary). Being inside the
+   * install directory is what keeps the match from straying onto unrelated
+   * system processes.
+   */
+  signatures: readonly string[]
+}
+
+export interface ReapOrphansOptions {
+  excludePids?: readonly number[]
+  appLogger?: AppLogger
+}
+
+/**
+ * Kill backends left running by a previous app session.
+ *
+ * Clean teardown reaps everything, but a SIGKILL of Electron or a crash cannot
+ * be intercepted, and the survivors are invisible: the next launch picks a fresh
+ * free port and starts a second instance beside the old one, so the ports walk
+ * upwards (59000, 59001, 59002, …) while every orphan keeps its RAM and GPU
+ * memory. Run this once at startup, before anything is spawned.
+ */
+export async function reapOrphansFromPreviousSession(
+  targets: readonly OrphanReaperTarget[],
+  opts: ReapOrphansOptions = {},
+): Promise<void> {
+  for (const target of targets) {
+    for (const signature of target.signatures) {
+      await killStaleProcessesByCommandLine(signature, {
+        name: target.name,
+        label: 'orphan from a previous session',
+        excludePids: opts.excludePids,
+        appLogger: opts.appLogger,
+      })
+    }
+  }
+}
+
 async function findPidsByCommandLine(signature: string): Promise<number[]> {
   if (process.platform === 'win32') {
     // Escape single quotes for the PowerShell string literal.
@@ -140,9 +254,11 @@ async function findPidsByCommandLine(signature: string): Promise<number[]> {
     )
     return parsePids(stdout).filter((pid) => pid !== process.pid)
   }
-  // POSIX: pgrep -f matches against the full command line. Fixed-string match.
+  // POSIX: pgrep -f matches against the full command line. Run it without a
+  // shell, otherwise the `sh -c pgrep …` wrapper carries the signature in its
+  // own command line and pgrep reports that shell as a match.
   try {
-    const { stdout } = await execAsync(`pgrep -f -- ${shellQuote(signature)}`)
+    const { stdout } = await execFileAsync('pgrep', ['-f', '--', signature])
     return parsePids(stdout).filter((pid) => pid !== process.pid)
   } catch (e) {
     // pgrep exits 1 when nothing matches — that's not an error for us.
@@ -156,10 +272,6 @@ function parsePids(stdout: string): number[] {
     .split(/\r?\n/)
     .map((line) => Number.parseInt(line.trim(), 10))
     .filter((pid) => Number.isInteger(pid) && pid > 0)
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
 export type WaitForServerReadyOptions = {

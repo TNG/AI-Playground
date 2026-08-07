@@ -1,4 +1,4 @@
-import { ChildProcess, execFile, spawn } from 'node:child_process'
+import { ChildProcess, execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -6,7 +6,13 @@ import { promisify } from 'node:util'
 import { BrowserWindow } from 'electron'
 import { LocalSettings } from '../main.ts'
 import { getSharedModelDir } from '../pathsManager.ts'
-import { GitService, LongLivedPythonApiService, createEnhancedErrorDetails } from './service.ts'
+import {
+  GitService,
+  LongLivedPythonApiService,
+  createEnhancedErrorDetails,
+  venvPythonPath,
+} from './service.ts'
+import { spawnBackend } from './processLifecycle.ts'
 import {
   aipgBaseDir,
   checkBackend,
@@ -76,11 +82,7 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
   }
 
   private get pythonBinary(): string {
-    return path.join(
-      this.pythonEnvDir,
-      process.platform === 'win32' ? 'Scripts' : 'bin',
-      process.platform === 'win32' ? 'python.exe' : 'python',
-    )
+    return venvPythonPath(this.pythonEnvDir)
   }
 
   /**
@@ -277,11 +279,15 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
       ...deviceEnv,
     }
 
-    const apiProcess = spawn(this.pythonBinary, ['web_api.py', '--port', this.port.toString()], {
-      cwd: this.serviceDir,
-      windowsHide: true,
-      env: { ...process.env, ...additionalEnvVariables },
-    })
+    const apiProcess = spawnBackend(
+      this.pythonBinary,
+      ['web_api.py', '--port', this.port.toString()],
+      {
+        cwd: this.serviceDir,
+        windowsHide: true,
+        env: { ...process.env, ...additionalEnvVariables },
+      },
+    )
 
     const didProcessExitEarlyTracker = new Promise<boolean>((resolve, _reject) => {
       apiProcess.on('error', (error) => {

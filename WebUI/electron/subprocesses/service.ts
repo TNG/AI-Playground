@@ -448,6 +448,14 @@ export const aiBackendServiceDir = () =>
       : path.join(__dirname, '../../../service'),
   )
 
+/** The interpreter a venv-based backend runs its server with. */
+export const venvPythonPath = (pythonEnvDir: string): string =>
+  path.join(
+    pythonEnvDir,
+    process.platform === 'win32' ? 'Scripts' : 'bin',
+    process.platform === 'win32' ? 'python.exe' : 'python',
+  )
+
 export interface ApiService {
   readonly name: string
   readonly baseUrl: string
@@ -455,6 +463,14 @@ export interface ApiService {
   readonly isRequired: boolean
   currentStatus: BackendStatus
   isSetUp: boolean
+
+  /**
+   * Absolute paths that only this backend's own processes carry in their
+   * command line, used at startup to spot instances a previous app session left
+   * behind. Being inside the install directory keeps the match off unrelated
+   * system processes.
+   */
+  orphanSignatures?(): string[]
 
   selectDevice(deviceId: string): Promise<void>
   detectDevices(): Promise<void>
@@ -594,7 +610,10 @@ export abstract class LongLivedPythonApiService implements ApiService {
   abstract set_up(): AsyncIterable<SetupProgress>
 
   async uninstall(): Promise<void> {
-    this.stop()
+    // Awaited: deleting the env under a still-running interpreter leaves the
+    // process alive with a half-removed install (and fails outright on Windows,
+    // where the running python holds handles on the directory).
+    await this.stop()
     this.appLogger.info(`removing python env of ${this.name} service`, this.name)
     await filesystem.remove(this.pythonEnvDir)
     this.appLogger.info(`removed python env of ${this.name} service`, this.name)
@@ -703,6 +722,10 @@ export abstract class LongLivedPythonApiService implements ApiService {
       this.win.webContents.send('serviceInfoUpdate', this.get_info())
     }
     return this.currentStatus
+  }
+
+  orphanSignatures(): string[] {
+    return [venvPythonPath(this.pythonEnvDir)]
   }
 
   async stop(): Promise<BackendStatus> {

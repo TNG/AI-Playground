@@ -1,4 +1,4 @@
-import { ChildProcess, spawn } from 'node:child_process'
+import { ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import fs from 'fs'
@@ -11,6 +11,7 @@ import {
   installHijacks,
   patchFile,
   createEnhancedErrorDetails,
+  venvPythonPath,
 } from './service.ts'
 import {
   aipgBaseDir,
@@ -28,7 +29,7 @@ import {
   type ComfyUiDepsMarker,
 } from './comfyUiRevision.ts'
 import { ProcessError } from './osProcessHelper.ts'
-import { killStaleProcessesByCommandLine } from './processLifecycle.ts'
+import { killStaleProcessesByCommandLine, spawnBackend } from './processLifecycle.ts'
 import { getMediaDir } from '../util.ts'
 import { packagedResourcesRoot, writableConfigRoot } from '../aipgRoot.ts'
 import {
@@ -1434,11 +1435,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   }
 
   getPythonBinaryPath() {
-    return path.join(
-      this.pythonEnvDir,
-      process.platform === 'win32' ? 'Scripts' : 'bin',
-      process.platform === 'win32' ? 'python.exe' : 'python',
-    )
+    return venvPythonPath(this.pythonEnvDir)
   }
 
   async detectDevices() {
@@ -1883,7 +1880,7 @@ except Exception as e:
       true,
     )
     const pythonBinary = this.getPythonBinaryPath()
-    const apiProcess = spawn(pythonBinary, parameters, {
+    const apiProcess = spawnBackend(pythonBinary, parameters, {
       cwd: this.serviceDir,
       windowsHide: true,
       // Build a fresh env object instead of mutating process.env — otherwise the

@@ -1,4 +1,4 @@
-import { exec, execFile, spawn, type ChildProcess } from 'node:child_process'
+import { exec, execFile, type ChildProcess } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -7,7 +7,11 @@ import { app, net, type BrowserWindow } from 'electron'
 import { appLoggerInstance } from '../logging/logger.ts'
 import { packagedResourcesRoot } from '../aipgRoot.ts'
 import { createEnhancedErrorDetails, type ApiService, type ErrorDetails } from './service.ts'
-import { terminateProcessTree, waitForServerReadyOrThrow } from './processLifecycle.ts'
+import {
+  spawnBackend,
+  terminateProcessTree,
+  waitForServerReadyOrThrow,
+} from './processLifecycle.ts'
 import {
   vulkanDeviceSelectorEnv,
   withSelectedDevice,
@@ -175,6 +179,13 @@ export class LlamaCppBackendService implements ApiService {
 
   private getZipPathForVariant(variant: LlamaCppBuildVariant): string {
     return llamaCppPhison.getZipPathForVariant(this.serviceDir, variant, platformExtension)
+  }
+
+  /** Both variants: a leftover server may predate a switch of the active one. */
+  orphanSignatures(): string[] {
+    return (['standard', 'ssd-offload'] as const).map((variant) =>
+      llamaCppPhison.getActiveLlamaCppExePath(this.serviceDir, variant),
+    )
   }
 
   constructor(name: BackendServiceName, port: number, win: BrowserWindow, settings: LocalSettings) {
@@ -1178,7 +1189,7 @@ export class LlamaCppBackendService implements ApiService {
         this.appLogger.info(`Using mmproj file ${mmprojFile} for model ${modelRepoId}`, this.name)
       }
 
-      const childProcess = spawn(this.getActiveLlamaCppExePath(), args, {
+      const childProcess = spawnBackend(this.getActiveLlamaCppExePath(), args, {
         cwd: this.getActiveLlamaCppDir(),
         windowsHide: true,
         env: this.llamaModelServerEnv(),
@@ -1319,7 +1330,7 @@ export class LlamaCppBackendService implements ApiService {
         '127.0.0.1',
       ]
 
-      const childProcess = spawn(this.getActiveLlamaCppExePath(), args, {
+      const childProcess = spawnBackend(this.getActiveLlamaCppExePath(), args, {
         cwd: this.getActiveLlamaCppDir(),
         windowsHide: true,
         env: this.llamaModelServerEnv(),

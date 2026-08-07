@@ -14,6 +14,8 @@ import { binary, extract, restoreTreeWritePermissions } from './tools.ts'
 import { getBundledBackendVersionSync, resolveModels } from '../remoteUpdates.ts'
 import {
   terminateProcessTree as killProcessTree,
+  signalBackendTree,
+  spawnBackend,
   waitForServerReadyOrThrow,
 } from './processLifecycle.ts'
 import {
@@ -1045,7 +1047,7 @@ export class OpenVINOBackendService implements ApiService {
         this.name,
       )
 
-      const childProcess = spawn(this.ovmsExePath, args, {
+      const childProcess = spawnBackend(this.ovmsExePath, args, {
         cwd: this.ovmsDir,
         windowsHide: true,
         env: this.buildOvmsEnv(extraLibPaths),
@@ -1068,8 +1070,8 @@ export class OpenVINOBackendService implements ApiService {
               .filter((d) => d.length > 0)
             this.appLogger.info(`Detected OpenVINO devices: ${devices.join(', ')}`, this.name)
 
-            // Kill the process since we have what we need
-            childProcess.kill('SIGTERM')
+            // Kill the probe and its OVMS workers since we have what we need.
+            signalBackendTree(childProcess, 'SIGTERM')
             resolve(devices)
             return
           }
@@ -1103,7 +1105,7 @@ export class OpenVINOBackendService implements ApiService {
         if (!resolved) {
           resolved = true
           this.appLogger.warn('Device detection timed out after 10 seconds', this.name)
-          childProcess.kill('SIGTERM')
+          signalBackendTree(childProcess, 'SIGTERM')
           reject(new Error('Device detection timed out'))
         }
       }, 10000)
@@ -2118,7 +2120,7 @@ export class OpenVINOBackendService implements ApiService {
       const extraLibPaths = await this.resolveOvmsExtraLibPaths()
       const ovmsEnv = this.buildOvmsEnv(extraLibPaths)
 
-      const childProcess = spawn(this.ovmsExePath, args, {
+      const childProcess = spawnBackend(this.ovmsExePath, args, {
         cwd: this.ovmsDir,
         windowsHide: true,
         env: ovmsEnv,
@@ -2213,6 +2215,11 @@ export class OpenVINOBackendService implements ApiService {
     await killProcessTree(proc, { name: this.name, label, appLogger: this.appLogger })
   }
 
+  /** One binary serves all five OVMS sub-servers, so one signature covers them. */
+  orphanSignatures(): string[] {
+    return [this.ovmsExePath]
+  }
+
   private async stopOvmsLlmServer(): Promise<void> {
     if (this.ovmsLlmProcess) {
       this.appLogger.info(`Stopping OVMS LLM server for model: ${this.currentModel}`, this.name)
@@ -2260,7 +2267,7 @@ export class OpenVINOBackendService implements ApiService {
       this.appLogger.info(`OVMS embedding launch args: ${args.join(' ')}`, this.name)
 
       const extraLibPaths = await this.resolveOvmsExtraLibPaths()
-      const childProcess = spawn(this.ovmsExePath, args, {
+      const childProcess = spawnBackend(this.ovmsExePath, args, {
         cwd: this.ovmsDir,
         windowsHide: true,
         env: this.buildOvmsEnv(extraLibPaths),
@@ -2367,7 +2374,7 @@ export class OpenVINOBackendService implements ApiService {
       this.appLogger.info(`OVMS transcription launch args: ${args.join(' ')}`, this.name)
 
       const extraLibPaths = await this.resolveOvmsExtraLibPaths()
-      const childProcess = spawn(this.ovmsExePath, args, {
+      const childProcess = spawnBackend(this.ovmsExePath, args, {
         cwd: this.ovmsDir,
         windowsHide: true,
         env: this.buildOvmsEnv(extraLibPaths),
@@ -2481,7 +2488,7 @@ export class OpenVINOBackendService implements ApiService {
       const pythonDir = path.join(this.ovmsDir, 'python')
       const scriptsDir = path.join(this.ovmsDir, 'python', 'Scripts')
 
-      const childProcess = spawn(this.ovmsExePath, args, {
+      const childProcess = spawnBackend(this.ovmsExePath, args, {
         cwd: this.ovmsDir,
         windowsHide: true,
         env: {
@@ -2598,7 +2605,7 @@ export class OpenVINOBackendService implements ApiService {
       this.appLogger.info(`OVMS image launch args: ${args.join(' ')}`, this.name)
 
       const extraLibPaths = await this.resolveOvmsExtraLibPaths()
-      const childProcess = spawn(this.ovmsExePath, args, {
+      const childProcess = spawnBackend(this.ovmsExePath, args, {
         cwd: this.ovmsDir,
         windowsHide: true,
         env: this.buildOvmsEnv(extraLibPaths),

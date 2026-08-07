@@ -170,18 +170,36 @@ class LocalWebChannel(ChannelBase):
         )
 
     def send_video(self, payload: dict) -> SendResult:
-        # The browser page has no native video player; surface a caption line.
-        caption = payload.get("caption") or payload.get("filename") or "[video]"
-        return self._broadcast("reply", {"text": caption})
+        # The browser renders a native <video> from the base64 payload.
+        base64_data = payload.get("base64") or payload.get("video") or ""
+        return self._broadcast(
+            "video",
+            {
+                "base64": base64_data,
+                "caption": payload.get("caption", ""),
+                "filename": payload.get("filename", ""),
+            },
+        )
 
     def send_voice(self, payload: dict) -> SendResult:
-        # No inline audio player either — acknowledge with any caption.
-        caption = payload.get("caption") or "[voice message]"
-        return self._broadcast("reply", {"text": caption})
+        # Rendered as a native <audio> player in the browser.
+        base64_data = payload.get("base64") or payload.get("audio") or ""
+        return self._broadcast(
+            "voice",
+            {"base64": base64_data, "mime": payload.get("mime", "audio/ogg")},
+        )
 
     def send_document(self, payload: dict) -> SendResult:
-        caption = payload.get("caption") or payload.get("filename") or "[document]"
-        return self._broadcast("reply", {"text": caption})
+        # Offered as a download link (the browser can't preview arbitrary files).
+        base64_data = payload.get("base64") or payload.get("document") or ""
+        return self._broadcast(
+            "document",
+            {
+                "base64": base64_data,
+                "filename": payload.get("filename", "file"),
+                "caption": payload.get("caption", ""),
+            },
+        )
 
     def send_typing(self, payload: dict) -> SendResult:
         return self._broadcast("typing", {"action": payload.get("action") or "typing"})
@@ -201,6 +219,12 @@ class LocalWebChannel(ChannelBase):
     def send_edit_message(self, payload: dict) -> SendResult:
         # No in-place edit primitive over SSE; post the settled text as a reply.
         return self._broadcast("reply", {"text": payload.get("text", "")})
+
+    def send_history(self, payload: dict) -> SendResult:
+        # Repaint the browser log with a conversation's full transcript. Unlike
+        # Telegram/Slack the page keeps no history across (re)connects, so loading
+        # a chat re-sends every message as one `history` event.
+        return self._broadcast("history", {"messages": payload.get("messages", [])})
 
     # ── Channel protocol: logging ─────────────────────────────────────────
     def redaction_patterns(self) -> Iterable[re.Pattern[str]]:
@@ -223,13 +247,28 @@ class LocalWebChannel(ChannelBase):
             self._sessions.discard(session)
 
     def _enqueue_inbound(
-        self, text: str | None, callback: str | None, client_id: str
+        self,
+        text: str | None,
+        callback: str | None,
+        client_id: str,
+        images: list | None = None,
+        audio: list | None = None,
+        documents: list | None = None,
     ) -> None:
         item: dict = {"chat_id": client_id, "channel": "local-web"}
         if text is not None:
             item["text"] = text
         if callback is not None:
             item["callback"] = callback
+        # Attachments uploaded from the browser (base64), shaped like the other
+        # channels' inbound so the renderer's image/audio/document handling — RAG
+        # ingest, vision, transcription — applies unchanged.
+        if images:
+            item["images"] = images
+        if audio:
+            item["audio"] = audio
+        if documents:
+            item["documents"] = documents
         self.queue_append(item)
 
     def _register_sse(self) -> queue.Queue:
@@ -426,10 +465,18 @@ class _LocalWebRequestHandler(BaseHTTPRequestHandler):
             body = self._read_json()
             text = body.get("text")
             callback = body.get("callback")
+
+            def _list(key: str) -> list | None:
+                value = body.get(key)
+                return value if isinstance(value, list) and value else None
+
             channel._enqueue_inbound(
                 text if isinstance(text, str) else None,
                 callback if isinstance(callback, str) else None,
                 self._client_id(),
+                images=_list("images"),
+                audio=_list("audio"),
+                documents=_list("documents"),
             )
             self._send_json(HTTPStatus.OK, {"ok": True})
             return

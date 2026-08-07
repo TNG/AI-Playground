@@ -531,6 +531,107 @@ export const useHomeAgent = defineStore(
       return true
     }
 
+    /** Flatten a message's visible text parts into a single string. */
+    function messagePlainText(m: AipgUiMessage): string {
+      return (m.parts as { type: string; text?: string }[])
+        .filter((p): p is { type: 'text'; text: string } => p.type === 'text' && !!p.text)
+        .map((p) => p.text)
+        .join('')
+        .trim()
+    }
+
+    /** Collect the media URLs a message carries — attached `file` parts plus any
+     *  media emitted by tool calls (ComfyUI etc.) — so history replay can re-ship
+     *  pictures, clips and 3D/model files, not just the text. */
+    function messageMedia(m: AipgUiMessage): {
+      images: string[]
+      videos: string[]
+      models: string[]
+    } {
+      const images: string[] = []
+      const videos: string[] = []
+      const models: string[] = []
+      for (const part of m.parts as RawPart[]) {
+        const p = part as RawPart & { url?: string; mediaType?: string }
+        if (p.type === 'file' && p.url) {
+          const mt = p.mediaType ?? 'image/'
+          if (mt.startsWith('video/')) videos.push(p.url)
+          else if (mt.startsWith('image/')) images.push(p.url)
+          else models.push(p.url)
+          continue
+        }
+        for (const item of extractToolMedia(part)) {
+          if (item.kind === 'image') images.push(item.url)
+          else if (item.kind === 'video') videos.push(item.url)
+          else if (item.kind === 'model3d') models.push(item.url)
+        }
+      }
+      return { images, videos, models }
+    }
+
+    /**
+     * Repaint a channel that has no history of its own (the LAN web page) with a
+     * conversation's full transcript. No-op for channels that keep history
+     * natively (Telegram/Slack leave `replayHistory` undefined), so loading a
+     * chat there relies on the platform's own scrollback.
+     */
+    async function replayHistoryToChannel(adapter: ChannelAdapter, key: string): Promise<void> {
+      if (!adapter.replayHistory) return
+      const msgs = chatStore.getMessagesForKey(key) ?? conversations.conversationList[key] ?? []
+      const history: {
+        role: 'user' | 'assistant'
+        text: string
+        images?: string[]
+        videos?: { base64: string; filename: string }[]
+        documents?: { base64: string; filename: string }[]
+      }[] = []
+      for (const m of msgs) {
+        const role = (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant'
+        // Assistant turns render through the SAME formatter as the live reply, so
+        // reasoning blocks, image-gen preset/prompt markers and tool notes look
+        // identical on reload. User turns are just their plain text.
+        const text =
+          role === 'assistant' ? adapter.formatFinal(m.parts as RawPart[]) : messagePlainText(m)
+        // Resolve each media URL (aipg-media://…) to base64 the browser can render
+        // inline — the same conversion the live photo/video sends use.
+        const { images: imageUrls, videos: videoUrls, models: modelUrls } = messageMedia(m)
+        const images: string[] = []
+        for (const url of imageUrls) {
+          try {
+            images.push(await mediaToBase64(url))
+          } catch (e) {
+            console.error('homeAgent: history image read failed:', e)
+          }
+        }
+        const videos: { base64: string; filename: string }[] = []
+        for (const url of videoUrls) {
+          try {
+            videos.push({
+              base64: await mediaToBase64(url),
+              filename: basenameForUrl(url, 'video.mp4'),
+            })
+          } catch (e) {
+            console.error('homeAgent: history video read failed:', e)
+          }
+        }
+        const documents: { base64: string; filename: string }[] = []
+        for (const url of modelUrls) {
+          try {
+            documents.push({
+              base64: await mediaToBase64(url),
+              filename: basenameForUrl(url, 'model.glb'),
+            })
+          } catch (e) {
+            console.error('homeAgent: history model read failed:', e)
+          }
+        }
+        if (text || images.length || videos.length || documents.length) {
+          history.push({ role, text, images, videos, documents })
+        }
+      }
+      await adapter.replayHistory(history)
+    }
+
     function ensureActiveRemoteConversation(): string {
       const current = activeRemoteConversationKey.value
       if (current && conversations.conversationList[current]) return current
@@ -2010,6 +2111,21 @@ export const useHomeAgent = defineStore(
               } else if (item.callback.startsWith('imgGen:preset:')) {
                 const name = item.callback.slice('imgGen:preset:'.length)
                 await handleImgGenPresetCallback(adapter, name, meta)
+              } else if (item.callback.startsWith('loadConv:')) {
+                // Tap on a chat from the /history or /load menu.
+                const key = item.callback.slice('loadConv:'.length)
+                if (switchRemoteConversation(key)) {
+                  focusRemoteChatDiscussion()
+                  const found = listRemoteConversations().find((i) => i.key === key)
+                  await replayHistoryToChannel(adapter, key)
+                  await reply(
+                    adapter,
+                    `📂 Loaded <i>${escapeHtml(found?.title ?? key)}</i>.\nReplies and new messages now use this thread.`,
+                    meta,
+                  )
+                } else {
+                  await reply(adapter, '⚠️ Could not load that chat thread.', meta)
+                }
               }
             } catch (e) {
               console.error(`Error processing ${kind} callback:`, e)
@@ -2080,6 +2196,9 @@ export const useHomeAgent = defineStore(
                 focusRemoteChatDiscussion()
                 const items = listRemoteConversations()
                 const found = items.find((i) => i.key === key)
+                // Repaint the browser log with this thread's transcript first, so
+                // the confirmation line below lands under the restored messages.
+                await replayHistoryToChannel(adapter, key)
                 await reply(
                   adapter,
                   `📂 Loaded <i>${escapeHtml(found?.title ?? key)}</i>.\nReplies and new messages now use this thread.`,

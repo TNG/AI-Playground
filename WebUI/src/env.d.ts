@@ -558,7 +558,8 @@ type electronAPI = {
           | 'document'
           | 'typing'
           | 'keyboard'
-          | 'editMessage',
+          | 'editMessage'
+          | 'history',
         payload: Record<string, unknown>,
       ): Promise<{
         success: boolean

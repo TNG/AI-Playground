@@ -2,7 +2,7 @@ import { test, expect } from './fixtures'
 import { MainPage } from './pages/MainPage'
 import { HomeAgentPage } from './pages/HomeAgentPage'
 import { login, sendChat, waitForReply } from './localWebClient'
-import { openLocalWebChat, sendAndAwaitReply } from './localWebBrowser'
+import { openLocalWebChat, sendAndAwaitReply, sendMessage } from './localWebBrowser'
 
 // Full round-trip for the Home Agent "local web chat" channel — the third option
 // alongside Telegram and Slack, but served by the Python backend (no cloud relay,
@@ -74,6 +74,38 @@ test.describe('Home Agent — local web chat', () => {
       try {
         const reply = await sendAndAwaitReply(page, PROMPT, MainPage.IMAGE_TIMEOUT)
         expect(reply).not.toEqual('')
+      } finally {
+        await page.close()
+      }
+    })
+
+    // /new must start a *separate* thread, and /load must repaint the browser with
+    // the loaded thread's transcript (the LAN page keeps no history of its own).
+    // We put two distinct codewords in two threads, then load the newest and
+    // assert the browser now shows only that thread — proving both commands.
+    await test.step('/new and /load switch and repaint chat threads', async () => {
+      const page = await openLocalWebChat(electronApp, BASE_URL, LOCAL_WEB_PASSWORD)
+      try {
+        // Baseline /new burns any pre-existing empty thread so the /new below is
+        // guaranteed to create the newest thread (index 1 for /load).
+        const firstNew = await sendAndAwaitReply(page, '/new', 60_000)
+        expect(firstNew.toLowerCase()).toContain('new chat thread')
+        await sendAndAwaitReply(page, 'Remember the codeword MARCO.', MainPage.IMAGE_TIMEOUT)
+
+        await sendAndAwaitReply(page, '/new', 60_000)
+        await sendAndAwaitReply(page, 'Remember the codeword POLO.', MainPage.IMAGE_TIMEOUT)
+
+        // Both codewords are now in the browser log (accumulated across turns).
+        const marco = page.locator('.row-user .bubble', { hasText: 'MARCO' })
+        const polo = page.locator('.row-user .bubble', { hasText: 'POLO' })
+        await expect(marco).toHaveCount(1)
+        await expect(polo).toHaveCount(1)
+
+        // Load the newest thread (the POLO one). The page repaints from its
+        // transcript: MARCO lives in the other thread and must disappear.
+        await sendMessage(page, '/load 1')
+        await expect(marco).toHaveCount(0, { timeout: 60_000 })
+        await expect(polo).toHaveCount(1)
       } finally {
         await page.close()
       }

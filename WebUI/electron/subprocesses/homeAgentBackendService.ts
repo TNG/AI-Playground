@@ -527,7 +527,8 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       | 'document'
       | 'typing'
       | 'keyboard'
-      | 'editMessage',
+      | 'editMessage'
+      | 'history',
     payload: ChannelSendPayload,
   ): Promise<{
     success: boolean
@@ -863,7 +864,8 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
           | 'document'
           | 'typing'
           | 'keyboard'
-          | 'editMessage',
+          | 'editMessage'
+          | 'history',
         payload: ChannelSendPayload,
       ) => this.channelSend(kind, action, payload),
     )

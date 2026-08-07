@@ -63,6 +63,30 @@ describe('channel adapters', () => {
     expect(sl).toContain('> 💭')
   })
 
+  it('local web renders the image preset + prompt (draft and final)', () => {
+    // Regression: the generic tool marker skips image tools (Telegram renders
+    // them specially), so without a dedicated image renderer the browser only
+    // got the finished photo — never the "Generating using preset … <prompt>"
+    // line the desktop app shows.
+    const parts: RawPart[] = [
+      {
+        type: 'tool-comfyUI',
+        state: 'input-available',
+        input: { workflow: 'Line Art', prompt: 'a friendly lizard on a surfboard' },
+      },
+    ]
+    const draft = localWeb.formatDraft(parts)
+    expect(draft).toContain('Line Art')
+    expect(draft).toContain('a friendly lizard on a surfboard')
+    expect(draft).toContain('Generating')
+
+    const doneParts: RawPart[] = [{ ...parts[0], state: 'output-available' }]
+    const final = localWeb.formatFinal(doneParts)
+    expect(final).toContain('Line Art')
+    expect(final).toContain('a friendly lizard on a surfboard')
+    expect(final).toContain('Generated')
+  })
+
   it('telegram keyboard returns a messageId ref and edits in place', async () => {
     sendMock.mockResolvedValueOnce({ success: true, messageId: 42 })
     const res = await telegram.keyboard('Apply settings?', [

@@ -296,7 +296,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
           | 'document'
           | 'typing'
           | 'keyboard'
-          | 'editMessage',
+          | 'editMessage'
+          | 'history',
         payload: Record<string, unknown>,
       ) => ipcRenderer.invoke('channel:send', kind, action, payload),
     },

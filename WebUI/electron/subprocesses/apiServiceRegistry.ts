@@ -8,6 +8,7 @@ import { LlamaCppBackendService } from './llamaCppBackendService.ts'
 import { OpenVINOBackendService } from './openVINOBackendService.ts'
 import { HomeAgentBackendService } from './homeAgentBackendService.ts'
 import { Qwen3TtsBackendService } from './qwen3TtsBackendService.ts'
+import { reapOrphansFromPreviousSession } from './processLifecycle.ts'
 import { LocalSettings } from '../main.ts'
 
 export type backend =
@@ -51,11 +52,22 @@ export class ApiServiceRegistryImpl implements ApiServiceRegistry {
 
   async stopAllServices(): Promise<{ serviceName: string; state: BackendStatus }[]> {
     appLoggerInstance.info(`stopping all running services`, 'apiServiceRegistry')
-    const runningServices = this.registeredServices.filter(
-      (item) => item.currentStatus === 'running',
+    // Not just 'running': a service caught mid-startup, mid-shutdown or in
+    // 'failed' can still own a spawned process, and skipping it is exactly how
+    // that process ends up outliving the app.
+    const idleStatuses: BackendStatus[] = [
+      'notInstalled',
+      'installing',
+      'installationFailed',
+      'notYetStarted',
+      'stopped',
+      'uninitializedStatus',
+    ]
+    const liveServices = this.registeredServices.filter(
+      (item) => !idleStatuses.includes(item.currentStatus),
     )
     return Promise.all(
-      runningServices.map((service) =>
+      liveServices.map((service) =>
         service
           .stop()
           .then((state) => {
@@ -79,6 +91,19 @@ export class ApiServiceRegistryImpl implements ApiServiceRegistry {
 
   getServiceInformation(): ApiServiceInformation[] {
     return this.getRegistered().map((service) => service.get_info())
+  }
+
+  /**
+   * Kill backends a previous app session left running. Clean teardown handles
+   * the normal cases; this covers what cannot be intercepted (a SIGKILL of
+   * Electron, a crash) and is the only guard for the third-party servers we do
+   * not control.
+   */
+  async reapOrphansFromPreviousSession(): Promise<void> {
+    const targets = this.registeredServices
+      .map((service) => ({ name: service.name, signatures: service.orphanSignatures?.() ?? [] }))
+      .filter((target) => target.signatures.length > 0)
+    await reapOrphansFromPreviousSession(targets, { appLogger: appLoggerInstance })
   }
 
   /**
@@ -214,6 +239,9 @@ export async function aiplaygroundApiServiceRegistry(
         settings,
       ),
     )
+
+    // Before anything of ours is spawned, so nothing we own can be caught by it.
+    await instance.reapOrphansFromPreviousSession()
 
     // Automatically start all set-up services in the background
     // This happens regardless of frontend state, making it more reliable

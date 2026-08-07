@@ -418,9 +418,15 @@ const allBuiltinTools: Array<{ name: string; label: string; description: string 
   },
   {
     name: 'synthesizeTextToSpeech',
-    label: 'Text To Speech (Qwen3-TTS)',
+    label: 'Text To Speech',
     description:
       'Let the assistant turn text into spoken audio with a choice of voices and languages.',
+  },
+  {
+    name: 'transcribeAudio',
+    label: 'Speech To Text',
+    description:
+      'Let the assistant transcribe an attached voice message or audio file into text with Whisper.',
   },
 ]
 

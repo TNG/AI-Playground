@@ -387,7 +387,7 @@
                 <span class="text-xs ml-1">{{ languages.COM_COPY }}</span>
               </button>
               <button
-                v-if="textToSpeech.enabled"
+                v-if="textToSpeech.available"
                 class="flex items-end"
                 title="Speak"
                 :disabled="openAiCompatibleChat.processing"
@@ -722,7 +722,7 @@ watch(
   () => openAiCompatibleChat.processing,
   (processing, wasProcessing) => {
     if (!(wasProcessing && !processing)) return
-    if (!textToSpeech.enabled || !textToSpeech.autoSpeakOnVoiceInput) return
+    if (!textToSpeech.available || !textToSpeech.autoSpeakOnVoiceInput) return
     if (!textToSpeech.pendingVoiceTurn) return
 
     textToSpeech.pendingVoiceTurn = false

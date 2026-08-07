@@ -58,6 +58,7 @@
             </Popover>
           </template>
           <textarea
+            v-if="!isSttPreset"
             id="prompt-input"
             aria-label="Prompt"
             ref="textareaRef"
@@ -75,6 +76,57 @@
             :disabled="isTextAreaDisabled"
             @keydown="fastGenerate"
           ></textarea>
+
+          <!-- STT preset: record from the mic or upload an audio file to transcribe.
+               No text prompt — the transcript is appended as a chat turn. -->
+          <div
+            v-else
+            class="flex h-48 w-full flex-col items-center justify-center gap-4 rounded-md border border-border bg-background/50 px-4 pb-16 pt-3"
+          >
+            <p v-if="!sttAvailable" class="text-sm text-amber-500">
+              <template v-if="productModeStore.isNvidiaModeSelected">
+                Configure an external transcription endpoint in this preset's settings to transcribe
+                speech.
+              </template>
+              <template v-else>
+                Install the OpenVINO backend (or set an external transcription endpoint in this
+                preset's settings) to transcribe speech.
+              </template>
+            </p>
+            <template v-else>
+              <Button
+                id="stt-record-button"
+                class="bg-primary hover:bg-primary/80 text-primary-foreground rounded-lg px-4 py-2"
+                :disabled="audioRecorder.isTranscribing"
+                @click="handleRecordingClick"
+              >
+                <i
+                  class="svg-icon w-5 h-5 mr-2"
+                  :class="audioRecorder.isRecording ? 'i-record-active' : 'i-record'"
+                ></i>
+                {{
+                  audioRecorder.isTranscribing
+                    ? 'Transcribing…'
+                    : audioRecorder.isRecording
+                      ? 'Stop recording'
+                      : 'Record'
+                }}
+              </Button>
+              <Label
+                htmlFor="stt-file-upload"
+                class="cursor-pointer text-sm text-muted-foreground underline hover:text-foreground"
+              >
+                or upload an audio file
+              </Label>
+              <input
+                type="file"
+                id="stt-file-upload"
+                class="hidden"
+                accept="audio/*"
+                @change="handleSttFileUpload"
+              />
+            </template>
+          </div>
           <div class="absolute bottom-14 left-3 flex gap-2">
             <div
               v-for="preview in imagePreview"
@@ -240,7 +292,7 @@
               id="camera-button"
               class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
               variant="secondary"
-              v-if="promptStore.getCurrentMode() === 'chat'"
+              v-if="promptStore.getCurrentMode() === 'chat' && !isSttPreset"
               @click="handleCameraClick"
               title="Capture image from camera"
             >
@@ -250,16 +302,15 @@
               id="microphone-button"
               class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
               variant="secondary"
-              v-if="
-                promptStore.getCurrentMode() === 'chat' && !productModeStore.isNvidiaModeSelected
-              "
+              v-if="promptStore.getCurrentMode() === 'chat' && !isSttPreset && sttAvailable"
               @click="handleRecordingClick"
               :disabled="
-                (!speechToText.enabled && !audioRecorder.isRecording) ||
-                audioRecorder.isTranscribing
+                (!sttAvailable && !audioRecorder.isRecording) || audioRecorder.isTranscribing
               "
               :title="
-                !speechToText.enabled ? 'Enable Speech To Text in settings to use voice input' : ''
+                !sttAvailable
+                  ? 'Install the OpenVINO backend (or set a fallback endpoint) to use voice input'
+                  : ''
               "
             >
               <i
@@ -289,33 +340,37 @@
             >
               {{ mapModeToLabel(promptStore.getCurrentMode()) }} Settings
             </Button>
-            <Button
-              v-if="readyForNewSubmit"
-              @click="handleSubmitPromptClick"
-              id="send-button"
-              aria-label="Send"
-              class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px]"
-            >
-              →
-            </Button>
-            <Button
-              v-else-if="!isStopping"
-              @click="handleCancelClick"
-              aria-label="Stop generating"
-              aria-busy="true"
-              class="px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-sm min-w-[44px] flex items-center justify-center"
-            >
-              <i class="svg-icon w-4 h-4 i-stop"></i>
-            </Button>
-            <Button
-              v-else
-              disabled
-              aria-label="Stopping"
-              aria-busy="true"
-              class="px-3 py-1.5 bg-red-400 cursor-not-allowed rounded-lg text-sm min-w-[44px] flex items-center justify-center"
-            >
-              <i class="svg-icon w-4 h-4 i-loading"></i>
-            </Button>
+            <!-- Send / stop / loading cluster — hidden for the STT preset, which
+                 submits via its own record/upload controls. -->
+            <template v-if="!isSttPreset">
+              <Button
+                v-if="readyForNewSubmit"
+                @click="handleSubmitPromptClick"
+                id="send-button"
+                aria-label="Send"
+                class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px]"
+              >
+                →
+              </Button>
+              <Button
+                v-else-if="!isStopping"
+                @click="handleCancelClick"
+                aria-label="Stop generating"
+                aria-busy="true"
+                class="px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-sm min-w-[44px] flex items-center justify-center"
+              >
+                <i class="svg-icon w-4 h-4 i-stop"></i>
+              </Button>
+              <Button
+                v-else
+                disabled
+                aria-label="Stopping"
+                aria-busy="true"
+                class="px-3 py-1.5 bg-red-400 cursor-not-allowed rounded-lg text-sm min-w-[44px] flex items-center justify-center"
+              >
+                <i class="svg-icon w-4 h-4 i-loading"></i>
+              </Button>
+            </template>
           </div>
         </div>
       </div>
@@ -371,6 +426,7 @@ import {
 import { useI18N } from '@/assets/js/store/i18n'
 import { usePresets, type ChatPreset, type Preset } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
+import { useProductMode } from '@/assets/js/store/productMode'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { PlusIcon, PaperClipIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { CameraIcon } from '@heroicons/vue/24/solid'
@@ -382,7 +438,6 @@ import PromptStatusBar from '@/components/PromptStatusBar.vue'
 import { useDialogStore } from '@/assets/js/store/dialogs'
 import CameraCapture from '@/components/CameraCapture.vue'
 import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
-import { useProductMode } from '@/assets/js/store/productMode'
 import DemoSamplePrompts from '@/components/DemoSamplePrompts.vue'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
@@ -575,17 +630,42 @@ async function selectPresetFromPicker(mode: ModeType, preset: Preset) {
 const demoMode = useDemoMode()
 const productModeStore = useProductMode()
 
-audioRecorder.registerTranscriptionCallback((text) => {
-  prompt.value = text
-  // Mark this as a voice-originated turn so the reply can be auto-spoken.
-  textToSpeech.pendingVoiceTurn = true
-})
-
 // Get active chat preset
 const activeChatPreset = computed(() => {
   const preset = presetsStore.activePresetWithVariant
   if (preset?.type === 'chat') return preset as ChatPreset
   return null
+})
+
+// Direct Speech-to-Text preset: the prompt box becomes a record/upload surface.
+const isSttPreset = computed(() => activeChatPreset.value?.sttPreset === true)
+
+// Whether voice input is usable: OpenVINO Whisper (non-NVIDIA) or a configured
+// external transcription endpoint (any mode). Replaces the old global STT toggle.
+const sttAvailable = computed(() => speechToText.available)
+
+// Handle an uploaded audio file in the STT preset: transcribe it into a chat turn.
+async function handleSttFileUpload(event: Event) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  target.value = ''
+  if (!file) return
+  await openAiCompatibleChat.transcribeDirect(file, {
+    conversationKey: conversations.activeKey,
+    sourceLabel: `🎤 ${file.name}`,
+  })
+}
+
+audioRecorder.registerTranscriptionCallback((text) => {
+  // In the STT preset the transcript is the turn's output — render it as a chat
+  // turn instead of dropping it into the prompt box.
+  if (isSttPreset.value) {
+    openAiCompatibleChat.appendTranscriptTurn(text, conversations.activeKey, '🎤 Recording')
+    return
+  }
+  prompt.value = text
+  // Mark this as a voice-originated turn so the reply can be auto-spoken.
+  textToSpeech.pendingVoiceTurn = true
 })
 
 // Check if images can be attached (vision model selected)
@@ -863,7 +943,22 @@ async function handleRecordingClick() {
     audioRecorder.stopRecording()
     return
   }
-  if (!speechToText.enabled) return
+  if (!sttAvailable.value) return
+  // Start the OVMS Whisper server (prompting the model download on first use)
+  // before recording, so transcription is ready when the clip is captured. The
+  // External engine uses the configured fallback and needs no OVMS.
+  try {
+    if (speechToText.selectedSttEngine !== 'external') {
+      await speechToText.ensureWhisperReady()
+    }
+  } catch (error) {
+    errors.report(error, {
+      category: 'inference',
+      code: 'inference/stt-unavailable',
+      userMessage: error instanceof Error ? error.message : 'Speech To Text is unavailable',
+    })
+    return
+  }
   await audioRecorder.startRecording()
 
   if (audioRecorder.error) {

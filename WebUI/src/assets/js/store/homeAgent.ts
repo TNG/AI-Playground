@@ -1045,9 +1045,12 @@ export const useHomeAgent = defineStore(
       const trimmed = markdownToSpeechText(text ?? '').trim()
       if (!trimmed) return
       const textToSpeech = useTextToSpeech()
-      if (!textToSpeech.enabled || !textToSpeech.autoSpeakOnVoiceInput) return
+      if (!textToSpeech.available || !textToSpeech.autoSpeakOnVoiceInput) return
 
       try {
+        // Start the OVMS speech server on demand (no dialog; no-op if already up or
+        // the model isn't installed — a configured fallback still serves).
+        await textToSpeech.ensureSpeechServerRunning()
         const endpoint = await textToSpeech.resolveSpeech()
         if (!endpoint) return
         // Request WAV — it's universally supported by TTS servers (OVMS and
@@ -1296,11 +1299,14 @@ export const useHomeAgent = defineStore(
       meta?: InboundMeta,
     ): Promise<string | null> {
       const speechToText = useSpeechToText()
+      // Start the OVMS Whisper server on demand (no dialog; no-op if already up or
+      // the model isn't installed — a configured fallback still serves).
+      await speechToText.ensureTranscriptionServerRunning()
       const endpoint = await speechToText.resolveTranscription()
       if (!endpoint) {
         await reply(
           adapter,
-          '⚠️ No speech-to-text is available. Enable Speech To Text (OVMS) or configure a fallback transcription endpoint in Settings.',
+          '⚠️ No speech-to-text is available. Install the OpenVINO backend or configure a fallback transcription endpoint in the Speech to Text preset settings.',
           meta,
         )
         return null

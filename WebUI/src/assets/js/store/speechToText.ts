@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { acceptHMRUpdate } from 'pinia'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
@@ -10,6 +10,12 @@ import { useSetupWizard } from './setupWizard'
 import { useProductMode } from './productMode'
 
 export const WHISPER_MODEL_NAME = 'OpenVINO/whisper-base-int8-ov'
+
+/** Which engine backs Speech To Text.
+ *  - `whisper`: OpenVINO OVMS Whisper server — needs OpenVINO (non-NVIDIA).
+ *  - `external`: an OpenAI-compatible fallback endpoint configured in App Settings —
+ *    works in every mode (incl. NVIDIA) when enabled. */
+export type SttEngine = 'whisper' | 'external'
 
 /**
  * Resolved transcription endpoint configuration consumed by the shared
@@ -41,6 +47,8 @@ export const useSpeechToText = defineStore(
   () => {
     const enabled = ref(false)
     const initializing = ref(false)
+    // Which engine the STT preset (and mic transcription) uses. Edited in SettingsStt.
+    const selectedSttEngine = ref<SttEngine>('whisper')
     const backendServices = useBackendServices()
     const models = useModels()
     const dialogStore = useDialogStore()
@@ -64,14 +72,85 @@ export const useSpeechToText = defineStore(
       return fallback.value.enabled && fallback.value.baseUrl.trim().length > 0
     }
 
+    /** Whether the OpenVINO Whisper engine can be offered: OpenVINO must be
+     *  installable in this product mode (not NVIDIA) and set up. */
+    const isWhisperAvailable = computed(() => {
+      if (productMode.isNvidiaModeSelected) return false
+      const ov = backendServices.info.find((s) => s.serviceName === 'openvino-backend')
+      return ov?.isSetUp === true
+    })
+
+    /** Whether the external (fallback) transcription endpoint is configured/usable. */
+    const isExternalAvailable = computed(() => hasFallback())
+
     /**
-     * Resolve which transcription endpoint to use. A configured fallback wins:
-     * it is an explicit choice, and it is the only endpoint that works where
-     * OVMS is installed but cannot run (macOS, where its binary is not
-     * executable). Otherwise the OVMS Whisper server serves transcription.
-     * Returns `null` when neither is available.
+     * Whether speech-to-text is usable at all: OpenVINO Whisper (non-NVIDIA) or a
+     * configured external endpoint (any mode). Used to gate the in-chat mic and the
+     * STT preset now that the old global STT enable toggle is gone.
+     */
+    const available = computed(() => isWhisperAvailable.value || isExternalAvailable.value)
+
+    /**
+     * Ensure the OVMS Whisper server is ready to transcribe: OpenVINO must be set up
+     * (or a fallback is configured), the model must be present (prompting the
+     * standard download popup if missing), and the server must be running. Used by
+     * the interactive STT paths (STT preset, mic, transcribeAudio tool) independent
+     * of any enable toggle.
+     */
+    async function ensureWhisperReady(): Promise<void> {
+      const openVinoService = backendServices.info.find((s) => s.serviceName === 'openvino-backend')
+      if (!openVinoService?.isSetUp) {
+        // No OVMS: the fallback endpoint (if any) serves transcription directly.
+        if (hasFallback()) return
+        throw new Error(
+          'OpenVINO backend is required for Speech To Text. Install it from ' +
+            'Settings → Installation Management, or configure a fallback endpoint.',
+        )
+      }
+
+      const modelExists = await models.checkTranscriptionModelExists(WHISPER_MODEL_NAME)
+      if (!modelExists) {
+        const missing = await models.getMissingTranscriptionModel(WHISPER_MODEL_NAME)
+        if (missing.length > 0) {
+          await new Promise<void>((resolve, reject) => {
+            dialogStore.showDownloadDialog(
+              missing,
+              () => resolve(),
+              () => reject(new Error('Whisper model download was cancelled')),
+            )
+          })
+        }
+      }
+
+      const url = await backendServices.getTranscriptionServerUrl()
+      if (!url) {
+        await backendServices.startTranscriptionServer(WHISPER_MODEL_NAME)
+      }
+    }
+
+    /**
+     * Resolve which transcription endpoint to use. Prefers the OVMS Whisper
+     * server when it is running, otherwise falls back to the configured
+     * OpenAI-compatible endpoint. Returns `null` when neither is available.
      */
     async function resolveTranscription(): Promise<TranscriptionEndpoint | null> {
+      // The External engine forces the fallback endpoint; otherwise prefer the OVMS
+      // Whisper server when running and fall back to the configured endpoint.
+      if (selectedSttEngine.value !== 'external') {
+        try {
+          const ovmsUrl = await backendServices.getTranscriptionServerUrl()
+          if (ovmsUrl) {
+            return {
+              baseURL: ovmsUrl,
+              model: WHISPER_MODEL_NAME.split('/').join('---'),
+              apiKey: '',
+            }
+          }
+        } catch (error) {
+          console.error('Failed to resolve OVMS transcription server URL:', error)
+        }
+      }
+
       if (hasFallback()) {
         return {
           baseURL: fallback.value.baseUrl.trim(),
@@ -80,36 +159,19 @@ export const useSpeechToText = defineStore(
         }
       }
 
-      try {
-        const ovmsUrl = await backendServices.getTranscriptionServerUrl()
-        if (ovmsUrl) {
-          return {
-            baseURL: ovmsUrl,
-            model: WHISPER_MODEL_NAME.split('/').join('---'),
-            apiKey: '',
-          }
-        }
-      } catch (error) {
-        console.error('Failed to resolve OVMS transcription server URL:', error)
-      }
-
       return null
     }
-
     /**
      * Ensures the transcription server is running when STT is enabled.
      * This method checks if the server is already running and starts it if needed.
      * Unlike initialize(), this method does NOT auto-disable STT on failure.
      */
     async function ensureTranscriptionServerRunning(): Promise<void> {
-      if (!enabled.value) return
-
-      // A configured fallback serves transcription, so there is no OVMS server
-      // to start — and trying anyway is what used to break STT on hosts where
-      // OVMS is installed but cannot execute.
-      if (hasFallback()) return
-
       const openVinoService = backendServices.info.find((s) => s.serviceName === 'openvino-backend')
+
+      // Only start if OVMS is set up. When OVMS is unavailable but a fallback
+      // endpoint is configured, transcription is served by the fallback so
+      // there is nothing to start here.
       if (!openVinoService?.isSetUp) return
 
       const modelExists = await models.checkTranscriptionModelExists(WHISPER_MODEL_NAME)
@@ -144,16 +206,16 @@ export const useSpeechToText = defineStore(
       initializing.value = true
 
       try {
-        // A configured fallback needs no local prerequisites: stay enabled and
-        // leave OVMS alone.
-        if (hasFallback()) return
-
         // Check OpenVINO backend setup
         const openVinoService = backendServices.info.find(
           (s) => s.serviceName === 'openvino-backend',
         )
 
         if (!openVinoService?.isSetUp) {
+          // OVMS not installed: keep STT enabled if a fallback endpoint is
+          // configured (e.g. on macOS where OVMS does not run), otherwise
+          // disable it as before.
+          if (hasFallback()) return
           enabled.value = false
           toast.warning('Speech To Text disabled: OpenVINO backend is not installed')
           return
@@ -195,20 +257,19 @@ export const useSpeechToText = defineStore(
       }
 
       if (isEnabled) {
-        // A configured fallback endpoint is the transcription source, whatever
-        // state OVMS is in: nothing to install, download or start.
-        if (hasFallback()) {
-          enabled.value = true
-          toast.success('Speech To Text enabled (using fallback transcription endpoint)')
-          return
-        }
-
         // Check if OpenVINO backend is installed
         const openVinoService = backendServices.info.find(
           (s) => s.serviceName === 'openvino-backend',
         )
 
         if (!openVinoService || !openVinoService.isSetUp) {
+          // Allow enabling STT against the configured fallback endpoint when
+          // OVMS is not installed (e.g. macOS dev). Otherwise require OVMS.
+          if (hasFallback()) {
+            enabled.value = true
+            toast.success('Speech To Text enabled (using fallback transcription endpoint)')
+            return
+          }
           dialogStore.showWarningDialog(
             'OpenVINO backend is required for Speech To Text. Please install it first, or configure a fallback transcription endpoint in Settings.',
             () => {
@@ -254,10 +315,6 @@ export const useSpeechToText = defineStore(
         } catch (error) {
           toast.error(`Failed to start transcription server: ${error}`)
         }
-      } else if (hasFallback()) {
-        // Nothing was started locally, so turning STT off is just a flag.
-        enabled.value = false
-        toast.success('Speech To Text disabled')
       } else {
         // Disable Speech To Text
         try {
@@ -274,17 +331,22 @@ export const useSpeechToText = defineStore(
       enabled,
       initializing,
       fallback,
+      selectedSttEngine,
+      isWhisperAvailable,
+      isExternalAvailable,
+      available,
       hasFallback,
       resolveTranscription,
       toggle,
       initialize,
       ensureTranscriptionServerRunning,
+      ensureWhisperReady,
     }
   },
   {
     persist: {
       storage: demoAwareStorage,
-      pick: ['enabled', 'fallback'],
+      pick: ['enabled', 'fallback', 'selectedSttEngine'],
     },
   },
 )

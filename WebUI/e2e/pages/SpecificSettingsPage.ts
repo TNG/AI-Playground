@@ -296,7 +296,35 @@ export class SpecificSettingsPage {
    * prefix. Requires the settings sidebar open with the "Text to Speech" preset active.
    */
   async selectTtsVoice(label: string | RegExp, mode: ChatMode = 'Chat'): Promise<void> {
-    const trigger = this.ttsVoiceTrigger(mode)
+    await this.selectFromPicker(this.ttsVoiceTrigger(mode), label)
+  }
+
+  /**
+   * The Text-to-Speech engine ("Model") picker trigger in SettingsTts. It's the only
+   * dropdown whose label shows the current engine, so we locate it by that text
+   * ("Qwen TTS" or "Kokoro …") rather than by the ambiguous "Model" row label (the
+   * fallback-endpoint form also has a "Model" field).
+   */
+  private ttsEngineTrigger(mode: ChatMode): Locator {
+    return this.panel(mode)
+      .getByRole('button')
+      .filter({ hasText: /Qwen TTS|Kokoro/ })
+      .first()
+  }
+
+  /**
+   * Select the Text-to-Speech engine ("Qwen TTS" or "Kokoro (OpenVINO)") from the
+   * Text-to-Speech preset's Model dropdown. Requires the settings sidebar open with
+   * the "Text to Speech" preset active. The trigger's label reflects the choice once
+   * it lands.
+   */
+  async selectTtsEngine(label: string, mode: ChatMode = 'Chat'): Promise<void> {
+    await this.selectFromPicker(this.ttsEngineTrigger(mode), label)
+  }
+
+  /** Open a dropdown trigger, pick the entry matching `label`, and wait for the
+   *  trigger's own label to reflect the choice. */
+  private async selectFromPicker(trigger: Locator, label: string | RegExp): Promise<void> {
     await trigger.click()
     const menu = this.page.getByRole('menu')
     await menu.getByRole('menuitem', { name: label }).first().click()

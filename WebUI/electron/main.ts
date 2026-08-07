@@ -62,6 +62,7 @@ import {
 import { AiBackendService } from './subprocesses/aiBackendService'
 import { HomeAgentBackendService } from './subprocesses/homeAgentBackendService'
 import { startCloudProxy, type CloudProxy } from './cloudProxy'
+import { isShuttingDown, registerShutdownStep, shutdownBackends } from './shutdown.ts'
 import { Qwen3TtsBackendService } from './subprocesses/qwen3TtsBackendService'
 import { LLAMACPP_DEFAULT_PARAMETERS } from './subprocesses/llamaCppBackendService'
 import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateIntelPresets.ts'
@@ -872,6 +873,7 @@ function spawnLangchainUtilityProcess() {
     appLogger.info('Langchain utility process already running', 'electron-backend')
     return
   }
+  if (isShuttingDown()) return
   appLogger.info('Starting langchain utility process', 'electron-backend')
   try {
     appLogger.info(path.join(__dirname, '../langchain/langchain.js'), 'electron-backend')
@@ -907,10 +909,13 @@ function spawnLangchainUtilityProcess() {
       if (code !== 0) {
         appLogger.info(`Langchain utility process exited with code ${code}`, 'electron-backend')
       }
+      langchainChild = null
+      // Its exit during teardown is us killing it — respawning would resurrect
+      // the process the shutdown step just reaped.
+      if (isShuttingDown()) return
       setTimeout(() => {
         spawnLangchainUtilityProcess()
       }, 1000)
-      langchainChild = null
     })
   } catch (error) {
     appLogger.error(`Error starting langchain utility process: ${error}`, 'electron-backend')
@@ -946,29 +951,60 @@ function handleUtilityFunction<T, R>(
   })
 }
 
-app.on('before-quit', () => {
-  destroyWebBrowser()
-  cloudProxy?.close()
+// Teardown runs from the outside in: the windows we own, then the servers that
+// would otherwise outlive us. Every exit path below funnels through this same
+// list, so a backend cannot survive one of them.
+registerShutdownStep({ name: 'web browser window', run: () => destroyWebBrowser() })
+registerShutdownStep({ name: 'cloud proxy', run: () => cloudProxy?.close() })
+registerShutdownStep({ name: 'MCP servers', run: () => stopAllMcpServers() })
+registerShutdownStep({ name: 'backend services', run: () => serviceRegistry?.stopAllServices() })
+registerShutdownStep({
+  name: 'langchain utility process',
+  run: () => {
+    langchainChild?.kill()
+    langchainChild = null
+  },
 })
 
-app.on('quit', async () => {
-  await stopAllMcpServers()
+app.on('before-quit', (event) => {
+  if (isShuttingDown()) return
+  // Quit would otherwise race the teardown and win, orphaning every backend.
+  event.preventDefault()
+  void shutdownBackends().finally(() => app.exit(0))
+})
+
+app.on('quit', () => {
   if (singleInstanceLock) {
     app.releaseSingleInstanceLock()
   }
 })
+
+// A dev restart, a `Ctrl+C` in the terminal or a `kill` from a supervisor sends
+// a catchable signal on POSIX. Electron does not turn those into `before-quit`,
+// so without these handlers the main process dies on the spot and leaves its
+// backends running — the single biggest source of orphans on Linux and macOS.
+for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) {
+  process.on(signal, () => {
+    appLogger.info(`received ${signal}, tearing down backends`, 'electron-backend')
+    void shutdownBackends().finally(() => app.exit(0))
+  })
+}
+
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
 app.on('window-all-closed', async () => {
-  try {
-    await stopAllMcpServers()
-    await serviceRegistry?.stopAllServices()
-  } catch {}
-  if (process.platform !== 'darwin') {
-    app.quit()
-    win = null
+  if (process.platform === 'darwin') {
+    // The app stays in the dock and `activate` can start the backends again, so
+    // free them without running the one-shot shutdown.
+    try {
+      await stopAllMcpServers()
+      await serviceRegistry?.stopAllServices()
+    } catch {}
+    return
   }
+  win = null
+  app.quit()
 })
 
 app.on('activate', () => {

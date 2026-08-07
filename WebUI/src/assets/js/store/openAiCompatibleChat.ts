@@ -40,6 +40,9 @@ import { dynamicTool, jsonSchema } from '@ai-sdk/provider-utils'
 import { imageUrlToDataUri } from '@/lib/utils'
 import { getHomeAgentAuthToken, invalidateHomeAgentAuthToken } from '@/lib/loopbackAuth'
 import { useQwen3TextToSpeech } from './qwen3TextToSpeech'
+import { useTextToSpeech } from './textToSpeech'
+import { useSpeechToText } from './speechToText'
+import { transcribeAudioBlob } from '@/lib/transcribe'
 import { buildTtsAudioFileName, conversationLabelForTtsFile } from '@/lib/ttsAudioFileName'
 
 // Web tools that share browseWeb's single "Browse the web" enablement toggle:
@@ -531,9 +534,26 @@ export const useOpenAiCompatibleChat = defineStore(
         // effectively turned off.
         if (name === 'comfyUI' && getAvailableWorkflows().length === 0) continue
         if (name === 'comfyUiImageEdit' && getAvailableEditWorkflows().length === 0) continue
+        // TTS is available when its selected engine is: Qwen3 (its own backend set
+        // up) or Kokoro (OpenVINO installable / fallback configured).
         if (name === 'synthesizeTextToSpeech') {
+          const tts = useTextToSpeech()
           const qwenInfo = backendServices.info.find((s) => s.serviceName === 'qwen3-tts-backend')
-          if (!qwenInfo?.isSetUp) continue
+          const ttsReady =
+            tts.selectedEngine === 'kokoro'
+              ? tts.isKokoroAvailable
+              : tts.selectedEngine === 'external'
+                ? tts.isExternalAvailable
+                : qwenInfo?.isSetUp === true
+          if (!ttsReady) continue
+        }
+        // STT (Whisper) runs on OpenVINO — available when OpenVINO is installable and
+        // set up (non-NVIDIA), or a fallback transcription endpoint is configured.
+        if (name === 'transcribeAudio') {
+          const speechToText = useSpeechToText()
+          const ovInfo = backendServices.info.find((s) => s.serviceName === 'openvino-backend')
+          const sttReady = ovInfo?.isSetUp === true || speechToText.hasFallback()
+          if (!sttReady) continue
         }
         tools[name] = builtinTool
       }
@@ -1313,6 +1333,8 @@ export const useOpenAiCompatibleChat = defineStore(
       },
     ): Promise<void> {
       const qwen3 = useQwen3TextToSpeech()
+      const tts = useTextToSpeech()
+      const engine = tts.selectedEngine
       const chat = getOrCreateChat(targetKey)
 
       // Show the user's message right away so the turn isn't blank while we
@@ -1341,6 +1363,9 @@ export const useOpenAiCompatibleChat = defineStore(
       // so the indicator is visible for the whole load — matching how other
       // backends show "Loading AI Model" from the start of the turn.
       const ttsScope = { kind: 'chat' as const, conversationKey: targetKey }
+      // Qwen3 may need to load a per-voice model first; Kokoro (OVMS) / external
+      // only ever show the "generating" phase.
+      const alreadyLoaded = engine !== 'qwen3' ? true : await qwen3.isModelLoaded()
       const ttsActivityId = activities.begin({
         category: 'tools',
         label: 'Loading voice model…',
@@ -1356,12 +1381,6 @@ export const useOpenAiCompatibleChat = defineStore(
         mode: string
       }
       try {
-        const alreadyLoaded = await qwen3.isModelLoaded()
-        if (!alreadyLoaded) {
-          await qwen3.ensureModelLoaded()
-        }
-        activities.update(ttsActivityId, { label: 'Generating audio file…' })
-        const result = await qwen3.synthesize({ text: question })
         const label = conversationLabelForTtsFile({
           conversationKey: targetKey,
           messages: getMessagesForKey(targetKey),
@@ -1371,14 +1390,33 @@ export const useOpenAiCompatibleChat = defineStore(
           conversationKey: targetKey,
           conversationLabel: label,
         })
-        const savedFilePath = await qwen3.saveWavToDisk(result.audioBase64, fileName)
-        output = {
-          ok: true,
-          message: `Synthesized ${result.mode} speech (${result.language}, ${result.speaker}).`,
-          savedFilePath,
-          speaker: result.speaker,
-          language: result.language,
-          mode: result.mode,
+        if (engine !== 'qwen3') {
+          const { audioBase64 } = await tts.synthesizeToWav(question)
+          const savedFilePath = await qwen3.saveWavToDisk(audioBase64, fileName)
+          const engineLabel = engine === 'kokoro' ? 'Kokoro' : 'the external endpoint'
+          output = {
+            ok: true,
+            message: `Synthesized speech with ${engineLabel} (${tts.selectedKokoroVoice}).`,
+            savedFilePath,
+            speaker: tts.selectedKokoroVoice,
+            language: '',
+            mode: 'custom_voice',
+          }
+        } else {
+          if (!alreadyLoaded) {
+            await qwen3.ensureModelLoaded()
+            activities.update(ttsActivityId, { label: 'Generating audio file…' })
+          }
+          const result = await qwen3.synthesize({ text: question })
+          const savedFilePath = await qwen3.saveWavToDisk(result.audioBase64, fileName)
+          output = {
+            ok: true,
+            message: `Synthesized ${result.mode} speech (${result.language}, ${result.speaker}).`,
+            savedFilePath,
+            speaker: result.speaker,
+            language: result.language,
+            mode: result.mode,
+          }
         }
       } catch (error) {
         errors.report(error, {
@@ -1408,7 +1446,11 @@ export const useOpenAiCompatibleChat = defineStore(
             output,
           },
         ],
-        metadata: { model: 'Qwen TTS', timestamp: Date.now() },
+        metadata: {
+          model:
+            engine === 'kokoro' ? 'Kokoro' : engine === 'external' ? 'External TTS' : 'Qwen TTS',
+          timestamp: Date.now(),
+        },
       } as unknown as AipgUiMessage
       chat.messages.push(assistantMessage)
       conversations.updateConversation(chat.messages, targetKey)
@@ -1450,6 +1492,81 @@ export const useOpenAiCompatibleChat = defineStore(
         })
       } finally {
         unmarkGenerating(targetKey)
+      }
+    }
+
+    /**
+     * Append a completed speech-to-text turn to a conversation: a lightweight user
+     * "audio" message (label only) followed by an assistant message holding the
+     * transcript text. Used by the STT preset for both the recorded-mic path (where
+     * the audio recorder already produced the transcript) and the upload path.
+     */
+    function appendTranscriptTurn(
+      transcript: string,
+      targetKey: string,
+      sourceLabel?: string,
+    ): void {
+      const chat = getOrCreateChat(targetKey)
+      const userMessage = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        parts: [{ type: 'text', text: sourceLabel ?? '🎤 Audio input' }],
+        metadata: { timestamp: Date.now() },
+      } as unknown as AipgUiMessage
+      const assistantMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        parts: [{ type: 'text', text: transcript }],
+        metadata: { model: 'Whisper', timestamp: Date.now() },
+      } as unknown as AipgUiMessage
+      chat.messages.push(userMessage, assistantMessage)
+      conversations.updateConversation(chat.messages, targetKey)
+    }
+
+    /**
+     * Direct Speech-to-Text turn (no LLM). Used when the active preset is an STT
+     * preset and the user uploads an audio file: transcribe it with the OVMS Whisper
+     * server (or the configured fallback) and append the transcript as a chat turn.
+     * The recorded-mic path reuses the audio recorder's own transcription and calls
+     * {@link appendTranscriptTurn} directly instead.
+     */
+    async function transcribeDirect(
+      blob: Blob,
+      opts?: { conversationKey?: string; sourceLabel?: string },
+    ): Promise<void> {
+      const targetKey = opts?.conversationKey ?? conversations.activeKey
+      const speechToText = useSpeechToText()
+      const scope = { kind: 'chat' as const, conversationKey: targetKey }
+      const activityId = activities.begin({
+        category: 'tools',
+        label: 'Transcribing audio…',
+        scope,
+      })
+      try {
+        // Start the OVMS Whisper server (and prompt the model download on first use)
+        // before resolving the endpoint — unless the External engine is selected,
+        // which uses the configured fallback and needs no OVMS.
+        if (speechToText.selectedSttEngine !== 'external') {
+          await speechToText.ensureWhisperReady()
+        }
+        const endpoint = await speechToText.resolveTranscription()
+        if (!endpoint) {
+          throw new Error(
+            'Speech To Text is not available (no OVMS server or fallback configured).',
+          )
+        }
+        const text = await transcribeAudioBlob(blob, endpoint)
+        appendTranscriptTurn(text, targetKey, opts?.sourceLabel)
+      } catch (error) {
+        errors.report(error, {
+          category: 'inference',
+          code: 'inference/stt-failed',
+          userMessage: `Speech To Text failed: ${extractMessage(error)}`,
+          surface: 'toast',
+          context: { conversationKey: targetKey },
+        })
+      } finally {
+        activities.end(activityId)
       }
     }
 
@@ -1684,6 +1801,8 @@ export const useOpenAiCompatibleChat = defineStore(
       messageInput,
       fileInput,
       generate,
+      transcribeDirect,
+      appendTranscriptTurn,
       getMessagesForKey,
       summarizeMessages,
       stop,

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { acceptHMRUpdate } from 'pinia'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
@@ -10,6 +10,12 @@ import { useSetupWizard } from './setupWizard'
 import { useProductMode } from './productMode'
 
 export const WHISPER_MODEL_NAME = 'OpenVINO/whisper-base-int8-ov'
+
+/** Which engine backs Speech To Text.
+ *  - `whisper`: OpenVINO OVMS Whisper server — needs OpenVINO (non-NVIDIA).
+ *  - `external`: an OpenAI-compatible fallback endpoint configured in App Settings —
+ *    works in every mode (incl. NVIDIA) when enabled. */
+export type SttEngine = 'whisper' | 'external'
 
 /**
  * Resolved transcription endpoint configuration consumed by the shared
@@ -41,6 +47,8 @@ export const useSpeechToText = defineStore(
   () => {
     const enabled = ref(false)
     const initializing = ref(false)
+    // Which engine the STT preset (and mic transcription) uses. Edited in SettingsStt.
+    const selectedSttEngine = ref<SttEngine>('whisper')
     const backendServices = useBackendServices()
     const models = useModels()
     const dialogStore = useDialogStore()
@@ -64,23 +72,83 @@ export const useSpeechToText = defineStore(
       return fallback.value.enabled && fallback.value.baseUrl.trim().length > 0
     }
 
+    /** Whether the OpenVINO Whisper engine can be offered: OpenVINO must be
+     *  installable in this product mode (not NVIDIA) and set up. */
+    const isWhisperAvailable = computed(() => {
+      if (productMode.isNvidiaModeSelected) return false
+      const ov = backendServices.info.find((s) => s.serviceName === 'openvino-backend')
+      return ov?.isSetUp === true
+    })
+
+    /** Whether the external (fallback) transcription endpoint is configured/usable. */
+    const isExternalAvailable = computed(() => hasFallback())
+
+    /**
+     * Whether speech-to-text is usable at all: OpenVINO Whisper (non-NVIDIA) or a
+     * configured external endpoint (any mode). Used to gate the in-chat mic and the
+     * STT preset now that the old global STT enable toggle is gone.
+     */
+    const available = computed(() => isWhisperAvailable.value || isExternalAvailable.value)
+
+    /**
+     * Ensure the OVMS Whisper server is ready to transcribe: OpenVINO must be set up
+     * (or a fallback is configured), the model must be present (prompting the
+     * standard download popup if missing), and the server must be running. Used by
+     * the interactive STT paths (STT preset, mic, transcribeAudio tool) independent
+     * of any enable toggle.
+     */
+    async function ensureWhisperReady(): Promise<void> {
+      const openVinoService = backendServices.info.find((s) => s.serviceName === 'openvino-backend')
+      if (!openVinoService?.isSetUp) {
+        // No OVMS: the fallback endpoint (if any) serves transcription directly.
+        if (hasFallback()) return
+        throw new Error(
+          'OpenVINO backend is required for Speech To Text. Install it from ' +
+            'Settings → Installation Management, or configure a fallback endpoint.',
+        )
+      }
+
+      const modelExists = await models.checkTranscriptionModelExists(WHISPER_MODEL_NAME)
+      if (!modelExists) {
+        const missing = await models.getMissingTranscriptionModel(WHISPER_MODEL_NAME)
+        if (missing.length > 0) {
+          await new Promise<void>((resolve, reject) => {
+            dialogStore.showDownloadDialog(
+              missing,
+              () => resolve(),
+              () => reject(new Error('Whisper model download was cancelled')),
+            )
+          })
+        }
+      }
+
+      const url = await backendServices.getTranscriptionServerUrl()
+      if (!url) {
+        await backendServices.startTranscriptionServer(WHISPER_MODEL_NAME)
+      }
+    }
+
     /**
      * Resolve which transcription endpoint to use. Prefers the OVMS Whisper
      * server when it is running, otherwise falls back to the configured
      * OpenAI-compatible endpoint. Returns `null` when neither is available.
      */
     async function resolveTranscription(): Promise<TranscriptionEndpoint | null> {
-      try {
-        const ovmsUrl = await backendServices.getTranscriptionServerUrl()
-        if (ovmsUrl) {
-          return {
-            baseURL: ovmsUrl,
-            model: WHISPER_MODEL_NAME.split('/').join('---'),
-            apiKey: '',
+      // The External engine forces the fallback endpoint; otherwise prefer the OVMS
+      // Whisper server when running and fall back to the configured endpoint.
+      if (selectedSttEngine.value !== 'external') {
+        try {
+          const ovmsUrl = await backendServices.getTranscriptionServerUrl()
+          if (ovmsUrl) {
+            return {
+              baseURL: ovmsUrl,
+              model: WHISPER_MODEL_NAME.split('/').join('---'),
+              apiKey: '',
+            }
           }
+        } catch (error) {
+          console.error('Failed to resolve OVMS transcription server URL:', error)
         }
-      } catch (error) {
-        console.error('Failed to resolve OVMS transcription server URL:', error)
       }
 
       if (hasFallback()) {
@@ -99,8 +167,6 @@ export const useSpeechToText = defineStore(
      * Unlike initialize(), this method does NOT auto-disable STT on failure.
      */
     async function ensureTranscriptionServerRunning(): Promise<void> {
-      if (!enabled.value) return
-
       const openVinoService = backendServices.info.find((s) => s.serviceName === 'openvino-backend')
 
       // Only start if OVMS is set up. When OVMS is unavailable but a fallback
@@ -265,17 +331,22 @@ export const useSpeechToText = defineStore(
       enabled,
       initializing,
       fallback,
+      selectedSttEngine,
+      isWhisperAvailable,
+      isExternalAvailable,
+      available,
       hasFallback,
       resolveTranscription,
       toggle,
       initialize,
       ensureTranscriptionServerRunning,
+      ensureWhisperReady,
     }
   },
   {
     persist: {
       storage: demoAwareStorage,
-      pick: ['enabled', 'fallback'],
+      pick: ['enabled', 'fallback', 'selectedSttEngine'],
     },
   },
 )

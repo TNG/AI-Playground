@@ -162,6 +162,7 @@ import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets.ts'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets'
+import { useTextToSpeech } from '@/assets/js/store/textToSpeech'
 import { useTheme } from '@/assets/js/store/theme'
 import { Context } from '@/components/ui/context'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -174,6 +175,7 @@ const backendServices = useBackendServices()
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const imageGeneration = useImageGenerationPresets()
 const presetsStore = usePresets()
+const textToSpeech = useTextToSpeech()
 const theme = useTheme()
 
 // The backend badge logos ship as light/dark variants; only the `light` theme
@@ -219,6 +221,12 @@ const isTtsPreset = computed(
   () => (stableChatPreset.value ?? fallbackChatPreset.value)?.ttsPreset === true,
 )
 
+// The direct Speech-to-Text preset also runs no LLM — it transcribes on the
+// OpenVINO Whisper server. Treat it like the TTS preset in the status bar.
+const isSttPreset = computed(
+  () => (stableChatPreset.value ?? fallbackChatPreset.value)?.sttPreset === true,
+)
+
 // Preset/model indicator shown at the left of the bar. Keyed off the user's
 // selected mode (not `currentMode`) so background comfy switches during
 // agentic / Home Agent tool use don't flip it.
@@ -228,8 +236,8 @@ const presetIndicator = computed(() => {
     if (!preset) return null
     // Match the ModelSelector label: display only the last path segment, and
     // drop the model-file extension (the backend badge now conveys the format).
-    // TTS has no LLM model, so leave it blank.
-    const model = isTtsPreset.value ? undefined : textInference.activeModel
+    // TTS / STT have no LLM model, so leave it blank.
+    const model = isTtsPreset.value || isSttPreset.value ? undefined : textInference.activeModel
     const lastSegment = model?.split('/').at(-1) ?? model
     return {
       image: preset.image,
@@ -254,8 +262,8 @@ const presetIndicator = computed(() => {
 // non-chat modes and for Cloud Mode (no local llama.cpp / OpenVINO engine).
 const chatBackendBadge = computed(() => {
   if (promptStore.userSelectedMode !== 'chat') return null
-  // TTS doesn't run on llama.cpp / OpenVINO, so no engine badge for it.
-  if (isTtsPreset.value) return null
+  // TTS / STT don't run on the chat engine, so no engine badge for them.
+  if (isTtsPreset.value || isSttPreset.value) return null
   const backend = textInference.backend
   if (backend !== 'llamaCPP' && backend !== 'openVINO') return null
   return {
@@ -307,7 +315,14 @@ function selectedDeviceBadgeFor(serviceName: BackendServiceName) {
 // detection has reported a selection.
 const deviceBadge = computed(() => {
   if (promptStore.userSelectedMode === 'chat') {
-    if (isTtsPreset.value) return selectedDeviceBadgeFor('qwen3-tts-backend')
+    if (isSttPreset.value) return selectedDeviceBadgeFor('openvino-backend')
+    if (isTtsPreset.value) {
+      // External endpoint runs remotely — no local inference device to show.
+      if (textToSpeech.selectedEngine === 'external') return null
+      return selectedDeviceBadgeFor(
+        textToSpeech.selectedEngine === 'kokoro' ? 'openvino-backend' : 'qwen3-tts-backend',
+      )
+    }
     const backend = textInference.backend
     if (backend === 'cloud') return null
     const serviceName = backendToService[backend]

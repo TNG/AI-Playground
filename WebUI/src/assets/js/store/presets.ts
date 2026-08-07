@@ -1,8 +1,9 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
 import { z } from 'zod'
-import { ref, computed } from 'vue'
+import { ref, computed, shallowRef } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
+import { useProductMode } from './productMode'
 import { llmBackendTypes } from '@/types/shared'
 
 // DeepPartial utility type
@@ -206,6 +207,13 @@ const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).extend({
   // audio, no LLM loaded). The `backends` array is a schema-required placeholder and is
   // unused. See SettingsTts.vue and the direct-synthesis branch in openAiCompatibleChat.
   ttsPreset: z.boolean().optional(),
+  // When true, this "chat" preset is a direct Speech-to-Text transcriber rather than
+  // an LLM chat: selecting it turns the prompt box into a record/upload surface
+  // (recorded or uploaded audio -> Whisper transcript, no LLM loaded). Like
+  // `ttsPreset`, the `backends` array is a schema-required placeholder and is unused.
+  // OpenVINO-only, so it is filtered out in NVIDIA product mode. See SettingsStt.vue
+  // and the direct-transcribe branch in openAiCompatibleChat.
+  sttPreset: z.boolean().optional(),
   // UI visibility controls
   enableRAG: z.boolean().optional(), // Show "Add Documents" + embeddings selector (default: false)
   showTools: z.boolean().optional(), // Show "Enable Tools" toggle (default: false)
@@ -271,6 +279,29 @@ export const usePresets = defineStore(
     const lastQualityVariantPerBackend = ref<Record<string, Record<string, string>>>({})
 
     const DEFAULT_BACKEND = 'comfyui'
+
+    // The STT preset is OpenVINO-only and thus hidden in NVIDIA mode — unless the
+    // user enabled an external transcription endpoint (which needs no OpenVINO).
+    // We read that flag from the speechToText store, but load it lazily (browser
+    // only) so this module stays importable in the headless/node preset tests:
+    // `speechToText` pulls the renderer store graph (setupWizard → homeAgent) that
+    // touches `window` at import time. The ref keeps the flag reactive.
+    type SttFallbackFlagStore = { fallback: { enabled: boolean } }
+    const sttFallbackStore = shallowRef<SttFallbackFlagStore | null>(null)
+    if (typeof window !== 'undefined') {
+      void import('./speechToText')
+        .then((m) => {
+          try {
+            sttFallbackStore.value = m.useSpeechToText() as unknown as SttFallbackFlagStore
+          } catch {
+            // Pinia not ready yet — ignore; the gate treats it as "no fallback".
+          }
+        })
+        .catch(() => {})
+    }
+    function sttExternalEnabled(): boolean {
+      return sttFallbackStore.value?.fallback.enabled === true
+    }
 
     // ========================================================================
     // Validation
@@ -676,6 +707,7 @@ export const usePresets = defineStore(
 
     function getPresetsByCategories(categories: string[], type?: string): Preset[] {
       const backendServices = useBackendServices()
+      const productMode = useProductMode()
       return presets.value
         .filter((preset) => {
           // If type is specified, filter by type
@@ -683,6 +715,18 @@ export const usePresets = defineStore(
 
           // Hide chat presets that opt out of the standard picker (e.g. Home Agent)
           if (preset.type === 'chat' && (preset as ChatPreset).excludeFromChatPresetPicker) {
+            return false
+          }
+
+          // STT presets need OpenVINO, which isn't installable in NVIDIA mode — so hide
+          // them there UNLESS an external transcription endpoint is enabled (that path
+          // needs no OpenVINO and works in every mode).
+          if (
+            preset.type === 'chat' &&
+            (preset as ChatPreset).sttPreset &&
+            productMode.isNvidiaModeSelected &&
+            !sttExternalEnabled()
+          ) {
             return false
           }
 
@@ -790,6 +834,7 @@ export const usePresets = defineStore(
 
     const chatPresets = computed(() => {
       const backendServices = useBackendServices()
+      const productMode = useProductMode()
       const hasNpuDevice = backendServices.info
         .find((s) => s.serviceName === 'openvino-backend')
         ?.devices?.some((d) => d.id.includes('NPU'))
@@ -807,6 +852,9 @@ export const usePresets = defineStore(
         if (p.type !== 'chat') return false
         const chatPreset = p as ChatPreset
         if (chatPreset.excludeFromChatPresetPicker) return false
+        if (chatPreset.sttPreset && productMode.isNvidiaModeSelected && !sttExternalEnabled()) {
+          return false
+        }
         if (chatPreset.requiresNpuSupport && !hasNpuDevice) {
           return false
         }

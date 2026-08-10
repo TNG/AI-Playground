@@ -110,7 +110,9 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     .cmd-name { font-weight: 600; font-size: 14px; color: var(--primary); }
     .cmd-desc { font-size: 12px; color: var(--muted-fg); }
     img.inline, video.inline { max-width: 100%; border-radius: var(--radius); margin-top: 6px; display: block; }
-    audio.inline { width: 100%; margin-top: 6px; display: block; }
+    /* A voice reply carries no text, so the bubble has nothing else to size it —
+       without a floor the player collapses to ~48px and Chrome hides its controls. */
+    audio.inline { width: 100%; min-width: 240px; margin-top: 6px; display: block; }
     .file-chip { display: inline-block; margin-top: 6px; padding: 4px 8px; border-radius: var(--radius); background: var(--muted); color: var(--fg); font-size: 13px; }
     .row-user .file-chip { background: rgb(255 255 255 / 0.18); color: var(--primary-fg); }
     a.doc-link { color: inherit; text-decoration: underline; font-size: 14px; }

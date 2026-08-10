@@ -3,19 +3,21 @@
     <!-- Install guidance: Whisper needs OpenVINO; External needs an endpoint set up
          in App Settings. Shown when neither is usable. -->
     <p
-      v-if="!openVinoSetUp && !speechToText.isExternalAvailable"
+      v-if="
+        !openVinoSetUp && !speechToText.isStandaloneAvailable && !speechToText.isExternalAvailable
+      "
       class="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-300"
     >
-      Install the OpenVINO backend from Settings → Installation Management to use Whisper, or enable
-      an external transcription endpoint in App Settings → External speech endpoints.
+      Install the OpenVINO or standalone Whisper backend from Settings → Installation Management, or
+      enable an external transcription endpoint in App Settings → External speech endpoints.
     </p>
 
-    <!-- Model row: pick the transcription engine. Whisper runs on OpenVINO; External
-         uses the endpoint configured in App Settings. Both options are always shown. -->
+    <!-- Backend row: pick the transcription backend (OpenVINO / Standalone / External).
+         The dot reflects usability of each. -->
     <div class="grid grid-cols-[120px_1fr] items-center gap-4">
-      <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
+      <Label class="whitespace-nowrap">Backend</Label>
       <drop-down-new
-        title="Model"
+        title="Backend"
         :value="speechToText.selectedSttEngine"
         :items="engineItems"
         @change="(v) => (speechToText.selectedSttEngine = v as SttEngine)"
@@ -35,6 +37,30 @@
         @change="selectSttDevice"
       ></drop-down-new>
     </div>
+
+    <!-- Standalone (torch) Whisper: pick the model, and (when installed) the device. -->
+    <template v-if="speechToText.selectedSttEngine === 'standalone'">
+      <div class="grid grid-cols-[120px_1fr] items-center gap-4">
+        <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
+        <drop-down-new
+          title="Model"
+          :value="speechToText.selectedStandaloneModel"
+          :items="standaloneModelItems"
+          @change="(v) => (speechToText.selectedStandaloneModel = v as WhisperStandaloneModel)"
+        ></drop-down-new>
+      </div>
+      <div
+        v-if="speechToText.isStandaloneAvailable"
+        class="grid grid-cols-[120px_1fr] items-center gap-4"
+      >
+        <Label class="whitespace-nowrap">{{ languages.SETTINGS_INFERENCE_DEVICE }}</Label>
+        <device-selector backend="whisper-backend" name-only></device-selector>
+      </div>
+      <p v-else class="text-xs text-amber-500">
+        Install the standalone Whisper backend from Settings → Installation Management to use this
+        engine.
+      </p>
+    </template>
 
     <!-- External endpoint config: enabled via the checkbox in App Settings; the
          endpoint itself is configured here. Any OpenAI-compatible transcription
@@ -57,34 +83,42 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import DropDownNew from '@/components/DropDownNew.vue'
+import DeviceSelector from '@/components/DeviceSelector.vue'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useSpeechToText } from '@/assets/js/store/speechToText'
 import type { SttEngine } from '@/assets/js/store/speechToText'
+import { WHISPER_STANDALONE_MODELS } from '@/assets/js/whisperConstants'
+import type { WhisperStandaloneModel } from '@/assets/js/whisperConstants'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { useBackendServices } from '@/assets/js/store/backendServices'
+import { useModels } from '@/assets/js/store/models'
 
 const languages = useI18N().state
 const speechToText = useSpeechToText()
 const productMode = useProductMode()
 const backendServices = useBackendServices()
+const models = useModels()
 
 const openVinoSetUp = computed(
   () => backendServices.info.find((s) => s.serviceName === 'openvino-backend')?.isSetUp === true,
 )
 
-// Whisper (OpenVINO) is offered only in non-NVIDIA modes; External is always listed.
-// The dot reflects usability (Whisper needs OVMS, External needs a configured endpoint).
+// OpenVINO is offered only in non-NVIDIA modes; Standalone only when its optional
+// backend is enabled; External endpoint is always listed. The dot reflects usability.
 const engineItems = computed(() => {
   const items: { label: string; value: string; active: boolean }[] = []
   if (!productMode.isNvidiaModeSelected) {
+    items.push({ label: 'OpenVINO', value: 'whisper', active: speechToText.isWhisperAvailable })
+  }
+  if (speechToText.isWhisperBackendEnabled) {
     items.push({
-      label: 'Whisper (OpenVINO)',
-      value: 'whisper',
-      active: speechToText.isWhisperAvailable,
+      label: 'Standalone',
+      value: 'standalone',
+      active: speechToText.isStandaloneAvailable,
     })
   }
   items.push({
@@ -95,17 +129,35 @@ const engineItems = computed(() => {
   return items
 })
 
-// If the selected engine is no longer offered (e.g. Whisper after switching to NVIDIA
-// mode), fall back to the first available option.
-watch(
-  engineItems,
-  (items) => {
-    if (!items.some((i) => i.value === speechToText.selectedSttEngine)) {
-      speechToText.selectedSttEngine = items[0]?.value as SttEngine
-    }
-  },
-  { immediate: true },
+// Downloaded state per standalone Whisper model, so the dropdown dot is grey until
+// the weights are on disk (checked on mount + when the backend becomes available).
+const standaloneDownloaded = ref<Record<string, boolean>>({})
+async function refreshStandaloneDownloaded() {
+  try {
+    const entries = await Promise.all(
+      WHISPER_STANDALONE_MODELS.map(
+        async (m) => [m.repo, await models.checkTranscriptionModelExists(m.repo)] as const,
+      ),
+    )
+    standaloneDownloaded.value = Object.fromEntries(entries)
+  } catch {
+    standaloneDownloaded.value = {}
+  }
+}
+onMounted(refreshStandaloneDownloaded)
+watch(() => speechToText.isStandaloneAvailable, refreshStandaloneDownloaded)
+watch(() => speechToText.selectedSttEngine, refreshStandaloneDownloaded)
+
+const standaloneModelItems = computed(() =>
+  WHISPER_STANDALONE_MODELS.map((m) => ({
+    label: m.label,
+    value: m.repo,
+    active: standaloneDownloaded.value[m.repo] === true,
+  })),
 )
+
+// Note: keeping the selected engine valid for the current mode/flags is handled in
+// the speechToText store (preferredSttEngine), so it applies to every consumer.
 
 // STT device selection (Whisper loads on a dedicated OVMS device list, distinct
 // from the LLM device list DeviceSelector uses). Mirrors the logic previously in

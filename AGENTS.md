@@ -15,6 +15,14 @@ Electron main process orchestrates Vue.js frontend and multiple Python/native ba
 - Use **`type`** instead of `interface`, unless an interface is strictly necessary for implementation.
 - **Comment only when it is extremely important**, and keep it to one line where possible.
   See [Comments](#comments).
+- **Never auto-download model weights.** Installing a backend (its `set_up()`) installs only the
+  runtime/dependencies (torch, servers, etc.) — **never** model weights. Weights download **on
+  demand**, only when the user has selected a preset/engine **and** actually tries to use it, via
+  the shared download dialog (`dialogs.showDownloadDialog`). Mirror the existing pattern:
+  `qwen3TextToSpeech.ensureModelInstalled`, `speechToText.ensureWhisperReady` /
+  `ensureStandaloneReady` — check `models.checkTranscriptionModelExists(...)` /
+  `getMissing...Model(...)`, then prompt. Selecting an engine in settings must not trigger a
+  download, and Python sidecars run with `HF_HUB_OFFLINE=1` so they can't silently fetch.
 
 ## Build / Dev / Test Commands
 

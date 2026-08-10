@@ -130,6 +130,7 @@ type LocalSettings = {
   isCloudModeEnabled: boolean
   isAgentPresetEnabled?: boolean
   oemVendorOverride?: string | null
+  isWhisperBackendEnabled?: boolean
   languageOverride: string | null
   remoteRepository: string
   huggingfaceEndpoint: string
@@ -994,6 +995,7 @@ type BackendServiceName =
   | 'openvino-backend'
   | 'home-agent-backend'
   | 'qwen3-tts-backend'
+  | 'whisper-backend'
 
 type InferenceDevice = {
   id: string

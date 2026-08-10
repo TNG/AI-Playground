@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { acceptHMRUpdate } from 'pinia'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
@@ -8,14 +8,20 @@ import { useDialogStore } from './dialogs'
 import * as toast from '@/assets/js/toast'
 import { useSetupWizard } from './setupWizard'
 import { useProductMode } from './productMode'
+import {
+  DEFAULT_WHISPER_STANDALONE_MODEL,
+  type WhisperStandaloneModel,
+} from '@/assets/js/whisperConstants'
 
 export const WHISPER_MODEL_NAME = 'OpenVINO/whisper-base-int8-ov'
 
 /** Which engine backs Speech To Text.
  *  - `whisper`: OpenVINO OVMS Whisper server — needs OpenVINO (non-NVIDIA).
- *  - `external`: an OpenAI-compatible fallback endpoint configured in App Settings —
- *    works in every mode (incl. NVIDIA) when enabled. */
-export type SttEngine = 'whisper' | 'external'
+ *  - `standalone`: the torch Whisper sidecar (whisper-backend) — works in every mode
+ *    (incl. NVIDIA) when its optional backend is installed.
+ *  - `external`: an OpenAI-compatible endpoint configured in App Settings — works in
+ *    every mode when enabled. */
+export type SttEngine = 'whisper' | 'standalone' | 'external'
 
 /**
  * Resolved transcription endpoint configuration consumed by the shared
@@ -49,6 +55,11 @@ export const useSpeechToText = defineStore(
     const initializing = ref(false)
     // Which engine the STT preset (and mic transcription) uses. Edited in SettingsStt.
     const selectedSttEngine = ref<SttEngine>('whisper')
+    // Which model the standalone (torch) Whisper engine uses.
+    const selectedStandaloneModel = ref<WhisperStandaloneModel>(DEFAULT_WHISPER_STANDALONE_MODEL)
+    // Mirrors `isWhisperBackendEnabled` from settings.json — gates the optional
+    // standalone Whisper sidecar (offered in the setup wizard + as an STT engine).
+    const isWhisperBackendEnabled = ref(false)
     const backendServices = useBackendServices()
     const models = useModels()
     const dialogStore = useDialogStore()
@@ -83,12 +94,103 @@ export const useSpeechToText = defineStore(
     /** Whether the external (fallback) transcription endpoint is configured/usable. */
     const isExternalAvailable = computed(() => hasFallback())
 
+    /** Whether the standalone (torch) Whisper engine can be offered: its optional
+     *  backend must be installed. Works in every product mode (incl. NVIDIA). */
+    const isStandaloneAvailable = computed(() => {
+      if (!isWhisperBackendEnabled.value) return false
+      const svc = backendServices.info.find((s) => s.serviceName === 'whisper-backend')
+      return svc?.isSetUp === true
+    })
+
     /**
-     * Whether speech-to-text is usable at all: OpenVINO Whisper (non-NVIDIA) or a
-     * configured external endpoint (any mode). Used to gate the in-chat mic and the
-     * STT preset now that the old global STT enable toggle is gone.
+     * Whether speech-to-text is usable at all: OpenVINO Whisper (non-NVIDIA), the
+     * standalone Whisper backend, or a configured external endpoint. Used to gate the
+     * in-chat mic and the STT preset now that the old global STT enable toggle is gone.
      */
-    const available = computed(() => isWhisperAvailable.value || isExternalAvailable.value)
+    const available = computed(
+      () => isWhisperAvailable.value || isStandaloneAvailable.value || isExternalAvailable.value,
+    )
+
+    /** Engines offered in the current product mode (mirrors SettingsStt's dropdown):
+     *  Whisper (OpenVINO) only off NVIDIA; standalone only when its feature is on;
+     *  External always. */
+    const offeredSttEngines = computed<SttEngine[]>(() => {
+      const list: SttEngine[] = []
+      if (!productMode.isNvidiaModeSelected) list.push('whisper')
+      if (isWhisperBackendEnabled.value) list.push('standalone')
+      list.push('external')
+      return list
+    })
+
+    /** Best default engine: an installed one first (OpenVINO Whisper → standalone →
+     *  external), and only when nothing is installed the highest-priority offered
+     *  engine (so External is the default only if neither Whisper is available). */
+    const preferredSttEngine = computed<SttEngine>(() => {
+      if (isWhisperAvailable.value) return 'whisper'
+      if (isStandaloneAvailable.value) return 'standalone'
+      if (isExternalAvailable.value) return 'external'
+      return offeredSttEngines.value[0] ?? 'external'
+    })
+
+    // Keep the selection valid for the current mode/feature flags: when the chosen
+    // engine isn't offered (e.g. the persisted 'whisper' default in NVIDIA mode),
+    // fall back to the preferred engine. This drives every consumer (mic, tool, STT
+    // preset), not just the settings panel.
+    watch(
+      [offeredSttEngines, selectedSttEngine],
+      () => {
+        if (!offeredSttEngines.value.includes(selectedSttEngine.value)) {
+          selectedSttEngine.value = preferredSttEngine.value
+        }
+      },
+      { immediate: true },
+    )
+
+    /**
+     * Ensure the standalone Whisper sidecar is ready: its backend must be installed,
+     * the selected model present (prompting the download popup if missing), and the
+     * service running.
+     */
+    async function ensureStandaloneReady(): Promise<void> {
+      const svc = backendServices.info.find((s) => s.serviceName === 'whisper-backend')
+      if (!svc?.isSetUp) {
+        throw new Error(
+          'The standalone Whisper backend is not installed. Install it from ' +
+            'Settings → Installation Management, then try again.',
+        )
+      }
+      const modelExists = await models.checkTranscriptionModelExists(selectedStandaloneModel.value)
+      if (!modelExists) {
+        const missing = await models.getMissingTranscriptionModel(selectedStandaloneModel.value)
+        if (missing.length > 0) {
+          await new Promise<void>((resolve, reject) => {
+            dialogStore.showDownloadDialog(
+              missing,
+              () => resolve(),
+              () => reject(new Error('Whisper model download was cancelled')),
+            )
+          })
+        }
+      }
+      if (svc.status !== 'running') {
+        await backendServices.startService('whisper-backend')
+      }
+    }
+
+    /** OpenAI-compatible endpoint for the standalone Whisper sidecar, or null when
+     *  its backend isn't running yet. The loopback token is passed as the apiKey so
+     *  the shared transcribe helper's `Authorization: Bearer` satisfies the sidecar. */
+    async function resolveStandaloneEndpoint(): Promise<TranscriptionEndpoint | null> {
+      const svc = backendServices.info.find((s) => s.serviceName === 'whisper-backend')
+      const baseUrl = svc?.baseUrl
+      if (!baseUrl) return null
+      const token = await window.electronAPI.getBackendAuthToken('whisper-backend')
+      return {
+        baseURL: `${baseUrl.replace(/\/$/, '')}/v1`,
+        model: selectedStandaloneModel.value,
+        apiKey: token ?? '',
+      }
+    }
 
     /**
      * Ensure the OVMS Whisper server is ready to transcribe: OpenVINO must be set up
@@ -134,6 +236,10 @@ export const useSpeechToText = defineStore(
      * OpenAI-compatible endpoint. Returns `null` when neither is available.
      */
     async function resolveTranscription(): Promise<TranscriptionEndpoint | null> {
+      // The standalone engine forces its own torch sidecar.
+      if (selectedSttEngine.value === 'standalone') {
+        return resolveStandaloneEndpoint()
+      }
       // The External engine forces the fallback endpoint; otherwise prefer the OVMS
       // Whisper server when running and fall back to the configured endpoint.
       if (selectedSttEngine.value !== 'external') {
@@ -327,16 +433,31 @@ export const useSpeechToText = defineStore(
       }
     }
 
+    async function initWhisperBackendFlag() {
+      try {
+        const localSettings = await window.electronAPI.getLocalSettings()
+        isWhisperBackendEnabled.value = !!localSettings.isWhisperBackendEnabled
+      } catch (e) {
+        console.error('speechToText.initWhisperBackendFlag failed:', e)
+        isWhisperBackendEnabled.value = false
+      }
+    }
+    void initWhisperBackendFlag()
+
     return {
       enabled,
       initializing,
       fallback,
       selectedSttEngine,
+      selectedStandaloneModel,
+      isWhisperBackendEnabled,
       isWhisperAvailable,
+      isStandaloneAvailable,
       isExternalAvailable,
       available,
       hasFallback,
       resolveTranscription,
+      ensureStandaloneReady,
       toggle,
       initialize,
       ensureTranscriptionServerRunning,
@@ -346,7 +467,7 @@ export const useSpeechToText = defineStore(
   {
     persist: {
       storage: demoAwareStorage,
-      pick: ['enabled', 'fallback', 'selectedSttEngine'],
+      pick: ['enabled', 'fallback', 'selectedSttEngine', 'selectedStandaloneModel'],
     },
   },
 )

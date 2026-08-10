@@ -22,10 +22,19 @@ const ALL_BACKENDS: BackendServiceName[] = [
   'ai-backend',
   'home-agent-backend',
   'qwen3-tts-backend',
+  'whisper-backend',
   'llamacpp-backend',
   'openvino-backend',
   'comfyui-backend',
 ]
+
+// The standalone Whisper backend only ships in builds that enable it (NVIDIA),
+// so it is filtered out everywhere else. The other backends are unconditional.
+function getBackends(whisperEnabled: boolean): BackendServiceName[] {
+  if (whisperEnabled) return ALL_BACKENDS
+  return ALL_BACKENDS.filter((b) => b !== 'whisper-backend')
+}
+
 
 function isBackendAvailableInProductMode(
   mode: ProductMode | null,
@@ -80,6 +89,7 @@ const knownSteps: Record<BackendServiceName, string[]> = {
   ],
   'home-agent-backend': ['start', 'install dependencies'],
   'qwen3-tts-backend': ['start', 'install dependencies'],
+  'whisper-backend': ['start', 'install dependencies'],
 }
 
 const stepDisplayNames: Record<string, string> = {
@@ -437,7 +447,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   })
 
   const backendRows = computed<BackendRowViewModel[]>(() => {
-    return ALL_BACKENDS.map((serviceName) => {
+    return getBackends(speechToText.isWhisperBackendEnabled).map((serviceName) => {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       const available = isBackendAvailableInProductMode(pendingProductMode.value, serviceName)
       const isRequired = info?.isRequired ?? serviceName === 'ai-backend'
@@ -653,7 +663,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
   function seedInstallSelection() {
     const newSelection = new Set<BackendServiceName>()
-    for (const serviceName of ALL_BACKENDS) {
+    for (const serviceName of getBackends(speechToText.isWhisperBackendEnabled)) {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       if (!info) continue
       if (info.isRequired) continue
@@ -725,7 +735,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
   function setPendingMode(mode: ProductMode) {
     pendingProductMode.value = mode
-    for (const sn of ALL_BACKENDS) {
+    for (const sn of getBackends(speechToText.isWhisperBackendEnabled)) {
       const wasAvailable = isBackendAvailableInProductMode(
         productModeStore.productMode ?? pendingProductMode.value,
         sn,
@@ -1000,7 +1010,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     await globalSetup.initSetup()
     globalSetup.loadingState = 'running'
 
-    for (const serviceName of ALL_BACKENDS) {
+    for (const serviceName of getBackends(speechToText.isWhisperBackendEnabled)) {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       if (!info?.isSetUp) continue
       if (info.isRequired || installSelection.value.has(serviceName)) {

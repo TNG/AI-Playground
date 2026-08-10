@@ -9,6 +9,7 @@ import { LlamaCppBackendService } from './llamaCppBackendService.ts'
 import { OpenVINOBackendService } from './openVINOBackendService.ts'
 import { HomeAgentBackendService } from './homeAgentBackendService.ts'
 import { Qwen3TtsBackendService } from './qwen3TtsBackendService.ts'
+import { WhisperBackendService } from './whisperBackendService.ts'
 import { LocalSettings } from '../main.ts'
 import { setLlmServiceLookup } from '../llmServerSnapshot.ts'
 
@@ -19,6 +20,7 @@ export type backend =
   | 'llamacpp-backend'
   | 'home-agent-backend'
   | 'qwen3-tts-backend'
+  | 'whisper-backend'
 
 export interface ApiServiceRegistry {
   register(apiService: ApiService): void
@@ -216,6 +218,16 @@ export async function aiplaygroundApiServiceRegistry(
         settings,
       ),
     )
+    if (settings.isWhisperBackendEnabled) {
+      instance.register(
+        new WhisperBackendService(
+          'whisper-backend',
+          await getPort({ port: portNumbers(56000, 56999) }),
+          win,
+          settings,
+        ),
+      )
+    }
     instance.register(
       new OpenVINOBackendService(
         'openvino-backend',

@@ -125,7 +125,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <div id="login-screen" class="screen">
+  <div id="login-screen" class="screen" role="group" aria-label="Sign in">
     <div class="login-card">
       <h1>Home Agent</h1>
       <p>Enter the password from AI Playground &rarr; Home Agent &rarr; LAN chat.</p>
@@ -135,7 +135,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       <button type="button" id="login-btn">Sign in</button>
     </div>
   </div>
-  <div id="chat-screen" class="screen hidden">
+  <div id="chat-screen" class="screen hidden" role="group" aria-label="Chat">
     <div class="tg-header">
       <div class="tg-avatar">HA</div>
       <div class="tg-header-text">
@@ -143,16 +143,16 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         <div class="sub" id="status-line">online</div>
       </div>
     </div>
-    <div id="log"></div>
-    <div id="cmd-menu" class="cmd-menu hidden"></div>
+    <div id="log" role="log" aria-label="Conversation"></div>
+    <div id="cmd-menu" class="cmd-menu hidden" role="menu" aria-label="Commands"></div>
     <div class="compose">
       <button type="button" id="menu-btn" title="Commands" aria-label="Commands">/</button>
       <button type="button" id="attach-btn" title="Attach files" aria-label="Attach files">&#128206;</button>
-      <input type="file" id="file-input" multiple style="display:none" />
+      <input type="file" id="file-input" multiple style="display:none" aria-label="Attach files" />
       <div class="compose-inner">
-        <textarea id="input" rows="1" placeholder="Message" autocomplete="off"></textarea>
+        <textarea id="input" rows="1" placeholder="Message" aria-label="Message" autocomplete="off"></textarea>
       </div>
-      <button type="button" id="send" title="Send">&#10148;</button>
+      <button type="button" id="send" title="Send" aria-label="Send">&#10148;</button>
     </div>
   </div>
   <script>
@@ -176,7 +176,23 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     // Guards re-entrant session checks while the SSE stream is flapping.
     let recovering = false
 
+    // Accessible names for the message bubbles. The chat log is driven by role +
+    // name (by screen readers, and by the e2e that plays the user), so a settled
+    // reply has to be distinguishable from the in-flight draft.
+    const LABEL_USER = 'Your message'
+    const LABEL_BOT = 'Home Agent response'
+    const LABEL_DRAFT = 'Home Agent draft'
+    const LABEL_KEYBOARD = 'Choose an option'
+
     function scrollBottom() { log.scrollTop = log.scrollHeight }
+
+    function bubbleEl(label) {
+      const bubble = document.createElement('div')
+      bubble.className = 'bubble'
+      bubble.setAttribute('role', 'article')
+      bubble.setAttribute('aria-label', label)
+      return bubble
+    }
 
     function escapeHtml(s) {
       return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
@@ -234,8 +250,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     function appendUser(text, images, fileLabels) {
       const row = document.createElement('div')
       row.className = 'row row-user'
-      const bubble = document.createElement('div')
-      bubble.className = 'bubble'
+      const bubble = bubbleEl(LABEL_USER)
       if (text) bubble.appendChild(document.createTextNode(text))
       for (const b64 of (images || [])) bubble.appendChild(inlineImg(b64))
       for (const label of (fileLabels || [])) {
@@ -283,6 +298,22 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       wrap.appendChild(a)
       return wrap
     }
+    // Containers the renderer's TTS / voice replies may arrive in. The declared
+    // type is data, so it is matched against this list instead of being trusted.
+    const AUDIO_MIMES = [
+      'audio/ogg', 'audio/mpeg', 'audio/mp3', 'audio/mp4', 'audio/wav',
+      'audio/x-wav', 'audio/webm', 'audio/flac', 'audio/aac',
+    ]
+    function inlineAudio(b64, mime) {
+      const a = document.createElement('audio')
+      a.className = 'inline'
+      a.controls = true
+      const declared = String(mime || '').toLowerCase().split(';')[0].trim()
+      a.src = 'data:' + (AUDIO_MIMES.indexOf(declared) !== -1 ? declared : 'audio/ogg') +
+              ';base64,' + b64
+      a.addEventListener('loadeddata', scrollBottom)
+      return a
+    }
 
     // Repaint the whole log from a conversation transcript (the `history` event
     // the renderer sends when a chat is loaded), text and images alike. Old
@@ -298,28 +329,31 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         const vids = Array.isArray(m.videos) ? m.videos : []
         const docs = Array.isArray(m.documents) ? m.documents : []
         if (!m.text && imgs.length === 0 && vids.length === 0 && docs.length === 0) continue
+        const media = imgs.map(inlineImg)
+          .concat(vids.map((v) => inlineVideo(v.base64, v.filename)))
+          .concat(docs.map((d) => inlineDoc(d.base64, d.filename)))
         if (m.role === 'user') {
           const row = document.createElement('div')
           row.className = 'row row-user'
-          const bubble = document.createElement('div')
-          bubble.className = 'bubble'
+          const bubble = bubbleEl(LABEL_USER)
           if (m.text) bubble.appendChild(document.createTextNode(m.text))
-          for (const b64 of imgs) bubble.appendChild(inlineImg(b64))
-          for (const v of vids) bubble.appendChild(inlineVideo(v.base64, v.filename))
-          for (const d of docs) bubble.appendChild(inlineDoc(d.base64, d.filename))
+          for (const node of media) bubble.appendChild(node)
           row.appendChild(bubble)
           log.appendChild(row)
         } else {
-          const bubble = appendBotHtml(m.text ? formatBotText(m.text) : '', false)
-          for (const b64 of imgs) bubble.appendChild(inlineImg(b64))
-          for (const v of vids) bubble.appendChild(inlineVideo(v.base64, v.filename))
-          for (const d of docs) bubble.appendChild(inlineDoc(d.base64, d.filename))
+          appendBotHtml(m.text ? formatBotText(m.text) : '', false, media)
         }
       }
       scrollBottom()
     }
 
-    function appendBotHtml(html, withTime) {
+    // `html` is trusted-by-construction markup (formatBotText escapes first, then
+    // re-introduces only its own tags). Anything carrying data — base64 payloads,
+    // mime types, filenames — must arrive as a node in `media` instead, built by
+    // the inline* helpers so values are set through DOM properties and can never
+    // break out of an attribute. Media is inserted before the timestamp so the
+    // time still reads last.
+    function appendBotHtml(html, withTime, media) {
       clearDraft()
       hideTyping()
       const row = document.createElement('div')
@@ -330,13 +364,13 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       av.style.height = '32px'
       av.style.fontSize = '11px'
       av.textContent = 'HA'
-      const bubble = document.createElement('div')
-      bubble.className = 'bubble'
+      const bubble = bubbleEl(LABEL_BOT)
       bubble.innerHTML = html
       // Inline media loads asynchronously; scroll to the bottom once each is
       // ready so the newest content stays in view.
       bubble.querySelectorAll('img').forEach((im) => im.addEventListener('load', scrollBottom))
       bubble.querySelectorAll('video').forEach((v) => v.addEventListener('loadeddata', scrollBottom))
+      for (const node of (media || [])) bubble.appendChild(node)
       if (withTime !== false) {
         const tm = document.createElement('span')
         tm.className = 'time'
@@ -362,6 +396,8 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       av.textContent = 'HA'
       const bubble = document.createElement('div')
       bubble.className = 'bubble'
+      bubble.setAttribute('role', 'status')
+      bubble.setAttribute('aria-label', 'Home Agent is typing')
       bubble.innerHTML = '<span class="typing-dots"><span></span><span></span><span></span></span>'
       typingRow.appendChild(av)
       typingRow.appendChild(bubble)
@@ -386,7 +422,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       av.style.height = '32px'
       av.style.fontSize = '11px'
       av.textContent = 'HA'
-      draftBubble = document.createElement('div')
+      draftBubble = bubbleEl(LABEL_DRAFT)
       draftBubble.className = 'bubble streaming'
       draftRow.appendChild(av)
       draftRow.appendChild(draftBubble)
@@ -407,6 +443,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       const html = formatBotText(text)
       if (draftBubble && draftRow) {
         draftBubble.classList.remove('streaming')
+        draftBubble.setAttribute('aria-label', LABEL_BOT)
         draftBubble.innerHTML = html
         const tm = document.createElement('span')
         tm.className = 'time'
@@ -427,7 +464,17 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         credentials: 'same-origin',
         body: body !== undefined ? JSON.stringify(body) : undefined,
       })
-      if (!res.ok) throw new Error(await res.text() || res.statusText)
+      if (!res.ok) {
+        // Keep the status and parsed body on the error: callers distinguish a
+        // rejected password from a rate-limited one.
+        const text = await res.text()
+        let detail = {}
+        try { detail = JSON.parse(text) } catch (_) {}
+        const err = new Error(detail.error || text || res.statusText)
+        err.status = res.status
+        err.detail = detail
+        throw err
+      }
       return res.json().catch(() => ({}))
     }
 
@@ -469,8 +516,10 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         passwordInput.value = ''
         showChat()
         startChat()
-      } catch (_) {
-        loginError.textContent = 'Wrong password. Check AI Playground setup.'
+      } catch (e) {
+        loginError.textContent = e && e.status === 429
+          ? 'Too many attempts. Try again in ' + ((e.detail && e.detail.retryAfter) || 30) + ' s.'
+          : 'Wrong password. Check AI Playground setup.'
       } finally {
         loginBtn.disabled = false
       }
@@ -612,7 +661,13 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       const d = ev.data ? JSON.parse(ev.data) : {}
       const action = d.action
       if (action === 'history' && Array.isArray(d.messages)) { appendHistory(d.messages); return }
-      if (action === 'typing') { showTyping(); return }
+      if (action === 'typing') {
+        // A turn that ends without any output still has to stop the dots, so the
+        // heartbeat's disposer sends state=stop (see send_typing).
+        if (d.state === 'stop') hideTyping()
+        else showTyping()
+        return
+      }
       if (action === 'draftUpdate' || action === 'update') {
         setDraft(d.text || '')
         return
@@ -621,57 +676,75 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         finalizeBot(d.text || '')
         return
       }
+      if (action === 'editMessage') {
+        // The store settles an interactive prompt in place (confirmed/cancelled/
+        // timed out). SSE has no message edit, so retire the live buttons and post
+        // the outcome — otherwise the prompt stays tappable and fires again.
+        consumeKeyboards()
+        finalizeBot(d.text || '')
+        return
+      }
+      const caption = d.caption ? formatBotText(d.caption) : ''
       if (action === 'photo' && d.base64) {
-        clearDraft()
-        hideTyping()
-        const cap = d.caption ? formatBotText(d.caption) + '<br>' : ''
-        appendBotHtml(cap + '<img class="inline" src="data:image/jpeg;base64,' + d.base64 + '" />')
+        appendBotHtml(caption, true, [inlineImg(d.base64)])
         return
       }
       if (action === 'video' && d.base64) {
-        clearDraft()
-        hideTyping()
-        const cap = d.caption ? formatBotText(d.caption) + '<br>' : ''
-        const mime = mimeForVideo(d.filename)
-        appendBotHtml(cap + '<video class="inline" controls playsinline src="data:' + mime + ';base64,' + d.base64 + '"></video>')
+        appendBotHtml(caption, true, [inlineVideo(d.base64, d.filename)])
         return
       }
       if (action === 'voice' && d.base64) {
-        clearDraft()
-        hideTyping()
-        const mime = d.mime || 'audio/ogg'
-        appendBotHtml('<audio class="inline" controls src="data:' + mime + ';base64,' + d.base64 + '"></audio>')
+        appendBotHtml('', true, [inlineAudio(d.base64, d.mime)])
         return
       }
       if (action === 'document' && (d.base64 || d.filename)) {
-        clearDraft()
-        hideTyping()
         const name = d.filename || 'file'
-        const cap = d.caption ? formatBotText(d.caption) + '<br>' : ''
-        if (d.base64) {
-          const safeName = name.replace(/["\\]/g, '')
-          appendBotHtml(cap + '<a class="doc-link" download="' + safeName + '" href="data:application/octet-stream;base64,' + d.base64 + '">📎 ' + escapeHtml(name) + '</a>')
-        } else {
-          appendBotHtml(cap + '📎 ' + escapeHtml(name))
-        }
+        if (d.base64) appendBotHtml(caption, true, [inlineDoc(d.base64, name)])
+        else appendBotHtml(caption + '📎 ' + escapeHtml(name))
         return
       }
       if (action === 'keyboard' && d.buttons) {
-        const wrap = appendBotHtml(formatBotText(d.text || '') + '<div class="kbd-row" id="kbd"></div>', false)
-        const row = wrap.querySelector('#kbd')
+        const row = document.createElement('div')
+        row.className = 'kbd-row'
+        row.setAttribute('role', 'group')
+        row.setAttribute('aria-label', LABEL_KEYBOARD)
+        const bubble = appendBotHtml(formatBotText(d.text || ''), false, [row])
         for (const btn of d.buttons.flat()) {
           const cb = btn.callbackData || btn.callback
           const b = document.createElement('button')
           b.type = 'button'
           b.textContent = btn.text || cb
-          b.onclick = () => postChat({ callback: cb })
+          b.onclick = () => {
+            // Consume before posting: the row is the only thing stopping a second
+            // tap from re-running the callback (a duplicate image generation, a
+            // second download confirmation, …).
+            consumeKeyboard(row, b.textContent)
+            postChat({ callback: cb })
+          }
           row.appendChild(b)
         }
         const tm = document.createElement('span')
         tm.className = 'time'
         tm.textContent = timeNow()
-        wrap.appendChild(tm)
+        bubble.appendChild(tm)
         scrollBottom()
+      }
+    }
+
+    /** Replace a prompt's buttons with the choice that was made. */
+    function consumeKeyboard(row, choice) {
+      row.innerHTML = ''
+      row.setAttribute('aria-label', 'Chosen option')
+      const chip = document.createElement('span')
+      chip.className = 'file-chip'
+      chip.textContent = '✅ ' + (choice || 'Done')
+      row.appendChild(chip)
+    }
+
+    /** Retire every prompt still showing buttons (the flow moved on without a tap). */
+    function consumeKeyboards() {
+      for (const row of log.querySelectorAll('.kbd-row')) {
+        if (row.querySelector('button')) consumeKeyboard(row, '—')
       }
     }
 

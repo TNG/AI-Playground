@@ -15,6 +15,7 @@ import sys
 import threading
 
 from channels import registry
+from channels.actions import send_method_name
 from channels.types import ALL_CHANNEL_KINDS
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -230,11 +231,15 @@ def channel_send(kind: str, action: str):
     if err:
         return err
     payload = request.get_json(silent=True) or {}
-    # `action` is one of: reply | update | photo | typing | keyboard
-    method_name = f"send_{action}"
+    method_name = send_method_name(action)
+    if method_name is None:
+        return jsonify({"error": f"unknown send action: {action}"}), 404
     method = getattr(ch, method_name, None)
     if method is None:
-        return jsonify({"error": f"unknown send action: {action}"}), 404
+        # A known action the channel doesn't implement (e.g. `history`, which only
+        # the local web page needs). Distinguished from an unknown action so a
+        # missing method reads as such in the log.
+        return jsonify({"error": f"channel {kind} does not support {action}"}), 404
     result = method(payload)
     return _result_to_response(result)
 

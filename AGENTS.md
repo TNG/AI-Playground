@@ -57,7 +57,13 @@ npm run fetch-external-resources
 npm run build
 ```
 
-Python backend (`service/`) uses **Ruff** for linting (runs in CI via GitHub Actions).
+Python is linted with **Ruff** (`ruff check` / `ruff format`, whole-repo config in `ruff.toml`,
+runs in CI) and scanned with **Bandit**. Its tests are stdlib `unittest`, no pytest needed:
+
+```bash
+python -m unittest discover -s home-agent/tests   # Home Agent channels (real sockets, ~5s)
+python -m unittest discover -s service/tests      # model-management backend
+```
 
 ## Test Conventions
 
@@ -599,6 +605,12 @@ only take effect on new VM sessions — a running VM will not pick up changes.
 Each channel is one renderer `ChannelAdapter` (`src/assets/js/store/channels/`) plus one Python
 module (`home-agent/channels/`), wired together by `ChannelKind` in both languages and dispatched
 through the generic `/channel/<kind>/*` Flask routes — adding a platform touches no shared logic.
+
+Outbound actions are named after the adapter methods, so they cross the language boundary in
+camelCase and are mapped to `send_*` methods by `channels/actions.py`. That list is the allow-list
+the route dispatches against, and it must stay in sync with the action union in `adapter.ts` /
+`preload.ts` / `env.d.ts`. A channel may omit a method it has no use for (only the LAN page needs
+`history`) and the route answers 404 for it.
 
 `local-web` ("LAN chat") is the odd one out: instead of talking to a cloud bot API it *is* the
 server. `home-agent/channels/local_web.py` stands up a `ThreadingHTTPServer` in a daemon thread

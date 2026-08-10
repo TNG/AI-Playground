@@ -3,6 +3,7 @@ import { ComfyUiBackendService } from './comfyUIBackendService.ts'
 import { AiBackendService } from './aiBackendService.ts'
 import { BrowserWindow } from 'electron'
 import { appLoggerInstance } from '../logging/logger.ts'
+import { killStaleProcesses } from './processLifecycle.ts'
 import getPort, { portNumbers } from 'get-port'
 import { LlamaCppBackendService } from './llamaCppBackendService.ts'
 import { OpenVINOBackendService } from './openVINOBackendService.ts'
@@ -51,11 +52,16 @@ export class ApiServiceRegistryImpl implements ApiServiceRegistry {
 
   async stopAllServices(): Promise<{ serviceName: string; state: BackendStatus }[]> {
     appLoggerInstance.info(`stopping all running services`, 'apiServiceRegistry')
-    const runningServices = this.registeredServices.filter(
-      (item) => item.currentStatus === 'running',
+    // 'running' is not the only state that owns a process: a service caught
+    // mid-launch ('starting'), mid-stop ('stopping') or one that reported
+    // 'failed' after spawning can all still have a live child, and skipping
+    // those is how backends survived a quit.
+    const statesThatMayOwnAProcess: BackendStatus[] = ['running', 'starting', 'stopping', 'failed']
+    const stoppableServices = this.registeredServices.filter((item) =>
+      statesThatMayOwnAProcess.includes(item.currentStatus),
     )
     return Promise.all(
-      runningServices.map((service) =>
+      stoppableServices.map((service) =>
         service
           .stop()
           .then((state) => {
@@ -79,6 +85,26 @@ export class ApiServiceRegistryImpl implements ApiServiceRegistry {
 
   getServiceInformation(): ApiServiceInformation[] {
     return this.getRegistered().map((service) => service.get_info())
+  }
+
+  /**
+   * Kill backends left running by a previous app session.
+   *
+   * A clean quit reaps everything, but a SIGKILL or a power loss cannot, and
+   * third-party backends have no parent-death handling of their own. Matching is
+   * by each backend's own binary path, so the pids this session already owns are
+   * excluded — the sweep is safe to run at any time, not only at startup.
+   */
+  async reapOrphansFromPreviousSession(): Promise<void> {
+    const groups = this.registeredServices
+      .map((service) => ({
+        name: service.name,
+        label: 'orphan',
+        signatures: service.orphanSignatures?.() ?? [],
+      }))
+      .filter((group) => group.signatures.length > 0)
+    const ownPids = this.registeredServices.flatMap((service) => service.ownedPids?.() ?? [])
+    await killStaleProcesses(groups, { excludePids: ownPids })
   }
 
   /**
@@ -214,6 +240,10 @@ export async function aiplaygroundApiServiceRegistry(
         settings,
       ),
     )
+
+    // Before anything of ours is spawned, so every match is genuinely a leftover
+    // from an earlier session rather than a backend we just started.
+    await instance.reapOrphansFromPreviousSession()
 
     // Automatically start all set-up services in the background
     // This happens regardless of frontend state, making it more reliable

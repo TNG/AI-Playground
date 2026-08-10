@@ -131,6 +131,7 @@ import {
   type GpuHardwareDevice,
 } from './subprocesses/hardwareDiscovery.ts'
 import { registerSettingsPersist } from './subprocesses/defaultDeviceSelection.ts'
+import { appShutdown } from './shutdown.ts'
 import z from 'zod'
 
 const ProductModeUiI18nSchema = z.object({
@@ -700,6 +701,14 @@ async function createWindow() {
     destroyWebBrowser()
   })
 
+  // Windows log-off / shutdown / restart. The session cannot be stopped and the
+  // OS terminates us within seconds, so aim well below its patience: a partial
+  // teardown beats leaving the backends behind.
+  win.on('session-end', () => {
+    appLogger.info('Windows session ending, stopping backends', 'electron-backend')
+    void appShutdown.shutdown(3000)
+  })
+
   // [HA-DIAG] Temporary: surface renderer `[HA-DIAG]` perf logs in the main
   // terminal stream (renderer console.log normally only reaches DevTools).
   // Remove together with the renderer-side [HA-DIAG] logging.
@@ -965,10 +974,12 @@ function spawnLangchainUtilityProcess() {
       if (code !== 0) {
         appLogger.info(`Langchain utility process exited with code ${code}`, 'electron-backend')
       }
+      langchainChild = null
+      // Respawning during teardown would resurrect the worker we just stopped.
+      if (appShutdown.isShuttingDown()) return
       setTimeout(() => {
         spawnLangchainUtilityProcess()
       }, 1000)
-      langchainChild = null
     })
   } catch (error) {
     appLogger.error(`Error starting langchain utility process: ${error}`, 'electron-backend')
@@ -1004,32 +1015,57 @@ function handleUtilityFunction<T, R>(
   })
 }
 
-app.on('before-quit', () => {
-  destroyWebBrowser()
-  cloudProxy?.close()
+// Everything the app spawns, torn down in dependency order: the agent first,
+// because its extensions flush state on shutdown (persistent memory writes what
+// it learned) and may still call into MCP, the services and the browser.
+appShutdown.register({ name: 'agent mode', run: () => shutdownAgentMode() })
+appShutdown.register({ name: 'MCP servers', run: () => stopAllMcpServers() })
+appShutdown.register({ name: 'backend services', run: () => serviceRegistry?.stopAllServices() })
+appShutdown.register({
+  name: 'langchain worker',
+  run: () => {
+    langchainChild?.kill()
+    langchainChild = null
+  },
+})
+appShutdown.register({ name: 'web browser', run: () => destroyWebBrowser() })
+appShutdown.register({ name: 'cloud proxy', run: () => cloudProxy?.close() })
+
+// Quitting has to wait for the teardown: backends are spawned detached so they
+// outlive us, and Electron would otherwise exit while they are still stopping.
+app.on('before-quit', (event) => {
+  event.preventDefault()
+  void appShutdown.shutdown().finally(() => {
+    if (singleInstanceLock) {
+      app.releaseSingleInstanceLock()
+    }
+    // Skips the quit handlers we just ran manually; nothing is left to unwind.
+    app.exit(0)
+  })
 })
 
-app.on('quit', async () => {
-  await stopAllMcpServers()
-  if (singleInstanceLock) {
-    app.releaseSingleInstanceLock()
-  }
-})
+// A dev restart, a `Ctrl+C` or a logout sends a catchable signal. Without these
+// handlers the process dies with the backends still running — the main way
+// orphans accumulated on Linux and macOS, where (unlike Windows) our teardown
+// was never reached. On Windows only SIGINT and SIGHUP (console closed) arrive;
+// listening for SIGTERM there is inert but harmless.
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+  process.on(signal, () => {
+    appLogger.info(`Received ${signal}, stopping backends`, 'electron-backend')
+    void appShutdown.shutdown().finally(() => app.exit(0))
+  })
+}
+
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
+// explicitly with Cmd + Q — so free the backends here instead of quitting.
 app.on('window-all-closed', async () => {
-  try {
-    // Before the services: the agent's extensions flush their state on shutdown
-    // (persistent memory writes what it learned this session).
-    await shutdownAgentMode()
-    await stopAllMcpServers()
-    await serviceRegistry?.stopAllServices()
-  } catch {}
-  if (process.platform !== 'darwin') {
-    app.quit()
-    win = null
+  if (process.platform === 'darwin') {
+    await appShutdown.shutdown()
+    return
   }
+  win = null
+  app.quit()
 })
 
 app.on('activate', () => {

@@ -719,13 +719,15 @@ export const usePresets = defineStore(
           }
 
           // STT presets need OpenVINO, which isn't installable in NVIDIA mode — so hide
-          // them there UNLESS an external transcription endpoint is enabled (that path
-          // needs no OpenVINO and works in every mode).
+          // them there UNLESS an external transcription endpoint is enabled or the
+          // standalone (torch) Whisper backend is offered (registered = feature on).
+          // Both need no OpenVINO; readiness/install is surfaced in the preset panel.
           if (
             preset.type === 'chat' &&
             (preset as ChatPreset).sttPreset &&
             productMode.isNvidiaModeSelected &&
-            !sttExternalEnabled()
+            !sttExternalEnabled() &&
+            !backendServices.info.some((s) => s.serviceName === 'whisper-backend')
           ) {
             return false
           }
@@ -852,7 +854,12 @@ export const usePresets = defineStore(
         if (p.type !== 'chat') return false
         const chatPreset = p as ChatPreset
         if (chatPreset.excludeFromChatPresetPicker) return false
-        if (chatPreset.sttPreset && productMode.isNvidiaModeSelected && !sttExternalEnabled()) {
+        if (
+          chatPreset.sttPreset &&
+          productMode.isNvidiaModeSelected &&
+          !sttExternalEnabled() &&
+          !backendServices.info.some((s) => s.serviceName === 'whisper-backend')
+        ) {
           return false
         }
         if (chatPreset.requiresNpuSupport && !hasNpuDevice) {

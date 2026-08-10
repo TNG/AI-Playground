@@ -1543,11 +1543,13 @@ export const useOpenAiCompatibleChat = defineStore(
         scope,
       })
       try {
-        // Start the OVMS Whisper server (and prompt the model download on first use)
-        // before resolving the endpoint — unless the External engine is selected,
-        // which uses the configured fallback and needs no OVMS.
-        if (speechToText.selectedSttEngine !== 'external') {
+        // Ready the selected engine before resolving the endpoint: OVMS Whisper or
+        // the standalone torch sidecar (both may prompt a model download on first
+        // use); the External engine needs nothing started.
+        if (speechToText.selectedSttEngine === 'whisper') {
           await speechToText.ensureWhisperReady()
+        } else if (speechToText.selectedSttEngine === 'standalone') {
+          await speechToText.ensureStandaloneReady()
         }
         const endpoint = await speechToText.resolveTranscription()
         if (!endpoint) {

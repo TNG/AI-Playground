@@ -85,7 +85,8 @@
           >
             <p v-if="!sttAvailable" class="text-sm text-amber-500">
               <template v-if="productModeStore.isNvidiaModeSelected">
-                Configure an external transcription endpoint in this preset's settings to transcribe
+                Install the standalone Whisper backend from Settings → Installation Management, or
+                set an external transcription endpoint in this preset's settings, to transcribe
                 speech.
               </template>
               <template v-else>
@@ -917,12 +918,14 @@ async function handleRecordingClick() {
     return
   }
   if (!sttAvailable.value) return
-  // Start the OVMS Whisper server (prompting the model download on first use)
-  // before recording, so transcription is ready when the clip is captured. The
-  // External engine uses the configured fallback and needs no OVMS.
+  // Ready the selected engine before recording (may prompt a model download on
+  // first use), so transcription is ready when the clip is captured. The External
+  // engine needs nothing started.
   try {
-    if (speechToText.selectedSttEngine !== 'external') {
+    if (speechToText.selectedSttEngine === 'whisper') {
       await speechToText.ensureWhisperReady()
+    } else if (speechToText.selectedSttEngine === 'standalone') {
+      await speechToText.ensureStandaloneReady()
     }
   } catch (error) {
     errors.report(error, {

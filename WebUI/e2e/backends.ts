@@ -10,6 +10,7 @@ export const BACKEND_DISPLAY_NAMES = {
   'ai-backend': 'AI Playground',
   'home-agent-backend': 'Home Agent',
   'qwen3-tts-backend': 'Text To Speech (Qwen3-TTS)',
+  'whisper-backend': 'Speech To Text (Whisper)',
   'llamacpp-backend': 'Llama.cpp - GGUF',
   'openvino-backend': 'OpenVINO',
   'comfyui-backend': 'ComfyUI',

@@ -194,6 +194,82 @@
         </Collapsible>
       </div>
 
+      <!-- Speech group: a single "Speech" entry (like "Generate media") that expands
+           to the Text-to-Speech and Speech-to-Text sub-tools. -->
+      <Collapsible :open="openTools['speech'] === true" class="flex flex-col gap-1.5">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-1.5 min-w-0">
+            <Label class="whitespace-nowrap">Speech</Label>
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <span class="svg-icon i-info w-4 h-4 shrink-0 opacity-50 cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent side="right" class="max-w-[300px] text-sm">
+                Let the assistant speak text aloud and transcribe audio.
+              </TooltipContent>
+            </Tooltip>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <CollapsibleTrigger
+              :disabled="!textInference.aipgToolsEnabled"
+              class="flex items-center gap-1.5 text-xs"
+              :class="
+                textInference.aipgToolsEnabled
+                  ? 'text-muted-foreground cursor-pointer'
+                  : 'text-muted-foreground opacity-50 cursor-not-allowed'
+              "
+              @click="openTools['speech'] = !openTools['speech']"
+            >
+              <span class="whitespace-nowrap">{{ enabledSpeechCount }}/2 enabled</span>
+              <ChevronDownIcon
+                class="size-4 transition-transform"
+                :class="{ 'rotate-180': openTools['speech'] }"
+              />
+            </CollapsibleTrigger>
+            <Checkbox
+              id="builtin-tool-speech"
+              :disabled="!textInference.aipgToolsEnabled"
+              :model-value="isSpeechEnabled"
+              @click="toggleSpeech"
+            />
+          </div>
+        </div>
+
+        <CollapsibleContent class="flex flex-col gap-1.5 pl-4 pt-1">
+          <div
+            v-for="child in speechChildren"
+            :key="child.name"
+            class="flex items-center justify-between gap-3"
+          >
+            <div class="flex items-center gap-2 min-w-0">
+              <Switch
+                :id="`builtin-tool-${child.name}`"
+                :disabled="!textInference.aipgToolsEnabled"
+                :model-value="textInference.isBuiltinToolEnabled(child.name)"
+                @update:model-value="toggleSpeechChild(child.name)"
+              />
+              <button
+                type="button"
+                :disabled="!textInference.aipgToolsEnabled"
+                class="text-xs text-foreground truncate text-left cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                @click="toggleSpeechChild(child.name)"
+              >
+                {{ child.label }}
+              </button>
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <span class="svg-icon i-info w-3.5 h-3.5 shrink-0 opacity-50 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent side="right" class="max-w-[300px] text-sm">
+                  {{ child.description }}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
       <ScreenshotWindowDialog v-model:open="showWindowDialog" />
     </SettingsPanel>
   </TooltipProvider>
@@ -379,6 +455,12 @@ const builtinTools: Array<{ name: string; label: string; description: string }> 
       'Let the assistant search the web, open pages in a background browser to read their ' +
       'content, and (on vision models) capture a screenshot of a page.',
   },
+]
+
+// Speech is presented as a single "Speech" group (like "Generate media") whose
+// children are the two independent speech tools. The group's master checkbox
+// enables/disables both; the sub-toggles control each tool individually.
+const speechChildren: Array<{ name: string; label: string; description: string }> = [
   {
     name: 'synthesizeTextToSpeech',
     label: 'Text To Speech',
@@ -392,6 +474,25 @@ const builtinTools: Array<{ name: string; label: string; description: string }> 
       'Let the assistant transcribe an attached voice message or audio file into text with Whisper.',
   },
 ]
+
+const enabledSpeechCount = computed(
+  () => speechChildren.filter((c) => textInference.isBuiltinToolEnabled(c.name)).length,
+)
+const isSpeechEnabled = computed(() => enabledSpeechCount.value > 0)
+
+// Master toggle: turn the whole Speech group on/off (both children follow).
+function toggleSpeech() {
+  if (!textInference.aipgToolsEnabled) return
+  const target = !isSpeechEnabled.value
+  for (const child of speechChildren) {
+    textInference.setBuiltinToolEnabled(child.name, target)
+  }
+}
+
+function toggleSpeechChild(toolName: string) {
+  if (!textInference.aipgToolsEnabled) return
+  textInference.setBuiltinToolEnabled(toolName, !textInference.isBuiltinToolEnabled(toolName))
+}
 
 const modelSupportsVision = computed(() => textInference.modelSupportsVision)
 

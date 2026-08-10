@@ -12,5 +12,6 @@
   "huggingfaceEndpoint": "https://huggingface.co",
   "openvinoImageGenDevices": ["CPU", "GPU"],
   "isHomeAgentEnabled": true,
-  "isQwen3TtsEnabled": true
+  "isQwen3TtsEnabled": true,
+  "isWhisperBackendEnabled": true
 }

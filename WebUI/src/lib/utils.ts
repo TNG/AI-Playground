@@ -102,6 +102,8 @@ export function mapServiceNameToDisplayName(serviceName: string) {
       return 'Home Agent'
     case 'qwen3-tts-backend':
       return 'Text To Speech'
+    case 'whisper-backend':
+      return 'Speech To Text'
     case 'cloud-mode':
       return 'Cloud Mode'
     default:

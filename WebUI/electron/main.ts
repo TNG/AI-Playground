@@ -63,6 +63,7 @@ import { AiBackendService } from './subprocesses/aiBackendService'
 import { HomeAgentBackendService } from './subprocesses/homeAgentBackendService'
 import { startCloudProxy, type CloudProxy } from './cloudProxy'
 import { Qwen3TtsBackendService } from './subprocesses/qwen3TtsBackendService'
+import { WhisperBackendService } from './subprocesses/whisperBackendService'
 import { LLAMACPP_DEFAULT_PARAMETERS } from './subprocesses/llamaCppBackendService'
 import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateIntelPresets.ts'
 import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
@@ -335,6 +336,9 @@ const LocalSettingsSchema = z.object({
   isCloudModeEnabled: z.boolean().default(false),
   // Gates the optional Qwen3-TTS Python sidecar (agent synthesizeTextToSpeech tool).
   isQwen3TtsEnabled: z.boolean().default(false),
+  // Gates the optional standalone Whisper STT Python sidecar (torch, non-OpenVINO;
+  // works in every product mode incl. NVIDIA).
+  isWhisperBackendEnabled: z.boolean().default(false),
   languageOverride: z.string().nullable().default(null),
   remoteRepository: z.string().default('intel/ai-playground'),
   huggingfaceEndpoint: z.string().default('https://huggingface.co'),
@@ -1573,6 +1577,9 @@ function initEventHandle() {
       return service.getLoopbackAuthToken()
     }
     if (service instanceof Qwen3TtsBackendService) {
+      return service.getLoopbackAuthToken()
+    }
+    if (service instanceof WhisperBackendService) {
       return service.getLoopbackAuthToken()
     }
     return ''

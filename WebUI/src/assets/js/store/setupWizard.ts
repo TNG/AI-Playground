@@ -23,18 +23,26 @@ const ALL_BACKENDS: BackendServiceName[] = [
   'ai-backend',
   'home-agent-backend',
   'qwen3-tts-backend',
+  'whisper-backend',
   'llamacpp-backend',
   'openvino-backend',
   'comfyui-backend',
 ]
 
-function getBackends(homeAgentEnabled: boolean, qwen3TtsEnabled: boolean): BackendServiceName[] {
+function getBackends(
+  homeAgentEnabled: boolean,
+  qwen3TtsEnabled: boolean,
+  whisperEnabled: boolean,
+): BackendServiceName[] {
   let list = ALL_BACKENDS
   if (!homeAgentEnabled) {
     list = list.filter((b) => b !== 'home-agent-backend')
   }
   if (!qwen3TtsEnabled) {
     list = list.filter((b) => b !== 'qwen3-tts-backend')
+  }
+  if (!whisperEnabled) {
+    list = list.filter((b) => b !== 'whisper-backend')
   }
   return list
 }
@@ -92,6 +100,7 @@ const knownSteps: Record<BackendServiceName, string[]> = {
   ],
   'home-agent-backend': ['start', 'install dependencies'],
   'qwen3-tts-backend': ['start', 'install dependencies'],
+  'whisper-backend': ['start', 'install dependencies'],
 }
 
 const stepDisplayNames: Record<string, string> = {
@@ -450,7 +459,11 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   })
 
   const backendRows = computed<BackendRowViewModel[]>(() => {
-    return getBackends(homeAgent.isFeatureEnabled, qwen3Tts.isFeatureEnabled).map((serviceName) => {
+    return getBackends(
+      homeAgent.isFeatureEnabled,
+      qwen3Tts.isFeatureEnabled,
+      speechToText.isWhisperBackendEnabled,
+    ).map((serviceName) => {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       const available = isBackendAvailableInProductMode(pendingProductMode.value, serviceName)
       const isRequired = info?.isRequired ?? serviceName === 'ai-backend'
@@ -666,7 +679,11 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
   function seedInstallSelection() {
     const newSelection = new Set<BackendServiceName>()
-    for (const serviceName of getBackends(homeAgent.isFeatureEnabled, qwen3Tts.isFeatureEnabled)) {
+    for (const serviceName of getBackends(
+      homeAgent.isFeatureEnabled,
+      qwen3Tts.isFeatureEnabled,
+      speechToText.isWhisperBackendEnabled,
+    )) {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       if (!info) continue
       if (info.isRequired) continue
@@ -739,7 +756,11 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
   function setPendingMode(mode: ProductMode) {
     pendingProductMode.value = mode
-    for (const sn of getBackends(homeAgent.isFeatureEnabled, qwen3Tts.isFeatureEnabled)) {
+    for (const sn of getBackends(
+      homeAgent.isFeatureEnabled,
+      qwen3Tts.isFeatureEnabled,
+      speechToText.isWhisperBackendEnabled,
+    )) {
       const wasAvailable = isBackendAvailableInProductMode(
         productModeStore.productMode ?? pendingProductMode.value,
         sn,
@@ -1015,7 +1036,11 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     await globalSetup.initSetup()
     globalSetup.loadingState = 'running'
 
-    for (const serviceName of getBackends(homeAgent.isFeatureEnabled, qwen3Tts.isFeatureEnabled)) {
+    for (const serviceName of getBackends(
+      homeAgent.isFeatureEnabled,
+      qwen3Tts.isFeatureEnabled,
+      speechToText.isWhisperBackendEnabled,
+    )) {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       if (!info?.isSetUp) continue
       if (info.isRequired || installSelection.value.has(serviceName)) {

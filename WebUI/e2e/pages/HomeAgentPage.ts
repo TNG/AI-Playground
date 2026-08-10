@@ -54,16 +54,22 @@ export class HomeAgentPage {
       const reconfigure = this.window.getByRole('button', { name: 'Reconfigure' })
       if (await reconfigure.isVisible().catch(() => false)) await reconfigure.click()
 
-      const port = this.window.locator('input[type="number"]').first()
+      const port = this.window.getByLabel('Port', { exact: true })
       await expect(port).toBeVisible({ timeout: 15_000 })
       await port.fill(String(opts.port))
 
-      if (opts.allowLan) {
-        const lan = this.window.getByRole('checkbox').first()
-        if (!(await lan.isChecked().catch(() => false))) await lan.check()
+      // Drive the toggle to the requested state rather than only switching it on:
+      // the channel config survives in safeStorage between runs, so an earlier
+      // LAN-enabled run would otherwise leave the server bound to 0.0.0.0 while
+      // this test believes it is testing loopback.
+      const allowLan = opts.allowLan ?? false
+      const lan = this.window.getByRole('checkbox', { name: /Allow other devices/ })
+      if ((await lan.isChecked().catch(() => false)) !== allowLan) {
+        if (allowLan) await lan.check()
+        else await lan.uncheck()
       }
 
-      await this.window.locator('input[autocomplete="new-password"]').fill(opts.password)
+      await this.window.getByLabel('Chat password').fill(opts.password)
       await this.window.getByRole('button', { name: 'Save & start' }).click()
 
       // Verification (re)starts the Python HTTP server and, on success, emits

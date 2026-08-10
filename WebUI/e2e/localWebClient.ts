@@ -132,7 +132,10 @@ export function waitForReply(
           if (event.action === 'keyboard' && event.buttons?.length) {
             const first = event.buttons.flat()[0]
             const cb = first?.callbackData ?? first?.callback
-            if (cb) void sendChat(base, cookie, { callback: cb }).catch(() => {})
+            // Fail loudly: swallowing this left the turn waiting on a reply that
+            // can never come, so the run died at the timeout instead of pointing
+            // at the confirmation that never got through.
+            if (cb) void sendChat(base, cookie, { callback: cb }).catch(fail)
           }
         }
       }
@@ -149,7 +152,10 @@ export function waitForReply(
     clearTimeout(timer)
     req.destroy()
   }
-  void done.finally(close)
+  // `.finally()` returns a *new* promise that rejects with the same reason. The
+  // caller awaits `done`, not this one, so without a catch here a timeout (the
+  // normal rejection path) also surfaces as an unhandled rejection.
+  void done.finally(close).catch(() => {})
 
   return { done, close }
 }

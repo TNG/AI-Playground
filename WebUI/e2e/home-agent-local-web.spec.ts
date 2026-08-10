@@ -2,7 +2,13 @@ import { test, expect } from './fixtures'
 import { MainPage } from './pages/MainPage'
 import { HomeAgentPage } from './pages/HomeAgentPage'
 import { login, sendChat, waitForReply } from './localWebClient'
-import { openLocalWebChat, sendAndAwaitReply, sendMessage } from './localWebBrowser'
+import {
+  openLocalWebChat,
+  sendAndAwaitReply,
+  sendAndAwaitText,
+  sendMessage,
+  userMessages,
+} from './localWebBrowser'
 
 // Full round-trip for the Home Agent "local web chat" channel — the third option
 // alongside Telegram and Slack, but served by the Python backend (no cloud relay,
@@ -79,33 +85,38 @@ test.describe('Home Agent — local web chat', () => {
       }
     })
 
-    // /new must start a *separate* thread, and /load must repaint the browser with
-    // the loaded thread's transcript (the LAN page keeps no history of its own).
-    // We put two distinct codewords in two threads, then load the newest and
-    // assert the browser now shows only that thread — proving both commands.
+    // The LAN page keeps no history of its own, so both /new and /load have to
+    // repaint it: /new with a clean slate, /load with the chosen thread's
+    // transcript. Put a distinct codeword in each of two threads, then switch
+    // between them and assert only the active thread's codeword is on screen.
     await test.step('/new and /load switch and repaint chat threads', async () => {
       const page = await openLocalWebChat(electronApp, BASE_URL, LOCAL_WEB_PASSWORD)
       try {
         // Baseline /new burns any pre-existing empty thread so the /new below is
         // guaranteed to create the newest thread (index 1 for /load).
-        const firstNew = await sendAndAwaitReply(page, '/new', 60_000)
-        expect(firstNew.toLowerCase()).toContain('new chat thread')
+        await sendAndAwaitText(page, '/new', 'new chat thread', 60_000)
         await sendAndAwaitReply(page, 'Remember the codeword MARCO.', MainPage.IMAGE_TIMEOUT)
 
-        await sendAndAwaitReply(page, '/new', 60_000)
+        await sendAndAwaitText(page, '/new', 'new chat thread', 60_000)
         await sendAndAwaitReply(page, 'Remember the codeword POLO.', MainPage.IMAGE_TIMEOUT)
 
-        // Both codewords are now in the browser log (accumulated across turns).
-        const marco = page.locator('.row-user .bubble', { hasText: 'MARCO' })
-        const polo = page.locator('.row-user .bubble', { hasText: 'POLO' })
-        await expect(marco).toHaveCount(1)
+        // POLO is in the current thread; MARCO belongs to the one before it, and
+        // /new repaints the page, so only POLO is on screen now.
+        const marco = userMessages(page, 'MARCO')
+        const polo = userMessages(page, 'POLO')
+        await expect(marco).toHaveCount(0)
         await expect(polo).toHaveCount(1)
 
-        // Load the newest thread (the POLO one). The page repaints from its
-        // transcript: MARCO lives in the other thread and must disappear.
+        // Loading the MARCO thread repaints from its transcript, so the two swap.
+        await sendMessage(page, '/load 2')
+        await expect(marco).toHaveCount(1, { timeout: 60_000 })
+        await expect(polo).toHaveCount(0)
+
+        // …and back again, proving the repaint follows whichever thread is active
+        // rather than only ever growing.
         await sendMessage(page, '/load 1')
-        await expect(marco).toHaveCount(0, { timeout: 60_000 })
-        await expect(polo).toHaveCount(1)
+        await expect(polo).toHaveCount(1, { timeout: 60_000 })
+        await expect(marco).toHaveCount(0)
       } finally {
         await page.close()
       }

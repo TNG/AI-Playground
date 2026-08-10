@@ -182,6 +182,9 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     const LABEL_USER = 'Your message'
     const LABEL_BOT = 'Home Agent response'
     const LABEL_DRAFT = 'Home Agent draft'
+    // A prompt asks for input rather than answering, so it is named apart from a
+    // settled reply — "wait for the reply" must not settle on the question.
+    const LABEL_PROMPT = 'Home Agent prompt'
     const LABEL_KEYBOARD = 'Choose an option'
 
     function scrollBottom() { log.scrollTop = log.scrollHeight }
@@ -709,6 +712,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         row.setAttribute('role', 'group')
         row.setAttribute('aria-label', LABEL_KEYBOARD)
         const bubble = appendBotHtml(formatBotText(d.text || ''), false, [row])
+        bubble.setAttribute('aria-label', LABEL_PROMPT)
         for (const btn of d.buttons.flat()) {
           const cb = btn.callbackData || btn.callback
           const b = document.createElement('button')

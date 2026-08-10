@@ -86,9 +86,13 @@ the existing one.
 **Files:** `fixtures.ts` (launch + `window`/`app` fixtures), `appDriver.ts` (`AppDriver`,
 the high-level entry point; exposes `wizard`, `shell`, `main`, `settings`), `pages/*.ts`
 (Page Objects: `SetupWizardPage`, `AppShellPage`, `MainPage` = prompt area + results,
-`SpecificSettingsPage` = the preset settings sidebar), `backends.ts` (parametric model +
-types), `helpers.ts`, `agentic-smoke.spec.ts` (quick `e2e` gate),
-`install-backends.spec.ts` (full agentic reference spec).
+`SpecificSettingsPage` = the preset settings sidebar, `HomeAgentPage` = Home Agent setup +
+title-bar master toggle), `backends.ts` (parametric model + types), `helpers.ts`,
+`agentic-smoke.spec.ts` (quick `e2e` gate), `install-backends.spec.ts` (full agentic
+reference spec), and for the LAN chat channel `localWebClient.ts` (raw HTTP+SSE client,
+i.e. a browser reimplemented to exercise the Python transport), `localWebBrowser.ts`
+(drives the *served page* in a real BrowserWindow, so a break in the page's own JS is
+caught) and `home-agent-local-web.spec.ts`.
 
 **Rules:**
 - **Start every test with the shared setup method:** `await app.installAllBackends()`. It's
@@ -161,6 +165,23 @@ types), `helpers.ts`, `agentic-smoke.spec.ts` (quick `e2e` gate),
   sidebar closes to their region (`getByRole('region', { name: '<title>' })`, via
   `SideModalBase`'s `role="region"`), and prefer a uniquely-named button (e.g. the wizard's
   "Continue") over "Close".
+- **Channel config outlives the test run** (it is stored in `safeStorage`, not in the app
+  window), so a channel setting is only what this test asserts if the test *drives it to the
+  value it wants* — `configureLocalWeb` unchecks LAN access when it wasn't asked for, rather
+  than only checking it.
+- **The LAN chat page repaints itself** on `/new` (clean slate) and `/load` (the chosen
+  thread's transcript), because it keeps no history of its own. Counting reply bubbles
+  therefore cannot detect completion of those commands — the repaint drops the bubbles you
+  counted; wait for the reply's text (`sendAndAwaitText`) instead. Its bubbles are named by
+  role: `Your message`, `Home Agent response` (settled), `Home Agent draft` (streaming),
+  `Home Agent prompt` (awaiting a tap), plus `role="status"` while typing — so "wait for the
+  reply" never settles on a draft or a question.
+- **`addLocatorHandler` requires the trigger to disappear.** Playwright re-checks that the
+  element which triggered a handler is gone before continuing, so a handler for something
+  that stays on screen fails the action that triggered it. The LAN page retires a prompt's
+  buttons once tapped, which is what makes its auto-confirm handler safe; anything that
+  lingers needs `noWaitAfter: true`. Beware too that *any* action or assertion triggers a
+  registered handler — asserting a prompt is visible can consume it.
 
 **Before claiming it works:** `npm run typecheck` (`vue-tsc`; `e2e/` is in the root
 `tsconfig.json`) and a cheap no-launch smoke: `npx playwright test --config
@@ -280,7 +301,7 @@ Every new IPC command requires changes to exactly three files:
 2. `WebUI/electron/preload.ts` — expose via `contextBridge.exposeInMainWorld()`
 3. `WebUI/src/env.d.ts` — add TypeScript type definition to `electronAPI`
 
-## Home Agent Slash Commands (Four-Place Rule)
+## Home Agent Slash Commands (Five-Place Rule)
 
 A Home Agent slash command (e.g. `/reset`, `/imgGen`) is only fully wired up when it is
 registered in **every** layer. The dispatcher recognizing the text is NOT enough — each chat
@@ -300,6 +321,10 @@ When adding/removing/renaming a command, update all of these:
    `slash_commands` in `MANIFEST_JSON`. Slack only delivers slash commands declared in the
    app manifest the user installs, so this must match `commands.py`. (Separate process/language —
    manual.)
+4. **LAN chat command menu** — `home-agent/channels/local_web_app_html.py`: add an entry to the
+   `COMMANDS` array in the served page's JS. That menu is the only command discovery the browser
+   has (it never sees `commands.py`), so an omission means the command exists but nobody can find
+   it, and a stale entry offers one that no longer works.
 
 Slack commands must be lowercase; use `queued`/`telegram_aliases` in `commands.py` for camelCase
 spellings (e.g. `/imgGen`). The dev mock channel bypasses all of this (it injects raw text straight
@@ -568,6 +593,37 @@ in `models.json`. To test inference:
 **Network requirement**: Model downloads redirect through `cas-bridge.xethub.hf.co`
 (HuggingFace Xet CDN). This domain must be in the egress allowlist. Allowlist changes
 only take effect on new VM sessions — a running VM will not pick up changes.
+
+### Home Agent channels (`telegram`, `slack`, `local-web`, dev-only `mock`)
+
+Each channel is one renderer `ChannelAdapter` (`src/assets/js/store/channels/`) plus one Python
+module (`home-agent/channels/`), wired together by `ChannelKind` in both languages and dispatched
+through the generic `/channel/<kind>/*` Flask routes — adding a platform touches no shared logic.
+
+`local-web` ("LAN chat") is the odd one out: instead of talking to a cloud bot API it *is* the
+server. `home-agent/channels/local_web.py` stands up a `ThreadingHTTPServer` in a daemon thread
+that serves a self-contained page (`local_web_app_html.py`) to browsers on loopback — or the whole
+LAN when `allowLan` is on — takes inbound messages on `POST /api/chat` behind a password login,
+and pushes every `send_*` out as one Server-Sent Event. Things worth knowing before changing it:
+
+- **The page is a product surface, not a fixture.** It ships as a raw string of HTML/CSS/JS, so it
+  has no build step, no framework and no Tailwind — and no type checking or linting either. Verify
+  changes by loading it in a browser; `node --check` on the extracted `<script>` catches syntax
+  errors early.
+- **Anything data-shaped goes through the DOM.** `formatBotText` output is the only thing allowed
+  near `innerHTML`; base64 payloads, mime types and filenames are set as DOM properties by the
+  `inline*` helpers, and mime types are matched against an allow-list.
+- **It keeps no history**, so an event sent while no browser is connected is simply gone, and both
+  `/new` and `/load` have to repaint it (`ChannelAdapter.replayHistory`, implemented only here).
+- **SSE has no message edit**, so a settled interactive prompt travels as its own `editMessage`
+  action and the page retires the buttons; typing carries an explicit `state: start|stop`.
+- **Restarting binds a socket**, so config changes are serialized under `_start_lock` and wait for
+  the previous server to close before rebinding the same port.
+- **It is reachable by other people.** Login is constant-time and rate-limited per source address,
+  request bodies are capped, and any response sent before its request body is read must close the
+  connection or the keep-alive stream desyncs. Traffic is plain HTTP.
+- The `# nosec B104` on the `0.0.0.0` bind is deliberate (that is what `allowLan` means) — Bandit
+  scans the whole repo in CI, so keep the justification with it.
 
 ### Verifying Home Agent features (mock channel)
 

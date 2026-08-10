@@ -1,10 +1,13 @@
 import { ref, computed, watch } from 'vue'
 import { useHomeAgent } from './homeAgent'
 import { useErrors } from './errors'
+import {
+  DEFAULT_LOCAL_WEB_PORT,
+  MAX_LOCAL_WEB_PORT,
+  MIN_LOCAL_WEB_PORT,
+  parseLocalWebPort,
+} from './localWebPort'
 
-const DEFAULT_PORT = 8765
-const MIN_PORT = 1024
-const MAX_PORT = 65535
 const MIN_PASSWORD_LEN = 4
 
 /**
@@ -18,7 +21,9 @@ export function useLocalWebSetup() {
   const homeAgent = useHomeAgent()
   const errors = useErrors()
 
-  const portInput = ref(String(DEFAULT_PORT))
+  // String initially, but Vue's implicit `.number` on the `<input type="number">`
+  // turns it into a number once the user edits it — `parseLocalWebPort` takes both.
+  const portInput = ref<string | number>(String(DEFAULT_LOCAL_WEB_PORT))
   // Default OFF: binding 0.0.0.0 exposes the (plaintext) chat to the whole LAN,
   // so the user must opt in explicitly.
   const allowLan = ref(false)
@@ -44,22 +49,17 @@ export function useLocalWebSetup() {
     () => hasSavedPassword.value || homeAgent.channelPrefs['local-web'].verified,
   )
 
-  /** Is the typed port a usable one? Tracked separately from `portNumber` so an
-   *  out-of-range or malformed entry is refused instead of quietly becoming the
-   *  default — which would start the server on a port the user never asked for. */
-  const portValid = computed(() => {
-    const raw = portInput.value.trim()
-    if (!/^\d+$/.test(raw)) return false
-    const n = Number(raw)
-    return n >= MIN_PORT && n <= MAX_PORT
-  })
+  /** The typed port, or null when it is out of range / not a number. Tracked
+   *  separately from `portNumber` so a bad entry is refused instead of quietly
+   *  becoming the default — which would start the server on a port the user
+   *  never asked for. */
+  const parsedPort = computed(() => parseLocalWebPort(portInput.value))
+  const portValid = computed(() => parsedPort.value !== null)
   const portError = computed(() =>
-    portValid.value ? '' : `Enter a port between ${MIN_PORT} and ${MAX_PORT}.`,
+    portValid.value ? '' : `Enter a port between ${MIN_LOCAL_WEB_PORT} and ${MAX_LOCAL_WEB_PORT}.`,
   )
 
-  const portNumber = computed(() =>
-    portValid.value ? Number(portInput.value.trim()) : DEFAULT_PORT,
-  )
+  const portNumber = computed(() => parsedPort.value ?? DEFAULT_LOCAL_WEB_PORT)
 
   const passwordReady = computed(() => {
     const p = passwordInput.value.trim()

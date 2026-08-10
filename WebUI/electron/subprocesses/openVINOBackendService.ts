@@ -14,7 +14,9 @@ import { binary, extract, restoreTreeWritePermissions } from './tools.ts'
 import { getBundledBackendVersionSync, resolveModels } from '../remoteUpdates.ts'
 import {
   terminateProcessTree as killProcessTree,
+  spawnBackend,
   waitForServerReadyOrThrow,
+  type ProcessSignature,
 } from './processLifecycle.ts'
 import {
   getMissingPackages,
@@ -2118,9 +2120,8 @@ export class OpenVINOBackendService implements ApiService {
       const extraLibPaths = await this.resolveOvmsExtraLibPaths()
       const ovmsEnv = this.buildOvmsEnv(extraLibPaths)
 
-      const childProcess = spawn(this.ovmsExePath, args, {
+      const childProcess = spawnBackend(this.ovmsExePath, args, {
         cwd: this.ovmsDir,
-        windowsHide: true,
         env: ovmsEnv,
       })
 
@@ -2213,6 +2214,22 @@ export class OpenVINOBackendService implements ApiService {
     await killProcessTree(proc, { name: this.name, label, appLogger: this.appLogger })
   }
 
+  orphanSignatures(): ProcessSignature[] {
+    return [[this.ovmsExePath]]
+  }
+
+  ownedPids(): number[] {
+    return [
+      this.ovmsLlmProcess,
+      this.ovmsEmbeddingProcess,
+      this.ovmsTranscriptionProcess,
+      this.ovmsSpeechProcess,
+      this.ovmsImageProcess,
+    ]
+      .map((server) => server?.process.pid)
+      .filter((pid): pid is number => pid !== undefined)
+  }
+
   private async stopOvmsLlmServer(): Promise<void> {
     if (this.ovmsLlmProcess) {
       this.appLogger.info(`Stopping OVMS LLM server for model: ${this.currentModel}`, this.name)
@@ -2260,9 +2277,8 @@ export class OpenVINOBackendService implements ApiService {
       this.appLogger.info(`OVMS embedding launch args: ${args.join(' ')}`, this.name)
 
       const extraLibPaths = await this.resolveOvmsExtraLibPaths()
-      const childProcess = spawn(this.ovmsExePath, args, {
+      const childProcess = spawnBackend(this.ovmsExePath, args, {
         cwd: this.ovmsDir,
-        windowsHide: true,
         env: this.buildOvmsEnv(extraLibPaths),
       })
 
@@ -2367,9 +2383,8 @@ export class OpenVINOBackendService implements ApiService {
       this.appLogger.info(`OVMS transcription launch args: ${args.join(' ')}`, this.name)
 
       const extraLibPaths = await this.resolveOvmsExtraLibPaths()
-      const childProcess = spawn(this.ovmsExePath, args, {
+      const childProcess = spawnBackend(this.ovmsExePath, args, {
         cwd: this.ovmsDir,
-        windowsHide: true,
         env: this.buildOvmsEnv(extraLibPaths),
       })
 
@@ -2481,9 +2496,8 @@ export class OpenVINOBackendService implements ApiService {
       const pythonDir = path.join(this.ovmsDir, 'python')
       const scriptsDir = path.join(this.ovmsDir, 'python', 'Scripts')
 
-      const childProcess = spawn(this.ovmsExePath, args, {
+      const childProcess = spawnBackend(this.ovmsExePath, args, {
         cwd: this.ovmsDir,
-        windowsHide: true,
         env: {
           ...process.env,
           OVMS_DIR: this.ovmsDir,
@@ -2598,9 +2612,8 @@ export class OpenVINOBackendService implements ApiService {
       this.appLogger.info(`OVMS image launch args: ${args.join(' ')}`, this.name)
 
       const extraLibPaths = await this.resolveOvmsExtraLibPaths()
-      const childProcess = spawn(this.ovmsExePath, args, {
+      const childProcess = spawnBackend(this.ovmsExePath, args, {
         cwd: this.ovmsDir,
-        windowsHide: true,
         env: this.buildOvmsEnv(extraLibPaths),
       })
 

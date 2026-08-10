@@ -1,4 +1,4 @@
-import { ChildProcess, execFile, spawn } from 'node:child_process'
+import { ChildProcess, execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -14,6 +14,7 @@ import {
   type UvExtra,
 } from './uvBasedBackends/uv.ts'
 import { levelZeroDeviceSelectorEnv, withSelectedDevice } from './deviceDetection.ts'
+import { spawnBackend } from './processLifecycle.ts'
 import { QWEN3_TTS_MODEL_REPOS } from '@/assets/js/qwen3TtsConstants'
 
 const execFileAsync = promisify(execFile)
@@ -76,11 +77,7 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
   }
 
   private get pythonBinary(): string {
-    return path.join(
-      this.pythonEnvDir,
-      process.platform === 'win32' ? 'Scripts' : 'bin',
-      process.platform === 'win32' ? 'python.exe' : 'python',
-    )
+    return this.venvPythonPath
   }
 
   /**
@@ -277,11 +274,14 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
       ...deviceEnv,
     }
 
-    const apiProcess = spawn(this.pythonBinary, ['web_api.py', '--port', this.port.toString()], {
-      cwd: this.serviceDir,
-      windowsHide: true,
-      env: { ...process.env, ...additionalEnvVariables },
-    })
+    const apiProcess = spawnBackend(
+      this.pythonBinary,
+      ['web_api.py', '--port', this.port.toString()],
+      {
+        cwd: this.serviceDir,
+        env: { ...process.env, ...additionalEnvVariables },
+      },
+    )
 
     const didProcessExitEarlyTracker = new Promise<boolean>((resolve, _reject) => {
       apiProcess.on('error', (error) => {

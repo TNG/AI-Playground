@@ -258,11 +258,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Persist an inbound document (base64) to disk for RAG ingestion.
     saveDocument: (filename: string, base64: string) =>
       ipcRenderer.invoke('saveHomeAgentDocument', filename, base64),
-    // Local web chat — LAN URL discovery (the chat server lives in the Python
+    // Local web chat — URL discovery (the chat server lives in the Python
     // backend; this only enumerates reachable addresses for the setup screen).
+    // `allowLan` mirrors the bind: loopback only unless LAN access is on.
     localWeb: {
-      getUrls: (port: number): Promise<string[]> =>
-        ipcRenderer.invoke('homeAgent:localWeb:getUrls', port),
+      getUrls: (port: number, allowLan: boolean): Promise<string[]> =>
+        ipcRenderer.invoke('homeAgent:localWeb:getUrls', port, allowLan),
     },
     // Channel-agnostic dispatcher. Every method is keyed by ChannelKind
     // (`'telegram'` | `'slack'` | `'discord'` | `'local-web'`) so adding a new

@@ -193,12 +193,17 @@ export function createLocalWebAdapter(): ChannelAdapter {
       return successRef({ ts: String(Date.now()), channel: 'local-web' })
     },
     editKeyboardMessage: async (_ref, text, _meta) => {
-      await send('reply', { text })
+      // Its own action, not a plain reply: the page uses it to retire the prompt's
+      // buttons, so an already-settled prompt can't be tapped again.
+      await send('editMessage', { text })
       return successRef()
     },
     startTypingHeartbeat: (_action, _meta) => {
+      // SSE needs no heartbeat (the indicator stays until told otherwise), but it
+      // does need the stop: a turn that ends without any output would otherwise
+      // leave the browser showing the typing dots forever.
       void send('typing', { action: 'typing' })
-      return () => {}
+      return () => void send('typing', { action: 'stop' })
     },
     replayHistory: async (messages, _meta) => {
       // One SSE event carrying the whole transcript; the page repaints its log

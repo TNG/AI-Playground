@@ -50,6 +50,7 @@ import {
 import type { ChannelAdapter, RawPart } from './channels/adapter'
 import { escapeHtml } from './channels/adapterHelpers'
 import { isAppError, extractMessage, createAppError, createCancellation } from '../errors/appError'
+import { useErrors } from './errors'
 import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
 import { createMockAdapter, mockChannelBus, type MockInboundMessage } from './channels/mockAdapter'
@@ -141,6 +142,7 @@ export const useHomeAgent = defineStore(
     const conversations = useConversations()
     const presetsStore = usePresets()
     const confirmations = useConfirmations()
+    const errors = useErrors()
 
     /**
      * Mirrors `isHomeAgentEnabled` from settings.json. Hydrated once on store
@@ -595,12 +597,24 @@ export const useHomeAgent = defineStore(
         // Resolve each media URL (aipg-media://…) to base64 the browser can render
         // inline — the same conversion the live photo/video sends use.
         const { images: imageUrls, videos: videoUrls, models: modelUrls } = messageMedia(m)
+        // A media file that can't be read is dropped from the replay, which the
+        // user sees as a missing picture — report it so the omission is traceable
+        // rather than silent. Silent surface: one toast per missing file while
+        // repainting a long thread would be worse than the gap itself.
+        const reportMediaFailure = (cause: unknown, mediaKind: string, url: string) =>
+          errors.report(cause, {
+            category: 'channel',
+            code: 'channel/history-media-read-failed',
+            userMessage: `A ${mediaKind} could not be included when reloading this chat.`,
+            surface: 'silent',
+            context: { mediaKind, url },
+          })
         const images: string[] = []
         for (const url of imageUrls) {
           try {
             images.push(await mediaToBase64(url))
           } catch (e) {
-            console.error('homeAgent: history image read failed:', e)
+            reportMediaFailure(e, 'image', url)
           }
         }
         const videos: { base64: string; filename: string }[] = []
@@ -611,7 +625,7 @@ export const useHomeAgent = defineStore(
               filename: basenameForUrl(url, 'video.mp4'),
             })
           } catch (e) {
-            console.error('homeAgent: history video read failed:', e)
+            reportMediaFailure(e, 'video', url)
           }
         }
         const documents: { base64: string; filename: string }[] = []
@@ -622,7 +636,7 @@ export const useHomeAgent = defineStore(
               filename: basenameForUrl(url, 'model.glb'),
             })
           } catch (e) {
-            console.error('homeAgent: history model read failed:', e)
+            reportMediaFailure(e, '3D model', url)
           }
         }
         if (text || images.length || videos.length || documents.length) {
@@ -2173,6 +2187,10 @@ export const useHomeAgent = defineStore(
             } else if (NEW_REGEX.test(text)) {
               const newKey = createNewRemoteConversation()
               focusRemoteChatDiscussion()
+              // Repaint first: on a channel with no history of its own an empty
+              // transcript clears the log, so a new thread starts on a clean page
+              // instead of continuing under the previous thread's messages.
+              await replayHistoryToChannel(adapter, newKey)
               await reply(
                 adapter,
                 `🆕 Started a new chat thread: <i>${homeAgentTitleFor(newKey).replace(/[<>&]/g, '')}</i>.\nNext message will land in this thread.`,

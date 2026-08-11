@@ -79,26 +79,33 @@ Drives the **real compiled Electron app** (not a mocked renderer) and actually i
 backends, so runs take minutes. Separate from Vitest: `.spec.ts` files, config
 `playwright-e2e.config.ts`. Two scripts: `npm run e2e:fast` runs only the quick agentic smoke
 (`agentic-smoke.spec.ts` — install + a haiku text turn + one image turn); `npm run e2e:full`
-runs the whole suite — the full agentic reference flow (`install-backends.spec.ts`, image →
+runs the whole suite — the full agentic reference flow (`assistant-media-flow.spec.ts`, image →
 edit → video) plus one smoke test per chat/image/video preset in `preset-*.spec.ts` — and
 excludes the quick smoke (`--grep-invert "Agentic smoke"`) so backends aren't installed twice.
 
 **Architecture:** `vite --mode test` serves only the renderer (the Electron plugin is
 skipped in test mode — see `vite.config.mts`); the fixture launches the built Electron
 main (`dist/main`, built on demand) pointed at that dev server via `VITE_DEV_SERVER_URL`.
-Close any running dev app first — the single-instance lock makes a second launch attach to
-the existing one.
+
+**Only one instance of the app can run at a time** — a single-instance lock (a named
+mutex on Windows) makes a second launch attach to the existing instance instead of
+starting fresh. This applies to e2e too: close any running dev/app instance before an
+e2e run, and the suite never runs the app in parallel — it is serial (`workers: 1`,
+`fullyParallel: false`) and each test launches then closes its own Electron. A
+not-fully-reaped Electron from a previous run can make the next launch attach and quit
+with no window ("No Electron windows appeared"); the launch fixture retries once to ride
+out that flake.
 
 **Files:** `fixtures.ts` (launch + `window`/`app` fixtures), `appDriver.ts` (`AppDriver`,
 the high-level entry point; exposes `wizard`, `shell`, `main`, `settings`), `pages/*.ts`
 (Page Objects: `SetupWizardPage`, `AppShellPage`, `MainPage` = prompt area + results,
 `SpecificSettingsPage` = the preset settings sidebar, `HomeAgentPage` = Home Agent setup +
 title-bar master toggle), `backends.ts` (parametric model + types), `helpers.ts`,
-`agentic-smoke.spec.ts` (quick `e2e` gate), `install-backends.spec.ts` (full agentic
-reference spec), and for the LAN chat channel `localWebClient.ts` (raw HTTP+SSE client,
-i.e. a browser reimplemented to exercise the Python transport), `localWebBrowser.ts`
-(drives the *served page* in a real BrowserWindow, so a break in the page's own JS is
-caught) and `home-agent-local-web.spec.ts`.
+`agentic-smoke.spec.ts` (quick `e2e` gate), `assistant-media-flow.spec.ts` (full agentic
+reference spec: install + image → edit → video), and for the LAN chat channel
+`localWebBrowser.ts` (drives the *served page* in a real BrowserWindow, so a break in the
+page's own JS — login, EventSource, send, reply/media rendering — is caught) and
+`home-agent-local-web.spec.ts`.
 
 **Rules:**
 - **Start every test with the shared setup method:** `await app.installAllBackends()`. It's

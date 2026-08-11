@@ -510,8 +510,15 @@ export const useHomeAgent = defineStore(
      * empty buckets.
      */
     function createNewRemoteConversation(): string {
+      // Reuse a thread only if it has genuinely never held a message. Check the
+      // *live* chat-store messages, not just the persisted `conversationList`: a
+      // turn is written to `conversationList` only after its reply finishes
+      // streaming (openAiCompatibleChat persists post-stream), so a thread whose turn
+      // has already replied on the channel but not yet persisted still looks empty
+      // there. Reusing it would drop `/new` right back into the thread the user just
+      // chatted in — and then replay that thread's transcript instead of a clean page.
       const existingEmpty = remoteConversationKeys.value.find(
-        (k) => (conversations.conversationList[k] ?? []).length === 0,
+        (k) => (chatStore.getMessagesForKey(k) ?? []).length === 0,
       )
       if (existingEmpty) {
         activeRemoteConversationKey.value = existingEmpty

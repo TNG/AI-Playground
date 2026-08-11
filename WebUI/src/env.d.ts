@@ -510,7 +510,7 @@ type electronAPI = {
       base64: string,
     ): Promise<{ success: boolean; filepath?: string; error?: string }>
     localWeb: {
-      getUrls(port: number): Promise<string[]>
+      getUrls(port: number, allowLan: boolean): Promise<string[]>
     }
     channel: {
       saveConfig(

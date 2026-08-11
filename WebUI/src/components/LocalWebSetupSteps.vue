@@ -8,36 +8,43 @@
           Serves a simple chat page from AI Playground. Open the address below in a browser on this
           PC or on another device on the same Wi‑Fi — no Telegram or cloud relay.
         </p>
-        <label class="text-xs font-medium pt-1">Port</label>
+        <label for="local-web-port" class="text-xs font-medium pt-1">Port</label>
         <input
+          id="local-web-port"
           v-model="portInput"
           type="number"
           min="1024"
           max="65535"
           class="w-32 text-xs bg-muted/50 border border-border rounded px-3 py-1.5"
         />
+        <p v-if="portError" class="text-xs text-destructive">{{ portError }}</p>
         <label class="flex items-center gap-2 text-xs cursor-pointer pt-1">
           <input v-model="allowLan" type="checkbox" class="rounded" />
           Allow other devices on the local network. Off = only this computer (127.0.0.1).
         </label>
+        <p v-if="allowLan" class="text-xs text-muted-foreground">
+          Traffic on your network is not encrypted (plain HTTP), so anyone who can see it can read
+          the messages and the password. Pick a password you don't use elsewhere.
+        </p>
       </div>
     </div>
 
     <div class="flex gap-3">
       <StepBadge :step="2" />
       <div class="flex-1 flex flex-col gap-2">
-        <p class="text-sm font-medium">Chat password</p>
+        <label for="local-web-password" class="text-sm font-medium">Chat password</label>
         <p class="text-xs text-muted-foreground">
           Anyone who can reach this port must enter this password on the sign-in screen. Set it here
           in AI Playground — it is not included in the link.
         </p>
         <div class="relative max-w-md">
           <input
+            id="local-web-password"
             :type="showPassword ? 'text' : 'password'"
             v-model="passwordInput"
             autocomplete="new-password"
             :placeholder="
-              isAlreadyConfigured && !passwordInput
+              hasSavedPassword && !passwordInput
                 ? 'Leave blank to keep saved password'
                 : 'Choose a password (min. 4 characters)'
             "
@@ -99,7 +106,8 @@ const {
   verifyStatus,
   verifyError,
   urls,
-  isAlreadyConfigured,
+  hasSavedPassword,
+  portError,
   canVerify,
   runVerify,
   loadSavedIntoForm,

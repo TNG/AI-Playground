@@ -68,11 +68,44 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
   }
 
   async serviceIsSetUp(): Promise<boolean> {
-    const result = await checkBackend(this.serviceFolder, this.torchExtra)
+    const lockOk = await checkBackend(this.serviceFolder, this.torchExtra)
       .then(() => true)
       .catch(() => false)
-    this.appLogger.info(`Service ${this.name} isSetUp: ${result}`, this.name)
+    // `uv sync --check` can report the venv as in-sync even when torch is not
+    // actually importable — e.g. an app reinstall breaks the clone/hardlinked
+    // torch wheel files while their dist-info lingers, so the lockfile check
+    // still "sees" torch. That yields a backend shown as installed + started
+    // that then dies with ModuleNotFoundError: torch on the first /api/load.
+    // Confirm torch is genuinely importable so the wizard / backend management
+    // screen reflect reality and offer a reinstall.
+    const torchOk = lockOk ? await this.torchImportable() : false
+    const result = lockOk && torchOk
+    this.appLogger.info(
+      `Service ${this.name} isSetUp: ${result} (lockOk=${lockOk}, torchOk=${torchOk})`,
+      this.name,
+    )
     return result
+  }
+
+  /**
+   * Whether the service venv's own Python can import torch. Uses find_spec so it
+   * only *locates* the module (cheap) rather than paying for torch's heavy full
+   * import. Returns false when the venv/python is missing or torch is absent or
+   * broken — the exact condition that makes the TTS engine fail at model load.
+   */
+  private async torchImportable(): Promise<boolean> {
+    const probe =
+      'import importlib.util,sys; sys.exit(0 if importlib.util.find_spec("torch") else 1)'
+    try {
+      await execFileAsync(this.pythonBinary, ['-c', probe], {
+        cwd: this.serviceDir,
+        env: { ...process.env, ...this.venvProcessEnv },
+        timeout: 30000,
+      })
+      return true
+    } catch {
+      return false
+    }
   }
 
   private get pythonBinary(): string {
@@ -178,8 +211,33 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
         debugMessage: 'installing dependencies (torch may take several minutes)',
       }
 
+      // Always install into a fresh venv. `uv sync` reconciles against package
+      // metadata, so re-running it over a venv whose torch files are broken but
+      // whose dist-info survives (a state an interrupted install or an app
+      // reinstall can leave behind) sees torch as "already installed" and skips
+      // it — leaving the exact ModuleNotFoundError: torch we are trying to fix.
+      // Removing the venv first guarantees torch is materialised from scratch,
+      // which is why the uninstall-then-setup reinstall path works where a plain
+      // repair did not. Wheels are served from uv's cache, so this does not
+      // re-download torch.
+      // Stop any running/fake-healthy process first so it can't hold handles on
+      // the venv files (Windows would fail the removal with EPERM otherwise).
+      // stop() flips status to 'stopped', so re-assert 'installing' afterwards.
+      await this.stop()
+      this.setStatus('installing')
+      this.appLogger.info(`removing existing qwen3-tts venv for a clean install`, this.name)
+      await fs.promises.rm(this.pythonEnvDir, { recursive: true, force: true })
+
       this.appLogger.info(`installing qwen3-tts with torch extra '${this.torchExtra}'`, this.name)
       await installBackendWithExtra(this.serviceFolder, this.torchExtra)
+
+      // Fail loudly if torch still isn't importable after the install, rather
+      // than reporting success and letting the backend die later at /api/load.
+      if (!(await this.torchImportable())) {
+        throw new Error(
+          'Text To Speech dependencies installed but PyTorch is still not importable in the environment.',
+        )
+      }
 
       yield {
         serviceName: this.name,
@@ -246,6 +304,33 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
     if (custom) env.QWEN3_TTS_MODEL = custom
     if (voiceDesign) env.QWEN3_TTS_VOICE_DESIGN_MODEL = voiceDesign
     return env
+  }
+
+  /**
+   * The Flask health endpoint comes up even when torch (installed via the
+   * accelerator-specific extra) is missing, because the engine imports torch
+   * lazily on the first /api/load — so a broken env yields a running server that
+   * later dies with `ModuleNotFoundError: torch`.
+   *
+   * `uv sync --check --extra <x>` has proven unreliable at flagging this: it can
+   * report the venv as in-sync even when the accelerator torch wheel (behind an
+   * extra + platform markers) is not actually installed. So instead of trusting
+   * the lockfile check, probe the exact thing that fails at load time — can the
+   * venv's own Python import torch? A false result throws, which runStartup
+   * surfaces as a 'failed' status the setup wizard / backend management screen
+   * offer to reinstall. `find_spec` locates the module without paying for the
+   * (heavy) full torch import on every start.
+   */
+  protected async assertReadyToStart(): Promise<void> {
+    if (await this.torchImportable()) return
+    this.isSetUp = false
+    this.appLogger.warn(
+      'qwen3-tts start guard: torch not importable in venv, blocking start',
+      this.name,
+    )
+    throw new Error(
+      'The Text To Speech (Qwen3-TTS) environment is incomplete — its Python dependencies (including PyTorch) are not installed. Reinstall the Text To Speech backend to finish provisioning it.',
+    )
   }
 
   async spawnAPIProcess(): Promise<{

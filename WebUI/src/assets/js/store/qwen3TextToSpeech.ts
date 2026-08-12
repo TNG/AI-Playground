@@ -6,6 +6,7 @@ import { useBackendServices } from './backendServices'
 import { useModels } from './models'
 import { useDialogStore } from './dialogs'
 import * as toast from '@/assets/js/toast'
+import { createAppError } from '../errors/appError'
 import { qwen3TtsFetch } from '@/lib/loopbackAuth'
 import { QWEN3_TTS_MODEL_REPOS } from '@/assets/js/qwen3TtsConstants'
 import type {
@@ -106,10 +107,13 @@ export const useQwen3TextToSpeech = defineStore(
         if (startStatus !== 'running') {
           const details = backendServices.getServiceErrorDetails('qwen3-tts-backend')
           const hint = details?.stderr ? ` (${details.stderr.split('\n')[0].trim()})` : ''
-          throw new Error(
-            `Text To Speech failed to start — its environment may be incomplete. ` +
+          throw createAppError({
+            category: 'inference',
+            code: 'inference/tts-failed',
+            userMessage:
+              `Text To Speech failed to start — its environment may be incomplete. ` +
               `Reinstall it from Settings → Installation Management, then try again.${hint}`,
-          )
+          })
         }
       }
       const running = backendServices.info.find((s) => s.serviceName === 'qwen3-tts-backend')

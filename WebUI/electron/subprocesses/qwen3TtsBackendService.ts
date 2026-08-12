@@ -88,14 +88,16 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
   }
 
   /**
-   * Whether the service venv's own Python can import torch. Uses find_spec so it
-   * only *locates* the module (cheap) rather than paying for torch's heavy full
-   * import. Returns false when the venv/python is missing or torch is absent or
-   * broken — the exact condition that makes the TTS engine fail at model load.
+   * Whether the service venv's own Python can actually `import torch`. A real
+   * import (not just find_spec) is used deliberately: torch's failure modes here
+   * are not only "module absent" but also broken native libraries and import-time
+   * initialization errors (e.g. an app reinstall that leaves the dist-info but
+   * corrupts the wheel's DLLs). Those only surface when the package is executed,
+   * which is exactly what fails at model load. Returns false when the venv/python
+   * is missing or the import raises for any reason.
    */
   private async torchImportable(): Promise<boolean> {
-    const probe =
-      'import importlib.util,sys; sys.exit(0 if importlib.util.find_spec("torch") else 1)'
+    const probe = 'import torch'
     try {
       await execFileAsync(this.pythonBinary, ['-c', probe], {
         cwd: this.serviceDir,
@@ -314,23 +316,26 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
    *
    * `uv sync --check --extra <x>` has proven unreliable at flagging this: it can
    * report the venv as in-sync even when the accelerator torch wheel (behind an
-   * extra + platform markers) is not actually installed. So instead of trusting
-   * the lockfile check, probe the exact thing that fails at load time — can the
-   * venv's own Python import torch? A false result throws, which runStartup
-   * surfaces as a 'failed' status the setup wizard / backend management screen
-   * offer to reinstall. `find_spec` locates the module without paying for the
-   * (heavy) full torch import on every start.
+   * extra + platform markers) is not actually installed. So probe the exact
+   * thing that fails at load time first — can the venv's own Python import
+   * torch? — then still defer to the base readiness contract (checkBackend via
+   * serviceIsSetUp) so any other incomplete-environment case also blocks the
+   * start. A false result throws, which runStartup surfaces as a 'failed' status
+   * the setup wizard / backend management screen offer to reinstall.
    */
   protected async assertReadyToStart(): Promise<void> {
-    if (await this.torchImportable()) return
-    this.isSetUp = false
-    this.appLogger.warn(
-      'qwen3-tts start guard: torch not importable in venv, blocking start',
-      this.name,
-    )
-    throw new Error(
-      'The Text To Speech (Qwen3-TTS) environment is incomplete — its Python dependencies (including PyTorch) are not installed. Reinstall the Text To Speech backend to finish provisioning it.',
-    )
+    if (!(await this.torchImportable())) {
+      this.isSetUp = false
+      this.appLogger.warn(
+        'qwen3-tts start guard: torch not importable in venv, blocking start',
+        this.name,
+      )
+      throw new Error(
+        'The Text To Speech (Qwen3-TTS) environment is incomplete — its Python dependencies (including PyTorch) are not installed. Reinstall the Text To Speech backend to finish provisioning it.',
+      )
+    }
+    // Also enforce the base checkBackend readiness contract.
+    await super.assertReadyToStart()
   }
 
   async spawnAPIProcess(): Promise<{

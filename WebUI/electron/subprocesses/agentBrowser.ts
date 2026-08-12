@@ -224,3 +224,19 @@ export function closeBrowserSession(sessionId: string): void {
     logger.warn(`failed to close agent browser: ${error}`, LOG_SOURCE)
   }
 }
+
+/**
+ * Tear down every session's browser window, whether or not a workspace runtime
+ * still points at it.
+ *
+ * These windows are hidden but very much alive, and Electron only emits
+ * `window-all-closed` once every window is destroyed. One survivor therefore
+ * keeps the app running after the user closes the main window: the teardown
+ * never runs, the backends stay up, and the single-instance lock stays held, so
+ * the next launch is refused. Per-session cleanup alone cannot guarantee this —
+ * a session whose runtime never started, or was replaced, is not reachable from
+ * it — so app shutdown sweeps the whole map.
+ */
+export function closeAllBrowserSessions(): void {
+  for (const sessionId of [...sessions.keys()]) closeBrowserSession(sessionId)
+}

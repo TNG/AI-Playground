@@ -10,7 +10,7 @@ import type {
 } from '@earendil-works/pi-coding-agent'
 import { appLoggerInstance } from '../logging/logger.ts'
 import { loadPi } from './piRuntime.ts'
-import { closeBrowserSession } from '../subprocesses/agentBrowser.ts'
+import { closeAllBrowserSessions, closeBrowserSession } from '../subprocesses/agentBrowser.ts'
 import {
   buildSkillsPromptSection,
   rejectAllPendingToolCalls,
@@ -221,6 +221,23 @@ async function ensureModelRuntime(): Promise<ModelRuntime> {
   return modelRuntime
 }
 
+/**
+ * Completion budget for one agent step, which is not the same thing as a chat
+ * answer: a step is usually a tool call, and the arguments of a `write` carry a
+ * whole file. Pi refuses a tool call whose arguments were cut off ("the response
+ * hit the output token limit"), so a 4096-token ceiling made a game of any size
+ * unbuildable — every attempt died on the same truncated write.
+ *
+ * Half the context window is the hard bound (the rest has to hold the
+ * conversation, and Pi compacts once the input passes `contextWindow` minus its
+ * 16k reserve), so a small window still gets a proportionate share.
+ */
+const OUTPUT_TOKEN_TARGET = { local: 8192, cloud: 16384 } as const
+
+function outputTokenBudget(contextWindow: number, source: 'local' | 'cloud'): number {
+  return Math.min(OUTPUT_TOKEN_TARGET[source], Math.floor(contextWindow / 2))
+}
+
 /** Register the turn's model as a provider entry and return its Pi model id. */
 async function registerModel(
   config: AgentModeModelConfig,
@@ -240,7 +257,7 @@ async function registerModel(
           reasoning: false,
           input: ['text'],
           contextWindow,
-          maxTokens: Math.min(4096, contextWindow),
+          maxTokens: outputTokenBudget(contextWindow, 'local'),
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
           compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
         },
@@ -272,7 +289,7 @@ async function registerModel(
         reasoning: false,
         input: ['text'],
         contextWindow,
-        maxTokens: Math.min(8192, contextWindow),
+        maxTokens: outputTokenBudget(contextWindow, 'cloud'),
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       },
     ],
@@ -972,6 +989,9 @@ export async function shutdownAgentMode(): Promise<void> {
   cancelAgentTurn()
   await endActiveSession()
   closeWorkspaceRuntime()
+  // Windows left open by any earlier session too: a hidden survivor keeps the
+  // whole app alive (see closeAllBrowserSessions).
+  closeAllBrowserSessions()
 }
 
 /**

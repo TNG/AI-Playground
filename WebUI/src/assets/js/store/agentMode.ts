@@ -669,6 +669,76 @@ export const useAgentMode = defineStore(
     }
 
     /**
+     * Files the user attached for the next turn, still in memory.
+     *
+     * They are held rather than saved on sight because the folder they belong in
+     * may not exist yet: Game Maker mints a game folder from the first prompt, so
+     * attaching before sending has nowhere to write to. `importAttachments` puts
+     * them in the workspace once `generate` has one.
+     */
+    const attachments = ref<{ name: string; bytes: ArrayBuffer }[]>([])
+
+    async function attachFiles(files: File[]): Promise<void> {
+      const read = await Promise.all(
+        files.map(async (file) => ({ name: file.name, bytes: await file.arrayBuffer() })),
+      )
+      attachments.value = [...attachments.value, ...read]
+    }
+
+    function removeAttachment(index: number): void {
+      attachments.value = attachments.value.filter((_, i) => i !== index)
+    }
+
+    function clearAttachments(): void {
+      attachments.value = []
+    }
+
+    /**
+     * Save the pending attachments into the workspace and return the sentence that
+     * tells the agent about them.
+     *
+     * The agent gets a path, not the bytes: it reads, references and ships
+     * workspace files with the tools it already has, which works with any model
+     * and leaves an attached sprite where the game can load it. The paths go into
+     * the prompt itself so the transcript shows what the agent was told.
+     */
+    async function importAttachments(): Promise<string> {
+      if (attachments.value.length === 0) return ''
+      const saved: string[] = []
+      for (const attachment of attachments.value) {
+        const result = await window.electronAPI.agentMode.importAttachment(
+          workspaceDir.value,
+          attachment.name,
+          new Uint8Array(attachment.bytes),
+        )
+        if (result.success && result.path) saved.push(result.path)
+        else {
+          errors.report(new Error(result.error ?? `Failed to attach ${attachment.name}.`), {
+            category: 'unknown',
+            code: 'agent/attachment-failed',
+            userMessage: `Could not attach ${attachment.name}.`,
+            surface: 'toast',
+          })
+        }
+      }
+      clearAttachments()
+      if (saved.length === 0) return ''
+      return `\n\nAttached files, already saved in the workspace:\n${saved
+        .map((file) => `- ${file}`)
+        .join('\n')}`
+    }
+
+    /**
+     * Whether `dir` is a game folder, i.e. carries a `game.json`. This is what
+     * makes a folder usable by Game Maker: the game bar's Play, Save and open-
+     * folder actions, the library listing and the `game` tool all resolve through
+     * that card, so a plain folder leaves them with nothing to act on.
+     */
+    async function isGameFolder(dir: string): Promise<boolean> {
+      return !!dir && !!(await window.electronAPI.games.read(dir))
+    }
+
+    /**
      * Start a game from scratch: no folder yet, so the first turn creates one named
      * after what the user asked for (see `generate`). The previous game's session
      * stays in the Sessions panel, grouped under its own folder.
@@ -692,23 +762,60 @@ export const useAgentMode = defineStore(
       else await newSession()
     }
 
+    /**
+     * Hand a workspace that is not a game back to the Agent preset it came from,
+     * whenever Game Maker is the one holding it.
+     *
+     * `workspaceDir` is persisted as a single value while the two kinds mean
+     * unrelated folders, so the folder picked for Agent can come back as Game
+     * Maker's workspace — and the kind watcher below never notices, because with
+     * Game Maker already active at launch the kind does not *change*, it starts
+     * out as 'games'. Games were then built into the picked folder, outside the
+     * library and without a `game.json`, which is what left the game bar's Play
+     * and Save disabled and its folder button pointing at the library root.
+     */
+    async function reconcileWorkspaceKind(): Promise<void> {
+      // Only Game Maker has an answer to "is this the wrong folder": it needs a
+      // game folder, while the Agent preset works in any folder the user picked.
+      if (agentWorkspaceKind.value !== 'games') return
+      // An empty workspace is a deliberate state here ("New game"), not a folder
+      // to be restored over.
+      if (!workspaceDir.value) return
+      if (await isGameFolder(workspaceDir.value)) return
+      lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, pick: workspaceDir.value }
+      await adoptWorkspace(lastWorkspaceByKind.value.games ?? '')
+    }
+
     // Switching between an app-managed games workspace and a user-picked one moves
     // to the folder that kind was last using, so neither preset inherits the
     // other's folder. Resuming a session from the panel is the one case where the
     // kind changes and this must stay out of the way: the preset switch it makes
     // is a consequence of the folder and transcript already chosen, not a reason
     // to pick different ones.
-    watch(agentWorkspaceKind, async (kind, previous) => {
-      if (kind === previous || restoringSession) return
-      lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, [previous]: workspaceDir.value }
-      const restored = lastWorkspaceByKind.value[kind] ?? ''
-      if (restored !== workspaceDir.value) await adoptWorkspace(restored)
-    })
+    watch(
+      agentWorkspaceKind,
+      async (kind, previous) => {
+        if (restoringSession) return
+        // First run: nothing was switched, so check what we started with.
+        if (previous === undefined) {
+          await reconcileWorkspaceKind()
+          return
+        }
+        if (kind === previous) return
+        lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, [previous]: workspaceDir.value }
+        const restored = lastWorkspaceByKind.value[kind] ?? ''
+        if (restored !== workspaceDir.value) await adoptWorkspace(restored)
+      },
+      { immediate: true },
+    )
 
     async function generate(prompt: string): Promise<void> {
       // Game Maker never asks for a folder: the first turn of a game mints one,
-      // named after the request, and everything the agent writes lands in it.
-      if (agentWorkspaceKind.value === 'games' && !workspaceDir.value) {
+      // named after the request, and everything the agent writes lands in it. A
+      // folder that holds no game counts as "no folder yet" — it is the Agent
+      // preset's picked folder, and building a game there would put it outside the
+      // library, where the game bar and the `game` tool cannot reach it.
+      if (agentWorkspaceKind.value === 'games' && !(await isGameFolder(workspaceDir.value))) {
         const game = await window.electronAPI.games.create(prompt)
         workspaceDir.value = game.dir
         lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, games: game.dir }
@@ -723,6 +830,8 @@ export const useAgentMode = defineStore(
         })
         return
       }
+      // The workspace exists now, so anything the user attached can be put in it.
+      const attached = await importAttachments()
       // Make sure the backend is ready before the main-process Pi session
       // dials it: local backends get started + the model loaded, Cloud Mode
       // gets its loopback proxy URL resolved. Context size is user-controlled
@@ -733,7 +842,7 @@ export const useAgentMode = defineStore(
       toolProgress.value = {}
       processing.value = true
       try {
-        await chat.sendMessage({ text: prompt })
+        await chat.sendMessage({ text: `${prompt}${attached}` })
       } finally {
         processing.value = false
         // Persist the transcript after every turn (Pi persists its own session
@@ -770,6 +879,10 @@ export const useAgentMode = defineStore(
       unsandboxedWorkspaces,
       unsandboxed,
       setUnsandboxed,
+      attachments,
+      attachFiles,
+      removeAttachment,
+      clearAttachments,
       processing,
       messages,
       toolProgress,
@@ -786,6 +899,7 @@ export const useAgentMode = defineStore(
       refreshCurrentGame,
       newGame,
       startNew,
+      reconcileWorkspaceKind,
       generate,
       stop,
       newSession,
@@ -818,6 +932,9 @@ export const useAgentMode = defineStore(
         // Whether the restored workspace is a game (and what it is called) lives
         // on disk, not in this store.
         void ctx.store.refreshCurrentGame()
+        // One `workspaceDir` is persisted for two kinds of workspace, so the
+        // folder that just came back may belong to the other preset.
+        void ctx.store.reconcileWorkspaceKind()
       },
     },
   },

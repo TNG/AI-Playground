@@ -162,7 +162,10 @@ vi.mock('../../agentMode/piWorkspaceRuntime', () => ({
   buildWorkspaceInstructions: vi.fn(() => 'workspace instructions'),
 }))
 
-vi.mock('../../subprocesses/agentBrowser', () => ({ closeBrowserSession: vi.fn() }))
+vi.mock('../../subprocesses/agentBrowser', () => ({
+  closeBrowserSession: vi.fn(),
+  closeAllBrowserSessions: vi.fn(),
+}))
 
 type SentMessage = { channel: string; payload: Record<string, unknown> }
 let sent: SentMessage[]
@@ -420,6 +423,19 @@ describe('reset and delete', () => {
 
     expect(await manager.deleteAgentSession('aipg-agent-unknown')).toEqual({ success: true })
   })
+
+  // A hidden browser window left behind suppresses `window-all-closed`, so the
+  // app keeps running with its backends after the user closes it.
+  it('app shutdown closes every browser window, not just the live runtime', async () => {
+    const manager = await loadManager()
+    await manager.startAgentTurn('t1', 'hello', configFor())
+    const { closeAllBrowserSessions } = await import('../../subprocesses/agentBrowser')
+
+    await manager.shutdownAgentMode()
+
+    expect(closeAllBrowserSessions).toHaveBeenCalled()
+    expect(disposed).toHaveLength(1)
+  })
 })
 
 describe('turn streaming', () => {
@@ -640,6 +656,48 @@ describe('turn streaming', () => {
 
       expect(await manager.startAgentTurn('t1', 'hello', configFor())).toEqual({ success: true })
       expect(errorTexts()).toEqual([])
+    })
+  })
+
+  // A step's completion carries a tool call's arguments, so a whole file goes
+  // through it. Pi rejects a tool call that was cut off, which made a 4096-token
+  // ceiling enough to lose every attempt at a game of any size.
+  describe('completion budget', () => {
+    async function registeredMaxTokens(config: AgentModeTurnConfig): Promise<number> {
+      const manager = await loadManager()
+      registerProvider.mockClear()
+      await manager.startAgentTurn('t1', 'hello', config)
+      const [, provider] = registerProvider.mock.calls[0] as [
+        string,
+        { models: { maxTokens: number }[] },
+      ]
+      return provider.models[0].maxTokens
+    }
+
+    it('leaves a local model room for a whole file', async () => {
+      expect(await registeredMaxTokens(configFor())).toBe(8192)
+    })
+
+    it('keeps half of a small window for the conversation', async () => {
+      const modelConfig = {
+        source: 'local' as const,
+        model: 'test-model',
+        baseUrl: 'http://127.0.0.1:39000/v1',
+        contextWindow: 8192,
+      }
+      expect(await registeredMaxTokens(configFor({ modelConfig }))).toBe(4096)
+    })
+
+    it('allows a cloud model more, its window being far larger', async () => {
+      const modelConfig = {
+        source: 'cloud' as const,
+        model: 'gpt-4o',
+        proxyBaseUrl: 'http://127.0.0.1:45000',
+        upstreamBaseUrl: 'https://api.example.com/v1',
+        providerId: 'example',
+        authStyle: 'bearer',
+      }
+      expect(await registeredMaxTokens(configFor({ modelConfig }))).toBe(16384)
     })
   })
 

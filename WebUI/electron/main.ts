@@ -110,6 +110,7 @@ import {
   startAgentTurn,
   submitAgentToolResult,
 } from './agentMode/piAgentManager'
+import { importAttachment } from './agentMode/workspaceAttachments.ts'
 import { getAudioDir, getGamesDir, getMediaDir } from './util.ts'
 import {
   createGame,
@@ -699,6 +700,14 @@ async function createWindow() {
   win.on('close', () => {
     // Tear down the headless web-browser window so the app can quit cleanly.
     destroyWebBrowser()
+    // Quit from the main window's own close rather than waiting for
+    // `window-all-closed`, which Electron only emits once EVERY window is
+    // destroyed. Hidden helper windows (agent browser sessions, an image
+    // preview) used to swallow that event, and with it the whole teardown: the
+    // backends kept running and the single-instance lock stayed held, so the
+    // next launch was refused. macOS keeps the app alive by convention, so
+    // there the backends are freed in `window-all-closed` instead.
+    if (process.platform !== 'darwin') app.quit()
   })
 
   // Windows log-off / shutdown / restart. The session cannot be stopped and the
@@ -1030,6 +1039,21 @@ appShutdown.register({
 })
 appShutdown.register({ name: 'web browser', run: () => destroyWebBrowser() })
 appShutdown.register({ name: 'cloud proxy', run: () => cloudProxy?.close() })
+// Last line of defence against a window outliving the teardown. Their titles go
+// to the log first: if the app ever again refuses to close, this names the
+// window that held it open instead of leaving it to guesswork.
+appShutdown.register({
+  name: 'helper windows',
+  run: () => {
+    const open = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed())
+    if (open.length === 0) return
+    appLogger.info(
+      `Destroying ${open.length} window(s) still open: ${open.map((w) => w.getTitle() || 'untitled').join(', ')}`,
+      'electron-backend',
+    )
+    for (const window of open) window.destroy()
+  },
+})
 
 // Quitting has to wait for the teardown: backends are spawned detached so they
 // outlive us, and Electron would otherwise exit while they are still stopping.
@@ -1082,7 +1106,18 @@ app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
       win.restore()
     }
     win.focus()
+    return
   }
+  // We hold the single-instance lock with no window to show, so the user's
+  // relaunch is refused and nothing appears. Re-creating the window here would
+  // not help: the services captured the old one (`readonly win` in service.ts)
+  // and would keep sending status updates to dead webContents. Closing the main
+  // window now always quits (see createWindow), so this should be unreachable —
+  // log it, because it means something held the quit back.
+  appLogger.warn(
+    `Second instance requested while holding the lock without a window (shutting down: ${appShutdown.isShuttingDown()})`,
+    'electron-backend',
+  )
 })
 
 async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) {
@@ -1302,10 +1337,10 @@ function initEventHandle() {
     }
   })
 
+  // Quit outright instead of closing the window and hoping that cascades into a
+  // quit: `app.quit()` always reaches the gated teardown in `before-quit`.
   ipcMain.on('exitApp', async () => {
-    if (win) {
-      win.close()
-    }
+    app.quit()
   })
 
   ipcMain.on('saveImage', async (event: IpcMainEvent, url: string) => {
@@ -2699,6 +2734,19 @@ function initEventHandle() {
   ipcMain.handle('agentMode:deleteSession', async (_event, sessionId: string) => {
     return await deleteAgentSession(sessionId)
   })
+
+  // Copy a file the user attached into the agent's workspace, so the agent can
+  // reach it with its own file tools (see agentMode/workspaceAttachments.ts).
+  ipcMain.handle(
+    'agentMode:importAttachment',
+    (_event, workspaceDir: string, name: string, bytes: Uint8Array) => {
+      try {
+        return { success: true, ...importAttachment(workspaceDir, name, bytes) }
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    },
+  )
 
   // What the agent can be equipped with, for the Capabilities checkboxes in
   // Agent Settings (availability depends on the turn's tool specs / MCP config).

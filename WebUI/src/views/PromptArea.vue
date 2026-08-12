@@ -95,6 +95,21 @@
               </button>
             </div>
             <div
+              v-for="(file, index) in agentMode.attachments"
+              :key="`${file.name}-${index}`"
+              class="self-center flex items-center gap-1 px-1 py-0.5 text-xs bg-primary/20 border border-primary/30 rounded-md group"
+            >
+              <PaperClipIcon class="size-4 flex-none" />
+              <span class="truncate max-w-40" :title="file.name">{{ file.name }}</span>
+              <button
+                @click="agentMode.removeAttachment(index)"
+                class="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                title="Remove attachment"
+              >
+                <XMarkIcon class="size-4" />
+              </button>
+            </div>
+            <div
               v-if="shouldShowImageUploadButton"
               class="self-center border border-dashed border-border rounded-md p-1 hover:cursor-pointer origin-bottom-left"
               :class="{ 'border-primary bg-primary/10': isOverDropZone }"
@@ -602,8 +617,9 @@ const shouldShowImageUploadButton = computed(() => {
     return hasRequiredImageInput
   }
 
-  // Agent mode takes text prompts only (PoC).
-  if (mode === 'agent') return false
+  // Agent mode saves attachments into the workspace instead of sending them to
+  // the model, so any file is useful and no vision model is required.
+  if (mode === 'agent') return true
 
   // For chat mode, use existing logic (vision model + RAG documents)
   return canAttachImages.value || canAttachDocuments.value
@@ -927,6 +943,10 @@ function getAcceptedFileTypes(): string {
     return types.join(',') || 'none'
   }
 
+  // An agent's attachment is just a file in its workspace — art, data, a
+  // reference document — so nothing is off-limits.
+  if (mode === 'agent') return ''
+
   // For other modes, default to none
   return 'none'
 }
@@ -1031,6 +1051,12 @@ async function handleFileInput(event: Event) {
   if (!target.files || target.files.length === 0) return
 
   const files = Array.from(target.files)
+  if (promptStore.getCurrentMode() === 'agent') {
+    await agentMode.attachFiles(files)
+    target.value = ''
+    return
+  }
+
   const imageFiles: File[] = []
   const documentFiles: File[] = []
 
@@ -1122,6 +1148,11 @@ async function addDocumentsToRagList(files: File[]) {
 // Handle drag and drop
 async function onDrop(files: File[] | null) {
   if (!files || files.length === 0) return
+
+  if (promptStore.getCurrentMode() === 'agent') {
+    await agentMode.attachFiles(files)
+    return
+  }
 
   const imageFiles: File[] = []
   const documentFiles: File[] = []

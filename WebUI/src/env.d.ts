@@ -613,6 +613,15 @@ type electronAPI = {
     cancel(): Promise<void>
     resetSession(): Promise<void>
     deleteSession(sessionId: string): Promise<{ success: boolean; error?: string }>
+    /**
+     * Copy an attached file into the workspace, so the agent can reach it with
+     * its file tools. Resolves with the workspace-relative path it was saved as.
+     */
+    importAttachment(
+      workspaceDir: string,
+      name: string,
+      bytes: Uint8Array,
+    ): Promise<{ success: boolean; path?: string; error?: string }>
     listCapabilities(options: {
       workspaceDir?: string
       toolSpecs?: AgentToolSpec[]

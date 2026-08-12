@@ -91,6 +91,7 @@
     "supportsToolCalling": true,
     "supportsVision": true,
     "supportsReasoning": false,
+    "supportsCoding": true,
     "maxContextSize": 256000
   },
   {
@@ -99,6 +100,7 @@
     "supportsToolCalling": true,
     "supportsVision": false,
     "supportsReasoning": true,
+    "supportsCoding": true,
     "supportsThinkingToggle": true,
     "maxContextSize": 40960
   },
@@ -108,6 +110,7 @@
     "supportsToolCalling": true,
     "supportsVision": false,
     "supportsReasoning": false,
+    "supportsCoding": true,
     "maxContextSize": 262144
   },
   {
@@ -139,6 +142,7 @@
     "supportsToolCalling": true,
     "supportsVision": true,
     "supportsReasoning": false,
+    "supportsCoding": true,
     "supportsThinkingToggle": true,
     "maxContextSize": 131072
   },
@@ -150,7 +154,7 @@
     "supportsReasoning": true,
     "supportsCoding": true,
     "supportsThinkingToggle": true,
-    "largeMoe": true,
+    "largeMoe": false,
     "maxContextSize": 262144
   },
   {
@@ -192,6 +196,7 @@
     "supportsToolCalling": true,
     "supportsVision": true,
     "supportsReasoning": false,
+    "supportsCoding": true,
     "largeMoe": true,
     "maxContextSize": 256000
   },
@@ -352,6 +357,7 @@
     "supportsToolCalling": true,
     "supportsVision": false,
     "supportsReasoning": true,
+    "supportsCoding": true,
     "supportsThinkingToggle": true,
     "maxContextSize": 40960
   },
@@ -454,6 +460,7 @@
     "toolParser": "qwen3coder",
     "supportsVision": true,
     "supportsReasoning": false,
+    "supportsCoding": true,
     "maxContextSize": 262144
   },
   {

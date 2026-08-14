@@ -158,10 +158,35 @@
     "maxContextSize": 262144
   },
   {
-    "name": "unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q5_K_M.gguf",
+    "name": "unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf",
+    "mmproj": "unsloth/Qwen3.6-35B-A3B-GGUF/mmproj-BF16.gguf",
     "type": "llamaCPP",
     "supportsToolCalling": true,
-    "supportsVision": false,
+    "supportsVision": true,
+    "supportsReasoning": true,
+    "supportsCoding": true,
+    "supportsThinkingToggle": true,
+    "largeMoe": false,
+    "maxContextSize": 262144
+  },
+  {
+    "name": "unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf",
+    "mmproj": "unsloth/Qwen3.6-35B-A3B-GGUF/mmproj-BF16.gguf",
+    "type": "llamaCPP",
+    "supportsToolCalling": true,
+    "supportsVision": true,
+    "supportsReasoning": true,
+    "supportsCoding": true,
+    "supportsThinkingToggle": true,
+    "largeMoe": false,
+    "maxContextSize": 262144
+  },
+  {
+    "name": "unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q5_K_M.gguf",
+    "mmproj": "unsloth/Qwen3.6-35B-A3B-GGUF/mmproj-BF16.gguf",
+    "type": "llamaCPP",
+    "supportsToolCalling": true,
+    "supportsVision": true,
     "supportsReasoning": true,
     "supportsCoding": true,
     "supportsThinkingToggle": true,

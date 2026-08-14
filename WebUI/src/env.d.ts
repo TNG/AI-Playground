@@ -121,6 +121,8 @@ type LocalSettings = {
   isHomeAgentEnabled: boolean
   isCloudModeEnabled: boolean
   isQwen3TtsEnabled?: boolean
+  isAgentPresetEnabled?: boolean
+  oemVendorOverride?: string | null
   languageOverride: string | null
   remoteRepository: string
   huggingfaceEndpoint: string
@@ -281,6 +283,12 @@ type AgentModeModelConfig =
       model: string
       baseUrl: string
       contextWindow?: number
+      /**
+       * Whether the model can be shown an image. Pi drops the image a tool
+       * returned (an attachment, a screenshot) with a note when this is false,
+       * so claiming it wrongly sends bytes a text model cannot read.
+       */
+      supportsVision?: boolean
     }
   | {
       source: 'cloud'
@@ -295,6 +303,7 @@ type AgentModeModelConfig =
       /** How the proxy attaches the key upstream (bearer | x-api-key | api-key). */
       authStyle: string
       contextWindow?: number
+      supportsVision?: boolean
     }
 
 type AgentToolSpec = {

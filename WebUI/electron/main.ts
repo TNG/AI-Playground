@@ -368,6 +368,10 @@ const LocalSettingsSchema = z.object({
   isCloudModeEnabled: z.boolean().default(false),
   // Gates the optional Qwen3-TTS Python sidecar (agent synthesizeTextToSpeech tool).
   isQwen3TtsEnabled: z.boolean().default(false),
+  // Gates the experimental "Agent" chat preset — the raw harness with a folder the
+  // user picks, as opposed to Game Maker, which is the same harness aimed at one
+  // task. Default false: opt-in by editing settings.json. See docs/agent-preset.md.
+  isAgentPresetEnabled: z.boolean().default(false),
   languageOverride: z.string().nullable().default(null),
   remoteRepository: z.string().default('intel/ai-playground'),
   huggingfaceEndpoint: z.string().default('https://huggingface.co'),
@@ -422,21 +426,30 @@ type PresetLoadConfig = {
   excludeVariantBackends?: string[]
 }
 
+/**
+ * Bundled presets whose feature is switched off on this machine.
+ *
+ * They are dropped while presets are read, so nothing downstream — the selector,
+ * the settings sidebar, preset switching — ever learns they exist. Anything that
+ * still points at one (a persisted `activePresetName`) falls back on its own.
+ */
+function disabledFeaturePresets(s: LocalSettings): string[] {
+  const disabled: string[] = []
+  if (!s.isHomeAgentEnabled) disabled.push('home-agent-chat')
+  if (!s.isAgentPresetEnabled) disabled.push('agent')
+  return disabled
+}
+
 function getPresetLoadConfig(s: LocalSettings): PresetLoadConfig {
   const mode = resolveProductMode(s)
   const variant = s.isDemoModeEnabled ? 'demo' : 'presets'
   const modeConfig = loadModeConfig(mode)
   const basePresetsDir = path.join(modesDir, 'base', 'presets')
-  // When the Home Agent feature is disabled, drop its bundled preset so it does
-  // not appear in the chat preset selector. `includePresets` (when defined)
-  // takes precedence over `excludePresets`, so we need to filter both lists.
-  const includePresets = s.isHomeAgentEnabled
-    ? modeConfig?.includePresets
-    : modeConfig?.includePresets?.filter((p) => p !== 'home-agent-chat')
-  const baseExcludePresets = modeConfig?.excludePresets ?? []
-  const excludePresets = s.isHomeAgentEnabled
-    ? modeConfig?.excludePresets
-    : [...baseExcludePresets, 'home-agent-chat']
+  // `includePresets` (when defined) takes precedence over `excludePresets`, so a
+  // disabled preset has to be taken out of both lists.
+  const disabled = new Set(disabledFeaturePresets(s))
+  const includePresets = modeConfig?.includePresets?.filter((p) => !disabled.has(p))
+  const excludePresets = [...(modeConfig?.excludePresets ?? []), ...disabled]
   return {
     baseDir: path.join(modesDir, 'base', variant),
     modeDir: path.join(modesDir, mode, variant),

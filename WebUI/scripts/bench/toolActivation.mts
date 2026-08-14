@@ -19,7 +19,10 @@
  * Usage:
  *   node --experimental-strip-types scripts/bench/toolActivation.mts \
  *     [--base-url http://127.0.0.1:39100] [--model <id>] [--repeat 3] \
- *     [--variants A,B,C] [--out ../docs/agent-capability-benchmark.md]
+ *     [--variants A,B,C] [--out ../docs/agent-activation-report.md]
+ *
+ * The method and the verdict live in docs/agent-capability-benchmark.md; `--out`
+ * writes the raw tables next to it, so pick a different file than that one.
  *
  * Start a server first, e.g. (from the repo root):
  *   LlamaCPP/llama-cpp/llama-server -m <model.gguf> -c 32768 -ngl 99 \

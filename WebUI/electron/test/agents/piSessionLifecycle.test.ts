@@ -701,6 +701,35 @@ describe('turn streaming', () => {
     })
   })
 
+  // Pi withholds every image a tool produced — an attached sprite, a screenshot
+  // of the page — from a model that is not declared as accepting images.
+  describe('vision', () => {
+    async function registeredInput(config: AgentModeTurnConfig): Promise<string[]> {
+      const manager = await loadManager()
+      registerProvider.mockClear()
+      await manager.startAgentTurn('t1', 'hello', config)
+      const [, provider] = registerProvider.mock.calls[0] as [
+        string,
+        { models: { input: string[] }[] },
+      ]
+      return provider.models[0].input
+    }
+
+    it('declares image input for a vision model', async () => {
+      const modelConfig = {
+        source: 'local' as const,
+        model: 'test-model',
+        baseUrl: 'http://127.0.0.1:39000/v1',
+        supportsVision: true,
+      }
+      expect(await registeredInput(configFor({ modelConfig }))).toEqual(['text', 'image'])
+    })
+
+    it('keeps a text-only model text-only', async () => {
+      expect(await registeredInput(configFor())).toEqual(['text'])
+    })
+  })
+
   it('re-asserts the preview URL when the port changed', async () => {
     const runtime = await import('../../agentMode/piWorkspaceRuntime')
     const manager = await loadManager()

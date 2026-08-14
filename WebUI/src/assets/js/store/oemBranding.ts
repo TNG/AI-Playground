@@ -50,9 +50,15 @@ export const useOemBranding = defineStore('oemBranding', () => {
       : presetName
   }
 
-  /** The generated gallery page is an Acer deliverable, so only Acer links to it. */
+  /**
+   * The generated gallery page is an Acer deliverable, so only Acer links to it —
+   * and only Acer publishes to it. Everyone else keeps their games as the files
+   * the agent wrote, reachable through the folder button.
+   */
   const showsGameHub = computed(() => isAcer.value)
   const gameHubLabel = computed(() => `${brand.value || 'My'} Game Hub`)
+  /** The hub named as a destination, for the action that puts a game in it. */
+  const gameHubTarget = computed(() => `${brand.value || 'My'} Hub`)
 
   return {
     vendor,
@@ -61,6 +67,7 @@ export const useOemBranding = defineStore('oemBranding', () => {
     brand,
     showsGameHub,
     gameHubLabel,
+    gameHubTarget,
     initialize,
     presetLabel,
   }

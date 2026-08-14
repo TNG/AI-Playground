@@ -30,13 +30,16 @@
       >
         Play
       </Button>
+      <!-- Publishing means putting the game on the generated hub page, which only
+           Acer ships. Elsewhere a game is simply the files in its folder. -->
       <Button
+        v-if="oemBranding.showsGameHub"
         variant="secondary"
         class="px-3 py-1.5 rounded text-sm"
         :disabled="!game"
         @click="openSaveDialog"
       >
-        {{ game?.published ? 'Update in library' : 'Save to library' }}
+        {{ saveLabel }}
       </Button>
       <!-- Acer systems get the branded gallery page; everyone else opens games from
            the folder. -->
@@ -59,9 +62,10 @@
   <Dialog v-model:open="saveDialogOpen">
     <DialogContent class="sm:max-w-[425px]">
       <DialogHeader>
-        <DialogTitle>Save to library</DialogTitle>
+        <DialogTitle>{{ saveLabel }}</DialogTitle>
         <DialogDescription>
-          Saved games appear in your game library folder and in the gallery page.
+          Games you add show up on the {{ oemBranding.gameHubLabel }} page, alongside the files in
+          your game folder.
         </DialogDescription>
       </DialogHeader>
       <div class="flex flex-col gap-4 py-2">
@@ -117,8 +121,17 @@ const gameName = computed(() => game.value?.name ?? 'New game')
 const subtitle = computed(() => {
   if (!game.value) return 'Describe the game you want and the agent starts building'
   if (game.value.description) return game.value.description
-  return game.value.published ? 'In your library' : 'Draft — not saved to the library yet'
+  if (!oemBranding.showsGameHub) return 'Saved in your games folder'
+  return game.value.published
+    ? `In your ${oemBranding.gameHubTarget}`
+    : `Draft — not added to the ${oemBranding.gameHubTarget} yet`
 })
+
+const saveLabel = computed(() =>
+  game.value?.published
+    ? `Update in ${oemBranding.gameHubTarget}`
+    : `Add to ${oemBranding.gameHubTarget}`,
+)
 
 const saveDialogOpen = ref(false)
 const draftName = ref('')
@@ -148,7 +161,7 @@ async function save(): Promise<void> {
     }
     saveDialogOpen.value = false
     await agentMode.refreshCurrentGame()
-    toast.success(`${draftName.value.trim()} saved to your library.`)
+    toast.success(`${draftName.value.trim()} is on your ${oemBranding.gameHubTarget}.`)
   } finally {
     saving.value = false
   }

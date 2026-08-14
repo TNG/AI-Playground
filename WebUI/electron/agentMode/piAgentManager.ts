@@ -238,6 +238,16 @@ function outputTokenBudget(contextWindow: number, source: 'local' | 'cloud'): nu
   return Math.min(OUTPUT_TOKEN_TARGET[source], Math.floor(contextWindow / 2))
 }
 
+/**
+ * What the model accepts as input. A vision model has to be declared as one or
+ * Pi withholds every image its tools produce — an attached sprite read from the
+ * workspace, a screenshot of the page the agent just built — and substitutes a
+ * note saying the model cannot see images.
+ */
+function modelInput(config: AgentModeModelConfig): ('text' | 'image')[] {
+  return config.supportsVision ? ['text', 'image'] : ['text']
+}
+
 /** Register the turn's model as a provider entry and return its Pi model id. */
 async function registerModel(
   config: AgentModeModelConfig,
@@ -255,7 +265,7 @@ async function registerModel(
           id: config.model,
           name: config.model,
           reasoning: false,
-          input: ['text'],
+          input: modelInput(config),
           contextWindow,
           maxTokens: outputTokenBudget(contextWindow, 'local'),
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -287,7 +297,7 @@ async function registerModel(
         id: config.model,
         name: config.model,
         reasoning: false,
-        input: ['text'],
+        input: modelInput(config),
         contextWindow,
         maxTokens: outputTokenBudget(contextWindow, 'cloud'),
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },

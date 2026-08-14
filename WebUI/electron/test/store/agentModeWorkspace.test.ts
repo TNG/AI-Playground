@@ -198,7 +198,9 @@ describe('agentMode attachments', () => {
     return new File([body], name, { type: 'image/png' })
   }
 
-  it('saves attachments into the workspace and tells the agent where they are', async () => {
+  // `@path` is how a file is referenced in a prompt throughout Pi, and every file
+  // tool strips the prefix when resolving it.
+  it('saves attachments into the workspace and references them the way Pi does', async () => {
     const store = useAgentMode()
     store.workspaceDir = '/code/project'
 
@@ -211,10 +213,21 @@ describe('agentMode attachments', () => {
     expect(importAttachment.mock.calls[0][0]).toBe('/code/project')
     const sent = (store.chat.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]
     expect(sent.text).toContain('use these')
-    expect(sent.text).toContain('attachments/player.png')
-    expect(sent.text).toContain('attachments/notes.txt')
+    expect(sent.text).toContain('@attachments/player.png')
+    expect(sent.text).toContain('@attachments/notes.txt')
     // Already in the workspace, so the next turn must not copy them again.
     expect(store.attachments).toEqual([])
+  })
+
+  it('quotes a reference whose path contains spaces', async () => {
+    const store = useAgentMode()
+    store.workspaceDir = '/code/project'
+
+    await store.attachFiles([file('my ship.png')])
+    await store.generate('use this')
+
+    const sent = (store.chat.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(sent.text).toContain('@"attachments/my ship.png"')
   })
 
   // The folder does not exist until the first prompt names the game, so the files

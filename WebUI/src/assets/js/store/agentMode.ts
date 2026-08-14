@@ -371,6 +371,7 @@ export const useAgentMode = defineStore(
             upstreamBaseUrl,
             providerId: cloudMode.selectedProviderId,
             authStyle: cloudMode.activeProviderAuthStyle,
+            supportsVision: textInference.modelSupportsVision,
             // From the provider's /v1/models `context_length` when it reports
             // one; the main process falls back to a generous default otherwise.
             contextWindow: textInference.maxContextSizeFromModel
@@ -405,6 +406,9 @@ export const useAgentMode = defineStore(
           // denominator: with a dynamically sized backend (OpenVINO on GPU) the
           // configured `contextSize` is not what the model ends up with.
           contextWindow: textInference.effectiveContextWindow,
+          // Decides whether an image a tool read (an attached sprite, a
+          // screenshot) is handed to the model or dropped with a note.
+          supportsVision: textInference.modelSupportsVision,
         },
         toolSpecs,
         instructions,
@@ -699,8 +703,16 @@ export const useAgentMode = defineStore(
      *
      * The agent gets a path, not the bytes: it reads, references and ships
      * workspace files with the tools it already has, which works with any model
-     * and leaves an attached sprite where the game can load it. The paths go into
-     * the prompt itself so the transcript shows what the agent was told.
+     * and leaves an attached sprite where the game can load it. Even an image
+     * reaches a vision model this way, because Pi's `read` returns images as
+     * attachments. The paths go into the prompt itself so the transcript shows
+     * what the agent was told.
+     *
+     * They are written as `@`-prefixed workspace-relative paths, which is how a
+     * file is referenced in a prompt throughout Pi: its editor completes `@` to a
+     * project file, and the path resolution behind every file tool strips the
+     * prefix back off (`stripAtPrefix`). A path with spaces is quoted, again
+     * following what Pi's completion produces.
      */
     async function importAttachments(): Promise<string> {
       if (attachments.value.length === 0) return ''
@@ -723,9 +735,8 @@ export const useAgentMode = defineStore(
       }
       clearAttachments()
       if (saved.length === 0) return ''
-      return `\n\nAttached files, already saved in the workspace:\n${saved
-        .map((file) => `- ${file}`)
-        .join('\n')}`
+      const references = saved.map((file) => (/\s/.test(file) ? `@"${file}"` : `@${file}`))
+      return `\n\nAttached files, saved in the workspace: ${references.join(' ')}`
     }
 
     /**

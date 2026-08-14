@@ -697,9 +697,22 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
 `game.json` (`WebUI/electron/gameLibrary.ts`; no central index, `listGames()` scans for cards).
 
 - The agent fills the library card itself with the `game` tool (`set_metadata`, `set_icon`),
-  following the `html-game-studio` skill; **Save to library** in the game bar flips
-  `published` and regenerates `games/index.html` + `games/library.json`. The gallery inlines
-  its manifest because a `file://` page cannot `fetch` a sibling json.
+  following the `html-game-studio` skill; **Add to Acer Hub** in the game bar flips `published`
+  and regenerates `games/index.html` + `games/library.json`. The gallery inlines its manifest
+  because a `file://` page cannot `fetch` a sibling json.
+- **Publishing is Acer-only.** The hub page is an Acer deliverable, so the add/update button and
+  the hub link both hang off `oemBranding.showsGameHub`; everywhere else a game is just the files
+  in its folder, reached with **Play** and the folder button. Wording comes from the store
+  (`gameHubTarget`), never from a hardcoded "Acer".
+- Files the user attaches are copied into `<workspace>/attachments/` and referenced in the prompt
+  as `@attachments/<file>`, which is how Pi refers to a file everywhere (its file tools strip the
+  `@` when resolving). Pi's `read` hands an image back as an image part, so that one reference is
+  also how an attached sprite reaches a vision model — there is no separate image channel into a
+  turn. Two things have to hold for that, and both were silently missing at first: the sandbox's
+  read operations must supply `detectImageMimeType` (`piToolOperations.ts`) or the bytes are
+  decoded as UTF-8 into mojibake, and the model must be registered with `input: ['text','image']`
+  (`modelInput` in `piAgentManager.ts`, from `textInference.modelSupportsVision`) or Pi drops the
+  image and tells the model it cannot see images.
 - Smoke it in seconds by asking for a trivial game and naming the `Dummy Image (test)`
   workflow for the cover, then Save → Play. A 9B model often stops after generating the
   image; one follow-up ("finish the library card") exercises the `game` tool.
@@ -712,8 +725,11 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   the media folder (`aipgMediaRoots` in `electron/main.ts`).
 - Pretend to be on an Acer machine with the `oemVendorOverride` local setting
   (`window.electronAPI.updateLocalSettings({ oemVendorOverride: 'acer' })`, then reload):
-  the preset reads "Acer Game Maker", the game bar gains the **Acer Game Hub** button and the
-  gallery is Acer-branded. Detection itself (`electron/subprocesses/oemDetection.ts`) is
+  the preset reads "Acer Game Maker", the game bar gains the **Add to Acer Hub** and **Acer Game
+  Hub** buttons and the gallery is Acer-branded. Setting it back to `null` is how to check the
+  non-Acer experience. Testers without a console can hand-edit the same key in
+  `{userData}/ai-playground-local-settings.json` (dev) or the per-user `settings.json`
+  (packaged) and restart. Detection itself (`electron/subprocesses/oemDetection.ts`) is
   Windows-only, so without the override every machine is `unknown`.
 - **Gotcha:** a `media` call temporarily switches the active preset to an image-gen one, so
   anything derived from the active preset must not follow it — `agentMode.activeAgentPreset`

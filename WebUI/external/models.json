@@ -147,6 +147,17 @@
     "maxContextSize": 131072
   },
   {
+    "name": "unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-UD-Q4_K_XL.gguf",
+    "mmproj": "unsloth/Qwen3.6-27B-GGUF/mmproj-BF16.gguf",
+    "type": "llamaCPP",
+    "supportsToolCalling": true,
+    "supportsVision": true,
+    "supportsReasoning": true,
+    "supportsCoding": true,
+    "supportsThinkingToggle": true,
+    "maxContextSize": 262144
+  },
+  {
     "name": "unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q5_K_M.gguf",
     "type": "llamaCPP",
     "supportsToolCalling": true,

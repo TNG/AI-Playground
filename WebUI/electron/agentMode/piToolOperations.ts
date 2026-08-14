@@ -1,5 +1,6 @@
 import path from 'node:path'
 import fsp from 'node:fs/promises'
+import { nativeImage } from 'electron'
 import type { IFileSystem } from 'just-bash'
 import { Type } from 'typebox'
 import type {
@@ -90,6 +91,25 @@ function assertContained(root: string, candidate: string, action: string): void 
 }
 
 /**
+ * Undo the host resolver's rewriting of a sandbox path.
+ *
+ * Pi resolves every path a tool is called with through `node:path` before
+ * handing it to these operations. On Windows that is the win32 resolver, which
+ * turns the POSIX sandbox path `/workspace/index.html` into
+ * `C:\workspace\index.html` — a drive letter the virtual filesystem has never
+ * heard of and separators it does not split on, so every read, write, list and
+ * search misses. Stripping the drive and restoring `/` puts the path back in
+ * the namespace the mounts are keyed by. On a POSIX host nothing is rewritten
+ * and the path arrives here unchanged.
+ */
+function toSandboxPath(candidate: string): string {
+  return candidate
+    .replace(/^[A-Za-z]:/, '')
+    .split('\\')
+    .join('/')
+}
+
+/**
  * Same check for sandbox paths, which are always POSIX-style regardless of the
  * host platform (on Windows `path.relative` would mangle them).
  */
@@ -140,32 +160,147 @@ async function reportingHostDenials<T>(
 }
 
 /**
+ * Name the image format a file holds, from its leading bytes.
+ *
+ * Pi's `read` gives the model an image as an attachment it can actually look at,
+ * but only if the operations it was handed can recognize one — otherwise the
+ * bytes are decoded as UTF-8 and arrive as mojibake. Pi's own sniffer ships
+ * with its read tool's default operations, which the sandbox replaces, and is
+ * not exported, so this covers the formats that tool documents. Being too
+ * generous is harmless: Pi re-validates the image and falls back to a text note.
+ */
+function imageMimeType(buffer: Buffer): string | null {
+  const ascii = (offset: number, text: string): boolean =>
+    buffer.length >= offset + text.length &&
+    buffer.toString('latin1', offset, offset + text.length) === text
+
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'image/jpeg'
+  }
+  if (ascii(0, '\x89PNG\r\n\x1a\n')) return 'image/png'
+  if (ascii(0, 'GIF')) return 'image/gif'
+  if (ascii(0, 'RIFF') && ascii(8, 'WEBP')) return 'image/webp'
+  if (ascii(0, 'BM')) return 'image/bmp'
+  return null
+}
+
+/** Longest edge, in pixels, an image is scaled down to before the model sees it. */
+const MAX_IMAGE_EDGE = 1024
+
+/** What the read tool should do with a file's bytes. */
+type ReadableImage =
+  | { kind: 'image'; bytes: Buffer; mimeType: string }
+  /** An image no one downstream can read; say so instead of shipping it. */
+  | { kind: 'undecodable'; mimeType: string }
+  /** Not an image: read it as text, as always. */
+  | { kind: 'other' }
+
+/** Stands in for an image the model cannot be shown, in Pi's own wording. */
+function undecodableNote(mimeType: string): Buffer {
+  return Buffer.from(
+    `[Image omitted: this ${mimeType} file could not be decoded, so it cannot be shown to ` +
+      'the model. Ask the user to re-save it as a plain PNG or JPEG.]',
+  )
+}
+
+/**
+ * Decide how a file's bytes reach the model.
+ *
+ * Pi caps image size itself, but its resizer runs Photon (WASM) in a worker
+ * thread that cannot be loaded from the bundled main process. It fails, Pi
+ * replaces the picture with "[Image omitted: could not be resized below the
+ * inline image size limit.]", and an attached sprite silently never reaches the
+ * model — which then guesses at what it was asked to look at. Electron decodes
+ * images anyway, so the cap is applied here and Pi is told (`autoResizeImages:
+ * false`) to inline whatever these operations return.
+ *
+ * Re-encoding is not only about size. Inference servers decode images with
+ * minimal decoders, and llama.cpp answers an exotic PNG with a 400 that fails
+ * the entire turn, so anything Electron can read is handed on as a plain PNG.
+ * JPEG passes through untouched unless it had to shrink, since re-encoding a
+ * photo only costs quality.
+ *
+ * Some images (1-bit and palette PNGs among them) defeat Electron's decoder as
+ * well. Those are the ones llama.cpp would reject, so they are reported as
+ * undecodable rather than forwarded — a note the model can talk about beats a
+ * dead turn.
+ */
+function imageForModel(buffer: Buffer): ReadableImage {
+  const mimeType = imageMimeType(buffer)
+  if (!mimeType) return { kind: 'other' }
+
+  const decoded = nativeImage.createFromBuffer(buffer)
+  if (decoded.isEmpty()) return { kind: 'undecodable', mimeType }
+
+  const { width, height } = decoded.getSize()
+  const oversized = Math.max(width, height) > MAX_IMAGE_EDGE
+  const image = oversized
+    ? decoded.resize(width >= height ? { width: MAX_IMAGE_EDGE } : { height: MAX_IMAGE_EDGE })
+    : decoded
+
+  if (mimeType === 'image/jpeg') {
+    return { kind: 'image', bytes: oversized ? image.toJPEG(85) : buffer, mimeType }
+  }
+  return { kind: 'image', bytes: image.toPNG(), mimeType: 'image/png' }
+}
+
+/**
+ * Wrap a plain byte read so images arrive model-ready. Only the `read` tool
+ * gets this: `edit` reads to write the result back, and must stay byte-exact.
+ */
+function imageAwareReadOperations(
+  readFile: (absolutePath: string) => Promise<Buffer>,
+  access: (absolutePath: string) => Promise<void>,
+): ReadOperations {
+  return {
+    readFile: async (absolutePath) => {
+      const raw = await readFile(absolutePath)
+      const image = imageForModel(raw)
+      if (image.kind === 'image') return image.bytes
+      // Pi reads anything without an image MIME type as UTF-8 text, which is
+      // the only way to get a note in front of the model from out here.
+      if (image.kind === 'undecodable') return undecodableNote(image.mimeType)
+      return raw
+    },
+    access,
+    detectImageMimeType: async (absolutePath) => {
+      const image = imageForModel(await readFile(absolutePath))
+      return image.kind === 'image' ? image.mimeType : null
+    },
+  }
+}
+
+/**
  * Operations backed by the sandbox's virtual filesystem. Pi hands these
  * absolute sandbox paths (rooted at SANDBOX_WORKDIR), which is exactly the
  * namespace the MountableFs understands, so no translation is needed.
  */
 function sandboxFsOperations(vfs: IFileSystem, workspaceDir: string) {
-  const read: ReadOperations = {
-    readFile: async (absolutePath) =>
-      await reportingHostDenials('read', absolutePath, workspaceDir, async () =>
-        Buffer.from(await vfs.readFileBuffer(absolutePath)),
-      ),
-    access: async (absolutePath) => {
-      if (!(await vfs.exists(absolutePath))) {
-        throw new Error(`File not found: ${absolutePath}`)
-      }
-    },
+  const readFile = async (hostPath: string): Promise<Buffer> => {
+    const absolutePath = toSandboxPath(hostPath)
+    return await reportingHostDenials('read', absolutePath, workspaceDir, async () =>
+      Buffer.from(await vfs.readFileBuffer(absolutePath)),
+    )
   }
 
+  const read: ReadOperations = imageAwareReadOperations(readFile, async (hostPath) => {
+    const absolutePath = toSandboxPath(hostPath)
+    if (!(await vfs.exists(absolutePath))) {
+      throw new Error(`File not found: ${absolutePath}`)
+    }
+  })
+
   const write: WriteOperations = {
-    writeFile: async (absolutePath, content) => {
+    writeFile: async (hostPath, content) => {
+      const absolutePath = toSandboxPath(hostPath)
       assertInsideSandboxWorkspace(absolutePath, 'write')
       await reportingHostDenials('write', absolutePath, workspaceDir, async () => {
         await vfs.mkdir(path.posix.dirname(absolutePath), { recursive: true })
         await vfs.writeFile(absolutePath, content)
       })
     },
-    mkdir: async (dir) => {
+    mkdir: async (hostPath) => {
+      const dir = toSandboxPath(hostPath)
       assertInsideSandboxWorkspace(dir, 'create a directory')
       await reportingHostDenials('create a directory at', dir, workspaceDir, async () => {
         await vfs.mkdir(dir, { recursive: true })
@@ -174,8 +309,10 @@ function sandboxFsOperations(vfs: IFileSystem, workspaceDir: string) {
   }
 
   const edit: EditOperations = {
-    readFile: read.readFile,
-    writeFile: async (absolutePath, content) => {
+    // The raw read, not the read tool's: an edit writes back what it reads.
+    readFile,
+    writeFile: async (hostPath, content) => {
+      const absolutePath = toSandboxPath(hostPath)
       assertInsideSandboxWorkspace(absolutePath, 'edit')
       await reportingHostDenials('edit', absolutePath, workspaceDir, async () => {
         await vfs.writeFile(absolutePath, content)
@@ -185,19 +322,20 @@ function sandboxFsOperations(vfs: IFileSystem, workspaceDir: string) {
   }
 
   const ls: LsOperations = {
-    exists: (absolutePath) => vfs.exists(absolutePath),
-    stat: async (absolutePath) => {
-      const stat = await vfs.stat(absolutePath)
+    exists: (hostPath) => vfs.exists(toSandboxPath(hostPath)),
+    stat: async (hostPath) => {
+      const stat = await vfs.stat(toSandboxPath(hostPath))
       return { isDirectory: () => stat.isDirectory }
     },
-    readdir: (absolutePath) => vfs.readdir(absolutePath),
+    readdir: (hostPath) => vfs.readdir(toSandboxPath(hostPath)),
   }
 
   // The sandbox has no `fd`, so globbing walks the virtual filesystem itself.
   const find: FindOperations = {
-    exists: (absolutePath) => vfs.exists(absolutePath),
-    glob: async (pattern, cwd, options) => {
+    exists: (hostPath) => vfs.exists(toSandboxPath(hostPath)),
+    glob: async (pattern, hostCwd, options) => {
       const matcher = globToRegExp(pattern)
+      const cwd = toSandboxPath(hostCwd)
       const root = cwd.endsWith('/') ? cwd : `${cwd}/`
       const matches: string[] = []
       for (const candidate of vfs.getAllPaths()) {
@@ -254,7 +392,10 @@ function createSandboxGrepTool(pi: PiModule, vfs: IFileSystem): ToolDefinition {
     promptSnippet: 'Search file contents by regex',
     parameters: sandboxGrepSchema,
     execute: async (_toolCallId, params) => {
-      const searchRoot = path.posix.resolve(SANDBOX_WORKDIR, params.path ?? SANDBOX_WORKDIR)
+      const searchRoot = path.posix.resolve(
+        SANDBOX_WORKDIR,
+        toSandboxPath(params.path ?? SANDBOX_WORKDIR),
+      )
       assertInsideSandboxWorkspace(searchRoot, 'search')
       const limit = params.limit ?? SANDBOX_GREP_LIMIT
       const expression = new RegExp(
@@ -368,7 +509,7 @@ function createSandboxAccess(
     // once, so there is a single onData call rather than incremental streaming.
     exec: async (command, cwd, { onData, signal, env }) => {
       const result = await bashEnv.exec(command, {
-        cwd,
+        cwd: toSandboxPath(cwd),
         ...(env ? { env: env as Record<string, string> } : {}),
         ...(signal ? { signal } : {}),
       })
@@ -382,7 +523,10 @@ function createSandboxAccess(
     cwd: SANDBOX_WORKDIR,
     skillsRoot: SANDBOX_SKILLS_DIR,
     definitions: [
-      pi.createReadToolDefinition(SANDBOX_WORKDIR, { operations: operations.read }),
+      pi.createReadToolDefinition(SANDBOX_WORKDIR, {
+        operations: operations.read,
+        autoResizeImages: false,
+      }),
       pi.createWriteToolDefinition(SANDBOX_WORKDIR, { operations: operations.write }),
       pi.createEditToolDefinition(SANDBOX_WORKDIR, { operations: operations.edit }),
       pi.createBashToolDefinition(SANDBOX_WORKDIR, { operations: bash }),
@@ -408,7 +552,10 @@ function createHostShellAccess(pi: PiModule, options: AgentToolAccessOptions): A
     cwd: workspaceDir,
     skillsRoot: options.skillsDir,
     definitions: [
-      pi.createReadToolDefinition(workspaceDir),
+      pi.createReadToolDefinition(workspaceDir, {
+        operations: hostReadOperations(workspaceDir),
+        autoResizeImages: false,
+      }),
       pi.createWriteToolDefinition(workspaceDir, {
         operations: guardedWriteOperations(workspaceDir),
       }),
@@ -425,6 +572,23 @@ function createHostShellAccess(pi: PiModule, options: AgentToolAccessOptions): A
     ] as ToolDefinition[],
     dispose: async () => {},
   }
+}
+
+/**
+ * Pi's local read, kept unrestricted (see createHostShellAccess) but routed
+ * through the same image handling the sandbox uses.
+ */
+function hostReadOperations(workspaceDir: string): ReadOperations {
+  const readFile = async (absolutePath: string): Promise<Buffer> =>
+    await reportingHostDenials(
+      'read',
+      absolutePath,
+      workspaceDir,
+      async () => await fsp.readFile(absolutePath),
+    )
+  return imageAwareReadOperations(readFile, async (absolutePath) => {
+    await fsp.access(absolutePath)
+  })
 }
 
 function guardedWriteOperations(workspaceDir: string): WriteOperations {
@@ -489,4 +653,7 @@ export const testables = {
   assertContained,
   assertInsideSandboxWorkspace,
   reportingHostDenials,
+  toSandboxPath,
+  imageForModel,
+  MAX_IMAGE_EDGE,
 }

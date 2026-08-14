@@ -12,7 +12,28 @@ import {
 import type { AgentSkill } from '../../agentMode/piCustomTools'
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
 
-vi.mock('electron', () => ({ app: { isPackaged: false, getPath: () => os.tmpdir() } }))
+// The read tool sizes images with Electron's decoder (see imageForModel), which
+// vitest does not have. `decodedSize` is what the stand-in reports for the next
+// decode: a size, or null for bytes Electron cannot read.
+let decodedSize: { width: number; height: number } | null = { width: 8, height: 8 }
+
+const encodedAs = (label: string) => ({
+  toPNG: () => Buffer.from(`png ${label}`),
+  toJPEG: (quality: number) => Buffer.from(`jpeg q${quality} ${label}`),
+})
+
+vi.mock('electron', () => ({
+  app: { isPackaged: false, getPath: () => os.tmpdir() },
+  nativeImage: {
+    createFromBuffer: () => ({
+      isEmpty: () => decodedSize === null,
+      getSize: () => decodedSize ?? { width: 0, height: 0 },
+      resize: ({ width, height }: { width?: number; height?: number }) =>
+        encodedAs(`${width ?? '-'}x${height ?? '-'}`),
+      ...encodedAs('as read'),
+    }),
+  },
+}))
 
 // Containment tests for Agent Mode's file/shell access. The whole security
 // story of Agent Mode is "the agent can only touch the workspace folder the
@@ -37,6 +58,7 @@ beforeEach(() => {
   fs.writeFileSync(path.join(hostSkillsDir, 'browser-debugging/SKILL.md'), SKILL.content)
   outsideFile = path.join(outsideDir, 'secret.txt')
   fs.writeFileSync(outsideFile, 'top secret')
+  decodedSize = { width: 8, height: 8 }
 })
 
 afterEach(() => {
@@ -99,19 +121,63 @@ describe('sandboxed access', () => {
     expect(resultText(read)).toContain('# todo')
   })
 
-  it('blames the folder, not the path, when the host refuses a write', async () => {
-    const locked = path.join(workspace, 'locked.html')
-    fs.writeFileSync(locked, '<h1>hi</h1>')
-    fs.chmodSync(locked, 0o444)
+  // An image the user attached only reaches a vision model if `read` hands it
+  // over as an image part; without that the sandbox decodes the bytes as UTF-8
+  // and the model gets mojibake.
+  it('reads an image as an attachment rather than as text', async () => {
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAIAQMAAAD+wSzIAAAABlBMVEX///+/v7+jQ3Y5AAAADklEQVQI12P4' +
+        'AIX8EAgALgAD/aNpbtEAAAAASUVORK5CYII=',
+      'base64',
+    )
+    fs.writeFileSync(path.join(workspace, 'tile.png'), png)
 
-    // The virtual filesystem reports this as `EACCES: write '/locked.html'`,
-    // which reads like a wrong argument and makes models retry elsewhere.
-    await expect(
-      invoke(toolOf(access, 'write'), { path: `${SANDBOX_WORKDIR}/locked.html`, content: 'nope' }),
-    ).rejects.toThrow(/denied access to the workspace folder on disk \(EACCES\)/)
+    const result = await invoke(toolOf(access, 'read'), { path: `${SANDBOX_WORKDIR}/tile.png` })
 
-    expect(fs.readFileSync(locked, 'utf8')).toBe('<h1>hi</h1>')
+    const content = (result as { content: { type: string; mimeType?: string }[] }).content
+    expect(content.map((part) => part.type)).toContain('image')
+    expect(content.find((part) => part.type === 'image')?.mimeType).toBe('image/png')
+    expect(resultText(result)).toContain('Read image file')
+    // Pi's own resizer cannot run in the bundled main process, and its answer to
+    // that is to drop the picture and tell the model it was omitted.
+    expect(resultText(result)).not.toContain('Image omitted')
   })
+
+  it('tells the model an undecodable image was skipped rather than sending it', async () => {
+    decodedSize = null
+    fs.writeFileSync(
+      path.join(workspace, 'odd.png'),
+      Buffer.from('\x89PNG\r\n\x1a\n odd', 'latin1'),
+    )
+
+    const result = await invoke(toolOf(access, 'read'), { path: `${SANDBOX_WORKDIR}/odd.png` })
+
+    const content = (result as { content: { type: string }[] }).content
+    expect(content.map((part) => part.type)).not.toContain('image')
+    expect(resultText(result)).toContain('Image omitted')
+    expect(resultText(result)).toContain('re-save it as a plain PNG or JPEG')
+  })
+
+  // Windows ignores a chmod of the write bit, so there is no refusal to report.
+  it.skipIf(process.platform === 'win32')(
+    'blames the folder, not the path, when the host refuses a write',
+    async () => {
+      const locked = path.join(workspace, 'locked.html')
+      fs.writeFileSync(locked, '<h1>hi</h1>')
+      fs.chmodSync(locked, 0o444)
+
+      // The virtual filesystem reports this as `EACCES: write '/locked.html'`,
+      // which reads like a wrong argument and makes models retry elsewhere.
+      await expect(
+        invoke(toolOf(access, 'write'), {
+          path: `${SANDBOX_WORKDIR}/locked.html`,
+          content: 'nope',
+        }),
+      ).rejects.toThrow(/denied access to the workspace folder on disk \(EACCES\)/)
+
+      expect(fs.readFileSync(locked, 'utf8')).toBe('<h1>hi</h1>')
+    },
+  )
 
   it('cannot write outside the mounted workspace', async () => {
     await expect(
@@ -157,7 +223,15 @@ describe('sandboxed access', () => {
     )
   })
 
-  it('runs python inside the sandbox', async () => {
+  // just-bash cannot mount the virtual filesystem into its Python runtime on
+  // Windows: the generated script's opening `os.chdir('/host/workspace')` fails
+  // with `PermissionError` before any user code runs, so python3 is unusable
+  // there and the workspace instructions stop advertising it. When these tests
+  // start passing on Windows, drop the skip and the carve-out in
+  // piWorkspaceRuntime's `hasEmulatedPython`.
+  const itWithSandboxPython = it.skipIf(process.platform === 'win32')
+
+  itWithSandboxPython('runs python inside the sandbox', async () => {
     const result = await invoke(toolOf(access, 'bash'), {
       command: 'python3 -c "print(6 * 7)"',
     })
@@ -170,7 +244,7 @@ describe('sandboxed access', () => {
   // the same script works from a heredoc. Models walk into this and then flail,
   // so the workspace instructions warn about it — when this test starts failing,
   // just-bash has fixed it and that warning can go.
-  it('needs a heredoc for a multi-line python script', async () => {
+  itWithSandboxPython('needs a heredoc for a multi-line python script', async () => {
     const script = ['for value in [1, 2]:', '    print(value * 2)'].join('\n')
 
     await expect(
@@ -331,6 +405,82 @@ describe('containment helpers', () => {
         throw original
       }),
     ).rejects.toBe(original)
+  })
+
+  // Pi resolves tool paths with `node:path`, so on Windows the sandbox path
+  // `/workspace/index.html` reaches these operations as `C:\workspace\index.html`.
+  // Without mapping it back, every file tool misses the mounts and the agent
+  // cannot touch the workspace at all on that platform.
+  it('maps a Windows-resolved path back into the sandbox namespace', () => {
+    expect(testables.toSandboxPath('C:\\workspace\\index.html')).toBe('/workspace/index.html')
+    expect(testables.toSandboxPath('D:\\skills\\web-debug\\SKILL.md')).toBe(
+      '/skills/web-debug/SKILL.md',
+    )
+    expect(testables.toSandboxPath('C:\\workspace')).toBe('/workspace')
+  })
+
+  it('leaves an unmangled sandbox path untouched', () => {
+    expect(testables.toSandboxPath('/workspace/index.html')).toBe('/workspace/index.html')
+    expect(testables.toSandboxPath('/workspace')).toBe('/workspace')
+  })
+
+  // Sizing and re-encoding images is on us: Pi's resizer cannot load its WASM
+  // worker in the bundled main process and drops the image instead, and
+  // llama.cpp refuses exotic PNGs ("Failed to load image or audio file").
+  it('re-encodes an image so a minimal decoder on the inference server can read it', () => {
+    decodedSize = { width: 16, height: 16 }
+    const palettePng = Buffer.from('\x89PNG\r\n\x1a\n 1-bit palette', 'latin1')
+
+    expect(testables.imageForModel(palettePng)).toEqual({
+      kind: 'image',
+      bytes: Buffer.from('png as read'),
+      mimeType: 'image/png',
+    })
+  })
+
+  it('scales an oversized image down by its longer edge', () => {
+    const edge = testables.MAX_IMAGE_EDGE
+    decodedSize = { width: 4000, height: 3000 }
+    const landscape = testables.imageForModel(Buffer.from('\x89PNG\r\n\x1a\n', 'latin1'))
+    expect(landscape).toMatchObject({ bytes: Buffer.from(`png ${edge}x-`), mimeType: 'image/png' })
+
+    decodedSize = { width: 3000, height: 4000 }
+    const portrait = testables.imageForModel(Buffer.from('\x89PNG\r\n\x1a\n', 'latin1'))
+    expect(portrait).toMatchObject({ bytes: Buffer.from(`png -x${edge}`), mimeType: 'image/png' })
+  })
+
+  it('leaves a photo that already fits alone rather than re-compressing it', () => {
+    decodedSize = { width: 800, height: 600 }
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0])
+
+    expect(testables.imageForModel(jpeg)).toEqual({
+      kind: 'image',
+      bytes: jpeg,
+      mimeType: 'image/jpeg',
+    })
+  })
+
+  it('keeps a scaled photo a JPEG so it does not balloon as PNG', () => {
+    decodedSize = { width: 4000, height: 3000 }
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0])
+
+    const result = testables.imageForModel(jpeg)
+
+    expect(result).toMatchObject({ kind: 'image', mimeType: 'image/jpeg' })
+    expect(result.kind === 'image' && result.bytes.toString()).toContain('jpeg q85')
+  })
+
+  // Sending on an image nothing can decode is worse than admitting it: llama.cpp
+  // answers "Failed to load image or audio file" and the turn dies there.
+  it('reports an image Electron cannot decode instead of forwarding it', () => {
+    decodedSize = null
+    const webp = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WEBP')])
+
+    expect(testables.imageForModel(webp)).toEqual({ kind: 'undecodable', mimeType: 'image/webp' })
+  })
+
+  it('reports a file that is not an image at all', () => {
+    expect(testables.imageForModel(Buffer.from('<!DOCTYPE html>'))).toEqual({ kind: 'other' })
   })
 
   it('translates globs so ** spans directories and * does not', () => {

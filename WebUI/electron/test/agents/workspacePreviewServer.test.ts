@@ -22,7 +22,7 @@ vi.mock('../../subprocesses/agentBrowser.ts', () => ({
   closeBrowserSession: vi.fn(),
 }))
 
-const { ensureWorkspaceRuntime, closeWorkspaceRuntime } =
+const { ensureWorkspaceRuntime, closeWorkspaceRuntime, buildWorkspaceInstructions } =
   await import('../../agentMode/piWorkspaceRuntime.ts')
 
 let workspace: string
@@ -56,14 +56,48 @@ describe('workspace preview server', () => {
     expect(await response.text()).toBe('<h1>hi</h1>')
   })
 
-  it('answers with an error instead of crashing when the file cannot be opened', async () => {
-    const unreadable = path.join(workspace, 'locked.html')
-    fs.writeFileSync(unreadable, '<h1>secret</h1>')
-    fs.chmodSync(unreadable, 0o000)
+  // Windows ignores a chmod of the read bit, so the file stays readable and
+  // there is no failure to answer with.
+  it.skipIf(process.platform === 'win32')(
+    'answers with an error instead of crashing when the file cannot be opened',
+    async () => {
+      const unreadable = path.join(workspace, 'locked.html')
+      fs.writeFileSync(unreadable, '<h1>secret</h1>')
+      fs.chmodSync(unreadable, 0o000)
 
-    const response = await serve('locked.html')
+      const response = await serve('locked.html')
 
-    expect(response.status).toBe(500)
-    expect(await response.text()).toContain('locked.html')
+      expect(response.status).toBe(500)
+      expect(await response.text()).toContain('locked.html')
+    },
+  )
+})
+
+describe('workspace instructions', () => {
+  const options = {
+    cwd: '/workspace',
+    workspaceDir: 'C:\\games\\space',
+    baseUrl: 'http://127.0.0.1:45678/',
+    unsandboxed: false,
+  }
+
+  it('names the JavaScript interpreter the sandbox actually ships', () => {
+    // `js` is not a command in the emulated shell; inventing one costs the
+    // model a turn on "command not found".
+    expect(buildWorkspaceInstructions(options)).toContain('js-exec')
+  })
+
+  it('offers python3 where the emulated shell can run it', () => {
+    const instructions = buildWorkspaceInstructions({ ...options, emulatedPython: true })
+
+    expect(instructions).toContain('python3')
+    expect(instructions).toContain('heredoc')
+  })
+
+  it('does not offer python3 where every invocation would fail', () => {
+    const instructions = buildWorkspaceInstructions({ ...options, emulatedPython: false })
+
+    expect(instructions).toContain('There is no python3 in this shell')
+    expect(instructions).not.toContain('heredoc')
   })
 })

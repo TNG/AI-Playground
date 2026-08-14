@@ -220,10 +220,16 @@ const voiceItems = computed(() => {
   return [...presets, ...saved]
 })
 
-// Which voice is active: a preset speaker, or a created voice matched by its
-// description. Falls back to empty when a designed voice has no saved match.
+// Which voice is active: a saved voice by name (preferred) or by matching
+// description (older persisted sessions), else a preset speaker.
 const selectedVoiceValue = computed(() => {
   if (qwen3Tts.defaultMode === 'voice_design') {
+    const byName = qwen3Tts.defaultVoiceName
+      ? qwen3Tts.savedVoices.find(
+          (v) => v.name.toLowerCase() === qwen3Tts.defaultVoiceName.toLowerCase(),
+        )
+      : undefined
+    if (byName) return `saved:${byName.name}`
     const match = qwen3Tts.savedVoices.find((v) => v.instruct === qwen3Tts.defaultInstruct)
     return match ? `saved:${match.name}` : ''
   }
@@ -232,20 +238,10 @@ const selectedVoiceValue = computed(() => {
 
 function onSelectVoice(value: string) {
   if (value.startsWith('saved:')) {
-    applySavedVoice(value.slice('saved:'.length))
+    qwen3Tts.applySavedVoice(value.slice('saved:'.length))
   } else {
-    qwen3Tts.defaultMode = 'custom_voice'
-    qwen3Tts.defaultSpeaker = value.replace(/^preset:/, '') as Qwen3TtsSpeakerId
+    qwen3Tts.applyPresetSpeaker(value.replace(/^preset:/, '') as Qwen3TtsSpeakerId)
   }
-}
-
-// A created voice is a voice_design description; apply it as the active voice.
-function applySavedVoice(name: string) {
-  const voice = qwen3Tts.resolveVoice(name)
-  if (!voice) return
-  qwen3Tts.defaultMode = 'voice_design'
-  qwen3Tts.defaultInstruct = voice.instruct
-  if (voice.language) qwen3Tts.defaultLanguage = voice.language
 }
 
 // --- Create-a-voice form (kept separate from the active selection) ---
@@ -266,7 +262,7 @@ function saveCurrentVoice() {
     language: newVoiceLanguage.value,
   })
   // Make the freshly created voice the active one, and reset the form.
-  applySavedVoice(name)
+  qwen3Tts.applySavedVoice(name)
   newVoiceName.value = ''
   newVoiceInstruct.value = ''
   newVoiceLanguage.value = 'Auto'

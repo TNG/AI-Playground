@@ -287,6 +287,10 @@ export class AppDriver {
       // may pull its own model via the same download dialog.
       await this.resolveDownloadsOrFail('the custom-voice Text-to-Speech model')
       await this.main.waitForTtsAudioCount(2)
+      await expect(
+        this.main.assistantResponses.last(),
+        'the custom-voice result should name the saved voice, not a leftover preset speaker',
+      ).toContainText(opts.newVoice.name)
     })
   }
 

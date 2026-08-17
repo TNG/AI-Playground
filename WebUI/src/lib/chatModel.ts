@@ -42,6 +42,8 @@ export function createChatModel(): LanguageModel {
     // explicit enable_thinking value so the toggle is authoritative regardless of
     // the family's template default (Qwen3 defaults on, gemma4 defaults off). Both
     // llama-server (--jinja) and OVMS (--reasoning_parser qwen3) honor this kwarg.
+    // The same hook carries the sampling a model's publisher recommends, since
+    // the AI SDK models none of top_k / min_p / the penalties.
     transformRequestBody: (args) => {
       let body: Record<string, unknown> = args
       // The Cloud "default" model is a placeholder for providers that serve
@@ -51,14 +53,20 @@ export function createChatModel(): LanguageModel {
         body = { ...body }
         delete body.model
       }
+      body = { ...body, ...textInference.samplingRequestBody }
+      const kwargs: Record<string, unknown> = {
+        ...(body.chat_template_kwargs as Record<string, unknown> | undefined),
+      }
       if (textInference.modelSupportsThinkingToggle) {
-        body = {
-          ...body,
-          chat_template_kwargs: {
-            ...(body.chat_template_kwargs as Record<string, unknown> | undefined),
-            enable_thinking: textInference.thinkingEnabled,
-          },
-        }
+        kwargs.enable_thinking = textInference.thinkingEnabled
+      }
+      // How deep the model reasons, for templates that read it (Qwen3.8). A turn
+      // that does not think has no trace to size.
+      if (textInference.effectiveReasoningEffort && textInference.thinkingActive) {
+        kwargs.reasoning_effort = textInference.effectiveReasoningEffort
+      }
+      if (Object.keys(kwargs).length > 0) {
+        body = { ...body, chat_template_kwargs: kwargs }
       }
       return body
     },

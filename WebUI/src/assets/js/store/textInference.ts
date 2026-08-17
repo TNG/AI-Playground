@@ -4,7 +4,13 @@ import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices, type BackendServiceName } from './backendServices'
 import { useModels } from './models'
 import { Document } from '@langchain/classic/document'
-import { llmBackendTypes } from '@/types/shared'
+import { llmBackendTypes, type InferenceDefaults, type ReasoningEffort } from '@/types/shared'
+import {
+  isAdoptable,
+  recommendedReasoningEffort,
+  resolveSampling,
+  toRequestBody,
+} from '@/lib/samplingDefaults'
 import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { usePresets, type ChatPreset } from './presets'
 import { useDeveloperSettings } from './developerSettings'
@@ -39,6 +45,7 @@ export type LlmModel = {
   supportsCoding?: boolean
   supportsThinkingToggle?: boolean
   maxContextSize?: number
+  inferenceDefaults?: InferenceDefaults
   npuSupport?: boolean
   largeMoe?: boolean
   isPredefined?: boolean
@@ -188,6 +195,7 @@ export const useTextInference = defineStore(
           supportsCoding: m.supportsCoding,
           supportsThinkingToggle: m.supportsThinkingToggle,
           maxContextSize: m.maxContextSize,
+          inferenceDefaults: m.inferenceDefaults,
           npuSupport: m.npuSupport,
           largeMoe: m.largeMoe,
           isPredefined: m.isPredefined,
@@ -231,6 +239,9 @@ export const useTextInference = defineStore(
             // From the provider's `context_length`; undefined when it stays
             // silent, in which case consumers fall back to their own defaults.
             maxContextSize: caps.contextLength,
+            // Sampling recommendations come from our own catalog, which only
+            // describes local models.
+            inferenceDefaults: undefined,
             npuSupport: undefined,
             largeMoe: undefined,
             isPredefined: false,
@@ -498,7 +509,17 @@ export const useTextInference = defineStore(
 
     const maxTokens = ref<number>(1024)
     const contextSize = ref<number>(8192)
-    const temperature = ref<number>(0.7)
+    const DEFAULT_TEMPERATURE = 0.7
+    const temperature = ref<number>(DEFAULT_TEMPERATURE)
+    // The recommendation we last wrote into `temperature` / `reasoningEffort`.
+    // A setting still equal to what we wrote counts as untouched and may be
+    // replaced when the model or the thinking mode changes; anything else is the
+    // user's choice. Persisted per preset alongside the settings themselves.
+    const temperatureFromModel = ref<number | undefined>(undefined)
+    // Depth of the reasoning trace for templates that read `reasoning_effort`
+    // (Qwen3.8). Undefined until a model that supports it is active.
+    const reasoningEffort = ref<ReasoningEffort | undefined>(undefined)
+    const reasoningEffortFromModel = ref<ReasoningEffort | undefined>(undefined)
 
     // Get max context size from current model
     const maxContextSizeFromModel = computed(() => {
@@ -542,6 +563,77 @@ export const useTextInference = defineStore(
         .find((m) => m.active)
       return currentModel?.supportsThinkingToggle === true
     })
+
+    // ── Per-model recommended inference settings ────────────────────────────
+    //
+    // A catalog entry may carry the sampling the model's publisher recommends
+    // (models.json `inferenceDefaults`). Hybrid-thinking models want different
+    // numbers per mode, so the profile is resolved against the thinking state
+    // and re-resolved whenever either side changes.
+
+    const activeLlmModel = computed(() =>
+      llmModels.value.filter((m) => m.type === backend.value).find((m) => m.active),
+    )
+
+    // Whether the next turn reasons. The toggle only speaks for models whose
+    // template honors it; for the rest the model's own nature decides.
+    const thinkingActive = computed(() =>
+      modelSupportsThinkingToggle.value
+        ? thinkingEnabled.value
+        : activeLlmModel.value?.supportsReasoning === true,
+    )
+
+    const recommendedSampling = computed(() =>
+      resolveSampling(activeLlmModel.value?.inferenceDefaults, thinkingActive.value),
+    )
+
+    // The sampling fields to put on the request body. Cloud providers reject
+    // parameters they do not model, and only local backends run the very model
+    // the recommendation was written for, so remote turns get nothing.
+    const samplingRequestBody = computed<Record<string, number>>(() => {
+      if (backend.value === 'cloud') return {}
+      return toRequestBody(recommendedSampling.value, backend.value)
+    })
+
+    // A model that recommends an effort is one whose template reads it.
+    const modelReasoningEffort = computed(() =>
+      recommendedReasoningEffort(activeLlmModel.value?.inferenceDefaults),
+    )
+    const modelSupportsReasoningEffort = computed(() => modelReasoningEffort.value !== undefined)
+    const effectiveReasoningEffort = computed(() =>
+      modelSupportsReasoningEffort.value
+        ? (reasoningEffort.value ?? modelReasoningEffort.value)
+        : undefined,
+    )
+
+    /**
+     * Adopt what the active model recommends. Only settings still holding the
+     * value we last wrote are replaced, so a temperature the preset declares or
+     * the user dialled in survives a model switch or a flip of the thinking
+     * toggle. Presets that predate this mechanism have no recorded default;
+     * their temperature is adoptable only while it is the app's own default.
+     */
+    function applyModelInferenceDefaults(): void {
+      const recommendedTemperature = recommendedSampling.value.temperature
+      if (
+        recommendedTemperature !== undefined &&
+        activePreset.value?.temperature === undefined &&
+        isAdoptable(temperature.value, temperatureFromModel.value, DEFAULT_TEMPERATURE)
+      ) {
+        temperature.value = recommendedTemperature
+        temperatureFromModel.value = recommendedTemperature
+      }
+
+      if (
+        modelReasoningEffort.value !== undefined &&
+        isAdoptable(reasoningEffort.value, reasoningEffortFromModel.value)
+      ) {
+        reasoningEffort.value = modelReasoningEffort.value
+        reasoningEffortFromModel.value = modelReasoningEffort.value
+      }
+    }
+
+    watch([() => activeLlmModel.value?.name, thinkingActive], applyModelInferenceDefaults)
 
     // Check if the active preset requires tool calling
     const presetRequiresToolCalling = computed(() => {
@@ -1468,12 +1560,21 @@ export const useTextInference = defineStore(
         contextSize.value = preset.contextSize
       }
 
-      // Load temperature
+      // Load temperature, plus the model recommendation it came from (if any) so
+      // applyModelInferenceDefaults can still tell an adopted value from a
+      // deliberate one after a restart.
       if (savedSettings.temperature !== undefined) {
         temperature.value = savedSettings.temperature as number
       } else if (preset.temperature !== undefined) {
         temperature.value = preset.temperature
       }
+      temperatureFromModel.value = savedSettings.temperatureFromModel as number | undefined
+
+      // Load reasoning effort (only meaningful for models that recommend one)
+      reasoningEffort.value = savedSettings.reasoningEffort as ReasoningEffort | undefined
+      reasoningEffortFromModel.value = savedSettings.reasoningEffortFromModel as
+        | ReasoningEffort
+        | undefined
 
       // Load system prompt (only when user can modify it)
       if (isSystemPromptVisible.value && savedSettings.systemPrompt !== undefined) {
@@ -1521,6 +1622,11 @@ export const useTextInference = defineStore(
       // Load thinking-enabled (defaults to true when unsaved; only takes effect for
       // models that support the toggle via modelSupportsThinkingToggle).
       thinkingEnabled.value = (savedSettings.thinkingEnabled as boolean | undefined) ?? true
+
+      // The preset may have arrived without a temperature (or without one the
+      // user chose), so fill in what the active model recommends. The model
+      // itself did not change here, so the watcher would not fire.
+      applyModelInferenceDefaults()
 
       // Defer clearing the flag so the persistence watcher (default flush:
       // 'pre') sees `isLoadingSettings === true` when it runs for the writes
@@ -1649,6 +1755,7 @@ export const useTextInference = defineStore(
         maxTokens,
         contextSize,
         temperature,
+        reasoningEffort,
         systemPrompt,
         metricsEnabled,
         aipgToolsEnabled,
@@ -1677,6 +1784,9 @@ export const useTextInference = defineStore(
           maxTokens: maxTokens.value,
           contextSize: contextSize.value,
           temperature: temperature.value,
+          temperatureFromModel: temperatureFromModel.value,
+          reasoningEffort: reasoningEffort.value,
+          reasoningEffortFromModel: reasoningEffortFromModel.value,
           systemPrompt: systemPrompt.value,
           metricsEnabled: metricsEnabled.value,
           aipgToolsEnabled: aipgToolsEnabled.value,
@@ -1887,6 +1997,14 @@ export const useTextInference = defineStore(
       // Thinking toggle support
       thinkingEnabled,
       modelSupportsThinkingToggle,
+
+      // Per-model recommended inference settings (models.json inferenceDefaults)
+      thinkingActive,
+      recommendedSampling,
+      samplingRequestBody,
+      reasoningEffort,
+      modelSupportsReasoningEffort,
+      effectiveReasoningEffort,
 
       // Backend preparation state and methods
       isPreparingBackend: computed(() => backendReadinessState.isPreparingBackend),

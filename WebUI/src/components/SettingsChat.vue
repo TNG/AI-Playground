@@ -135,6 +135,21 @@
             @click="() => (textInference.thinkingEnabled = !textInference.thinkingEnabled)"
           />
         </div>
+        <!-- How long the model reasons before answering. Only models whose
+             template reads reasoning_effort (Qwen3.8) recommend one, and only a
+             thinking turn has a trace to size. -->
+        <div
+          v-if="textInference.modelSupportsReasoningEffort && textInference.thinkingActive"
+          class="grid grid-cols-[120px_1fr] items-center gap-4"
+        >
+          <Label class="whitespace-nowrap">Reasoning effort</Label>
+          <drop-down-new
+            title="Reasoning effort"
+            :value="textInference.effectiveReasoningEffort ?? ''"
+            :items="reasoningEffortItems"
+            @change="(value: string) => (textInference.reasoningEffort = value as ReasoningEffort)"
+          ></drop-down-new>
+        </div>
         <!-- Tools require a tool-calling model. The toggles stay visible so the
              option is discoverable, but are disabled (greyed) when the selected
              model can't call tools. -->
@@ -284,6 +299,7 @@ import { useProductMode } from '@/assets/js/store/productMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
+import { reasoningEfforts, type ReasoningEffort } from '@/types/shared'
 
 const showModelRequestDialog = ref(false)
 const showUploader = ref(false)
@@ -346,6 +362,16 @@ const availableBackends = computed(() => {
   }
   return base
 })
+
+// Reasoning-effort choices, cheapest first. The one the model recommends is
+// marked active so the dropdown shows where the default came from.
+const reasoningEffortItems = computed(() =>
+  reasoningEfforts.map((effort) => ({
+    label: effort,
+    value: effort,
+    active: effort === textInference.effectiveReasoningEffort,
+  })),
+)
 
 // Backend items for dropdown
 const availableBackendItems = computed(() => {

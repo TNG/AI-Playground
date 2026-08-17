@@ -3,6 +3,7 @@ import { demoAwareStorage } from '../demoAwareStorage'
 import { LlmBackend } from './textInference'
 import { useBackendServices } from './backendServices'
 import { aipgFetch } from '@/lib/loopbackAuth'
+import type { InferenceDefaults } from '@/types/shared'
 
 export type ModelPaths = {
   ggufLLM: string
@@ -31,6 +32,7 @@ export type Model = {
   supportsCoding?: boolean
   supportsThinkingToggle?: boolean // Template honors enable_thinking toggle (Qwen3 family, gemma4)
   maxContextSize?: number
+  inferenceDefaults?: InferenceDefaults // Sampling/reasoning settings the publisher recommends
   npuSupport?: boolean
   largeMoe?: boolean // Large Mixture-of-Experts model; Phison aiDAPTIV+ SSD offload enables loading models larger than VRAM
   isPredefined?: boolean // true if model is defined in models.json
@@ -146,6 +148,7 @@ export const useModels = defineStore(
             supportsCoding: combinedModel.supportsCoding,
             supportsThinkingToggle: combinedModel.supportsThinkingToggle,
             maxContextSize: combinedModel.maxContextSize,
+            inferenceDefaults: combinedModel.inferenceDefaults,
             npuSupport: combinedModel.npuSupport,
             largeMoe: combinedModel.largeMoe,
             isPredefined: !!predefinedModel, // true if model is defined in models.json

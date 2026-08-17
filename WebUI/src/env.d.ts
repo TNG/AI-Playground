@@ -289,6 +289,12 @@ type AgentModeModelConfig =
        * so claiming it wrongly sends bytes a text model cannot read.
        */
       supportsVision?: boolean
+      /**
+       * Raw completion-body fields (temperature, top_k, chat_template_kwargs, …)
+       * merged into every request of the turn. Carries the sampling the model's
+       * publisher recommends, which Pi does not model as typed options.
+       */
+      samplingParams?: Record<string, unknown>
     }
   | {
       source: 'cloud'
@@ -1082,13 +1088,23 @@ type StorageTarget = {
   selected: boolean
 }
 
+// The catalog entry `loadModels` returns. Mirrors `ModelSchema` in
+// src/types/shared.ts, which is what the main process parses models.json with.
 type Model = {
   name: string
-  type: 'undefined' | 'embedding' | 'openVINO' | 'llamaCPP'
-  default: boolean
+  mmproj?: string
+  type: 'undefined' | 'embedding' | 'openVINO' | 'llamaCPP' | 'cloud'
+  default?: boolean
   downloaded?: boolean | undefined
-  backend?: 'openVINO' | 'llamaCPP' | undefined
+  backend?: 'openVINO' | 'llamaCPP' | 'cloud' | undefined
   supportsToolCalling?: boolean
+  toolParser?: string
   supportsVision?: boolean
+  supportsReasoning?: boolean
+  supportsCoding?: boolean
+  supportsThinkingToggle?: boolean
   maxContextSize?: number
+  inferenceDefaults?: import('@/types/shared').InferenceDefaults
+  npuSupport?: boolean
+  largeMoe?: boolean
 }

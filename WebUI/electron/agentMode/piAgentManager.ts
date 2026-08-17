@@ -415,10 +415,16 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   const pi = await loadPi()
   const { provider, modelId } = await registerModel(config.modelConfig)
   const models = await ensureModelRuntime()
-  const model = models.getModel(provider, modelId)
-  if (!model) {
+  const registered = models.getModel(provider, modelId)
+  if (!registered) {
     throw new Error(`Model '${modelId}' could not be registered with Pi.`)
   }
+  // `samplingParams` is a Model field Pi merges into the completion body last,
+  // but its provider-registration input does not carry one — so the recommended
+  // sampling is attached to the resolved model instead.
+  const samplingParams =
+    config.modelConfig.source === 'local' ? config.modelConfig.samplingParams : undefined
+  const model = samplingParams ? { ...registered, samplingParams } : registered
 
   // Everything optional the agent can do is a capability the user enabled for
   // this session (capabilities/index.ts): its tools, skills and Pi extensions.

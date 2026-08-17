@@ -19,6 +19,38 @@ export const ovmsToolParsers = [
   'gemma4',
 ] as const
 
+// Sampling knobs a model publisher recommends. Names are camelCase here and
+// mapped to the wire names (top_p, min_p, repeat_penalty, ...) when a request is
+// built; see src/lib/samplingDefaults.ts.
+const SamplingSchema = z
+  .object({
+    temperature: z.number(),
+    topP: z.number(),
+    topK: z.number(),
+    minP: z.number(),
+    presencePenalty: z.number(),
+    frequencyPenalty: z.number(),
+    repetitionPenalty: z.number(),
+  })
+  .partial()
+
+// Depth of the reasoning trace, sent as chat_template_kwargs.reasoning_effort by
+// templates that read it (Qwen3.8). Ordered from cheapest to most thorough.
+export const reasoningEfforts = ['none', 'low', 'medium', 'high', 'xhigh'] as const
+
+// Per-model recommended inference settings. The top-level keys are the shared
+// base; `thinking` / `instruct` override it depending on the thinking toggle,
+// because hybrid-thinking models want different sampling per mode.
+export const InferenceDefaultsSchema = SamplingSchema.extend({
+  thinking: SamplingSchema.optional(),
+  instruct: SamplingSchema.optional(),
+  reasoningEffort: z.enum(reasoningEfforts).optional(),
+})
+
+export type ReasoningEffort = (typeof reasoningEfforts)[number]
+export type SamplingProfile = z.infer<typeof SamplingSchema>
+export type InferenceDefaults = z.infer<typeof InferenceDefaultsSchema>
+
 export const ModelSchema = z.object({
   name: z.string(),
   mmproj: z.string().optional(),
@@ -39,6 +71,9 @@ export const ModelSchema = z.object({
   // about the model's training rather than a hard capability like vision.
   supportsCoding: z.boolean().optional(),
   maxContextSize: z.number().optional(),
+  // Sampling/reasoning settings the model publisher recommends. Applied as
+  // defaults the preset or the user can still override.
+  inferenceDefaults: InferenceDefaultsSchema.optional(),
   npuSupport: z.boolean().optional(),
   largeMoe: z.boolean().optional(), // Large Mixture-of-Experts model; Phison aiDAPTIV+ SSD offload enables loading models larger than VRAM
 })

@@ -343,6 +343,24 @@ export const useAgentMode = defineStore(
       },
     )
 
+    /**
+     * Extra request-body fields for a local agent turn: the sampling the active
+     * model's publisher recommends (models.json `inferenceDefaults`), the shared
+     * temperature setting, and the reasoning depth for templates that read it.
+     * Pi has no typed home for these, so they travel as `samplingParams` and are
+     * merged into the completion body verbatim.
+     */
+    function buildSamplingParams(): Record<string, unknown> {
+      const params: Record<string, unknown> = {
+        ...textInference.samplingRequestBody,
+        temperature: textInference.temperature,
+      }
+      if (textInference.effectiveReasoningEffort && textInference.thinkingActive) {
+        params.chat_template_kwargs = { reasoning_effort: textInference.effectiveReasoningEffort }
+      }
+      return params
+    }
+
     async function buildTurnConfig(): Promise<AgentModeTurnConfig> {
       const toolSpecs = getAgentToolSpecs()
       const sessionId = ensureActiveSessionId()
@@ -409,6 +427,10 @@ export const useAgentMode = defineStore(
           // Decides whether an image a tool read (an attached sprite, a
           // screenshot) is handed to the model or dropped with a note.
           supportsVision: textInference.modelSupportsVision,
+          // What the model's publisher recommends for this mode, plus the
+          // temperature and template kwargs Chat would send. Pi models none of
+          // these itself, so they ride along as raw body fields.
+          samplingParams: buildSamplingParams(),
         },
         toolSpecs,
         instructions,

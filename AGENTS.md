@@ -428,6 +428,31 @@ Managed by `electron/subprocesses/apiServiceRegistry.ts`. Each service spawns a 
 
 User sends message → `textInference.ensureReadyForInference()` → IPC `ensureBackendReadiness` (loads model on-demand) → `openAiCompatibleChat` uses Vercel AI SDK `streamText()` → direct HTTP to backend's `/v1/chat/completions` → streamed response.
 
+### Model catalog (`WebUI/external/models.json`)
+
+Parsed in the main process with `ModelSchema` (`WebUI/src/types/shared.ts`) — **Zod strips unknown
+keys**, so a new field is invisible until it is added to the schema, then copied through
+`models.ts` (`refreshModels`) and `textInference.ts` (`llmModels`), both of which build their
+objects field by field.
+
+An entry may declare `inferenceDefaults`: the sampling its publisher recommends. Top-level keys are
+the shared base; `thinking` / `instruct` override them per mode (hybrid-thinking models want
+different numbers), and `reasoningEffort` names the default depth for templates that read
+`chat_template_kwargs.reasoning_effort` (Qwen3.8). `src/lib/samplingDefaults.ts` resolves the
+profile against the live thinking state and maps it to wire names — llama.cpp's `repeat_penalty` +
+`min_p` vs OVMS's `repetition_penalty`.
+
+How the values reach a turn:
+- **temperature / reasoning effort** become the *defaults* of the user-facing settings. A preset
+  that declares its own `temperature` wins, and so does anything the user changed: `textInference`
+  records the value it applied (`temperatureFromModel`, per preset) and only replaces a setting
+  that still equals it, so a model switch or a flip of the thinking toggle re-picks the profile
+  while a deliberate choice survives.
+- **everything else** (`top_p`, `top_k`, `min_p`, penalties) has no UI and rides on the request:
+  `chatModel.ts`'s `transformRequestBody` for chat, `samplingParams` on the resolved Pi model
+  (`piAgentManager.ts`) for agent turns. Cloud providers get none of it — they reject parameters
+  they do not model.
+
 ### Error & generation state architecture
 
 Errors and long-running operations converge on a few shared primitives instead of being handled

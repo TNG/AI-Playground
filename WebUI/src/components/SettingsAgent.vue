@@ -138,6 +138,45 @@
       Backend, device/provider, model and context size are shared with Chat mode.
     </p>
 
+    <!-- Thinking. Only models whose template honours enable_thinking can be told
+         to stop, and only a session that thinks has anything to shorten. -->
+    <div v-if="textInference.modelSupportsThinkingToggle" class="flex flex-col gap-2">
+      <Label class="whitespace-nowrap">Thinking</Label>
+      <label class="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          class="mt-0.5"
+          :checked="textInference.thinkingEnabled"
+          @change="textInference.thinkingEnabled = !textInference.thinkingEnabled"
+        />
+        <span class="flex flex-col">
+          <span class="text-foreground">Think before acting</span>
+          <span class="text-xs text-muted-foreground">
+            Shared with Chat mode, where it applies to every answer.
+          </span>
+        </span>
+      </label>
+      <label class="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          class="mt-0.5"
+          :disabled="!textInference.thinkingEnabled"
+          :checked="textInference.planningThinkingOnly"
+          @change="textInference.planningThinkingOnly = !textInference.planningThinkingOnly"
+        />
+        <span class="flex flex-col">
+          <span class="text-foreground" :class="{ 'opacity-50': !textInference.thinkingEnabled }">
+            Reasoning only during planning
+          </span>
+          <span class="text-xs text-muted-foreground">
+            The agent thinks while it works out the plan, then runs with thinking off once the plan
+            file is written — the build steps follow that checklist instead of reasoning again each
+            time. Applies to Game Maker sessions, which are the ones that plan on disk.
+          </span>
+        </span>
+      </label>
+    </div>
+
     <!-- Capabilities (built-in capability set + MCP servers) -->
     <div class="border-t border-border pt-4 flex flex-col gap-3">
       <Label class="whitespace-nowrap">Capabilities</Label>

@@ -348,8 +348,8 @@ export const useAgentMode = defineStore(
      * Extra request-body fields for a local agent turn: the sampling the active
      * model's publisher recommends (models.json `inferenceDefaults`), the shared
      * temperature setting, and the reasoning depth for templates that read it.
-     * Pi has no typed home for these, so they travel as `samplingParams` and are
-     * merged into the completion body verbatim.
+     * Pi has no typed home for these, so they travel as `samplingParams` and the
+     * main process merges them into each request body (electron/agentMode/piSampling.ts).
      */
     function buildSamplingParams(): Record<string, unknown> {
       const params: Record<string, unknown> = {
@@ -407,6 +407,8 @@ export const useAgentMode = defineStore(
           unsandboxed: unsandboxed.value,
         }
       }
+      // Only a local template reads the thinking switch, so the planning phase
+      // is a local-turn affair; cloud turns above never carry it.
       const servedModelId = textInference.activeModel?.split('/').join('---') ?? ''
       const baseUrl = textInference.localBackendUrl
       if (!baseUrl) {
@@ -441,6 +443,10 @@ export const useAgentMode = defineStore(
         instructions,
         capabilities: enabledCapabilities,
         unsandboxed: unsandboxed.value,
+        planningThinkingOnly:
+          textInference.modelSupportsThinkingToggle &&
+          textInference.thinkingEnabled &&
+          textInference.planningThinkingOnly,
       }
     }
 

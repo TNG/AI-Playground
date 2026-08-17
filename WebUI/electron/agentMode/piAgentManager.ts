@@ -33,6 +33,7 @@ import {
   ensureWorkspaceRuntime,
 } from './piWorkspaceRuntime.ts'
 import { endThinking, planExists, PLAN_FILE, thinkingIsOn, writesPlan } from './planningPhase.ts'
+import { createSamplingExtension } from './piSampling.ts'
 import {
   COMPACTION_TOOL_NAME,
   createStreamTranslator,
@@ -360,6 +361,7 @@ function configKeyOf(config: AgentModeTurnConfig): string {
     config.instructions ?? '',
     enabledCapabilityIds(config),
     config.unsandboxed ?? false,
+    config.planningThinkingOnly ?? false,
   ])
 }
 
@@ -429,15 +431,17 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   if (!registered) {
     throw new Error(`Model '${modelId}' could not be registered with Pi.`)
   }
-  // `samplingParams` is a Model field Pi merges into the completion body last,
-  // but its provider-registration input does not carry one — so the recommended
-  // sampling is attached to the resolved model instead. It is copied because the
-  // planning phase mutates it (see planningPhase.ts) and the turn config it came
+  // The sampling for every request of this session. Pi's agent path reads no
+  // sampling from the model, so it is merged into each request body by the
+  // extension in piSampling.ts, which reads this bag live. It is copied because
+  // the planning phase mutates it (planningPhase.ts) and the turn config it came
   // from is what session reuse is keyed on.
   const samplingParams =
     config.modelConfig.source === 'local'
       ? copySamplingParams(config.modelConfig.samplingParams)
       : undefined
+  // The model still carries it as well, since that is where pi-ai's own request
+  // builders would look if the agent path ever grew support for it.
   const model = samplingParams ? { ...registered, samplingParams } : registered
 
   // Everything optional the agent can do is a capability the user enabled for
@@ -508,7 +512,12 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     // their host path. Those skills reach the model through the capability's
     // `buildSkills` instead, so Pi's own skill list stays empty in every mode.
     skillsOverride: () => ({ skills: [], diagnostics: [] }),
-    extensionFactories: capabilities.extensionFactories,
+    extensionFactories: [
+      ...capabilities.extensionFactories,
+      // Pi's agent path ignores `Model.samplingParams`, so the turn's sampling
+      // is merged into each request here instead (piSampling.ts).
+      createSamplingExtension(() => samplingParams),
+    ],
     additionalExtensionPaths: capabilities.extensionPaths,
     // The workspace orientation the model would otherwise have to guess. Built
     // fresh on every session build, so it always carries the live preview URL.
@@ -561,7 +570,8 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     instructedBaseUrl: runtime.baseUrl,
     unsubscribe,
     samplingParams,
-    plansOnDisk: enabledCapabilityIds(config).includes('game-studio'),
+    plansOnDisk:
+      config.planningThinkingOnly === true && enabledCapabilityIds(config).includes('game-studio'),
   }
 }
 
@@ -753,16 +763,6 @@ function watchPlanningPhase(current: ActiveSession): (event: AgentSessionEvent) 
       true,
     )
   }
-  const live = (current.session as unknown as { model?: { samplingParams?: unknown } }).model
-  logger.info(
-    `planning phase: plansOnDisk=${current.plansOnDisk} thinking=${thinkingIsOn(
-      current.samplingParams,
-    )} sampling=${JSON.stringify(current.samplingParams?.chat_template_kwargs)} ` +
-      `sessionModelSampling=${JSON.stringify(live?.samplingParams)} ` +
-      `sameBag=${live?.samplingParams === current.samplingParams}`,
-    LOG_SOURCE,
-    true,
-  )
   if (!current.plansOnDisk || !thinkingIsOn(current.samplingParams)) return () => {}
   if (planExists(current.workspaceDir)) stop(`${PLAN_FILE} already written`)
 
@@ -770,14 +770,6 @@ function watchPlanningPhase(current: ActiveSession): (event: AgentSessionEvent) 
   // is remembered when it starts and acted on only if it succeeded.
   const writingPlan = new Set<string>()
   return (event) => {
-    if (event.type === 'tool_execution_start') {
-      logger.info(
-        `planning phase saw ${event.toolName}(${JSON.stringify(event.args)?.slice(0, 120)}) ` +
-          `plan=${writesPlan(event.toolName, event.args)}`,
-        LOG_SOURCE,
-        true,
-      )
-    }
     if (event.type === 'tool_execution_start' && writesPlan(event.toolName, event.args)) {
       writingPlan.add(event.toolCallId)
       return

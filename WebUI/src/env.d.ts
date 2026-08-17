@@ -361,6 +361,12 @@ type AgentModeTurnConfig = {
    * Requires explicit per-workspace consent (see the agentMode store).
    */
   unsandboxed?: boolean
+  /**
+   * Let the agent think while it plans, then run the rest of the session with
+   * thinking off — the switch flips once its plan file exists (planningPhase.ts).
+   * Only capabilities that write a plan (game studio) are affected.
+   */
+  planningThinkingOnly?: boolean
 }
 
 /** Streaming output of a running tool, keyed by the tool call it belongs to. */

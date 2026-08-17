@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
 import { getGamesDir } from './util.ts'
+import { writeScaffold } from './gameScaffold.ts'
 
 // ── The game library ─────────────────────────────────────────────────────────
 //
@@ -10,7 +11,8 @@ import { getGamesDir } from './util.ts'
 //   games/
 //     space-dodger/
 //       game.json          ← this module's business
-//       index.html         ← the game itself, written by the agent
+//       index.html         ← the page the game runs in (scaffolded, then edited)
+//       game.js            ← the game itself (scaffolded, then edited)
 //       icon.png           ← what the library and the hub page show
 //       generated/         ← art the media tool produced
 //     library.json         ← manifest for the (Q4) social portal upload
@@ -146,8 +148,9 @@ function writeMetadata(dir: string, metadata: GameMetadata): GameEntry {
 }
 
 /**
- * Create a game folder and its `game.json`. The name is a starting point (usually
- * the user's first prompt); the agent replaces it with a real title later.
+ * Create a game folder, its `game.json` and the scaffold the agent builds on.
+ * The name is a starting point (usually the user's first prompt); the agent
+ * replaces it with a real title later.
  */
 export function createGame(
   options: { name?: string; description?: string } = {},
@@ -160,7 +163,8 @@ export function createGame(
   // first one's folder.
   while (fs.existsSync(path.join(root, id))) id = `${base}-${shortId()}`
   const now = Date.now()
-  return writeMetadata(path.join(root, id), {
+  const dir = path.join(root, id)
+  const game = writeMetadata(dir, {
     id,
     name,
     description: options.description ?? '',
@@ -169,6 +173,11 @@ export function createGame(
     createdAt: now,
     updatedAt: now,
   })
+  // The folder is playable from the first second, so the agent starts from a
+  // running page it edits rather than from a blank one it has to write out
+  // whole (see gameScaffold.ts).
+  writeScaffold(dir)
+  return game
 }
 
 /** The game a folder holds, or null when it is not a game folder. */

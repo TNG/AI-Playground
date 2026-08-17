@@ -147,6 +147,46 @@
     "maxContextSize": 131072
   },
   {
+    "name": "unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-IQ2_XXS.gguf",
+    "mmproj": "unsloth/Qwen3.8-27B-GGUF/mmproj-BF16.gguf",
+    "type": "llamaCPP",
+    "supportsToolCalling": true,
+    "supportsVision": true,
+    "supportsReasoning": true,
+    "supportsCoding": true,
+    "supportsThinkingToggle": true,
+    "maxContextSize": 262144,
+    "inferenceDefaults": {
+      "topK": 20,
+      "minP": 0,
+      "repetitionPenalty": 1,
+      "thinking": { "temperature": 1, "topP": 0.95, "presencePenalty": 0 },
+      "instruct": { "temperature": 0.7, "topP": 0.8, "presencePenalty": 1.5 },
+      "reasoningEffort": "low"
+    },
+    "llamaCppArgs": "--spec-default --spec-type draft-mtp"
+  },
+  {
+    "name": "unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-IQ3_XXS.gguf",
+    "mmproj": "unsloth/Qwen3.8-27B-GGUF/mmproj-BF16.gguf",
+    "type": "llamaCPP",
+    "supportsToolCalling": true,
+    "supportsVision": true,
+    "supportsReasoning": true,
+    "supportsCoding": true,
+    "supportsThinkingToggle": true,
+    "maxContextSize": 262144,
+    "inferenceDefaults": {
+      "topK": 20,
+      "minP": 0,
+      "repetitionPenalty": 1,
+      "thinking": { "temperature": 1, "topP": 0.95, "presencePenalty": 0 },
+      "instruct": { "temperature": 0.7, "topP": 0.8, "presencePenalty": 1.5 },
+      "reasoningEffort": "low"
+    },
+    "llamaCppArgs": "--spec-default --spec-type draft-mtp"
+  },
+  {
     "name": "unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q4_K_XL.gguf",
     "mmproj": "unsloth/Qwen3.8-27B-GGUF/mmproj-BF16.gguf",
     "type": "llamaCPP",
@@ -162,8 +202,9 @@
       "repetitionPenalty": 1,
       "thinking": { "temperature": 1, "topP": 0.95, "presencePenalty": 0 },
       "instruct": { "temperature": 0.7, "topP": 0.8, "presencePenalty": 1.5 },
-      "reasoningEffort": "medium"
-    }
+      "reasoningEffort": "low"
+    },
+    "llamaCppArgs": "--spec-default --spec-type draft-mtp"
   },
   {
     "name": "unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf",
@@ -181,8 +222,9 @@
       "repetitionPenalty": 1,
       "thinking": { "temperature": 1, "topP": 0.95, "presencePenalty": 0 },
       "instruct": { "temperature": 0.7, "topP": 0.8, "presencePenalty": 1.5 },
-      "reasoningEffort": "medium"
-    }
+      "reasoningEffort": "low"
+    },
+    "llamaCppArgs": "--spec-default --spec-type draft-mtp"
   },
   {
     "name": "unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-UD-Q4_K_XL.gguf",

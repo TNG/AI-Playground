@@ -103,6 +103,36 @@ export function sanitizeUserLlamaCppParameters(
   return out
 }
 
+/**
+ * The LLM server's command line.
+ *
+ * Order carries meaning: llama-server lets a later occurrence of a flag win, so
+ * the flags a model asks for (`models.json` `llamaCppArgs`) sit ahead of the
+ * user's parameter box — a model can recommend speculative decoding, and a user
+ * who typed a conflicting flag by hand still overrides it. `--host` is appended
+ * last so nothing can move the server off loopback.
+ */
+export function buildLlmServerArgs(options: {
+  modelPath: string
+  port: number
+  contextSize: number
+  modelParameters: string[]
+  userParameters: string[]
+}): string[] {
+  return [
+    '--model',
+    options.modelPath,
+    '--port',
+    options.port.toString(),
+    '--ctx-size',
+    options.contextSize.toString(),
+    ...options.modelParameters,
+    ...options.userParameters,
+    '--host',
+    '127.0.0.1',
+  ]
+}
+
 interface LlamaServerProcess {
   process: ChildProcess
   port: number
@@ -143,6 +173,8 @@ export class LlamaCppBackendService implements ApiService {
   private llamaEmbeddingProcess: LlamaServerProcess | null = null
   private currentLlmModel: string | null = null
   private currentContextSize: number | null = null
+  /** The model's own `llamaCppArgs` the running LLM server was launched with. */
+  private currentModelArgs: string | null = null
   private currentEmbeddingModel: string | null = null
 
   // Store last startup error details for persistence
@@ -233,9 +265,10 @@ export class LlamaCppBackendService implements ApiService {
     llmModelName: string,
     embeddingModelName?: string,
     contextSize?: number,
+    modelArgs?: string,
   ): Promise<void> {
     this.appLogger.info(
-      `Ensuring LlamaCPP backend readiness for LLM: ${llmModelName}, Embedding: ${embeddingModelName ?? 'none'}, Context: ${contextSize ?? 'default'}`,
+      `Ensuring LlamaCPP backend readiness for LLM: ${llmModelName}, Embedding: ${embeddingModelName ?? 'none'}, Context: ${contextSize ?? 'default'}, Model args: ${modelArgs ?? 'none'}`,
       this.name,
     )
 
@@ -250,11 +283,14 @@ export class LlamaCppBackendService implements ApiService {
       const needsLlmRestart =
         this.currentLlmModel !== llmModelName ||
         (contextSize && contextSize !== this.currentContextSize) ||
+        // Model flags are baked into the command line, so a catalog update that
+        // changes them only takes effect on a relaunch.
+        (modelArgs ?? '') !== (this.currentModelArgs ?? '') ||
         !llmServerResponsive
 
       if (needsLlmRestart) {
         await this.stopLlamaLlmServer()
-        await this.startLlamaLlmServer(llmModelName, contextSize)
+        await this.startLlamaLlmServer(llmModelName, contextSize, modelArgs)
         this.appLogger.info(`LLM server ready with model: ${llmModelName}`, this.name)
       } else {
         this.appLogger.info(`LLM server already running with model: ${llmModelName}`, this.name)
@@ -1158,6 +1194,7 @@ export class LlamaCppBackendService implements ApiService {
   private async startLlamaLlmServer(
     modelRepoId: string,
     contextSize?: number,
+    modelArgs?: string,
   ): Promise<LlamaServerProcess> {
     try {
       const modelPath = this.resolveModelPath(modelRepoId)
@@ -1175,20 +1212,26 @@ export class LlamaCppBackendService implements ApiService {
       const userParameters = sanitizeUserLlamaCppParameters(this.llamaCppParametersString, (msg) =>
         this.appLogger.warn(msg, this.name, true),
       )
-      const args = [
-        '--model',
+      // Flags the model itself asks for (models.json `llamaCppArgs`), e.g.
+      // speculative decoding off a model's own MTP head. Sanitized like the
+      // user's, because the catalog can be refreshed from a remote repo. They
+      // go first so a flag the user typed by hand still wins.
+      const modelParameters = sanitizeUserLlamaCppParameters(modelArgs ?? '', (msg) =>
+        this.appLogger.warn(msg, this.name, true),
+      )
+      if (modelParameters.length > 0) {
+        this.appLogger.info(
+          `Model ${modelRepoId} requests llama-server flags: ${modelParameters.join(' ')}`,
+          this.name,
+        )
+      }
+      const args = buildLlmServerArgs({
         modelPath,
-        '--port',
-        port.toString(),
-        '--ctx-size',
-        ctxSize.toString(),
-        ...userParameters,
-        // Force-append --host AFTER user params so we always win, even if
-        // the user tried to inject their own --host. Defense in depth on
-        // top of llama-server's documented default (127.0.0.1).
-        '--host',
-        '127.0.0.1',
-      ]
+        port,
+        contextSize: ctxSize,
+        modelParameters,
+        userParameters,
+      })
 
       const modelFolder = path.dirname(modelPath)
       // find mmproj*.gguf file in the same folder
@@ -1285,6 +1328,7 @@ export class LlamaCppBackendService implements ApiService {
           this.llamaLlmProcess = null
           this.currentLlmModel = null
           this.currentContextSize = null
+          this.currentModelArgs = null
         }
       })
 
@@ -1299,6 +1343,7 @@ export class LlamaCppBackendService implements ApiService {
       this.llamaLlmProcess = llamaProcess
       this.currentLlmModel = modelRepoId
       this.currentContextSize = ctxSize
+      this.currentModelArgs = modelArgs ?? null
 
       this.appLogger.info(`LLM server ready for model: ${modelRepoId}`, this.name)
       return llamaProcess
@@ -1422,6 +1467,7 @@ export class LlamaCppBackendService implements ApiService {
       this.llamaLlmProcess = null
       this.currentLlmModel = null
       this.currentContextSize = null
+      this.currentModelArgs = null
     }
   }
 

@@ -454,6 +454,25 @@ How the values reach a turn:
   they do not model. OVMS ignores what it does not know (verified: `min_p` / `repeat_penalty`
   still return 200), so the dialect mapping is about correctness, not avoiding rejections.
 
+**Reasoning effort is set for the expensive case, which is the agent.** A chat reply pays for
+thinking once; an agent turn pays per step, and a Game Maker run is dozens of steps. Qwen3.8-27B at
+`medium` spent 15 minutes producing three file reads, so both its `models.json` entries recommend
+`low`. There is no per-preset override — the level travels with the model, in
+`chat_template_kwargs.reasoning_effort` (`chatModel.ts` for chat, `buildSamplingParams` in
+`store/agentMode.ts` for agent turns), and the Chat settings dropdown remains the way to raise it.
+
+**A model can ask for its own `llama-server` flags.** `models.json` `llamaCppArgs` is a parameter
+string in the same syntax as the backend-settings box; it rides `ensureBackendReadiness` beside
+`contextSize` (renderer → preload → main → service), is sanitized like the user's — the catalog is
+refreshed from a remote repo — and is spliced in *ahead* of the user's parameters by
+`buildLlmServerArgs`, so a hand-written flag still wins and `--host 127.0.0.1` still comes last. A
+change to the string relaunches the server, since flags are baked into the command line. Only
+llama.cpp reads it; OVMS has a different command line and is passed nothing. Both Qwen3.8-27B entries
+use it for `--spec-default --spec-type draft-mtp`: the GGUFs carry MTP layers that llama-server
+otherwise loads and discards (`unused tensor blk.64.nextn.*`), and drafting off them measured
+5.9 → 12.5 tok/s on Arc B390 at ~65% draft acceptance for ~3 GB, with no second model to download.
+Generation speed, not reasoning depth, was the bulk of that 15-minute run.
+
 **Context size is not honored everywhere.** OVMS on NPU compiles a static graph for
 `--max_prompt_len`, so the preset's `contextSize` is capped by `npuPromptLen()`
 (`src/types/shared.ts`) before the server is started — agent presets ask for 128k, which the NPU
@@ -728,9 +747,28 @@ Notes:
 on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds its own
 `game.json` (`WebUI/electron/gameLibrary.ts`; no central index, `listGames()` scans for cards).
 
+- **A new game folder is not empty.** `createGame()` writes a scaffold
+  (`WebUI/electron/gameScaffold.ts`): `index.html` (canvas + a *classic* `<script src="game.js">`)
+  and `game.js` — a running dt-based loop, keyboard + pointer input and a `window.__game` hook,
+  divided by `// === section ===` markers so `edit` has unique targets. The split is only safe
+  because Play opens the entry as a `file://` page, where ES modules and `fetch()` of a sibling
+  file are blocked; `type="module"` would work in the agent's HTTP preview and break on Play.
+  The point is that the first agent action is an `edit`, not a whole-game `write` that overruns
+  the completion cap.
+- **Play-testing is text, not vision.** The workspace preview server injects
+  `/__aipg-probe.js` into every HTML response (`agentMode/previewProbe.ts`, served ahead of the
+  containment check so no workspace file can shadow it; HTML is buffered rather than streamed so
+  `Content-Length` stays right). `browser {"action":"probe"}` then reports uncaught errors, frames
+  counted over 500 ms, canvas ink ratio, which input events the page listens for, what a
+  synthesized keypress changes, and `window.__game` when present, ending in a verdict. The
+  injected script never reaches the shipped game. This replaced screenshot-then-look, which cost
+  an image decode per check and preceded every `ErrorDeviceLost` crash in the 35B benchmark runs;
+  the skills now say outright not to read a screenshot back as an image.
 - The agent fills the library card itself with the `game` tool (`set_metadata`, `set_icon`),
-  following the `html-game-studio` skill; **Add to Acer Hub** in the game bar flips `published`
-  and regenerates `games/index.html` + `games/library.json`. The gallery inlines its manifest
+  following the `html-game-studio` skill (which asks for `set_metadata` *first* — all three 35B
+  benchmark runs ran out of turns before naming their game); **Add to Acer Hub** in the game bar
+  flips `published` and regenerates `games/index.html` + `games/library.json`. The gallery inlines
+  its manifest
   because a `file://` page cannot `fetch` a sibling json.
 - **Publishing is Acer-only.** The hub page is an Acer deliverable, so the add/update button and
   the hub link both hang off `oemBranding.showsGameHub`; everywhere else a game is just the files

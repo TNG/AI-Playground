@@ -477,6 +477,8 @@ export interface ApiService {
     llmModelName: string,
     embeddingModelName?: string,
     contextSize?: number,
+    /** Extra server flags the model asks for; only llama.cpp acts on them. */
+    modelArgs?: string,
   ): Promise<void>
 }
 
@@ -781,9 +783,10 @@ export abstract class LongLivedPythonApiService implements ApiService {
     llmModelName: string,
     embeddingModelName?: string,
     contextSize?: number,
+    modelArgs?: string,
   ): Promise<void> {
     this.appLogger.info(
-      `ensureBackendReadiness called for LLM: ${llmModelName}, Embedding: ${embeddingModelName ?? 'none'}, Context Size: ${contextSize} ?? 'undefined'`,
+      `ensureBackendReadiness called for LLM: ${llmModelName}, Embedding: ${embeddingModelName ?? 'none'}, Context Size: ${contextSize} ?? 'undefined', Model args: ${modelArgs ?? 'none'}`,
       this.name,
     )
   }

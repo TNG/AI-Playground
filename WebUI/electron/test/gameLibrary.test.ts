@@ -18,6 +18,7 @@ const {
   updateGame,
   writeHub,
 } = await import('../gameLibrary.ts')
+const { SCAFFOLD_ANCHORS } = await import('../gameScaffold.ts')
 
 let root: string
 
@@ -81,6 +82,38 @@ describe('createGame', () => {
       entry: 'index.html',
       published: false,
     })
+  })
+
+  // The agent's first act should be an `edit` against a page that already runs,
+  // not a whole game in one `write` that the completion cap cuts off.
+  it('leaves a game that already runs in the folder', () => {
+    const game = createGame({ name: 'Space Dodger' }, root)
+    const page = fs.readFileSync(path.join(game.dir, 'index.html'), 'utf-8')
+    const script = fs.readFileSync(path.join(game.dir, 'game.js'), 'utf-8')
+
+    expect(page).toContain('<canvas id="game">')
+    expect(script).toContain('requestAnimationFrame(frame)')
+    expect(script).toContain('window.__game')
+  })
+
+  it('marks every section the agent is told to edit against', () => {
+    const game = createGame({ name: 'Space Dodger' }, root)
+    const script = fs.readFileSync(path.join(game.dir, 'game.js'), 'utf-8')
+
+    for (const anchor of SCAFFOLD_ANCHORS) {
+      expect(script.split(anchor), `${anchor} is not a unique edit target`).toHaveLength(2)
+    }
+  })
+
+  // Play opens the entry through shell.openPath, so the game runs as a file://
+  // page — where a module script and fetch() of a sibling file are blocked. Both
+  // work in the agent's HTTP preview, so this only breaks for the user.
+  it('loads its second file the way a file:// page can', () => {
+    const game = createGame({ name: 'Space Dodger' }, root)
+    const page = fs.readFileSync(path.join(game.dir, 'index.html'), 'utf-8')
+
+    expect(page).toContain('<script src="game.js"></script>')
+    expect(page).not.toContain('type="module"')
   })
 
   it('gives a second game of the same name its own folder', () => {

@@ -8,8 +8,10 @@ live.
    tools be exposed from the first request, or kept dormant until the model asks for them?
    Answered; a script reproduces the numbers.
 2. [Does the harness help or hurt?](#2-does-the-harness-help-or-hurt-on-a-small-model) — on a
-   small local model, does Game Maker beat a plain chat at the same task? Open; the protocol
-   below is what settles it.
+   small local model, does Game Maker beat a plain chat at the same task? Measured once
+   (2026-08-14): the harness costs time and never fails to produce a file, but it spends its
+   turns re-checking rather than building, and the 35B crashed the GPU every time. The changes
+   that came out of that are pending a re-run.
 
 ## 1. Capability activation: eager vs dormant
 
@@ -53,9 +55,9 @@ and fixed or bounded, and the rest is what this comparison is for.
 
 - The failures to *finish* were the completion cap. A whole `index.html` in one `write` hit the
   4096-token reply limit and the call was rejected, losing the attempt. The budget is now
-  8192 locally / 16384 for cloud (`outputTokenBudget` in `piAgentManager.ts`), and both the
-  preset prompt and the `html-game-studio` skill tell the model to write a running skeleton
-  first and grow it with `edit` calls.
+  32768 locally / 16384 for cloud, bounded by half the context window (`outputTokenBudget` in
+  `piAgentManager.ts`), and the folder now starts from a scaffold the model extends with `edit`
+  calls instead of writing a game from nothing.
 - The weaker *design* has an obvious suspect: the harness spends a large slice of the context
   before the task begins — Pi's own system prompt, seven file/shell tool schemas, the media,
   browser and game tools, skill announcements and workspace instructions. A 4B–9B model has
@@ -117,6 +119,77 @@ Report medians of the three runs, plus every failure.
   (`unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-UD-Q4_K_XL.gguf` fits a 32 GB machine and is in
   `models.json`).
 
-### Results
+The 2026-08-14 run scored none of these branches: it deliberately made no quality judgement, and
+what it found instead — where the agent's turns go, and that the 35B crashes the GPU in the agent
+loop — was decisive enough without one. The preset prose was shortened and the detail moved into
+the skill anyway, on the second bullet's reasoning.
 
-_Not run yet._ Fill in below with model, quantization, machine, and the medians above.
+### Results, 2026-08-14
+
+Twelve runs on the Windows dev machine (`intel-ptl`, Arc B390, 47.4 GB shared GPU memory,
+llama.cpp Vulkan, dev build), driven through the app's own stores so every run took the product
+path. Two models — `Qwen3.5-9B-Q4_K_M` and `Qwen3.6-35B-A3B-UD-Q3_K_XL` — three runs each in
+Assistant and in Game Maker, 128k context throughout, Assistant's output cap raised to 8192 to
+match the agent's per-call budget. The prompt was a tester's, not the one above:
+
+> Generate a vector game of asteroids in a single html file, make it colorful with modern effects
+> like particles, etc
+
+Only the **Chat** and **Full** arms were run; **Trimmed** was skipped once the result made the
+capability count look like the wrong variable. Full data, artifacts and the GPU trace live
+outside the repo in `~/aipg-bench/asteroids-2026-08-14/`.
+
+| | Chat, 9B | Game Maker, 9B | Chat, 35B | Game Maker, 35B |
+| --- | --- | --- | --- | --- |
+| Wall time (median) | 4m38s | 7m52s | 4m14s | 7m41s |
+| Spread | 4m06-4m44s | 5m51-14m51s | 4m08-4m54s | 4m53-21m23s |
+| Output tokens (median) | 4956 | 6430 | 7394 | 10591 |
+| File size | 17.1-19.0 KB | 15.0-19.7 KB | 17.7-21.7 KB | 13.9-17.7 KB |
+| Runs that produced a complete file | 3/3 | 3/3 | 2/3 | 3/3 |
+| Peak shared GPU memory | 11.6 GB | 11.6-11.8 GB | 20.7 GB | 20.6 GB |
+
+**Nobody failed to produce a game, and the harness was not the cheaper way to get one.** Game
+Maker took roughly twice as long for a file no larger, and its time was wildly unpredictable
+where the chat arm was tightly grouped — the spread tracks how many play-test cycles the model
+chose to run, not the difficulty of the game.
+
+Four findings drove the changes that followed:
+
+- **The turns went into looking, not building.** Per run: 1-3 `write`, 0-5 `edit`, 3-10
+  `browser`. The agent re-opened and squinted at its page far more often than it changed it,
+  because a screenshot is a weak answer to "is this working?".
+- **Every 35B agent run died** with `decode() failed: vk::Device::getFenceStatus:
+  ErrorDeviceLost`, after browser screenshots, at 8, 5 and 21 minutes. The same model in plain
+  chat never crashed and the 9B agent runs never crashed, so vision decode inside the agent loop
+  is the suspect. Each crash landed *after* the game was written, so all three still left a
+  playable file.
+- **All three 35B runs made zero `game` tool calls**, leaving the library card showing the
+  provisional prompt as the title. Naming was last on the list and the runs ended first.
+- **Memory is a property of the model, not the mode**: 11.6-11.8 GB for the 9B and 20.6-20.7 GB
+  for the 35B at 128k in either mode, of which llama-server holds essentially all. Screenshots,
+  vision decode and image generation never moved the peak. Assistant mode's 35B run 1 stopped
+  dead at the 8192-token cap mid-file, which is why the local budget is now 32768.
+
+### Next: shipped Game Maker vs scaffold + probe
+
+The arms that matter now are not capability counts. Game Maker was changed in response to the
+above — a new game folder is scaffolded with a running `index.html` + `game.js` split by section
+markers, and play-testing is a text probe injected by the preview server
+(`browser {"action":"probe"}`) instead of a screenshot the model looks at. So:
+
+| Arm | Setup |
+| --- | --- |
+| **Shipped** | Game Maker as it was on 2026-08-14 (empty folder, screenshot play-testing). |
+| **Scaffold + probe** | Game Maker as it is now. |
+
+Same prompt, same two models, same machine, three runs each, and the measures above plus three
+that target the change directly:
+
+| Measure | Why |
+| --- | --- |
+| `browser` calls per `edit` | The point of the probe is to spend fewer turns asking and more changing. |
+| Runs that call `game set_metadata` | The skill now asks for it first; the 35B never reached it. |
+| `ErrorDeviceLost` recurrences | The cheap test of the vision hypothesis. If it survives the removal of screenshots from the loop, it is a driver problem and becomes its own investigation. |
+
+A scaffold every game starts from also risks sameness, so the re-run should note whether the
+three games in an arm are recognizably different from each other.

@@ -27,7 +27,8 @@ Four tasks it is actually good at, in rough order of how well they land on a loc
 1. **Make a small web page or tool and see it run.** "Build a single-page unit converter in
    this folder, then open it and fix anything the console complains about." The browser
    capability closes the loop, so the agent checks its own work instead of handing you a file
-   that may or may not load.
+   that may or may not load — its `probe` action reports errors, animation and input handling
+   as text, without spending a turn on a screenshot.
 2. **Bulk work over files you already have.** "Rename every screenshot in this folder to
    `YYYY-MM-DD-<subject>.png` and write an index.md listing them." Deterministic, verifiable,
    and the shell keeps the token cost low.
@@ -46,7 +47,7 @@ directly.
 
 | | Basic Chat / Assistant | **Agent** | Game Maker |
 | --- | --- | --- | --- |
-| Works on | the conversation | a folder you pick | a game folder the app mints |
+| Works on | the conversation | a folder you pick | a game folder the app scaffolds |
 | Files | attachments, RAG | reads and writes them directly | same, plus the game card |
 | Tools | optional, per turn | file, shell, browser, media | the same, aimed at one outcome |
 | Ends with | an answer | a changed folder | a playable game in your library |
@@ -60,9 +61,10 @@ out-write it on a self-contained task (see
 _is_ the folder, not when you just want code in a reply.
 
 The difference from Game Maker is aim, not power. Game Maker is this same harness with a
-system prompt, a skill and a workspace policy that all point at "produce a playable game", and
-it is the preset to use for games; Agent is the one to use when nobody has written that
-specialization yet.
+system prompt, a skill, a workspace policy and a starting point — a new game folder already
+holds an `index.html` + `game.js` that run, which the agent grows section by section — all
+pointing at "produce a playable game". It is the preset to use for games; Agent is the one to
+use when nobody has written that specialization yet, and it starts you at an empty folder.
 
 ## Turning it on
 

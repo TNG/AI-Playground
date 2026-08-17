@@ -522,6 +522,7 @@ type electronAPI = {
     llmModelName: string,
     embeddingModelName?: string,
     contextSize?: number,
+    modelArgs?: string,
   ): Promise<{ success: boolean; error?: string }>
   ensureComfyUIBackendRunning(): Promise<{
     success: boolean
@@ -1105,6 +1106,7 @@ type Model = {
   supportsThinkingToggle?: boolean
   maxContextSize?: number
   inferenceDefaults?: import('@/types/shared').InferenceDefaults
+  llamaCppArgs?: string
   npuSupport?: boolean
   largeMoe?: boolean
 }

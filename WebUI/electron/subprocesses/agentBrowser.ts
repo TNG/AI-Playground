@@ -2,6 +2,7 @@ import { BrowserWindow } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { appLoggerInstance } from '../logging/logger.ts'
+import { formatProbeReport, PROBE_CALL, type ProbeReport } from '../agentMode/previewProbe.ts'
 
 // ── Agent browser (Electron-native) ──────────────────────────────────────────
 //
@@ -124,7 +125,7 @@ function wrapForEval(script: string): string {
 }
 
 export type BrowserToolInput = {
-  action: 'open' | 'console' | 'eval' | 'screenshot'
+  action: 'open' | 'console' | 'eval' | 'screenshot' | 'probe'
   url?: string
   script?: string
 }
@@ -181,7 +182,15 @@ export async function runBrowserAction(
         }
       }
       const title = session.win.webContents.getTitle()
-      return { text: `Opened ${input.url}${title ? ` (title: ${title})` : ''}.` }
+      // The error count rides along on the open: a model that forgets to ask for
+      // the console otherwise debugs a page it never learned was throwing.
+      const errors = session.logs.filter((line) => line.startsWith('[error]')).length
+      const trouble =
+        errors > 0
+          ? ` ${errors} console error${errors === 1 ? '' : 's'} already — read them with the` +
+            ' console action.'
+          : ''
+      return { text: `Opened ${input.url}${title ? ` (title: ${title})` : ''}.${trouble}` }
     }
     case 'console':
       return { text: session.logs.length > 0 ? session.logs.join('\n') : '<no console messages>' }
@@ -195,6 +204,22 @@ export async function runBrowserAction(
         throw new Error(`The script threw: ${outcome?.error ?? 'unknown error'}`)
       }
       return { text: outcome.text ?? 'undefined' }
+    }
+    case 'probe': {
+      const raw = (await session.win.webContents.executeJavaScript(
+        wrapForEval(PROBE_CALL),
+        true,
+      )) as { ok: boolean; text?: string; error?: string }
+      if (!raw?.ok) {
+        throw new Error(`The probe failed to run: ${raw?.error ?? 'unknown error'}`)
+      }
+      let report: ProbeReport
+      try {
+        report = JSON.parse(raw.text ?? '{}') as ProbeReport
+      } catch {
+        return { text: `The probe returned something unreadable: ${raw.text ?? '(nothing)'}` }
+      }
+      return { text: formatProbeReport(report) }
     }
     case 'screenshot': {
       const image = await session.win.webContents.capturePage()

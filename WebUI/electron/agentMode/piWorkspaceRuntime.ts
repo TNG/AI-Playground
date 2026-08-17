@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import { appLoggerInstance } from '../logging/logger.ts'
 import { closeBrowserSession } from '../subprocesses/agentBrowser.ts'
+import { injectProbe, PROBE_PATH, PROBE_SCRIPT } from './previewProbe.ts'
 
 // ── Workspace runtime: localhost preview server ──────────────────────────────
 //
@@ -15,6 +16,10 @@ import { closeBrowserSession } from '../subprocesses/agentBrowser.ts'
 //
 // The runtime is keyed by session id and outlives individual turns, so the
 // preview port stays stable for a whole conversation.
+//
+// Pages served here also carry the play-test probe (previewProbe.ts), grafted in
+// on the way out. It exists only in this preview: the file on disk — the one the
+// user plays and shares — is untouched.
 
 const logger = appLoggerInstance
 const LOG_SOURCE = 'piWorkspaceRuntime'
@@ -38,6 +43,30 @@ const WORKSPACE_CONTENT_TYPES: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
   '.mp4': 'video/mp4',
   '.glb': 'model/gltf-binary',
+}
+
+function isHtml(filePath: string): boolean {
+  const extension = path.extname(filePath).toLowerCase()
+  return extension === '.html' || extension === '.htm'
+}
+
+/** Serve an in-memory body, honouring HEAD the same way a file response does. */
+function sendBuffer(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  body: Buffer,
+  contentType: string,
+): void {
+  res.writeHead(200, {
+    'Content-Type': contentType,
+    'Content-Length': body.byteLength,
+    'Cache-Control': 'no-store',
+  })
+  if (req.method === 'HEAD') {
+    res.end()
+    return
+  }
+  res.end(body)
 }
 
 export type WorkspaceRuntime = {
@@ -64,6 +93,12 @@ function startWorkspaceServer(root: string): Promise<{ server: http.Server; base
         return
       }
       const urlPath = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname)
+      // Answered before anything touches the workspace, so a file of the same
+      // name in the game folder cannot shadow the probe the agent tests with.
+      if (urlPath === PROBE_PATH) {
+        sendBuffer(req, res, Buffer.from(PROBE_SCRIPT, 'utf-8'), WORKSPACE_CONTENT_TYPES['.js'])
+        return
+      }
       let fullPath = path.resolve(root, '.' + urlPath)
       const relative = path.relative(root, fullPath)
       if (relative.startsWith('..') || path.isAbsolute(relative)) {
@@ -75,6 +110,13 @@ function startWorkspaceServer(root: string): Promise<{ server: http.Server; base
       try {
         stat = fs.statSync(fullPath)
       } catch {
+        // The browser asks for this on its own, and a 404 would be logged as a
+        // console error the agent then tries to fix in a game that is fine.
+        if (urlPath === '/favicon.ico') {
+          res.writeHead(204)
+          res.end()
+          return
+        }
         res.writeHead(404)
         res.end('Not Found')
         return
@@ -89,10 +131,26 @@ function startWorkspaceServer(root: string): Promise<{ server: http.Server; base
           return
         }
       }
+      const contentType =
+        WORKSPACE_CONTENT_TYPES[path.extname(fullPath).toLowerCase()] ?? 'application/octet-stream'
+      // A page gets the probe grafted in, which changes its length — so it is
+      // buffered instead of streamed. Games are a few tens of kilobytes; every
+      // other kind of file keeps streaming.
+      if (isHtml(fullPath)) {
+        let page: string
+        try {
+          page = fs.readFileSync(fullPath, 'utf-8')
+        } catch (error) {
+          logger.warn(`preview server cannot read ${fullPath}: ${error}`, LOG_SOURCE)
+          res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' })
+          res.end(`Cannot read ${path.basename(fullPath)}`)
+          return
+        }
+        sendBuffer(req, res, Buffer.from(injectProbe(page), 'utf-8'), contentType)
+        return
+      }
       const headers = {
-        'Content-Type':
-          WORKSPACE_CONTENT_TYPES[path.extname(fullPath).toLowerCase()] ??
-          'application/octet-stream',
+        'Content-Type': contentType,
         'Content-Length': stat.size,
         'Cache-Control': 'no-store',
       }

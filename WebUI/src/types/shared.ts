@@ -86,6 +86,11 @@ export const ModelSchema = z.object({
   // Sampling/reasoning settings the model publisher recommends. Applied as
   // defaults the preset or the user can still override.
   inferenceDefaults: InferenceDefaultsSchema.optional(),
+  // Extra `llama-server` command-line flags this model wants, in the same
+  // syntax as the backend-settings parameter box (e.g. speculative decoding).
+  // Only the llama.cpp server sees them — OVMS takes a different command line.
+  // Appended before the user's own parameters so a hand-written flag wins.
+  llamaCppArgs: z.string().optional(),
   npuSupport: z.boolean().optional(),
   largeMoe: z.boolean().optional(), // Large Mixture-of-Experts model; Phison aiDAPTIV+ SSD offload enables loading models larger than VRAM
 })

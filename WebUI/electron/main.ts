@@ -1919,9 +1919,10 @@ function initEventHandle() {
       llmModelName: string,
       embeddingModelName?: string,
       contextSize?: number,
+      modelArgs?: string,
     ) => {
       appLogger.info(
-        `Ensuring backend readiness for service: ${serviceName}, LLM: ${llmModelName}, Embedding: ${embeddingModelName || 'none'}, Context Size: ${contextSize ?? 'undefined'}`,
+        `Ensuring backend readiness for service: ${serviceName}, LLM: ${llmModelName}, Embedding: ${embeddingModelName || 'none'}, Context Size: ${contextSize ?? 'undefined'}, Model args: ${modelArgs || 'none'}`,
         'electron-backend',
       )
       if (!serviceRegistry) {
@@ -1938,7 +1939,12 @@ function initEventHandle() {
       }
 
       try {
-        await service.ensureBackendReadiness(llmModelName, embeddingModelName, contextSize)
+        await service.ensureBackendReadiness(
+          llmModelName,
+          embeddingModelName,
+          contextSize,
+          modelArgs,
+        )
         appLogger.info(
           `Backend ${serviceName} ready for LLM: ${llmModelName}, Embedding: ${embeddingModelName || 'none'}`,
           'electron-backend',

@@ -33,6 +33,7 @@ export type Model = {
   supportsThinkingToggle?: boolean // Template honors enable_thinking toggle (Qwen3 family, gemma4)
   maxContextSize?: number
   inferenceDefaults?: InferenceDefaults // Sampling/reasoning settings the publisher recommends
+  llamaCppArgs?: string // Extra llama-server flags this model wants (llama.cpp only)
   npuSupport?: boolean
   largeMoe?: boolean // Large Mixture-of-Experts model; Phison aiDAPTIV+ SSD offload enables loading models larger than VRAM
   isPredefined?: boolean // true if model is defined in models.json
@@ -149,6 +150,7 @@ export const useModels = defineStore(
             supportsThinkingToggle: combinedModel.supportsThinkingToggle,
             maxContextSize: combinedModel.maxContextSize,
             inferenceDefaults: combinedModel.inferenceDefaults,
+            llamaCppArgs: combinedModel.llamaCppArgs,
             npuSupport: combinedModel.npuSupport,
             largeMoe: combinedModel.largeMoe,
             isPredefined: !!predefinedModel, // true if model is defined in models.json

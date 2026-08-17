@@ -24,7 +24,7 @@ const QWEN38: InferenceDefaults = {
   repetitionPenalty: 1,
   thinking: { temperature: 1, topP: 0.95, presencePenalty: 0 },
   instruct: { temperature: 0.7, topP: 0.8, presencePenalty: 1.5 },
-  reasoningEffort: 'medium',
+  reasoningEffort: 'low',
 }
 
 describe('resolveSampling', () => {
@@ -63,7 +63,7 @@ describe('resolveSampling', () => {
 
   it('never leaks reasoningEffort into the sampling fields', () => {
     expect(resolveSampling(QWEN38, true)).not.toHaveProperty('reasoningEffort')
-    expect(recommendedReasoningEffort(QWEN38)).toBe('medium')
+    expect(recommendedReasoningEffort(QWEN38)).toBe('low')
     expect(recommendedReasoningEffort({ temperature: 0.7 })).toBeUndefined()
   })
 })
@@ -137,5 +137,38 @@ describe('models.json', () => {
     expect(qwen38?.inferenceDefaults).toBeDefined()
     expect(resolveSampling(qwen38?.inferenceDefaults, true).temperature).toBe(1)
     expect(resolveSampling(qwen38?.inferenceDefaults, false).temperature).toBe(0.7)
+  })
+
+  // An agent turn pays for thinking once per step, and a Game Maker run is
+  // dozens of steps: at `medium` this model spent 15 minutes on three file
+  // reads. A chat reply pays it once, which is why the level lives with the
+  // model rather than being talked up per preset.
+  it('asks Qwen3.8 to think at the depth an agent run can afford', () => {
+    const models = z
+      .array(ModelSchema)
+      .parse(
+        JSON.parse(readFileSync(path.resolve(__dirname, '../../../external/models.json'), 'utf-8')),
+      )
+    const qwen38 = models.filter((model) => model.name.includes('Qwen3.8-27B-GGUF'))
+    expect(qwen38).not.toHaveLength(0)
+    for (const model of qwen38) {
+      expect(recommendedReasoningEffort(model.inferenceDefaults)).toBe('low')
+    }
+  })
+
+  // Both Qwen3.8 GGUFs carry MTP layers that llama-server otherwise loads and
+  // discards ("unused tensor blk.64.nextn.*"). Drafting off them measured 5.9 →
+  // 12.5 tok/s on Arc B390 at ~65% acceptance, with no second model to download.
+  it('turns on the speculative decoding Qwen3.8 ships the weights for', () => {
+    const models = z
+      .array(ModelSchema)
+      .parse(
+        JSON.parse(readFileSync(path.resolve(__dirname, '../../../external/models.json'), 'utf-8')),
+      )
+    const qwen38 = models.filter((model) => model.name.includes('Qwen3.8-27B-GGUF'))
+    expect(qwen38).not.toHaveLength(0)
+    for (const model of qwen38) {
+      expect(model.llamaCppArgs).toContain('--spec-type draft-mtp')
+    }
   })
 })

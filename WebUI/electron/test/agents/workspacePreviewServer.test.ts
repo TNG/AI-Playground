@@ -47,13 +47,54 @@ async function serve(fileName: string): Promise<Response> {
 
 describe('workspace preview server', () => {
   it('serves a workspace file', async () => {
-    fs.writeFileSync(path.join(workspace, 'index.html'), '<h1>hi</h1>')
+    fs.writeFileSync(path.join(workspace, 'game.js'), 'console.log("hi")')
 
-    const response = await serve('index.html')
+    const response = await serve('game.js')
 
     expect(response.status).toBe(200)
-    expect(response.headers.get('content-type')).toContain('text/html')
-    expect(await response.text()).toBe('<h1>hi</h1>')
+    expect(response.headers.get('content-type')).toContain('javascript')
+    expect(await response.text()).toBe('console.log("hi")')
+  })
+
+  // The probe is what `browser {"action":"probe"}` calls, so a page served
+  // without it cannot be play-tested.
+  it('grafts the play-test probe into a page it serves', async () => {
+    fs.writeFileSync(
+      path.join(workspace, 'index.html'),
+      '<html><head></head><body>hi</body></html>',
+    )
+
+    const response = await serve('index.html')
+    const page = await response.text()
+
+    expect(page).toContain('<script src="/__aipg-probe.js"></script>')
+    expect(page).toContain('<body>hi</body>')
+    // Injection lengthens the body, so a streamed file's size would be a lie
+    // and the browser would truncate the page.
+    expect(Number(response.headers.get('content-length'))).toBe(Buffer.byteLength(page))
+  })
+
+  it('leaves everything that is not a page alone', async () => {
+    fs.writeFileSync(path.join(workspace, 'data.json'), '{"probe":false}')
+
+    expect(await (await serve('data.json')).text()).toBe('{"probe":false}')
+  })
+
+  // The browser asks for it whether or not the game has one, and the agent reads
+  // a failed request back as an error in its own page.
+  it('does not turn the browser asking for a favicon into a page error', async () => {
+    expect((await serve('favicon.ico')).status).toBe(204)
+  })
+
+  it('serves the probe itself, where no workspace file can shadow it', async () => {
+    fs.writeFileSync(path.join(workspace, '__aipg-probe.js'), 'window.__aipgProbe = "hijacked"')
+
+    const response = await serve('__aipg-probe.js')
+    const script = await response.text()
+
+    expect(response.headers.get('content-type')).toContain('javascript')
+    expect(script).not.toContain('hijacked')
+    expect(script).toContain('window.__aipgProbe')
   })
 
   // Windows ignores a chmod of the read bit, so the file stays readable and

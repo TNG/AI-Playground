@@ -52,6 +52,7 @@ export type LlmModel = {
   supportsThinkingToggle?: boolean
   maxContextSize?: number
   inferenceDefaults?: InferenceDefaults
+  llamaCppArgs?: string
   npuSupport?: boolean
   largeMoe?: boolean
   isPredefined?: boolean
@@ -202,6 +203,7 @@ export const useTextInference = defineStore(
           supportsThinkingToggle: m.supportsThinkingToggle,
           maxContextSize: m.maxContextSize,
           inferenceDefaults: m.inferenceDefaults,
+          llamaCppArgs: m.llamaCppArgs,
           npuSupport: m.npuSupport,
           largeMoe: m.largeMoe,
           isPredefined: m.isPredefined,
@@ -248,6 +250,7 @@ export const useTextInference = defineStore(
             // Sampling recommendations come from our own catalog, which only
             // describes local models.
             inferenceDefaults: undefined,
+            llamaCppArgs: undefined,
             npuSupport: undefined,
             largeMoe: undefined,
             isPredefined: false,
@@ -1275,6 +1278,9 @@ export const useTextInference = defineStore(
             llmModelName,
             embeddingModelToSend,
             contextSize.value,
+            // Only llama.cpp reads these; OVMS is started from a different
+            // command line and ignores them.
+            backend.value === 'llamaCPP' ? activeLlmModel.value?.llamaCppArgs : undefined,
           )
         } catch (error) {
           // Surface model-load failures (e.g. out of memory for the chosen

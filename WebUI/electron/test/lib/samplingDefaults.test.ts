@@ -3,6 +3,7 @@ import { readFileSync } from 'fs'
 import path from 'path'
 import z from 'zod'
 import {
+  chatTemplateKwargs,
   isAdoptable,
   recommendedReasoningEffort,
   resolveSampling,
@@ -97,6 +98,48 @@ describe('toRequestBody', () => {
   })
 })
 
+// Chat and agent turns both build their kwargs here. They did not always: agent
+// turns sent the effort and never the toggle, so a Game Maker run thought no
+// matter what the thinking switch said, because Qwen3's template thinks unless
+// told otherwise.
+describe('chatTemplateKwargs', () => {
+  const qwen = { supportsThinkingToggle: true, reasoningEffort: 'low' as const }
+
+  it('states the toggle explicitly rather than relying on the template default', () => {
+    expect(chatTemplateKwargs({ ...qwen, thinkingEnabled: true, thinkingActive: true })).toEqual({
+      enable_thinking: true,
+      reasoning_effort: 'low',
+    })
+  })
+
+  it('says thinking is off and then has no trace to size', () => {
+    expect(chatTemplateKwargs({ ...qwen, thinkingEnabled: false, thinkingActive: false })).toEqual({
+      enable_thinking: false,
+    })
+  })
+
+  it('sends the effort alone for a model that reasons without a toggle', () => {
+    expect(
+      chatTemplateKwargs({
+        supportsThinkingToggle: false,
+        thinkingEnabled: true,
+        thinkingActive: true,
+        reasoningEffort: 'xhigh',
+      }),
+    ).toEqual({ reasoning_effort: 'xhigh' })
+  })
+
+  it('sends nothing for a model that reads neither', () => {
+    expect(
+      chatTemplateKwargs({
+        supportsThinkingToggle: false,
+        thinkingEnabled: true,
+        thinkingActive: true,
+      }),
+    ).toEqual({})
+  })
+})
+
 describe('isAdoptable', () => {
   // The rule behind "model values are defaults": a setting is replaced by a new
   // recommendation only while it still holds the one we wrote.
@@ -133,23 +176,27 @@ describe('models.json', () => {
       .parse(
         JSON.parse(readFileSync(path.resolve(__dirname, '../../../external/models.json'), 'utf-8')),
       )
-    const qwen38 = models.find((model) => model.name.includes('Qwen3.8-27B-GGUF'))
-    expect(qwen38?.inferenceDefaults).toBeDefined()
-    expect(resolveSampling(qwen38?.inferenceDefaults, true).temperature).toBe(1)
-    expect(resolveSampling(qwen38?.inferenceDefaults, false).temperature).toBe(0.7)
+    const qwen38 = models.filter((model) => model.name.includes('Qwen3.8-27B'))
+    expect(qwen38).not.toHaveLength(0)
+    for (const model of qwen38) {
+      expect(model.inferenceDefaults).toBeDefined()
+      expect(resolveSampling(model.inferenceDefaults, true).temperature).toBe(1)
+      expect(resolveSampling(model.inferenceDefaults, false).temperature).toBe(0.7)
+    }
   })
 
   // An agent turn pays for thinking once per step, and a Game Maker run is
   // dozens of steps: at `medium` this model spent 15 minutes on three file
   // reads. A chat reply pays it once, which is why the level lives with the
-  // model rather than being talked up per preset.
+  // model rather than being talked up per preset. OVMS has no reasoning-budget
+  // flag, so the effort level is the only cap the OpenVINO build gets.
   it('asks Qwen3.8 to think at the depth an agent run can afford', () => {
     const models = z
       .array(ModelSchema)
       .parse(
         JSON.parse(readFileSync(path.resolve(__dirname, '../../../external/models.json'), 'utf-8')),
       )
-    const qwen38 = models.filter((model) => model.name.includes('Qwen3.8-27B-GGUF'))
+    const qwen38 = models.filter((model) => model.name.includes('Qwen3.8-27B'))
     expect(qwen38).not.toHaveLength(0)
     for (const model of qwen38) {
       expect(recommendedReasoningEffort(model.inferenceDefaults)).toBe('low')
@@ -169,6 +216,41 @@ describe('models.json', () => {
     expect(qwen38).not.toHaveLength(0)
     for (const model of qwen38) {
       expect(model.llamaCppArgs).toContain('--spec-type draft-mtp')
+    }
+  })
+
+  // `low` was not enough on its own: a Game Maker run spent 20 minutes writing
+  // the whole game inside one thinking block and never reached its first edit.
+  // The budget is a hard stop the model cannot talk itself out of, and it is
+  // per-model precisely so capping this one does not cap anybody's chat.
+  it('caps how long Qwen3.8 may think before it has to act', () => {
+    const models = z
+      .array(ModelSchema)
+      .parse(
+        JSON.parse(readFileSync(path.resolve(__dirname, '../../../external/models.json'), 'utf-8')),
+      )
+    const qwen38 = models.filter((model) => model.name.includes('Qwen3.8-27B-GGUF'))
+    expect(qwen38).not.toHaveLength(0)
+    for (const model of qwen38) {
+      expect(model.llamaCppArgs).toMatch(/--reasoning-budget \d+/)
+      expect(model.llamaCppArgs).toContain('--reasoning-budget-message "')
+    }
+  })
+
+  // `--reasoning-preserve` looks like the fix for an agent re-deriving its own
+  // plan, but Qwen3.8's template preserves unless told otherwise and keeps the
+  // current turn's thinking either way, so passing it buys nothing and only
+  // suggests it does. See AGENTS.md for the rendered-prompt evidence.
+  it('does not pass Qwen3.8 llama.cpp flags that its template already implies', () => {
+    const models = z
+      .array(ModelSchema)
+      .parse(
+        JSON.parse(readFileSync(path.resolve(__dirname, '../../../external/models.json'), 'utf-8')),
+      )
+    const qwen38 = models.filter((model) => model.name.includes('Qwen3.8-27B-GGUF'))
+    expect(qwen38).not.toHaveLength(0)
+    for (const model of qwen38) {
+      expect(model.llamaCppArgs).not.toContain('reasoning-preserve')
     }
   })
 })

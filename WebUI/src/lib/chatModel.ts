@@ -3,6 +3,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { useCloudMode, CLOUD_DEFAULT_MODEL } from '@/assets/js/store/cloudMode'
 import { getHomeAgentAuthToken, invalidateHomeAgentAuthToken } from '@/lib/loopbackAuth'
+import { chatTemplateKwargs } from '@/lib/samplingDefaults'
 
 // ── Shared chat model factory ────────────────────────────────────────────────
 //
@@ -56,14 +57,12 @@ export function createChatModel(): LanguageModel {
       body = { ...body, ...textInference.samplingRequestBody }
       const kwargs: Record<string, unknown> = {
         ...(body.chat_template_kwargs as Record<string, unknown> | undefined),
-      }
-      if (textInference.modelSupportsThinkingToggle) {
-        kwargs.enable_thinking = textInference.thinkingEnabled
-      }
-      // How deep the model reasons, for templates that read it (Qwen3.8). A turn
-      // that does not think has no trace to size.
-      if (textInference.effectiveReasoningEffort && textInference.thinkingActive) {
-        kwargs.reasoning_effort = textInference.effectiveReasoningEffort
+        ...chatTemplateKwargs({
+          supportsThinkingToggle: textInference.modelSupportsThinkingToggle,
+          thinkingEnabled: textInference.thinkingEnabled,
+          thinkingActive: textInference.thinkingActive,
+          reasoningEffort: textInference.effectiveReasoningEffort,
+        }),
       }
       if (Object.keys(kwargs).length > 0) {
         body = { ...body, chat_template_kwargs: kwargs }

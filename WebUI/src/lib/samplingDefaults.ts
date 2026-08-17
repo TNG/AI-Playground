@@ -43,6 +43,30 @@ export function recommendedReasoningEffort(
 }
 
 /**
+ * The `chat_template_kwargs` a local turn carries.
+ *
+ * Whether the turn thinks has to be stated, not left to the template: Qwen3
+ * thinks unless told otherwise and gemma4 does the reverse, so silence means
+ * something different per family. Chat and agent turns build this from one
+ * place because they drifted apart once — agent turns sent the effort but never
+ * the toggle, which left the thinking switch doing nothing for a whole preset.
+ */
+export function chatTemplateKwargs(options: {
+  supportsThinkingToggle: boolean
+  thinkingEnabled: boolean
+  thinkingActive: boolean
+  reasoningEffort?: ReasoningEffort
+}): Record<string, unknown> {
+  const kwargs: Record<string, unknown> = {}
+  if (options.supportsThinkingToggle) kwargs.enable_thinking = options.thinkingEnabled
+  // A turn that does not think has no trace to size.
+  if (options.reasoningEffort && options.thinkingActive) {
+    kwargs.reasoning_effort = options.reasoningEffort
+  }
+  return kwargs
+}
+
+/**
  * The sampling fields as an OpenAI-compatible request body fragment.
  *
  * `temperature` is deliberately left out: it is a user-facing setting that

@@ -9,6 +9,7 @@ import { usePresetSwitching } from './presetSwitching'
 import { useErrors } from './errors'
 import { extractMessage } from '../errors/appError'
 import { executeAgentTool, getAgentToolSpecs } from '../tools/agentBridge'
+import { chatTemplateKwargs } from '@/lib/samplingDefaults'
 
 // ── Agent Mode: renderer side of the Pi coding-agent integration ─────────────
 //
@@ -355,9 +356,13 @@ export const useAgentMode = defineStore(
         ...textInference.samplingRequestBody,
         temperature: textInference.temperature,
       }
-      if (textInference.effectiveReasoningEffort && textInference.thinkingActive) {
-        params.chat_template_kwargs = { reasoning_effort: textInference.effectiveReasoningEffort }
-      }
+      const kwargs = chatTemplateKwargs({
+        supportsThinkingToggle: textInference.modelSupportsThinkingToggle,
+        thinkingEnabled: textInference.thinkingEnabled,
+        thinkingActive: textInference.thinkingActive,
+        reasoningEffort: textInference.effectiveReasoningEffort,
+      })
+      if (Object.keys(kwargs).length > 0) params.chat_template_kwargs = kwargs
       return params
     }
 

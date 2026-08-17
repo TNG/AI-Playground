@@ -32,6 +32,7 @@ import {
   closeWorkspaceRuntime,
   ensureWorkspaceRuntime,
 } from './piWorkspaceRuntime.ts'
+import { endThinking, planExists, PLAN_FILE, thinkingIsOn, writesPlan } from './planningPhase.ts'
 import {
   COMPACTION_TOOL_NAME,
   createStreamTranslator,
@@ -322,6 +323,13 @@ type ActiveSession = {
   /** Preview URL the session's instructions were built with. */
   instructedBaseUrl: string | null
   unsubscribe: () => void
+  /**
+   * The sampling bag the live model holds. Pi re-reads it per request, so
+   * `planningPhase.ts` can end thinking mid-turn by mutating it.
+   */
+  samplingParams?: Record<string, unknown>
+  /** Whether this session plans in `design.md` and stops thinking once it exists. */
+  plansOnDisk: boolean
 }
 
 let active: ActiveSession | null = null
@@ -423,9 +431,13 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   }
   // `samplingParams` is a Model field Pi merges into the completion body last,
   // but its provider-registration input does not carry one — so the recommended
-  // sampling is attached to the resolved model instead.
+  // sampling is attached to the resolved model instead. It is copied because the
+  // planning phase mutates it (see planningPhase.ts) and the turn config it came
+  // from is what session reuse is keyed on.
   const samplingParams =
-    config.modelConfig.source === 'local' ? config.modelConfig.samplingParams : undefined
+    config.modelConfig.source === 'local'
+      ? copySamplingParams(config.modelConfig.samplingParams)
+      : undefined
   const model = samplingParams ? { ...registered, samplingParams } : registered
 
   // Everything optional the agent can do is a capability the user enabled for
@@ -548,6 +560,25 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     access,
     instructedBaseUrl: runtime.baseUrl,
     unsubscribe,
+    samplingParams,
+    plansOnDisk: enabledCapabilityIds(config).includes('game-studio'),
+  }
+}
+
+/**
+ * A private copy of the turn's sampling, deep enough that switching thinking off
+ * cannot reach back into the caller's config object.
+ */
+function copySamplingParams(
+  params: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!params) return undefined
+  const kwargs = params.chat_template_kwargs
+  return {
+    ...params,
+    ...(kwargs && typeof kwargs === 'object'
+      ? { chat_template_kwargs: { ...(kwargs as Record<string, unknown>) } }
+      : {}),
   }
 }
 
@@ -706,6 +737,55 @@ async function reassertPreviewUrl(current: ActiveSession): Promise<void> {
 }
 
 // ── Turn execution ───────────────────────────────────────────────────────────
+
+/**
+ * Thinking pays for itself while the agent decides what to build and stops
+ * paying once that decision is written down, so it ends when `design.md` does.
+ * Returns the event sink that watches for the plan being written; a plan already
+ * on disk ends it before the turn's first request.
+ */
+function watchPlanningPhase(current: ActiveSession): (event: AgentSessionEvent) => void {
+  const stop = (reason: string) => {
+    if (!endThinking(current.samplingParams)) return
+    logger.info(
+      `planning done (${reason}): thinking off for the rest of the session`,
+      LOG_SOURCE,
+      true,
+    )
+  }
+  const live = (current.session as unknown as { model?: { samplingParams?: unknown } }).model
+  logger.info(
+    `planning phase: plansOnDisk=${current.plansOnDisk} thinking=${thinkingIsOn(
+      current.samplingParams,
+    )} sampling=${JSON.stringify(current.samplingParams?.chat_template_kwargs)} ` +
+      `sessionModelSampling=${JSON.stringify(live?.samplingParams)} ` +
+      `sameBag=${live?.samplingParams === current.samplingParams}`,
+    LOG_SOURCE,
+    true,
+  )
+  if (!current.plansOnDisk || !thinkingIsOn(current.samplingParams)) return () => {}
+  if (planExists(current.workspaceDir)) stop(`${PLAN_FILE} already written`)
+
+  // `tool_execution_end` carries no arguments, so the call that targets the plan
+  // is remembered when it starts and acted on only if it succeeded.
+  const writingPlan = new Set<string>()
+  return (event) => {
+    if (event.type === 'tool_execution_start') {
+      logger.info(
+        `planning phase saw ${event.toolName}(${JSON.stringify(event.args)?.slice(0, 120)}) ` +
+          `plan=${writesPlan(event.toolName, event.args)}`,
+        LOG_SOURCE,
+        true,
+      )
+    }
+    if (event.type === 'tool_execution_start' && writesPlan(event.toolName, event.args)) {
+      writingPlan.add(event.toolCallId)
+      return
+    }
+    if (event.type !== 'tool_execution_end' || !writingPlan.delete(event.toolCallId)) return
+    if (!event.isError) stop(`${PLAN_FILE} written`)
+  }
+}
 
 function logEvent(event: AgentSessionEvent): void {
   switch (event.type) {
@@ -921,10 +1001,12 @@ export async function startAgentTurn(
       lastSample = fingerprint
       translator.update(summary)
     }
+    const planning = watchPlanningPhase(current)
     currentTurn = {
       turnId,
       onEvent: (event) => {
         if (verbose) logEvent(event)
+        planning(event)
         translator.handle(event)
         if (USAGE_SAMPLE_EVENTS.has(event.type)) sampleUsage()
       },

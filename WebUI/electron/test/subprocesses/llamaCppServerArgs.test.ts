@@ -5,8 +5,32 @@ vi.mock('electron', () => ({
   net: {},
 }))
 
-const { buildLlmServerArgs, sanitizeUserLlamaCppParameters } =
+const { buildLlmServerArgs, sanitizeUserLlamaCppParameters, splitParameterString } =
   await import('../../subprocesses/llamaCppBackendService.ts')
+
+// Parameters are written as one string (the settings box, and `llamaCppArgs` in
+// the catalog), but some flags take a sentence — `--reasoning-budget-message`
+// is what the model reads when its thinking is cut short.
+describe('splitParameterString', () => {
+  it('keeps a quoted sentence in one token and drops the quotes', () => {
+    expect(
+      splitParameterString('--reasoning-budget 2048 --reasoning-budget-message "Act now."'),
+    ).toEqual(['--reasoning-budget', '2048', '--reasoning-budget-message', 'Act now.'])
+  })
+
+  it('handles single quotes and runs of whitespace', () => {
+    expect(splitParameterString("  -fa  on   --msg 'two words'  ")).toEqual([
+      '-fa',
+      'on',
+      '--msg',
+      'two words',
+    ])
+  })
+
+  it('keeps an explicitly empty value rather than swallowing it', () => {
+    expect(splitParameterString('--msg ""')).toEqual(['--msg', ''])
+  })
+})
 
 // The flags a model asks for come from `models.json`, which the app also
 // refreshes from a remote repo — so they are sanitized exactly like the user's,

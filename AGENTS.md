@@ -107,11 +107,12 @@ the high-level entry point; exposes `wizard`, `shell`, `main`, `settings`), `pag
 title-bar master toggle), `backends.ts` (parametric model + types), `helpers.ts`,
 `agentic-smoke.spec.ts` (quick `e2e` gate), `assistant-media-flow.spec.ts` (full agentic
 reference spec: install + image → edit → video), and for the LAN chat channel
-`localWebBrowser.ts` (drives the *served page* in a real BrowserWindow, so a break in the
+`localWebBrowser.ts` (drives the _served page_ in a real BrowserWindow, so a break in the
 page's own JS — login, EventSource, send, reply/media rendering — is caught) and
 `home-agent-local-web.spec.ts`.
 
 **Rules:**
+
 - **Start every test with the shared setup method:** `await app.installAllBackends()`. It's
   idempotent (handles fresh-wizard and already-running starts) and is where reusable setup
   belongs. Keep flows on the driver / page objects, not inlined in specs.
@@ -133,6 +134,7 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
 - **Use long timeouts** for install/update waits (`SetupWizardPage.INSTALL_TIMEOUT`).
 
 **Domain gotchas (learned the hard way):**
+
 - Installing is **one button**: enable each backend's toggle, then click **"Install &
   Continue"** — there are no per-backend install buttons.
 - **Deactivate a backend with its toggle, not the feature flag.** For "no Home Agent",
@@ -165,7 +167,7 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
   `openAppSettings()` is idempotent. Playwright "visible" ignores occlusion.
 - **Optional popups intercept clicks.** The high-memory / video-VRAM warning (`WarningDialog`,
   `role="dialog"` + `aria-label="Warning"`) fires whenever a gated preset becomes active —
-  *including just switching to a mode whose last-used preset is gated* — so it can appear
+  _including just switching to a mode whose last-used preset is gated_ — so it can appear
   before any step you control and its backdrop then eats clicks. Handle it globally with
   `page.addLocatorHandler` (registered in the `window` fixture), scoped by message so it
   never touches unrelated warnings; the handler ticks "Do not show again" and confirms.
@@ -174,17 +176,17 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
   `role="dialog"` + `aria-label="Model download"`) on the first send/generate. `AppDriver`
   clears it via `DownloadDialogPage.resolve()` at every send point; gated models with no HF
   access can't be confirmed, so those tests `test.skip` instead of hanging.
-- **Timeouts:** the default chat model (Qwen3.5-9B) is a *reasoning* model — its thinking
+- **Timeouts:** the default chat model (Qwen3.5-9B) is a _reasoning_ model — its thinking
   alone can exceed 2 min, so per-turn budgets are minutes (`TEXT/IMAGE/VIDEO_TIMEOUT`), applied
-  *after* any model download is handled separately.
+  _after_ any model download is handled separately.
 - **"Close" is ambiguous** — the header's window-close (X) control is `title="Close"`, so an
   unscoped `getByRole('button', { name: 'Close' })` can match it and **quit the app**. Scope
   sidebar closes to their region (`getByRole('region', { name: '<title>' })`, via
   `SideModalBase`'s `role="region"`), and prefer a uniquely-named button (e.g. the wizard's
   "Continue") over "Close".
 - **Channel config outlives the test run** (it is stored in `safeStorage`, not in the app
-  window), so a channel setting is only what this test asserts if the test *drives it to the
-  value it wants* — `configureLocalWeb` unchecks LAN access when it wasn't asked for, rather
+  window), so a channel setting is only what this test asserts if the test _drives it to the
+  value it wants_ — `configureLocalWeb` unchecks LAN access when it wasn't asked for, rather
   than only checking it.
 - **The LAN chat page repaints itself** on `/new` (clean slate) and `/load` (the chosen
   thread's transcript), because it keeps no history of its own. Counting reply bubbles
@@ -197,7 +199,7 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
   element which triggered a handler is gone before continuing, so a handler for something
   that stays on screen fails the action that triggered it. The LAN page retires a prompt's
   buttons once tapped, which is what makes its auto-confirm handler safe; anything that
-  lingers needs `noWaitAfter: true`. Beware too that *any* action or assertion triggers a
+  lingers needs `noWaitAfter: true`. Beware too that _any_ action or assertion triggers a
   registered handler — asserting a prompt is visible can consume it.
 
 **Before claiming it works:** `npm run typecheck` (`vue-tsc`; `e2e/` is in the root
@@ -251,6 +253,7 @@ playwright-e2e.config.ts --list`.
 ### Import Ordering
 
 No strict enforcement, but follow the prevailing convention:
+
 1. External packages (`vue`, `pinia`, `zod`, `@ai-sdk/*`)
 2. Internal stores (`@/assets/js/store/...`)
 3. Components (`@/components/...`)
@@ -258,15 +261,15 @@ No strict enforcement, but follow the prevailing convention:
 
 ### Naming Conventions
 
-| Element               | Convention   | Example                          |
-|-----------------------|-------------|----------------------------------|
-| Vue components/files  | PascalCase  | `ModelSelector.vue`              |
-| Store files           | camelCase   | `backendServices.ts`             |
-| Functions/variables   | camelCase   | `startService`, `currentStatus`  |
-| Types                 | PascalCase  | `BackendStatus`, `ModelPaths`    |
-| Store composables     | `use` prefix| `useBackendServices()`           |
-| Backend service names | kebab-case  | `'ai-backend'`, `'comfyui-backend'` |
-| Python modules        | snake_case  | `web_api.py`, `llm_biz.py`      |
+| Element               | Convention   | Example                             |
+| --------------------- | ------------ | ----------------------------------- |
+| Vue components/files  | PascalCase   | `ModelSelector.vue`                 |
+| Store files           | camelCase    | `backendServices.ts`                |
+| Functions/variables   | camelCase    | `startService`, `currentStatus`     |
+| Types                 | PascalCase   | `BackendStatus`, `ModelPaths`       |
+| Store composables     | `use` prefix | `useBackendServices()`              |
+| Backend service names | kebab-case   | `'ai-backend'`, `'comfyui-backend'` |
+| Python modules        | snake_case   | `web_api.py`, `llm_biz.py`          |
 
 ### Error Handling
 
@@ -321,6 +324,7 @@ OpenVINO/                   # OpenVINO inference backend
 ## IPC Pattern (Three-File Rule)
 
 Every new IPC command requires changes to exactly three files:
+
 1. `WebUI/electron/main.ts` — add `ipcMain.handle()` or `ipcMain.on()` handler
 2. `WebUI/electron/preload.ts` — expose via `contextBridge.exposeInMainWorld()`
 3. `WebUI/src/env.d.ts` — add TypeScript type definition to `electronAPI`
@@ -364,12 +368,14 @@ not a feature.
 
 **Whenever you add, change, or remove a key in `en-US.json`, apply the same change to all 12 other
 locale files in the same commit:**
+
 - **Added key** → add it to every locale with a translation of the new English value.
 - **Changed English value** → re-generate (re-translate) that key in every locale so translations
   don't drift from the current English wording.
 - **Removed key** → remove it from every locale (no orphan/extra keys).
 
 Rules for the locale files:
+
 - Every locale must have the **exact same key set** as `en-US.json` — no missing, no extra keys.
 - Preserve `{placeholder}` tokens verbatim (e.g. `{tool}`, `{error}`) — same set per key as English.
 - Do **not** translate product/technical names: `AI Playground`, `ComfyUI`, `HuggingFace`, `MCP`,
@@ -395,6 +401,7 @@ This section eliminates the need for codebase exploration at the start of each s
 ### Navigation (No Vue Router)
 
 There is **no Vue Router**. Navigation is state-driven:
+
 - `App.vue` checks `globalSetup.loadingState` (`verifyBackend` → `manageInstallations` → `loading` → `running`/`failed`)
 - Once running, `promptStore.currentMode` controls which view renders: `chat` → `Chat.vue`, `agent` → `AgentMode.vue`, `imageGen`/`imageEdit`/`video` → `WorkflowResult.vue`
 - `PromptArea.vue` is the shared prompt input bar across all modes
@@ -406,12 +413,12 @@ There is **no Vue Router**. Navigation is state-driven:
 
 Managed by `electron/subprocesses/apiServiceRegistry.ts`. Each service spawns a child process and exposes an OpenAI-compatible HTTP API:
 
-| Service | Ports | Binary/Entry | Health Endpoint | Purpose |
-|---|---|---|---|---|
-| `ai-backend` | 59000-59999 | `service/web_api.py` (Python Flask) | `/healthy` | Model downloading/management only — **NOT inference** |
-| `llamacpp-backend` | 39000-39999 | `llama-server` (native) | `/health` | GGUF model inference (LLM + embedding sub-servers) |
-| `openvino-backend` | 29000-29999 | `ovms` (native) | `/v2/health/ready` | OpenVINO inference (LLM + embedding + transcription sub-servers) |
-| `comfyui-backend` | 49000-49999 | ComfyUI `main.py` (Python) | `/queue` | Image/video/3D generation via workflows |
+| Service            | Ports       | Binary/Entry                        | Health Endpoint    | Purpose                                                          |
+| ------------------ | ----------- | ----------------------------------- | ------------------ | ---------------------------------------------------------------- |
+| `ai-backend`       | 59000-59999 | `service/web_api.py` (Python Flask) | `/healthy`         | Model downloading/management only — **NOT inference**            |
+| `llamacpp-backend` | 39000-39999 | `llama-server` (native)             | `/health`          | GGUF model inference (LLM + embedding sub-servers)               |
+| `openvino-backend` | 29000-29999 | `ovms` (native)                     | `/v2/health/ready` | OpenVINO inference (LLM + embedding + transcription sub-servers) |
+| `comfyui-backend`  | 49000-49999 | ComfyUI `main.py` (Python)          | `/queue`           | Image/video/3D generation via workflows                          |
 
 ### Three Communication Patterns
 
@@ -443,7 +450,8 @@ profile against the live thinking state and maps it to wire names — llama.cpp'
 `min_p` vs OVMS's `repetition_penalty`.
 
 How the values reach a turn:
-- **temperature / reasoning effort** become the *defaults* of the user-facing settings. A preset
+
+- **temperature / reasoning effort** become the _defaults_ of the user-facing settings. A preset
   that declares its own `temperature` wins, and so does anything the user changed: `textInference`
   records the value it applied (`temperatureFromModel`, per preset) and only replaces a setting
   that still equals it, so a model switch or a flip of the thinking toggle re-picks the profile
@@ -464,7 +472,7 @@ thinking once; an agent turn pays per step, and a Game Maker run is dozens of st
 **A model can ask for its own `llama-server` flags.** `models.json` `llamaCppArgs` is a parameter
 string in the same syntax as the backend-settings box; it rides `ensureBackendReadiness` beside
 `contextSize` (renderer → preload → main → service), is sanitized like the user's — the catalog is
-refreshed from a remote repo — and is spliced in *ahead* of the user's parameters by
+refreshed from a remote repo — and is spliced in _ahead_ of the user's parameters by
 `buildLlmServerArgs`, so a hand-written flag still wins and `--host 127.0.0.1` still comes last. A
 change to the string relaunches the server, since flags are baked into the command line. Only
 llama.cpp reads it; OVMS has a different command line and is passed nothing. Both Qwen3.8-27B entries
@@ -472,6 +480,40 @@ use it for `--spec-default --spec-type draft-mtp`: the GGUFs carry MTP layers th
 otherwise loads and discards (`unused tensor blk.64.nextn.*`), and drafting off them measured
 5.9 → 12.5 tok/s on Arc B390 at ~65% draft acceptance for ~3 GB, with no second model to download.
 Generation speed, not reasoning depth, was the bulk of that 15-minute run.
+
+**Thinking is capped for Qwen3.8, and only for Qwen3.8.** `reasoning_effort: low` did not stop it
+drafting: a Game Maker run spent 20 minutes and ~6k tokens writing the whole asteroids game inside
+one thinking block, then hit its turn limit before the first `edit`. Reasoning tokens cost what
+output tokens cost and cannot be play-tested, so that draft was paid for and largely thrown away
+(see `--reasoning-preserve` below for the part that was recoverable).
+`--reasoning-budget 2048` (with a `--reasoning-budget-message`
+that tells the model to act on what it has) is a hard stop the prompt cannot argue with. It is a
+server flag, not a request field — `reasoning_budget` in the body is ignored, verified against
+b10430 — which is why it lives in `llamaCppArgs`: per model, so a cap aimed at one slow local model
+never reaches anyone's chat with another. The message is a quoted sentence, which is why
+`splitParameterString` parses the parameter string like a shell instead of splitting on whitespace.
+
+**`--reasoning-preserve` is a no-op here — do not add it back.** Pi puts every stored thinking block
+back on its assistant messages as `reasoning_content` (`pi-ai`'s `openai-completions` request
+builder — not gated on the model's `reasoning` flag, which we register as `false`), so the whole
+trace is on the wire each step, and what happens next is decided by the template, not by us.
+Qwen3.8's gate reads
+`preserve_thinking is undefined or preserve_thinking is true or loop.index0 > ns.last_query_index`:
+undefined already preserves, and the trailing clause keeps everything after the last user message
+regardless — which inside an agent turn is the entire tool loop. Rendering a two-turn history
+through `/apply-template` confirms it: no kwargs and `preserve_thinking: true` are byte-identical
+(all traces kept), and only an explicit `false` drops anything, and then only the _earlier user
+turn's_ traces. llama.cpp's flag default is "template default", i.e. the variable is left unset, so
+starting the server with `--reasoning-preserve` changes nothing that was not already true.
+
+The measurement that made this worth chasing still stands as a warning about prompt-prefix
+stability: on Arc B390 the 27B prefills at ~130 tok/s, so a 24k-token agent prompt costs ~3 minutes
+to process from scratch. Against the live server, replaying an agent step with the earlier traces
+kept reused 4321 of 5740 prompt tokens (13.7s), while the same step with those traces stripped —
+half the size — reused 54 and had to process 2356 (15.7s): a _smaller_ prompt that took _longer_,
+because the deletion moved the divergence point to the front. Anything that rewrites history
+mid-prompt (dropping reasoning, re-summarizing, renumbering tool ids) forfeits the whole KV cache
+every step, which is far more expensive than the tokens it saves.
 
 **Context size is not honored everywhere.** OVMS on NPU compiles a static graph for
 `--max_prompt_len`, so the preset's `contextSize` is capped by `npuPromptLen()`
@@ -487,6 +529,7 @@ ad hoc per call site. **Full reference: [`docs/error-state-activity-architecture
 diagram and conventions for adding new state). The summary below is the quick version.
 
 **Error model + sink:**
+
 - `assets/js/errors/types.ts` — `AppError` type (`code`, `category`, `severity`, `surface`,
   `userMessage`, `technicalMessage`, `context`, `recoverable`, `action`, `cause`, `timestamp`).
   Branded with a plain `__isAppError: true` literal so it survives serialization.
@@ -505,6 +548,7 @@ reached) and reports to the sink with `surface: 'silent'` (the screen already sh
 
 **Generation lifecycle (`imageGenerationPresets` + `comfyUiPresets`):** image/video/3D generation is
 modeled as an explicit FSM rather than loose flags.
+
 - `GenerateState` (`store/imageGenerationPresets.ts`) drives the UI overlay: `start_backend` →
   `install_workflow_components` → `load_workflow_components` → `generating` → `image_out`, plus
   `no_start`/`error`. The `start_backend` state shows a "Starting image backend" bar so the
@@ -555,6 +599,7 @@ has no store deps (avoids cycles); reconciliation lives in the producing stores.
 ### Pinia Stores — What Each Does
 
 **Domain stores** (core business logic):
+
 - `textInference` — LLM backend/model selection, RAG config, system prompt, context size, per-preset settings. Deps: `backendServices`, `models`, `dialogs`, `presets`
 - `openAiCompatibleChat` — Vercel AI SDK chat instances, message streaming, tool calling, vision, token tracking. Deps: `textInference`, `conversations`
 - `imageGenerationPresets` — Image/video generation state (prompt, seed, dimensions, batch), ComfyUI dynamic inputs. Deps: `presets`, `comfyUiPresets`, `backendServices`, `ui`, `dialogs`, `i18n`
@@ -564,12 +609,14 @@ has no store deps (avoids cycles); reconciliation lives in the producing stores.
 - `conversations` — Conversation CRUD and persistence. No store deps.
 
 **Orchestration stores:**
+
 - `backendServices` — Service lifecycle, device selection, version management. No store deps. Heavy IPC usage.
 - `presetSwitching` — Unified `switchPreset()`, `switchVariant()` across modes. Deps: `presets`, `promptArea`, `backendServices`, `dialogs`, `globalSetup`, `i18n` + lazy `textInference`, `imageGenerationPresets`
 - `globalSetup` — App initialization, loading state machine. Deps: `models`
 - `promptArea` — Current UI mode (`chat`/`imageGen`/`imageEdit`/`video`), prompt submit/cancel callbacks. Deps: `presetSwitching`
 
 **Infrastructure stores** (UI state, no business logic):
+
 - `errors` — **Central error sink.** `report(err, overrides?)` normalizes any value into an `AppError`, logs it, de-duplicates (by instance), and surfaces it per its `surface` policy (toast/inline/modal/silent). Keeps `recentErrors`. No deps. See "Error & generation state architecture" below.
 - `activities` — **Central activity/progress sink.** `begin/update/end/track` long-running steps; `chatActivity(key, exclude?)` / `imageGenActivity` expose the most-specific active work; `endScope()` reconciles stragglers. Single source of truth for "what is the app busy with" (backend prep, RAG, tools, thinking, generation). No deps. See "Error & generation state architecture" below.
 - `dialogs` — Dialog visibility state (download, warning, requirements, installation progress, mask editor). No deps.
@@ -597,21 +644,21 @@ has no store deps (avoids cycles); reconciliation lives in the producing stores.
 
 ### Electron Main Process Files
 
-| File | Purpose |
-|---|---|
-| `electron/main.ts` | Window creation, all IPC handlers (~68 channels), app lifecycle |
-| `electron/preload.ts` | `contextBridge` exposing `electronAPI` to renderer |
-| `electron/pathsManager.ts` | Singleton managing all app/model/service filesystem paths |
-| `electron/remoteUpdates.ts` | Fetching model lists and preset updates from GitHub |
-| `electron/subprocesses/apiServiceRegistry.ts` | Service registration, port allocation, lifecycle orchestration |
-| `electron/subprocesses/service.ts` | Base classes: `GenericService`, `ExecutableService`, `LongLivedPythonApiService` |
-| `electron/subprocesses/aiBackendService.ts` | Python Flask model-management backend |
-| `electron/subprocesses/llamaCppBackendService.ts` | LlamaCPP native server (LLM + embedding sub-servers) |
-| `electron/subprocesses/openVINOBackendService.ts` | OpenVINO OVMS (LLM + embedding + transcription sub-servers) |
-| `electron/subprocesses/comfyUIBackendService.ts` | ComfyUI Python server |
-| `electron/subprocesses/langchain.ts` | RAG utility process (document splitting, embedding, vector search) |
-| `electron/subprocesses/deviceDetection.ts` | Intel GPU device detection and env var setup |
-| `electron/logging/logger.ts` | Logging, sends `debugLog` events to renderer |
+| File                                              | Purpose                                                                          |
+| ------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `electron/main.ts`                                | Window creation, all IPC handlers (~68 channels), app lifecycle                  |
+| `electron/preload.ts`                             | `contextBridge` exposing `electronAPI` to renderer                               |
+| `electron/pathsManager.ts`                        | Singleton managing all app/model/service filesystem paths                        |
+| `electron/remoteUpdates.ts`                       | Fetching model lists and preset updates from GitHub                              |
+| `electron/subprocesses/apiServiceRegistry.ts`     | Service registration, port allocation, lifecycle orchestration                   |
+| `electron/subprocesses/service.ts`                | Base classes: `GenericService`, `ExecutableService`, `LongLivedPythonApiService` |
+| `electron/subprocesses/aiBackendService.ts`       | Python Flask model-management backend                                            |
+| `electron/subprocesses/llamaCppBackendService.ts` | LlamaCPP native server (LLM + embedding sub-servers)                             |
+| `electron/subprocesses/openVINOBackendService.ts` | OpenVINO OVMS (LLM + embedding + transcription sub-servers)                      |
+| `electron/subprocesses/comfyUIBackendService.ts`  | ComfyUI Python server                                                            |
+| `electron/subprocesses/langchain.ts`              | RAG utility process (document splitting, embedding, vector search)               |
+| `electron/subprocesses/deviceDetection.ts`        | Intel GPU device detection and env var setup                                     |
+| `electron/logging/logger.ts`                      | Logging, sends `debugLog` events to renderer                                     |
 
 ## Cursor Cloud specific instructions
 
@@ -684,7 +731,7 @@ the route dispatches against, and it must stay in sync with the action union in 
 `preload.ts` / `env.d.ts`. A channel may omit a method it has no use for (only the LAN page needs
 `history`) and the route answers 404 for it.
 
-`local-web` ("LAN chat") is the odd one out: instead of talking to a cloud bot API it *is* the
+`local-web` ("LAN chat") is the odd one out: instead of talking to a cloud bot API it _is_ the
 server. `home-agent/channels/local_web.py` stands up a `ThreadingHTTPServer` in a daemon thread
 that serves a self-contained page (`local_web_app_html.py`) to browsers on loopback — or the whole
 LAN when `allowLan` is on — takes inbound messages on `POST /api/chat` behind a password login,
@@ -718,14 +765,15 @@ laptop. They are injected by `WebUI/src/assets/js/store/devPresets.ts` when
 `debugToolsEnabled` is true, mirroring the dev-only test LLM in `models.ts`, and they use
 only core ComfyUI nodes — no models, no custom nodes, no downloads.
 
-| Preset | Mode / tool category | Output | Graph |
-|---|---|---|---|
-| `Dummy Image (test)` | Image Gen / `create-images` | solid-colour PNG | `EmptyImage` → `SaveImage` |
-| `Dummy Edit (test)` | Image Edit / `edit-images` | colour-inverted PNG | `LoadImage` → `ImageInvert` → `SaveImage` |
-| `Dummy Video (test)` | Video / `create-videos` | solid-colour mp4 | `EmptyImage` → `CreateVideo` → `SaveVideo` |
-| `Dummy 3D Model (test)` | Image Edit / `edit-images` | placeholder `.glb` | `Load3D` → `SaveGLB` |
+| Preset                  | Mode / tool category        | Output              | Graph                                      |
+| ----------------------- | --------------------------- | ------------------- | ------------------------------------------ |
+| `Dummy Image (test)`    | Image Gen / `create-images` | solid-colour PNG    | `EmptyImage` → `SaveImage`                 |
+| `Dummy Edit (test)`     | Image Edit / `edit-images`  | colour-inverted PNG | `LoadImage` → `ImageInvert` → `SaveImage`  |
+| `Dummy Video (test)`    | Video / `create-videos`     | solid-colour mp4    | `EmptyImage` → `CreateVideo` → `SaveVideo` |
+| `Dummy 3D Model (test)` | Image Edit / `edit-images`  | placeholder `.glb`  | `Load3D` → `SaveGLB`                       |
 
 Notes:
+
 - Prompts are ignored (like the real `Colorize` / `Image To 3D Model` no-prompt presets), so
   `modifySettingInWorkflow` logs a harmless "No key found for setting prompt" warning. Width,
   height and batch size are wired for real; the edit dummy inverts colours so a visible change
@@ -748,7 +796,7 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
 `game.json` (`WebUI/electron/gameLibrary.ts`; no central index, `listGames()` scans for cards).
 
 - **A new game folder is not empty.** `createGame()` writes a scaffold
-  (`WebUI/electron/gameScaffold.ts`): `index.html` (canvas + a *classic* `<script src="game.js">`)
+  (`WebUI/electron/gameScaffold.ts`): `index.html` (canvas + a _classic_ `<script src="game.js">`)
   and `game.js` — a running dt-based loop, keyboard + pointer input and a `window.__game` hook,
   divided by `// === section ===` markers so `edit` has unique targets. The split is only safe
   because Play opens the entry as a `file://` page, where ES modules and `fetch()` of a sibling
@@ -765,7 +813,7 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   an image decode per check and preceded every `ErrorDeviceLost` crash in the 35B benchmark runs;
   the skills now say outright not to read a screenshot back as an image.
 - The agent fills the library card itself with the `game` tool (`set_metadata`, `set_icon`),
-  following the `html-game-studio` skill (which asks for `set_metadata` *first* — all three 35B
+  following the `html-game-studio` skill (which asks for `set_metadata` _first_ — all three 35B
   benchmark runs ran out of turns before naming their game); **Add to Acer Hub** in the game bar
   flips `published` and regenerates `games/index.html` + `games/library.json`. The gallery inlines
   its manifest
@@ -830,6 +878,7 @@ in-memory, so behavior is deterministic and inspectable.
   and `mock` activation (`debugToolsEnabled && masterEnabled`, no backend required).
 
 **Files:**
+
 - `src/assets/js/store/channels/mockAdapter.ts` — `mockChannelBus` (in-memory `inbox` +
   reactive `outbox`) and `createMockAdapter()`.
 - `src/assets/js/store/homeAgent.ts` — `mock` wired into `KINDS` (dev-only), the per-kind
@@ -846,17 +895,17 @@ prompt), and inspect the captured replies.
 `evaluate_script` against `http://localhost:25413`) via `window.__homeAgentMock`:
 
 ```js
-window.__homeAgentMock.clear()
-await window.__homeAgentMock.send('/help')          // inject a text message + drain
-await window.__homeAgentMock.sendCallback('imgGen:cancel') // inject an inline-keyboard tap
-await window.__homeAgentMock.waitForIdle()          // resolves when the drain loop is idle
-window.__homeAgentMock.outbox()                     // captured outbound events
+window.__homeAgentMock.clear();
+await window.__homeAgentMock.send("/help"); // inject a text message + drain
+await window.__homeAgentMock.sendCallback("imgGen:cancel"); // inject an inline-keyboard tap
+await window.__homeAgentMock.waitForIdle(); // resolves when the drain loop is idle
+window.__homeAgentMock.outbox(); // captured outbound events
 
 // Verify outbound media delivery WITHOUT a full generation: routes a media URL
 // through the real send path (sendImageToChannel / sendVideoToChannel /
 // send3DModelToChannel). For a .glb this renders the 3D thumbnail "screenshot"
 // (captured as a `photo`) and ships the model (captured as a `document`).
-await window.__homeAgentMock.sendMedia('aipg-media://AIPG_3D_00001_.glb')
+await window.__homeAgentMock.sendMedia("aipg-media://AIPG_3D_00001_.glb");
 ```
 
 `send(text, opts?)` accepts optional `images` / `audio` / `documents` / `chat_id` /

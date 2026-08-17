@@ -19,6 +19,15 @@ export const ovmsToolParsers = [
   'gemma4',
 ] as const
 
+// OVMS compiles a static graph for `--max_prompt_len` on NPU, so the window is
+// paid for up front in compile time and memory — unlike GPU, which sizes its KV
+// cache at runtime. The preset's context size therefore cannot be handed to NPU
+// unchecked (agent presets ask for 128k), so it is capped here for that device.
+export const OPENVINO_NPU_MAX_PROMPT_LEN = 8192
+
+export const npuPromptLen = (contextSize?: number): number =>
+  Math.min(contextSize ?? OPENVINO_NPU_MAX_PROMPT_LEN, OPENVINO_NPU_MAX_PROMPT_LEN)
+
 // Sampling knobs a model publisher recommends. Names are camelCase here and
 // mapped to the wire names (top_p, min_p, repeat_penalty, ...) when a request is
 // built; see src/lib/samplingDefaults.ts.

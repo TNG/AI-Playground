@@ -451,7 +451,14 @@ How the values reach a turn:
 - **everything else** (`top_p`, `top_k`, `min_p`, penalties) has no UI and rides on the request:
   `chatModel.ts`'s `transformRequestBody` for chat, `samplingParams` on the resolved Pi model
   (`piAgentManager.ts`) for agent turns. Cloud providers get none of it — they reject parameters
-  they do not model.
+  they do not model. OVMS ignores what it does not know (verified: `min_p` / `repeat_penalty`
+  still return 200), so the dialect mapping is about correctness, not avoiding rejections.
+
+**Context size is not honored everywhere.** OVMS on NPU compiles a static graph for
+`--max_prompt_len`, so the preset's `contextSize` is capped by `npuPromptLen()`
+(`src/types/shared.ts`) before the server is started — agent presets ask for 128k, which the NPU
+cannot pay for up front. `effectiveContextWindow` applies the same cap so the context gauge shows
+what the turn actually gets. OpenVINO on GPU ignores `contextSize` entirely (dynamic KV cache).
 
 ### Error & generation state architecture
 

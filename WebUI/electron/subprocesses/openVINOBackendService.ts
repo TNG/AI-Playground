@@ -28,6 +28,7 @@ import {
   waitForTerminalInstall,
 } from './linuxPackageInstaller.ts'
 import { resolveDefaultDevice } from './defaultDeviceSelection.ts'
+import { npuPromptLen } from '../../src/types/shared.ts'
 
 const execAsync = promisify(exec)
 
@@ -2072,7 +2073,6 @@ export class OpenVINOBackendService implements ApiService {
   ): Promise<OvmsServerProcess> {
     try {
       const selectedDevice = this.devices.find((d) => d.selected)?.id || 'AUTO'
-      const maxPromptLen = contextSize ?? 8192
       const toolParser = await this.resolveToolParser(modelRepoId)
       const servedModelName = modelRepoId.split('/').join('---')
 
@@ -2105,6 +2105,13 @@ export class OpenVINOBackendService implements ApiService {
       ]
 
       if (selectedDevice.startsWith('NPU')) {
+        const maxPromptLen = npuPromptLen(contextSize)
+        if (contextSize && contextSize > maxPromptLen) {
+          this.appLogger.info(
+            `Context size ${contextSize} exceeds what NPU is started with; using --max_prompt_len ${maxPromptLen}`,
+            this.name,
+          )
+        }
         args.push('--max_prompt_len', maxPromptLen.toString())
       }
 

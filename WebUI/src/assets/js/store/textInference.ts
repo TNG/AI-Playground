@@ -6,6 +6,7 @@ import { useModels } from './models'
 import { Document } from '@langchain/classic/document'
 import {
   llmBackendTypes,
+  npuPromptLen,
   reasoningEfforts,
   type InferenceDefaults,
   type ReasoningEffort,
@@ -545,6 +546,9 @@ export const useTextInference = defineStore(
     const effectiveContextWindow = computed(() => {
       if (contextSizeIsDynamic.value) return maxContextSizeFromModel.value ?? 0
       if (backend.value === 'cloud') return maxContextSizeFromModel.value ?? contextSize.value
+      // OVMS is started with a capped --max_prompt_len on NPU, so a larger
+      // setting is not what the turn gets there.
+      if (runningOnOpenvinoNpu.value) return npuPromptLen(contextSize.value)
       return contextSize.value
     })
 

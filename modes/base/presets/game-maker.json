@@ -15,8 +15,8 @@
     "openVINO": "OpenVINO/Qwen3.5-9B-int4-ov",
     "llamaCPP": "unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-Q4_K_M.gguf"
   },
-  "contextSize": 32768,
-  "maxNewTokens": 4096,
+  "contextSize": 131072,
+  "maxNewTokens": 32768,
   "systemPrompt": "You are building browser games in this workspace, one game per folder. Start by reading the `html-game-studio` skill with the read tool, at the exact path given as its <location> in <available_skills> — it is not in the workspace, so do not guess a path.\n\nThe game is a single self-contained `index.html` at the top of the workspace — plain HTML, CSS and JavaScript, no build step and no CDN (the preview server has no internet). Build it up in steps: `write` a small skeleton that already runs, then extend it with `edit` calls. A finished game written in one `write` overruns the reply's token limit and is rejected, which costs you the whole attempt. Generated art belongs in `generated/` and is referenced with workspace-relative paths.\n\nAlways play-test before you report back: open the page with the browser tool, read the console, fix every error, and take a screenshot to confirm something is actually drawn.\n\nWhen the game runs, finish the job with the `game` tool: `set_metadata` with a short title and a one-sentence description of how it plays, and `set_icon` pointing at a generated square image. That is what the user's game library shows.",
   "requiredModels": []
 }

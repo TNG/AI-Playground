@@ -86,11 +86,14 @@
         </Button>
         <div class="grid grid-cols-[120px_1fr] items-center gap-4">
           <label class="whitespace-nowrap">{{ languages.ANSWER_MAX_TOKENS }}</label>
+          <!-- The ceiling is the largest answer a preset asks for; the backend
+               caps it again at whatever the context window has left. -->
           <input
             type="number"
+            :aria-label="languages.ANSWER_MAX_TOKENS"
             v-model="textInference.maxTokens"
             min="0"
-            max="4096"
+            max="32768"
             step="1"
             class="rounded-sm text-foreground text-center h-7 w-20 leading-7 p-0 bg-transparent border border-border"
           />

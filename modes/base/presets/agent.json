@@ -13,8 +13,8 @@
     "openVINO": "OpenVINO/Qwen3.5-9B-int4-ov",
     "llamaCPP": "unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-Q4_K_M.gguf"
   },
-  "contextSize": 32768,
-  "maxNewTokens": 4096,
+  "contextSize": 131072,
+  "maxNewTokens": 32768,
   "requiresToolCalling": true,
   "requiredModels": []
 }

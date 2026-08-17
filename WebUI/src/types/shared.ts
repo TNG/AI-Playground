@@ -35,8 +35,11 @@ const SamplingSchema = z
   .partial()
 
 // Depth of the reasoning trace, sent as chat_template_kwargs.reasoning_effort by
-// templates that read it (Qwen3.8). Ordered from cheapest to most thorough.
-export const reasoningEfforts = ['none', 'low', 'medium', 'high', 'xhigh'] as const
+// templates that read it. Cheapest first, and exactly the levels Qwen3.8 accepts:
+// its template raises "Unexpected reasoning effort" for anything else — including
+// `none`, which the model card lists but the shipped GGUF template rejects (no
+// thinking at all is the `enable_thinking` toggle's job, not an effort level).
+export const reasoningEfforts = ['low', 'medium', 'xhigh'] as const
 
 // Per-model recommended inference settings. The top-level keys are the shared
 // base; `thinking` / `instruct` override it depending on the thinking toggle,

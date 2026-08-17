@@ -4,7 +4,12 @@ import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices, type BackendServiceName } from './backendServices'
 import { useModels } from './models'
 import { Document } from '@langchain/classic/document'
-import { llmBackendTypes, type InferenceDefaults, type ReasoningEffort } from '@/types/shared'
+import {
+  llmBackendTypes,
+  reasoningEfforts,
+  type InferenceDefaults,
+  type ReasoningEffort,
+} from '@/types/shared'
 import {
   isAdoptable,
   recommendedReasoningEffort,
@@ -520,6 +525,9 @@ export const useTextInference = defineStore(
     // (Qwen3.8). Undefined until a model that supports it is active.
     const reasoningEffort = ref<ReasoningEffort | undefined>(undefined)
     const reasoningEffortFromModel = ref<ReasoningEffort | undefined>(undefined)
+
+    const knownReasoningEffort = (value: unknown): ReasoningEffort | undefined =>
+      reasoningEfforts.includes(value as ReasoningEffort) ? (value as ReasoningEffort) : undefined
 
     // Get max context size from current model
     const maxContextSizeFromModel = computed(() => {
@@ -1570,11 +1578,12 @@ export const useTextInference = defineStore(
       }
       temperatureFromModel.value = savedSettings.temperatureFromModel as number | undefined
 
-      // Load reasoning effort (only meaningful for models that recommend one)
-      reasoningEffort.value = savedSettings.reasoningEffort as ReasoningEffort | undefined
-      reasoningEffortFromModel.value = savedSettings.reasoningEffortFromModel as
-        | ReasoningEffort
-        | undefined
+      // Load reasoning effort (only meaningful for models that recommend one).
+      // A level we no longer offer is dropped rather than restored: a template
+      // that does not know it aborts the whole turn, so a stale saved value
+      // would otherwise poison the preset for good.
+      reasoningEffort.value = knownReasoningEffort(savedSettings.reasoningEffort)
+      reasoningEffortFromModel.value = knownReasoningEffort(savedSettings.reasoningEffortFromModel)
 
       // Load system prompt (only when user can modify it)
       if (isSystemPromptVisible.value && savedSettings.systemPrompt !== undefined) {

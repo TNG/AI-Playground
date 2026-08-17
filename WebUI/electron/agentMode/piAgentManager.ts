@@ -230,9 +230,11 @@ async function ensureModelRuntime(): Promise<ModelRuntime> {
  *
  * Half the context window is the hard bound (the rest has to hold the
  * conversation, and Pi compacts once the input passes `contextWindow` minus its
- * 16k reserve), so a small window still gets a proportionate share.
+ * 16k reserve), so a small window still gets a proportionate share: the local
+ * target is only reached from the 64k window up, and the agent presets ask for
+ * 128k.
  */
-const OUTPUT_TOKEN_TARGET = { local: 8192, cloud: 16384 } as const
+const OUTPUT_TOKEN_TARGET = { local: 32768, cloud: 16384 } as const
 
 function outputTokenBudget(contextWindow: number, source: 'local' | 'cloud'): number {
   return Math.min(OUTPUT_TOKEN_TARGET[source], Math.floor(contextWindow / 2))

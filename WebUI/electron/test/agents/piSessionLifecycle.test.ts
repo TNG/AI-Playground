@@ -675,7 +675,14 @@ describe('turn streaming', () => {
     }
 
     it('leaves a local model room for a whole file', async () => {
-      expect(await registeredMaxTokens(configFor())).toBe(8192)
+      // The window the agent presets ask for (128k), where the full target fits.
+      const modelConfig = {
+        source: 'local' as const,
+        model: 'test-model',
+        baseUrl: 'http://127.0.0.1:39000/v1',
+        contextWindow: 131072,
+      }
+      expect(await registeredMaxTokens(configFor({ modelConfig }))).toBe(32768)
     })
 
     it('keeps half of a small window for the conversation', async () => {
@@ -698,6 +705,40 @@ describe('turn streaming', () => {
         authStyle: 'bearer',
       }
       expect(await registeredMaxTokens(configFor({ modelConfig }))).toBe(16384)
+    })
+  })
+
+  // Sampling a model's publisher recommends (models.json `inferenceDefaults`)
+  // has no typed home in Pi, so the renderer sends it as raw body fields that
+  // ride on the model itself.
+  describe('sampling parameters', () => {
+    async function sessionModel(config: AgentModeTurnConfig): Promise<Record<string, unknown>> {
+      const manager = await loadManager()
+      createAgentSession.mockClear()
+      await manager.startAgentTurn('t1', 'hello', config)
+      const [options] = createAgentSession.mock.calls[0] as unknown as [
+        { model: Record<string, unknown> },
+      ]
+      return options.model
+    }
+
+    it('puts the recommended sampling on the model Pi runs with', async () => {
+      const samplingParams = { temperature: 1, top_p: 0.95, top_k: 20 }
+      const modelConfig = {
+        source: 'local' as const,
+        model: 'test-model',
+        baseUrl: 'http://127.0.0.1:39000/v1',
+        contextWindow: 32768,
+        samplingParams,
+      }
+      expect(await sessionModel(configFor({ modelConfig }))).toMatchObject({
+        id: 'test-model',
+        samplingParams,
+      })
+    })
+
+    it('leaves the model untouched when nothing is recommended', async () => {
+      expect(await sessionModel(configFor())).not.toHaveProperty('samplingParams')
     })
   })
 

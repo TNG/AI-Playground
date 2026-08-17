@@ -8,7 +8,12 @@ import {
   resolveSampling,
   toRequestBody,
 } from '@/lib/samplingDefaults'
-import { ModelSchema, type InferenceDefaults, type ReasoningEffort } from '@/types/shared'
+import {
+  ModelSchema,
+  reasoningEfforts,
+  type InferenceDefaults,
+  type ReasoningEffort,
+} from '@/types/shared'
 
 // Hybrid-thinking models publish two sets of numbers (Qwen3.8: temp 1.0/top_p
 // 0.95 while thinking, 0.7/0.80 plus a presence penalty when not), so the
@@ -107,8 +112,17 @@ describe('isAdoptable', () => {
 
   it('treats a setting with no app default as adoptable while unset', () => {
     expect(isAdoptable<ReasoningEffort | undefined>(undefined, undefined)).toBe(true)
-    expect(isAdoptable<ReasoningEffort | undefined>('high', 'medium')).toBe(false)
+    expect(isAdoptable<ReasoningEffort | undefined>('xhigh', 'medium')).toBe(false)
     expect(isAdoptable<ReasoningEffort | undefined>('medium', 'medium')).toBe(true)
+  })
+})
+
+describe('reasoningEfforts', () => {
+  // Qwen3.8's template raises a Jinja exception ("Unexpected reasoning effort
+  // …. Supported types are xhigh (default), medium, and low"), which fails the
+  // whole turn, so offering a level it does not know is not a soft error.
+  it('offers only the levels the template accepts', () => {
+    expect([...reasoningEfforts]).toEqual(['low', 'medium', 'xhigh'])
   })
 })
 

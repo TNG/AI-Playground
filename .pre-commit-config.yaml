@@ -13,6 +13,11 @@
 # changed, so they never abort the commit just because formatting was applied — the
 # reformatted files are restaged and included in the same commit. The linters still
 # fail on genuine, unfixable problems.
+#
+# Both formatters set `require_serial: true`. Without it pre-commit shards the file
+# list across one process per core, and the concurrent `git add`s race for
+# `.git/index.lock` — the commit then fails with "Unable to create index.lock" on a
+# run where nothing was even reformatted. Serial means one invocation, one `git add`.
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.20
@@ -29,8 +34,14 @@ repos:
       - id: ruff-format
         name: ruff format (Python)
         language: system
-        entry: bash -c 'uvx ruff@0.15.20 format "$@" && git add -- "$@"' --
+        # --force-exclude: pre-commit passes filenames explicitly, and ruff only
+        # applies `extend-exclude` from ruff.toml to explicitly-named files when
+        # this flag is set. Without it, `pre-commit run --all-files` reformats the
+        # vendored qwen3-tts tree that ruff.toml exists to keep untouched. (The
+        # upstream ruff lint hook above passes the flag itself.)
+        entry: bash -c 'uvx ruff@0.15.20 format --force-exclude "$@" && git add -- "$@"' --
         files: ^(service|home-agent|qwen3-tts|backend_shared|comfyui-deps)/.*\.py$
+        require_serial: true
       # Linter (ESLint with auto-fix)
       - id: eslint
         name: eslint (WebUI)
@@ -44,3 +55,4 @@ repos:
         language: system
         entry: bash -c 'cd WebUI && files=(); for f in "$@"; do files+=("${f#WebUI/}"); done && npx prettier --write "${files[@]}" && cd .. && git add -- "$@"' --
         files: ^WebUI/.*\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|vue|json|css|scss|html|md|ya?ml)$
+        require_serial: true

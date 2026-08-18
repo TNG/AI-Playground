@@ -24,7 +24,9 @@ from channels import local_web
 from channels.actions import SEND_ACTIONS, send_method_name
 from channels.local_web import LocalWebChannel
 
-PASSWORD = "correct horse"
+# Test fixture: the password this test configures the channel with and then logs
+# in with. Not a credential for anything.
+PASSWORD = "correct horse"  # nosec B105
 
 
 def free_port() -> int:
@@ -120,7 +122,8 @@ class TestRestart(LocalWebChannelTestCase):
     def test_a_restart_invalidates_existing_sessions(self):
         _, cookie = self.login()
         self.assertIsNotNone(cookie)
-        self.channel.set_config({"password": "brand new", "port": str(self.port)})
+        # "brand new" is the replacement fixture password, not a credential.
+        self.channel.set_config({"password": "brand new", "port": str(self.port)})  # nosec B105
         status, _, _, _ = self.request(
             "POST", "/api/chat", {"text": "hi"}, cookie=cookie
         )

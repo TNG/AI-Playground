@@ -34,6 +34,14 @@ _HF_TRANSIENT_ERRORS = (
 )
 _HF_EXISTS_RETRIES = 3
 
+# (connect, read) timeout in seconds for the raw `requests` calls below. The read
+# timeout applies per chunk of a streaming response rather than to the whole
+# transfer, so model-sized downloads are unaffected — a stalled connection raises
+# and `download_model_file` retries from the bytes already on disk via `Range`.
+_DOWNLOAD_TIMEOUT = (10, 60)
+# Plain (non-streaming) requests: no body to trickle in, so a short read timeout.
+_REQUEST_TIMEOUT = (10, 30)
+
 model_list_cache = dict()
 model_lock = Lock()
 
@@ -517,10 +525,13 @@ class HFPlaygroundDownloader:
                 file.url,
                 stream=True,
                 headers=headers,
+                timeout=_DOWNLOAD_TIMEOUT,
             )
             fw = open(file.save_filename, "ab")
         else:
-            response = requests.get(file.url, stream=True, headers=headers)
+            response = requests.get(
+                file.url, stream=True, headers=headers, timeout=_DOWNLOAD_TIMEOUT
+            )
             fw = open(file.save_filename, "wb")
 
         return response, fw
@@ -548,7 +559,12 @@ class HFPlaygroundDownloader:
             print(f"Error checking access for {repo_id}: {ex}")
             return False
 
-        response = requests.head(file.url, headers=headers, allow_redirects=True)
+        response = requests.head(
+            file.url,
+            headers=headers,
+            allow_redirects=True,
+            timeout=_REQUEST_TIMEOUT,
+        )
 
         return response.status_code == 200
 

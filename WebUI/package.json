@@ -27,6 +27,9 @@
     "lint": "eslint . --fix",
     "format": "prettier --write .",
     "type-check": "vue-tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
+    "lint:python": "npm run lint:ruff && npm run lint:bandit",
+    "lint:ruff": "uvx ruff@0.15.20 check .. && uvx ruff@0.15.20 format --check ..",
+    "lint:bandit": "uvx bandit@1.9.4 -c ../bandit.yaml -r ..",
     "lint:ci": "eslint .",
     "format:ci": "prettier --check .",
     "typecheck": "vue-tsc --noEmit && tsc --noEmit -p tsconfig.node.json"

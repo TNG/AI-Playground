@@ -57,8 +57,18 @@ npm run fetch-external-resources
 npm run build
 ```
 
-Python is linted with **Ruff** (`ruff check` / `ruff format`, whole-repo config in `ruff.toml`,
-runs in CI) and scanned with **Bandit**. Its tests are stdlib `unittest`, no pytest needed:
+Python is linted with **Ruff** (`ruff check` / `ruff format`, whole-repo config in `ruff.toml`)
+and scanned with **Bandit** (scope in `bandit.yaml`). Both run in CI and are reproducible from
+`WebUI/` via npm — the scripts shell out to `uvx` with the same pinned versions CI uses, so no
+local Python install is needed:
+
+```bash
+npm run lint:python   # both of the below
+npm run lint:ruff     # ruff check + ruff format --check, whole repo
+npm run lint:bandit   # bandit security scan, whole repo
+```
+
+Its tests are stdlib `unittest`, no pytest needed:
 
 ```bash
 python -m unittest discover -s home-agent/tests   # Home Agent channels (real sockets, ~5s)

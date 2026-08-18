@@ -422,6 +422,11 @@ export const useAgentMode = defineStore(
         modelConfig: {
           source: 'local',
           model: servedModelId,
+          // Which server is behind `baseUrl`, and on what. Only the renderer
+          // knows; tracing in main reads the rest (version, launch line) off
+          // that service itself.
+          backend: textInference.backend,
+          device: textInference.getCurrentDeviceId() ?? undefined,
           // Deliberately the raw backend URL, not `currentBackendUrl`: that one
           // prefers the Home Agent / Cloud Mode loopback proxies, which reject
           // requests (401) without headers only the chat store attaches. Pi

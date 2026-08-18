@@ -79,6 +79,12 @@ export class OpenVINOBackendService implements ApiService {
   private ovmsImageProcess: OvmsServerProcess | null = null
   private currentModel: string | null = null
   private currentContextSize: number | null = null
+  /**
+   * The command line the running LLM server was launched with. OVMS compiles
+   * the graph from these (target device, NPU prompt length, KV cache
+   * precision), so they are what a turn's numbers have to be read against.
+   */
+  private currentLlmServerArgs: string[] | null = null
   private currentEmbeddingModel: string | null = null
   private currentTranscriptionModel: string | null = null
   private currentSpeechModel: string | null = null
@@ -1216,6 +1222,11 @@ export class OpenVINOBackendService implements ApiService {
     }
   }
 
+  /** The running LLM server's command line, or null when none is running. */
+  llmServerArgs(): string[] | null {
+    return this.ovmsLlmProcess ? this.currentLlmServerArgs : null
+  }
+
   setStatus(status: BackendStatus) {
     this.currentStatus = status
     this.updateStatus()
@@ -2195,6 +2206,7 @@ export class OpenVINOBackendService implements ApiService {
       this.ovmsLlmProcess = ovmsProcess
       this.currentModel = modelRepoId
       this.currentContextSize = contextSize ?? null
+      this.currentLlmServerArgs = args
 
       this.appLogger.info(`OVMS LLM server ready for model: ${modelRepoId}`, this.name)
       return ovmsProcess

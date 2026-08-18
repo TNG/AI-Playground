@@ -5,6 +5,14 @@ import { app } from 'electron'
 import { z } from 'zod'
 import { appLoggerInstance } from './logging/logger.ts'
 import { externalResourcesDir } from './util.ts'
+import {
+  recordChatCallStats,
+  setChatTraceContext,
+  stampSpanEnd,
+  stampSpanStart,
+  type InferenceCallStats,
+  type InferenceTraceContext,
+} from './laminarAttributes.ts'
 
 // ── Laminar tracing (dev-only PoC) ───────────────────────────────────────────
 //
@@ -41,6 +49,16 @@ const LaminarConfigSchema = z.object({
     .transform((value) => value.replace(/\/+$/, '')),
   httpPort: z.number().int().positive().default(8000),
   grpcPort: z.number().int().positive().default(8001),
+  /**
+   * How much of a recorded message list to keep, in characters (`LMNR_MAX_CHARS`
+   * for the Pi extension). Its default of 20k clips from the *front*, which on
+   * any turn after the first is all system prompt and old history — so the new
+   * user message, at the end, is cut off, and Laminar's transcript (which reads
+   * the prompt out of the LLM span's message list) shows no input at all. Big
+   * enough here for a full agent prompt; each LLM span then carries its own copy,
+   * so a long run costs megabytes of local trace storage.
+   */
+  maxChars: z.number().int().positive().default(1_000_000),
 })
 
 export type LaminarConfig = z.infer<typeof LaminarConfigSchema>
@@ -93,7 +111,9 @@ export async function initLaminarTracing(): Promise<void> {
   try {
     process.env.LMNR_PROJECT_API_KEY = config.projectApiKey
     process.env.LMNR_BASE_URL = config.baseUrl
-    const { Laminar } = await import('@lmnr-ai/lmnr')
+    // Read by the Pi extension when it truncates what it records (see maxChars).
+    process.env.LMNR_MAX_CHARS = String(config.maxChars)
+    const { Laminar, LaminarSpanProcessor } = await import('@lmnr-ai/lmnr')
     if (!Laminar.initialized()) {
       Laminar.initialize({
         projectApiKey: config.projectApiKey,
@@ -105,6 +125,14 @@ export async function initLaminarTracing(): Promise<void> {
         instrumentModules: {},
         // The gRPC exporter would need a native addon inside Electron.
         forceHttp: true,
+        spanProcessor: stampingSpanProcessor(
+          new LaminarSpanProcessor({
+            baseUrl: config.baseUrl,
+            port: config.httpPort,
+            apiKey: config.projectApiKey,
+            forceHttp: true,
+          }) as unknown as SpanProcessorHooks,
+        ) as unknown as NonNullable<Parameters<typeof Laminar.initialize>[0]>['spanProcessor'],
       })
     }
     logger.info(
@@ -116,6 +144,43 @@ export async function initLaminarTracing(): Promise<void> {
     logger.warn(`tracing disabled: ${error}`, LOG_SOURCE)
     resolved = null
   }
+}
+
+/**
+ * A span processor that stamps our own attributes, then hands the span to a
+ * real `LaminarSpanProcessor`.
+ *
+ * It has to be a processor of our own and not a patched `LaminarSpanProcessor`:
+ * `Laminar.initialize` wraps whatever it is given in a fresh
+ * `LaminarSpanProcessor`, and for one of its own kind it lifts out the inner
+ * processor and drops the object — patched hooks included. Anything else is
+ * kept and called, which is the seam this uses.
+ *
+ * The wrapped processor therefore runs behind the SDK's own copy and repeats
+ * its path bookkeeping. That is idempotent (the same parent id yields the same
+ * path), and it is what keeps the export path entirely the SDK's — the exporter
+ * it builds is not exported from the package.
+ */
+function stampingSpanProcessor(processor: SpanProcessorHooks): SpanProcessorHooks {
+  return {
+    onStart: (span, parentContext) => {
+      stampSpanStart(span)
+      processor.onStart(span, parentContext)
+    },
+    onEnd: (span) => {
+      stampSpanEnd(span)
+      processor.onEnd(span)
+    },
+    forceFlush: () => processor.forceFlush(),
+    shutdown: () => processor.shutdown(),
+  }
+}
+
+type SpanProcessorHooks = {
+  onStart(span: unknown, parentContext: unknown): void
+  onEnd(span: unknown): void
+  forceFlush(): Promise<void>
+  shutdown(): Promise<void>
 }
 
 /**
@@ -146,10 +211,50 @@ async function chatTelemetry(): Promise<typeof aiSdkTelemetry> {
 }
 
 /**
+ * Two event names of our own on the same channel, carrying what the AI SDK's
+ * telemetry has no field for: the turn's backend/thinking setup, and llama.cpp's
+ * own timings. They share the channel because it keeps them ordered against the
+ * SDK's events — the numbers have to be here before the span they belong to is
+ * replayed and ended.
+ */
+const CHAT_CONTEXT_EVENT = 'aipgChatContext'
+const CHAT_TIMINGS_EVENT = 'aipgChatTimings'
+
+/** llama.cpp's `timings` object, as the chat store captures it off a raw chunk. */
+type LlamaCppTimings = {
+  cache_n?: number
+  prompt_ms?: number
+  prompt_per_second?: number
+  predicted_ms?: number
+  predicted_per_second?: number
+}
+
+/** The AI SDK's own measurements, on every `onLanguageModelCallEnd` event. */
+type CallPerformance = {
+  responseTimeMs?: number
+  inputTokensPerSecond?: number
+  outputTokensPerSecond?: number
+  effectiveOutputTokensPerSecond?: number
+  timeToFirstOutputMs?: number
+}
+
+let chatTimings: LlamaCppTimings | null = null
+
+/**
  * Replay one forwarded AI SDK telemetry event. `payload` is the JSON the
  * renderer serialized (functions and cycles already removed).
  */
 export async function handleChatTelemetryEvent(name: string, payload: string): Promise<void> {
+  if (name === CHAT_CONTEXT_EVENT || name === CHAT_TIMINGS_EVENT) {
+    try {
+      const value = JSON.parse(payload) as unknown
+      if (name === CHAT_CONTEXT_EVENT) setChatTraceContext(value as InferenceTraceContext | null)
+      else chatTimings = value as LlamaCppTimings | null
+    } catch (error) {
+      logger.warn(`dropped chat telemetry event '${name}': ${error}`, LOG_SOURCE)
+    }
+    return
+  }
   const telemetry = await chatTelemetry()
   const callback = telemetry?.[name]
   if (!callback) return
@@ -163,9 +268,46 @@ export async function handleChatTelemetryEvent(name: string, payload: string): P
       rebuilt.stack = String((failure as { stack?: unknown }).stack ?? rebuilt.stack)
       event.error = rebuilt
     }
+    // This event ends the LLM span, synchronously, inside the callback — so the
+    // call's speeds have to be handed over first for the processor to stamp.
+    if (name === 'onLanguageModelCallEnd') {
+      recordChatCallStats(chatCallStats(event.performance as CallPerformance | undefined))
+      chatTimings = null
+    }
     callback(event)
   } catch (error) {
     logger.warn(`dropped chat telemetry event '${name}': ${error}`, LOG_SOURCE)
+  }
+}
+
+/**
+ * Prefer llama.cpp's own numbers — it separates prefill from generation itself
+ * and reports how much of the prompt its cache served. Everything else (OVMS,
+ * cloud) falls back to what the AI SDK measured around the call: input tokens
+ * over the wait for the first output chunk, output tokens over the rest.
+ */
+function chatCallStats(performance: CallPerformance | undefined): InferenceCallStats {
+  const timings = chatTimings
+  if (timings?.predicted_per_second !== undefined) {
+    return {
+      prefillTokensPerSecond: timings.prompt_per_second,
+      generationTokensPerSecond: timings.predicted_per_second,
+      promptMs: timings.prompt_ms,
+      predictedMs: timings.predicted_ms,
+      cacheTokens: timings.cache_n,
+    }
+  }
+  if (!performance) return {}
+  const { responseTimeMs, timeToFirstOutputMs } = performance
+  return {
+    prefillTokensPerSecond: performance.inputTokensPerSecond,
+    generationTokensPerSecond:
+      performance.outputTokensPerSecond ?? performance.effectiveOutputTokensPerSecond,
+    promptMs: timeToFirstOutputMs,
+    predictedMs:
+      responseTimeMs !== undefined && timeToFirstOutputMs !== undefined
+        ? responseTimeMs - timeToFirstOutputMs
+        : undefined,
   }
 }
 

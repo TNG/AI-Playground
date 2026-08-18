@@ -291,6 +291,14 @@ type AgentModeModelConfig =
       source: 'local'
       model: string
       baseUrl: string
+      /**
+       * Which local backend serves this turn. Only the renderer knows it — the
+       * base URL is just a loopback port — and tracing needs it to read the
+       * right server's version and launch line (electron/llmServerSnapshot.ts).
+       */
+      backend?: 'llamaCPP' | 'openVINO'
+      /** Device the backend is set to (`GPU.0`, `NPU`, …), for the same reason. */
+      device?: string
       contextWindow?: number
       /**
        * Whether the model can be shown an image. Pi drops the image a tool

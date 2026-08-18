@@ -35,6 +35,24 @@ const FORWARDED = [
   'onError',
 ] as const satisfies ReadonlyArray<keyof Telemetry>
 
+/**
+ * Two events of our own, on the same channel as the SDK's so they stay ordered
+ * against them: the turn's backend/thinking setup, and llama.cpp's own timings.
+ * The main process turns both into span attributes (electron/laminar.ts).
+ */
+const CHAT_CONTEXT_EVENT = 'aipgChatContext'
+const CHAT_TIMINGS_EVENT = 'aipgChatTimings'
+
+/** What the AI SDK's telemetry has no field for, because only this app knows it. */
+export type ChatTraceContext = {
+  backend?: 'llamaCPP' | 'openVINO' | 'cloud'
+  device?: string
+  cloudProvider?: string
+  thinking?: boolean
+  reasoningEffort?: string
+  sampling?: { temperature?: number; topP?: number; maxTokens?: number }
+}
+
 let registered = false
 
 /** JSON-safe copy of an event: no functions, no cycles, Errors kept readable. */
@@ -86,6 +104,31 @@ export async function initLaminarTelemetry(): Promise<void> {
   } catch (error) {
     console.warn('[laminar] chat traces disabled:', error)
   }
+}
+
+/**
+ * How the turn about to run is set up. Sent once per turn, before the first
+ * span exists; main keeps it as the context every chat span is stamped with.
+ */
+export function noteChatTraceContext(context: ChatTraceContext): void {
+  send(CHAT_CONTEXT_EVENT, context)
+}
+
+/**
+ * llama.cpp's `timings` for the step that just finished — the only source of a
+ * real prefill-vs-generation split and of how much of the prompt its cache
+ * served. Send it as the step's final chunk arrives, so it is in main before
+ * the LLM span is closed; without it main falls back to the AI SDK's own
+ * around-the-call measurements, which every backend has.
+ */
+export function noteChatTimings(timings: unknown): void {
+  send(CHAT_TIMINGS_EVENT, timings)
+}
+
+function send(name: string, value: unknown): void {
+  if (!registered) return
+  const payload = serializeEvent(value)
+  if (payload !== null) window.electronAPI.laminarTelemetryEvent(name, payload)
 }
 
 // `onChunk` is deliberately not forwarded: it fires per streamed chunk, which

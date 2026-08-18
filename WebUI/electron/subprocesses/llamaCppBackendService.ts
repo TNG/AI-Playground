@@ -228,6 +228,12 @@ export class LlamaCppBackendService implements ApiService {
   private currentContextSize: number | null = null
   /** The model's own `llamaCppArgs` the running LLM server was launched with. */
   private currentModelArgs: string | null = null
+  /**
+   * The full command line the running LLM server was launched with. Flags are
+   * baked into the process, so this is the only place the effective sampling /
+   * offload / speculative-decoding setup of a turn can be read back from.
+   */
+  private currentLlmServerArgs: string[] | null = null
   private currentEmbeddingModel: string | null = null
 
   // Store last startup error details for persistence
@@ -603,6 +609,11 @@ export class LlamaCppBackendService implements ApiService {
       llamaCppStandardInstalledVersion: this.cachedStandardInstallVersion,
       llamaCppPhisonInstalledVersion: this.cachedPhisonInstallVersion,
     }
+  }
+
+  /** The running LLM server's command line, or null when none is running. */
+  llmServerArgs(): string[] | null {
+    return this.llamaLlmProcess ? this.currentLlmServerArgs : null
   }
 
   setStatus(status: BackendStatus) {
@@ -1398,6 +1409,7 @@ export class LlamaCppBackendService implements ApiService {
       this.currentLlmModel = modelRepoId
       this.currentContextSize = ctxSize
       this.currentModelArgs = modelArgs ?? null
+      this.currentLlmServerArgs = args
 
       this.appLogger.info(`LLM server ready for model: ${modelRepoId}`, this.name)
       return llamaProcess

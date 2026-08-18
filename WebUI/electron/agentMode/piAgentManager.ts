@@ -34,7 +34,13 @@ import {
 } from './piWorkspaceRuntime.ts'
 import { endThinking, planExists, PLAN_FILE, thinkingIsOn, writesPlan } from './planningPhase.ts'
 import { createSamplingExtension } from './piSampling.ts'
-import { laminarPiExtensionPath } from '../laminar.ts'
+import { observeAgentModelCalls } from './piCallTiming.ts'
+import { laminarConfig, laminarPiExtensionPath } from '../laminar.ts'
+import {
+  clearAgentTraceContext,
+  setAgentTraceContext,
+  type InferenceTraceContext,
+} from '../laminarAttributes.ts'
 import {
   COMPACTION_TOOL_NAME,
   createStreamTranslator,
@@ -279,6 +285,7 @@ async function registerModel(
       ],
     })
     await runtime.setRuntimeApiKey(LOCAL_PROVIDER, 'unused')
+    observeModelCallsWhenTracing(config.baseUrl)
     return { provider: LOCAL_PROVIDER, modelId: config.model }
   }
 
@@ -310,7 +317,49 @@ async function registerModel(
     ],
   })
   await runtime.setRuntimeApiKey(CLOUD_PROVIDER, 'unused')
+  observeModelCallsWhenTracing(`${config.proxyBaseUrl}/v1`)
   return { provider: CLOUD_PROVIDER, modelId: config.model }
+}
+
+/**
+ * Time this model's calls, so a trace can carry prefill and generation speed.
+ * Only when a developer opted into tracing — it means observing the response
+ * stream on its way past, which nothing else in the app asks for.
+ */
+function observeModelCallsWhenTracing(baseUrl: string): void {
+  if (laminarConfig()) observeAgentModelCalls(baseUrl)
+}
+
+/**
+ * What the trace should say about this session's turns. A getter, not a value:
+ * the planning phase can switch thinking off between two steps of one run
+ * (planningPhase.ts mutates the sampling bag), and the span that follows should
+ * report what was actually sent.
+ */
+function traceContext(
+  config: AgentModeModelConfig,
+  getSampling: () => Record<string, unknown> | undefined,
+): () => InferenceTraceContext {
+  const contextWindow =
+    config.contextWindow ?? (config.source === 'cloud' ? CLOUD_DEFAULT_CONTEXT_WINDOW : 8192)
+  return () => {
+    const sampling = getSampling() ?? {}
+    const kwargs = (sampling.chat_template_kwargs ?? {}) as Record<string, unknown>
+    return {
+      backend: config.source === 'cloud' ? 'cloud' : config.backend,
+      ...(config.source === 'local' && config.device ? { device: config.device } : {}),
+      ...(config.source === 'cloud' ? { cloudProvider: config.providerId } : {}),
+      ...(typeof kwargs.enable_thinking === 'boolean' ? { thinking: kwargs.enable_thinking } : {}),
+      ...(typeof kwargs.reasoning_effort === 'string'
+        ? { reasoningEffort: kwargs.reasoning_effort }
+        : {}),
+      sampling: {
+        ...(typeof sampling.temperature === 'number' ? { temperature: sampling.temperature } : {}),
+        ...(typeof sampling.top_p === 'number' ? { topP: sampling.top_p } : {}),
+        maxTokens: outputTokenBudget(contextWindow, config.source),
+      },
+    }
+  }
 }
 
 // ── Session lifecycle ────────────────────────────────────────────────────────
@@ -386,6 +435,7 @@ function sendChunk(turnId: string, chunk: StreamChunk): void {
 async function endActiveSession(): Promise<void> {
   const current = active
   active = null
+  clearAgentTraceContext()
   rejectAllPendingToolCalls('Agent session ended.')
   if (!current) return
   current.unsubscribe()
@@ -439,8 +489,9 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   // from is what session reuse is keyed on.
   const samplingParams =
     config.modelConfig.source === 'local'
-      ? copySamplingParams(config.modelConfig.samplingParams)
+      ? copySamplingParams(config.modelConfig.samplingParams, config.modelConfig.backend)
       : undefined
+  setAgentTraceContext(traceContext(config.modelConfig, () => samplingParams))
   // The model still carries it as well, since that is where pi-ai's own request
   // builders would look if the agent path ever grew support for it.
   const model = samplingParams ? { ...registered, samplingParams } : registered
@@ -585,14 +636,22 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
 /**
  * A private copy of the turn's sampling, deep enough that switching thinking off
  * cannot reach back into the caller's config object.
+ *
+ * A traced llama.cpp turn also asks the server to report its own timings, the
+ * way chat always does: it is the only source of prefill-vs-generation speed
+ * and prompt-cache reuse. Nothing in the agent consumes them otherwise, so the
+ * field is not sent when no developer is tracing.
  */
 function copySamplingParams(
   params: Record<string, unknown> | undefined,
+  backend: 'llamaCPP' | 'openVINO' | undefined,
 ): Record<string, unknown> | undefined {
-  if (!params) return undefined
+  const timings = backend === 'llamaCPP' && laminarConfig() ? { timings_per_token: true } : {}
+  if (!params) return Object.keys(timings).length > 0 ? timings : undefined
   const kwargs = params.chat_template_kwargs
   return {
     ...params,
+    ...timings,
     ...(kwargs && typeof kwargs === 'object'
       ? { chat_template_kwargs: { ...(kwargs as Record<string, unknown>) } }
       : {}),

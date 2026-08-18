@@ -10,6 +10,7 @@ import { OpenVINOBackendService } from './openVINOBackendService.ts'
 import { HomeAgentBackendService } from './homeAgentBackendService.ts'
 import { Qwen3TtsBackendService } from './qwen3TtsBackendService.ts'
 import { LocalSettings } from '../main.ts'
+import { setLlmServiceLookup } from '../llmServerSnapshot.ts'
 
 export type backend =
   | 'ai-backend'
@@ -188,6 +189,9 @@ export async function aiplaygroundApiServiceRegistry(
 ): Promise<ApiServiceRegistryImpl> {
   if (!instance) {
     instance = new ApiServiceRegistryImpl()
+    // Lets tracing read a running LLM server's version and launch line without
+    // importing this module (see electron/llmServerSnapshot.ts).
+    setLlmServiceLookup((serviceName) => instance?.getService(serviceName))
     instance.register(
       new AiBackendService(
         'ai-backend',

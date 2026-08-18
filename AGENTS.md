@@ -991,7 +991,61 @@ case" above for why).
 - `src/lib/laminarTelemetry.ts` — the renderer half: an AI SDK 7 `Telemetry` integration
   that serializes each event and ships it over IPC.
 
-**Two gotchas are load-bearing, don't "simplify" them away:**
+**What each turn is tagged with.** Laminar has no tokens-per-second of its own (its dashboard
+example is `total_tokens / duration`, which mixes prefill into generation), and nothing in the
+`gen_ai.*` conventions records which of our backends ran a turn — so both are added here.
+Trace-wide facts go on the trace as metadata (`lmnr.association.properties.metadata.<key>`,
+what the Traces page filters on), per-call numbers go on the LLM span. Ours are namespaced
+`aipg.*` so they can never collide with a reserved `lmnr.*` / `gen_ai.*` key.
+
+| Where | Key | Value |
+| --- | --- | --- |
+| trace metadata | `backend` | `llamaCPP` / `openVINO` / `cloud` |
+| trace metadata | `device` | selected device id, local only |
+| trace metadata | `cloudProvider` | provider id, cloud only |
+| trace metadata | `backendVersion` | llama.cpp build number / OVMS version, local only |
+| trace metadata | `serverArgs` | the running LLM server's whole command line, local only |
+| LLM span | `aipg.thinking`, `aipg.reasoning_effort` | what the turn actually asked the template for |
+| LLM span | `gen_ai.request.temperature` / `top_p` / `max_tokens` | the sampling that rode the request |
+| LLM span | `aipg.prefill_tokens_per_second`, `aipg.generation_tokens_per_second` | the two speeds, kept apart |
+| LLM span | `aipg.prompt_ms`, `aipg.predicted_ms`, `aipg.cache_n` | what those speeds were computed from |
+
+Both surfaces feed one stamper (`electron/laminarAttributes.ts`), which the span processor
+calls on span start (metadata) and span end (the numbers). The facts reach it differently
+because the two halves of the app know different things:
+
+- **Backend, device, thinking, sampling** are the renderer's to know. Agent turns carry them
+  on `AgentModeModelConfig` (`backend` and `device` are there for tracing — a loopback port
+  says nothing about which server is behind it); chat turns send one extra IPC event per turn
+  on the telemetry channel (`aipgChatContext`), built from the same `chatTemplateKwargs` call
+  that builds the request body, so a trace cannot claim something the model was never sent.
+- **Version and launch line** stay in main and are never copied into the renderer:
+  `electron/llmServerSnapshot.ts` reads them off the live service. Flags are baked into the
+  process at launch, so `llamaCppBackendService` / `openVINOBackendService` remember the argv
+  they started their LLM server with.
+- **Speeds** come from llama.cpp's own `timings` whenever it sent them — it separates prefill
+  from generation and reports the prompt-cache hit (`cache_n`). Chat already parsed that object
+  for the message footer and now forwards it (`aipgChatTimings`); agent turns ask for it
+  (`timings_per_token: true`, added only for llama.cpp and only while tracing) and read it off
+  the response stream in `electron/agentMode/piCallTiming.ts`. OVMS and cloud have no such
+  object, so those get prompt tokens over time-to-first-token and completion tokens over the
+  rest — the same split, measured from outside.
+
+**Five gotchas are load-bearing, don't "simplify" them away:**
+
+- **`maxChars` has to be big, or every follow-up turn loses its prompt.** The Pi
+  extension records the outgoing message list on each LLM span and truncates it to
+  `LMNR_MAX_CHARS` (its own default: 20000) _keeping the front_. Laminar's transcript does
+  not read the prompt off the root span — it extracts it from that recorded list (first and
+  last element, `INPUT_QUERY` in `frontend/lib/actions/sessions/trace-io.ts`). So from the
+  second turn of a session onwards, where the front is system prompt plus old history and
+  the new user message sits at the end, the clip lands mid-array: the JSON no longer parses,
+  the server stores the raw string instead of a message array, and the trace and session
+  views show no **Input** at all. `initLaminarTracing` therefore sets `LMNR_MAX_CHARS` from
+  the config's `maxChars` (default 1M) before the first Pi session. A useful tell when
+  checking this in ClickHouse: `length(input) = 0` on an LLM span is the _healthy_ state
+  (parsed, stored canonically), while a non-empty `input` ending in
+  `… [truncated N chars]` is the broken one.
 
 - **Initialize the SDK in main before the first Pi session.** The Pi extension calls
   `initTracing` itself but passes only `baseUrl`, so against a self-hosted instance it
@@ -1007,6 +1061,19 @@ case" above for why).
   Span mapping, the exporter and the project key all stay in main. `onChunk` is not
   forwarded — it fires per streamed chunk (thousands of IPC messages per reply) and only
   feeds a time-to-first-token attribute.
+- **The stamping processor must not be a `LaminarSpanProcessor`.** `Laminar.initialize`
+  wraps whatever `spanProcessor` it is given in a fresh one of its own, and for an instance
+  of its own class it lifts out the inner processor and discards the object — so a patched
+  `LaminarSpanProcessor` is silently thrown away and not one attribute of ours is stamped
+  (it took a full round of "why is the trace empty of our keys" to find). Anything else is
+  kept and called, which is why `stampingSpanProcessor` returns a plain object that wraps a
+  real one. Its `onStart` is also the only chance to write trace metadata: Pi's spans are
+  parentless at start (they are linked by path attributes afterwards), so for agent runs the
+  metadata lands on every span, while a chat turn's lands on `ai.streamText` alone.
+- **Measure a call from before `fetch` resolves.** A streaming server answers with headers as
+  soon as it has the first token, so timing the response object puts prefill at ~1 ms and
+  reports millions of tokens per second — which is exactly what the first cloud agent trace
+  claimed.
 
 **Verify it:** start `npm run dev`, look for `[laminar]: tracing to http://localhost:8000`
 in the main log and `[laminar] chat traces via main to …` in the renderer console, then send
@@ -1018,3 +1085,25 @@ tree above. If the UI shows nothing, query the store directly rather than guessi
 docker exec clickhouse clickhouse-client --query \
   "SELECT name, span_type, model, input_tokens, output_tokens FROM default.spans ORDER BY start_time DESC LIMIT 20"
 ```
+
+The added keys read back the same way, in that query or in Laminar's own SQL editor — this is
+also the quickest check that a turn was tagged at all:
+
+```sql
+SELECT
+  name,
+  JSONExtractString(attributes, 'lmnr.association.properties.metadata.backend') AS backend,
+  JSONExtractFloat(attributes, 'aipg.prefill_tokens_per_second') AS prefill_tps,
+  JSONExtractFloat(attributes, 'aipg.generation_tokens_per_second') AS gen_tps,
+  JSONExtractString(attributes, 'aipg.thinking') AS thinking
+FROM default.spans
+WHERE span_type = 1
+ORDER BY start_time DESC
+LIMIT 20
+```
+
+Smoked on all three paths: a llama.cpp chat turn and a llama.cpp agent step (llama.cpp's own
+timings, `backendVersion`, the full `serverArgs`, `aipg.thinking`) and a cloud agent step
+(`backend=cloud` + provider id, measured speeds, no server args). OVMS could not be smoked on
+macOS — no OpenVINO LLM models are offered there — but it takes the same measured fallback as
+cloud and the same snapshot reader as llama.cpp.

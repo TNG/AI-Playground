@@ -2021,6 +2021,9 @@ export const useTextInference = defineStore(
       // Vision support
       modelSupportsVision,
 
+      // Device the active backend is set to
+      getCurrentDeviceId,
+
       // Thinking toggle support
       thinkingEnabled,
       planningThinkingOnly,

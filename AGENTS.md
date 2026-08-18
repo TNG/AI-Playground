@@ -492,6 +492,8 @@ server flag, not a request field — `reasoning_budget` in the body is ignored, 
 b10430 — which is why it lives in `llamaCppArgs`: per model, so a cap aimed at one slow local model
 never reaches anyone's chat with another. The message is a quoted sentence, which is why
 `splitParameterString` parses the parameter string like a shell instead of splitting on whitespace.
+Confirmed against the running server: a game-planning turn stopped at ~2.2k reasoning tokens
+mid-word and carried the message into the trace, then went on to answer.
 
 **`--reasoning-preserve` is a no-op here — do not add it back.** Pi puts every stored thinking block
 back on its assistant messages as `reasoning_content` (`pi-ai`'s `openai-completions` request
@@ -514,6 +516,27 @@ half the size — reused 54 and had to process 2356 (15.7s): a _smaller_ prompt 
 because the deletion moved the divergence point to the front. Anything that rewrites history
 mid-prompt (dropping reasoning, re-summarizing, renumbering tool ids) forfeits the whole KV cache
 every step, which is far more expensive than the tokens it saves.
+
+**Agent turns get their sampling from an extension, not from the model.** `Model.samplingParams` is
+a pi-ai field, and pi-coding-agent never reads it (the identifier does not occur in the package), so
+for a long time a local agent turn silently sent none of it: no recommended sampling, no
+temperature, no `chat_template_kwargs` — the thinking toggle looked wired up and changed nothing,
+while the same settings worked in Chat. `electron/agentMode/piSampling.ts` registers a
+`before_provider_request` extension (Pi's supported per-request seam; the handler's return value
+replaces the body) that merges the bag into every request. The bag is read through a callback, so a
+change between two steps of one turn reaches the very next request. `electron/test/agents/agentSampling.test.ts`
+pins this against a fake OpenAI server driving a real Pi session — assert on the recorded request
+bodies, because nothing else proves Pi forwarded anything.
+
+**"Reasoning only during planning" (Agent Mode).** Thinking earns its cost while the agent decides
+what to build and stops earning it once that decision is written down, so Game Maker sessions can
+switch thinking off for the rest of the run the moment `design.md` exists.
+`electron/agentMode/planningPhase.ts` owns the switch (spotting the plan write in
+`tool_execution_start/end`, and a plan already on disk at session start); the settings toggle is
+`textInference.planningThinkingOnly`, persisted per preset and passed as
+`AgentModeTurnConfig.planningThinkingOnly`. It only bites where the model has a thinking switch,
+thinking is on, and the capability writes a plan — a cloud turn or a template without
+`enable_thinking` is unaffected.
 
 **Context size is not honored everywhere.** OVMS on NPU compiles a static graph for
 `--max_prompt_len`, so the preset's `contextSize` is capped by `npuPromptLen()`

@@ -5,8 +5,12 @@ vi.mock('electron', () => ({
   net: {},
 }))
 
-const { buildLlmServerArgs, sanitizeUserLlamaCppParameters, splitParameterString } =
-  await import('../../subprocesses/llamaCppBackendService.ts')
+const {
+  buildLlmServerArgs,
+  parseLlamaCppBuildNumber,
+  sanitizeUserLlamaCppParameters,
+  splitParameterString,
+} = await import('../../subprocesses/llamaCppBackendService.ts')
 
 // Parameters are written as one string (the settings box, and `llamaCppArgs` in
 // the catalog), but some flags take a sentence — `--reasoning-budget-message`
@@ -29,6 +33,32 @@ describe('splitParameterString', () => {
 
   it('keeps an explicitly empty value rather than swallowing it', () => {
     expect(splitParameterString('--msg ""')).toEqual(['--msg', ''])
+  })
+})
+
+// An installed build only counts as installed if its version can be read back,
+// and llama.cpp changed how it prints one around b10000.
+describe('parseLlamaCppBuildNumber', () => {
+  it('reads the build number out of the current format', () => {
+    expect(
+      parseLlamaCppBuildNumber(
+        'version: 0.1.1-dev (build 10472, commit 60eeeb608)\n' +
+          'built with AppleClang 21.0.0.21000101 for Darwin arm64\n',
+      ),
+    ).toBe('b10472')
+  })
+
+  it('still reads the format older installs print', () => {
+    expect(
+      parseLlamaCppBuildNumber(
+        'version: 9590 (d2462f8f7)\nbuilt with AppleClang 21.0.0.21000099 for Darwin arm64\n',
+      ),
+    ).toBe('b9590')
+  })
+
+  it('reports nothing rather than a wrong version when it cannot tell', () => {
+    expect(parseLlamaCppBuildNumber('llama-server: command not found')).toBeUndefined()
+    expect(parseLlamaCppBuildNumber('')).toBeUndefined()
   })
 })
 

@@ -63,6 +63,24 @@ const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
  * a future llama-server default change cannot expose the port.
  */
 /**
+ * The build number in `llama-server --version` output, as the `b<number>` tag
+ * releases are named after — that tag is what the app pins, downloads and
+ * compares against, so anything else is not a version we can act on.
+ *
+ * Two spellings exist in the wild: builds up to ~b9800 printed
+ * `version: 9590 (d2462f8f7)`, newer ones print a semver-ish string and put the
+ * build number in the parenthesis: `version: 0.1.1-dev (build 10472, commit
+ * 60eeeb608)`. Reading the new form first keeps the leading `0` of the semver
+ * from being mistaken for a build number.
+ */
+export function parseLlamaCppBuildNumber(versionOutput: string): string | undefined {
+  const build =
+    versionOutput.match(/\(\s*build\s+(\d+)/)?.[1] ??
+    versionOutput.match(/version:\s*(\d+)\s*\(/)?.[1]
+  return build ? `b${build}` : undefined
+}
+
+/**
  * Split a parameter string into argv tokens the way a shell would, so a flag
  * can carry a sentence: `--reasoning-budget-message "time to act"` is two
  * tokens, not four. The quotes are shell syntax and are dropped — these tokens
@@ -662,16 +680,17 @@ export class LlamaCppBackendService implements ApiService {
         env: {
           ...process.env,
         },
-        timeout: 10000,
+        // Generous, because the first run of a freshly downloaded build is the
+        // slow one: macOS verifies every new binary and dylib before it starts,
+        // which took the better part of ten seconds on an M-series machine.
+        timeout: 30000,
       })
-      const versionMatch = result.stderr.match(/version:\s*(\d+)\s*\([^)]+\)/m)
+      const build = parseLlamaCppBuildNumber(result.stderr)
       this.appLogger.info(
-        `probeInstalledVersionInDir: ${result.stdout}, ${result.stderr}, ${versionMatch}`,
+        `probeInstalledVersionInDir: ${result.stdout}, ${result.stderr}, ${build}`,
         this.name,
       )
-      if (versionMatch && versionMatch[1]) {
-        return { version: `b${versionMatch[1]}` }
-      }
+      if (build) return { version: build }
     } catch (e) {
       this.appLogger.warn(`probeInstalledVersionInDir failed: ${e}`, this.name)
     }

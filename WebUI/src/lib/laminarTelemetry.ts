@@ -1,0 +1,93 @@
+import type { Telemetry } from 'ai'
+
+// ── Laminar tracing for chat turns (dev-only PoC) ────────────────────────────
+//
+// Chat runs on the Vercel AI SDK in the renderer, so its traces start here;
+// agent turns run on Pi in the main process and are traced there
+// (electron/laminar.ts).
+//
+// Laminar ships an AI SDK 7 integration, but it cannot run here: `@lmnr-ai/lmnr`
+// is a Node library (it reached for `createRequire` and died on the browser
+// stub), and this page is a browser page with `nodeIntegration` off — which is
+// worth keeping. So only the *callbacks* live in the renderer: AI SDK 7 hands
+// every telemetry event to a registered integration as plain data keyed by
+// `callId`, and Laminar's integration is data-driven too (it keys its spans off
+// `callId` / `stepNumber` and never inspects the model object), so the events
+// can be forwarded to the main process and replayed into the real integration
+// there. The span mapping, the exporter and the project key all stay in main.
+//
+// Off unless a developer wrote `external/laminar.dev.json` — see AGENTS.md,
+// 'Tracing agent and chat turns (Laminar, dev)'.
+
+/** Events forwarded to main. `onChunk` is left out on purpose (see below). */
+const FORWARDED = [
+  'onStart',
+  'onStepStart',
+  'onLanguageModelCallStart',
+  'onLanguageModelCallEnd',
+  'onToolExecutionStart',
+  'onToolExecutionEnd',
+  'onStepEnd',
+  'onEmbedStart',
+  'onEmbedEnd',
+  'onEnd',
+  'onAbort',
+  'onError',
+] as const satisfies ReadonlyArray<keyof Telemetry>
+
+let registered = false
+
+/** JSON-safe copy of an event: no functions, no cycles, Errors kept readable. */
+function serializeEvent(event: unknown): string | null {
+  const seen = new WeakSet<object>()
+  try {
+    return JSON.stringify(event, (_key, value: unknown) => {
+      if (typeof value === 'function') return undefined
+      if (value instanceof Error) {
+        return { name: value.name, message: value.message, stack: value.stack }
+      }
+      if (typeof value === 'object' && value !== null) {
+        if (seen.has(value)) return '[circular]'
+        seen.add(value)
+      }
+      return value
+    })
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Register the forwarding telemetry integration. Safe to call more than once,
+ * and never throws: a tracing problem must not cost the user a chat turn.
+ */
+export async function initLaminarTelemetry(): Promise<void> {
+  if (registered) return
+  try {
+    const config = await window.electronAPI.getLaminarConfig()
+    if (!config) return
+    const { registerTelemetry } = await import('ai')
+    const integration: Telemetry = Object.fromEntries(
+      FORWARDED.map((name) => [
+        name,
+        (event: unknown) => {
+          // Fire-and-forget: the send must not add latency to a streaming turn,
+          // and a dropped span is not worth surfacing to the user.
+          const payload = serializeEvent(event)
+          if (payload !== null) window.electronAPI.laminarTelemetryEvent(name, payload)
+        },
+      ]),
+      // `Telemetry`'s callbacks are typed per event; the forwarder is uniform
+      // and only ever serializes, so the per-event types buy nothing here.
+    ) as Telemetry
+    registerTelemetry(integration)
+    registered = true
+    console.info(`[laminar] chat traces via main to ${config.baseUrl}:${config.httpPort}`)
+  } catch (error) {
+    console.warn('[laminar] chat traces disabled:', error)
+  }
+}
+
+// `onChunk` is deliberately not forwarded: it fires per streamed chunk, which
+// would put thousands of IPC messages on a single reply. All it feeds in
+// Laminar's integration is the time-to-first-token attribute.

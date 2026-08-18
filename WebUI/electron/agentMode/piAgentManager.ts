@@ -34,6 +34,7 @@ import {
 } from './piWorkspaceRuntime.ts'
 import { endThinking, planExists, PLAN_FILE, thinkingIsOn, writesPlan } from './planningPhase.ts'
 import { createSamplingExtension } from './piSampling.ts'
+import { laminarPiExtensionPath } from '../laminar.ts'
 import {
   COMPACTION_TOOL_NAME,
   createStreamTranslator,
@@ -518,7 +519,13 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
       // is merged into each request here instead (piSampling.ts).
       createSamplingExtension(() => samplingParams),
     ],
-    additionalExtensionPaths: capabilities.extensionPaths,
+    // Laminar's own Pi extension traces the run (one trace per agent run, LLM
+    // and tool spans). Nothing when no developer opted into tracing, and never
+    // a capability: it is not something the user picks per session.
+    additionalExtensionPaths: [
+      ...capabilities.extensionPaths,
+      ...[laminarPiExtensionPath()].filter((entry): entry is string => entry !== undefined),
+    ],
     // The workspace orientation the model would otherwise have to guess. Built
     // fresh on every session build, so it always carries the live preview URL.
     appendSystemPrompt: [

@@ -1,0 +1,7 @@
+{
+  "_comment": "Copy to laminar.dev.json (gitignored) to trace chat and agent turns into a locally self-hosted Laminar. See AGENTS.md, 'Tracing agent and chat turns (Laminar, dev)'. Delete the file to switch tracing off.",
+  "projectApiKey": "<project settings at http://localhost:5667>",
+  "baseUrl": "http://localhost",
+  "httpPort": 8000,
+  "grpcPort": 8001
+}

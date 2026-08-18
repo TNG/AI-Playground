@@ -946,3 +946,75 @@ model (and ComfyUI for image gen) — see "Testing inference end-to-end" above t
 model ready first.
 
 Unit coverage lives in `electron/test/channels/mockAdapter.test.ts`.
+
+### Tracing agent and chat turns (Laminar, dev)
+
+To judge a change to the agentic system you need the turn's shape, not its final answer:
+how many steps it took, which tools it called, how many prompt tokens each step paid for
+and how many of those the server actually reused. [Laminar](https://github.com/lmnr-ai/lmnr)
+is a self-hostable OpenTelemetry trace viewer for exactly that, and both halves of the app
+can feed it — Pi agent runs from the main process, Vercel AI SDK chat turns from the
+renderer.
+
+**It is off unless you opt in.** Nothing is imported, initialized or sent without
+`WebUI/external/laminar.dev.json` (gitignored; copy `laminar.dev.example.json`). The two
+packages are `devDependencies` and the config read is gated on `!app.isPackaged`, so a
+packaged build has no copy to load and no file to find. Every failure path logs a warning
+and leaves tracing off — an observability problem must never cost a turn or a startup.
+
+**Bring up a local Laminar** next to this repo (its compose stack is postgres +
+clickhouse + quickwit + app-server + frontend, ~28 GB of images):
+
+```bash
+git clone https://github.com/lmnr-ai/lmnr ../lmnr && cd ../lmnr
+cp .env.example .env   # then set LLM_PROVIDER / LLM_BASE_URL / LLM_API_KEY / LLM_MODEL_{SMALL,MEDIUM,LARGE}
+docker compose up -d   # UI on :5667, ingestion on :8000 (http) / :8001 (grpc)
+```
+
+`LLM_*` only powers Laminar's own AI features (chat-with-trace, evaluator authoring); any
+OpenAI-compatible gateway works and the models must exist on it (`GET /v1/models`).
+Sign up at `http://localhost:5667`, then copy a project API key from project settings into
+`laminar.dev.json`. Delete the file to switch tracing back off.
+
+**Agent turns** are traced by Laminar's own `@lmnr-ai/pi-extension`, handed to Pi through
+`additionalExtensionPaths` (`piAgentManager.ts`) — not a capability, since it is not
+something a user picks per session. One trace per run: `pi agent run` → `LLM call (turn N)`
++ one span per tool, carrying the session id, turn index, model, finish reason and
+`gen_ai.usage.*` including `cache_read_input_tokens`, which is the number to watch when
+changing anything that rewrites prompt history (see "Reasoning is set for the expensive
+case" above for why).
+
+**Chat turns** are traced through the renderer, which is why there are two files:
+
+- `electron/laminar.ts` — config, SDK init, shutdown flush, the Pi extension path, **and**
+  the AI SDK integration running on the renderer's behalf.
+- `src/lib/laminarTelemetry.ts` — the renderer half: an AI SDK 7 `Telemetry` integration
+  that serializes each event and ships it over IPC.
+
+**Two gotchas are load-bearing, don't "simplify" them away:**
+
+- **Initialize the SDK in main before the first Pi session.** The Pi extension calls
+  `initTracing` itself but passes only `baseUrl`, so against a self-hosted instance it
+  exports to the cloud's default ports and every span silently vanishes. Its init is a
+  no-op once the SDK is initialized, so winning that race is what makes `httpPort` /
+  `grpcPort` stick. `forceHttp: true` avoids needing the gRPC exporter's native addon
+  inside Electron.
+- **`@lmnr-ai/lmnr` cannot run in the renderer.** It is a Node library (it reaches for
+  `createRequire` and dies on Vite's browser stub) and the page has `nodeIntegration` off,
+  which is worth keeping. But AI SDK 7 telemetry is plain data keyed by `callId`, and
+  Laminar's integration is data-driven too, so the renderer forwards events over IPC
+  (`laminarTelemetryEvent`) and main replays them into the real `LaminarAiSdkTelemetry`.
+  Span mapping, the exporter and the project key all stay in main. `onChunk` is not
+  forwarded — it fires per streamed chunk (thousands of IPC messages per reply) and only
+  feeds a time-to-first-token attribute.
+
+**Verify it:** start `npm run dev`, look for `[laminar]: tracing to http://localhost:8000`
+in the main log and `[laminar] chat traces via main to …` in the renderer console, then send
+one Chat turn and one Agent turn and open `http://localhost:5667` → traces. A chat turn
+appears as `ai.streamText` → `ai.llm model.chat:<model>`; an agent turn as the `pi agent run`
+tree above. If the UI shows nothing, query the store directly rather than guessing:
+
+```bash
+docker exec clickhouse clickhouse-client --query \
+  "SELECT name, span_type, model, input_tokens, output_tokens FROM default.spans ORDER BY start_time DESC LIMIT 20"
+```

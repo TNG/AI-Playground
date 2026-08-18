@@ -133,6 +133,15 @@ type LocalSettings = {
   PhisonSSDdetected?: boolean
 }
 
+/** Mirrors electron/laminar LaminarConfigSchema (renderer copy for IPC typing). */
+type LaminarConfig = {
+  projectApiKey: string
+  /** Scheme and host only — the SDK takes the ports separately. */
+  baseUrl: string
+  httpPort: number
+  grpcPort: number
+}
+
 type DeviceCategory = 'dgpu' | 'igpu' | 'npu' | 'cpu' | 'unknown'
 
 type GpuHardwareDevice = {
@@ -486,6 +495,17 @@ type electronAPI = {
   updateModelPaths(modelPaths: ModelPaths): Promise<ModelLists>
   restorePathsSettings(): Promise<void>
   loadModels(): Promise<Model[]>
+  /**
+   * Local Laminar tracing settings, or null when tracing is off (the default).
+   * Read in main from `external/laminar.dev.json` so the project API key never
+   * lands in the renderer bundle. Dev-only (see electron/laminar.ts).
+   */
+  getLaminarConfig(): Promise<LaminarConfig | null>
+  /**
+   * Forward one AI SDK telemetry event (already serialized to JSON) to the
+   * Laminar integration running in main. Fire-and-forget.
+   */
+  laminarTelemetryEvent(name: string, payload: string): void
   zoomIn(): Promise<void>
   zoomOut(): Promise<void>
   getDownloadedGGUFLLMs(): Promise<string[]>

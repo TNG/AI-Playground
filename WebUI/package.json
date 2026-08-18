@@ -81,6 +81,8 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@lmnr-ai/lmnr": "^0.8.43",
+    "@lmnr-ai/pi-extension": "^0.1.0",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "^4.3.1",
     "@types/adm-zip": "^0.5.8",

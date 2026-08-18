@@ -95,6 +95,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateModelPaths: (modelPaths: ModelPaths) => ipcRenderer.invoke('updateModelPaths', modelPaths),
   restorePathsSettings: () => ipcRenderer.invoke('restorePathsSettings'),
   loadModels: () => ipcRenderer.invoke('loadModels'),
+  getLaminarConfig: () => ipcRenderer.invoke('getLaminarConfig'),
+  laminarTelemetryEvent: (name: string, payload: string) =>
+    ipcRenderer.send('laminarTelemetryEvent', name, payload),
   zoomIn: () => ipcRenderer.invoke('zoomIn'),
   zoomOut: () => ipcRenderer.invoke('zoomOut'),
   getDownloadedGGUFLLMs: () => ipcRenderer.invoke('getDownloadedGGUFLLMs'),

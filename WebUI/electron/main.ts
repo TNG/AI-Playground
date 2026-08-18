@@ -133,6 +133,12 @@ import {
 } from './subprocesses/hardwareDiscovery.ts'
 import { registerSettingsPersist } from './subprocesses/defaultDeviceSelection.ts'
 import { appShutdown } from './shutdown.ts'
+import {
+  handleChatTelemetryEvent,
+  initLaminarTracing,
+  laminarConfig,
+  shutdownLaminarTracing,
+} from './laminar.ts'
 import z from 'zod'
 
 const ProductModeUiI18nSchema = z.object({
@@ -1052,6 +1058,9 @@ appShutdown.register({
 })
 appShutdown.register({ name: 'web browser', run: () => destroyWebBrowser() })
 appShutdown.register({ name: 'cloud proxy', run: () => cloudProxy?.close() })
+// After the agent, so the spans its extensions emit while shutting down are
+// still exported. No-op unless a developer opted into Laminar tracing.
+appShutdown.register({ name: 'laminar tracing', run: () => shutdownLaminarTracing() })
 // Last line of defence against a window outliving the teardown. Their titles go
 // to the log first: if the app ever again refuses to close, this names the
 // window that held it open instead of leaving it to guesswork.
@@ -1598,6 +1607,14 @@ function initEventHandle() {
 
   ipcMain.handle('loadModels', async (_event) => {
     return resolveModels(settings)
+  })
+
+  // The renderer forwards its AI SDK telemetry here (the SDK cannot run in a
+  // browser page); null config means no developer opted in, and the renderer
+  // then registers nothing and sends nothing.
+  ipcMain.handle('getLaminarConfig', () => laminarConfig())
+  ipcMain.on('laminarTelemetryEvent', (_event, name: string, payload: string) => {
+    void handleChatTelemetryEvent(name, payload)
   })
 
   ipcMain.handle('updateModelPaths', (_event, modelPaths: ModelPaths) => {
@@ -3101,6 +3118,11 @@ app.whenReady().then(async () => {
     // service setup kicks off.
     appLogger.info('startup step: configuring proxy', 'electron-backend', true)
     await configureProxyFromEnv()
+
+    // Before the first Pi session is built: the Laminar Pi extension only wins
+    // its self-hosted ports if the SDK is initialized here first (see laminar.ts).
+    appLogger.info('startup step: initializing tracing', 'electron-backend', true)
+    await initLaminarTracing()
 
     appLogger.info('startup step: initializing event handlers', 'electron-backend', true)
     initEventHandle()

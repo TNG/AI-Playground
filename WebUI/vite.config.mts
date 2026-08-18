@@ -55,6 +55,11 @@ export default defineConfig(({ command, mode }) => {
   const isTest = mode === 'test'
   const sourcemap = isServe || !!process.env.VSCODE_DEBUG
   const dependenciesToBeTranspiled = ['get-port']
+  // Dev-only devDependencies the main process loads through a dynamic import
+  // (Laminar tracing, see electron/laminar.ts). Externalizing them keeps the
+  // import verbatim, so it resolves from node_modules in dev and simply fails —
+  // caught, tracing off — in a packaged build that does not ship them.
+  const devOnlyExternals = ['@lmnr-ai/lmnr', '@lmnr-ai/pi-extension']
   return {
     build: {
       outDir: isServe ? 'dist' : '../build/dist', // Output Vue.js build to build/dist/renderer
@@ -101,9 +106,12 @@ export default defineConfig(({ command, mode }) => {
                     minify: isBuild,
                     outDir: isServe ? 'dist/main' : '../build/dist/main',
                     rollupOptions: {
-                      external: Object.keys('dependencies' in pkg ? pkg.dependencies : {}).filter(
-                        (d) => !dependenciesToBeTranspiled.includes(d),
-                      ),
+                      external: [
+                        ...Object.keys('dependencies' in pkg ? pkg.dependencies : {}).filter(
+                          (d) => !dependenciesToBeTranspiled.includes(d),
+                        ),
+                        ...devOnlyExternals,
+                      ],
                     },
                   },
                 },

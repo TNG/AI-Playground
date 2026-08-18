@@ -13,6 +13,8 @@ Electron main process orchestrates Vue.js frontend and multiple Python/native ba
 - Use **composition over inheritance** — never introduce new class hierarchies.
 - Do **not** use classes unless extending an existing set of classes of the same type.
 - Use **`type`** instead of `interface`, unless an interface is strictly necessary for implementation.
+- **Comment only when it is extremely important**, and keep it to one line where possible.
+  See [Comments](#comments).
 
 ## Build / Dev / Test Commands
 
@@ -211,6 +213,13 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
 playwright-e2e.config.ts --list`.
 
 ## Code Style
+
+### Comments
+
+Default to none. Write one only when a reader would otherwise get it wrong — a non-obvious
+constraint, a workaround for external behaviour, or why an obvious approach was rejected.
+Then keep it to a line or two. Do not restate what the code says, narrate a change, or
+explain a tool's documented behaviour.
 
 ### Formatting (enforced by Prettier + EditorConfig)
 

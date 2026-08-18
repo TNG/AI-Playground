@@ -34,12 +34,8 @@ _HF_TRANSIENT_ERRORS = (
 )
 _HF_EXISTS_RETRIES = 3
 
-# (connect, read) timeout in seconds for the raw `requests` calls below. The read
-# timeout applies per chunk of a streaming response rather than to the whole
-# transfer, so model-sized downloads are unaffected — a stalled connection raises
-# and `download_model_file` retries from the bytes already on disk via `Range`.
+# (connect, read); read applies per chunk, so model-sized downloads are unaffected.
 _DOWNLOAD_TIMEOUT = (10, 60)
-# Plain (non-streaming) requests: no body to trickle in, so a short read timeout.
 _REQUEST_TIMEOUT = (10, 30)
 
 model_list_cache = dict()

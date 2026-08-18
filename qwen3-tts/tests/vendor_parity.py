@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
-import subprocess  # nosec B404 - re-runs this same script under sys.executable, see below
+import subprocess  # nosec B404 - re-runs this script under sys.executable
 import sys
 import tempfile
 from pathlib import Path
@@ -258,9 +258,7 @@ def main() -> int:
         for impl in ("upstream", "vendored"):
             paths[impl] = str(Path(tmp) / f"{impl}.npz")
             print(f"generating with {impl} implementation ...", flush=True)
-            # Fixed argv (no shell): this interpreter re-running this file, with
-            # arguments this developer-only script was itself invoked with.
-            subprocess.run(  # nosec B603
+            subprocess.run(  # nosec B603 - fixed argv, no shell
                 [
                     sys.executable,
                     __file__,

@@ -20,6 +20,5 @@ jobs:
       - name: Perform Bandit Analysis
         uses: PyCQA/bandit-action@v1
         with:
-          # Scan scope (excluded vendored trees) lives in bandit.yaml so this job and
-          # `npm run lint:bandit` check exactly the same files.
+          # Scope lives in bandit.yaml, shared with `npm run lint:bandit`.
           configfile: bandit.yaml

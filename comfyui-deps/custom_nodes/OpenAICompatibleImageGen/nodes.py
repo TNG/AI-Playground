@@ -89,12 +89,8 @@ def _mask_has_inpaint_region(m: np.ndarray) -> bool:
 def _build_api_request(
     url: str, data: bytes, content_type: str
 ) -> urllib.request.Request:
-    """Build a POST request, rejecting anything that isn't a plain HTTP(S) URL.
-
-    `base_url` is a free-text widget, so without this check a value like
-    `file:///...` would make urlopen read from the local filesystem instead of
-    talking to an image API.
-    """
+    """Build a POST request. `base_url` is free text, so `file:///...` and other
+    locally-resolved schemes must not reach urlopen."""
     scheme = urllib.parse.urlsplit(url).scheme.lower()
     if scheme not in ("http", "https"):
         raise RuntimeError(
@@ -180,7 +176,7 @@ class OpenAICompatibleImageGeneration:
         payload = json.dumps(body).encode("utf-8")
         req = _build_api_request(url, payload, "application/json")
         try:
-            with urllib.request.urlopen(req, timeout=600) as resp:  # nosec B310 - scheme checked in _build_api_request
+            with urllib.request.urlopen(req, timeout=600) as resp:  # nosec B310 - scheme checked above
                 raw = resp.read()
                 status = resp.status
         except urllib.error.HTTPError as e:
@@ -297,7 +293,7 @@ class OpenAICompatibleImageEdit:
         body, boundary = _encode_multipart_form(fields, files)
         req = _build_api_request(url, body, f"multipart/form-data; boundary={boundary}")
         try:
-            with urllib.request.urlopen(req, timeout=600) as resp:  # nosec B310 - scheme checked in _build_api_request
+            with urllib.request.urlopen(req, timeout=600) as resp:  # nosec B310 - scheme checked above
                 raw = resp.read()
                 status = resp.status
         except urllib.error.HTTPError as e:

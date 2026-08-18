@@ -110,8 +110,7 @@ export interface BuildPaths {
 export type TargetPlatform = 'win32' | 'darwin' | 'linux'
 
 /**
- * Resolve the platform being built for, from TARGET_PLATFORM or the host platform
- * Exits the process when the platform is not one we can build for
+ * Resolve TARGET_PLATFORM (or the host platform); exits on an unsupported value
  */
 export function getTargetPlatform(): TargetPlatform {
   const target = z

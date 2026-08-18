@@ -3,7 +3,7 @@
 # Run on all files :  pre-commit run --all-files
 #
 # The first-party Python backends are handled by Ruff (matches the Ruff CI check);
-# rule set + version are pinned in ruff.toml. Vendored trees (ComfyUI/, OpenVINO/)
+# rule set + version are pinned in ruff.toml. Vendored trees (ComfyUI/, OpenVINO/ovms/)
 # are excluded there, so the file filter below just enumerates our backend dirs.
 # WebUI is handled by ESLint + Prettier via the existing npm scripts (matches the
 # "Lint TS" CI check). ESLint resolves its flat config from WebUI/, not the repo
@@ -14,10 +14,7 @@
 # reformatted files are restaged and included in the same commit. The linters still
 # fail on genuine, unfixable problems.
 #
-# Both formatters set `require_serial: true`. Without it pre-commit shards the file
-# list across one process per core, and the concurrent `git add`s race for
-# `.git/index.lock` — the commit then fails with "Unable to create index.lock" on a
-# run where nothing was even reformatted. Serial means one invocation, one `git add`.
+# `require_serial: true` on both formatters: sharded runs race for `.git/index.lock`.
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.20
@@ -26,7 +23,7 @@ repos:
       - id: ruff
         name: ruff lint (Python)
         args: [--fix]
-        files: ^(service|home-agent|qwen3-tts|backend_shared|comfyui-deps)/.*\.py$
+        files: ^(service|home-agent|qwen3-tts|backend_shared|comfyui-deps|OpenVINO)/.*\.py$
 
   - repo: local
     hooks:
@@ -34,13 +31,10 @@ repos:
       - id: ruff-format
         name: ruff format (Python)
         language: system
-        # --force-exclude: pre-commit passes filenames explicitly, and ruff only
-        # applies `extend-exclude` from ruff.toml to explicitly-named files when
-        # this flag is set. Without it, `pre-commit run --all-files` reformats the
-        # vendored qwen3-tts tree that ruff.toml exists to keep untouched. (The
-        # upstream ruff lint hook above passes the flag itself.)
+        # --force-exclude: without it ruff ignores ruff.toml's excludes for the
+        # filenames pre-commit passes explicitly, and reformats vendored trees.
         entry: bash -c 'uvx ruff@0.15.20 format --force-exclude "$@" && git add -- "$@"' --
-        files: ^(service|home-agent|qwen3-tts|backend_shared|comfyui-deps)/.*\.py$
+        files: ^(service|home-agent|qwen3-tts|backend_shared|comfyui-deps|OpenVINO)/.*\.py$
         require_serial: true
       # Linter (ESLint with auto-fix)
       - id: eslint

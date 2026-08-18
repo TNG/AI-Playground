@@ -8,10 +8,7 @@ from threading import Thread
 import requests
 from exceptions import DownloadException
 
-# (connect, read) timeout in seconds for the download request. The read timeout
-# applies per chunk, not to the whole transfer, so large files are unaffected —
-# a stalled connection raises and __start_download resumes from the bytes
-# already on disk instead of hanging forever.
+# (connect, read); read applies per chunk, so large files are unaffected.
 _DOWNLOAD_TIMEOUT = (10, 60)
 
 

@@ -5,7 +5,7 @@ import type { ChatPreset } from '@/assets/js/store/presets'
 
 // One `workspaceDir` is persisted for two unrelated kinds of workspace: a folder
 // the user picked for the Agent preset, and a game folder the app minted under the
-// library for Game Maker. These tests cover keeping them apart — Game Maker must
+// library for Game Agent. These tests cover keeping them apart — Game Agent must
 // never build into a picked folder, where it lands outside the library and leaves
 // the game bar with no card to act on — and attaching files to an agent turn.
 
@@ -18,19 +18,19 @@ const AGENT: ChatPreset = {
   agentWorkspace: 'pick',
 } as ChatPreset
 
-const GAME_MAKER: ChatPreset = {
+const GAME_AGENT: ChatPreset = {
   type: 'chat',
   category: 'chat',
-  name: 'Game Maker',
+  name: 'Game Agent',
   backends: ['llamaCPP'],
   agentPreset: true,
   agentWorkspace: 'games',
 } as ChatPreset
 
-const GAME_MAKER_QUICK: ChatPreset = {
+const GAME_AGENT_QUICK: ChatPreset = {
   type: 'chat',
   category: 'chat',
-  name: 'Game Maker Quick',
+  name: 'Game Agent Quick',
   backends: ['llamaCPP'],
   agentPreset: true,
   agentWorkspace: 'games',
@@ -41,7 +41,7 @@ const activePreset = ref<ChatPreset>(AGENT)
 
 vi.mock('@/assets/js/store/presets', () => ({
   usePresets: () => ({
-    presets: [AGENT, GAME_MAKER, GAME_MAKER_QUICK],
+    presets: [AGENT, GAME_AGENT, GAME_AGENT_QUICK],
     get activePresetWithVariant() {
       return activePreset.value
     },
@@ -130,9 +130,9 @@ describe('agentMode workspace kinds', () => {
 
   it('mints a game rather than building into the Agent preset’s folder', async () => {
     const store = useAgentMode()
-    activePreset.value = GAME_MAKER
+    activePreset.value = GAME_AGENT
     await flush()
-    // What a restart used to hand Game Maker: the folder picked for Agent.
+    // What a restart used to hand Game Agent: the folder picked for Agent.
     store.workspaceDir = '/code/project'
 
     await store.generate('a game where I dodge asteroids')
@@ -146,7 +146,7 @@ describe('agentMode workspace kinds', () => {
   // be a file it has to work around.
   it('mints an empty folder for the preset that writes the game in one go', async () => {
     const store = useAgentMode()
-    activePreset.value = GAME_MAKER_QUICK
+    activePreset.value = GAME_AGENT_QUICK
     await flush()
 
     await store.generate('a game where I dodge asteroids')
@@ -156,7 +156,7 @@ describe('agentMode workspace kinds', () => {
 
   it('keeps working in a folder that is already a game', async () => {
     const store = useAgentMode()
-    activePreset.value = GAME_MAKER
+    activePreset.value = GAME_AGENT
     await flush()
     store.workspaceDir = '/games/space-dodger'
 
@@ -170,7 +170,7 @@ describe('agentMode workspace kinds', () => {
   // path a launch actually takes.
   it('hands a hydrated non-game folder back to the Agent preset', async () => {
     const store = useAgentMode()
-    activePreset.value = GAME_MAKER
+    activePreset.value = GAME_AGENT
     await flush()
     store.workspaceDir = '/code/project'
     store.lastWorkspaceByKind = { games: '/games/space-dodger' }
@@ -194,7 +194,7 @@ describe('agentMode workspace kinds', () => {
   // would resurrect the game the user just stepped away from.
   it('does not restore a game over a deliberately empty workspace', async () => {
     const store = useAgentMode()
-    activePreset.value = GAME_MAKER
+    activePreset.value = GAME_AGENT
     await flush()
     store.lastWorkspaceByKind = { games: '/games/space-dodger' }
     store.workspaceDir = ''
@@ -254,9 +254,9 @@ describe('agentMode attachments', () => {
 
   // The folder does not exist until the first prompt names the game, so the files
   // have to wait for it.
-  it('waits for the game folder Game Maker mints from the first prompt', async () => {
+  it('waits for the game folder Game Agent mints from the first prompt', async () => {
     const store = useAgentMode()
-    activePreset.value = GAME_MAKER
+    activePreset.value = GAME_AGENT
     await flush()
 
     await store.attachFiles([file('ship.png')])

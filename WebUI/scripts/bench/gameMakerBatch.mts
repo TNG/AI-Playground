@@ -1,5 +1,5 @@
 /**
- * Game Maker overnight batch — drives the RUNNING dev app over CDP and produces
+ * Game Agent overnight batch — drives the RUNNING dev app over CDP and produces
  * one agent trace per game brief, so a night of unattended runs yields data to
  * judge changes to the agentic system by (see the Laminar section of AGENTS.md).
  *
@@ -41,7 +41,7 @@ const { values } = parseArgs({
     'run-timeout': { type: 'string', default: '45' },
     out: { type: 'string' },
     port: { type: 'string', default: '29222' },
-    preset: { type: 'string', default: 'Game Maker' },
+    preset: { type: 'string', default: 'Game Agent' },
     poll: { type: 'string', default: '10' },
     pause: { type: 'string', default: '20' },
     'dry-run': { type: 'boolean', default: false },
@@ -121,7 +121,7 @@ type Cdp = {
 type CdpTarget = { type: string; url: string; webSocketDebuggerUrl?: string }
 
 /**
- * The app window is not the only page in this Electron: Game Maker's play-test
+ * The app window is not the only page in this Electron: Game Agent's play-test
  * preview server is served into a real page too, so a run leaves a second
  * loopback target behind (`http://127.0.0.1:<port>/index.html`) that would be
  * attached to instead. Candidates are therefore probed for the mounted Vue app
@@ -420,7 +420,7 @@ type DiskState = {
   gameJs: FileState
   gameJsBytes: number
   /**
-   * The page itself. Game Maker gets it from the scaffold and mostly leaves it
+   * The page itself. Game Agent gets it from the scaffold and mostly leaves it
    * alone; a preset that starts from an empty folder writes the whole game into
    * it, and then `game.js` being 'missing' is the plan working, not a failure.
    */

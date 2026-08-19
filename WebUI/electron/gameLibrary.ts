@@ -367,7 +367,7 @@ function hubHtml(games: GameManifestEntry[], vendor?: string): string {
   <p class="lead">Games you made with AI Playground. Click one to play.</p>
 </header>
 <ul class="games" id="games"></ul>
-<p class="empty" id="empty" hidden>No games saved yet — build one in AI Playground's Game Maker.</p>
+<p class="empty" id="empty" hidden>No games saved yet — build one in AI Playground's Game Agent.</p>
 <!-- Inlined on purpose: a file:// page cannot fetch its own library.json, and the
      hub has to work with AI Playground closed. -->
 <script type="application/json" id="library">${inlineJson(games)}</script>

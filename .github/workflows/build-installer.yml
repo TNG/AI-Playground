@@ -18,6 +18,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        # Tags are needed so a manual run of a tagged commit can still show that
+        # tag in the app's version tooltip (see build/scripts/buildIdentity.mts).
+        with:
+          fetch-tags: true
 
       - name: Install Node.js and npm
         uses: actions/setup-node@v5
@@ -52,6 +56,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          fetch-tags: true
 
       - name: Install Node.js and npm
         uses: actions/setup-node@v5

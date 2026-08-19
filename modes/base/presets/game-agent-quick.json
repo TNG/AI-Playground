@@ -1,7 +1,7 @@
 {
   "type": "chat",
   "category": "chat",
-  "name": "Game Maker Quick",
+  "name": "Game Agent Quick",
   "description": "Describe a game and get it in one shot: the agent plans it, then writes the whole game into a single HTML file. No art, no play-testing.",
   "displayPriority": 75,
   "tags": ["Agent", "Games", "Coding"],

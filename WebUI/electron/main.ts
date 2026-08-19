@@ -375,7 +375,7 @@ const LocalSettingsSchema = z.object({
   // Gates the optional Qwen3-TTS Python sidecar (agent synthesizeTextToSpeech tool).
   isQwen3TtsEnabled: z.boolean().default(false),
   // Gates the experimental "Agent" chat preset — the raw harness with a folder the
-  // user picks, as opposed to Game Maker, which is the same harness aimed at one
+  // user picks, as opposed to Game Agent, which is the same harness aimed at one
   // task. Default false: opt-in by editing settings.json. See docs/agent-preset.md.
   isAgentPresetEnabled: z.boolean().default(false),
   languageOverride: z.string().nullable().default(null),
@@ -2805,7 +2805,7 @@ function initEventHandle() {
     },
   )
 
-  // Game library (see gameLibrary.ts): the folders the Game Maker preset writes
+  // Game library (see gameLibrary.ts): the folders the Game Agent preset writes
   // into, plus the generated gallery page.
   ipcMain.handle('games:list', () => listGames())
 

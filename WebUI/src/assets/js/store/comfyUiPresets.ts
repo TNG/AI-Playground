@@ -19,10 +19,13 @@ import { usePromptStore } from './promptArea'
 import { imageUrlToDataUri, isImageUrl, mediaUrl } from '@/lib/utils'
 import { getComfyAuthToken, invalidateComfyAuthToken } from '@/lib/loopbackAuth'
 import { startTraceSpan, withTraceSpan, type TraceSpan } from '@/lib/laminarSpans'
+import { comfyTraceParameters } from '@/lib/comfyTraceParameters'
 import {
   findKeysByClassType,
   findKeysByTitle,
+  loaderModelNames,
   modifySettingInWorkflow,
+  nodeTitle,
 } from './comfyUiWorkflowHelpers'
 import {
   ComfyMessageSchema,
@@ -147,16 +150,37 @@ export const useComfyUiPresets = defineStore(
       generating: GENERATING_SPAN,
     }
 
-    function enterPhaseSpan(state: string) {
+    /** Which loader node a `comfyui.load_model` span is about, and what it loads. */
+    type LoaderDetail = { node: string; title?: string; model?: string }
+    let phaseDetail: string | null = null
+
+    function enterPhaseSpan(state: string, detail?: LoaderDetail) {
       const name = PHASE_SPANS[state]
-      if (phaseSpan?.name === name) return
+      // Detail is part of the identity: a workflow that loads a unet and then a
+      // clip stays in `load_model` throughout, and one span covering both says
+      // nothing about which of them was slow.
+      if (phaseSpan?.name === name && phaseDetail === (detail?.node ?? null)) return
       phaseSpan?.end()
-      phaseSpan = name ? startTraceSpan(name, { parentId: generateSpan?.id }) : null
+      phaseDetail = detail?.node ?? null
+      if (!name) {
+        phaseSpan = null
+        return
+      }
+      phaseSpan = startTraceSpan(name, {
+        parentId: generateSpan?.id,
+        attributes: detail && {
+          'aipg.node': detail.title ?? detail.node,
+          'aipg.model': detail.model,
+        },
+      })
+      if (name === GENERATING_SPAN) phaseSpan.setAttributes({ 'aipg.queued': queuedImages.length })
     }
 
     function endGenerationSpans(state: 'done' | 'failed' | 'cancelled') {
       phaseSpan?.end()
       phaseSpan = null
+      phaseDetail = null
+      generateSpan?.setAttributes({ 'aipg.items_done': generateIdx })
       generateSpan?.end(
         state === 'failed'
           ? { error: imageGeneration.lastError ?? 'generation failed' }
@@ -192,7 +216,7 @@ export const useComfyUiPresets = defineStore(
           } else {
             activities.update(generationActivityId, { label })
           }
-          enterPhaseSpan(state)
+          enterPhaseSpan(state, state.startsWith('load_model') ? loadingNode : undefined)
         } else if (generationActivityId || generateSpan) {
           const endState =
             state === 'error' ? 'failed' : state === 'image_out' ? 'done' : 'cancelled'
@@ -245,6 +269,10 @@ export const useComfyUiPresets = defineStore(
     const websocket = ref<WebSocket | null>(null)
     const clientId = '12345'
     const loaderNodes = ref<string[]>([])
+    /** Model file per loader node, for the span that covers its load. */
+    let loaderModels: Record<string, LoaderDetail> = {}
+    /** The loader the backend is on. The FSM state does not change between two. */
+    let loadingNode: LoaderDetail | undefined
     let generateIdx: number = 0
     let queuedImages: MediaItem[] = []
 
@@ -680,6 +708,10 @@ export const useComfyUiPresets = defineStore(
                 })
                 // Transition state based on which node is executing
                 if (executingNode && loaderNodes.value.includes(executingNode)) {
+                  loadingNode = loaderModels[executingNode] ?? { node: executingNode }
+                  // Driven from here, not from the state watch: a second loader
+                  // leaves the FSM state untouched, so the watch never fires.
+                  enterPhaseSpan('load_model', loadingNode)
                   imageGeneration.currentState = 'load_model'
                 } else if (executingNode === null) {
                   // Node is null when execution starts/ends - keep current state or transition to generating
@@ -1328,6 +1360,17 @@ export const useComfyUiPresets = defineStore(
           ...findKeysByClassType(mutableWorkflow, 'Unet Loader (GGUF)'),
           ...findKeysByClassType(mutableWorkflow, 'DualCLIPLoader (GGUF)'),
         ]
+        loadingNode = undefined
+        loaderModels = Object.fromEntries(
+          loaderNodes.value.map((node) => [
+            node,
+            {
+              node,
+              title: nodeTitle(mutableWorkflow, node),
+              model: loaderModelNames(mutableWorkflow, node).join(', ') || undefined,
+            },
+          ]),
+        )
         queuedImages = Array.from({ length: imageGeneration.batchSize }, (_, i) => {
           const seed = baseSeed + i
           const settings = imageGeneration.getGenerationParameters()
@@ -1348,6 +1391,29 @@ export const useComfyUiPresets = defineStore(
             })),
           }
         })
+        // Everything that decides the output is resolved by now — seed, size,
+        // steps and the preset's own workflow knobs — so the span can say what
+        // this run was actually asked for.
+        if (generateSpan) {
+          const traced = comfyTraceParameters({
+            preset: preset.name,
+            mode,
+            mediaType: preset.mediaType,
+            settings: queuedImages[0]?.settings ?? imageGeneration.getGenerationParameters(),
+            seed: baseSeed,
+            batchSize: imageGeneration.batchSize,
+            keepModelsLoaded: developerSettings.keepModelsLoaded,
+            inputs: (queuedImages[0]?.dynamicSettings ?? []).map((input) => ({
+              nodeTitle: input.nodeTitle,
+              nodeInput: input.nodeInput,
+              type: input.type,
+              value: input.current,
+            })),
+            hasSourceImage: sourceImage !== undefined,
+          })
+          generateSpan.setAttributes(traced.attributes)
+          generateSpan.setInput(traced.input)
+        }
         for (const image of queuedImages) {
           modifySettingInWorkflow(mutableWorkflow, 'seed', `${image.settings.seed!.toFixed(0)}`)
           const result = await comfyFetch(`${comfyBaseUrl.value}/prompt`, {

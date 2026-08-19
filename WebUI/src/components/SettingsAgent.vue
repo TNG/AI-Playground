@@ -107,7 +107,7 @@
     <div class="grid grid-cols-[120px_1fr] items-center gap-4">
       <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
       <!-- Same picker as Chat Settings, so an agent preset's requirements (tool
-           calling, and coding for Game Maker) filter the list here too. -->
+           calling, and coding for Game Agent) filter the list here too. -->
       <div class="flex items-center gap-2 min-w-0">
         <div class="flex-1 min-w-0">
           <ModelSelector />
@@ -170,7 +170,7 @@
           </span>
           <span class="text-xs text-muted-foreground">
             The agent thinks while it works out what to build and stops once it starts building:
-            Game Maker follows the checklist in its plan file from then on, and Game Maker Quick
+            Game Agent follows the checklist in its plan file from then on, and Game Agent Quick
             writes its game as a second step, after the plan. Presets that do not plan think
             throughout.
           </span>
@@ -321,7 +321,7 @@ onMounted(async () => {
   })
 })
 
-// Game Maker's folders are the app's to create, and they stay sandboxed: a game is
+// Game Agent's folders are the app's to create, and they stay sandboxed: a game is
 // plain HTML with no build step, so a real shell would only add risk.
 const isManagedWorkspace = computed(() => agentMode.agentWorkspaceKind === 'games')
 

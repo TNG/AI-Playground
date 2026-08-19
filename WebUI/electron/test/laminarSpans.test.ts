@@ -10,7 +10,7 @@ vi.mock('electron', () => ({
 
 type StartArgs = { name: string; parentSpanContext?: unknown }
 
-const started: StartArgs[] = []
+const started: (StartArgs & { attributes: Record<string, unknown> })[] = []
 const ended: string[] = []
 
 /**
@@ -21,11 +21,14 @@ vi.mock('@lmnr-ai/lmnr', () => ({
   Laminar: {
     initialized: () => true,
     startSpan: (args: StartArgs) => {
-      started.push(args)
+      const attributes: Record<string, unknown> = {}
+      started.push({ ...args, attributes })
       return {
         name: args.name,
-        setAttributes: () => {},
-        setAttribute: () => {},
+        setAttributes: (values: Record<string, unknown>) => Object.assign(attributes, values),
+        setAttribute: (key: string, value: unknown) => {
+          attributes[key] = value
+        },
         setStatus: () => {},
         end: () => ended.push(args.name),
       }
@@ -111,5 +114,21 @@ describe('renderer span bridge', () => {
     // An id nobody started (a reload mid-generation) is dropped, not thrown.
     await handleSpanEvent('aipgSpanEnd', JSON.stringify({ id: '404' }))
     expect(ended).toHaveLength(2)
+  })
+
+  it('records an input that only existed by the time the span ended', async () => {
+    await start({ id: '1', name: 'comfyui.generate' })
+    await handleSpanEvent(
+      'aipgSpanEnd',
+      JSON.stringify({
+        id: '1',
+        input: { seed: 4711, steps: 8 },
+        attributes: { 'aipg.items_done': 2 },
+        output: { images: 2 },
+      }),
+    )
+    expect(started[0].attributes['lmnr.span.input']).toBe('{"seed":4711,"steps":8}')
+    expect(started[0].attributes['lmnr.span.output']).toBe('{"images":2}')
+    expect(started[0].attributes['aipg.items_done']).toBe(2)
   })
 })

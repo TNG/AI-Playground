@@ -4,7 +4,7 @@ import path from 'node:path'
 // ── Thinking for planning only ───────────────────────────────────────────────
 //
 // A local 27B reasons at the same speed it writes code, so a thinking block
-// before every one of a few dozen tool calls is most of a Game Maker run's wall
+// before every one of a few dozen tool calls is most of a Game Agent run's wall
 // clock — and it is re-derived work: the model plans the same game again on each
 // step because a trace is not a place a plan can live.
 //
@@ -31,9 +31,9 @@ export const PLAN_FILE = 'design.md'
  * What ends a session's planning phase:
  *
  * - `plan-file` — the agent writes `design.md`, then works down the checklist in
- *   it one edit at a time (Game Maker).
+ *   it one edit at a time (Game Agent).
  * - `first-write` — the first file the agent writes *is* the deliverable, so
- *   planning is over the moment it lands (Game Maker Quick).
+ *   planning is over the moment it lands (Game Agent Quick).
  */
 export type PlanningEnd = 'plan-file' | 'first-write'
 

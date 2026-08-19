@@ -8,6 +8,10 @@ contextBridge.exposeInMainWorld('envVars', {
   platformTitle: import.meta.env.VITE_PLATFORM_TITLE,
   debugToolsEnabled: import.meta.env.VITE_DEBUG_TOOLS === 'true',
   productVersion: pkg.version,
+  // Which build this is, baked in by vite.config.mts. Empty when the source has
+  // no git history (an exported tree), so the UI must treat them as optional.
+  gitCommit: import.meta.env.VITE_GIT_COMMIT ?? '',
+  gitTag: import.meta.env.VITE_GIT_TAG ?? '',
 })
 contextBridge.exposeInMainWorld('electronAPI', {
   startDrag: (fileName: string) => ipcRenderer.send('ondragstart', fileName),

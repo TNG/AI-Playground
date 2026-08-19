@@ -1,5 +1,5 @@
 {
-  "comment": "One-line game briefs for scripts/bench/gameMakerBatch.mts. Each is one Game Maker turn. Ids are stable and land in the batch manifest, so a Laminar trace can be read back against the prompt that produced it. Keep briefs inside the skill's scope: one HTML canvas, plain JS, keyboard or pointer input, no extra libraries or assets beyond a generated cover.",
+  "comment": "One-line game briefs for scripts/bench/gameMakerBatch.mts. Each is one Game Agent turn. Ids are stable and land in the batch manifest, so a Laminar trace can be read back against the prompt that produced it. Keep briefs inside the skill's scope: one HTML canvas, plain JS, keyboard or pointer input, no extra libraries or assets beyond a generated cover.",
   "briefs": [
     {
       "id": "dodger",

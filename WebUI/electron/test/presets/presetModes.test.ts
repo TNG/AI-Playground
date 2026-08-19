@@ -84,11 +84,11 @@ describe('shipped agent presets', () => {
     (entry) => entry.preset.type === 'chat' && (entry.preset as ChatPreset).agentPreset,
   )
 
-  it('ships the Agent and Game Maker presets', () => {
+  it('ships the Agent and Game Agent presets', () => {
     expect(agentPresets.map((entry) => entry.preset.name).sort()).toEqual([
       'Agent',
-      'Game Maker',
-      'Game Maker Quick',
+      'Game Agent',
+      'Game Agent Quick',
     ])
   })
 
@@ -101,23 +101,23 @@ describe('shipped agent presets', () => {
     }
   })
 
-  it('gives Game Maker a managed folder, coding models and the game capabilities', () => {
-    const gameMaker = agentPresets.find((entry) => entry.preset.name === 'Game Maker')
+  it('gives Game Agent a managed folder, coding models and the game capabilities', () => {
+    const gameAgent = agentPresets.find((entry) => entry.preset.name === 'Game Agent')
       ?.preset as ChatPreset
-    expect(gameMaker.agentWorkspace).toBe('games')
-    expect(gameMaker.requiresCoding).toBe(true)
-    expect(gameMaker.agentCapabilities).toEqual(
+    expect(gameAgent.agentWorkspace).toBe('games')
+    expect(gameAgent.requiresCoding).toBe(true)
+    expect(gameAgent.agentCapabilities).toEqual(
       expect.arrayContaining(['media', 'web-debug', 'game-studio']),
     )
     // The instructions are what turn the agent into a game builder; an empty
     // systemPrompt would leave it a generic coding agent in a games folder.
-    expect(gameMaker.systemPrompt?.length ?? 0).toBeGreaterThan(0)
+    expect(gameAgent.systemPrompt?.length ?? 0).toBeGreaterThan(0)
   })
 
   // The quick preset is the same library, a much thinner session: one capability
   // that owns the whole prompt, no media and no browser to pull in.
-  it('gives Game Maker Quick the games folder and nothing but its own capability', () => {
-    const quick = agentPresets.find((entry) => entry.preset.name === 'Game Maker Quick')
+  it('gives Game Agent Quick the games folder and nothing but its own capability', () => {
+    const quick = agentPresets.find((entry) => entry.preset.name === 'Game Agent Quick')
       ?.preset as ChatPreset
     expect(quick.agentWorkspace).toBe('games')
     expect(quick.requiresCoding).toBe(true)

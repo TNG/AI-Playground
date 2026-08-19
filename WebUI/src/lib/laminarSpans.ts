@@ -2,7 +2,7 @@ import { laminarTelemetryActive, sendLaminarEvent } from './laminarTelemetry'
 
 // ── Spans for renderer work that is not an LLM call ──────────────────────────
 //
-// A Game Maker `media` call lands in Laminar as one opaque TOOL span covering
+// A Game Agent `media` call lands in Laminar as one opaque TOOL span covering
 // the whole IPC wait, because everything it does — starting ComfyUI, swapping
 // the LLM off the GPU, downloading a checkpoint, running the workflow — happens
 // here in the renderer. `@lmnr-ai/lmnr` still cannot run on this page (see
@@ -32,12 +32,15 @@ export type TraceSpanOptions = {
  *
  * Attributes set after the start (generation progress, say) travel with the end
  * event rather than as a stream of updates: a span reaches Laminar when it ends,
- * so an update per websocket tick would be IPC nobody ever reads.
+ * so an update per websocket tick would be IPC nobody ever reads. `setInput` is
+ * there for the same reason from the other direction: a generation span has to
+ * open before its parameters exist, since it covers starting the backend.
  */
 export type TraceSpan = {
   readonly id: string
   readonly name: string
   setAttributes(attributes: TraceAttributes): void
+  setInput(input: unknown): void
   end(result?: { output?: unknown; error?: unknown }): void
 }
 
@@ -45,6 +48,7 @@ const INACTIVE: TraceSpan = {
   id: '',
   name: '',
   setAttributes: () => {},
+  setInput: () => {},
   end: () => {},
 }
 
@@ -67,11 +71,15 @@ export function startTraceSpan(name: string, options: TraceSpanOptions = {}): Tr
   })
   let ended = false
   let late: TraceAttributes | undefined
+  let lateInput: unknown
   return {
     id,
     name,
     setAttributes: (attributes) => {
       late = { ...late, ...attributes }
+    },
+    setInput: (value) => {
+      lateInput = value
     },
     end: (result) => {
       if (ended) return
@@ -79,6 +87,7 @@ export function startTraceSpan(name: string, options: TraceSpanOptions = {}): Tr
       sendLaminarEvent(SPAN_END_EVENT, {
         id,
         attributes: late,
+        input: lateInput,
         output: result?.output,
         error: result?.error === undefined ? undefined : errorText(result.error),
       })

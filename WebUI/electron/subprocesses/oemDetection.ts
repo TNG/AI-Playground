@@ -4,8 +4,8 @@ import { appLoggerInstance } from '../logging/logger.ts'
 
 // ── Which OEM's machine is this? ─────────────────────────────────────────────
 //
-// Used for co-branding: on an Acer system the Game Maker feature is presented as
-// "Acer Game Maker" and gains a link to the generated Acer Game Hub page. Nothing
+// Used for co-branding: on an Acer system the Game Agent feature is presented as
+// "Acer Game Agent" and gains a link to the generated Acer Game Hub page. Nothing
 // about the feature itself changes, so a wrong answer here is cosmetic — which is
 // why a failed probe simply reports 'unknown' rather than blocking anything.
 //

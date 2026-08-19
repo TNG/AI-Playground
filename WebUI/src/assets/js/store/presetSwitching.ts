@@ -297,7 +297,7 @@ export const usePresetSwitching = defineStore('presetSwitching', () => {
    *
    * The prompt store is not persisted, so the app always boots into chat mode while
    * the active preset is restored from disk. An agent preset lives in the chat
-   * category, so without this the app would render Chat with, say, Game Maker
+   * category, so without this the app would render Chat with, say, Game Agent
    * active. Called once boot completes.
    */
   function syncModeWithActivePreset(): void {

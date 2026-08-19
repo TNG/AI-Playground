@@ -8,7 +8,7 @@ live.
    tools be exposed from the first request, or kept dormant until the model asks for them?
    Answered; a script reproduces the numbers.
 2. [Does the harness help or hurt?](#2-does-the-harness-help-or-hurt-on-a-small-model) — on a
-   small local model, does Game Maker beat a plain chat at the same task? Measured once
+   small local model, does Game Agent beat a plain chat at the same task? Measured once
    (2026-08-14): the harness costs time and never fails to produce a file, but it spends its
    turns re-checking rather than building, and the 35B crashed the GPU every time. The changes
    that came out of that are pending a re-run.
@@ -48,7 +48,7 @@ meta-tool exists only for that case (`capabilities/core.ts`).
 ## 2. Does the harness help or hurt on a small model?
 
 The report from testing: the same prompt and model that produce working code in Basic Chat
-produce a worse game in Game Maker, and the run sometimes fails outright. Two causes are known
+produce a worse game in Game Agent, and the run sometimes fails outright. Two causes are known
 and fixed or bounded, and the rest is what this comparison is for.
 
 **What is already understood:**
@@ -74,8 +74,8 @@ Same model, same prompt, same machine, cold app start for each arm.
 | Arm | Setup |
 | --- | --- |
 | **Chat** | Basic Chat / Assistant preset, one shot, no tools. The reply's code is saved by hand into an `index.html`. |
-| **Full** | Game Maker as shipped: `media`, `web-debug`, `game-studio`. |
-| **Trimmed** | Game Maker with `media`, `web-debug` and `game-studio` unchecked in Agent Settings, leaving the file tools. Needs no code change. |
+| **Full** | Game Agent as shipped: `media`, `web-debug`, `game-studio`. |
+| **Trimmed** | Game Agent with `media`, `web-debug` and `game-studio` unchecked in Agent Settings, leaving the file tools. Needs no code change. |
 
 Prompt, held constant (deliberately the kind of thing a tester asks for):
 
@@ -127,7 +127,7 @@ What it scores, 0-4 each plus an overall 0-10: **works** (is it a game you can p
 cloud call by default (`Qwen/Qwen3.8-27B` on `api.trustedtokens.eu`; `--base-url` and
 `--model` take any other), for two reasons: a second opinion should not come from the model under
 test, and vision decode inside the local agent loop is what preceded every `ErrorDeviceLost` crash
-below. Nothing here runs during a Game Maker session, and the agent is never shown a picture.
+below. Nothing here runs during a Game Agent session, and the agent is never shown a picture.
 
 Whether the clip travels as a clip depends on the endpoint. A gateway that does not model
 `video_url` rejects the whole message rather than the one part — vLLM-style servers answer 422
@@ -166,7 +166,7 @@ the app.
 
 ### What each outcome means
 
-- **Trimmed beats Full on small models:** add a "Lite" variant to the Game Maker preset rather
+- **Trimmed beats Full on small models:** add a "Lite" variant to the Game Agent preset rather
   than changing the default — `variants[].overrides` can carry `agentCapabilities`, so the
   variant radio becomes the choice between "with art and play-testing" and "just build it".
   Keep the full set as the default for larger and cloud models.
@@ -174,7 +174,7 @@ the app.
   Shorten the preset system prompt and move the detail into the skill body, which is only read
   when the model asks for it.
 - **Chat beats both outright, including playability:** that is a finding worth acting on — a
-  small model should not be offered Game Maker at all, and the preset's model filter should
+  small model should not be offered Game Agent at all, and the preset's model filter should
   have a floor rather than merely requiring `supportsCoding`.
 - **Full wins:** the reported degradation was the output cap, now fixed, and nothing further is
   needed beyond re-testing with a larger model
@@ -192,7 +192,9 @@ Twelve runs on the Windows dev machine (`intel-ptl`, Arc B390, 47.4 GB shared GP
 llama.cpp Vulkan, dev build), driven through the app's own stores so every run took the product
 path. Two models — `Qwen3.5-9B-Q4_K_M` and `Qwen3.6-35B-A3B-UD-Q3_K_XL` — three runs each in
 Assistant and in Game Maker, 128k context throughout, Assistant's output cap raised to 8192 to
-match the agent's per-call budget. The prompt was a tester's, not the one above:
+match the agent's per-call budget. (The game preset was called Game Maker then; it ships as Game
+Agent now, and this section keeps the name the run was recorded under.) The prompt was a
+tester's, not the one above:
 
 > Generate a vector game of asteroids in a single html file, make it colorful with modern effects
 > like particles, etc
@@ -232,9 +234,9 @@ Four findings drove the changes that followed:
   vision decode and image generation never moved the peak. Assistant mode's 35B run 1 stopped
   dead at the 8192-token cap mid-file, which is why the local budget is now 32768.
 
-### Next: shipped Game Maker vs scaffold + probe
+### Next: shipped Game Agent vs scaffold + probe
 
-The arms that matter now are not capability counts. Game Maker was changed in response to the
+The arms that matter now are not capability counts. Game Agent was changed in response to the
 above — a new game folder is scaffolded with a running `index.html` + `game.js` split by section
 markers, and play-testing is a text probe injected by the preview server
 (`browser {"action":"probe"}`) instead of a screenshot the model looks at. So:
@@ -242,7 +244,7 @@ markers, and play-testing is a text probe injected by the preview server
 | Arm | Setup |
 | --- | --- |
 | **Shipped** | Game Maker as it was on 2026-08-14 (empty folder, screenshot play-testing). |
-| **Scaffold + probe** | Game Maker as it is now. |
+| **Scaffold + probe** | Game Agent as it is now. |
 
 Same prompt, same two models, same machine, three runs each, and the measures above plus three
 that target the change directly:

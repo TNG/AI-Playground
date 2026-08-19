@@ -3,17 +3,17 @@ import { computed, ref } from 'vue'
 
 // ── OEM co-branding ──────────────────────────────────────────────────────────
 //
-// On an Acer system the Game Maker feature is presented as "Acer Game Maker" and
+// On an Acer system the Game Agent feature is presented as "Acer Game Agent" and
 // gains a link to the generated Acer Game Hub page. This store is the only place
 // that decides such a thing, so the rest of the app asks for a label instead of
 // testing for a vendor.
 //
-// Renaming is presentation only: the preset keeps its identity as "Game Maker"
+// Renaming is presentation only: the preset keeps its identity as "Game Agent"
 // (that name keys `activePresetName`, last-used state and the preset files), so a
 // machine that stops reporting Acer does not lose its selection.
 
 /** Presets whose displayed name is prefixed with the OEM's brand. */
-const CO_BRANDED_PRESETS = new Set(['Game Maker'])
+const CO_BRANDED_PRESETS = new Set(['Game Agent'])
 
 export const useOemBranding = defineStore('oemBranding', () => {
   const vendor = ref<string>('unknown')

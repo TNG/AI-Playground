@@ -282,7 +282,25 @@
           >
         </p>
         <p>
-          AI Playground version: v{{ productVersion }}
+          AI Playground version:
+          <TooltipProvider v-if="buildIdentity.length > 0" :delay-duration="200">
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <span class="underline decoration-dotted underline-offset-2 cursor-help"
+                  >v{{ productVersion }}</span
+                >
+              </TooltipTrigger>
+              <TooltipContent side="top" class="text-xs">
+                <span
+                  v-for="line in buildIdentity"
+                  :key="line.label"
+                  class="block whitespace-nowrap"
+                  >{{ line.label }}: {{ line.value }}</span
+                >
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <span v-else>v{{ productVersion }}</span>
           <a :href="userGuideUrl" target="_blank" class="text-primary"> User Guide</a>
 
           <a :href="noticesUrl" target="_blank" class="text-primary">
@@ -316,6 +334,7 @@ import { useGlobalSetup } from './assets/js/store/globalSetup'
 import { useProductMode } from './assets/js/store/productMode'
 import DownloadDialog from '@/components/DownloadDialog.vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTheme } from './assets/js/store/theme.ts'
 import AddLLMDialog from '@/components/AddLLMDialog.vue'
 import WarningDialog from '@/components/WarningDialog.vue'
@@ -385,6 +404,13 @@ const platformTitle = window.envVars.platformTitle
 const productVersion = window.envVars.productVersion
 const debugToolsEnabled = window.envVars.debugToolsEnabled
 
+// Which build this is, for telling test builds apart. Both parts are absent in a
+// build made from a tree without git history, and then the version gets no hover.
+const buildIdentity = [
+  { label: 'Release tag', value: window.envVars.gitTag },
+  { label: 'Commit', value: window.envVars.gitCommit },
+].filter((entry) => !!entry.value)
+
 const gitHubRepoUrl = ref('https://github.com/intel/ai-playground/blob/main/')
 const userGuideUrl = computed(() => `${gitHubRepoUrl.value}AI%20Playground%20Users%20Guide.pdf`)
 const noticesUrl = computed(() => `${gitHubRepoUrl.value}notices-disclaimers.md`)
@@ -438,7 +464,7 @@ onMounted(async () => {
   // Fetch dynamic GitHub repo URL for footer links
   gitHubRepoUrl.value = await window.electronAPI.getGitHubRepoUrl()
 
-  // Which OEM's machine this is decides co-branded labels (e.g. Acer Game Maker).
+  // Which OEM's machine this is decides co-branded labels (e.g. Acer Game Agent).
   void oemBranding.initialize()
 
   // Apply theme class to document root for CSS variables

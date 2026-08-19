@@ -818,7 +818,7 @@ function getTextAreaPlaceholder() {
   if (active?.type === 'chat' && active.ttsPreset) {
     return languages?.COM_PROMPT_TTS || ''
   }
-  // Agent presets differ in what they ask for: Game Maker wants a game, the plain
+  // Agent presets differ in what they ask for: Game Agent wants a game, the plain
   // agent a task in the chosen folder.
   if (active?.type === 'chat' && active.agentPreset) {
     return active.agentWorkspace === 'games'

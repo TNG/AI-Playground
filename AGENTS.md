@@ -406,7 +406,7 @@ There is **no Vue Router**. Navigation is state-driven:
 - Once running, `promptStore.currentMode` controls which view renders: `chat` → `Chat.vue`, `agent` → `AgentMode.vue`, `imageGen`/`imageEdit`/`video` → `WorkflowResult.vue`
 - `PromptArea.vue` is the shared prompt input bar across all modes
 - **The preset picks the mode**, via `presetToMode()` in `src/lib/presetModes.ts`. A chat preset
-  with `agentPreset: true` (Agent, Game Maker) renders Agent Mode, so there is no Agent mode
+  with `agentPreset: true` (Agent, Game Agent) renders Agent Mode, so there is no Agent mode
   button — it is entered by picking one of those presets from the chat list.
 
 ### Backend Services (4 services, dynamic ports)
@@ -463,7 +463,7 @@ How the values reach a turn:
   still return 200), so the dialect mapping is about correctness, not avoiding rejections.
 
 **Reasoning effort is set for the expensive case, which is the agent.** A chat reply pays for
-thinking once; an agent turn pays per step, and a Game Maker run is dozens of steps. Qwen3.8-27B at
+thinking once; an agent turn pays per step, and a Game Agent run is dozens of steps. Qwen3.8-27B at
 `medium` spent 15 minutes producing three file reads, so both its `models.json` entries recommend
 `low`. There is no per-preset override — the level travels with the model, in
 `chat_template_kwargs.reasoning_effort` (`chatModel.ts` for chat, `buildSamplingParams` in
@@ -482,7 +482,7 @@ otherwise loads and discards (`unused tensor blk.64.nextn.*`), and drafting off 
 Generation speed, not reasoning depth, was the bulk of that 15-minute run.
 
 **Thinking is capped for Qwen3.8, and only for Qwen3.8.** `reasoning_effort: low` did not stop it
-drafting: a Game Maker run spent 20 minutes and ~6k tokens writing the whole asteroids game inside
+drafting: a Game Agent run spent 20 minutes and ~6k tokens writing the whole asteroids game inside
 one thinking block, then hit its turn limit before the first `edit`. Reasoning tokens cost what
 output tokens cost and cannot be play-tested, so that draft was paid for and largely thrown away
 (see `--reasoning-preserve` below for the part that was recoverable).
@@ -548,7 +548,7 @@ own port, allocated once. `electron/test/agents/agentEndpoint.test.ts` moves the
 steps of a real Pi session and asserts which fake server received the second one.
 
 **"Reasoning only during planning" (Agent Mode).** Thinking earns its cost while the agent decides
-what to build and stops earning it once that decision is on disk, so a Game Maker session can
+what to build and stops earning it once that decision is on disk, so a Game Agent session can
 switch thinking off for the rest of the run. What counts as "on disk" is the capability's to say
 (`AgentCapability.planningEnd`): `plan-file` for `game-studio`, which then works down the checklist
 in `design.md`, and `first-write` for `game-studio-quick`, whose first write is the finished game.
@@ -559,7 +559,7 @@ in `design.md`, and `first-write` for `game-studio-quick`, whose first write is 
 thinking is on, and the capability declares an end — a cloud turn or a template without
 `enable_thinking` is unaffected.
 
-**A one-turn session has to be split before that switch means anything.** Game Maker Quick's first
+**A one-turn session has to be split before that switch means anything.** Game Agent Quick's first
 traces showed the model doing everything in one reply — reasoning, then the whole game — so
 `first-write` flipped thinking off with nothing left to spend it on. A capability can therefore
 declare `AgentCapability.planHandoff`, which cuts the first turn in two: the model is asked for the
@@ -845,9 +845,9 @@ Notes:
   ("using only the dummy test workflows, …"). Delegation puts them behind the single `media`
   tool, so one request can chain image → 3D.
 
-### Verifying the Game Maker preset (game library)
+### Verifying the Game Agent preset (game library)
 
-`Game Maker` is a chat preset that runs on the agent harness (`agentPreset: true`) with the
+`Game Agent` is a chat preset that runs on the agent harness (`agentPreset: true`) with the
 `media`, `web-debug` and `game-studio` capabilities. Its workspace is app-managed
 (`agentWorkspace: 'games'`): the first turn mints `<games>/<slug>/` — `~/Documents/AI-Playground/games`
 on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds its own
@@ -894,20 +894,20 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   image; one follow-up ("finish the library card") exercises the `game` tool.
 - A session belongs to the preset it was held with (`AgentSessionRecord.presetName`): the
   Sessions panel lists only the active preset's own, resuming one switches back to its preset,
-  and the panel's **+** means "new game" under Game Maker (`agentMode.startNew()`). Sessions
+  and the panel's **+** means "new game" under Game Agent (`agentMode.startNew()`). Sessions
   from before this carry no preset and are migrated on hydration by their folder.
 - The game bar's cover image goes through `aipg-media://games/<folder>/<icon>` — the app window
   cannot load `file://` images, so the scheme serves the game library as a second root next to
   the media folder (`aipgMediaRoots` in `electron/main.ts`).
 - Pretend to be on an Acer machine with the `oemVendorOverride` local setting
   (`window.electronAPI.updateLocalSettings({ oemVendorOverride: 'acer' })`, then reload):
-  the preset reads "Acer Game Maker", the game bar gains the **Add to Acer Hub** and **Acer Game
+  the preset reads "Acer Game Agent", the game bar gains the **Add to Acer Hub** and **Acer Game
   Hub** buttons and the gallery is Acer-branded. Setting it back to `null` is how to check the
   non-Acer experience. Testers without a console can hand-edit the same key in
   `{userData}/ai-playground-local-settings.json` (dev) or the per-user `settings.json`
   (packaged) and restart. Detection itself (`electron/subprocesses/oemDetection.ts`) is
   Windows-only, so without the override every machine is `unknown`.
-- **`Game Maker Quick` is the same library, one step long.** Its only capability is
+- **`Game Agent Quick` is the same library, one step long.** Its only capability is
   `game-studio-quick`, which _owns the session_ (`AgentCapability.ownSession`): the preset's
   instructions replace Pi's coding-agent prompt, the workspace orientation and the skills index,
   and the builtin toolbox is cut to `write` — plus the shared `game` card tool. Its folder is
@@ -916,7 +916,7 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   build with thinking off (`planHandoff`, above). A capability with `ownSession` is kept out
   of the Agent Settings checkbox list (`listCapabilities`): ticked next to another preset's agent it
   would take that agent's prompt and tools away. Use it to check the low-context path; iterative
-  Game Maker is unchanged and remains the one with art and play-testing.
+  Game Agent is unchanged and remains the one with art and play-testing.
 - **Gotcha:** a `media` call temporarily switches the active preset to an image-gen one, so
   anything derived from the active preset must not follow it — `agentMode.activeAgentPreset`
   remembers the last agent preset for exactly this reason (following it live aborted the turn
@@ -1103,11 +1103,11 @@ pi agent run
    │  └─ ai.llm model.chat:<model>   reports what came back
    ├─ backend.stop_llm               keepModelsLoaded off
    ├─ models.download                only when files were missing
-   ├─ comfyui.generate               preset, mode, batch size, keepModelsLoaded
+   ├─ comfyui.generate               the run's parameters (below)
    │  ├─ comfyui.start_backend
    │  ├─ comfyui.install_nodes       only when custom nodes/packages ran
    │  ├─ comfyui.load_workflow_components
-   │  ├─ comfyui.load_model
+   │  ├─ comfyui.load_model          one per loader node, naming the model file
    │  └─ comfyui.generating          progress as attributes, not a span per step
    └─ backend.reload_llm             last run in the lane; skipped when more wait
 ```
@@ -1137,7 +1137,30 @@ Things to know before changing it:
   activity — and the phase spans are switched there by state, one per phase.
 - **Late attributes ride the end event.** A span reaches Laminar when it ends, so per-tick
   progress updates would be IPC nobody reads; `setAttributes` accumulates in the renderer and
-  is sent once with `aipgSpanEnd`.
+  is sent once with `aipgSpanEnd`. `setInput` rides along for the same reason from the other
+  side: `comfyui.generate` has to open before the backend starts, and its parameters exist only
+  after the workflow has been rewritten.
+- **What a generation was asked for is recorded twice, in two shapes.**
+  `src/lib/comfyTraceParameters.ts` turns the resolved run into curated scalars —
+  `aipg.variant`, `aipg.seed` (the resolved one, never the `-1` wildcard), `aipg.steps`,
+  `aipg.width`/`height`/`resolution`, `aipg.models`, `aipg.source_image`, and `aipg.items_done`
+  at the end, beside the preset/mode/batch-size keys the span already had — plus the whole
+  picture as the span's input JSON: prompts and one entry per workflow input, keyed
+  `<nodeTitle>.<nodeInput>`, so a preset's own knobs (checkpoint, LoRA, guidance, sampler) are
+  there too. Attributes are what Laminar's SQL groups by, which is why they stay scalar and few.
+  **Redaction is part of the contract:** image-shaped inputs (`image`, `video`, `inpaintMask`,
+  `outpaintCanvas`) hold a base64 data URI of a whole image, so they are described
+  (`<image/png, 293 KB>` / `<none>`) and never serialized — a data URI in any other input is
+  described the same way rather than trusted — while short references (`aipg-media://…`, a file
+  name) stay verbatim, since that is what identifies a source image. Every other string is
+  capped. The module is pure, so it is unit-tested directly
+  (`electron/test/lib/comfyTraceParameters.test.ts`) and the store stays wiring.
+- **A workflow that loads two models stays in one FSM state.** `load_model` is entered once and
+  never re-entered between a unet and a clip, so a span switched by the state watch would cover
+  both and say nothing about which was slow. The websocket's `executing` branch opens the phase
+  span itself, and `enterPhaseSpan` compares name **and** loader node before deciding it is
+  already in the right span. Each one carries `aipg.node` and `aipg.model`, read off the
+  loader's `*_name` input in the already-normalized workflow.
 - **The specialist's own model calls have to be pulled in, and say so themselves.** The media
   agent is a nested AI SDK run (`agents/toolAgent.ts`), so it is traced by Laminar's AI SDK
   integration, which reads a call's parent off the OpenTelemetry context — where nothing has
@@ -1207,7 +1230,7 @@ Things to know before changing it:
 in the main log and `[laminar] chat traces via main to …` in the renderer console, then send
 one Chat turn and one Agent turn and open `http://localhost:5667` → traces. A chat turn
 appears as `ai.streamText` → `ai.llm model.chat:<model>`; an agent turn as the `pi agent run`
-tree above. For the media spans, one Game Maker cover image (`Draft Image`) should show `media`
+tree above. For the media spans, one Game Agent cover image (`Draft Image`) should show `media`
 with `comfyui.generate` and the `backend.*` swaps under it, and one desktop Image Gen click a
 `comfyui.generate` root carrying `hostname`. If the UI shows nothing, query the store directly rather than guessing:
 

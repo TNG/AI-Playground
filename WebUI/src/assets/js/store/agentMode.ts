@@ -10,6 +10,7 @@ import { useErrors } from './errors'
 import { extractMessage } from '../errors/appError'
 import { executeAgentTool, getAgentToolSpecs } from '../tools/agentBridge'
 import { chatTemplateKwargs } from '@/lib/samplingDefaults'
+import { currentPresetName } from '@/lib/presetRenames'
 
 // ── Agent Mode: renderer side of the Pi coding-agent integration ─────────────
 //
@@ -43,7 +44,7 @@ export type AgentSessionRecord = {
    */
   capabilities?: string[]
   /**
-   * The agent preset the conversation was held with (Agent, Game Maker). A
+   * The agent preset the conversation was held with (Agent, Game Agent). A
    * session only makes sense under it — the instructions, capabilities and
    * surrounding UI all come from the preset — so resuming one switches back to
    * it, and the Sessions panel only lists the active preset's own sessions.
@@ -62,7 +63,7 @@ const DEFAULT_CAPABILITIES = ['media', 'web-debug']
 const MCP_CAPABILITY_PREFIX = 'mcp:'
 
 /**
- * The capability of the one-shot Game Maker preset (electron/agentMode/
+ * The capability of the one-shot Game Agent preset (electron/agentMode/
  * capabilities/gameStudio.ts). Its agent writes the whole game in a single
  * `write`, so its folder starts empty instead of holding the scaffold the
  * iterative preset edits.
@@ -74,7 +75,7 @@ const ONE_SHOT_GAME_CAPABILITY = 'game-studio-quick'
  * `migrateSessionPresets`). Named rather than looked up, because the migration
  * runs on hydration, before the preset catalog is loaded.
  */
-const GAME_MAKER_PRESET = 'Game Maker'
+const GAME_AGENT_PRESET = 'Game Agent'
 const AGENT_PRESET = 'Agent'
 
 export const useAgentMode = defineStore(
@@ -90,7 +91,7 @@ export const useAgentMode = defineStore(
 
     /**
      * The agent preset driving the session, if any. Agent Mode is entered by
-     * selecting a chat preset marked `agentPreset` (Agent, Game Maker), and that
+     * selecting a chat preset marked `agentPreset` (Agent, Game Agent), and that
      * preset supplies the extra instructions and the capability set.
      *
      * Remembered rather than read live, because the active preset is borrowed
@@ -144,7 +145,7 @@ export const useAgentMode = defineStore(
     /**
      * Last workspace per kind. The two kinds mean unrelated folders (a game the app
      * created vs. a folder the user picked), so switching preset returns to the one
-     * that belongs to it instead of pointing Game Maker at, say, a source checkout.
+     * that belongs to it instead of pointing Game Agent at, say, a source checkout.
      */
     const lastWorkspaceByKind = ref<Record<string, string>>({})
 
@@ -189,7 +190,7 @@ export const useAgentMode = defineStore(
      * The sessions the Sessions panel lists: those of the active agent preset. A
      * preset supplies the instructions, capabilities and workspace policy a
      * conversation ran under, so listing the plain Agent's folders alongside Game
-     * Maker's games would only offer conversations to resume under the wrong
+     * Agent's games would only offer conversations to resume under the wrong
      * rules. Sessions archived before presets drove Agent Mode name none, and
      * stay visible under every preset rather than disappearing.
      */
@@ -241,21 +242,36 @@ export const useAgentMode = defineStore(
     }
 
     /**
-     * Give sessions archived before presets drove Agent Mode the preset they were
-     * really held with, so they show up in one list rather than in every one. The
-     * workspace folder says which: a folder in the game library was Game Maker's,
-     * anything else was the folder-picking Agent.
+     * Name every session the preset it was really held with, so it shows up in one
+     * list rather than in every one — or, for a preset that has since been renamed,
+     * under the name that preset ships with now.
+     *
+     * Sessions archived before presets drove Agent Mode name none; the workspace
+     * folder says which they were: a folder in the game library was the game
+     * preset's, anything else was the folder-picking Agent.
      */
     async function migrateSessionPresets(): Promise<void> {
+      const renamed = Object.values(sessions.value).filter(
+        (session) =>
+          session.presetName && currentPresetName(session.presetName) !== session.presetName,
+      )
       const legacy = Object.values(sessions.value).filter((session) => !session.presetName)
-      if (legacy.length === 0) return
-      const games = await window.electronAPI.games.list()
-      const gameFolders = new Set(games.map((game) => game.dir))
+      if (legacy.length === 0 && renamed.length === 0) return
       const next = { ...sessions.value }
-      for (const session of legacy) {
+      for (const session of renamed) {
         next[session.id] = {
           ...session,
-          presetName: gameFolders.has(session.workspaceDir) ? GAME_MAKER_PRESET : AGENT_PRESET,
+          presetName: currentPresetName(session.presetName!),
+        }
+      }
+      if (legacy.length > 0) {
+        const games = await window.electronAPI.games.list()
+        const gameFolders = new Set(games.map((game) => game.dir))
+        for (const session of legacy) {
+          next[session.id] = {
+            ...session,
+            presetName: gameFolders.has(session.workspaceDir) ? GAME_AGENT_PRESET : AGENT_PRESET,
+          }
         }
       }
       sessions.value = next
@@ -643,7 +659,7 @@ export const useAgentMode = defineStore(
       restoringSession = true
       try {
         // A session belongs to the preset it was held with, so resuming a Game
-        // Maker conversation goes back to Game Maker rather than showing its
+        // Agent conversation goes back to Game Agent rather than showing its
         // transcript under whatever preset happens to be active.
         if (target.presetName && target.presetName !== agentPresetName.value) {
           await presetSwitching.switchPreset(target.presetName)
@@ -723,7 +739,7 @@ export const useAgentMode = defineStore(
      * Files the user attached for the next turn, still in memory.
      *
      * They are held rather than saved on sight because the folder they belong in
-     * may not exist yet: Game Maker mints a game folder from the first prompt, so
+     * may not exist yet: Game Agent mints a game folder from the first prompt, so
      * attaching before sending has nowhere to write to. `importAttachments` puts
      * them in the workspace once `generate` has one.
      */
@@ -788,7 +804,7 @@ export const useAgentMode = defineStore(
 
     /**
      * Whether `dir` is a game folder, i.e. carries a `game.json`. This is what
-     * makes a folder usable by Game Maker: the game bar's Play, Save and open-
+     * makes a folder usable by Game Agent: the game bar's Play, Save and open-
      * folder actions, the library listing and the `game` tool all resolve through
      * that card, so a plain folder leaves them with nothing to act on.
      */
@@ -813,7 +829,7 @@ export const useAgentMode = defineStore(
     /**
      * What "start something new" means under the active preset, for the single
      * plus button in the Sessions panel: a fresh game (own folder, own session)
-     * for Game Maker, a fresh conversation in the same workspace otherwise.
+     * for Game Agent, a fresh conversation in the same workspace otherwise.
      */
     async function startNew(): Promise<void> {
       if (agentWorkspaceKind.value === 'games') await newGame()
@@ -822,18 +838,18 @@ export const useAgentMode = defineStore(
 
     /**
      * Hand a workspace that is not a game back to the Agent preset it came from,
-     * whenever Game Maker is the one holding it.
+     * whenever Game Agent is the one holding it.
      *
      * `workspaceDir` is persisted as a single value while the two kinds mean
      * unrelated folders, so the folder picked for Agent can come back as Game
-     * Maker's workspace — and the kind watcher below never notices, because with
-     * Game Maker already active at launch the kind does not *change*, it starts
+     * Agent's workspace — and the kind watcher below never notices, because with
+     * Game Agent already active at launch the kind does not *change*, it starts
      * out as 'games'. Games were then built into the picked folder, outside the
      * library and without a `game.json`, which is what left the game bar's Play
      * and Save disabled and its folder button pointing at the library root.
      */
     async function reconcileWorkspaceKind(): Promise<void> {
-      // Only Game Maker has an answer to "is this the wrong folder": it needs a
+      // Only Game Agent has an answer to "is this the wrong folder": it needs a
       // game folder, while the Agent preset works in any folder the user picked.
       if (agentWorkspaceKind.value !== 'games') return
       // An empty workspace is a deliberate state here ("New game"), not a folder
@@ -868,7 +884,7 @@ export const useAgentMode = defineStore(
     )
 
     async function generate(prompt: string): Promise<void> {
-      // Game Maker never asks for a folder: the first turn of a game mints one,
+      // Game Agent never asks for a folder: the first turn of a game mints one,
       // named after the request, and everything the agent writes lands in it. A
       // folder that holds no game counts as "no folder yet" — it is the Agent
       // preset's picked folder, and building a game there would put it outside the

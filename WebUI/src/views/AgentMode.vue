@@ -1,12 +1,12 @@
 <template>
   <div class="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-6 relative" ref="panel">
     <div class="w-full max-w-4xl mx-auto flex flex-col gap-4">
-      <!-- Game Maker works on one game at a time, and what to do with that game
+      <!-- Game Agent works on one game at a time, and what to do with that game
            (play it, save it to the library, open its folder) belongs next to it —
            and stays reachable once the transcript has scrolled past it. Pinned to
            the top, it shares that line with the floating "Show Sessions" button
            (App.vue), so it takes only the width it needs and keeps to the right. -->
-      <div v-if="isGameMaker" class="sticky top-0 z-5 flex justify-end pl-32 pr-32">
+      <div v-if="isGameAgent" class="sticky top-0 z-5 flex justify-end pl-32 pr-32">
         <GameBar />
       </div>
 
@@ -17,7 +17,7 @@
         class="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground"
       >
         <img src="../assets/svg/ai-icon.svg" class="size-10 opacity-60" />
-        <template v-if="isGameMaker">
+        <template v-if="isGameAgent">
           <p class="text-sm">
             Describe the game you want — the agent writes it as a single HTML page, draws the art,
             play-tests it in a browser and saves it to your library.
@@ -116,7 +116,7 @@ const panel = ref<HTMLElement | null>(null)
 
 // The game bar and the game-specific empty state belong to the preset that works
 // on a managed game folder, not to Agent Mode in general.
-const isGameMaker = computed(() => agentMode.agentWorkspaceKind === 'games')
+const isGameAgent = computed(() => agentMode.agentWorkspaceKind === 'games')
 
 function messageText(message: UIMessage): string {
   return (

@@ -5,6 +5,7 @@ import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
 import { withDevPresets } from './devPresets'
 import { llmBackendTypes } from '@/types/shared'
+import { currentPresetName, renamePresetKeys } from '@/lib/presetRenames'
 
 // DeepPartial utility type
 type DeepPartial<T> = {
@@ -741,6 +742,24 @@ export const usePresets = defineStore(
       lastUsedPresetName.value[category] = presetName
     }
 
+    /**
+     * Carry state stored under a preset's former name over to the name it ships
+     * with now. Without it a rename reads as "preset gone": the picker falls back
+     * to another preset, the settings the user tuned revert to defaults and the
+     * variant they chose is forgotten.
+     */
+    function migrateRenamedPresets(): void {
+      if (activePresetName.value) {
+        activePresetName.value = currentPresetName(activePresetName.value)
+      }
+      for (const [category, name] of Object.entries(lastUsedPresetName.value)) {
+        if (name) lastUsedPresetName.value[category] = currentPresetName(name)
+      }
+      activeVariantName.value = renamePresetKeys(activeVariantName.value)
+      settingsPerPreset.value = renamePresetKeys(settingsPerPreset.value)
+      lastQualityVariantPerBackend.value = renamePresetKeys(lastQualityVariantPerBackend.value)
+    }
+
     // ========================================================================
     // Computed Properties
     // ========================================================================
@@ -894,6 +913,7 @@ export const usePresets = defineStore(
       getPresetsByCategories,
       getLastUsedPreset,
       setLastUsedPreset,
+      migrateRenamedPresets,
       getDistinctBackendsForPreset,
       getVariantsForBackend,
       getActiveBackend,
@@ -910,6 +930,11 @@ export const usePresets = defineStore(
         'lastUsedPresetName',
         'lastQualityVariantPerBackend',
       ],
+      afterHydrate: (ctx) => {
+        // Selection and per-preset state are keyed by preset name, so a preset
+        // that shipped under another one has to be followed to its current name.
+        ctx.store.migrateRenamedPresets()
+      },
     },
   },
 )

@@ -26,6 +26,7 @@ import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import * as toast from '@/assets/js/toast.ts'
 import { useActivities } from './activities'
 import { useI18N } from './i18n'
+import { renamePresetKeys } from '@/lib/presetRenames'
 
 const LlmBackendSchema = z.enum(llmBackendTypes)
 export type LlmBackend = z.infer<typeof LlmBackendSchema>
@@ -1428,6 +1429,15 @@ export const useTextInference = defineStore(
       return variantName ? `${activePreset.value.name}:${variantName}` : activePreset.value.name
     }
 
+    /**
+     * Follow a renamed preset's settings to its current name, so a rename does not
+     * silently reset the model, context size and thinking state the user chose for
+     * it (the settings key is the preset's name, plus its variant).
+     */
+    function migrateRenamedPresetSettings(): void {
+      settingsPerPreset.value = renamePresetKeys(settingsPerPreset.value)
+    }
+
     const isSystemPromptVisible = computed(() => activePreset.value?.advancedMode === true)
     // Currently unused inside the store; kept (with the convention `_` prefix) as a
     // ready-to-expose computed for UI components that want to mirror the preset's
@@ -2066,6 +2076,7 @@ export const useTextInference = defineStore(
       beginInferenceStream,
       endInferenceStream,
       waitForInferenceIdle,
+      migrateRenamedPresetSettings,
     }
   },
   {
@@ -2082,6 +2093,10 @@ export const useTextInference = defineStore(
         'builtinToolEnablement',
         'screenshotWindow',
       ],
+      afterHydrate: (ctx) => {
+        // Settings are stored per preset name, which a renamed preset no longer has.
+        ctx.store.migrateRenamedPresetSettings()
+      },
     },
   },
 )

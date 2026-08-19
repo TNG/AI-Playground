@@ -43,7 +43,7 @@
         class="svg-icon i-add w-7 h-7"
         :title="languages.COM_ADD"
       />
-      <!-- "New" follows the preset: a new game (own folder) under Game Maker, a
+      <!-- "New" follows the preset: a new game (own folder) under Game Agent, a
            new conversation in the same workspace otherwise. -->
       <button
         v-show="mode === 'agent'"

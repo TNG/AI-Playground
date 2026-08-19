@@ -171,13 +171,13 @@ async function buildGameTool(host: CapabilityHost): Promise<ToolDefinition[]> {
       parameters: jsonSchemaParameters(GAME_INPUT_SCHEMA),
       execute: async (_toolCallId, params) => {
         const { action, name, description, path: iconPath } = params as GameToolParams
-        // The workspace IS the game folder for the Game Maker preset. Any other
+        // The workspace IS the game folder for the Game Agent preset. Any other
         // workspace has no card to write, and saying so is more useful than a
         // filesystem error.
         if (!readGame(host.workspaceDir)) {
           return textResult(
             'This workspace is not a game folder, so it has no library card. Select the Game ' +
-              'Maker preset to work on a game.',
+              'Agent preset to work on a game.',
           )
         }
         switch (action) {

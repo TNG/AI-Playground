@@ -93,7 +93,7 @@ const items = computed(() => {
       if (requirements.vision && !m.supportsVision) return false
       if (requirements.toolCalling && !m.supportsToolCalling) return false
       if (requirements.reasoning && !m.supportsReasoning) return false
-      // Game Maker asks the model to write a whole game in one file; the small
+      // Game Agent asks the model to write a whole game in one file; the small
       // general-purpose models in the list cannot, so they are hidden rather than
       // left to disappoint.
       if (requirements.coding && !m.supportsCoding) return false

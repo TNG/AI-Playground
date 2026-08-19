@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
 import type { ChatPreset } from '@/assets/js/store/presets'
 
-// Agent Mode is entered through a chat preset (Agent, Game Maker), and a session
+// Agent Mode is entered through a chat preset (Agent, Game Agent), and a session
 // belongs to the preset it was held with. These tests cover that association:
 // which sessions the panel lists, what resuming one does, and what "new" means.
 // Everything the store talks to besides the preset stores is stubbed away.
@@ -17,10 +17,10 @@ const AGENT: ChatPreset = {
   agentWorkspace: 'pick',
 } as ChatPreset
 
-const GAME_MAKER: ChatPreset = {
+const GAME_AGENT: ChatPreset = {
   type: 'chat',
   category: 'chat',
-  name: 'Game Maker',
+  name: 'Game Agent',
   backends: ['llamaCPP'],
   agentPreset: true,
   agentWorkspace: 'games',
@@ -31,7 +31,7 @@ const activePreset = ref<ChatPreset>(AGENT)
 
 vi.mock('@/assets/js/store/presets', () => ({
   usePresets: () => ({
-    presets: [AGENT, GAME_MAKER],
+    presets: [AGENT, GAME_AGENT],
     get activePresetWithVariant() {
       return activePreset.value
     },
@@ -41,7 +41,7 @@ vi.mock('@/assets/js/store/presets', () => ({
 // The real switch is what makes the preset active, and everything else in the
 // store follows from that — so the stub does exactly that much.
 const switchPreset = vi.fn(async (name: string) => {
-  const preset = [AGENT, GAME_MAKER].find((entry) => entry.name === name)
+  const preset = [AGENT, GAME_AGENT].find((entry) => entry.name === name)
   if (preset) activePreset.value = preset
   return { success: true }
 })
@@ -119,7 +119,7 @@ function seedSessions(store: Store): void {
       messages: [{ id: 'm1', role: 'user', parts: [] }],
       createdAt: 1,
       updatedAt: 2,
-      presetName: 'Game Maker',
+      presetName: 'Game Agent',
     },
     legacy: {
       id: 'legacy',
@@ -143,6 +143,7 @@ describe('agentMode sessions', () => {
     activePreset.value = AGENT
     switchPreset.mockClear()
     gamesRead.mockClear()
+    gamesList.mockClear()
   })
 
   it('lists the active preset’s sessions, plus those archived before presets', async () => {
@@ -151,7 +152,7 @@ describe('agentMode sessions', () => {
 
     expect(store.presetSessions.map((session) => session.id)).toEqual(['agent-1', 'legacy'])
 
-    activePreset.value = GAME_MAKER
+    activePreset.value = GAME_AGENT
     await flush()
     expect(store.presetSessions.map((session) => session.id)).toEqual(['game-1', 'legacy'])
   })
@@ -163,7 +164,7 @@ describe('agentMode sessions', () => {
     await store.switchSession('game-1')
     await flush()
 
-    expect(switchPreset).toHaveBeenCalledWith('Game Maker')
+    expect(switchPreset).toHaveBeenCalledWith('Game Agent')
     expect(store.activeSessionId).toBe('game-1')
     // The preset switch changes how the workspace is chosen, which is exactly
     // when the folder must NOT be re-derived: it belongs to the session.
@@ -206,12 +207,39 @@ describe('agentMode sessions', () => {
 
     await store.migrateSessionPresets()
 
-    expect(store.sessions.game.presetName).toBe('Game Maker')
+    expect(store.sessions.game.presetName).toBe('Game Agent')
     expect(store.sessions.code.presetName).toBe('Agent')
     expect(store.presetSessions.map((session) => session.id)).toEqual(['code'])
   })
 
-  it('starts a new game under Game Maker and a new conversation otherwise', async () => {
+  // A preset's name is its identity, so a session naming a preset that has since
+  // been renamed would be listed under no preset at all.
+  it('follows a session whose preset has been renamed', async () => {
+    const store = useAgentMode()
+    store.sessions = {
+      game: {
+        id: 'game',
+        workspaceDir: '/games/space-dodger',
+        title: 'a game',
+        messages: [],
+        createdAt: 1,
+        updatedAt: 1,
+        presetName: 'Game Maker',
+      },
+    }
+
+    await store.migrateSessionPresets()
+
+    expect(store.sessions.game.presetName).toBe('Game Agent')
+    // No sessions predate `presetName`, so the folder listing is not needed.
+    expect(gamesList).not.toHaveBeenCalled()
+
+    activePreset.value = GAME_AGENT
+    await flush()
+    expect(store.presetSessions.map((session) => session.id)).toEqual(['game'])
+  })
+
+  it('starts a new game under Game Agent and a new conversation otherwise', async () => {
     const store = useAgentMode()
     seedSessions(store)
     await store.switchSession('agent-1')
@@ -221,7 +249,7 @@ describe('agentMode sessions', () => {
     expect(store.workspaceDir).toBe('/code/project')
     expect(store.activeSessionId).not.toBe('agent-1')
 
-    activePreset.value = GAME_MAKER
+    activePreset.value = GAME_AGENT
     await flush()
     await store.startNew()
     // No folder yet: the first turn mints one named after the request.

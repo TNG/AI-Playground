@@ -18,7 +18,7 @@ export const getMediaDir = () => {
 }
 
 /**
- * The game library: one folder per game the Game Maker preset produced, sibling to
+ * The game library: one folder per game the Game Agent preset produced, sibling to
  * `media/`. The user opens it directly (and the generated hub page lives here), so
  * it goes next to the other user-visible output rather than into app data.
  */

@@ -2,7 +2,15 @@ declare interface Window {
   __AIPG_DEMO_MODE__?: boolean
   chrome: Chrome
   electronAPI: electronAPI
-  envVars: { platformTitle: string; productVersion: string; debugToolsEnabled: boolean }
+  envVars: {
+    platformTitle: string
+    productVersion: string
+    debugToolsEnabled: boolean
+    /** Short commit this build came from; '' when it could not be determined. */
+    gitCommit: string
+    /** Release tag on that commit; '' when the build is not from a tag. */
+    gitTag: string
+  }
   // Dev-only Home Agent mock-channel drive surface (see channels/mockAdapter.ts).
   // Only attached when debug tools are enabled.
   __homeAgentMock?: HomeAgentMockApi
@@ -55,6 +63,8 @@ type HomeAgentMockApi = {
 interface ImportMetaEnv {
   readonly VITE_PLATFORM_TITLE: string
   readonly VITE_DEBUG_TOOLS: 'true' | undefined
+  readonly VITE_GIT_COMMIT: string | undefined
+  readonly VITE_GIT_TAG: string | undefined
 }
 
 interface ImportMeta {
@@ -364,7 +374,7 @@ type AgentModeTurnConfig = {
   toolSpecs?: AgentToolSpec[]
   /**
    * Extra instructions appended to the agent's system prompt — the active
-   * preset's `systemPrompt`, which is what makes Game Maker a game maker rather
+   * preset's `systemPrompt`, which is what makes Game Agent a game builder rather
    * than a generic agent.
    */
   instructions?: string

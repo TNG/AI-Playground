@@ -26,6 +26,8 @@ const SPAN_START_EVENT = 'aipgSpanStart'
 const SPAN_END_EVENT = 'aipgSpanEnd'
 
 const SPAN_TYPE = 'lmnr.span.type'
+const SPAN_INPUT = 'lmnr.span.input'
+const SPAN_OUTPUT = 'lmnr.span.output'
 
 /** AI SDK tool spans are named after the tool, behind this prefix. */
 const AI_SDK_TOOL_PREFIX = 'ai.tool '
@@ -112,6 +114,8 @@ type SpanStartEvent = {
 
 type SpanEndEvent = {
   id?: string
+  /** What the span was asked to do, when that was only known later. */
+  input?: unknown
   output?: unknown
   error?: string
   attributes?: Record<string, unknown>
@@ -190,8 +194,13 @@ function endSpan(event: SpanEndEvent): void {
   openSpans.delete(event.id)
   const attributes = spanAttributes(event.attributes)
   if (Object.keys(attributes).length > 0) span.setAttributes(attributes)
+  // A generation's parameters are resolved after its span opened, so they arrive
+  // here; a span exports when it ends, which is why late is not too late.
+  if (event.input !== undefined) {
+    span.setAttribute(SPAN_INPUT, JSON.stringify(event.input))
+  }
   if (event.output !== undefined) {
-    span.setAttribute('lmnr.span.output', JSON.stringify(event.output))
+    span.setAttribute(SPAN_OUTPUT, JSON.stringify(event.output))
   }
   // SpanStatusCode.ERROR, spelled out rather than imported: @opentelemetry/api
   // rides along with the SDK, which is a devDependency loaded dynamically.

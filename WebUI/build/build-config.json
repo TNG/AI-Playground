@@ -133,7 +133,7 @@
     "verifyUpdateCodeSignature": false,
     "requestedExecutionLevel": "asInvoker",
     "icon": "app.ico",
-    "artifactName": "${productName}-${version}.${ext}",
+    "artifactName": "AI.Playground-${env.INSTALLER_ID}.${ext}",
     "electronLanguages": ["en-US", "zh-CN"]
   },
   "nsis": {
@@ -159,7 +159,7 @@
       }
     ],
     "icon": "build/icons/icon.png",
-    "artifactName": "${productName}-${version}.${ext}",
+    "artifactName": "AI.Playground-${env.INSTALLER_ID}.${ext}",
     "category": "Utility",
     "synopsis": "AI inference desktop app for Intel GPUs",
     "vendor": "Intel Corporation",

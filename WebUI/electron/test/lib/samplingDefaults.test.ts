@@ -99,7 +99,7 @@ describe('toRequestBody', () => {
 })
 
 // Chat and agent turns both build their kwargs here. They did not always: agent
-// turns sent the effort and never the toggle, so a Game Maker run thought no
+// turns sent the effort and never the toggle, so a Game Agent run thought no
 // matter what the thinking switch said, because Qwen3's template thinks unless
 // told otherwise.
 describe('chatTemplateKwargs', () => {
@@ -185,7 +185,7 @@ describe('models.json', () => {
     }
   })
 
-  // An agent turn pays for thinking once per step, and a Game Maker run is
+  // An agent turn pays for thinking once per step, and a Game Agent run is
   // dozens of steps: at `medium` this model spent 15 minutes on three file
   // reads. A chat reply pays it once, which is why the level lives with the
   // model rather than being talked up per preset. OVMS has no reasoning-budget
@@ -219,7 +219,7 @@ describe('models.json', () => {
     }
   })
 
-  // `low` was not enough on its own: a Game Maker run spent 20 minutes writing
+  // `low` was not enough on its own: a Game Agent run spent 20 minutes writing
   // the whole game inside one thinking block and never reached its first edit.
   // The budget is a hard stop the model cannot talk itself out of, and it is
   // per-model precisely so capping this one does not cap anybody's chat.

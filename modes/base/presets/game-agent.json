@@ -1,7 +1,7 @@
 {
   "type": "chat",
   "category": "chat",
-  "name": "Game Maker",
+  "name": "Game Agent",
   "description": "Describe a game and the agent builds it: a playable browser game with generated art, saved to your game library.",
   "displayPriority": 80,
   "tags": ["Agent", "Games", "Coding"],

@@ -14,7 +14,7 @@ you hand it.
 
 Everything the app's agent runtime can do is on the table in one session: read, write and edit
 files, run commands in an emulated shell, search the folder, open pages in a real browser and
-read their console, and generate images, video or 3D models. Where Game Maker aims all of that
+read their console, and generate images, video or 3D models. Where Game Agent aims all of that
 at one outcome, Agent leaves the aim to you.
 
 _Shipped copy:_ "Give the model a task and a folder to work in. It writes and runs files,
@@ -45,7 +45,7 @@ directly.
 
 ## How it differs from the neighbouring presets
 
-| | Basic Chat / Assistant | **Agent** | Game Maker |
+| | Basic Chat / Assistant | **Agent** | Game Agent |
 | --- | --- | --- | --- |
 | Works on | the conversation | a folder you pick | a game folder the app scaffolds |
 | Files | attachments, RAG | reads and writes them directly | same, plus the game card |
@@ -60,18 +60,18 @@ out-write it on a self-contained task (see
 [the capability benchmark](agent-capability-benchmark.md)). Reach for Agent when the work
 _is_ the folder, not when you just want code in a reply.
 
-The difference from Game Maker is aim, not power. Game Maker is this same harness with a
+The difference from Game Agent is aim, not power. Game Agent is this same harness with a
 system prompt, a skill, a workspace policy and a starting point — a new game folder already
 holds an `index.html` + `game.js` that run, which the agent grows section by section — all
 pointing at "produce a playable game". It is the preset to use for games; Agent is the one to
 use when nobody has written that specialization yet, and it starts you at an empty folder.
 
-**Game Maker Quick** is the other end of that trade: an empty game folder, a short prompt in
+**Game Agent Quick** is the other end of that trade: an empty game folder, a short prompt in
 place of the harness's own, and `write` as the only file tool. It runs as two steps of one turn
 — the agent answers with a plan and stops, the app approves it for you, and the game is then
 written whole into a single `index.html` without further thinking. No generated art and no play-testing,
 so it finishes in minutes rather than tens of them and asks far less of a small model's context
-— and produces a simpler game. Iterative Game Maker is unchanged and is still the one to use
+— and produces a simpler game. Iterative Game Agent is unchanged and is still the one to use
 when the game should be illustrated and tested.
 
 ## Turning it on

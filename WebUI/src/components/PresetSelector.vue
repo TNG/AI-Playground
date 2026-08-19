@@ -108,7 +108,7 @@ const selectedPreset = computed(() => {
 })
 
 // What the user reads. Differs from `selectedPreset.name` (the preset's identity)
-// only where an OEM co-brands the feature, e.g. "Acer Game Maker".
+// only where an OEM co-brands the feature, e.g. "Acer Game Agent".
 const displayName = computed(() =>
   selectedPreset.value ? oemBranding.presetLabel(selectedPreset.value.name) : '',
 )

@@ -11,7 +11,7 @@ import {
   thinkingIsOn,
 } from '../../agentMode/planningPhase.ts'
 
-// Thinking is switched off for the rest of a Game Maker run once the plan is on
+// Thinking is switched off for the rest of a Game Agent run once the plan is on
 // disk — `design.md` for the iterative preset, the game file itself for the one
 // that writes everything at once. These cover the two halves of that: reading
 // and mutating the live sampling bag, and recognising the call that ends the

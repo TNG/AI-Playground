@@ -1,5 +1,5 @@
 /**
- * Game Maker judge: score a finished game the way a person would be asked to.
+ * Game Agent judge: score a finished game the way a person would be asked to.
  *
  * Question it answers: is the game the agent just built any good? Does it run,
  * does it match what was asked for, does it look like anything, how buggy is it.
@@ -8,7 +8,7 @@
  * work; this is that day's work, automated, so a change to the preset, the
  * scaffold or the model can be argued about with numbers.
  *
- * It scores games that already exist. It does not run Game Maker, and it never
+ * It scores games that already exist. It does not run Game Agent, and it never
  * shows a picture to the agent — the play-test loop stays text (see
  * `previewProbe.ts` for why).
  *

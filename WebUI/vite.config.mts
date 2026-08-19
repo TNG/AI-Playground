@@ -6,6 +6,7 @@ import AutoImport from 'unplugin-auto-import/vite'
 import electron from 'vite-plugin-electron'
 import pkg from './package.json'
 import tailwindcss from '@tailwindcss/vite'
+import { resolveBuildIdentity } from './build/scripts/buildIdentity.mts'
 
 /**
  * Longer than the app's own teardown budget (electron/shutdown.ts), so a normal
@@ -45,8 +46,22 @@ function previousAppExit(): Promise<void> {
   return exited
 }
 
+/**
+ * Bake the build's commit and release tag in as env vars, which is how the
+ * footer gets them (preload reads `import.meta.env`). Vite loads `VITE_*` from
+ * `process.env` after this config function has run, and the Electron
+ * main/preload builds are children of the same process, so setting them here
+ * reaches every bundle.
+ */
+function exposeBuildIdentity(): void {
+  const { commit, tag } = resolveBuildIdentity(pkg.version)
+  process.env.VITE_GIT_COMMIT = commit
+  process.env.VITE_GIT_TAG = tag
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(({ command, mode }) => {
+  exposeBuildIdentity()
   const isServe = command === 'serve'
   const isBuild = command === 'build'
   // `vite --mode test` serves only the Vue renderer (no Electron plugin), so the

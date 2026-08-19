@@ -11,7 +11,7 @@ import { ScorecardSchema, type JudgeMessage, type Scorecard } from './rubric.ts'
 // It is deliberately a cloud call: the whole point of judging is a second
 // opinion from a model that did not build the thing, and vision decode inside
 // the local agent loop is what preceded every ErrorDeviceLost crash in the 35B
-// benchmark runs. Nothing here ever runs during a Game Maker session.
+// benchmark runs. Nothing here ever runs during a Game Agent session.
 //
 // Getting the video accepted is the fiddly part. Playwright records webm, which
 // most providers do not take (DashScope and OpenRouter both list mp4 and

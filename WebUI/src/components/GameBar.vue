@@ -1,5 +1,5 @@
 <template>
-  <!-- The Game Maker equivalent of the image panel's result toolbar: what game is
+  <!-- The Game Agent equivalent of the image panel's result toolbar: what game is
        being worked on, and what can be done with it. Agent Mode has no results
        panel, so it lives above the transcript. -->
   <!-- Opaque, because it is pinned: the transcript scrolls underneath it. -->

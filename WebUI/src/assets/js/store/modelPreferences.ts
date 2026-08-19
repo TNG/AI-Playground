@@ -16,8 +16,6 @@ import type { ModelCapabilityValues } from '../models/types'
  * altogether returns the app to its previous behaviour.
  */
 export type ModelPreferences = {
-  /** Hidden from every model picker (but never from model resolution). */
-  hidden?: boolean
   /** Sorted to the top of pickers and of the management view. */
   favorite?: boolean
   /** Only the keys present here override the catalog/disk value. */
@@ -36,7 +34,6 @@ export const useModelPreferences = defineStore(
 
     function update(id: string, patch: ModelPreferences) {
       const next: ModelPreferences = { ...preferences.value[id], ...patch }
-      if (next.hidden === false) delete next.hidden
       if (next.favorite === false) delete next.favorite
       if (next.capabilities && !hasCapabilityOverrides(next.capabilities)) delete next.capabilities
       if (Object.keys(next).length === 0) {
@@ -47,10 +44,6 @@ export const useModelPreferences = defineStore(
         return
       }
       preferences.value = { ...preferences.value, [id]: next }
-    }
-
-    function setHidden(id: string, hidden: boolean) {
-      update(id, { hidden })
     }
 
     function setFavorite(id: string, favorite: boolean) {
@@ -82,33 +75,26 @@ export const useModelPreferences = defineStore(
       return preferences.value[modelEntryId(pathKey, name)]?.capabilities
     }
 
-    /** Flags for a model, by path key + name, for the pickers. */
-    function flagsFor(pathKey: string, name: string): { hidden: boolean; favorite: boolean } {
-      const entry = preferences.value[modelEntryId(pathKey, name)]
-      return { hidden: entry?.hidden === true, favorite: entry?.favorite === true }
-    }
-
     /**
-     * Whether a model is hidden. Takes a raw name in any on-disk or catalog form
-     * (`owner---repo\file` vs `owner/repo/file`) because the ComfyUI dropdowns
-     * deal in file names; `modelEntryId` normalises both to the same key.
+     * Flags for a model, by path key + name, for the pickers. Takes a raw name in
+     * any on-disk or catalog form (`owner---repo\file` vs `owner/repo/file`);
+     * `modelEntryId` normalises both to the same key.
      */
-    function isHidden(pathKey: string, name: string): boolean {
-      return preferences.value[modelEntryId(pathKey, name)]?.hidden === true
+    function flagsFor(pathKey: string, name: string): { favorite: boolean } {
+      const entry = preferences.value[modelEntryId(pathKey, name)]
+      return { favorite: entry?.favorite === true }
     }
 
     return {
       preferences,
       get,
       update,
-      setHidden,
       setFavorite,
       setCapabilities,
       resetCapabilities,
       reset,
       capabilityOverridesFor,
       flagsFor,
-      isHidden,
     }
   },
   {

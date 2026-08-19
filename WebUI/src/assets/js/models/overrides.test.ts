@@ -45,7 +45,7 @@ describe('mergeCapabilities', () => {
       name: 'org/repo/model.gguf',
       downloaded: true,
       type: 'llamaCPP',
-      hidden: true,
+      favorite: true,
       supportsVision: true,
     } as unknown as Parameters<typeof mergeCapabilities>[0]
 

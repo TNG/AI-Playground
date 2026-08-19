@@ -8,12 +8,11 @@ import ModelLibraryTable from '@/components/models/ModelLibraryTable.vue'
 import EditModelCapabilitiesDialog from '@/components/models/EditModelCapabilitiesDialog.vue'
 import DeleteModelDialog from '@/components/models/DeleteModelDialog.vue'
 import AddLLMDialog from '@/components/AddLLMDialog.vue'
-import ModelFoldersDialog from '@/components/models/ModelFoldersDialog.vue'
 import { Spinner } from '@/components/ui/spinner'
 import { useModelLibrary } from '@/assets/js/store/modelLibrary'
 import { useI18N } from '@/assets/js/store/i18n'
-import { USE_CASE_LABELS } from '@/assets/js/models/library'
-import type { ModelCapabilityValues, ModelEntry, ModelUseCase } from '@/assets/js/models/types'
+import { USE_CASE_LABELS, type ModelCategory } from '@/assets/js/models/library'
+import type { ModelCapabilityValues, ModelEntry } from '@/assets/js/models/types'
 
 const emit = defineEmits<{ (e: 'close'): void }>()
 
@@ -23,12 +22,16 @@ const i18nState = useI18N().state
 const editing = ref<ModelEntry | null>(null)
 const deleting = ref<ModelEntry[] | null>(null)
 const showAddModel = ref(false)
-const showFolders = ref(false)
 
-const useCases: (ModelUseCase | 'all')[] = ['all', 'llm', 'embedding', 'media', 'speech']
+// Favorites sit next to "All" rather than among the use cases: they cut across
+// all of them, and they are what a returning user looks for first.
+const useCases: ModelCategory[] = ['all', 'favorites', 'llm', 'embedding', 'media', 'speech']
 
-const useCaseLabel = (useCase: ModelUseCase | 'all') =>
-  useCase === 'all' ? i18nState.MODEL_MANAGER_ALL : USE_CASE_LABELS[useCase]
+const useCaseLabel = (useCase: ModelCategory) => {
+  if (useCase === 'all') return i18nState.MODEL_MANAGER_ALL
+  if (useCase === 'favorites') return i18nState.MODEL_MANAGER_FAVORITES
+  return USE_CASE_LABELS[useCase]
+}
 
 // The dialog is re-created per edit, and its draft is seeded from the entry, so a
 // stale row would silently edit the wrong model.
@@ -116,7 +119,6 @@ async function confirmDelete() {
       <div class="flex min-w-0 flex-1 flex-col">
         <ModelLibraryToolbar
           @add-model="showAddModel = true"
-          @edit-folders="showFolders = true"
           @delete-selected="deleting = library.selectedDeletable"
         />
         <ModelLibraryTable
@@ -149,13 +151,6 @@ async function confirmDelete() {
           library.refresh()
         }
       "
-    />
-
-    <!-- Moving a folder changes what the scan finds, so the library reloads. -->
-    <ModelFoldersDialog
-      v-if="showFolders"
-      @close="showFolders = false"
-      @saved="library.refresh()"
     />
   </div>
 </template>

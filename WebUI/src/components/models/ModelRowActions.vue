@@ -20,7 +20,6 @@ const emit = defineEmits<{
   (e: 'reveal'): void
   (e: 'edit'): void
   (e: 'reset-capabilities'): void
-  (e: 'toggle-hidden'): void
   (e: 'toggle-favorite'): void
   (e: 'remove-from-list'): void
   (e: 'delete'): void
@@ -84,14 +83,6 @@ const canDelete = computed(
           entry.favorite
             ? languages.MODEL_MANAGER_ACTION_UNFAVORITE
             : languages.MODEL_MANAGER_ACTION_FAVORITE
-        }}
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        class="px-3 py-1.5 text-sm text-foreground hover:bg-muted"
-        @click="emit('toggle-hidden')"
-      >
-        {{
-          entry.hidden ? languages.MODEL_MANAGER_ACTION_UNHIDE : languages.MODEL_MANAGER_ACTION_HIDE
         }}
       </DropdownMenuItem>
       <template v-if="entry.source === 'custom' || canDelete">

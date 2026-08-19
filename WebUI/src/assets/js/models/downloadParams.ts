@@ -1,7 +1,16 @@
 // Turn selected library rows into the `DownloadModelParam[]` that
 // `dialogs.showDownloadDialog` already knows how to handle, so batch download
 // needs no new download machinery.
-import type { ModelEntry } from './types'
+import type { ModelEntry, ModelServiceBackend } from './types'
+
+/**
+ * The download API knows only the three backends that own a model directory.
+ * Qwen3-TTS runs on its own sidecar but its weights live in the OpenVINO tree, so
+ * that is what decides where they are fetched to.
+ */
+function downloadBackendOf(backend: ModelServiceBackend): 'comfyui' | 'llama_cpp' | 'openvino' {
+  return backend === 'qwen3_tts' ? 'openvino' : backend
+}
 
 /** Resolves the on-disk directory for a download, i.e. `models.getModelPath`. */
 export type ModelPathResolver = (type: string, backend: string) => string
@@ -25,11 +34,12 @@ export function entriesToDownloadParams(
   const add = (repoId: string, entry: ModelEntry) => {
     if (seen.has(repoId)) return
     seen.add(repoId)
+    const backend = downloadBackendOf(entry.serviceBackend)
     params.push({
       repo_id: repoId,
       type: entry.pathKey,
-      backend: entry.serviceBackend,
-      model_path: resolvePath(entry.pathKey, entry.serviceBackend),
+      backend,
+      model_path: resolvePath(entry.pathKey, backend),
       additionalLicenseLink: entry.additionalLicenseLink,
     })
   }

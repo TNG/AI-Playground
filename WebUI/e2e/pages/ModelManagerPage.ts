@@ -24,8 +24,14 @@ export class ModelManagerPage {
     return this.overlay.getByRole('searchbox', { name: 'Search models' })
   }
 
-  get showHiddenCheckbox(): Locator {
-    return this.overlay.getByRole('checkbox', { name: 'Show hidden' })
+  /** The backend filter's trigger. Its label is the current value. */
+  get backendFilter(): Locator {
+    return this.overlay.getByRole('group', { name: 'Backend' }).getByRole('button')
+  }
+
+  /** The download-status filter's trigger. Its label is the current value. */
+  get statusFilter(): Locator {
+    return this.overlay.getByRole('group', { name: 'Status' }).getByRole('button')
   }
 
   /** A row, matched by the model's visible label (its file name). */
@@ -74,27 +80,6 @@ export class ModelManagerPage {
       .click()
   }
 
-  async setShowHidden(enabled: boolean): Promise<void> {
-    const checkbox = this.showHiddenCheckbox
-    const checked = (await checkbox.getAttribute('data-state')) === 'checked'
-    if (checked !== enabled) await checkbox.click()
-  }
-
-  /** Run one item from a row's "…" menu, e.g. "Hide from model picker". */
-  async rowAction(label: string, action: string | RegExp): Promise<void> {
-    await this.overlay.getByRole('button', { name: `${label} actions` }).click()
-    await this.page.getByRole('menuitem', { name: action }).click()
-  }
-
-  /** Whether a row's action menu offers an item (icon-only actions are menu items). */
-  async hasRowAction(label: string, action: string | RegExp): Promise<boolean> {
-    await this.overlay.getByRole('button', { name: `${label} actions` }).click()
-    const item = this.page.getByRole('menuitem', { name: action })
-    const present = await item.isVisible().catch(() => false)
-    await this.page.keyboard.press('Escape')
-    return present
-  }
-
   async toggleFavorite(label: string): Promise<void> {
     await this.row(label)
       .getByRole('button', { name: new RegExp(`favorites ${escapeRegExp(label)}$`) })
@@ -107,9 +92,14 @@ export class ModelManagerPage {
       .click()
   }
 
-  /** The batch download button, which only appears once something downloadable is selected. */
+  /** The batch download icon button, disabled until something downloadable is selected. */
   get downloadSelectedButton(): Locator {
-    return this.overlay.getByRole('button', { name: /^Download selected/ })
+    return this.overlay.getByRole('button', { name: 'Download selected' })
+  }
+
+  /** The batch delete icon button, disabled until something deletable is selected. */
+  get deleteSelectedButton(): Locator {
+    return this.overlay.getByRole('button', { name: 'Delete selected' })
   }
 
   /**
@@ -132,16 +122,8 @@ export class ModelManagerPage {
     await expect(this.row(label)).toBeVisible()
   }
 
-  async expectRowHidden(label: string): Promise<void> {
+  async expectRowAbsent(label: string): Promise<void> {
     await expect(this.row(label)).toHaveCount(0)
-  }
-
-  /** Open the "Model folders" dialog from the toolbar. */
-  async openFolders(): Promise<Locator> {
-    await this.overlay.getByRole('button', { name: 'Model folders' }).click()
-    const dialog = this.page.getByRole('dialog', { name: 'Model folders' })
-    await expect(dialog).toBeVisible()
-    return dialog
   }
 }
 

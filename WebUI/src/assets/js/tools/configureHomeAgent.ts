@@ -15,7 +15,6 @@ import {
   summarizeChanges,
   type HomeAgentConfigRequest,
 } from './configureHomeAgentLogic'
-import { filterVisibleModels } from '../models/visibility'
 
 // The conversation a tool call belongs to is surfaced via `experimental_context`
 // (set in openAiCompatibleChat's streamText call). Used to scope activity/status
@@ -41,33 +40,16 @@ function devicesForBackend(
   return serviceInfo.find((s) => s.serviceName === service)?.devices ?? []
 }
 
-/**
- * Models the agent may see and choose. Models the user hid in Model Management
- * are withheld — otherwise the agent would cheerfully offer, and switch to, a
- * model that was deliberately retired. The active model is kept regardless, so
- * the agent can still name what is currently loaded.
- */
-function visibleLlmModels(models: LlmModel[], backend: LlmBackend): LlmModel[] {
-  return filterVisibleModels(
-    models.filter((m) => m.type === backend),
-    { selected: models.find((m) => m.type === backend && m.active)?.name ?? null },
-  )
-}
-
 function mapLlmModels(models: LlmModel[], backend: LlmBackend) {
-  return visibleLlmModels(models, backend).map((m) => ({
-    name: m.name,
-    downloaded: m.downloaded,
-    maxContextSize: m.maxContextSize,
-    supportsToolCalling: m.supportsToolCalling ?? false,
-    supportsVision: m.supportsVision ?? false,
-  }))
-}
-
-/** The hidden model the agent asked for, if any, so it can be refused by name. */
-function hiddenModelRequest(models: LlmModel[], requestedModel: string | undefined) {
-  if (!requestedModel) return undefined
-  return models.find((m) => m.name === requestedModel && m.hidden === true && !m.active)
+  return models
+    .filter((m) => m.type === backend)
+    .map((m) => ({
+      name: m.name,
+      downloaded: m.downloaded,
+      maxContextSize: m.maxContextSize,
+      supportsToolCalling: m.supportsToolCalling ?? false,
+      supportsVision: m.supportsVision ?? false,
+    }))
 }
 
 // ── Read tools ──────────────────────────────────────────────────────────────
@@ -251,19 +233,6 @@ async function applyConfig(
 
     const currentDeviceId =
       devicesForBackend(backendServices.info, currentBackend).find((d) => d.selected)?.id ?? null
-
-    // A hidden model is withheld from `listHomeAgentModels`, so the agent should
-    // never name one — but refuse explicitly rather than reporting it as unknown,
-    // which would send the agent hunting for a typo that isn't there.
-    const hidden = hiddenModelRequest(textInference.llmModels, req.model)
-    if (hidden) {
-      return {
-        status: 'error',
-        message:
-          `The model "${hidden.name}" is hidden in Model Management, so it cannot be selected. ` +
-          'Unhide it there first, or pick a different model.',
-      }
-    }
 
     const { changes, errors, notes } = computeConfigChanges(req, {
       currentBackend,

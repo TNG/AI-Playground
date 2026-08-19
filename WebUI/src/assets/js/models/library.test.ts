@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_FILTERS,
   DEFAULT_SORT,
+  availableBackends,
+  availableDownloadStates,
   buildEntries,
   canonicalPathKey,
   countByUseCase,
+  entriesForProductMode,
   filterEntries,
   formatBytes,
   formatModifiedAt,
@@ -256,7 +259,12 @@ describe('buildEntries', () => {
     const entries = buildEntries(
       input({
         speechModels: [
-          { name: 'OpenVINO/whisper-base-int8-ov', pathKey: 'STT', usedBy: 'Speech To Text' },
+          {
+            name: 'OpenVINO/whisper-base-int8-ov',
+            pathKey: 'STT',
+            usedBy: 'Speech To Text',
+            serviceBackend: 'openvino',
+          },
         ],
       }),
     )
@@ -291,7 +299,12 @@ describe('buildEntries', () => {
           },
         ],
         speechModels: [
-          { name: 'tngtech/Kokoro-82M-int8-ov', pathKey: 'TTS', usedBy: 'Text To Speech' },
+          {
+            name: 'tngtech/Kokoro-82M-int8-ov',
+            pathKey: 'TTS',
+            usedBy: 'Text To Speech',
+            serviceBackend: 'openvino',
+          },
         ],
       }),
     )
@@ -315,11 +328,13 @@ describe('buildEntries', () => {
             name: 'Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice',
             pathKey: 'TTS',
             usedBy: 'Text To Speech (Qwen3-TTS custom voice)',
+            serviceBackend: 'qwen3_tts',
           },
           {
             name: 'Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign',
             pathKey: 'TTS',
             usedBy: 'Text To Speech (Qwen3-TTS voice design)',
+            serviceBackend: 'qwen3_tts',
           },
         ],
       }),
@@ -343,12 +358,11 @@ describe('buildEntries', () => {
           },
         ],
         preferences: {
-          [id]: { hidden: true, favorite: true, capabilities: { supportsToolCalling: true } },
+          [id]: { favorite: true, capabilities: { supportsToolCalling: true } },
         },
       }),
     )
 
-    expect(entries[0].hidden).toBe(true)
     expect(entries[0].favorite).toBe(true)
     expect(entries[0].capabilities.supportsToolCalling).toBe(true)
     expect(entries[0].hasCapabilityOverrides).toBe(true)
@@ -364,7 +378,6 @@ const entry = (overrides: Partial<ModelEntry> & Pick<ModelEntry, 'id' | 'name'>)
   downloaded: true,
   capabilities: {},
   hasCapabilityOverrides: false,
-  hidden: false,
   favorite: false,
   requiredBy: [],
   ...overrides,
@@ -378,7 +391,7 @@ describe('matchesSearch / filterEntries', () => {
       name: 'org/repo/Qwen3-8B.gguf',
       capabilities: { supportsVision: true, supportsToolCalling: true },
     }),
-    entry({ id: '3', name: 'org/repo/hidden.gguf', hidden: true }),
+    entry({ id: '3', name: 'org/repo/embedder.gguf', useCase: 'embedding' }),
     entry({
       id: '4',
       name: 'org/repo/sd.safetensors',
@@ -394,16 +407,33 @@ describe('matchesSearch / filterEntries', () => {
     expect(matchesSearch(entries[0], '  ')).toBe(true)
   })
 
-  it('hides hidden models unless asked for', () => {
-    expect(filterEntries(entries, DEFAULT_FILTERS).map((e) => e.id)).not.toContain('3')
-    expect(
-      filterEntries(entries, { ...DEFAULT_FILTERS, showHidden: true }).map((e) => e.id),
-    ).toContain('3')
+  it('lists every entry when no filter is set', () => {
+    expect(filterEntries(entries, DEFAULT_FILTERS).map((e) => e.id)).toEqual([
+      '1',
+      '2',
+      '3',
+      '4',
+      '5',
+    ])
   })
 
   it('always keeps an explicitly protected row, even when filtered out', () => {
-    const visible = filterEntries(entries, DEFAULT_FILTERS, { alwaysInclude: new Set(['3']) })
+    const filters = { ...DEFAULT_FILTERS, useCase: 'media' as const }
+    expect(filterEntries(entries, filters).map((e) => e.id)).not.toContain('3')
+
+    const visible = filterEntries(entries, filters, { alwaysInclude: new Set(['3']) })
     expect(visible.map((e) => e.id)).toContain('3')
+  })
+
+  it('filters to the favorites, whatever their use case', () => {
+    const withFavorites = [
+      ...entries,
+      entry({ id: '6', name: 'org/repo/loved.gguf', favorite: true }),
+      entry({ id: '7', name: 'org/repo/loved.safetensors', useCase: 'media', favorite: true }),
+    ]
+    expect(
+      filterEntries(withFavorites, { ...DEFAULT_FILTERS, useCase: 'favorites' }).map((e) => e.id),
+    ).toEqual(['6', '7'])
   })
 
   it('filters by use case, backend and download state', () => {
@@ -474,14 +504,61 @@ describe('sortEntries', () => {
   })
 })
 
-describe('countByUseCase', () => {
-  it('counts each use case and the total', () => {
-    const counts = countByUseCase([
+describe('entriesForProductMode', () => {
+  const mixed = [
+    entry({ id: '1', name: 'a/b/c.gguf' }),
+    entry({ id: '2', name: 'a/b/d', serviceBackend: 'openvino' }),
+    entry({ id: '3', name: 'a/b/e.safetensors', useCase: 'media', serviceBackend: 'comfyui' }),
+    entry({ id: '4', name: 'Qwen/Qwen3-TTS', useCase: 'speech', serviceBackend: 'qwen3_tts' }),
+  ]
+
+  it('leaves everything alone outside NVIDIA mode', () => {
+    expect(entriesForProductMode(mixed, false)).toEqual(mixed)
+  })
+
+  it('drops OpenVINO models on NVIDIA, keeping the CUDA sidecar ones', () => {
+    // Qwen3-TTS weights sit in the OpenVINO directories but run on their own
+    // backend, so they must survive a filter aimed at the OpenVINO service.
+    expect(entriesForProductMode(mixed, true).map((e) => e.id)).toEqual(['1', '3', '4'])
+  })
+})
+
+describe('availableBackends / availableDownloadStates', () => {
+  it('lists only the backends and states some entry is actually in', () => {
+    const someEntries = [
       entry({ id: '1', name: 'a/b/c.gguf' }),
+      entry({ id: '2', name: 'a/b/d.gguf', downloaded: false }),
+      entry({ id: '3', name: 'a/b/e.safetensors', useCase: 'media', serviceBackend: 'comfyui' }),
+    ]
+    expect(availableBackends(someEntries)).toEqual(['llama_cpp', 'comfyui'])
+    expect(availableDownloadStates(someEntries)).toEqual(['downloaded', 'notDownloaded'])
+  })
+
+  it('collapses to a single option when the entries agree', () => {
+    // This is what locks the toolbar dropdown: one option means no choice to make.
+    const openvinoOnly = [
+      entry({ id: '1', name: 'a/b/c', serviceBackend: 'openvino' }),
+      entry({ id: '2', name: 'a/b/d', serviceBackend: 'openvino' }),
+    ]
+    expect(availableBackends(openvinoOnly)).toEqual(['openvino'])
+    expect(availableDownloadStates(openvinoOnly)).toEqual(['downloaded'])
+  })
+
+  it('offers nothing for an empty category', () => {
+    expect(availableBackends([])).toEqual([])
+    expect(availableDownloadStates([])).toEqual([])
+  })
+})
+
+describe('countByUseCase', () => {
+  it('counts each use case, the favorites and the total', () => {
+    const counts = countByUseCase([
+      entry({ id: '1', name: 'a/b/c.gguf', favorite: true }),
       entry({ id: '2', name: 'a/b/d.gguf', useCase: 'embedding' }),
-      entry({ id: '3', name: 'a/b/e.safetensors', useCase: 'media' }),
+      entry({ id: '3', name: 'a/b/e.safetensors', useCase: 'media', favorite: true }),
     ])
-    expect(counts).toEqual({ all: 3, llm: 1, embedding: 1, media: 1, speech: 0 })
+    // Favorites cut across the use cases, so they are counted on top, not instead.
+    expect(counts).toEqual({ all: 3, favorites: 2, llm: 1, embedding: 1, media: 1, speech: 0 })
   })
 })
 

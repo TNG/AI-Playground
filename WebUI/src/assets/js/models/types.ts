@@ -12,7 +12,7 @@
 export type ModelUseCase = 'llm' | 'embedding' | 'media' | 'speech'
 
 /** Which service consumes the weights. Doubles as the download API's `backend`. */
-export type ModelServiceBackend = 'llama_cpp' | 'openvino' | 'comfyui'
+export type ModelServiceBackend = 'llama_cpp' | 'openvino' | 'comfyui' | 'qwen3_tts'
 
 /**
  * Where the app learned about this model:
@@ -96,7 +96,6 @@ export type ModelEntry = {
   capabilities: ModelCapabilityValues
   /** True when the user has edited any capability, so the UI can offer "reset to defaults". */
   hasCapabilityOverrides: boolean
-  hidden: boolean
   favorite: boolean
   /**
    * What needs this model: preset names for media models, feature names for

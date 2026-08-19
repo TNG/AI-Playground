@@ -6,6 +6,7 @@ import { usePresets } from './presets'
 import { useDialogStore } from './dialogs'
 import { useGlobalSetup } from './globalSetup'
 import { useTextInference } from './textInference'
+import { useProductMode } from './productMode'
 import { useErrors } from './errors'
 import { WHISPER_MODEL_NAME } from './speechToText'
 import { SPEECHT5_MODEL_NAME } from './textToSpeech'
@@ -15,8 +16,11 @@ import { entriesToDownloadParams } from '../models/downloadParams'
 import {
   DEFAULT_FILTERS,
   DEFAULT_SORT,
+  availableBackends,
+  availableDownloadStates,
   buildEntries,
   countByUseCase,
+  entriesForProductMode,
   filterEntries,
   sortEntries,
   type ModelLibraryFilters,
@@ -29,7 +33,7 @@ import type { ModelCapabilityValues, ModelEntry, ScannedModel } from '../models/
 
 /**
  * The model management view's state: the unified entry list, its filters and
- * selection, and the actions on a model (reveal, delete, hide, favorite, edit
+ * selection, and the actions on a model (reveal, delete, favorite, edit
  * capabilities, download).
  *
  * Derivation and filtering live in `assets/js/models/library.ts` as pure
@@ -42,6 +46,7 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
   const dialogs = useDialogStore()
   const globalSetup = useGlobalSetup()
   const textInference = useTextInference()
+  const productMode = useProductMode()
   const errors = useErrors()
 
   const scanned = ref<ScannedModel[]>([])
@@ -74,32 +79,71 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
    * until the feature downloads them, and there is no way to pre-fetch one or to
    * reclaim its disk space.
    */
-  const speechModels: SpeechModelInput[] = [
-    { name: WHISPER_MODEL_NAME, pathKey: 'STT', usedBy: 'Speech To Text' },
-    { name: SPEECHT5_MODEL_NAME, pathKey: 'TTS', usedBy: 'Text To Speech' },
+  const speechModels = computed<SpeechModelInput[]>(() => [
+    // Whisper and SpeechT5 are served by OVMS, so an NVIDIA install — which never
+    // gets the OpenVINO backend — cannot run them at all. Qwen3-TTS has its own
+    // sidecar and runs on CUDA there, so it stays listed.
+    ...(nvidiaMode.value
+      ? []
+      : [
+          {
+            name: WHISPER_MODEL_NAME,
+            pathKey: 'STT',
+            usedBy: 'Speech To Text',
+            serviceBackend: 'openvino' as const,
+          },
+          {
+            name: SPEECHT5_MODEL_NAME,
+            pathKey: 'TTS',
+            usedBy: 'Text To Speech',
+            serviceBackend: 'openvino' as const,
+          },
+        ]),
     {
       name: QWEN3_TTS_MODEL_REPOS.customVoice,
       pathKey: 'TTS',
       usedBy: 'Text To Speech (Qwen3-TTS custom voice)',
+      serviceBackend: 'qwen3_tts',
     },
     {
       name: QWEN3_TTS_MODEL_REPOS.voiceDesign,
       pathKey: 'TTS',
       usedBy: 'Text To Speech (Qwen3-TTS voice design)',
+      serviceBackend: 'qwen3_tts',
     },
-  ]
+  ])
 
+  const nvidiaMode = computed(() => productMode.isNvidiaModeSelected)
+
+  // On an NVIDIA box this leaves Llama.cpp (and the CUDA sidecars), which is also
+  // what locks the toolbar's backend filter — there is nothing else to pick.
   const entries = computed<ModelEntry[]>(() =>
-    buildEntries({
-      catalogModels: models.models,
-      scanned: scanned.value,
-      requiredModels: requiredModels.value,
-      speechModels,
-      preferences: modelPreferences.preferences,
-    }),
+    entriesForProductMode(
+      buildEntries({
+        catalogModels: models.models,
+        scanned: scanned.value,
+        requiredModels: requiredModels.value,
+        speechModels: speechModels.value,
+        preferences: modelPreferences.preferences,
+      }),
+      nvidiaMode.value,
+    ),
   )
 
   const useCaseCounts = computed(() => countByUseCase(entries.value))
+
+  /**
+   * Everything in the selected sidebar category, before the toolbar's own
+   * filters. This is what the backend and status dropdowns offer options from —
+   * they list what the category actually contains rather than every value the
+   * app knows, so no choice can filter the table down to nothing.
+   */
+  const categoryEntries = computed(() =>
+    filterEntries(entries.value, { ...DEFAULT_FILTERS, useCase: filters.value.useCase }),
+  )
+
+  const backendOptions = computed(() => availableBackends(categoryEntries.value))
+  const downloadStateOptions = computed(() => availableDownloadStates(categoryEntries.value))
 
   const visibleEntries = computed(() =>
     sortEntries(filterEntries(entries.value, filters.value), sort.value),
@@ -161,6 +205,22 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
 
   function setFilters(patch: Partial<ModelLibraryFilters>) {
     filters.value = { ...filters.value, ...patch }
+    // Switching category can strand a backend or status the new category has
+    // none of — the dropdown would show a value it no longer offers and the
+    // table would be empty — so those fall back to "any".
+    if (patch.useCase !== undefined) {
+      const next = { ...filters.value }
+      if (next.backend !== 'all' && !backendOptions.value.includes(next.backend)) {
+        next.backend = 'all'
+      }
+      if (
+        next.downloadState !== 'all' &&
+        !downloadStateOptions.value.includes(next.downloadState)
+      ) {
+        next.downloadState = 'all'
+      }
+      filters.value = next
+    }
     // Selecting a row and then filtering it away would hide what a batch action
     // is about to act on, so the selection is pruned to what stays visible.
     pruneSelection()
@@ -198,10 +258,6 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
 
   function clearSelection() {
     selection.value = new Set()
-  }
-
-  function setHidden(id: string, hidden: boolean) {
-    modelPreferences.setHidden(id, hidden)
   }
 
   function setFavorite(id: string, favorite: boolean) {
@@ -315,6 +371,8 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     entries,
     visibleEntries,
     useCaseCounts,
+    backendOptions,
+    downloadStateOptions,
     filters,
     sort,
     selection,
@@ -334,7 +392,6 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     toggleSelected,
     toggleSelectAllVisible,
     clearSelection,
-    setHidden,
     setFavorite,
     saveCapabilities,
     resetCapabilities,

@@ -106,10 +106,16 @@ export type SpeechModelInput = {
   pathKey: string
   /** The feature that loads it, e.g. "Speech To Text". */
   usedBy: string
+  /**
+   * The service that runs it. Speech weights all live in the OpenVINO model
+   * directories, but only the OVMS ones actually need that backend — Qwen3-TTS
+   * has its own sidecar — and the difference decides what an NVIDIA install can
+   * use at all.
+   */
+  serviceBackend: ModelServiceBackend
 }
 
 export type ModelPreferencesInput = {
-  hidden?: boolean
   favorite?: boolean
   capabilities?: Partial<ModelCapabilityValues>
 }
@@ -175,13 +181,7 @@ export function buildEntries(input: BuildEntriesInput): ModelEntry[] {
   const push = (
     entry: Omit<
       ModelEntry,
-      | 'id'
-      | 'label'
-      | 'hidden'
-      | 'favorite'
-      | 'capabilities'
-      | 'hasCapabilityOverrides'
-      | 'requiredBy'
+      'id' | 'label' | 'favorite' | 'capabilities' | 'hasCapabilityOverrides' | 'requiredBy'
     > & {
       baseCapabilities: ModelCapabilityValues
     },
@@ -197,7 +197,6 @@ export function buildEntries(input: BuildEntriesInput): ModelEntry[] {
       label: modelLabel(entry.name),
       capabilities: mergeCapabilities(baseCapabilities, preferences?.capabilities),
       hasCapabilityOverrides: hasCapabilityOverrides(preferences?.capabilities),
-      hidden: preferences?.hidden === true,
       favorite: preferences?.favorite === true,
       requiredBy: requiredBy.get(id) ?? [],
     })
@@ -285,9 +284,7 @@ export function buildEntries(input: BuildEntriesInput): ModelEntry[] {
       name: speech.name,
       useCase: 'speech',
       pathKey: speech.pathKey,
-      // Both the Whisper/Kokoro OVMS models and the Qwen3-TTS sidecar weights
-      // live in the OpenVINO model directories.
-      serviceBackend: 'openvino',
+      serviceBackend: speech.serviceBackend,
       source: 'catalog',
       downloaded: false,
       baseCapabilities: {},
@@ -299,13 +296,19 @@ export function buildEntries(input: BuildEntriesInput): ModelEntry[] {
 
 export type ModelDownloadState = 'all' | 'downloaded' | 'notDownloaded'
 
+/**
+ * What the left-hand sidebar filters by: a use case, everything, or the user's
+ * favorites. Favorites are not a use case — a favorite model still has one — so
+ * they ride alongside rather than inside `ModelUseCase`.
+ */
+export type ModelCategory = ModelUseCase | 'all' | 'favorites'
+
 export type ModelLibraryFilters = {
   search: string
-  useCase: ModelUseCase | 'all'
+  useCase: ModelCategory
   backend: ModelServiceBackend | 'all'
   capabilities: CapabilityKey[]
   downloadState: ModelDownloadState
-  showHidden: boolean
 }
 
 export const DEFAULT_FILTERS: ModelLibraryFilters = {
@@ -314,7 +317,6 @@ export const DEFAULT_FILTERS: ModelLibraryFilters = {
   backend: 'all',
   capabilities: [],
   downloadState: 'all',
-  showHidden: false,
 }
 
 /**
@@ -334,8 +336,13 @@ export function filterEntries(
 ): ModelEntry[] {
   return entries.filter((entry) => {
     if (options.alwaysInclude?.has(entry.id)) return true
-    if (!filters.showHidden && entry.hidden) return false
-    if (filters.useCase !== 'all' && entry.useCase !== filters.useCase) return false
+    if (filters.useCase === 'favorites' && !entry.favorite) return false
+    if (
+      filters.useCase !== 'all' &&
+      filters.useCase !== 'favorites' &&
+      entry.useCase !== filters.useCase
+    )
+      return false
     if (filters.backend !== 'all' && entry.serviceBackend !== filters.backend) return false
     if (filters.downloadState === 'downloaded' && !entry.downloaded) return false
     if (filters.downloadState === 'notDownloaded' && entry.downloaded) return false
@@ -379,9 +386,44 @@ export function sortEntries(entries: ModelEntry[], sort: ModelSort): ModelEntry[
   })
 }
 
-export function countByUseCase(entries: ModelEntry[]): Record<ModelUseCase | 'all', number> {
-  const counts: Record<ModelUseCase | 'all', number> = {
+/**
+ * Drop what an NVIDIA install cannot run. Those machines never get the OpenVINO
+ * backend, so an OpenVINO model there is dead weight: it cannot be loaded, and
+ * offering it only invites a multi-GB download that will never be used. Qwen3-TTS
+ * keeps its own backend precisely so it survives this filter — it runs on CUDA.
+ */
+export function entriesForProductMode(entries: ModelEntry[], isNvidia: boolean): ModelEntry[] {
+  if (!isNvidia) return entries
+  return entries.filter((entry) => entry.serviceBackend !== 'openvino')
+}
+
+/**
+ * The backends actually represented in a set of entries, in the order the labels
+ * declare them. The toolbar offers only these: a "Backend" list that includes
+ * ComfyUI while the Embedding category is selected filters every row away, which
+ * reads as a broken table rather than an empty filter.
+ */
+export function availableBackends(entries: ModelEntry[]): ModelServiceBackend[] {
+  const present = new Set(entries.map((entry) => entry.serviceBackend))
+  return (Object.keys(BACKEND_LABELS) as ModelServiceBackend[]).filter((backend) =>
+    present.has(backend),
+  )
+}
+
+/** Same idea for the status filter: only the states some entry is actually in. */
+export function availableDownloadStates(
+  entries: ModelEntry[],
+): Exclude<ModelDownloadState, 'all'>[] {
+  const states: Exclude<ModelDownloadState, 'all'>[] = []
+  if (entries.some((entry) => entry.downloaded)) states.push('downloaded')
+  if (entries.some((entry) => !entry.downloaded)) states.push('notDownloaded')
+  return states
+}
+
+export function countByUseCase(entries: ModelEntry[]): Record<ModelCategory, number> {
+  const counts: Record<ModelCategory, number> = {
     all: 0,
+    favorites: 0,
     llm: 0,
     embedding: 0,
     media: 0,
@@ -390,6 +432,7 @@ export function countByUseCase(entries: ModelEntry[]): Record<ModelUseCase | 'al
   for (const entry of entries) {
     counts.all += 1
     counts[entry.useCase] += 1
+    if (entry.favorite) counts.favorites += 1
   }
   return counts
 }
@@ -428,4 +471,5 @@ export const BACKEND_LABELS: Record<ModelServiceBackend, string> = {
   llama_cpp: 'Llama.cpp',
   openvino: 'OpenVINO',
   comfyui: 'ComfyUI',
+  qwen3_tts: 'Qwen3-TTS',
 }

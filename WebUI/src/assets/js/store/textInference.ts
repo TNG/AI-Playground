@@ -16,7 +16,7 @@ import { useActivities } from './activities'
 import { useI18N } from './i18n'
 import { useModelPreferences } from './modelPreferences'
 import { pathKeyForCatalogModel } from '../models/library'
-import { withPreferenceFlags } from '../models/visibility'
+import { withPreferenceFlags } from '../models/favorites'
 
 const LlmBackendSchema = z.enum(llmBackendTypes)
 export type LlmBackend = z.infer<typeof LlmBackendSchema>
@@ -45,13 +45,12 @@ export type LlmModel = {
   largeMoe?: boolean
   isPredefined?: boolean
   /** User preference from `store/modelPreferences.ts`; applied by pickers, not here. */
-  hidden?: boolean
   favorite?: boolean
 }
 
 /**
- * Cloud model ids are remote and have no model directory, but hiding one should
- * still work, so their preferences are keyed under this synthetic path key.
+ * Cloud model ids are remote and have no model directory, but favoriting one
+ * should still work, so their preferences are keyed under this synthetic path key.
  */
 export const CLOUD_MODEL_PATH_KEY = 'cloud'
 
@@ -171,17 +170,15 @@ export const useTextInference = defineStore(
     // Track if we're currently switching presets (for UI feedback)
 
     /**
-     * A model's `hidden`/`favorite` flags, resolved from `modelPreferences` at the
-     * point a list is derived. They deliberately do not live on the
+     * A model's `favorite` flag, resolved from `modelPreferences` at the
+     * point a list is derived. It deliberately does not live on the
      * `models.models` snapshot: that snapshot is only rebuilt by
      * `refreshModels()`, so a flag stored in it stays stale until the next catalog
      * refresh, while the computeds below re-run on the preference write itself.
      */
     const flagsForCatalogModel = (type: string, backend: string | undefined, name: string) => {
       const placement = pathKeyForCatalogModel(type, backend)
-      return placement
-        ? modelPreferences.flagsFor(placement.pathKey, name)
-        : { hidden: false, favorite: false }
+      return placement ? modelPreferences.flagsFor(placement.pathKey, name) : { favorite: false }
     }
 
     const llmModels: Ref<LlmModel[]> = computed(() => {
@@ -197,10 +194,9 @@ export const useTextInference = defineStore(
         }
       }
 
-      // `hidden` is carried, never filtered here: this list also resolves
+      // `favorite` is only a sort key for the pickers: this list also resolves
       // `activeModel`, the capability computeds and the download params, so
-      // dropping hidden models would break inference for anyone who hides their
-      // selection. Pickers filter via `models/visibility.ts` instead.
+      // nothing here may filter models out on a presentation preference.
       const newModels: LlmModel[] = withPreferenceFlags(
         llmTypeModels.map((m) => {
           const selectedModelForType = selectedModels.value[m.type as LlmBackend]
@@ -263,8 +259,8 @@ export const useTextInference = defineStore(
             npuSupport: undefined,
             largeMoe: undefined,
             isPredefined: false,
-            // Cloud model ids have no path key of their own; they are keyed under
-            // the chat path key so hiding a noisy provider entry works too.
+            // Cloud model ids have no path key of their own; they are keyed
+            // under the chat path key so favoriting one works too.
             ...modelPreferences.flagsFor(CLOUD_MODEL_PATH_KEY, name),
           })
         })

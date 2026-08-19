@@ -87,11 +87,7 @@ function usedBySummary(entry: ModelEntry): string {
         </TableRow>
       </TableHeader>
       <TableBody>
-        <TableRow
-          v-for="entry in library.visibleEntries"
-          :key="entry.id"
-          :class="entry.hidden ? 'opacity-60' : ''"
-        >
+        <TableRow v-for="entry in library.visibleEntries" :key="entry.id">
           <TableCell>
             <Checkbox
               :aria-label="`Select ${entry.label}`"
@@ -149,23 +145,15 @@ function usedBySummary(entry: ModelEntry): string {
             {{ formatModifiedAt(entry.modifiedAt) }}
           </TableCell>
           <TableCell class="whitespace-nowrap">
-            <span class="flex items-center gap-1.5">
-              <span
-                class="rounded border border-border px-1.5 py-0.5 text-xs"
-                :class="entry.downloaded ? 'text-foreground' : 'text-muted-foreground'"
-              >
-                {{
-                  entry.downloaded
-                    ? languages.MODEL_MANAGER_STATUS_ON_DISK
-                    : languages.MODEL_MANAGER_STATUS_NOT_DOWNLOADED
-                }}
-              </span>
-              <span
-                v-if="entry.hidden"
-                class="rounded border border-border px-1.5 py-0.5 text-xs text-muted-foreground"
-              >
-                {{ languages.MODEL_MANAGER_HIDDEN }}
-              </span>
+            <span
+              class="rounded border border-border px-1.5 py-0.5 text-xs"
+              :class="entry.downloaded ? 'text-foreground' : 'text-muted-foreground'"
+            >
+              {{
+                entry.downloaded
+                  ? languages.MODEL_MANAGER_STATUS_ON_DISK
+                  : languages.MODEL_MANAGER_STATUS_NOT_DOWNLOADED
+              }}
             </span>
           </TableCell>
           <TableCell>
@@ -176,7 +164,6 @@ function usedBySummary(entry: ModelEntry): string {
               @reveal="library.revealInFolder(entry.id)"
               @edit="emit('edit', entry)"
               @reset-capabilities="library.resetCapabilities(entry.id)"
-              @toggle-hidden="library.setHidden(entry.id, !entry.hidden)"
               @toggle-favorite="library.setFavorite(entry.id, !entry.favorite)"
               @remove-from-list="library.removeFromList(entry.id)"
               @delete="emit('delete', entry)"

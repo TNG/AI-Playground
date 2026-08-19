@@ -287,7 +287,7 @@ import { useProductMode } from '@/assets/js/store/productMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
-import { isVisibleInPicker, sortFavoritesFirst } from '@/assets/js/models/visibility'
+import { sortFavoritesFirst } from '@/assets/js/models/favorites'
 import { useUIStore } from '@/assets/js/store/ui'
 
 const showModelRequestDialog = ref(false)
@@ -342,18 +342,15 @@ const activeEmbeddingModelName = computed(
       .find((m) => m.active)?.name ?? '',
 )
 
-// Same treatment as the chat model picker: models hidden in Model Management drop
-// out, favorites float to the top, and the current selection always stays.
+// Same treatment as the chat model picker: favorites float to the top.
 const embeddingModelItems = computed(() =>
   sortFavoritesFirst(
     textInference.llmEmbeddingModels.filter((m) => m.type === textInference.backend),
-  )
-    .filter((m) => isVisibleInPicker(m, { selected: activeEmbeddingModelName.value }))
-    .map((item) => ({
-      label: item.name.split('/').at(-1) ?? item.name,
-      value: item.name,
-      active: item.downloaded,
-    })),
+  ).map((item) => ({
+    label: item.name.split('/').at(-1) ?? item.name,
+    value: item.name,
+    active: item.downloaded,
+  })),
 )
 
 // UI visibility flags from preset

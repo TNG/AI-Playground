@@ -7,13 +7,13 @@ import { Input } from '@/components/ui/aipgInput'
 import { Label } from '@/components/ui/label'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import { ovmsToolParsers } from '@/types/shared'
-import type { ModelCapabilityValues } from '@/assets/js/models/types'
+import type { ModelCapabilityValues, ModelServiceBackend } from '@/assets/js/models/types'
 import DropDownNew from '@/components/DropDownNew.vue'
 
 const props = defineProps<{
   modelValue: ModelCapabilityValues
   /** Backend of the model being edited; gates the OpenVINO-only fields. */
-  serviceBackend: 'llama_cpp' | 'openvino' | 'comfyui'
+  serviceBackend: ModelServiceBackend
   /** Show the fields that only make sense once a model exists (tool parser). */
   showAdvanced?: boolean
   idPrefix?: string

@@ -13,6 +13,7 @@ import {
   type InferenceCallStats,
   type InferenceTraceContext,
 } from './laminarAttributes.ts'
+import { handleSpanEvent, isSpanEvent, noteSpanEnd, noteSpanStart } from './laminarSpans.ts'
 
 // ── Laminar tracing (dev-only PoC) ───────────────────────────────────────────
 //
@@ -165,10 +166,12 @@ function stampingSpanProcessor(processor: SpanProcessorHooks): SpanProcessorHook
   return {
     onStart: (span, parentContext) => {
       stampSpanStart(span)
+      noteSpanStart(span)
       processor.onStart(span, parentContext)
     },
     onEnd: (span) => {
       stampSpanEnd(span)
+      noteSpanEnd(span)
       processor.onEnd(span)
     },
     forceFlush: () => processor.forceFlush(),
@@ -211,9 +214,10 @@ async function chatTelemetry(): Promise<typeof aiSdkTelemetry> {
 }
 
 /**
- * Two event names of our own on the same channel, carrying what the AI SDK's
- * telemetry has no field for: the turn's backend/thinking setup, and llama.cpp's
- * own timings. They share the channel because it keeps them ordered against the
+ * Event names of our own on the same channel, carrying what the AI SDK's
+ * telemetry has no field for: the turn's backend/thinking setup, llama.cpp's own
+ * timings, and (in laminarSpans.ts) spans for renderer work that is not a model
+ * call at all. They share the channel because it keeps them ordered against the
  * SDK's events — the numbers have to be here before the span they belong to is
  * replayed and ended.
  */
@@ -245,6 +249,10 @@ let chatTimings: LlamaCppTimings | null = null
  * renderer serialized (functions and cycles already removed).
  */
 export async function handleChatTelemetryEvent(name: string, payload: string): Promise<void> {
+  if (isSpanEvent(name)) {
+    await handleSpanEvent(name, payload)
+    return
+  }
   if (name === CHAT_CONTEXT_EVENT || name === CHAT_TIMINGS_EVENT) {
     try {
       const value = JSON.parse(payload) as unknown

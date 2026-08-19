@@ -435,6 +435,7 @@ export const useAgentMode = defineStore(
           // that service itself.
           backend: textInference.backend,
           device: textInference.getCurrentDeviceId() ?? undefined,
+          deviceName: textInference.getCurrentDeviceName() ?? undefined,
           // Deliberately the raw backend URL, not `currentBackendUrl`: that one
           // prefers the Home Agent / Cloud Mode loopback proxies, which reject
           // requests (401) without headers only the chat store attaches. Pi

@@ -1,6 +1,7 @@
 import { useBackendServices, type BackendServiceName } from '@/assets/js/store/backendServices'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { useErrors } from '@/assets/js/store/errors'
+import { withTraceSpan } from '@/lib/laminarSpans'
 
 export const chatBackends: BackendServiceName[] = ['llamacpp-backend', 'openvino-backend']
 
@@ -12,6 +13,10 @@ export const chatBackends: BackendServiceName[] = ['llamacpp-backend', 'openvino
  * running. `llamacpp-backend` has no TTS/STT, so a full stop is fine there.
  */
 export async function stopChatBackends(): Promise<void> {
+  return withTraceSpan('backend.stop_llm', stopRunningChatBackends)
+}
+
+async function stopRunningChatBackends(): Promise<void> {
   const backendServices = useBackendServices()
 
   for (const serviceName of chatBackends) {
@@ -55,8 +60,10 @@ export async function restartChatBackend(): Promise<void> {
  */
 export async function returnGpuToChat(freeGenerationModels: () => Promise<void>): Promise<void> {
   try {
-    await freeGenerationModels()
-    await restartChatBackend()
+    await withTraceSpan('backend.reload_llm', async () => {
+      await freeGenerationModels()
+      await restartChatBackend()
+    })
   } catch (error) {
     useErrors().report(error, {
       category: 'backend',

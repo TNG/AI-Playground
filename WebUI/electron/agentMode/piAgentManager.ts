@@ -356,6 +356,7 @@ function traceContext(
     return {
       backend: config.source === 'cloud' ? 'cloud' : config.backend,
       ...(config.source === 'local' && config.device ? { device: config.device } : {}),
+      ...(config.source === 'local' && config.deviceName ? { deviceName: config.deviceName } : {}),
       ...(config.source === 'cloud' ? { cloudProvider: config.providerId } : {}),
       ...(typeof kwargs.enable_thinking === 'boolean' ? { thinking: kwargs.enable_thinking } : {}),
       ...(typeof kwargs.reasoning_effort === 'string'

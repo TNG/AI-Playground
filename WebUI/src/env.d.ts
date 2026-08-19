@@ -299,6 +299,8 @@ type AgentModeModelConfig =
       backend?: 'llamaCPP' | 'openVINO'
       /** Device the backend is set to (`GPU.0`, `NPU`, …), for the same reason. */
       device?: string
+      /** Human-readable name of that device (`Intel Arc B580`, …). */
+      deviceName?: string
       contextWindow?: number
       /**
        * Whether the model can be shown an image. Pi drops the image a tool

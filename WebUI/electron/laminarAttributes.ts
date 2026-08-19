@@ -1,3 +1,4 @@
+import os from 'node:os'
 import { appLoggerInstance } from './logging/logger.ts'
 import { llmServerSnapshot, type LocalLlmBackend } from './llmServerSnapshot.ts'
 
@@ -33,6 +34,8 @@ export type InferenceTraceContext = {
   backend?: InferenceBackend
   /** Device the local backend is set to (`GPU.0`, `NPU`, …). */
   device?: string
+  /** Human-readable name of that device (`Intel Arc B580`, …). */
+  deviceName?: string
   /** Provider id a cloud turn is routed to. */
   cloudProvider?: string
   /** Whether the model was told to think (`chat_template_kwargs.enable_thinking`). */
@@ -135,6 +138,10 @@ export function stampSpanStart(started: unknown): void {
   try {
     const span = started as ProcessedSpan
     if (!isRootSpan(span)) return
+    // The host is a fact of this process, not of the turn: stamp it even when
+    // the renderer has not yet sent a context, so traces from two test boxes
+    // never look interchangeable.
+    apply(span, optional(`${METADATA_PREFIX}hostname`, hostName()))
     const context = contextFor(span)
     if (!context) return
     const local =
@@ -142,12 +149,21 @@ export function stampSpanStart(started: unknown): void {
     apply(span, {
       ...optional(`${METADATA_PREFIX}backend`, context.backend),
       ...optional(`${METADATA_PREFIX}device`, context.device ?? local.device),
+      ...optional(`${METADATA_PREFIX}deviceName`, context.deviceName ?? local.deviceName),
       ...optional(`${METADATA_PREFIX}cloudProvider`, context.cloudProvider),
       ...optional(`${METADATA_PREFIX}backendVersion`, local.backendVersion),
       ...optional(`${METADATA_PREFIX}serverArgs`, local.serverArgs),
     })
   } catch (error) {
     logger.warn(`could not stamp trace metadata: ${error}`, LOG_SOURCE)
+  }
+}
+
+function hostName(): string | undefined {
+  try {
+    return os.hostname() || undefined
+  } catch {
+    return undefined
   }
 }
 

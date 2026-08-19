@@ -18,6 +18,8 @@ export type LlmServerSnapshot = {
   backendVersion?: string
   /** Device the backend is set to (`GPU.0`, `NPU`, …). */
   device?: string
+  /** Human-readable name of that device (`Intel Arc B580`, …). */
+  deviceName?: string
   /** The running LLM server's command line, as one string. */
   serverArgs?: string
 }
@@ -52,10 +54,11 @@ export function llmServerSnapshot(backend: LocalLlmBackend): LlmServerSnapshot {
   if (!service) return {}
   const info = service.get_info()
   const args = service.llmServerArgs?.() ?? null
-  const device = info.devices?.find((entry) => entry.selected)?.id
+  const selected = info.devices?.find((entry) => entry.selected)
   return {
     ...(info.installedVersion?.version ? { backendVersion: info.installedVersion.version } : {}),
-    ...(device ? { device } : {}),
+    ...(selected?.id ? { device: selected.id } : {}),
+    ...(selected?.name ? { deviceName: selected.name } : {}),
     ...(args && args.length > 0 ? { serverArgs: args.join(' ') } : {}),
   }
 }

@@ -415,7 +415,12 @@ export const useOpenAiCompatibleChat = defineStore(
       const cloud = textInference.backend === 'cloud'
       return {
         backend: textInference.backend,
-        ...(cloud ? {} : { device: textInference.getCurrentDeviceId() ?? undefined }),
+        ...(cloud
+          ? {}
+          : {
+              device: textInference.getCurrentDeviceId() ?? undefined,
+              deviceName: textInference.getCurrentDeviceName() ?? undefined,
+            }),
         ...(cloud ? { cloudProvider: cloudMode.selectedProviderId } : {}),
         ...(typeof kwargs.enable_thinking === 'boolean'
           ? { thinking: kwargs.enable_thinking }

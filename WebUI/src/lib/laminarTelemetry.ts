@@ -47,6 +47,7 @@ const CHAT_TIMINGS_EVENT = 'aipgChatTimings'
 export type ChatTraceContext = {
   backend?: 'llamaCPP' | 'openVINO' | 'cloud'
   device?: string
+  deviceName?: string
   cloudProvider?: string
   thinking?: boolean
   reasoningEffort?: string
@@ -123,6 +124,20 @@ export function noteChatTraceContext(context: ChatTraceContext): void {
  */
 export function noteChatTimings(timings: unknown): void {
   send(CHAT_TIMINGS_EVENT, timings)
+}
+
+/**
+ * Whether tracing is on for this run. The single gate every producer checks —
+ * without a config there is nobody in main to replay events into, so building
+ * them at all is waste.
+ */
+export function laminarTelemetryActive(): boolean {
+  return registered
+}
+
+/** Send one event of our own on the telemetry channel. See laminarSpans.ts. */
+export function sendLaminarEvent(name: string, value: unknown): void {
+  send(name, value)
 }
 
 function send(name: string, value: unknown): void {

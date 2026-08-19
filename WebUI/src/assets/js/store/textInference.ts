@@ -311,12 +311,16 @@ export const useTextInference = defineStore(
       selectedEmbeddingModels.value[backend] = modelName
     }
 
-    // Get the currently selected device ID for the active backend
-    const getCurrentDeviceId = (): string | null => {
+    // Get the currently selected device for the active backend
+    const selectedDevice = (): InferenceDevice | undefined => {
       const serviceName = backendToService[backend.value] as BackendServiceName
       const serviceInfo = backendServices.info.find((s) => s.serviceName === serviceName)
-      return serviceInfo?.devices.find((d) => d.selected)?.id ?? null
+      return serviceInfo?.devices.find((d) => d.selected)
     }
+
+    const getCurrentDeviceId = (): string | null => selectedDevice()?.id ?? null
+
+    const getCurrentDeviceName = (): string | null => selectedDevice()?.name ?? null
 
     // Stable UUID of the currently selected device, when the backend exposes one.
     // Persisted alongside the id so a preset re-binds to the same physical device
@@ -2023,6 +2027,7 @@ export const useTextInference = defineStore(
 
       // Device the active backend is set to
       getCurrentDeviceId,
+      getCurrentDeviceName,
 
       // Thinking toggle support
       thinkingEnabled,

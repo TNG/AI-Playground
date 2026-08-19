@@ -548,7 +548,7 @@ plan alone (its prompt says so, and stops there), and `handOffToBuild` in `piAge
 sends the handoff text itself — the approval, granted programmatically — as a second
 `session.prompt()` inside the same turn, after thinking has gone off. The renderer sees one turn
 throughout, the way it already does for the silent-turn nudge. Two guards matter: a plan step that
-*built* anyway gets no handoff (the watcher reports whether any writing tool ran, so the file is not
+_built_ anyway gets no handoff (the watcher reports whether any writing tool ran, so the file is not
 written twice), and only a session that starts empty plans — a resumed one reopens on a finished
 game, where the next request is a change, not a plan. The split is the capability's shape and
 happens whether or not the user asked for planning-only thinking; the setting decides only whether
@@ -889,7 +889,7 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   (packaged) and restart. Detection itself (`electron/subprocesses/oemDetection.ts`) is
   Windows-only, so without the override every machine is `unknown`.
 - **`Game Maker Quick` is the same library, one step long.** Its only capability is
-  `game-studio-quick`, which *owns the session* (`AgentCapability.ownSession`): the preset's
+  `game-studio-quick`, which _owns the session_ (`AgentCapability.ownSession`): the preset's
   instructions replace Pi's coding-agent prompt, the workspace orientation and the skills index,
   and the builtin toolbox is cut to `write` — plus the shared `game` card tool. Its folder is
   minted with `createGame({ scaffold: false })`, so the agent writes `index.html` whole instead of
@@ -1005,10 +1005,11 @@ Sign up at `http://localhost:5667`, then copy a project API key from project set
 **Agent turns** are traced by Laminar's own `@lmnr-ai/pi-extension`, handed to Pi through
 `additionalExtensionPaths` (`piAgentManager.ts`) — not a capability, since it is not
 something a user picks per session. One trace per run: `pi agent run` → `LLM call (turn N)`
-+ one span per tool, carrying the session id, turn index, model, finish reason and
-`gen_ai.usage.*` including `cache_read_input_tokens`, which is the number to watch when
-changing anything that rewrites prompt history (see "Reasoning is set for the expensive
-case" above for why).
+
+- one span per tool, carrying the session id, turn index, model, finish reason and
+  `gen_ai.usage.*` including `cache_read_input_tokens`, which is the number to watch when
+  changing anything that rewrites prompt history (see "Reasoning is set for the expensive
+  case" above for why).
 
 **Chat turns** are traced through the renderer, which is why there are two files:
 
@@ -1024,31 +1025,37 @@ Trace-wide facts go on the trace as metadata (`lmnr.association.properties.metad
 what the Traces page filters on), per-call numbers go on the LLM span. Ours are namespaced
 `aipg.*` so they can never collide with a reserved `lmnr.*` / `gen_ai.*` key.
 
-| Where | Key | Value |
-| --- | --- | --- |
-| trace metadata | `backend` | `llamaCPP` / `openVINO` / `cloud` |
-| trace metadata | `device` | selected device id, local only |
-| trace metadata | `cloudProvider` | provider id, cloud only |
-| trace metadata | `backendVersion` | llama.cpp build number / OVMS version, local only |
-| trace metadata | `serverArgs` | the running LLM server's whole command line, local only |
-| LLM span | `aipg.thinking`, `aipg.reasoning_effort` | what the turn actually asked the template for |
-| LLM span | `gen_ai.request.temperature` / `top_p` / `max_tokens` | the sampling that rode the request |
-| LLM span | `aipg.prefill_tokens_per_second`, `aipg.generation_tokens_per_second` | the two speeds, kept apart |
-| LLM span | `aipg.prompt_ms`, `aipg.predicted_ms`, `aipg.cache_n` | what those speeds were computed from |
+| Where          | Key                                                                   | Value                                                        |
+| -------------- | --------------------------------------------------------------------- | ------------------------------------------------------------ |
+| trace metadata | `backend`                                                             | `llamaCPP` / `openVINO` / `cloud`                            |
+| trace metadata | `device`                                                              | selected device id (`GPU.0`, `NPU`, …), local only           |
+| trace metadata | `deviceName`                                                          | that device's display name (`Intel Arc B580`, …), local only |
+| trace metadata | `hostname`                                                            | `os.hostname()` of the machine that produced the trace       |
+| trace metadata | `cloudProvider`                                                       | provider id, cloud only                                      |
+| trace metadata | `backendVersion`                                                      | llama.cpp build number / OVMS version, local only            |
+| trace metadata | `serverArgs`                                                          | the running LLM server's whole command line, local only      |
+| LLM span       | `aipg.thinking`, `aipg.reasoning_effort`                              | what the turn actually asked the template for                |
+| LLM span       | `gen_ai.request.temperature` / `top_p` / `max_tokens`                 | the sampling that rode the request                           |
+| LLM span       | `aipg.prefill_tokens_per_second`, `aipg.generation_tokens_per_second` | the two speeds, kept apart                                   |
+| LLM span       | `aipg.prompt_ms`, `aipg.predicted_ms`, `aipg.cache_n`                 | what those speeds were computed from                         |
 
 Both surfaces feed one stamper (`electron/laminarAttributes.ts`), which the span processor
 calls on span start (metadata) and span end (the numbers). The facts reach it differently
 because the two halves of the app know different things:
 
 - **Backend, device, thinking, sampling** are the renderer's to know. Agent turns carry them
-  on `AgentModeModelConfig` (`backend` and `device` are there for tracing — a loopback port
-  says nothing about which server is behind it); chat turns send one extra IPC event per turn
-  on the telemetry channel (`aipgChatContext`), built from the same `chatTemplateKwargs` call
-  that builds the request body, so a trace cannot claim something the model was never sent.
+  on `AgentModeModelConfig` (`backend`, `device` and `deviceName` are there for tracing — a
+  loopback port says nothing about which server is behind it); chat turns send one extra IPC
+  event per turn on the telemetry channel (`aipgChatContext`), built from the same
+  `chatTemplateKwargs` call that builds the request body, so a trace cannot claim something
+  the model was never sent.
+- **Hostname** is main's: `os.hostname()`, stamped on every root span so two test boxes
+  ingesting into one Laminar stay filterable. Cloud turns get it too.
 - **Version and launch line** stay in main and are never copied into the renderer:
-  `electron/llmServerSnapshot.ts` reads them off the live service. Flags are baked into the
-  process at launch, so `llamaCppBackendService` / `openVINOBackendService` remember the argv
-  they started their LLM server with.
+  `electron/llmServerSnapshot.ts` reads them off the live service (and the selected device's
+  display name, as a fallback when the renderer did not send `deviceName`). Flags are baked
+  into the process at launch, so `llamaCppBackendService` / `openVINOBackendService` remember
+  the argv they started their LLM server with.
 - **Speeds** come from llama.cpp's own `timings` whenever it sent them — it separates prefill
   from generation and reports the prompt-cache hit (`cache_n`). Chat already parsed that object
   for the message footer and now forwards it (`aipgChatTimings`); agent turns ask for it
@@ -1056,6 +1063,61 @@ because the two halves of the app know different things:
   the response stream in `electron/agentMode/piCallTiming.ts`. OVMS and cloud have no such
   object, so those get prompt tokens over time-to-first-token and completion tokens over the
   rest — the same split, measured from outside.
+
+**Media generation is traced too, from the renderer.** A `media` call used to be one opaque
+TOOL span covering the whole IPC wait, which is unhelpful for the question it is usually asked
+about ("why did that cover image take four minutes"): starting ComfyUI, swapping the LLM off
+the GPU, pulling a checkpoint and running the workflow all happen in the renderer. The same
+bridge as chat telemetry carries them — two more events on `laminarTelemetryEvent`,
+`aipgSpanStart` `{ id, name, input?, attributes?, parentId? }` and `aipgSpanEnd`
+`{ id, attributes?, output?, error? }` — with the sending half in `src/lib/laminarSpans.ts`
+(`startTraceSpan` for a phase whose end is decided elsewhere, `withTraceSpan` around one
+await; both no-ops unless tracing is configured) and the receiving half in
+`electron/laminarSpans.ts`. An agent cover-image call then reads:
+
+```
+pi agent run
+└─ media (TOOL)                      duration of the IPC wait
+   ├─ backend.stop_llm               keepModelsLoaded off
+   ├─ models.download                only when files were missing
+   ├─ comfyui.generate               preset, mode, batch size, keepModelsLoaded
+   │  ├─ comfyui.start_backend
+   │  ├─ comfyui.install_nodes       only when custom nodes/packages ran
+   │  ├─ comfyui.load_workflow_components
+   │  ├─ comfyui.load_model
+   │  └─ comfyui.generating          progress as attributes, not a span per step
+   └─ backend.reload_llm             last run in the lane; skipped when more wait
+```
+
+Things to know before changing it:
+
+- **The GPU swaps are siblings, not children**, because `stopChatBackends()` runs before
+  `generate()` exists and `returnGpuToChat()` after it has settled — the media tool span is the
+  only thing open around all three. The `comfyRunsWaiting()` skip stays visible as an absent
+  `backend.reload_llm` on intermediate sprites, and desktop Image Gen simply has neither.
+- **The open media TOOL span is remembered as the parent**, since neither Pi nor the AI SDK
+  puts its tool spans on the OpenTelemetry active context — `Laminar.withSpan` around the IPC
+  dispatch would parent nothing. What both do is create spans through the SDK's tracer, so the
+  stamping processor sees them: `noteSpanStart` keeps the ones named after a media tool
+  (`media`, `generateImage`, `editImage`, `comfyUI`, `comfyUiImageEdit` — the AI SDK prefixes
+  `ai.tool `, and sets the span type one statement _after_ creation, so the name is all there
+  is to match on at start). A renderer span with no `parentId` attaches to the **oldest** open
+  one: models ask for a whole spritesheet at once and both harnesses dispatch those calls in
+  parallel, while the media pipeline runs them one at a time in call order, so the oldest open
+  media tool span is the run being served. Its `LaminarSpanContext` carries Pi's session id and
+  the trace metadata along, so children land in the agent's session for free. With no tool span
+  open (desktop Image Gen) `comfyui.generate` is a root, still stamped with `hostname`.
+- **`comfyui.generate` outlives the call that opened it.** `generate()` returns once the prompt
+  is queued (or earlier, when the backend is still starting and the run continues in an
+  auto-retry); everything after that is websocket-driven. So the span is opened in `generate()`
+  and closed where the generation FSM settles — the same watch that ends the generation
+  activity — and the phase spans are switched there by state, one per phase.
+- **Late attributes ride the end event.** A span reaches Laminar when it ends, so per-tick
+  progress updates would be IPC nobody reads; `setAttributes` accumulates in the renderer and
+  is sent once with `aipgSpanEnd`.
+- Spans that would describe nothing are not created at all: no `comfyui.install_nodes` when
+  requirements were already met, no `models.download` when nothing was missing. Their absence
+  is the informative part when comparing a first run against the next.
 
 **Five gotchas are load-bearing, don't "simplify" them away:**
 
@@ -1105,7 +1167,9 @@ because the two halves of the app know different things:
 in the main log and `[laminar] chat traces via main to …` in the renderer console, then send
 one Chat turn and one Agent turn and open `http://localhost:5667` → traces. A chat turn
 appears as `ai.streamText` → `ai.llm model.chat:<model>`; an agent turn as the `pi agent run`
-tree above. If the UI shows nothing, query the store directly rather than guessing:
+tree above. For the media spans, one Game Maker cover image (`Draft Image`) should show `media`
+with `comfyui.generate` and the `backend.*` swaps under it, and one desktop Image Gen click a
+`comfyui.generate` root carrying `hostname`. If the UI shows nothing, query the store directly rather than guessing:
 
 ```bash
 docker exec clickhouse clickhouse-client --query \
@@ -1118,7 +1182,9 @@ also the quickest check that a turn was tagged at all:
 ```sql
 SELECT
   name,
+  JSONExtractString(attributes, 'lmnr.association.properties.metadata.hostname') AS host,
   JSONExtractString(attributes, 'lmnr.association.properties.metadata.backend') AS backend,
+  JSONExtractString(attributes, 'lmnr.association.properties.metadata.deviceName') AS device,
   JSONExtractFloat(attributes, 'aipg.prefill_tokens_per_second') AS prefill_tps,
   JSONExtractFloat(attributes, 'aipg.generation_tokens_per_second') AS gen_tps,
   JSONExtractString(attributes, 'aipg.thinking') AS thinking

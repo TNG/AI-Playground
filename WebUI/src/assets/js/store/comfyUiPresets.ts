@@ -18,6 +18,7 @@ import { useBackendServices } from '@/assets/js/store/backendServices.ts'
 import { usePromptStore } from './promptArea'
 import { imageUrlToDataUri, isImageUrl, mediaUrl } from '@/lib/utils'
 import { getComfyAuthToken, invalidateComfyAuthToken } from '@/lib/loopbackAuth'
+import { startTraceSpan, withTraceSpan, type TraceSpan } from '@/lib/laminarSpans'
 import {
   findKeysByClassType,
   findKeysByTitle,
@@ -95,6 +96,7 @@ export const useComfyUiPresets = defineStore(
     const imageGeneration = useImageGenerationPresets()
     const errors = useErrors()
     const activities = useActivities()
+    const developerSettings = useDeveloperSettings()
     const i18nState = useI18N().state
     const comfyPort = computed(() => comfyUiState.value?.port)
 
@@ -129,6 +131,46 @@ export const useComfyUiPresets = defineStore(
           return i18nState.COM_GENERATING
       }
     }
+    // Laminar spans for the same lifecycle (dev-only; no-ops unless a developer
+    // configured tracing). `comfyui.generate` opens with the run and closes when
+    // the FSM settles — which is after generate() has returned, since the
+    // websocket drives everything from the queued prompt onwards. The phases
+    // below are its children, one span per FSM state rather than one per
+    // websocket tick.
+    let generateSpan: TraceSpan | null = null
+    let phaseSpan: TraceSpan | null = null
+    const GENERATING_SPAN = 'comfyui.generating'
+    const PHASE_SPANS: Record<string, string | undefined> = {
+      load_workflow_components: 'comfyui.load_workflow_components',
+      load_model: 'comfyui.load_model',
+      load_model_components: 'comfyui.load_model',
+      generating: GENERATING_SPAN,
+    }
+
+    function enterPhaseSpan(state: string) {
+      const name = PHASE_SPANS[state]
+      if (phaseSpan?.name === name) return
+      phaseSpan?.end()
+      phaseSpan = name ? startTraceSpan(name, { parentId: generateSpan?.id }) : null
+    }
+
+    function endGenerationSpans(state: 'done' | 'failed' | 'cancelled') {
+      phaseSpan?.end()
+      phaseSpan = null
+      generateSpan?.end(
+        state === 'failed'
+          ? { error: imageGeneration.lastError ?? 'generation failed' }
+          : undefined,
+      )
+      generateSpan = null
+    }
+
+    /** Latest websocket progress, on the generating span rather than a span each. */
+    function noteGenerationProgress(value: number, max: number) {
+      if (phaseSpan?.name !== GENERATING_SPAN) return
+      phaseSpan.setAttributes({ 'aipg.progress_step': value, 'aipg.progress_total': max })
+    }
+
     watch(
       () =>
         [
@@ -150,11 +192,15 @@ export const useComfyUiPresets = defineStore(
           } else {
             activities.update(generationActivityId, { label })
           }
-        } else if (generationActivityId) {
+          enterPhaseSpan(state)
+        } else if (generationActivityId || generateSpan) {
           const endState =
             state === 'error' ? 'failed' : state === 'image_out' ? 'done' : 'cancelled'
-          activities.end(generationActivityId, endState)
-          generationActivityId = null
+          if (generationActivityId) {
+            activities.end(generationActivityId, endState)
+            generationActivityId = null
+          }
+          endGenerationSpans(endState)
         }
       },
     )
@@ -216,22 +262,36 @@ export const useComfyUiPresets = defineStore(
 
     async function installCustomNodesForActivePresetFully() {
       const requirements = await checkPresetRequirements()
+      // Traced from here on, so a generate that had nothing to install carries no
+      // install span at all — its absence is the interesting part.
       if (!requirements.hasMissingRequirements) return
-      console.info('restarting comfyUI to finalize installation of required custom nodes')
-      // Suspend crash detection: this stop/start is intentional, not a crash.
-      backendRestarting = true
-      try {
-        await backendServices.stopService('comfyui-backend')
-        await triggerInstallPythonPackagesForActivePreset() // Backend already stopped above
-        await installCustomNodesForActivePreset()
-        const startingResult = await backendServices.startService('comfyui-backend')
-        if (startingResult !== 'running') {
-          throw new Error('Failed to restart comfyUI. Required Nodes are not active.')
-        }
-        console.info('restart complete')
-      } finally {
-        backendRestarting = false
-      }
+      await withTraceSpan(
+        'comfyui.install_nodes',
+        async () => {
+          console.info('restarting comfyUI to finalize installation of required custom nodes')
+          // Suspend crash detection: this stop/start is intentional, not a crash.
+          backendRestarting = true
+          try {
+            await backendServices.stopService('comfyui-backend')
+            await triggerInstallPythonPackagesForActivePreset() // Backend already stopped above
+            await installCustomNodesForActivePreset()
+            const startingResult = await backendServices.startService('comfyui-backend')
+            if (startingResult !== 'running') {
+              throw new Error('Failed to restart comfyUI. Required Nodes are not active.')
+            }
+            console.info('restart complete')
+          } finally {
+            backendRestarting = false
+          }
+        },
+        {
+          parentId: generateSpan?.id,
+          attributes: {
+            'aipg.custom_nodes': requirements.missingCustomNodes.join(', ') || undefined,
+            'aipg.python_packages': requirements.missingPythonPackages.join(', ') || undefined,
+          },
+        },
+      )
     }
 
     async function checkPresetRequirements(): Promise<{
@@ -608,6 +668,7 @@ export const useComfyUiPresets = defineStore(
                     progress: msg.data.value / msg.data.max,
                   })
                 }
+                noteGenerationProgress(msg.data.value, msg.data.max)
                 console.log('progress', { data: msg.data })
                 break
               case 'executing':
@@ -1081,7 +1142,7 @@ export const useComfyUiPresets = defineStore(
       }
 
       try {
-        const { keepModelsLoaded } = useDeveloperSettings()
+        const { keepModelsLoaded } = developerSettings
         // Pass the current generation resolution so OVMS can statically reshape the image
         // pipeline when running on NPU (required by the NPU plugin). Ignored on other devices.
         const resolution = `${imageGeneration.width}x${imageGeneration.height}`
@@ -1135,6 +1196,21 @@ export const useComfyUiPresets = defineStore(
         return
       }
 
+      // The retry is a continuation, so it keeps the span the first attempt
+      // opened; anything still open from an earlier run is stale.
+      if (!isRetry) {
+        generateSpan?.end()
+        generateSpan = startTraceSpan('comfyui.generate', {
+          attributes: {
+            'aipg.preset': preset.name,
+            'aipg.mode': mode,
+            'aipg.media_type': preset.mediaType,
+            'aipg.batch_size': imageGeneration.batchSize,
+            'aipg.keep_models_loaded': developerSettings.keepModelsLoaded,
+          },
+        })
+      }
+
       // Surface progress immediately so the chat tool widget and the desktop
       // overlay show a "starting" state instead of nothing while the backend
       // boots / the request is queued.
@@ -1142,7 +1218,11 @@ export const useComfyUiPresets = defineStore(
       imageGeneration.currentState = 'start_backend'
 
       try {
-        const result = await window.electronAPI.ensureComfyUIBackendRunning()
+        const result = await withTraceSpan(
+          'comfyui.start_backend',
+          () => window.electronAPI.ensureComfyUIBackendRunning(),
+          { parentId: generateSpan?.id },
+        )
         if (!result.success) {
           errors.report(
             createAppError({

@@ -253,4 +253,30 @@ describe('models.json', () => {
       expect(model.llamaCppArgs).not.toContain('reasoning-preserve')
     }
   })
+
+  // An `-MTP-` repo is a separate download whose only reason to exist is the
+  // draft head, so an entry that lost its flags would cost the user the whole
+  // download and give back nothing. How far to draft is per model — Unsloth
+  // raised the 9B to 6 and keeps the bigger two at 2 — so it is pinned per repo
+  // rather than as one shared number.
+  it('drafts off the head each MTP repo was downloaded for', () => {
+    const models = z
+      .array(ModelSchema)
+      .parse(
+        JSON.parse(readFileSync(path.resolve(__dirname, '../../../external/models.json'), 'utf-8')),
+      )
+    const draftLengths = [
+      { repo: 'Qwen3.5-9B-MTP-GGUF', nMax: 6 },
+      { repo: 'Qwen3.6-27B-MTP-GGUF', nMax: 2 },
+      { repo: 'Qwen3.6-35B-A3B-MTP-GGUF', nMax: 2 },
+    ]
+    for (const { repo, nMax } of draftLengths) {
+      const mtp = models.filter((model) => model.name.includes(repo))
+      expect(mtp).not.toHaveLength(0)
+      for (const model of mtp) {
+        expect(model.llamaCppArgs).toContain('--spec-type draft-mtp')
+        expect(model.llamaCppArgs).toContain(`--spec-draft-n-max ${nMax}`)
+      }
+    }
+  })
 })

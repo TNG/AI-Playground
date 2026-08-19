@@ -125,6 +125,18 @@
     "maxContextSize": 262144
   },
   {
+    "name": "unsloth/Qwen3.5-9B-MTP-GGUF/Qwen3.5-9B-UD-Q4_K_XL.gguf",
+    "mmproj": "unsloth/Qwen3.5-9B-MTP-GGUF/mmproj-BF16.gguf",
+    "type": "llamaCPP",
+    "supportsToolCalling": true,
+    "supportsVision": true,
+    "supportsReasoning": true,
+    "supportsCoding": true,
+    "supportsThinkingToggle": true,
+    "maxContextSize": 262144,
+    "llamaCppArgs": "--spec-default --spec-type draft-mtp --spec-draft-n-max 6"
+  },
+  {
     "name": "unsloth/Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_K_M.gguf",
     "mmproj": "unsloth/Qwen3.5-4B-GGUF/mmproj-BF16.gguf",
     "type": "llamaCPP",
@@ -238,6 +250,18 @@
     "maxContextSize": 262144
   },
   {
+    "name": "unsloth/Qwen3.6-27B-MTP-GGUF/Qwen3.6-27B-UD-Q4_K_XL.gguf",
+    "mmproj": "unsloth/Qwen3.6-27B-MTP-GGUF/mmproj-BF16.gguf",
+    "type": "llamaCPP",
+    "supportsToolCalling": true,
+    "supportsVision": true,
+    "supportsReasoning": true,
+    "supportsCoding": true,
+    "supportsThinkingToggle": true,
+    "maxContextSize": 262144,
+    "llamaCppArgs": "--spec-default --spec-type draft-mtp --spec-draft-n-max 2"
+  },
+  {
     "name": "unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf",
     "mmproj": "unsloth/Qwen3.6-35B-A3B-GGUF/mmproj-BF16.gguf",
     "type": "llamaCPP",
@@ -272,6 +296,45 @@
     "supportsThinkingToggle": true,
     "largeMoe": false,
     "maxContextSize": 262144
+  },
+  {
+    "name": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf",
+    "mmproj": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF/mmproj-BF16.gguf",
+    "type": "llamaCPP",
+    "supportsToolCalling": true,
+    "supportsVision": true,
+    "supportsReasoning": true,
+    "supportsCoding": true,
+    "supportsThinkingToggle": true,
+    "largeMoe": false,
+    "maxContextSize": 262144,
+    "llamaCppArgs": "--spec-default --spec-type draft-mtp --spec-draft-n-max 2"
+  },
+  {
+    "name": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf",
+    "mmproj": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF/mmproj-BF16.gguf",
+    "type": "llamaCPP",
+    "supportsToolCalling": true,
+    "supportsVision": true,
+    "supportsReasoning": true,
+    "supportsCoding": true,
+    "supportsThinkingToggle": true,
+    "largeMoe": false,
+    "maxContextSize": 262144,
+    "llamaCppArgs": "--spec-default --spec-type draft-mtp --spec-draft-n-max 2"
+  },
+  {
+    "name": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q5_K_M.gguf",
+    "mmproj": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF/mmproj-BF16.gguf",
+    "type": "llamaCPP",
+    "supportsToolCalling": true,
+    "supportsVision": true,
+    "supportsReasoning": true,
+    "supportsCoding": true,
+    "supportsThinkingToggle": true,
+    "largeMoe": false,
+    "maxContextSize": 262144,
+    "llamaCppArgs": "--spec-default --spec-type draft-mtp --spec-draft-n-max 2"
   },
   {
     "name": "unsloth/gemma-4-26B-A4B-it-qat-GGUF/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf",

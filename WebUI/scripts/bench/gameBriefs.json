@@ -1,0 +1,133 @@
+{
+  "comment": "One-line game briefs for scripts/bench/gameMakerBatch.mts. Each is one Game Maker turn. Ids are stable and land in the batch manifest, so a Laminar trace can be read back against the prompt that produced it. Keep briefs inside the skill's scope: one HTML canvas, plain JS, keyboard or pointer input, no extra libraries or assets beyond a generated cover.",
+  "briefs": [
+    {
+      "id": "dodger",
+      "brief": "A dodger where you slide a ship left and right to avoid falling rocks, with a score that counts survived seconds."
+    },
+    {
+      "id": "breakout",
+      "brief": "A breakout clone: paddle, bouncing ball, a wall of bricks in rows of different colours, and three lives."
+    },
+    {
+      "id": "snake",
+      "brief": "Snake on a grid: eat pellets to grow, die on your own tail or the wall, show the high score."
+    },
+    {
+      "id": "pong-vs-cpu",
+      "brief": "Pong against a simple computer opponent that tracks the ball a little imperfectly, first to 7 points wins."
+    },
+    {
+      "id": "flappy",
+      "brief": "A one-button flappy game: tap to flap through gaps in scrolling pipes, score one per pipe passed."
+    },
+    {
+      "id": "asteroids",
+      "brief": "Asteroids: rotate and thrust a ship with wrap-around edges, shoot rocks that split into smaller ones."
+    },
+    {
+      "id": "space-invaders",
+      "brief": "A space shooter with a formation of aliens that step sideways and descend, and a player cannon at the bottom."
+    },
+    {
+      "id": "platform-jump",
+      "brief": "A single-screen platformer: run and jump across three ledges to reach a flag, with gravity and coyote-time jumping."
+    },
+    {
+      "id": "doodle-climb",
+      "brief": "An endless upward jumper where the camera follows you as you bounce from platform to platform, falling off screen ends the run."
+    },
+    {
+      "id": "tower-defence",
+      "brief": "A tiny tower defence: enemies walk a fixed path, click to place turrets that shoot them, lose a life per leak."
+    },
+    {
+      "id": "typing-rush",
+      "brief": "A typing game where words fall from the top and you clear them by typing them correctly before they land."
+    },
+    {
+      "id": "memory-match",
+      "brief": "A memory match game: a 4x4 grid of face-down cards, flip two at a time, timer and move counter."
+    },
+    {
+      "id": "whack-a-mole",
+      "brief": "Whack-a-mole with nine holes, moles that pop up for shrinking windows, and a 30 second timer."
+    },
+    {
+      "id": "maze-escape",
+      "brief": "A maze escape: a generated grid maze, arrow-key movement, a visible exit and a step counter."
+    },
+    {
+      "id": "sokoban",
+      "brief": "A small Sokoban: push crates onto marked targets on a tile grid, with undo and a level reset key."
+    },
+    {
+      "id": "tetris-lite",
+      "brief": "A falling-block puzzle with four piece shapes, rotation, line clears and increasing speed."
+    },
+    {
+      "id": "match-three",
+      "brief": "A match-three grid where you swap adjacent gems to clear lines of three or more, with cascading refills."
+    },
+    {
+      "id": "lunar-lander",
+      "brief": "A lunar lander: burn fuel to touch down slowly on a flat pad over jagged terrain, crash if too fast."
+    },
+    {
+      "id": "racing-lanes",
+      "brief": "A top-down lane racer: dodge traffic on a scrolling three-lane road, speed rises with distance."
+    },
+    {
+      "id": "helicopter-cave",
+      "brief": "A helicopter cave flyer: hold to rise, release to fall, thread a narrowing scrolling tunnel."
+    },
+    {
+      "id": "bubble-shooter",
+      "brief": "A bubble shooter: aim with the mouse and fire coloured bubbles at a hanging cluster, matches of three pop."
+    },
+    {
+      "id": "fruit-catcher",
+      "brief": "A basket catcher: catch falling fruit for points and dodge falling bombs, three misses and it is over."
+    },
+    {
+      "id": "reaction-tap",
+      "brief": "A reaction test: circles appear at random spots and shrink, click before they vanish, report average reaction time."
+    },
+    {
+      "id": "simon-says",
+      "brief": "A Simon-says game: four coloured pads flash a growing sequence you have to repeat by clicking."
+    },
+    {
+      "id": "minesweeper",
+      "brief": "Minesweeper on a 9x9 board: left click reveals with flood fill, right click flags, win by clearing all safe tiles."
+    },
+    {
+      "id": "tic-tac-toe-ai",
+      "brief": "Tic-tac-toe against an unbeatable computer player, with a win line drawn and a rematch button."
+    },
+    {
+      "id": "shooting-gallery",
+      "brief": "A shooting gallery: targets slide across three rows at different speeds, limited ammo, click to shoot."
+    },
+    {
+      "id": "rhythm-tap",
+      "brief": "A rhythm tapper: notes scroll down four lanes towards a hit line, score perfect, good or miss per key press."
+    },
+    {
+      "id": "farm-clicker",
+      "brief": "An idle clicker: click a field to harvest coins, buy two upgrades that add income per second, numbers keep ticking."
+    },
+    {
+      "id": "gravity-orbit",
+      "brief": "A gravity puzzle: launch a probe with a drag of the mouse so it slingshots around a planet into a target ring."
+    },
+    {
+      "id": "stack-tower",
+      "brief": "A stacking game: blocks swing across the screen and you click to drop them, the tower narrows on bad drops."
+    },
+    {
+      "id": "light-cycles",
+      "brief": "Light cycles: two riders leave solid trails on a bounded arena, player against a simple computer rider."
+    }
+  ]
+}

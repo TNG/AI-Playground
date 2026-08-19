@@ -412,11 +412,20 @@ function piSessionOf(appSessionId: string | null): { file: string; id: string } 
   }
 }
 
+type FileState = 'missing' | 'scaffold' | 'edited'
+
 type DiskState = {
   game: Record<string, unknown> | null
   hasDesign: boolean
-  gameJs: 'missing' | 'scaffold' | 'edited'
+  gameJs: FileState
   gameJsBytes: number
+  /**
+   * The page itself. Game Maker gets it from the scaffold and mostly leaves it
+   * alone; a preset that starts from an empty folder writes the whole game into
+   * it, and then `game.js` being 'missing' is the plan working, not a failure.
+   */
+  indexHtml: FileState
+  indexHtmlBytes: number
   files: string[]
 }
 
@@ -429,7 +438,10 @@ function inspectWorkspace(workspaceDir: string): DiskState {
       return null
     }
   }
+  const state = (name: string, contents: string | null): FileState =>
+    contents === null ? 'missing' : contents === SCAFFOLD_FILES[name] ? 'scaffold' : 'edited'
   const gameJs = read('game.js')
+  const indexHtml = read('index.html')
   const gameJson = read('game.json')
   let files: string[] = []
   try {
@@ -440,18 +452,21 @@ function inspectWorkspace(workspaceDir: string): DiskState {
   return {
     game: gameJson ? (JSON.parse(gameJson) as Record<string, unknown>) : null,
     hasDesign: read('design.md') !== null,
-    gameJs:
-      gameJs === null ? 'missing' : gameJs === SCAFFOLD_FILES['game.js'] ? 'scaffold' : 'edited',
+    gameJs: state('game.js', gameJs),
     gameJsBytes: gameJs?.length ?? 0,
+    indexHtml: state('index.html', indexHtml),
+    indexHtmlBytes: indexHtml?.length ?? 0,
     files,
   }
 }
 
-/** Copies the two artifacts worth reading in the morning next to the manifest. */
+/** Copies the artifacts worth reading in the morning next to the manifest. */
 function keepArtifacts(workspaceDir: string, briefId: string): void {
   const target = path.join(outDir, 'games', `${briefId}__${path.basename(workspaceDir)}`)
   fs.mkdirSync(target, { recursive: true })
-  for (const name of ['game.json', 'design.md']) {
+  // index.html comes along because for a one-file preset it IS the game; the
+  // library folder keeps the playable copy either way.
+  for (const name of ['game.json', 'design.md', 'index.html']) {
     try {
       fs.copyFileSync(path.join(workspaceDir, name), path.join(target, name))
     } catch {
@@ -744,7 +759,8 @@ async function runBrief(briefId: string, brief: string, pass: number): Promise<R
     `■ ${briefId} ${outcome} in ${minutes(record.durationMs)} — ` +
       `${record.toolCalls} tools, name="${String(disk?.game?.name ?? '?')}", ` +
       `icon=${disk?.game?.icon ? 'yes' : 'no'}, design=${disk?.hasDesign ? 'yes' : 'no'}, ` +
-      `game.js=${disk?.gameJs ?? '?'}, trace session=${record.piSessionId ?? '?'}` +
+      `game.js=${disk?.gameJs ?? '?'}, index.html=${disk?.indexHtml ?? '?'}, ` +
+      `trace session=${record.piSessionId ?? '?'}` +
       (error ? ` — ${error}` : ''),
   )
   return record
@@ -769,6 +785,11 @@ function summarize(records: RunRecord[]): Record<string, unknown> {
     doneWithIcon: done.filter((record) => record.disk?.game?.icon).length,
     doneWithDesign: done.filter((record) => record.disk?.hasDesign).length,
     doneWithEditedGameJs: done.filter((record) => record.disk?.gameJs === 'edited').length,
+    // The preset-agnostic version of the same question: did the run leave a page
+    // that is not the one it started with?
+    doneWithWrittenPage: done.filter(
+      (record) => record.disk?.indexHtml === 'edited' || record.disk?.gameJs === 'edited',
+    ).length,
     medianDurationMs: median(done.map((record) => record.durationMs)),
     medianToolCalls: median(done.map((record) => record.toolCalls)),
     traceSessionIds: records.map((record) => record.piSessionId).filter(Boolean),

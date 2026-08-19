@@ -23,6 +23,7 @@
     "bench:gamemaker": "node --experimental-strip-types scripts/bench/gameMakerBatch.mts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "bench:game-judge": "node --experimental-strip-types scripts/bench/gameJudge.mts",
     "e2e:fast": "playwright test --config playwright-e2e.config.ts agentic-smoke.spec.ts",
     "e2e:full": "playwright test --config playwright-e2e.config.ts --grep-invert \"Agentic smoke\"",
     "lint:eslint": "eslint . --fix",

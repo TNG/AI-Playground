@@ -102,6 +102,68 @@ Per run:
 "Playable" is the only measure that decides anything on its own; the rest explain the result.
 Report medians of the three runs, plus every failure.
 
+#### Scoring it without doing it by hand
+
+Scoring twelve games by hand is a day's work, which is why the 2026-08-14 run made no quality
+judgement at all. `WebUI/scripts/bench/gameJudge.mts` does that day's work instead: it plays a
+finished game folder in a real browser and has a cloud model score what it saw.
+
+```bash
+# from WebUI/
+export TRUSTEDTOKENS_API_KEY=...
+npm run bench:game-judge -- \
+  --game ~/AI-Playground/games/space-dodger \
+  --fixture rocks \
+  --out ~/aipg-bench/game-judge/space-dodger-run1
+```
+
+`--fixture rocks|asteroids` is the brief the arms above were run with; `--brief "…"` or
+`--brief-file` takes any other. It writes `probe.json`, `play.webm`, `play.mp4`, `frames/`,
+`scorecard.json` and `report.md` into `--out`. `--dry-run` plays and records without spending a
+cloud call, which is also how to check the harness itself.
+
+What it scores, 0-4 each plus an overall 0-10: **works** (is it a game you can play), **brief**
+(is it what was asked for — with the missing elements listed), **looks**, and **bugs**. It is a
+cloud call by default (`Qwen/Qwen3.8-27B` on `api.trustedtokens.eu`; `--base-url` and
+`--model` take any other), for two reasons: a second opinion should not come from the model under
+test, and vision decode inside the local agent loop is what preceded every `ErrorDeviceLost` crash
+below. Nothing here runs during a Game Maker session, and the agent is never shown a picture.
+
+Whether the clip travels as a clip depends on the endpoint. A gateway that does not model
+`video_url` rejects the whole message rather than the one part — vLLM-style servers answer 422
+with "content should be a valid string" — so `--frames-only` sends the stills instead, and the
+scoring above was produced that way against `Qwen/Qwen3.8-27B`. Stills are the fallback that
+always works; the same `image_url` parts are what a provider that has no video support accepts.
+
+Two things keep the number honest:
+
+- **A script plays the game, and the play is recorded.** Ten-odd seconds of clicking, playing the
+  keys `design.md` names, and moving the pointer, recorded to video and sampled to stills. The
+  clip is what the model judges; a model handed only source code judges the code. It plays the
+  way a person does — one direction held (rightwards first) while the action key is tapped —
+  because taking every key in turn walks left, then right, and ends where it started: a
+  platformer judged that way photographs as a character bouncing on its first ledge, and the
+  model quite reasonably blames the harness. Reading the controls line matters as much: models
+  write it for people, so `A/D or ←/→` is as common as the word "arrows", and missing it costs
+  the run its movement keys.
+- **The play-test probe caps the score.** The same `previewProbe.ts` the agent uses runs before
+  and after the play, and a page that threw, never animated or never drew caps `works` at 1 (2
+  when nothing listens for input) however well the clip photographed. `report.md` says when a cap
+  bit and what the judge had said before it. The floor is 1, not 0: the probe can prove a page is
+  broken, not that there is no game, so the bottom of the scale stays the model's to give.
+- **The window size is part of the measurement.** Play opens a game in the user's default
+  browser, so the default is a laptop-sized `1280x800` (`--viewport WxH`), and `report.md` says
+  which size a verdict belongs to. This is not a detail: the scaffold lays a level out in
+  fractions of the canvas while speeds stay in px/s, so difficulty scales with the window. The
+  platformer in the set below is winnable at `800x600` and unwinnable at `1280x800` — its jump
+  reaches 161px against a gap that grows to 160px — and judged in the small window it scored
+  7/10 with the harness blamed for not finishing, against 4/10 and "the level is unwinnable"
+  when played at the size it ships to.
+
+The measures in the table above are still the ones to report — this replaces the hand-scoring of
+"playable", "console clean" and "prompt adherence", not the turn and token counts, which come from
+the app.
+
 ### What each outcome means
 
 - **Trimmed beats Full on small models:** add a "Lite" variant to the Game Maker preset rather

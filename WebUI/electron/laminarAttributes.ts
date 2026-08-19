@@ -44,6 +44,12 @@ export type InferenceTraceContext = {
   reasoningEffort?: string
   /** Sampling that rides the request, under the OTel `gen_ai.request.*` names. */
   sampling?: { temperature?: number; topP?: number; maxTokens?: number }
+  /**
+   * This run is nested inside a tool call of the parent turn (the media
+   * specialist). Read by laminar.ts to parent it there; never stamped, since it
+   * describes where the trace belongs rather than how the turn was set up.
+   */
+  delegated?: boolean
 }
 
 /** How fast one model call actually ran. */

@@ -1,4 +1,5 @@
 import { exec, execFile, type ChildProcess } from 'node:child_process'
+import { createServer as createTcpServer } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -198,6 +199,20 @@ interface LlamaServerProcess {
 
 const execFileAsync = promisify(execFile)
 
+/**
+ * Whether a server can listen on `port` on loopback right now. Asked with a bind
+ * attempt because that is the only thing that answers it: `get-port` refuses a
+ * port it handed out in the last 15 seconds (its guard against two callers
+ * racing for one), which is exactly the window a server restart falls into.
+ */
+async function canListenOn(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = createTcpServer()
+    probe.once('error', () => resolve(false))
+    probe.listen({ host: '127.0.0.1', port }, () => probe.close(() => resolve(true)))
+  })
+}
+
 export class LlamaCppBackendService implements ApiService {
   readonly name = 'llama-cpp-backend' as BackendServiceName
   baseUrl: string
@@ -235,6 +250,8 @@ export class LlamaCppBackendService implements ApiService {
    */
   private currentLlmServerArgs: string[] | null = null
   private currentEmbeddingModel: string | null = null
+  /** Port the LLM server last ran on, so a relaunch can take it back. */
+  private lastLlmPort: number | null = null
 
   // Store last startup error details for persistence
   private lastStartupErrorDetails: ErrorDetails | null = null
@@ -1255,6 +1272,22 @@ export class LlamaCppBackendService implements ApiService {
     }
   }
 
+  /**
+   * The port for the LLM server, preferring the one it last ran on.
+   *
+   * A relaunch of the same server is frequent — every media generation frees the
+   * GPU and takes it back — and moving it costs anything that holds its URL for
+   * longer than one request. Asking `get-port` during a restart always moves it,
+   * since it will not return a port it just handed out, so the previous port is
+   * checked directly and only a genuinely occupied one leads to a fresh pick.
+   */
+  private async allocateLlmPort(): Promise<number> {
+    if (this.lastLlmPort !== null && (await canListenOn(this.lastLlmPort))) {
+      return this.lastLlmPort
+    }
+    return getPort({ port: portNumbers(39100, 39199) })
+  }
+
   // Model server management methods
   private async startLlamaLlmServer(
     modelRepoId: string,
@@ -1264,7 +1297,8 @@ export class LlamaCppBackendService implements ApiService {
     try {
       const modelPath = this.resolveModelPath(modelRepoId)
 
-      const port = await getPort({ port: portNumbers(39100, 39199) })
+      const port = await this.allocateLlmPort()
+      this.lastLlmPort = port
       this.updatePort(port)
       this.updateStatus()
       const ctxSize = contextSize ?? 8192

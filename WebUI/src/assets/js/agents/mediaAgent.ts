@@ -11,6 +11,8 @@ import { useTextInference } from '../store/textInference'
 import { useMediaAgentRuns } from '../store/mediaAgentRuns'
 import type { MediaItem } from '../store/imageGenerationPresets'
 import { imageUrlToDataUri } from '@/lib/utils'
+import { chatTraceContext } from '@/lib/chatModel'
+import { noteChatTraceContext } from '@/lib/laminarTelemetry'
 import {
   createToolAgent,
   type ToolAgentEvent,
@@ -242,6 +244,14 @@ export async function runMediaAgent(options: MediaAgentOptions): Promise<MediaAg
   const runId = options.runId
   const mediaRuns = useMediaAgentRuns()
   if (runId) mediaRuns.beginRun(runId, options.request)
+
+  // This run's model calls are the parent's model calls in every way that
+  // matters to a trace — same backend, same device, same thinking setup — but
+  // the chat store is not the one making them, so they carry no context unless
+  // it is sent here. `delegated` also tells main these spans belong inside the
+  // media tool call the parent turn has open, rather than in a trace of their
+  // own. No-op unless a developer opted into tracing.
+  noteChatTraceContext({ ...chatTraceContext(), delegated: true })
 
   let result: MediaAgentResult
   try {

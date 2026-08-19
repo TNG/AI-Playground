@@ -44,6 +44,7 @@ import {
 import { createSamplingExtension } from './piSampling.ts'
 import { observeAgentModelCalls } from './piCallTiming.ts'
 import { laminarConfig, laminarPiExtensionPath } from '../laminar.ts'
+import { localBaseUrl, withLiveEndpoint } from './piLocalEndpoint.ts'
 import {
   clearAgentTraceContext,
   setAgentTraceContext,
@@ -276,7 +277,7 @@ async function registerModel(
     const contextWindow = config.contextWindow ?? 8192
     runtime.registerProvider(LOCAL_PROVIDER, {
       name: 'AI Playground local backend',
-      baseUrl: config.baseUrl,
+      baseUrl: localBaseUrl(config),
       api: 'openai-completions',
       apiKey: 'unused',
       models: [
@@ -293,7 +294,7 @@ async function registerModel(
       ],
     })
     await runtime.setRuntimeApiKey(LOCAL_PROVIDER, 'unused')
-    observeModelCallsWhenTracing(config.baseUrl)
+    observeModelCallsWhenTracing(() => localBaseUrl(config))
     return { provider: LOCAL_PROVIDER, modelId: config.model }
   }
 
@@ -325,17 +326,19 @@ async function registerModel(
     ],
   })
   await runtime.setRuntimeApiKey(CLOUD_PROVIDER, 'unused')
-  observeModelCallsWhenTracing(`${config.proxyBaseUrl}/v1`)
+  observeModelCallsWhenTracing(() => `${config.proxyBaseUrl}/v1`)
   return { provider: CLOUD_PROVIDER, modelId: config.model }
 }
 
 /**
  * Time this model's calls, so a trace can carry prefill and generation speed.
  * Only when a developer opted into tracing — it means observing the response
- * stream on its way past, which nothing else in the app asks for.
+ * stream on its way past, which nothing else in the app asks for. The endpoint
+ * is a getter for the same reason the model's is (see `localBaseUrl`): a
+ * relaunched server moves, and calls to the port it left are nobody's.
  */
-function observeModelCallsWhenTracing(baseUrl: string): void {
-  if (laminarConfig()) observeAgentModelCalls(baseUrl)
+function observeModelCallsWhenTracing(endpoint: () => string): void {
+  if (laminarConfig()) observeAgentModelCalls(endpoint)
 }
 
 /**
@@ -423,7 +426,7 @@ function configKeyOf(config: AgentModeTurnConfig): string {
   return JSON.stringify([
     config.sessionId,
     config.workspaceDir,
-    config.modelConfig,
+    modelKeyOf(config.modelConfig),
     config.toolSpecs ?? [],
     // Part of the system prompt, which is fixed once the session exists: editing
     // the preset's instructions (or switching preset) has to rebuild.
@@ -432,6 +435,18 @@ function configKeyOf(config: AgentModeTurnConfig): string {
     config.unsandboxed ?? false,
     config.planningThinkingOnly ?? false,
   ])
+}
+
+/**
+ * The model half of that key, minus the local endpoint: the port a backend
+ * listens on moves whenever its server is relaunched, and the session dials
+ * whichever one is current per request (`withLiveEndpoint`). A moved port is
+ * not a different model, so it must not throw away a live session.
+ */
+function modelKeyOf(config: AgentModeModelConfig): unknown {
+  if (config.source !== 'local') return config
+  const { baseUrl: _endpoint, ...rest } = config
+  return rest
 }
 
 /**
@@ -513,7 +528,11 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   setAgentTraceContext(traceContext(config.modelConfig, () => samplingParams))
   // The model still carries it as well, since that is where pi-ai's own request
   // builders would look if the agent path ever grew support for it.
-  const model = samplingParams ? { ...registered, samplingParams } : registered
+  const withSampling = samplingParams ? { ...registered, samplingParams } : registered
+  const model =
+    config.modelConfig.source === 'local'
+      ? withLiveEndpoint(withSampling, config.modelConfig)
+      : withSampling
 
   // Everything optional the agent can do is a capability the user enabled for
   // this session (capabilities/index.ts): its tools, skills and Pi extensions.

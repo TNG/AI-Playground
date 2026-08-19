@@ -13,7 +13,13 @@ import {
   type InferenceCallStats,
   type InferenceTraceContext,
 } from './laminarAttributes.ts'
-import { handleSpanEvent, isSpanEvent, noteSpanEnd, noteSpanStart } from './laminarSpans.ts'
+import {
+  handleSpanEvent,
+  isSpanEvent,
+  noteSpanEnd,
+  noteSpanStart,
+  openMediaToolSpan,
+} from './laminarSpans.ts'
 
 // ── Laminar tracing (dev-only PoC) ───────────────────────────────────────────
 //
@@ -245,6 +251,21 @@ type CallPerformance = {
 let chatTimings: LlamaCppTimings | null = null
 
 /**
+ * The event on which Laminar's integration creates a call's top-level span; it
+ * keeps that span's context and parents the call's steps to it itself.
+ */
+const AI_SDK_CALL_START = 'onStart'
+
+/**
+ * Set by a context that declares its run delegated, and consumed by that run's
+ * `onStart`. One `streamText` sends one context and fires one `onStart`, so the
+ * flag cannot outlive the run it was meant for — which matters because the
+ * parent of a delegated run is Pi, in this process, and never sends a context
+ * of its own to clear it.
+ */
+let delegatedRun = false
+
+/**
  * Replay one forwarded AI SDK telemetry event. `payload` is the JSON the
  * renderer serialized (functions and cycles already removed).
  */
@@ -256,8 +277,11 @@ export async function handleChatTelemetryEvent(name: string, payload: string): P
   if (name === CHAT_CONTEXT_EVENT || name === CHAT_TIMINGS_EVENT) {
     try {
       const value = JSON.parse(payload) as unknown
-      if (name === CHAT_CONTEXT_EVENT) setChatTraceContext(value as InferenceTraceContext | null)
-      else chatTimings = value as LlamaCppTimings | null
+      if (name === CHAT_CONTEXT_EVENT) {
+        const context = value as InferenceTraceContext | null
+        delegatedRun = context?.delegated === true
+        setChatTraceContext(context)
+      } else chatTimings = value as LlamaCppTimings | null
     } catch (error) {
       logger.warn(`dropped chat telemetry event '${name}': ${error}`, LOG_SOURCE)
     }
@@ -282,9 +306,47 @@ export async function handleChatTelemetryEvent(name: string, payload: string): P
       recordChatCallStats(chatCallStats(event.performance as CallPerformance | undefined))
       chatTimings = null
     }
+    if (name === AI_SDK_CALL_START && delegatedRun) {
+      delegatedRun = false
+      await underMediaToolCall(() => callback(event))
+      return
+    }
     callback(event)
   } catch (error) {
     logger.warn(`dropped chat telemetry event '${name}': ${error}`, LOG_SOURCE)
+  }
+}
+
+/**
+ * Create a delegated run's top-level span inside the media tool call it serves.
+ *
+ * The media specialist (assets/js/agents/mediaAgent.ts) is a nested AI SDK run
+ * inside a `media` tool call of the parent turn, and it is where the two model
+ * calls around a generation happen: one to pick the workflow and write the
+ * prompt, one to report what came back. Laminar's integration reads their
+ * parent off the OpenTelemetry context, which nothing sets here — so they
+ * formed a trace of their own, beside the trace holding the generation they
+ * asked for. `withSpan` puts the tool span on the context for exactly the
+ * statement that creates the span, and the association properties it carries
+ * (Pi's session id, the trace metadata) come along.
+ */
+async function underMediaToolCall(create: () => void): Promise<void> {
+  const parent = openMediaToolSpan()
+  if (!parent) {
+    create()
+    return
+  }
+  let created = false
+  const once = () => {
+    created = true
+    create()
+  }
+  try {
+    const { Laminar } = await import('@lmnr-ai/lmnr')
+    Laminar.withSpan(parent as Parameters<typeof Laminar.withSpan>[0], once)
+  } catch (error) {
+    logger.warn(`could not parent a delegated run: ${error}`, LOG_SOURCE)
+    if (!created) create()
   }
 }
 

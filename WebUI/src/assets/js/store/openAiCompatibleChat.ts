@@ -16,9 +16,8 @@ import {
   UIDataTypes,
   UIMessage,
 } from 'ai'
-import { createChatModel } from '@/lib/chatModel'
+import { chatTraceContext, createChatModel } from '@/lib/chatModel'
 import { useTextInference } from './textInference'
-import { useCloudMode } from './cloudMode'
 import { useBackendServices } from './backendServices'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import { completeOrphanedToolParts, sanitizeBulkyToolOutputs } from './toolMessageSanitize'
@@ -37,12 +36,7 @@ import { AipgTools } from '../tools/tools'
 import { JSONSchema7 } from '@ai-sdk/provider'
 import { dynamicTool, jsonSchema, type ToolResultOutput } from '@ai-sdk/provider-utils'
 import { imageUrlToDataUri } from '@/lib/utils'
-import { chatTemplateKwargs } from '@/lib/samplingDefaults'
-import {
-  noteChatTimings,
-  noteChatTraceContext,
-  type ChatTraceContext,
-} from '@/lib/laminarTelemetry'
+import { noteChatTimings, noteChatTraceContext } from '@/lib/laminarTelemetry'
 import { useQwen3TextToSpeech } from './qwen3TextToSpeech'
 import { buildTtsAudioFileName, conversationLabelForTtsFile } from '@/lib/ttsAudioFileName'
 
@@ -136,7 +130,6 @@ export const useOpenAiCompatibleChat = defineStore(
   'openAiCompatibleChat',
   () => {
     const textInference = useTextInference()
-    const cloudMode = useCloudMode()
     const backendServices = useBackendServices()
     const conversations = useConversations()
     const errors = useErrors()
@@ -396,44 +389,6 @@ export const useOpenAiCompatibleChat = defineStore(
       }
 
       return resolvedTools
-    }
-
-    /**
-     * The turn's setup, for its trace: which backend on which device, whether
-     * the model was told to think and how deeply, and the sampling that rides
-     * the request. `chatTemplateKwargs` is the same call `chatModel.ts` makes
-     * to build the body, so the trace reports what was sent, not what the
-     * settings happen to say.
-     */
-    function chatTraceContext(): ChatTraceContext {
-      const kwargs = chatTemplateKwargs({
-        supportsThinkingToggle: textInference.modelSupportsThinkingToggle,
-        thinkingEnabled: textInference.thinkingEnabled,
-        thinkingActive: textInference.thinkingActive,
-        reasoningEffort: textInference.effectiveReasoningEffort,
-      })
-      const cloud = textInference.backend === 'cloud'
-      return {
-        backend: textInference.backend,
-        ...(cloud
-          ? {}
-          : {
-              device: textInference.getCurrentDeviceId() ?? undefined,
-              deviceName: textInference.getCurrentDeviceName() ?? undefined,
-            }),
-        ...(cloud ? { cloudProvider: cloudMode.selectedProviderId } : {}),
-        ...(typeof kwargs.enable_thinking === 'boolean'
-          ? { thinking: kwargs.enable_thinking }
-          : {}),
-        ...(typeof kwargs.reasoning_effort === 'string'
-          ? { reasoningEffort: kwargs.reasoning_effort }
-          : {}),
-        sampling: {
-          temperature: textInference.temperature,
-          topP: textInference.samplingRequestBody.top_p,
-          maxTokens: textInference.maxTokens,
-        },
-      }
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

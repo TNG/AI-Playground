@@ -4,6 +4,7 @@ import { useTextInference } from '@/assets/js/store/textInference'
 import { useCloudMode, CLOUD_DEFAULT_MODEL } from '@/assets/js/store/cloudMode'
 import { getHomeAgentAuthToken, invalidateHomeAgentAuthToken } from '@/lib/loopbackAuth'
 import { chatTemplateKwargs } from '@/lib/samplingDefaults'
+import type { ChatTraceContext } from '@/lib/laminarTelemetry'
 
 // ── Shared chat model factory ────────────────────────────────────────────────
 //
@@ -17,6 +18,47 @@ import { chatTemplateKwargs } from '@/lib/samplingDefaults'
 //
 // Reads reactive store state — calling it inside a computed() tracks the
 // relevant dependencies (backend, model, backend URL) as before.
+
+/**
+ * The setup of a turn run against this model, for its trace: which backend on
+ * which device, whether the model was told to think and how deeply, and the
+ * sampling that rides the request. `chatTemplateKwargs` is the same call
+ * `createChatModel` makes to build the body, so a trace reports what was sent
+ * and not what the settings happen to say.
+ *
+ * Lives here rather than in the chat store because every surface that runs on
+ * this model needs it — chat turns and the nested tool agents, which are AI SDK
+ * calls of their own (see assets/js/agents/mediaAgent.ts).
+ */
+export function chatTraceContext(): ChatTraceContext {
+  const textInference = useTextInference()
+  const cloudMode = useCloudMode()
+  const kwargs = chatTemplateKwargs({
+    supportsThinkingToggle: textInference.modelSupportsThinkingToggle,
+    thinkingEnabled: textInference.thinkingEnabled,
+    thinkingActive: textInference.thinkingActive,
+    reasoningEffort: textInference.effectiveReasoningEffort,
+  })
+  const cloud = textInference.backend === 'cloud'
+  return {
+    backend: textInference.backend,
+    ...(cloud
+      ? { cloudProvider: cloudMode.selectedProviderId }
+      : {
+          device: textInference.getCurrentDeviceId() ?? undefined,
+          deviceName: textInference.getCurrentDeviceName() ?? undefined,
+        }),
+    ...(typeof kwargs.enable_thinking === 'boolean' ? { thinking: kwargs.enable_thinking } : {}),
+    ...(typeof kwargs.reasoning_effort === 'string'
+      ? { reasoningEffort: kwargs.reasoning_effort }
+      : {}),
+    sampling: {
+      temperature: textInference.temperature,
+      topP: textInference.samplingRequestBody.top_p,
+      maxTokens: textInference.maxTokens,
+    },
+  }
+}
 
 export function createChatModel(): LanguageModel {
   const textInference = useTextInference()

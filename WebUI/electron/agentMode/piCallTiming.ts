@@ -26,15 +26,20 @@ const LOG_SOURCE = 'laminar'
 const TAIL_LIMIT = 16_384
 
 let installed = false
-let observedPrefix: string | null = null
+let agentEndpoint: (() => string) | null = null
 
 /**
- * Watch model calls to `baseUrl` (the agent's registered provider endpoint) and
- * report each one's speeds. Idempotent; a later call re-points it at the
- * endpoint of the model the next session runs on.
+ * Watch model calls to the agent's registered provider endpoint and report each
+ * one's speeds. Idempotent; a later call re-points it at the endpoint of the
+ * model the next session runs on.
+ *
+ * The endpoint is asked for per request rather than kept, because a local LLM
+ * server relaunched mid-turn comes back on another port (see `localBaseUrl` in
+ * piAgentManager.ts) — a remembered prefix would stop matching and every step
+ * after the relaunch would lose its speeds.
  */
-export function observeAgentModelCalls(baseUrl: string): void {
-  observedPrefix = baseUrl.replace(/\/+$/, '')
+export function observeAgentModelCalls(endpoint: () => string): void {
+  agentEndpoint = endpoint
   if (installed) return
   installed = true
   const original = globalThis.fetch
@@ -45,8 +50,9 @@ export function observeAgentModelCalls(baseUrl: string): void {
     const startedAt = Date.now()
     const response = await original(input, init)
     try {
-      if (!observedPrefix || !response.ok || !response.body) return response
-      if (!requestUrl(input).startsWith(observedPrefix)) return response
+      const prefix = agentEndpoint?.().replace(/\/+$/, '')
+      if (!prefix || !response.ok || !response.body) return response
+      if (!requestUrl(input).startsWith(prefix)) return response
       return observe(response, startedAt)
     } catch (error) {
       logger.warn(`could not observe a model call: ${error}`, LOG_SOURCE)

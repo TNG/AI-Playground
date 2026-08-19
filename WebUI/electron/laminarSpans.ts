@@ -170,10 +170,15 @@ async function startSpan(event: SpanStartEvent): Promise<void> {
  */
 function parentSpan(parentId: string | undefined): LiveSpan | ProcessedSpan | undefined {
   const explicit = parentId === undefined ? undefined : openSpans.get(parentId)
-  return explicit ?? oldestOpenToolSpan()
+  return explicit ?? openMediaToolSpan()
 }
 
-function oldestOpenToolSpan(): ProcessedSpan | undefined {
+/**
+ * The media tool call whose work is running: the oldest open one (see the note
+ * on parenting at the top). Also what a delegated AI SDK run is parented to —
+ * see `handleChatTelemetryEvent` in laminar.ts.
+ */
+export function openMediaToolSpan(): ProcessedSpan | undefined {
   for (const span of openToolSpans.values()) return span
   return undefined
 }

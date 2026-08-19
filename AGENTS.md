@@ -528,6 +528,25 @@ change between two steps of one turn reaches the very next request. `electron/te
 pins this against a fake OpenAI server driving a real Pi session — assert on the recorded request
 bodies, because nothing else proves Pi forwarded anything.
 
+**A local agent session must not remember its endpoint.** llama.cpp's LLM server is relaunched
+whenever a media call hands the GPU to ComfyUI and takes it back — which happens _mid-turn_ — and
+`get-port` will not return a port it handed out in the last 15 seconds, so it used to come back on a
+different one every time (39100 ⇄ 39101). pi-ai stamps a provider's base URL onto each model it
+builds and reads it off that object per request, so a session kept calling the port it was born
+with: every step after the first image generation failed the instant it was made — no tokens, no
+error text, `gen_ai.response.finish_reasons: ["error"]`, retried 2 s / 4 s / 8 s apart, then the run
+gave up. It reads like a broken model and is only visible in a trace.
+`electron/agentMode/piLocalEndpoint.ts` therefore resolves the endpoint per request off the live
+service (`llmServerBaseUrl` in `llmServerSnapshot.ts`) and hands Pi a model whose `baseUrl` is an
+accessor — the same re-rooting the renderer's chat model does, which is why Chat never had the
+problem. Consequences worth knowing: the session key ignores the URL (a moved port is not a
+different model and must not rebuild a live session), the timing observer asks per request too
+(`piCallTiming.ts`, or steps after a relaunch lose their speeds), and
+`llamaCppBackendService.allocateLlmPort` takes the previous port back when it is free, so the URL
+usually does not move at all. OVMS is unaffected either way — its LLM server runs on the service's
+own port, allocated once. `electron/test/agents/agentEndpoint.test.ts` moves the backend between two
+steps of a real Pi session and asserts which fake server received the second one.
+
 **"Reasoning only during planning" (Agent Mode).** Thinking earns its cost while the agent decides
 what to build and stops earning it once that decision is on disk, so a Game Maker session can
 switch thinking off for the rest of the run. What counts as "on disk" is the capability's to say
@@ -1078,6 +1097,10 @@ await; both no-ops unless tracing is configured) and the receiving half in
 ```
 pi agent run
 └─ media (TOOL)                      duration of the IPC wait
+   ├─ ai.streamText                  the media specialist's own run
+   │  ├─ ai.llm model.chat:<model>   picks the workflow, writes the prompt
+   │  ├─ ai.tool comfyUI             its call into the pipeline
+   │  └─ ai.llm model.chat:<model>   reports what came back
    ├─ backend.stop_llm               keepModelsLoaded off
    ├─ models.download                only when files were missing
    ├─ comfyui.generate               preset, mode, batch size, keepModelsLoaded
@@ -1115,6 +1138,23 @@ Things to know before changing it:
 - **Late attributes ride the end event.** A span reaches Laminar when it ends, so per-tick
   progress updates would be IPC nobody reads; `setAttributes` accumulates in the renderer and
   is sent once with `aipgSpanEnd`.
+- **The specialist's own model calls have to be pulled in, and say so themselves.** The media
+  agent is a nested AI SDK run (`agents/toolAgent.ts`), so it is traced by Laminar's AI SDK
+  integration, which reads a call's parent off the OpenTelemetry context — where nothing has
+  put the tool span. Left alone it makes `ai.streamText` a root, and the two calls that decide
+  and then narrate a generation form a trace beside the trace holding the generation itself.
+  `runMediaAgent` therefore sends `noteChatTraceContext({ ...chatTraceContext(), delegated: true })`
+  before its run, and `handleChatTelemetryEvent` creates that run's `onStart` inside
+  `Laminar.withSpan(openMediaToolSpan())`. The declaration is **spent on one run** (one
+  `streamText` sends one context and fires one `onStart`) because in Agent Mode the parent turn
+  is Pi, in main, and never sends a context that would clear it — a flag left standing would
+  adopt the next unrelated AI SDK call. Note the specialist's `ai.tool comfyUI` and our
+  `comfyui.generate` end up siblings rather than nested: renderer spans attach to the oldest
+  open media tool span, deliberately, so parallel spritesheet calls cannot steal each other's.
+- **The specialist's trace context is the same one chat sends**, from `chatTraceContext()` in
+  `src/lib/chatModel.ts` (moved out of the chat store when the second caller appeared). Without
+  it a delegated LLM span was stamped with whatever the last chat turn happened to set, or with
+  nothing at all in Agent Mode, where no chat turn ever runs.
 - Spans that would describe nothing are not created at all: no `comfyui.install_nodes` when
   requirements were already met, no `models.download` when nothing was missing. Their absence
   is the informative part when comparing a first run against the next.

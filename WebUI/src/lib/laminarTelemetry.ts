@@ -52,6 +52,11 @@ export type ChatTraceContext = {
   thinking?: boolean
   reasoningEffort?: string
   sampling?: { temperature?: number; topP?: number; maxTokens?: number }
+  /**
+   * A nested run inside a tool call of the parent turn (the media specialist),
+   * whose spans belong in the parent's trace rather than in one of their own.
+   */
+  delegated?: boolean
 }
 
 let registered = false

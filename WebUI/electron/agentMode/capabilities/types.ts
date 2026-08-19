@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ToolDefinition } from '@earendil-works/pi-coding-agent'
 import type { SkillSource } from '../piCustomTools.ts'
+import type { PlanningEnd } from '../planningPhase.ts'
 
 // ── Agent capabilities ───────────────────────────────────────────────────────
 //
@@ -65,6 +66,21 @@ export type AgentCapability = {
    * carry no tools at all.
    */
   lazyEligible?: boolean
+  /**
+   * Set by a capability that *is* the session rather than an addition to it: the
+   * preset's instructions replace Pi's coding-agent prompt (and the workspace,
+   * skills and context-file sections with it), and the file/shell builtins are
+   * cut down to `baseTools`. A preset picks such a capability; the settings list
+   * does not offer it, since switching it on next to a general agent would take
+   * that agent's prompt and tools away.
+   */
+  ownSession?: { baseTools: string[] }
+  /**
+   * What ends the thinking phase of a session running this capability, for users
+   * who asked to think during planning only. Absent means the capability has no
+   * plan step of its own. See planningPhase.ts.
+   */
+  planningEnd?: PlanningEnd
 }
 
 /** A capability plus what it contributed to this session. */

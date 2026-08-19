@@ -169,9 +169,9 @@
             Reasoning only during planning
           </span>
           <span class="text-xs text-muted-foreground">
-            The agent thinks while it works out the plan, then runs with thinking off once the plan
-            file is written — the build steps follow that checklist instead of reasoning again each
-            time. Applies to Game Maker sessions, which are the ones that plan on disk.
+            The agent thinks while it works out what to build and stops once that is on disk: Game
+            Maker follows the checklist in its plan file from then on, and Game Maker Quick has
+            written the whole game by that point. Presets that do not plan on disk think throughout.
           </span>
         </span>
       </label>

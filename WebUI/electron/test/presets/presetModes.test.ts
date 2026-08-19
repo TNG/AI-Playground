@@ -85,7 +85,11 @@ describe('shipped agent presets', () => {
   )
 
   it('ships the Agent and Game Maker presets', () => {
-    expect(agentPresets.map((entry) => entry.preset.name).sort()).toEqual(['Agent', 'Game Maker'])
+    expect(agentPresets.map((entry) => entry.preset.name).sort()).toEqual([
+      'Agent',
+      'Game Maker',
+      'Game Maker Quick',
+    ])
   })
 
   it('declares a workspace policy and tool calling', () => {
@@ -110,6 +114,19 @@ describe('shipped agent presets', () => {
     expect(gameMaker.systemPrompt?.length ?? 0).toBeGreaterThan(0)
   })
 
+  // The quick preset is the same library, a much thinner session: one capability
+  // that owns the whole prompt, no media and no browser to pull in.
+  it('gives Game Maker Quick the games folder and nothing but its own capability', () => {
+    const quick = agentPresets.find((entry) => entry.preset.name === 'Game Maker Quick')
+      ?.preset as ChatPreset
+    expect(quick.agentWorkspace).toBe('games')
+    expect(quick.requiresCoding).toBe(true)
+    expect(quick.agentCapabilities).toEqual(['game-studio-quick'])
+    // Its prompt replaces Pi's own, so an empty one would leave the model with
+    // no instructions at all rather than with generic ones.
+    expect(quick.systemPrompt?.length ?? 0).toBeGreaterThan(0)
+  })
+
   it('prefers models the coding filter would keep', () => {
     // Parsed through the schema the main process uses, not the raw JSON: Zod drops
     // unknown keys, so a flag missing from `ModelSchema` reaches the picker as
@@ -120,12 +137,15 @@ describe('shipped agent presets', () => {
         JSON.parse(readFileSync(path.resolve(__dirname, '../../../external/models.json'), 'utf-8')),
       )
     const coding = new Set(models.filter((m) => m.supportsCoding).map((m) => m.name))
-    const gameMaker = agentPresets.find((entry) => entry.preset.name === 'Game Maker')
-      ?.preset as ChatPreset
-    for (const preferred of Object.values(gameMaker.preferredModels ?? {})) {
-      expect(coding, `preferred model '${preferred}' is filtered out by requiresCoding`).toContain(
-        preferred,
-      )
+    for (const { preset } of agentPresets) {
+      const chat = preset as ChatPreset
+      if (!chat.requiresCoding) continue
+      for (const preferred of Object.values(chat.preferredModels ?? {})) {
+        expect(
+          coding,
+          `${chat.name}: preferred model '${preferred}' is filtered out by requiresCoding`,
+        ).toContain(preferred)
+      }
     }
   })
 })

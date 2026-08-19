@@ -2,11 +2,12 @@ import type { ExtensionFactory, ToolDefinition } from '@earendil-works/pi-coding
 import { appLoggerInstance } from '../../logging/logger.ts'
 import type { SkillSource } from '../piCustomTools.ts'
 import { createCapabilitiesExtension } from './core.ts'
-import { gameStudioCapability } from './gameStudio.ts'
+import { gameStudioCapability, gameStudioQuickCapability } from './gameStudio.ts'
 import { mediaCapability } from './media.ts'
 import { mcpCapability, mcpCapabilityId, mcpServerIdOf } from './mcp.ts'
 import { memoryCapability } from './memory.ts'
 import { webDebugCapability } from './webDebug.ts'
+import type { PlanningEnd } from '../planningPhase.ts'
 import {
   estimateToolTokens,
   expandCapabilityIds,
@@ -41,6 +42,7 @@ const BUILT_IN_CAPABILITIES: AgentCapability[] = [
   mediaCapability,
   memoryCapability,
   gameStudioCapability,
+  gameStudioQuickCapability,
 ]
 
 /**
@@ -73,6 +75,14 @@ export type CapabilityResolution = {
   dormantIds: string[]
   /** Prompt text for the dormant capabilities, '' when everything is eager. */
   dormantPromptSection: string
+  /**
+   * Set when one of the capabilities owns the session: the preset's instructions
+   * are the whole system prompt and the builtin toolbox is cut to these tools
+   * (see `AgentCapability.ownSession`).
+   */
+  ownSession?: { baseTools: string[] }
+  /** How this session's planning phase ends, when a capability defines one. */
+  planningEnd?: PlanningEnd
 }
 
 /**
@@ -152,10 +162,18 @@ export async function resolveCapabilities(
     )
   }
 
+  // First declaration wins, in catalog order: these describe the shape of the
+  // whole session, and a session has one shape.
+  const ownSession = resolved.find(({ capability }) => capability.ownSession)?.capability.ownSession
+  const planningEnd = resolved.find(({ capability }) => capability.planningEnd)?.capability
+    .planningEnd
+
   return {
     resolved,
     extensionFactories,
     extensionPaths,
+    ...(ownSession ? { ownSession } : {}),
+    ...(planningEnd ? { planningEnd } : {}),
     skillSources: resolved.flatMap(({ skills }) => skills),
     announcedSkillNames: resolved
       .filter(({ capability }) => !dormantIds.has(capability.id))
@@ -172,7 +190,9 @@ export { mcpCapabilityId, mcpServerIdOf, MCP_CAPABILITY_PREFIX } from './mcp.ts'
 /**
  * Capability metadata for the settings UI: what exists, what it does, and why
  * something cannot be used right now. Same catalog the session build uses, so
- * the checkbox list can never drift from what the agent actually gets.
+ * the checkbox list can never drift from what the agent actually gets — minus
+ * the capabilities that own a session, which belong to their preset rather than
+ * to a checkbox next to another preset's agent.
  */
 export type CapabilityInfo = {
   id: string
@@ -188,17 +208,19 @@ export function listCapabilities(
   host: CapabilityHost,
   mcpServerIds: string[] = [],
 ): CapabilityInfo[] {
-  return capabilityCatalog(mcpServerIds.map((id) => mcpCapabilityId(id))).map((capability) => {
-    const reason = capability.unavailableReason?.(host)
-    return {
-      id: capability.id,
-      label: capability.label,
-      summary: capability.summary,
-      requires: capability.requires ?? [],
-      commands: capability.commands ?? [],
-      ...(reason ? { unavailableReason: reason } : {}),
-    }
-  })
+  return capabilityCatalog(mcpServerIds.map((id) => mcpCapabilityId(id)))
+    .filter((capability) => !capability.ownSession)
+    .map((capability) => {
+      const reason = capability.unavailableReason?.(host)
+      return {
+        id: capability.id,
+        label: capability.label,
+        summary: capability.summary,
+        requires: capability.requires ?? [],
+        commands: capability.commands ?? [],
+        ...(reason ? { unavailableReason: reason } : {}),
+      }
+    })
 }
 export type {
   AgentCapability,

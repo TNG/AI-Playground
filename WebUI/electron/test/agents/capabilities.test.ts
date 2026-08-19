@@ -143,6 +143,13 @@ describe('the capability catalog', () => {
     const gameStudio = withoutMedia.find((entry) => entry.id === 'game-studio')
     expect(gameStudio?.requires).toEqual(['media', 'web-debug'])
   })
+
+  // Ticking it next to another preset's agent would take that agent's prompt and
+  // tools away, which is not what a checkbox in a capability list means.
+  it('keeps a capability that owns its session out of the settings list', () => {
+    expect(capabilityCatalog().map(({ id }) => id)).toContain('game-studio-quick')
+    expect(listCapabilities(hostWith()).map(({ id }) => id)).not.toContain('game-studio-quick')
+  })
 })
 
 describe('expandCapabilityIds', () => {
@@ -257,6 +264,29 @@ describe('resolveCapabilities', () => {
       'game-studio',
     ])
     expect(resolution.announcedSkillNames).toContain('html-game-studio')
+  })
+
+  // The one-shot game preset: the same library card tool, none of the workflow
+  // around it, and a session shape the manager reads off the resolution.
+  it('reports the session shape a capability that owns the session asks for', async () => {
+    const resolution = await resolveCapabilities(hostWith(), ['game-studio-quick'])
+
+    expect(resolution.resolved.map(({ capability }) => capability.id)).toEqual([
+      'game-studio-quick',
+    ])
+    expect(resolution.skillSources).toEqual([])
+    expect(resolution.ownSession).toEqual({ baseTools: ['write'] })
+    expect(resolution.planningEnd).toBe('first-write')
+
+    const registry = fakeExtensionApi()
+    for (const factory of resolution.extensionFactories) factory(registry.api as never)
+    expect(registry.tools.map((tool) => tool.name)).toEqual(['game'])
+  })
+
+  it('leaves the iterative game preset planning on disk, with the full session', async () => {
+    const resolution = await resolveCapabilities(hostWith(), ['game-studio'])
+    expect(resolution.ownSession).toBeUndefined()
+    expect(resolution.planningEnd).toBe('plan-file')
   })
 
   it('attaches MCP servers as capabilities of their own', async () => {

@@ -232,4 +232,34 @@ export const gameStudioCapability: AgentCapability = {
   // Nothing worth deferring: a skill costs one name + description line, and the
   // `game` tool is one small schema the closing step needs anyway.
   lazyEligible: false,
+  planningEnd: 'plan-file',
+}
+
+// ── game-studio-quick capability ─────────────────────────────────────────────
+//
+// The other end of the trade: instead of growing a scaffold over dozens of steps
+// the model writes the whole game once, into one file. Everything that makes the
+// iterative path good — a skill to read, a browser to probe with, generated art
+// — is context and wall clock the quick path spends on nothing, so it has none
+// of it. What is left is a prompt, `write` and the same library card tool.
+//
+// It owns the session (`ownSession`): Pi's coding-agent prompt and its file and
+// shell toolbox would each be larger than the instructions this run needs. That
+// is also why it is not in the settings list — enabled next to a general agent
+// it would silently take that agent's prompt and tools away.
+
+export const GAME_STUDIO_QUICK_ID = 'game-studio-quick'
+
+export const gameStudioQuickCapability: AgentCapability = {
+  id: GAME_STUDIO_QUICK_ID,
+  label: 'Game studio (one shot)',
+  summary:
+    'Write a whole browser game into a single HTML file in one step, then name it in the ' +
+    'library. No art, no play-testing.',
+  buildTools: buildGameTool,
+  // `write` puts the game on disk; nothing else in the builtin toolbox has a
+  // part in a run that is one file long.
+  ownSession: { baseTools: ['write'] },
+  planningEnd: 'first-write',
+  lazyEligible: false,
 }

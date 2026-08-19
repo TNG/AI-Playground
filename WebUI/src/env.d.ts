@@ -687,8 +687,11 @@ type electronAPI = {
   games: {
     list(): Promise<GameLibraryEntry[]>
     read(dir: string): Promise<GameLibraryEntry | null>
-    /** Mints a folder for a new game; `name` is a starting point, not final. */
-    create(name?: string): Promise<GameLibraryEntry>
+    /**
+     * Mints a folder for a new game; `name` is a starting point, not final.
+     * `scaffold: false` leaves it empty for a preset that writes the game whole.
+     */
+    create(name?: string, options?: { scaffold?: boolean }): Promise<GameLibraryEntry>
     publish(
       dir: string,
       fields: { name?: string; description?: string },

@@ -27,11 +27,21 @@ const GAME_MAKER: ChatPreset = {
   agentWorkspace: 'games',
 } as ChatPreset
 
+const GAME_MAKER_QUICK: ChatPreset = {
+  type: 'chat',
+  category: 'chat',
+  name: 'Game Maker Quick',
+  backends: ['llamaCPP'],
+  agentPreset: true,
+  agentWorkspace: 'games',
+  agentCapabilities: ['game-studio-quick'],
+} as ChatPreset
+
 const activePreset = ref<ChatPreset>(AGENT)
 
 vi.mock('@/assets/js/store/presets', () => ({
   usePresets: () => ({
-    presets: [AGENT, GAME_MAKER],
+    presets: [AGENT, GAME_MAKER, GAME_MAKER_QUICK],
     get activePresetWithVariant() {
       return activePreset.value
     },
@@ -74,7 +84,7 @@ const gameFolders = new Set<string>(['/games/space-dodger'])
 const gamesRead = vi.fn(async (dir: string) =>
   gameFolders.has(dir) ? { dir, name: 'Space Dodger' } : null,
 )
-const gamesCreate = vi.fn(async (_name: string) => {
+const gamesCreate = vi.fn(async (_name: string, _options?: { scaffold?: boolean }) => {
   gameFolders.add('/games/new-game')
   return { dir: '/games/new-game', name: 'New game' }
 })
@@ -127,9 +137,21 @@ describe('agentMode workspace kinds', () => {
 
     await store.generate('a game where I dodge asteroids')
 
-    expect(gamesCreate).toHaveBeenCalledWith('a game where I dodge asteroids')
+    expect(gamesCreate).toHaveBeenCalledWith('a game where I dodge asteroids', { scaffold: true })
     expect(store.workspaceDir).toBe('/games/new-game')
     expect(store.currentGame?.dir).toBe('/games/new-game')
+  })
+
+  // The one-shot preset writes the whole page itself, so a scaffolded page would
+  // be a file it has to work around.
+  it('mints an empty folder for the preset that writes the game in one go', async () => {
+    const store = useAgentMode()
+    activePreset.value = GAME_MAKER_QUICK
+    await flush()
+
+    await store.generate('a game where I dodge asteroids')
+
+    expect(gamesCreate).toHaveBeenCalledWith('a game where I dodge asteroids', { scaffold: false })
   })
 
   it('keeps working in a folder that is already a game', async () => {

@@ -95,6 +95,35 @@ function resultText(result: unknown): string {
     .join('\n')
 }
 
+// A preset whose agent writes one file gets one tool: everything else is a
+// schema in the prompt and an invitation to spend a step on it.
+describe('the tool set a session is built with', () => {
+  it('is the whole toolbox unless the session narrows it', async () => {
+    const access = await createAgentToolAccess(accessOptions(false))
+    try {
+      expect(access.definitions.map((tool) => tool.name)).toEqual(
+        expect.arrayContaining(['read', 'write', 'edit', 'bash']),
+      )
+    } finally {
+      await access.dispose()
+    }
+  })
+
+  it('holds the named tools only, sandboxed or not', async () => {
+    for (const unsandboxed of [false, true]) {
+      const access = await createAgentToolAccess({
+        ...accessOptions(unsandboxed),
+        baseTools: ['write'],
+      })
+      try {
+        expect(access.definitions.map((tool) => tool.name)).toEqual(['write'])
+      } finally {
+        await access.dispose()
+      }
+    }
+  })
+})
+
 describe('sandboxed access', () => {
   let access: AgentToolAccess
 

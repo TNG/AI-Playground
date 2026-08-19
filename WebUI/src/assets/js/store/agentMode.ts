@@ -62,6 +62,14 @@ const DEFAULT_CAPABILITIES = ['media', 'web-debug']
 const MCP_CAPABILITY_PREFIX = 'mcp:'
 
 /**
+ * The capability of the one-shot Game Maker preset (electron/agentMode/
+ * capabilities/gameStudio.ts). Its agent writes the whole game in a single
+ * `write`, so its folder starts empty instead of holding the scaffold the
+ * iterative preset edits.
+ */
+const ONE_SHOT_GAME_CAPABILITY = 'game-studio-quick'
+
+/**
  * The two agent presets sessions can predate `presetName` (see
  * `migrateSessionPresets`). Named rather than looked up, because the migration
  * runs on hydration, before the preset catalog is loaded.
@@ -865,7 +873,9 @@ export const useAgentMode = defineStore(
       // preset's picked folder, and building a game there would put it outside the
       // library, where the game bar and the `game` tool cannot reach it.
       if (agentWorkspaceKind.value === 'games' && !(await isGameFolder(workspaceDir.value))) {
-        const game = await window.electronAPI.games.create(prompt)
+        const game = await window.electronAPI.games.create(prompt, {
+          scaffold: !capabilities.value.includes(ONE_SHOT_GAME_CAPABILITY),
+        })
         workspaceDir.value = game.dir
         lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, games: game.dir }
         currentGame.value = game

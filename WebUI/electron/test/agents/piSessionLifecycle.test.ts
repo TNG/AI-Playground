@@ -92,6 +92,15 @@ const openSession = vi.fn((sessionFilePath: string) => ({ kind: 'opened', sessio
 const createSessionManager = vi.fn((cwd: string) => ({ kind: 'created', cwd }))
 const registerProvider = vi.fn()
 
+/** What each session build asked Pi's resource loader for. */
+type ResourceLoaderOptions = {
+  appendSystemPrompt?: string[]
+  noContextFiles?: boolean
+  systemPromptOverride?: (base: string | undefined) => string | undefined
+  appendSystemPromptOverride?: (base: string[]) => string[]
+}
+const resourceLoaderOptions: ResourceLoaderOptions[] = []
+
 vi.mock('electron', () => ({
   app: { isPackaged: true, getPath: () => userDataDir },
   BrowserWindow: class {},
@@ -115,6 +124,9 @@ vi.mock('../../agentMode/piRuntime.ts', () => ({
     SessionManager: { open: openSession, create: createSessionManager },
     SettingsManager: { inMemory: () => ({}) },
     DefaultResourceLoader: class {
+      constructor(options: ResourceLoaderOptions) {
+        resourceLoaderOptions.push(options)
+      }
       async reload() {}
     },
     createAgentSession,
@@ -215,6 +227,7 @@ beforeEach(() => {
   createSessionManager.mockClear()
   sessionFiles.length = 0
   disposed.length = 0
+  resourceLoaderOptions.length = 0
   sent = []
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aipg-agent-session-')))
   userDataDir = path.join(root, 'userData')
@@ -291,6 +304,7 @@ describe('capability wiring', () => {
     dormantToolNames: [] as string[],
     dormantIds: [] as string[],
     dormantPromptSection: '',
+    ownSession: undefined as { baseTools: string[] } | undefined,
   }
 
   async function managerWith(overrides: Partial<typeof resolution> = {}) {
@@ -334,6 +348,32 @@ describe('capability wiring', () => {
     await manager.startAgentTurn('t1', 'hello', configFor())
 
     expect((await liveSession()).setActiveToolsByName).not.toHaveBeenCalled()
+  })
+
+  // A capability that owns the session is the whole prompt and the whole
+  // toolbox: Pi's coding-agent instructions and the workspace orientation are
+  // replaced by the preset's text, and the builtins are cut to what it named.
+  it('hands the prompt and the toolbox to a capability that owns the session', async () => {
+    const manager = await managerWith({ ownSession: { baseTools: ['write'] } })
+    await manager.startAgentTurn('t1', 'hello', configFor({ instructions: 'Write the game.' }))
+
+    const { createAgentToolAccess } = await import('../../agentMode/piToolOperations')
+    expect(vi.mocked(createAgentToolAccess).mock.calls.at(-1)?.[0]).toMatchObject({
+      baseTools: ['write'],
+    })
+    const options = resourceLoaderOptions.at(-1)
+    expect(options?.systemPromptOverride?.('pi coding agent prompt')).toBe('Write the game.')
+    expect(options?.appendSystemPromptOverride?.(['workspace instructions'])).toEqual([])
+    expect(options?.noContextFiles).toBe(true)
+  })
+
+  it('keeps the preset instructions as an addition for an ordinary session', async () => {
+    const manager = await managerWith()
+    await manager.startAgentTurn('t1', 'hello', configFor({ instructions: 'Be helpful.' }))
+
+    const options = resourceLoaderOptions.at(-1)
+    expect(options?.systemPromptOverride).toBeUndefined()
+    expect(options?.appendSystemPrompt).toEqual(['workspace instructions', 'Be helpful.'])
   })
 })
 

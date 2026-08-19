@@ -74,6 +74,11 @@ export type AgentToolAccessOptions = {
   /** Host directory holding the written SKILL.md files. */
   skillsDir: string
   skills: AgentSkill[]
+  /**
+   * Builtin tools to keep, when a capability owns the session and says which
+   * ones its workflow uses. The whole toolbox when absent.
+   */
+  baseTools?: string[]
 }
 
 function containedIn(root: string, candidate: string): boolean {
@@ -639,12 +644,27 @@ export async function createAgentToolAccess(
   options: AgentToolAccessOptions,
 ): Promise<AgentToolAccess> {
   const pi = await loadPi()
-  if (options.unsandboxed) {
-    logger.info(`agent tools: HOST SHELL mode in ${options.workspaceDir}`, LOG_SOURCE)
-    return createHostShellAccess(pi, options)
-  }
-  logger.info(`agent tools: sandboxed mode in ${options.workspaceDir}`, LOG_SOURCE)
-  return createSandboxAccess(pi, await loadJustBash(), options)
+  const access = options.unsandboxed
+    ? createHostShellAccess(pi, options)
+    : createSandboxAccess(pi, await loadJustBash(), options)
+  const definitions = keepTools(access.definitions, options.baseTools)
+  logger.info(
+    `agent tools: ${options.unsandboxed ? 'HOST SHELL' : 'sandboxed'} mode in ` +
+      `${options.workspaceDir} (${definitions.map((tool) => tool.name).join(', ')})`,
+    LOG_SOURCE,
+  )
+  return { ...access, definitions }
+}
+
+/**
+ * Cut the toolbox down to what a session uses. Every tool costs its schema in
+ * the prompt and invites the step that calls it, so a run that is one `write`
+ * long is better off not being offered a shell, a search and an editor.
+ */
+function keepTools(definitions: ToolDefinition[], keep?: string[]): ToolDefinition[] {
+  if (!keep) return definitions
+  const wanted = new Set(keep)
+  return definitions.filter((definition) => wanted.has(definition.name))
 }
 
 export const testables = {

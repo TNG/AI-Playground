@@ -2813,8 +2813,11 @@ function initEventHandle() {
 
   // `name` is the request that started the game, not a title: shorten it to
   // something that reads as one, until the agent sets a real one.
-  ipcMain.handle('games:create', (_event, name?: string) =>
-    createGame({ name: name ? provisionalName(name) : undefined }),
+  ipcMain.handle('games:create', (_event, name?: string, options?: { scaffold?: boolean }) =>
+    createGame({
+      name: name ? provisionalName(name) : undefined,
+      ...(options?.scaffold === false ? { scaffold: false } : {}),
+    }),
   )
 
   ipcMain.handle(

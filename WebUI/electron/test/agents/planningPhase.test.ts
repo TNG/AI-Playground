@@ -3,17 +3,18 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
+  endsPlanning,
   endThinking,
   planExists,
   PLAN_FILE,
   thinkingIsOn,
-  writesPlan,
 } from '../../agentMode/planningPhase.ts'
 
-// Thinking is switched off for the rest of a Game Maker run once the agent has
-// written its plan to `design.md`. These cover the two halves of that: reading
-// and mutating the live sampling bag, and recognising the call that writes the
-// plan.
+// Thinking is switched off for the rest of a Game Maker run once the plan is on
+// disk — `design.md` for the iterative preset, the game file itself for the one
+// that writes everything at once. These cover the two halves of that: reading
+// and mutating the live sampling bag, and recognising the call that ends the
+// planning phase.
 
 const withThinking = (enabled: boolean) => ({
   temperature: 0.7,
@@ -50,19 +51,28 @@ describe('the thinking switch', () => {
 
 describe('spotting the plan being written', () => {
   it('matches the plan file whatever tool writes it and however it is spelled', () => {
-    expect(writesPlan('write', { path: PLAN_FILE })).toBe(true)
-    expect(writesPlan('edit', { path: 'design.md' })).toBe(true)
-    expect(writesPlan('write', { path: 'games/neon/design.md' })).toBe(true)
-    expect(writesPlan('write', { path: 'games\\neon\\DESIGN.md' })).toBe(true)
+    expect(endsPlanning('plan-file', 'write', { path: PLAN_FILE })).toBe(true)
+    expect(endsPlanning('plan-file', 'edit', { path: 'design.md' })).toBe(true)
+    expect(endsPlanning('plan-file', 'write', { path: 'games/neon/design.md' })).toBe(true)
+    expect(endsPlanning('plan-file', 'write', { path: 'games\\neon\\DESIGN.md' })).toBe(true)
   })
 
   it('ignores other files, other tools and malformed arguments', () => {
-    expect(writesPlan('write', { path: 'game.js' })).toBe(false)
-    expect(writesPlan('write', { path: 'notes/design.md.bak' })).toBe(false)
-    expect(writesPlan('read', { path: 'design.md' })).toBe(false)
-    expect(writesPlan('browser', { action: 'probe' })).toBe(false)
-    expect(writesPlan('write', {})).toBe(false)
-    expect(writesPlan('write', null)).toBe(false)
+    expect(endsPlanning('plan-file', 'write', { path: 'game.js' })).toBe(false)
+    expect(endsPlanning('plan-file', 'write', { path: 'notes/design.md.bak' })).toBe(false)
+    expect(endsPlanning('plan-file', 'read', { path: 'design.md' })).toBe(false)
+    expect(endsPlanning('plan-file', 'browser', { action: 'probe' })).toBe(false)
+    expect(endsPlanning('plan-file', 'write', {})).toBe(false)
+    expect(endsPlanning('plan-file', 'write', null)).toBe(false)
+  })
+
+  // The one-shot preset has no plan file: the game is the plan, so the write
+  // that puts it on disk is the end of the phase whatever it is called.
+  it('takes any file as the plan for a session that writes once', () => {
+    expect(endsPlanning('first-write', 'write', { path: 'index.html' })).toBe(true)
+    expect(endsPlanning('first-write', 'write', {})).toBe(true)
+    expect(endsPlanning('first-write', 'read', { path: 'index.html' })).toBe(false)
+    expect(endsPlanning('first-write', 'game', { action: 'set_metadata' })).toBe(false)
   })
 })
 

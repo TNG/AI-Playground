@@ -529,13 +529,15 @@ pins this against a fake OpenAI server driving a real Pi session — assert on t
 bodies, because nothing else proves Pi forwarded anything.
 
 **"Reasoning only during planning" (Agent Mode).** Thinking earns its cost while the agent decides
-what to build and stops earning it once that decision is written down, so Game Maker sessions can
-switch thinking off for the rest of the run the moment `design.md` exists.
-`electron/agentMode/planningPhase.ts` owns the switch (spotting the plan write in
+what to build and stops earning it once that decision is on disk, so a Game Maker session can
+switch thinking off for the rest of the run. What counts as "on disk" is the capability's to say
+(`AgentCapability.planningEnd`): `plan-file` for `game-studio`, which then works down the checklist
+in `design.md`, and `first-write` for `game-studio-quick`, whose first write is the finished game.
+`electron/agentMode/planningPhase.ts` owns the switch (spotting that write in
 `tool_execution_start/end`, and a plan already on disk at session start); the settings toggle is
 `textInference.planningThinkingOnly`, persisted per preset and passed as
 `AgentModeTurnConfig.planningThinkingOnly`. It only bites where the model has a thinking switch,
-thinking is on, and the capability writes a plan — a cloud turn or a template without
+thinking is on, and the capability declares an end — a cloud turn or a template without
 `enable_thinking` is unaffected.
 
 **Context size is not honored everywhere.** OVMS on NPU compiles a static graph for
@@ -872,6 +874,15 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   `{userData}/ai-playground-local-settings.json` (dev) or the per-user `settings.json`
   (packaged) and restart. Detection itself (`electron/subprocesses/oemDetection.ts`) is
   Windows-only, so without the override every machine is `unknown`.
+- **`Game Maker Quick` is the same library, one step long.** Its only capability is
+  `game-studio-quick`, which *owns the session* (`AgentCapability.ownSession`): the preset's
+  instructions replace Pi's coding-agent prompt, the workspace orientation and the skills index,
+  and the builtin toolbox is cut to `write` — plus the shared `game` card tool. Its folder is
+  minted with `createGame({ scaffold: false })`, so the agent writes `index.html` whole instead of
+  editing a scaffold, and thinking ends with that write. A capability with `ownSession` is kept out
+  of the Agent Settings checkbox list (`listCapabilities`): ticked next to another preset's agent it
+  would take that agent's prompt and tools away. Use it to check the low-context path; iterative
+  Game Maker is unchanged and remains the one with art and play-testing.
 - **Gotcha:** a `media` call temporarily switches the active preset to an image-gen one, so
   anything derived from the active preset must not follow it — `agentMode.activeAgentPreset`
   remembers the last agent preset for exactly this reason (following it live aborted the turn

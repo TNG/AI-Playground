@@ -151,9 +151,13 @@ function writeMetadata(dir: string, metadata: GameMetadata): GameEntry {
  * Create a game folder, its `game.json` and the scaffold the agent builds on.
  * The name is a starting point (usually the user's first prompt); the agent
  * replaces it with a real title later.
+ *
+ * `scaffold: false` leaves the folder empty apart from the card, for a preset
+ * whose agent writes the whole game in one go — there a running page it did not
+ * write is something to work around rather than something to build on.
  */
 export function createGame(
-  options: { name?: string; description?: string } = {},
+  options: { name?: string; description?: string; scaffold?: boolean } = {},
   root: string = getGamesDir(),
 ): GameEntry {
   const name = options.name?.trim() || 'New game'
@@ -176,7 +180,7 @@ export function createGame(
   // The folder is playable from the first second, so the agent starts from a
   // running page it edits rather than from a blank one it has to write out
   // whole (see gameScaffold.ts).
-  writeScaffold(dir)
+  if (options.scaffold !== false) writeScaffold(dir)
   return game
 }
 

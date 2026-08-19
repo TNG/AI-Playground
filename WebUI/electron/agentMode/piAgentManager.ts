@@ -32,7 +32,14 @@ import {
   closeWorkspaceRuntime,
   ensureWorkspaceRuntime,
 } from './piWorkspaceRuntime.ts'
-import { endThinking, planExists, PLAN_FILE, thinkingIsOn, writesPlan } from './planningPhase.ts'
+import {
+  endsPlanning,
+  endThinking,
+  planExists,
+  PLAN_FILE,
+  thinkingIsOn,
+  type PlanningEnd,
+} from './planningPhase.ts'
 import { createSamplingExtension } from './piSampling.ts'
 import { observeAgentModelCalls } from './piCallTiming.ts'
 import { laminarConfig, laminarPiExtensionPath } from '../laminar.ts'
@@ -379,8 +386,11 @@ type ActiveSession = {
    * `planningPhase.ts` can end thinking mid-turn by mutating it.
    */
   samplingParams?: Record<string, unknown>
-  /** Whether this session plans in `design.md` and stops thinking once it exists. */
-  plansOnDisk: boolean
+  /**
+   * What ends this session's thinking phase, or null when it thinks throughout
+   * (the user's setting, or a capability with no plan step of its own).
+   */
+  planningEnd: PlanningEnd | null
 }
 
 let active: ActiveSession | null = null
@@ -520,7 +530,13 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   const skillsDir = path.join(piAgentDir(), 'skills')
   const skills = writeAgentSkills(skillsDir, capabilities.skillSources)
 
-  const access = await createAgentToolAccess({ workspaceDir, unsandboxed, skillsDir, skills })
+  const access = await createAgentToolAccess({
+    workspaceDir,
+    unsandboxed,
+    skillsDir,
+    skills,
+    ...(capabilities.ownSession ? { baseTools: capabilities.ownSession.baseTools } : {}),
+  })
 
   // Serve the workspace over localhost so the agent can preview/debug pages over
   // HTTP instead of file://. The runtime is keyed by session so the port stays
@@ -545,6 +561,14 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   const announcedSkills = skills.filter((skill) =>
     capabilities.announcedSkillNames.includes(skill.name),
   )
+  // A capability that owns the session speaks for the whole prompt: Pi's
+  // coding-agent instructions, the workspace orientation, the skills index and
+  // any AGENTS.md are replaced by the preset's own text, which is the point of
+  // such a session. The orientation is the fallback for a preset whose
+  // instructions the user emptied, so the prompt is never blank.
+  const ownPrompt = capabilities.ownSession
+    ? (config.instructions ?? '').trim() || instructions
+    : undefined
   const resourceLoader = new pi.DefaultResourceLoader({
     cwd: workspaceDir,
     agentDir: piAgentDir(),
@@ -577,6 +601,13 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
       ...capabilities.extensionPaths,
       ...[laminarPiExtensionPath()].filter((entry): entry is string => entry !== undefined),
     ],
+    ...(ownPrompt
+      ? {
+          systemPromptOverride: () => ownPrompt,
+          appendSystemPromptOverride: () => [],
+          noContextFiles: true,
+        }
+      : {}),
     // The workspace orientation the model would otherwise have to guess. Built
     // fresh on every session build, so it always carries the live preview URL.
     appendSystemPrompt: [
@@ -628,8 +659,9 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     instructedBaseUrl: runtime.baseUrl,
     unsubscribe,
     samplingParams,
-    plansOnDisk:
-      config.planningThinkingOnly === true && enabledCapabilityIds(config).includes('game-studio'),
+    // Whether thinking stops early is the user's setting; what counts as the end
+    // of planning belongs to the capability running the session.
+    planningEnd: config.planningThinkingOnly === true ? (capabilities.planningEnd ?? null) : null,
   }
 }
 
@@ -816,11 +848,14 @@ async function reassertPreviewUrl(current: ActiveSession): Promise<void> {
 
 /**
  * Thinking pays for itself while the agent decides what to build and stops
- * paying once that decision is written down, so it ends when `design.md` does.
- * Returns the event sink that watches for the plan being written; a plan already
- * on disk ends it before the turn's first request.
+ * paying once that decision has been committed to a file: `design.md` for the
+ * session that then edits its way down the checklist in it, the game itself for
+ * the session that writes everything in one go (planningPhase.ts). Returns the
+ * event sink that watches for that write; a plan already on disk ends the phase
+ * before the turn's first request.
  */
 function watchPlanningPhase(current: ActiveSession): (event: AgentSessionEvent) => void {
+  const end = current.planningEnd
   const stop = (reason: string) => {
     if (!endThinking(current.samplingParams)) return
     logger.info(
@@ -829,19 +864,19 @@ function watchPlanningPhase(current: ActiveSession): (event: AgentSessionEvent) 
       true,
     )
   }
-  if (!current.plansOnDisk || !thinkingIsOn(current.samplingParams)) return () => {}
-  if (planExists(current.workspaceDir)) stop(`${PLAN_FILE} already written`)
+  if (!end || !thinkingIsOn(current.samplingParams)) return () => {}
+  if (end === 'plan-file' && planExists(current.workspaceDir)) stop(`${PLAN_FILE} already written`)
 
-  // `tool_execution_end` carries no arguments, so the call that targets the plan
+  // `tool_execution_end` carries no arguments, so the call that ends the phase
   // is remembered when it starts and acted on only if it succeeded.
-  const writingPlan = new Set<string>()
+  const planning = new Set<string>()
   return (event) => {
-    if (event.type === 'tool_execution_start' && writesPlan(event.toolName, event.args)) {
-      writingPlan.add(event.toolCallId)
+    if (event.type === 'tool_execution_start' && endsPlanning(end, event.toolName, event.args)) {
+      planning.add(event.toolCallId)
       return
     }
-    if (event.type !== 'tool_execution_end' || !writingPlan.delete(event.toolCallId)) return
-    if (!event.isError) stop(`${PLAN_FILE} written`)
+    if (event.type !== 'tool_execution_end' || !planning.delete(event.toolCallId)) return
+    if (!event.isError) stop(end === 'plan-file' ? `${PLAN_FILE} written` : 'the game is on disk')
   }
 }
 

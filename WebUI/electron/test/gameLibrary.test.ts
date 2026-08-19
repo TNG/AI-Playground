@@ -96,6 +96,15 @@ describe('createGame', () => {
     expect(script).toContain('window.__game')
   })
 
+  // The one-shot preset writes the whole game itself, so a page it did not write
+  // would be something to work around rather than something to build on.
+  it('leaves the folder empty when the preset writes the game whole', () => {
+    const game = createGame({ name: 'Space Dodger', scaffold: false }, root)
+    expect(fs.readdirSync(game.dir)).toEqual(['game.json'])
+    // Still the file Play opens; it just does not exist until the agent writes it.
+    expect(game.entryPath).toBe(path.join(game.dir, 'index.html'))
+  })
+
   it('marks every section the agent is told to edit against', () => {
     const game = createGame({ name: 'Space Dodger' }, root)
     const script = fs.readFileSync(path.join(game.dir, 'game.js'), 'utf-8')

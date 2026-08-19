@@ -20,6 +20,16 @@ import path from 'node:path'
 /** The plan the agent writes, relative to the workspace. */
 export const PLAN_FILE = 'design.md'
 
+/**
+ * What ends a session's planning phase:
+ *
+ * - `plan-file` — the agent writes `design.md`, then works down the checklist in
+ *   it one edit at a time (Game Maker).
+ * - `first-write` — the first file the agent writes *is* the deliverable, so
+ *   planning is over the moment it lands (Game Maker Quick).
+ */
+export type PlanningEnd = 'plan-file' | 'first-write'
+
 /** Tools whose call means the model is writing a file at `path`. */
 const WRITING_TOOLS = new Set(['write', 'edit', 'multi_edit', 'apply_patch'])
 
@@ -58,9 +68,10 @@ export function planExists(workspaceDir: string): boolean {
   return fs.existsSync(path.join(workspaceDir, PLAN_FILE))
 }
 
-/** Whether a tool call is the one that writes the plan. */
-export function writesPlan(toolName: string, args: unknown): boolean {
+/** Whether a tool call is the one that ends the planning phase. */
+export function endsPlanning(end: PlanningEnd, toolName: string, args: unknown): boolean {
   if (!WRITING_TOOLS.has(toolName)) return false
+  if (end === 'first-write') return true
   const target = (args as { path?: unknown } | null | undefined)?.path
   if (typeof target !== 'string') return false
   return path.basename(target.replace(/\\/g, '/')).toLowerCase() === PLAN_FILE

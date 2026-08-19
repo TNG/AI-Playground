@@ -14,6 +14,13 @@ import path from 'node:path'
 // session. From then on the checklist carries the plan between steps, and each
 // step is a file edit the model can make without re-deciding what the game is.
 //
+// A session short enough to finish in one turn has nowhere to put that boundary:
+// it thinks and writes the deliverable in a single breath, so switching thinking
+// off afterwards saves nothing. Those sessions declare a handoff prompt instead
+// (`AgentCapability.planHandoff`) and the turn is split in two: the model is
+// asked for the plan alone, and the harness then approves it on the user's
+// behalf and asks for the build, which runs with thinking already off.
+//
 // Only ever off, never on: the switch is the user's (Chat settings), and this is
 // allowed to end the thinking phase early, not to start one the user declined.
 
@@ -66,6 +73,14 @@ export function endThinking(samplingParams: Record<string, unknown> | undefined)
 
 export function planExists(workspaceDir: string): boolean {
   return fs.existsSync(path.join(workspaceDir, PLAN_FILE))
+}
+
+/**
+ * Whether a tool call puts something on disk. A plan turn that did this built
+ * rather than planned, and needs no handoff — it already did the work.
+ */
+export function isWritingTool(toolName: string): boolean {
+  return WRITING_TOOLS.has(toolName)
 }
 
 /** Whether a tool call is the one that ends the planning phase. */

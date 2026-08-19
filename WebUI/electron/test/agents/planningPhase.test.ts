@@ -5,6 +5,7 @@ import path from 'node:path'
 import {
   endsPlanning,
   endThinking,
+  isWritingTool,
   planExists,
   PLAN_FILE,
   thinkingIsOn,
@@ -73,6 +74,17 @@ describe('spotting the plan being written', () => {
     expect(endsPlanning('first-write', 'write', {})).toBe(true)
     expect(endsPlanning('first-write', 'read', { path: 'index.html' })).toBe(false)
     expect(endsPlanning('first-write', 'game', { action: 'set_metadata' })).toBe(false)
+  })
+})
+
+describe('spotting that the turn built something', () => {
+  it('counts the tools that put a file on disk, and only those', () => {
+    for (const tool of ['write', 'edit', 'multi_edit', 'apply_patch']) {
+      expect(isWritingTool(tool)).toBe(true)
+    }
+    for (const tool of ['read', 'bash', 'game', 'browser']) {
+      expect(isWritingTool(tool)).toBe(false)
+    }
   })
 })
 

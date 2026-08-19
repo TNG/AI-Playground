@@ -540,6 +540,20 @@ in `design.md`, and `first-write` for `game-studio-quick`, whose first write is 
 thinking is on, and the capability declares an end — a cloud turn or a template without
 `enable_thinking` is unaffected.
 
+**A one-turn session has to be split before that switch means anything.** Game Maker Quick's first
+traces showed the model doing everything in one reply — reasoning, then the whole game — so
+`first-write` flipped thinking off with nothing left to spend it on. A capability can therefore
+declare `AgentCapability.planHandoff`, which cuts the first turn in two: the model is asked for the
+plan alone (its prompt says so, and stops there), and `handOffToBuild` in `piAgentManager.ts` then
+sends the handoff text itself — the approval, granted programmatically — as a second
+`session.prompt()` inside the same turn, after thinking has gone off. The renderer sees one turn
+throughout, the way it already does for the silent-turn nudge. Two guards matter: a plan step that
+*built* anyway gets no handoff (the watcher reports whether any writing tool ran, so the file is not
+written twice), and only a session that starts empty plans — a resumed one reopens on a finished
+game, where the next request is a change, not a plan. The split is the capability's shape and
+happens whether or not the user asked for planning-only thinking; the setting decides only whether
+the build request drops thinking.
+
 **Context size is not honored everywhere.** OVMS on NPU compiles a static graph for
 `--max_prompt_len`, so the preset's `contextSize` is capped by `npuPromptLen()`
 (`src/types/shared.ts`) before the server is started — agent presets ask for 128k, which the NPU
@@ -879,7 +893,8 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   instructions replace Pi's coding-agent prompt, the workspace orientation and the skills index,
   and the builtin toolbox is cut to `write` — plus the shared `game` card tool. Its folder is
   minted with `createGame({ scaffold: false })`, so the agent writes `index.html` whole instead of
-  editing a scaffold, and thinking ends with that write. A capability with `ownSession` is kept out
+  editing a scaffold. Its turn runs in two steps — plan, then an automatic handoff that asks for the
+  build with thinking off (`planHandoff`, above). A capability with `ownSession` is kept out
   of the Agent Settings checkbox list (`listCapabilities`): ticked next to another preset's agent it
   would take that agent's prompt and tools away. Use it to check the low-context path; iterative
   Game Maker is unchanged and remains the one with art and play-testing.

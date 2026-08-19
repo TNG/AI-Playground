@@ -81,6 +81,14 @@ export type AgentCapability = {
    * plan step of its own. See planningPhase.ts.
    */
   planningEnd?: PlanningEnd
+  /**
+   * Splits the first turn into planning and building: the model is asked for a
+   * plan alone, and the harness then sends this prompt itself — the approval,
+   * granted automatically — so the build is a second request, made with thinking
+   * already off. For a capability whose whole job otherwise fits in one reply,
+   * where there is no later step left for a thinking switch to make cheaper.
+   */
+  planHandoff?: string
 }
 
 /** A capability plus what it contributed to this session. */

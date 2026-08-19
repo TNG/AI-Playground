@@ -277,6 +277,8 @@ describe('resolveCapabilities', () => {
     expect(resolution.skillSources).toEqual([])
     expect(resolution.ownSession).toEqual({ baseTools: ['write'] })
     expect(resolution.planningEnd).toBe('first-write')
+    // The turn is split in two, so the harness has a build request to send.
+    expect(resolution.planHandoff).toMatch(/index\.html/)
 
     const registry = fakeExtensionApi()
     for (const factory of resolution.extensionFactories) factory(registry.api as never)

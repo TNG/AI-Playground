@@ -35,6 +35,7 @@ import {
 import {
   endsPlanning,
   endThinking,
+  isWritingTool,
   planExists,
   PLAN_FILE,
   thinkingIsOn,
@@ -391,6 +392,13 @@ type ActiveSession = {
    * (the user's setting, or a capability with no plan step of its own).
    */
   planningEnd: PlanningEnd | null
+  /**
+   * The build request that follows the plan, for a session whose first turn is
+   * split in two (`AgentCapability.planHandoff`). Null for every other session.
+   */
+  planHandoff: string | null
+  /** Whether the plan step is still ahead: true until the first turn has run. */
+  planPending: boolean
 }
 
 let active: ActiveSession | null = null
@@ -662,6 +670,12 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     // Whether thinking stops early is the user's setting; what counts as the end
     // of planning belongs to the capability running the session.
     planningEnd: config.planningThinkingOnly === true ? (capabilities.planningEnd ?? null) : null,
+    planHandoff: capabilities.planHandoff ?? null,
+    // Splitting the turn is the capability's shape, not the user's setting, so it
+    // happens whether or not thinking stops early — but only on a session that
+    // starts empty. A resumed one is past the point where a plan is what is
+    // wanted, and the request it reopens with is a change to a finished game.
+    planPending: Boolean(capabilities.planHandoff) && !sessionFilePath,
   }
 }
 
@@ -854,7 +868,7 @@ async function reassertPreviewUrl(current: ActiveSession): Promise<void> {
  * event sink that watches for that write; a plan already on disk ends the phase
  * before the turn's first request.
  */
-function watchPlanningPhase(current: ActiveSession): (event: AgentSessionEvent) => void {
+function watchPlanningPhase(current: ActiveSession): PlanningWatch {
   const end = current.planningEnd
   const stop = (reason: string) => {
     if (!endThinking(current.samplingParams)) return
@@ -864,20 +878,64 @@ function watchPlanningPhase(current: ActiveSession): (event: AgentSessionEvent) 
       true,
     )
   }
-  if (!end || !thinkingIsOn(current.samplingParams)) return () => {}
-  if (end === 'plan-file' && planExists(current.workspaceDir)) stop(`${PLAN_FILE} already written`)
-
-  // `tool_execution_end` carries no arguments, so the call that ends the phase
-  // is remembered when it starts and acted on only if it succeeded.
-  const planning = new Set<string>()
-  return (event) => {
-    if (event.type === 'tool_execution_start' && endsPlanning(end, event.toolName, event.args)) {
-      planning.add(event.toolCallId)
-      return
-    }
-    if (event.type !== 'tool_execution_end' || !planning.delete(event.toolCallId)) return
-    if (!event.isError) stop(end === 'plan-file' ? `${PLAN_FILE} written` : 'the game is on disk')
+  const thinking = thinkingIsOn(current.samplingParams)
+  if (end === 'plan-file' && thinking && planExists(current.workspaceDir)) {
+    stop(`${PLAN_FILE} already written`)
   }
+
+  // `tool_execution_end` carries no arguments, so what a call means is worked out
+  // when it starts and acted on only once it has succeeded.
+  const writes = new Map<string, boolean>()
+  let wrote = false
+  return {
+    wrote: () => wrote,
+    onEvent: (event) => {
+      if (event.type === 'tool_execution_start') {
+        if (isWritingTool(event.toolName)) {
+          writes.set(
+            event.toolCallId,
+            end !== null && endsPlanning(end, event.toolName, event.args),
+          )
+        }
+        return
+      }
+      if (event.type !== 'tool_execution_end') return
+      const endsPhase = writes.get(event.toolCallId)
+      if (endsPhase === undefined || event.isError) return
+      writes.delete(event.toolCallId)
+      wrote = true
+      if (endsPhase) stop(end === 'plan-file' ? `${PLAN_FILE} written` : 'the game is on disk')
+    },
+  }
+}
+
+/** Watches one turn: ends the thinking phase, and reports what the turn wrote. */
+type PlanningWatch = {
+  onEvent: (event: AgentSessionEvent) => void
+  /** Whether a file has been written since the turn began. */
+  wrote: () => boolean
+}
+
+/**
+ * Approve the plan on the user's behalf and ask for the build — the second half
+ * of a turn that was split in two (planningPhase.ts). Nothing to approve if the
+ * model built instead of planning: it has already done what the handoff asks
+ * for, and asking again would only get the same file written twice.
+ */
+async function handOffToBuild(current: ActiveSession, planning: PlanningWatch): Promise<boolean> {
+  if (!current.planPending || !current.planHandoff) return false
+  current.planPending = false
+  if (planning.wrote()) {
+    logger.info('plan step built instead of planning; no handoff needed', LOG_SOURCE)
+    return false
+  }
+  // The split is the capability's; whether the build also gets cheaper by
+  // dropping thinking is the user's setting, which is what planningEnd carries.
+  if (current.planningEnd && endThinking(current.samplingParams)) {
+    logger.info('plan accepted: thinking off for the build', LOG_SOURCE, true)
+  }
+  await current.session.prompt(current.planHandoff)
+  return true
 }
 
 function logEvent(event: AgentSessionEvent): void {
@@ -1099,7 +1157,7 @@ export async function startAgentTurn(
       turnId,
       onEvent: (event) => {
         if (verbose) logEvent(event)
-        planning(event)
+        planning.onEvent(event)
         translator.handle(event)
         if (USAGE_SAMPLE_EVENTS.has(event.type)) sampleUsage()
       },
@@ -1117,6 +1175,11 @@ export async function startAgentTurn(
       }
       await current.session.prompt(prompt)
       failIfModelErrored()
+      // A session that plans first has only been asked for the plan so far; the
+      // build is a second request, sent from here rather than by the user.
+      if (!abortController.signal.aborted && (await handOffToBuild(current, planning))) {
+        failIfModelErrored()
+      }
       const stalled = () =>
         !abortController.signal.aborted && endedWithoutReplyOrToolCall(current.session)
       if (stalled()) {

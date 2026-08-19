@@ -94,6 +94,7 @@ const registerProvider = vi.fn()
 
 /** What each session build asked Pi's resource loader for. */
 type ResourceLoaderOptions = {
+  extensionFactories?: ((pi: unknown) => void)[]
   appendSystemPrompt?: string[]
   noContextFiles?: boolean
   systemPromptOverride?: (base: string | undefined) => string | undefined
@@ -305,6 +306,8 @@ describe('capability wiring', () => {
     dormantIds: [] as string[],
     dormantPromptSection: '',
     ownSession: undefined as { baseTools: string[] } | undefined,
+    planningEnd: undefined as 'plan-file' | 'first-write' | undefined,
+    planHandoff: undefined as string | undefined,
   }
 
   async function managerWith(overrides: Partial<typeof resolution> = {}) {
@@ -365,6 +368,103 @@ describe('capability wiring', () => {
     expect(options?.systemPromptOverride?.('pi coding agent prompt')).toBe('Write the game.')
     expect(options?.appendSystemPromptOverride?.(['workspace instructions'])).toEqual([])
     expect(options?.noContextFiles).toBe(true)
+  })
+
+  // The one-shot presets otherwise think and write the deliverable in a single
+  // reply, which leaves the thinking switch nothing to shorten. The turn is cut
+  // in two instead: the plan is asked for alone, and the harness approves it.
+  describe('a session that plans before it builds', () => {
+    const HANDOFF = 'The plan is approved — build it.'
+
+    const planningManager = () => managerWith({ planHandoff: HANDOFF, planningEnd: 'first-write' })
+
+    /** What the next request would carry, read off the live sampling extension. */
+    function samplingOnTheWire(): Record<string, unknown> {
+      const factory = resourceLoaderOptions.at(-1)?.extensionFactories?.at(-1)
+      let onRequest: ((event: { payload: unknown }) => unknown) | undefined
+      factory?.({
+        on: (name: string, handler: (event: { payload: unknown }) => unknown) => {
+          if (name === 'before_provider_request') onRequest = handler
+        },
+      })
+      return (onRequest?.({ payload: {} }) ?? {}) as Record<string, unknown>
+    }
+
+    function thinkingConfig(): AgentModeTurnConfig {
+      return configFor({
+        modelConfig: {
+          source: 'local',
+          model: 'test-model',
+          baseUrl: 'http://127.0.0.1:39000/v1',
+          contextWindow: 32768,
+          samplingParams: { chat_template_kwargs: { enable_thinking: true } },
+        },
+        planningThinkingOnly: true,
+      })
+    }
+
+    it('asks for the build itself once the plan is in', async () => {
+      const manager = await planningManager()
+      await manager.startAgentTurn('t1', 'a game where I dodge rocks', thinkingConfig())
+
+      const session = await liveSession()
+      expect(session.prompt.mock.calls.map(([text]) => text)).toEqual([
+        'a game where I dodge rocks',
+        HANDOFF,
+      ])
+      expect(samplingOnTheWire().chat_template_kwargs).toEqual({ enable_thinking: false })
+    })
+
+    it('splits the turn even when the user kept thinking on throughout', async () => {
+      const manager = await planningManager()
+      const config = thinkingConfig()
+      await manager.startAgentTurn('t1', 'hello', { ...config, planningThinkingOnly: false })
+
+      expect((await liveSession()).prompt).toHaveBeenCalledTimes(2)
+      expect(samplingOnTheWire().chat_template_kwargs).toEqual({ enable_thinking: true })
+    })
+
+    // Asking again for something the model already did would only write it twice.
+    it('skips the handoff when the plan step built instead of planning', async () => {
+      const manager = await planningManager()
+      createAgentSession.mockImplementationOnce(async () => {
+        const made = await makeAgentSession()
+        made.session.prompt.mockImplementationOnce(async () => {
+          made.session.emit({
+            type: 'tool_execution_start',
+            toolCallId: 'c1',
+            toolName: 'write',
+            args: { path: 'index.html' },
+          })
+          made.session.emit({ type: 'tool_execution_end', toolCallId: 'c1', isError: false })
+        })
+        return made
+      })
+
+      await manager.startAgentTurn('t1', 'hello', thinkingConfig())
+
+      expect((await liveSession()).prompt).toHaveBeenCalledTimes(1)
+    })
+
+    it('plans once per session, not on every later request', async () => {
+      const manager = await planningManager()
+      await manager.startAgentTurn('t1', 'a game where I dodge rocks', thinkingConfig())
+      await manager.startAgentTurn('t2', 'make the rocks faster', thinkingConfig())
+
+      const session = await liveSession()
+      expect(session.prompt.mock.calls.map(([text]) => text)).toEqual([
+        'a game where I dodge rocks',
+        HANDOFF,
+        'make the rocks faster',
+      ])
+    })
+
+    it('leaves an ordinary session as one prompt per turn', async () => {
+      const manager = await managerWith()
+      await manager.startAgentTurn('t1', 'hello', thinkingConfig())
+
+      expect((await liveSession()).prompt).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('keeps the preset instructions as an addition for an ordinary session', async () => {

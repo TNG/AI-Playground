@@ -83,6 +83,8 @@ export type CapabilityResolution = {
   ownSession?: { baseTools: string[] }
   /** How this session's planning phase ends, when a capability defines one. */
   planningEnd?: PlanningEnd
+  /** The build request sent after the plan, for a session that plans first. */
+  planHandoff?: string
 }
 
 /**
@@ -167,6 +169,8 @@ export async function resolveCapabilities(
   const ownSession = resolved.find(({ capability }) => capability.ownSession)?.capability.ownSession
   const planningEnd = resolved.find(({ capability }) => capability.planningEnd)?.capability
     .planningEnd
+  const planHandoff = resolved.find(({ capability }) => capability.planHandoff)?.capability
+    .planHandoff
 
   return {
     resolved,
@@ -174,6 +178,7 @@ export async function resolveCapabilities(
     extensionPaths,
     ...(ownSession ? { ownSession } : {}),
     ...(planningEnd ? { planningEnd } : {}),
+    ...(planHandoff ? { planHandoff } : {}),
     skillSources: resolved.flatMap(({ skills }) => skills),
     announcedSkillNames: resolved
       .filter(({ capability }) => !dormantIds.has(capability.id))

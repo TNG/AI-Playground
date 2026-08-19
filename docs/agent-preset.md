@@ -67,8 +67,9 @@ pointing at "produce a playable game". It is the preset to use for games; Agent 
 use when nobody has written that specialization yet, and it starts you at an empty folder.
 
 **Game Maker Quick** is the other end of that trade: an empty game folder, a short prompt in
-place of the harness's own, `write` as the only file tool, and one thinking step before the
-agent writes the whole game into a single `index.html`. No generated art and no play-testing,
+place of the harness's own, and `write` as the only file tool. It runs as two steps of one turn
+— the agent answers with a plan and stops, the app approves it for you, and the game is then
+written whole into a single `index.html` without further thinking. No generated art and no play-testing,
 so it finishes in minutes rather than tens of them and asks far less of a small model's context
 — and produces a simpler game. Iterative Game Maker is unchanged and is still the one to use
 when the game should be illustrated and tested.

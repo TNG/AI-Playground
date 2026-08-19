@@ -260,6 +260,13 @@ export const gameStudioQuickCapability: AgentCapability = {
   // `write` puts the game on disk; nothing else in the builtin toolbox has a
   // part in a run that is one file long.
   ownSession: { baseTools: ['write'] },
+  // The plan and the game arrive in one breath unless the turn is cut in two, and
+  // a thinking switch that flips after the game is written has nothing left to
+  // pay for. So the plan is asked for on its own and this approves it.
+  planHandoff:
+    'The plan is approved — build it. Send the whole game as one `write` to `index.html`, ' +
+    'exactly as planned, then name it with the `game` tool. No restating the plan and no ' +
+    'questions: the next thing you send is the file.',
   planningEnd: 'first-write',
   lazyEligible: false,
 }

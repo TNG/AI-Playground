@@ -679,8 +679,12 @@ export const useComfyUiPresets = defineStore(
                   imageGeneration.updateImage(newImage)
                 }
                 break
+              case 3:
+                // TEXT: a node progress string. Unused; JSON `progress` already drives the UI.
+                break
               default:
-                throw new Error(`Unknown binary websocket message of type ${eventType}`)
+                // 2 UNENCODED_PREVIEW_IMAGE, 4 PREVIEW_IMAGE_WITH_METADATA, and future types.
+                break
             }
           } else {
             const msg = ComfyMessageSchema.parse(JSON.parse(event.data))

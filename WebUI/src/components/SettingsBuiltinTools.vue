@@ -1,182 +1,213 @@
 <template>
   <TooltipProvider>
-    <div class="flex flex-col gap-3 border border-border rounded-md p-3 mr-4">
-      <Collapsible
-        v-for="builtinTool in builtinTools"
-        :key="builtinTool.name"
-        :open="isToolActive(builtinTool.name) && openTools[builtinTool.name] === true"
-        class="flex flex-col gap-1.5"
+    <div class="flex flex-col gap-3 border border-border rounded-md p-3">
+      <!-- The panel's own header carries the master switch: the toggle and the
+           tools it governs are one block, so neither needs a row of its own in the
+           settings sidebar. Tool calling is a model capability, so when the model
+           has none the switch is dead and the header says why. -->
+      <div
+        class="flex items-center justify-between gap-3 border-b border-border pb-2"
+        :class="{ 'opacity-50': !textInference.modelSupportsToolCalling }"
+        :title="
+          !textInference.modelSupportsToolCalling
+            ? 'The selected model does not support tool calling.'
+            : undefined
+        "
       >
-        <div class="flex items-center justify-between gap-3">
-          <div class="flex items-center gap-1.5 min-w-0">
-            <Label class="whitespace-nowrap">{{ builtinTool.label }}</Label>
-            <Tooltip>
-              <TooltipTrigger as-child>
-                <span class="svg-icon i-info w-4 h-4 shrink-0 opacity-50 cursor-help" />
-              </TooltipTrigger>
-              <TooltipContent side="right" class="max-w-[300px] text-sm">
-                {{ builtinTool.description }}
-              </TooltipContent>
-            </Tooltip>
-          </div>
+        <Label :for="'tools'" class="whitespace-nowrap font-medium">Built-in tools</Label>
+        <Checkbox
+          id="tools"
+          :disabled="!textInference.modelSupportsToolCalling"
+          :model-value="textInference.aipgToolsEnabled"
+          @click="
+            textInference.modelSupportsToolCalling &&
+            (textInference.aipgToolsEnabled = !textInference.aipgToolsEnabled)
+          "
+        />
+      </div>
 
-          <div class="flex items-center gap-3">
-            <!-- Collapsed summary: n/m presets enabled. Greyed out (inactive)
+      <div
+        v-show="textInference.modelSupportsToolCalling"
+        class="flex flex-col gap-3"
+        :class="{ 'opacity-50': !textInference.aipgToolsEnabled }"
+      >
+        <Collapsible
+          v-for="builtinTool in builtinTools"
+          :key="builtinTool.name"
+          :open="isToolActive(builtinTool.name) && openTools[builtinTool.name] === true"
+          class="flex flex-col gap-1.5"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-1.5 min-w-0">
+              <Label class="whitespace-nowrap">{{ builtinTool.label }}</Label>
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <span class="svg-icon i-info w-4 h-4 shrink-0 opacity-50 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent side="right" class="max-w-[300px] text-sm">
+                  {{ builtinTool.description }}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+
+            <div class="flex items-center gap-3">
+              <!-- Collapsed summary: n/m presets enabled. Greyed out (inactive)
                  and non-expandable while the tool is disabled. -->
-            <CollapsibleTrigger
-              v-if="presetsForTool(builtinTool.name).length"
-              :disabled="!isToolActive(builtinTool.name)"
-              class="flex items-center gap-1.5 text-xs"
-              :class="
-                isToolActive(builtinTool.name)
-                  ? 'text-muted-foreground cursor-pointer'
-                  : 'text-muted-foreground opacity-50 cursor-not-allowed'
-              "
-              @click="openTools[builtinTool.name] = !openTools[builtinTool.name]"
-            >
-              <span class="whitespace-nowrap">
-                {{ enabledCount(builtinTool.name).enabled }}/{{
-                  enabledCount(builtinTool.name).total
-                }}
-                enabled
-              </span>
-              <ChevronDownIcon
-                class="size-4 transition-transform"
-                :class="{
-                  'rotate-180': isToolActive(builtinTool.name) && openTools[builtinTool.name],
-                }"
+              <CollapsibleTrigger
+                v-if="presetsForTool(builtinTool.name).length"
+                :disabled="!isToolActive(builtinTool.name)"
+                class="flex items-center gap-1.5 text-xs"
+                :class="
+                  isToolActive(builtinTool.name)
+                    ? 'text-muted-foreground cursor-pointer'
+                    : 'text-muted-foreground opacity-50 cursor-not-allowed'
+                "
+                @click="openTools[builtinTool.name] = !openTools[builtinTool.name]"
+              >
+                <span class="whitespace-nowrap">
+                  {{ enabledCount(builtinTool.name).enabled }}/{{
+                    enabledCount(builtinTool.name).total
+                  }}
+                  enabled
+                </span>
+                <ChevronDownIcon
+                  class="size-4 transition-transform"
+                  :class="{
+                    'rotate-180': isToolActive(builtinTool.name) && openTools[builtinTool.name],
+                  }"
+                />
+              </CollapsibleTrigger>
+              <Checkbox
+                :id="`builtin-tool-${builtinTool.name}`"
+                :disabled="!textInference.aipgToolsEnabled"
+                :model-value="textInference.isBuiltinToolEnabled(builtinTool.name)"
+                @click="toggle(builtinTool.name)"
               />
-            </CollapsibleTrigger>
-            <Checkbox
-              :id="`builtin-tool-${builtinTool.name}`"
-              :disabled="!textInference.aipgToolsEnabled"
-              :model-value="textInference.isBuiltinToolEnabled(builtinTool.name)"
-              @click="toggle(builtinTool.name)"
-            />
+            </div>
           </div>
-        </div>
 
-        <!-- Preset-backed tools: workflows grouped by output media type (with a
+          <!-- Preset-backed tools: workflows grouped by output media type (with a
              sub-heading + divider per group) so the list mirrors the per-media
              defaults. Collapsed by default and hidden while the tool is inactive. -->
-        <CollapsibleContent
-          v-if="presetsForTool(builtinTool.name).length"
-          class="flex flex-col gap-1.5 pl-4 pt-1"
-        >
-          <div
-            v-for="(group, groupIdx) in groupedPresetsForTool(builtinTool.name)"
-            :key="group.mediaType"
-            class="flex flex-col gap-1.5"
-            :class="{ 'mt-1 pt-2 border-t border-border': groupIdx > 0 }"
+          <CollapsibleContent
+            v-if="presetsForTool(builtinTool.name).length"
+            class="flex flex-col gap-1.5 pl-4 pt-1"
           >
-            <span class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              {{ group.label }}
-            </span>
             <div
-              v-for="workflow in group.workflows"
-              :key="workflow.name"
-              class="flex items-center justify-between gap-3"
+              v-for="(group, groupIdx) in groupedPresetsForTool(builtinTool.name)"
+              :key="group.mediaType"
+              class="flex flex-col gap-1.5"
+              :class="{ 'mt-1 pt-2 border-t border-border': groupIdx > 0 }"
             >
-              <div class="flex items-center gap-2 min-w-0">
-                <!-- Enable toggle in front; the name is also clickable to toggle. -->
-                <Switch
-                  :id="`builtin-tool-${builtinTool.name}-preset-${workflow.name}`"
-                  :disabled="
-                    !textInference.aipgToolsEnabled ||
-                    !textInference.isBuiltinToolEnabled(builtinTool.name)
-                  "
-                  :model-value="textInference.isWorkflowPresetEnabled(workflow.name)"
-                  @update:model-value="toggleWorkflow(builtinTool.name, workflow.name)"
-                />
-                <button
-                  type="button"
-                  :disabled="
-                    !textInference.aipgToolsEnabled ||
-                    !textInference.isBuiltinToolEnabled(builtinTool.name)
-                  "
-                  class="text-xs text-foreground truncate text-left cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                  @click="toggleWorkflow(builtinTool.name, workflow.name)"
-                >
-                  {{ workflow.name }}
-                </button>
-                <Tooltip v-if="workflow.description">
-                  <TooltipTrigger as-child>
-                    <span class="svg-icon i-info w-3.5 h-3.5 shrink-0 opacity-50 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent side="right" class="max-w-[300px] text-sm">
-                    {{ workflow.description }}
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <div class="flex items-center gap-2 shrink-0">
-                <!-- Default selector: one per (tool, media type) slot. Only shown
+              <span class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                {{ group.label }}
+              </span>
+              <div
+                v-for="workflow in group.workflows"
+                :key="workflow.name"
+                class="flex items-center justify-between gap-3"
+              >
+                <div class="flex items-center gap-2 min-w-0">
+                  <!-- Enable toggle in front; the name is also clickable to toggle. -->
+                  <Switch
+                    :id="`builtin-tool-${builtinTool.name}-preset-${workflow.name}`"
+                    :disabled="
+                      !textInference.aipgToolsEnabled ||
+                      !textInference.isBuiltinToolEnabled(builtinTool.name)
+                    "
+                    :model-value="textInference.isWorkflowPresetEnabled(workflow.name)"
+                    @update:model-value="toggleWorkflow(builtinTool.name, workflow.name)"
+                  />
+                  <button
+                    type="button"
+                    :disabled="
+                      !textInference.aipgToolsEnabled ||
+                      !textInference.isBuiltinToolEnabled(builtinTool.name)
+                    "
+                    class="text-xs text-foreground truncate text-left cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                    @click="toggleWorkflow(builtinTool.name, workflow.name)"
+                  >
+                    {{ workflow.name }}
+                  </button>
+                  <Tooltip v-if="workflow.description">
+                    <TooltipTrigger as-child>
+                      <span class="svg-icon i-info w-3.5 h-3.5 shrink-0 opacity-50 cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent side="right" class="max-w-[300px] text-sm">
+                      {{ workflow.description }}
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <!-- Default selector: one per (tool, media type) slot. Only shown
                      when the slot has more than one workflow (a real choice). -->
-                <Tooltip v-if="slotHasChoice(builtinTool.name, workflow)">
-                  <TooltipTrigger as-child>
-                    <button
-                      type="button"
-                      role="radio"
-                      :aria-checked="isDefaultWorkflow(builtinTool.name, workflow)"
-                      :disabled="
-                        !isToolActive(builtinTool.name) ||
-                        !textInference.isWorkflowPresetEnabled(workflow.name)
-                      "
-                      class="flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-                      @click="chooseDefault(builtinTool.name, workflow)"
-                    >
-                      <span
-                        v-if="isDefaultWorkflow(builtinTool.name, workflow)"
-                        class="text-[11px] font-medium text-primary"
-                      >
-                        default
-                      </span>
-                      <span
-                        class="flex items-center justify-center w-4 h-4 rounded-full border border-border"
+                  <Tooltip v-if="slotHasChoice(builtinTool.name, workflow)">
+                    <TooltipTrigger as-child>
+                      <button
+                        type="button"
+                        role="radio"
+                        :aria-checked="isDefaultWorkflow(builtinTool.name, workflow)"
+                        :disabled="
+                          !isToolActive(builtinTool.name) ||
+                          !textInference.isWorkflowPresetEnabled(workflow.name)
+                        "
+                        class="flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                        @click="chooseDefault(builtinTool.name, workflow)"
                       >
                         <span
                           v-if="isDefaultWorkflow(builtinTool.name, workflow)"
-                          class="w-2 h-2 rounded-full bg-primary"
-                        />
-                      </span>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="left" class="text-sm">
-                    Default for {{ mediaTypeLabel(workflow.mediaType) }} requests
-                  </TooltipContent>
-                </Tooltip>
+                          class="text-[11px] font-medium text-primary"
+                        >
+                          default
+                        </span>
+                        <span
+                          class="flex items-center justify-center w-4 h-4 rounded-full border border-border"
+                        >
+                          <span
+                            v-if="isDefaultWorkflow(builtinTool.name, workflow)"
+                            class="w-2 h-2 rounded-full bg-primary"
+                          />
+                        </span>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" class="text-sm">
+                      Default for {{ mediaTypeLabel(workflow.mediaType) }} requests
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
               </div>
             </div>
-          </div>
-        </CollapsibleContent>
-        <!-- Screenshot tool: bind to a single window -->
-        <div
-          v-if="builtinTool.name === 'captureScreenshot'"
-          class="flex flex-col gap-1.5 pl-1 pt-1"
-        >
-          <div class="flex items-center gap-2">
-            <span class="text-xs text-muted-foreground">Window:</span>
-            <span class="text-xs text-foreground truncate max-w-[220px]" :title="boundWindowName">
-              {{ boundWindowName }}
-            </span>
-            <Button
-              variant="secondary"
-              size="sm"
-              class="px-2 py-1 rounded text-xs"
-              :disabled="!textInference.aipgToolsEnabled"
-              @click="showWindowDialog = true"
-            >
-              {{ textInference.screenshotWindow ? 'Change window…' : 'Select window…' }}
-            </Button>
-          </div>
-          <p
-            v-if="textInference.isBuiltinToolEnabled('captureScreenshot') && !modelSupportsVision"
-            class="text-xs text-amber-600 dark:text-amber-300"
+          </CollapsibleContent>
+          <!-- Screenshot tool: bind to a single window -->
+          <div
+            v-if="builtinTool.name === 'captureScreenshot'"
+            class="flex flex-col gap-1.5 pl-1 pt-1"
           >
-            The selected model does not support vision, so the assistant cannot use screenshots.
-            Choose a vision-capable model to enable this tool.
-          </p>
-        </div>
-      </Collapsible>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-muted-foreground">Window:</span>
+              <span class="text-xs text-foreground truncate max-w-[220px]" :title="boundWindowName">
+                {{ boundWindowName }}
+              </span>
+              <Button
+                variant="secondary"
+                size="sm"
+                class="px-2 py-1 rounded text-xs"
+                :disabled="!textInference.aipgToolsEnabled"
+                @click="showWindowDialog = true"
+              >
+                {{ textInference.screenshotWindow ? 'Change window…' : 'Select window…' }}
+              </Button>
+            </div>
+            <p
+              v-if="textInference.isBuiltinToolEnabled('captureScreenshot') && !modelSupportsVision"
+              class="text-xs text-amber-600 dark:text-amber-300"
+            >
+              The selected model does not support vision, so the assistant cannot use screenshots.
+              Choose a vision-capable model to enable this tool.
+            </p>
+          </div>
+        </Collapsible>
+      </div>
 
       <ScreenshotWindowDialog v-model:open="showWindowDialog" />
     </div>

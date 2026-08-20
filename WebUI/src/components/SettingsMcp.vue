@@ -1,113 +1,144 @@
 <template>
   <TooltipProvider>
-    <div class="flex flex-col gap-2 border border-border rounded-md p-3 mr-4">
+    <div class="flex flex-col gap-2 border border-border rounded-md p-3">
+      <!-- The panel's own header carries the master switch: the toggle and the
+           tools it governs are one block, so neither needs a row of its own in the
+           settings sidebar. Tool calling is a model capability, so when the model
+           has none the switch is dead and the header says why. -->
       <div
-        v-for="server in mcp.allServers"
-        :key="server.id"
-        class="flex items-center justify-between gap-3"
+        class="flex items-center justify-between gap-3 border-b border-border pb-2"
+        :class="{ 'opacity-50': !textInference.modelSupportsToolCalling }"
+        :title="
+          !textInference.modelSupportsToolCalling
+            ? 'The selected model does not support tool calling.'
+            : undefined
+        "
       >
-        <div class="flex items-center gap-2 min-w-0">
-          <span class="w-2.5 h-2.5 rounded-full" :class="getStatusDotClass(server.id)" />
-          <Label class="whitespace-nowrap">{{ server.name }}</Label>
-          <Tooltip v-if="server.description">
-            <TooltipTrigger as-child>
-              <span class="svg-icon i-info w-4 h-4 shrink-0 opacity-50 cursor-help" />
-            </TooltipTrigger>
-            <TooltipContent side="right" class="max-w-[320px] text-sm whitespace-normal">
-              {{ server.description }}
-            </TooltipContent>
-          </Tooltip>
-          <span class="text-xs text-muted-foreground">{{ getStatusText(server.id) }}</span>
-        </div>
-
-        <div class="flex items-center gap-1">
-          <Button
-            variant="secondary"
-            size="sm"
-            class="px-3 py-1.5 rounded text-sm"
-            :disabled="!textInference.mcpToolsEnabled || mcp.isServerBusy(server.id)"
-            @click="mcp.toggleServer(server.id)"
-          >
-            {{ getStartButtonText(server.id) }}
-          </Button>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" class="h-7 w-7">
-                <EllipsisHorizontalIcon class="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem @select="openEditDialog(server.id)"> Edit </DropdownMenuItem>
-              <DropdownMenuItem
-                class="text-destructive focus:text-destructive"
-                @select="handleRemoveServer(server.id)"
-              >
-                Remove
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        <Label :for="'mcp-tools'" class="whitespace-nowrap font-medium">MCP tools</Label>
+        <Checkbox
+          id="mcp-tools"
+          :disabled="!textInference.modelSupportsToolCalling"
+          :model-value="textInference.mcpToolsEnabled"
+          @click="
+            textInference.modelSupportsToolCalling &&
+            (textInference.mcpToolsEnabled = !textInference.mcpToolsEnabled)
+          "
+        />
       </div>
 
       <div
-        v-if="mcp.allServers.length === 0"
-        class="text-sm text-muted-foreground text-center py-2"
+        v-show="textInference.modelSupportsToolCalling"
+        :class="{ 'opacity-50': !textInference.mcpToolsEnabled }"
+        class="flex flex-col gap-2"
       >
-        No MCP servers available
-      </div>
+        <div
+          v-for="server in mcp.allServers"
+          :key="server.id"
+          class="flex items-center justify-between gap-3"
+        >
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="w-2.5 h-2.5 rounded-full" :class="getStatusDotClass(server.id)" />
+            <Label class="whitespace-nowrap">{{ server.name }}</Label>
+            <Tooltip v-if="server.description">
+              <TooltipTrigger as-child>
+                <span class="svg-icon i-info w-4 h-4 shrink-0 opacity-50 cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent side="right" class="max-w-[320px] text-sm whitespace-normal">
+                {{ server.description }}
+              </TooltipContent>
+            </Tooltip>
+            <span class="text-xs text-muted-foreground">{{ getStatusText(server.id) }}</span>
+          </div>
 
-      <!-- Red error messages -->
+          <div class="flex items-center gap-1">
+            <Button
+              variant="secondary"
+              size="sm"
+              class="px-3 py-1.5 rounded text-sm"
+              :disabled="!textInference.mcpToolsEnabled || mcp.isServerBusy(server.id)"
+              @click="mcp.toggleServer(server.id)"
+            >
+              {{ getStartButtonText(server.id) }}
+            </Button>
 
-      <template v-for="server in mcp.allServers" :key="'error-' + server.id">
-        <p v-if="mcp.getServerStatus(server.id).lastError" class="text-xs text-destructive">
-          {{ server.name }}: {{ mcp.getServerStatus(server.id).lastError }}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" class="h-7 w-7">
+                  <EllipsisHorizontalIcon class="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem @select="openEditDialog(server.id)"> Edit </DropdownMenuItem>
+                <DropdownMenuItem
+                  class="text-destructive focus:text-destructive"
+                  @select="handleRemoveServer(server.id)"
+                >
+                  Remove
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+
+        <div
+          v-if="mcp.allServers.length === 0"
+          class="text-sm text-muted-foreground text-center py-2"
+        >
+          No MCP servers available
+        </div>
+
+        <!-- Red error messages -->
+
+        <template v-for="server in mcp.allServers" :key="'error-' + server.id">
+          <p v-if="mcp.getServerStatus(server.id).lastError" class="text-xs text-destructive">
+            {{ server.name }}: {{ mcp.getServerStatus(server.id).lastError }}
+          </p>
+        </template>
+
+        <p v-if="mcp.configError" class="text-xs text-destructive">
+          {{ mcp.configError }}
         </p>
-      </template>
 
-      <p v-if="mcp.configError" class="text-xs text-destructive">
-        {{ mcp.configError }}
-      </p>
+        <!-- Footer: config actions -->
 
-      <!-- Footer: config actions -->
-
-      <div class="flex justify-start gap-4 pl-2">
-        <Button
-          variant="link"
-          size="sm"
-          class="px-0 text-muted-foreground gap-1"
-          @click="showAddDialog = true"
-        >
-          <span class="svg-icon i-add w-4 h-4 shrink-0" />
-          Add server...
-        </Button>
-        <Button
-          variant="link"
-          size="sm"
-          class="px-0 text-muted-foreground gap-1"
-          @click="openConfig"
-        >
-          <span class="svg-icon i-pen w-4 h-4 shrink-0" />
-          Edit mcp.json
-        </Button>
-        <Button
-          variant="link"
-          size="sm"
-          class="px-0 text-muted-foreground gap-1"
-          @click="openConfigInFolder"
-        >
-          <span class="svg-icon i-folder w-4 h-4 shrink-0" />
-          Show in folder
-        </Button>
-        <Button
-          variant="link"
-          size="sm"
-          class="px-0 text-muted-foreground gap-1"
-          @click="reloadConfig"
-        >
-          <span class="svg-icon i-refresh w-4 h-4 shrink-0" />
-          Reload
-        </Button>
+        <div class="flex justify-start gap-4 pl-2">
+          <Button
+            variant="link"
+            size="sm"
+            class="px-0 text-muted-foreground gap-1"
+            @click="showAddDialog = true"
+          >
+            <span class="svg-icon i-add w-4 h-4 shrink-0" />
+            Add server...
+          </Button>
+          <Button
+            variant="link"
+            size="sm"
+            class="px-0 text-muted-foreground gap-1"
+            @click="openConfig"
+          >
+            <span class="svg-icon i-pen w-4 h-4 shrink-0" />
+            Edit mcp.json
+          </Button>
+          <Button
+            variant="link"
+            size="sm"
+            class="px-0 text-muted-foreground gap-1"
+            @click="openConfigInFolder"
+          >
+            <span class="svg-icon i-folder w-4 h-4 shrink-0" />
+            Show in folder
+          </Button>
+          <Button
+            variant="link"
+            size="sm"
+            class="px-0 text-muted-foreground gap-1"
+            @click="reloadConfig"
+          >
+            <span class="svg-icon i-refresh w-4 h-4 shrink-0" />
+            Reload
+          </Button>
+        </div>
       </div>
 
       <McpServerDialog v-model:open="showAddDialog" />
@@ -121,6 +152,7 @@ import { onMounted, ref } from 'vue'
 import { useMcp } from '@/assets/js/store/mcp'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,

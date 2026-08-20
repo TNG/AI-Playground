@@ -158,7 +158,12 @@ const statusValue = computed(() =>
               <Button
                 variant="secondary"
                 size="icon"
-                class="size-8 text-destructive hover:text-destructive"
+                class="size-8"
+                :class="
+                  library.selectedDeletable.length > 0
+                    ? 'text-destructive hover:text-destructive'
+                    : ''
+                "
                 :aria-label="languages.MODEL_MANAGER_DELETE_SELECTED"
                 :disabled="library.selectedDeletable.length === 0"
                 @click="emit('delete-selected')"

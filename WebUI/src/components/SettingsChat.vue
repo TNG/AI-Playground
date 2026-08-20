@@ -1,12 +1,5 @@
 <template>
   <div>
-    <teleport to="body">
-      <add-l-l-m-dialog
-        v-show="showModelRequestDialog"
-        ref="addLLMCompt"
-        @close="showModelRequestDialog = false"
-      />
-    </teleport>
     <div class="flex flex-col gap-6 p-1">
       <PresetSelector
         type="chat"
@@ -63,7 +56,18 @@
           :aria-label="languages.MODEL"
           class="grid grid-cols-[120px_1fr] items-center gap-4"
         >
-          <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
+          <!-- The gear lives in the label column: managing models belongs to this
+               row, but it must not eat into the width the picker needs to show a
+               model name. -->
+          <div class="flex items-center justify-between gap-2">
+            <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
+            <SettingsButton
+              class="shrink-0"
+              :title="languages.MODEL_MANAGER_MANAGE"
+              :aria-label="languages.MODEL_MANAGER_MANAGE"
+              @click="uiStore.openModelManager()"
+            />
+          </div>
           <div class="flex items-center gap-2 min-w-0">
             <div class="flex-1 min-w-0">
               <ModelSelector />
@@ -71,44 +75,36 @@
             <CapabilityIcons v-if="currentModel" :model="currentModel" />
           </div>
         </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <Button
-            variant="secondary"
-            class="w-auto px-3 py-1.5 rounded text-sm"
-            @click="() => (showModelRequestDialog = true)"
+        <!-- Two numbers that are read together (a reply cannot exceed either), so
+             they share a row rather than stacking two mostly-empty ones. Each half
+             repeats the sidebar's label/control grid, so the right-hand pair sits
+             in its half exactly as the left one does. -->
+        <div class="grid grid-cols-2 gap-4">
+          <div class="grid grid-cols-[120px_1fr] items-center gap-4">
+            <label class="whitespace-nowrap">{{ languages.ANSWER_MAX_TOKENS }}</label>
+            <input
+              type="number"
+              v-model="textInference.maxTokens"
+              min="0"
+              max="4096"
+              step="1"
+              class="rounded-sm text-foreground text-center h-7 w-20 leading-7 p-0 bg-transparent border border-border"
+            />
+          </div>
+          <div
+            v-if="textInference.contextSizeSettingSupported"
+            class="grid grid-cols-[120px_1fr] items-center gap-4"
           >
-            {{ languages.COM_ADD + ' ' + languages.MODEL }}
-          </Button>
-          <Button
-            variant="secondary"
-            class="w-auto px-3 py-1.5 rounded text-sm"
-            @click="uiStore.openModelManager()"
-          >
-            {{ languages.MODEL_MANAGER_MANAGE }}
-          </Button>
-        </div>
-
-        <!-- Add Documents button - only shown when RAG is enabled -->
-        <Button
-          v-if="enableRAG"
-          variant="secondary"
-          class="self-start w-auto px-3 py-1.5 rounded text-sm"
-          @click="showUploader = !showUploader"
-          :disabled="processing"
-          :title="languages.ANSWER_RAG_OPEN_DIALOG"
-        >
-          <span>{{ documentButtonText }}</span>
-        </Button>
-        <div class="grid grid-cols-[120px_1fr] items-center gap-4">
-          <label class="whitespace-nowrap">{{ languages.ANSWER_MAX_TOKENS }}</label>
-          <input
-            type="number"
-            v-model="textInference.maxTokens"
-            min="0"
-            max="4096"
-            step="1"
-            class="rounded-sm text-foreground text-center h-7 w-20 leading-7 p-0 bg-transparent border border-border"
-          />
+            <Label class="whitespace-nowrap">{{ languages.ANSWER_CONTEXT_SIZE }}</Label>
+            <input
+              type="number"
+              v-model="textInference.contextSize"
+              min="512"
+              max="131072"
+              step="512"
+              class="rounded-sm text-foreground text-center h-7 w-20 leading-7 p-0 bg-transparent border border-border"
+            />
+          </div>
         </div>
         <div class="grid grid-cols-[120px_1fr] items-center gap-4">
           <Label class="whitespace-nowrap"
@@ -116,115 +112,75 @@
           >
           <Slider v-model="textInference.temperature" :min="0" :max="2" :step="0.1" />
         </div>
-        <div
-          v-if="textInference.contextSizeSettingSupported"
-          class="grid grid-cols-[120px_1fr] items-center gap-4"
-        >
-          <Label class="whitespace-nowrap">{{ languages.ANSWER_CONTEXT_SIZE }}</Label>
-          <input
-            type="number"
-            v-model="textInference.contextSize"
-            min="512"
-            max="131072"
-            step="512"
-            class="rounded-sm text-foreground text-center h-7 w-20 leading-7 p-0 bg-transparent border border-border"
-          />
-        </div>
-        <div class="grid grid-cols-[120px_1fr] items-center gap-4">
-          <Label class="whitespace-nowrap">{{ languages.ANSWER_METRICS }}</Label>
+        <!-- Both are per-reply switches; the thinking one only exists for models
+             whose template supports enable_thinking. Not the label/control grid:
+             each box belongs to the word beside it, so the pair reads left to
+             right instead of across two columns. `for` already forwards a label
+             click to the checkbox (a button is a labelable element), so a handler
+             here would toggle it twice. -->
+        <div class="flex items-center gap-2">
+          <template v-if="textInference.modelSupportsThinkingToggle">
+            <Label for="thinking" class="cursor-pointer whitespace-nowrap">Thinking</Label>
+            <Checkbox
+              id="thinking"
+              :model-value="textInference.thinkingEnabled"
+              @click="() => (textInference.thinkingEnabled = !textInference.thinkingEnabled)"
+            />
+          </template>
+          <!-- The gap only exists when something precedes it, so on a model without
+               the thinking toggle Metrics still starts at the label column. -->
+          <Label
+            for="metrics"
+            class="cursor-pointer whitespace-nowrap"
+            :class="{ 'ml-6': textInference.modelSupportsThinkingToggle }"
+            >{{ languages.ANSWER_METRICS }}</Label
+          >
           <Checkbox
             id="metrics"
             :model-value="textInference.metricsEnabled"
             @click="() => (textInference.metricsEnabled = !textInference.metricsEnabled)"
           />
         </div>
-        <!-- Thinking toggle - only shown for models whose template supports enable_thinking -->
-        <div
-          v-if="textInference.modelSupportsThinkingToggle"
-          class="grid grid-cols-[120px_1fr] items-center gap-4"
-        >
-          <Label class="whitespace-nowrap">Thinking</Label>
-          <Checkbox
-            id="thinking"
-            :model-value="textInference.thinkingEnabled"
-            @click="() => (textInference.thinkingEnabled = !textInference.thinkingEnabled)"
-          />
-        </div>
-        <!-- Tools require a tool-calling model. The toggles stay visible so the
-             option is discoverable, but are disabled (greyed) when the selected
-             model can't call tools. -->
-        <template v-if="showTools">
-          <!-- Built-in Tools toggle -->
-          <div
-            class="grid grid-cols-[120px_1fr] items-center gap-4"
-            :class="{ 'opacity-50': !textInference.modelSupportsToolCalling }"
-            :title="
-              !textInference.modelSupportsToolCalling
-                ? 'The selected model does not support tool calling.'
-                : undefined
-            "
-          >
-            <Label class="whitespace-nowrap">Built-in tools:</Label>
-            <Checkbox
-              id="tools"
-              :disabled="!textInference.modelSupportsToolCalling"
-              :model-value="textInference.aipgToolsEnabled"
-              @click="
-                textInference.modelSupportsToolCalling &&
-                (textInference.aipgToolsEnabled = !textInference.aipgToolsEnabled)
-              "
-            />
-          </div>
-
-          <div
-            v-if="textInference.modelSupportsToolCalling"
-            class="pl-2"
-            :class="{ 'opacity-50': !textInference.aipgToolsEnabled }"
-          >
-            <SettingsBuiltinTools />
-          </div>
-
-          <!-- MCP Tools toggle -->
-          <div
-            class="grid grid-cols-[120px_1fr] items-center gap-4"
-            :class="{ 'opacity-50': !textInference.modelSupportsToolCalling }"
-            :title="
-              !textInference.modelSupportsToolCalling
-                ? 'The selected model does not support tool calling.'
-                : undefined
-            "
-          >
-            <Label class="whitespace-nowrap">MCP tools:</Label>
-            <Checkbox
-              id="mcp-tools"
-              :disabled="!textInference.modelSupportsToolCalling"
-              :model-value="textInference.mcpToolsEnabled"
-              @click="
-                textInference.modelSupportsToolCalling &&
-                (textInference.mcpToolsEnabled = !textInference.mcpToolsEnabled)
-              "
-            />
-          </div>
-
-          <div
-            v-if="textInference.modelSupportsToolCalling"
-            class="pl-2 pt-2"
-            :class="{ 'opacity-50': !textInference.mcpToolsEnabled }"
-          >
-            <SettingsMcp />
-          </div>
-        </template>
-
-        <!-- Embeddings selector - only shown when RAG is enabled -->
+        <!-- Retrieval belongs together: the embedding model is what the documents
+             are indexed with, so the uploader opens from the same row. The button
+             is an icon plus its count — a full label left the dropdown too narrow
+             to read a model name in. -->
         <div v-if="enableRAG" class="grid grid-cols-[120px_1fr] items-center gap-4">
           <Label class="whitespace-nowrap">Embeddings</Label>
-          <drop-down-new
-            :title="languages.RAG_DOCUMENT_EMBEDDING_MODEL"
-            @change="(item) => textInference.selectEmbeddingModel(textInference.backend, item)"
-            :value="activeEmbeddingModelName"
-            :items="embeddingModelItems"
-          ></drop-down-new>
+          <!-- A grid, not a flex row: as a grid item the dropdown stretches to the
+               space the button leaves, which a flex child of DropDownNew does not. -->
+          <div class="grid grid-cols-[1fr_auto] items-center gap-2 min-w-0">
+            <drop-down-new
+              :title="languages.RAG_DOCUMENT_EMBEDDING_MODEL"
+              @change="(item) => textInference.selectEmbeddingModel(textInference.backend, item)"
+              :value="activeEmbeddingModelName"
+              :items="embeddingModelItems"
+            ></drop-down-new>
+            <Button
+              variant="secondary"
+              class="h-[30px] shrink-0 gap-1.5 rounded px-2 text-sm"
+              @click="showUploader = !showUploader"
+              :disabled="processing"
+              :title="documentButtonText"
+              :aria-label="documentButtonText"
+            >
+              <DocumentTextIcon class="size-4" />
+              <span v-if="documentStats.total > 0" class="text-xs">
+                {{ documentStats.enabled }}
+              </span>
+              <PlusIcon v-else class="size-3" />
+            </Button>
+          </div>
         </div>
+
+        <!-- Each panel carries its own master switch in its header: the toggle and
+             what it governs are one block, which is two fewer label rows than
+             floating the switches above the panels. Tools need a tool-calling
+             model, so the header explains itself when the model has none. -->
+        <template v-if="showTools">
+          <SettingsBuiltinTools />
+          <SettingsMcp />
+        </template>
 
         <!-- System Prompt - only shown in advanced mode -->
         <div v-if="advancedMode" class="grid grid-cols-[120px_1fr] items-start gap-4">
@@ -242,11 +198,6 @@
             {{ languages.COM_LOAD_PRESET_DEFAULTS || 'Reset Preset Settings' }}
           </button>
         </div>
-
-        <!-- todo: needs to actually do something-->
-        <Button variant="secondary" class="max-w-md mx-auto px-3 py-1.5 rounded text-sm">
-          Create New Preset</Button
-        >
       </div>
       <rag v-if="showUploader" ref="ragPanel" @close="showUploader = false"></rag>
     </div>
@@ -269,8 +220,9 @@ import {
 import DeviceSelector from '@/components/DeviceSelector.vue'
 import ProviderSelector from '@/components/ProviderSelector.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
+import SettingsButton from '@/components/SettingsButton.vue'
+import { DocumentTextIcon, PlusIcon } from '@heroicons/vue/24/solid'
 import CapabilityIcons from '@/components/CapabilityIcons.vue'
-import AddLLMDialog from '@/components/AddLLMDialog.vue'
 import { ref, computed } from 'vue'
 import { useI18N } from '@/assets/js/store/i18n.ts'
 import Rag from '@/components/Rag.vue'
@@ -290,7 +242,6 @@ import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { sortFavoritesFirst } from '@/assets/js/models/favorites'
 import { useUIStore } from '@/assets/js/store/ui'
 
-const showModelRequestDialog = ref(false)
 const showUploader = ref(false)
 const processing = ref(false)
 const i18nState = useI18N().state

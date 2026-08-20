@@ -1077,11 +1077,12 @@ export const useTextInference = defineStore(
           entry.page = location.pageNumber
         }
 
-        // Only add entry if it has some location information
-        if (Object.keys(entry).length > 0) {
-          entries.push(entry)
-          fileGroups.set(source, entries)
-        }
+        // Always register the source file — even without page/line metadata.
+        // Phison KM group retrieval returns a merged document with `source` but no
+        // `loc` (the group spans many chunks), and the Source Docs chip must still
+        // show the filename in that case.
+        entries.push(entry)
+        fileGroups.set(source, entries)
       })
 
       // Function to merge overlapping line ranges for the same page
@@ -1179,7 +1180,7 @@ export const useTextInference = defineStore(
             locationInfo = `Lines ${entry.lines.from}-${entry.lines.to}`
           }
 
-          formattedResults.push(`${filename} (${locationInfo})`)
+          formattedResults.push(locationInfo ? `${filename} (${locationInfo})` : filename)
         })
       })
 

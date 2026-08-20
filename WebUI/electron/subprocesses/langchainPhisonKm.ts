@@ -262,11 +262,16 @@ export function selectGroupContext(
           `Phison KM: serving merged group ${group.groupId} ` +
             `(chunks ${group.startChunkIdx}-${group.endChunkIdx})`,
         )
+        // Keep the best-scoring chunk's `loc` so the Source Docs chip can show
+        // page/line when available. The group text spans more chunks than that
+        // single loc covers, but a concrete citation beats an empty sources list
+        // (formatRagSources used to drop sources that had no loc at all).
         return [
           new Document({
             pageContent: deriveGroupContent(ragDoc.splitDB, group),
             metadata: {
               source: topChunk.metadata?.source ?? 'unknown',
+              loc: topChunk.metadata?.loc,
               groupId: group.groupId,
               startChunkIdx: group.startChunkIdx,
               endChunkIdx: group.endChunkIdx,

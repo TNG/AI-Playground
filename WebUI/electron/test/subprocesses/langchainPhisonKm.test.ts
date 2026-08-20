@@ -205,6 +205,7 @@ describe('ensureMergedGroups', () => {
 describe('selectGroupContext', () => {
   it('returns the whole group of the best-scoring chunk, derived from splitDB', () => {
     const splitDB = chunks(3, 10)
+    splitDB[1].metadata.loc = { pageNumber: 4, lines: { from: 10, to: 20 } }
     const groups = [{ groupId: 'g0', startChunkIdx: 0, endChunkIdx: 2 }]
     stampGroupIds(splitDB, groups)
     const doc = indexedDoc({ splitDB, mergedGroups: groups })
@@ -217,6 +218,9 @@ describe('selectGroupContext', () => {
       groupId: 'g0',
       startChunkIdx: 0,
       endChunkIdx: 2,
+      source: 'doc.txt',
+      // Best-scoring chunk's loc is forwarded so Source Docs can cite something.
+      loc: { pageNumber: 4, lines: { from: 10, to: 20 } },
     })
   })
 

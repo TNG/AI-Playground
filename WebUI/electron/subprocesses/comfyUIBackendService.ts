@@ -21,6 +21,7 @@ import {
   installExtraWheels,
   pipInstallRequirementsFromFile,
 } from './uvBasedBackends/uv.ts'
+import { isUsableVenv, venvInterpreterPath } from './uvBasedBackends/venvState.ts'
 import {
   COMFYUI_DEPS_MARKER_FILENAME,
   normalizeComfyUiRef,
@@ -571,12 +572,13 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         this.getEffectiveVariant(),
       )
 
-      // If venv doesn't exist, service is not set up
-      if (!checkDetails.venvExists) {
+      // Dir-only leftover .venv (no python.exe after upgrade) is not installed.
+      if (!checkDetails.venvExists || checkDetails.needsInstallation) {
         this.appLogger.info(
-          `Service ${this.name} venv does not exist, needs installation`,
+          `Service ${this.name} venv is missing or incomplete, needs installation`,
           this.name,
         )
+        this.environmentMismatchError = null
         return false
       }
 
@@ -1059,7 +1061,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
           existingMarker?.mode === 'flexible' &&
           markerMatches &&
           !variantChanged &&
-          filesystem.existsSync(this.pythonEnvDir)
+          isUsableVenv(this.pythonEnvDir)
         ) {
           needsInstall = false
           this.appLogger.info(
@@ -1442,11 +1444,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   }
 
   getPythonBinaryPath() {
-    return path.join(
-      this.pythonEnvDir,
-      process.platform === 'win32' ? 'Scripts' : 'bin',
-      process.platform === 'win32' ? 'python.exe' : 'python',
-    )
+    return venvInterpreterPath(this.pythonEnvDir)
   }
 
   async detectDevices() {

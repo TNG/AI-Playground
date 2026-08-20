@@ -5,6 +5,7 @@ import path from 'path'
 import fs from 'fs'
 import { spawn } from 'child_process'
 import z from 'zod'
+import { isUsableVenv, removeBrokenVenv, venvInterpreterPath } from './venvState.ts'
 
 export const aipgBaseDir = app.isPackaged
   ? packagedResourcesRoot()
@@ -235,9 +236,24 @@ const isHashMismatchError = (errorMessage: string): boolean => {
   return /hash mismatch/i.test(errorMessage)
 }
 
+const backendVenvDir = (backend: string) => path.join(aipgBaseDir, backend, '.venv')
+
+const removeBrokenBackendVenv = async (
+  backend: string,
+  logger: ReturnType<typeof loggerFor>,
+): Promise<void> => {
+  const venvDir = backendVenvDir(backend)
+  if (await removeBrokenVenv(venvDir)) {
+    logger.warn(
+      `Removed broken venv at ${venvDir} (python interpreter missing); it will be recreated`,
+    )
+  }
+}
+
 export const ensureBackendVenv = async (backend: string, extraEnv?: Record<string, string>) => {
   const logger = loggerFor(`uv.venv.${backend}`)
   await assertUv(logger)
+  await removeBrokenBackendVenv(backend, logger)
   const uvVenvCommand = [
     'venv',
     '--directory',
@@ -293,6 +309,7 @@ export const installBackend = async (
 ) => {
   const logger = loggerFor(`uv.sync.${backend}`)
   await assertUv(logger)
+  await removeBrokenBackendVenv(backend, logger)
   const uvVenvCommand = [
     'venv',
     '--directory',
@@ -337,6 +354,7 @@ export const installBackendWithExtra = async (
 ) => {
   const logger = loggerFor(`uv.sync-extra.${backend}.${extra}`)
   await assertUv(logger)
+  await removeBrokenBackendVenv(backend, logger)
   const uvVenvCommand = [
     'venv',
     '--directory',
@@ -406,18 +424,32 @@ export const checkBackendWithDetails = async (
   const logger = loggerFor(`uv.check-details.${backend}`)
   await assertUv(logger)
 
-  // Check if venv directory exists
-  let venvExists = false
-  try {
-    await fs.promises.access(venvPath, fs.constants.F_OK)
-    venvExists = true
-    logger.info(`Venv directory exists at ${venvPath}`)
-  } catch {
-    logger.info(`Venv directory does not exist at ${venvPath}`)
-    venvExists = false
+  // Leftover `.venv` after an app upgrade often has no python.exe — not usable.
+  const venvExists = isUsableVenv(venvPath)
+  if (!venvExists) {
+    const interpreter = venvInterpreterPath(venvPath)
+    const dirExists = fs.existsSync(venvPath)
+    if (dirExists) {
+      logger.warn(
+        `Venv directory exists at ${venvPath} but interpreter is missing at ${interpreter}`,
+      )
+    } else {
+      logger.info(`Venv directory does not exist at ${venvPath}`)
+    }
+    return {
+      venvExists: false,
+      action: 'create',
+      needsInstallation: true,
+      envMismatch: false,
+      exitCode: -1,
+      stdout: dirExists
+        ? `Virtual environment directory exists at ${venvPath} but ${interpreter} is missing.\nThe environment needs to be recreated.`
+        : undefined,
+    }
   }
+  logger.info(`Venv interpreter exists at ${venvInterpreterPath(venvPath)}`)
 
-  if (options?.skipLockfileCheck && venvExists) {
+  if (options?.skipLockfileCheck) {
     logger.info(`Skipping uv lockfile check for ${backend} (flexible ComfyUI deps mode)`)
     return {
       venvExists: true,

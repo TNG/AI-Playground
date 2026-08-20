@@ -62,14 +62,26 @@ export class SpecificSettingsPage {
   }
 
   /**
-   * Model names offered by the chat model picker. The picker's trigger is named
-   * after the current selection, so it is reached through the stable
-   * `role="group"` the Model row carries (SettingsChat.vue).
+   * The chat model picker's trigger (ModelSelector.vue), reached through the stable
+   * `role="group"` the Model row carries (SettingsChat.vue). The trigger itself is
+   * named after the current selection, and the row holds a second button — the
+   * "Manage Models" gear — so it's pinned on the menu trigger's `aria-haspopup`
+   * rather than on being the only button in the group.
+   */
+  private modelTrigger(mode: ChatMode): Locator {
+    return this.panel(mode)
+      .getByRole('group', { name: 'Model' })
+      .locator('button[aria-haspopup="menu"]')
+  }
+
+  /**
+   * Model names offered by the chat model picker (its visible labels, i.e. the file
+   * name / last path segment).
    *
    * Opens and closes the dropdown without changing the selection.
    */
   async availableModels(mode: ChatMode = 'Chat'): Promise<string[]> {
-    const trigger = this.panel(mode).getByRole('group', { name: 'Model' }).getByRole('button')
+    const trigger = this.modelTrigger(mode)
     if (!(await trigger.isVisible().catch(() => false))) return []
     await trigger.click()
     const menu = this.page.getByRole('menu')
@@ -80,6 +92,25 @@ export class SpecificSettingsPage {
     await this.page.keyboard.press('Escape')
     await menu.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {})
     return labels
+  }
+
+  /**
+   * Select a chat model by its visible label (the file name, e.g.
+   * `smollm2-1.7b-instruct-q4_k_m.gguf`) and wait for the trigger to reflect it.
+   * The picker lists the whole catalog for the active backend in a short scrolling
+   * viewport, so the label is typed into the picker's own search box first — that
+   * narrows the list to the wanted row instead of scrolling for it. Must be called
+   * with the settings sidebar open.
+   */
+  async selectModel(label: string, mode: ChatMode = 'Chat'): Promise<void> {
+    const trigger = this.modelTrigger(mode)
+    await trigger.click()
+    const menu = this.page.getByRole('menu')
+    await menu.waitFor({ state: 'visible', timeout: 5_000 })
+    await menu.getByPlaceholder('Search models').fill(label)
+    await menu.getByRole('menuitem').filter({ hasText: label }).first().click()
+    await menu.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {})
+    await expect(trigger).toContainText(label, { timeout: 15_000 })
   }
 
   /**
@@ -181,6 +212,29 @@ export class SpecificSettingsPage {
     // The trigger's label reflects the active device once the switch (and backend
     // restart) lands.
     await expect(trigger).toContainText(new RegExp(substring, 'i'), { timeout: 30_000 })
+    return true
+  }
+
+  /**
+   * Switch to any inference device other than the one in use, which restarts the
+   * serving backend (the device is a launch argument for both llama.cpp and OVMS).
+   * That restart is the only way a test can get a model *unloaded*: nothing in the UI
+   * stops a backend, and weights a running backend still holds open cannot be deleted
+   * from disk on Windows. Must be called with the settings sidebar open. Returns false
+   * — selection unchanged — when there is no device picker or no second device to move
+   * to.
+   */
+  async selectOtherDevice(mode: ChatMode = 'Chat'): Promise<boolean> {
+    const trigger = this.deviceTrigger(mode)
+    if (!(await trigger.isVisible().catch(() => false))) return false
+    const current = (await trigger.innerText()).trim()
+    const other = (await this.availableDevices(mode)).find((device) => device !== current)
+    if (!other) return false
+    await trigger.click()
+    const menu = this.page.getByRole('menu')
+    await menu.getByRole('menuitem', { name: other, exact: true }).click()
+    await menu.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {})
+    await expect(trigger).toContainText(other, { timeout: 30_000 })
     return true
   }
 

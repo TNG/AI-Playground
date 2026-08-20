@@ -125,6 +125,67 @@ export class ModelManagerPage {
   async expectRowAbsent(label: string): Promise<void> {
     await expect(this.row(label)).toHaveCount(0)
   }
+
+  /**
+   * A row's status cell ("On disk" / "Not downloaded"). Read from its own cell
+   * rather than the whole row, whose text also carries the repo, the "Used by"
+   * line and the size.
+   */
+  private statusCell(label: string): Locator {
+    // Column order (ModelLibraryTable.vue): select, favorite, model, use case,
+    // backend, size, modified, status, actions.
+    return this.row(label).getByRole('cell').nth(7)
+  }
+
+  /** True when the model's files are on disk. */
+  async isDownloaded(label: string): Promise<boolean> {
+    return (await this.statusCell(label).innerText()).trim() === 'On disk'
+  }
+
+  /** Wait for the row to report the expected on-disk state (downloads/deletes are async). */
+  async expectDownloaded(label: string, downloaded: boolean, timeout = 30_000): Promise<void> {
+    await expect(this.statusCell(label)).toHaveText(downloaded ? 'On disk' : 'Not downloaded', {
+      timeout,
+    })
+  }
+
+  /** Open a row's "…" action menu and return it, so callers can pick an item. */
+  private async openRowActions(label: string): Promise<Locator> {
+    await this.row(label)
+      .getByRole('button', { name: `${label} actions` })
+      .click()
+    const menu = this.page.getByRole('menu')
+    await expect(menu).toBeVisible()
+    return menu
+  }
+
+  /**
+   * Delete one model from disk via its row action, confirming the permanent-delete
+   * dialog. Returns once the row reports "Not downloaded".
+   */
+  async deleteFromRow(label: string): Promise<void> {
+    const menu = await this.openRowActions(label)
+    await menu.getByRole('menuitem', { name: /Delete from disk/ }).click()
+    await this.confirmDelete(label)
+    await this.expectDownloaded(label, false)
+  }
+
+  /** The permanent-delete confirmation (DeleteModelDialog.vue). */
+  get deleteDialog(): Locator {
+    return this.page.getByRole('dialog', { name: 'Delete model files' })
+  }
+
+  /**
+   * Confirm the delete dialog, first asserting it names `label` among the files it
+   * is about to remove — the dialog is the last chance to notice it is pointed at
+   * the wrong model, since the files do not go to the trash.
+   */
+  async confirmDelete(label: string): Promise<void> {
+    await expect(this.deleteDialog).toBeVisible()
+    await expect(this.deleteDialog).toContainText(label)
+    await this.deleteDialog.getByRole('button', { name: 'Delete permanently' }).click()
+    await expect(this.deleteDialog).toBeHidden({ timeout: 60_000 })
+  }
 }
 
 function escapeRegExp(value: string): string {

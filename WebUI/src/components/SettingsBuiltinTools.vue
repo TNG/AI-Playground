@@ -1,31 +1,16 @@
 <template>
   <TooltipProvider>
-    <div class="flex flex-col gap-3 border border-border rounded-md p-3">
-      <!-- The panel's own header carries the master switch: the toggle and the
-           tools it governs are one block, so neither needs a row of its own in the
-           settings sidebar. Tool calling is a model capability, so when the model
-           has none the switch is dead and the header says why. -->
-      <div
-        class="flex items-center justify-between gap-3 border-b border-border pb-2"
-        :class="{ 'opacity-50': !textInference.modelSupportsToolCalling }"
-        :title="
-          !textInference.modelSupportsToolCalling
-            ? 'The selected model does not support tool calling.'
-            : undefined
-        "
-      >
-        <Label :for="'tools'" class="whitespace-nowrap font-medium">Built-in tools</Label>
-        <Checkbox
-          id="tools"
-          :disabled="!textInference.modelSupportsToolCalling"
-          :model-value="textInference.aipgToolsEnabled"
-          @click="
-            textInference.modelSupportsToolCalling &&
-            (textInference.aipgToolsEnabled = !textInference.aipgToolsEnabled)
-          "
-        />
-      </div>
-
+    <SettingsPanel
+      title="Built-in tools"
+      switch-id="tools"
+      :enabled="textInference.aipgToolsEnabled"
+      :disabled-reason="
+        textInference.modelSupportsToolCalling
+          ? undefined
+          : 'The selected model does not support tool calling.'
+      "
+      @update:enabled="textInference.aipgToolsEnabled = $event"
+    >
       <div
         v-show="textInference.modelSupportsToolCalling"
         class="flex flex-col gap-3"
@@ -210,7 +195,7 @@
       </div>
 
       <ScreenshotWindowDialog v-model:open="showWindowDialog" />
-    </div>
+    </SettingsPanel>
   </TooltipProvider>
 </template>
 
@@ -222,6 +207,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import SettingsPanel from '@/components/SettingsPanel.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import ScreenshotWindowDialog from '@/components/ScreenshotWindowDialog.vue'
 import { useTextInference } from '@/assets/js/store/textInference'

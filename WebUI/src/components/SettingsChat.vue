@@ -16,7 +16,9 @@
         v-if="isHomeAgentPresetActive"
         class="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-sm text-foreground"
       >
-        <p class="font-semibold text-amber-600 dark:text-amber-200">Global Home Agent Settings</p>
+        <SettingsHeading class="text-amber-600 dark:text-amber-200"
+          >Global Home Agent Settings</SettingsHeading
+        >
         <p class="text-xs text-muted-foreground">
           The settings for this preset impact all Home Agent conversations. Please verify after
           changing them to ensure that you can still access AI Playground remotely.
@@ -28,97 +30,86 @@
 
       <div v-else class="flex flex-col gap-4">
         <!-- Backend selector - only shown when multiple backends are available -->
-        <div v-if="!isBackendLocked" class="grid grid-cols-[120px_1fr] items-center gap-4">
-          <Label class="whitespace-nowrap">Backend</Label>
+        <SettingsRow v-if="!isBackendLocked" label="Backend">
           <drop-down-new
             title="Select Backend"
             @change="handleBackendChange"
             :value="textInference.backend"
             :items="availableBackendItems"
           ></drop-down-new>
-        </div>
+        </SettingsRow>
         <!-- Cloud Mode swaps the hardware "Device" picker for a remote "Provider" picker. -->
-        <div
-          v-if="textInference.backend === 'cloud'"
-          class="grid grid-cols-[120px_1fr] items-center gap-4"
-        >
-          <Label class="whitespace-nowrap">Provider</Label>
+        <SettingsRow v-if="textInference.backend === 'cloud'" label="Provider">
           <ProviderSelector />
-        </div>
-        <div v-else class="grid grid-cols-[120px_1fr] items-center gap-4">
-          <Label class="whitespace-nowrap">{{ languages.DEVICE }}</Label>
+        </SettingsRow>
+        <SettingsRow v-else :label="languages.DEVICE">
           <DeviceSelector :backend="deviceServiceName" />
-        </div>
+        </SettingsRow>
         <!-- The picker's trigger is named after whichever model is selected, so the
              row carries the stable name that identifies what the control is for. -->
-        <div
-          role="group"
-          :aria-label="languages.MODEL"
-          class="grid grid-cols-[120px_1fr] items-center gap-4"
-        >
+        <SettingsRow role="group" :aria-label="languages.MODEL">
           <!-- The gear lives in the label column: managing models belongs to this
                row, but it must not eat into the width the picker needs to show a
                model name. -->
-          <div class="flex items-center justify-between gap-2">
-            <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
-            <SettingsButton
-              class="shrink-0"
-              :title="languages.MODEL_MANAGER_MANAGE"
-              :aria-label="languages.MODEL_MANAGER_MANAGE"
-              @click="uiStore.openModelManager()"
-            />
-          </div>
+          <template #label>
+            <div class="flex items-center justify-between gap-2">
+              <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
+              <SettingsButton
+                class="shrink-0"
+                :title="languages.MODEL_MANAGER_MANAGE"
+                :aria-label="languages.MODEL_MANAGER_MANAGE"
+                @click="uiStore.openModelManager()"
+              />
+            </div>
+          </template>
           <div class="flex items-center gap-2 min-w-0">
             <div class="flex-1 min-w-0">
               <ModelSelector />
             </div>
             <CapabilityIcons v-if="currentModel" :model="currentModel" />
           </div>
-        </div>
+        </SettingsRow>
         <!-- Two numbers that are read together (a reply cannot exceed either), so
              they share a row rather than stacking two mostly-empty ones. Each half
-             repeats the sidebar's label/control grid, so the right-hand pair sits
-             in its half exactly as the left one does. -->
+             is a row of its own, so the right-hand pair sits in its half exactly as
+             the left one does. -->
         <div class="grid grid-cols-2 gap-4">
-          <div class="grid grid-cols-[120px_1fr] items-center gap-4">
-            <label class="whitespace-nowrap">{{ languages.ANSWER_MAX_TOKENS }}</label>
+          <SettingsRow :label="languages.ANSWER_MAX_TOKENS">
             <input
               type="number"
               v-model="textInference.maxTokens"
               min="0"
               max="4096"
               step="1"
-              class="rounded-sm text-foreground text-center h-7 w-20 leading-7 p-0 bg-transparent border border-border"
+              class="rounded-sm text-foreground text-center h-[30px] w-20 leading-[30px] p-0 bg-transparent border border-border"
             />
-          </div>
-          <div
+          </SettingsRow>
+          <SettingsRow
             v-if="textInference.contextSizeSettingSupported"
-            class="grid grid-cols-[120px_1fr] items-center gap-4"
+            :label="languages.ANSWER_CONTEXT_SIZE"
           >
-            <Label class="whitespace-nowrap">{{ languages.ANSWER_CONTEXT_SIZE }}</Label>
             <input
               type="number"
               v-model="textInference.contextSize"
               min="512"
               max="131072"
               step="512"
-              class="rounded-sm text-foreground text-center h-7 w-20 leading-7 p-0 bg-transparent border border-border"
+              class="rounded-sm text-foreground text-center h-[30px] w-20 leading-[30px] p-0 bg-transparent border border-border"
             />
-          </div>
+          </SettingsRow>
         </div>
-        <div class="grid grid-cols-[120px_1fr] items-center gap-4">
-          <Label class="whitespace-nowrap"
-            >Temperature: {{ textInference.temperature.toFixed(1) }}</Label
-          >
+        <SettingsRow :label="`Temperature: ${textInference.temperature.toFixed(1)}`">
           <Slider v-model="textInference.temperature" :min="0" :max="2" :step="0.1" />
-        </div>
+        </SettingsRow>
         <!-- Both are per-reply switches; the thinking one only exists for models
              whose template supports enable_thinking. Not the label/control grid:
              each box belongs to the word beside it, so the pair reads left to
              right instead of across two columns. `for` already forwards a label
              click to the checkbox (a button is a labelable element), so a handler
              here would toggle it twice. -->
-        <div class="flex items-center gap-2">
+        <!-- Kept at row height so a pair of 16px checkboxes doesn't read as a
+             shorter band than the picker rows around it. -->
+        <div class="flex min-h-[30px] items-center gap-2">
           <template v-if="textInference.modelSupportsThinkingToggle">
             <Label for="thinking" class="cursor-pointer whitespace-nowrap">Thinking</Label>
             <Checkbox
@@ -145,8 +136,7 @@
              are indexed with, so the uploader opens from the same row. The button
              is an icon plus its count — a full label left the dropdown too narrow
              to read a model name in. -->
-        <div v-if="enableRAG" class="grid grid-cols-[120px_1fr] items-center gap-4">
-          <Label class="whitespace-nowrap">Embeddings</Label>
+        <SettingsRow v-if="enableRAG" label="Embeddings">
           <!-- A grid, not a flex row: as a grid item the dropdown stretches to the
                space the button leaves, which a flex child of DropDownNew does not. -->
           <div class="grid grid-cols-[1fr_auto] items-center gap-2 min-w-0">
@@ -171,7 +161,7 @@
               <PlusIcon v-else class="size-3" />
             </Button>
           </div>
-        </div>
+        </SettingsRow>
 
         <!-- Each panel carries its own master switch in its header: the toggle and
              what it governs are one block, which is two fewer label rows than
@@ -182,15 +172,18 @@
           <SettingsMcp />
         </template>
 
-        <!-- System Prompt - only shown in advanced mode -->
-        <div v-if="advancedMode" class="grid grid-cols-[120px_1fr] items-start gap-4">
-          <Label class="whitespace-nowrap pt-2">System Prompt</Label>
+        <!-- System Prompt - only shown in advanced mode. Top-aligned: the textarea
+             is several rows tall and its label belongs beside its first line. -->
+        <SettingsRow v-if="advancedMode" align="start">
+          <template #label>
+            <Label class="whitespace-nowrap pt-2">System Prompt</Label>
+          </template>
           <Textarea
             v-model="textInference.systemPrompt"
             placeholder="You are a helpful AI assistant."
             class="min-h-[100px] text-sm"
           />
-        </div>
+        </SettingsRow>
 
         <div class="border-t border-border items-center flex-wrap grid grid-cols-1 gap-2">
           <button class="mt-4" @click="textInference.resetActivePresetSettings">
@@ -221,6 +214,8 @@ import DeviceSelector from '@/components/DeviceSelector.vue'
 import ProviderSelector from '@/components/ProviderSelector.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
 import SettingsButton from '@/components/SettingsButton.vue'
+import SettingsHeading from '@/components/SettingsHeading.vue'
+import SettingsRow from '@/components/SettingsRow.vue'
 import { DocumentTextIcon, PlusIcon } from '@heroicons/vue/24/solid'
 import CapabilityIcons from '@/components/CapabilityIcons.vue'
 import { ref, computed } from 'vue'

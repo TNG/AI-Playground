@@ -1,23 +1,22 @@
-use useErrors if possible
 <template>
   <div class="border-b border-border flex flex-col gap-5 py-4">
     <DemoModeBlocker>
       <div class="flex flex-col gap-2">
-        <p>{{ languages.SETTINGS_BASIC_LANGUAGE }}</p>
+        <SettingsHeading>{{ languages.SETTINGS_BASIC_LANGUAGE }}</SettingsHeading>
         <LanguageSelector></LanguageSelector>
       </div>
     </DemoModeBlocker>
 
     <div v-if="theme.availableThemes.length > 1" class="flex flex-col gap-2">
-      <p>{{ languages.SETTINGS_THEME }}</p>
+      <SettingsHeading>{{ languages.SETTINGS_THEME }}</SettingsHeading>
       <ThemeSelector />
     </div>
 
     <DemoModeBlocker>
       <div class="flex flex-col gap-3"></div>
       <div class="flex flex-col gap-3">
-        <p>{{ languages.SETTINGS_MODEL_HUGGINGFACE_SETTINGS }}</p>
-        <h4 class="text-sm font-medium">{{ languages.SETTINGS_MODEL_HUGGINGFACE_API_TOKEN }}</h4>
+        <SettingsHeading>{{ languages.SETTINGS_MODEL_HUGGINGFACE_SETTINGS }}</SettingsHeading>
+        <SettingsHeading sub>{{ languages.SETTINGS_MODEL_HUGGINGFACE_API_TOKEN }}</SettingsHeading>
         <div class="flex flex-col items-start gap-1">
           <Input
             type="password"
@@ -32,7 +31,7 @@ use useErrors if possible
             {{ languages.SETTINGS_MODEL_HUGGINGFACE_INVALID_TOKEN_TEXT }}
           </div>
         </div>
-        <h4 class="text-sm font-medium">{{ languages.SETTINGS_MODEL_HUGGINGFACE_MIRROR_URL }}</h4>
+        <SettingsHeading sub>{{ languages.SETTINGS_MODEL_HUGGINGFACE_MIRROR_URL }}</SettingsHeading>
         <div class="flex flex-col items-start gap-2">
           <Input
             v-model="mirrorUrl"
@@ -71,7 +70,7 @@ use useErrors if possible
   </div>
   <DemoModeBlocker>
     <div class="flex flex-col gap-3 pt-6">
-      <p>{{ languages.SETTINGS_BACKEND_STATUS }}</p>
+      <SettingsHeading>{{ languages.SETTINGS_BACKEND_STATUS }}</SettingsHeading>
       <table class="text-center w-full mx-2 table-fixed">
         <tbody>
           <tr v-for="item in displayComponents" :key="item.serviceName">
@@ -87,7 +86,7 @@ use useErrors if possible
 
   <div v-if="!productModeStore.isNvidiaModeSelected" class="flex flex-col gap-3 pt-4">
     <div>
-      <p>{{ languages.SETTINGS_AUDIO }}</p>
+      <SettingsHeading>{{ languages.SETTINGS_AUDIO }}</SettingsHeading>
       <div class="pl-2 pt-4">
         <div class="flex justify-between pr-4 items-center gap-4 mb-4">
           <Label class="whitespace-nowrap">Speech To Text</Label>
@@ -243,7 +242,7 @@ use useErrors if possible
 
   <DemoModeBlocker>
     <div class="flex flex-col gap-3 pt-4">
-      <p>{{ languages.SETTINGS_DEVELOPER }}</p>
+      <SettingsHeading>{{ languages.SETTINGS_DEVELOPER }}</SettingsHeading>
       <div class="pl-2 pt-2">
         <div class="flex justify-between pr-4 items-center gap-4 mb-4">
           <Label class="whitespace-nowrap">{{
@@ -274,13 +273,13 @@ use useErrors if possible
         </div>
       </div>
       <div class="flex justify-between items-center">
-        <p>
+        <SettingsHeading>
           {{
             i18nState.SETTINGS_PRESETS_MANAGEMENT ||
             languages.SETTINGS_PRESETS_MANAGEMENT ||
             'Presets Management'
           }}
-        </p>
+        </SettingsHeading>
         <div class="flex pr-4 gap-2 items-center">
           <div :data-tooltip="i18nState.PRESET_RELOAD_INFO">
             <button
@@ -332,6 +331,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import DemoModeSettings from '@/components/DemoModeSettings.vue'
+import SettingsHeading from '@/components/SettingsHeading.vue'
 import { useI18N } from '@/assets/js/store/i18n'
 import { Spinner } from './ui/spinner'
 import { Button } from '@/components/ui/button'

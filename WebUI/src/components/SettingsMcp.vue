@@ -1,31 +1,16 @@
 <template>
   <TooltipProvider>
-    <div class="flex flex-col gap-2 border border-border rounded-md p-3">
-      <!-- The panel's own header carries the master switch: the toggle and the
-           tools it governs are one block, so neither needs a row of its own in the
-           settings sidebar. Tool calling is a model capability, so when the model
-           has none the switch is dead and the header says why. -->
-      <div
-        class="flex items-center justify-between gap-3 border-b border-border pb-2"
-        :class="{ 'opacity-50': !textInference.modelSupportsToolCalling }"
-        :title="
-          !textInference.modelSupportsToolCalling
-            ? 'The selected model does not support tool calling.'
-            : undefined
-        "
-      >
-        <Label :for="'mcp-tools'" class="whitespace-nowrap font-medium">MCP tools</Label>
-        <Checkbox
-          id="mcp-tools"
-          :disabled="!textInference.modelSupportsToolCalling"
-          :model-value="textInference.mcpToolsEnabled"
-          @click="
-            textInference.modelSupportsToolCalling &&
-            (textInference.mcpToolsEnabled = !textInference.mcpToolsEnabled)
-          "
-        />
-      </div>
-
+    <SettingsPanel
+      title="MCP tools"
+      switch-id="mcp-tools"
+      :enabled="textInference.mcpToolsEnabled"
+      :disabled-reason="
+        textInference.modelSupportsToolCalling
+          ? undefined
+          : 'The selected model does not support tool calling.'
+      "
+      @update:enabled="textInference.mcpToolsEnabled = $event"
+    >
       <div
         v-show="textInference.modelSupportsToolCalling"
         :class="{ 'opacity-50': !textInference.mcpToolsEnabled }"
@@ -143,7 +128,7 @@
 
       <McpServerDialog v-model:open="showAddDialog" />
       <McpServerDialog v-model:open="showEditDialog" :edit-server="editServer" />
-    </div>
+    </SettingsPanel>
   </TooltipProvider>
 </template>
 
@@ -152,8 +137,8 @@ import { onMounted, ref } from 'vue'
 import { useMcp } from '@/assets/js/store/mcp'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { Label } from '@/components/ui/label'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
+import SettingsPanel from '@/components/SettingsPanel.vue'
 import {
   DropdownMenu,
   DropdownMenuTrigger,

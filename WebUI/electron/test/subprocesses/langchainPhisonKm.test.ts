@@ -219,9 +219,10 @@ describe('selectGroupContext', () => {
       startChunkIdx: 0,
       endChunkIdx: 2,
       source: 'doc.txt',
-      // Best-scoring chunk's loc is forwarded so Source Docs can cite something.
-      loc: { pageNumber: 4, lines: { from: 10, to: 20 } },
     })
+    // Intentionally omit loc — group spans many chunks, so a single page/line cite
+    // would be misleading; Source Docs shows the filename only.
+    expect(selected[0].metadata.loc).toBeUndefined()
   })
 
   it('falls back to the individual chunks when no group info is available', () => {

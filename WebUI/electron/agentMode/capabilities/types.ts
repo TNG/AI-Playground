@@ -91,6 +91,11 @@ export type AgentCapability = {
   planHandoff?: string
 }
 
+/** True when this capability defines the shape of the whole session, not an add-on. */
+export function shapesSession(capability: AgentCapability): boolean {
+  return !!(capability.ownSession || capability.planningEnd || capability.planHandoff)
+}
+
 /** A capability plus what it contributed to this session. */
 export type ResolvedCapability = {
   capability: AgentCapability

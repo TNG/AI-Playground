@@ -161,8 +161,8 @@
           type="checkbox"
           class="mt-0.5"
           :disabled="!textInference.thinkingEnabled"
-          :checked="textInference.planningThinkingOnly"
-          @change="textInference.planningThinkingOnly = !textInference.planningThinkingOnly"
+          :checked="agentMode.planningThinkingOnly"
+          @change="agentMode.planningThinkingOnly = !agentMode.planningThinkingOnly"
         />
         <span class="flex flex-col">
           <span class="text-foreground" :class="{ 'opacity-50': !textInference.thinkingEnabled }">

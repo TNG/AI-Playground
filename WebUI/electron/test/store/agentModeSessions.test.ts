@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
 import type { ChatPreset } from '@/assets/js/store/presets'
+import { takeLegacyPlanningThinkingOnly } from '@/assets/js/store/agentModeSessions'
 
 // Agent Mode is entered through a chat preset (Agent, Game Agent), and a session
 // belongs to the preset it was held with. These tests cover that association:
@@ -255,5 +256,27 @@ describe('agentMode sessions', () => {
     // No folder yet: the first turn mints one named after the request.
     expect(store.workspaceDir).toBe('')
     expect(store.activeSessionId).toBe('')
+  })
+})
+
+describe('takeLegacyPlanningThinkingOnly', () => {
+  it('prefers the active agent preset’s saved value and strips the key', () => {
+    const { value, bags } = takeLegacyPlanningThinkingOnly(
+      {
+        Agent: { thinkingEnabled: true, planningThinkingOnly: false },
+        'Game Agent': { planningThinkingOnly: true },
+      },
+      'Agent',
+    )
+    expect(value).toBe(false)
+    expect(bags.Agent).toEqual({ thinkingEnabled: true })
+    expect(bags['Game Agent']).toEqual({})
+  })
+
+  it('leaves bags untouched when the key was never stored', () => {
+    const original = { Agent: { thinkingEnabled: true } }
+    const { value, bags } = takeLegacyPlanningThinkingOnly(original, 'Agent')
+    expect(value).toBeUndefined()
+    expect(bags).toBe(original)
   })
 })

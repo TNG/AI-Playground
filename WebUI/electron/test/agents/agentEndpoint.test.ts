@@ -152,22 +152,23 @@ describe('the local endpoint of an agent turn', () => {
 
   it('keeps an OpenVINO /v3 base instead of appending /v1', async () => {
     const { setLlmServiceLookup } = await import('../../llmServerSnapshot.ts')
+    const previous = (serviceName: string) =>
+      serviceName === 'llamacpp-backend'
+        ? { get_info: () => ({ baseUrl: servedBy.baseUrl }) }
+        : undefined
     setLlmServiceLookup((serviceName) =>
       serviceName === 'openvino-backend'
         ? { get_info: () => ({ baseUrl: 'http://127.0.0.1:29000/v3' }) }
-        : serviceName === 'llamacpp-backend'
-          ? { get_info: () => ({ baseUrl: servedBy.baseUrl }) }
-          : undefined,
+        : previous(serviceName),
     )
-    const { localBaseUrl } = await import('../../agentMode/piLocalEndpoint.ts')
-    expect(
-      localBaseUrl(localConfig({ backend: 'openVINO', baseUrl: 'http://127.0.0.1:29000/v3' })),
-    ).toBe('http://127.0.0.1:29000/v3')
-    setLlmServiceLookup((serviceName) =>
-      serviceName === 'llamacpp-backend'
-        ? { get_info: () => ({ baseUrl: servedBy.baseUrl }) }
-        : undefined,
-    )
+    try {
+      const { localBaseUrl } = await import('../../agentMode/piLocalEndpoint.ts')
+      expect(
+        localBaseUrl(localConfig({ backend: 'openVINO', baseUrl: 'http://127.0.0.1:29000/v3' })),
+      ).toBe('http://127.0.0.1:29000/v3')
+    } finally {
+      setLlmServiceLookup(previous)
+    }
   })
 
   it('sends a step that follows a backend restart to the new server', async () => {

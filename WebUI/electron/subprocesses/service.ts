@@ -449,6 +449,19 @@ export const aiBackendServiceDir = () =>
       : path.join(__dirname, '../../../service'),
   )
 
+/**
+ * Thrown by `assertReadyToStart` when a start is attempted on a backend that is
+ * not provisioned. Distinct from a genuine startup failure: the backend never
+ * ran, so the honest status is 'notInstalled' (grey, "Install") rather than
+ * 'failed' (red, "Repair") — see the catch in `runStartup`.
+ */
+export class ServiceNotInstalledError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ServiceNotInstalledError'
+  }
+}
+
 export interface ApiService {
   readonly name: string
   readonly baseUrl: string
@@ -736,6 +749,22 @@ export abstract class LongLivedPythonApiService implements ApiService {
         this.lastStartupErrorDetails = errorDetails
       }
     } catch (error) {
+      // Nothing was ever spawned: the pre-start check found the backend not
+      // provisioned. Report that (grey / "Install") instead of a startup
+      // failure (red / "Repair") — a half-deleted leftover tree from a previous
+      // uninstall used to surface here as a failed component on a fresh install.
+      if (error instanceof ServiceNotInstalledError) {
+        this.appLogger.info(`not starting ${this.name}: ${error.message}`, this.name)
+        this.currentStatus = 'notInstalled'
+        // Not 'stopped': that value makes the guard at the top of start() reject
+        // the next start() as "currently stopping", so a start right after the
+        // component is installed would fail.
+        this.desiredStatus = 'notInstalled'
+        this.isSetUp = false
+        this.isCapturingStartupLogs = false
+        this.lastStartupErrorDetails = null
+        return this.currentStatus
+      }
       this.appLogger.error(` failed to start server due to ${error}`, this.name)
       this.currentStatus = 'failed'
       this.desiredStatus = 'failed'
@@ -824,19 +853,21 @@ export abstract class LongLivedPythonApiService implements ApiService {
    * imported lazily at model-load time), which would let listenServerReady
    * report "running" and force isSetUp = true — masking a broken install until
    * a much later, opaque runtime error. Verifying the backend is actually set
-   * up first turns that into a clean startup failure the setup wizard / backend
-   * management screen surface as "needs reinstall". serviceIsSetUp() is each
-   * backend's own authoritative provisioning check (the same one used to decide
-   * whether to auto-start at boot), so a false result here means the app already
-   * considers the backend not installed. Subclasses may override to add a more
-   * specific message.
+   * up first stops the start cleanly instead. serviceIsSetUp() is each backend's
+   * own authoritative provisioning check (the same one used to decide whether to
+   * auto-start at boot), so a false result here means the app already considers
+   * the backend not installed — hence `ServiceNotInstalledError`, which
+   * `runStartup` maps to 'notInstalled' (offer Install) rather than 'failed'
+   * (offer Repair). Subclasses may override to add a more specific message;
+   * throwing a plain Error there keeps the 'failed'/"needs reinstall" outcome,
+   * which is what a broken-but-present environment should report.
    */
   protected async assertReadyToStart(): Promise<void> {
     const ready = await this.serviceIsSetUp()
     if (!ready) {
       this.isSetUp = false
-      throw new Error(
-        `The ${this.name} environment is not fully installed. Reinstall this component to finish provisioning it before starting.`,
+      throw new ServiceNotInstalledError(
+        `The ${this.name} environment is not fully installed. Install this component to finish provisioning it before starting.`,
       )
     }
   }

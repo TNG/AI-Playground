@@ -115,22 +115,24 @@ describe('LongLivedPythonApiService start guard', () => {
     vi.clearAllMocks()
   })
 
-  it('fails the start without spawning when the backend is not set up', async () => {
+  it('reports not-installed without spawning when the backend is not set up', async () => {
     const service = makeFakeBackend()
     service.setUpResult = false // serviceIsSetUp() → false triggers the base guard
 
     const status = await service.start()
 
-    // The guard short-circuits startup: no process is spawned, the backend is
-    // marked failed + not-set-up, and the error is captured for the wizard /
-    // backend management screen to offer a reinstall.
+    // The guard short-circuits startup before anything is spawned. Nothing ran,
+    // so this is not a startup failure: the backend reports 'notInstalled' (the
+    // UI offers Install, grey) instead of 'failed' (Repair, red), and no error
+    // log is attached. A leftover tree from a previous uninstall used to land
+    // here and show ComfyUI as failed on a fresh install.
     expect(service.spawnCalled).toBe(false)
-    expect(status).toBe('failed')
+    expect(status).toBe('notInstalled')
     expect(service.isSetUp).toBe(false)
     const info = service.get_info()
-    expect(info.status).toBe('failed')
+    expect(info.status).toBe('notInstalled')
     expect(info.isSetUp).toBe(false)
-    expect(info.errorDetails?.stderr).toContain('not fully installed')
+    expect(info.errorDetails).toBeNull()
   })
 
   it('proceeds to spawn when the backend is set up', async () => {

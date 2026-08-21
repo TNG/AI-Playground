@@ -265,16 +265,48 @@ const qwen3BackendSetUp = computed(
   () => backendServices.info.find((s) => s.serviceName === 'qwen3-tts-backend')?.isSetUp === true,
 )
 
+// Qwen TTS ships as two separate downloads — one for the built-in voices
+// (`custom_voice`) and one for created voices (`voice_design`) — so track each.
+const customVoiceModelDownloaded = ref(false)
+const voiceDesignModelDownloaded = ref(false)
+const installing = ref(false)
+
 // Whether the model for the currently-selected voice is present on disk. Preset
 // voices and created voices use different weights, so this tracks the model the
 // active voice needs (mode is set implicitly by the voice selection).
-const ttsModelDownloaded = ref(false)
-const installing = ref(false)
+const ttsModelDownloaded = computed(() =>
+  qwen3Tts.defaultMode === 'voice_design'
+    ? voiceDesignModelDownloaded.value
+    : customVoiceModelDownloaded.value,
+)
+
+// How many of the two models are on disk. Drives the engine dot: full when both
+// are there, half when one is (the engine works, but the other voice kind still
+// needs a download), grey when neither is.
+const ttsModelsDownloadedCount = computed(
+  () => Number(customVoiceModelDownloaded.value) + Number(voiceDesignModelDownloaded.value),
+)
 
 // Engine picker: Qwen TTS (always), Kokoro (only in non-NVIDIA modes), and External
 // endpoint (only when enabled in App Settings). The dot reflects usability.
+type EngineItem = {
+  label: string
+  value: string
+  active: boolean
+  partial?: boolean
+  description?: string
+}
+
 const engineItems = computed(() => {
-  const items = [{ label: 'Qwen TTS', value: 'qwen3', active: ttsModelDownloaded.value }]
+  const items: EngineItem[] = [
+    {
+      label: 'Qwen TTS',
+      value: 'qwen3',
+      active: ttsModelsDownloadedCount.value === 2,
+      partial: ttsModelsDownloadedCount.value === 1,
+      description: `Built-in voices model: ${customVoiceModelDownloaded.value ? 'downloaded' : 'not downloaded'}. Created voices model: ${voiceDesignModelDownloaded.value ? 'downloaded' : 'not downloaded'}.`,
+    },
+  ]
   if (!productMode.isNvidiaModeSelected) {
     items.push({
       label: 'Kokoro (OpenVINO)',
@@ -306,13 +338,20 @@ watch(
 
 async function refreshModelInstalled() {
   if (!qwen3BackendSetUp.value) {
-    ttsModelDownloaded.value = false
+    customVoiceModelDownloaded.value = false
+    voiceDesignModelDownloaded.value = false
     return
   }
   try {
-    ttsModelDownloaded.value = await qwen3Tts.isModelInstalled(qwen3Tts.defaultMode)
+    const [customVoice, voiceDesign] = await Promise.all([
+      qwen3Tts.isModelInstalled('custom_voice'),
+      qwen3Tts.isModelInstalled('voice_design'),
+    ])
+    customVoiceModelDownloaded.value = customVoice
+    voiceDesignModelDownloaded.value = voiceDesign
   } catch {
-    ttsModelDownloaded.value = false
+    customVoiceModelDownloaded.value = false
+    voiceDesignModelDownloaded.value = false
   }
 }
 

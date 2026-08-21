@@ -11,6 +11,7 @@ import { extractMessage } from '../errors/appError'
 import { executeAgentTool, getAgentToolSpecs } from '../tools/agentBridge'
 import { chatTemplateKwargs } from '@/lib/samplingDefaults'
 import { currentPresetName } from '@/lib/presetRenames'
+import { registerAgentModeIpc, unregisterAgentModeIpc } from './agentModeIpc'
 
 // ── Agent Mode: renderer side of the Pi coding-agent integration ─────────────
 //
@@ -298,49 +299,34 @@ export const useAgentMode = defineStore(
     let turnCounter = 0
     let activeTurn: ActiveTurn | null = null
 
-    // Main-process pushes. Registered once; chunks are routed to the active
-    // turn's stream controller by turnId.
-    window.electronAPI.agentMode.onStreamChunk(({ turnId, chunk }) => {
-      if (!activeTurn || activeTurn.turnId !== turnId || activeTurn.closed) return
-      try {
-        activeTurn.controller.enqueue(chunk as UIMessageChunk)
-      } catch {
-        // Stream already closed (e.g. user aborted) — drop the chunk.
-      }
-    })
-    // Live tool output (Pi's tool_execution_update). Not part of the UI message
-    // protocol, so it rides its own channel and is merged by tool call id — the
-    // tool part renderers read it while the call is still running.
-    window.electronAPI.agentMode.onToolProgress(({ turnId, toolCallId, text }) => {
-      if (!activeTurn || activeTurn.turnId !== turnId) return
-      toolProgress.value = { ...toolProgress.value, [toolCallId]: text }
-    })
-    // Images a tool produced. They are decorations of the transcript on screen,
-    // never part of the message stream, so they live and die with the loaded
-    // conversation rather than with the turn.
-    window.electronAPI.agentMode.onToolImage((image) => {
-      const shown = toolImages.value[image.toolCallId] ?? []
-      toolImages.value = { ...toolImages.value, [image.toolCallId]: [...shown, image] }
-    })
-    watch(activeSessionId, () => {
-      toolImages.value = {}
-    })
-    window.electronAPI.agentMode.onTurnDone(({ turnId }) => {
-      if (!activeTurn || activeTurn.turnId !== turnId || activeTurn.closed) return
-      activeTurn.closed = true
-      try {
-        activeTurn.controller.close()
-      } catch {
-        // Already closed.
-      }
-      activeTurn = null
-    })
-    // Bridged tool execution: the main-process HarnessAgent proxies AIPG media
-    // tool calls back here, where the real implementations run against the
-    // Pinia stores. Errors flow back to Pi as the tool result — report them
-    // silently (the model surfaces/handles the failure in its reply).
-    window.electronAPI.agentMode.onExecuteTool(
-      async ({ requestId, toolCallId, toolName, input }) => {
+    registerAgentModeIpc({
+      onStreamChunk: ({ turnId, chunk }) => {
+        if (!activeTurn || activeTurn.turnId !== turnId || activeTurn.closed) return
+        try {
+          activeTurn.controller.enqueue(chunk as UIMessageChunk)
+        } catch {
+          // Stream already closed (e.g. user aborted) — drop the chunk.
+        }
+      },
+      onToolProgress: ({ turnId, toolCallId, text }) => {
+        if (!activeTurn || activeTurn.turnId !== turnId) return
+        toolProgress.value = { ...toolProgress.value, [toolCallId]: text }
+      },
+      onToolImage: (image) => {
+        const shown = toolImages.value[image.toolCallId] ?? []
+        toolImages.value = { ...toolImages.value, [image.toolCallId]: [...shown, image] }
+      },
+      onTurnDone: ({ turnId }) => {
+        if (!activeTurn || activeTurn.turnId !== turnId || activeTurn.closed) return
+        activeTurn.closed = true
+        try {
+          activeTurn.controller.close()
+        } catch {
+          // Already closed.
+        }
+        activeTurn = null
+      },
+      onExecuteTool: async ({ requestId, toolCallId, toolName, input }) => {
         const abort = new AbortController()
         runningTools.set(requestId, abort)
         try {
@@ -366,7 +352,10 @@ export const useAgentMode = defineStore(
           runningTools.delete(requestId)
         }
       },
-    )
+    })
+    watch(activeSessionId, () => {
+      toolImages.value = {}
+    })
 
     /**
      * Extra request-body fields for a local agent turn: the sampling the active
@@ -1017,5 +1006,6 @@ export const useAgentMode = defineStore(
 )
 
 if (import.meta.hot) {
+  import.meta.hot.dispose(() => unregisterAgentModeIpc())
   import.meta.hot.accept(acceptHMRUpdate(useAgentMode, import.meta.hot))
 }

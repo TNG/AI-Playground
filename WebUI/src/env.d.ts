@@ -692,11 +692,11 @@ type electronAPI = {
       toolSpecs?: AgentToolSpec[]
       mcpServerIds?: string[]
     }): Promise<AgentCapabilityInfo[]>
-    onStreamChunk(callback: (data: { turnId: string; chunk: unknown }) => void): void
-    onToolProgress(callback: (data: AgentToolProgress) => void): void
-    onToolImage(callback: (data: AgentToolImage) => void): void
-    onTurnDone(callback: (data: { turnId: string }) => void): void
-    onExecuteTool(callback: (data: AgentToolExecuteRequest) => void): void
+    onStreamChunk(callback: (data: { turnId: string; chunk: unknown }) => void): () => void
+    onToolProgress(callback: (data: AgentToolProgress) => void): () => void
+    onToolImage(callback: (data: AgentToolImage) => void): () => void
+    onTurnDone(callback: (data: { turnId: string }) => void): () => void
+    onExecuteTool(callback: (data: AgentToolExecuteRequest) => void): () => void
     submitToolResult(requestId: string, result: unknown, error?: string): Promise<void>
   }
   games: {

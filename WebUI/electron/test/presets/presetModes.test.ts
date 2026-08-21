@@ -88,7 +88,7 @@ describe('shipped agent presets', () => {
     expect(agentPresets.map((entry) => entry.preset.name).sort()).toEqual([
       'Agent',
       'Game Agent',
-      'Game Agent Quick',
+      'Quick Coder',
     ])
   })
 
@@ -116,8 +116,8 @@ describe('shipped agent presets', () => {
 
   // The quick preset is the same library, a much thinner session: one capability
   // that owns the whole prompt, no media and no browser to pull in.
-  it('gives Game Agent Quick the games folder and nothing but its own capability', () => {
-    const quick = agentPresets.find((entry) => entry.preset.name === 'Game Agent Quick')
+  it('gives Quick Coder the games folder and nothing but its own capability', () => {
+    const quick = agentPresets.find((entry) => entry.preset.name === 'Quick Coder')
       ?.preset as ChatPreset
     expect(quick.agentWorkspace).toBe('games')
     expect(quick.requiresCoding).toBe(true)

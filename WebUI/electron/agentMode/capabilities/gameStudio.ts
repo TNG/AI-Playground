@@ -20,7 +20,7 @@ import type { AgentCapability, CapabilityHost } from './types.ts'
 // The one tool it does add is `game`, which writes the library card — title,
 // description, icon. That is metadata about the folder the agent is working in, so
 // no file tool can express it, and it is what the game library and the generated
-// hub page display.
+// arcade page display.
 
 const GAME_STUDIO_SKILL: SkillSource = {
   name: 'html-game-studio',

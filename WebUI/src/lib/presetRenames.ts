@@ -10,10 +10,14 @@
 // Every store that persists a preset name runs its state through here on
 // hydration. Types only, no store imports, so it stays testable.
 
-/** Old preset name → the name it ships under now. */
+/**
+ * Old preset name → the name it ships under now. Lookup is single-hop, so a
+ * preset renamed twice lists every one of its old names against the current one.
+ */
 export const RENAMED_PRESETS: Record<string, string> = {
   'Game Maker': 'Game Agent',
-  'Game Maker Quick': 'Game Agent Quick',
+  'Game Maker Quick': 'Quick Coder',
+  'Game Agent Quick': 'Quick Coder',
 }
 
 /** The current name for a stored one, unchanged when it was never renamed. */

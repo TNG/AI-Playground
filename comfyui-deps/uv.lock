@@ -23,6 +23,7 @@ conflicts = [[
     { package = "aipg-comfyui", extra = "xpu" },
 ]]
 
+
 [[package]]
 name = "absl-py"
 version = "2.4.0"

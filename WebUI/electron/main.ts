@@ -118,7 +118,7 @@ import {
   provisionalName,
   publishGame,
   readGame,
-  writeHub,
+  writeArcade,
 } from './gameLibrary.ts'
 import { detectOem } from './subprocesses/oemDetection.ts'
 import { packagedResourcesRoot, writableConfigRoot } from './aipgRoot.ts'
@@ -2851,11 +2851,11 @@ function initEventHandle() {
   })
 
   // Regenerated on open so the gallery reflects the library as it is now.
-  ipcMain.handle('games:openHub', async () => {
+  ipcMain.handle('games:openArcade', async () => {
     const { vendor } = await detectOem(settings.oemVendorOverride)
-    const { hubPath } = writeHub({ vendor })
-    const error = await shell.openPath(hubPath)
-    return error ? { success: false, error } : { success: true, path: hubPath }
+    const { arcadePath } = writeArcade({ vendor })
+    const error = await shell.openPath(arcadePath)
+    return error ? { success: false, error } : { success: true, path: arcadePath }
   })
 
   // Web browser IPC handlers — drives the headless BrowserWindow that the chat

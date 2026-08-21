@@ -13,7 +13,7 @@ import { writeScaffold } from './gameScaffold.ts'
 //       game.json          ← this module's business
 //       index.html         ← the page the game runs in (scaffolded, then edited)
 //       game.js            ← the game itself (scaffolded, then edited)
-//       icon.png           ← what the library and the hub page show
+//       icon.png           ← what the library and the arcade page show
 //       generated/         ← art the media tool produced
 //     library.json         ← manifest for the (Q4) social portal upload
 //     index.html           ← generated gallery, openable without the app
@@ -60,7 +60,7 @@ export type GameEntry = GameMetadata & {
 }
 
 const METADATA_FILE = 'game.json'
-const HUB_FILE = 'index.html'
+const ARCADE_FILE = 'index.html'
 const MANIFEST_FILE = 'library.json'
 
 const MAX_SLUG_LENGTH = 40
@@ -234,19 +234,19 @@ export function listGames(root: string = getGamesDir()): GameEntry[] {
 
 /**
  * Save a draft into the library: name and description as the user confirmed them,
- * `published` on, and the hub page regenerated so it shows the new game.
+ * `published` on, and the arcade page regenerated so it shows the new game.
  */
 export function publishGame(
   dir: string,
   fields: { name?: string; description?: string } = {},
-  hub: HubOptions = {},
+  arcade: ArcadeOptions = {},
 ): GameEntry {
   const published = updateGame(dir, {
     ...(fields.name?.trim() ? { name: fields.name.trim() } : {}),
     ...(fields.description !== undefined ? { description: fields.description } : {}),
     published: true,
   })
-  writeHub(hub)
+  writeArcade(arcade)
   return published
 }
 
@@ -268,19 +268,19 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;')
 }
 
-/** What the hub page and the (Q4) portal upload both read. */
+/** What the arcade page and the (Q4) portal upload both read. */
 export type GameManifestEntry = {
   id: string
   name: string
   description: string
-  /** Root-relative path, so the manifest works from the hub page as-is. */
+  /** Root-relative path, so the manifest works from the arcade page as-is. */
   entry: string
   icon?: string
   createdAt: number
   updatedAt: number
 }
 
-export type HubOptions = {
+export type ArcadeOptions = {
   root?: string
   /** OEM the page is branded for; only 'acer' currently changes anything. */
   vendor?: string
@@ -301,12 +301,15 @@ function manifestOf(games: GameEntry[]): GameManifestEntry[] {
 /**
  * Write the gallery page plus the manifest it is built from.
  *
- * The manifest is inlined into the page instead of fetched: the hub is opened as
- * a `file://` URL, where `fetch` of a sibling file is blocked, and it has to work
- * with AI Playground closed. `library.json` is written next to it anyway — it is
- * the stable input for uploading a library to the social portal later.
+ * The manifest is inlined into the page instead of fetched: the arcade is opened
+ * as a `file://` URL, where `fetch` of a sibling file is blocked, and it has to
+ * work with AI Playground closed. `library.json` is written next to it anyway —
+ * it is the stable input for uploading a library to the social portal later.
  */
-export function writeHub(options: HubOptions = {}): { hubPath: string; manifestPath: string } {
+export function writeArcade(options: ArcadeOptions = {}): {
+  arcadePath: string
+  manifestPath: string
+} {
   const root = options.root ?? getGamesDir()
   fs.mkdirSync(root, { recursive: true })
   const games = manifestOf(listGames(root).filter((game) => game.published))
@@ -316,14 +319,14 @@ export function writeHub(options: HubOptions = {}): { hubPath: string; manifestP
     `${JSON.stringify({ generatedAt: Date.now(), vendor: options.vendor ?? null, games }, null, 2)}\n`,
     'utf-8',
   )
-  const hubPath = path.join(root, HUB_FILE)
-  fs.writeFileSync(hubPath, hubHtml(games, options.vendor), 'utf-8')
-  return { hubPath, manifestPath }
+  const arcadePath = path.join(root, ARCADE_FILE)
+  fs.writeFileSync(arcadePath, arcadeHtml(games, options.vendor), 'utf-8')
+  return { arcadePath, manifestPath }
 }
 
-function hubHtml(games: GameManifestEntry[], vendor?: string): string {
+function arcadeHtml(games: GameManifestEntry[], vendor?: string): string {
   const isAcer = vendor?.toLowerCase() === 'acer'
-  const title = isAcer ? 'Acer Game Hub' : 'My Games'
+  const title = isAcer ? 'My Acer Arcade' : 'My Arcade'
   const accent = isAcer ? '#83b81a' : '#4f8cff'
   return `<!doctype html>
 <html lang="en">
@@ -363,13 +366,13 @@ function hubHtml(games: GameManifestEntry[], vendor?: string): string {
 </head>
 <body>
 <header>
-  <h1>${isAcer ? 'Acer <span>Game Hub</span>' : 'My <span>Games</span>'}</h1>
+  <h1>${isAcer ? 'My Acer <span>Arcade</span>' : 'My <span>Arcade</span>'}</h1>
   <p class="lead">Games you made with AI Playground. Click one to play.</p>
 </header>
 <ul class="games" id="games"></ul>
 <p class="empty" id="empty" hidden>No games saved yet — build one in AI Playground's Game Agent.</p>
 <!-- Inlined on purpose: a file:// page cannot fetch its own library.json, and the
-     hub has to work with AI Playground closed. -->
+     arcade has to work with AI Playground closed. -->
 <script type="application/json" id="library">${inlineJson(games)}</script>
 <script>
   const games = JSON.parse(document.getElementById('library').textContent)

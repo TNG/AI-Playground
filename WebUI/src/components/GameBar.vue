@@ -30,10 +30,10 @@
       >
         Play
       </Button>
-      <!-- Publishing means putting the game on the generated hub page, which only
-           Acer ships. Elsewhere a game is simply the files in its folder. -->
+      <!-- Publishing means putting the game on the generated arcade page, which
+           only Acer ships. Elsewhere a game is simply the files in its folder. -->
       <Button
-        v-if="oemBranding.showsGameHub"
+        v-if="oemBranding.showsArcade"
         variant="secondary"
         class="px-3 py-1.5 rounded text-sm"
         :disabled="!game"
@@ -44,12 +44,12 @@
       <!-- Acer systems get the branded gallery page; everyone else opens games from
            the folder. -->
       <Button
-        v-if="oemBranding.showsGameHub"
+        v-if="oemBranding.showsArcade"
         variant="secondary"
         class="px-3 py-1.5 rounded text-sm"
-        @click="openHub"
+        @click="openArcade"
       >
-        {{ oemBranding.gameHubLabel }}
+        Open {{ oemBranding.arcadeLabel }}
       </Button>
       <IconButton
         icon="i-folder"
@@ -64,8 +64,8 @@
       <DialogHeader>
         <DialogTitle>{{ saveLabel }}</DialogTitle>
         <DialogDescription>
-          Games you add show up on the {{ oemBranding.gameHubLabel }} page, alongside the files in
-          your game folder.
+          Games you add show up in your {{ oemBranding.arcadeLabel }}, alongside the files in your
+          game folder.
         </DialogDescription>
       </DialogHeader>
       <div class="flex flex-col gap-4 py-2">
@@ -121,16 +121,16 @@ const gameName = computed(() => game.value?.name ?? 'New game')
 const subtitle = computed(() => {
   if (!game.value) return 'Describe the game you want and the agent starts building'
   if (game.value.description) return game.value.description
-  if (!oemBranding.showsGameHub) return 'Saved in your games folder'
+  if (!oemBranding.showsArcade) return 'Saved in your games folder'
   return game.value.published
-    ? `In your ${oemBranding.gameHubTarget}`
-    : `Draft — not added to the ${oemBranding.gameHubTarget} yet`
+    ? `In your ${oemBranding.arcadeTarget}`
+    : `Draft — not added to the ${oemBranding.arcadeTarget} yet`
 })
 
 const saveLabel = computed(() =>
   game.value?.published
-    ? `Update in ${oemBranding.gameHubTarget}`
-    : `Add to ${oemBranding.gameHubTarget}`,
+    ? `Update in ${oemBranding.arcadeTarget}`
+    : `Add to ${oemBranding.arcadeTarget}`,
 )
 
 const saveDialogOpen = ref(false)
@@ -161,7 +161,7 @@ async function save(): Promise<void> {
     }
     saveDialogOpen.value = false
     await agentMode.refreshCurrentGame()
-    toast.success(`${draftName.value.trim()} is on your ${oemBranding.gameHubTarget}.`)
+    toast.success(`${draftName.value.trim()} is in your ${oemBranding.arcadeTarget}.`)
   } finally {
     saving.value = false
   }
@@ -178,8 +178,8 @@ async function openFolder(): Promise<void> {
   await window.electronAPI.games.openFolder(game.value?.dir)
 }
 
-async function openHub(): Promise<void> {
-  const result = await window.electronAPI.games.openHub()
-  if (!result.success) toast.error(result.error ?? 'Could not open the game hub.')
+async function openArcade(): Promise<void> {
+  const result = await window.electronAPI.games.openArcade()
+  if (!result.success) toast.error(result.error ?? 'Could not open the arcade.')
 }
 </script>

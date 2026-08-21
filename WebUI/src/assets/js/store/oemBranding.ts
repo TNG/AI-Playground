@@ -4,16 +4,16 @@ import { computed, ref } from 'vue'
 // ── OEM co-branding ──────────────────────────────────────────────────────────
 //
 // On an Acer system the Game Agent feature is presented as "Acer Game Agent" and
-// gains a link to the generated Acer Game Hub page. This store is the only place
-// that decides such a thing, so the rest of the app asks for a label instead of
-// testing for a vendor.
+// gains a link to the generated "My Acer Arcade" page. This store is the only
+// place that decides such a thing, so the rest of the app asks for a label
+// instead of testing for a vendor.
 //
 // Renaming is presentation only: the preset keeps its identity as "Game Agent"
 // (that name keys `activePresetName`, last-used state and the preset files), so a
 // machine that stops reporting Acer does not lose its selection.
 
 /** Presets whose displayed name is prefixed with the OEM's brand. */
-const CO_BRANDED_PRESETS = new Set(['Game Agent'])
+const CO_BRANDED_PRESETS = new Set(['Game Agent', 'Quick Coder'])
 
 export const useOemBranding = defineStore('oemBranding', () => {
   const vendor = ref<string>('unknown')
@@ -55,19 +55,20 @@ export const useOemBranding = defineStore('oemBranding', () => {
    * and only Acer publishes to it. Everyone else keeps their games as the files
    * the agent wrote, reachable through the folder button.
    */
-  const showsGameHub = computed(() => isAcer.value)
-  const gameHubLabel = computed(() => `${brand.value || 'My'} Game Hub`)
-  /** The hub named as a destination, for the action that puts a game in it. */
-  const gameHubTarget = computed(() => `${brand.value || 'My'} Hub`)
+  const showsArcade = computed(() => isAcer.value)
+  /** The arcade as a place: "My Acer Arcade", "My Arcade". */
+  const arcadeLabel = computed(() => (brand.value ? `My ${brand.value} Arcade` : 'My Arcade'))
+  /** The arcade as a destination, for the action that puts a game in it. */
+  const arcadeTarget = computed(() => 'Arcade')
 
   return {
     vendor,
     manufacturer,
     isAcer,
     brand,
-    showsGameHub,
-    gameHubLabel,
-    gameHubTarget,
+    showsArcade,
+    arcadeLabel,
+    arcadeTarget,
     initialize,
     presetLabel,
   }

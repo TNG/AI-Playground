@@ -475,11 +475,23 @@ string in the same syntax as the backend-settings box; it rides `ensureBackendRe
 refreshed from a remote repo — and is spliced in _ahead_ of the user's parameters by
 `buildLlmServerArgs`, so a hand-written flag still wins and `--host 127.0.0.1` still comes last. A
 change to the string relaunches the server, since flags are baked into the command line. Only
-llama.cpp reads it; OVMS has a different command line and is passed nothing. Both Qwen3.8-27B entries
-use it for `--spec-default --spec-type draft-mtp`: the GGUFs carry MTP layers that llama-server
-otherwise loads and discards (`unused tensor blk.64.nextn.*`), and drafting off them measured
-5.9 → 12.5 tok/s on Arc B390 at ~65% draft acceptance for ~3 GB, with no second model to download.
-Generation speed, not reasoning depth, was the bulk of that 15-minute run.
+llama.cpp reads it; OVMS has a different command line and is passed nothing. The Qwen3.8-27B entries
+use it for `--spec-type draft-mtp`: the GGUFs carry MTP layers that llama-server otherwise loads and
+discards (`unused tensor blk.64.nextn.*`), and drafting off them roughly doubles decode on Arc B390
+(5.6 → 11.5 tok/s writing a game, 5.6 → 10.2 tok/s editing one) at ~86% draft acceptance for ~3 GB,
+with no second model to download. Generation speed, not reasoning depth, was the bulk of that
+15-minute run.
+
+**No n-grams on top of MTP.** The flag was `--spec-default --spec-type draft-mtp` until a sweep of
+every llama.cpp drafter showed `--spec-default` is what enables the n-gram layer, and that the layer
+only costs: on edit-heavy Game Agent turns — the case n-grams are supposed to win, since every
+`edit` quotes its context verbatim — it drafted 505 more tokens than MTP alone and had 27 _fewer_
+accepted, because at ~87% acceptance MTP has already taken the headroom. `ngram-simple` and
+`ngram-map-k4v` are worse still: both are slower than no speculation at all and both change the
+model's output at `temperature 0`. See
+[`docs/llamacpp-speculative-benchmark.md`](docs/llamacpp-speculative-benchmark.md) for the numbers,
+and note its method — timings on that box swing ±30% between identical runs, so configurations are
+compared on deterministic draft counters, not on stopwatch medians.
 
 **Thinking is capped for Qwen3.8, and only for Qwen3.8.** `reasoning_effort: low` did not stop it
 drafting: a Game Agent run spent 20 minutes and ~6k tokens writing the whole asteroids game inside
@@ -559,7 +571,7 @@ in `design.md`, and `first-write` for `game-studio-quick`, whose first write is 
 thinking is on, and the capability declares an end — a cloud turn or a template without
 `enable_thinking` is unaffected.
 
-**A one-turn session has to be split before that switch means anything.** Game Agent Quick's first
+**A one-turn session has to be split before that switch means anything.** Quick Coder's first
 traces showed the model doing everything in one reply — reasoning, then the whole game — so
 `first-write` flipped thinking off with nothing left to spend it on. A capability can therefore
 declare `AgentCapability.planHandoff`, which cuts the first turn in two: the model is asked for the
@@ -872,14 +884,15 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   the skills now say outright not to read a screenshot back as an image.
 - The agent fills the library card itself with the `game` tool (`set_metadata`, `set_icon`),
   following the `html-game-studio` skill (which asks for `set_metadata` _first_ — all three 35B
-  benchmark runs ran out of turns before naming their game); **Add to Acer Hub** in the game bar
+  benchmark runs ran out of turns before naming their game); **Add to Arcade** in the game bar
   flips `published` and regenerates `games/index.html` + `games/library.json`. The gallery inlines
   its manifest
   because a `file://` page cannot `fetch` a sibling json.
-- **Publishing is Acer-only.** The hub page is an Acer deliverable, so the add/update button and
-  the hub link both hang off `oemBranding.showsGameHub`; everywhere else a game is just the files
-  in its folder, reached with **Play** and the folder button. Wording comes from the store
-  (`gameHubTarget`), never from a hardcoded "Acer".
+- **Publishing is Acer-only.** The arcade page (titled "My Acer Arcade", "My Arcade" without a
+  brand) is an Acer deliverable, so the add/update button and the arcade link both hang off
+  `oemBranding.showsArcade`; everywhere else a game is just the files in its folder, reached with
+  **Play** and the folder button. Wording comes from the store (`arcadeLabel` for the place,
+  `arcadeTarget` for the action), never from a hardcoded "Acer".
 - Files the user attaches are copied into `<workspace>/attachments/` and referenced in the prompt
   as `@attachments/<file>`, which is how Pi refers to a file everywhere (its file tools strip the
   `@` when resolving). Pi's `read` hands an image back as an image part, so that one reference is
@@ -901,13 +914,14 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   the media folder (`aipgMediaRoots` in `electron/main.ts`).
 - Pretend to be on an Acer machine with the `oemVendorOverride` local setting
   (`window.electronAPI.updateLocalSettings({ oemVendorOverride: 'acer' })`, then reload):
-  the preset reads "Acer Game Agent", the game bar gains the **Add to Acer Hub** and **Acer Game
-  Hub** buttons and the gallery is Acer-branded. Setting it back to `null` is how to check the
+  the presets read "Acer Game Agent" / "Acer Quick Coder", the game bar gains the **Add to
+  Arcade** and **Open My Acer Arcade** buttons and the gallery is Acer-branded. Setting it back to
+  `null` is how to check the
   non-Acer experience. Testers without a console can hand-edit the same key in
   `{userData}/ai-playground-local-settings.json` (dev) or the per-user `settings.json`
   (packaged) and restart. Detection itself (`electron/subprocesses/oemDetection.ts`) is
   Windows-only, so without the override every machine is `unknown`.
-- **`Game Agent Quick` is the same library, one step long.** Its only capability is
+- **`Quick Coder` is the same library, one step long.** Its only capability is
   `game-studio-quick`, which _owns the session_ (`AgentCapability.ownSession`): the preset's
   instructions replace Pi's coding-agent prompt, the workspace orientation and the skills index,
   and the builtin toolbox is cut to `write` — plus the shared `game` card tool. Its folder is

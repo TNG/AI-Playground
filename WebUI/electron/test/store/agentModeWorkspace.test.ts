@@ -30,7 +30,7 @@ const GAME_AGENT: ChatPreset = {
 const GAME_AGENT_QUICK: ChatPreset = {
   type: 'chat',
   category: 'chat',
-  name: 'Game Agent Quick',
+  name: 'Quick Coder',
   backends: ['llamaCPP'],
   agentPreset: true,
   agentWorkspace: 'games',

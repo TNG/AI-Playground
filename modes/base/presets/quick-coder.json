@@ -1,8 +1,8 @@
 {
   "type": "chat",
   "category": "chat",
-  "name": "Game Agent Quick",
-  "description": "Describe a game and get it in one shot: the agent plans it, then writes the whole game into a single HTML file. No art, no play-testing.",
+  "name": "Quick Coder",
+  "description": "Describe a game and the agent plans it and writes out the code quickly — no debugging, no game testing, no art.",
   "displayPriority": 75,
   "tags": ["Agent", "Games", "Coding"],
   "backends": ["llamaCPP", "openVINO"],
@@ -13,7 +13,7 @@
   "requiresCoding": true,
   "preferredModels": {
     "openVINO": "OpenVINO/Qwen3.5-9B-int4-ov",
-    "llamaCPP": "unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-Q4_K_M.gguf"
+    "llamaCPP": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf"
   },
   "contextSize": 131072,
   "maxNewTokens": 32768,

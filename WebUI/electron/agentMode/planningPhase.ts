@@ -33,7 +33,7 @@ export const PLAN_FILE = 'design.md'
  * - `plan-file` — the agent writes `design.md`, then works down the checklist in
  *   it one edit at a time (Game Agent).
  * - `first-write` — the first file the agent writes *is* the deliverable, so
- *   planning is over the moment it lands (Game Agent Quick).
+ *   planning is over the moment it lands (Quick Coder).
  */
 export type PlanningEnd = 'plan-file' | 'first-write'
 

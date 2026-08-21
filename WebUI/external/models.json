@@ -176,7 +176,7 @@
       "instruct": { "temperature": 0.7, "topP": 0.8, "presencePenalty": 1.5 },
       "reasoningEffort": "low"
     },
-    "llamaCppArgs": "--spec-default --spec-type draft-mtp --reasoning-budget 2048 --reasoning-budget-message \"I have thought about this long enough. Time to act on what I have.\""
+    "llamaCppArgs": "--spec-type draft-mtp --reasoning-budget 2048 --reasoning-budget-message \"I have thought about this long enough. Time to act on what I have.\""
   },
   {
     "name": "unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-IQ3_XXS.gguf",
@@ -196,7 +196,7 @@
       "instruct": { "temperature": 0.7, "topP": 0.8, "presencePenalty": 1.5 },
       "reasoningEffort": "low"
     },
-    "llamaCppArgs": "--spec-default --spec-type draft-mtp --reasoning-budget 2048 --reasoning-budget-message \"I have thought about this long enough. Time to act on what I have.\""
+    "llamaCppArgs": "--spec-type draft-mtp --reasoning-budget 2048 --reasoning-budget-message \"I have thought about this long enough. Time to act on what I have.\""
   },
   {
     "name": "unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q4_K_XL.gguf",
@@ -216,7 +216,7 @@
       "instruct": { "temperature": 0.7, "topP": 0.8, "presencePenalty": 1.5 },
       "reasoningEffort": "low"
     },
-    "llamaCppArgs": "--spec-default --spec-type draft-mtp --reasoning-budget 2048 --reasoning-budget-message \"I have thought about this long enough. Time to act on what I have.\""
+    "llamaCppArgs": "--spec-type draft-mtp --reasoning-budget 2048 --reasoning-budget-message \"I have thought about this long enough. Time to act on what I have.\""
   },
   {
     "name": "unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf",
@@ -236,7 +236,7 @@
       "instruct": { "temperature": 0.7, "topP": 0.8, "presencePenalty": 1.5 },
       "reasoningEffort": "low"
     },
-    "llamaCppArgs": "--spec-default --spec-type draft-mtp --reasoning-budget 2048 --reasoning-budget-message \"I have thought about this long enough. Time to act on what I have.\""
+    "llamaCppArgs": "--spec-type draft-mtp --reasoning-budget 2048 --reasoning-budget-message \"I have thought about this long enough. Time to act on what I have.\""
   },
   {
     "name": "unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-UD-Q4_K_XL.gguf",

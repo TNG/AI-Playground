@@ -710,7 +710,7 @@ type electronAPI = {
     ): Promise<{ success: boolean; error?: string; game?: GameLibraryEntry }>
     openFolder(dir?: string): Promise<void>
     play(dir: string): Promise<{ success: boolean; error?: string }>
-    openHub(): Promise<{ success: boolean; error?: string; path?: string }>
+    openArcade(): Promise<{ success: boolean; error?: string; path?: string }>
   }
   webBrowser: {
     navigate(url: string): Promise<WebPageSnapshot>

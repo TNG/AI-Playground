@@ -170,9 +170,8 @@
           </span>
           <span class="text-xs text-muted-foreground">
             The agent thinks while it works out what to build and stops once it starts building:
-            Game Agent follows the checklist in its plan file from then on, and Game Agent Quick
-            writes its game as a second step, after the plan. Presets that do not plan think
-            throughout.
+            Game Agent follows the checklist in its plan file from then on, and Quick Coder writes
+            its game as a second step, after the plan. Presets that do not plan think throughout.
           </span>
         </span>
       </label>

@@ -16,7 +16,7 @@ const {
   setGameIcon,
   slugify,
   updateGame,
-  writeHub,
+  writeArcade,
 } = await import('../gameLibrary.ts')
 const { SCAFFOLD_ANCHORS } = await import('../gameScaffold.ts')
 
@@ -219,7 +219,7 @@ describe('listGames', () => {
   })
 })
 
-describe('publishGame and writeHub', () => {
+describe('publishGame and writeArcade', () => {
   it('saves the confirmed name and description into the library', () => {
     const game = createGame({ name: 'draft name' }, root)
     const published = publishGame(
@@ -239,8 +239,8 @@ describe('publishGame and writeHub', () => {
     fs.writeFileSync(path.join(game.dir, 'index.html'), '<html></html>')
     publishGame(game.dir, { description: 'Dodge asteroids.' }, { root })
 
-    const hub = fs.readFileSync(path.join(root, 'index.html'), 'utf-8')
-    const inlined = hub.match(/<script type="application\/json" id="library">(.*?)<\/script>/s)
+    const arcade = fs.readFileSync(path.join(root, 'index.html'), 'utf-8')
+    const inlined = arcade.match(/<script type="application\/json" id="library">(.*?)<\/script>/s)
     expect(inlined, 'gallery carries no inlined manifest').not.toBeNull()
     expect(JSON.parse(inlined![1])).toEqual([
       {
@@ -253,7 +253,7 @@ describe('publishGame and writeHub', () => {
       },
     ])
     // No fetch of a sibling file, which a file:// page would be refused.
-    expect(hub).not.toMatch(/fetch\(/)
+    expect(arcade).not.toMatch(/fetch\(/)
   })
 
   it('writes library.json as the stable input for uploading a library', () => {
@@ -275,18 +275,20 @@ describe('publishGame and writeHub', () => {
 
   it('brands the gallery for Acer only when the machine is one', () => {
     createGame({ name: 'Space Dodger' }, root)
-    writeHub({ root, vendor: 'acer' })
-    expect(fs.readFileSync(path.join(root, 'index.html'), 'utf-8')).toContain('Acer')
-    writeHub({ root, vendor: 'unknown' })
-    expect(fs.readFileSync(path.join(root, 'index.html'), 'utf-8')).not.toContain('Acer')
+    writeArcade({ root, vendor: 'acer' })
+    expect(fs.readFileSync(path.join(root, 'index.html'), 'utf-8')).toContain('My Acer Arcade')
+    writeArcade({ root, vendor: 'unknown' })
+    const neutral = fs.readFileSync(path.join(root, 'index.html'), 'utf-8')
+    expect(neutral).not.toContain('Acer')
+    expect(neutral).toContain('My Arcade')
   })
 
   it('escapes a game name so it cannot break out of the page', () => {
     const game = createGame({ name: 'Space Dodger' }, root)
     publishGame(game.dir, { name: '</script><img src=x onerror=alert(1)>' }, { root })
-    const hub = fs.readFileSync(path.join(root, 'index.html'), 'utf-8')
+    const arcade = fs.readFileSync(path.join(root, 'index.html'), 'utf-8')
     // The name is rendered via textContent from the inlined JSON, so the closing
     // tag must not survive as markup.
-    expect(hub).not.toContain('<img src=x')
+    expect(arcade).not.toContain('<img src=x')
   })
 })

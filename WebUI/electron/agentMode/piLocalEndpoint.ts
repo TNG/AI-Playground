@@ -1,4 +1,5 @@
 import { llmServerBaseUrl } from '../llmServerSnapshot.ts'
+import type { AgentModeModelConfig } from '@/types/agentIpc'
 
 // ── Where the local backend is, per request ──────────────────────────────────
 //

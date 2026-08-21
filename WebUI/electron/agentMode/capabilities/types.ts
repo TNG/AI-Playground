@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ToolDefinition } from '@earendil-works/pi-coding-agent'
 import type { SkillSource } from '../piCustomTools.ts'
 import type { PlanningEnd } from '../planningPhase.ts'
+import type { AgentToolSpec } from '@/types/agentIpc'
 
 // ── Agent capabilities ───────────────────────────────────────────────────────
 //

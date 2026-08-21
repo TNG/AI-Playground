@@ -35,7 +35,7 @@ const logger = appLoggerInstance
 const LOG_SOURCE = 'capabilities'
 
 /** Capabilities that are enabled for a new session unless the user says otherwise. */
-export const DEFAULT_CAPABILITY_IDS = ['media', 'web-debug'] as const
+export { DEFAULT_CAPABILITY_IDS } from '@/types/agentCapabilities'
 
 /** Built-in capabilities, in the order their tools are registered. */
 const BUILT_IN_CAPABILITIES: AgentCapability[] = [

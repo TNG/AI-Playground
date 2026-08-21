@@ -3,6 +3,7 @@ import pkg from '../package.json'
 import { LocalSettings } from './main'
 import { ModelPaths } from '@/assets/js/store/models'
 import { EmbedInquiry, IndexedDocument } from '@/assets/js/store/textInference'
+import type { AgentModeTurnConfig } from '@/types/agentIpc'
 
 function listen<T>(channel: string, callback: (data: T) => void): () => void {
   const listener = (_event: IpcRendererEvent, data: T) => callback(data)
@@ -252,7 +253,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     removeServer: (serverId: string) => ipcRenderer.invoke('mcp:removeServer', serverId),
   },
   agentMode: {
-    startTurn: (turnId: string, prompt: string, config: unknown) =>
+    startTurn: (turnId: string, prompt: string, config: AgentModeTurnConfig) =>
       ipcRenderer.invoke('agentMode:startTurn', turnId, prompt, config),
     cancel: () => ipcRenderer.invoke('agentMode:cancel'),
     resetSession: () => ipcRenderer.invoke('agentMode:resetSession'),

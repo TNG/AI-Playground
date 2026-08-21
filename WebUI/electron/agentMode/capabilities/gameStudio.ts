@@ -3,6 +3,7 @@ import { jsonSchemaParameters, textResult, type SkillSource } from '../piCustomT
 import { loadPi } from '../piRuntime.ts'
 import { readGame, setGameIcon, updateGame } from '../../gameLibrary.ts'
 import type { AgentCapability, CapabilityHost } from './types.ts'
+import { GAME_STUDIO_ID, GAME_STUDIO_QUICK_ID } from '@/types/agentCapabilities'
 
 // ── game-studio capability ───────────────────────────────────────────────────
 //
@@ -215,7 +216,7 @@ async function buildGameTool(host: CapabilityHost): Promise<ToolDefinition[]> {
 }
 
 export const gameStudioCapability: AgentCapability = {
-  id: 'game-studio',
+  id: GAME_STUDIO_ID,
   label: 'Game studio',
   summary:
     'Build playable browser games with generated art, then test them in the browser. Needs ' +
@@ -248,7 +249,7 @@ export const gameStudioCapability: AgentCapability = {
 // is also why it is not in the settings list — enabled next to a general agent
 // it would silently take that agent's prompt and tools away.
 
-export const GAME_STUDIO_QUICK_ID = 'game-studio-quick'
+export { GAME_STUDIO_QUICK_ID }
 
 export const gameStudioQuickCapability: AgentCapability = {
   id: GAME_STUDIO_QUICK_ID,

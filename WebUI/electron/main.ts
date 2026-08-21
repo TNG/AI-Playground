@@ -111,6 +111,7 @@ import {
   submitAgentToolResult,
 } from './agentMode/piAgentManager'
 import { importAttachment } from './agentMode/workspaceAttachments.ts'
+import { AgentModeTurnConfigSchema } from '@/types/agentIpc'
 import { getAudioDir, getGamesDir, getMediaDir } from './util.ts'
 import {
   createGame,
@@ -2803,8 +2804,12 @@ function initEventHandle() {
   // output on 'agentMode:toolProgress'.
   ipcMain.handle(
     'agentMode:startTurn',
-    async (_event, turnId: string, prompt: string, config: AgentModeTurnConfig) => {
-      return await startAgentTurn(turnId, prompt, config)
+    async (_event, turnId: string, prompt: string, config: unknown) => {
+      const parsed = AgentModeTurnConfigSchema.safeParse(config)
+      if (!parsed.success) {
+        return { success: false, error: parsed.error.message }
+      }
+      return await startAgentTurn(turnId, prompt, parsed.data)
     },
   )
 

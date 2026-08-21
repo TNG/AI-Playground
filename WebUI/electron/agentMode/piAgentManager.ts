@@ -57,6 +57,7 @@ import {
   type StreamChunk,
   type TurnSummary,
 } from './piStreamTranslate.ts'
+import type { AgentModeModelConfig, AgentModeTurnConfig, AgentToolSpec } from '@/types/agentIpc'
 
 // ── Agent Mode: Pi coding agent in the Electron main process ─────────────────
 //

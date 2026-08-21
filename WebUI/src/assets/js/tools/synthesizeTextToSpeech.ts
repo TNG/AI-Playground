@@ -90,7 +90,7 @@ export const synthesizeTextToSpeech = tool({
         scope,
       })
       try {
-        const { audioBase64 } = await tts.synthesizeToWav(args.text)
+        const { audioBase64, voice } = await tts.synthesizeToWav(args.text)
         const label = conversationLabelForTtsFile({
           conversationKey,
           messages: conversations.conversationList[conversationKey],
@@ -107,10 +107,10 @@ export const synthesizeTextToSpeech = tool({
         return {
           ok: true,
           message:
-            `Synthesized speech with ${engineLabel} (${tts.selectedKokoroVoice}). ` +
+            `Synthesized speech with ${engineLabel} (${voice}). ` +
             `Saved to ${savedFilePath}. The audio player is shown in the chat.`,
           savedFilePath,
-          speaker: tts.selectedKokoroVoice,
+          speaker: voice,
         }
       } catch (error) {
         activities.end(activityId, 'failed')

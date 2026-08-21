@@ -1299,14 +1299,22 @@ export const useHomeAgent = defineStore(
       meta?: InboundMeta,
     ): Promise<string | null> {
       const speechToText = useSpeechToText()
-      // Start the OVMS Whisper server on demand (no dialog; no-op if already up or
-      // the model isn't installed — a configured fallback still serves).
-      await speechToText.ensureTranscriptionServerRunning()
+      // Start the selected engine's server on demand. Both are dialog-free (a
+      // remote sender can't answer a download popup) and no-op when the backend or
+      // model isn't installed — a configured fallback still serves. The standalone
+      // sidecar needs this explicitly: its endpoint resolves from the registered
+      // service's baseUrl whether or not the process is running, so without the
+      // start below transcription would just fail to connect.
+      if (speechToText.selectedSttEngine === 'standalone') {
+        await speechToText.ensureStandaloneServerRunning()
+      } else {
+        await speechToText.ensureTranscriptionServerRunning()
+      }
       const endpoint = await speechToText.resolveTranscription()
       if (!endpoint) {
         await reply(
           adapter,
-          '⚠️ No speech-to-text is available. Install the OpenVINO backend or configure a fallback transcription endpoint in the Speech to Text preset settings.',
+          '⚠️ No speech-to-text is available. Install the OpenVINO backend or the standalone Whisper backend, or configure a fallback transcription endpoint in the Speech to Text preset settings.',
           meta,
         )
         return null

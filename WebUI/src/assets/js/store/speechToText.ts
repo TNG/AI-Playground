@@ -146,13 +146,26 @@ export const useSpeechToText = defineStore(
       return offeredSttEngines.value[0] ?? 'external'
     })
 
+    /** True once `initWhisperBackendFlag` has resolved (either way). Until then
+     *  `isWhisperBackendEnabled` is a placeholder `false`, so 'standalone' looks
+     *  un-offered — see the watch below. */
+    const whisperBackendFlagHydrated = ref(false)
+
     // Keep the selection valid for the current mode/feature flags: when the chosen
     // engine isn't offered (e.g. the persisted 'whisper' default in NVIDIA mode),
     // fall back to the preferred engine. This drives every consumer (mic, tool, STT
     // preset), not just the settings panel.
+    //
+    // Gated on the feature flag being loaded: the flag arrives over async IPC while
+    // the persisted selection is restored synchronously, so validating too early
+    // would see 'standalone' as not offered and overwrite a persisted 'standalone'
+    // choice with the preferred engine — which then gets persisted back, losing the
+    // user's engine on every launch. `whisperBackendFlagHydrated` is a watch source
+    // so the validation runs as soon as the flag is known.
     watch(
-      [offeredSttEngines, selectedSttEngine],
+      [offeredSttEngines, selectedSttEngine, whisperBackendFlagHydrated],
       () => {
+        if (!whisperBackendFlagHydrated.value) return
         if (!offeredSttEngines.value.includes(selectedSttEngine.value)) {
           selectedSttEngine.value = preferredSttEngine.value
         }
@@ -189,10 +202,38 @@ export const useSpeechToText = defineStore(
           })
         }
       }
-      if (svc.status !== 'running') {
+      // Re-read the service: the download popup above can take minutes, during
+      // which serviceInfoUpdate may have changed the status (or the user may have
+      // stopped/started it), making the captured `svc` snapshot stale.
+      const current = backendServices.info.find((s) => s.serviceName === 'whisper-backend') ?? svc
+      if (current.status !== 'running') {
         await backendServices.startService('whisper-backend')
       }
       return { downloadPrompted }
+    }
+
+    /**
+     * Dialog-free variant of {@link ensureStandaloneReady} for unattended paths
+     * (the Home Agent's remote voice notes): start the sidecar if it is installed
+     * and its model is already on disk, and otherwise do nothing. Never prompts —
+     * a remote sender cannot answer a download popup on the host.
+     */
+    async function ensureStandaloneServerRunning(): Promise<void> {
+      const svc = backendServices.info.find((s) => s.serviceName === 'whisper-backend')
+      if (!svc?.isSetUp) return
+      try {
+        const modelExists = await models.checkTranscriptionModelExists(
+          selectedStandaloneModel.value,
+        )
+        if (!modelExists) return
+        // Re-read after the await, for the same reason as in ensureStandaloneReady.
+        const current = backendServices.info.find((s) => s.serviceName === 'whisper-backend') ?? svc
+        if (current.status !== 'running') {
+          await backendServices.startService('whisper-backend')
+        }
+      } catch (error) {
+        console.error('Failed to ensure the standalone Whisper sidecar is running:', error)
+      }
     }
 
     /** OpenAI-compatible endpoint for the standalone Whisper sidecar, or null when
@@ -462,6 +503,11 @@ export const useSpeechToText = defineStore(
       } catch (e) {
         console.error('speechToText.initWhisperBackendFlag failed:', e)
         isWhisperBackendEnabled.value = false
+      } finally {
+        // Even on failure the flag is now "known" (false), so engine validation
+        // must be allowed to run — otherwise an IPC hiccup would leave the
+        // selection unvalidated for the whole session.
+        whisperBackendFlagHydrated.value = true
       }
     }
     void initWhisperBackendFlag()
@@ -477,9 +523,13 @@ export const useSpeechToText = defineStore(
       isStandaloneAvailable,
       isExternalAvailable,
       available,
+      // Exposed so consumers (SettingsStt's engine dropdown) can render the offered
+      // engines from the single source of truth instead of restating the rules.
+      offeredSttEngines,
       hasFallback,
       resolveTranscription,
       ensureStandaloneReady,
+      ensureStandaloneServerRunning,
       toggle,
       initialize,
       ensureTranscriptionServerRunning,

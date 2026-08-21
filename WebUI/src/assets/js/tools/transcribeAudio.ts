@@ -10,13 +10,30 @@ function conversationKeyFor(experimentalContext: unknown): string {
   return ctx?.conversationKey ?? useConversations().activeKey
 }
 
-/** Resolve a FilePart's data (data URL, blob/http URL, or URL object) to a Blob. */
-async function filePartToBlob(data: FilePart['data']): Promise<Blob> {
+/**
+ * Resolve a FilePart's data to a Blob. A FilePart carries either a URL (string
+ * data URL / blob: / http, or a URL object) or the raw bytes — the AI SDK hands
+ * over `Uint8Array`/`ArrayBuffer` (Buffer being a Uint8Array) whenever the part
+ * was built from binary rather than a URL, and those used to be rejected as
+ * "unsupported" even though the audio was right there.
+ */
+async function filePartToBlob(data: FilePart['data'], mediaType?: string): Promise<Blob> {
+  // Copy into a fresh ArrayBuffer-backed view: a Uint8Array may be backed by a
+  // SharedArrayBuffer, which Blob does not accept.
+  const asBlob = (bytes: Uint8Array<ArrayBuffer>) =>
+    new Blob([bytes], mediaType ? { type: mediaType } : undefined)
+  if (data instanceof Uint8Array) return asBlob(new Uint8Array(data))
+  if (data instanceof ArrayBuffer) return asBlob(new Uint8Array(data))
   const url = typeof data === 'string' ? data : data instanceof URL ? data.href : null
   if (!url) {
-    throw new Error('Unsupported audio data (expected a data URL or URL).')
+    throw new Error('Unsupported audio data (expected a data URL, URL, or raw bytes).')
   }
   const response = await fetch(url)
+  if (!response.ok) {
+    throw new Error(
+      `Could not read the audio attachment (${response.status} ${response.statusText}).`,
+    )
+  }
   return await response.blob()
 }
 
@@ -73,7 +90,7 @@ export const transcribeAudio = tool({
         throw new Error('Speech To Text is not available (no OVMS server or fallback configured).')
       }
 
-      const blob = await filePartToBlob(audioPart.data)
+      const blob = await filePartToBlob(audioPart.data, audioPart.mediaType)
       const transcript = await transcribeAudioBlob(blob, endpoint)
 
       activities.end(activityId, 'done')

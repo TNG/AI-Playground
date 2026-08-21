@@ -129,6 +129,11 @@ export const useTextToSpeech = defineStore(
      * Whether "speak replies aloud" is usable at all: either Kokoro (OVMS) or a
      * configured external endpoint. Used by the desktop Speak button / auto-speak and
      * the Home Agent voice reply now that the old global TTS enable toggle is gone.
+     *
+     * Deliberately excludes the Qwen3 engine: those consumers all go through
+     * `speak()` → `resolveSpeech()`, which only knows the OVMS and external
+     * endpoints. Qwen3 synthesis lives in the qwen3TextToSpeech store, so it must
+     * not be counted here — check the Qwen backend separately if you need it.
      */
     const available = computed(() => isKokoroAvailable.value || isExternalAvailable.value)
 
@@ -229,9 +234,21 @@ export const useTextToSpeech = defineStore(
      * Synthesize `text` with the currently-selected non-Qwen engine (Kokoro or the
      * external endpoint) and return the WAV audio as base64, so callers can save it
      * to disk and render an audio bubble (mirroring the Qwen3-TTS direct path).
+     *
+     * Also returns the voice actually used: the external engine may have its own
+     * configured voice, so callers must not assume `selectedKokoroVoice` when
+     * reporting what was spoken.
      */
-    async function synthesizeToWav(text: string): Promise<{ audioBase64: string }> {
+    async function synthesizeToWav(text: string): Promise<{ audioBase64: string; voice: string }> {
       let endpoint: SpeechEndpoint | null
+      if (selectedEngine.value === 'qwen3') {
+        // Qwen3 synthesizes through its own backend store (useQwen3TextToSpeech),
+        // not through a speech endpoint — callers branch on the engine before
+        // getting here. Fail loudly rather than silently synthesizing on OVMS.
+        throw new Error(
+          'synthesizeToWav does not support the Qwen3 engine — use the qwen3TextToSpeech store.',
+        )
+      }
       if (selectedEngine.value === 'external') {
         // Force the configured external endpoint (don't prefer a running OVMS).
         if (!hasFallback()) {
@@ -252,7 +269,7 @@ export const useTextToSpeech = defineStore(
         }
       }
       const { bytes } = await synthesizeSpeech(text, endpoint)
-      return { audioBase64: bytesToBase64(bytes) }
+      return { audioBase64: bytesToBase64(bytes), voice: endpoint.voice }
     }
 
     /**

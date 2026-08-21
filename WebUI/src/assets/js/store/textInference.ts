@@ -14,6 +14,9 @@ import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import * as toast from '@/assets/js/toast.ts'
 import { useActivities } from './activities'
 import { useI18N } from './i18n'
+import { useModelPreferences } from './modelPreferences'
+import { pathKeyForCatalogModel } from '../models/library'
+import { withPreferenceFlags } from '../models/favorites'
 
 const LlmBackendSchema = z.enum(llmBackendTypes)
 export type LlmBackend = z.infer<typeof LlmBackendSchema>
@@ -41,7 +44,15 @@ export type LlmModel = {
   npuSupport?: boolean
   largeMoe?: boolean
   isPredefined?: boolean
+  /** User preference from `store/modelPreferences.ts`; applied by pickers, not here. */
+  favorite?: boolean
 }
+
+/**
+ * Cloud model ids are remote and have no model directory, but favoriting one
+ * should still work, so their preferences are keyed under this synthetic path key.
+ */
+export const CLOUD_MODEL_PATH_KEY = 'cloud'
 
 export type ValidFileExtension = 'txt' | 'doc' | 'docx' | 'md' | 'pdf'
 
@@ -118,6 +129,7 @@ export const useTextInference = defineStore(
     const cloudMode = useCloudMode()
     const conversations = useConversations()
     const activities = useActivities()
+    const modelPreferences = useModelPreferences()
     const i18nState = useI18N().state
     // Tracks the in-flight backend-preparation activity (begin/end are paired with
     // start/completeBackendPreparation).
@@ -157,6 +169,18 @@ export const useTextInference = defineStore(
 
     // Track if we're currently switching presets (for UI feedback)
 
+    /**
+     * A model's `favorite` flag, resolved from `modelPreferences` at the
+     * point a list is derived. It deliberately does not live on the
+     * `models.models` snapshot: that snapshot is only rebuilt by
+     * `refreshModels()`, so a flag stored in it stays stale until the next catalog
+     * refresh, while the computeds below re-run on the preference write itself.
+     */
+    const flagsForCatalogModel = (type: string, backend: string | undefined, name: string) => {
+      const placement = pathKeyForCatalogModel(type, backend)
+      return placement ? modelPreferences.flagsFor(placement.pathKey, name) : { favorite: false }
+    }
+
     const llmModels: Ref<LlmModel[]> = computed(() => {
       const llmTypeModels = models.models.filter((m) =>
         (llmBackendTypes as readonly string[]).includes(m.type),
@@ -170,27 +194,35 @@ export const useTextInference = defineStore(
         }
       }
 
-      const newModels = llmTypeModels.map((m) => {
-        const selectedModelForType = selectedModels.value[m.type as LlmBackend]
-        const hasValidSelection = llmTypeModels.some((model) => model.name === selectedModelForType)
-        const isFirstForType = m.name === firstModelByType.get(m.type)
+      // `favorite` is only a sort key for the pickers: this list also resolves
+      // `activeModel`, the capability computeds and the download params, so
+      // nothing here may filter models out on a presentation preference.
+      const newModels: LlmModel[] = withPreferenceFlags(
+        llmTypeModels.map((m) => {
+          const selectedModelForType = selectedModels.value[m.type as LlmBackend]
+          const hasValidSelection = llmTypeModels.some(
+            (model) => model.name === selectedModelForType,
+          )
+          const isFirstForType = m.name === firstModelByType.get(m.type)
 
-        return {
-          name: m.name,
-          mmproj: m.mmproj,
-          type: m.type as LlmBackend,
-          downloaded: m.downloaded ?? false,
-          active: m.name === selectedModelForType || (!hasValidSelection && isFirstForType),
-          supportsToolCalling: m.supportsToolCalling,
-          supportsVision: m.supportsVision,
-          supportsReasoning: m.supportsReasoning,
-          supportsThinkingToggle: m.supportsThinkingToggle,
-          maxContextSize: m.maxContextSize,
-          npuSupport: m.npuSupport,
-          largeMoe: m.largeMoe,
-          isPredefined: m.isPredefined,
-        }
-      })
+          return {
+            name: m.name,
+            mmproj: m.mmproj,
+            type: m.type as LlmBackend,
+            downloaded: m.downloaded ?? false,
+            active: m.name === selectedModelForType || (!hasValidSelection && isFirstForType),
+            supportsToolCalling: m.supportsToolCalling,
+            supportsVision: m.supportsVision,
+            supportsReasoning: m.supportsReasoning,
+            supportsThinkingToggle: m.supportsThinkingToggle,
+            maxContextSize: m.maxContextSize,
+            npuSupport: m.npuSupport,
+            largeMoe: m.largeMoe,
+            isPredefined: m.isPredefined,
+          }
+        }),
+        (m) => flagsForCatalogModel(m.type, undefined, m.name),
+      )
 
       // Cloud Mode models are not downloaded locally — they come from the
       // selected provider's fetched /v1/models list. Surface them as type
@@ -227,6 +259,10 @@ export const useTextInference = defineStore(
             npuSupport: undefined,
             largeMoe: undefined,
             isPredefined: false,
+            // Cloud model ids have no on-disk path of their own, so their flags
+            // are keyed under the dedicated CLOUD_MODEL_PATH_KEY — which is what
+            // lets a cloud model be favorited like any other.
+            ...modelPreferences.flagsFor(CLOUD_MODEL_PATH_KEY, name),
           })
         })
       }
@@ -248,21 +284,27 @@ export const useTextInference = defineStore(
         }
       }
 
-      const newEmbeddingModels = llmEmbeddingTypeModels.map((m) => {
-        const selectedEmbeddingModelForType = selectedEmbeddingModels.value[m.backend as LlmBackend]
-        const hasValidSelection = llmEmbeddingTypeModels.some(
-          (model) => model.name === selectedEmbeddingModelForType,
-        )
-        const isFirstForBackend = m.name === firstEmbeddingByBackend.get(m.backend as string)
+      const newEmbeddingModels: LlmModel[] = withPreferenceFlags(
+        llmEmbeddingTypeModels.map((m) => {
+          const selectedEmbeddingModelForType =
+            selectedEmbeddingModels.value[m.backend as LlmBackend]
+          const hasValidSelection = llmEmbeddingTypeModels.some(
+            (model) => model.name === selectedEmbeddingModelForType,
+          )
+          const isFirstForBackend = m.name === firstEmbeddingByBackend.get(m.backend as string)
 
-        return {
-          name: m.name,
-          type: m.backend as LlmBackend,
-          downloaded: m.downloaded ?? false,
-          active:
-            m.name === selectedEmbeddingModelForType || (!hasValidSelection && isFirstForBackend),
-        }
-      })
+          return {
+            name: m.name,
+            type: m.backend as LlmBackend,
+            downloaded: m.downloaded ?? false,
+            active:
+              m.name === selectedEmbeddingModelForType || (!hasValidSelection && isFirstForBackend),
+          }
+        }),
+        // An embedding model's path key depends on its backend, which the mapped
+        // shape carries as `type`.
+        (m) => flagsForCatalogModel('embedding', m.type, m.name),
+      )
 
       console.log('llmEmbeddingModels changed', newEmbeddingModels)
       return newEmbeddingModels
@@ -282,6 +324,23 @@ export const useTextInference = defineStore(
 
     const selectEmbeddingModel = (backend: LlmBackend, modelName: string) => {
       selectedEmbeddingModels.value[backend] = modelName
+    }
+
+    /**
+     * Forget a model that no longer exists, e.g. after its files were deleted in
+     * Model Management. Leaving it selected would make the next chat turn try to
+     * load weights that are gone; clearing it lets the usual "first available
+     * model" fallback take over.
+     */
+    const clearSelectionOfModel = (modelName: string) => {
+      for (const key of Object.keys(selectedModels.value) as LlmBackend[]) {
+        if (selectedModels.value[key] === modelName) selectedModels.value[key] = null
+      }
+      for (const key of Object.keys(selectedEmbeddingModels.value) as LlmBackend[]) {
+        if (selectedEmbeddingModels.value[key] === modelName) {
+          selectedEmbeddingModels.value[key] = null
+        }
+      }
     }
 
     // Get the currently selected device ID for the active backend
@@ -1807,6 +1866,7 @@ export const useTextInference = defineStore(
       systemPrompt,
       selectModel,
       selectEmbeddingModel,
+      clearSelectionOfModel,
       getDownloadParamsForCurrentModelIfRequired,
       toggleMetrics,
       increaseFontSize,

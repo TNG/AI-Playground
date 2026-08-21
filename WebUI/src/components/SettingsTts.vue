@@ -76,7 +76,7 @@
          appear in the Voice list above and can be used from chat by name. -->
     <div class="mt-2 flex flex-col gap-4 border-t border-border pt-4">
       <div>
-        <h3 class="text-sm font-medium text-foreground">Create a custom voice</h3>
+        <SettingsHeading sub>Create a custom voice</SettingsHeading>
         <p class="text-xs text-muted-foreground">
           Describe a voice in words — timbre, age, accent, tone, and pace (e.g. “Authoritative
           American female voice speaking at a natural, brisk pace”). Save it to add it to your Voice
@@ -173,6 +173,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import DropDownNew from '@/components/DropDownNew.vue'
 import DeviceSelector from '@/components/DeviceSelector.vue'
+import SettingsHeading from '@/components/SettingsHeading.vue'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useQwen3TextToSpeech } from '@/assets/js/store/qwen3TextToSpeech'
 import { useBackendServices } from '@/assets/js/store/backendServices'

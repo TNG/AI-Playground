@@ -10,10 +10,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { ChevronDownIcon, MagnifyingGlassIcon } from '@heroicons/vue/24/solid'
+import { ChevronDownIcon, MagnifyingGlassIcon, StarIcon } from '@heroicons/vue/24/solid'
 import ModelCapabilities from './ModelCapabilities.vue'
 import CapabilityIcons from './CapabilityIcons.vue'
 import { modelHasCapability, type CapabilityKey } from '@/assets/js/capabilities'
+import { sortFavoritesFirst } from '@/assets/js/models/favorites'
 
 const textInference = useTextInference()
 const presetsStore = usePresets()
@@ -65,8 +66,7 @@ const items = computed(() => {
   }
   const searchLc = search.value.trim().toLowerCase()
 
-  return textInference.llmModels
-    .filter((m) => m.type === textInference.backend)
+  return sortFavoritesFirst(textInference.llmModels.filter((m) => m.type === textInference.backend))
     .filter((m) => {
       // Case-insensitive substring search on the visible label (last path segment).
       // Applied to every backend, including cloud.
@@ -135,6 +135,7 @@ const items = computed(() => {
       supportsReasoning: item.supportsReasoning,
       maxContextSize: item.maxContextSize,
       npuSupport: item.npuSupport,
+      favorite: item.favorite === true,
     }))
 })
 
@@ -232,6 +233,7 @@ watchEffect(() => {
               class="w-2 h-2 rounded-full mr-2 shrink-0"
               :class="item.active ? 'bg-primary' : 'bg-muted-foreground'"
             ></div>
+            <StarIcon v-if="item.favorite" class="size-3 mr-1.5 shrink-0 text-primary" />
             <span class="flex-1 truncate">{{ item.label }}</span>
             <div class="flex gap-1 ml-2 shrink-0">
               <CapabilityIcons

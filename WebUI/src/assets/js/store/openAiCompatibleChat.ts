@@ -43,6 +43,7 @@ import { useQwen3TextToSpeech } from './qwen3TextToSpeech'
 import { useTextToSpeech } from './textToSpeech'
 import { useSpeechToText } from './speechToText'
 import { transcribeAudioBlob } from '@/lib/transcribe'
+import * as toast from '@/assets/js/toast'
 import { buildTtsAudioFileName, conversationLabelForTtsFile } from '@/lib/ttsAudioFileName'
 
 // Web tools that share browseWeb's single "Browse the web" enablement toggle:
@@ -135,6 +136,8 @@ export const useOpenAiCompatibleChat = defineStore(
   'openAiCompatibleChat',
   () => {
     const textInference = useTextInference()
+    const textToSpeech = useTextToSpeech()
+    const speechToText = useSpeechToText()
     const cloudMode = useCloudMode()
     const backendServices = useBackendServices()
     const conversations = useConversations()
@@ -537,22 +540,27 @@ export const useOpenAiCompatibleChat = defineStore(
         // TTS is available when its selected engine is: Qwen3 (its own backend set
         // up) or Kokoro (OpenVINO installable / fallback configured).
         if (name === 'synthesizeTextToSpeech') {
-          const tts = useTextToSpeech()
           const qwenInfo = backendServices.info.find((s) => s.serviceName === 'qwen3-tts-backend')
           const ttsReady =
-            tts.selectedEngine === 'kokoro'
-              ? tts.isKokoroAvailable
-              : tts.selectedEngine === 'external'
-                ? tts.isExternalAvailable
+            textToSpeech.selectedEngine === 'kokoro'
+              ? textToSpeech.isKokoroAvailable
+              : textToSpeech.selectedEngine === 'external'
+                ? textToSpeech.isExternalAvailable
                 : qwenInfo?.isSetUp === true
           if (!ttsReady) continue
         }
-        // STT (Whisper) runs on OpenVINO — available when OpenVINO is installable and
-        // set up (non-NVIDIA), or a fallback transcription endpoint is configured.
+        // STT availability follows the SELECTED engine, mirroring the TTS block
+        // above: OpenVINO Whisper (non-NVIDIA + set up), the standalone torch
+        // sidecar (its own backend set up), or the external endpoint. Keying this
+        // off OpenVINO alone hid the tool from anyone running the standalone
+        // engine on a machine without OpenVINO.
         if (name === 'transcribeAudio') {
-          const speechToText = useSpeechToText()
-          const ovInfo = backendServices.info.find((s) => s.serviceName === 'openvino-backend')
-          const sttReady = ovInfo?.isSetUp === true || speechToText.hasFallback()
+          const sttReady =
+            speechToText.selectedSttEngine === 'whisper'
+              ? speechToText.isWhisperAvailable
+              : speechToText.selectedSttEngine === 'standalone'
+                ? speechToText.isStandaloneAvailable
+                : speechToText.isExternalAvailable
           if (!sttReady) continue
         }
         tools[name] = builtinTool
@@ -1333,8 +1341,7 @@ export const useOpenAiCompatibleChat = defineStore(
       },
     ): Promise<void> {
       const qwen3 = useQwen3TextToSpeech()
-      const tts = useTextToSpeech()
-      const engine = tts.selectedEngine
+      const engine = textToSpeech.selectedEngine
       const chat = getOrCreateChat(targetKey)
 
       // Show the user's message right away so the turn isn't blank while we
@@ -1391,14 +1398,14 @@ export const useOpenAiCompatibleChat = defineStore(
           conversationLabel: label,
         })
         if (engine !== 'qwen3') {
-          const { audioBase64 } = await tts.synthesizeToWav(question)
+          const { audioBase64, voice } = await textToSpeech.synthesizeToWav(question)
           const savedFilePath = await qwen3.saveWavToDisk(audioBase64, fileName)
           const engineLabel = engine === 'kokoro' ? 'Kokoro' : 'the external endpoint'
           output = {
             ok: true,
-            message: `Synthesized speech with ${engineLabel} (${tts.selectedKokoroVoice}).`,
+            message: `Synthesized speech with ${engineLabel} (${voice}).`,
             savedFilePath,
-            speaker: tts.selectedKokoroVoice,
+            speaker: voice,
             language: '',
             mode: 'custom_voice',
           }
@@ -1500,12 +1507,21 @@ export const useOpenAiCompatibleChat = defineStore(
      * "audio" message (label only) followed by an assistant message holding the
      * transcript text. Used by the STT preset for both the recorded-mic path (where
      * the audio recorder already produced the transcript) and the upload path.
+     *
+     * An empty transcript (silence, or an unintelligible clip) is not appended: a
+     * blank assistant bubble tells the user nothing about what went wrong. Both
+     * callers can produce one, so the check lives here — the user is told instead,
+     * matching what the Home Agent replies on the remote voice path.
      */
     function appendTranscriptTurn(
       transcript: string,
       targetKey: string,
       sourceLabel?: string,
     ): void {
+      if (!transcript.trim()) {
+        toast.warning("Couldn't make out any speech in that audio. Please try again.")
+        return
+      }
       const chat = getOrCreateChat(targetKey)
       const userMessage = {
         id: crypto.randomUUID(),
@@ -1535,7 +1551,6 @@ export const useOpenAiCompatibleChat = defineStore(
       opts?: { conversationKey?: string; sourceLabel?: string },
     ): Promise<void> {
       const targetKey = opts?.conversationKey ?? conversations.activeKey
-      const speechToText = useSpeechToText()
       const scope = { kind: 'chat' as const, conversationKey: targetKey }
       const activityId = activities.begin({
         category: 'tools',
@@ -1558,6 +1573,7 @@ export const useOpenAiCompatibleChat = defineStore(
           )
         }
         const text = await transcribeAudioBlob(blob, endpoint)
+        // Silence / no recognizable speech is handled inside appendTranscriptTurn.
         appendTranscriptTurn(text, targetKey, opts?.sourceLabel)
       } catch (error) {
         errors.report(error, {
@@ -1720,6 +1736,15 @@ export const useOpenAiCompatibleChat = defineStore(
       // and loads a chat model into a thread that never uses one.
       if (textInference.activePreset?.ttsPreset) {
         await regenerateSynthesis(messageId, targetKey)
+        return
+      }
+
+      // STT preset: same trap as TTS above — falling through would load a chat
+      // model into a thread that never uses one. Unlike TTS there is nothing to
+      // redo: the transcript's source audio is not kept in the thread (the user
+      // message is only a label), so re-transcribing is impossible.
+      if (textInference.activePreset?.sttPreset) {
+        toast.warning('A transcript cannot be regenerated — record or upload the audio again.')
         return
       }
 

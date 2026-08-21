@@ -4,9 +4,12 @@ Runs OpenAI Whisper via the transformers `automatic-speech-recognition` pipeline
 on the user-selected torch device (xpu / cuda / cpu). Unlike the OVMS engine this
 needs no OpenVINO, so it works in every product mode (incl. NVIDIA).
 
-Models are addressed by HuggingFace repo id (e.g. `openai/whisper-base`). When the
-weights are present in the shared model dir (WHISPER_MODEL_DIR) the local copy is
-used offline; otherwise the id is passed to transformers, which downloads it.
+Models are addressed by HuggingFace repo id (e.g. `openai/whisper-base`) but are
+always loaded from the shared model dir (WHISPER_MODEL_DIR), where the app's
+download popup writes them. The sidecar never fetches weights itself — it runs
+with HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE set (see whisperBackendService.ts) — so a
+repo id with no local directory is rejected outright instead of being handed to
+transformers, which would fail later with an opaque offline-cache error.
 """
 
 from __future__ import annotations
@@ -95,14 +98,25 @@ def _load_pipeline(repo_id: str):
         global _resolved_device
         device = _resolve_device()
         _resolved_device = device
-        source = local_dir_for(repo_id) or repo_id
+        local_dir = local_dir_for(repo_id)
+        if local_dir is None:
+            base = _shared_model_dir()
+            raise ValueError(
+                f"Whisper model '{repo_id}' is not downloaded"
+                + (
+                    f" (looked in {base})"
+                    if base
+                    else " (WHISPER_MODEL_DIR is not set)"
+                )
+                + ". Download it from the Speech To Text settings and try again."
+            )
         logger.info(
-            "loading whisper model %s on %s (source=%s)", repo_id, device, source
+            "loading whisper model %s on %s (source=%s)", repo_id, device, local_dir
         )
 
         asr = pipeline(
             task="automatic-speech-recognition",
-            model=source,
+            model=local_dir,
             dtype=_torch_dtype(device),
             device=_pipeline_device_arg(device),
         )

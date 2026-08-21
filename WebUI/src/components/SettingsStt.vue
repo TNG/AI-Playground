@@ -93,14 +93,12 @@ import { useSpeechToText } from '@/assets/js/store/speechToText'
 import type { SttEngine } from '@/assets/js/store/speechToText'
 import { WHISPER_STANDALONE_MODELS } from '@/assets/js/whisperConstants'
 import type { WhisperStandaloneModel } from '@/assets/js/whisperConstants'
-import { useProductMode } from '@/assets/js/store/productMode'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useModels } from '@/assets/js/store/models'
 import { useDialogStore } from '@/assets/js/store/dialogs'
 
 const languages = useI18N().state
 const speechToText = useSpeechToText()
-const productMode = useProductMode()
 const backendServices = useBackendServices()
 const models = useModels()
 const dialogs = useDialogStore()
@@ -109,27 +107,28 @@ const openVinoSetUp = computed(
   () => backendServices.info.find((s) => s.serviceName === 'openvino-backend')?.isSetUp === true,
 )
 
-// OpenVINO is offered only in non-NVIDIA modes; Standalone only when its optional
-// backend is enabled; External endpoint is always listed. The dot reflects usability.
-const engineItems = computed(() => {
-  const items: { label: string; value: string; active: boolean }[] = []
-  if (!productMode.isNvidiaModeSelected) {
-    items.push({ label: 'OpenVINO', value: 'whisper', active: speechToText.isWhisperAvailable })
-  }
-  if (speechToText.isWhisperBackendEnabled) {
-    items.push({
-      label: 'Standalone',
-      value: 'standalone',
-      active: speechToText.isStandaloneAvailable,
-    })
-  }
-  items.push({
-    label: 'External endpoint',
-    value: 'external',
-    active: speechToText.isExternalAvailable,
-  })
-  return items
-})
+// Which engines are offered (OpenVINO only off NVIDIA, Standalone only when its
+// optional backend feature is on, External always) is decided by the store, so the
+// dropdown and every other consumer agree. Here we only add the label and the dot,
+// which reflects usability.
+const ENGINE_LABELS: Record<SttEngine, string> = {
+  whisper: 'OpenVINO',
+  standalone: 'Standalone',
+  external: 'External endpoint',
+}
+
+const engineItems = computed(() =>
+  speechToText.offeredSttEngines.map((engine) => ({
+    label: ENGINE_LABELS[engine],
+    value: engine,
+    active:
+      engine === 'whisper'
+        ? speechToText.isWhisperAvailable
+        : engine === 'standalone'
+          ? speechToText.isStandaloneAvailable
+          : speechToText.isExternalAvailable,
+  })),
+)
 
 // Downloaded state per standalone Whisper model, so the dropdown dot is grey until
 // the weights are on disk. Re-checked on mount, when the backend/engine changes, and

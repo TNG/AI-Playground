@@ -286,7 +286,7 @@ export const usePresets = defineStore(
     // only) so this module stays importable in the headless/node preset tests:
     // `speechToText` pulls the renderer store graph (setupWizard → homeAgent) that
     // touches `window` at import time. The ref keeps the flag reactive.
-    type SttFallbackFlagStore = { fallback: { enabled: boolean } }
+    type SttFallbackFlagStore = { fallback: { enabled: boolean; baseUrl: string } }
     const sttFallbackStore = shallowRef<SttFallbackFlagStore | null>(null)
     if (typeof window !== 'undefined') {
       void import('./speechToText')
@@ -299,8 +299,28 @@ export const usePresets = defineStore(
         })
         .catch(() => {})
     }
+    /** Mirrors `speechToText.hasFallback()`: the checkbox alone is not enough, an
+     *  endpoint with no URL cannot transcribe anything — so a blank base URL must
+     *  not un-hide the STT preset in NVIDIA mode. */
     function sttExternalEnabled(): boolean {
-      return sttFallbackStore.value?.fallback.enabled === true
+      const fb = sttFallbackStore.value?.fallback
+      return fb?.enabled === true && fb.baseUrl.trim().length > 0
+    }
+
+    /** Whether a chat preset's STT entry must be hidden: STT needs OpenVINO, which
+     *  isn't installable in NVIDIA mode — so hide it there UNLESS an external
+     *  transcription endpoint is usable or the standalone (torch) Whisper backend is
+     *  offered (registered = feature on). Both need no OpenVINO; readiness/install is
+     *  surfaced in the preset panel. */
+    function sttPresetHidden(preset: ChatPreset): boolean {
+      if (!preset.sttPreset) return false
+      const backendServices = useBackendServices()
+      const productMode = useProductMode()
+      return (
+        productMode.isNvidiaModeSelected &&
+        !sttExternalEnabled() &&
+        !backendServices.info.some((s) => s.serviceName === 'whisper-backend')
+      )
     }
 
     // ========================================================================
@@ -707,7 +727,6 @@ export const usePresets = defineStore(
 
     function getPresetsByCategories(categories: string[], type?: string): Preset[] {
       const backendServices = useBackendServices()
-      const productMode = useProductMode()
       return presets.value
         .filter((preset) => {
           // If type is specified, filter by type
@@ -718,17 +737,7 @@ export const usePresets = defineStore(
             return false
           }
 
-          // STT presets need OpenVINO, which isn't installable in NVIDIA mode — so hide
-          // them there UNLESS an external transcription endpoint is enabled or the
-          // standalone (torch) Whisper backend is offered (registered = feature on).
-          // Both need no OpenVINO; readiness/install is surfaced in the preset panel.
-          if (
-            preset.type === 'chat' &&
-            (preset as ChatPreset).sttPreset &&
-            productMode.isNvidiaModeSelected &&
-            !sttExternalEnabled() &&
-            !backendServices.info.some((s) => s.serviceName === 'whisper-backend')
-          ) {
+          if (preset.type === 'chat' && sttPresetHidden(preset as ChatPreset)) {
             return false
           }
 
@@ -836,7 +845,6 @@ export const usePresets = defineStore(
 
     const chatPresets = computed(() => {
       const backendServices = useBackendServices()
-      const productMode = useProductMode()
       const hasNpuDevice = backendServices.info
         .find((s) => s.serviceName === 'openvino-backend')
         ?.devices?.some((d) => d.id.includes('NPU'))
@@ -854,14 +862,7 @@ export const usePresets = defineStore(
         if (p.type !== 'chat') return false
         const chatPreset = p as ChatPreset
         if (chatPreset.excludeFromChatPresetPicker) return false
-        if (
-          chatPreset.sttPreset &&
-          productMode.isNvidiaModeSelected &&
-          !sttExternalEnabled() &&
-          !backendServices.info.some((s) => s.serviceName === 'whisper-backend')
-        ) {
-          return false
-        }
+        if (sttPresetHidden(chatPreset)) return false
         if (chatPreset.requiresNpuSupport && !hasNpuDevice) {
           return false
         }

@@ -20,6 +20,7 @@ import {
   installBackendWithExtra,
   installExtraWheels,
   pipInstallRequirementsFromFile,
+  venvIsUsable,
 } from './uvBasedBackends/uv.ts'
 import {
   COMFYUI_DEPS_MARKER_FILENAME,
@@ -520,6 +521,22 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     const dirsExist = filesystem.existsSync(this.serviceDir)
     this.appLogger.info(`Checking if comfyUI directories exist: ${dirsExist}`, this.name)
     if (!dirsExist) return false
+
+    // The directory alone proves nothing. The Windows uninstaller's `RMDir /r`
+    // cannot remove the deeply nested paths a ComfyUI install creates
+    // (custom_nodes, site-packages), so it leaves a husk of the checkout behind.
+    // On the next install that husk made this check report "set up", the app
+    // auto-started it, the spawn failed, and ComfyUI showed as failed (red, with
+    // a Repair button) where it should have shown as not installed. Require the
+    // entrypoint we actually spawn (`main.py`) to be present.
+    const entrypoint = path.join(this.serviceDir, 'main.py')
+    if (!filesystem.existsSync(entrypoint)) {
+      this.appLogger.info(
+        `ComfyUI directory exists but ${entrypoint} is missing — treating as not installed`,
+        this.name,
+      )
+      return false
+    }
 
     const installedVersion = await this.getCurrentVersion()
     if (installedVersion) {
@@ -1059,7 +1076,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
           existingMarker?.mode === 'flexible' &&
           markerMatches &&
           !variantChanged &&
-          filesystem.existsSync(this.pythonEnvDir)
+          venvIsUsable(this.pythonEnvDir)
         ) {
           needsInstall = false
           this.appLogger.info(

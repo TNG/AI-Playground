@@ -36,6 +36,20 @@ export type TranscriptionEndpoint = {
 }
 
 /**
+ * Outcome of readying an STT engine.
+ *
+ * `downloadPrompted` is true when getting ready required a user-facing model
+ * download popup. Callers that were about to *start* something on the user's
+ * behalf (the mic button) must treat that as "this click went to the download,
+ * ask the user to click again": the click that opened the dialog is spent, and
+ * silently starting a recording when the download finishes captures whatever
+ * happens to be said next — which then gets transcribed as gibberish. Callers
+ * that only transcribe already-captured audio (the transcribeAudio tool, the
+ * Home Agent voice pipeline) can ignore it and proceed.
+ */
+export type SttReadyResult = { downloadPrompted: boolean }
+
+/**
  * Configurable fallback transcription endpoint. Used when the OVMS Whisper
  * server is not available (e.g. on macOS, where OVMS does not run). Points at
  * any OpenAI-compatible transcription server — e.g. a local whisper.cpp
@@ -149,9 +163,10 @@ export const useSpeechToText = defineStore(
     /**
      * Ensure the standalone Whisper sidecar is ready: its backend must be installed,
      * the selected model present (prompting the download popup if missing), and the
-     * service running.
+     * service running. Reports whether a download popup was shown — see
+     * `SttReadyResult`.
      */
-    async function ensureStandaloneReady(): Promise<void> {
+    async function ensureStandaloneReady(): Promise<SttReadyResult> {
       const svc = backendServices.info.find((s) => s.serviceName === 'whisper-backend')
       if (!svc?.isSetUp) {
         throw new Error(
@@ -159,10 +174,12 @@ export const useSpeechToText = defineStore(
             'Settings → Installation Management, then try again.',
         )
       }
+      let downloadPrompted = false
       const modelExists = await models.checkTranscriptionModelExists(selectedStandaloneModel.value)
       if (!modelExists) {
         const missing = await models.getMissingTranscriptionModel(selectedStandaloneModel.value)
         if (missing.length > 0) {
+          downloadPrompted = true
           await new Promise<void>((resolve, reject) => {
             dialogStore.showDownloadDialog(
               missing,
@@ -175,6 +192,7 @@ export const useSpeechToText = defineStore(
       if (svc.status !== 'running') {
         await backendServices.startService('whisper-backend')
       }
+      return { downloadPrompted }
     }
 
     /** OpenAI-compatible endpoint for the standalone Whisper sidecar, or null when
@@ -197,23 +215,26 @@ export const useSpeechToText = defineStore(
      * (or a fallback is configured), the model must be present (prompting the
      * standard download popup if missing), and the server must be running. Used by
      * the interactive STT paths (STT preset, mic, transcribeAudio tool) independent
-     * of any enable toggle.
+     * of any enable toggle. Reports whether a download popup was shown — see
+     * `SttReadyResult`.
      */
-    async function ensureWhisperReady(): Promise<void> {
+    async function ensureWhisperReady(): Promise<SttReadyResult> {
       const openVinoService = backendServices.info.find((s) => s.serviceName === 'openvino-backend')
       if (!openVinoService?.isSetUp) {
         // No OVMS: the fallback endpoint (if any) serves transcription directly.
-        if (hasFallback()) return
+        if (hasFallback()) return { downloadPrompted: false }
         throw new Error(
           'OpenVINO backend is required for Speech To Text. Install it from ' +
             'Settings → Installation Management, or configure a fallback endpoint.',
         )
       }
 
+      let downloadPrompted = false
       const modelExists = await models.checkTranscriptionModelExists(WHISPER_MODEL_NAME)
       if (!modelExists) {
         const missing = await models.getMissingTranscriptionModel(WHISPER_MODEL_NAME)
         if (missing.length > 0) {
+          downloadPrompted = true
           await new Promise<void>((resolve, reject) => {
             dialogStore.showDownloadDialog(
               missing,
@@ -228,6 +249,7 @@ export const useSpeechToText = defineStore(
       if (!url) {
         await backendServices.startTranscriptionServer(WHISPER_MODEL_NAME)
       }
+      return { downloadPrompted }
     }
 
     /**

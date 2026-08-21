@@ -368,6 +368,23 @@ export const installBackendWithExtra = async (
   }
 }
 
+/**
+ * Path to a venv's own interpreter. A venv is only usable if this exists — the
+ * `.venv` *directory* can survive as an empty husk (e.g. the Windows
+ * uninstaller's `RMDir /r` cannot delete the deeply nested `site-packages`
+ * paths a ComfyUI install creates, so it removes what it can and leaves the
+ * rest behind), and treating that husk as an installed environment makes the
+ * app auto-start a backend that cannot possibly boot.
+ */
+export const venvInterpreterPath = (venvPath: string): string =>
+  process.platform === 'win32'
+    ? path.join(venvPath, 'Scripts', 'python.exe')
+    : path.join(venvPath, 'bin', 'python')
+
+/** True only for a venv that still has its interpreter — see `venvInterpreterPath`. */
+export const venvIsUsable = (venvPath: string): boolean =>
+  fs.existsSync(venvInterpreterPath(venvPath))
+
 export const checkBackend = async (backend: string, extra?: UvExtra) => {
   const logger = loggerFor(`uv.check.${backend}`)
   await assertUv(logger)
@@ -406,14 +423,16 @@ export const checkBackendWithDetails = async (
   const logger = loggerFor(`uv.check-details.${backend}`)
   await assertUv(logger)
 
-  // Check if venv directory exists
+  // Check if the venv exists AND still owns an interpreter. A bare directory is
+  // not enough: a partially deleted venv (see `venvInterpreterPath`) would
+  // otherwise report as installed and be auto-started, failing at spawn time.
   let venvExists = false
   try {
-    await fs.promises.access(venvPath, fs.constants.F_OK)
+    await fs.promises.access(venvInterpreterPath(venvPath), fs.constants.F_OK)
     venvExists = true
-    logger.info(`Venv directory exists at ${venvPath}`)
+    logger.info(`Venv exists at ${venvPath}`)
   } catch {
-    logger.info(`Venv directory does not exist at ${venvPath}`)
+    logger.info(`Venv does not exist (or has no interpreter) at ${venvPath}`)
     venvExists = false
   }
 

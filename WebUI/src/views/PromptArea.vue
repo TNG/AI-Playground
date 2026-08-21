@@ -386,7 +386,7 @@ import {
   saveImageToMediaInput,
 } from '@/lib/utils.ts'
 import { useAudioRecorder } from '@/assets/js/store/audioRecorder'
-import { useSpeechToText } from '@/assets/js/store/speechToText'
+import { useSpeechToText, type SttReadyResult } from '@/assets/js/store/speechToText'
 import { useTextToSpeech } from '@/assets/js/store/textToSpeech'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import {
@@ -922,10 +922,19 @@ async function handleRecordingClick() {
   // first use), so transcription is ready when the clip is captured. The External
   // engine needs nothing started.
   try {
+    let ready: SttReadyResult = { downloadPrompted: false }
     if (speechToText.selectedSttEngine === 'whisper') {
-      await speechToText.ensureWhisperReady()
+      ready = await speechToText.ensureWhisperReady()
     } else if (speechToText.selectedSttEngine === 'standalone') {
-      await speechToText.ensureStandaloneReady()
+      ready = await speechToText.ensureStandaloneReady()
+    }
+    // This click was spent on the model download popup. Do not roll straight into
+    // a recording once the download finishes: the user is not talking yet, so the
+    // mic would capture whatever comes next and transcribe it as gibberish. Let
+    // them press the mic again now that the model is in place.
+    if (ready.downloadPrompted) {
+      toast.success('Speech To Text model downloaded. Press the microphone to start recording.')
+      return
     }
   } catch (error) {
     errors.report(error, {

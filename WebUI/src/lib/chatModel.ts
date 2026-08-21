@@ -5,6 +5,7 @@ import { useCloudMode, CLOUD_DEFAULT_MODEL } from '@/assets/js/store/cloudMode'
 import { getHomeAgentAuthToken, invalidateHomeAgentAuthToken } from '@/lib/loopbackAuth'
 import { chatTemplateKwargs } from '@/lib/samplingDefaults'
 import type { ChatTraceContext } from '@/lib/laminarTelemetry'
+import { openAiApiBase } from '@/lib/inferenceApiBase'
 
 // ── Shared chat model factory ────────────────────────────────────────────────
 //
@@ -74,7 +75,7 @@ export function createChatModel(): LanguageModel {
   function resolveInferenceApiBaseUrl(): string | undefined {
     const base = textInference.currentBackendUrl
     if (!base) return undefined
-    return /\/v\d+\/?$/.test(base) ? base.replace(/\/$/, '') : `${base}/v1`
+    return openAiApiBase(base)
   }
 
   const base = createOpenAICompatible({

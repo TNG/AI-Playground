@@ -11,6 +11,7 @@ import { extractMessage } from '../errors/appError'
 import { executeAgentTool, getAgentToolSpecs } from '../tools/agentBridge'
 import { chatTemplateKwargs } from '@/lib/samplingDefaults'
 import { currentPresetName } from '@/lib/presetRenames'
+import { openAiApiBase } from '@/lib/inferenceApiBase'
 import { registerAgentModeIpc, unregisterAgentModeIpc } from './agentModeIpc'
 import {
   DEFAULT_CAPABILITY_IDS,
@@ -440,7 +441,7 @@ export const useAgentMode = defineStore(
           // prefers the Home Agent / Cloud Mode loopback proxies, which reject
           // requests (401) without headers only the chat store attaches. Pi
           // dials this endpoint itself from the main process.
-          baseUrl: `${baseUrl}/v1`,
+          baseUrl: openAiApiBase(baseUrl),
           // The window the turn actually gets, matching the chat gauge's
           // denominator: with a dynamically sized backend (OpenVINO on GPU) the
           // configured `contextSize` is not what the model ends up with.

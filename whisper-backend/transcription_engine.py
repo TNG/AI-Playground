@@ -96,7 +96,9 @@ def _load_pipeline(repo_id: str):
         device = _resolve_device()
         _resolved_device = device
         source = local_dir_for(repo_id) or repo_id
-        logger.info("loading whisper model %s on %s (source=%s)", repo_id, device, source)
+        logger.info(
+            "loading whisper model %s on %s (source=%s)", repo_id, device, source
+        )
 
         asr = pipeline(
             task="automatic-speech-recognition",

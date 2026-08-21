@@ -12,8 +12,12 @@ import type { InferenceDefaults } from '@/types/shared'
 /** What the model is for. Drives the use-case filter in the management view. */
 export type ModelUseCase = 'llm' | 'embedding' | 'media' | 'speech'
 
-/** Which service consumes the weights. Doubles as the download API's `backend`. */
-export type ModelServiceBackend = 'llama_cpp' | 'openvino' | 'comfyui' | 'qwen3_tts'
+/**
+ * Which service consumes the weights. Doubles as the download API's `backend`,
+ * except for the sidecars (`qwen3_tts`, `whisper`) whose weights live in the
+ * OpenVINO-owned model tree — see `downloadParams.downloadBackendOf`.
+ */
+export type ModelServiceBackend = 'llama_cpp' | 'openvino' | 'comfyui' | 'qwen3_tts' | 'whisper'
 
 /**
  * Where the app learned about this model:

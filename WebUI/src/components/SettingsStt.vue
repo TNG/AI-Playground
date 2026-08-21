@@ -96,12 +96,14 @@ import type { WhisperStandaloneModel } from '@/assets/js/whisperConstants'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useModels } from '@/assets/js/store/models'
+import { useDialogStore } from '@/assets/js/store/dialogs'
 
 const languages = useI18N().state
 const speechToText = useSpeechToText()
 const productMode = useProductMode()
 const backendServices = useBackendServices()
 const models = useModels()
+const dialogs = useDialogStore()
 
 const openVinoSetUp = computed(
   () => backendServices.info.find((s) => s.serviceName === 'openvino-backend')?.isSetUp === true,
@@ -130,7 +132,10 @@ const engineItems = computed(() => {
 })
 
 // Downloaded state per standalone Whisper model, so the dropdown dot is grey until
-// the weights are on disk (checked on mount + when the backend becomes available).
+// the weights are on disk. Re-checked on mount, when the backend/engine changes, and
+// whenever the model-download popup closes — the standalone weights are pulled by
+// `ensureStandaloneReady` through that popup, so without the last watch the dot stays
+// grey until the panel is remounted.
 const standaloneDownloaded = ref<Record<string, boolean>>({})
 async function refreshStandaloneDownloaded() {
   try {
@@ -147,6 +152,12 @@ async function refreshStandaloneDownloaded() {
 onMounted(refreshStandaloneDownloaded)
 watch(() => speechToText.isStandaloneAvailable, refreshStandaloneDownloaded)
 watch(() => speechToText.selectedSttEngine, refreshStandaloneDownloaded)
+watch(
+  () => dialogs.downloadDialogVisible,
+  (visible) => {
+    if (!visible) refreshStandaloneDownloaded()
+  },
+)
 
 const standaloneModelItems = computed(() =>
   WHISPER_STANDALONE_MODELS.map((m) => ({

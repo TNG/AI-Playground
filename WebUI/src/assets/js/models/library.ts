@@ -259,7 +259,12 @@ export function buildEntries(input: BuildEntriesInput): ModelEntry[] {
         requiredMeta.get(id)?.model ?? speechById.get(id)?.name ?? readableModelName(model.name),
       useCase: model.useCase,
       pathKey,
-      serviceBackend: model.serviceBackend,
+      // A scan target tags a whole directory with one backend, but the STT/TTS
+      // trees are shared: OVMS Whisper, Qwen3-TTS and the standalone Whisper
+      // sidecar all live under them. Trust the speech catalog's backend when it
+      // knows this repo, so a downloaded sidecar model does not get mislabelled
+      // as OpenVINO — which would drop it from `entriesForProductMode` on NVIDIA.
+      serviceBackend: speechById.get(id)?.serviceBackend ?? model.serviceBackend,
       source: known ? 'catalog' : 'disk',
       downloaded: true,
       absolutePath: model.absolutePath,
@@ -556,4 +561,5 @@ export const BACKEND_LABELS: Record<ModelServiceBackend, string> = {
   openvino: 'OpenVINO',
   comfyui: 'ComfyUI',
   qwen3_tts: 'Qwen3-TTS',
+  whisper: 'Whisper',
 }

@@ -23,6 +23,7 @@
     "bench:gamemaker": "node --experimental-strip-types scripts/bench/gameMakerBatch.mts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "verify:pi": "node --experimental-strip-types scripts/verify/piIntegration.mts",
     "bench:game-judge": "node --experimental-strip-types scripts/bench/gameJudge.mts",
     "bench:speculative": "node --experimental-strip-types scripts/bench/speculative.mts",
     "e2e:fast": "playwright test --config playwright-e2e.config.ts agentic-smoke.spec.ts",

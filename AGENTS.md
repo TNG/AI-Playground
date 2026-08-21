@@ -34,6 +34,9 @@ npm run dev
 # Run all tests once
 npm test
 
+# Pi coding-agent integration smoke (no model call)
+npm run verify:pi
+
 # Run tests in watch mode
 npm run test:watch
 

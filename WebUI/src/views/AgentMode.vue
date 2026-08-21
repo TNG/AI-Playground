@@ -105,6 +105,7 @@ import AgentMessagePart from '@/components/AgentMessagePart.vue'
 import AgentActivitySummary from '@/components/AgentActivitySummary.vue'
 import GameBar from '@/components/GameBar.vue'
 import {
+  busyLabelOf,
   compactionOutputOf,
   groupTranscriptParts,
   isReasoningPart,
@@ -125,9 +126,7 @@ const panel = ref<HTMLElement | null>(null)
 // The game bar and the game-specific empty state belong to the preset that works
 // on a managed game folder, not to Agent Mode in general.
 const isGameAgent = computed(() => agentMode.agentWorkspaceKind === 'games')
-const emptyStateKind = computed(() =>
-  agentEmptyStateKind(agentMode.activeAgentPreset?.name),
-)
+const emptyStateKind = computed(() => agentEmptyStateKind(agentMode.activeAgentPreset?.name))
 
 function messageText(message: UIMessage): string {
   return (
@@ -175,73 +174,11 @@ function isFoldable(part: unknown): boolean {
   return !(toolCallId && agentMode.toolImages[toolCallId]?.length)
 }
 
-// ── Descriptive busy label ───────────────────────────────────────────────────
-//
-// Derive "what the agent is doing right now" from the last in-flight part,
-// instead of a generic "Agent is working…". A finished tool (output-available)
-// means the model is deciding its next step → "Thinking…".
-function truncate(value: unknown, max = 48): string {
-  if (typeof value !== 'string') return ''
-  return value.length > max ? `${value.slice(0, max)}…` : value
-}
-
-function toolActionLabel(name: string, input: Record<string, unknown> | undefined): string {
-  const filePath = truncate(input?.file_path)
-  switch (name) {
-    case 'read':
-      return `Reading ${filePath}…`
-    case 'edit':
-      return `Editing ${filePath}…`
-    case 'write':
-      return `Writing ${filePath}…`
-    case 'ls':
-      return 'Listing files…'
-    case 'bash':
-      return `Running: ${truncate(input?.command)}`
-    case 'navigate_page':
-      return input?.url ? `Opening ${truncate(input.url)}…` : 'Navigating…'
-    case 'list_console_messages':
-      return 'Reading browser console…'
-    case 'list_pages':
-      return 'Listing browser pages…'
-    case 'take_screenshot':
-      return 'Taking screenshot…'
-    case 'take_snapshot':
-      return 'Snapshotting page…'
-    case 'evaluate_script':
-      return 'Running script in page…'
-    case 'generateImage':
-      return 'Generating image…'
-    case 'editImage':
-      return 'Editing image…'
-    case 'media':
-      return 'Creating media…'
-    default:
-      return `Running ${name}…`
-  }
-}
-
-const busyLabel = computed<string>(() => {
-  const parts = agentMode.messages.at(-1)?.parts ?? []
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const lastPart = parts.at(-1) as any
-  if (!lastPart) return 'Agent is working…'
-  if (isReasoningPart(lastPart) && lastPart.state !== 'done') return 'Thinking…'
-  if (lastPart.type === 'text' && lastPart.state === 'streaming') return 'Writing response…'
-  const toolName = toolPartNameOf(lastPart)
-  if (toolName) {
-    if (lastPart.state === 'input-streaming' || lastPart.state === 'input-available') {
-      // A delegated media call knows more than its own name: say which step of
-      // the nested run is in flight instead of a generic "Creating media…".
-      return (
-        mediaRuns.activeStepLabel(lastPart.toolCallId) ?? toolActionLabel(toolName, lastPart.input)
-      )
-    }
-    // Tool finished — the model is generating its next move.
-    return 'Thinking…'
-  }
-  return 'Agent is working…'
-})
+const busyLabel = computed<string>(() =>
+  busyLabelOf(agentMode.messages.at(-1)?.parts ?? [], (toolCallId) =>
+    mediaRuns.activeStepLabel(toolCallId),
+  ),
+)
 
 function handlePromptSubmit(prompt: string) {
   void agentMode.generate(prompt)

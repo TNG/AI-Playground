@@ -118,9 +118,14 @@ describe('shipped agent presets', () => {
     expect(gameAgent.agentCapabilities).toEqual(
       expect.arrayContaining(['media', 'web-debug', 'game-studio']),
     )
-    // The instructions are what turn the agent into a game builder; an empty
-    // systemPrompt would leave it a generic coding agent in a games folder.
-    expect(gameAgent.systemPrompt?.length ?? 0).toBeGreaterThan(0)
+    // The instructions orient the session; the procedure lives in the
+    // html-game-studio skill, so this prompt must point at it rather than
+    // duplicate the whole workflow.
+    const prompt = gameAgent.systemPrompt ?? ''
+    expect(prompt).toMatch(/html-game-studio/)
+    expect(prompt).toMatch(/design\.md/)
+    expect(prompt.length).toBeGreaterThan(0)
+    expect(prompt.length).toBeLessThan(1200)
   })
 
   // The quick preset is the same library, a much thinner session: one capability

@@ -18,9 +18,15 @@ import {
   pathKeyForCatalogModel,
   readableModelName,
   sortEntries,
+  useCaseLabel,
   type BuildEntriesInput,
 } from './library'
 import type { ModelEntry, ScannedModel } from './types'
+import enUS from '../../i18n/en-US.json'
+import italian from '../../i18n/it.json'
+
+/** The real shipped strings, so a renamed key fails here rather than in the UI. */
+const english = { tag: 'en-US', strings: enUS as Record<string, string> }
 
 describe('normalizeModelKey', () => {
   it('reduces a catalog name and its on-disk form to the same key', () => {
@@ -574,12 +580,40 @@ describe('formatBytes / formatModifiedAt', () => {
 
   it('formats recency in the coarsest useful unit', () => {
     const now = Date.UTC(2026, 0, 10)
-    expect(formatModifiedAt(undefined, now)).toBe('—')
-    expect(formatModifiedAt(now - 5_000, now)).toBe('just now')
-    expect(formatModifiedAt(now - 5 * 60_000, now)).toBe('5m ago')
-    expect(formatModifiedAt(now - 3 * 3_600_000, now)).toBe('3h ago')
-    expect(formatModifiedAt(now - 2 * 86_400_000, now)).toBe('2d ago')
+    expect(formatModifiedAt(undefined, english, now)).toBe('—')
+    expect(formatModifiedAt(now - 5_000, english, now)).toBe('just now')
+    expect(formatModifiedAt(now - 5 * 60_000, english, now)).toBe('5m ago')
+    expect(formatModifiedAt(now - 3 * 3_600_000, english, now)).toBe('3h ago')
+    expect(formatModifiedAt(now - 2 * 86_400_000, english, now)).toBe('2d ago')
     // Beyond a month a relative age stops being informative.
-    expect(formatModifiedAt(now - 400 * 86_400_000, now)).toMatch(/\d/)
+    expect(formatModifiedAt(now - 400 * 86_400_000, english, now)).toMatch(/\d/)
+  })
+
+  it('takes every word it prints from the locale', () => {
+    const now = Date.UTC(2026, 0, 10)
+    // A locale that words the same units differently must change the output —
+    // otherwise something is still hard-coded in English.
+    const italian = {
+      tag: 'it',
+      strings: {
+        MODEL_MANAGER_TIME_JUST_NOW: 'adesso',
+        MODEL_MANAGER_TIME_MINUTES: '{count} min fa',
+        MODEL_MANAGER_TIME_HOURS: '{count} h fa',
+        MODEL_MANAGER_TIME_DAYS: '{count} g fa',
+      },
+    }
+    expect(formatModifiedAt(now - 5_000, italian, now)).toBe('adesso')
+    expect(formatModifiedAt(now - 5 * 60_000, italian, now)).toBe('5 min fa')
+    expect(formatModifiedAt(now - 3 * 3_600_000, italian, now)).toBe('3 h fa')
+    expect(formatModifiedAt(now - 2 * 86_400_000, italian, now)).toBe('2 g fa')
+    // The date fallback follows the app's language, not the machine's: 4 March
+    // renders day-first in Italian and month-first in US English.
+    const old = Date.UTC(2024, 2, 4)
+    expect(formatModifiedAt(old, italian, now)).not.toBe(formatModifiedAt(old, english, now))
+  })
+
+  it('labels use cases from the locale', () => {
+    expect(useCaseLabel('media', english)).toBe('Media creation')
+    expect(useCaseLabel('speech', { tag: 'it', strings: { ...enUS, ...italian } })).toBe('Voce')
   })
 })

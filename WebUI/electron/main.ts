@@ -43,7 +43,7 @@ import {
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import fs from 'fs'
-import { exec } from 'node:child_process'
+import { exec, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
 const execAsync = promisify(exec)
@@ -1475,7 +1475,10 @@ function initEventHandle() {
       return { success: false, error: resolved.error }
     }
     if (process.platform === 'win32') {
-      exec(`explorer.exe /select, "${resolved.path}"`)
+      // `execFile`, not `exec`: the path is passed as an argument rather than
+      // spliced into a shell command line, so a model directory containing a
+      // quote or an `&` opens the folder instead of running as a command.
+      execFile('explorer.exe', ['/select,', resolved.path])
     } else {
       shell.showItemInFolder(resolved.path)
     }
@@ -1485,16 +1488,18 @@ function initEventHandle() {
   // Permanent deletion, deliberately not a move to trash: freeing the disk space
   // immediately is the reason a user deletes a model. Every path is validated
   // against the configured model directories first — see resolveModelPath.
-  ipcMain.handle('deleteModelPath', (_event, modelPath: string) => {
+  ipcMain.handle('deleteModelPath', async (_event, modelPath: string) => {
     const resolved = pathsManager.resolveModelPath(modelPath)
     if ('error' in resolved) {
       return { success: false, error: resolved.error }
     }
     try {
+      // Async throughout: a model is tens of gigabytes across thousands of files,
+      // and the synchronous form froze the whole UI for the duration of the walk.
       // No `force`: a path that vanished should be reported, not silently
       // treated as a successful delete.
-      fs.rmSync(resolved.path, { recursive: true })
-      pathsManager.pruneEmptyModelDirs(resolved.path)
+      await fs.promises.rm(resolved.path, { recursive: true })
+      await pathsManager.pruneEmptyModelDirs(resolved.path)
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) }
     }
@@ -1507,7 +1512,7 @@ function initEventHandle() {
       : undefined
     for (const mirror of pathsManager.mirroredModelPaths(resolved.path, comfyUiModelsRoot)) {
       try {
-        fs.rmSync(mirror, { recursive: true, force: true })
+        await fs.promises.rm(mirror, { recursive: true, force: true })
       } catch (error) {
         // The primary copy is already gone; a failed mirror cleanup is worth a
         // log but must not report the delete as failed.

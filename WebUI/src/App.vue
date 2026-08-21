@@ -56,7 +56,7 @@
       <button
         v-if="globalSetup.loadingState === 'running'"
         :title="languages.MODEL_MANAGER_TITLE"
-        aria-label="Model management"
+        :aria-label="languages.MODEL_MANAGER_OPEN"
         @click="uiStore.openModelManager()"
       >
         <CircleStackIcon class="size-6 text-foreground"></CircleStackIcon>

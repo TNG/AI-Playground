@@ -7,6 +7,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { EllipsisHorizontalIcon } from '@heroicons/vue/24/solid'
+import { useI18N } from '@/assets/js/store/i18n'
 import type { ModelEntry } from '@/assets/js/models/types'
 
 const props = defineProps<{
@@ -25,6 +26,14 @@ const emit = defineEmits<{
   (e: 'delete'): void
 }>()
 
+const i18nState = useI18N().state
+
+// The trigger is an icon-only button, so its accessible name has to name the row
+// it belongs to — one "…" per row is otherwise indistinguishable from the next.
+const actionsLabel = computed(() =>
+  (i18nState.MODEL_MANAGER_ROW_ACTIONS ?? '').replace('{label}', props.entry.label),
+)
+
 // Capabilities only mean anything for chat models; a checkpoint has none.
 const canEditCapabilities = computed(() => props.entry.useCase === 'llm')
 const canDelete = computed(
@@ -37,7 +46,7 @@ const canDelete = computed(
     <DropdownMenuTrigger as-child>
       <button
         class="flex size-6 items-center justify-center rounded hover:bg-muted"
-        :aria-label="`${entry.label} actions`"
+        :aria-label="actionsLabel"
       >
         <EllipsisHorizontalIcon class="size-4 text-muted-foreground" />
       </button>

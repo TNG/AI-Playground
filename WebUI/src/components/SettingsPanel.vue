@@ -4,8 +4,11 @@
 // floating the switch above the panel. The two tool panels spelled this out
 // separately — same border, same header, same disabled-with-a-reason treatment,
 // two slightly different gaps and one heading each that could drift from the
-// other. `disabledReason` both greys the header and explains itself on hover; the
+// other. `disabledReason` greys the header and is spelled out underneath it — a
+// title attribute alone reaches neither a keyboard user nor a touch one, and a
+// switch that refuses to move with no visible explanation reads as a bug. The
 // switch is dead while it is set.
+import { computed } from 'vue'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 
@@ -20,6 +23,10 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{ (e: 'update:enabled', value: boolean): void }>()
+
+// Derived from `switchId`, which is already unique per panel, so two panels on one
+// screen can't both claim the same description id.
+const reasonId = computed(() => `${props.switchId}-disabled-reason`)
 
 function toggle() {
   if (props.disabledReason) return
@@ -40,10 +47,14 @@ function toggle() {
       <Checkbox
         :id="switchId"
         :disabled="!!disabledReason"
+        :aria-describedby="disabledReason ? reasonId : undefined"
         :model-value="enabled"
         @click="toggle"
       />
     </div>
+    <p v-if="disabledReason" :id="reasonId" class="text-xs text-muted-foreground">
+      {{ disabledReason }}
+    </p>
     <slot />
   </div>
 </template>

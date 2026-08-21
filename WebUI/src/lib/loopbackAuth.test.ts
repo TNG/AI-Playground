@@ -51,7 +51,7 @@ describe('qwen3TtsFetch', () => {
 })
 
 describe('invalidateBackendAuthToken', () => {
-  it('makes the next request fetch a fresh token instead of spending a 401 on the stale one', async () => {
+  it('makes the next request fetch a fresh token, not spend a 401 on the stale one', async () => {
     getBackendAuthToken
       .mockResolvedValueOnce('before-restart')
       .mockResolvedValueOnce('after-restart')

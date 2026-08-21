@@ -279,7 +279,17 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
   async function revealInFolder(id: string) {
     const entry = byId(id)
     if (!entry?.absolutePath) return
-    const result = await window.electronAPI.showModelInFolder(entry.absolutePath)
+    // The IPC call can reject outright (the handler throwing, the channel gone),
+    // not only resolve with `success: false` — an unhandled rejection here would
+    // leave the user with a menu item that silently did nothing.
+    const reveal = async () => {
+      try {
+        return await window.electronAPI.showModelInFolder(entry.absolutePath!)
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    }
+    const result = await reveal()
     if (!result.success) {
       errors.report(
         createAppError({
@@ -315,7 +325,14 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
       for (const id of ids) {
         const entry = byId(id)
         if (!entry?.absolutePath) continue
-        const result = await window.electronAPI.deleteModelPath(entry.absolutePath)
+        // A rejected call counts as a failed path like any other, so one bad
+        // entry cannot abandon the rest of a batch delete half-done.
+        let result: { success: boolean; error?: string }
+        try {
+          result = await window.electronAPI.deleteModelPath(entry.absolutePath)
+        } catch (error) {
+          result = { success: false, error: error instanceof Error ? error.message : String(error) }
+        }
         if (result.success) {
           deleted += 1
           // A model that is gone should not stay selected in Chat Settings.

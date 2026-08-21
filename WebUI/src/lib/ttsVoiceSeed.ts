@@ -34,9 +34,16 @@ export function randomVoiceSeed(): number {
   return buf[0] % SEED_RANGE
 }
 
-/** The seed to synthesize with: the pinned one, else the description-derived one. */
+/**
+ * The seed to synthesize with: the pinned one, else the description-derived one.
+ *
+ * A pinned seed is only honoured inside the range the generators produce. Voices
+ * are persisted, so a value from an older build or a hand-edited settings file
+ * can be anything — and a negative or out-of-int32 seed is rejected by torch,
+ * which would fail the synthesis rather than merely pick a different speaker.
+ */
 export function seedForVoice(voice: { name: string; instruct: string; seed?: number }): number {
-  return Number.isInteger(voice.seed)
-    ? (voice.seed as number)
-    : stableVoiceSeed(voice.name, voice.instruct)
+  const pinned = voice.seed
+  if (Number.isInteger(pinned) && pinned! >= 0 && pinned! < SEED_RANGE) return pinned!
+  return stableVoiceSeed(voice.name, voice.instruct)
 }

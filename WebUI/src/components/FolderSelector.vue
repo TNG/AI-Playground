@@ -4,7 +4,7 @@
       class="flex-auto v-folder-input"
       v-model="folder"
       type="text"
-      :aria-label="label"
+      :aria-label="fieldLabel"
       @change="emits('update:folder', folder)"
     />
     <button class="w-6 h-6" :aria-label="browseLabel" :title="browseLabel" @click="chooseFolder">
@@ -15,6 +15,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import * as clientAPI from '@/assets/js/clientAPI'
+import { useI18N } from '@/assets/js/store/i18n'
 
 const props = defineProps<{
   folder: string
@@ -22,7 +23,17 @@ const props = defineProps<{
   label?: string
 }>()
 
-const browseLabel = computed(() => (props.label ? `Browse for ${props.label}` : 'Browse'))
+const i18nState = useI18N().state
+
+// Callers that pass no `label` still need both controls named, so each falls back
+// to the generic wording rather than to an empty accessible name.
+const fieldLabel = computed(() => props.label ?? i18nState.COM_FOLDER_PATH)
+
+const browseLabel = computed(() =>
+  props.label
+    ? (i18nState.COM_BROWSE_FOR ?? '').replace('{label}', props.label)
+    : i18nState.COM_BROWSE,
+)
 
 const folder = ref(props.folder)
 

@@ -74,8 +74,9 @@
              is a row of its own, so the right-hand pair sits in its half exactly as
              the left one does. -->
         <div class="grid grid-cols-2 gap-4">
-          <SettingsRow :label="languages.ANSWER_MAX_TOKENS">
+          <SettingsRow :label="languages.ANSWER_MAX_TOKENS" label-for="chat-max-tokens">
             <input
+              id="chat-max-tokens"
               type="number"
               v-model="textInference.maxTokens"
               min="0"
@@ -87,8 +88,10 @@
           <SettingsRow
             v-if="textInference.contextSizeSettingSupported"
             :label="languages.ANSWER_CONTEXT_SIZE"
+            label-for="chat-context-size"
           >
             <input
+              id="chat-context-size"
               type="number"
               v-model="textInference.contextSize"
               min="512"
@@ -176,9 +179,10 @@
              is several rows tall and its label belongs beside its first line. -->
         <SettingsRow v-if="advancedMode" align="start">
           <template #label>
-            <Label class="whitespace-nowrap pt-2">System Prompt</Label>
+            <Label for="chat-system-prompt" class="whitespace-nowrap pt-2">System Prompt</Label>
           </template>
           <Textarea
+            id="chat-system-prompt"
             v-model="textInference.systemPrompt"
             placeholder="You are a helpful AI assistant."
             class="min-h-[100px] text-sm"

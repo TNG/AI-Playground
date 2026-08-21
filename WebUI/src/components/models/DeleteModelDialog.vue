@@ -3,7 +3,7 @@
 // "are you sure": the files do not go to the system trash, so the dialog names
 // the exact paths, the space reclaimed, and every way this can bite — a preset
 // that needs the model, or the model currently selected in Chat Settings.
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { formatBytes } from '@/assets/js/models/library'
 import { useTextInference } from '@/assets/js/store/textInference'
 import type { ModelEntry } from '@/assets/js/models/types'
@@ -13,6 +13,13 @@ const props = defineProps<{ entries: ModelEntry[] }>()
 const emit = defineEmits<{ (e: 'cancel'): void; (e: 'confirm'): void }>()
 
 const textInference = useTextInference()
+
+const cancelButton = ref<HTMLButtonElement | null>(null)
+
+// Focus starts on Cancel, not on the destructive button: a stray Enter on a
+// dialog that deletes files permanently must not be what confirms it. It is also
+// what puts focus inside the dialog so Escape reaches the handler below.
+onMounted(() => cancelButton.value?.focus())
 
 const totalBytes = computed(() =>
   props.entries.reduce((total, entry) => total + (entry.sizeBytes ?? 0), 0),
@@ -42,8 +49,10 @@ const selectedWarnings = computed(() =>
     >
       <div
         role="dialog"
+        aria-modal="true"
         :aria-label="languages.MODEL_MANAGER_DELETE_TITLE"
         class="flex max-h-[80vh] w-[560px] flex-col gap-4 overflow-y-auto rounded-2xl bg-card p-8 text-foreground shadow-2xl"
+        @keydown.esc="emit('cancel')"
       >
         <h2 class="text-lg font-semibold">{{ languages.MODEL_MANAGER_DELETE_TITLE }}</h2>
 
@@ -97,7 +106,11 @@ const selectedWarnings = computed(() =>
         </p>
 
         <div class="flex justify-end gap-3">
-          <button class="rounded bg-muted px-4 py-1.5 text-sm" @click="emit('cancel')">
+          <button
+            ref="cancelButton"
+            class="rounded bg-muted px-4 py-1.5 text-sm"
+            @click="emit('cancel')"
+          >
             {{ languages.COM_CANCEL }}
           </button>
           <button

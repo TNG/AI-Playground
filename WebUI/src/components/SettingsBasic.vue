@@ -13,7 +13,6 @@
     </div>
 
     <DemoModeBlocker>
-      <div class="flex flex-col gap-3"></div>
       <div class="flex flex-col gap-3">
         <SettingsHeading>{{ languages.SETTINGS_MODEL_HUGGINGFACE_SETTINGS }}</SettingsHeading>
         <SettingsHeading sub>{{ languages.SETTINGS_MODEL_HUGGINGFACE_API_TOKEN }}</SettingsHeading>

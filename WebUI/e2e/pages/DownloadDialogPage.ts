@@ -47,11 +47,13 @@ export class DownloadDialogPage {
   /** Wait for the dialog and return the repo ids it lists, without downloading. */
   async listedModels(timeout = 15_000): Promise<string[]> {
     await this.dialog.waitFor({ state: 'visible', timeout })
-    // The first cell of each body row is the repo id (see DownloadDialog.vue).
-    const rows = this.dialog.locator('tbody tr')
+    // Rows carrying a `cell` are the body rows — the header's are `columnheader`s
+    // — and the first cell of each is the repo id (see DownloadDialog.vue).
+    const rows = this.dialog.getByRole('row').filter({ has: this.page.getByRole('cell') })
+    const count = await rows.count()
     const ids: string[] = []
-    for (let i = 0; i < (await rows.count()); i++) {
-      ids.push((await rows.nth(i).locator('td').first().innerText()).trim())
+    for (let i = 0; i < count; i++) {
+      ids.push((await rows.nth(i).getByRole('cell').first().innerText()).trim())
     }
     return ids
   }

@@ -369,6 +369,11 @@ export const DEFAULT_SORT: ModelSort = { key: 'name', direction: 'asc' }
 /**
  * Favorites are always pinned to the top, then the chosen column, then models on
  * disk before ones that still need downloading, then name as a stable tiebreak.
+ *
+ * The direction only applies to the column being sorted on. Rows whose size or
+ * mtime is equal (or missing) fall through to the name tiebreak, which stays
+ * ascending either way: reversing it too would shuffle the many blank-size rows
+ * on every direction toggle, which reads as the table losing its order.
  */
 export function sortEntries(entries: ModelEntry[], sort: ModelSort): ModelEntry[] {
   const factor = sort.direction === 'asc' ? 1 : -1
@@ -447,26 +452,51 @@ export function formatBytes(bytes: number | undefined): string {
   return `${value.toFixed(value >= 10 || exponent === 0 ? 0 : 1)} ${SIZE_UNITS[exponent]}`
 }
 
-export function formatModifiedAt(modifiedAt: number | undefined, now = Date.now()): string {
+/**
+ * The locale the library formats against: the i18n store's string table plus the
+ * active language tag. Both are needed — the relative-time wording comes from the
+ * table, and the absolute-date fallback has to follow the language the user picked
+ * in the app rather than whatever the OS is set to.
+ */
+export type ModelLibraryLocale = {
+  strings: Record<string, string>
+  tag: string
+}
+
+export function formatModifiedAt(
+  modifiedAt: number | undefined,
+  locale: ModelLibraryLocale,
+  now = Date.now(),
+): string {
   if (modifiedAt === undefined) return '—'
+  const relative = (key: string, count: number) =>
+    (locale.strings[key] ?? '').replace('{count}', String(count))
   const seconds = Math.max(0, Math.round((now - modifiedAt) / 1000))
-  if (seconds < 60) return 'just now'
+  if (seconds < 60) return locale.strings.MODEL_MANAGER_TIME_JUST_NOW ?? ''
   const minutes = Math.round(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
+  if (minutes < 60) return relative('MODEL_MANAGER_TIME_MINUTES', minutes)
   const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
+  if (hours < 24) return relative('MODEL_MANAGER_TIME_HOURS', hours)
   const days = Math.round(hours / 24)
-  if (days < 31) return `${days}d ago`
-  return new Date(modifiedAt).toLocaleDateString()
+  if (days < 31) return relative('MODEL_MANAGER_TIME_DAYS', days)
+  return new Date(modifiedAt).toLocaleDateString(locale.tag)
 }
 
-export const USE_CASE_LABELS: Record<ModelUseCase, string> = {
-  llm: 'LLM',
-  embedding: 'Embedding',
-  media: 'Media creation',
-  speech: 'Speech',
+const USE_CASE_LABEL_KEYS: Record<ModelUseCase, string> = {
+  llm: 'MODEL_MANAGER_USE_CASE_LLM',
+  embedding: 'MODEL_MANAGER_USE_CASE_EMBEDDING',
+  media: 'MODEL_MANAGER_USE_CASE_MEDIA',
+  speech: 'MODEL_MANAGER_USE_CASE_SPEECH',
 }
 
+export function useCaseLabel(useCase: ModelUseCase, locale: ModelLibraryLocale): string {
+  return locale.strings[USE_CASE_LABEL_KEYS[useCase]] ?? ''
+}
+
+/**
+ * Not translated: every one of these is the product name of the service that runs
+ * the weights, so it reads the same in every language.
+ */
 export const BACKEND_LABELS: Record<ModelServiceBackend, string> = {
   llama_cpp: 'Llama.cpp',
   openvino: 'OpenVINO',

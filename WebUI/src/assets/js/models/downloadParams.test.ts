@@ -92,6 +92,28 @@ describe('entriesToDownloadParams', () => {
     })
   })
 
+  it('fetches Qwen3-TTS weights into the OpenVINO tree its sidecar reads from', () => {
+    const params = entriesToDownloadParams(
+      [
+        entry('Qwen/Qwen3-TTS', {
+          useCase: 'speech',
+          pathKey: 'TTS',
+          serviceBackend: 'qwen3_tts',
+        }),
+      ],
+      resolvePath,
+    )
+
+    // The download API has no 'qwen3_tts' backend: the sidecar is its own service
+    // but its weights live under the OpenVINO directories like every speech model.
+    expect(params[0]).toMatchObject({
+      repo_id: 'Qwen/Qwen3-TTS',
+      type: 'TTS',
+      backend: 'openvino',
+      model_path: '/models/openvino/TTS',
+    })
+  })
+
   it('returns nothing when there is nothing to download', () => {
     expect(entriesToDownloadParams([], resolvePath)).toEqual([])
     expect(

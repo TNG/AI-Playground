@@ -57,20 +57,28 @@ test('the model library lists, filters and round-trips a model through download,
   const presetActive = await app.main.selectPreset('Chat', 'Assistant')
   test.skip(!presetActive, 'The "Assistant" preset is not available in this product mode')
 
-  await app.settings.open('Chat')
-  const offered = await app.settings.availableBackends('Chat')
-  const backend: BackendLabel = offered.includes('OpenVINO')
-    ? Math.random() < 0.5
-      ? 'OpenVINO'
+  let offered: string[] = []
+  let backend: BackendLabel = 'llamaCPP - GGUF'
+  await test.step('Pin the chat backend for this run', async () => {
+    await app.settings.open('Chat')
+    offered = await app.settings.availableBackends('Chat')
+    backend = offered.includes('OpenVINO')
+      ? Math.random() < 0.5
+        ? 'OpenVINO'
+        : 'llamaCPP - GGUF'
       : 'llamaCPP - GGUF'
-    : 'llamaCPP - GGUF'
-  if (offered.includes(backend)) {
-    await app.settings.selectBackend(backend, 'Chat')
-  }
-  await app.settings.close('Chat')
-  test.info().annotations.push({ type: 'chat-backend', description: backend })
+    if (offered.includes(backend)) {
+      await app.settings.selectBackend(backend, 'Chat')
+    }
+    await app.settings.close('Chat')
+    test.info().annotations.push({ type: 'chat-backend', description: backend })
+  })
 
   const target = TARGETS[backend]
+  // OpenVINO on offer means this is not an NVIDIA install, which decides how many
+  // backends a category can hold: NVIDIA builds drop every OpenVINO row, so
+  // categories that span both backends collapse to one there and not here.
+  const isNvidia = !offered.includes('OpenVINO')
 
   await test.step('Open the model library', async () => {
     await app.models.open()
@@ -112,11 +120,14 @@ test('the model library lists, filters and round-trips a model through download,
   })
 
   await test.step('A filter with one possible value is stuck on it', async () => {
-    // The speech models all run on one backend, so "Backend" has no choice to
-    // offer and locks onto it.
-    await expect(app.models.backendFilter).toBeDisabled()
+    // Still on Speech from the step above. Speech spans two backends — the OVMS
+    // models and Qwen3-TTS, which brings its own — so "Backend" only has a single
+    // choice to lock onto where the OpenVINO half is filtered out, i.e. NVIDIA.
+    if (isNvidia) {
+      await expect(app.models.backendFilter).toBeDisabled()
+    }
     await app.models.selectUseCase('All')
-    // Back in a mixed category it opens up again.
+    // A mixed category always has more than one, so there it is live either way.
     await expect(app.models.backendFilter).toContainText('All backends')
     await expect(app.models.backendFilter).toBeEnabled()
   })

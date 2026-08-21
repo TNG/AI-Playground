@@ -108,7 +108,12 @@ export class SpecificSettingsPage {
     const menu = this.page.getByRole('menu')
     await menu.waitFor({ state: 'visible', timeout: 5_000 })
     await menu.getByPlaceholder('Search models').fill(label)
-    await menu.getByRole('menuitem').filter({ hasText: label }).first().click()
+    const match = menu.getByRole('menuitem').filter({ hasText: label })
+    // The list re-renders as the search box is typed into, so wait for it to hold
+    // the wanted row before clicking — otherwise the click can land on whichever
+    // model happened to be first while the filter was still catching up.
+    await expect(match.first()).toBeVisible({ timeout: 5_000 })
+    await match.first().click()
     await menu.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {})
     await expect(trigger).toContainText(label, { timeout: 15_000 })
   }
@@ -235,7 +240,11 @@ export class SpecificSettingsPage {
     await menu.getByRole('menuitem', { name: other, exact: true }).click()
     await menu.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {})
     await expect(trigger).toContainText(other, { timeout: 30_000 })
-    return true
+    // `toContainText` alone would also pass if the trigger still showed the old
+    // device and `other` merely happened to be a substring of it. The caller uses
+    // the return value to claim the backend restarted, so only report a switch
+    // once the label it is showing is genuinely no longer the original one.
+    return (await trigger.innerText()).trim() !== current
   }
 
   /**

@@ -11,14 +11,16 @@ import AddLLMDialog from '@/components/AddLLMDialog.vue'
 import { Spinner } from '@/components/ui/spinner'
 import { useModelLibrary } from '@/assets/js/store/modelLibrary'
 import { useI18N } from '@/assets/js/store/i18n'
-import { USE_CASE_LABELS, type ModelCategory } from '@/assets/js/models/library'
+import { useCaseLabel as localizedUseCase, type ModelCategory } from '@/assets/js/models/library'
 import type { ModelCapabilityValues, ModelEntry } from '@/assets/js/models/types'
 
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const library = useModelLibrary()
-const i18nState = useI18N().state
+const i18n = useI18N()
+const i18nState = i18n.state
 
+const root = ref<HTMLElement | null>(null)
 const editing = ref<ModelEntry | null>(null)
 const deleting = ref<ModelEntry[] | null>(null)
 const showAddModel = ref(false)
@@ -30,7 +32,7 @@ const useCases: ModelCategory[] = ['all', 'favorites', 'llm', 'embedding', 'medi
 const useCaseLabel = (useCase: ModelCategory) => {
   if (useCase === 'all') return i18nState.MODEL_MANAGER_ALL
   if (useCase === 'favorites') return i18nState.MODEL_MANAGER_FAVORITES
-  return USE_CASE_LABELS[useCase]
+  return localizedUseCase(useCase, { strings: i18nState, tag: i18n.langName })
 }
 
 // The dialog is re-created per edit, and its draft is seeded from the entry, so a
@@ -39,17 +41,23 @@ const editingEntry = computed(() =>
   editing.value ? (library.byId(editing.value.id) ?? editing.value) : null,
 )
 
-onMounted(() => library.refresh())
+onMounted(() => {
+  // The Escape handler lives on the overlay, and a plain <div> receives no key
+  // events until something inside it has focus — so the overlay takes focus itself
+  // the moment it opens, before anything slower gets underway.
+  root.value?.focus()
+  library.refresh()
+})
 
-function saveCapabilities(capabilities: Partial<ModelCapabilityValues>) {
+async function saveCapabilities(capabilities: Partial<ModelCapabilityValues>) {
   if (!editing.value) return
-  library.saveCapabilities(editing.value.id, capabilities)
+  await library.saveCapabilities(editing.value.id, capabilities)
   editing.value = null
 }
 
-function resetCapabilities() {
+async function resetCapabilities() {
   if (!editing.value) return
-  library.resetCapabilities(editing.value.id)
+  await library.resetCapabilities(editing.value.id)
   editing.value = null
 }
 
@@ -64,9 +72,12 @@ async function confirmDelete() {
   <!-- Opaque background: at 95% the chat view and settings sidebar bled through
        as ghost text behind the table. -->
   <div
+    ref="root"
     role="dialog"
+    aria-modal="true"
+    tabindex="-1"
     :aria-label="languages.MODEL_MANAGER_TITLE"
-    class="absolute inset-0 z-10 flex flex-col bg-background text-foreground"
+    class="absolute inset-0 z-10 flex flex-col bg-background text-foreground focus:outline-none"
     @keydown.esc="emit('close')"
   >
     <header class="flex items-center justify-between border-b border-border px-4 py-3">

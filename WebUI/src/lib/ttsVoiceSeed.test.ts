@@ -44,6 +44,14 @@ describe('seedForVoice', () => {
       stableVoiceSeed('Tammy', 'A calm voice.'),
     )
   })
+
+  it('falls back when the pinned seed is outside the range torch accepts', () => {
+    const derived = stableVoiceSeed('Tammy', 'A calm voice.')
+    // A persisted voice can carry anything; -1 and 2**31 are the two edges the
+    // generators never produce, and either would fail the synthesis outright.
+    expect(seedForVoice({ name: 'Tammy', instruct: 'A calm voice.', seed: -1 })).toBe(derived)
+    expect(seedForVoice({ name: 'Tammy', instruct: 'A calm voice.', seed: 2 ** 31 })).toBe(derived)
+  })
 })
 
 describe('randomVoiceSeed', () => {

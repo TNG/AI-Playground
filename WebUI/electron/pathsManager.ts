@@ -263,7 +263,10 @@ export class PathsManager {
     const visit = (entryPath: string) => {
       let stats: fs.Stats
       try {
-        stats = fs.statSync(entryPath)
+        // `lstat`, not `stat`: a symlink is measured as the link it is and never
+        // followed, so a link into a huge tree cannot inflate the reported size
+        // and a link pointing at an ancestor cannot loop this walk forever.
+        stats = fs.lstatSync(entryPath)
       } catch {
         // A file can vanish mid-scan (a download finishing, a user deleting);
         // skip it rather than failing the whole directory.
@@ -393,16 +396,18 @@ export class PathsManager {
    * directory. Deleting one quantization out of `owner---repo/` otherwise leaves
    * an empty repo folder behind forever, and those accumulate.
    */
-  pruneEmptyModelDirs(deletedPath: string): void {
-    const roots = Object.values(this.modelPaths)
-      .filter(Boolean)
-      .map((dir) => {
-        try {
-          return fs.realpathSync(path.resolve(dir))
-        } catch {
-          return path.resolve(dir)
-        }
-      })
+  async pruneEmptyModelDirs(deletedPath: string): Promise<void> {
+    const roots = await Promise.all(
+      Object.values(this.modelPaths)
+        .filter(Boolean)
+        .map(async (dir) => {
+          try {
+            return await fs.promises.realpath(path.resolve(dir))
+          } catch {
+            return path.resolve(dir)
+          }
+        }),
+    )
     let dir = path.dirname(deletedPath)
     while (!roots.includes(dir)) {
       // Stop at the filesystem root, and never touch a directory outside the
@@ -411,8 +416,8 @@ export class PathsManager {
       if (parent === dir) return
       if (!roots.some((root) => !path.relative(root, dir).startsWith('..'))) return
       try {
-        if (fs.readdirSync(dir).length > 0) return
-        fs.rmdirSync(dir)
+        if ((await fs.promises.readdir(dir)).length > 0) return
+        await fs.promises.rmdir(dir)
       } catch {
         return
       }

@@ -64,14 +64,17 @@ const backendValue = computed(() =>
   backendLocked.value ? (backendItems.value[0]?.value ?? 'all') : library.filters.backend,
 )
 
-const STATUS_LABELS: Record<Exclude<ModelDownloadState, 'all'>, string> = {
-  downloaded: i18nState.MODEL_MANAGER_FILTER_ON_DISK,
-  notDownloaded: i18nState.MODEL_MANAGER_FILTER_NOT_DOWNLOADED,
+// Resolved inside the computed, not once at setup: `i18nState` is filled in
+// asynchronously and refilled on every language switch, so a label read at setup
+// time would be whatever was loaded then — often nothing at all.
+const STATUS_LABEL_KEYS: Record<Exclude<ModelDownloadState, 'all'>, string> = {
+  downloaded: 'MODEL_MANAGER_FILTER_ON_DISK',
+  notDownloaded: 'MODEL_MANAGER_FILTER_NOT_DOWNLOADED',
 }
 
 const statusItems = computed(() =>
   library.downloadStateOptions.map((value: Exclude<ModelDownloadState, 'all'>) => ({
-    label: STATUS_LABELS[value],
+    label: i18nState[STATUS_LABEL_KEYS[value]],
     value,
     active: true,
   })),

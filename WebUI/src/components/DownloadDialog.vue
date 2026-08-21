@@ -230,7 +230,7 @@ import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { EtaEstimator } from '@/lib/etaEstimator'
 import { aipgFetch } from '@/lib/loopbackAuth'
 import { fetchModelMeta, runModelDownload } from '@/lib/modelDownloader'
-import { sumHumanSizes } from '@/lib/humanSize'
+import { parseHumanSize, sumHumanSizes } from '@/lib/humanSize'
 import { createCancellation } from '@/assets/js/errors/appError'
 
 const i18nState = useI18N().state
@@ -264,9 +264,17 @@ const modelCountLabel = computed(() =>
 
 // What the whole batch costs. With one model the per-row size says it already;
 // with thirty it is the only number that matters before confirming.
-const totalDownloadSize = computed(() =>
-  sizeRequesting.value ? undefined : sumHumanSizes(downloadModelRender.value.map((i) => i.size)),
-)
+//
+// All-or-nothing on purpose: `sumHumanSizes` skips what it cannot parse, and a
+// model the metadata call returned no size for ('' or '???') would then be
+// silently left out — a total that understates a multi-GB download is worse than
+// no total at all.
+const totalDownloadSize = computed(() => {
+  if (sizeRequesting.value) return undefined
+  const sizes = downloadModelRender.value.map((i) => i.size)
+  if (sizes.some((size) => parseHumanSize(size) === undefined)) return undefined
+  return sumHumanSizes(sizes)
+})
 const etaEstimator = new EtaEstimator(100)
 
 watch(downloadDialogVisible, async (isVisible) => {

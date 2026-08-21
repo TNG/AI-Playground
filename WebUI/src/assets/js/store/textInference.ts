@@ -259,8 +259,9 @@ export const useTextInference = defineStore(
             npuSupport: undefined,
             largeMoe: undefined,
             isPredefined: false,
-            // Cloud model ids have no path key of their own; they are keyed
-            // under the chat path key so favoriting one works too.
+            // Cloud model ids have no on-disk path of their own, so their flags
+            // are keyed under the dedicated CLOUD_MODEL_PATH_KEY — which is what
+            // lets a cloud model be favorited like any other.
             ...modelPreferences.flagsFor(CLOUD_MODEL_PATH_KEY, name),
           })
         })

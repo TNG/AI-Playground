@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // The capability form, shared by the Add Model dialog and the Model Management
 // capability editor so the two can't drift apart.
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/aipgInput'
 import { Label } from '@/components/ui/label'
 import { useBackendServices } from '@/assets/js/store/backendServices'
+import { useI18N } from '@/assets/js/store/i18n'
 import { ovmsToolParsers } from '@/types/shared'
 import type { ModelCapabilityValues, ModelServiceBackend } from '@/assets/js/models/types'
 import DropDownNew from '@/components/DropDownNew.vue'
@@ -22,6 +23,7 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: 'update:modelValue', value: ModelCapabilityValues): void }>()
 
 const backendServices = useBackendServices()
+const i18nState = useI18N().state
 
 const prefix = computed(() => props.idPrefix ?? 'capability')
 
@@ -36,17 +38,39 @@ function setFlag(key: keyof ModelCapabilityValues, value: boolean) {
 
 const isOpenVino = computed(() => props.serviceBackend === 'openvino')
 
+// Kept as its own text ref rather than derived straight from the prop: a getter
+// that renders `undefined` as '' would wipe the field the moment the user cleared
+// it to retype, so "4" on the way to "4096" could never be typed.
+const contextSizeText = ref((props.modelValue.maxContextSize ?? '').toString())
+
+watch(
+  () => props.modelValue.maxContextSize,
+  (value) => {
+    // Only follow the prop when it disagrees with what is on screen, so an
+    // external reset lands but the user's own typing is never reformatted.
+    if ((value ?? '').toString() !== contextSizeText.value) {
+      contextSizeText.value = (value ?? '').toString()
+    }
+  },
+)
+
 const contextSize = computed({
-  get: () => (props.modelValue.maxContextSize ?? '').toString(),
+  get: () => contextSizeText.value,
   set: (value: string) => {
+    contextSizeText.value = value
     const parsed = Number.parseInt(value, 10)
-    set('maxContextSize', Number.isFinite(parsed) && parsed > 0 ? parsed : undefined)
+    // Anything that isn't a positive integer means "no override" — including the
+    // empty field, which is how the override is cleared.
+    set('maxContextSize', Number.isInteger(parsed) && parsed > 0 ? parsed : undefined)
   },
 })
 
-const toolParserItems = computed(() =>
-  ovmsToolParsers.map((parser) => ({ label: parser, value: parser, active: true })),
-)
+// The empty first entry is what makes the parser resettable: without it, picking
+// one is a one-way door, since the dropdown offers no way back to "unset".
+const toolParserItems = computed(() => [
+  { label: i18nState.MODEL_MANAGER_CAP_TOOL_PARSER_DEFAULT, value: '', active: true },
+  ...ovmsToolParsers.map((parser) => ({ label: parser, value: parser, active: true })),
+])
 </script>
 
 <template>
@@ -129,12 +153,19 @@ const toolParserItems = computed(() =>
     <!-- OVMS picks 'hermes3' when unset. A wrong parser silently breaks tool
          calling, and until now it could only be fixed by editing models.json. -->
     <div v-if="showAdvanced && isOpenVino" class="flex flex-col gap-2">
-      <Label class="text-sm font-medium">{{ languages.MODEL_MANAGER_CAP_TOOL_PARSER }}</Label>
-      <DropDownNew
-        :items="toolParserItems"
-        :value="modelValue.toolParser ?? ''"
-        @change="(value: string) => set('toolParser', value)"
-      />
+      <!-- DropDownNew's trigger is nested inside the component, so the label is
+           tied to it through a named group rather than a `for`/`id` pair, the same
+           way the library toolbar names its filters. -->
+      <Label :id="`${prefix}-tool-parser-label`" class="text-sm font-medium">
+        {{ languages.MODEL_MANAGER_CAP_TOOL_PARSER }}
+      </Label>
+      <div role="group" :aria-labelledby="`${prefix}-tool-parser-label`">
+        <DropDownNew
+          :items="toolParserItems"
+          :value="modelValue.toolParser ?? ''"
+          @change="(value: string) => set('toolParser', value || undefined)"
+        />
+      </div>
       <p class="text-xs text-muted-foreground">
         {{ languages.MODEL_MANAGER_CAP_TOOL_PARSER_HINT }}
       </p>

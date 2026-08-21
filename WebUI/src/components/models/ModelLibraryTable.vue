@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Table,
@@ -13,11 +14,12 @@ import { StarIcon as StarOutlineIcon } from '@heroicons/vue/24/outline'
 import CapabilityIcons from '@/components/CapabilityIcons.vue'
 import ModelRowActions from './ModelRowActions.vue'
 import { useModelLibrary } from '@/assets/js/store/modelLibrary'
+import { useI18N } from '@/assets/js/store/i18n'
 import {
   BACKEND_LABELS,
-  USE_CASE_LABELS,
   formatBytes,
   formatModifiedAt,
+  useCaseLabel,
   type ModelSortKey,
 } from '@/assets/js/models/library'
 import type { ModelEntry } from '@/assets/js/models/types'
@@ -28,11 +30,22 @@ const emit = defineEmits<{
 }>()
 
 const library = useModelLibrary()
+const i18n = useI18N()
+// `languages` is a template-only global, so the formatters called from script and
+// from interpolations both read the store directly.
+const locale = computed(() => ({ strings: i18n.state, tag: i18n.langName }))
 
-const sortableColumns: { key: ModelSortKey; label: string }[] = [
-  { key: 'size', label: 'size' },
-  { key: 'modified', label: 'modified' },
+// `labelKey` is the i18n key of the column header, so the header markup stays one
+// interpolation instead of a per-column branch.
+const sortableColumns: { key: ModelSortKey; labelKey: string }[] = [
+  { key: 'size', labelKey: 'MODEL_MANAGER_COL_SIZE' },
+  { key: 'modified', labelKey: 'MODEL_MANAGER_COL_MODIFIED' },
 ]
+
+/** Accessible name of a per-row control, e.g. "Select <model>". */
+function rowLabel(key: string, entry: ModelEntry): string {
+  return (i18n.state[key] ?? '').replace('{label}', entry.label)
+}
 
 function sortIndicator(key: ModelSortKey): string {
   if (library.sort.key !== key) return ''
@@ -65,7 +78,9 @@ function usedBySummary(entry: ModelEntry): string {
               @update:model-value="library.toggleSelectAllVisible()"
             />
           </TableHead>
-          <TableHead class="w-8"><span class="sr-only">Favorite</span></TableHead>
+          <TableHead class="w-8">
+            <span class="sr-only">{{ languages.MODEL_MANAGER_COL_FAVORITE }}</span>
+          </TableHead>
           <TableHead>
             <button class="hover:text-foreground" @click="library.toggleSortKey('name')">
               {{ languages.MODEL_MANAGER_COL_MODEL }}{{ sortIndicator('name') }}
@@ -75,22 +90,20 @@ function usedBySummary(entry: ModelEntry): string {
           <TableHead>{{ languages.MODEL_MANAGER_COL_BACKEND }}</TableHead>
           <TableHead v-for="column in sortableColumns" :key="column.key">
             <button class="hover:text-foreground" @click="library.toggleSortKey(column.key)">
-              {{
-                column.key === 'size'
-                  ? languages.MODEL_MANAGER_COL_SIZE
-                  : languages.MODEL_MANAGER_COL_MODIFIED
-              }}{{ sortIndicator(column.key) }}
+              {{ languages[column.labelKey] }}{{ sortIndicator(column.key) }}
             </button>
           </TableHead>
           <TableHead>{{ languages.MODEL_MANAGER_COL_STATUS }}</TableHead>
-          <TableHead class="w-10"><span class="sr-only">Actions</span></TableHead>
+          <TableHead class="w-10">
+            <span class="sr-only">{{ languages.MODEL_MANAGER_COL_ACTIONS }}</span>
+          </TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         <TableRow v-for="entry in library.visibleEntries" :key="entry.id">
           <TableCell>
             <Checkbox
-              :aria-label="`Select ${entry.label}`"
+              :aria-label="rowLabel('MODEL_MANAGER_SELECT_MODEL', entry)"
               :model-value="library.selection.has(entry.id)"
               @update:model-value="library.toggleSelected(entry.id)"
             />
@@ -133,7 +146,7 @@ function usedBySummary(entry: ModelEntry): string {
             </span>
           </TableCell>
           <TableCell class="whitespace-nowrap text-muted-foreground">
-            {{ USE_CASE_LABELS[entry.useCase] }}
+            {{ useCaseLabel(entry.useCase, locale) }}
           </TableCell>
           <TableCell class="whitespace-nowrap text-muted-foreground">
             {{ BACKEND_LABELS[entry.serviceBackend] }}
@@ -142,7 +155,7 @@ function usedBySummary(entry: ModelEntry): string {
             {{ formatBytes(entry.sizeBytes) }}
           </TableCell>
           <TableCell class="whitespace-nowrap text-muted-foreground">
-            {{ formatModifiedAt(entry.modifiedAt) }}
+            {{ formatModifiedAt(entry.modifiedAt, locale) }}
           </TableCell>
           <TableCell class="whitespace-nowrap">
             <span

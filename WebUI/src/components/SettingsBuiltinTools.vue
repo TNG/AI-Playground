@@ -7,7 +7,7 @@
       :disabled-reason="
         textInference.modelSupportsToolCalling
           ? undefined
-          : 'The selected model does not support tool calling.'
+          : languages.SETTINGS_TOOLS_MODEL_UNSUPPORTED
       "
       @update:enabled="textInference.aipgToolsEnabled = $event"
     >

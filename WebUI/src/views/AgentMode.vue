@@ -17,10 +17,17 @@
         class="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground"
       >
         <img src="../assets/svg/ai-icon.svg" class="size-10 opacity-60" />
-        <template v-if="isGameAgent">
+        <template v-if="emptyStateKind === 'game-agent'">
           <p class="text-sm">
             Describe the game you want — the agent writes it as a single HTML page, draws the art,
             play-tests it in a browser and saves it to your library.
+          </p>
+          <p class="text-xs">Try: “a one-button endless runner where I dodge asteroids”.</p>
+        </template>
+        <template v-else-if="emptyStateKind === 'quick-coder'">
+          <p class="text-sm">
+            Describe the game you want — the agent plans it, then writes the whole thing into one
+            HTML file. No generated art and no play-testing, so it finishes in minutes.
           </p>
           <p class="text-xs">Try: “a one-button endless runner where I dodge asteroids”.</p>
         </template>
@@ -105,6 +112,7 @@ import {
   toolPartNameOf,
   type TranscriptSegment,
 } from '@/lib/agentTranscript'
+import { agentEmptyStateKind } from '@/lib/presetModes'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
 import { UserCircleIcon } from '@heroicons/vue/24/outline'
 
@@ -117,6 +125,9 @@ const panel = ref<HTMLElement | null>(null)
 // The game bar and the game-specific empty state belong to the preset that works
 // on a managed game folder, not to Agent Mode in general.
 const isGameAgent = computed(() => agentMode.agentWorkspaceKind === 'games')
+const emptyStateKind = computed(() =>
+  agentEmptyStateKind(agentMode.activeAgentPreset?.name),
+)
 
 function messageText(message: UIMessage): string {
   return (

@@ -1,4 +1,5 @@
 import type { ChatPreset, Preset } from '@/assets/js/store/presets'
+import { currentPresetName } from '@/lib/presetRenames'
 
 // ── Which view a preset belongs to ───────────────────────────────────────────
 //
@@ -59,4 +60,18 @@ export const MODE_TO_PRESET_TYPE: Record<ModeType, 'chat' | 'comfy'> = {
  */
 export function buttonModeFor(mode: ModeType): ModeType {
   return mode === 'agent' ? 'chat' : mode
+}
+
+/**
+ * Empty-state copy for Agent Mode. Workspace kind only says whether the app
+ * minted a game folder; Quick Coder and Game Agent share that kind but not the
+ * workflow the hint should describe.
+ */
+export type AgentEmptyStateKind = 'folder' | 'game-agent' | 'quick-coder'
+
+export function agentEmptyStateKind(presetName: string | undefined): AgentEmptyStateKind {
+  const name = currentPresetName(presetName ?? '')
+  if (name === 'Quick Coder') return 'quick-coder'
+  if (name === 'Game Agent') return 'game-agent'
+  return 'folder'
 }

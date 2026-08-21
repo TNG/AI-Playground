@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import {
   MODE_TO_CATEGORIES,
   MODE_TO_PRESET_TYPE,
+  agentEmptyStateKind,
   buttonModeFor,
   presetToMode,
 } from '@/lib/presetModes'
@@ -68,6 +69,14 @@ describe('mode routing tables', () => {
   it('reaches agent mode through the chat button', () => {
     expect(buttonModeFor('agent')).toBe('chat')
     expect(buttonModeFor('imageGen')).toBe('imageGen')
+  })
+
+  it('picks empty-state copy from the preset, not the workspace kind', () => {
+    expect(agentEmptyStateKind('Agent')).toBe('folder')
+    expect(agentEmptyStateKind('Game Agent')).toBe('game-agent')
+    expect(agentEmptyStateKind('Quick Coder')).toBe('quick-coder')
+    expect(agentEmptyStateKind('Game Maker Quick')).toBe('quick-coder')
+    expect(agentEmptyStateKind(undefined)).toBe('folder')
   })
 
   it('covers every mode a preset can resolve to', () => {

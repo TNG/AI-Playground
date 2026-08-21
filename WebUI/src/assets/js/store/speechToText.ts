@@ -125,20 +125,30 @@ export const useSpeechToText = defineStore(
       () => isWhisperAvailable.value || isStandaloneAvailable.value || isExternalAvailable.value,
     )
 
-    /** Engines offered in the current product mode (mirrors SettingsStt's dropdown):
-     *  Whisper (OpenVINO) only off NVIDIA; standalone only when its feature is on;
-     *  External always. */
+    /** Engines the STT dropdown offers: Whisper (OpenVINO) only off NVIDIA;
+     *  standalone only when its backend feature is on; External only when its
+     *  App Settings checkbox is ticked — that checkbox is what "adds an External
+     *  endpoint engine to the Speech to Text preset", so an unticked box must not
+     *  leave the engine listed (this matches how the TTS panel gates its own
+     *  external engine on `textToSpeech.fallback.enabled`).
+     *
+     *  Gated on the checkbox alone, NOT on `hasFallback()`: the engine has to be
+     *  selectable while the URL is still empty, since SettingsStt is where the
+     *  user types it in. */
     const offeredSttEngines = computed<SttEngine[]>(() => {
       const list: SttEngine[] = []
       if (!productMode.isNvidiaModeSelected) list.push('whisper')
       if (isWhisperBackendEnabled.value) list.push('standalone')
-      list.push('external')
+      if (fallback.value.enabled) list.push('external')
       return list
     })
 
     /** Best default engine: an installed one first (OpenVINO Whisper → standalone →
      *  external), and only when nothing is installed the highest-priority offered
-     *  engine (so External is the default only if neither Whisper is available). */
+     *  engine (so External is the default only if neither Whisper is available).
+     *  The final 'external' is a last resort for the degenerate case where nothing
+     *  is offered at all (NVIDIA mode, standalone feature off, checkbox unticked);
+     *  SettingsStt then shows its "install a backend or enable an endpoint" hint. */
     const preferredSttEngine = computed<SttEngine>(() => {
       if (isWhisperAvailable.value) return 'whisper'
       if (isStandaloneAvailable.value) return 'standalone'

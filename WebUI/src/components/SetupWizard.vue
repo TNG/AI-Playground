@@ -423,6 +423,7 @@ import { useProductMode } from '@/assets/js/store/productMode'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { useGlobalSetup } from '@/assets/js/store/globalSetup'
 import { useI18N } from '@/assets/js/store/i18n'
+import { mapStatusToColor } from '@/lib/utils'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import BackendOptions from '@/components/BackendOptions.vue'
@@ -543,7 +544,12 @@ async function setGroup(rows: BackendRowViewModel[], value: boolean) {
 
 async function setAiPlaygroundGroup(value: boolean) {
   await setGroup(aiPlaygroundRows.value, value)
-  cloudMode.toggleFeature(value)
+  // Cloud Mode is opt-in and defaults to off: it needs no install, and switching
+  // it on without a configured provider gains the user nothing while making the
+  // row look ready. So the group's master switch never enables it — only its own
+  // row toggle does. Turning the group OFF still disables it, which is what
+  // "disable everything in this group" should mean.
+  if (!value) await cloudMode.toggleFeature(false)
 }
 
 function setAudioGroup(value: boolean) {
@@ -612,14 +618,32 @@ function backendRowView(row: BackendRowViewModel): SetupWizardRowView {
   }
 }
 
-// Cloud Mode is a frontend-only feature, but it presents as a normal backend
-// row: a green/grey status bubble, a subtitle, and an enable toggle.
+// Cloud Mode is a frontend-only feature, but it presents as a normal backend row
+// — so it must speak the same colour vocabulary as the real rows. It used to
+// hardcode its own green/grey (#22c55e/#6b7280), which matched no other row, and
+// went green the moment the feature was switched on even though nothing was set
+// up yet. Now it goes through `mapStatusToColor` like everything else:
+//   grey   = off (nothing here), mirroring "Not installed"
+//   orange = on but no provider configured yet, mirroring "Installed, not running"
+//   green  = on AND a provider with a base URL, i.e. actually usable
+// A configured base URL is the synchronous signal for "the user completed Setup"
+// (the shipped default provider has none); the API key can't be used here because
+// it is loaded lazily from safeStorage and would make the dot flicker.
+const cloudModeReady = computed(
+  () => cloudMode.isFeatureEnabled && !!cloudMode.activeProviderBaseUrl,
+)
 const cloudRow = computed<SetupWizardRowView>(() => ({
   displayName: 'Cloud Mode',
-  statusColor: cloudMode.isFeatureEnabled ? '#22c55e' : '#6b7280',
-  statusText: cloudMode.isFeatureEnabled
-    ? languages.COM_ENABLED || 'Enabled'
-    : languages.COM_DISABLED || 'Disabled',
+  statusColor: !cloudMode.isFeatureEnabled
+    ? mapStatusToColor('notInstalled')
+    : cloudModeReady.value
+      ? mapStatusToColor('running')
+      : mapStatusToColor('notYetStarted'),
+  statusText: !cloudMode.isFeatureEnabled
+    ? languages.COM_DISABLED || 'Disabled'
+    : cloudModeReady.value
+      ? languages.COM_ENABLED || 'Enabled'
+      : 'Enabled — add a provider in Setup',
   versionDisplay: '',
   enabled: cloudMode.isFeatureEnabled,
   toggleTooltip: cloudMode.isFeatureEnabled

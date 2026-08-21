@@ -13,7 +13,7 @@ import { useHomeAgent } from './homeAgent'
 import { useCloudMode } from './cloudMode'
 import { useQwen3TextToSpeech } from './qwen3TextToSpeech'
 import { CHANNELS } from './channels/channelRegistry'
-import { mapStatusToColor, mapToDisplayStatus } from '@/lib/utils'
+import { mapServiceNameToDisplayName, mapStatusToColor, mapToDisplayStatus } from '@/lib/utils'
 import * as toast from '@/assets/js/toast'
 import { useErrors } from './errors'
 import { extractMessage } from '../errors/appError'
@@ -85,6 +85,18 @@ export type PhisonAidaptivRowViewModel = {
   versionDisplay: string
   installProgressText: string | null
   toggleTooltip: string
+}
+
+/**
+ * Row labels are the shared ones (`mapServiceNameToDisplayName`) with one wizard-only
+ * exception: the core backend sits inside the "AI Playground" group box here, so
+ * repeating "AI Playground" on the row inside it says nothing — and would collide
+ * with the group's own accessible name. Elsewhere (Installation Management, App
+ * Settings) the row stands alone and keeps the product name.
+ */
+function wizardDisplayName(serviceName: BackendServiceName): string {
+  if (serviceName === 'ai-backend') return 'Core Services'
+  return mapServiceNameToDisplayName(serviceName)
 }
 
 const knownSteps: Record<BackendServiceName, string[]> = {
@@ -519,7 +531,10 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
       let versionDisplay = ''
       if (serviceName === 'ai-backend') {
-        versionDisplay = globalSetup.state.version ?? ''
+        // Left blank on purpose: the core backend's version is the app version,
+        // and the wizard shows it once under its title (see SetupWizard.vue)
+        // rather than on this row, where it read as one component's version.
+        versionDisplay = ''
       } else if (
         serviceName === 'llamacpp-backend' &&
         backendServices.llamaCppBuildVariant === 'ssd-offload'
@@ -608,7 +623,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
       return {
         serviceName,
-        displayName: mapServiceNameToDisplayName(serviceName),
+        displayName: wizardDisplayName(serviceName),
         isRequired,
         isSetUp,
         status,
@@ -1139,25 +1154,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     closeErrorModal,
   }
 })
-
-function mapServiceNameToDisplayName(serviceName: string) {
-  switch (serviceName) {
-    case 'comfyui-backend':
-      return 'ComfyUI'
-    case 'ai-backend':
-      return 'AI Playground'
-    case 'llamacpp-backend':
-      return 'Llama.cpp - GGUF'
-    case 'openvino-backend':
-      return 'OpenVINO'
-    case 'home-agent-backend':
-      return 'Home Agent'
-    case 'qwen3-tts-backend':
-      return 'Text To Speech (Qwen3-TTS)'
-    default:
-      return serviceName
-  }
-}
 
 if (import.meta.hot) {
   import.meta.hot.accept(acceptHMRUpdate(useSetupWizard, import.meta.hot))

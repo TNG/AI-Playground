@@ -100,10 +100,13 @@ export function mapServiceNameToDisplayName(serviceName: string) {
       return 'OpenVINO'
     case 'home-agent-backend':
       return 'Home Agent'
+    // Both audio sidecars name their engine: the app can reach the same feature
+    // through OpenVINO (Kokoro for TTS, OVMS Whisper for STT), so a bare "Text To
+    // Speech" / "Speech To Text" row read as if it were the only way to get it.
     case 'qwen3-tts-backend':
-      return 'Text To Speech'
+      return 'Text To Speech (Qwen3-TTS)'
     case 'whisper-backend':
-      return 'Speech To Text'
+      return 'Speech To Text (Standalone Whisper)'
     case 'cloud-mode':
       return 'Cloud Mode'
     default:

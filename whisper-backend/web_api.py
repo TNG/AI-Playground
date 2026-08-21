@@ -15,10 +15,9 @@ import hmac
 import logging
 import os
 
+import transcription_engine as engine
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-
-import transcription_engine as engine
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("whisper-backend")
@@ -74,7 +73,9 @@ def get_config():
 
 @app.get("/v1/models")
 def list_models():
-    return jsonify({"object": "list", "data": [{"id": engine.DEFAULT_MODEL_ID, "object": "model"}]})
+    return jsonify(
+        {"object": "list", "data": [{"id": engine.DEFAULT_MODEL_ID, "object": "model"}]}
+    )
 
 
 @app.post("/v1/audio/transcriptions")
@@ -88,7 +89,9 @@ def transcriptions():
         text = engine.transcribe(audio_file.read(), model, language)
         # OpenAI transcription JSON shape: {"text": "..."}.
         return jsonify({"text": text})
-    except Exception as exc:  # noqa: BLE001 — surface the message to the client
+    # Broad on purpose: any engine failure is surfaced to the client as a 500 with
+    # its message, rather than escaping as an opaque Flask error page.
+    except Exception as exc:
         logger.exception("transcription failed")
         return jsonify({"error": {"message": str(exc)}}), 500
 

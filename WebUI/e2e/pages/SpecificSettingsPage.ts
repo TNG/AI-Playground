@@ -62,6 +62,63 @@ export class SpecificSettingsPage {
   }
 
   /**
+   * The chat model picker's trigger (ModelSelector.vue), reached through the stable
+   * `role="group"` the Model row carries (SettingsChat.vue). The trigger itself is
+   * named after the current selection, and the row holds a second button — the
+   * "Manage Models" gear — so it's pinned on the menu trigger's `aria-haspopup`
+   * rather than on being the only button in the group.
+   */
+  private modelTrigger(mode: ChatMode): Locator {
+    return this.panel(mode)
+      .getByRole('group', { name: 'Model' })
+      .locator('button[aria-haspopup="menu"]')
+  }
+
+  /**
+   * Model names offered by the chat model picker (its visible labels, i.e. the file
+   * name / last path segment).
+   *
+   * Opens and closes the dropdown without changing the selection.
+   */
+  async availableModels(mode: ChatMode = 'Chat'): Promise<string[]> {
+    const trigger = this.modelTrigger(mode)
+    if (!(await trigger.isVisible().catch(() => false))) return []
+    await trigger.click()
+    const menu = this.page.getByRole('menu')
+    await menu.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {})
+    const labels = (await menu.getByRole('menuitem').allInnerTexts())
+      .map((l) => l.trim())
+      .filter(Boolean)
+    await this.page.keyboard.press('Escape')
+    await menu.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {})
+    return labels
+  }
+
+  /**
+   * Select a chat model by its visible label (the file name, e.g.
+   * `smollm2-1.7b-instruct-q4_k_m.gguf`) and wait for the trigger to reflect it.
+   * The picker lists the whole catalog for the active backend in a short scrolling
+   * viewport, so the label is typed into the picker's own search box first — that
+   * narrows the list to the wanted row instead of scrolling for it. Must be called
+   * with the settings sidebar open.
+   */
+  async selectModel(label: string, mode: ChatMode = 'Chat'): Promise<void> {
+    const trigger = this.modelTrigger(mode)
+    await trigger.click()
+    const menu = this.page.getByRole('menu')
+    await menu.waitFor({ state: 'visible', timeout: 5_000 })
+    await menu.getByPlaceholder('Search models').fill(label)
+    const match = menu.getByRole('menuitem').filter({ hasText: label })
+    // The list re-renders as the search box is typed into, so wait for it to hold
+    // the wanted row before clicking — otherwise the click can land on whichever
+    // model happened to be first while the filter was still catching up.
+    await expect(match.first()).toBeVisible({ timeout: 5_000 })
+    await match.first().click()
+    await menu.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {})
+    await expect(trigger).toContainText(label, { timeout: 15_000 })
+  }
+
+  /**
    * The chat "Backend" picker trigger (a DropDownNew button). Present only when the
    * active preset allows more than one backend (see SettingsChat.vue `isBackendLocked`);
    * located via its "Backend" label row inside the settings region.
@@ -164,6 +221,33 @@ export class SpecificSettingsPage {
   }
 
   /**
+   * Switch to any inference device other than the one in use, which restarts the
+   * serving backend (the device is a launch argument for both llama.cpp and OVMS).
+   * That restart is the only way a test can get a model *unloaded*: nothing in the UI
+   * stops a backend, and weights a running backend still holds open cannot be deleted
+   * from disk on Windows. Must be called with the settings sidebar open. Returns false
+   * — selection unchanged — when there is no device picker or no second device to move
+   * to.
+   */
+  async selectOtherDevice(mode: ChatMode = 'Chat'): Promise<boolean> {
+    const trigger = this.deviceTrigger(mode)
+    if (!(await trigger.isVisible().catch(() => false))) return false
+    const current = (await trigger.innerText()).trim()
+    const other = (await this.availableDevices(mode)).find((device) => device !== current)
+    if (!other) return false
+    await trigger.click()
+    const menu = this.page.getByRole('menu')
+    await menu.getByRole('menuitem', { name: other, exact: true }).click()
+    await menu.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {})
+    await expect(trigger).toContainText(other, { timeout: 30_000 })
+    // `toContainText` alone would also pass if the trigger still showed the old
+    // device and `other` merely happened to be a substring of it. The caller uses
+    // the return value to claim the backend restarted, so only report a switch
+    // once the label it is showing is genuinely no longer the original one.
+    return (await trigger.innerText()).trim() !== current
+  }
+
+  /**
    * Create a custom ("designed") TTS voice from the Text-to-Speech preset's settings
    * (SettingsTts.vue "Create a custom voice" form): fill the name + description, save,
    * and confirm it lands in the "Your voices" list. Saving makes the new voice the
@@ -192,6 +276,57 @@ export class SpecificSettingsPage {
       panel.getByText(opts.name, { exact: true }).first(),
       'the newly created voice should appear in the "Your voices" list',
     ).toBeVisible({ timeout: 5_000 })
+  }
+
+  /**
+   * The "Voice" picker row in the Text-to-Speech settings (SettingsTts.vue). Anchored
+   * on a label whose text is exactly "Voice", so it can't drift onto the neighbouring
+   * "Your voices" list or the two "Language" rows.
+   */
+  private ttsVoiceTrigger(mode: ChatMode): Locator {
+    return this.panel(mode)
+      .locator('div.grid')
+      .filter({ has: this.page.getByText('Voice', { exact: true }) })
+      .getByRole('button')
+  }
+
+  /**
+   * Select an entry from the "Voice" picker — a built-in speaker (listed as
+   * "Ryan — English") or a saved one ("Tammy (your voice)"). Pass a regex to match a
+   * prefix. Requires the settings sidebar open with the "Text to Speech" preset active.
+   */
+  async selectTtsVoice(label: string | RegExp, mode: ChatMode = 'Chat'): Promise<void> {
+    const trigger = this.ttsVoiceTrigger(mode)
+    await trigger.click()
+    const menu = this.page.getByRole('menu')
+    await menu.getByRole('menuitem', { name: label }).first().click()
+    await menu.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {})
+    await expect(trigger).toContainText(label, { timeout: 15_000 })
+  }
+
+  /**
+   * Remove a saved TTS voice if it is listed, so a run that shares persisted app state
+   * with an earlier one still *creates* the voice rather than re-saving it. No-op when
+   * the voice isn't there.
+   */
+  async deleteTtsVoiceIfPresent(name: string, mode: ChatMode = 'Chat'): Promise<void> {
+    const row = this.panel(mode).locator('li').filter({ hasText: name })
+    if ((await row.count()) === 0) return
+    await row.first().getByRole('button', { name: 'Remove' }).click()
+    await expect(row, `saved voice "${name}" should be gone after Remove`).toHaveCount(0)
+  }
+
+  /**
+   * Re-roll a saved TTS voice: draw a different speaker for the same description by
+   * giving the voice a new seed (SettingsTts.vue → `rerollVoiceSeed`). The counterpart
+   * of the pinned seed — proof that the seed is what fixes the voice, since audio
+   * synthesized after a re-roll must differ from audio synthesized before it.
+   * Requires the settings sidebar open with the "Text to Speech" preset active.
+   */
+  async rerollTtsVoice(name: string, mode: ChatMode = 'Chat'): Promise<void> {
+    const row = this.panel(mode).locator('li').filter({ hasText: name })
+    await expect(row, `saved voice "${name}" should be listed under "Your voices"`).toHaveCount(1)
+    await row.getByRole('button', { name: 'Re-roll' }).click()
   }
 
   /** Close the sidebar via its (responsive) Close button, scoped to the sidebar

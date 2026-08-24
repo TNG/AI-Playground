@@ -24,19 +24,33 @@
       ></drop-down-new>
     </div>
 
-    <!-- Hardware: which accelerator the Whisper model loads on (Whisper engine only). -->
-    <div
-      v-if="speechToText.selectedSttEngine === 'whisper' && openVinoSetUp && sttDevices.length > 0"
-      class="grid grid-cols-[120px_1fr] items-center gap-4"
-    >
-      <Label class="whitespace-nowrap">{{ languages.SETTINGS_INFERENCE_DEVICE }}</Label>
-      <drop-down-new
-        title="STT Device"
-        :value="selectedSttDevice?.id"
-        :items="sttDeviceItems"
-        @change="selectSttDevice"
-      ></drop-down-new>
-    </div>
+    <!-- OpenVINO (OVMS) Whisper: pick the model, and (when installed) the device.
+         OVMS takes the model per server launch, so switching restarts it on the
+         next transcription. -->
+    <template v-if="speechToText.selectedSttEngine === 'whisper'">
+      <div class="grid grid-cols-[120px_1fr] items-center gap-4">
+        <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
+        <drop-down-new
+          title="Model"
+          :value="speechToText.selectedOvmsModel"
+          :items="ovmsModelItems"
+          @change="(v) => (speechToText.selectedOvmsModel = v as WhisperOvmsModel)"
+        ></drop-down-new>
+      </div>
+      <!-- Hardware: which accelerator the Whisper model loads on. -->
+      <div
+        v-if="openVinoSetUp && sttDevices.length > 0"
+        class="grid grid-cols-[120px_1fr] items-center gap-4"
+      >
+        <Label class="whitespace-nowrap">{{ languages.SETTINGS_INFERENCE_DEVICE }}</Label>
+        <drop-down-new
+          title="STT Device"
+          :value="selectedSttDevice?.id"
+          :items="sttDeviceItems"
+          @change="selectSttDevice"
+        ></drop-down-new>
+      </div>
+    </template>
 
     <!-- Standalone (torch) Whisper: pick the model, and (when installed) the device. -->
     <template v-if="speechToText.selectedSttEngine === 'standalone'">
@@ -91,8 +105,8 @@ import DeviceSelector from '@/components/DeviceSelector.vue'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useSpeechToText } from '@/assets/js/store/speechToText'
 import type { SttEngine } from '@/assets/js/store/speechToText'
-import { WHISPER_STANDALONE_MODELS } from '@/assets/js/whisperConstants'
-import type { WhisperStandaloneModel } from '@/assets/js/whisperConstants'
+import { WHISPER_OVMS_MODELS, WHISPER_STANDALONE_MODELS } from '@/assets/js/whisperConstants'
+import type { WhisperOvmsModel, WhisperStandaloneModel } from '@/assets/js/whisperConstants'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useModels } from '@/assets/js/store/models'
 import { useDialogStore } from '@/assets/js/store/dialogs'
@@ -130,31 +144,32 @@ const engineItems = computed(() =>
   })),
 )
 
-// Downloaded state per standalone Whisper model, so the dropdown dot is grey until
-// the weights are on disk. Re-checked on mount, when the backend/engine changes, and
-// whenever the model-download popup closes — the standalone weights are pulled by
-// `ensureStandaloneReady` through that popup, so without the last watch the dot stays
-// grey until the panel is remounted.
-const standaloneDownloaded = ref<Record<string, boolean>>({})
-async function refreshStandaloneDownloaded() {
+// Downloaded state per selectable Whisper model (both engines share the STT model
+// dir), so the dropdown dot is grey until the weights are on disk. Re-checked on
+// mount, when the backend/engine changes, and whenever the model-download popup
+// closes — the weights are pulled by `ensureStandaloneReady` / `ensureWhisperReady`
+// through that popup, so without the last watch the dot stays grey until the panel
+// is remounted.
+const downloaded = ref<Record<string, boolean>>({})
+async function refreshDownloaded() {
   try {
     const entries = await Promise.all(
-      WHISPER_STANDALONE_MODELS.map(
+      [...WHISPER_STANDALONE_MODELS, ...WHISPER_OVMS_MODELS].map(
         async (m) => [m.repo, await models.checkTranscriptionModelExists(m.repo)] as const,
       ),
     )
-    standaloneDownloaded.value = Object.fromEntries(entries)
+    downloaded.value = Object.fromEntries(entries)
   } catch {
-    standaloneDownloaded.value = {}
+    downloaded.value = {}
   }
 }
-onMounted(refreshStandaloneDownloaded)
-watch(() => speechToText.isStandaloneAvailable, refreshStandaloneDownloaded)
-watch(() => speechToText.selectedSttEngine, refreshStandaloneDownloaded)
+onMounted(refreshDownloaded)
+watch(() => speechToText.isStandaloneAvailable, refreshDownloaded)
+watch(() => speechToText.selectedSttEngine, refreshDownloaded)
 watch(
   () => dialogs.downloadDialogVisible,
   (visible) => {
-    if (!visible) refreshStandaloneDownloaded()
+    if (!visible) refreshDownloaded()
   },
 )
 
@@ -162,7 +177,15 @@ const standaloneModelItems = computed(() =>
   WHISPER_STANDALONE_MODELS.map((m) => ({
     label: m.label,
     value: m.repo,
-    active: standaloneDownloaded.value[m.repo] === true,
+    active: downloaded.value[m.repo] === true,
+  })),
+)
+
+const ovmsModelItems = computed(() =>
+  WHISPER_OVMS_MODELS.map((m) => ({
+    label: m.label,
+    value: m.repo,
+    active: downloaded.value[m.repo] === true,
   })),
 )
 

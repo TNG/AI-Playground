@@ -9,11 +9,11 @@ import * as toast from '@/assets/js/toast'
 import { useSetupWizard } from './setupWizard'
 import { useProductMode } from './productMode'
 import {
+  DEFAULT_WHISPER_OVMS_MODEL,
   DEFAULT_WHISPER_STANDALONE_MODEL,
+  type WhisperOvmsModel,
   type WhisperStandaloneModel,
 } from '@/assets/js/whisperConstants'
-
-export const WHISPER_MODEL_NAME = 'OpenVINO/whisper-base-int8-ov'
 
 /** Which engine backs Speech To Text.
  *  - `whisper`: OpenVINO OVMS Whisper server — needs OpenVINO (non-NVIDIA).
@@ -71,6 +71,9 @@ export const useSpeechToText = defineStore(
     const selectedSttEngine = ref<SttEngine>('whisper')
     // Which model the standalone (torch) Whisper engine uses.
     const selectedStandaloneModel = ref<WhisperStandaloneModel>(DEFAULT_WHISPER_STANDALONE_MODEL)
+    // Which model the OpenVINO (OVMS) Whisper engine serves. OVMS takes the repo id
+    // per server launch, so switching this just restarts the transcription server.
+    const selectedOvmsModel = ref<WhisperOvmsModel>(DEFAULT_WHISPER_OVMS_MODEL)
     // Mirrors `isWhisperBackendEnabled` from settings.json — gates the optional
     // standalone Whisper sidecar (offered in the setup wizard + as an STT engine).
     const isWhisperBackendEnabled = ref(false)
@@ -299,10 +302,11 @@ export const useSpeechToText = defineStore(
         )
       }
 
+      const model = selectedOvmsModel.value
       let downloadPrompted = false
-      const modelExists = await models.checkTranscriptionModelExists(WHISPER_MODEL_NAME)
+      const modelExists = await models.checkTranscriptionModelExists(model)
       if (!modelExists) {
-        const missing = await models.getMissingTranscriptionModel(WHISPER_MODEL_NAME)
+        const missing = await models.getMissingTranscriptionModel(model)
         if (missing.length > 0) {
           downloadPrompted = true
           await new Promise<void>((resolve, reject) => {
@@ -315,10 +319,11 @@ export const useSpeechToText = defineStore(
         }
       }
 
-      const url = await backendServices.getTranscriptionServerUrl()
-      if (!url) {
-        await backendServices.startTranscriptionServer(WHISPER_MODEL_NAME)
-      }
+      // Always ask for the selected model rather than skipping when *some* server
+      // is up: the model is picked per launch, so a server left running with the
+      // previously selected model would otherwise keep serving it. The backend
+      // no-ops when the running model already matches and restarts when it doesn't.
+      await backendServices.startTranscriptionServer(model)
       return { downloadPrompted }
     }
 
@@ -343,7 +348,7 @@ export const useSpeechToText = defineStore(
           if (ovmsUrl) {
             return {
               baseURL: ovmsUrl,
-              model: WHISPER_MODEL_NAME.split('/').join('---'),
+              model: selectedOvmsModel.value.split('/').join('---'),
               apiKey: '',
             }
           }
@@ -375,15 +380,13 @@ export const useSpeechToText = defineStore(
       // there is nothing to start here.
       if (!openVinoService?.isSetUp) return
 
-      const modelExists = await models.checkTranscriptionModelExists(WHISPER_MODEL_NAME)
+      const model = selectedOvmsModel.value
+      const modelExists = await models.checkTranscriptionModelExists(model)
       if (!modelExists) return
 
       try {
-        const url = await backendServices.getTranscriptionServerUrl()
-        if (!url) {
-          // Server not running, start it
-          await backendServices.startTranscriptionServer(WHISPER_MODEL_NAME)
-        }
+        // Idempotent for the model already being served; restarts on a switch.
+        await backendServices.startTranscriptionServer(model)
       } catch (error) {
         console.error('Failed to ensure transcription server is running:', error)
       }
@@ -423,19 +426,14 @@ export const useSpeechToText = defineStore(
         }
 
         // Check model exists
-        const modelExists = await models.checkTranscriptionModelExists(WHISPER_MODEL_NAME)
+        const modelExists = await models.checkTranscriptionModelExists(selectedOvmsModel.value)
         if (!modelExists) {
           enabled.value = false
           toast.warning('Speech To Text disabled: Whisper model not found')
           return
         }
 
-        // Check if server is already running
-        const url = await backendServices.getTranscriptionServerUrl()
-        if (!url) {
-          // Start transcription server
-          await backendServices.startTranscriptionServer(WHISPER_MODEL_NAME)
-        }
+        await backendServices.startTranscriptionServer(selectedOvmsModel.value)
       } catch (error) {
         enabled.value = false
         const errorMessage = error instanceof Error ? error.message : String(error)
@@ -481,18 +479,19 @@ export const useSpeechToText = defineStore(
         }
 
         // Check if whisper model exists
-        const modelExists = await models.checkTranscriptionModelExists(WHISPER_MODEL_NAME)
+        const model = selectedOvmsModel.value
+        const modelExists = await models.checkTranscriptionModelExists(model)
 
         if (!modelExists) {
           // Show download dialog
-          const missingModels = await models.getMissingTranscriptionModel(WHISPER_MODEL_NAME)
+          const missingModels = await models.getMissingTranscriptionModel(model)
           if (missingModels.length > 0) {
             dialogStore.showDownloadDialog(
               missingModels,
               async () => {
                 // Model downloaded, start transcription server
                 try {
-                  await backendServices.startTranscriptionServer(WHISPER_MODEL_NAME)
+                  await backendServices.startTranscriptionServer(model)
                   enabled.value = true
                   toast.success('Speech To Text enabled')
                 } catch (error) {
@@ -510,7 +509,7 @@ export const useSpeechToText = defineStore(
 
         // All requirements met, start transcription server
         try {
-          await backendServices.startTranscriptionServer(WHISPER_MODEL_NAME)
+          await backendServices.startTranscriptionServer(model)
           enabled.value = true
           toast.success('Speech To Text enabled')
         } catch (error) {
@@ -550,6 +549,7 @@ export const useSpeechToText = defineStore(
       fallback,
       selectedSttEngine,
       selectedStandaloneModel,
+      selectedOvmsModel,
       isWhisperBackendEnabled,
       isWhisperAvailable,
       isStandaloneAvailable,
@@ -574,7 +574,13 @@ export const useSpeechToText = defineStore(
   {
     persist: {
       storage: demoAwareStorage,
-      pick: ['enabled', 'fallback', 'selectedSttEngine', 'selectedStandaloneModel'],
+      pick: [
+        'enabled',
+        'fallback',
+        'selectedSttEngine',
+        'selectedStandaloneModel',
+        'selectedOvmsModel',
+      ],
     },
   },
 )

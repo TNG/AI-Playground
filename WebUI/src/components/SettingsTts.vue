@@ -116,26 +116,9 @@
       </div>
     </template>
 
-    <!-- Auto-speak: read replies aloud when the user's input came from the mic.
-         Relocated here from app settings so all TTS config lives with the preset. -->
-    <div class="grid grid-cols-[120px_1fr] items-center gap-4">
-      <div class="flex items-center gap-2">
-        <Label class="whitespace-nowrap">Speak replies</Label>
-        <TooltipProvider :delay-duration="200">
-          <Tooltip>
-            <TooltipTrigger as-child>
-              <span class="svg-icon i-info w-4 h-4 opacity-50 cursor-help" />
-            </TooltipTrigger>
-            <TooltipContent side="bottom" class="max-w-[320px]">
-              When enabled, the assistant auto-plays its reply in the app when your input came from
-              the microphone, and the Home Agent sends a voice message back when you send a voice
-              message.
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </div>
-      <Checkbox id="tts-auto-speak" v-model="textToSpeech.autoSpeakOnVoiceInput" />
-    </div>
+    <!-- Note: "Speak replies" (auto-play / Home Agent voice replies) is not a TTS
+         preset setting — it applies to every preset, so it lives with the Home Agent
+         settings (see SettingsChat.vue). -->
 
     <!-- Create a custom voice: describe a voice in words and save it. Saved voices
          appear in the Voice list above and can be used from chat by name. Qwen3 only. -->
@@ -239,8 +222,6 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import DropDownNew from '@/components/DropDownNew.vue'
 import DeviceSelector from '@/components/DeviceSelector.vue'
 import SettingsHeading from '@/components/SettingsHeading.vue'

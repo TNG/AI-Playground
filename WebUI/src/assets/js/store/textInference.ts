@@ -535,6 +535,13 @@ export const useTextInference = defineStore(
 
     const metricsEnabled = ref(true)
     const aipgToolsEnabled = ref(true)
+    // "Speak replies": read a reply aloud when the user's input was speech. Edited on
+    // the Text To Speech tool row (SettingsBuiltinTools) and stored per chat preset
+    // like the other tool settings, so it applies to whichever preset is active —
+    // the assistant auto-plays in the app, the Home Agent answers a voice message
+    // with a voice message. Initialized per preset on load; see
+    // `defaultSpeakReplies` / `speakRepliesAllowed`.
+    const speakReplies = ref(false)
     const mcpToolsEnabled = ref(true)
     // Route the heavy media tools (comfyUI + comfyUiImageEdit) through the
     // nested media specialist agent: the parent model sees one thin `media`
@@ -579,6 +586,45 @@ export const useTextInference = defineStore(
       if (!legacy) return
       legacyToolEnablement.value = legacy
       settingsPerPreset.value = seedToolEnablementPerPreset(settingsPerPreset.value, legacy)
+    }
+
+    /**
+     * Default for "Speak replies": on for the Home Agent, where a voice message
+     * asks for a voice answer, and off elsewhere so the desktop app never starts
+     * talking without the user having asked for it.
+     */
+    function defaultSpeakReplies(presetName?: string): boolean {
+      return presetName === HOME_AGENT_CHAT_PRESET_NAME
+    }
+
+    /**
+     * Whether replies may be spoken for a preset: its "Speak replies" toggle and
+     * tools must be on, and the Text To Speech tool (which supplies the voice) must
+     * be enabled — that is what the toggle rides on in the UI.
+     *
+     * Pass `presetName` to read the *stored* value for a preset instead of the live
+     * refs. The Home Agent needs that: it answers on its own preset, while the live
+     * refs may already hold the desktop user's preset again. A preset with nothing
+     * saved yet falls back to that preset's default.
+     */
+    function speakRepliesAllowed(presetName?: string): boolean {
+      if (!isBuiltinToolEnabled('synthesizeTextToSpeech')) return false
+      if (!presetName) return aipgToolsEnabled.value && speakReplies.value
+      const saved = findSettingsForPreset(presetName)
+      const toolsOn = (saved?.aipgToolsEnabled as boolean | undefined) ?? aipgToolsEnabled.value
+      const speakOn =
+        (saved?.speakReplies as boolean | undefined) ?? defaultSpeakReplies(presetName)
+      return toolsOn && speakOn
+    }
+
+    /** Stored settings for a preset, by exact key or the first of its variants. */
+    function findSettingsForPreset(presetName: string): Record<string, unknown> | undefined {
+      const exact = settingsPerPreset.value[presetName]
+      if (exact) return exact
+      const variantKey = Object.keys(settingsPerPreset.value).find((key) =>
+        key.startsWith(`${presetName}:`),
+      )
+      return variantKey ? settingsPerPreset.value[variantKey] : undefined
     }
 
     // Per-workflow (ComfyUI preset) enablement for preset-backed built-in tools
@@ -1843,6 +1889,9 @@ export const useTextInference = defineStore(
         legacyToolEnablement.value,
       )
 
+      speakReplies.value =
+        (savedSettings.speakReplies as boolean | undefined) ?? defaultSpeakReplies(preset.name)
+
       // Per-workflow enablement for preset-backed tools (defaults to all-enabled
       // when unsaved, matching isWorkflowPresetEnabled's default).
       builtinToolPresetEnablement.value =
@@ -2060,6 +2109,7 @@ export const useTextInference = defineStore(
         mcpToolsEnabled,
         toolDelegationEnabled,
         builtinToolEnablement,
+        speakReplies,
         builtinToolPresetEnablement,
         builtinToolDefaultPresets,
         thinkingEnabled,
@@ -2094,6 +2144,7 @@ export const useTextInference = defineStore(
           mcpToolsEnabled: mcpToolsEnabled.value,
           toolDelegationEnabled: toolDelegationEnabled.value,
           builtinToolEnablement: { ...builtinToolEnablement.value },
+          speakReplies: speakReplies.value,
           builtinToolPresetEnablement: { ...builtinToolPresetEnablement.value },
           builtinToolDefaultPresets: { ...builtinToolDefaultPresets.value },
           thinkingEnabled: thinkingEnabled.value,
@@ -2240,6 +2291,8 @@ export const useTextInference = defineStore(
       builtinToolEnablement,
       isBuiltinToolEnabled,
       setBuiltinToolEnabled,
+      speakReplies,
+      speakRepliesAllowed,
       builtinToolPresetEnablement,
       isWorkflowPresetEnabled,
       setWorkflowPresetEnabled,

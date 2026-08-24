@@ -90,8 +90,8 @@
                 speech.
               </template>
               <template v-else>
-                Install the OpenVINO backend (or set an external transcription endpoint in this
-                preset's settings) to transcribe speech.
+                Install the OpenVINO backend or standalone Whisper backend, or set an external
+                transcription endpoint in this preset's settings, to transcribe speech.
               </template>
             </p>
             <template v-else>
@@ -636,7 +636,7 @@ const sttAvailable = computed(() => speechToText.available)
 const sttUnavailableHint = computed(() =>
   productModeStore.isNvidiaModeSelected
     ? 'Install the standalone Whisper backend (or set an external transcription endpoint) to use voice input'
-    : 'Install the OpenVINO or the standalone Whisper backend (or set an external transcription endpoint) to use voice input',
+    : 'Install the OpenVINO backend or standalone Whisper backend, or set an external transcription endpoint, to use voice input',
 )
 
 // Handle an uploaded audio file in the STT preset: transcribe it into a chat turn.

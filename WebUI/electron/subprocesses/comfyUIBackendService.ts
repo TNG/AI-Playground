@@ -588,12 +588,14 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         this.getEffectiveVariant(),
       )
 
-      // If venv doesn't exist, service is not set up
-      if (!checkDetails.venvExists) {
+      // Dir-only leftover .venv (no interpreter) or uv reporting 'create' is
+      // not installed — do not auto-start a backend that cannot boot.
+      if (!checkDetails.venvExists || checkDetails.needsInstallation) {
         this.appLogger.info(
-          `Service ${this.name} venv does not exist, needs installation`,
+          `Service ${this.name} venv is missing or incomplete, needs installation`,
           this.name,
         )
+        this.environmentMismatchError = null
         return false
       }
 

@@ -119,6 +119,27 @@ export const useSpeechToText = defineStore(
       return svc?.isSetUp === true
     })
 
+    // Installation alone is not enough to *prefer* standalone over a configured
+    // fallback (CodeRabbit on 278): the sidecar can be set up without its model.
+    const standaloneModelPresent = ref(false)
+    async function refreshStandaloneModelPresent(): Promise<void> {
+      if (!isStandaloneAvailable.value) {
+        standaloneModelPresent.value = false
+        return
+      }
+      try {
+        standaloneModelPresent.value = await models.checkTranscriptionModelExists(
+          selectedStandaloneModel.value,
+        )
+      } catch {
+        standaloneModelPresent.value = false
+      }
+    }
+    watch([isStandaloneAvailable, selectedStandaloneModel], () => {
+      void refreshStandaloneModelPresent()
+    })
+    void refreshStandaloneModelPresent()
+
     /**
      * Whether speech-to-text is usable at all: OpenVINO Whisper (non-NVIDIA), the
      * standalone Whisper backend, or a configured external endpoint. Used to gate the
@@ -154,8 +175,9 @@ export const useSpeechToText = defineStore(
      *  SettingsStt then shows its "install a backend or enable an endpoint" hint. */
     const preferredSttEngine = computed<SttEngine>(() => {
       if (isWhisperAvailable.value) return 'whisper'
-      if (isStandaloneAvailable.value) return 'standalone'
+      if (isStandaloneAvailable.value && standaloneModelPresent.value) return 'standalone'
       if (isExternalAvailable.value) return 'external'
+      if (isStandaloneAvailable.value) return 'standalone'
       return offeredSttEngines.value[0] ?? 'external'
     })
 
@@ -241,6 +263,7 @@ export const useSpeechToText = defineStore(
       if (current.status !== 'running') {
         await backendServices.startService('whisper-backend')
       }
+      standaloneModelPresent.value = true
       return { downloadPrompted }
     }
 
@@ -281,6 +304,20 @@ export const useSpeechToText = defineStore(
         model: selectedStandaloneModel.value,
         apiKey: token ?? '',
       }
+    }
+
+    async function resolveStandaloneEndpointIfReady(): Promise<TranscriptionEndpoint | null> {
+      const svc = backendServices.info.find((s) => s.serviceName === 'whisper-backend')
+      if (!svc?.isSetUp || svc.status !== 'running') return null
+      try {
+        const modelExists = await models.checkTranscriptionModelExists(
+          selectedStandaloneModel.value,
+        )
+        if (!modelExists) return null
+      } catch {
+        return null
+      }
+      return resolveStandaloneEndpoint()
     }
 
     /**
@@ -336,13 +373,14 @@ export const useSpeechToText = defineStore(
       // `effectiveSttEngine`, not the raw selection: the engine that was readied
       // and recorded against must be the one we transcribe with.
       const engine = effectiveSttEngine.value
-      // The standalone engine forces its own torch sidecar.
+      // Standalone only when the sidecar can actually serve: installed-without-
+      // its-model would otherwise return the sidecar URL and skip a configured
+      // external fallback (Home Agent's dialog-free path never prompts a download).
       if (engine === 'standalone') {
-        return resolveStandaloneEndpoint()
-      }
-      // The External engine forces the fallback endpoint; otherwise prefer the OVMS
-      // Whisper server when running and fall back to the configured endpoint.
-      if (engine !== 'external') {
+        const endpoint = await resolveStandaloneEndpointIfReady()
+        if (endpoint) return endpoint
+      } else if (engine !== 'external') {
+        // Prefer the OVMS Whisper server when running; otherwise fall through.
         try {
           const ovmsUrl = await backendServices.getTranscriptionServerUrl()
           if (ovmsUrl) {

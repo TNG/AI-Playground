@@ -23,15 +23,9 @@ import { useErrors } from './errors'
 import { extractMessage } from '../errors/appError'
 import type { ErrorDetails } from '../../../../electron/subprocesses/service'
 
-const ALL_BACKENDS: BackendServiceName[] = [
-  'ai-backend',
-  'home-agent-backend',
-  'qwen3-tts-backend',
-  'whisper-backend',
-  'llamacpp-backend',
-  'openvino-backend',
-  'comfyui-backend',
-]
+// Derived from the single source of truth rather than restated: a backend added
+// there but forgotten here would silently never appear in the wizard.
+const ALL_BACKENDS: BackendServiceName[] = [...allBackendServiceNames]
 
 /** Backends to show, minus the optional ones whose feature flag is off. Named
  *  options rather than positional booleans: three same-typed flags in a row are

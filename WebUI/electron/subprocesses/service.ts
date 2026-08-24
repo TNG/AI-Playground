@@ -471,7 +471,10 @@ export interface ApiService {
   readonly isRequired: boolean
   currentStatus: BackendStatus
   isSetUp: boolean
-  /** True while an install is being run for this service — see the field on `LongLivedPythonApiService`. */
+  /**
+   * True while an install is being run for this service — see the field on
+   * `LongLivedPythonApiService`.
+   */
   setUpInProgress: boolean
 
   selectDevice(deviceId: string): Promise<void>

@@ -365,11 +365,21 @@ export const useSpeechToText = defineStore(
     }
 
     /**
-     * Resolve which transcription endpoint to use. Dispatches on the engine that
-     * was readied, then falls back to a configured OpenAI-compatible endpoint.
+     * Resolve which transcription endpoint to use. A configured fallback wins:
+     * it is an explicit choice, and it is the only endpoint that works where
+     * OVMS is installed but cannot run (macOS, where its binary is not
+     * executable). Otherwise dispatch on the engine that was readied.
      * Returns `null` when neither is available.
      */
     async function resolveTranscription(): Promise<TranscriptionEndpoint | null> {
+      if (hasFallback()) {
+        return {
+          baseURL: fallback.value.baseUrl.trim(),
+          model: fallback.value.model.trim() || 'whisper-1',
+          apiKey: fallback.value.apiKey,
+        }
+      }
+
       // `effectiveSttEngine`, not the raw selection: the engine that was readied
       // and recorded against must be the one we transcribe with.
       const engine = effectiveSttEngine.value
@@ -392,14 +402,6 @@ export const useSpeechToText = defineStore(
           }
         } catch (error) {
           console.error('Failed to resolve OVMS transcription server URL:', error)
-        }
-      }
-
-      if (hasFallback()) {
-        return {
-          baseURL: fallback.value.baseUrl.trim(),
-          model: fallback.value.model.trim() || 'whisper-1',
-          apiKey: fallback.value.apiKey,
         }
       }
 

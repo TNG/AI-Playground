@@ -1,14 +1,9 @@
 import { tool, type FilePart, type ModelMessage } from 'ai'
 import { z } from 'zod'
 import { useActivities } from '../store/activities'
-import { useConversations } from '../store/conversations'
 import { useSpeechToText } from '../store/speechToText'
 import { transcribeAudioBlob } from '@/lib/transcribe'
-
-function conversationKeyFor(experimentalContext: unknown): string {
-  const ctx = experimentalContext as { conversationKey?: string } | undefined
-  return ctx?.conversationKey ?? useConversations().activeKey
-}
+import { ToolConversationContextSchema, conversationKeyFor } from './toolContext'
 
 /**
  * Resolve a FilePart's data to a Blob. A FilePart carries either a URL (string
@@ -55,10 +50,11 @@ export const transcribeAudio = tool({
     // A required-but-empty object keeps the schema valid across providers.
   }),
   outputSchema: TranscribeAudioOutputSchema,
+  contextSchema: ToolConversationContextSchema,
   execute: async (_args, options): Promise<TranscribeAudioOutput> => {
     const activities = useActivities()
     const speechToText = useSpeechToText()
-    const conversationKey = conversationKeyFor(options.experimental_context)
+    const conversationKey = conversationKeyFor(options.context)
     const messages = (options.messages ?? []) as ModelMessage[]
 
     const activityId = activities.begin({

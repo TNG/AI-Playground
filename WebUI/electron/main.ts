@@ -1055,6 +1055,9 @@ function initEventHandle() {
       }
     }
     persistLocalSettingsToDisk()
+    if (updates.disabledBackends) {
+      serviceRegistry?.setDisabledBackends(updates.disabledBackends)
+    }
     appLogger.info(`Updated local settings: ${JSON.stringify(updates)}`, 'electron-backend')
     return { success: true }
   })

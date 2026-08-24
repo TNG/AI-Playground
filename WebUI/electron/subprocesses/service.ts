@@ -12,7 +12,7 @@ import { createHash } from 'crypto'
 
 import * as childProcess from 'node:child_process'
 import { promisify } from 'util'
-import { venvInterpreterPath, venvIsUsable } from './uvBasedBackends/uv.ts'
+import { removeBrokenVenv, venvInterpreterPath, venvIsUsable } from './uvBasedBackends/venvState.ts'
 import { Arch, getArchPriority, getDeviceArch } from './deviceArch.ts'
 import { z } from 'zod'
 import { LocalSettings } from '../main.ts'
@@ -703,7 +703,7 @@ export abstract class LongLivedPythonApiService implements ApiService {
       `venv of ${this.name} has no interpreter — removing the partial tree before installing`,
       this.name,
     )
-    await filesystem.remove(this.pythonEnvDir)
+    await removeBrokenVenv(this.pythonEnvDir)
   }
 
   async uninstall(): Promise<void> {
@@ -970,7 +970,7 @@ export abstract class LongLivedPythonApiService implements ApiService {
    * which is what a broken-but-present environment should report.
    */
   protected async assertReadyToStart(): Promise<void> {
-    const ready = await this.serviceIsSetUp()
+    const ready = venvIsUsable(this.pythonEnvDir) && (await this.serviceIsSetUp())
     if (!ready) {
       this.isSetUp = false
       throw new ServiceNotInstalledError(

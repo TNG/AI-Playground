@@ -359,6 +359,9 @@ type electronAPI = {
   getDownloadedOpenVINOLLMModels(): Promise<string[]>
   getDownloadedEmbeddingModels(): Promise<Model[]>
   getComfyUIModels(modelType: string): Promise<string[]>
+  scanModelLibrary(): Promise<import('./assets/js/models/types').ModelLibraryScan>
+  showModelInFolder(modelPath: string): Promise<{ success: boolean; error?: string }>
+  deleteModelPath(modelPath: string): Promise<{ success: boolean; error?: string }>
   getPlatform(): Promise<NodeJS.Platform>
   openImageWithSystem(url: string): void
   openImageInFolder(url: string): void

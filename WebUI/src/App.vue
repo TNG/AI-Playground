@@ -55,6 +55,14 @@
       </button>
       <button
         v-if="globalSetup.loadingState === 'running'"
+        :title="languages.MODEL_MANAGER_TITLE"
+        :aria-label="languages.MODEL_MANAGER_OPEN"
+        @click="uiStore.openModelManager()"
+      >
+        <CircleStackIcon class="size-6 text-foreground"></CircleStackIcon>
+      </button>
+      <button
+        v-if="globalSetup.loadingState === 'running'"
         id="contextual-help-toggle"
         type="button"
         class="flex size-7 items-center justify-center rounded-full border border-border text-sm font-bold text-foreground transition-colors hover:bg-muted"
@@ -232,6 +240,10 @@
       :mode="promptStore.getCurrentMode()"
       @close="showSpecificSettings = false"
     />
+    <!-- Before the dialog layer on purpose: these share a z-index, so DOM order
+         decides, and the download / delete dialogs this view opens must be able
+         to appear on top of it. -->
+    <ModelManager v-if="uiStore.showModelManager" @close="uiStore.closeModelManager()" />
     <download-dialog v-show="dialogStore.downloadDialogVisible"></download-dialog>
     <warning-dialog v-show="dialogStore.warningDialogVisible"></warning-dialog>
     <preset-requirements-dialog
@@ -312,13 +324,13 @@ import { useProductMode } from './assets/js/store/productMode'
 import DownloadDialog from '@/components/DownloadDialog.vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useTheme } from './assets/js/store/theme.ts'
-import AddLLMDialog from '@/components/AddLLMDialog.vue'
 import WarningDialog from '@/components/WarningDialog.vue'
 import PresetRequirementsDialog from '@/components/PresetRequirementsDialog.vue'
 import InstallationProgressDialog from '@/components/InstallationProgressDialog.vue'
 import MaskEditorDialog from '@/components/MaskEditorDialog.vue'
 import DemoModeIndicator from '@/components/DemoModeIndicator.vue'
-import { ServerStackIcon } from '@heroicons/vue/24/solid'
+import { CircleStackIcon, ServerStackIcon } from '@heroicons/vue/24/solid'
+import ModelManager from '@/views/ModelManager.vue'
 import { useColorMode } from '@vueuse/core'
 import { useDemoMode } from './assets/js/store/demoMode.ts'
 import WorkflowResult from '@/views/WorkflowResult.vue'
@@ -353,7 +365,6 @@ const uiStore = useUIStore()
 const setupWizardStore = useSetupWizard()
 const homeAgent = useHomeAgent()
 
-const addLLMCompt = ref<InstanceType<typeof AddLLMDialog>>()
 const demoModeOverlayDriverJs = ref<InstanceType<typeof DemoModeOverlayDriverJsRef>>()
 const showSettingBtn = ref<HTMLButtonElement>()
 const chatRef = ref<{
@@ -367,7 +378,6 @@ const videoRef = ref<{ handleSubmitPromptClick: (prompt: string) => void }>()
 const isOpen = ref(false)
 const footerExpanded = ref(true)
 const showAppSettings = ref(false)
-const showModelRequestDialog = ref(false)
 const fullscreen = ref(false)
 const showSpecificSettings = ref(false)
 
@@ -472,14 +482,6 @@ function closeWindow() {
 
 function openDevTools() {
   window.electronAPI.openDevTools()
-}
-
-// todo: Why is this not used
-function _showModelRequest() {
-  showModelRequestDialog.value = true
-  nextTick(() => {
-    addLLMCompt.value!.onShow()
-  })
 }
 
 function handleAutoHideFooter() {

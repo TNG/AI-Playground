@@ -2,6 +2,10 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { LlmBackend } from './textInference'
 import { useBackendServices } from './backendServices'
+import { useModelPreferences } from './modelPreferences'
+import { pathKeyForCatalogModel } from '../models/library'
+import { mergeCapabilities } from '../models/overrides'
+import type { ModelCapabilityValues } from '../models/types'
 import { aipgFetch } from '@/lib/loopbackAuth'
 
 export type ModelPaths = {
@@ -16,20 +20,11 @@ export type ModelLists = {
 
 export type ModelType = 'embedding' | 'undefined' | LlmBackend
 
-export type Model = {
+export type Model = ModelCapabilityValues & {
   name: string
-  mmproj?: string
   downloaded: boolean
   type: ModelType
   backend?: LlmBackend
-  supportsToolCalling?: boolean
-  toolParser?: string // OVMS --tool_parser override; defaults to 'hermes3'
-  supportsVision?: boolean
-  supportsReasoning?: boolean
-  supportsThinkingToggle?: boolean // Template honors enable_thinking toggle (Qwen3 family, gemma4)
-  maxContextSize?: number
-  npuSupport?: boolean
-  largeMoe?: boolean // Large Mixture-of-Experts model; Phison aiDAPTIV+ SSD offload enables loading models larger than VRAM
   isPredefined?: boolean // true if model is defined in models.json
 }
 
@@ -52,11 +47,10 @@ export const useModels = defineStore(
     const hfEndpoint = ref<string>('https://huggingface.co')
     const models = ref<Model[]>([])
     const backendServices = useBackendServices()
+    const modelPreferences = useModelPreferences()
 
     // Store custom model metadata (for models not in models.json)
     const customModelMetadata = ref<Record<string, Partial<Model>>>({})
-
-    const downloadList = ref<DownloadModelParam[]>([])
 
     // Model paths - single source of truth for model directory locations
     const paths = ref<ModelPaths>({
@@ -128,22 +122,35 @@ export const useModels = defineStore(
               ? (m.mmproj as string | undefined)
               : (existingModel?.mmproj ?? customMetadata?.mmproj)
 
-          // Combine model sources with priority: predefined > existing > custom
-          const combinedModel = { ...customMetadata, ...existingModel, ...predefinedModel }
+          const backend =
+            'backend' in m
+              ? (m.backend as LlmBackend | undefined)
+              : (predefinedModel?.backend ?? existingModel?.backend ?? customMetadata?.backend)
+
+          // User overrides are the top layer, so editing a capability of a
+          // predefined model sticks instead of being overwritten by models.json
+          // on the next refresh. `mergeCapabilities` ignores undefined values, so
+          // a lower layer's value is never blanked out by a higher one.
+          //
+          // The previous entry deliberately contributes no capabilities: it would
+          // still carry a *removed* override and make "reset to defaults" look
+          // like it did nothing until the next app start. Every durable source
+          // (models.json, custom metadata, overrides) is re-read here instead.
+          const placement = pathKeyForCatalogModel(m.type, backend)
+          const overrides = placement
+            ? modelPreferences.capabilityOverridesFor(placement.pathKey, m.name)
+            : undefined
+          const capabilities = mergeCapabilities(customMetadata, predefinedModel, overrides)
 
           const model: Model = {
+            ...capabilities,
             name: m.name,
-            mmproj,
+            mmproj: capabilities.mmproj ?? mmproj,
             downloaded: downloadedModelNames.has(m.name),
             type: m.type,
-            backend: 'backend' in m ? (m.backend as LlmBackend | undefined) : combinedModel.backend,
-            supportsToolCalling: combinedModel.supportsToolCalling,
-            supportsVision: combinedModel.supportsVision ?? (mmproj ? true : undefined),
-            supportsReasoning: combinedModel.supportsReasoning,
-            supportsThinkingToggle: combinedModel.supportsThinkingToggle,
-            maxContextSize: combinedModel.maxContextSize,
-            npuSupport: combinedModel.npuSupport,
-            largeMoe: combinedModel.largeMoe,
+            backend,
+            supportsVision:
+              capabilities.supportsVision ?? ((capabilities.mmproj ?? mmproj) ? true : undefined),
             isPredefined: !!predefinedModel, // true if model is defined in models.json
           }
           return model
@@ -153,7 +160,6 @@ export const useModels = defineStore(
       console.log('Models refreshed', models.value)
     }
 
-    async function download(_models: DownloadModelParam[]) {}
     async function addModel(model: Model) {
       // Store metadata for custom models
       if (!model.isPredefined) {
@@ -169,6 +175,19 @@ export const useModels = defineStore(
         }
       }
       models.value.push(model)
+      await refreshModels()
+    }
+
+    /**
+     * Drop a user-added model from the catalog. Only custom models can be
+     * removed: a `models.json` entry would simply come back on the next refresh,
+     * and a model present on disk is removed by deleting its files instead.
+     * Without this, a mistyped model name stayed in the list forever.
+     */
+    async function removeCustomModel(name: string) {
+      const { [name]: _removed, ...rest } = customModelMetadata.value
+      customModelMetadata.value = rest
+      models.value = models.value.filter((m) => m.name !== name)
       await refreshModels()
     }
 
@@ -519,12 +538,11 @@ export const useModels = defineStore(
       hfEndpointIsValid: computed(() => isValidUrl(hfEndpoint.value)),
       verifyHfEndpoint,
       updateHfEndpoint,
-      downloadList,
       paths,
       customModelMetadata,
       addModel,
+      removeCustomModel,
       refreshModels,
-      download,
       checkIfHuggingFaceUrlExists,
       checkModelAlreadyLoaded,
       getModelPath,

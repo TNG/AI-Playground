@@ -6,6 +6,7 @@ import { MainPage, type ChatMode } from './pages/MainPage'
 import { SpecificSettingsPage } from './pages/SpecificSettingsPage'
 import { DownloadDialogPage } from './pages/DownloadDialogPage'
 import { McpSettingsPage } from './pages/McpSettingsPage'
+import { ModelManagerPage } from './pages/ModelManagerPage'
 import { ToolSettingsPage } from './pages/ToolSettingsPage'
 import { setRekaToggle, settingsRegion } from './pages/uiControls'
 import { BACKENDS, BACKEND_DISPLAY_NAMES } from './backends'
@@ -41,6 +42,7 @@ export class AppDriver {
   readonly settings: SpecificSettingsPage
   readonly downloads: DownloadDialogPage
   readonly mcp: McpSettingsPage
+  readonly models: ModelManagerPage
   readonly tools: ToolSettingsPage
 
   constructor(private readonly window: Page) {
@@ -50,6 +52,7 @@ export class AppDriver {
     this.settings = new SpecificSettingsPage(window)
     this.downloads = new DownloadDialogPage(window)
     this.mcp = new McpSettingsPage(window)
+    this.models = new ModelManagerPage(window)
     this.tools = new ToolSettingsPage(window)
   }
 

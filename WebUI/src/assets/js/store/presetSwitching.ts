@@ -161,10 +161,15 @@ export const usePresetSwitching = defineStore('presetSwitching', () => {
         throw new Error(`Preset not found: ${presetName}`)
       }
 
-      // 2. For chat presets, verify backend availability. A TTS preset has no LLM
-      //    backend (it drives Qwen3-TTS directly), so it can always be selected —
-      //    readiness is surfaced later as an install banner in the settings panel.
-      if (preset.type === 'chat' && !(preset as ChatPreset).ttsPreset) {
+      // 2. For chat presets, verify backend availability. TTS / STT presets have no
+      //    LLM backend (they drive Qwen3-TTS / OVMS Whisper directly), so they can
+      //    always be selected — readiness is surfaced later as an install banner in
+      //    the settings panel.
+      if (
+        preset.type === 'chat' &&
+        !(preset as ChatPreset).ttsPreset &&
+        !(preset as ChatPreset).sttPreset
+      ) {
         const chatPreset = preset as ChatPreset
         const hasAvailableBackend = chatPreset.backends.some((b) => isBackendAvailable(b))
 

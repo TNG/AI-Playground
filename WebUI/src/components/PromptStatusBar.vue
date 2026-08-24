@@ -171,6 +171,7 @@ import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets.ts'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets'
+import { useTextToSpeech } from '@/assets/js/store/textToSpeech'
 import { useTheme } from '@/assets/js/store/theme'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { Context } from '@/components/ui/context'
@@ -186,6 +187,7 @@ const backendServices = useBackendServices()
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const imageGeneration = useImageGenerationPresets()
 const presetsStore = usePresets()
+const textToSpeech = useTextToSpeech()
 const theme = useTheme()
 const oemBranding = useOemBranding()
 
@@ -241,6 +243,12 @@ const isTtsPreset = computed(
   () => (stableChatPreset.value ?? fallbackChatPreset.value)?.ttsPreset === true,
 )
 
+// The direct Speech-to-Text preset also runs no LLM — it transcribes on the
+// OpenVINO Whisper server. Treat it like the TTS preset in the status bar.
+const isSttPreset = computed(
+  () => (stableChatPreset.value ?? fallbackChatPreset.value)?.sttPreset === true,
+)
+
 // Preset/model indicator shown at the left of the bar. Keyed off the user's
 // selected mode (not `currentMode`) so background comfy switches during
 // agentic / Home Agent tool use don't flip it.
@@ -250,8 +258,8 @@ const presetIndicator = computed(() => {
     if (!preset) return null
     // Match the ModelSelector label: display only the last path segment, and
     // drop the model-file extension (the backend badge now conveys the format).
-    // TTS has no LLM model, so leave it blank.
-    const model = isTtsPreset.value ? undefined : textInference.activeModel
+    // TTS / STT have no LLM model, so leave it blank.
+    const model = isTtsPreset.value || isSttPreset.value ? undefined : textInference.activeModel
     const lastSegment = model?.split('/').at(-1) ?? model
     return {
       image: preset.image,
@@ -276,7 +284,8 @@ const presetIndicator = computed(() => {
 // Hidden for the image/video modes and for TTS, which runs on neither.
 const chatBackendBadge = computed(() => {
   if (!isLlmMode.value) return null
-  if (isTtsPreset.value) return null
+  // TTS / STT don't run on the chat engine, so no engine badge for them.
+  if (isTtsPreset.value || isSttPreset.value) return null
   const backend = textInference.backend
   if (backend === 'cloud') {
     const provider = cloudMode.selectedProvider?.name
@@ -335,7 +344,14 @@ function selectedDeviceBadgeFor(serviceName: BackendServiceName) {
 // device detection has reported a selection.
 const deviceBadge = computed(() => {
   if (isLlmMode.value) {
-    if (isTtsPreset.value) return selectedDeviceBadgeFor('qwen3-tts-backend')
+    if (isSttPreset.value) return selectedDeviceBadgeFor('openvino-backend')
+    if (isTtsPreset.value) {
+      // External endpoint runs remotely — no local inference device to show.
+      if (textToSpeech.selectedEngine === 'external') return null
+      return selectedDeviceBadgeFor(
+        textToSpeech.selectedEngine === 'kokoro' ? 'openvino-backend' : 'qwen3-tts-backend',
+      )
+    }
     const backend = textInference.backend
     if (backend === 'cloud') return null
     const serviceName = backendToService[backend]

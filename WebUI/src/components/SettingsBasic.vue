@@ -83,161 +83,61 @@
     </div>
   </DemoModeBlocker>
 
-  <div v-if="!productModeStore.isNvidiaModeSelected" class="flex flex-col gap-3 pt-4">
-    <div>
-      <SettingsHeading>{{ languages.SETTINGS_AUDIO }}</SettingsHeading>
-      <div class="pl-2 pt-4">
-        <div class="flex justify-between pr-4 items-center gap-4 mb-4">
-          <Label class="whitespace-nowrap">Speech To Text</Label>
-          <Checkbox
-            v-if="!backendStarting"
-            id="speech-to-text"
-            :modelValue="speechToText.enabled"
-            @update:modelValue="handleSpeechToTextToggle"
-          />
-          <Spinner v-else class="justify-self-start" />
-        </div>
-        <MicrophoneSettings v-if="speechToText.enabled" />
-        <div
-          v-if="speechToText.enabled && sttDevices.length > 0"
-          class="grid grid-cols-[120px_1fr] items-center gap-4 mt-4"
-        >
-          <Label class="whitespace-nowrap">Device</Label>
-          <drop-down-new
-            title="STT Device"
-            @change="selectSttDevice"
-            :value="selectedSttDevice?.id"
-            :items="sttDeviceItems"
-          />
-        </div>
-
-        <div class="mt-4 border-t border-white/10 pt-4">
+  <DemoModeBlocker>
+    <div class="flex flex-col gap-3 pt-4">
+      <p>External speech endpoints</p>
+      <div class="pl-2 pt-2 flex flex-col gap-4">
+        <!-- Text to Speech fallback: enabling it adds an "External endpoint" engine
+             option to the Text to Speech preset (works in every product mode). -->
+        <div>
           <div class="flex justify-between pr-4 items-center gap-4">
             <div class="flex items-center gap-2">
-              <Label class="whitespace-nowrap">Fallback transcription endpoint</Label>
+              <Label class="whitespace-nowrap">Text to Speech endpoint</Label>
               <TooltipProvider :delay-duration="200">
                 <Tooltip>
                   <TooltipTrigger as-child>
                     <span class="svg-icon i-info w-4 h-4 opacity-50 cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent side="bottom" class="max-w-[320px]">
-                    Used when the OVMS Whisper server isn't available (e.g. on macOS). Point it at
-                    any OpenAI-compatible transcription server — for example a local whisper.cpp
-                    <code>whisper-server</code> started with
+                    An OpenAI-compatible <code>/v1/audio/speech</code> server (base URL like
+                    <code>http://127.0.0.1:8080/v1</code>). When enabled, it appears as the
+                    "External endpoint" engine in the Text to Speech preset.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            <Checkbox id="tts-fallback-enabled" v-model="textToSpeech.fallback.enabled" />
+          </div>
+        </div>
+
+        <!-- Speech to Text fallback: enabling it adds an "External endpoint" engine to
+             the Speech to Text preset AND makes that preset available in NVIDIA mode
+             (Whisper/OpenVINO is otherwise unavailable there). -->
+        <div class="border-t border-white/10 pt-4">
+          <div class="flex justify-between pr-4 items-center gap-4">
+            <div class="flex items-center gap-2">
+              <Label class="whitespace-nowrap">Speech to Text endpoint</Label>
+              <TooltipProvider :delay-duration="200">
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <span class="svg-icon i-info w-4 h-4 opacity-50 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" class="max-w-[320px]">
+                    An OpenAI-compatible transcription server — e.g. a local whisper.cpp
+                    <code>whisper-server</code> with
                     <code>--inference-path "/v1/audio/transcriptions"</code> (base URL like
-                    <code>http://127.0.0.1:2022/v1</code>).
+                    <code>http://127.0.0.1:2022/v1</code>). Enabling it also makes the Speech to
+                    Text preset available in NVIDIA mode.
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             </div>
             <Checkbox id="stt-fallback-enabled" v-model="speechToText.fallback.enabled" />
           </div>
-          <div v-if="speechToText.fallback.enabled" class="flex flex-col gap-3 mt-3 pr-4">
-            <div class="grid grid-cols-[120px_1fr] items-center gap-4">
-              <Label class="whitespace-nowrap">Base URL</Label>
-              <Input
-                v-model="speechToText.fallback.baseUrl"
-                placeholder="http://127.0.0.1:2022/v1"
-              />
-            </div>
-            <div class="grid grid-cols-[120px_1fr] items-center gap-4">
-              <Label class="whitespace-nowrap">Model</Label>
-              <Input v-model="speechToText.fallback.model" placeholder="whisper-1" />
-            </div>
-            <div class="grid grid-cols-[120px_1fr] items-center gap-4">
-              <Label class="whitespace-nowrap">API key</Label>
-              <Input
-                v-model="speechToText.fallback.apiKey"
-                type="password"
-                placeholder="(optional)"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div class="mt-4 border-t border-white/10 pt-4">
-          <div class="flex justify-between pr-4 items-center gap-4 mb-4">
-            <Label class="whitespace-nowrap">Text To Speech</Label>
-            <Checkbox
-              v-if="!backendStarting"
-              id="text-to-speech"
-              :modelValue="textToSpeech.enabled"
-              @update:modelValue="handleTextToSpeechToggle"
-            />
-            <Spinner v-else class="justify-self-start" />
-          </div>
-          <div
-            v-if="textToSpeech.enabled"
-            class="flex justify-between pr-4 items-center gap-4 mb-4"
-          >
-            <div class="flex items-center gap-2">
-              <Label class="whitespace-nowrap">Speak replies to voice input</Label>
-              <TooltipProvider :delay-duration="200">
-                <Tooltip>
-                  <TooltipTrigger as-child>
-                    <span class="svg-icon i-info w-4 h-4 opacity-50 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" class="max-w-[320px]">
-                    When enabled, the assistant auto-plays its reply in the app when your input came
-                    from the microphone, and the Home Agent sends a voice message back when you send
-                    a voice message.
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-            <Checkbox id="tts-auto-speak" v-model="textToSpeech.autoSpeakOnVoiceInput" />
-          </div>
-
-          <div class="mt-2 border-t border-white/10 pt-4">
-            <div class="flex justify-between pr-4 items-center gap-4">
-              <div class="flex items-center gap-2">
-                <Label class="whitespace-nowrap">Fallback speech endpoint</Label>
-                <TooltipProvider :delay-duration="200">
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <span class="svg-icon i-info w-4 h-4 opacity-50 cursor-help" />
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" class="max-w-[320px]">
-                      Used when the OVMS text-to-speech server isn't available (e.g. on macOS).
-                      Point it at any OpenAI-compatible
-                      <code>/v1/audio/speech</code> server (base URL like
-                      <code>http://127.0.0.1:8080/v1</code>).
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-              <Checkbox id="tts-fallback-enabled" v-model="textToSpeech.fallback.enabled" />
-            </div>
-            <div v-if="textToSpeech.fallback.enabled" class="flex flex-col gap-3 mt-3 pr-4">
-              <div class="grid grid-cols-[120px_1fr] items-center gap-4">
-                <Label class="whitespace-nowrap">Base URL</Label>
-                <Input
-                  v-model="textToSpeech.fallback.baseUrl"
-                  placeholder="http://127.0.0.1:8080/v1"
-                />
-              </div>
-              <div class="grid grid-cols-[120px_1fr] items-center gap-4">
-                <Label class="whitespace-nowrap">Model</Label>
-                <Input v-model="textToSpeech.fallback.model" placeholder="tts-1" />
-              </div>
-              <div class="grid grid-cols-[120px_1fr] items-center gap-4">
-                <Label class="whitespace-nowrap">Voice</Label>
-                <Input v-model="textToSpeech.fallback.voice" placeholder="(optional)" />
-              </div>
-              <div class="grid grid-cols-[120px_1fr] items-center gap-4">
-                <Label class="whitespace-nowrap">API key</Label>
-                <Input
-                  v-model="textToSpeech.fallback.apiKey"
-                  type="password"
-                  placeholder="(optional)"
-                />
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
-  </div>
+  </DemoModeBlocker>
 
   <DemoModeBlocker>
     <div class="flex flex-col gap-3 pt-4">
@@ -330,7 +230,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useModels } from '@/assets/js/store/models'
 import { useTheme } from '@/assets/js/store/theme'
 import { mapServiceNameToDisplayName, mapStatusToColor, mapToDisplayStatus } from '@/lib/utils.ts'
@@ -344,8 +244,6 @@ import { useDemoMode } from '@/assets/js/store/demoMode'
 import * as toast from '@/assets/js/toast'
 import LanguageSelector from '@/components/LanguageSelector.vue'
 import ThemeSelector from '@/components/ThemeSelector.vue'
-import MicrophoneSettings from '@/components/MicrophoneSettings.vue'
-import DropDownNew from '@/components/DropDownNew.vue'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -353,15 +251,12 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import DemoModeSettings from '@/components/DemoModeSettings.vue'
 import SettingsHeading from '@/components/SettingsHeading.vue'
 import { useI18N } from '@/assets/js/store/i18n'
-import { Spinner } from './ui/spinner'
 import { Button } from '@/components/ui/button'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
-import { useProductMode } from '@/assets/js/store/productMode'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
 
 const cloudMode = useCloudMode()
-const productModeStore = useProductMode()
 const demoMode = useDemoMode()
 const setupWizardStore = useSetupWizard()
 const backendServices = useBackendServices()
@@ -375,7 +270,6 @@ const textToSpeech = useTextToSpeech()
 const developerSettings = useDeveloperSettings()
 const debugToolsEnabled = window.envVars.debugToolsEnabled
 const dialogStore = useDialogStore()
-const backendStarting = ref(false)
 
 const mirrorUrl = ref(models.hfEndpoint)
 const verificationMessage = ref('')
@@ -506,25 +400,6 @@ const displayComponents = computed(() => {
   return components
 })
 
-// STT device selection
-const sttDevices = computed(
-  () => backendServices.info.find((bs) => bs.serviceName === 'openvino-backend')?.sttDevices ?? [],
-)
-const selectedSttDevice = computed(
-  () => sttDevices.value.find((d: InferenceDevice) => d.selected) ?? sttDevices.value[0],
-)
-const sttDeviceItems = computed(() =>
-  sttDevices.value.map((d: InferenceDevice) => ({
-    label: `${d.id}: ${d.name}`,
-    value: d.id,
-    active: true,
-  })),
-)
-
-async function selectSttDevice(deviceId: string) {
-  await backendServices.selectSttDevice('openvino-backend', deviceId)
-}
-
 async function loadPresetsFromIntel() {
   const syncStatus = await presetsStore.loadPresetsFromIntel()
   if (syncStatus.result === 'success') {
@@ -539,50 +414,6 @@ async function loadPresetsFromIntel() {
 function openSetupWizard() {
   if (demoMode.enabled) return
   setupWizardStore.openWizard()
-}
-
-// Watch for changes to enabled state and ensure server is running
-watch(
-  () => speechToText.enabled,
-  async (enabled) => {
-    if (enabled) {
-      await speechToText.ensureTranscriptionServerRunning()
-    }
-  },
-  { immediate: false },
-)
-
-watch(
-  () => textToSpeech.enabled,
-  async (enabled) => {
-    if (enabled) {
-      await textToSpeech.ensureSpeechServerRunning()
-    }
-  },
-  { immediate: false },
-)
-
-// Handle toggle using store method
-async function handleSpeechToTextToggle(enabled: boolean | 'indeterminate') {
-  backendStarting.value = true
-  try {
-    await speechToText.toggle(enabled === true)
-  } catch (_error) {
-    toast.error(`Failed to ${enabled ? 'enable' : 'disable'} Speech To Text`)
-  } finally {
-    backendStarting.value = false
-  }
-}
-
-async function handleTextToSpeechToggle(enabled: boolean | 'indeterminate') {
-  backendStarting.value = true
-  try {
-    await textToSpeech.toggle(enabled === true)
-  } catch (_error) {
-    toast.error(`Failed to ${enabled ? 'enable' : 'disable'} Text To Speech`)
-  } finally {
-    backendStarting.value = false
-  }
 }
 </script>
 

@@ -9,6 +9,7 @@ import { LlamaCppBackendService } from './llamaCppBackendService.ts'
 import { OpenVINOBackendService } from './openVINOBackendService.ts'
 import { HomeAgentBackendService } from './homeAgentBackendService.ts'
 import { Qwen3TtsBackendService } from './qwen3TtsBackendService.ts'
+import { WhisperBackendService } from './whisperBackendService.ts'
 import { LocalSettings } from '../main.ts'
 import { setLlmServiceLookup } from '../llmServerSnapshot.ts'
 
@@ -19,6 +20,7 @@ export type backend =
   | 'llamacpp-backend'
   | 'home-agent-backend'
   | 'qwen3-tts-backend'
+  | 'whisper-backend'
 
 export interface ApiServiceRegistry {
   register(apiService: ApiService): void
@@ -28,6 +30,11 @@ export interface ApiServiceRegistry {
 
 export class ApiServiceRegistryImpl implements ApiServiceRegistry {
   private registeredServices: ApiService[] = []
+  private disabledBackends: string[] = []
+
+  setDisabledBackends(names: string[]): void {
+    this.disabledBackends = names
+  }
 
   register(apiService: ApiService): void {
     if (this.registeredServices.includes(apiService)) {
@@ -113,7 +120,7 @@ export class ApiServiceRegistryImpl implements ApiServiceRegistry {
    * This runs in the background and doesn't block.
    * Waits for async setup checks to complete before starting services.
    */
-  async startAllSetUpServices(): Promise<void> {
+  async startAllSetUpServices(disabledBackends: string[] = this.disabledBackends): Promise<void> {
     // Check setup status for all services.
     // Some services check asynchronously (ai-backend, comfyui-backend) and some synchronously (llamacpp-backend).
     // We'll check all services that have a serviceIsSetUp method and use the actual result,
@@ -135,8 +142,29 @@ export class ApiServiceRegistryImpl implements ApiServiceRegistry {
       }),
     )
 
-    // Filter to only services that are set up
-    const setUpServices = setupChecks.filter(({ isSetUp }) => isSetUp).map(({ service }) => service)
+    // Filter to only services that are set up, are not being installed right
+    // now, and that the user has not switched off in the setup wizard (that
+    // choice is persisted in settings.json — see `disabledBackends`).
+    const setUpServices = setupChecks
+      .filter(({ isSetUp }) => isSetUp)
+      .map(({ service }) => service)
+      .filter((service) => {
+        if (disabledBackends.includes(service.name)) {
+          appLoggerInstance.info(
+            `Not auto-starting ${service.name}: disabled by the user`,
+            'apiServiceRegistry',
+          )
+          return false
+        }
+        if (service.setUpInProgress) {
+          appLoggerInstance.info(
+            `Not auto-starting ${service.name}: an installation is in progress`,
+            'apiServiceRegistry',
+          )
+          return false
+        }
+        return true
+      })
 
     if (setUpServices.length === 0) {
       appLoggerInstance.info('No services are set up to start', 'apiServiceRegistry')
@@ -220,6 +248,16 @@ export async function aiplaygroundApiServiceRegistry(
         ),
       )
     }
+    if (settings.isWhisperBackendEnabled) {
+      instance.register(
+        new WhisperBackendService(
+          'whisper-backend',
+          await getPort({ port: portNumbers(56000, 56999) }),
+          win,
+          settings,
+        ),
+      )
+    }
     instance.register(
       new OpenVINOBackendService(
         'openvino-backend',
@@ -251,6 +289,7 @@ export async function aiplaygroundApiServiceRegistry(
 
     // Automatically start all set-up services in the background
     // This happens regardless of frontend state, making it more reliable
+    instance.setDisabledBackends(settings.disabledBackends ?? [])
     instance.startAllSetUpServices()
   }
   return instance

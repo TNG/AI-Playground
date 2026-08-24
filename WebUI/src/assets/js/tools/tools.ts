@@ -7,6 +7,7 @@ import { captureScreenshot } from './captureScreenshot'
 import { browseWeb, interactWithWebPage, screenshotWebPage, searchWeb } from './browseWeb'
 import { configureHomeAgent, getHomeAgentSettings, listHomeAgentModels } from './configureHomeAgent'
 import { synthesizeTextToSpeech } from './synthesizeTextToSpeech'
+import { transcribeAudio } from './transcribeAudio'
 
 export const aipgTools = {
   comfyUI,
@@ -21,6 +22,7 @@ export const aipgTools = {
   interactWithWebPage,
   screenshotWebPage,
   synthesizeTextToSpeech,
+  transcribeAudio,
 } satisfies ToolSet
 
 export type AipgTools = InferUITools<typeof aipgTools>

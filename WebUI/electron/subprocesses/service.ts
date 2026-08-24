@@ -12,11 +12,13 @@ import { createHash } from 'crypto'
 
 import * as childProcess from 'node:child_process'
 import { promisify } from 'util'
+import { removeBrokenVenv, venvInterpreterPath, venvIsUsable } from './uvBasedBackends/venvState.ts'
 import { Arch, getArchPriority, getDeviceArch } from './deviceArch.ts'
 import { z } from 'zod'
 import { LocalSettings } from '../main.ts'
 
 const exec = promisify(childProcess.exec)
+const execFileAsync = promisify(childProcess.execFile)
 
 // Type for error details that matches SetupProgress.errorDetails
 export interface ErrorDetails {
@@ -155,11 +157,12 @@ const checkHijacksDir = async (): Promise<boolean> => {
     await filesystem.promises.stat(path.join(hijacksDir, '__init__.py'))
     return true
   } catch (_e) {
-    try {
-      await filesystem.promises.rm(hijacksDir, { recursive: true })
-    } finally {
-      return false
-    }
+    // Not a usable checkout — drop whatever is there so the caller re-clones.
+    // A failed removal must not be swallowed by a `return` inside `finally`
+    // (which discards the error entirely): the clone would then fail with a
+    // confusing "already exists" instead of the real cause.
+    await filesystem.promises.rm(hijacksDir, { recursive: true, force: true })
+    return false
   }
 }
 
@@ -448,6 +451,19 @@ export const aiBackendServiceDir = () =>
       : path.join(__dirname, '../../../service'),
   )
 
+/**
+ * Thrown by `assertReadyToStart` when a start is attempted on a backend that is
+ * not provisioned. Distinct from a genuine startup failure: the backend never
+ * ran, so the honest status is 'notInstalled' (grey, "Install") rather than
+ * 'failed' (red, "Repair") — see the catch in `runStartup`.
+ */
+export class ServiceNotInstalledError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ServiceNotInstalledError'
+  }
+}
+
 export interface ApiService {
   readonly name: string
   readonly baseUrl: string
@@ -455,6 +471,11 @@ export interface ApiService {
   readonly isRequired: boolean
   currentStatus: BackendStatus
   isSetUp: boolean
+  /**
+   * True while an install is being run for this service — see the field on
+   * `LongLivedPythonApiService`.
+   */
+  setUpInProgress: boolean
 
   selectDevice(deviceId: string): Promise<void>
   detectDevices(): Promise<void>
@@ -521,6 +542,13 @@ export abstract class LongLivedPythonApiService implements ApiService {
   // concurrently on the same instance, so the second caller must await the same
   // startup rather than throwing "Server startup already requested".
   private startInFlight: Promise<BackendStatus> | null = null
+
+  // True while a set_up() generator is being consumed for this service (set by
+  // the setUpService IPC handler). Installs mutate the service directory and its
+  // venv, so nothing may spawn the backend or launch a second install against it
+  // meanwhile — the auto-start at registry construction can otherwise race an
+  // in-progress install and spawn against a half-written environment.
+  setUpInProgress: boolean = false
 
   readonly appLogger = appLoggerInstance
 
@@ -601,6 +629,11 @@ export abstract class LongLivedPythonApiService implements ApiService {
     }
   }
 
+  /** Drop the recorded startup failure (it describes an environment that is gone). */
+  protected clearLastStartupError(): void {
+    this.lastStartupErrorDetails = null
+  }
+
   setStatus(status: BackendStatus) {
     this.currentStatus = status
     this.updateStatus()
@@ -630,6 +663,86 @@ export abstract class LongLivedPythonApiService implements ApiService {
 
   abstract set_up(): AsyncIterable<SetupProgress>
 
+  /** Path to this service venv's own interpreter. */
+  protected get venvPython(): string {
+    return venvInterpreterPath(this.pythonEnvDir)
+  }
+
+  /**
+   * Whether the service venv's own Python can actually `import <moduleName>`.
+   *
+   * A real import (not `find_spec`) is used deliberately: the failure modes that
+   * matter here are not only "module absent" but also broken native libraries and
+   * import-time initialization errors — e.g. an app reinstall that leaves torch's
+   * dist-info intact while breaking its clone/hardlinked wheel files. `uv sync
+   * --check` still "sees" torch in that state, so the lockfile check passes and
+   * the backend is shown as installed, only to die at first use. Those failures
+   * surface only when the package is executed, which is what this does.
+   *
+   * @param env Process env for the probe — pass the service's venv env so native
+   *   accelerator libraries (XPU/CUDA DLLs living inside the venv) resolve.
+   * @returns false when the venv/python is missing or the import raises for any reason.
+   */
+  protected async venvCanImportModule(
+    moduleName: string,
+    env: Record<string, string | undefined> = {},
+  ): Promise<boolean> {
+    try {
+      await execFileAsync(this.venvPython, ['-c', `import ${moduleName}`], {
+        cwd: this.serviceDir,
+        env: { ...process.env, ...env },
+        timeout: 30000,
+      })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Stop the service and delete its venv so the install that follows materialises
+   * every package from scratch.
+   *
+   * `uv sync` reconciles against package *metadata*, so re-running it over a venv
+   * whose files are broken but whose dist-info survived (what an interrupted
+   * install or an app reinstall leaves behind) sees the packages as "already
+   * installed" and skips them — leaving the very breakage the reinstall was meant
+   * to fix. This is why uninstall-then-install worked where a plain repair did
+   * not; doing it here makes every entry point (wizard Repair, gear Reinstall,
+   * fresh install) equally effective. Wheels come from uv's cache, so this
+   * re-materialises rather than re-downloads.
+   *
+   * Stopping first matters on Windows: a running (or fake-healthy) process holds
+   * handles on the venv's DLLs and the removal would fail with EPERM. `stop()`
+   * flips the status to 'stopped', so 'installing' is re-asserted afterwards.
+   */
+  protected async prepareCleanPythonEnv(): Promise<void> {
+    await this.stop()
+    this.setStatus('installing')
+    this.appLogger.info(`removing existing ${this.name} venv for a clean install`, this.name)
+    await filesystem.remove(this.pythonEnvDir)
+  }
+
+  /**
+   * Remove the venv only if it exists without an interpreter — the empty-husk
+   * state (e.g. the Windows uninstaller's `RMDir /r` cannot delete deeply nested
+   * `site-packages` paths, so it leaves a partial tree behind). Installing into
+   * such a tree yields an environment that can never boot. Unlike
+   * {@link prepareCleanPythonEnv} this preserves a usable venv, which matters for
+   * backends whose venv holds packages that are not in the lockfile (ComfyUI
+   * custom-node dependencies installed at runtime).
+   */
+  protected async removeUnusablePythonEnv(): Promise<void> {
+    if (!filesystem.existsSync(this.pythonEnvDir) || venvIsUsable(this.pythonEnvDir)) return
+    await this.stop()
+    this.setStatus('installing')
+    this.appLogger.warn(
+      `venv of ${this.name} has no interpreter — removing the partial tree before installing`,
+      this.name,
+    )
+    await removeBrokenVenv(this.pythonEnvDir)
+  }
+
   async uninstall(): Promise<void> {
     // Awaited: deleting the env directory out from under a still-running
     // interpreter fails on Windows (EPERM) and leaves a half-removed tree.
@@ -637,12 +750,26 @@ export abstract class LongLivedPythonApiService implements ApiService {
     this.appLogger.info(`removing python env of ${this.name} service`, this.name)
     await filesystem.remove(this.pythonEnvDir)
     this.appLogger.info(`removed python env of ${this.name} service`, this.name)
+    // Without this the service keeps reporting isSetUp: true after its
+    // environment is gone — the wizard row reads as installed and dismiss()
+    // tries to start it. Set before setStatus so the emitted info is consistent.
+    this.isSetUp = false
     this.setStatus('notInstalled')
     // Clear startup errors when uninstalling
     this.lastStartupErrorDetails = null
   }
 
   async start(): Promise<BackendStatus> {
+    // An install is rewriting this service's environment right now; spawning
+    // against it would fail in a confusing way (missing/partial packages) and
+    // could hold handles that make the install's own file operations fail.
+    if (this.setUpInProgress) {
+      this.appLogger.info(
+        `start() ignored for ${this.name}: an installation is in progress`,
+        this.name,
+      )
+      return this.currentStatus
+    }
     if (
       this.desiredStatus === 'stopped' &&
       !(this.currentStatus === 'stopped' || this.currentStatus === 'notYetStarted')
@@ -723,7 +850,7 @@ export abstract class LongLivedPythonApiService implements ApiService {
       } else {
         this.currentStatus = 'failed'
         this.desiredStatus = 'failed'
-        this.isSetUp = false
+        await this.revalidateIsSetUpAfterFailedStart()
         this.appLogger.error(`server ${this.name} failed to boot`, this.name)
         this.encapsulatedProcess?.kill()
 
@@ -735,10 +862,26 @@ export abstract class LongLivedPythonApiService implements ApiService {
         this.lastStartupErrorDetails = errorDetails
       }
     } catch (error) {
+      // Nothing was ever spawned: the pre-start check found the backend not
+      // provisioned. Report that (grey / "Install") instead of a startup
+      // failure (red / "Repair") — a half-deleted leftover tree from a previous
+      // uninstall used to surface here as a failed component on a fresh install.
+      if (error instanceof ServiceNotInstalledError) {
+        this.appLogger.info(`not starting ${this.name}: ${error.message}`, this.name)
+        this.currentStatus = 'notInstalled'
+        // Not 'stopped': that value makes the guard at the top of start() reject
+        // the next start() as "currently stopping", so a start right after the
+        // component is installed would fail.
+        this.desiredStatus = 'notInstalled'
+        this.isSetUp = false
+        this.isCapturingStartupLogs = false
+        this.lastStartupErrorDetails = null
+        return this.currentStatus
+      }
       this.appLogger.error(` failed to start server due to ${error}`, this.name)
       this.currentStatus = 'failed'
       this.desiredStatus = 'failed'
-      this.isSetUp = false
+      await this.revalidateIsSetUpAfterFailedStart()
       this.encapsulatedProcess?.kill()
       this.encapsulatedProcess = null
       // Stop capturing and create enhanced error details with buffered logs
@@ -751,6 +894,37 @@ export abstract class LongLivedPythonApiService implements ApiService {
       this.win.webContents.send('serviceInfoUpdate', this.get_info())
     }
     return this.currentStatus
+  }
+
+  /**
+   * Re-derive `isSetUp` after a start attempt failed, instead of assuming the
+   * failure means the backend is not installed.
+   *
+   * Most start failures are transient — a busy GPU, a port still held by a dying
+   * process, a health-check timeout while another backend saturates the device.
+   * Claiming "not installed" on those is wrong and sticky: nothing re-checks
+   * provisioning until the next launch, so UI gated on `isSetUp` (the in-chat mic
+   * gates on the STT backends' `isSetUp`) stays switched off for the rest of the
+   * session. The backend's own provisioning check is the authority here; a
+   * genuinely broken environment still reports false. Keeps the current value if
+   * the check itself throws.
+   */
+  private async revalidateIsSetUpAfterFailedStart(): Promise<void> {
+    try {
+      const stillSetUp = await this.serviceIsSetUp()
+      if (stillSetUp !== this.isSetUp) {
+        this.appLogger.info(
+          `re-checked provisioning of ${this.name} after a failed start: isSetUp=${stillSetUp}`,
+          this.name,
+        )
+      }
+      this.isSetUp = stillSetUp
+    } catch (e) {
+      this.appLogger.warn(
+        `could not re-check provisioning of ${this.name} after a failed start: ${e}`,
+        this.name,
+      )
+    }
   }
 
   async stop(): Promise<BackendStatus> {
@@ -823,19 +997,21 @@ export abstract class LongLivedPythonApiService implements ApiService {
    * imported lazily at model-load time), which would let listenServerReady
    * report "running" and force isSetUp = true — masking a broken install until
    * a much later, opaque runtime error. Verifying the backend is actually set
-   * up first turns that into a clean startup failure the setup wizard / backend
-   * management screen surface as "needs reinstall". serviceIsSetUp() is each
-   * backend's own authoritative provisioning check (the same one used to decide
-   * whether to auto-start at boot), so a false result here means the app already
-   * considers the backend not installed. Subclasses may override to add a more
-   * specific message.
+   * up first stops the start cleanly instead. serviceIsSetUp() is each backend's
+   * own authoritative provisioning check (the same one used to decide whether to
+   * auto-start at boot), so a false result here means the app already considers
+   * the backend not installed — hence `ServiceNotInstalledError`, which
+   * `runStartup` maps to 'notInstalled' (offer Install) rather than 'failed'
+   * (offer Repair). Subclasses may override to add a more specific message;
+   * throwing a plain Error there keeps the 'failed'/"needs reinstall" outcome,
+   * which is what a broken-but-present environment should report.
    */
   protected async assertReadyToStart(): Promise<void> {
-    const ready = await this.serviceIsSetUp()
+    const ready = venvIsUsable(this.pythonEnvDir) && (await this.serviceIsSetUp())
     if (!ready) {
       this.isSetUp = false
-      throw new Error(
-        `The ${this.name} environment is not fully installed. Reinstall this component to finish provisioning it before starting.`,
+      throw new ServiceNotInstalledError(
+        `The ${this.name} environment is not fully installed. Install this component to finish provisioning it before starting.`,
       )
     }
   }

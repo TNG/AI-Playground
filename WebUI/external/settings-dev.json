@@ -13,5 +13,6 @@
   "openvinoImageGenDevices": ["CPU", "GPU"],
   "isHomeAgentEnabled": true,
   "isQwen3TtsEnabled": true,
-  "isAgentPresetEnabled": true
+  "isAgentPresetEnabled": true,
+  "isWhisperBackendEnabled": true
 }

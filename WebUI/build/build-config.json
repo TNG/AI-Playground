@@ -28,6 +28,11 @@
       "filter": ["*.py", "vendor/**/*.py", "pyproject.toml", "uv.lock"]
     },
     {
+      "from": "../whisper-backend",
+      "to": "whisper-backend",
+      "filter": ["*.py", "pyproject.toml", "uv.lock"]
+    },
+    {
       "from": "../OpenVINO",
       "to": "OpenVINO",
       "filter": ["*.py", "pyproject.toml", "uv.lock"]

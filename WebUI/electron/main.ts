@@ -63,6 +63,7 @@ import { AiBackendService } from './subprocesses/aiBackendService'
 import { HomeAgentBackendService } from './subprocesses/homeAgentBackendService'
 import { startCloudProxy, type CloudProxy } from './cloudProxy'
 import { Qwen3TtsBackendService } from './subprocesses/qwen3TtsBackendService'
+import { WhisperBackendService } from './subprocesses/whisperBackendService'
 import { LLAMACPP_DEFAULT_PARAMETERS } from './subprocesses/llamaCppBackendService'
 import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateIntelPresets.ts'
 import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
@@ -384,6 +385,14 @@ const LocalSettingsSchema = z.object({
   // user picks, as opposed to Game Agent, which is the same harness aimed at one
   // task. Default false: opt-in by editing settings.json. See docs/agent-preset.md.
   isAgentPresetEnabled: z.boolean().default(false),
+  // Gates the optional standalone Whisper STT Python sidecar (torch, non-OpenVINO;
+  // works in every product mode incl. NVIDIA).
+  isWhisperBackendEnabled: z.boolean().default(false),
+  // Components the user switched off in the setup wizard. Persisted because the
+  // toggle used to live only in the renderer's wizard store: an installed
+  // component the user had disabled was auto-started again by the main process on
+  // the next launch (holding its port and GPU memory).
+  disabledBackends: z.array(z.string()).default([]),
   languageOverride: z.string().nullable().default(null),
   remoteRepository: z.string().default('intel/ai-playground'),
   huggingfaceEndpoint: z.string().default('https://huggingface.co'),
@@ -1206,6 +1215,9 @@ function initEventHandle() {
       }
     }
     persistLocalSettingsToDisk()
+    if (updates.disabledBackends) {
+      serviceRegistry?.setDisabledBackends(updates.disabledBackends)
+    }
     appLogger.info(`Updated local settings: ${JSON.stringify(updates)}`, 'electron-backend')
     return { success: true }
   })
@@ -1753,6 +1765,9 @@ function initEventHandle() {
     if (service instanceof Qwen3TtsBackendService) {
       return service.getLoopbackAuthToken()
     }
+    if (service instanceof WhisperBackendService) {
+      return service.getLoopbackAuthToken()
+    }
     return ''
   })
 
@@ -1980,15 +1995,56 @@ function initEventHandle() {
         return
       }
 
-      for await (const progressUpdate of service.set_up()) {
-        win.webContents.send('serviceSetUpProgress', progressUpdate)
-        if (progressUpdate.status === 'failed' || progressUpdate.status === 'success') {
-          appLogger.info(
-            `Received terminal progress update for set up request for ${serviceName}`,
-            'electron-backend',
-          )
-          break
+      // Never run two installs for the same service concurrently: they would run
+      // two uv syncs (or two git clones) against the same directory. Bail without
+      // emitting any progress — the shared renderer listener belongs to the
+      // install that is already running, and a terminal update here would resolve
+      // that one with the duplicate's outcome.
+      if (service.setUpInProgress) {
+        appLogger.warn(
+          `Ignoring set up request for ${serviceName}: an installation is already in progress`,
+          'electron-backend',
+        )
+        return
+      }
+      service.setUpInProgress = true
+
+      // The renderer waits for a terminal ('failed'/'success') progress update
+      // before it re-enables its UI. If set_up() throws instead of yielding one
+      // — e.g. ComfyUI's Linux dependency step, which runs before its own
+      // try/catch and throws on cancel — the install would stay "Installing..."
+      // forever. Synthesize the terminal failure the generator owes us.
+      try {
+        for await (const progressUpdate of service.set_up()) {
+          win.webContents.send('serviceSetUpProgress', progressUpdate)
+          if (progressUpdate.status === 'failed' || progressUpdate.status === 'success') {
+            appLogger.info(
+              `Received terminal progress update for set up request for ${serviceName}`,
+              'electron-backend',
+            )
+            break
+          }
         }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        appLogger.error(
+          `Set up for ${serviceName} threw without a terminal progress update: ${message}`,
+          'electron-backend',
+        )
+        if (!win.isDestroyed()) {
+          win.webContents.send('serviceSetUpProgress', {
+            serviceName,
+            step: 'setup failed',
+            status: 'failed',
+            debugMessage: `Installation aborted: ${message}`,
+            errorDetails: {
+              stderr: message,
+              timestamp: new Date().toISOString(),
+            },
+          } satisfies SetupProgress)
+        }
+      } finally {
+        service.setUpInProgress = false
       }
     },
   )
@@ -3167,6 +3223,27 @@ app.whenReady().then(async () => {
     'electron-backend',
     true,
   )
+
+  // safeStorage (used for channel/API-key secrets) backs onto a Linux OS keyring
+  // (gnome-libsecret/kwallet) that headless or minimal desktops don't run —
+  // encryptString() then throws and anything persisting a secret breaks (Home
+  // Agent channel setup, cloud provider API keys). Only when no keyring is
+  // usable do we opt into the plaintext-backed BASIC_TEXT backend, which
+  // obfuscates rather than encrypts; where a real keyring exists it keeps being
+  // used. isEncryptionAvailable() is meaningful only after 'ready' on Linux, so
+  // this runs here — before any encryptString/decryptString call.
+  if (process.platform === 'linux' && !safeStorage.isEncryptionAvailable()) {
+    safeStorage.setUsePlainTextEncryption(true)
+    const available = safeStorage.isEncryptionAvailable()
+    appLogger.warn(
+      `No usable OS keyring (backend=${safeStorage.getSelectedStorageBackend()}); ` +
+        `fell back to plaintext-backed safeStorage — stored secrets are obfuscated, not encrypted. ` +
+        `Encryption available now: ${available}. ` +
+        `To get real encryption, install and run a keyring daemon`,
+      'electron-backend',
+      true,
+    )
+  }
 
   /**Single instance processing */
   if (!singleInstanceLock) {

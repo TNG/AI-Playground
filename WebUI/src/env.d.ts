@@ -133,6 +133,9 @@ type LocalSettings = {
   isQwen3TtsEnabled?: boolean
   isAgentPresetEnabled?: boolean
   oemVendorOverride?: string | null
+  isWhisperBackendEnabled?: boolean
+  /** Components switched off in the setup wizard; not auto-started at launch. */
+  disabledBackends?: string[]
   languageOverride: string | null
   remoteRepository: string
   huggingfaceEndpoint: string
@@ -455,7 +458,7 @@ type electronAPI = {
   detectDevices(serviceName: string): Promise<void>
   startService(serviceName: string): Promise<BackendStatus>
   stopService(serviceName: string): Promise<BackendStatus>
-  setUpService(serviceName: string): void
+  setUpService(serviceName: string): Promise<void>
   onServiceSetUpProgress(callback: (data: SetupProgress) => void): void
   onServiceInfoUpdate(callback: (service: ApiServiceInformation) => void): void
   onShowToast(callback: (data: { type: string; message: string }) => void): void
@@ -988,6 +991,7 @@ type BackendServiceName =
   | 'openvino-backend'
   | 'home-agent-backend'
   | 'qwen3-tts-backend'
+  | 'whisper-backend'
 
 type InferenceDevice = {
   id: string

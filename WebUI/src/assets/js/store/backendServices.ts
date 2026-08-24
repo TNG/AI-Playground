@@ -4,16 +4,17 @@ import z from 'zod'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { invalidateBackendAuthToken } from '@/lib/loopbackAuth'
 
-const backends = [
+export const allBackendServiceNames = [
   'ai-backend',
   'home-agent-backend',
   'qwen3-tts-backend',
+  'whisper-backend',
   'llamacpp-backend',
   'openvino-backend',
   'comfyui-backend',
 ] as const
 
-export type BackendServiceName = (typeof backends)[number]
+export type BackendServiceName = (typeof allBackendServiceNames)[number]
 
 export const BackendVersionSchema = z.object({
   releaseTag: z.string().optional(),
@@ -35,12 +36,13 @@ export const useBackendServices = defineStore(
   () => {
     const currentServiceInfo = ref<ApiServiceInformation[]>([])
     const serviceListeners = new Map(
-      backends.map((b) => [b, new BackendServiceSetupProgressListener(b)]),
+      allBackendServiceNames.map((b) => [b, new BackendServiceSetupProgressListener(b)]),
     )
     const lastSelectedDeviceIdPerBackend = ref<Record<BackendServiceName, string | null>>({
       'ai-backend': null,
       'home-agent-backend': null,
       'qwen3-tts-backend': null,
+      'whisper-backend': null,
       'comfyui-backend': null,
       'llamacpp-backend': null,
       'openvino-backend': null,
@@ -128,6 +130,7 @@ export const useBackendServices = defineStore(
       'ai-backend': {},
       'home-agent-backend': {},
       'qwen3-tts-backend': {},
+      'whisper-backend': {},
       'comfyui-backend': {},
       'llamacpp-backend': {},
       'openvino-backend': {},
@@ -162,7 +165,7 @@ export const useBackendServices = defineStore(
     }
 
     // Sync persisted overrides into versionState on init
-    backends.forEach((serviceName) => {
+    allBackendServiceNames.forEach((serviceName) => {
       if (versionOverrides.value[serviceName]) {
         versionState.value[serviceName].uiOverride = versionOverrides.value[serviceName]
       }
@@ -170,9 +173,9 @@ export const useBackendServices = defineStore(
 
     // Watch for changes to uiOverride and sync to persisted overrides
     watch(
-      () => backends.map((b) => versionState.value[b].uiOverride),
+      () => allBackendServiceNames.map((b) => versionState.value[b].uiOverride),
       () => {
-        backends.forEach((serviceName) => {
+        allBackendServiceNames.forEach((serviceName) => {
           const override = versionState.value[serviceName].uiOverride
           if (override) {
             versionOverrides.value[serviceName] = override
@@ -184,7 +187,7 @@ export const useBackendServices = defineStore(
       { deep: true },
     )
 
-    backends.forEach((serviceName) => {
+    allBackendServiceNames.forEach((serviceName) => {
       window.electronAPI.resolveBackendVersion(serviceName).then((version) => {
         versionState.value[serviceName].target = version
       })
@@ -268,12 +271,30 @@ export const useBackendServices = defineStore(
         currentServiceInfo.value.filter((s) => s.isRequired).every((s) => s.status === 'running'),
     )
 
+    /**
+     * Components the user switched off in the setup wizard, read from settings.json
+     * (the same list the main process consults for its boot-time auto-start). Read
+     * here rather than taken from the wizard store, which imports this one. An
+     * unreadable settings file falls back to "nothing disabled" — the behaviour
+     * before the list existed.
+     */
+    async function getDisabledBackends(): Promise<string[]> {
+      try {
+        const s = await window.electronAPI.getLocalSettings()
+        return s.disabledBackends ?? []
+      } catch (e) {
+        console.warn(`Could not read disabled components, starting all: ${e}`)
+        return []
+      }
+    }
+
     async function startAllSetUpServices(): Promise<{
       allServicesStarted: boolean
     }> {
+      const disabled = await getDisabledBackends()
       const serverStartups = await Promise.all(
         currentServiceInfo.value
-          .filter((s) => s.isSetUp)
+          .filter((s) => s.isSetUp && !disabled.includes(s.serviceName))
           .map(async (s) => {
             try {
               // Try to detect devices first
@@ -330,16 +351,51 @@ export const useBackendServices = defineStore(
       }
       listener.isActive = true
       try {
-        await stopService(serviceName)
-      } catch {
-        console.info(`service ${serviceName} was not running`)
+        try {
+          await stopService(serviceName)
+        } catch {
+          console.info(`service ${serviceName} was not running`)
+        }
+        // Clear error details when uninstalling
+        listener.clearErrorDetails()
+        await window.electronAPI.uninstall(serviceName)
+      } finally {
+        // A failed uninstall used to leave the listener active, so the next setup
+        // for this service started with dirty listener state (stale collected
+        // progress, and a terminal update from this run leaking into it).
+        listener.isActive = false
       }
-      // Clear error details when uninstalling
-      listener.clearErrorDetails()
-      return window.electronAPI.uninstall(serviceName)
     }
 
-    async function setUpService(
+    /**
+     * In-flight installs, keyed by service. A wizard commit and a gear-menu
+     * Reinstall (or a double click) must not launch two uv syncs against the same
+     * directory — and they cannot be told apart downstream, because the service
+     * has a single progress listener whose first terminal event would resolve both
+     * callers. Mirrors the `startInFlight` guard on the main-process service.
+     */
+    const setUpInFlight = new Map<
+      BackendServiceName,
+      Promise<{ success: boolean; logs: SetupProgress[]; errorDetails?: ErrorDetails | null }>
+    >()
+
+    function setUpService(
+      serviceName: BackendServiceName,
+      versionToInstall?: BackendVersion,
+    ): Promise<{ success: boolean; logs: SetupProgress[]; errorDetails?: ErrorDetails | null }> {
+      const inFlight = setUpInFlight.get(serviceName)
+      if (inFlight) {
+        console.warn(`setup of ${serviceName} already in progress — awaiting the running one`)
+        return inFlight
+      }
+      const run = runSetUpService(serviceName, versionToInstall).finally(() => {
+        setUpInFlight.delete(serviceName)
+      })
+      setUpInFlight.set(serviceName, run)
+      return run
+    }
+
+    async function runSetUpService(
       serviceName: BackendServiceName,
       versionToInstall?: BackendVersion,
     ): Promise<{ success: boolean; logs: SetupProgress[]; errorDetails?: ErrorDetails | null }> {
@@ -350,7 +406,7 @@ export const useBackendServices = defineStore(
       }
 
       listener.clearErrorDetails()
-      listener.isActive = true
+      const runToken = listener.beginRun()
 
       try {
         await stopService(serviceName)
@@ -377,8 +433,19 @@ export const useBackendServices = defineStore(
         serviceSettings.llamaCppOffloadDrive = llamaCppOffloadDrive.value
       }
       await updateServiceSettings(serviceSettings)
-      window.electronAPI.setUpService(serviceName)
-      const result = await listener!.awaitFinalizationAndResetData()
+      // Deliberately not awaited before `awaitFinalizationAndResetData` — progress
+      // arrives on a separate channel while the call is still running. But it must
+      // never be a floating promise: if it rejects (or returns without a terminal
+      // update) the listener has to be released, or the install hangs forever.
+      window.electronAPI.setUpService(serviceName).then(
+        () => listener.onInvocationSettled(runToken),
+        (error: unknown) =>
+          listener.onInvocationSettled(
+            runToken,
+            error instanceof Error ? error.message : String(error),
+          ),
+      )
+      const result = await listener.awaitFinalizationAndResetData()
       if (result.success) {
         await detectDevices(serviceName)
         // Installed version is now automatically updated via serviceInfoUpdate
@@ -743,17 +810,60 @@ export const useBackendServices = defineStore(
   },
 )
 
+/**
+ * Grace period between the main-process setup call settling and us declaring the
+ * install dead. The terminal progress update travels on a different IPC channel
+ * than the call's reply, so it may land marginally later.
+ */
+const TERMINAL_UPDATE_GRACE_MS = 2000
+
 class BackendServiceSetupProgressListener {
   isActive: boolean = false
-  readonly associatedServiceName: string
+  readonly associatedServiceName: BackendServiceName
   private collectedSetupProgress: SetupProgress[] = []
   private terminalUpdateReceived = false
   private installationSuccess: boolean = false
   private lastErrorDetails: ErrorDetails | null = null
+  /** Identifies the current install so a late watchdog can't poison the next one. */
+  private runToken = 0
 
-  constructor(associatedServiceName: string) {
+  constructor(associatedServiceName: BackendServiceName) {
     this.associatedServiceName = associatedServiceName
     this.isActive = false
+  }
+
+  /** Mark the start of an install and return its token for `onInvocationSettled`. */
+  beginRun(): number {
+    this.runToken += 1
+    this.isActive = true
+    return this.runToken
+  }
+
+  /**
+   * Called once the main-process `setUpService` call settled. Main normally sends
+   * a terminal ('success'/'failed') progress update before returning, but it can
+   * also return early (registry not ready, unknown service) or reject outright —
+   * in which case nothing terminal ever arrives and `awaitFinalization` would
+   * poll forever, leaving the row stuck on "Installing..." with no way out but
+   * killing the app. Synthesize the missing failure instead.
+   */
+  onInvocationSettled(runToken: number, errorMessage?: string) {
+    setTimeout(() => {
+      if (runToken !== this.runToken || this.terminalUpdateReceived) return
+      console.error(
+        `Setup of ${this.associatedServiceName} ended without a terminal progress update`,
+        errorMessage,
+      )
+      this.addData({
+        serviceName: this.associatedServiceName,
+        step: 'setup failed',
+        status: 'failed',
+        debugMessage: errorMessage
+          ? `Installation request failed: ${errorMessage}`
+          : 'Installation ended without reporting a result',
+        errorDetails: errorMessage ? { stderr: errorMessage } : undefined,
+      })
+    }, TERMINAL_UPDATE_GRACE_MS)
   }
 
   addData(data: SetupProgress) {
@@ -776,15 +886,12 @@ class BackendServiceSetupProgressListener {
   }
 
   private async awaitFinalization(): Promise<SetupProgress[]> {
-    if (this.terminalUpdateReceived) {
-      return this.collectedSetupProgress
-    } else {
-      return await new Promise((resolve) => {
-        setTimeout(() => {
-          resolve(this.awaitFinalization())
-        }, 200)
-      })
+    // Plain loop rather than recursion: a long install polls for tens of minutes,
+    // and the recursive form built one nested promise per 200 ms tick.
+    while (!this.terminalUpdateReceived) {
+      await new Promise((resolve) => setTimeout(resolve, 200))
     }
+    return this.collectedSetupProgress
   }
 
   async awaitFinalizationAndResetData(): Promise<{

@@ -1,9 +1,10 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
 import { z } from 'zod'
-import { ref, computed } from 'vue'
+import { ref, computed, shallowRef } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
 import { withDevPresets } from './devPresets'
+import { useProductMode } from './productMode'
 import { llmBackendTypes } from '@/types/shared'
 import { currentPresetName, renamePresetKeys } from '@/lib/presetRenames'
 
@@ -228,6 +229,13 @@ const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).extend({
   // app provision a folder per game under the games library (no folder picker).
   agentWorkspace: z.enum(['pick', 'games']).optional(),
   requiresCoding: z.boolean().optional(), // Filter models to ones fit for writing code
+  // When true, this "chat" preset is a direct Speech-to-Text transcriber rather than
+  // an LLM chat: selecting it turns the prompt box into a record/upload surface
+  // (recorded or uploaded audio -> Whisper transcript, no LLM loaded). Like
+  // `ttsPreset`, the `backends` array is a schema-required placeholder and is unused.
+  // OpenVINO-only, so it is filtered out in NVIDIA product mode. See SettingsStt.vue
+  // and the direct-transcribe branch in openAiCompatibleChat.
+  sttPreset: z.boolean().optional(),
   // UI visibility controls
   enableRAG: z.boolean().optional(), // Show "Add Documents" + embeddings selector (default: false)
   showTools: z.boolean().optional(), // Show "Enable Tools" toggle (default: false)
@@ -293,6 +301,49 @@ export const usePresets = defineStore(
     const lastQualityVariantPerBackend = ref<Record<string, Record<string, string>>>({})
 
     const DEFAULT_BACKEND = 'comfyui'
+
+    // The STT preset is OpenVINO-only and thus hidden in NVIDIA mode — unless the
+    // user enabled an external transcription endpoint (which needs no OpenVINO).
+    // We read that flag from the speechToText store, but load it lazily (browser
+    // only) so this module stays importable in the headless/node preset tests:
+    // `speechToText` pulls the renderer store graph (setupWizard → homeAgent) that
+    // touches `window` at import time. The ref keeps the flag reactive.
+    type SttFallbackFlagStore = { fallback: { enabled: boolean; baseUrl: string } }
+    const sttFallbackStore = shallowRef<SttFallbackFlagStore | null>(null)
+    if (typeof window !== 'undefined') {
+      void import('./speechToText')
+        .then((m) => {
+          try {
+            sttFallbackStore.value = m.useSpeechToText() as unknown as SttFallbackFlagStore
+          } catch {
+            // Pinia not ready yet — ignore; the gate treats it as "no fallback".
+          }
+        })
+        .catch(() => {})
+    }
+    /** Mirrors `speechToText.hasFallback()`: the checkbox alone is not enough, an
+     *  endpoint with no URL cannot transcribe anything — so a blank base URL must
+     *  not un-hide the STT preset in NVIDIA mode. */
+    function sttExternalEnabled(): boolean {
+      const fb = sttFallbackStore.value?.fallback
+      return fb?.enabled === true && fb.baseUrl.trim().length > 0
+    }
+
+    /** Whether a chat preset's STT entry must be hidden: STT needs OpenVINO, which
+     *  isn't installable in NVIDIA mode — so hide it there UNLESS an external
+     *  transcription endpoint is usable or the standalone (torch) Whisper backend is
+     *  offered (registered = feature on). Both need no OpenVINO; readiness/install is
+     *  surfaced in the preset panel. */
+    function sttPresetHidden(preset: ChatPreset): boolean {
+      if (!preset.sttPreset) return false
+      const backendServices = useBackendServices()
+      const productMode = useProductMode()
+      return (
+        productMode.isNvidiaModeSelected &&
+        !sttExternalEnabled() &&
+        !backendServices.info.some((s) => s.serviceName === 'whisper-backend')
+      )
+    }
 
     // ========================================================================
     // Validation
@@ -708,6 +759,10 @@ export const usePresets = defineStore(
             return false
           }
 
+          if (preset.type === 'chat' && sttPresetHidden(preset as ChatPreset)) {
+            return false
+          }
+
           // Hide Phison presets entirely on systems that do not offer the Phison build.
           // On capable systems they remain listed (greyed-out until installed + active).
           if (
@@ -847,6 +902,7 @@ export const usePresets = defineStore(
         if (p.type !== 'chat') return false
         const chatPreset = p as ChatPreset
         if (chatPreset.excludeFromChatPresetPicker) return false
+        if (sttPresetHidden(chatPreset)) return false
         if (chatPreset.requiresNpuSupport && !hasNpuDevice) {
           return false
         }

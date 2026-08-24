@@ -1,8 +1,9 @@
 <template>
   <div class="flex flex-col gap-4">
-    <!-- Install guidance: the Qwen3-TTS backend is required for any synthesis. -->
+    <!-- Install guidance: the Qwen3-TTS backend is required for the Qwen engine.
+         Only relevant while Qwen is the selected engine (Kokoro runs on OpenVINO). -->
     <p
-      v-if="!qwen3BackendSetUp"
+      v-if="textToSpeech.selectedEngine === 'qwen3' && !qwen3BackendSetUp"
       class="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-300"
     >
       Install the Text To Speech backend from Settings → Installation Management to enable speech
@@ -10,9 +11,9 @@
     </p>
 
     <!-- Model not yet downloaded for the selected voice: the weights install via the
-         standard model-download popup (like every other model). -->
+         standard model-download popup (like every other model). Qwen engine only. -->
     <div
-      v-else-if="!ttsModelDownloaded"
+      v-else-if="textToSpeech.selectedEngine === 'qwen3' && !ttsModelDownloaded"
       class="flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-300"
     >
       <span>
@@ -29,52 +30,102 @@
       </Button>
     </div>
 
-    <!-- Model row: a single fixed engine, shown where the LLM model picker normally is.
-         The dot is greyed until the model weights are downloaded. -->
+    <!-- Model row: pick the synthesis engine. Qwen TTS runs on its own backend (every
+         product mode); Kokoro runs on OpenVINO (offered only in non-NVIDIA modes);
+         External uses the endpoint configured in App Settings (offered only when it's
+         enabled there). -->
     <div class="grid grid-cols-[120px_1fr] items-center gap-4">
       <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
       <drop-down-new
         title="Model"
-        :value="'qwen-tts'"
-        :items="[{ label: 'Qwen TTS', value: 'qwen-tts', active: ttsModelDownloaded }]"
-        :disabled="!ttsModelDownloaded"
-        @change="() => {}"
+        :value="textToSpeech.selectedEngine"
+        :items="engineItems"
+        @change="(v) => (textToSpeech.selectedEngine = v as TtsEngine)"
       ></drop-down-new>
     </div>
 
-    <!-- Hardware: which accelerator the TTS model loads on. Changing it restarts
-         the backend so the model reloads on the chosen device. -->
-    <div v-if="qwen3BackendSetUp" class="grid grid-cols-[120px_1fr] items-center gap-4">
-      <Label class="whitespace-nowrap">{{ languages.SETTINGS_INFERENCE_DEVICE }}</Label>
-      <device-selector backend="qwen3-tts-backend" name-only></device-selector>
-    </div>
+    <!-- === Qwen3-TTS engine === -->
+    <template v-if="textToSpeech.selectedEngine === 'qwen3'">
+      <!-- Hardware: which accelerator the TTS model loads on. Changing it restarts
+           the backend so the model reloads on the chosen device. -->
+      <div v-if="qwen3BackendSetUp" class="grid grid-cols-[120px_1fr] items-center gap-4">
+        <Label class="whitespace-nowrap">{{ languages.SETTINGS_INFERENCE_DEVICE }}</Label>
+        <device-selector backend="qwen3-tts-backend" name-only></device-selector>
+      </div>
 
-    <!-- Voice: preset speakers plus any voices you created. This is the voice used
-         when the chat reads text aloud. -->
-    <div class="grid grid-cols-[120px_1fr] items-center gap-4">
-      <Label class="whitespace-nowrap">Voice</Label>
-      <drop-down-new
-        title="Voice"
-        :value="selectedVoiceValue"
-        :items="voiceItems"
-        @change="onSelectVoice"
-      ></drop-down-new>
-    </div>
+      <!-- Voice: preset speakers plus any voices you created. This is the voice used
+           when the chat reads text aloud. -->
+      <div class="grid grid-cols-[120px_1fr] items-center gap-4">
+        <Label class="whitespace-nowrap">Voice</Label>
+        <drop-down-new
+          title="Voice"
+          :value="selectedVoiceValue"
+          :items="voiceItems"
+          @change="onSelectVoice"
+        ></drop-down-new>
+      </div>
 
-    <!-- Language applies to synthesis. -->
-    <div class="grid grid-cols-[120px_1fr] items-center gap-4">
-      <Label class="whitespace-nowrap">Language</Label>
-      <drop-down-new
-        title="Language"
-        :value="qwen3Tts.defaultLanguage"
-        :items="languageItems"
-        @change="(v) => (qwen3Tts.defaultLanguage = v as Qwen3TtsLanguage)"
-      ></drop-down-new>
-    </div>
+      <!-- Language applies to synthesis. -->
+      <div class="grid grid-cols-[120px_1fr] items-center gap-4">
+        <Label class="whitespace-nowrap">Language</Label>
+        <drop-down-new
+          title="Language"
+          :value="qwen3Tts.defaultLanguage"
+          :items="languageItems"
+          @change="(v) => (qwen3Tts.defaultLanguage = v as Qwen3TtsLanguage)"
+        ></drop-down-new>
+      </div>
+    </template>
+
+    <!-- === Kokoro (OpenVINO) engine === -->
+    <template v-else-if="textToSpeech.selectedEngine === 'kokoro'">
+      <div class="grid grid-cols-[120px_1fr] items-center gap-4">
+        <Label class="whitespace-nowrap">{{ languages.SETTINGS_INFERENCE_DEVICE }}</Label>
+        <device-selector backend="openvino-backend" name-only></device-selector>
+      </div>
+      <div class="grid grid-cols-[120px_1fr] items-center gap-4">
+        <Label class="whitespace-nowrap">Voice</Label>
+        <drop-down-new
+          title="Voice"
+          :value="textToSpeech.selectedKokoroVoice"
+          :items="kokoroVoiceItems"
+          @change="(v) => (textToSpeech.selectedKokoroVoice = v as KokoroVoice)"
+        ></drop-down-new>
+      </div>
+    </template>
+
+    <!-- === External endpoint engine === -->
+    <!-- Enabled via the checkbox in App Settings; the endpoint itself is configured
+         here. Points at any OpenAI-compatible /v1/audio/speech server. -->
+    <template v-else>
+      <div class="grid grid-cols-[120px_1fr] items-center gap-4">
+        <Label class="whitespace-nowrap">Base URL</Label>
+        <Input v-model="textToSpeech.fallback.baseUrl" placeholder="http://127.0.0.1:8080/v1" />
+      </div>
+      <div class="grid grid-cols-[120px_1fr] items-center gap-4">
+        <Label class="whitespace-nowrap">Model</Label>
+        <Input v-model="textToSpeech.fallback.model" placeholder="tts-1" />
+      </div>
+      <div class="grid grid-cols-[120px_1fr] items-center gap-4">
+        <Label class="whitespace-nowrap">Voice</Label>
+        <Input v-model="textToSpeech.fallback.voice" placeholder="(optional)" />
+      </div>
+      <div class="grid grid-cols-[120px_1fr] items-center gap-4">
+        <Label class="whitespace-nowrap">API key</Label>
+        <Input v-model="textToSpeech.fallback.apiKey" type="password" placeholder="(optional)" />
+      </div>
+    </template>
+
+    <!-- Note: "Speak replies" (auto-play / Home Agent voice replies) is not a TTS
+         preset setting — it applies to every preset, so it lives with the Home Agent
+         settings (see SettingsChat.vue). -->
 
     <!-- Create a custom voice: describe a voice in words and save it. Saved voices
-         appear in the Voice list above and can be used from chat by name. -->
-    <div class="mt-2 flex flex-col gap-4 border-t border-border pt-4">
+         appear in the Voice list above and can be used from chat by name. Qwen3 only. -->
+    <div
+      v-if="textToSpeech.selectedEngine === 'qwen3'"
+      class="mt-2 flex flex-col gap-4 border-t border-border pt-4"
+    >
       <div>
         <SettingsHeading sub>Create a custom voice</SettingsHeading>
         <p class="text-xs text-muted-foreground">
@@ -176,33 +227,112 @@ import DeviceSelector from '@/components/DeviceSelector.vue'
 import SettingsHeading from '@/components/SettingsHeading.vue'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useQwen3TextToSpeech } from '@/assets/js/store/qwen3TextToSpeech'
+import { useTextToSpeech, KOKORO_VOICES } from '@/assets/js/store/textToSpeech'
+import type { TtsEngine, KokoroVoice } from '@/assets/js/store/textToSpeech'
+import { useProductMode } from '@/assets/js/store/productMode'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import { QWEN3_TTS_LANGUAGES, QWEN3_TTS_SPEAKERS } from '@/assets/js/qwen3TtsConstants'
 import type { Qwen3TtsLanguage, Qwen3TtsSpeakerId } from '@/assets/js/qwen3TtsConstants'
 
 const languages = useI18N().state
 const qwen3Tts = useQwen3TextToSpeech()
+const textToSpeech = useTextToSpeech()
+const productMode = useProductMode()
 const backendServices = useBackendServices()
+
+const kokoroVoiceItems = KOKORO_VOICES.map((v) => ({ label: v, value: v, active: true }))
 
 const qwen3BackendSetUp = computed(
   () => backendServices.info.find((s) => s.serviceName === 'qwen3-tts-backend')?.isSetUp === true,
 )
 
+// Qwen TTS ships as two separate downloads — one for the built-in voices
+// (`custom_voice`) and one for created voices (`voice_design`) — so track each.
+const customVoiceModelDownloaded = ref(false)
+const voiceDesignModelDownloaded = ref(false)
+const installing = ref(false)
+
 // Whether the model for the currently-selected voice is present on disk. Preset
 // voices and created voices use different weights, so this tracks the model the
 // active voice needs (mode is set implicitly by the voice selection).
-const ttsModelDownloaded = ref(false)
-const installing = ref(false)
+const ttsModelDownloaded = computed(() =>
+  qwen3Tts.defaultMode === 'voice_design'
+    ? voiceDesignModelDownloaded.value
+    : customVoiceModelDownloaded.value,
+)
+
+// How many of the two models are on disk. Drives the engine dot: full when both
+// are there, half when one is (the engine works, but the other voice kind still
+// needs a download), grey when neither is.
+const ttsModelsDownloadedCount = computed(
+  () => Number(customVoiceModelDownloaded.value) + Number(voiceDesignModelDownloaded.value),
+)
+
+// Engine picker: Qwen TTS (always), Kokoro (only in non-NVIDIA modes), and External
+// endpoint (only when enabled in App Settings). The dot reflects usability.
+type EngineItem = {
+  label: string
+  value: string
+  active: boolean
+  partial?: boolean
+  description?: string
+}
+
+const engineItems = computed(() => {
+  const items: EngineItem[] = [
+    {
+      label: 'Qwen TTS',
+      value: 'qwen3',
+      active: ttsModelsDownloadedCount.value === 2,
+      partial: ttsModelsDownloadedCount.value === 1,
+      description: `Built-in voices model: ${customVoiceModelDownloaded.value ? 'downloaded' : 'not downloaded'}. Created voices model: ${voiceDesignModelDownloaded.value ? 'downloaded' : 'not downloaded'}.`,
+    },
+  ]
+  if (!productMode.isNvidiaModeSelected) {
+    items.push({
+      label: 'Kokoro (OpenVINO)',
+      value: 'kokoro',
+      active: textToSpeech.isKokoroAvailable,
+    })
+  }
+  if (textToSpeech.fallback.enabled) {
+    items.push({
+      label: 'External endpoint',
+      value: 'external',
+      active: textToSpeech.isExternalAvailable,
+    })
+  }
+  return items
+})
+
+// If the selected engine is no longer offered (e.g. Kokoro after switching to NVIDIA
+// mode, or External after disabling the fallback), fall back to Qwen TTS.
+watch(
+  engineItems,
+  (items) => {
+    if (!items.some((i) => i.value === textToSpeech.selectedEngine)) {
+      textToSpeech.selectedEngine = 'qwen3'
+    }
+  },
+  { immediate: true },
+)
 
 async function refreshModelInstalled() {
   if (!qwen3BackendSetUp.value) {
-    ttsModelDownloaded.value = false
+    customVoiceModelDownloaded.value = false
+    voiceDesignModelDownloaded.value = false
     return
   }
   try {
-    ttsModelDownloaded.value = await qwen3Tts.isModelInstalled(qwen3Tts.defaultMode)
+    const [customVoice, voiceDesign] = await Promise.all([
+      qwen3Tts.isModelInstalled('custom_voice'),
+      qwen3Tts.isModelInstalled('voice_design'),
+    ])
+    customVoiceModelDownloaded.value = customVoice
+    voiceDesignModelDownloaded.value = voiceDesign
   } catch {
-    ttsModelDownloaded.value = false
+    customVoiceModelDownloaded.value = false
+    voiceDesignModelDownloaded.value = false
   }
 }
 

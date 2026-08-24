@@ -414,6 +414,46 @@ describe('buildEntries', () => {
     })
   })
 
+  it('keeps a downloaded sidecar model on its own backend, not the scanned directory tag', () => {
+    // The STT/TTS scan targets tag the whole directory `openvino`, but the
+    // standalone Whisper and Qwen3-TTS sidecars store their weights there too.
+    // Taking the directory tag would mislabel them and `entriesForProductMode`
+    // would then drop them on NVIDIA — so a downloaded model would never show up.
+    const entries = buildEntries(
+      input({
+        scanned: [
+          {
+            pathKey: 'STT',
+            useCase: 'speech',
+            serviceBackend: 'openvino',
+            name: 'openai---whisper-base',
+            absolutePath: '/models/STT/openai---whisper-base',
+            sizeBytes: 4096,
+            modifiedAt: 5,
+            isDirectory: true,
+          },
+        ],
+        speechModels: [
+          {
+            name: 'openai/whisper-base',
+            pathKey: 'STT',
+            usedBy: 'Speech To Text (standalone Whisper base)',
+            serviceBackend: 'whisper',
+          },
+        ],
+      }),
+    )
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      name: 'openai/whisper-base',
+      serviceBackend: 'whisper',
+      downloaded: true,
+      source: 'catalog',
+    })
+    expect(entriesForProductMode(entries, true)).toHaveLength(1)
+  })
+
   it('keeps two speech models that share the TTS directory apart', () => {
     const entries = buildEntries(
       input({

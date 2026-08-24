@@ -4,18 +4,23 @@ import type { BackendServiceName } from '@/assets/js/store/backendServices'
  * Display name (the accessible row label in the wizard) for each backend service.
  * Keyed by the app's `BackendServiceName` union via `satisfies Record<...>`, so
  * adding or removing a backend in the app surfaces here as a type error. Mirrors
- * `mapServiceNameToDisplayName` in the app.
+ * `wizardDisplayName` in the app — note that is the shared
+ * `mapServiceNameToDisplayName` with one wizard-only override: `ai-backend` reads
+ * "Core Services" inside the "AI Playground" group box (elsewhere it keeps the
+ * product name). The override also keeps the row's accessible name distinct from
+ * the group's, so locating either one stays unambiguous.
  */
 export const BACKEND_DISPLAY_NAMES = {
-  'ai-backend': 'AI Playground',
+  'ai-backend': 'Core Services',
   'home-agent-backend': 'Home Agent',
   'qwen3-tts-backend': 'Text To Speech (Qwen3-TTS)',
+  'whisper-backend': 'Speech To Text (Standalone Whisper)',
   'llamacpp-backend': 'Llama.cpp - GGUF',
   'openvino-backend': 'OpenVINO',
   'comfyui-backend': 'ComfyUI',
 } as const satisfies Record<BackendServiceName, string>
 
-/** Union of the backend row labels, e.g. 'AI Playground' | 'OpenVINO' | ... */
+/** Union of the backend row labels, e.g. 'Core Services' | 'OpenVINO' | ... */
 export type BackendDisplayName = (typeof BACKEND_DISPLAY_NAMES)[BackendServiceName]
 
 /**

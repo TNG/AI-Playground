@@ -849,7 +849,7 @@ export abstract class LongLivedPythonApiService implements ApiService {
       } else {
         this.currentStatus = 'failed'
         this.desiredStatus = 'failed'
-        this.isSetUp = false
+        await this.revalidateIsSetUpAfterFailedStart()
         this.appLogger.error(`server ${this.name} failed to boot`, this.name)
         this.encapsulatedProcess?.kill()
 
@@ -880,7 +880,7 @@ export abstract class LongLivedPythonApiService implements ApiService {
       this.appLogger.error(` failed to start server due to ${error}`, this.name)
       this.currentStatus = 'failed'
       this.desiredStatus = 'failed'
-      this.isSetUp = false
+      await this.revalidateIsSetUpAfterFailedStart()
       this.encapsulatedProcess?.kill()
       this.encapsulatedProcess = null
       // Stop capturing and create enhanced error details with buffered logs
@@ -893,6 +893,37 @@ export abstract class LongLivedPythonApiService implements ApiService {
       this.win.webContents.send('serviceInfoUpdate', this.get_info())
     }
     return this.currentStatus
+  }
+
+  /**
+   * Re-derive `isSetUp` after a start attempt failed, instead of assuming the
+   * failure means the backend is not installed.
+   *
+   * Most start failures are transient — a busy GPU, a port still held by a dying
+   * process, a health-check timeout while another backend saturates the device.
+   * Claiming "not installed" on those is wrong and sticky: nothing re-checks
+   * provisioning until the next launch, so UI gated on `isSetUp` (the in-chat mic
+   * gates on the STT backends' `isSetUp`) stays switched off for the rest of the
+   * session. The backend's own provisioning check is the authority here; a
+   * genuinely broken environment still reports false. Keeps the current value if
+   * the check itself throws.
+   */
+  private async revalidateIsSetUpAfterFailedStart(): Promise<void> {
+    try {
+      const stillSetUp = await this.serviceIsSetUp()
+      if (stillSetUp !== this.isSetUp) {
+        this.appLogger.info(
+          `re-checked provisioning of ${this.name} after a failed start: isSetUp=${stillSetUp}`,
+          this.name,
+        )
+      }
+      this.isSetUp = stillSetUp
+    } catch (e) {
+      this.appLogger.warn(
+        `could not re-check provisioning of ${this.name} after a failed start: ${e}`,
+        this.name,
+      )
+    }
   }
 
   async stop(): Promise<BackendStatus> {

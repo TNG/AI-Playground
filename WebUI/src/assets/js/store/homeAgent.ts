@@ -1305,7 +1305,7 @@ export const useHomeAgent = defineStore(
       // sidecar needs this explicitly: its endpoint resolves from the registered
       // service's baseUrl whether or not the process is running, so without the
       // start below transcription would just fail to connect.
-      if (speechToText.selectedSttEngine === 'standalone') {
+      if (speechToText.effectiveSttEngine === 'standalone') {
         await speechToText.ensureStandaloneServerRunning()
       } else {
         await speechToText.ensureTranscriptionServerRunning()

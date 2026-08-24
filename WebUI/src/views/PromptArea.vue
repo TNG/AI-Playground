@@ -303,16 +303,12 @@
               id="microphone-button"
               class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
               variant="secondary"
-              v-if="promptStore.getCurrentMode() === 'chat' && !isSttPreset && sttAvailable"
+              v-if="promptStore.getCurrentMode() === 'chat' && !isSttPreset"
               @click="handleRecordingClick"
               :disabled="
                 (!sttAvailable && !audioRecorder.isRecording) || audioRecorder.isTranscribing
               "
-              :title="
-                !sttAvailable
-                  ? 'Install the OpenVINO backend (or set a fallback endpoint) to use voice input'
-                  : ''
-              "
+              :title="sttAvailable ? '' : sttUnavailableHint"
             >
               <i
                 v-if="!audioRecorder.isTranscribing"
@@ -641,9 +637,19 @@ const activeChatPreset = computed(() => {
 // Direct Speech-to-Text preset: the prompt box becomes a record/upload surface.
 const isSttPreset = computed(() => activeChatPreset.value?.sttPreset === true)
 
-// Whether voice input is usable: OpenVINO Whisper (non-NVIDIA) or a configured
-// external transcription endpoint (any mode). Replaces the old global STT toggle.
+// Whether voice input is usable: OpenVINO Whisper (non-NVIDIA), the standalone
+// Whisper backend, or a configured external transcription endpoint (any mode).
+// Replaces the old global STT toggle. The in-chat mic is rendered regardless and
+// disabled when this is false — it used to be `v-if`'d away, so anything that
+// flipped availability (e.g. a transient backend start failure) made the button
+// vanish with no explanation and no way back inside the session.
 const sttAvailable = computed(() => speechToText.available)
+
+const sttUnavailableHint = computed(() =>
+  productModeStore.isNvidiaModeSelected
+    ? 'Install the standalone Whisper backend (or set an external transcription endpoint) to use voice input'
+    : 'Install the OpenVINO backend (or set an external transcription endpoint) to use voice input',
+)
 
 // Handle an uploaded audio file in the STT preset: transcribe it into a chat turn.
 async function handleSttFileUpload(event: Event) {
@@ -950,9 +956,9 @@ async function handleRecordingClick() {
   // engine needs nothing started.
   try {
     let ready: SttReadyResult = { downloadPrompted: false }
-    if (speechToText.selectedSttEngine === 'whisper') {
+    if (speechToText.effectiveSttEngine === 'whisper') {
       ready = await speechToText.ensureWhisperReady()
-    } else if (speechToText.selectedSttEngine === 'standalone') {
+    } else if (speechToText.effectiveSttEngine === 'standalone') {
       ready = await speechToText.ensureStandaloneReady()
     }
     // This click was spent on the model download popup. Do not roll straight into
@@ -972,15 +978,23 @@ async function handleRecordingClick() {
     return
   }
   await audioRecorder.startRecording()
+}
 
-  if (audioRecorder.error) {
-    errors.report(audioRecorder.error, {
+// Recorder failures are surfaced here rather than at the call site: transcription
+// runs in the recorder's MediaRecorder.onstop handler, long after
+// handleRecordingClick returned, so a failed transcription previously left no
+// trace in the UI at all.
+watch(
+  () => audioRecorder.error,
+  (message) => {
+    if (!message) return
+    errors.report(message, {
       category: 'inference',
       code: 'inference/audio-record-failed',
-      userMessage: audioRecorder.error,
+      userMessage: message,
     })
-  }
-}
+  },
+)
 
 function handleCameraClick() {
   if (demoMode.triggerFirstTimeHelp('camera-button')) return

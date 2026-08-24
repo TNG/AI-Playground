@@ -80,9 +80,9 @@ export const transcribeAudio = tool({
         throw new Error('No audio attachment found in the conversation to transcribe.')
       }
 
-      if (speechToText.selectedSttEngine === 'whisper') {
+      if (speechToText.effectiveSttEngine === 'whisper') {
         await speechToText.ensureWhisperReady()
-      } else if (speechToText.selectedSttEngine === 'standalone') {
+      } else if (speechToText.effectiveSttEngine === 'standalone') {
         await speechToText.ensureStandaloneReady()
       }
       const endpoint = await speechToText.resolveTranscription()

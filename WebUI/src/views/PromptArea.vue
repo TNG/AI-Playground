@@ -90,8 +90,8 @@
                 speech.
               </template>
               <template v-else>
-                Install the OpenVINO backend (or set an external transcription endpoint in this
-                preset's settings) to transcribe speech.
+                Install the OpenVINO backend or standalone Whisper backend, or set an external
+                transcription endpoint in this preset's settings, to transcribe speech.
               </template>
             </p>
             <template v-else>

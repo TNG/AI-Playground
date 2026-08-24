@@ -14,6 +14,11 @@ import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import * as toast from '@/assets/js/toast.ts'
 import { useActivities } from './activities'
 import { useI18N } from './i18n'
+import {
+  createPhisonKmRag,
+  PHISON_KM_CONTEXT_FLOOR,
+  PHISON_KM_RAG_PREFIX,
+} from '@/assets/js/phisonKmRag'
 import { useModelPreferences } from './modelPreferences'
 import { pathKeyForCatalogModel } from '../models/library'
 import { withPreferenceFlags } from '../models/favorites'
@@ -56,6 +61,24 @@ export const CLOUD_MODEL_PATH_KEY = 'cloud'
 
 export type ValidFileExtension = 'txt' | 'doc' | 'docx' | 'md' | 'pdf'
 
+// Phison KM (Knowledge Manager) RAG types — MergedGroup, MergedGroupsMeta,
+// WarmupRequest, PhisonKmIngestConfig — live in a dedicated module rather than
+// here, so this store doesn't own Phison-specific shapes it otherwise has no
+// reason to know about (see aidaptiv-km-rag-review-scope.md §W1). Re-exported
+// below for backward compatibility: langchain.ts, main.ts, and preload.ts still
+// import them via this path; only the canonical definitions moved.
+import type {
+  MergedGroup,
+  MergedGroupsMeta,
+  WarmupGroup,
+  WarmupRequest,
+  PhisonKmIngestConfig,
+} from '@/types/phisonKmRag'
+import { deriveGroupContent } from '@/types/phisonKmRag'
+
+export type { MergedGroup, MergedGroupsMeta, WarmupGroup, WarmupRequest, PhisonKmIngestConfig }
+export { deriveGroupContent }
+
 export type IndexedDocument = {
   filename: string
   filepath: string
@@ -63,6 +86,8 @@ export type IndexedDocument = {
   splitDB: Document[]
   hash: string
   isChecked: boolean
+  mergedGroups?: MergedGroup[]
+  mergedGroupsMeta?: MergedGroupsMeta
 }
 
 export type EmbedInquiry = {
@@ -71,6 +96,9 @@ export type EmbedInquiry = {
   backendBaseUrl: string
   embeddingModel: string
   maxResults?: number
+  useGroupRetrieval: boolean
+  /** Number of top chunks to retrieve per document (prevents cross-doc competition). */
+  perDocResults?: number
 }
 
 // Thinking model markers for different models
@@ -590,15 +618,33 @@ export const useTextInference = defineStore(
       return hasCheckedDocuments && presetEnablesRag
     })
 
-    // Enforce maxContextSize as hard limit when contextSize changes
-    watch(
-      () => contextSize.value,
-      (newValue) => {
-        if (maxContextSizeFromModel.value && newValue > maxContextSizeFromModel.value) {
-          contextSize.value = maxContextSizeFromModel.value
-        }
-      },
-    )
+    // Phison KM RAG state (retrieval-mode toggle, availability gating, context-size
+    // floor/stash) lives in its own module — see aidaptiv-km-rag-review-scope.md §W1.
+    // getActivePreset/isLoadingSettings are passed as thunks rather than direct
+    // values because this call sits above where `activePreset` (defined later via
+    // usePresets()) and `isLoadingSettings` (a `let` near the persistence watchers)
+    // are declared in this same setup() function — reading them eagerly here would
+    // throw ("used before initialization"). The thunks are only invoked lazily,
+    // inside computed/watch callbacks that run well after setup() has finished, by
+    // which point both are initialized; this mirrors how the rest of this store
+    // already treats `activePreset` similarly inside computed() bodies below.
+    const {
+      ragMode,
+      stashedStandardContextSize,
+      phisonSsdPresent,
+      kmContextFloorReachable,
+      phisonKmAvailable,
+      isPhisonKmRag,
+      enforceKmContextFloor,
+      contextSizeAdjust,
+    } = createPhisonKmRag({
+      contextSize,
+      maxContextSizeFromModel,
+      getActivePreset: () => activePreset.value,
+      backend,
+      backendServices,
+      isLoadingSettings: () => isLoadingSettings,
+    })
 
     // Per-preset settings persistence
     const settingsPerPreset = ref<Record<string, Record<string, unknown>>>({})
@@ -753,8 +799,25 @@ export const useTextInference = defineStore(
     }
 
     async function addDocumentToRagList(document: IndexedDocument) {
-      const langchainDocument: IndexedDocument =
-        await window.electronAPI.addDocumentToRAGList(document)
+      // Phison KM: if active, pass the embedding server URL for token-accurate grouping.
+      let phisonKmConfig: PhisonKmIngestConfig | undefined
+      if (isPhisonKmRag.value) {
+        const embeddingUrlResult = await window.electronAPI.getEmbeddingServerUrl(
+          backendToService['llamaCPP'],
+        )
+        if (embeddingUrlResult.success && embeddingUrlResult.url) {
+          phisonKmConfig = { embeddingServerUrl: embeddingUrlResult.url }
+        }
+      }
+
+      const langchainDocument: IndexedDocument = await window.electronAPI.addDocumentToRAGList(
+        document,
+        phisonKmConfig,
+      )
+
+      // mergedGroups is now boundary-only ({groupId, startChunkIdx, endChunkIdx}, ~50
+      // bytes/group) — it no longer duplicates the document text, so it's safe to
+      // persist directly alongside splitDB. No stripping, no custom serializer needed.
       const existing = ragList.value.find((item) => item.hash === langchainDocument.hash)
       if (existing) {
         // Same content (by hash) is already indexed. Don't duplicate, but honor
@@ -771,9 +834,37 @@ export const useTextInference = defineStore(
       if (langchainDocument.isChecked) {
         persistActiveRagSelection()
       }
+
+      // Phison KM: pre-warm the KV cache for each merged group (fire-and-forget).
+      // Pass ragSystemPrefix so warmup uses the identical prefix as the actual query.
+      // Content is derived here from splitDB + the boundary-only mergedGroups — this
+      // WarmupRequest payload is transient (never persisted), so carrying full text
+      // in it is fine.
+      // Prefer the direct llama.cpp upstream URL when Home Agent is active —
+      // currentBackendUrl points at the Home Agent proxy, which does not own the KV cache.
+      const warmupBackendUrl = homeAgentUpstreamUrl.value ?? currentBackendUrl.value
+      if (
+        isPhisonKmRag.value &&
+        langchainDocument.mergedGroups?.length &&
+        warmupBackendUrl &&
+        activeModel.value
+      ) {
+        const warmupReq: WarmupRequest = {
+          llmBackendUrl: warmupBackendUrl,
+          mergedGroups: langchainDocument.mergedGroups.map((group) => ({
+            groupId: group.groupId,
+            content: deriveGroupContent(langchainDocument.splitDB, group),
+          })),
+          modelName: activeModel.value,
+          ragSystemPrefix: PHISON_KM_RAG_PREFIX,
+        }
+        window.electronAPI.warmupKVCacheForDocument(warmupReq).catch((err) => {
+          console.warn('Phison KV cache warmup failed (non-critical):', err)
+        })
+      }
     }
 
-    async function embedInputUsingRag(prompt: string) {
+    async function embedInputUsingRag(prompt: string, useGroupRetrieval: boolean = false) {
       const checkedRagList = ragList.value
         .filter((item) => item.isChecked)
         .map((doc) => JSON.parse(JSON.stringify(doc)))
@@ -803,6 +894,9 @@ export const useTextInference = defineStore(
         backendBaseUrl: backendBaseUrl,
         embeddingModel: activeEmbeddingModel.value,
         maxResults: runningOnOpenvinoNpu.value ? 2 : 8,
+        useGroupRetrieval,
+        // Per-document retrieval: each document contributes its top chunks independently.
+        perDocResults: runningOnOpenvinoNpu.value ? 1 : 5,
       }
       console.log('trying to request rag for', { newEmbedInquiry, ragList: ragList.value })
       const response = await window.electronAPI.embedInputUsingRag(newEmbedInquiry)
@@ -874,8 +968,23 @@ export const useTextInference = defineStore(
           }
         }
 
-        // Perform RAG retrieval
-        const ragResults = await embedInputUsingRag(prompt)
+        // Perform RAG retrieval. No context-size check is needed here: the floor is
+        // enforced continuously rather than validated at query time —
+        // isPhisonKmRag ⇒ phisonKmAvailable ⇒ kmContextFloorReachable ⇒
+        // enforceKmContextFloor, and both the clamp watcher and preset load apply that
+        // floor, so contextSize >= PHISON_KM_CONTEXT_FLOOR holds whenever KM is active.
+        // KM being unavailable (including "this model's context ceiling is too low") is
+        // surfaced in the settings UI up front instead of as a runtime fallback toast.
+        console.log(
+          `[textInference] prepareRagContext: ragMode=${ragMode.value} ` +
+            `phisonKmAvailable=${phisonKmAvailable.value} isPhisonKmRag=${isPhisonKmRag.value} ` +
+            `contextSize=${contextSize.value}`,
+        )
+
+        // Snapshot once: the prompt shaping below must use the same value the retrieval
+        // call did, even if reactive state changes across the await.
+        const useGroupRetrieval = isPhisonKmRag.value
+        const ragResults = await embedInputUsingRag(prompt, useGroupRetrieval)
         console.log('textInference.ts: prepareRagContext: ragResults', ragResults)
         ragRetrievalState.lastResults = ragResults
 
@@ -886,8 +995,13 @@ export const useTextInference = defineStore(
           // Build RAG context from retrieved documents
           const ragContext = ragResults.map((doc) => doc.pageContent).join('\n\n')
 
-          // Enhance system prompt with RAG context
-          const enhancedSystemPrompt = `${systemPrompt.value}\n\nUse the following context from your knowledge base to answer the question:\n\n${ragContext}`
+          // Approach A: Phison KM mode uses a fixed shared prefix (PHISON_KM_RAG_PREFIX +
+          // Document context) placed FIRST so all presets share the same KV cache prefix,
+          // then appends the preset's own systemPrompt AFTER so its tool instructions /
+          // persona are preserved. Standard RAG keeps the existing behaviour.
+          const enhancedSystemPrompt = useGroupRetrieval
+            ? `${PHISON_KM_RAG_PREFIX}\n\nDocument context:\n\n${ragContext}\n\n---\n\n${systemPrompt.value}`
+            : `${systemPrompt.value}\n\nUse the following context from your knowledge base to answer the question:\n\n${ragContext}`
 
           // Format RAG sources for display
           const ragSourceText = formatRagSources(ragResults)
@@ -1022,11 +1136,12 @@ export const useTextInference = defineStore(
           entry.page = location.pageNumber
         }
 
-        // Only add entry if it has some location information
-        if (Object.keys(entry).length > 0) {
-          entries.push(entry)
-          fileGroups.set(source, entries)
-        }
+        // Always register the source file — even without page/line metadata.
+        // Phison KM group retrieval returns a merged document with `source` but no
+        // `loc` (the group spans many chunks), and the Source Docs chip must still
+        // show the filename in that case.
+        entries.push(entry)
+        fileGroups.set(source, entries)
       })
 
       // Function to merge overlapping line ranges for the same page
@@ -1124,7 +1239,7 @@ export const useTextInference = defineStore(
             locationInfo = `Lines ${entry.lines.from}-${entry.lines.to}`
           }
 
-          formattedResults.push(`${filename} (${locationInfo})`)
+          formattedResults.push(locationInfo ? `${filename} (${locationInfo})` : filename)
         })
       })
 
@@ -1546,6 +1661,67 @@ export const useTextInference = defineStore(
       // models that support the toggle via modelSupportsThinkingToggle).
       thinkingEnabled.value = (savedSettings.thinkingEnabled as boolean | undefined) ?? true
 
+      // Load retrieval mode.
+      //   • Presets with requiresPhison === true are dedicated Phison KM presets — always
+      //     force 'phisonKm' so stale persisted 'standard' never silently disables KV reuse.
+      //   • Other presets: persisted choice wins, else preset's declared default, else standard.
+      //     Clamp to 'standard' when the preset doesn't advertise KM support.
+      const savedRagMode = savedSettings.ragMode as 'standard' | 'phisonKm' | undefined
+      const resolvedRagMode =
+        preset.requiresPhison === true
+          ? 'phisonKm'
+          : (savedRagMode ?? preset.defaultRagMode ?? 'standard')
+      ragMode.value = preset.supportsPhisonKmRag === true ? resolvedRagMode : 'standard'
+      console.log(
+        `[textInference] loadSettingsForActivePreset: preset="${preset.name}" ` +
+          `requiresPhison=${preset.requiresPhison} supportsPhisonKmRag=${preset.supportsPhisonKmRag} ` +
+          `savedRagMode=${savedRagMode} resolvedRagMode=${resolvedRagMode} ` +
+          `ragMode=${ragMode.value}`,
+      )
+      // Restore whatever stash was persisted for this preset (may be null — e.g. this
+      // preset was never switched into KM mode, or was last saved in standard mode).
+      stashedStandardContextSize.value =
+        (savedSettings.stashedStandardContextSize as number | null | undefined) ?? null
+
+      // Apply both contextSize bounds explicitly here, rather than relying on the clamp
+      // watcher in phisonKmRag.ts: that watcher deliberately sits out preset loads
+      // (it would otherwise evaluate the incoming value against the *outgoing* preset's
+      // ragMode, since contextSize is written above but ragMode only just now), and it
+      // only fires on a change anyway — so a persisted/preset value already outside the
+      // bounds would survive the load untouched. By this point ragMode and the stash are
+      // resolved, so enforceKmContextFloor reflects the INCOMING preset.
+      const contextCeiling = maxContextSizeFromModel.value
+      const contextFloor = enforceKmContextFloor.value ? PHISON_KM_CONTEXT_FLOOR : undefined
+
+      if (contextFloor !== undefined && contextSize.value < contextFloor) {
+        // Needs a fresh bump this load. Don't overwrite a stash we just restored from a
+        // previous session (that one is the "true" pre-KM value) — only stash the
+        // current value if there wasn't already one to preserve.
+        if (stashedStandardContextSize.value === null) {
+          stashedStandardContextSize.value = contextSize.value
+        }
+      } else if (contextFloor === undefined) {
+        // The floor doesn't apply this load (standard mode, or KM unavailable for this
+        // preset/model) — any restored stash has nothing to pair with, so drop it
+        // rather than risk restoring a stale value on some future mode switch.
+        stashedStandardContextSize.value = null
+      }
+      // Otherwise: the floor applies and contextSize already satisfies it (>= 16 384) —
+      // keep the restored stash (or null) exactly as loaded; nothing to reconcile.
+
+      // kmContextFloorReachable gates enforceKmContextFloor, so floor <= ceiling
+      // whenever both bounds are present.
+      let boundedContextSize = contextSize.value
+      if (contextCeiling !== undefined) {
+        boundedContextSize = Math.min(boundedContextSize, contextCeiling)
+      }
+      if (contextFloor !== undefined) {
+        boundedContextSize = Math.max(boundedContextSize, contextFloor)
+      }
+      if (boundedContextSize !== contextSize.value) {
+        contextSizeAdjust(boundedContextSize)
+      }
+
       // Defer clearing the flag so the persistence watcher (default flush:
       // 'pre') sees `isLoadingSettings === true` when it runs for the writes
       // above. Otherwise it would re-save the freshly-loaded values and
@@ -1680,6 +1856,8 @@ export const useTextInference = defineStore(
         builtinToolPresetEnablement,
         builtinToolDefaultPresets,
         thinkingEnabled,
+        ragMode,
+        stashedStandardContextSize,
       ],
       () => {
         // Don't save if we're loading settings (prevents overwriting during preset switch)
@@ -1707,6 +1885,10 @@ export const useTextInference = defineStore(
           builtinToolPresetEnablement: { ...builtinToolPresetEnablement.value },
           builtinToolDefaultPresets: { ...builtinToolDefaultPresets.value },
           thinkingEnabled: thinkingEnabled.value,
+          ragMode: ragMode.value,
+          // Persisted so switching back to standard RAG still restores the pre-KM
+          // value after an app restart (see stashedStandardContextSize declaration).
+          stashedStandardContextSize: stashedStandardContextSize.value,
         }
       },
       { deep: true },
@@ -1861,6 +2043,12 @@ export const useTextInference = defineStore(
       isMaxSize,
       isMinSize,
       ragList,
+      ragMode,
+      phisonSsdPresent,
+      kmContextFloorReachable,
+      phisonKmAvailable,
+      isPhisonKmRag,
+      enforceKmContextFloor,
       contextSizeSettingSupported,
       contextSizeIsDynamic,
       systemPrompt,
@@ -1937,6 +2125,10 @@ export const useTextInference = defineStore(
   {
     persist: {
       storage: demoAwareStorage,
+      // No custom serializer: mergedGroups is now boundary-only ({groupId,
+      // startChunkIdx, endChunkIdx}, ~50 bytes/group) instead of duplicating the
+      // full document text, so it's safe to persist as-is with the default
+      // JSON serializer.
       pick: [
         'backend',
         'selectedModels',

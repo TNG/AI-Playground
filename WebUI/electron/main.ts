@@ -104,7 +104,12 @@ import { getAudioDir, getMediaDir } from './util.ts'
 import { packagedResourcesRoot, writableConfigRoot } from './aipgRoot.ts'
 import { loadDemoProfile, type DemoProfile } from './demoProfile.ts'
 import type { ModelPaths } from '@/assets/js/store/models.ts'
-import type { IndexedDocument, EmbedInquiry } from '@/assets/js/store/textInference.ts'
+import type {
+  IndexedDocument,
+  EmbedInquiry,
+  WarmupRequest,
+  PhisonKmIngestConfig,
+} from '@/assets/js/store/textInference.ts'
 import { BackendServiceName } from '@/assets/js/store/backendServices.ts'
 import {
   classifyDetectedDevices,
@@ -1527,19 +1532,29 @@ function initEventHandle() {
 
   ipcMain.handle('getPlatform', () => process.platform)
 
-  ipcMain.handle('addDocumentToRAGList', (_event, document: IndexedDocument) => {
-    return handleUtilityFunction<IndexedDocument, IndexedDocument>(
-      'addDocumentToRAGList',
-      langchainChild,
-      document,
-    )
-  })
+  ipcMain.handle(
+    'addDocumentToRAGList',
+    (_event, document: IndexedDocument, phisonKmConfig?: PhisonKmIngestConfig) => {
+      return handleUtilityFunction<
+        { document: IndexedDocument; phisonKmConfig?: PhisonKmIngestConfig },
+        IndexedDocument
+      >('addDocumentToRAGList', langchainChild, { document, phisonKmConfig })
+    },
+  )
 
   ipcMain.handle('embedInputUsingRag', (_event, embedInquiry: EmbedInquiry) => {
     return handleUtilityFunction<EmbedInquiry, KVObject>(
       'embedInputUsingRag',
       langchainChild,
       embedInquiry,
+    )
+  })
+
+  ipcMain.handle('warmupKVCacheForDocument', (_event, request: WarmupRequest) => {
+    return handleUtilityFunction<WarmupRequest, { success: boolean }>(
+      'warmupKVCacheForDocument',
+      langchainChild,
+      request,
     )
   })
 

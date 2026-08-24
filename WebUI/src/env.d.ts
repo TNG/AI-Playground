@@ -333,8 +333,15 @@ type electronAPI = {
   screenChange(callback: (width: number, height: number) => void): void
   webServiceExit(callback: (serviceName: string, normalExit: string) => void): void
   existsPath(path: string): Promise<boolean>
-  addDocumentToRAGList(doc: IndexedDocument): Promise<IndexedDocument>
+  addDocumentToRAGList(
+    doc: IndexedDocument,
+    phisonKmConfig?: PhisonKmIngestConfig,
+  ): Promise<IndexedDocument>
   embedInputUsingRag(embedInquiry: EmbedInquiry): Promise<LangchainDocument[]>
+  // mergedGroups here carries `content` (derived from splitDB just before the call) —
+  // this WarmupRequest payload is transient IPC, never persisted, unlike the
+  // boundary-only MergedGroup stored on IndexedDocument.
+  warmupKVCacheForDocument(request: WarmupRequest): Promise<{ success: boolean }>
   getEmbeddingServerUrl(
     serviceName: string,
   ): Promise<{ success: boolean; url?: string; error?: string }>

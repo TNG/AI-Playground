@@ -281,8 +281,8 @@ export function buildEntries(input: BuildEntriesInput): ModelEntry[] {
   }
 
   // Speech models the STT/TTS features would download on first use. Listing them
-  // is the only way a user can see, pre-fetch or reclaim them: neither feature
-  // has a model picker, they just load a fixed repo.
+  // is the only way a user can see, pre-fetch or reclaim them before that first
+  // use puts them on disk.
   for (const [id, speech] of speechById) {
     if (seen.has(id)) continue
     push({

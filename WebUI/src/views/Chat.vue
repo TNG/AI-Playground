@@ -685,7 +685,8 @@ watch(
   () => openAiCompatibleChat.processing,
   (processing, wasProcessing) => {
     if (!(wasProcessing && !processing)) return
-    if (!textToSpeech.available || !textToSpeech.autoSpeakOnVoiceInput) return
+    // "Speak replies" for the active preset (edited on the Text To Speech tool row).
+    if (!textToSpeech.available || !textInference.speakRepliesAllowed()) return
     if (!textToSpeech.pendingVoiceTurn) return
 
     textToSpeech.pendingVoiceTurn = false

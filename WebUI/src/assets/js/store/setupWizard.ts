@@ -1,6 +1,10 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { ref, computed, toRaw } from 'vue'
-import { useBackendServices, type BackendServiceName } from './backendServices'
+import {
+  allBackendServiceNames,
+  useBackendServices,
+  type BackendServiceName,
+} from './backendServices'
 import { useProductMode } from './productMode'
 import { useGlobalSetup } from './globalSetup'
 import { usePresets, type ChatPreset } from './presets'
@@ -19,15 +23,9 @@ import { useErrors } from './errors'
 import { extractMessage } from '../errors/appError'
 import type { ErrorDetails } from '../../../../electron/subprocesses/service'
 
-const ALL_BACKENDS: BackendServiceName[] = [
-  'ai-backend',
-  'home-agent-backend',
-  'qwen3-tts-backend',
-  'whisper-backend',
-  'llamacpp-backend',
-  'openvino-backend',
-  'comfyui-backend',
-]
+// Derived from the single source of truth rather than restated: a backend added
+// there but forgotten here would silently never appear in the wizard.
+const ALL_BACKENDS: BackendServiceName[] = [...allBackendServiceNames]
 
 /** Backends to show, minus the optional ones whose feature flag is off. Named
  *  options rather than positional booleans: three same-typed flags in a row are
@@ -108,6 +106,9 @@ const knownSteps: Record<BackendServiceName, string[]> = {
   'openvino-backend': ['start', 'download', 'extract', 'install python'],
   'comfyui-backend': [
     'start',
+    // Linux-only step, emitted before the clone. Omitting it made Linux installs
+    // fall back to showing raw debug messages instead of a progress label.
+    'linux dependencies',
     'install comfyUI',
     'configure comfyUI',
     'install builtin custom nodes',
@@ -125,6 +126,7 @@ const stepDisplayNames: Record<string, string> = {
   'configure-service': 'Configuring SSD offload...',
   'install dependencies': 'Installing dependencies...',
   'install python': 'Installing Python environment...',
+  'linux dependencies': 'Installing system packages...',
   'install comfyUI': 'Installing ComfyUI...',
   'configure comfyUI': 'Configuring...',
   'install builtin custom nodes': 'Installing custom nodes...',
@@ -695,6 +697,33 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     return true
   })
 
+  /**
+   * Load the persisted set of components the user switched off. The toggle used to
+   * live only in this store, so an installed component the user had disabled was
+   * auto-started again by the main process on the next launch. It is kept in
+   * settings.json because the main process is what performs the boot-time
+   * auto-start (see `disabledBackends` there).
+   */
+  async function restoreDisabledBackends() {
+    try {
+      const s = await window.electronAPI.getLocalSettings()
+      const persisted = s.disabledBackends ?? []
+      disabledBackends.value = new Set(
+        persisted.filter((n): n is BackendServiceName =>
+          (allBackendServiceNames as readonly string[]).includes(n),
+        ),
+      )
+    } catch (e) {
+      console.warn(`Failed to restore disabled components: ${e}`)
+    }
+  }
+
+  function persistDisabledBackends() {
+    window.electronAPI
+      .updateLocalSettings({ disabledBackends: [...disabledBackends.value] })
+      .catch((e: unknown) => console.warn(`Failed to persist disabled components: ${e}`))
+  }
+
   function seedInstallSelection() {
     const newSelection = new Set<BackendServiceName>()
     for (const serviceName of getBackends({
@@ -754,6 +783,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       }
     }
     installSelection.value = new Set(installSelection.value)
+    persistDisabledBackends()
   }
 
   async function togglePhisonAidaptiv(enabled: boolean) {
@@ -763,6 +793,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       disabledBackends.value.delete('llamacpp-backend')
       disabledBackends.value = new Set(disabledBackends.value)
       installSelection.value = new Set(installSelection.value)
+      persistDisabledBackends()
       const info = backendServices.info.find((s) => s.serviceName === 'llamacpp-backend')
       if (info?.isSetUp && (info.status === 'stopped' || info.status === 'notYetStarted')) {
         await backendServices.startService('llamacpp-backend')
@@ -795,6 +826,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   }
 
   async function openWizard() {
+    await restoreDisabledBackends()
     if (!productModeStore.hardwareRecommendation) {
       await productModeStore.detectRecommendation()
     }
@@ -852,6 +884,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     // (now reachable) global failed screen and the error sink instead.
     try {
       await globalSetup.initSetup()
+      await restoreDisabledBackends()
       const modeStatus = await productModeStore.ensureReady()
 
       if (modeStatus === 'ready') {
@@ -999,10 +1032,14 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   }
 
   async function repairBackend(name: BackendServiceName) {
+    // A repair is the recovery path for a broken component, so a failed stop must
+    // not abort it — that used to leave the only visible affordance on a failed
+    // row (Repair) doing nothing but showing a toast. The setup itself stops the
+    // service again and wipes its environment before installing
+    // (`prepareCleanPythonEnv`), so continuing here is safe.
     const stopStatus = await backendServices.stopService(name)
     if (stopStatus !== 'stopped') {
-      toast.error('Service failed to stop')
-      return
+      console.warn(`Repair of ${name}: stop reported '${stopStatus}', continuing with reinstall`)
     }
     // Clear Home Agent channel configs on reinstall so the user must re-verify
     // each channel before turning it back on. Both Telegram and Slack credentials

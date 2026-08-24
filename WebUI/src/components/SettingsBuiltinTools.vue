@@ -266,6 +266,38 @@
                 </TooltipContent>
               </Tooltip>
             </div>
+
+            <!-- "Speak replies" rides on the Text To Speech row: that tool supplies
+                 the voice, so the toggle follows it being enabled. Stored per chat
+                 preset, so it applies to the active one — the assistant auto-plays
+                 its reply in the app, the Home Agent answers a voice message with a
+                 voice message. -->
+            <div
+              v-if="child.name === 'synthesizeTextToSpeech'"
+              class="flex items-center gap-2 shrink-0"
+            >
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <label
+                    class="flex items-center gap-2"
+                    :class="speakRepliesEditable ? 'cursor-pointer' : 'opacity-50'"
+                  >
+                    <span class="text-xs text-foreground whitespace-nowrap">Speak replies</span>
+                    <Switch
+                      id="speak-replies"
+                      :disabled="!speakRepliesEditable"
+                      :model-value="textInference.speakReplies"
+                      @update:model-value="textInference.speakReplies = $event"
+                    />
+                  </label>
+                </TooltipTrigger>
+                <TooltipContent side="left" class="max-w-[300px] text-sm">
+                  Answer aloud when your input was speech: the app auto-plays the reply to a
+                  microphone message, and the Home Agent replies to a voice message with a voice
+                  message. Applies to the active preset.
+                </TooltipContent>
+              </Tooltip>
+            </div>
           </div>
         </CollapsibleContent>
       </Collapsible>
@@ -474,6 +506,10 @@ const speechChildren: Array<{ name: string; label: string; description: string }
       'Let the assistant transcribe an attached voice message or audio file into text with Whisper.',
   },
 ]
+
+// The "Speak replies" toggle rides on the Text To Speech tool: with that tool off
+// (or tools off entirely) nothing can synthesize a reply, so it is inert.
+const speakRepliesEditable = computed(() => isToolActive('synthesizeTextToSpeech'))
 
 const enabledSpeechCount = computed(
   () => speechChildren.filter((c) => textInference.isBuiltinToolEnabled(c.name)).length,

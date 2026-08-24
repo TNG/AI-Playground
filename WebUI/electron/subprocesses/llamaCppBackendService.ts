@@ -1,6 +1,8 @@
 import { exec, execFile, spawn, type ChildProcess } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { promisify } from 'node:util'
 import * as filesystem from 'fs-extra'
 import { app, net, type BrowserWindow } from 'electron'
@@ -125,6 +127,8 @@ export class LlamaCppBackendService implements ApiService {
   currentStatus: BackendStatus = 'uninitializedStatus'
   isSetUp: boolean = false
   desiredStatus: BackendStatus = 'uninitializedStatus'
+  /** True while an install runs for this service — see `ApiService.setUpInProgress`. */
+  setUpInProgress: boolean = false
 
   // Model server processes
   private llamaLlmProcess: LlamaServerProcess | null = null
@@ -739,10 +743,63 @@ export class LlamaCppBackendService implements ApiService {
       throw new Error(`Failed to download Llamacpp: ${response.statusText}`)
     }
 
-    const buffer = await response.arrayBuffer()
-    await filesystem.writeFile(zipPath, Buffer.from(buffer))
+    // Stream to disk rather than buffering the whole archive in memory (these
+    // builds are hundreds of MB, and the CUDA ones considerably more).
+    try {
+      await pipeline(
+        Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
+        filesystem.createWriteStream(zipPath),
+      )
+    } catch (e) {
+      // A partial file would later fail extraction with a confusing error, and
+      // `downloadLlamacpp` is retried on the next attempt — remove it now.
+      filesystem.removeSync(zipPath)
+      throw new Error(`Failed to download Llamacpp: ${e}`)
+    }
 
-    this.appLogger.info(`Llamacpp zip file downloaded successfully`, this.name)
+    // These assets are GitHub release binaries resolved from a user-selectable
+    // version, so there is no published checksum to pin against (unlike the
+    // portable-git archive, whose exact release is hardcoded). Validate what can
+    // be validated: the full advertised length arrived, and what arrived is an
+    // archive rather than an HTML error page or a proxy interstitial.
+    await this.assertDownloadedArchiveIsIntact(zipPath, response.headers.get('content-length'))
+
+    this.appLogger.info(`Llamacpp archive downloaded successfully`, this.name)
+  }
+
+  private async assertDownloadedArchiveIsIntact(
+    archivePath: string,
+    contentLengthHeader: string | null,
+  ): Promise<void> {
+    const failAndRemove = (reason: string): never => {
+      filesystem.removeSync(archivePath)
+      throw new Error(`Failed to download Llamacpp: ${reason}`)
+    }
+
+    const { size } = await filesystem.stat(archivePath)
+    const expectedSize = Number(contentLengthHeader)
+    if (contentLengthHeader && Number.isFinite(expectedSize) && size !== expectedSize) {
+      failAndRemove(`download truncated (${size} of ${expectedSize} bytes)`)
+    }
+
+    // Match the format actually downloaded (`platformExtension`): a zip on
+    // Windows, a gzipped tarball everywhere else. Checking for the zip signature
+    // unconditionally would reject every valid Linux/macOS download.
+    const [signature, formatName] =
+      platformExtension === 'zip'
+        ? [Buffer.from([0x50, 0x4b, 0x03, 0x04]), 'zip archive'] // 'PK\x03\x04'
+        : [Buffer.from([0x1f, 0x8b]), 'gzip archive']
+
+    const header = Buffer.alloc(signature.length)
+    const handle = await filesystem.open(archivePath, 'r')
+    try {
+      await filesystem.read(handle, header, 0, signature.length, 0)
+    } finally {
+      await filesystem.close(handle)
+    }
+    if (!header.equals(signature)) {
+      failAndRemove(`downloaded file is not a ${formatName}`)
+    }
   }
 
   private resolveDownloadUrl(): string {
@@ -1059,6 +1116,15 @@ export class LlamaCppBackendService implements ApiService {
   }
 
   async start(): Promise<BackendStatus> {
+    // An install is rewriting this service's directory right now — don't report it
+    // as ready mid-install (the binaries it would serve may not exist yet).
+    if (this.setUpInProgress) {
+      this.appLogger.info(
+        `start() ignored for ${this.name}: an installation is in progress`,
+        this.name,
+      )
+      return this.currentStatus
+    }
     // In this architecture, model servers are started on-demand via ensureBackendReadiness
     // This method is kept for ApiService interface compatibility
     if (this.currentStatus === 'running') {

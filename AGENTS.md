@@ -255,6 +255,24 @@ explain a tool's documented behaviour.
 - File naming: **PascalCase** (`MyComponent.vue`).
 - Single-word component names are allowed (`vue/multi-word-component-names` is off).
 
+### Icons
+
+Prefer Heroicons (`@heroicons/vue/24/outline` or `24/solid`) for new UI. Do not add a custom
+mask to `src/assets/css/svg.css` unless the glyph is missing from Heroicons. Existing
+`.svg-icon` sprites stay for older chrome.
+
+### Tooltips
+
+Use the shadcn wrappers in `src/components/ui/tooltip` (`TooltipProvider` / `Tooltip` /
+`TooltipTrigger` / `TooltipContent`). Do not use the native `title` attribute for new hover copy.
+
+- One `TooltipProvider` around the region that owns the tips. Put `:delay-duration="200"` on it —
+  that is the delay `IconButton` and the settings/wizard icon tips already use.
+- Instant (`0`) is only for labels that sit on a live control whose meaning must appear with no
+  wait (the prompt-bar status chips).
+- `TooltipTrigger` takes `as-child` wrapping the actual control. Keep an `aria-label` on that
+  control when the visible text is not the tip.
+
 ### Pinia Stores
 
 - Use setup syntax: `defineStore('name', () => { ... })`.
@@ -1032,17 +1050,39 @@ Unit coverage lives in `electron/test/channels/mockAdapter.test.ts`.
 To judge a change to the agentic system you need the turn's shape, not its final answer:
 how many steps it took, which tools it called, how many prompt tokens each step paid for
 and how many of those the server actually reused. [Laminar](https://github.com/lmnr-ai/lmnr)
-is a self-hostable OpenTelemetry trace viewer for exactly that, and both halves of the app
-can feed it — Pi agent runs from the main process, Vercel AI SDK chat turns from the
-renderer.
+is an OpenTelemetry trace viewer for exactly that, and both halves of the app can feed it —
+Pi agent runs from the main process, Vercel AI SDK chat turns from the renderer.
 
 **It is off unless you opt in.** Nothing is imported, initialized or sent without
-`WebUI/external/laminar.dev.json` (gitignored; copy `laminar.dev.example.json`). The two
+`WebUI/external/laminar.dev.json` or `WebUI/external/laminar.localhost.json` (both
+gitignored; copy `laminar.dev.example.json`). The app prefers `.dev.json` (the team's
+self-hosted instance) and falls back to `.localhost.json` (local compose). The two
 packages are `devDependencies` and the config read is gated on `!app.isPackaged`, so a
 packaged build has no copy to load and no file to find. Every failure path logs a warning
 and leaves tracing off — an observability problem must never cost a turn or a startup.
 
-**Bring up a local Laminar** next to this repo (its compose stack is postgres +
+**Point the app at an instance.** Which Laminar it is does not matter — the team's
+self-hosted one, Laminar Cloud, or a stack you brought up yourself — because the
+config file is the only thing that decides where traces go:
+
+```json
+{
+  "projectApiKey": "<from that instance's project settings>",
+  "baseUrl": "https://api.laminar.aipg.aws.thenerdgroup.ai",
+  "httpPort": 443,
+  "grpcPort": 8443
+}
+```
+
+`baseUrl` carries no port: the SDK splits the endpoint because traces and project metadata go
+to different ones, and the defaults (`http://localhost`, 8000 / 8001) are the compose stack's,
+so a local instance needs only the key. A shared instance's URL and ports come from whoever
+runs it — keep both, and the key, out of the repo: a project API key writes into that
+project's traces. Delete both files to switch tracing back off. Comparing runs across machines
+is what the trace metadata is for (`hostname`, `backend`, `deviceName` — see the table below),
+so several developers can share one instance and still tell their turns apart.
+
+**A local instance** is a clone of Laminar next to this repo (compose stack: postgres +
 clickhouse + quickwit + app-server + frontend, ~28 GB of images):
 
 ```bash
@@ -1053,8 +1093,14 @@ docker compose up -d   # UI on :5667, ingestion on :8000 (http) / :8001 (grpc)
 
 `LLM_*` only powers Laminar's own AI features (chat-with-trace, evaluator authoring); any
 OpenAI-compatible gateway works and the models must exist on it (`GET /v1/models`).
-Sign up at `http://localhost:5667`, then copy a project API key from project settings into
-`laminar.dev.json`. Delete the file to switch tracing back off.
+Sign up at `http://localhost:5667`, then copy a project API key from its project settings into
+`laminar.localhost.json`. The team's self-hosted instance is at
+`https://laminar.aipg.aws.thenerdgroup.ai` (ingestion
+`https://api.laminar.aipg.aws.thenerdgroup.ai`, ports 443 / 8443) — put that key
+in `laminar.dev.json`.
+Cap the containers' logs in a `docker-compose.override.yml` (`max-size` / `max-file`) and
+watch the Docker disk: a runaway ClickHouse log grew to 45 GB here, and once the disk is full
+the stack stops accepting traces and postgres crash-loops, which reads like the app broke.
 
 **Agent turns** are traced by Laminar's own `@lmnr-ai/pi-extension`, handed to Pi through
 `additionalExtensionPaths` (`piAgentManager.ts`) — not a capability, since it is not
@@ -1088,6 +1134,11 @@ what the Traces page filters on), per-call numbers go on the LLM span. Ours are 
 | trace metadata | `cloudProvider`                                                       | provider id, cloud only                                      |
 | trace metadata | `backendVersion`                                                      | llama.cpp build number / OVMS version, local only            |
 | trace metadata | `serverArgs`                                                          | the running LLM server's whole command line, local only      |
+| trace metadata | `preset`                                                              | preset the turn was held with, both surfaces                 |
+| trace metadata | `agentType`                                                           | `agent` / `game-agent` / `quick-coder`, agent only           |
+| trace metadata | `capabilities`                                                        | capability ids, sorted and comma-joined, agent only          |
+| trace metadata | `appSession`                                                          | our `aipg-agent-*` session id, agent only                    |
+| trace metadata | `game`, `gameId`                                                      | the game's title as of this turn, and its folder slug        |
 | LLM span       | `aipg.thinking`, `aipg.reasoning_effort`                              | what the turn actually asked the template for                |
 | LLM span       | `gen_ai.request.temperature` / `top_p` / `max_tokens`                 | the sampling that rode the request                           |
 | LLM span       | `aipg.prefill_tokens_per_second`, `aipg.generation_tokens_per_second` | the two speeds, kept apart                                   |
@@ -1117,6 +1168,29 @@ because the two halves of the app know different things:
   the response stream in `electron/agentMode/piCallTiming.ts`. OVMS and cloud have no such
   object, so those get prompt tokens over time-to-first-token and completion tokens over the
   rest — the same split, measured from outside.
+
+**An agent run is labelled, or thirty of them are one row repeated.** The Traces list shows a
+trace's root span name plus its metadata column, so every run used to read `pi agent run` and
+differ only by machine. `electron/agentMode/agentRunIdentity.ts` collects what the run is —
+preset (carried into main on `AgentModeTurnConfig.presetName`, since main has the instruction
+text but not the name), `agentType` derived from the capability ids, the ids themselves, our
+session id and the game — and `laminarAttributes.ts` stamps those as metadata and renames the
+root span to `<preset> · <game>`, falling back to the preset and leaving `pi agent run` when it
+knows nothing. Worth knowing:
+
+- **The rename is scoped to the name Pi gives its root span**, so nothing else can be caught by
+  it, and it is the only span name we touch.
+- **The identity is a getter, read per span**, because the agent names its game mid-run with the
+  `game` tool. Laminar merges a trace's metadata last-write-wins, so a trace settles on the name
+  as of the turn that produced it while `gameId` (the folder) never moves.
+- **It is registered per turn** (`piTurnRunner.startAgentTurn`), not per session like the
+  inference context: a resumed session keeps its model but its game may have been named since.
+  The preset is the _remembered_ agent preset, never the live active one — a `media` call
+  switches the active preset to an image-gen one mid-turn.
+- **Render templates cannot do this.** They render inside a trace (a span pane, or a whole-trace
+  custom view beside Tree/Transcript); the overview reads the root span name and the metadata
+  column, and a [table view](https://laminar.sh/docs/platform/table-views) saves a column layout
+  plus filters as a named project preset — that is where `agentType` earns its low cardinality.
 
 **Media generation is traced too, from the renderer.** A `media` call used to be one opaque
 TOOL span covering the whole IPC wait, which is unhelpful for the question it is usually asked
@@ -1261,13 +1335,16 @@ Things to know before changing it:
   reports millions of tokens per second — which is exactly what the first cloud agent trace
   claimed.
 
-**Verify it:** start `npm run dev`, look for `[laminar]: tracing to http://localhost:8000`
-in the main log and `[laminar] chat traces via main to …` in the renderer console, then send
-one Chat turn and one Agent turn and open `http://localhost:5667` → traces. A chat turn
-appears as `ai.streamText` → `ai.llm model.chat:<model>`; an agent turn as the `pi agent run`
-tree above. For the media spans, one Game Agent cover image (`Draft Image`) should show `media`
-with `comfyui.generate` and the `backend.*` swaps under it, and one desktop Image Gen click a
-`comfyui.generate` root carrying `hostname`. If the UI shows nothing, query the store directly rather than guessing:
+**Verify it:** start `npm run dev`, look for `[laminar]: tracing to <your instance>` in the
+main log (it prints the endpoint it resolved, so a typo in the config shows up here) and
+`[laminar] chat traces via main to …` in the renderer console, then send one Chat turn and one
+Agent turn and open the instance's UI → traces. A chat turn appears as `ai.streamText` →
+`ai.llm model.chat:<model>`; an agent turn as the `pi agent run` tree above. For the media
+spans, one Game Agent cover image (`Draft Image`) should show `media` with `comfyui.generate`
+and the `backend.*` swaps under it, and one desktop Image Gen click a `comfyui.generate` root
+carrying `hostname`. If the UI shows nothing, query the store directly rather than guessing —
+against a local stack that is its ClickHouse container, against a shared one Laminar's own SQL
+editor asks the same question:
 
 ```bash
 docker exec clickhouse clickhouse-client --query \

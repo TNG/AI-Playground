@@ -486,6 +486,8 @@
   "MODEL_MANAGER_CAP_TOOLS": "Chiamata di strumenti",
   "MODEL_MANAGER_CAP_REASONING": "Ragionamento",
   "MODEL_MANAGER_CAP_THINKING": "Interruttore del pensiero",
+  "MODEL_MANAGER_CAP_CODING": "Programmazione",
+  "MODEL_MANAGER_CAP_CODING_HINT": "Indica che il modello scrive codice abbastanza bene per i preset di programmazione. Lì vengono offerti solo i modelli con questa opzione attiva.",
   "MODEL_MANAGER_CAP_NPU": "Supporto NPU",
   "MODEL_MANAGER_CAP_LARGE_MOE": "Modello MoE di grandi dimensioni",
   "MODEL_MANAGER_CAP_LARGE_MOE_HINT": "Contrassegna un modello Mixture-of-Experts troppo grande per la vRAM. Questi modelli si caricano solo tramite l’offload su SSD Phison aiDAPTIV+, quindi vengono nascosti da ogni selettore di modelli sulle macchine che non lo hanno.",
@@ -511,5 +513,17 @@
   "COM_BROWSE_FOR": "Sfoglia {label}",
   "COM_FOLDER_PATH": "Percorso della cartella",
   "SETTINGS_TOOLS_MODEL_UNSUPPORTED": "Il modello selezionato non supporta la chiamata di strumenti.",
-  "MODEL_MANAGER_OPEN": "Gestione dei modelli"
+  "MODEL_MANAGER_OPEN": "Gestione dei modelli",
+  "MODEL_MANAGER_ADD_USE_CASE": "Tipo di modello",
+  "MODEL_MANAGER_ADD_BACKEND": "Backend",
+  "MODEL_MANAGER_ADD_REPOSITORY": "Repository Hugging Face",
+  "MODEL_MANAGER_ADD_CAPABILITIES": "Funzionalità del modello (opzionale)",
+  "MODEL_MANAGER_ADD_INVALID_NAME": "Inserisci un riferimento al modello valido.",
+  "MODEL_MANAGER_ADD_INVALID_VISION_NAME": "Inserisci un riferimento valido al modello di visione (mmproj).",
+  "MODEL_MANAGER_ADD_VISION_NOT_FOUND": "Il repository del modello di visione (mmproj) non è stato trovato.",
+  "MODEL_MANAGER_ADD_FAILED": "Non è stato possibile aggiungere il modello.",
+  "MODEL_MANAGER_PUBLISHER_TITLE": "Impostazioni dell'editore",
+  "MODEL_MANAGER_PUBLISHER_HINT": "Consigliate dall'editore del modello e applicate automaticamente. Provengono dal catalogo e non possono essere modificate.",
+  "MODEL_MANAGER_PUBLISHER_SAMPLING": "Sampling",
+  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "Parametri del server"
 }

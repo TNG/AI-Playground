@@ -16,7 +16,8 @@ import type { Telemetry } from 'ai'
 // can be forwarded to the main process and replayed into the real integration
 // there. The span mapping, the exporter and the project key all stay in main.
 //
-// Off unless a developer wrote `external/laminar.dev.json` — see AGENTS.md,
+// Off unless a developer wrote `external/laminar.dev.json` or
+// `external/laminar.localhost.json` — see AGENTS.md,
 // 'Tracing agent and chat turns (Laminar, dev)'.
 
 /** Events forwarded to main. `onChunk` is left out on purpose (see below). */
@@ -45,6 +46,8 @@ const CHAT_TIMINGS_EVENT = 'aipgChatTimings'
 
 /** What the AI SDK's telemetry has no field for, because only this app knows it. */
 export type ChatTraceContext = {
+  /** Chat preset the turn was held with, so both surfaces label a trace the same way. */
+  preset?: string
   backend?: 'llamaCPP' | 'openVINO' | 'cloud'
   device?: string
   deviceName?: string

@@ -47,5 +47,6 @@ models/
 # Home Agent — runtime Telegram chat id (local dev); never commit
 home-agent/.*id
 
-# Laminar tracing — local project API key (dev opt-in); never commit
+# Laminar tracing — local project API keys (dev opt-in); never commit
 WebUI/external/laminar.dev.json
+WebUI/external/laminar.localhost.json

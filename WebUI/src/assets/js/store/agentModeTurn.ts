@@ -58,6 +58,7 @@ export function buildSamplingParams(textInference: InferenceForTurn): Record<str
 export async function buildTurnConfig(options: {
   sessionId: string
   workspaceDir: string
+  presetName: string
   instructions: string
   capabilities: string[]
   unsandboxed: boolean
@@ -91,6 +92,7 @@ export async function buildTurnConfig(options: {
           : undefined,
       },
       toolSpecs,
+      presetName: options.presetName,
       instructions: options.instructions,
       capabilities: options.capabilities,
       unsandboxed: options.unsandboxed,
@@ -118,6 +120,7 @@ export async function buildTurnConfig(options: {
       samplingParams: buildSamplingParams(textInference),
     },
     toolSpecs,
+    presetName: options.presetName,
     instructions: options.instructions,
     capabilities: options.capabilities,
     unsandboxed: options.unsandboxed,

@@ -486,6 +486,8 @@
   "MODEL_MANAGER_CAP_TOOLS": "ツール呼び出し",
   "MODEL_MANAGER_CAP_REASONING": "推論",
   "MODEL_MANAGER_CAP_THINKING": "思考モードの切り替え",
+  "MODEL_MANAGER_CAP_CODING": "コーディング",
+  "MODEL_MANAGER_CAP_CODING_HINT": "コーディング用プリセットに十分なコード記述能力があることを示します。プリセットではこの設定がついたモデルのみが表示されます。",
   "MODEL_MANAGER_CAP_NPU": "NPU 対応",
   "MODEL_MANAGER_CAP_LARGE_MOE": "大規模 MoE モデル",
   "MODEL_MANAGER_CAP_LARGE_MOE_HINT": "vRAM に収まらない Mixture-of-Experts モデルであることを示します。これらは Phison aiDAPTIV+ の SSD オフロードでしか読み込めないため、その環境がないマシンではすべてのモデル選択から非表示になります。",
@@ -511,5 +513,17 @@
   "COM_BROWSE_FOR": "{label} を参照",
   "COM_FOLDER_PATH": "フォルダーのパス",
   "SETTINGS_TOOLS_MODEL_UNSUPPORTED": "選択したモデルはツール呼び出しに対応していません。",
-  "MODEL_MANAGER_OPEN": "モデル管理"
+  "MODEL_MANAGER_OPEN": "モデル管理",
+  "MODEL_MANAGER_ADD_USE_CASE": "モデルの種類",
+  "MODEL_MANAGER_ADD_BACKEND": "バックエンド",
+  "MODEL_MANAGER_ADD_REPOSITORY": "Hugging Face リポジトリ",
+  "MODEL_MANAGER_ADD_CAPABILITIES": "モデルの機能（任意）",
+  "MODEL_MANAGER_ADD_INVALID_NAME": "有効なモデル参照を入力してください。",
+  "MODEL_MANAGER_ADD_INVALID_VISION_NAME": "有効なビジョンモデル（mmproj）の参照を入力してください。",
+  "MODEL_MANAGER_ADD_VISION_NOT_FOUND": "ビジョンモデル（mmproj）のリポジトリが見つかりませんでした。",
+  "MODEL_MANAGER_ADD_FAILED": "モデルを追加できませんでした。",
+  "MODEL_MANAGER_PUBLISHER_TITLE": "提供元の設定",
+  "MODEL_MANAGER_PUBLISHER_HINT": "モデルの提供元が推奨し、自動的に適用されます。カタログに由来するため編集できません。",
+  "MODEL_MANAGER_PUBLISHER_SAMPLING": "サンプリング",
+  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "サーバーパラメーター"
 }

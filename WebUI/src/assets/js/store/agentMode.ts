@@ -186,6 +186,9 @@ export const useAgentMode = defineStore(
         buildTurnConfig({
           sessionId: ensureSessionId(activeSessionId),
           workspaceDir: workspaceDir.value,
+          // The remembered agent preset, not the active one: a media call
+          // switches the active preset to an image-gen one mid-turn.
+          presetName: agentPresetName.value,
           instructions: activeAgentPreset.value?.systemPrompt?.trim() ?? '',
           capabilities: [...capabilities.value],
           unsandboxed: unsandboxed.value,

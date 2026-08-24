@@ -486,6 +486,8 @@
   "MODEL_MANAGER_CAP_TOOLS": "การเรียกใช้เครื่องมือ",
   "MODEL_MANAGER_CAP_REASONING": "การให้เหตุผล",
   "MODEL_MANAGER_CAP_THINKING": "สวิตช์โหมดคิด",
+  "MODEL_MANAGER_CAP_CODING": "การเขียนโค้ด",
+  "MODEL_MANAGER_CAP_CODING_HINT": "ระบุว่าโมเดลนี้เขียนโค้ดได้ดีพอสำหรับพรีเซ็ตการเขียนโค้ด โดยจะแสดงเฉพาะโมเดลที่ตั้งค่านี้ไว้เท่านั้น",
   "MODEL_MANAGER_CAP_NPU": "รองรับ NPU",
   "MODEL_MANAGER_CAP_LARGE_MOE": "โมเดล MoE ขนาดใหญ่",
   "MODEL_MANAGER_CAP_LARGE_MOE_HINT": "ระบุว่าเป็นโมเดล Mixture-of-Experts ที่ใหญ่เกิน vRAM โมเดลเหล่านี้โหลดได้ผ่าน Phison aiDAPTIV+ SSD offload เท่านั้น จึงถูกซ่อนจากตัวเลือกโมเดลทุกที่บนเครื่องที่ไม่มีฮาร์ดแวร์นี้",
@@ -511,5 +513,17 @@
   "COM_BROWSE_FOR": "เรียกดู {label}",
   "COM_FOLDER_PATH": "เส้นทางโฟลเดอร์",
   "SETTINGS_TOOLS_MODEL_UNSUPPORTED": "โมเดลที่เลือกไม่รองรับการเรียกใช้เครื่องมือ",
-  "MODEL_MANAGER_OPEN": "การจัดการโมเดล"
+  "MODEL_MANAGER_OPEN": "การจัดการโมเดล",
+  "MODEL_MANAGER_ADD_USE_CASE": "ประเภทโมเดล",
+  "MODEL_MANAGER_ADD_BACKEND": "แบ็กเอนด์",
+  "MODEL_MANAGER_ADD_REPOSITORY": "ที่เก็บ Hugging Face",
+  "MODEL_MANAGER_ADD_CAPABILITIES": "ความสามารถของโมเดล (ไม่บังคับ)",
+  "MODEL_MANAGER_ADD_INVALID_NAME": "โปรดป้อนการอ้างอิงโมเดลที่ถูกต้อง",
+  "MODEL_MANAGER_ADD_INVALID_VISION_NAME": "โปรดป้อนการอ้างอิงโมเดลการมองเห็น (mmproj) ที่ถูกต้อง",
+  "MODEL_MANAGER_ADD_VISION_NOT_FOUND": "ไม่พบที่เก็บของโมเดลการมองเห็น (mmproj)",
+  "MODEL_MANAGER_ADD_FAILED": "ไม่สามารถเพิ่มโมเดลได้",
+  "MODEL_MANAGER_PUBLISHER_TITLE": "การตั้งค่าจากผู้เผยแพร่",
+  "MODEL_MANAGER_PUBLISHER_HINT": "แนะนำโดยผู้เผยแพร่โมเดลและถูกใช้อัตโนมัติ ค่าเหล่านี้มาจากแค็ตตาล็อกและแก้ไขไม่ได้",
+  "MODEL_MANAGER_PUBLISHER_SAMPLING": "การสุ่มตัวอย่าง",
+  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "พารามิเตอร์เซิร์ฟเวอร์"
 }

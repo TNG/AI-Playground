@@ -486,6 +486,8 @@
   "MODEL_MANAGER_CAP_TOOLS": "Llamada de herramientas",
   "MODEL_MANAGER_CAP_REASONING": "Razonamiento",
   "MODEL_MANAGER_CAP_THINKING": "Interruptor de pensamiento",
+  "MODEL_MANAGER_CAP_CODING": "Programación",
+  "MODEL_MANAGER_CAP_CODING_HINT": "Indica que el modelo escribe código lo bastante bien para los presets de programación. Allí solo se ofrecen modelos con esta opción activada.",
   "MODEL_MANAGER_CAP_NPU": "Compatibilidad con NPU",
   "MODEL_MANAGER_CAP_LARGE_MOE": "Modelo MoE grande",
   "MODEL_MANAGER_CAP_LARGE_MOE_HINT": "Marca un modelo Mixture-of-Experts demasiado grande para la vRAM. Estos modelos solo se cargan mediante la descarga a SSD de Phison aiDAPTIV+, por lo que se ocultan de todos los selectores de modelos en equipos que no la tienen.",
@@ -511,5 +513,17 @@
   "COM_BROWSE_FOR": "Examinar {label}",
   "COM_FOLDER_PATH": "Ruta de la carpeta",
   "SETTINGS_TOOLS_MODEL_UNSUPPORTED": "El modelo seleccionado no admite la llamada a herramientas.",
-  "MODEL_MANAGER_OPEN": "Gestión de modelos"
+  "MODEL_MANAGER_OPEN": "Gestión de modelos",
+  "MODEL_MANAGER_ADD_USE_CASE": "Tipo de modelo",
+  "MODEL_MANAGER_ADD_BACKEND": "Backend",
+  "MODEL_MANAGER_ADD_REPOSITORY": "Repositorio de Hugging Face",
+  "MODEL_MANAGER_ADD_CAPABILITIES": "Capacidades del modelo (opcional)",
+  "MODEL_MANAGER_ADD_INVALID_NAME": "Introduce una referencia de modelo válida.",
+  "MODEL_MANAGER_ADD_INVALID_VISION_NAME": "Introduce una referencia válida del modelo de visión (mmproj).",
+  "MODEL_MANAGER_ADD_VISION_NOT_FOUND": "No se ha encontrado el repositorio del modelo de visión (mmproj).",
+  "MODEL_MANAGER_ADD_FAILED": "No se ha podido añadir el modelo.",
+  "MODEL_MANAGER_PUBLISHER_TITLE": "Ajustes del publicador",
+  "MODEL_MANAGER_PUBLISHER_HINT": "Recomendados por el publicador del modelo y aplicados automáticamente. Provienen del catálogo y no se pueden editar.",
+  "MODEL_MANAGER_PUBLISHER_SAMPLING": "Muestreo",
+  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "Parámetros del servidor"
 }

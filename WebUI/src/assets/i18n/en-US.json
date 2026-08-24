@@ -486,6 +486,8 @@
   "MODEL_MANAGER_CAP_TOOLS": "Tool calling",
   "MODEL_MANAGER_CAP_REASONING": "Reasoning",
   "MODEL_MANAGER_CAP_THINKING": "Thinking toggle",
+  "MODEL_MANAGER_CAP_CODING": "Coding",
+  "MODEL_MANAGER_CAP_CODING_HINT": "Marks the model as good enough at writing code for the coding presets. Only models with this set are offered there.",
   "MODEL_MANAGER_CAP_NPU": "NPU support",
   "MODEL_MANAGER_CAP_LARGE_MOE": "Large MoE model",
   "MODEL_MANAGER_CAP_LARGE_MOE_HINT": "Marks a Mixture-of-Experts model too large for vRAM. Such models only load via Phison aiDAPTIV+ SSD offload, so they are hidden from every model picker on machines without it.",
@@ -511,5 +513,17 @@
   "COM_BROWSE_FOR": "Browse for {label}",
   "COM_FOLDER_PATH": "Folder path",
   "SETTINGS_TOOLS_MODEL_UNSUPPORTED": "The selected model does not support tool calling.",
-  "MODEL_MANAGER_OPEN": "Model management"
+  "MODEL_MANAGER_OPEN": "Model management",
+  "MODEL_MANAGER_ADD_USE_CASE": "Model type",
+  "MODEL_MANAGER_ADD_BACKEND": "Backend",
+  "MODEL_MANAGER_ADD_REPOSITORY": "Hugging Face repository",
+  "MODEL_MANAGER_ADD_CAPABILITIES": "Model capabilities (optional)",
+  "MODEL_MANAGER_ADD_INVALID_NAME": "Enter a valid model reference.",
+  "MODEL_MANAGER_ADD_INVALID_VISION_NAME": "Enter a valid vision model (mmproj) reference.",
+  "MODEL_MANAGER_ADD_VISION_NOT_FOUND": "The vision model (mmproj) repository could not be found.",
+  "MODEL_MANAGER_ADD_FAILED": "Could not add the model.",
+  "MODEL_MANAGER_PUBLISHER_TITLE": "Publisher settings",
+  "MODEL_MANAGER_PUBLISHER_HINT": "Recommended by the model publisher and applied automatically. They come from the catalog and cannot be edited.",
+  "MODEL_MANAGER_PUBLISHER_SAMPLING": "Sampling",
+  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "Server parameters"
 }

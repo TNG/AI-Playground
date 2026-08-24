@@ -29,9 +29,10 @@ import {
 // export to a self-hosted Laminar the developer runs locally.
 //
 // Deliberately unconfigured by default: without `external/laminar.dev.json`
-// nothing is imported, nothing is initialized, and the app runs exactly as it
-// did before. `@lmnr-ai/lmnr` is a devDependency, so a packaged build has no
-// copy of it to load — hence the `isPackaged` gate and the dynamic import.
+// or `external/laminar.localhost.json` nothing is imported, nothing is
+// initialized, and the app runs exactly as it did before. `@lmnr-ai/lmnr` is
+// a devDependency, so a packaged build has no copy of it to load — hence the
+// `isPackaged` gate and the dynamic import.
 //
 // The renderer needs the same numbers to register its own telemetry, but must
 // not have the project API key compiled into its bundle, so the config is read
@@ -40,7 +41,7 @@ import {
 const logger = appLoggerInstance
 const LOG_SOURCE = 'laminar'
 
-const CONFIG_FILE = 'laminar.dev.json'
+const CONFIG_FILES = ['laminar.dev.json', 'laminar.localhost.json'] as const
 
 /**
  * The Laminar SDK splits the endpoint into host and ports (`baseUrl` carries no
@@ -82,20 +83,23 @@ export function laminarConfig(): LaminarConfig | null {
   if (resolved !== undefined) return resolved
   resolved = null
   if (app.isPackaged) return resolved
-  const configPath = path.join(externalResourcesDir(), CONFIG_FILE)
-  let raw: string
-  try {
-    raw = fs.readFileSync(configPath, 'utf-8')
-  } catch {
-    // The normal case: no developer opted in. Not worth a log line.
+  const dir = externalResourcesDir()
+  for (const name of CONFIG_FILES) {
+    const configPath = path.join(dir, name)
+    let raw: string
+    try {
+      raw = fs.readFileSync(configPath, 'utf-8')
+    } catch {
+      continue
+    }
+    const parsed = LaminarConfigSchema.safeParse(JSON.parse(raw) as unknown)
+    if (!parsed.success) {
+      logger.warn(`ignoring ${name}: ${parsed.error.message}`, LOG_SOURCE)
+      continue
+    }
+    resolved = parsed.data
     return resolved
   }
-  const parsed = LaminarConfigSchema.safeParse(JSON.parse(raw) as unknown)
-  if (!parsed.success) {
-    logger.warn(`ignoring ${CONFIG_FILE}: ${parsed.error.message}`, LOG_SOURCE)
-    return resolved
-  }
-  resolved = parsed.data
   return resolved
 }
 

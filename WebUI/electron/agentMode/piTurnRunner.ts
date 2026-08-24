@@ -30,6 +30,8 @@ import {
   type ActiveSession,
 } from './piAgentState.ts'
 import { endActiveSession, ensureSession } from './piSessionLifecycle.ts'
+import { agentRunIdentity } from './agentRunIdentity.ts'
+import { setAgentRunIdentity } from '../laminarAttributes.ts'
 
 const logger = appLoggerInstance
 
@@ -338,6 +340,9 @@ export async function startAgentTurn(
   })
   try {
     const current = await ensureSession(config)
+    // Per turn, not per session: a resumed session keeps its trace context but
+    // its game may have been named since, and the preset can differ.
+    setAgentRunIdentity(agentRunIdentity(config))
     let lastSample = ''
     const sampleUsage = () => {
       const summary = turnSummary(current.session)

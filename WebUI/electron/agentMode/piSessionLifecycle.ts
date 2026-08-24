@@ -8,18 +8,18 @@ import {
   rejectAllPendingToolCalls,
   writeAgentSkills,
 } from './piCustomTools.ts'
-import {
-  DEFAULT_CAPABILITY_IDS,
-  mcpCapabilityId,
-  resolveCapabilities,
-  type CapabilityHost,
-} from './capabilities/index.ts'
+import { resolveCapabilities, type CapabilityHost } from './capabilities/index.ts'
+import { enabledCapabilityIds } from '@/types/agentCapabilities'
 import { createAgentToolAccess } from './piToolOperations.ts'
 import { buildWorkspaceInstructions, ensureWorkspaceRuntime } from './piWorkspaceRuntime.ts'
 import { createSamplingExtension } from './piSampling.ts'
 import { laminarPiExtensionPath } from '../laminar.ts'
 import { withLiveEndpoint } from './piLocalEndpoint.ts'
-import { clearAgentTraceContext, setAgentTraceContext } from '../laminarAttributes.ts'
+import {
+  clearAgentRunIdentity,
+  clearAgentTraceContext,
+  setAgentTraceContext,
+} from '../laminarAttributes.ts'
 import type { AgentModeModelConfig, AgentModeTurnConfig } from '@/types/agentIpc'
 import { piAgentDir, piSessionDir, loadSessionFilePath, savePointer } from './piSessionStore.ts'
 import {
@@ -71,23 +71,11 @@ function modelKeyOf(config: AgentModeModelConfig): unknown {
   return rest
 }
 
-/**
- * The capabilities this turn asks for. Older persisted sessions (and any caller
- * that has not been updated) carry no list, so they fall back to the defaults
- * plus whatever MCP servers they had attached.
- */
-function enabledCapabilityIds(config: AgentModeTurnConfig): string[] {
-  const ids = config.capabilities ?? [
-    ...DEFAULT_CAPABILITY_IDS,
-    ...(config.mcpServerIds ?? []).map((serverId) => mcpCapabilityId(serverId)),
-  ]
-  return [...new Set(ids)].sort()
-}
-
 export async function endActiveSession(): Promise<void> {
   const current = active
   setActive(null)
   clearAgentTraceContext()
+  clearAgentRunIdentity()
   rejectAllPendingToolCalls('Agent session ended.')
   if (!current) return
   current.unsubscribe()

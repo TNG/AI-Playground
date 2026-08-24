@@ -43,6 +43,8 @@ export const AgentModeTurnConfigSchema = z.object({
   modelConfig: AgentModeModelConfigSchema,
   toolSpecs: z.array(AgentToolSpecSchema).optional(),
   instructions: z.string().optional(),
+  /** The agent preset this turn was held with, for labelling its trace. */
+  presetName: z.string().optional(),
   capabilities: z.array(z.string()).optional(),
   mcpServerIds: z.array(z.string()).optional(),
   unsandboxed: z.boolean().optional(),

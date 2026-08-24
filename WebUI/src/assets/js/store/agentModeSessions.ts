@@ -51,6 +51,37 @@ export function deriveSessionTitle(sessionMessages: UIMessage[]): string {
   return text.length > 60 ? `${text.slice(0, 60)}…` : text
 }
 
+/** The game library's folder, which every game folder sits directly under. */
+const GAMES_SEGMENT = 'games'
+
+/**
+ * A game's workspace path is its library folder plus a slug, and the library
+ * part is the same for every row — so it collapses into the path icon, leaving
+ * the slug. Anything else (the folder-picking Agent) is shown whole.
+ */
+export function collapseGamesPrefix(workspaceDir: string): { collapsed: boolean; rest: string } {
+  const segments = workspaceDir.split(/[\\/]/)
+  const index = segments.lastIndexOf(GAMES_SEGMENT)
+  if (index < 0 || index === segments.length - 1) return { collapsed: false, rest: workspaceDir }
+  return { collapsed: true, rest: segments.slice(index + 1).join('/') }
+}
+
+/**
+ * What a session card reads: the preset it was held with, then the game it
+ * produced. The name is read live from the library rather than the record, so a
+ * game renamed with `set_metadata` shows up without re-archiving the session.
+ */
+export function sessionDisplayTitle(options: {
+  title: string
+  presetLabel?: string
+  gameName?: string
+}): { mode: string; name: string } {
+  return {
+    mode: options.presetLabel?.trim() || AGENT_PRESET,
+    name: options.gameName?.trim() || options.title,
+  }
+}
+
 export function listPresetSessions(
   sessions: Record<string, AgentSessionRecord>,
   agentPresetName: string,
@@ -115,13 +146,18 @@ export function snapshotSession(options: {
 }): AgentSessionRecord | null {
   const plainMessages = JSON.parse(JSON.stringify(options.messages)) as UIMessage[]
   if (plainMessages.length === 0) return null
+  // `stop()` archives the session you are leaving so a switch can tear down Pi.
+  // That is not new work — keep the clock unless the transcript actually moved.
+  const existing = options.existing
+  const unchanged =
+    existing !== undefined && JSON.stringify(existing.messages) === JSON.stringify(plainMessages)
   return {
     id: options.id,
-    workspaceDir: options.existing?.workspaceDir ?? options.workspaceDir,
+    workspaceDir: existing?.workspaceDir ?? options.workspaceDir,
     title: deriveSessionTitle(plainMessages),
     messages: plainMessages,
-    createdAt: options.existing?.createdAt ?? Date.now(),
-    updatedAt: Date.now(),
+    createdAt: existing?.createdAt ?? Date.now(),
+    updatedAt: unchanged && existing ? existing.updatedAt : Date.now(),
     capabilities: options.existing?.capabilities ?? [...options.capabilities],
     presetName: options.existing?.presetName ?? options.presetName,
   }

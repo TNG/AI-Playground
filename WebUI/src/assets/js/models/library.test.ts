@@ -7,6 +7,7 @@ import {
   buildEntries,
   canonicalPathKey,
   countByUseCase,
+  describeInferenceDefaults,
   entriesForProductMode,
   filterEntries,
   formatBytes,
@@ -107,6 +108,32 @@ describe('pathKeyForCatalogModel', () => {
   })
 })
 
+describe('describeInferenceDefaults', () => {
+  it('has nothing to say about a model with no recommendations', () => {
+    expect(describeInferenceDefaults(undefined)).toBe('')
+    expect(describeInferenceDefaults({})).toBe('')
+  })
+
+  it('names the base sampling with the wire names the model cards use', () => {
+    expect(describeInferenceDefaults({ temperature: 0.6, topP: 0.95, topK: 20 })).toBe(
+      'temperature 0.6, top_p 0.95, top_k 20',
+    )
+  })
+
+  it('keeps the per-mode recommendations apart', () => {
+    const described = describeInferenceDefaults({
+      topK: 20,
+      thinking: { temperature: 0.6 },
+      instruct: { temperature: 0.7 },
+      reasoningEffort: 'low',
+    })
+
+    expect(described).toBe(
+      'top_k 20 · thinking: temperature 0.6 · instruct: temperature 0.7 · reasoning_effort low',
+    )
+  })
+})
+
 const scannedGguf: ScannedModel = {
   pathKey: 'ggufLLM',
   useCase: 'llm',
@@ -177,12 +204,73 @@ describe('buildEntries', () => {
     const entries = buildEntries(
       input({
         catalogModels: [
-          { name: 'me/mine/model.gguf', type: 'llamaCPP', downloaded: false, isPredefined: false },
+          {
+            name: 'me/mine/model.gguf',
+            type: 'llamaCPP',
+            downloaded: false,
+            isPredefined: false,
+            isCustom: true,
+          },
         ],
       }),
     )
 
     expect(entries[0].source).toBe('custom')
+  })
+
+  it('keeps a user-added model custom after it is downloaded', () => {
+    // It used to become a plain disk find, which took "remove from list" away the
+    // moment the download finished.
+    const entries = buildEntries(
+      input({
+        catalogModels: [
+          {
+            name: 'org/repo/model.gguf',
+            type: 'llamaCPP',
+            downloaded: true,
+            isPredefined: false,
+            isCustom: true,
+          },
+        ],
+        scanned: [scannedGguf],
+      }),
+    )
+
+    expect(entries[0].source).toBe('custom')
+    expect(entries[0].downloaded).toBe(true)
+  })
+
+  it('calls a model found only on disk a disk model', () => {
+    const entries = buildEntries(
+      input({
+        catalogModels: [
+          { name: 'org/repo/model.gguf', type: 'llamaCPP', downloaded: true, isPredefined: false },
+        ],
+        scanned: [scannedGguf],
+      }),
+    )
+
+    expect(entries[0].source).toBe('disk')
+  })
+
+  it('carries the publisher settings through for the read-only display', () => {
+    const entries = buildEntries(
+      input({
+        catalogModels: [
+          {
+            name: 'org/repo/model.gguf',
+            type: 'llamaCPP',
+            downloaded: false,
+            isPredefined: true,
+            inferenceDefaults: { temperature: 0.6, reasoningEffort: 'low' },
+            llamaCppArgs: '--spec-type draft-mtp',
+          },
+        ],
+      }),
+    )
+
+    expect(entries[0].inferenceDefaults).toMatchObject({ reasoningEffort: 'low' })
+    expect(entries[0].llamaCppArgs).toBe('--spec-type draft-mtp')
   })
 
   it('skips cloud models, which have nothing local to manage', () => {

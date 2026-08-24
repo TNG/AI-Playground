@@ -2,6 +2,7 @@ import { extractReasoningMiddleware, wrapLanguageModel, type LanguageModel } fro
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { useCloudMode, CLOUD_DEFAULT_MODEL } from '@/assets/js/store/cloudMode'
+import { usePresets } from '@/assets/js/store/presets'
 import { getHomeAgentAuthToken, invalidateHomeAgentAuthToken } from '@/lib/loopbackAuth'
 import { chatTemplateKwargs } from '@/lib/samplingDefaults'
 import type { ChatTraceContext } from '@/lib/laminarTelemetry'
@@ -34,6 +35,7 @@ import { openAiApiBase } from '@/lib/inferenceApiBase'
 export function chatTraceContext(): ChatTraceContext {
   const textInference = useTextInference()
   const cloudMode = useCloudMode()
+  const presets = usePresets()
   const kwargs = chatTemplateKwargs({
     supportsThinkingToggle: textInference.modelSupportsThinkingToggle,
     thinkingEnabled: textInference.thinkingEnabled,
@@ -42,6 +44,7 @@ export function chatTraceContext(): ChatTraceContext {
   })
   const cloud = textInference.backend === 'cloud'
   return {
+    preset: presets.activePresetName ?? undefined,
     backend: textInference.backend,
     ...(cloud
       ? { cloudProvider: cloudMode.selectedProviderId }

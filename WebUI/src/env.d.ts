@@ -402,8 +402,9 @@ type electronAPI = {
   loadModels(): Promise<Model[]>
   /**
    * Local Laminar tracing settings, or null when tracing is off (the default).
-   * Read in main from `external/laminar.dev.json` so the project API key never
-   * lands in the renderer bundle. Dev-only (see electron/laminar.ts).
+   * Read in main from `external/laminar.dev.json` (then
+   * `external/laminar.localhost.json`) so the project API key never lands in
+   * the renderer bundle. Dev-only (see electron/laminar.ts).
    */
   getLaminarConfig(): Promise<LaminarConfig | null>
   /**

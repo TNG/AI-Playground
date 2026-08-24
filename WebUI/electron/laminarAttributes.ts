@@ -31,6 +31,8 @@ export type InferenceBackend = LocalLlmBackend | 'cloud'
 
 /** The turn's setup, as far as the surface running it knows. */
 export type InferenceTraceContext = {
+  /** Preset the turn was held with; agent runs carry theirs on the identity instead. */
+  preset?: string
   backend?: InferenceBackend
   /** Device the local backend is set to (`GPU.0`, `NPU`, …). */
   device?: string
@@ -50,6 +52,22 @@ export type InferenceTraceContext = {
    * describes where the trace belongs rather than how the turn was set up.
    */
   delegated?: boolean
+}
+
+/** Which run a trace belongs to, for the Traces page's metadata column and its filters. */
+export type AgentRunIdentity = {
+  /** Agent preset the turn was held with (`Game Agent`, `Acer Quick Coder`, …). */
+  preset?: string
+  /** The shape of the run, low-cardinality so it groups and filters. */
+  type?: 'agent' | 'game-agent' | 'quick-coder'
+  /** Capability ids, sorted and comma-joined. */
+  capabilities?: string
+  /** Our own session id (`aipg-agent-*`), which survives a Pi session rebuild. */
+  appSession?: string
+  /** Display name of the game being built, as of this turn. */
+  game?: string
+  /** Its folder slug, which never moves. */
+  gameId?: string
 }
 
 /** How fast one model call actually ran. */
@@ -76,7 +94,11 @@ type ProcessedSpan = {
   parentSpanContext?: { spanId?: string }
   isRecording?: () => boolean
   setAttribute?: (key: string, value: string | number | boolean) => unknown
+  updateName?: (name: string) => unknown
 }
+
+/** The name Pi gives an agent run's root span, and the only one we rename. */
+const PI_ROOT_SPAN = 'pi agent run'
 
 // ── The two surfaces' contexts ───────────────────────────────────────────────
 //
@@ -88,6 +110,7 @@ let agentContext: (() => InferenceTraceContext | undefined) | null = null
 let chatContext: InferenceTraceContext | null = null
 let agentCallStats: InferenceCallStats | null = null
 let chatCallStats: InferenceCallStats | null = null
+let agentIdentity: (() => AgentRunIdentity | undefined) | null = null
 
 export function setAgentTraceContext(get: () => InferenceTraceContext | undefined): void {
   agentContext = get
@@ -96,6 +119,18 @@ export function setAgentTraceContext(get: () => InferenceTraceContext | undefine
 export function clearAgentTraceContext(): void {
   agentContext = null
   agentCallStats = null
+}
+
+/**
+ * A getter for the same reason the context is one: the run is named while it
+ * runs, so what a span says has to be read when that span starts.
+ */
+export function setAgentRunIdentity(get: () => AgentRunIdentity | undefined): void {
+  agentIdentity = get
+}
+
+export function clearAgentRunIdentity(): void {
+  agentIdentity = null
 }
 
 export function setChatTraceContext(context: InferenceTraceContext | null): void {
@@ -148,11 +183,13 @@ export function stampSpanStart(started: unknown): void {
     // the renderer has not yet sent a context, so traces from two test boxes
     // never look interchangeable.
     apply(span, optional(`${METADATA_PREFIX}hostname`, hostName()))
+    if (!isChatSpan(span)) labelAgentRun(span)
     const context = contextFor(span)
     if (!context) return
     const local =
       context.backend && context.backend !== 'cloud' ? llmServerSnapshot(context.backend) : {}
     apply(span, {
+      ...optional(`${METADATA_PREFIX}preset`, context.preset),
       ...optional(`${METADATA_PREFIX}backend`, context.backend),
       ...optional(`${METADATA_PREFIX}device`, context.device ?? local.device),
       ...optional(`${METADATA_PREFIX}deviceName`, context.deviceName ?? local.deviceName),
@@ -163,6 +200,32 @@ export function stampSpanStart(started: unknown): void {
   } catch (error) {
     logger.warn(`could not stamp trace metadata: ${error}`, LOG_SOURCE)
   }
+}
+
+/**
+ * What the run was, on the row that stands for it. The metadata is what the
+ * Traces table's column and filters read; the name is the row's own label, and
+ * is only rewritten on the span Pi named, so nothing else can be caught by it.
+ */
+function labelAgentRun(span: ProcessedSpan): void {
+  const identity = agentIdentity?.()
+  if (!identity) return
+  apply(span, {
+    ...optional(`${METADATA_PREFIX}preset`, identity.preset),
+    ...optional(`${METADATA_PREFIX}agentType`, identity.type),
+    ...optional(`${METADATA_PREFIX}capabilities`, identity.capabilities),
+    ...optional(`${METADATA_PREFIX}appSession`, identity.appSession),
+    ...optional(`${METADATA_PREFIX}game`, identity.game),
+    ...optional(`${METADATA_PREFIX}gameId`, identity.gameId),
+  })
+  if (span.name !== PI_ROOT_SPAN) return
+  const label = [identity.preset, identity.game].filter(Boolean).join(' · ')
+  if (label) rename(span, label)
+}
+
+function rename(span: ProcessedSpan, name: string): void {
+  if (typeof span.updateName === 'function') span.updateName(name)
+  else span.name = name
 }
 
 function hostName(): string | undefined {

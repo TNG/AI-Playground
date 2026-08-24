@@ -486,6 +486,8 @@
   "MODEL_MANAGER_CAP_TOOLS": "Pemanggilan alat",
   "MODEL_MANAGER_CAP_REASONING": "Penalaran",
   "MODEL_MANAGER_CAP_THINKING": "Sakelar berpikir",
+  "MODEL_MANAGER_CAP_CODING": "Pemrograman",
+  "MODEL_MANAGER_CAP_CODING_HINT": "Menandai model cukup baik dalam menulis kode untuk preset pemrograman. Hanya model dengan opsi ini yang ditawarkan di sana.",
   "MODEL_MANAGER_CAP_NPU": "Dukungan NPU",
   "MODEL_MANAGER_CAP_LARGE_MOE": "Model MoE besar",
   "MODEL_MANAGER_CAP_LARGE_MOE_HINT": "Menandai model Mixture-of-Experts yang terlalu besar untuk vRAM. Model seperti ini hanya dapat dimuat melalui offload SSD Phison aiDAPTIV+, sehingga disembunyikan dari semua pemilih model di komputer tanpa perangkat tersebut.",
@@ -511,5 +513,17 @@
   "COM_BROWSE_FOR": "Telusuri {label}",
   "COM_FOLDER_PATH": "Jalur folder",
   "SETTINGS_TOOLS_MODEL_UNSUPPORTED": "Model yang dipilih tidak mendukung pemanggilan alat.",
-  "MODEL_MANAGER_OPEN": "Manajemen model"
+  "MODEL_MANAGER_OPEN": "Manajemen model",
+  "MODEL_MANAGER_ADD_USE_CASE": "Jenis model",
+  "MODEL_MANAGER_ADD_BACKEND": "Backend",
+  "MODEL_MANAGER_ADD_REPOSITORY": "Repositori Hugging Face",
+  "MODEL_MANAGER_ADD_CAPABILITIES": "Kemampuan model (opsional)",
+  "MODEL_MANAGER_ADD_INVALID_NAME": "Masukkan referensi model yang valid.",
+  "MODEL_MANAGER_ADD_INVALID_VISION_NAME": "Masukkan referensi model vision (mmproj) yang valid.",
+  "MODEL_MANAGER_ADD_VISION_NOT_FOUND": "Repositori model vision (mmproj) tidak ditemukan.",
+  "MODEL_MANAGER_ADD_FAILED": "Model tidak dapat ditambahkan.",
+  "MODEL_MANAGER_PUBLISHER_TITLE": "Pengaturan penerbit",
+  "MODEL_MANAGER_PUBLISHER_HINT": "Direkomendasikan oleh penerbit model dan diterapkan secara otomatis. Nilai ini berasal dari katalog dan tidak dapat diubah.",
+  "MODEL_MANAGER_PUBLISHER_SAMPLING": "Sampling",
+  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "Parameter server"
 }

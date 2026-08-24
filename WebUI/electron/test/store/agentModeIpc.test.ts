@@ -41,9 +41,8 @@ describe('registerAgentModeIpc', () => {
   })
 
   it('unsubscribes so the next register attaches fresh listeners', async () => {
-    const { registerAgentModeIpc, unregisterAgentModeIpc } = await import(
-      '@/assets/js/store/agentModeIpc'
-    )
+    const { registerAgentModeIpc, unregisterAgentModeIpc } =
+      await import('@/assets/js/store/agentModeIpc')
     const disposeStream = vi.fn()
     onStreamChunk.mockReturnValueOnce(disposeStream)
     registerAgentModeIpc(handlers)

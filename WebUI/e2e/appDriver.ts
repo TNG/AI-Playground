@@ -503,7 +503,7 @@ export class AppDriver {
   /**
    * Give a reasoning model room to emit a real final answer instead of a reasoning-only
    * turn: raise max-new-tokens to its ceiling and turn thinking off. A heavy-context
-   * agentic turn (the 'defaults' tool set fills most of the 8192 window) can otherwise
+   * agentic turn (the 'defaults' tool set fills a large part of the window) can otherwise
    * spend its whole output budget inside <think> and finish with an empty reply, which
    * reads as "no assistant response". Expects the Chat "Assistant" preset active; each
    * control is a best-effort no-op when the model/preset doesn't expose it.
@@ -512,9 +512,9 @@ export class AppDriver {
     await test.step('Raise max tokens and disable thinking for a reliable final answer', async () => {
       await this.settings.open('Chat')
       const region = settingsRegion(this.window)
-      const maxTokens = region.locator('input[type="number"][max="4096"]')
+      const maxTokens = region.getByLabel('Max Tokens')
       if (await maxTokens.isVisible().catch(() => false)) {
-        await maxTokens.fill('4096')
+        await maxTokens.fill('32768')
       }
       const thinking = region.locator('#thinking')
       if (await thinking.isVisible().catch(() => false)) {

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import ModelCapabilityFields from './ModelCapabilityFields.vue'
 import { pickDefined } from '@/assets/js/models/overrides'
+import { describeInferenceDefaults } from '@/assets/js/models/library'
 import type { ModelCapabilityValues, ModelEntry } from '@/assets/js/models/types'
 
 const props = defineProps<{ entry: ModelEntry }>()
@@ -20,6 +21,9 @@ watch(
     draft.value = { ...props.entry.capabilities }
   },
 )
+
+const sampling = computed(() => describeInferenceDefaults(props.entry.inferenceDefaults))
+const hasPublisherSettings = computed(() => !!sampling.value || !!props.entry.llamaCppArgs)
 </script>
 
 <template>
@@ -45,6 +49,32 @@ watch(
           show-advanced
           id-prefix="edit-capability"
         />
+
+        <!-- Read-only: the catalog owns these, but they decide how the model
+             behaves, so hiding them left that behaviour unexplainable here. -->
+        <div
+          v-if="hasPublisherSettings"
+          class="flex flex-col gap-2 rounded-lg border border-border p-3"
+        >
+          <p class="text-sm font-medium">{{ languages.MODEL_MANAGER_PUBLISHER_TITLE }}</p>
+          <p class="text-xs text-muted-foreground">
+            {{ languages.MODEL_MANAGER_PUBLISHER_HINT }}
+          </p>
+          <div v-if="sampling" class="flex flex-col gap-0.5">
+            <span class="text-xs font-medium">{{
+              languages.MODEL_MANAGER_PUBLISHER_SAMPLING
+            }}</span>
+            <span class="break-all font-mono text-xs text-muted-foreground">{{ sampling }}</span>
+          </div>
+          <div v-if="entry.llamaCppArgs" class="flex flex-col gap-0.5">
+            <span class="text-xs font-medium">{{
+              languages.MODEL_MANAGER_PUBLISHER_SERVER_ARGS
+            }}</span>
+            <span class="break-all font-mono text-xs text-muted-foreground">{{
+              entry.llamaCppArgs
+            }}</span>
+          </div>
+        </div>
 
         <div class="flex items-center justify-between gap-3">
           <button

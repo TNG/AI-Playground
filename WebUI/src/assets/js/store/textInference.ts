@@ -4,7 +4,19 @@ import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices, type BackendServiceName } from './backendServices'
 import { useModels } from './models'
 import { Document } from '@langchain/classic/document'
-import { llmBackendTypes } from '@/types/shared'
+import {
+  llmBackendTypes,
+  npuPromptLen,
+  reasoningEfforts,
+  type InferenceDefaults,
+  type ReasoningEffort,
+} from '@/types/shared'
+import {
+  isAdoptable,
+  recommendedReasoningEffort,
+  resolveSampling,
+  toRequestBody,
+} from '@/lib/samplingDefaults'
 import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { usePresets, type ChatPreset } from './presets'
 import { useDeveloperSettings } from './developerSettings'
@@ -19,6 +31,7 @@ import {
   PHISON_KM_CONTEXT_FLOOR,
   PHISON_KM_RAG_PREFIX,
 } from '@/assets/js/phisonKmRag'
+import { renamePresetKeys } from '@/lib/presetRenames'
 import { useModelPreferences } from './modelPreferences'
 import { pathKeyForCatalogModel } from '../models/library'
 import { withPreferenceFlags } from '../models/favorites'
@@ -44,8 +57,11 @@ export type LlmModel = {
   supportsToolCalling?: boolean
   supportsVision?: boolean
   supportsReasoning?: boolean
+  supportsCoding?: boolean
   supportsThinkingToggle?: boolean
   maxContextSize?: number
+  inferenceDefaults?: InferenceDefaults
+  llamaCppArgs?: string
   npuSupport?: boolean
   largeMoe?: boolean
   isPredefined?: boolean
@@ -242,8 +258,11 @@ export const useTextInference = defineStore(
             supportsToolCalling: m.supportsToolCalling,
             supportsVision: m.supportsVision,
             supportsReasoning: m.supportsReasoning,
+            supportsCoding: m.supportsCoding,
             supportsThinkingToggle: m.supportsThinkingToggle,
             maxContextSize: m.maxContextSize,
+            inferenceDefaults: m.inferenceDefaults,
+            llamaCppArgs: m.llamaCppArgs,
             npuSupport: m.npuSupport,
             largeMoe: m.largeMoe,
             isPredefined: m.isPredefined,
@@ -282,8 +301,17 @@ export const useTextInference = defineStore(
             supportsToolCalling: caps.supportsToolCalling,
             supportsVision: caps.supportsVision,
             supportsReasoning: caps.supportsReasoning,
+            // Remote providers say nothing about coding fitness; the picker does
+            // not filter cloud models on capability anyway.
+            supportsCoding: undefined,
             supportsThinkingToggle: false,
-            maxContextSize: undefined,
+            // From the provider's `context_length`; undefined when it stays
+            // silent, in which case consumers fall back to their own defaults.
+            maxContextSize: caps.contextLength,
+            // Sampling recommendations come from our own catalog, which only
+            // describes local models.
+            inferenceDefaults: undefined,
+            llamaCppArgs: undefined,
             npuSupport: undefined,
             largeMoe: undefined,
             isPredefined: false,
@@ -371,12 +399,16 @@ export const useTextInference = defineStore(
       }
     }
 
-    // Get the currently selected device ID for the active backend
-    const getCurrentDeviceId = (): string | null => {
+    // Get the currently selected device for the active backend
+    const selectedDevice = (): InferenceDevice | undefined => {
       const serviceName = backendToService[backend.value] as BackendServiceName
       const serviceInfo = backendServices.info.find((s) => s.serviceName === serviceName)
-      return serviceInfo?.devices.find((d) => d.selected)?.id ?? null
+      return serviceInfo?.devices.find((d) => d.selected)
     }
+
+    const getCurrentDeviceId = (): string | null => selectedDevice()?.id ?? null
+
+    const getCurrentDeviceName = (): string | null => selectedDevice()?.name ?? null
 
     // Stable UUID of the currently selected device, when the backend exposes one.
     // Persisted alongside the id so a preset re-binds to the same physical device
@@ -497,6 +529,12 @@ export const useTextInference = defineStore(
     const metricsEnabled = ref(true)
     const aipgToolsEnabled = ref(true)
     const mcpToolsEnabled = ref(true)
+    // Route the heavy media tools (comfyUI + comfyUiImageEdit) through the
+    // nested media specialist agent: the parent model sees one thin `media`
+    // tool instead of the full workflow catalog/schemas. In Agent Mode,
+    // flipping this changes the Pi tool set and therefore starts a new Pi
+    // session on the next turn.
+    const toolDelegationEnabled = ref(true)
     // Whether the model should think before answering. Only meaningful for models
     // whose template honors `enable_thinking` (see modelSupportsThinkingToggle);
     // the value is injected as chat_template_kwargs.enable_thinking at inference.
@@ -572,7 +610,20 @@ export const useTextInference = defineStore(
 
     const maxTokens = ref<number>(1024)
     const contextSize = ref<number>(8192)
-    const temperature = ref<number>(0.7)
+    const DEFAULT_TEMPERATURE = 0.7
+    const temperature = ref<number>(DEFAULT_TEMPERATURE)
+    // The recommendation we last wrote into `temperature` / `reasoningEffort`.
+    // A setting still equal to what we wrote counts as untouched and may be
+    // replaced when the model or the thinking mode changes; anything else is the
+    // user's choice. Persisted per preset alongside the settings themselves.
+    const temperatureFromModel = ref<number | undefined>(undefined)
+    // Depth of the reasoning trace for templates that read `reasoning_effort`
+    // (Qwen3.8). Undefined until a model that supports it is active.
+    const reasoningEffort = ref<ReasoningEffort | undefined>(undefined)
+    const reasoningEffortFromModel = ref<ReasoningEffort | undefined>(undefined)
+
+    const knownReasoningEffort = (value: unknown): ReasoningEffort | undefined =>
+      reasoningEfforts.includes(value as ReasoningEffort) ? (value as ReasoningEffort) : undefined
 
     // Get max context size from current model
     const maxContextSizeFromModel = computed(() => {
@@ -580,6 +631,20 @@ export const useTextInference = defineStore(
         .filter((m) => m.type === backend.value)
         .find((m) => m.active)
       return currentModel?.maxContextSize
+    })
+
+    // The window the current turn actually gets, i.e. the denominator of the
+    // context gauge. `contextSize` is what we ask a local backend to allocate, so
+    // it only speaks for the window when the backend is ours: OpenVINO on GPU
+    // sizes it at runtime, and a cloud provider's window comes from its
+    // /v1/models `context_length`.
+    const effectiveContextWindow = computed(() => {
+      if (contextSizeIsDynamic.value) return maxContextSizeFromModel.value ?? 0
+      if (backend.value === 'cloud') return maxContextSizeFromModel.value ?? contextSize.value
+      // OVMS is started with a capped --max_prompt_len on NPU, so a larger
+      // setting is not what the turn gets there.
+      if (runningOnOpenvinoNpu.value) return npuPromptLen(contextSize.value)
+      return contextSize.value
     })
 
     // Check if the active model supports tool calling
@@ -605,6 +670,77 @@ export const useTextInference = defineStore(
         .find((m) => m.active)
       return currentModel?.supportsThinkingToggle === true
     })
+
+    // ── Per-model recommended inference settings ────────────────────────────
+    //
+    // A catalog entry may carry the sampling the model's publisher recommends
+    // (models.json `inferenceDefaults`). Hybrid-thinking models want different
+    // numbers per mode, so the profile is resolved against the thinking state
+    // and re-resolved whenever either side changes.
+
+    const activeLlmModel = computed(() =>
+      llmModels.value.filter((m) => m.type === backend.value).find((m) => m.active),
+    )
+
+    // Whether the next turn reasons. The toggle only speaks for models whose
+    // template honors it; for the rest the model's own nature decides.
+    const thinkingActive = computed(() =>
+      modelSupportsThinkingToggle.value
+        ? thinkingEnabled.value
+        : activeLlmModel.value?.supportsReasoning === true,
+    )
+
+    const recommendedSampling = computed(() =>
+      resolveSampling(activeLlmModel.value?.inferenceDefaults, thinkingActive.value),
+    )
+
+    // The sampling fields to put on the request body. Cloud providers reject
+    // parameters they do not model, and only local backends run the very model
+    // the recommendation was written for, so remote turns get nothing.
+    const samplingRequestBody = computed<Record<string, number>>(() => {
+      if (backend.value === 'cloud') return {}
+      return toRequestBody(recommendedSampling.value, backend.value)
+    })
+
+    // A model that recommends an effort is one whose template reads it.
+    const modelReasoningEffort = computed(() =>
+      recommendedReasoningEffort(activeLlmModel.value?.inferenceDefaults),
+    )
+    const modelSupportsReasoningEffort = computed(() => modelReasoningEffort.value !== undefined)
+    const effectiveReasoningEffort = computed(() =>
+      modelSupportsReasoningEffort.value
+        ? (reasoningEffort.value ?? modelReasoningEffort.value)
+        : undefined,
+    )
+
+    /**
+     * Adopt what the active model recommends. Only settings still holding the
+     * value we last wrote are replaced, so a temperature the preset declares or
+     * the user dialled in survives a model switch or a flip of the thinking
+     * toggle. Presets that predate this mechanism have no recorded default;
+     * their temperature is adoptable only while it is the app's own default.
+     */
+    function applyModelInferenceDefaults(): void {
+      const recommendedTemperature = recommendedSampling.value.temperature
+      if (
+        recommendedTemperature !== undefined &&
+        activePreset.value?.temperature === undefined &&
+        isAdoptable(temperature.value, temperatureFromModel.value, DEFAULT_TEMPERATURE)
+      ) {
+        temperature.value = recommendedTemperature
+        temperatureFromModel.value = recommendedTemperature
+      }
+
+      if (
+        modelReasoningEffort.value !== undefined &&
+        isAdoptable(reasoningEffort.value, reasoningEffortFromModel.value)
+      ) {
+        reasoningEffort.value = modelReasoningEffort.value
+        reasoningEffortFromModel.value = modelReasoningEffort.value
+      }
+    }
+
+    watch([() => activeLlmModel.value?.name, thinkingActive], applyModelInferenceDefaults)
 
     // Check if the active preset requires tool calling
     const presetRequiresToolCalling = computed(() => {
@@ -675,6 +811,16 @@ export const useTextInference = defineStore(
       }
     }
 
+    // Raw URL of the selected local inference backend, without any of the
+    // loopback proxies `currentBackendUrl` prefers. Callers that cannot attach
+    // the proxies' headers (X-AIPG-Auth / X-Upstream-Url for Home Agent,
+    // X-Cloud-* for Cloud Mode) must dial the backend through this.
+    const localBackendUrl = computed(
+      () =>
+        backendServices.info.find((item) => item.serviceName === backendToService[backend.value])
+          ?.baseUrl,
+    )
+
     const currentBackendUrl = computed(() => {
       // Cloud Mode talks to the main-process loopback proxy (see cloudProxy.ts),
       // which forwards to the selected remote provider. Networking + error logging
@@ -685,18 +831,13 @@ export const useTextInference = defineStore(
       if (homeAgent.isHomeAgentActive && homeAgent.homeAgentBaseUrl) {
         return homeAgent.homeAgentBaseUrl
       }
-      return backendServices.info.find(
-        (item) => item.serviceName === backendToService[backend.value],
-      )?.baseUrl
+      return localBackendUrl.value
     })
 
     // When Home Agent is active, the real inference backend URL to proxy through
-    const homeAgentUpstreamUrl = computed(() => {
-      if (!homeAgent.isHomeAgentActive) return undefined
-      return backendServices.info.find(
-        (item) => item.serviceName === backendToService[backend.value],
-      )?.baseUrl
-    })
+    const homeAgentUpstreamUrl = computed(() =>
+      homeAgent.isHomeAgentActive ? localBackendUrl.value : undefined,
+    )
 
     async function getDownloadParamsForCurrentModelIfRequired(type: 'llm' | 'embedding') {
       // Cloud Mode chat LLMs are served remotely — nothing to download. Embedding
@@ -1312,6 +1453,9 @@ export const useTextInference = defineStore(
             llmModelName,
             embeddingModelToSend,
             contextSize.value,
+            // Only llama.cpp reads these; OVMS is started from a different
+            // command line and ignores them.
+            backend.value === 'llamaCPP' ? activeLlmModel.value?.llamaCppArgs : undefined,
           )
         } catch (error) {
           // Surface model-load failures (e.g. out of memory for the chosen
@@ -1449,6 +1593,15 @@ export const useTextInference = defineStore(
       if (!activePreset.value?.name) return ''
       const variantName = presetsStore.activeVariantName[activePreset.value.name]
       return variantName ? `${activePreset.value.name}:${variantName}` : activePreset.value.name
+    }
+
+    /**
+     * Follow a renamed preset's settings to its current name, so a rename does not
+     * silently reset the model, context size and thinking state the user chose for
+     * it (the settings key is the preset's name, plus its variant).
+     */
+    function migrateRenamedPresetSettings(): void {
+      settingsPerPreset.value = renamePresetKeys(settingsPerPreset.value)
     }
 
     const isSystemPromptVisible = computed(() => activePreset.value?.advancedMode === true)
@@ -1609,12 +1762,22 @@ export const useTextInference = defineStore(
         contextSize.value = preset.contextSize
       }
 
-      // Load temperature
+      // Load temperature, plus the model recommendation it came from (if any) so
+      // applyModelInferenceDefaults can still tell an adopted value from a
+      // deliberate one after a restart.
       if (savedSettings.temperature !== undefined) {
         temperature.value = savedSettings.temperature as number
       } else if (preset.temperature !== undefined) {
         temperature.value = preset.temperature
       }
+      temperatureFromModel.value = savedSettings.temperatureFromModel as number | undefined
+
+      // Load reasoning effort (only meaningful for models that recommend one).
+      // A level we no longer offer is dropped rather than restored: a template
+      // that does not know it aborts the whole turn, so a stale saved value
+      // would otherwise poison the preset for good.
+      reasoningEffort.value = knownReasoningEffort(savedSettings.reasoningEffort)
+      reasoningEffortFromModel.value = knownReasoningEffort(savedSettings.reasoningEffortFromModel)
 
       // Load system prompt (only when user can modify it)
       if (isSystemPromptVisible.value && savedSettings.systemPrompt !== undefined) {
@@ -1646,6 +1809,8 @@ export const useTextInference = defineStore(
         (savedSettings.aipgToolsEnabled as boolean | undefined) ?? defaultToolsEnabled
       mcpToolsEnabled.value =
         (savedSettings.mcpToolsEnabled as boolean | undefined) ?? defaultToolsEnabled
+      toolDelegationEnabled.value =
+        (savedSettings.toolDelegationEnabled as boolean | undefined) ?? true
 
       // Per-workflow enablement for preset-backed tools (defaults to all-enabled
       // when unsaved, matching isWorkflowPresetEnabled's default).
@@ -1690,7 +1855,9 @@ export const useTextInference = defineStore(
       // only fires on a change anyway — so a persisted/preset value already outside the
       // bounds would survive the load untouched. By this point ragMode and the stash are
       // resolved, so enforceKmContextFloor reflects the INCOMING preset.
-      const contextCeiling = maxContextSizeFromModel.value
+      // Cloud Mode is exempt from the model ceiling: contextSize is the size we ask
+      // a local backend to allocate and is never sent to a provider.
+      const contextCeiling = backend.value === 'cloud' ? undefined : maxContextSizeFromModel.value
       const contextFloor = enforceKmContextFloor.value ? PHISON_KM_CONTEXT_FLOOR : undefined
 
       if (contextFloor !== undefined && contextSize.value < contextFloor) {
@@ -1721,6 +1888,11 @@ export const useTextInference = defineStore(
       if (boundedContextSize !== contextSize.value) {
         contextSizeAdjust(boundedContextSize)
       }
+
+      // The preset may have arrived without a temperature (or without one the
+      // user chose), so fill in what the active model recommends. The model
+      // itself did not change here, so the watcher would not fire.
+      applyModelInferenceDefaults()
 
       // Defer clearing the flag so the persistence watcher (default flush:
       // 'pre') sees `isLoadingSettings === true` when it runs for the writes
@@ -1849,10 +2021,12 @@ export const useTextInference = defineStore(
         maxTokens,
         contextSize,
         temperature,
+        reasoningEffort,
         systemPrompt,
         metricsEnabled,
         aipgToolsEnabled,
         mcpToolsEnabled,
+        toolDelegationEnabled,
         builtinToolPresetEnablement,
         builtinToolDefaultPresets,
         thinkingEnabled,
@@ -1878,10 +2052,14 @@ export const useTextInference = defineStore(
           maxTokens: maxTokens.value,
           contextSize: contextSize.value,
           temperature: temperature.value,
+          temperatureFromModel: temperatureFromModel.value,
+          reasoningEffort: reasoningEffort.value,
+          reasoningEffortFromModel: reasoningEffortFromModel.value,
           systemPrompt: systemPrompt.value,
           metricsEnabled: metricsEnabled.value,
           aipgToolsEnabled: aipgToolsEnabled.value,
           mcpToolsEnabled: mcpToolsEnabled.value,
+          toolDelegationEnabled: toolDelegationEnabled.value,
           builtinToolPresetEnablement: { ...builtinToolPresetEnablement.value },
           builtinToolDefaultPresets: { ...builtinToolDefaultPresets.value },
           thinkingEnabled: thinkingEnabled.value,
@@ -2020,9 +2198,11 @@ export const useTextInference = defineStore(
       llmModels,
       llmEmbeddingModels,
       currentBackendUrl,
+      localBackendUrl,
       metricsEnabled,
       aipgToolsEnabled,
       mcpToolsEnabled,
+      toolDelegationEnabled,
       builtinToolEnablement,
       isBuiltinToolEnabled,
       setBuiltinToolEnabled,
@@ -2036,6 +2216,7 @@ export const useTextInference = defineStore(
       maxTokens,
       contextSize,
       maxContextSizeFromModel,
+      effectiveContextWindow,
       temperature,
       fontSizeClass,
       nameSizeClass,
@@ -2092,9 +2273,21 @@ export const useTextInference = defineStore(
       // Vision support
       modelSupportsVision,
 
+      // Device the active backend is set to
+      getCurrentDeviceId,
+      getCurrentDeviceName,
+
       // Thinking toggle support
       thinkingEnabled,
       modelSupportsThinkingToggle,
+
+      // Per-model recommended inference settings (models.json inferenceDefaults)
+      thinkingActive,
+      recommendedSampling,
+      samplingRequestBody,
+      reasoningEffort,
+      modelSupportsReasoningEffort,
+      effectiveReasoningEffort,
 
       // Backend preparation state and methods
       isPreparingBackend: computed(() => backendReadinessState.isPreparingBackend),
@@ -2120,6 +2313,7 @@ export const useTextInference = defineStore(
       beginInferenceStream,
       endInferenceStream,
       waitForInferenceIdle,
+      migrateRenamedPresetSettings,
     }
   },
   {
@@ -2140,6 +2334,10 @@ export const useTextInference = defineStore(
         'builtinToolEnablement',
         'screenshotWindow',
       ],
+      afterHydrate: (ctx) => {
+        // Settings are stored per preset name, which a renamed preset no longer has.
+        ctx.store.migrateRenamedPresetSettings()
+      },
     },
   },
 )

@@ -30,6 +30,13 @@ describe('mergeCapabilities', () => {
     expect(merged.maxContextSize).toBe(4096)
   })
 
+  it('lets a user declare coding fitness the catalog withheld', () => {
+    // Coding is what a coding preset's picker filters on, so a user-added model
+    // is unusable there until this override sticks.
+    const merged = mergeCapabilities({ supportsCoding: undefined }, { supportsCoding: true })
+    expect(merged.supportsCoding).toBe(true)
+  })
+
   it('never blanks a lower layer with an undefined from a higher one', () => {
     const merged = mergeCapabilities({ maxContextSize: 8192 }, { maxContextSize: undefined })
     expect(merged.maxContextSize).toBe(8192)

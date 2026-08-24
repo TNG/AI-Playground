@@ -132,6 +132,8 @@ export function mapModeToLabel(mode: ModeType) {
   switch (mode) {
     case 'chat':
       return i18nState.MODE_CHAT
+    case 'agent':
+      return 'Agent'
     case 'imageGen':
       return i18nState.MODE_IMAGE_GEN
     case 'imageEdit':

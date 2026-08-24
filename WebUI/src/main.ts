@@ -2,19 +2,25 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import { createPinia } from 'pinia'
 import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
+import { preserveStateAcrossHmr } from './assets/js/piniaHmrStatePreservation'
 import { useI18N } from './assets/js/store/i18n'
 import { useErrors } from './assets/js/store/errors'
 import { usePromptStore } from './assets/js/store/promptArea'
+import { initLaminarTelemetry } from './lib/laminarTelemetry'
 
 const [settings, initialPage] = await Promise.all([
   window.electronAPI.getDemoModeSettings(),
   window.electronAPI.getInitialPage(),
+  // Before the first inference: AI SDK 7 takes its telemetry integration once,
+  // and a call made earlier would go untraced.
+  initLaminarTelemetry(),
 ])
 window.__AIPG_DEMO_MODE__ = settings.isDemoModeEnabled
 
 const app = createApp(App)
 const pinia = createPinia()
 pinia.use(piniaPluginPersistedstate)
+pinia.use(preserveStateAcrossHmr)
 app.use(pinia)
 
 // Global capture: route Vue render/lifecycle errors and uncaught async rejections

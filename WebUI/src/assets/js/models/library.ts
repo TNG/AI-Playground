@@ -3,10 +3,12 @@
 // management view depends on can be unit-tested directly.
 import { type CapabilityKey, modelHasCapability } from '../capabilities'
 import { hasCapabilityOverrides, mergeCapabilities } from './overrides'
+import type { InferenceDefaults, SamplingProfile } from '@/types/shared'
 import {
   type ModelCapabilityValues,
   type ModelEntry,
   type ModelServiceBackend,
+  type ModelSource,
   type ModelUseCase,
   type ScannedModel,
 } from './types'
@@ -86,6 +88,23 @@ export type CatalogModelInput = ModelCapabilityValues & {
   backend?: string
   downloaded: boolean
   isPredefined?: boolean
+  /** Added by the user (has custom metadata) rather than found in the catalog. */
+  isCustom?: boolean
+  /** Publisher recommendations, shown read-only. See `ModelEntry`. */
+  inferenceDefaults?: InferenceDefaults
+  llamaCppArgs?: string
+}
+
+/**
+ * A user-added model stays `custom` once its files are there: being downloaded
+ * says nothing about who added it, and treating it as a plain disk find took
+ * "remove from list" away the moment the download finished.
+ */
+function sourceOf(model: CatalogModelInput): ModelSource {
+  if (model.isPredefined) return 'catalog'
+  if (model.isCustom) return 'custom'
+  // Neither in the catalog nor on disk: added by hand, its metadata since lost.
+  return model.downloaded ? 'disk' : 'custom'
 }
 
 export type RequiredModelInput = {
@@ -212,23 +231,17 @@ export function buildEntries(input: BuildEntriesInput): ModelEntry[] {
       useCase: placement.useCase,
       pathKey: placement.pathKey,
       serviceBackend: placement.serviceBackend,
-      source: model.isPredefined ? 'catalog' : model.downloaded ? 'disk' : 'custom',
+      source: sourceOf(model),
       downloaded: model.downloaded,
       absolutePath: onDisk?.absolutePath,
       sizeBytes: onDisk?.sizeBytes,
       modifiedAt: onDisk?.modifiedAt,
       isDirectory: onDisk?.isDirectory,
-      baseCapabilities: {
-        mmproj: model.mmproj,
-        supportsToolCalling: model.supportsToolCalling,
-        toolParser: model.toolParser,
-        supportsVision: model.supportsVision,
-        supportsReasoning: model.supportsReasoning,
-        supportsThinkingToggle: model.supportsThinkingToggle,
-        maxContextSize: model.maxContextSize,
-        npuSupport: model.npuSupport,
-        largeMoe: model.largeMoe,
-      },
+      inferenceDefaults: model.inferenceDefaults,
+      llamaCppArgs: model.llamaCppArgs,
+      // Through `mergeCapabilities` rather than field by field, so a capability
+      // added to `CAPABILITY_KEYS` reaches the row without a second edit here.
+      baseCapabilities: mergeCapabilities(model),
     })
   }
 
@@ -440,6 +453,47 @@ export function countByUseCase(entries: ModelEntry[]): Record<ModelCategory, num
     if (entry.favorite) counts.favorites += 1
   }
   return counts
+}
+
+/**
+ * Wire names rather than prose: these are the names the model cards the numbers
+ * come from use, and the names they travel under in the request.
+ */
+const SAMPLING_LABELS: Readonly<Record<keyof SamplingProfile, string>> = {
+  temperature: 'temperature',
+  topP: 'top_p',
+  topK: 'top_k',
+  minP: 'min_p',
+  presencePenalty: 'presence_penalty',
+  frequencyPenalty: 'frequency_penalty',
+  repetitionPenalty: 'repetition_penalty',
+}
+
+function describeSampling(profile: SamplingProfile | undefined): string {
+  if (!profile) return ''
+  return (Object.keys(SAMPLING_LABELS) as (keyof SamplingProfile)[])
+    .filter((key) => profile[key] !== undefined)
+    .map((key) => `${SAMPLING_LABELS[key]} ${profile[key]}`)
+    .join(', ')
+}
+
+/**
+ * The publisher's recommended sampling as one line, per mode where it differs.
+ * Read-only: it explains sampling the user never sees applied, so leaving it out
+ * made a model's behaviour unexplainable from the management view.
+ */
+export function describeInferenceDefaults(defaults: InferenceDefaults | undefined): string {
+  if (!defaults) return ''
+  const { thinking, instruct, reasoningEffort, ...base } = defaults
+  const parts: string[] = []
+  const baseLine = describeSampling(base)
+  if (baseLine) parts.push(baseLine)
+  const thinkingLine = describeSampling(thinking)
+  if (thinkingLine) parts.push(`thinking: ${thinkingLine}`)
+  const instructLine = describeSampling(instruct)
+  if (instructLine) parts.push(`instruct: ${instructLine}`)
+  if (reasoningEffort) parts.push(`reasoning_effort ${reasoningEffort}`)
+  return parts.join(' · ')
 }
 
 const SIZE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB']

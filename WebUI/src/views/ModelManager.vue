@@ -7,7 +7,7 @@ import ModelLibraryToolbar from '@/components/models/ModelLibraryToolbar.vue'
 import ModelLibraryTable from '@/components/models/ModelLibraryTable.vue'
 import EditModelCapabilitiesDialog from '@/components/models/EditModelCapabilitiesDialog.vue'
 import DeleteModelDialog from '@/components/models/DeleteModelDialog.vue'
-import AddLLMDialog from '@/components/AddLLMDialog.vue'
+import AddModelDialog from '@/components/models/AddModelDialog.vue'
 import { Spinner } from '@/components/ui/spinner'
 import { useModelLibrary } from '@/assets/js/store/modelLibrary'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -154,7 +154,7 @@ async function confirmDelete() {
       @confirm="confirmDelete"
     />
 
-    <AddLLMDialog
+    <AddModelDialog
       v-if="showAddModel"
       @close="
         () => {

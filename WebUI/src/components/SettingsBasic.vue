@@ -270,6 +270,27 @@
           </div>
           <Checkbox id="keep-models-loaded" v-model="developerSettings.keepModelsLoaded" />
         </div>
+        <div v-if="debugToolsEnabled" class="flex justify-between pr-4 items-center gap-4 mb-4">
+          <div class="flex items-center gap-2">
+            <Label class="whitespace-nowrap">Use dummy media workflows</Label>
+            <TooltipProvider :delay-duration="200">
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <span class="svg-icon i-info w-4 h-4 opacity-50 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent side="bottom" class="max-w-[300px]">
+                  Offer the assistant nothing but the dev-only dummy workflows, which return
+                  placeholder images, videos and 3D models instantly. Use it to verify media
+                  generation, chaining and rendering without waiting for a real model.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+          <Checkbox
+            id="force-dummy-media-workflows"
+            v-model="developerSettings.forceDummyMediaWorkflows"
+          />
+        </div>
       </div>
       <div class="flex justify-between items-center">
         <SettingsHeading>
@@ -352,6 +373,7 @@ const languages = i18nState
 const speechToText = useSpeechToText()
 const textToSpeech = useTextToSpeech()
 const developerSettings = useDeveloperSettings()
+const debugToolsEnabled = window.envVars.debugToolsEnabled
 const dialogStore = useDialogStore()
 const backendStarting = ref(false)
 

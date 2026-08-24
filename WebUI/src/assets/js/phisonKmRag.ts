@@ -184,6 +184,10 @@ export function createPhisonKmRag(deps: PhisonKmRagDeps) {
       // write as a "manual edit" and wipe the stash that load is about to restore.
       // loadSettingsForActivePreset applies both bounds explicitly instead.
       if (deps.isLoadingSettings()) return
+      // Cloud Mode is exempt: contextSize is the size we ask a local backend to
+      // allocate and is never sent to a provider, so a remote model's window must
+      // not shrink the setting that llama.cpp/OpenVINO will be started with later.
+      if (deps.backend.value === 'cloud') return
 
       // A manual edit while in KM mode means the user has taken over — the stashed
       // pre-KM value is no longer what they'd want restored on switch-back.

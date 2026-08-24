@@ -36,7 +36,24 @@ function setFlag(key: keyof ModelCapabilityValues, value: boolean) {
   set(key, (value ? true : undefined) as ModelCapabilityValues[typeof key])
 }
 
+// Vision and its projector are set together: an mmproj left behind by an
+// un-ticked Vision box turns vision back on by itself, since `refreshModels`
+// infers the capability from the projector.
+function setVision(value: boolean) {
+  emit('update:modelValue', {
+    ...props.modelValue,
+    supportsVision: value ? true : undefined,
+    mmproj: value ? props.modelValue.mmproj : undefined,
+  })
+}
+
 const isOpenVino = computed(() => props.serviceBackend === 'openvino')
+const isLlamaCpp = computed(() => props.serviceBackend === 'llama_cpp')
+
+const mmproj = computed({
+  get: () => props.modelValue.mmproj ?? '',
+  set: (value: string) => set('mmproj', value.trim() || undefined),
+})
 
 // Kept as its own text ref rather than derived straight from the prop: a getter
 // that renders `undefined` as '' would wipe the field the moment the user cleared
@@ -80,7 +97,7 @@ const toolParserItems = computed(() => [
         <Checkbox
           :id="`${prefix}-vision`"
           :model-value="modelValue.supportsVision === true"
-          @update:model-value="(v) => setFlag('supportsVision', v === true)"
+          @update:model-value="(v) => setVision(v === true)"
         />
         <Label :for="`${prefix}-vision`">{{ languages.MODEL_MANAGER_CAP_VISION }}</Label>
       </div>
@@ -108,6 +125,16 @@ const toolParserItems = computed(() => [
         />
         <Label :for="`${prefix}-thinking`">{{ languages.MODEL_MANAGER_CAP_THINKING }}</Label>
       </div>
+      <!-- Coding presets (Game Agent, Quick Coder) filter their picker on this,
+           so without it a user-added model can never be chosen for one. -->
+      <div class="flex items-center gap-2">
+        <Checkbox
+          :id="`${prefix}-coding`"
+          :model-value="modelValue.supportsCoding === true"
+          @update:model-value="(v) => setFlag('supportsCoding', v === true)"
+        />
+        <Label :for="`${prefix}-coding`">{{ languages.MODEL_MANAGER_CAP_CODING }}</Label>
+      </div>
       <div v-if="isOpenVino" class="flex items-center gap-2">
         <Checkbox
           :id="`${prefix}-npu`"
@@ -130,6 +157,27 @@ const toolParserItems = computed(() => [
           {{ languages.MODEL_MANAGER_CAP_LARGE_MOE }}
         </Label>
       </div>
+    </div>
+
+    <p v-if="modelValue.supportsCoding" class="text-xs text-muted-foreground">
+      {{ languages.MODEL_MANAGER_CAP_CODING_HINT }}
+    </p>
+
+    <!-- The projector is the model's other half, so it belongs wherever vision
+         does. Settable only at add time until now, which made a wrong one a
+         one-way door. -->
+    <div v-if="isLlamaCpp && modelValue.supportsVision" class="flex flex-col gap-2">
+      <Label :for="`${prefix}-mmproj`" class="text-sm font-medium">
+        {{ languages.REQUEST_LLM_VISION_MODEL_OPTIONAL }}
+      </Label>
+      <Input
+        :id="`${prefix}-mmproj`"
+        v-model="mmproj"
+        :placeholder="languages.COM_LLM_HF_PROMPT_GGUF"
+      />
+      <p class="text-xs text-muted-foreground">
+        {{ languages.REQUEST_LLM_VISION_MODEL_DESCRIPTION }}
+      </p>
     </div>
 
     <p v-if="showAdvanced && modelValue.largeMoe" class="text-xs text-muted-foreground">

@@ -7,6 +7,7 @@ import { pathKeyForCatalogModel } from '../models/library'
 import { mergeCapabilities } from '../models/overrides'
 import type { ModelCapabilityValues } from '../models/types'
 import { aipgFetch } from '@/lib/loopbackAuth'
+import type { InferenceDefaults } from '@/types/shared'
 
 export type ModelPaths = {
   ggufLLM: string
@@ -25,7 +26,10 @@ export type Model = ModelCapabilityValues & {
   downloaded: boolean
   type: ModelType
   backend?: LlmBackend
+  inferenceDefaults?: InferenceDefaults // Sampling/reasoning settings the publisher recommends
+  llamaCppArgs?: string // Extra llama-server flags this model wants (llama.cpp only)
   isPredefined?: boolean // true if model is defined in models.json
+  isCustom?: boolean // true if the user added it, so it can be removed from the list again
 }
 
 const devOnlyModels: Model[] = [
@@ -97,7 +101,9 @@ export const useModels = defineStore(
         .filter(([name]) => !knownModelNames.has(name))
         .map(([name, metadata]) => ({
           name,
-          type: (metadata.backend ?? 'llamaCPP') as ModelType,
+          // `type` decides the use case, so it is read before `backend`: an
+          // embedding added by the user came back as an LLM until it was stored.
+          type: (metadata.type ?? metadata.backend ?? 'llamaCPP') as ModelType,
         }))
 
       // Preserve models.json order: predefined models first, then non-predefined downloads,
@@ -151,7 +157,19 @@ export const useModels = defineStore(
             backend,
             supportsVision:
               capabilities.supportsVision ?? ((capabilities.mmproj ?? mmproj) ? true : undefined),
+            // These sit outside `ModelCapabilityValues`: publisher recommendations
+            // the catalog owns, so Model Management shows them read-only.
+            inferenceDefaults:
+              predefinedModel?.inferenceDefaults ??
+              existingModel?.inferenceDefaults ??
+              customMetadata?.inferenceDefaults,
+            llamaCppArgs:
+              predefinedModel?.llamaCppArgs ??
+              existingModel?.llamaCppArgs ??
+              customMetadata?.llamaCppArgs,
             isPredefined: !!predefinedModel, // true if model is defined in models.json
+            // Added by the user, whether or not its files have arrived since.
+            isCustom: !predefinedModel && !!customMetadata,
           }
           return model
         })
@@ -161,17 +179,14 @@ export const useModels = defineStore(
     }
 
     async function addModel(model: Model) {
-      // Store metadata for custom models
+      // Store metadata for custom models. Taken through `mergeCapabilities` rather
+      // than field by field: a hand-written list silently dropped every capability
+      // added after it was written (tool parser, large MoE, coding).
       if (!model.isPredefined) {
         customModelMetadata.value[model.name] = {
-          mmproj: model.mmproj,
+          ...mergeCapabilities(model),
+          type: model.type,
           backend: model.backend,
-          supportsToolCalling: model.supportsToolCalling,
-          supportsVision: model.supportsVision,
-          supportsReasoning: model.supportsReasoning,
-          supportsThinkingToggle: model.supportsThinkingToggle,
-          maxContextSize: model.maxContextSize,
-          npuSupport: model.npuSupport,
         }
       }
       models.value.push(model)

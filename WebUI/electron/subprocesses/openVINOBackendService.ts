@@ -14,7 +14,9 @@ import { binary, extract, restoreTreeWritePermissions } from './tools.ts'
 import { getBundledBackendVersionSync, resolveModels } from '../remoteUpdates.ts'
 import {
   terminateProcessTree as killProcessTree,
+  spawnBackend,
   waitForServerReadyOrThrow,
+  type ProcessSignature,
 } from './processLifecycle.ts'
 import {
   getMissingPackages,
@@ -26,6 +28,7 @@ import {
   waitForTerminalInstall,
 } from './linuxPackageInstaller.ts'
 import { resolveDefaultDevice } from './defaultDeviceSelection.ts'
+import { npuPromptLen } from '../../src/types/shared.ts'
 
 const execAsync = promisify(exec)
 
@@ -76,6 +79,12 @@ export class OpenVINOBackendService implements ApiService {
   private ovmsImageProcess: OvmsServerProcess | null = null
   private currentModel: string | null = null
   private currentContextSize: number | null = null
+  /**
+   * The command line the running LLM server was launched with. OVMS compiles
+   * the graph from these (target device, NPU prompt length, KV cache
+   * precision), so they are what a turn's numbers have to be read against.
+   */
+  private currentLlmServerArgs: string[] | null = null
   private currentEmbeddingModel: string | null = null
   private currentTranscriptionModel: string | null = null
   private currentSpeechModel: string | null = null
@@ -1213,6 +1222,11 @@ export class OpenVINOBackendService implements ApiService {
     }
   }
 
+  /** The running LLM server's command line, or null when none is running. */
+  llmServerArgs(): string[] | null {
+    return this.ovmsLlmProcess ? this.currentLlmServerArgs : null
+  }
+
   setStatus(status: BackendStatus) {
     this.currentStatus = status
     this.updateStatus()
@@ -2070,7 +2084,6 @@ export class OpenVINOBackendService implements ApiService {
   ): Promise<OvmsServerProcess> {
     try {
       const selectedDevice = this.devices.find((d) => d.selected)?.id || 'AUTO'
-      const maxPromptLen = contextSize ?? 8192
       const toolParser = await this.resolveToolParser(modelRepoId)
       const servedModelName = modelRepoId.split('/').join('---')
 
@@ -2103,6 +2116,13 @@ export class OpenVINOBackendService implements ApiService {
       ]
 
       if (selectedDevice.startsWith('NPU')) {
+        const maxPromptLen = npuPromptLen(contextSize)
+        if (contextSize && contextSize > maxPromptLen) {
+          this.appLogger.info(
+            `Context size ${contextSize} exceeds what NPU is started with; using --max_prompt_len ${maxPromptLen}`,
+            this.name,
+          )
+        }
         args.push('--max_prompt_len', maxPromptLen.toString())
       }
 
@@ -2118,9 +2138,8 @@ export class OpenVINOBackendService implements ApiService {
       const extraLibPaths = await this.resolveOvmsExtraLibPaths()
       const ovmsEnv = this.buildOvmsEnv(extraLibPaths)
 
-      const childProcess = spawn(this.ovmsExePath, args, {
+      const childProcess = spawnBackend(this.ovmsExePath, args, {
         cwd: this.ovmsDir,
-        windowsHide: true,
         env: ovmsEnv,
       })
 
@@ -2187,6 +2206,7 @@ export class OpenVINOBackendService implements ApiService {
       this.ovmsLlmProcess = ovmsProcess
       this.currentModel = modelRepoId
       this.currentContextSize = contextSize ?? null
+      this.currentLlmServerArgs = args
 
       this.appLogger.info(`OVMS LLM server ready for model: ${modelRepoId}`, this.name)
       return ovmsProcess
@@ -2211,6 +2231,22 @@ export class OpenVINOBackendService implements ApiService {
    */
   private async terminateProcessTree(proc: ChildProcess, label: string): Promise<void> {
     await killProcessTree(proc, { name: this.name, label, appLogger: this.appLogger })
+  }
+
+  orphanSignatures(): ProcessSignature[] {
+    return [[this.ovmsExePath]]
+  }
+
+  ownedPids(): number[] {
+    return [
+      this.ovmsLlmProcess,
+      this.ovmsEmbeddingProcess,
+      this.ovmsTranscriptionProcess,
+      this.ovmsSpeechProcess,
+      this.ovmsImageProcess,
+    ]
+      .map((server) => server?.process.pid)
+      .filter((pid): pid is number => pid !== undefined)
   }
 
   private async stopOvmsLlmServer(): Promise<void> {
@@ -2260,9 +2296,8 @@ export class OpenVINOBackendService implements ApiService {
       this.appLogger.info(`OVMS embedding launch args: ${args.join(' ')}`, this.name)
 
       const extraLibPaths = await this.resolveOvmsExtraLibPaths()
-      const childProcess = spawn(this.ovmsExePath, args, {
+      const childProcess = spawnBackend(this.ovmsExePath, args, {
         cwd: this.ovmsDir,
-        windowsHide: true,
         env: this.buildOvmsEnv(extraLibPaths),
       })
 
@@ -2367,9 +2402,8 @@ export class OpenVINOBackendService implements ApiService {
       this.appLogger.info(`OVMS transcription launch args: ${args.join(' ')}`, this.name)
 
       const extraLibPaths = await this.resolveOvmsExtraLibPaths()
-      const childProcess = spawn(this.ovmsExePath, args, {
+      const childProcess = spawnBackend(this.ovmsExePath, args, {
         cwd: this.ovmsDir,
-        windowsHide: true,
         env: this.buildOvmsEnv(extraLibPaths),
       })
 
@@ -2481,9 +2515,8 @@ export class OpenVINOBackendService implements ApiService {
       const pythonDir = path.join(this.ovmsDir, 'python')
       const scriptsDir = path.join(this.ovmsDir, 'python', 'Scripts')
 
-      const childProcess = spawn(this.ovmsExePath, args, {
+      const childProcess = spawnBackend(this.ovmsExePath, args, {
         cwd: this.ovmsDir,
-        windowsHide: true,
         env: {
           ...process.env,
           OVMS_DIR: this.ovmsDir,
@@ -2598,9 +2631,8 @@ export class OpenVINOBackendService implements ApiService {
       this.appLogger.info(`OVMS image launch args: ${args.join(' ')}`, this.name)
 
       const extraLibPaths = await this.resolveOvmsExtraLibPaths()
-      const childProcess = spawn(this.ovmsExePath, args, {
+      const childProcess = spawnBackend(this.ovmsExePath, args, {
         cwd: this.ovmsDir,
-        windowsHide: true,
         env: this.buildOvmsEnv(extraLibPaths),
       })
 

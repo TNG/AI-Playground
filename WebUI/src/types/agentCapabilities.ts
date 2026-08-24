@@ -1,0 +1,32 @@
+export const DEFAULT_CAPABILITY_IDS = ['media', 'web-debug'] as const
+
+export const MCP_CAPABILITY_PREFIX = 'mcp:'
+
+export const GAME_STUDIO_ID = 'game-studio'
+export const GAME_STUDIO_QUICK_ID = 'game-studio-quick'
+
+export function mcpCapabilityId(serverId: string): string {
+  return `${MCP_CAPABILITY_PREFIX}${serverId}`
+}
+
+export function mcpServerIdOf(capabilityId: string): string | undefined {
+  return capabilityId.startsWith(MCP_CAPABILITY_PREFIX)
+    ? capabilityId.slice(MCP_CAPABILITY_PREFIX.length)
+    : undefined
+}
+
+/**
+ * The capabilities a turn asks for. Older persisted sessions (and any caller
+ * that has not been updated) carry no list, so they fall back to the defaults
+ * plus whatever MCP servers they had attached.
+ */
+export function enabledCapabilityIds(config: {
+  capabilities?: string[]
+  mcpServerIds?: string[]
+}): string[] {
+  const ids = config.capabilities ?? [
+    ...DEFAULT_CAPABILITY_IDS,
+    ...(config.mcpServerIds ?? []).map((serverId) => mcpCapabilityId(serverId)),
+  ]
+  return [...new Set(ids)].sort()
+}

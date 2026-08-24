@@ -1,4 +1,4 @@
-import { ChildProcess, spawn } from 'node:child_process'
+import { ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import fs from 'fs'
@@ -28,7 +28,7 @@ import {
   type ComfyUiDepsMarker,
 } from './comfyUiRevision.ts'
 import { ProcessError } from './osProcessHelper.ts'
-import { killStaleProcessesByCommandLine } from './processLifecycle.ts'
+import { killStaleProcesses, spawnBackend } from './processLifecycle.ts'
 import { getMediaDir } from '../util.ts'
 import { packagedResourcesRoot, writableConfigRoot } from '../aipgRoot.ts'
 import {
@@ -1441,12 +1441,10 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     }
   }
 
+  protected readonly serverEntryScript = 'main.py'
+
   getPythonBinaryPath() {
-    return path.join(
-      this.pythonEnvDir,
-      process.platform === 'win32' ? 'Scripts' : 'bin',
-      process.platform === 'win32' ? 'python.exe' : 'python',
-    )
+    return this.venvPythonPath
   }
 
   async detectDevices() {
@@ -1781,11 +1779,10 @@ except Exception as e:
     // backend's python binary path, which is unique to ComfyUI's env dir. The
     // port is picked fresh each launch, so an orphan sits on a *different* port
     // and would otherwise run beside the new instance → GPU out-of-memory.
-    await killStaleProcessesByCommandLine(this.getPythonBinaryPath(), {
-      name: this.name,
-      label: 'ComfyUI',
-      appLogger: this.appLogger,
-    })
+    await killStaleProcesses(
+      [{ name: this.name, label: 'ComfyUI', signatures: this.orphanSignatures() }],
+      { appLogger: this.appLogger },
+    )
 
     // Clear any stale SQLite WAL/SHM sidecars from a crashed run that would
     // otherwise block ComfyUI from opening its database.
@@ -1942,9 +1939,8 @@ except Exception as e:
       true,
     )
     const pythonBinary = this.getPythonBinaryPath()
-    const apiProcess = spawn(pythonBinary, parameters, {
+    const apiProcess = spawnBackend(pythonBinary, parameters, {
       cwd: this.serviceDir,
-      windowsHide: true,
       // Build a fresh env object instead of mutating process.env — otherwise the
       // injected LD_LIBRARY_PATH / device-selector vars would leak into every
       // later child process spawned from the main Electron process.

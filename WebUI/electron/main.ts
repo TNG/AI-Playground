@@ -100,7 +100,28 @@ import {
   removeMcpServer,
   type McpServerConfig,
 } from './subprocesses/mcpServers'
-import { getAudioDir, getMediaDir } from './util.ts'
+import {
+  cancelAgentTurn,
+  deleteAgentSession,
+  listAgentCapabilities,
+  resetAgentSession,
+  setAgentModeMainWindow,
+  shutdownAgentMode,
+  startAgentTurn,
+  submitAgentToolResult,
+} from './agentMode/piAgentManager'
+import { importAttachment } from './agentMode/workspaceAttachments.ts'
+import { AgentModeTurnConfigSchema } from '@/types/agentIpc'
+import { getAudioDir, getGamesDir, getMediaDir } from './util.ts'
+import {
+  createGame,
+  listGames,
+  provisionalName,
+  publishGame,
+  readGame,
+  writeArcade,
+} from './gameLibrary.ts'
+import { detectOem } from './subprocesses/oemDetection.ts'
 import { packagedResourcesRoot, writableConfigRoot } from './aipgRoot.ts'
 import { loadDemoProfile, type DemoProfile } from './demoProfile.ts'
 import type { ModelPaths } from '@/assets/js/store/models.ts'
@@ -117,6 +138,13 @@ import {
   type GpuHardwareDevice,
 } from './subprocesses/hardwareDiscovery.ts'
 import { registerSettingsPersist } from './subprocesses/defaultDeviceSelection.ts'
+import { appShutdown } from './shutdown.ts'
+import {
+  handleChatTelemetryEvent,
+  initLaminarTracing,
+  laminarConfig,
+  shutdownLaminarTracing,
+} from './laminar.ts'
 import z from 'zod'
 
 const ProductModeUiI18nSchema = z.object({
@@ -253,26 +281,38 @@ fs.mkdirSync(mediaInputDir, { recursive: true })
 const audioDir = getAudioDir()
 fs.mkdirSync(audioDir, { recursive: true })
 
-/** Resolve aipg-media://… to an absolute file path under `mediaDir` (no path traversal). */
+/**
+ * Roots the `aipg-media` scheme serves, keyed by URL authority: generated media
+ * and the game library (a game's icon lives next to its HTML, not in the media
+ * folder — see gameLibrary.ts).
+ */
+function aipgMediaRoots(): Record<string, string> {
+  return { media: mediaDir, games: getGamesDir() }
+}
+
+/** Resolve aipg-media://… to an absolute file path under a served root (no path traversal). */
 function getLocalPathFromAipgMediaUrl(url: string): string | null {
   if (typeof url !== 'string' || !url.startsWith('aipg-media://')) return null
   // `aipg-media` is registered as a *standard* scheme, so Chromium parses the
   // segment after `://` as the URL authority and lowercases it. The current
-  // URL format therefore keeps the media-relative path in the URL *path* under
-  // a constant `media` authority (see `mediaUrl()` in `src/lib/utils.ts`) so
-  // case-sensitive filenames survive on case-sensitive filesystems (Linux).
+  // URL format therefore keeps the root-relative path in the URL *path* under a
+  // constant authority naming the root (see `mediaUrl()` in `src/lib/utils.ts`)
+  // so case-sensitive filenames survive on case-sensitive filesystems (Linux).
   //
   // Legacy URLs (`aipg-media://<relative-path>`) put the path directly in the
-  // authority; keep resolving those for already-persisted media references.
-  // (Their case was lost to the authority lowercasing, so they only ever
-  // resolved on case-insensitive filesystems — unchanged by this branch.)
+  // authority; keep resolving those against the media folder for
+  // already-persisted media references. (Their case was lost to the authority
+  // lowercasing, so they only ever resolved on case-insensitive filesystems —
+  // unchanged by this branch.)
   let parsed: URL
   try {
     parsed = new URL(url)
   } catch {
     return null
   }
-  const relativeRaw = parsed.host === 'media' ? parsed.pathname : parsed.host + parsed.pathname
+  const roots = aipgMediaRoots()
+  const root = roots[parsed.host] ?? mediaDir
+  const relativeRaw = roots[parsed.host] ? parsed.pathname : parsed.host + parsed.pathname
   // Strip any trailing slash — Chromium occasionally appends one to
   // custom-protocol URLs (e.g. `…/foo.png/`), and `net.fetch(file://.../foo.png/)`
   // treats the trailing slash as "directory" and fails.
@@ -285,8 +325,8 @@ function getLocalPathFromAipgMediaUrl(url: string): string | null {
   } catch {
     return null
   }
-  const fullPath = path.normalize(path.join(mediaDir, decodedUrl))
-  const base = path.resolve(mediaDir)
+  const fullPath = path.normalize(path.join(root, decodedUrl))
+  const base = path.resolve(root)
   const relative = path.relative(base, fullPath)
   if (relative.startsWith('..') || path.isAbsolute(relative)) return null
   return fullPath
@@ -340,6 +380,10 @@ const LocalSettingsSchema = z.object({
   isCloudModeEnabled: z.boolean().default(false),
   // Gates the optional Qwen3-TTS Python sidecar (agent synthesizeTextToSpeech tool).
   isQwen3TtsEnabled: z.boolean().default(false),
+  // Gates the experimental "Agent" chat preset — the raw harness with a folder the
+  // user picks, as opposed to Game Agent, which is the same harness aimed at one
+  // task. Default false: opt-in by editing settings.json. See docs/agent-preset.md.
+  isAgentPresetEnabled: z.boolean().default(false),
   languageOverride: z.string().nullable().default(null),
   remoteRepository: z.string().default('intel/ai-playground'),
   huggingfaceEndpoint: z.string().default('https://huggingface.co'),
@@ -368,6 +412,11 @@ const LocalSettingsSchema = z.object({
   preferredDevice: PreferredDeviceSchema.nullable().default(null),
   /** When true, skip hardware probe and treat Phison SSD as detected (optional overlay in userData settings). */
   PhisonSSDdetected: z.boolean().optional().default(false),
+  /**
+   * Pretend the machine came from this OEM ('acer', …) instead of probing the
+   * firmware, so partner branding can be exercised on any dev box.
+   */
+  oemVendorOverride: z.string().nullable().optional().default(null),
 })
 export type LocalSettings = z.infer<typeof LocalSettingsSchema>
 export type ProductMode = z.infer<typeof ProductModeSchema>
@@ -389,21 +438,30 @@ type PresetLoadConfig = {
   excludeVariantBackends?: string[]
 }
 
+/**
+ * Bundled presets whose feature is switched off on this machine.
+ *
+ * They are dropped while presets are read, so nothing downstream — the selector,
+ * the settings sidebar, preset switching — ever learns they exist. Anything that
+ * still points at one (a persisted `activePresetName`) falls back on its own.
+ */
+function disabledFeaturePresets(s: LocalSettings): string[] {
+  const disabled: string[] = []
+  if (!s.isHomeAgentEnabled) disabled.push('home-agent-chat')
+  if (!s.isAgentPresetEnabled) disabled.push('agent')
+  return disabled
+}
+
 function getPresetLoadConfig(s: LocalSettings): PresetLoadConfig {
   const mode = resolveProductMode(s)
   const variant = s.isDemoModeEnabled ? 'demo' : 'presets'
   const modeConfig = loadModeConfig(mode)
   const basePresetsDir = path.join(modesDir, 'base', 'presets')
-  // When the Home Agent feature is disabled, drop its bundled preset so it does
-  // not appear in the chat preset selector. `includePresets` (when defined)
-  // takes precedence over `excludePresets`, so we need to filter both lists.
-  const includePresets = s.isHomeAgentEnabled
-    ? modeConfig?.includePresets
-    : modeConfig?.includePresets?.filter((p) => p !== 'home-agent-chat')
-  const baseExcludePresets = modeConfig?.excludePresets ?? []
-  const excludePresets = s.isHomeAgentEnabled
-    ? modeConfig?.excludePresets
-    : [...baseExcludePresets, 'home-agent-chat']
+  // `includePresets` (when defined) takes precedence over `excludePresets`, so a
+  // disabled preset has to be taken out of both lists.
+  const disabled = new Set(disabledFeaturePresets(s))
+  const includePresets = modeConfig?.includePresets?.filter((p) => !disabled.has(p))
+  const excludePresets = [...(modeConfig?.excludePresets ?? []), ...disabled]
   return {
     baseDir: path.join(modesDir, 'base', variant),
     modeDir: path.join(modesDir, mode, variant),
@@ -663,9 +721,26 @@ async function createWindow() {
     },
   })
   setWebBrowserMainWindow(win)
+  setAgentModeMainWindow(win)
   win.on('close', () => {
     // Tear down the headless web-browser window so the app can quit cleanly.
     destroyWebBrowser()
+    // Quit from the main window's own close rather than waiting for
+    // `window-all-closed`, which Electron only emits once EVERY window is
+    // destroyed. Hidden helper windows (agent browser sessions, an image
+    // preview) used to swallow that event, and with it the whole teardown: the
+    // backends kept running and the single-instance lock stayed held, so the
+    // next launch was refused. macOS keeps the app alive by convention, so
+    // there the backends are freed in `window-all-closed` instead.
+    if (process.platform !== 'darwin') app.quit()
+  })
+
+  // Windows log-off / shutdown / restart. The session cannot be stopped and the
+  // OS terminates us within seconds, so aim well below its patience: a partial
+  // teardown beats leaving the backends behind.
+  win.on('session-end', () => {
+    appLogger.info('Windows session ending, stopping backends', 'electron-backend')
+    void appShutdown.shutdown(3000)
   })
 
   // [HA-DIAG] Temporary: surface renderer `[HA-DIAG]` perf logs in the main
@@ -869,7 +944,28 @@ async function createWindow() {
     if (url.startsWith('http://127.0.0.1')) shell.openExternal(url)
     return { action: 'deny' }
   })
+  // The handler above only covers `window.open` / `target="_blank"`. A plain
+  // link — an agent-provided workspace preview URL, a dropped file — navigates
+  // this window instead, which replaces the whole app UI with that page and
+  // leaves no way back. Only the app's own document may load here.
+  win.webContents.on('will-navigate', (event, url) => {
+    if (isAppDocumentUrl(url)) return
+    event.preventDefault()
+    void shell.openExternal(url)
+  })
   return win
+}
+
+/** The renderer's own document — everything else belongs in the user's browser. */
+function isAppDocumentUrl(url: string): boolean {
+  if (VITE_DEV_SERVER_URL) {
+    try {
+      return new URL(url).origin === new URL(VITE_DEV_SERVER_URL).origin
+    } catch {
+      return false
+    }
+  }
+  return url.startsWith(pathToFileURL(path.join(process.env.DIST, 'index.html')).href)
 }
 
 function spawnLangchainUtilityProcess() {
@@ -912,10 +1008,12 @@ function spawnLangchainUtilityProcess() {
       if (code !== 0) {
         appLogger.info(`Langchain utility process exited with code ${code}`, 'electron-backend')
       }
+      langchainChild = null
+      // Respawning during teardown would resurrect the worker we just stopped.
+      if (appShutdown.isShuttingDown()) return
       setTimeout(() => {
         spawnLangchainUtilityProcess()
       }, 1000)
-      langchainChild = null
     })
   } catch (error) {
     appLogger.error(`Error starting langchain utility process: ${error}`, 'electron-backend')
@@ -951,29 +1049,75 @@ function handleUtilityFunction<T, R>(
   })
 }
 
-app.on('before-quit', () => {
-  destroyWebBrowser()
-  cloudProxy?.close()
+// Everything the app spawns, torn down in dependency order: the agent first,
+// because its extensions flush state on shutdown (persistent memory writes what
+// it learned) and may still call into MCP, the services and the browser.
+appShutdown.register({ name: 'agent mode', run: () => shutdownAgentMode() })
+appShutdown.register({ name: 'MCP servers', run: () => stopAllMcpServers() })
+appShutdown.register({ name: 'backend services', run: () => serviceRegistry?.stopAllServices() })
+appShutdown.register({
+  name: 'langchain worker',
+  run: () => {
+    langchainChild?.kill()
+    langchainChild = null
+  },
+})
+appShutdown.register({ name: 'web browser', run: () => destroyWebBrowser() })
+appShutdown.register({ name: 'cloud proxy', run: () => cloudProxy?.close() })
+// After the agent, so the spans its extensions emit while shutting down are
+// still exported. No-op unless a developer opted into Laminar tracing.
+appShutdown.register({ name: 'laminar tracing', run: () => shutdownLaminarTracing() })
+// Last line of defence against a window outliving the teardown. Their titles go
+// to the log first: if the app ever again refuses to close, this names the
+// window that held it open instead of leaving it to guesswork.
+appShutdown.register({
+  name: 'helper windows',
+  run: () => {
+    const open = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed())
+    if (open.length === 0) return
+    appLogger.info(
+      `Destroying ${open.length} window(s) still open: ${open.map((w) => w.getTitle() || 'untitled').join(', ')}`,
+      'electron-backend',
+    )
+    for (const window of open) window.destroy()
+  },
 })
 
-app.on('quit', async () => {
-  await stopAllMcpServers()
-  if (singleInstanceLock) {
-    app.releaseSingleInstanceLock()
-  }
+// Quitting has to wait for the teardown: backends are spawned detached so they
+// outlive us, and Electron would otherwise exit while they are still stopping.
+app.on('before-quit', (event) => {
+  event.preventDefault()
+  void appShutdown.shutdown().finally(() => {
+    if (singleInstanceLock) {
+      app.releaseSingleInstanceLock()
+    }
+    // Skips the quit handlers we just ran manually; nothing is left to unwind.
+    app.exit(0)
+  })
 })
+
+// A dev restart, a `Ctrl+C` or a logout sends a catchable signal. Without these
+// handlers the process dies with the backends still running — the main way
+// orphans accumulated on Linux and macOS, where (unlike Windows) our teardown
+// was never reached. On Windows only SIGINT and SIGHUP (console closed) arrive;
+// listening for SIGTERM there is inert but harmless.
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+  process.on(signal, () => {
+    appLogger.info(`Received ${signal}, stopping backends`, 'electron-backend')
+    void appShutdown.shutdown().finally(() => app.exit(0))
+  })
+}
+
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
+// explicitly with Cmd + Q — so free the backends here instead of quitting.
 app.on('window-all-closed', async () => {
-  try {
-    await stopAllMcpServers()
-    await serviceRegistry?.stopAllServices()
-  } catch {}
-  if (process.platform !== 'darwin') {
-    app.quit()
-    win = null
+  if (process.platform === 'darwin') {
+    await appShutdown.shutdown()
+    return
   }
+  win = null
+  app.quit()
 })
 
 app.on('activate', () => {
@@ -990,7 +1134,18 @@ app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
       win.restore()
     }
     win.focus()
+    return
   }
+  // We hold the single-instance lock with no window to show, so the user's
+  // relaunch is refused and nothing appears. Re-creating the window here would
+  // not help: the services captured the old one (`readonly win` in service.ts)
+  // and would keep sending status updates to dead webContents. Closing the main
+  // window now always quits (see createWindow), so this should be unreachable —
+  // log it, because it means something held the quit back.
+  appLogger.warn(
+    `Second instance requested while holding the lock without a window (shutting down: ${appShutdown.isShuttingDown()})`,
+    'electron-backend',
+  )
 })
 
 async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) {
@@ -1199,10 +1354,10 @@ function initEventHandle() {
     }
   })
 
+  // Quit outright instead of closing the window and hoping that cascades into a
+  // quit: `app.quit()` always reaches the gated teardown in `before-quit`.
   ipcMain.on('exitApp', async () => {
-    if (win) {
-      win.close()
-    }
+    app.quit()
   })
 
   ipcMain.on('saveImage', async (event: IpcMainEvent, url: string) => {
@@ -1449,6 +1604,14 @@ function initEventHandle() {
     return resolveModels(settings)
   })
 
+  // The renderer forwards its AI SDK telemetry here (the SDK cannot run in a
+  // browser page); null config means no developer opted in, and the renderer
+  // then registers nothing and sends nothing.
+  ipcMain.handle('getLaminarConfig', () => laminarConfig())
+  ipcMain.on('laminarTelemetryEvent', (_event, name: string, payload: string) => {
+    void handleChatTelemetryEvent(name, payload)
+  })
+
   ipcMain.handle('updateModelPaths', (_event, modelPaths: ModelPaths) => {
     pathsManager.updateModelPaths(modelPaths)
     return pathsManager.scanAll()
@@ -1657,6 +1820,9 @@ function initEventHandle() {
   ipcMain.handle('getComfyUiDefaultParameters', () => COMFYUI_DEFAULT_PARAMETERS)
   ipcMain.handle('getLlamaCppDefaultParameters', () => LLAMACPP_DEFAULT_PARAMETERS)
 
+  // Which OEM's machine this is, for co-branding (see subprocesses/oemDetection.ts).
+  ipcMain.handle('detectOem', () => detectOem(settings.oemVendorOverride))
+
   ipcMain.handle('detectPhisonSsd', async () => {
     if (settings.PhisonSSDdetected) {
       appLoggerInstance.info(
@@ -1835,9 +2001,10 @@ function initEventHandle() {
       llmModelName: string,
       embeddingModelName?: string,
       contextSize?: number,
+      modelArgs?: string,
     ) => {
       appLogger.info(
-        `Ensuring backend readiness for service: ${serviceName}, LLM: ${llmModelName}, Embedding: ${embeddingModelName || 'none'}, Context Size: ${contextSize ?? 'undefined'}`,
+        `Ensuring backend readiness for service: ${serviceName}, LLM: ${llmModelName}, Embedding: ${embeddingModelName || 'none'}, Context Size: ${contextSize ?? 'undefined'}, Model args: ${modelArgs || 'none'}`,
         'electron-backend',
       )
       if (!serviceRegistry) {
@@ -1854,7 +2021,12 @@ function initEventHandle() {
       }
 
       try {
-        await service.ensureBackendReadiness(llmModelName, embeddingModelName, contextSize)
+        await service.ensureBackendReadiness(
+          llmModelName,
+          embeddingModelName,
+          contextSize,
+          modelArgs,
+        )
         appLogger.info(
           `Backend ${serviceName} ready for LLM: ${llmModelName}, Embedding: ${embeddingModelName || 'none'}`,
           'electron-backend',
@@ -2642,6 +2814,119 @@ function initEventHandle() {
     },
   )
 
+  // Agent Mode (Pi coding agent) IPC handlers — see agentMode/piAgentManager.ts.
+  // Stream chunks are pushed main→renderer on 'agentMode:streamChunk', live tool
+  // output on 'agentMode:toolProgress'.
+  ipcMain.handle(
+    'agentMode:startTurn',
+    async (_event, turnId: string, prompt: string, config: unknown) => {
+      const parsed = AgentModeTurnConfigSchema.safeParse(config)
+      if (!parsed.success) {
+        return { success: false, error: parsed.error.message }
+      }
+      return await startAgentTurn(turnId, prompt, parsed.data)
+    },
+  )
+
+  ipcMain.handle('agentMode:cancel', () => {
+    cancelAgentTurn()
+  })
+
+  ipcMain.handle('agentMode:resetSession', async () => {
+    await resetAgentSession()
+  })
+
+  ipcMain.handle('agentMode:deleteSession', async (_event, sessionId: string) => {
+    return await deleteAgentSession(sessionId)
+  })
+
+  // Copy a file the user attached into the agent's workspace, so the agent can
+  // reach it with its own file tools (see agentMode/workspaceAttachments.ts).
+  ipcMain.handle(
+    'agentMode:importAttachment',
+    (_event, workspaceDir: string, name: string, bytes: Uint8Array) => {
+      try {
+        return { success: true, ...importAttachment(workspaceDir, name, bytes) }
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    },
+  )
+
+  // What the agent can be equipped with, for the Capabilities checkboxes in
+  // Agent Settings (availability depends on the turn's tool specs / MCP config).
+  ipcMain.handle(
+    'agentMode:listCapabilities',
+    (
+      _event,
+      options: { workspaceDir?: string; toolSpecs?: AgentToolSpec[]; mcpServerIds?: string[] },
+    ) => {
+      return listAgentCapabilities(options ?? {})
+    },
+  )
+
+  // Renderer answers a main→renderer 'agentMode:executeTool' dispatch (bridged
+  // host tool execution, e.g. image generation) with the tool result or error.
+  ipcMain.handle(
+    'agentMode:toolResult',
+    (_event, requestId: string, result: unknown, error?: string) => {
+      submitAgentToolResult(requestId, result, error)
+    },
+  )
+
+  // Game library (see gameLibrary.ts): the folders the Game Agent preset writes
+  // into, plus the generated gallery page.
+  ipcMain.handle('games:list', () => listGames())
+
+  ipcMain.handle('games:read', (_event, dir: string) => readGame(dir))
+
+  // `name` is the request that started the game, not a title: shorten it to
+  // something that reads as one, until the agent sets a real one.
+  ipcMain.handle('games:create', (_event, name?: string, options?: { scaffold?: boolean }) =>
+    createGame({
+      name: name ? provisionalName(name) : undefined,
+      ...(options?.scaffold === false ? { scaffold: false } : {}),
+    }),
+  )
+
+  ipcMain.handle(
+    'games:publish',
+    async (_event, dir: string, fields: { name?: string; description?: string }) => {
+      try {
+        const { vendor } = await detectOem(settings.oemVendorOverride)
+        return { success: true, game: publishGame(dir, fields ?? {}, { vendor }) }
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    },
+  )
+
+  // A game's own folder, or the library root when none is given.
+  ipcMain.handle('games:openFolder', (_event, dir?: string) => {
+    const target = dir ?? getGamesDir()
+    fs.mkdirSync(target, { recursive: true })
+    shell.openPath(target)
+  })
+
+  ipcMain.handle('games:play', async (_event, dir: string) => {
+    const game = readGame(dir)
+    if (!game) return { success: false, error: `Not a game folder: ${dir}` }
+    if (!fs.existsSync(game.entryPath)) {
+      return { success: false, error: 'This game has no playable file yet.' }
+    }
+    // The default browser, not an app window: a game is the user's to keep.
+    const error = await shell.openPath(game.entryPath)
+    return error ? { success: false, error } : { success: true }
+  })
+
+  // Regenerated on open so the gallery reflects the library as it is now.
+  ipcMain.handle('games:openArcade', async () => {
+    const { vendor } = await detectOem(settings.oemVendorOverride)
+    const { arcadePath } = writeArcade({ vendor })
+    const error = await shell.openPath(arcadePath)
+    return error ? { success: false, error } : { success: true, path: arcadePath }
+  })
+
   // Web browser IPC handlers — drives the headless BrowserWindow that the chat
   // LLM uses to browse the web (see subprocesses/webBrowserManager.ts).
   ipcMain.handle('webBrowser:navigate', async (_event, url: string) => {
@@ -2906,6 +3191,11 @@ app.whenReady().then(async () => {
     appLogger.info('startup step: configuring proxy', 'electron-backend', true)
     await configureProxyFromEnv()
 
+    // Before the first Pi session is built: the Laminar Pi extension only wins
+    // its self-hosted ports if the SDK is initialized here first (see laminar.ts).
+    appLogger.info('startup step: initializing tracing', 'electron-backend', true)
+    await initLaminarTracing()
+
     appLogger.info('startup step: initializing event handlers', 'electron-backend', true)
     initEventHandle()
 
@@ -2922,8 +3212,8 @@ app.whenReady().then(async () => {
       // `getImageData()` / `toDataURL()` on a canvas that drew an
       // `aipg-media://` image only succeed when the response carries CORS
       // headers AND the `<img>` opts in via `crossorigin="anonymous"`.
-      // `*` is safe because the scheme only ever serves files under
-      // `mediaDir`, already guarded by `getLocalPathFromAipgMediaUrl`.
+      // `*` is safe because the scheme only ever serves files under the roots
+      // guarded by `getLocalPathFromAipgMediaUrl`.
       const headers = new Headers(upstream.headers)
       headers.set('Access-Control-Allow-Origin', '*')
       return new Response(upstream.body, {

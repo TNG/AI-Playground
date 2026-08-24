@@ -30,6 +30,11 @@ export interface ApiServiceRegistry {
 
 export class ApiServiceRegistryImpl implements ApiServiceRegistry {
   private registeredServices: ApiService[] = []
+  private disabledBackends: string[] = []
+
+  setDisabledBackends(names: string[]): void {
+    this.disabledBackends = names
+  }
 
   register(apiService: ApiService): void {
     if (this.registeredServices.includes(apiService)) {
@@ -115,7 +120,7 @@ export class ApiServiceRegistryImpl implements ApiServiceRegistry {
    * This runs in the background and doesn't block.
    * Waits for async setup checks to complete before starting services.
    */
-  async startAllSetUpServices(disabledBackends: string[] = []): Promise<void> {
+  async startAllSetUpServices(disabledBackends: string[] = this.disabledBackends): Promise<void> {
     // Check setup status for all services.
     // Some services check asynchronously (ai-backend, comfyui-backend) and some synchronously (llamacpp-backend).
     // We'll check all services that have a serviceIsSetUp method and use the actual result,
@@ -280,7 +285,8 @@ export async function aiplaygroundApiServiceRegistry(
 
     // Automatically start all set-up services in the background
     // This happens regardless of frontend state, making it more reliable
-    instance.startAllSetUpServices(settings.disabledBackends ?? [])
+    instance.setDisabledBackends(settings.disabledBackends ?? [])
+    instance.startAllSetUpServices()
   }
   return instance
 }

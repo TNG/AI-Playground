@@ -119,6 +119,27 @@ export const useSpeechToText = defineStore(
       return svc?.isSetUp === true
     })
 
+    // Installation alone is not enough to *prefer* standalone over a configured
+    // fallback (CodeRabbit on 278): the sidecar can be set up without its model.
+    const standaloneModelPresent = ref(false)
+    async function refreshStandaloneModelPresent(): Promise<void> {
+      if (!isStandaloneAvailable.value) {
+        standaloneModelPresent.value = false
+        return
+      }
+      try {
+        standaloneModelPresent.value = await models.checkTranscriptionModelExists(
+          selectedStandaloneModel.value,
+        )
+      } catch {
+        standaloneModelPresent.value = false
+      }
+    }
+    watch([isStandaloneAvailable, selectedStandaloneModel], () => {
+      void refreshStandaloneModelPresent()
+    })
+    void refreshStandaloneModelPresent()
+
     /**
      * Whether speech-to-text is usable at all: OpenVINO Whisper (non-NVIDIA), the
      * standalone Whisper backend, or a configured external endpoint. Used to gate the
@@ -154,8 +175,9 @@ export const useSpeechToText = defineStore(
      *  SettingsStt then shows its "install a backend or enable an endpoint" hint. */
     const preferredSttEngine = computed<SttEngine>(() => {
       if (isWhisperAvailable.value) return 'whisper'
-      if (isStandaloneAvailable.value) return 'standalone'
+      if (isStandaloneAvailable.value && standaloneModelPresent.value) return 'standalone'
       if (isExternalAvailable.value) return 'external'
+      if (isStandaloneAvailable.value) return 'standalone'
       return offeredSttEngines.value[0] ?? 'external'
     })
 
@@ -241,6 +263,7 @@ export const useSpeechToText = defineStore(
       if (current.status !== 'running') {
         await backendServices.startService('whisper-backend')
       }
+      standaloneModelPresent.value = true
       return { downloadPrompted }
     }
 

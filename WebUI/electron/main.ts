@@ -382,6 +382,11 @@ const LocalSettingsSchema = z.object({
   // Gates the optional standalone Whisper STT Python sidecar (torch, non-OpenVINO;
   // works in every product mode incl. NVIDIA).
   isWhisperBackendEnabled: z.boolean().default(false),
+  // Components the user switched off in the setup wizard. Persisted because the
+  // toggle used to live only in the renderer's wizard store: an installed
+  // component the user had disabled was auto-started again by the main process on
+  // the next launch (holding its port and GPU memory).
+  disabledBackends: z.array(z.string()).default([]),
   languageOverride: z.string().nullable().default(null),
   remoteRepository: z.string().default('intel/ai-playground'),
   huggingfaceEndpoint: z.string().default('https://huggingface.co'),
@@ -1980,6 +1985,20 @@ function initEventHandle() {
         return
       }
 
+      // Never run two installs for the same service concurrently: they would run
+      // two uv syncs (or two git clones) against the same directory. Bail without
+      // emitting any progress — the shared renderer listener belongs to the
+      // install that is already running, and a terminal update here would resolve
+      // that one with the duplicate's outcome.
+      if (service.setUpInProgress) {
+        appLogger.warn(
+          `Ignoring set up request for ${serviceName}: an installation is already in progress`,
+          'electron-backend',
+        )
+        return
+      }
+      service.setUpInProgress = true
+
       // The renderer waits for a terminal ('failed'/'success') progress update
       // before it re-enables its UI. If set_up() throws instead of yielding one
       // — e.g. ComfyUI's Linux dependency step, which runs before its own
@@ -2014,6 +2033,8 @@ function initEventHandle() {
             },
           } satisfies SetupProgress)
         }
+      } finally {
+        service.setUpInProgress = false
       }
     },
   )

@@ -1,6 +1,10 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { ref, computed, toRaw } from 'vue'
-import { useBackendServices, type BackendServiceName } from './backendServices'
+import {
+  allBackendServiceNames,
+  useBackendServices,
+  type BackendServiceName,
+} from './backendServices'
 import { useProductMode } from './productMode'
 import { useGlobalSetup } from './globalSetup'
 import { usePresets, type ChatPreset } from './presets'
@@ -94,6 +98,9 @@ const knownSteps: Record<BackendServiceName, string[]> = {
   'openvino-backend': ['start', 'download', 'extract', 'install python'],
   'comfyui-backend': [
     'start',
+    // Linux-only step, emitted before the clone. Omitting it made Linux installs
+    // fall back to showing raw debug messages instead of a progress label.
+    'linux dependencies',
     'install comfyUI',
     'configure comfyUI',
     'install builtin custom nodes',
@@ -111,6 +118,7 @@ const stepDisplayNames: Record<string, string> = {
   'configure-service': 'Configuring SSD offload...',
   'install dependencies': 'Installing dependencies...',
   'install python': 'Installing Python environment...',
+  'linux dependencies': 'Installing system packages...',
   'install comfyUI': 'Installing ComfyUI...',
   'configure comfyUI': 'Configuring...',
   'install builtin custom nodes': 'Installing custom nodes...',
@@ -676,6 +684,33 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     return true
   })
 
+  /**
+   * Load the persisted set of components the user switched off. The toggle used to
+   * live only in this store, so an installed component the user had disabled was
+   * auto-started again by the main process on the next launch. It is kept in
+   * settings.json because the main process is what performs the boot-time
+   * auto-start (see `disabledBackends` there).
+   */
+  async function restoreDisabledBackends() {
+    try {
+      const s = await window.electronAPI.getLocalSettings()
+      const persisted = s.disabledBackends ?? []
+      disabledBackends.value = new Set(
+        persisted.filter((n): n is BackendServiceName =>
+          (allBackendServiceNames as readonly string[]).includes(n),
+        ),
+      )
+    } catch (e) {
+      console.warn(`Failed to restore disabled components: ${e}`)
+    }
+  }
+
+  function persistDisabledBackends() {
+    window.electronAPI
+      .updateLocalSettings({ disabledBackends: [...disabledBackends.value] })
+      .catch((e: unknown) => console.warn(`Failed to persist disabled components: ${e}`))
+  }
+
   function seedInstallSelection() {
     const newSelection = new Set<BackendServiceName>()
     for (const serviceName of getBackends(speechToText.isWhisperBackendEnabled)) {
@@ -730,6 +765,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       }
     }
     installSelection.value = new Set(installSelection.value)
+    persistDisabledBackends()
   }
 
   async function togglePhisonAidaptiv(enabled: boolean) {
@@ -739,6 +775,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       disabledBackends.value.delete('llamacpp-backend')
       disabledBackends.value = new Set(disabledBackends.value)
       installSelection.value = new Set(installSelection.value)
+      persistDisabledBackends()
       const info = backendServices.info.find((s) => s.serviceName === 'llamacpp-backend')
       if (info?.isSetUp && (info.status === 'stopped' || info.status === 'notYetStarted')) {
         await backendServices.startService('llamacpp-backend')
@@ -767,6 +804,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   }
 
   async function openWizard() {
+    await restoreDisabledBackends()
     if (!productModeStore.hardwareRecommendation) {
       await productModeStore.detectRecommendation()
     }
@@ -823,6 +861,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     // (now reachable) global failed screen and the error sink instead.
     try {
       await globalSetup.initSetup()
+      await restoreDisabledBackends()
       const modeStatus = await productModeStore.ensureReady()
 
       if (modeStatus === 'ready') {

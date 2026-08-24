@@ -131,6 +131,8 @@ type LocalSettings = {
   isAgentPresetEnabled?: boolean
   oemVendorOverride?: string | null
   isWhisperBackendEnabled?: boolean
+  /** Components switched off in the setup wizard; not auto-started at launch. */
+  disabledBackends?: string[]
   languageOverride: string | null
   remoteRepository: string
   huggingfaceEndpoint: string

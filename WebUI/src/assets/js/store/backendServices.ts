@@ -4,7 +4,7 @@ import z from 'zod'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { invalidateBackendAuthToken } from '@/lib/loopbackAuth'
 
-const backends = [
+export const allBackendServiceNames = [
   'ai-backend',
   'home-agent-backend',
   'qwen3-tts-backend',
@@ -14,7 +14,7 @@ const backends = [
   'comfyui-backend',
 ] as const
 
-export type BackendServiceName = (typeof backends)[number]
+export type BackendServiceName = (typeof allBackendServiceNames)[number]
 
 export const BackendVersionSchema = z.object({
   releaseTag: z.string().optional(),
@@ -36,7 +36,7 @@ export const useBackendServices = defineStore(
   () => {
     const currentServiceInfo = ref<ApiServiceInformation[]>([])
     const serviceListeners = new Map(
-      backends.map((b) => [b, new BackendServiceSetupProgressListener(b)]),
+      allBackendServiceNames.map((b) => [b, new BackendServiceSetupProgressListener(b)]),
     )
     const lastSelectedDeviceIdPerBackend = ref<Record<BackendServiceName, string | null>>({
       'ai-backend': null,
@@ -165,7 +165,7 @@ export const useBackendServices = defineStore(
     }
 
     // Sync persisted overrides into versionState on init
-    backends.forEach((serviceName) => {
+    allBackendServiceNames.forEach((serviceName) => {
       if (versionOverrides.value[serviceName]) {
         versionState.value[serviceName].uiOverride = versionOverrides.value[serviceName]
       }
@@ -173,9 +173,9 @@ export const useBackendServices = defineStore(
 
     // Watch for changes to uiOverride and sync to persisted overrides
     watch(
-      () => backends.map((b) => versionState.value[b].uiOverride),
+      () => allBackendServiceNames.map((b) => versionState.value[b].uiOverride),
       () => {
-        backends.forEach((serviceName) => {
+        allBackendServiceNames.forEach((serviceName) => {
           const override = versionState.value[serviceName].uiOverride
           if (override) {
             versionOverrides.value[serviceName] = override
@@ -187,7 +187,7 @@ export const useBackendServices = defineStore(
       { deep: true },
     )
 
-    backends.forEach((serviceName) => {
+    allBackendServiceNames.forEach((serviceName) => {
       window.electronAPI.resolveBackendVersion(serviceName).then((version) => {
         versionState.value[serviceName].target = version
       })
@@ -333,16 +333,51 @@ export const useBackendServices = defineStore(
       }
       listener.isActive = true
       try {
-        await stopService(serviceName)
-      } catch {
-        console.info(`service ${serviceName} was not running`)
+        try {
+          await stopService(serviceName)
+        } catch {
+          console.info(`service ${serviceName} was not running`)
+        }
+        // Clear error details when uninstalling
+        listener.clearErrorDetails()
+        await window.electronAPI.uninstall(serviceName)
+      } finally {
+        // A failed uninstall used to leave the listener active, so the next setup
+        // for this service started with dirty listener state (stale collected
+        // progress, and a terminal update from this run leaking into it).
+        listener.isActive = false
       }
-      // Clear error details when uninstalling
-      listener.clearErrorDetails()
-      return window.electronAPI.uninstall(serviceName)
     }
 
-    async function setUpService(
+    /**
+     * In-flight installs, keyed by service. A wizard commit and a gear-menu
+     * Reinstall (or a double click) must not launch two uv syncs against the same
+     * directory — and they cannot be told apart downstream, because the service
+     * has a single progress listener whose first terminal event would resolve both
+     * callers. Mirrors the `startInFlight` guard on the main-process service.
+     */
+    const setUpInFlight = new Map<
+      BackendServiceName,
+      Promise<{ success: boolean; logs: SetupProgress[]; errorDetails?: ErrorDetails | null }>
+    >()
+
+    function setUpService(
+      serviceName: BackendServiceName,
+      versionToInstall?: BackendVersion,
+    ): Promise<{ success: boolean; logs: SetupProgress[]; errorDetails?: ErrorDetails | null }> {
+      const inFlight = setUpInFlight.get(serviceName)
+      if (inFlight) {
+        console.warn(`setup of ${serviceName} already in progress — awaiting the running one`)
+        return inFlight
+      }
+      const run = runSetUpService(serviceName, versionToInstall).finally(() => {
+        setUpInFlight.delete(serviceName)
+      })
+      setUpInFlight.set(serviceName, run)
+      return run
+    }
+
+    async function runSetUpService(
       serviceName: BackendServiceName,
       versionToInstall?: BackendVersion,
     ): Promise<{ success: boolean; logs: SetupProgress[]; errorDetails?: ErrorDetails | null }> {

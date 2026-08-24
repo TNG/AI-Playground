@@ -398,6 +398,17 @@ export const venvIsUsable = (venvPath: string): boolean =>
 export const checkBackend = async (backend: string, extra?: UvExtra) => {
   const logger = loggerFor(`uv.check.${backend}`)
   await assertUv(logger)
+  // A venv directory without an interpreter is not an environment — see
+  // `venvInterpreterPath`. `uv sync --check` inspects the project's lockfile
+  // resolution, so it can report "in sync" against such a husk (what the Windows
+  // uninstaller's `RMDir /r` leaves behind), which makes the app auto-start a
+  // backend that cannot possibly boot. checkBackendWithDetails already did this;
+  // callers of the plain check need the same protection.
+  const venvPath = path.join(aipgBaseDir, backend, '.venv')
+  if (!venvIsUsable(venvPath)) {
+    logger.info(`Venv at ${venvPath} has no interpreter — reporting backend as not installed`)
+    throw new Error(`Python environment for ${backend} is missing its interpreter`)
+  }
   const uvCommand = ['sync', '--check', '--directory', aipgBaseDir, '--project', backend]
   // Resolve against the same optional-dependency extra the backend was installed
   // with (e.g. 'xpu'). Without it, uv resolves the base deps — generic torch,

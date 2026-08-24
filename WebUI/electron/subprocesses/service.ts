@@ -157,11 +157,12 @@ const checkHijacksDir = async (): Promise<boolean> => {
     await filesystem.promises.stat(path.join(hijacksDir, '__init__.py'))
     return true
   } catch (_e) {
-    try {
-      await filesystem.promises.rm(hijacksDir, { recursive: true })
-    } finally {
-      return false
-    }
+    // Not a usable checkout — drop whatever is there so the caller re-clones.
+    // A failed removal must not be swallowed by a `return` inside `finally`
+    // (which discards the error entirely): the clone would then fail with a
+    // confusing "already exists" instead of the real cause.
+    await filesystem.promises.rm(hijacksDir, { recursive: true, force: true })
+    return false
   }
 }
 
@@ -470,6 +471,8 @@ export interface ApiService {
   readonly isRequired: boolean
   currentStatus: BackendStatus
   isSetUp: boolean
+  /** True while an install is being run for this service — see the field on `LongLivedPythonApiService`. */
+  setUpInProgress: boolean
 
   selectDevice(deviceId: string): Promise<void>
   detectDevices(): Promise<void>
@@ -527,6 +530,13 @@ export abstract class LongLivedPythonApiService implements ApiService {
   // startup rather than throwing "Server startup already requested".
   private startInFlight: Promise<BackendStatus> | null = null
 
+  // True while a set_up() generator is being consumed for this service (set by
+  // the setUpService IPC handler). Installs mutate the service directory and its
+  // venv, so nothing may spawn the backend or launch a second install against it
+  // meanwhile — the auto-start at registry construction can otherwise race an
+  // in-progress install and spawn against a half-written environment.
+  setUpInProgress: boolean = false
+
   readonly appLogger = appLoggerInstance
 
   constructor(name: BackendServiceName, port: number, win: BrowserWindow, settings: LocalSettings) {
@@ -577,6 +587,11 @@ export abstract class LongLivedPythonApiService implements ApiService {
         this.cachedInstalledVersion = undefined
       }
     }
+  }
+
+  /** Drop the recorded startup failure (it describes an environment that is gone). */
+  protected clearLastStartupError(): void {
+    this.lastStartupErrorDetails = null
   }
 
   setStatus(status: BackendStatus) {
@@ -689,16 +704,33 @@ export abstract class LongLivedPythonApiService implements ApiService {
   }
 
   async uninstall(): Promise<void> {
-    this.stop()
+    // Await the teardown: an un-awaited stop() races the removal below, and on
+    // Windows the still-running child holds handles on the venv's DLLs, so the
+    // removal fails with EPERM.
+    await this.stop()
     this.appLogger.info(`removing python env of ${this.name} service`, this.name)
     await filesystem.remove(this.pythonEnvDir)
     this.appLogger.info(`removed python env of ${this.name} service`, this.name)
+    // Without this the service keeps reporting isSetUp: true after its
+    // environment is gone — the wizard row reads as installed and dismiss()
+    // tries to start it. Set before setStatus so the emitted info is consistent.
+    this.isSetUp = false
     this.setStatus('notInstalled')
     // Clear startup errors when uninstalling
     this.lastStartupErrorDetails = null
   }
 
   async start(): Promise<BackendStatus> {
+    // An install is rewriting this service's environment right now; spawning
+    // against it would fail in a confusing way (missing/partial packages) and
+    // could hold handles that make the install's own file operations fail.
+    if (this.setUpInProgress) {
+      this.appLogger.info(
+        `start() ignored for ${this.name}: an installation is in progress`,
+        this.name,
+      )
+      return this.currentStatus
+    }
     if (
       this.desiredStatus === 'stopped' &&
       !(this.currentStatus === 'stopped' || this.currentStatus === 'notYetStarted')

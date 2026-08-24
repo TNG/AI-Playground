@@ -711,6 +711,64 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     }
   }
 
+  /**
+   * Remove the whole ComfyUI checkout, retrying a few times — after the backend
+   * process is killed Windows can take a moment to release directory handles.
+   * On Linux/macOS a read-only directory in the tree fails removal with EACCES
+   * (unlink/rmdir needs write permission on the parent), so the read-only bit is
+   * stripped up front and again on EACCES. Throws an actionable error if the tree
+   * ultimately cannot be removed, rather than letting a later `git clone` fail
+   * with a confusing "destination path already exists".
+   *
+   * Model weights are not affected: they live in `../models/ComfyUI`, referenced
+   * through the generated extra_model_paths.yaml.
+   */
+  private async removeServiceDirWithRetries(context: 'reinstall' | 'uninstall'): Promise<void> {
+    if (!filesystem.existsSync(this.serviceDir)) return
+    await restoreTreeWritePermissions(this.serviceDir)
+    let lastError: unknown
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        filesystem.removeSync(this.serviceDir)
+        lastError = undefined
+        break
+      } catch (removeError) {
+        lastError = removeError
+        if ((removeError as NodeJS.ErrnoException)?.code === 'EACCES') {
+          await restoreTreeWritePermissions(this.serviceDir)
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+      }
+    }
+    if (lastError) {
+      throw new Error(
+        `Failed to remove existing ComfyUI directory ${this.serviceDir} for ${context}. ` +
+          `Close any program holding files there (a running ComfyUI, an IDE indexing the ` +
+          `folder, or a terminal/Explorer window inside it) and try again. Cause: ${lastError}`,
+      )
+    }
+  }
+
+  /**
+   * Remove the entire checkout, not just the venv as the base class does. The
+   * clone, custom_nodes, the deps marker and the variant marker all live in
+   * `serviceDir`; leaving them behind means the markers claim a revision/variant
+   * for an environment that no longer exists, and `serviceIsSetUp` sees a husk.
+   */
+  async uninstall(): Promise<void> {
+    await this.stop()
+    this.appLogger.info(`removing ComfyUI service directory`, this.name)
+    await this.removeServiceDirWithRetries('uninstall')
+    this.appLogger.info(`removed ComfyUI service directory`, this.name)
+    this.isSetUp = false
+    this.setStatus('notInstalled')
+    this.clearLastStartupError()
+    // Marker-derived state now describes a directory that is gone.
+    this.usableXpuConfirmed = null
+    this.variantMismatchToastSent = false
+    this.environmentMismatchError = null
+  }
+
   private async writeDepsMarker(marker: ComfyUiDepsMarker): Promise<void> {
     const markerPath = path.join(this.serviceDir, COMFYUI_DEPS_MARKER_FILENAME)
     await fs.promises.writeFile(markerPath, JSON.stringify(marker, null, 2), 'utf-8')
@@ -970,41 +1028,26 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         )
       }
 
-      // Fallback: wipe the directory so the caller re-clones. Retry a few times —
-      // after the backend process is killed Windows can take a moment to release
-      // directory handles. Surface a clear, actionable error if it ultimately
-      // cannot be removed rather than letting `git clone` fail later with a
-      // confusing "destination path already exists" message.
-      // On Linux/macOS a read-only directory in the tree fails removal with EACCES
-      // (unlink/rmdir needs write permission on the parent); strip the read-only
-      // bit up front, and again on EACCES, so the wipe-and-reclone path works.
-      await restoreTreeWritePermissions(this.serviceDir)
-      let lastError: unknown
-      for (let attempt = 0; attempt < 5; attempt++) {
-        try {
-          filesystem.removeSync(this.serviceDir)
-          lastError = undefined
-          break
-        } catch (removeError) {
-          lastError = removeError
-          if ((removeError as NodeJS.ErrnoException)?.code === 'EACCES') {
-            await restoreTreeWritePermissions(this.serviceDir)
-          }
-          await new Promise((resolve) => setTimeout(resolve, 1000))
-        }
-      }
-      if (lastError) {
-        throw new Error(
-          `Failed to remove existing ComfyUI directory ${this.serviceDir} for reinstall. ` +
-            `Close any program holding files there (a running ComfyUI, an IDE indexing the ` +
-            `folder, or a terminal/Explorer window inside it) and try again. Cause: ${lastError}`,
-        )
-      }
+      // Fallback: wipe the directory so the caller re-clones.
+      await this.removeServiceDirWithRetries('reinstall')
       return false
     }
 
     const setupComfyUiBaseService = async (): Promise<void> => {
-      installHijacks()
+      // Awaited: un-awaited, this was a floating git clone whose rejection became
+      // an unhandled promise rejection, and the install continued as if the
+      // hijacks were in place. They are only *needed* by the XPU variant (whose
+      // model_management.py gets patched to import them), so a failure is fatal
+      // there and a warning otherwise.
+      try {
+        await installHijacks()
+      } catch (e) {
+        if (this.comfyUiVariant === 'xpu') throw e
+        this.appLogger.warn(
+          `ipex_to_cuda hijacks unavailable (${e}); continuing for variant '${this.comfyUiVariant}' which does not use them`,
+          this.name,
+        )
+      }
       if (await checkServiceDir()) {
         this.appLogger.info('comfyUI already cloned, skipping', this.name)
       } else {
@@ -1350,11 +1393,24 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
           debugMessage: 'ComfyUI Manager installation complete',
         }
       } catch (error) {
-        // Log warning but don't fail setup
+        // The Manager is optional, so this does not fail the install — but the
+        // setup used to report unqualified success, leaving the user to discover
+        // the missing Manager later. Say so in the progress log and on screen.
         this.appLogger.warn(
           `Failed to install ComfyUI Manager: ${error}. Continuing setup.`,
           this.name,
         )
+        this.win.webContents.send('show-toast', {
+          type: 'warning',
+          message:
+            'ComfyUI was installed, but the ComfyUI Manager custom node could not be installed. Custom node management will be unavailable — reinstall ComfyUI to retry.',
+        })
+        yield {
+          serviceName: this.name,
+          step: currentStep,
+          status: 'executing',
+          debugMessage: `ComfyUI Manager installation failed and was skipped: ${error}`,
+        }
       }
 
       // Locked ref: uv.lock + pyproject; other refs: requirements.txt + UV torch config

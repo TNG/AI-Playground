@@ -67,6 +67,8 @@ export class OpenVINOBackendService implements ApiService {
   currentStatus: BackendStatus = 'notInstalled'
   isSetUp: boolean = false
   desiredStatus: BackendStatus = 'uninitializedStatus'
+  /** True while an install runs for this service — see `ApiService.setUpInProgress`. */
+  setUpInProgress: boolean = false
 
   // Model server processes
   private ovmsLlmProcess: OvmsServerProcess | null = null
@@ -1725,6 +1727,15 @@ export class OpenVINOBackendService implements ApiService {
   }
 
   async start(): Promise<BackendStatus> {
+    // An install is rewriting the OVMS directory right now — don't report it as
+    // ready mid-install (the binaries it would serve may not exist yet).
+    if (this.setUpInProgress) {
+      this.appLogger.info(
+        `start() ignored for ${this.name}: an installation is in progress`,
+        this.name,
+      )
+      return this.currentStatus
+    }
     if (this.settings.productMode === 'nvidia') {
       this.appLogger.info('Skipping OpenVINO start in NVIDIA mode', this.name)
       return this.currentStatus

@@ -122,6 +122,8 @@ type LocalSettings = {
   isCloudModeEnabled: boolean
   isQwen3TtsEnabled?: boolean
   isWhisperBackendEnabled?: boolean
+  /** Components switched off in the setup wizard; not auto-started at launch. */
+  disabledBackends?: string[]
   languageOverride: string | null
   remoteRepository: string
   huggingfaceEndpoint: string

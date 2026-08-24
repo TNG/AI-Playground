@@ -2921,6 +2921,27 @@ app.whenReady().then(async () => {
     true,
   )
 
+  // safeStorage (used for channel/API-key secrets) backs onto a Linux OS keyring
+  // (gnome-libsecret/kwallet) that headless or minimal desktops don't run —
+  // encryptString() then throws and anything persisting a secret breaks (Home
+  // Agent channel setup, cloud provider API keys). Only when no keyring is
+  // usable do we opt into the plaintext-backed BASIC_TEXT backend, which
+  // obfuscates rather than encrypts; where a real keyring exists it keeps being
+  // used. isEncryptionAvailable() is meaningful only after 'ready' on Linux, so
+  // this runs here — before any encryptString/decryptString call.
+  if (process.platform === 'linux' && !safeStorage.isEncryptionAvailable()) {
+    safeStorage.setUsePlainTextEncryption(true)
+    const available = safeStorage.isEncryptionAvailable()
+    appLogger.warn(
+      `No usable OS keyring (backend=${safeStorage.getSelectedStorageBackend()}); ` +
+        `fell back to plaintext-backed safeStorage — stored secrets are obfuscated, not encrypted. ` +
+        `Encryption available now: ${available}. ` +
+        `To get real encryption, install and run a keyring daemon`,
+      'electron-backend',
+      true,
+    )
+  }
+
   /**Single instance processing */
   if (!singleInstanceLock) {
     dialog.showMessageBoxSync({

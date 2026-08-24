@@ -100,10 +100,7 @@
                 step="512"
                 class="rounded-sm text-foreground text-center h-[30px] w-20 leading-[30px] p-0 bg-transparent border border-border"
               />
-              <p
-                v-if="textInference.enforceKmContextFloor"
-                class="text-xs text-muted-foreground"
-              >
+              <p v-if="textInference.enforceKmContextFloor" class="text-xs text-muted-foreground">
                 {{ languages.PHISON_KM_CONTEXT_HINT }}
               </p>
             </div>
@@ -112,10 +109,7 @@
         <SettingsRow :label="`Temperature: ${textInference.temperature.toFixed(1)}`">
           <Slider v-model="textInference.temperature" :min="0" :max="2" :step="0.1" />
         </SettingsRow>
-        <SettingsRow
-          v-if="showRetrievalModeToggle"
-          :label="languages.RAG_RETRIEVAL_MODE"
-        >
+        <SettingsRow v-if="showRetrievalModeToggle" :label="languages.RAG_RETRIEVAL_MODE">
           <div class="flex flex-col gap-1">
             <div
               class="inline-flex w-fit overflow-hidden rounded-md border border-border"
@@ -148,10 +142,7 @@
                 {{ languages.RAG_MODE_PHISON_KM }}
               </button>
             </div>
-            <p
-              v-if="retrievalModeUnavailableReason"
-              class="text-xs text-muted-foreground"
-            >
+            <p v-if="retrievalModeUnavailableReason" class="text-xs text-muted-foreground">
               {{ retrievalModeUnavailableReason }}
             </p>
           </div>

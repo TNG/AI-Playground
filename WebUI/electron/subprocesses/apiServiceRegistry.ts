@@ -2,6 +2,7 @@ import { ApiService } from './service.ts'
 import { ComfyUiBackendService } from './comfyUIBackendService.ts'
 import { AiBackendService } from './aiBackendService.ts'
 import { BrowserWindow } from 'electron'
+import { isOnDemandBackend } from '@/lib/onDemandBackends'
 import { appLoggerInstance } from '../logging/logger.ts'
 import getPort, { portNumbers } from 'get-port'
 import { LlamaCppBackendService } from './llamaCppBackendService.ts'
@@ -89,7 +90,8 @@ export class ApiServiceRegistryImpl implements ApiServiceRegistry {
   }
 
   /**
-   * Automatically start all services that are set up.
+   * Automatically start all services that are set up, except on-demand TTS/STT
+   * sidecars (those start when a feature requests them, to preserve VRAM).
    * This runs in the background and doesn't block.
    * Waits for async setup checks to complete before starting services.
    */
@@ -144,15 +146,52 @@ export class ApiServiceRegistryImpl implements ApiServiceRegistry {
       return
     }
 
-    appLoggerInstance.info(
-      `Starting ${setUpServices.length} backend service(s) automatically:`,
-      'apiServiceRegistry',
-    )
-    appLoggerInstance.info(setUpServices.map((s) => s.name).join(', '), 'apiServiceRegistry')
+    const autoStartServices = setUpServices.filter((service) => !isOnDemandBackend(service.name))
+    const onDemandServices = setUpServices.filter((service) => isOnDemandBackend(service.name))
+    if (onDemandServices.length > 0) {
+      appLoggerInstance.info(
+        `Not auto-starting on-demand backend(s) (started when requested): ${onDemandServices
+          .map((s) => s.name)
+          .join(', ')}`,
+        'apiServiceRegistry',
+      )
+    }
 
-    // Start all services in parallel, but don't block
+    if (autoStartServices.length > 0) {
+      appLoggerInstance.info(
+        `Starting ${autoStartServices.length} backend service(s) automatically:`,
+        'apiServiceRegistry',
+      )
+      appLoggerInstance.info(autoStartServices.map((s) => s.name).join(', '), 'apiServiceRegistry')
+    } else {
+      appLoggerInstance.info('No services are set up to auto-start', 'apiServiceRegistry')
+    }
+
+    // Detect devices for on-demand services so the device picker is accurate
+    // before first use; do not start them (they occupy VRAM once running).
     Promise.all(
-      setUpServices.map(async (service) => {
+      onDemandServices.map(async (service) => {
+        try {
+          await service.detectDevices()
+        } catch (error) {
+          appLoggerInstance.error(
+            `Failed to detect devices for ${service.name}: ${error}`,
+            'apiServiceRegistry',
+            true,
+          )
+        }
+      }),
+    ).catch((error) => {
+      appLoggerInstance.error(
+        `Error during on-demand device detection: ${error}`,
+        'apiServiceRegistry',
+        true,
+      )
+    })
+
+    // Start remaining services in parallel, but don't block
+    Promise.all(
+      autoStartServices.map(async (service) => {
         try {
           // Detect devices first
           await service.detectDevices()

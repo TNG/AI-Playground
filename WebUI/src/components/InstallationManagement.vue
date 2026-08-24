@@ -433,6 +433,7 @@ import {
   mapToDisplayStatus,
   compareVersions,
 } from '@/lib/utils.ts'
+import { isOnDemandBackend } from '@/lib/onDemandBackends'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import LanguageSelector from '@/components/LanguageSelector.vue'
 import BackendOptions from '@/components/BackendOptions.vue'
@@ -714,6 +715,11 @@ async function installBackend(name: BackendServiceName) {
   const setupProgress = await backendServices.setUpService(name)
   console.log('setup finished with', setupProgress)
   if (setupProgress.success) {
+    // TTS/STT sidecars stay stopped after install; first use starts them.
+    if (isOnDemandBackend(name)) {
+      loadingComponents.value.delete(name)
+      return
+    }
     await restartBackend(name)
   } else {
     errors.report('Backend setup failed', {

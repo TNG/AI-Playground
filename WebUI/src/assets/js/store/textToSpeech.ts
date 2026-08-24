@@ -274,8 +274,8 @@ export const useTextToSpeech = defineStore(
     }
 
     /**
-     * Initialize the speech server on app startup if TTS is enabled.
-     * Validates prerequisites and auto-disables TTS if they are not met.
+     * Validate TTS prerequisites on app startup if TTS is enabled.
+     * Does not start the speech server — that happens on first speak / synthesize.
      */
     async function initialize(): Promise<void> {
       if (productMode.isNvidiaModeSelected) {
@@ -305,12 +305,6 @@ export const useTextToSpeech = defineStore(
         if (!modelExists) {
           enabled.value = false
           toast.warning('Text To Speech disabled: speech model not found')
-          return
-        }
-
-        const url = await backendServices.getSpeechServerUrl()
-        if (!url) {
-          await backendServices.startSpeechServer(SPEECHT5_MODEL_NAME)
         }
       } catch (error) {
         enabled.value = false

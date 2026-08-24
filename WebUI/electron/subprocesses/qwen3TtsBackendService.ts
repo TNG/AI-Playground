@@ -32,6 +32,7 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
 
   isSetUp: boolean = false
   readonly isRequired = false
+  // Started on first synthesize, not at boot or install, so idle VRAM stays free.
   healthEndpointUrl = `${this.baseUrl}/healthy`
 
   private loopbackAuthToken: string = randomBytes(32).toString('hex')

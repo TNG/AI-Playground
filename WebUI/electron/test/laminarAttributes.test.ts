@@ -9,8 +9,15 @@ vi.mock('electron', () => ({
   },
 }))
 
-const { stampSpanStart, setChatTraceContext, setAgentRunIdentity, clearAgentRunIdentity } =
-  await import('../laminarAttributes.ts')
+const {
+  stampSpanStart,
+  stampSpanEnd,
+  setChatTraceContext,
+  setAgentRunIdentity,
+  clearAgentRunIdentity,
+  recordAgentCallStats,
+  recordChatCallStats,
+} = await import('../laminarAttributes.ts')
 
 const METADATA = 'lmnr.association.properties.metadata.'
 const HOST = `${METADATA}hostname`
@@ -21,6 +28,10 @@ const AGENT_TYPE = `${METADATA}agentType`
 const CAPABILITIES = `${METADATA}capabilities`
 const GAME = `${METADATA}game`
 const GAME_ID = `${METADATA}gameId`
+const GEN_TPS = `${METADATA}genTps`
+const PREFILL_TPS = `${METADATA}prefillTps`
+const LLM_CALLS = `${METADATA}llmCalls`
+const SPAN_TYPE = 'lmnr.span.type'
 
 describe('stampSpanStart', () => {
   afterEach(() => setChatTraceContext(null))
@@ -139,5 +150,107 @@ describe('agent run labels', () => {
     stampSpanStart(span)
     expect(names).toEqual(['Game Agent'])
     expect(span.attributes[PRESET]).toBe('Game Agent')
+  })
+})
+
+// A trace's speeds: the per-call numbers summed into one, on the span that
+// outlives the calls. Weighted by the time each call took, so a short reply
+// cannot pull the figure around.
+describe('run speeds', () => {
+  type Span = {
+    name: string
+    attributes: Record<string, unknown>
+    spanContext: () => { traceId: string; spanId: string }
+  }
+
+  const span = (name: string, traceId: string, spanId: string): Span => ({
+    name,
+    attributes:
+      name.startsWith('ai.llm') || name.startsWith('LLM call') ? { [SPAN_TYPE]: 'LLM' } : {},
+    spanContext: () => ({ traceId, spanId }),
+  })
+
+  function agentCall(traceId: string, spanId: string, stats: Record<string, number>): void {
+    const llm = span(`LLM call (turn ${spanId})`, traceId, spanId)
+    stampSpanStart(llm)
+    recordAgentCallStats(stats)
+    stampSpanEnd(llm)
+  }
+
+  it('weights each call by how long it generated for', () => {
+    const root = span('pi agent run', 't1', 'root')
+    stampSpanStart(root)
+    agentCall('t1', '1', {
+      generationTokensPerSecond: 10,
+      predictedMs: 1000,
+      prefillTokensPerSecond: 100,
+      promptMs: 500,
+    })
+    agentCall('t1', '2', {
+      generationTokensPerSecond: 20,
+      predictedMs: 3000,
+      prefillTokensPerSecond: 300,
+      promptMs: 1500,
+    })
+    stampSpanEnd(root)
+    // 10 + 60 tokens over 4 s, not the arithmetic mean of 10 and 20.
+    expect(root.attributes[GEN_TPS]).toBe(17.5)
+    expect(root.attributes[PREFILL_TPS]).toBe(250)
+    expect(root.attributes[LLM_CALLS]).toBe(2)
+  })
+
+  it('counts a delegated media call towards the run it served', () => {
+    const root = span('pi agent run', 't2', 'root')
+    stampSpanStart(root)
+    agentCall('t2', '1', { generationTokensPerSecond: 10, predictedMs: 1000 })
+    const delegated = span('ai.llm model.chat:test', 't2', 'media')
+    stampSpanStart(delegated)
+    recordChatCallStats({ generationTokensPerSecond: 30, predictedMs: 1000 })
+    stampSpanEnd(delegated)
+    stampSpanEnd(root)
+    expect(root.attributes[GEN_TPS]).toBe(20)
+    expect(root.attributes[LLM_CALLS]).toBe(2)
+  })
+
+  it('keeps traces apart', () => {
+    const first = span('pi agent run', 't3', 'root-3')
+    const second = span('pi agent run', 't4', 'root-4')
+    stampSpanStart(first)
+    stampSpanStart(second)
+    agentCall('t3', '1', { generationTokensPerSecond: 10, predictedMs: 1000 })
+    agentCall('t4', '2', { generationTokensPerSecond: 40, predictedMs: 1000 })
+    stampSpanEnd(first)
+    stampSpanEnd(second)
+    expect(first.attributes[GEN_TPS]).toBe(10)
+    expect(second.attributes[GEN_TPS]).toBe(40)
+  })
+
+  it('says nothing about a run that called no model', () => {
+    const root = span('pi agent run', 't5', 'root')
+    stampSpanStart(root)
+    stampSpanEnd(root)
+    expect(root.attributes[GEN_TPS]).toBeUndefined()
+    expect(root.attributes[LLM_CALLS]).toBeUndefined()
+  })
+
+  it('reports a chat turn on its own root, not on the call', () => {
+    const root = span('ai.streamText', 't6', 'root')
+    stampSpanStart(root)
+    const call = span('ai.llm model.chat:test', 't6', 'call')
+    stampSpanStart(call)
+    recordChatCallStats({ generationTokensPerSecond: 12.5, predictedMs: 2000 })
+    stampSpanEnd(call)
+    stampSpanEnd(root)
+    expect(call.attributes[GEN_TPS]).toBeUndefined()
+    expect(root.attributes[GEN_TPS]).toBe(12.5)
+  })
+
+  it('leaves the totals off a run whose calls were never timed', () => {
+    const root = span('pi agent run', 't7', 'root')
+    stampSpanStart(root)
+    agentCall('t7', '1', {})
+    stampSpanEnd(root)
+    expect(root.attributes[LLM_CALLS]).toBe(1)
+    expect(root.attributes[GEN_TPS]).toBeUndefined()
   })
 })

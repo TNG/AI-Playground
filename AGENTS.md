@@ -944,10 +944,12 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
 - Smoke it in seconds by asking for a trivial game and naming the `Dummy Image (test)`
   workflow for the cover, then Save → Play. A 9B model often stops after generating the
   image; one follow-up ("finish the library card") exercises the `game` tool.
-- A session belongs to the preset it was held with (`AgentSessionRecord.presetName`): the
-  Sessions panel lists only the active preset's own, resuming one switches back to its preset,
-  and the panel's **+** means "new game" under Game Agent (`agentMode.startNew()`). Sessions
-  from before this carry no preset and are migrated on hydration by their folder.
+- A session belongs to the preset it was held with (`AgentSessionRecord.presetName`). Game
+  Agent and Quick Coder share the games library, so the Sessions panel lists both when either
+  is active; resuming one still switches back to the preset it was held with. The folder-picking
+  Agent keeps its own list. The panel's **+** means "new game" under a games preset
+  (`agentMode.startNew()`). Sessions from before `presetName` are migrated on hydration by
+  their folder.
 - The game bar's cover image goes through `aipg-media://games/<folder>/<icon>` — the app window
   cannot load `file://` images, so the scheme serves the game library as a second root next to
   the media folder (`aipgMediaRoots` in `electron/main.ts`).
@@ -1139,6 +1141,7 @@ what the Traces page filters on), per-call numbers go on the LLM span. Ours are 
 | trace metadata | `capabilities`                                                        | capability ids, sorted and comma-joined, agent only          |
 | trace metadata | `appSession`                                                          | our `aipg-agent-*` session id, agent only                    |
 | trace metadata | `game`, `gameId`                                                      | the game's title as of this turn, and its folder slug        |
+| trace metadata | `genTps`, `prefillTps`, `llmCalls`                                    | the whole run's two speeds, and how many calls made them     |
 | LLM span       | `aipg.thinking`, `aipg.reasoning_effort`                              | what the turn actually asked the template for                |
 | LLM span       | `gen_ai.request.temperature` / `top_p` / `max_tokens`                 | the sampling that rode the request                           |
 | LLM span       | `aipg.prefill_tokens_per_second`, `aipg.generation_tokens_per_second` | the two speeds, kept apart                                   |
@@ -1191,6 +1194,37 @@ knows nothing. Worth knowing:
   custom view beside Tree/Transcript); the overview reads the root span name and the metadata
   column, and a [table view](https://laminar.sh/docs/platform/table-views) saves a column layout
   plus filters as a named project preset — that is where `agentType` earns its low cardinality.
+
+**A run's speed is summed here, because the Traces list cannot sum it.** A custom column in that
+list is a ClickHouse expression over the _trace row_, and the per-call speeds live on the child
+LLM spans (inside `spans.attributes`, a JSON string) — Laminar's own per-trace numbers (tokens,
+cost, duration) are likewise aggregated at ingestion, not by the list query. So `laminarAttributes.ts`
+accumulates each call's contribution and stamps the totals as trace metadata, which a column then
+reads with no subquery:
+
+| Column        | SQL (`dataType: number`)                         |
+| ------------- | ------------------------------------------------ |
+| Gen tok/s     | `simpleJSONExtractFloat(metadata, 'genTps')`     |
+| Prefill tok/s | `simpleJSONExtractFloat(metadata, 'prefillTps')` |
+| LLM calls     | `simpleJSONExtractFloat(metadata, 'llmCalls')`   |
+
+Add them under Columns → custom column and save the layout as a table view; they sort and filter
+like built-in columns. What the numbers mean:
+
+- **Summed, not averaged.** `genTps` is total generated tokens over total generation time, so a
+  five-token reply cannot count as much as a two-thousand-token one — a plain mean of the per-call
+  figures would make a long agent run look as fast as its shortest step.
+- **Tokens are recovered from each span's own speed and duration**, not read off `gen_ai.usage.*`:
+  the total then cannot disagree with the spans it is made of, and a prompt served from the
+  server's cache is not counted as prefill work that never happened.
+- **Every model call in the trace counts, the media specialist's included** — it is the same
+  backend serving the same run.
+- **The totals land on the run's root span**, the last one to end: Laminar merges a trace's
+  metadata last-write-wins in ingestion order, so writing a running total on each LLM span would
+  settle on an arbitrary one. The root is matched by span id (remembered when it starts), which is
+  why renaming it above does not lose it. Agent runs are recognized by `pi agent run`, chat turns
+  by the AI SDK operation names — a nested `ai.llm` must never be mistaken for a root, so the
+  match is by name rather than by absence of a parent.
 
 **Media generation is traced too, from the renderer.** A `media` call used to be one opaque
 TOOL span covering the whole IPC wait, which is unhelpful for the question it is usually asked

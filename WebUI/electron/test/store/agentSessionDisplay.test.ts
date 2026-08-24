@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { UIMessage } from 'ai'
 import {
   collapseGamesPrefix,
+  listPresetSessions,
   sessionDisplayTitle,
   snapshotSession,
   type AgentSessionRecord,
@@ -133,5 +134,39 @@ describe('snapshotSession', () => {
       presetName: 'Game Agent',
     })
     expect(next?.updatedAt).toBeGreaterThan(2_000)
+  })
+})
+
+describe('listPresetSessions', () => {
+  const bag = {
+    ga: archived({ id: 'ga', presetName: 'Game Agent' }),
+    qc: archived({
+      id: 'qc',
+      presetName: 'Quick Coder',
+      workspaceDir: '/games/pong',
+    }),
+    agent: archived({
+      id: 'agent',
+      presetName: 'Agent',
+      workspaceDir: '/code/project',
+      title: 'refactor',
+    }),
+  }
+
+  it('lists Game Agent and Quick Coder sessions together', () => {
+    expect(
+      listPresetSessions(bag, 'Quick Coder')
+        .map((s) => s.id)
+        .sort(),
+    ).toEqual(['ga', 'qc'])
+    expect(
+      listPresetSessions(bag, 'Game Agent')
+        .map((s) => s.id)
+        .sort(),
+    ).toEqual(['ga', 'qc'])
+  })
+
+  it('keeps the folder-picking Agent on its own list', () => {
+    expect(listPresetSessions(bag, 'Agent').map((s) => s.id)).toEqual(['agent'])
   })
 })

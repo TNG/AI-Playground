@@ -55,7 +55,7 @@
         icon-size="size-3.5"
         :delay-duration="0"
       />
-      <!-- Active chat inference backend (llama.cpp / OpenVINO) -->
+      <!-- Active chat inference backend (llama.cpp / OpenVINO / Cloud Mode) -->
       <template v-if="chatBackendBadge">
         ·
         <TooltipProvider>
@@ -67,10 +67,12 @@
                 :aria-label="`Inference backend: ${chatBackendBadge.name}`"
               >
                 <img
+                  v-if="chatBackendBadge.logo"
                   :src="chatBackendBadge.logo"
                   :alt="chatBackendBadge.name"
                   class="size-4 flex-none object-contain"
                 />
+                <CloudIcon v-else class="size-4 flex-none text-muted-foreground" />
               </button>
             </TooltipTrigger>
             <TooltipContent
@@ -152,6 +154,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon } from '@heroicons/vue/24/outline'
+import { CloudIcon } from '@heroicons/vue/24/solid'
 import llamaCppLogoDark from '@/assets/image/llamacpp-dark.svg'
 import llamaCppLogoLight from '@/assets/image/llamacpp-light.svg'
 import openVinoLogoDark from '@/assets/image/openvino-dark.svg'
@@ -160,8 +163,10 @@ import { usePromptStore } from '@/assets/js/store/promptArea'
 import {
   useTextInference,
   textInferenceBackendDisplayName,
+  textInferenceBackendDescription,
   backendToService,
 } from '@/assets/js/store/textInference'
+import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets.ts'
@@ -176,6 +181,7 @@ import AgentTokenUsage from '@/components/AgentTokenUsage.vue'
 
 const promptStore = usePromptStore()
 const textInference = useTextInference()
+const cloudMode = useCloudMode()
 const backendServices = useBackendServices()
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const imageGeneration = useImageGenerationPresets()
@@ -189,6 +195,14 @@ const isLightTheme = computed(() => theme.active === 'light')
 
 const isChatMode = computed(() => promptStore.getCurrentMode() === 'chat')
 const isAgentMode = computed(() => promptStore.getCurrentMode() === 'agent')
+
+// Chat and Agent Mode run on the same LLM backend, model and device (Agent Mode is
+// entered by picking an agent preset from the chat list), so the preset, backend and
+// device badges cover both. Keyed off `userSelectedMode` so a background comfy switch
+// during agentic tool use doesn't flip them to the image-gen indicators.
+const isLlmMode = computed(
+  () => promptStore.userSelectedMode === 'chat' || promptStore.userSelectedMode === 'agent',
+)
 
 // Get active chat preset
 const activeChatPreset = computed(() => {
@@ -231,9 +245,7 @@ const isTtsPreset = computed(
 // selected mode (not `currentMode`) so background comfy switches during
 // agentic / Home Agent tool use don't flip it.
 const presetIndicator = computed(() => {
-  // Agent Mode is reached by selecting an agent preset from the chat list, so its
-  // indicator is the same preset indicator — only the view behind it differs.
-  if (promptStore.userSelectedMode === 'chat' || promptStore.userSelectedMode === 'agent') {
+  if (isLlmMode.value) {
     const preset = stableChatPreset.value ?? fallbackChatPreset.value
     if (!preset) return null
     // Match the ModelSelector label: display only the last path segment, and
@@ -258,16 +270,22 @@ const presetIndicator = computed(() => {
   }
 })
 
-// Small badge on the preset/model line showing which local inference backend is
-// active for chat. Keyed off `userSelectedMode` (like presetIndicator) so a
-// background comfy switch during agentic tool use doesn't flip it. Hidden for
-// non-chat modes and for Cloud Mode (no local llama.cpp / OpenVINO engine).
+// Small badge on the preset/model line showing which inference backend is active
+// for a chat or agent turn: the engine logo for llama.cpp / OpenVINO, a cloud
+// glyph for Cloud Mode (which has no local engine, and no device badge either).
+// Hidden for the image/video modes and for TTS, which runs on neither.
 const chatBackendBadge = computed(() => {
-  if (promptStore.userSelectedMode !== 'chat') return null
-  // TTS doesn't run on llama.cpp / OpenVINO, so no engine badge for it.
+  if (!isLlmMode.value) return null
   if (isTtsPreset.value) return null
   const backend = textInference.backend
-  if (backend !== 'llamaCPP' && backend !== 'openVINO') return null
+  if (backend === 'cloud') {
+    const provider = cloudMode.selectedProvider?.name
+    return {
+      name: provider ? `${textInferenceBackendDisplayName.cloud} · ${provider}` : 'Cloud Mode',
+      description: textInferenceBackendDescription.cloud,
+      logo: undefined,
+    }
+  }
   return {
     name: textInferenceBackendDisplayName[backend],
     description:
@@ -312,11 +330,11 @@ function selectedDeviceBadgeFor(serviceName: BackendServiceName) {
 
 // Selected inference device shown as a short text badge (GPU / NPU / CPU), device name
 // on hover — for whichever backend the active mode actually runs on, not just the chat
-// engine: llama.cpp / OpenVINO (or TTS) in chat mode, and ComfyUI in the Image / Image
-// Edit / Video modes. Null on Cloud Mode (remote — no local hardware) and before device
-// detection has reported a selection.
+// engine: llama.cpp / OpenVINO (or TTS) in chat and agent mode, and ComfyUI in the Image /
+// Image Edit / Video modes. Null on Cloud Mode (remote — no local hardware) and before
+// device detection has reported a selection.
 const deviceBadge = computed(() => {
-  if (promptStore.userSelectedMode === 'chat') {
+  if (isLlmMode.value) {
     if (isTtsPreset.value) return selectedDeviceBadgeFor('qwen3-tts-backend')
     const backend = textInference.backend
     if (backend === 'cloud') return null

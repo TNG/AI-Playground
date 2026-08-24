@@ -33,7 +33,13 @@ export type AgentSessionRecord = {
  * runs on hydration, before the preset catalog is loaded.
  */
 export const GAME_AGENT_PRESET = 'Game Agent'
+export const QUICK_CODER_PRESET = 'Quick Coder'
 export const AGENT_PRESET = 'Agent'
+
+function isGamesPreset(name: string): boolean {
+  const current = currentPresetName(name)
+  return current === GAME_AGENT_PRESET || current === QUICK_CODER_PRESET
+}
 
 export function mintSessionId(): string {
   return `aipg-agent-${crypto.randomUUID()}`
@@ -86,9 +92,14 @@ export function listPresetSessions(
   sessions: Record<string, AgentSessionRecord>,
   agentPresetName: string,
 ): AgentSessionRecord[] {
-  return Object.values(sessions).filter(
-    (session) => !session.presetName || session.presetName === agentPresetName,
-  )
+  return Object.values(sessions).filter((session) => {
+    if (!session.presetName) return true
+    if (session.presetName === agentPresetName) return true
+    // Game Agent and Quick Coder share the games library, so their sessions
+    // sit in one list. Resuming one still switches back to the preset it
+    // was held with.
+    return isGamesPreset(agentPresetName) && isGamesPreset(session.presetName)
+  })
 }
 
 export function migrateMcpServerIdsIntoCapabilities(

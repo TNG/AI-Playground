@@ -95,6 +95,7 @@ type ProcessedSpan = {
   isRecording?: () => boolean
   setAttribute?: (key: string, value: string | number | boolean) => unknown
   updateName?: (name: string) => unknown
+  spanContext?: () => { spanId?: string; traceId?: string }
 }
 
 /** The name Pi gives an agent run's root span, and the only one we rename. */
@@ -132,6 +133,33 @@ export function setAgentRunIdentity(get: () => AgentRunIdentity | undefined): vo
 export function clearAgentRunIdentity(): void {
   agentIdentity = null
 }
+
+// ── How fast a whole run was ─────────────────────────────────────────────────
+//
+// The per-call speeds are on the LLM spans, which is where they belong, but the
+// Traces list cannot reach into a trace's spans: its columns are expressions
+// over the trace row, and Laminar's own per-trace numbers (tokens, cost) are
+// aggregated at ingestion. So the run's own speeds are summed here and shipped
+// as trace metadata, which a custom column reads (see AGENTS.md).
+//
+// Summed, not averaged: a duration-weighted mean is total tokens over total
+// time, whereas a plain mean of the per-call numbers would let a five-token
+// reply count as much as a two-thousand-token one.
+
+type RunSpeeds = {
+  /** The span the aggregate is written to: the last one of the run to end. */
+  rootSpanId?: string
+  generationTokens: number
+  generationMs: number
+  promptTokens: number
+  promptMs: number
+  calls: number
+}
+
+/** A trace whose root never ends (a crash mid-run) would otherwise stay forever. */
+const MAX_TRACKED_RUNS = 32
+
+const runSpeeds = new Map<string, RunSpeeds>()
 
 export function setChatTraceContext(context: InferenceTraceContext | null): void {
   chatContext = context
@@ -183,6 +211,7 @@ export function stampSpanStart(started: unknown): void {
     // the renderer has not yet sent a context, so traces from two test boxes
     // never look interchangeable.
     apply(span, optional(`${METADATA_PREFIX}hostname`, hostName()))
+    noteRunRoot(span)
     if (!isChatSpan(span)) labelAgentRun(span)
     const context = contextFor(span)
     if (!context) return
@@ -244,16 +273,109 @@ function hostName(): string | undefined {
 export function stampSpanEnd(ended: unknown): void {
   try {
     const span = ended as ProcessedSpan
-    if (span.attributes?.[SPAN_TYPE] !== 'LLM') return
-    const chat = isChatSpan(span)
-    const context = chat ? chatContext : agentContext?.()
-    const stats = chat ? chatCallStats : agentCallStats
-    if (chat) chatCallStats = null
-    else agentCallStats = null
-    apply(span, { ...requestAttributes(context), ...statsAttributes(stats) })
+    if (span.attributes?.[SPAN_TYPE] === 'LLM') {
+      const chat = isChatSpan(span)
+      const context = chat ? chatContext : agentContext?.()
+      const stats = chat ? chatCallStats : agentCallStats
+      if (chat) chatCallStats = null
+      else agentCallStats = null
+      apply(span, { ...requestAttributes(context), ...statsAttributes(stats) })
+      noteCallSpeeds(span, stats)
+    }
+    // Every LLM call of the trace has ended by the time its root does, whichever
+    // surface made them — a delegated media run's calls included.
+    stampRunSpeeds(span)
   } catch (error) {
     logger.warn(`could not stamp LLM span: ${error}`, LOG_SOURCE)
   }
+}
+
+/**
+ * The span a run's totals belong on: the one that outlives every call of it.
+ * For an agent run that is the span Pi opens for the run, for a chat turn the
+ * AI SDK operation that holds the calls — matched by name, since a span's type
+ * is not set yet when the processor first sees it, and a nested `ai.llm` would
+ * otherwise claim to be the root of anything it is not visibly parented to.
+ * A delegated run is parented to the media tool call, so it is not a root and
+ * its calls count towards the trace it was made for.
+ */
+const AI_SDK_OPERATIONS = [
+  'ai.streamText',
+  'ai.generateText',
+  'ai.streamObject',
+  'ai.generateObject',
+]
+
+function isRunRoot(span: ProcessedSpan): boolean {
+  if (span.name === PI_ROOT_SPAN) return true
+  const name = span.name ?? ''
+  return isRootSpan(span) && AI_SDK_OPERATIONS.some((operation) => name.startsWith(operation))
+}
+
+function noteRunRoot(span: ProcessedSpan): void {
+  if (!isRunRoot(span)) return
+  const context = span.spanContext?.()
+  if (!context?.traceId || !context.spanId) return
+  speedsOf(context.traceId).rootSpanId = context.spanId
+}
+
+function speedsOf(traceId: string): RunSpeeds {
+  const known = runSpeeds.get(traceId)
+  if (known) return known
+  const fresh: RunSpeeds = {
+    generationTokens: 0,
+    generationMs: 0,
+    promptTokens: 0,
+    promptMs: 0,
+    calls: 0,
+  }
+  runSpeeds.set(traceId, fresh)
+  while (runSpeeds.size > MAX_TRACKED_RUNS) {
+    const oldest = runSpeeds.keys().next().value
+    if (oldest === undefined) break
+    runSpeeds.delete(oldest)
+  }
+  return fresh
+}
+
+/**
+ * One call's contribution. Tokens are recovered from the speed and the duration
+ * rather than read off `gen_ai.usage.*`: those two are what the span reports, so
+ * the total cannot disagree with the calls it is made of, and a prompt served
+ * from cache does not count as tokens the server processed.
+ */
+function noteCallSpeeds(span: ProcessedSpan, stats: InferenceCallStats | null): void {
+  const traceId = span.spanContext?.().traceId
+  if (!traceId || !stats) return
+  const speeds = speedsOf(traceId)
+  speeds.calls += 1
+  if (stats.generationTokensPerSecond && stats.predictedMs) {
+    speeds.generationMs += stats.predictedMs
+    speeds.generationTokens += (stats.generationTokensPerSecond * stats.predictedMs) / 1000
+  }
+  if (stats.prefillTokensPerSecond && stats.promptMs) {
+    speeds.promptMs += stats.promptMs
+    speeds.promptTokens += (stats.prefillTokensPerSecond * stats.promptMs) / 1000
+  }
+}
+
+function stampRunSpeeds(span: ProcessedSpan): void {
+  const context = span.spanContext?.()
+  if (!context?.traceId) return
+  const speeds = runSpeeds.get(context.traceId)
+  if (!speeds || speeds.rootSpanId !== context.spanId) return
+  runSpeeds.delete(context.traceId)
+  if (speeds.calls === 0) return
+  apply(span, {
+    [`${METADATA_PREFIX}llmCalls`]: speeds.calls,
+    ...optional(`${METADATA_PREFIX}genTps`, rate(speeds.generationTokens, speeds.generationMs)),
+    ...optional(`${METADATA_PREFIX}prefillTps`, rate(speeds.promptTokens, speeds.promptMs)),
+  })
+}
+
+function rate(tokens: number, ms: number): number | undefined {
+  if (ms <= 0) return undefined
+  return Math.round((tokens / ms) * 1000 * 10) / 10
 }
 
 function requestAttributes(context: InferenceTraceContext | null | undefined): SpanAttributes {

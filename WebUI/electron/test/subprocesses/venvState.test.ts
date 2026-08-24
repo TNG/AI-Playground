@@ -5,6 +5,7 @@ import path from 'node:path'
 import {
   isUsableVenv,
   removeBrokenVenv,
+  requireUsableVenv,
   venvInterpreterPath,
 } from '../../subprocesses/uvBasedBackends/venvState'
 
@@ -50,6 +51,21 @@ describe('isUsableVenv', () => {
     fs.mkdirSync(path.dirname(venvInterpreterPath(venvDir)), { recursive: true })
     fs.writeFileSync(venvInterpreterPath(venvDir), '')
     expect(isUsableVenv(venvDir)).toBe(true)
+  })
+})
+
+describe('requireUsableVenv', () => {
+  it('throws when the interpreter is missing', () => {
+    const venvDir = path.join(createTempDir(), '.venv')
+    fs.mkdirSync(venvDir)
+    expect(() => requireUsableVenv(venvDir)).toThrow(venvInterpreterPath(venvDir))
+  })
+
+  it('does not throw when the interpreter exists', () => {
+    const venvDir = path.join(createTempDir(), '.venv')
+    fs.mkdirSync(path.dirname(venvInterpreterPath(venvDir)), { recursive: true })
+    fs.writeFileSync(venvInterpreterPath(venvDir), '')
+    expect(() => requireUsableVenv(venvDir)).not.toThrow()
   })
 })
 

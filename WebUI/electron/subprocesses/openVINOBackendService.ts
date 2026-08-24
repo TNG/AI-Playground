@@ -10,6 +10,7 @@ import { exec } from 'child_process'
 import { LocalSettings } from '../main.ts'
 import getPort, { portNumbers } from 'get-port'
 import { ensureManagedPython, installBackend, uvPipInstallToTarget } from './uvBasedBackends/uv.ts'
+import { venvInterpreterPath } from './uvBasedBackends/venvState.ts'
 import { binary, extract, restoreTreeWritePermissions } from './tools.ts'
 import { getBundledBackendVersionSync, resolveModels } from '../remoteUpdates.ts'
 import {
@@ -955,10 +956,7 @@ export class OpenVINOBackendService implements ApiService {
    * Returns array of {id, name} objects, or null if detection fails.
    */
   private async detectDevicesWithPython(): Promise<{ id: string; name: string }[] | null> {
-    const pythonExe = path.join(
-      this.pythonEnvDir,
-      process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python',
-    )
+    const pythonExe = venvInterpreterPath(this.pythonEnvDir)
 
     // Check if Python environment and script exist
     if (!filesystem.existsSync(pythonExe) || !filesystem.existsSync(this.detectDevicesScript)) {

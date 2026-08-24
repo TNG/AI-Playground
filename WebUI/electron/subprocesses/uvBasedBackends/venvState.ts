@@ -14,6 +14,11 @@ export function isUsableVenv(venvDir: string): boolean {
   return fs.existsSync(venvInterpreterPath(venvDir))
 }
 
+export function requireUsableVenv(venvDir: string): void {
+  if (isUsableVenv(venvDir)) return
+  throw new Error(`Virtual environment at ${venvDir} is missing ${venvInterpreterPath(venvDir)}`)
+}
+
 /**
  * Remove a leftover `.venv` that has no interpreter. `uv venv --allow-existing`
  * preserves that directory instead of recreating python.exe — the state an

@@ -5,7 +5,12 @@ import path from 'path'
 import fs from 'fs'
 import { spawn } from 'child_process'
 import z from 'zod'
-import { isUsableVenv, removeBrokenVenv, venvInterpreterPath } from './venvState.ts'
+import {
+  isUsableVenv,
+  removeBrokenVenv,
+  requireUsableVenv,
+  venvInterpreterPath,
+} from './venvState.ts'
 
 export const aipgBaseDir = app.isPackaged
   ? packagedResourcesRoot()
@@ -389,6 +394,13 @@ export const installBackendWithExtra = async (
 export const checkBackend = async (backend: string, extra?: UvExtra) => {
   const logger = loggerFor(`uv.check.${backend}`)
   await assertUv(logger)
+  const venvDir = backendVenvDir(backend)
+  if (!isUsableVenv(venvDir)) {
+    logger.warn(
+      `Backend ${backend} venv is missing its interpreter at ${venvInterpreterPath(venvDir)}`,
+    )
+    requireUsableVenv(venvDir)
+  }
   const uvCommand = ['sync', '--check', '--directory', aipgBaseDir, '--project', backend]
   // Resolve against the same optional-dependency extra the backend was installed
   // with (e.g. 'xpu'). Without it, uv resolves the base deps — generic torch,

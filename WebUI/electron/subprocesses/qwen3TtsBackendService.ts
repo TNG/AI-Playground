@@ -111,11 +111,7 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
   }
 
   private get pythonBinary(): string {
-    return path.join(
-      this.pythonEnvDir,
-      process.platform === 'win32' ? 'Scripts' : 'bin',
-      process.platform === 'win32' ? 'python.exe' : 'python',
-    )
+    return this.getPythonBinaryPath()
   }
 
   /**

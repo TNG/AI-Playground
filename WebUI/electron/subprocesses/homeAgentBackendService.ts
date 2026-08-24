@@ -316,11 +316,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       AIPG_LOOPBACK_TOKEN: this.loopbackAuthToken,
     }
 
-    const pythonBinary = path.join(
-      this.pythonEnvDir,
-      process.platform === 'win32' ? 'Scripts' : 'bin',
-      process.platform === 'win32' ? 'python.exe' : 'python',
-    )
+    const pythonBinary = this.getPythonBinaryPath()
     const apiProcess = spawn(pythonBinary, ['web_api.py', '--port', this.port.toString()], {
       cwd: this.serviceDir,
       windowsHide: true,

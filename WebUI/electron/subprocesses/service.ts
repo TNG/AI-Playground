@@ -15,6 +15,7 @@ import { promisify } from 'util'
 import { Arch, getArchPriority, getDeviceArch } from './deviceArch.ts'
 import { z } from 'zod'
 import { LocalSettings } from '../main.ts'
+import { isUsableVenv, venvInterpreterPath } from './uvBasedBackends/venvState.ts'
 
 const exec = promisify(childProcess.exec)
 
@@ -525,6 +526,10 @@ export abstract class LongLivedPythonApiService implements ApiService {
   abstract serviceIsSetUp(): Promise<boolean>
   abstract detectDevices(): Promise<void>
 
+  getPythonBinaryPath(): string {
+    return venvInterpreterPath(this.pythonEnvDir)
+  }
+
   async selectDevice(deviceId: string): Promise<void> {
     if (!this.devices.find((d) => d.id === deviceId)) return
     this.devices = this.devices.map((d) => ({ ...d, selected: d.id === deviceId }))
@@ -791,6 +796,14 @@ export abstract class LongLivedPythonApiService implements ApiService {
    * specific message.
    */
   protected async assertReadyToStart(): Promise<void> {
+    // Dir-only leftover `.venv` after an app upgrade (no python.exe) must not
+    // reach spawn — every uv-backed backend shares this interpreter check.
+    if (!isUsableVenv(this.pythonEnvDir)) {
+      this.isSetUp = false
+      throw new Error(
+        `The ${this.name} environment is not fully installed. Reinstall this component to finish provisioning it before starting.`,
+      )
+    }
     const ready = await this.serviceIsSetUp()
     if (!ready) {
       this.isSetUp = false

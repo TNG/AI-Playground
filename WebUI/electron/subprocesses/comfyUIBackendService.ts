@@ -21,7 +21,7 @@ import {
   installExtraWheels,
   pipInstallRequirementsFromFile,
 } from './uvBasedBackends/uv.ts'
-import { isUsableVenv, venvInterpreterPath } from './uvBasedBackends/venvState.ts'
+import { isUsableVenv } from './uvBasedBackends/venvState.ts'
 import {
   COMFYUI_DEPS_MARKER_FILENAME,
   normalizeComfyUiRef,
@@ -1441,10 +1441,6 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
       ...this.getCommonEnvVars(),
       ...this.getDeviceSelectorEnv(),
     }
-  }
-
-  getPythonBinaryPath() {
-    return venvInterpreterPath(this.pythonEnvDir)
   }
 
   async detectDevices() {

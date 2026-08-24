@@ -70,9 +70,10 @@ export const useTextToSpeech = defineStore(
   () => {
     const enabled = ref(false)
     const initializing = ref(false)
-    // When true, the desktop app auto-plays replies (and the Home Agent sends a
-    // voice reply) whenever the user's input came from speech.
-    const autoSpeakOnVoiceInput = ref(true)
+    // Note: "Speak replies" is a per-preset tool setting (textInference.speakReplies,
+    // edited on the Text To Speech tool row), not TTS-engine config — see
+    // `textInference.speakRepliesAllowed`.
+
     // Which engine the TTS preset (and the synthesizeTextToSpeech tool) uses. Edited
     // in SettingsTts; 'kokoro' is only selectable when `isKokoroAvailable` is true.
     const selectedEngine = ref<TtsEngine>('qwen3')
@@ -451,7 +452,6 @@ export const useTextToSpeech = defineStore(
     return {
       enabled,
       initializing,
-      autoSpeakOnVoiceInput,
       selectedEngine,
       selectedKokoroVoice,
       isKokoroAvailable,
@@ -475,13 +475,7 @@ export const useTextToSpeech = defineStore(
   {
     persist: {
       storage: demoAwareStorage,
-      pick: [
-        'enabled',
-        'autoSpeakOnVoiceInput',
-        'selectedEngine',
-        'selectedKokoroVoice',
-        'fallback',
-      ],
+      pick: ['enabled', 'selectedEngine', 'selectedKokoroVoice', 'fallback'],
     },
   },
 )

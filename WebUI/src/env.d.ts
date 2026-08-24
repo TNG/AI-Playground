@@ -295,108 +295,11 @@ type DemoModePage = 'chat' | 'imageGen' | 'imageEdit' | 'video'
 type WorkflowModeType = 'imageGen' | 'imageEdit' | 'video'
 type ModeType = 'chat' | 'agent' | WorkflowModeType
 
-// Agent Mode (Pi coding agent) — mirrors electron/agentMode/piAgentManager.ts.
-type AgentModeModelConfig =
-  | {
-      source: 'local'
-      model: string
-      baseUrl: string
-      /**
-       * Which local backend serves this turn. Only the renderer knows it — the
-       * base URL is just a loopback port — and tracing needs it to read the
-       * right server's version and launch line (electron/llmServerSnapshot.ts).
-       */
-      backend?: 'llamaCPP' | 'openVINO'
-      /** Device the backend is set to (`GPU.0`, `NPU`, …), for the same reason. */
-      device?: string
-      /** Human-readable name of that device (`Intel Arc B580`, …). */
-      deviceName?: string
-      contextWindow?: number
-      /**
-       * Whether the model can be shown an image. Pi drops the image a tool
-       * returned (an attachment, a screenshot) with a note when this is false,
-       * so claiming it wrongly sends bytes a text model cannot read.
-       */
-      supportsVision?: boolean
-      /**
-       * Raw completion-body fields (temperature, top_k, chat_template_kwargs, …)
-       * merged into every request of the turn. Carries the sampling the model's
-       * publisher recommends, which Pi does not model as typed options.
-       */
-      samplingParams?: Record<string, unknown>
-    }
-  | {
-      source: 'cloud'
-      /** Upstream model id as served by the provider (e.g. 'gpt-4o'). */
-      model: string
-      /** Loopback base URL of the main-process cloud proxy (no /v1). */
-      proxyBaseUrl: string
-      /** Real provider base URL, forwarded as X-Cloud-Upstream. */
-      upstreamBaseUrl: string
-      /** Provider id the proxy uses to look up the stored API key. */
-      providerId: string
-      /** How the proxy attaches the key upstream (bearer | x-api-key | api-key). */
-      authStyle: string
-      contextWindow?: number
-      supportsVision?: boolean
-    }
-
-type AgentToolSpec = {
-  name: string
-  description: string
-  /** JSON Schema for the tool input (converted from zod in the renderer). */
-  inputSchema: Record<string, unknown>
-  /**
-   * Input keys holding workspace-relative file paths that the main process
-   * must resolve and inline as data URIs before dispatching execution.
-   */
-  workspacePathInputs?: string[]
-}
-
-/** One user-toggleable chunk of agent functionality (see capabilities/index.ts). */
-type AgentCapabilityInfo = {
-  id: string
-  label: string
-  summary: string
-  /** Capability ids enabling this one also pulls in. */
-  requires: string[]
-  /** Slash commands the capability answers, sendable as a prompt of their own. */
-  commands: { command: string; description: string }[]
-  /** Set when the capability cannot be used right now, with the reason. */
-  unavailableReason?: string
-}
-
-type AgentModeTurnConfig = {
-  /** Renderer-minted stable session id (one per archived conversation). */
-  sessionId: string
-  workspaceDir: string
-  modelConfig: AgentModeModelConfig
-  toolSpecs?: AgentToolSpec[]
-  /**
-   * Extra instructions appended to the agent's system prompt — the active
-   * preset's `systemPrompt`, which is what makes Game Agent a game builder rather
-   * than a generic agent.
-   */
-  instructions?: string
-  /**
-   * Capability ids enabled for this session ('media', 'web-debug',
-   * `mcp:<serverId>`, …). Omitted means the defaults.
-   */
-  capabilities?: string[]
-  /** IDs of configured MCP servers whose tools are attached to the agent. */
-  mcpServerIds?: string[]
-  /**
-   * Run file/shell tools against the real host shell instead of the sandbox.
-   * Requires explicit per-workspace consent (see the agentMode store).
-   */
-  unsandboxed?: boolean
-  /**
-   * Let the agent think while it plans, then run the rest of the session with
-   * thinking off — the switch flips once its plan file exists (planningPhase.ts).
-   * Only capabilities that write a plan (game studio) are affected.
-   */
-  planningThinkingOnly?: boolean
-}
+// Agent Mode (Pi coding agent) — see src/types/agentIpc.ts.
+type AgentModeModelConfig = import('./types/agentIpc').AgentModeModelConfig
+type AgentToolSpec = import('./types/agentIpc').AgentToolSpec
+type AgentCapabilityInfo = import('./types/agentIpc').AgentCapabilityInfo
+type AgentModeTurnConfig = import('./types/agentIpc').AgentModeTurnConfig
 
 /** Streaming output of a running tool, keyed by the tool call it belongs to. */
 type AgentToolProgress = {
@@ -406,25 +309,7 @@ type AgentToolProgress = {
   text: string
 }
 
-/**
- * A game in the library (see electron/gameLibrary.ts). `dir` is the game's folder,
- * which is also the agent's workspace for it, and doubles as the id.
- */
-type GameLibraryEntry = {
-  id: string
-  name: string
-  description: string
-  entry: string
-  icon?: string
-  published: boolean
-  createdAt: number
-  updatedAt: number
-  dir: string
-  entryPath: string
-  iconPath?: string
-  /** The icon as an `aipg-media://games/…` URL, loadable in the app window. */
-  iconUrl?: string
-}
+type GameLibraryEntry = import('./types/agentIpc').GameLibraryEntry
 
 /** An image a tool produced, shown to the user under that tool's card. */
 type AgentToolImage = {
@@ -692,11 +577,11 @@ type electronAPI = {
       toolSpecs?: AgentToolSpec[]
       mcpServerIds?: string[]
     }): Promise<AgentCapabilityInfo[]>
-    onStreamChunk(callback: (data: { turnId: string; chunk: unknown }) => void): void
-    onToolProgress(callback: (data: AgentToolProgress) => void): void
-    onToolImage(callback: (data: AgentToolImage) => void): void
-    onTurnDone(callback: (data: { turnId: string }) => void): void
-    onExecuteTool(callback: (data: AgentToolExecuteRequest) => void): void
+    onStreamChunk(callback: (data: { turnId: string; chunk: unknown }) => void): () => void
+    onToolProgress(callback: (data: AgentToolProgress) => void): () => void
+    onToolImage(callback: (data: AgentToolImage) => void): () => void
+    onTurnDone(callback: (data: { turnId: string }) => void): () => void
+    onExecuteTool(callback: (data: AgentToolExecuteRequest) => void): () => void
     submitToolResult(requestId: string, result: unknown, error?: string): Promise<void>
   }
   games: {

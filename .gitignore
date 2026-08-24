@@ -1,6 +1,8 @@
 .DS_Store
 .idea
 .vscode/
+node_modules/
+**/.vite/
 env/
 package_res/
 build_resources/

@@ -12,6 +12,7 @@ import {
   estimateToolTokens,
   expandCapabilityIds,
   shouldDeferCapabilityTools,
+  shapesSession,
   type AgentCapability,
   type CapabilityCommand,
   type CapabilityHost,
@@ -34,7 +35,7 @@ const logger = appLoggerInstance
 const LOG_SOURCE = 'capabilities'
 
 /** Capabilities that are enabled for a new session unless the user says otherwise. */
-export const DEFAULT_CAPABILITY_IDS = ['media', 'web-debug'] as const
+export { DEFAULT_CAPABILITY_IDS } from '@/types/agentCapabilities'
 
 /** Built-in capabilities, in the order their tools are registered. */
 const BUILT_IN_CAPABILITIES: AgentCapability[] = [
@@ -164,13 +165,17 @@ export async function resolveCapabilities(
     )
   }
 
-  // First declaration wins, in catalog order: these describe the shape of the
-  // whole session, and a session has one shape.
-  const ownSession = resolved.find(({ capability }) => capability.ownSession)?.capability.ownSession
-  const planningEnd = resolved.find(({ capability }) => capability.planningEnd)?.capability
-    .planningEnd
-  const planHandoff = resolved.find(({ capability }) => capability.planHandoff)?.capability
-    .planHandoff
+  // A session has one shape. Two capabilities that each define one used to
+  // silently first-wins; fail the build instead so a mixed preset is visible.
+  const shapers = resolved.filter(({ capability }) => shapesSession(capability))
+  if (shapers.length > 1) {
+    throw new Error(
+      `Capabilities ${shapers.map(({ capability }) => capability.id).join(', ')} all shape the session; enable only one of them.`,
+    )
+  }
+  const ownSession = shapers[0]?.capability.ownSession
+  const planningEnd = shapers[0]?.capability.planningEnd
+  const planHandoff = shapers[0]?.capability.planHandoff
 
   return {
     resolved,
@@ -196,8 +201,9 @@ export { mcpCapabilityId, mcpServerIdOf, MCP_CAPABILITY_PREFIX } from './mcp.ts'
  * Capability metadata for the settings UI: what exists, what it does, and why
  * something cannot be used right now. Same catalog the session build uses, so
  * the checkbox list can never drift from what the agent actually gets — minus
- * the capabilities that own a session, which belong to their preset rather than
- * to a checkbox next to another preset's agent.
+ * the capabilities that shape the session (`ownSession`, `planningEnd`,
+ * `planHandoff`), which belong to their preset rather than to a checkbox next
+ * to another preset's agent.
  */
 export type CapabilityInfo = {
   id: string
@@ -214,7 +220,7 @@ export function listCapabilities(
   mcpServerIds: string[] = [],
 ): CapabilityInfo[] {
   return capabilityCatalog(mcpServerIds.map((id) => mcpCapabilityId(id)))
-    .filter((capability) => !capability.ownSession)
+    .filter((capability) => !shapesSession(capability))
     .map((capability) => {
       const reason = capability.unavailableReason?.(host)
       return {
@@ -227,9 +233,11 @@ export function listCapabilities(
       }
     })
 }
+
 export type {
   AgentCapability,
   CapabilityCommand,
   CapabilityHost,
   ResolvedCapability,
 } from './types.ts'
+export { shapesSession } from './types.ts'

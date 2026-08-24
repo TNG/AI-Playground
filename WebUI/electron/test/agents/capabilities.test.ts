@@ -140,15 +140,19 @@ describe('the capability catalog', () => {
     expect(media?.unavailableReason).toMatch(/ComfyUI/)
     const memory = withoutMedia.find((entry) => entry.id === 'memory')
     expect(memory?.commands.map((command) => command.command)).toContain('/memory-insights')
-    const gameStudio = withoutMedia.find((entry) => entry.id === 'game-studio')
-    expect(gameStudio?.requires).toEqual(['media', 'web-debug'])
+    expect(capabilityCatalog().find((entry) => entry.id === 'game-studio')?.requires).toEqual([
+      'media',
+      'web-debug',
+    ])
   })
 
-  // Ticking it next to another preset's agent would take that agent's prompt and
-  // tools away, which is not what a checkbox in a capability list means.
-  it('keeps a capability that owns its session out of the settings list', () => {
-    expect(capabilityCatalog().map(({ id }) => id)).toContain('game-studio-quick')
-    expect(listCapabilities(hostWith()).map(({ id }) => id)).not.toContain('game-studio-quick')
+  it('keeps session-shaping capabilities out of the settings list', () => {
+    const catalogIds = capabilityCatalog().map(({ id }) => id)
+    expect(catalogIds).toContain('game-studio')
+    expect(catalogIds).toContain('game-studio-quick')
+    const listed = listCapabilities(hostWith()).map(({ id }) => id)
+    expect(listed).not.toContain('game-studio')
+    expect(listed).not.toContain('game-studio-quick')
   })
 })
 
@@ -289,6 +293,12 @@ describe('resolveCapabilities', () => {
     const resolution = await resolveCapabilities(hostWith(), ['game-studio'])
     expect(resolution.ownSession).toBeUndefined()
     expect(resolution.planningEnd).toBe('plan-file')
+  })
+
+  it('refuses to mix two session-shaping capabilities', async () => {
+    await expect(
+      resolveCapabilities(hostWith(), ['game-studio', 'game-studio-quick']),
+    ).rejects.toThrow(/game-studio, game-studio-quick/)
   })
 
   it('attaches MCP servers as capabilities of their own', async () => {

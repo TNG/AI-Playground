@@ -5,6 +5,9 @@ import { getMcpServerTools } from '../../subprocesses/mcpManager.ts'
 import { jsonResult, jsonSchemaParameters } from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
 import type { AgentCapability } from './types.ts'
+import { mcpCapabilityId } from '@/types/agentCapabilities'
+
+export { MCP_CAPABILITY_PREFIX, mcpCapabilityId, mcpServerIdOf } from '@/types/agentCapabilities'
 
 // ── MCP capabilities ─────────────────────────────────────────────────────────
 //
@@ -15,18 +18,6 @@ import type { AgentCapability } from './types.ts'
 
 const logger = appLoggerInstance
 const LOG_SOURCE = 'capabilities/mcp'
-
-export const MCP_CAPABILITY_PREFIX = 'mcp:'
-
-export function mcpCapabilityId(serverId: string): string {
-  return `${MCP_CAPABILITY_PREFIX}${serverId}`
-}
-
-export function mcpServerIdOf(capabilityId: string): string | undefined {
-  return capabilityId.startsWith(MCP_CAPABILITY_PREFIX)
-    ? capabilityId.slice(MCP_CAPABILITY_PREFIX.length)
-    : undefined
-}
 
 async function buildMcpTools(serverId: string): Promise<ToolDefinition[]> {
   const pi = await loadPi()

@@ -4,6 +4,7 @@ import {
   groupTranscriptParts,
   mediaToolNameOf,
   toolPartNameOf,
+  busyLabelOf,
   type TranscriptSegment,
 } from './agentTranscript'
 
@@ -126,5 +127,40 @@ describe('part classification', () => {
 
     expect(compactionOutputOf(part)?.trigger).toBe('threshold')
     expect(compactionOutputOf(tool('bash'))).toBeNull()
+  })
+})
+
+describe('busyLabelOf', () => {
+  it('names the in-flight part, and thinks after a finished tool', () => {
+    expect(busyLabelOf([])).toBe('Agent is working…')
+    expect(busyLabelOf([{ type: 'reasoning', state: 'streaming' }])).toBe('Thinking…')
+    expect(busyLabelOf([{ type: 'text', state: 'streaming' }])).toBe('Writing response…')
+    expect(
+      busyLabelOf([
+        {
+          type: 'dynamic-tool',
+          toolName: 'read',
+          state: 'input-available',
+          input: { file_path: 'game.js' },
+        },
+      ]),
+    ).toBe('Reading game.js…')
+    expect(busyLabelOf([tool('bash')])).toBe('Thinking…')
+  })
+
+  it('prefers a nested media step label over the generic media name', () => {
+    expect(
+      busyLabelOf(
+        [
+          {
+            type: 'dynamic-tool',
+            toolName: 'media',
+            state: 'input-available',
+            toolCallId: 'm1',
+          },
+        ],
+        (id) => (id === 'm1' ? 'Generating image…' : undefined),
+      ),
+    ).toBe('Generating image…')
   })
 })

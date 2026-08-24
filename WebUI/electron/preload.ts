@@ -1,8 +1,17 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import pkg from '../package.json'
 import { LocalSettings } from './main'
 import { ModelPaths } from '@/assets/js/store/models'
 import { EmbedInquiry, IndexedDocument } from '@/assets/js/store/textInference'
+import type { AgentModeTurnConfig } from '@/types/agentIpc'
+
+function listen<T>(channel: string, callback: (data: T) => void): () => void {
+  const listener = (_event: IpcRendererEvent, data: T) => callback(data)
+  ipcRenderer.on(channel, listener)
+  return () => {
+    ipcRenderer.removeListener(channel, listener)
+  }
+}
 
 contextBridge.exposeInMainWorld('envVars', {
   platformTitle: import.meta.env.VITE_PLATFORM_TITLE,
@@ -244,7 +253,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     removeServer: (serverId: string) => ipcRenderer.invoke('mcp:removeServer', serverId),
   },
   agentMode: {
-    startTurn: (turnId: string, prompt: string, config: unknown) =>
+    startTurn: (turnId: string, prompt: string, config: AgentModeTurnConfig) =>
       ipcRenderer.invoke('agentMode:startTurn', turnId, prompt, config),
     cancel: () => ipcRenderer.invoke('agentMode:cancel'),
     resetSession: () => ipcRenderer.invoke('agentMode:resetSession'),
@@ -257,7 +266,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       mcpServerIds?: string[]
     }) => ipcRenderer.invoke('agentMode:listCapabilities', options),
     onStreamChunk: (callback: (data: { turnId: string; chunk: unknown }) => void) =>
-      ipcRenderer.on('agentMode:streamChunk', (_event, data) => callback(data)),
+      listen('agentMode:streamChunk', callback),
     onToolProgress: (
       callback: (data: {
         turnId: string
@@ -265,12 +274,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
         toolName: string
         text: string
       }) => void,
-    ) => ipcRenderer.on('agentMode:toolProgress', (_event, data) => callback(data)),
+    ) => listen('agentMode:toolProgress', callback),
     onToolImage: (
       callback: (data: { toolCallId: string; dataUri: string; label: string }) => void,
-    ) => ipcRenderer.on('agentMode:toolImage', (_event, data) => callback(data)),
+    ) => listen('agentMode:toolImage', callback),
     onTurnDone: (callback: (data: { turnId: string }) => void) =>
-      ipcRenderer.on('agentMode:turnDone', (_event, data) => callback(data)),
+      listen('agentMode:turnDone', callback),
     onExecuteTool: (
       callback: (data: {
         requestId: string
@@ -278,7 +287,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         toolName: string
         input: unknown
       }) => void,
-    ) => ipcRenderer.on('agentMode:executeTool', (_event, data) => callback(data)),
+    ) => listen('agentMode:executeTool', callback),
     submitToolResult: (requestId: string, result: unknown, error?: string) =>
       ipcRenderer.invoke('agentMode:toolResult', requestId, result, error),
   },

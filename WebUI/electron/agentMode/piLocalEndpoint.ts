@@ -1,4 +1,6 @@
 import { llmServerBaseUrl } from '../llmServerSnapshot.ts'
+import type { AgentModeModelConfig } from '@/types/agentIpc'
+import { openAiApiBase } from '@/lib/inferenceApiBase'
 
 // ── Where the local backend is, per request ──────────────────────────────────
 //
@@ -25,7 +27,7 @@ export type LocalModelConfig = Extract<AgentModeModelConfig, { source: 'local' }
  */
 export function localBaseUrl(config: LocalModelConfig): string {
   const live = config.backend ? llmServerBaseUrl(config.backend) : undefined
-  return live ? `${live}/v1` : config.baseUrl
+  return openAiApiBase(live ?? config.baseUrl)
 }
 
 /**

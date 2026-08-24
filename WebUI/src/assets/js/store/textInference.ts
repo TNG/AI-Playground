@@ -511,10 +511,6 @@ export const useTextInference = defineStore(
     // whose template honors `enable_thinking` (see modelSupportsThinkingToggle);
     // the value is injected as chat_template_kwargs.enable_thinking at inference.
     const thinkingEnabled = ref(true)
-    // Agent Mode only: think through the plan, then stop thinking. The switch
-    // flips as soon as the agent's plan file is on disk, so the rest of the
-    // session answers straight from the checklist it wrote (planningPhase.ts).
-    const planningThinkingOnly = ref(true)
 
     // Per-built-in-tool enablement overrides (by tool name). Most built-in tools
     // default on; opt-in/privacy-sensitive tools (captureScreenshot) default off.
@@ -1718,8 +1714,6 @@ export const useTextInference = defineStore(
       // Load thinking-enabled (defaults to true when unsaved; only takes effect for
       // models that support the toggle via modelSupportsThinkingToggle).
       thinkingEnabled.value = (savedSettings.thinkingEnabled as boolean | undefined) ?? true
-      planningThinkingOnly.value =
-        (savedSettings.planningThinkingOnly as boolean | undefined) ?? true
 
       // The preset may have arrived without a temperature (or without one the
       // user chose), so fill in what the active model recommends. The model
@@ -1862,7 +1856,6 @@ export const useTextInference = defineStore(
         builtinToolPresetEnablement,
         builtinToolDefaultPresets,
         thinkingEnabled,
-        planningThinkingOnly,
       ],
       () => {
         // Don't save if we're loading settings (prevents overwriting during preset switch)
@@ -1894,7 +1887,6 @@ export const useTextInference = defineStore(
           builtinToolPresetEnablement: { ...builtinToolPresetEnablement.value },
           builtinToolDefaultPresets: { ...builtinToolDefaultPresets.value },
           thinkingEnabled: thinkingEnabled.value,
-          planningThinkingOnly: planningThinkingOnly.value,
         }
       },
       { deep: true },
@@ -2101,7 +2093,6 @@ export const useTextInference = defineStore(
 
       // Thinking toggle support
       thinkingEnabled,
-      planningThinkingOnly,
       modelSupportsThinkingToggle,
 
       // Per-model recommended inference settings (models.json inferenceDefaults)

@@ -6,6 +6,7 @@ import { queueMediaRequest } from './mediaPipeline'
 import { mediaAgentHasTools, runMediaAgent } from '../agents/mediaAgent'
 import { useTextInference } from '../store/textInference'
 import { createChatModel } from '@/lib/chatModel'
+import type { AgentToolSpec } from '@/types/agentIpc'
 
 // ── Agent Mode tool bridge (renderer side) ───────────────────────────────────
 //

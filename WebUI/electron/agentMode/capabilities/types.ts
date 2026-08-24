@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ToolDefinition } from '@earendil-works/pi-coding-agent'
 import type { SkillSource } from '../piCustomTools.ts'
 import type { PlanningEnd } from '../planningPhase.ts'
+import type { AgentToolSpec } from '@/types/agentIpc'
 
 // ── Agent capabilities ───────────────────────────────────────────────────────
 //
@@ -89,6 +90,11 @@ export type AgentCapability = {
    * where there is no later step left for a thinking switch to make cheaper.
    */
   planHandoff?: string
+}
+
+/** True when this capability defines the shape of the whole session, not an add-on. */
+export function shapesSession(capability: AgentCapability): boolean {
+  return !!(capability.ownSession || capability.planningEnd || capability.planHandoff)
 }
 
 /** A capability plus what it contributed to this session. */

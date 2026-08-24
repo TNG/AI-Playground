@@ -66,6 +66,11 @@ holds an `index.html` + `game.js` that run, which the agent grows section by sec
 pointing at "produce a playable game". It is the preset to use for games; Agent is the one to
 use when nobody has written that specialization yet, and it starts you at an empty folder.
 
+The Game Agent procedure lives in the `html-game-studio` skill (`GAME_STUDIO_SKILL` in
+`WebUI/electron/agentMode/capabilities/gameStudio.ts`). The preset `systemPrompt` only orients
+the session (scaffold, plan on disk, one section per edit) and tells the model to read that
+skill at the path announced in `<available_skills>`.
+
 **Quick Coder** is the other end of that trade: an empty game folder, a short prompt in
 place of the harness's own, and `write` as the only file tool. It runs as two steps of one turn
 — the agent answers with a plan and stops, the app approves it for you, and the game is then

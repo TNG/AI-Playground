@@ -19,6 +19,8 @@ type PartShape = {
   state?: unknown
   toolName?: unknown
   output?: unknown
+  toolCallId?: unknown
+  input?: unknown
 }
 
 function shapeOf(part: unknown): PartShape {
@@ -142,4 +144,78 @@ function formatDuration(ms: number): string {
   if (seconds < 60) return `${seconds.toFixed(1)} seconds`
   const minutes = Math.floor(seconds / 60)
   return `${minutes}m ${Math.round(seconds - minutes * 60)}s`
+}
+
+function truncate(value: unknown, max = 48): string {
+  if (typeof value !== 'string') return ''
+  return value.length > max ? `${value.slice(0, max)}…` : value
+}
+
+function objectInputOf(part: unknown): Record<string, unknown> | undefined {
+  const input = shapeOf(part).input
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined
+  return input as Record<string, unknown>
+}
+
+/** One-line label for a tool that is currently running. */
+export function toolActionLabel(name: string, input?: Record<string, unknown>): string {
+  const filePath = truncate(input?.file_path)
+  switch (name) {
+    case 'read':
+      return `Reading ${filePath}…`
+    case 'edit':
+      return `Editing ${filePath}…`
+    case 'write':
+      return `Writing ${filePath}…`
+    case 'ls':
+      return 'Listing files…'
+    case 'bash':
+      return `Running: ${truncate(input?.command)}`
+    case 'navigate_page':
+      return input?.url ? `Opening ${truncate(input.url)}…` : 'Navigating…'
+    case 'list_console_messages':
+      return 'Reading browser console…'
+    case 'list_pages':
+      return 'Listing browser pages…'
+    case 'take_screenshot':
+      return 'Taking screenshot…'
+    case 'take_snapshot':
+      return 'Snapshotting page…'
+    case 'evaluate_script':
+      return 'Running script in page…'
+    case 'generateImage':
+      return 'Generating image…'
+    case 'editImage':
+      return 'Editing image…'
+    case 'media':
+      return 'Creating media…'
+    default:
+      return `Running ${name}…`
+  }
+}
+
+/**
+ * What the Agent Mode status line should say for this message's parts.
+ * A finished tool means the model is deciding its next step.
+ */
+export function busyLabelOf(
+  parts: readonly unknown[],
+  mediaStepLabel?: (toolCallId: string) => string | undefined,
+): string {
+  const lastPart = parts.at(-1)
+  if (!lastPart) return 'Agent is working…'
+  const shape = shapeOf(lastPart)
+  if (isReasoningPart(lastPart) && shape.state !== 'done') return 'Thinking…'
+  if (shape.type === 'text' && shape.state === 'streaming') return 'Writing response…'
+  const toolName = toolPartNameOf(lastPart)
+  if (!toolName) return 'Agent is working…'
+  if (shape.state === 'input-streaming' || shape.state === 'input-available') {
+    const toolCallId = typeof shape.toolCallId === 'string' ? shape.toolCallId : undefined
+    if (toolCallId && mediaStepLabel) {
+      const media = mediaStepLabel(toolCallId)
+      if (media) return media
+    }
+    return toolActionLabel(toolName, objectInputOf(lastPart))
+  }
+  return 'Thinking…'
 }

@@ -34,6 +34,9 @@ npm run dev
 # Run all tests once
 npm test
 
+# Pi coding-agent integration smoke (no model call)
+npm run verify:pi
+
 # Run tests in watch mode
 npm run test:watch
 
@@ -585,8 +588,9 @@ switch thinking off for the rest of the run. What counts as "on disk" is the cap
 in `design.md`, and `first-write` for `game-studio-quick`, whose first write is the finished game.
 `electron/agentMode/planningPhase.ts` owns the switch (spotting that write in
 `tool_execution_start/end`, and a plan already on disk at session start); the settings toggle is
-`textInference.planningThinkingOnly`, persisted per preset and passed as
-`AgentModeTurnConfig.planningThinkingOnly`. It only bites where the model has a thinking switch,
+`agentMode.planningThinkingOnly`, persisted on the Agent Mode store (copied once from chat
+`settingsPerPreset` on upgrade) and passed as `AgentModeTurnConfig.planningThinkingOnly`. It only
+bites where the model has a thinking switch,
 thinking is on, and the capability declares an end — a cloud turn or a template without
 `enable_thinking` is unaffected.
 
@@ -594,7 +598,7 @@ thinking is on, and the capability declares an end — a cloud turn or a templat
 traces showed the model doing everything in one reply — reasoning, then the whole game — so
 `first-write` flipped thinking off with nothing left to spend it on. A capability can therefore
 declare `AgentCapability.planHandoff`, which cuts the first turn in two: the model is asked for the
-plan alone (its prompt says so, and stops there), and `handOffToBuild` in `piAgentManager.ts` then
+plan alone (its prompt says so, and stops there), and `handOffToBuild` in `piTurnRunner.ts` then
 sends the handoff text itself — the approval, granted programmatically — as a second
 `session.prompt()` inside the same turn, after thinking has gone off. The renderer sees one turn
 throughout, the way it already does for the silent-turn nudge. Two guards matter: a plan step that

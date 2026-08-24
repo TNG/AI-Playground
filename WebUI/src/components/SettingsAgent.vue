@@ -161,8 +161,8 @@
           type="checkbox"
           class="mt-0.5"
           :disabled="!textInference.thinkingEnabled"
-          :checked="textInference.planningThinkingOnly"
-          @change="textInference.planningThinkingOnly = !textInference.planningThinkingOnly"
+          :checked="agentMode.planningThinkingOnly"
+          @change="agentMode.planningThinkingOnly = !agentMode.planningThinkingOnly"
         />
         <span class="flex flex-col">
           <span class="text-foreground" :class="{ 'opacity-50': !textInference.thinkingEnabled }">
@@ -281,6 +281,7 @@ import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { useMcp } from '@/assets/js/store/mcp'
 import { getAgentToolSpecs } from '@/assets/js/tools/agentBridge'
+import { mcpCapabilityId } from '@/types/agentCapabilities'
 import ProviderSelector from '@/components/ProviderSelector.vue'
 import PresetSelector from '@/components/PresetSelector.vue'
 import { usePresets } from '@/assets/js/store/presets'
@@ -323,10 +324,6 @@ onMounted(async () => {
 // Game Agent's folders are the app's to create, and they stay sandboxed: a game is
 // plain HTML with no build step, so a real shell would only add risk.
 const isManagedWorkspace = computed(() => agentMode.agentWorkspaceKind === 'games')
-
-function mcpCapabilityId(serverId: string): string {
-  return `mcp:${serverId}`
-}
 
 function capabilityLabels(ids: string[]): string {
   return ids

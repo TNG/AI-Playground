@@ -1980,14 +1980,39 @@ function initEventHandle() {
         return
       }
 
-      for await (const progressUpdate of service.set_up()) {
-        win.webContents.send('serviceSetUpProgress', progressUpdate)
-        if (progressUpdate.status === 'failed' || progressUpdate.status === 'success') {
-          appLogger.info(
-            `Received terminal progress update for set up request for ${serviceName}`,
-            'electron-backend',
-          )
-          break
+      // The renderer waits for a terminal ('failed'/'success') progress update
+      // before it re-enables its UI. If set_up() throws instead of yielding one
+      // — e.g. ComfyUI's Linux dependency step, which runs before its own
+      // try/catch and throws on cancel — the install would stay "Installing..."
+      // forever. Synthesize the terminal failure the generator owes us.
+      try {
+        for await (const progressUpdate of service.set_up()) {
+          win.webContents.send('serviceSetUpProgress', progressUpdate)
+          if (progressUpdate.status === 'failed' || progressUpdate.status === 'success') {
+            appLogger.info(
+              `Received terminal progress update for set up request for ${serviceName}`,
+              'electron-backend',
+            )
+            break
+          }
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        appLogger.error(
+          `Set up for ${serviceName} threw without a terminal progress update: ${message}`,
+          'electron-backend',
+        )
+        if (!win.isDestroyed()) {
+          win.webContents.send('serviceSetUpProgress', {
+            serviceName,
+            step: 'setup failed',
+            status: 'failed',
+            debugMessage: `Installation aborted: ${message}`,
+            errorDetails: {
+              stderr: message,
+              timestamp: new Date().toISOString(),
+            },
+          } satisfies SetupProgress)
         }
       }
     },

@@ -381,7 +381,7 @@ type electronAPI = {
   detectDevices(serviceName: string): Promise<void>
   startService(serviceName: string): Promise<BackendStatus>
   stopService(serviceName: string): Promise<BackendStatus>
-  setUpService(serviceName: string): void
+  setUpService(serviceName: string): Promise<void>
   onServiceSetUpProgress(callback: (data: SetupProgress) => void): void
   onServiceInfoUpdate(callback: (service: ApiServiceInformation) => void): void
   onShowToast(callback: (data: { type: string; message: string }) => void): void

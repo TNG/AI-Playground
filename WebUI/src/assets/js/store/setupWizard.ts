@@ -999,10 +999,14 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   }
 
   async function repairBackend(name: BackendServiceName) {
+    // A repair is the recovery path for a broken component, so a failed stop must
+    // not abort it — that used to leave the only visible affordance on a failed
+    // row (Repair) doing nothing but showing a toast. The setup itself stops the
+    // service again and wipes its environment before installing
+    // (`prepareCleanPythonEnv`), so continuing here is safe.
     const stopStatus = await backendServices.stopService(name)
     if (stopStatus !== 'stopped') {
-      toast.error('Service failed to stop')
-      return
+      console.warn(`Repair of ${name}: stop reported '${stopStatus}', continuing with reinstall`)
     }
     // Clear Home Agent channel configs on reinstall so the user must re-verify
     // each channel before turning it back on. Both Telegram and Slack credentials

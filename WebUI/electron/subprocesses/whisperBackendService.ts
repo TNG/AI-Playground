@@ -61,11 +61,28 @@ export class WhisperBackendService extends LongLivedPythonApiService {
   }
 
   async serviceIsSetUp(): Promise<boolean> {
-    const result = await checkBackend(this.serviceFolder, this.torchExtra)
+    const lockOk = await checkBackend(this.serviceFolder, this.torchExtra)
       .then(() => true)
       .catch(() => false)
-    this.appLogger.info(`Service ${this.name} isSetUp: ${result}`, this.name)
+    // `uv sync --check` can report the venv as in-sync even when torch is not
+    // actually importable — e.g. an app reinstall breaks the clone/hardlinked
+    // torch wheel files while their dist-info lingers, so the lockfile check
+    // still "sees" torch. transcription_engine.py imports torch lazily, so
+    // /healthy comes up regardless and the failure would only surface on the
+    // first transcription. Confirm torch is genuinely importable so the wizard /
+    // backend management screen reflect reality and offer a reinstall.
+    const torchOk = lockOk ? await this.torchImportable() : false
+    const result = lockOk && torchOk
+    this.appLogger.info(
+      `Service ${this.name} isSetUp: ${result} (lockOk=${lockOk}, torchOk=${torchOk})`,
+      this.name,
+    )
     return result
+  }
+
+  /** Whether the venv's own Python can `import torch` — see `venvCanImportModule`. */
+  private async torchImportable(): Promise<boolean> {
+    return this.venvCanImportModule('torch', this.venvProcessEnv)
   }
 
   private get pythonBinary(): string {
@@ -152,8 +169,22 @@ export class WhisperBackendService extends LongLivedPythonApiService {
         debugMessage: 'installing dependencies (torch may take several minutes)',
       }
 
+      // Always install into a fresh venv — see `prepareCleanPythonEnv`. Without
+      // this, a repair over a venv whose torch files are broken but whose
+      // dist-info survived is a no-op that reports success and fails again on the
+      // first transcription.
+      await this.prepareCleanPythonEnv()
+
       this.appLogger.info(`installing whisper with torch extra '${this.torchExtra}'`, this.name)
       await installBackendWithExtra(this.serviceFolder, this.torchExtra)
+
+      // Fail loudly if torch still isn't importable after the install, rather than
+      // reporting success and letting the backend die on the first transcription.
+      if (!(await this.torchImportable())) {
+        throw new Error(
+          'Speech To Text dependencies installed but PyTorch is still not importable in the environment.',
+        )
+      }
 
       yield {
         serviceName: this.name,
@@ -200,6 +231,32 @@ export class WhisperBackendService extends LongLivedPythonApiService {
     const sttDir = getSharedModelDir('STT')
     if (sttDir) env.WHISPER_MODEL_DIR = sttDir
     return env
+  }
+
+  /**
+   * The Flask health endpoint comes up even when torch is missing, because
+   * transcription_engine.py imports torch lazily on the first transcription — so a
+   * broken env yields a running server that later dies with
+   * `ModuleNotFoundError: torch`. `uv sync --check --extra <x>` has proven
+   * unreliable at flagging this (it can report the venv as in-sync while the
+   * accelerator torch wheel, behind an extra + platform markers, is not actually
+   * installed), so probe the exact thing that fails at transcription time first,
+   * then still defer to the base readiness contract. A false result throws, which
+   * runStartup surfaces as a 'failed' status the setup wizard / backend management
+   * screen offer to reinstall.
+   */
+  protected async assertReadyToStart(): Promise<void> {
+    if (!(await this.torchImportable())) {
+      this.isSetUp = false
+      this.appLogger.warn(
+        'whisper start guard: torch not importable in venv, blocking start',
+        this.name,
+      )
+      throw new Error(
+        'The Speech To Text (Whisper) environment is incomplete — its Python dependencies (including PyTorch) are not installed. Reinstall the Speech To Text backend to finish provisioning it.',
+      )
+    }
+    await super.assertReadyToStart()
   }
 
   async spawnAPIProcess(): Promise<{

@@ -1030,6 +1030,13 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         )
       }
 
+      // Drop a venv husk (directory without an interpreter) before installing —
+      // `uv sync` into such a tree produces an environment that can never boot.
+      // Unlike the other python backends ComfyUI keeps a *usable* venv, since
+      // custom nodes install dependencies into it at runtime that no lockfile
+      // knows about; wiping it on every setup run would destroy them.
+      await this.removeUnusablePythonEnv()
+
       if (useLocked) {
         let needsInstall = true
         if (existingMarker?.mode === 'locked' && markerMatches && !variantChanged) {

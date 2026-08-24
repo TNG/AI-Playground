@@ -353,7 +353,7 @@ export const useBackendServices = defineStore(
       }
 
       listener.clearErrorDetails()
-      listener.isActive = true
+      const runToken = listener.beginRun()
 
       try {
         await stopService(serviceName)
@@ -380,8 +380,19 @@ export const useBackendServices = defineStore(
         serviceSettings.llamaCppOffloadDrive = llamaCppOffloadDrive.value
       }
       await updateServiceSettings(serviceSettings)
-      window.electronAPI.setUpService(serviceName)
-      const result = await listener!.awaitFinalizationAndResetData()
+      // Deliberately not awaited before `awaitFinalizationAndResetData` — progress
+      // arrives on a separate channel while the call is still running. But it must
+      // never be a floating promise: if it rejects (or returns without a terminal
+      // update) the listener has to be released, or the install hangs forever.
+      window.electronAPI.setUpService(serviceName).then(
+        () => listener.onInvocationSettled(runToken),
+        (error: unknown) =>
+          listener.onInvocationSettled(
+            runToken,
+            error instanceof Error ? error.message : String(error),
+          ),
+      )
+      const result = await listener.awaitFinalizationAndResetData()
       if (result.success) {
         await detectDevices(serviceName)
         // Installed version is now automatically updated via serviceInfoUpdate
@@ -744,17 +755,60 @@ export const useBackendServices = defineStore(
   },
 )
 
+/**
+ * Grace period between the main-process setup call settling and us declaring the
+ * install dead. The terminal progress update travels on a different IPC channel
+ * than the call's reply, so it may land marginally later.
+ */
+const TERMINAL_UPDATE_GRACE_MS = 2000
+
 class BackendServiceSetupProgressListener {
   isActive: boolean = false
-  readonly associatedServiceName: string
+  readonly associatedServiceName: BackendServiceName
   private collectedSetupProgress: SetupProgress[] = []
   private terminalUpdateReceived = false
   private installationSuccess: boolean = false
   private lastErrorDetails: ErrorDetails | null = null
+  /** Identifies the current install so a late watchdog can't poison the next one. */
+  private runToken = 0
 
-  constructor(associatedServiceName: string) {
+  constructor(associatedServiceName: BackendServiceName) {
     this.associatedServiceName = associatedServiceName
     this.isActive = false
+  }
+
+  /** Mark the start of an install and return its token for `onInvocationSettled`. */
+  beginRun(): number {
+    this.runToken += 1
+    this.isActive = true
+    return this.runToken
+  }
+
+  /**
+   * Called once the main-process `setUpService` call settled. Main normally sends
+   * a terminal ('success'/'failed') progress update before returning, but it can
+   * also return early (registry not ready, unknown service) or reject outright —
+   * in which case nothing terminal ever arrives and `awaitFinalization` would
+   * poll forever, leaving the row stuck on "Installing..." with no way out but
+   * killing the app. Synthesize the missing failure instead.
+   */
+  onInvocationSettled(runToken: number, errorMessage?: string) {
+    setTimeout(() => {
+      if (runToken !== this.runToken || this.terminalUpdateReceived) return
+      console.error(
+        `Setup of ${this.associatedServiceName} ended without a terminal progress update`,
+        errorMessage,
+      )
+      this.addData({
+        serviceName: this.associatedServiceName,
+        step: 'setup failed',
+        status: 'failed',
+        debugMessage: errorMessage
+          ? `Installation request failed: ${errorMessage}`
+          : 'Installation ended without reporting a result',
+        errorDetails: errorMessage ? { stderr: errorMessage } : undefined,
+      })
+    }, TERMINAL_UPDATE_GRACE_MS)
   }
 
   addData(data: SetupProgress) {
@@ -777,15 +831,12 @@ class BackendServiceSetupProgressListener {
   }
 
   private async awaitFinalization(): Promise<SetupProgress[]> {
-    if (this.terminalUpdateReceived) {
-      return this.collectedSetupProgress
-    } else {
-      return await new Promise((resolve) => {
-        setTimeout(() => {
-          resolve(this.awaitFinalization())
-        }, 200)
-      })
+    // Plain loop rather than recursion: a long install polls for tens of minutes,
+    // and the recursive form built one nested promise per 200 ms tick.
+    while (!this.terminalUpdateReceived) {
+      await new Promise((resolve) => setTimeout(resolve, 200))
     }
+    return this.collectedSetupProgress
   }
 
   async awaitFinalizationAndResetData(): Promise<{

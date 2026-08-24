@@ -84,6 +84,16 @@ const uv = (
         reject(new Error(errorMessage))
       }
     })
+
+    // Without this, a uv binary that passes the `assertUv` access() check but
+    // still fails to exec (AV quarantine, locked file, ENOEXEC) emits 'error'
+    // and never 'close' — leaving every caller (installBackend,
+    // ensureBackendVenv, pipInstall…) hanging forever and the install UI stuck
+    // on "Installing..." with no terminal progress update.
+    uvProcess.on('error', (error) => {
+      logger.error(`UV process failed to start: ${error.message}`)
+      reject(error)
+    })
   })
 
 const uvWithJsonOutput = (

@@ -12,11 +12,13 @@ import { createHash } from 'crypto'
 
 import * as childProcess from 'node:child_process'
 import { promisify } from 'util'
+import { venvInterpreterPath, venvIsUsable } from './uvBasedBackends/uv.ts'
 import { Arch, getArchPriority, getDeviceArch } from './deviceArch.ts'
 import { z } from 'zod'
 import { LocalSettings } from '../main.ts'
 
 const exec = promisify(childProcess.exec)
+const execFileAsync = promisify(childProcess.execFile)
 
 // Type for error details that matches SetupProgress.errorDetails
 export interface ErrorDetails {
@@ -605,6 +607,86 @@ export abstract class LongLivedPythonApiService implements ApiService {
   }
 
   abstract set_up(): AsyncIterable<SetupProgress>
+
+  /** Path to this service venv's own interpreter. */
+  protected get venvPython(): string {
+    return venvInterpreterPath(this.pythonEnvDir)
+  }
+
+  /**
+   * Whether the service venv's own Python can actually `import <moduleName>`.
+   *
+   * A real import (not `find_spec`) is used deliberately: the failure modes that
+   * matter here are not only "module absent" but also broken native libraries and
+   * import-time initialization errors — e.g. an app reinstall that leaves torch's
+   * dist-info intact while breaking its clone/hardlinked wheel files. `uv sync
+   * --check` still "sees" torch in that state, so the lockfile check passes and
+   * the backend is shown as installed, only to die at first use. Those failures
+   * surface only when the package is executed, which is what this does.
+   *
+   * @param env Process env for the probe — pass the service's venv env so native
+   *   accelerator libraries (XPU/CUDA DLLs living inside the venv) resolve.
+   * @returns false when the venv/python is missing or the import raises for any reason.
+   */
+  protected async venvCanImportModule(
+    moduleName: string,
+    env: Record<string, string | undefined> = {},
+  ): Promise<boolean> {
+    try {
+      await execFileAsync(this.venvPython, ['-c', `import ${moduleName}`], {
+        cwd: this.serviceDir,
+        env: { ...process.env, ...env },
+        timeout: 30000,
+      })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Stop the service and delete its venv so the install that follows materialises
+   * every package from scratch.
+   *
+   * `uv sync` reconciles against package *metadata*, so re-running it over a venv
+   * whose files are broken but whose dist-info survived (what an interrupted
+   * install or an app reinstall leaves behind) sees the packages as "already
+   * installed" and skips them — leaving the very breakage the reinstall was meant
+   * to fix. This is why uninstall-then-install worked where a plain repair did
+   * not; doing it here makes every entry point (wizard Repair, gear Reinstall,
+   * fresh install) equally effective. Wheels come from uv's cache, so this
+   * re-materialises rather than re-downloads.
+   *
+   * Stopping first matters on Windows: a running (or fake-healthy) process holds
+   * handles on the venv's DLLs and the removal would fail with EPERM. `stop()`
+   * flips the status to 'stopped', so 'installing' is re-asserted afterwards.
+   */
+  protected async prepareCleanPythonEnv(): Promise<void> {
+    await this.stop()
+    this.setStatus('installing')
+    this.appLogger.info(`removing existing ${this.name} venv for a clean install`, this.name)
+    await filesystem.remove(this.pythonEnvDir)
+  }
+
+  /**
+   * Remove the venv only if it exists without an interpreter — the empty-husk
+   * state (e.g. the Windows uninstaller's `RMDir /r` cannot delete deeply nested
+   * `site-packages` paths, so it leaves a partial tree behind). Installing into
+   * such a tree yields an environment that can never boot. Unlike
+   * {@link prepareCleanPythonEnv} this preserves a usable venv, which matters for
+   * backends whose venv holds packages that are not in the lockfile (ComfyUI
+   * custom-node dependencies installed at runtime).
+   */
+  protected async removeUnusablePythonEnv(): Promise<void> {
+    if (!filesystem.existsSync(this.pythonEnvDir) || venvIsUsable(this.pythonEnvDir)) return
+    await this.stop()
+    this.setStatus('installing')
+    this.appLogger.warn(
+      `venv of ${this.name} has no interpreter — removing the partial tree before installing`,
+      this.name,
+    )
+    await filesystem.remove(this.pythonEnvDir)
+  }
 
   async uninstall(): Promise<void> {
     this.stop()

@@ -283,6 +283,20 @@ export const useSpeechToText = defineStore(
       }
     }
 
+    async function resolveStandaloneEndpointIfReady(): Promise<TranscriptionEndpoint | null> {
+      const svc = backendServices.info.find((s) => s.serviceName === 'whisper-backend')
+      if (!svc?.isSetUp || svc.status !== 'running') return null
+      try {
+        const modelExists = await models.checkTranscriptionModelExists(
+          selectedStandaloneModel.value,
+        )
+        if (!modelExists) return null
+      } catch {
+        return null
+      }
+      return resolveStandaloneEndpoint()
+    }
+
     /**
      * Ensure the OVMS Whisper server is ready to transcribe: OpenVINO must be set up
      * (or a fallback is configured), the model must be present (prompting the
@@ -336,13 +350,14 @@ export const useSpeechToText = defineStore(
       // `effectiveSttEngine`, not the raw selection: the engine that was readied
       // and recorded against must be the one we transcribe with.
       const engine = effectiveSttEngine.value
-      // The standalone engine forces its own torch sidecar.
+      // Standalone only when the sidecar can actually serve: installed-without-
+      // its-model would otherwise return the sidecar URL and skip a configured
+      // external fallback (Home Agent's dialog-free path never prompts a download).
       if (engine === 'standalone') {
-        return resolveStandaloneEndpoint()
-      }
-      // The External engine forces the fallback endpoint; otherwise prefer the OVMS
-      // Whisper server when running and fall back to the configured endpoint.
-      if (engine !== 'external') {
+        const endpoint = await resolveStandaloneEndpointIfReady()
+        if (endpoint) return endpoint
+      } else if (engine !== 'external') {
+        // Prefer the OVMS Whisper server when running; otherwise fall through.
         try {
           const ovmsUrl = await backendServices.getTranscriptionServerUrl()
           if (ovmsUrl) {

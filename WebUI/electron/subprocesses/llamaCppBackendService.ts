@@ -904,38 +904,45 @@ export class LlamaCppBackendService implements ApiService {
     // These assets are GitHub release binaries resolved from a user-selectable
     // version, so there is no published checksum to pin against (unlike the
     // portable-git archive, whose exact release is hardcoded). Validate what can
-    // be validated: the full advertised length arrived, and what arrived is a zip
-    // rather than an HTML error page or a proxy interstitial saved under .zip.
-    await this.assertDownloadedZipIsIntact(zipPath, response.headers.get('content-length'))
+    // be validated: the full advertised length arrived, and what arrived is an
+    // archive rather than an HTML error page or a proxy interstitial.
+    await this.assertDownloadedArchiveIsIntact(zipPath, response.headers.get('content-length'))
 
-    this.appLogger.info(`Llamacpp zip file downloaded successfully`, this.name)
+    this.appLogger.info(`Llamacpp archive downloaded successfully`, this.name)
   }
 
-  private async assertDownloadedZipIsIntact(
-    zipPath: string,
+  private async assertDownloadedArchiveIsIntact(
+    archivePath: string,
     contentLengthHeader: string | null,
   ): Promise<void> {
     const failAndRemove = (reason: string): never => {
-      filesystem.removeSync(zipPath)
+      filesystem.removeSync(archivePath)
       throw new Error(`Failed to download Llamacpp: ${reason}`)
     }
 
-    const { size } = await filesystem.stat(zipPath)
+    const { size } = await filesystem.stat(archivePath)
     const expectedSize = Number(contentLengthHeader)
     if (contentLengthHeader && Number.isFinite(expectedSize) && size !== expectedSize) {
       failAndRemove(`download truncated (${size} of ${expectedSize} bytes)`)
     }
 
-    // Local zip signature: 'PK\x03\x04'.
-    const header = Buffer.alloc(4)
-    const handle = await filesystem.open(zipPath, 'r')
+    // Match the format actually downloaded (`platformExtension`): a zip on
+    // Windows, a gzipped tarball everywhere else. Checking for the zip signature
+    // unconditionally would reject every valid Linux/macOS download.
+    const [signature, formatName] =
+      platformExtension === 'zip'
+        ? [Buffer.from([0x50, 0x4b, 0x03, 0x04]), 'zip archive'] // 'PK\x03\x04'
+        : [Buffer.from([0x1f, 0x8b]), 'gzip archive']
+
+    const header = Buffer.alloc(signature.length)
+    const handle = await filesystem.open(archivePath, 'r')
     try {
-      await filesystem.read(handle, header, 0, 4, 0)
+      await filesystem.read(handle, header, 0, signature.length, 0)
     } finally {
       await filesystem.close(handle)
     }
-    if (!header.equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))) {
-      failAndRemove('downloaded file is not a zip archive')
+    if (!header.equals(signature)) {
+      failAndRemove(`downloaded file is not a ${formatName}`)
     }
   }
 

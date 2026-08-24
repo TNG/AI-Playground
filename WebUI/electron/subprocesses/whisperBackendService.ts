@@ -80,10 +80,18 @@ export class WhisperBackendService extends LongLivedPythonApiService {
     return result
   }
 
-  /** Whether the venv's own Python can `import torch` — see `venvCanImportModule`. */
+  /**
+   * Whether the venv's own Python can `import torch` — see `venvCanImportModule`.
+   * Reuses the result of the probe the start guard already ran, if any: spawning
+   * python to import torch costs seconds, and `assertReadyToStart` would otherwise
+   * pay it twice (once itself, once through `serviceIsSetUp`).
+   */
   private async torchImportable(): Promise<boolean> {
-    return this.venvCanImportModule('torch', this.venvProcessEnv)
+    return this.torchProbeForStartGuard ?? this.venvCanImportModule('torch', this.venvProcessEnv)
   }
+
+  /** Set only for the duration of one `assertReadyToStart` call. */
+  private torchProbeForStartGuard: boolean | null = null
 
   private get pythonBinary(): string {
     return path.join(
@@ -256,7 +264,14 @@ export class WhisperBackendService extends LongLivedPythonApiService {
         'The Speech To Text (Whisper) environment is incomplete — its Python dependencies (including PyTorch) are not installed. Reinstall the Speech To Text backend to finish provisioning it.',
       )
     }
-    await super.assertReadyToStart()
+    // The base check runs serviceIsSetUp, which probes torch again; the probe we
+    // just did is still valid for this start attempt.
+    this.torchProbeForStartGuard = true
+    try {
+      await super.assertReadyToStart()
+    } finally {
+      this.torchProbeForStartGuard = null
+    }
   }
 
   async spawnAPIProcess(): Promise<{

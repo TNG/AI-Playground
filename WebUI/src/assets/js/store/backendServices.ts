@@ -271,12 +271,30 @@ export const useBackendServices = defineStore(
         currentServiceInfo.value.filter((s) => s.isRequired).every((s) => s.status === 'running'),
     )
 
+    /**
+     * Components the user switched off in the setup wizard, read from settings.json
+     * (the same list the main process consults for its boot-time auto-start). Read
+     * here rather than taken from the wizard store, which imports this one. An
+     * unreadable settings file falls back to "nothing disabled" — the behaviour
+     * before the list existed.
+     */
+    async function getDisabledBackends(): Promise<string[]> {
+      try {
+        const s = await window.electronAPI.getLocalSettings()
+        return s.disabledBackends ?? []
+      } catch (e) {
+        console.warn(`Could not read disabled components, starting all: ${e}`)
+        return []
+      }
+    }
+
     async function startAllSetUpServices(): Promise<{
       allServicesStarted: boolean
     }> {
+      const disabled = await getDisabledBackends()
       const serverStartups = await Promise.all(
         currentServiceInfo.value
-          .filter((s) => s.isSetUp)
+          .filter((s) => s.isSetUp && !disabled.includes(s.serviceName))
           .map(async (s) => {
             try {
               // Try to detect devices first

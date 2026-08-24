@@ -727,9 +727,12 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     if (!filesystem.existsSync(this.serviceDir)) return
     await restoreTreeWritePermissions(this.serviceDir)
     let lastError: unknown
-    for (let attempt = 0; attempt < 5; attempt++) {
+    const attempts = 5
+    for (let attempt = 0; attempt < attempts; attempt++) {
       try {
-        filesystem.removeSync(this.serviceDir)
+        // Async: a ComfyUI checkout is a large tree (venv + custom_nodes), and
+        // removeSync would freeze the whole Electron main process while it walks it.
+        await filesystem.remove(this.serviceDir)
         lastError = undefined
         break
       } catch (removeError) {
@@ -737,7 +740,10 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         if ((removeError as NodeJS.ErrnoException)?.code === 'EACCES') {
           await restoreTreeWritePermissions(this.serviceDir)
         }
-        await new Promise((resolve) => setTimeout(resolve, 1000))
+        // No point waiting after the final attempt.
+        if (attempt < attempts - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+        }
       }
     }
     if (lastError) {

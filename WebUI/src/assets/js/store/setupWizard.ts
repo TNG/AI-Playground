@@ -22,15 +22,9 @@ import { useErrors } from './errors'
 import { extractMessage } from '../errors/appError'
 import type { ErrorDetails } from '../../../../electron/subprocesses/service'
 
-const ALL_BACKENDS: BackendServiceName[] = [
-  'ai-backend',
-  'home-agent-backend',
-  'qwen3-tts-backend',
-  'whisper-backend',
-  'llamacpp-backend',
-  'openvino-backend',
-  'comfyui-backend',
-]
+// Derived from the single source of truth rather than restated: a backend added
+// there but forgotten here would silently never appear in the wizard.
+const ALL_BACKENDS: BackendServiceName[] = [...allBackendServiceNames]
 
 // The standalone Whisper backend only ships in builds that enable it (NVIDIA),
 // so it is filtered out everywhere else. The other backends are unconditional.

@@ -549,20 +549,13 @@ export const useOpenAiCompatibleChat = defineStore(
                 : qwenInfo?.isSetUp === true
           if (!ttsReady) continue
         }
-        // STT availability follows the SELECTED engine, mirroring the TTS block
-        // above: OpenVINO Whisper (non-NVIDIA + set up), the standalone torch
-        // sidecar (its own backend set up), or the external endpoint. Keying this
-        // off OpenVINO alone hid the tool from anyone running the standalone
-        // engine on a machine without OpenVINO.
-        if (name === 'transcribeAudio') {
-          const sttReady =
-            speechToText.selectedSttEngine === 'whisper'
-              ? speechToText.isWhisperAvailable
-              : speechToText.selectedSttEngine === 'standalone'
-                ? speechToText.isStandaloneAvailable
-                : speechToText.isExternalAvailable
-          if (!sttReady) continue
-        }
+        // Offer the transcription tool whenever ANY engine can serve it (OpenVINO
+        // Whisper, the standalone torch sidecar, or the external endpoint) — the
+        // transcription path itself falls back to an installed engine via
+        // `effectiveSttEngine`. Keying this off the selected engine hid the tool
+        // from users whose persisted selection named an engine they never
+        // installed, even though speech-to-text was usable.
+        if (name === 'transcribeAudio' && !speechToText.available) continue
         tools[name] = builtinTool
       }
       // The Home Agent self-inspection/configuration tools are only meaningful
@@ -1561,9 +1554,9 @@ export const useOpenAiCompatibleChat = defineStore(
         // Ready the selected engine before resolving the endpoint: OVMS Whisper or
         // the standalone torch sidecar (both may prompt a model download on first
         // use); the External engine needs nothing started.
-        if (speechToText.selectedSttEngine === 'whisper') {
+        if (speechToText.effectiveSttEngine === 'whisper') {
           await speechToText.ensureWhisperReady()
-        } else if (speechToText.selectedSttEngine === 'standalone') {
+        } else if (speechToText.effectiveSttEngine === 'standalone') {
           await speechToText.ensureStandaloneReady()
         }
         const endpoint = await speechToText.resolveTranscription()

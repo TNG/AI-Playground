@@ -156,6 +156,25 @@ export const useSpeechToText = defineStore(
       return offeredSttEngines.value[0] ?? 'external'
     })
 
+    /** Whether a given engine can actually serve a transcription right now. */
+    function isEngineUsable(engine: SttEngine): boolean {
+      if (engine === 'whisper') return isWhisperAvailable.value
+      if (engine === 'standalone') return isStandaloneAvailable.value
+      return isExternalAvailable.value
+    }
+
+    /**
+     * The engine actually used for a transcription. The selection in SettingsStt is
+     * a *preference*, and 'whisper' (OpenVINO) is offered in every non-NVIDIA mode
+     * whether or not OVMS is installed — so a user whose only installed engine is
+     * the standalone Whisper backend kept the persisted 'whisper' default and every
+     * mic click failed with "OpenVINO backend is required" even though
+     * speech-to-text was perfectly usable. Fall back to whatever is installed.
+     */
+    const effectiveSttEngine = computed<SttEngine>(() =>
+      isEngineUsable(selectedSttEngine.value) ? selectedSttEngine.value : preferredSttEngine.value,
+    )
+
     /** True once `initWhisperBackendFlag` has resolved (either way). Until then
      *  `isWhisperBackendEnabled` is a placeholder `false`, so 'standalone' looks
      *  un-offered — see the watch below. */
@@ -309,13 +328,16 @@ export const useSpeechToText = defineStore(
      * OpenAI-compatible endpoint. Returns `null` when neither is available.
      */
     async function resolveTranscription(): Promise<TranscriptionEndpoint | null> {
+      // `effectiveSttEngine`, not the raw selection: the engine that was readied
+      // and recorded against must be the one we transcribe with.
+      const engine = effectiveSttEngine.value
       // The standalone engine forces its own torch sidecar.
-      if (selectedSttEngine.value === 'standalone') {
+      if (engine === 'standalone') {
         return resolveStandaloneEndpoint()
       }
       // The External engine forces the fallback endpoint; otherwise prefer the OVMS
       // Whisper server when running and fall back to the configured endpoint.
-      if (selectedSttEngine.value !== 'external') {
+      if (engine !== 'external') {
         try {
           const ovmsUrl = await backendServices.getTranscriptionServerUrl()
           if (ovmsUrl) {
@@ -533,6 +555,9 @@ export const useSpeechToText = defineStore(
       isStandaloneAvailable,
       isExternalAvailable,
       available,
+      // The engine every transcription path should dispatch on; `selectedSttEngine`
+      // is the user's preference and may name an engine that is not installed.
+      effectiveSttEngine,
       // Exposed so consumers (SettingsStt's engine dropdown) can render the offered
       // engines from the single source of truth instead of restating the rules.
       offeredSttEngines,

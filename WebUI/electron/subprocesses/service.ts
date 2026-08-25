@@ -1,11 +1,12 @@
 import { ChildProcess } from 'node:child_process'
-import { app, BrowserWindow, net } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import * as filesystem from 'fs-extra'
 import fsPromises from 'fs/promises'
 import path from 'node:path'
 import { appLoggerInstance } from '../logging/logger.ts'
 import { packagedResourcesRoot } from '../aipgRoot.ts'
 import { existingFileOrError, spawnProcessAsync, ProcessError } from './osProcessHelper'
+import { fetchInstallArtifact } from './fetchInstallArtifact.ts'
 import { terminateProcessTree, type ProcessSignature } from './processLifecycle.ts'
 import { assert } from 'node:console'
 import { createHash } from 'crypto'
@@ -419,7 +420,7 @@ export class GitService extends ExecutableService {
     }
 
     // Using electron net for better proxy support
-    const response = await net.fetch(this.remoteUrl)
+    const response = await fetchInstallArtifact(this.remoteUrl)
     if (!response.ok || response.status !== 200 || !response.body) {
       throw new Error(`Failed to download git: ${response.statusText}`)
     }

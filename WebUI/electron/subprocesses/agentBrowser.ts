@@ -48,6 +48,9 @@ function ensureBrowserSession(sessionId: string): BrowserSession {
     height: 800,
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
+  // This window is never shown, so a game's sound would come from nowhere and
+  // outlive the play-test that started it — the page stays loaded all session.
+  win.webContents.setAudioMuted(true)
   const session: BrowserSession = { win, logs: [], attached: false }
 
   // Prefer the CDP debugger (captures console.* AND uncaught exceptions). Fall

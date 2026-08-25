@@ -12,6 +12,7 @@ class FakeBrowserWindow {
   destroyed = false
   webContents = {
     executeJavaScript: vi.fn(async () => ''),
+    setAudioMuted: vi.fn(),
     debugger: {
       attach: vi.fn(),
       detach: vi.fn(),
@@ -95,5 +96,20 @@ describe('agent browser session teardown', () => {
 
     expect(created[0].destroyed).toBe(true)
     expect(created[1].destroyed).toBe(false)
+  })
+})
+
+describe('agent browser audio', () => {
+  beforeEach(() => {
+    closeAllBrowserSessions()
+    created.length = 0
+  })
+
+  // The window is never shown, so a play-tested game's sound would reach the
+  // user from nowhere and keep playing for the rest of the session.
+  it('mutes the hidden window as soon as it is created', async () => {
+    await openSession('game-1')
+
+    expect(created[0].webContents.setAudioMuted).toHaveBeenCalledWith(true)
   })
 })

@@ -11,6 +11,7 @@ const executeJavaScript = vi.fn(async (code: string) => await eval(code))
 class FakeBrowserWindow {
   webContents = {
     executeJavaScript,
+    setAudioMuted: vi.fn(),
     debugger: {
       attach: () => {
         throw new Error('no debugger in tests')

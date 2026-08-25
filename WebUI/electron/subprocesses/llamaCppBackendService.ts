@@ -4,10 +4,11 @@ import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import * as filesystem from 'fs-extra'
-import { app, net, type BrowserWindow } from 'electron'
+import { app, type BrowserWindow } from 'electron'
 import { appLoggerInstance } from '../logging/logger.ts'
 import { packagedResourcesRoot } from '../aipgRoot.ts'
 import { createEnhancedErrorDetails, type ApiService, type ErrorDetails } from './service.ts'
+import { fetchInstallArtifact } from './fetchInstallArtifact.ts'
 import {
   spawnBackend,
   terminateProcessTree,
@@ -877,7 +878,7 @@ export class LlamaCppBackendService implements ApiService {
     }
 
     // Using electron net for better proxy support
-    const response = await net.fetch(downloadUrl)
+    const response = await fetchInstallArtifact(downloadUrl)
     if (!response.ok || response.status !== 200 || !response.body) {
       throw new Error(`Failed to download Llamacpp: ${response.statusText}`)
     }

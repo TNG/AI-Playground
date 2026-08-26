@@ -34,7 +34,6 @@ function getBackends(whisperEnabled: boolean): BackendServiceName[] {
   return ALL_BACKENDS.filter((b) => b !== 'whisper-backend')
 }
 
-
 function isBackendAvailableInProductMode(
   mode: ProductMode | null,
   serviceName: BackendServiceName,

@@ -505,7 +505,6 @@ const openPickerMode = ref<ModeType | null>(null)
 const chatLikeModes: ModeType[] = ['chat', 'agent', 'audio']
 const isChatLikeMode = computed(() => chatLikeModes.includes(promptStore.getCurrentMode()))
 
-
 function presetsForMode(mode: ModeType): Preset[] {
   return presetsStore.getPresetsByCategories(MODE_TO_CATEGORIES[mode], MODE_TO_PRESET_TYPE[mode])
 }

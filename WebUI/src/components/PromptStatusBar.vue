@@ -203,9 +203,7 @@ const isAgentMode = computed(() => promptStore.getCurrentMode() === 'agent')
 // the preset, backend and device badges read from the same place for all three.
 // Keyed off `userSelectedMode` so a background comfy switch during agentic / Home
 // Agent tool use doesn't flip them to the image-gen indicators.
-const isLlmMode = computed(() =>
-  ['chat', 'agent', 'audio'].includes(promptStore.userSelectedMode),
-)
+const isLlmMode = computed(() => ['chat', 'agent', 'audio'].includes(promptStore.userSelectedMode))
 
 // Get active chat preset
 const activeChatPreset = computed(() => {

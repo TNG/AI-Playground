@@ -58,7 +58,7 @@ export const transcribeAudio = tool({
   execute: async (_args, options): Promise<TranscribeAudioOutput> => {
     const activities = useActivities()
     const speechToText = useSpeechToText()
-    const conversationKey = conversationKeyFor(options.experimental_context)
+    const conversationKey = conversationKeyFor(options.context)
     const messages = (options.messages ?? []) as ModelMessage[]
 
     const activityId = activities.begin({

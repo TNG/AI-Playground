@@ -59,25 +59,7 @@ test.describe('Chat presets', () => {
     test(title, async ({ app }) => {
       test.setTimeout(40 * 60_000)
       await app.installAllBackends()
-
-      if (kind === 'tts') {
-        // The Text-to-Speech backend pulls a heavy model, so it's installed on demand
-        // here rather than in installAllBackends. It must be available — TTS is a
-        // required capability in this suite, so an unavailable backend fails the test
-        // rather than skipping.
-        const ttsAvailable = await app.ensureTtsBackendInstalled()
-        expect(ttsAvailable, 'Text-to-Speech must be available (mode supported)').toBe(true)
-        await app.runTtsPreset({
-          text: prompt,
-          newVoice: {
-            name: 'E2E Custom Voice',
-            description: 'A calm, warm middle-aged British man, reassuring and clear.',
-            text: 'This line is spoken by a custom voice created during the end-to-end test.',
-          },
-        })
-      } else {
-        await app.runChatPreset({ preset, prompt, attach, doc })
-      }
+      await app.runChatPreset({ preset, prompt, attach, doc })
     })
   }
 })

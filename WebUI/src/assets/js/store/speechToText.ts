@@ -411,6 +411,11 @@ export const useSpeechToText = defineStore(
      * Unlike initialize(), this method does NOT auto-disable STT on failure.
      */
     async function ensureTranscriptionServerRunning(): Promise<void> {
+      // The external endpoint transcribes remotely, so there is no OVMS server to
+      // start — and trying anyway is what used to break STT on hosts where OVMS is
+      // installed but cannot execute (macOS, where its binary is not executable).
+      if (effectiveSttEngine.value === 'external') return
+
       const openVinoService = backendServices.info.find((s) => s.serviceName === 'openvino-backend')
 
       // Only start if OVMS is set up. When OVMS is unavailable but a fallback
@@ -458,6 +463,9 @@ export const useSpeechToText = defineStore(
       }
 
       if (!enabled.value) return
+
+      // Nothing local to validate when the external endpoint is the source.
+      if (effectiveSttEngine.value === 'external') return
 
       initializing.value = true
 

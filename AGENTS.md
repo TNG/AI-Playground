@@ -227,7 +227,7 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
 
 **Before claiming it works:** `npm run typecheck` (`vue-tsc`; `e2e/` is in the root
 `tsconfig.json`) and a cheap no-launch smoke: `npx playwright test --config
-playwright-e2e.config.ts --list`.
+playwright-e2e.config.ts --list`. 
 
 ## Code Style
 

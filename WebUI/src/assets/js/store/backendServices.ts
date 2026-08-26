@@ -234,6 +234,27 @@ export const useBackendServices = defineStore(
       applyInstalledVersionFromService(updatedInfo)
     })
 
+    /**
+     * Fold an authoritative status straight into the cached service info.
+     *
+     * `startService` / `stopService` resolve with the status the transition ended
+     * in, but the matching `serviceInfoUpdate` push arrives a tick later. Without
+     * this, code that awaits a start and then reads `info` still sees the
+     * pre-start status: that is how the on-demand speech sidecars failed on their
+     * first turn — the Whisper sidecar was up and healthy, but `info` still said
+     * 'starting', so resolving its endpoint returned null and transcription
+     * reported "Speech To Text is not available".
+     */
+    function applyStatus(serviceName: BackendServiceName, status: BackendStatus): BackendStatus {
+      const idx = currentServiceInfo.value.findIndex((s) => s.serviceName === serviceName)
+      if (idx >= 0 && currentServiceInfo.value[idx].status !== status) {
+        const next = [...currentServiceInfo.value]
+        next[idx] = { ...next[idx], status }
+        currentServiceInfo.value = next
+      }
+      return status
+    }
+
     watch(llamaCppBuildVariant, () => {
       const svc = currentServiceInfo.value.find((s) => s.serviceName === 'llamacpp-backend')
       if (svc) applyInstalledVersionFromService(svc)
@@ -554,11 +575,11 @@ export const useBackendServices = defineStore(
       // rejected (e.g. TTS: restart after a model download → `POST /api/load` 401,
       // refresh, retry). Invalidating up front removes that wasted round-trip.
       invalidateBackendAuthToken(serviceName)
-      return window.electronAPI.startService(serviceName)
+      return applyStatus(serviceName, await window.electronAPI.startService(serviceName))
     }
 
     async function stopService(serviceName: BackendServiceName): Promise<BackendStatus> {
-      return window.electronAPI.stopService(serviceName)
+      return applyStatus(serviceName, await window.electronAPI.stopService(serviceName))
     }
 
     const lastUsedBackend = ref<BackendServiceName | null>(null)

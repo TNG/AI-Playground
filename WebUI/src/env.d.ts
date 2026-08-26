@@ -379,10 +379,14 @@ type electronAPI = {
   saveGeneratedAudio(
     audioBase64: string,
     filename: string,
+    /** `overwrite`: replace an existing file of that name instead of suffixing `_1`. */
+    options?: { overwrite?: boolean },
   ): Promise<{ success: boolean; filePath?: string; error?: string }>
   readLocalAudioAsDataUri(
     filePath: string,
   ): Promise<{ success: boolean; dataUri?: string; error?: string }>
+  /** Delete a generated audio file. Confined to the app's audio directory. */
+  deleteGeneratedAudio(filePath: string): Promise<{ success: boolean; error?: string }>
   readAipgMediaAsBase64(
     url: string,
   ): Promise<{ success: true; data: string } | { success: false; error: string }>

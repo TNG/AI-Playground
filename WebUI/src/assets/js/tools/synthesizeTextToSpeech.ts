@@ -18,7 +18,9 @@ const SynthesizeSpeechOutputSchema = z.object({
   savedFilePath: z.string().optional(),
   speaker: z.string().optional(),
   language: z.string().optional(),
-  mode: z.enum(['custom_voice', 'voice_design']).optional(),
+  // Reports the mode that actually ran, which includes `voice_clone`: a saved voice
+  // is reproduced by cloning its preview, chosen by the store rather than the caller.
+  mode: z.enum(['custom_voice', 'voice_design', 'voice_clone']).optional(),
 })
 
 type SynthesizeSpeechOutput = z.infer<typeof SynthesizeSpeechOutputSchema>

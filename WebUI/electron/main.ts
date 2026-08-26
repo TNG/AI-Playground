@@ -1424,6 +1424,7 @@ function initEventHandle() {
       _event,
       audioBase64: string,
       filename: string,
+      options?: { overwrite?: boolean },
     ): Promise<{ success: boolean; filePath?: string; error?: string }> => {
       try {
         if (typeof audioBase64 !== 'string' || typeof filename !== 'string') {
@@ -1433,7 +1434,10 @@ function initEventHandle() {
         let outName = safeName.toLowerCase().endsWith('.wav') ? safeName : `${safeName}.wav`
         await fs.promises.mkdir(audioDir, { recursive: true })
         let filePath = path.join(audioDir, outName)
-        if (fs.existsSync(filePath)) {
+        // Chat audio keeps every take, so a name collision gets a `_1` suffix. A
+        // caller that owns a single well-known file (a voice's preview) opts out:
+        // suffixing would orphan the previous one on every re-save.
+        if (fs.existsSync(filePath) && options?.overwrite !== true) {
           const ext = path.extname(outName)
           const base = outName.slice(0, outName.length - ext.length)
           let n = 1
@@ -1448,6 +1452,36 @@ function initEventHandle() {
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
         appLogger.error(`Failed to save generated audio: ${errorMessage}`, 'electron-backend')
+        return { success: false, error: errorMessage }
+      }
+    },
+  )
+
+  /**
+   * Delete a generated audio file. Confined to the app's audio directory by the same
+   * containment check `readLocalAudioAsDataUri` uses, so a renderer-supplied path can
+   * never reach anything else. A path that is already gone counts as success —
+   * the caller wants the file absent, not proof that it deleted it.
+   */
+  ipcMain.handle(
+    'deleteGeneratedAudio',
+    async (_event, filePath: string): Promise<{ success: boolean; error?: string }> => {
+      try {
+        if (typeof filePath !== 'string' || !filePath.trim()) {
+          return { success: false, error: 'invalid path' }
+        }
+        const audioRoot = path.normalize(getAudioDir())
+        const full = path.normalize(
+          path.isAbsolute(filePath) ? filePath : path.join(audioRoot, filePath),
+        )
+        if (full !== audioRoot && !full.startsWith(audioRoot + path.sep)) {
+          return { success: false, error: 'path outside audio directory' }
+        }
+        await fs.promises.rm(full, { force: true })
+        return { success: true }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        appLogger.error(`Failed to delete generated audio: ${errorMessage}`, 'electron-backend')
         return { success: false, error: errorMessage }
       }
     },

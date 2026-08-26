@@ -265,7 +265,9 @@ export class AppDriver {
    *    dialog ambushes the first synthesis with it;
    *  - Regenerate re-synthesizes instead of loading a chat model into a TTS thread;
    *  - a saved voice is reproducible — the same text comes back as the same audio,
-   *    until the user deliberately re-rolls the voice.
+   *    until the user deliberately changes its seed. Identity is held by cloning the
+   *    voice's preview recording, not by the seed, which only fixes the draw at save
+   *    time (see QWEN3_TTS_MODEL_REPOS.voiceClone).
    */
   async runTtsPreset(opts: {
     text: string
@@ -301,10 +303,22 @@ export class AppDriver {
         name: opts.newVoice.name,
         description: opts.newVoice.description,
       })
-      // Created voices need the voice-design weights, which are different from the
-      // preset speakers'. Saving the voice is what offers that download, so the
-      // dialog (when the model isn't on disk yet) belongs to THIS step.
-      await this.resolveDownloadsOrFail('the custom-voice Text-to-Speech model')
+      // A created voice needs two checkpoints that the preset speakers don't: voice
+      // design invents it, and the Base model clones it for everything it says later.
+      // Saving is what offers both downloads, so those dialogs belong to THIS step.
+      await this.resolveDownloadSequenceOrFail('the custom-voice Text-to-Speech models')
+
+      // "Save & preview" generated an introduction and kept it, so the card can be
+      // played back without another synthesis.
+      expect(
+        await this.settings.savedTtsVoiceHasPreview(opts.newVoice.name),
+        'a voice saved via "Save & preview" should offer playback of its stored preview',
+      ).toBe(true)
+      await this.settings.playSavedTtsVoice(opts.newVoice.name)
+      expect(
+        await this.downloads.resolve(),
+        'playing a stored preview must not synthesize (and so never prompt for a model)',
+      ).toBe('none')
       await this.settings.close('Audio')
 
       await this.main.sendPrompt(opts.newVoice.text)
@@ -312,7 +326,7 @@ export class AppDriver {
       // `resolve()` returns 'none' when no dialog shows within its window.
       expect(
         await this.downloads.resolve(),
-        'the custom-voice model should already be installed by "Save voice" — synthesis must not prompt for a download',
+        'the custom-voice model should already be installed by "Save & preview" — synthesis must not prompt for a download',
       ).toBe('none')
       await this.main.waitForTtsAudioCount(2)
       await expect(
@@ -355,9 +369,28 @@ export class AppDriver {
       ).toBe(beforeRegenerate)
     })
 
-    await test.step('Re-rolling the voice draws a different speaker', async () => {
+    await test.step('Editing a voice loads it back into the form', async () => {
       await this.settings.open('Audio')
-      await this.settings.rerollTtsVoice(opts.newVoice.name)
+      await this.settings.editSavedTtsVoice(opts.newVoice.name)
+      // Edit restores the whole voice, seed included — that is what makes the saved
+      // speaker adjustable instead of only replaceable.
+      expect(
+        await this.settings.ttsSeed(),
+        'editing a saved voice should load its pinned seed, not a fresh one',
+      ).toMatch(/^\d+$/)
+      await this.settings.close('Audio')
+    })
+
+    await test.step('Re-saving with a new seed draws a different speaker', async () => {
+      await this.settings.open('Audio')
+      await this.settings.editSavedTtsVoice(opts.newVoice.name)
+      await this.settings.rollTtsSeed()
+      // Same name → the save must ask before replacing the existing voice.
+      await this.settings.createTtsVoice({
+        name: opts.newVoice.name,
+        description: opts.newVoice.description,
+        expectOverwrite: true,
+      })
       await this.settings.close('Audio')
 
       await this.main.sendPrompt(opts.newVoice.text)
@@ -365,7 +398,7 @@ export class AppDriver {
       await this.main.waitForTtsAudioCount(4)
       expect(
         await this.main.ttsAudioFingerprint(),
-        're-rolling a saved voice should change how it sounds (otherwise the seed never reaches synthesis)',
+        'a re-seeded voice should sound different (otherwise the seed never reaches synthesis)',
       ).not.toBe(beforeRegenerate)
     })
   }
@@ -575,6 +608,28 @@ export class AppDriver {
       outcome,
       `${what} is gated / unavailable — it must be downloadable for the Text-to-Speech test`,
     ).not.toBe('blocked')
+  }
+
+  /**
+   * Resolve every download dialog that appears back-to-back. Creating a custom voice
+   * pulls two checkpoints — voice design to invent the voice, the Base model to clone
+   * it afterwards — so it raises one dialog after another and a single resolve would
+   * leave the second one hanging.
+   */
+  private async resolveDownloadSequenceOrFail(what: string): Promise<number> {
+    let resolved = 0
+    // Bounded rather than `while (true)`: a dialog that keeps reappearing is a bug we
+    // want to surface as a failure, not spin on.
+    for (let i = 0; i < 4; i++) {
+      const outcome = await this.downloads.resolve()
+      expect(
+        outcome,
+        `${what} is gated / unavailable — it must be downloadable for the Text-to-Speech test`,
+      ).not.toBe('blocked')
+      if (outcome === 'none') return resolved
+      resolved++
+    }
+    return resolved
   }
 
   /**

@@ -249,13 +249,18 @@ export class SpecificSettingsPage {
 
   /**
    * Create a custom ("designed") TTS voice from the Text-to-Speech preset's settings
-   * (SettingsTts.vue "Create a custom voice" form): fill the name + description, save,
-   * and confirm it lands in the "Your voices" list. Saving makes the new voice the
+   * (SettingsTts.vue "Create a custom voice" form): fill the name + description, then
+   * "Save & preview" — which synthesizes the voice's own introduction, plays it, and
+   * only then saves the voice with that WAV as its preview.
+   * Confirms it lands in the "Your voices" list. Saving makes the new voice the
    * active one (see `saveCurrentVoice` → `applySavedVoice`), so the next synthesis uses
    * it. Requires the settings sidebar open with the "Text to Speech" preset active in the Audio mode.
+   *
+   * `expectOverwrite`: the name already exists, so saving raises the replace
+   * confirmation, which this then accepts.
    */
   async createTtsVoice(
-    opts: { name: string; description: string },
+    opts: { name: string; description: string; expectOverwrite?: boolean },
     mode: ChatMode = 'Audio',
   ): Promise<void> {
     const panel = this.panel(mode)
@@ -265,9 +270,20 @@ export class SpecificSettingsPage {
     await panel.getByPlaceholder('e.g. Tammy').fill(opts.name)
     await panel.getByPlaceholder(/British man/).fill(opts.description)
 
-    const save = panel.getByRole('button', { name: 'Save voice' })
-    await expect(save, 'Save voice is disabled until name + description are filled').toBeEnabled()
+    const save = panel.getByRole('button', { name: 'Save & preview' })
+    await expect(
+      save,
+      'Save & preview is disabled until name + description are filled',
+    ).toBeEnabled()
     await save.click()
+
+    if (opts.expectOverwrite) {
+      const dialog = this.page.getByRole('dialog', { name: 'Warning' })
+      await expect(dialog, 'saving over an existing voice must ask first').toBeVisible({
+        timeout: 15_000,
+      })
+      await dialog.getByRole('button', { name: 'Confirm', exact: true }).click()
+    }
 
     // Saved voices render in the "Your voices" list; our new one proves the save landed.
     // Match the name exactly and take the first hit: the active-voice dropdown also shows
@@ -275,7 +291,60 @@ export class SpecificSettingsPage {
     await expect(
       panel.getByText(opts.name, { exact: true }).first(),
       'the newly created voice should appear in the "Your voices" list',
-    ).toBeVisible({ timeout: 5_000 })
+      // The save only commits once the preview has been synthesized (first use also
+      // loads the voice-design model), so this waits far longer than a UI update.
+    ).toBeVisible({ timeout: 5 * 60_000 })
+  }
+
+  /** The seed input on the create/edit-voice form (the shared RandomNumber row). */
+  private ttsSeedInput(mode: ChatMode): Locator {
+    return this.panel(mode).locator('.v-random .v-random-input')
+  }
+
+  /** Read the seed currently on the create/edit-voice form. */
+  async ttsSeed(mode: ChatMode = 'Audio'): Promise<string> {
+    return (await this.ttsSeedInput(mode).inputValue()).trim()
+  }
+
+  /** Set the seed on the create/edit-voice form, pinning which speaker is drawn. */
+  async setTtsSeed(seed: number, mode: ChatMode = 'Audio'): Promise<void> {
+    await this.ttsSeedInput(mode).fill(String(seed))
+    await expect(this.ttsSeedInput(mode)).toHaveValue(String(seed))
+  }
+
+  /** Roll a different speaker for the same description (the seed row's dice). */
+  async rollTtsSeed(mode: ChatMode = 'Audio'): Promise<string> {
+    const before = await this.ttsSeed(mode)
+    await this.panel(mode).locator('.v-random .v-random-btns button').first().click()
+    await expect.poll(() => this.ttsSeed(mode), { timeout: 10_000 }).not.toEqual(before)
+    return this.ttsSeed(mode)
+  }
+
+  /** A saved voice's row in the "Your voices" list. */
+  private savedVoiceRow(name: string, mode: ChatMode): Locator {
+    return this.panel(mode).locator('li').filter({ hasText: name })
+  }
+
+  /** Play a saved voice's stored preview (no synthesis). */
+  async playSavedTtsVoice(name: string, mode: ChatMode = 'Audio'): Promise<void> {
+    await this.savedVoiceRow(name, mode)
+      .getByRole('button', { name: `Play ${name}` })
+      .click()
+  }
+
+  /** Whether a saved voice offers playback — i.e. it has a stored preview WAV. */
+  async savedTtsVoiceHasPreview(name: string, mode: ChatMode = 'Audio'): Promise<boolean> {
+    return this.savedVoiceRow(name, mode)
+      .getByRole('button', { name: `Play ${name}` })
+      .isEnabled()
+  }
+
+  /** Load a saved voice back into the create/edit form. */
+  async editSavedTtsVoice(name: string, mode: ChatMode = 'Audio'): Promise<void> {
+    await this.savedVoiceRow(name, mode)
+      .getByRole('button', { name: `Edit ${name}` })
+      .click()
+    await expect(this.panel(mode).getByPlaceholder('e.g. Tammy')).toHaveValue(name)
   }
 
   /**
@@ -338,23 +407,13 @@ export class SpecificSettingsPage {
    * the voice isn't there.
    */
   async deleteTtsVoiceIfPresent(name: string, mode: ChatMode = 'Audio'): Promise<void> {
-    const row = this.panel(mode).locator('li').filter({ hasText: name })
+    const row = this.savedVoiceRow(name, mode)
     if ((await row.count()) === 0) return
-    await row.first().getByRole('button', { name: 'Remove' }).click()
-    await expect(row, `saved voice "${name}" should be gone after Remove`).toHaveCount(0)
-  }
-
-  /**
-   * Re-roll a saved TTS voice: draw a different speaker for the same description by
-   * giving the voice a new seed (SettingsTts.vue → `rerollVoiceSeed`). The counterpart
-   * of the pinned seed — proof that the seed is what fixes the voice, since audio
-   * synthesized after a re-roll must differ from audio synthesized before it.
-   * Requires the settings sidebar open with the "Text to Speech" preset active in the Audio mode.
-   */
-  async rerollTtsVoice(name: string, mode: ChatMode = 'Audio'): Promise<void> {
-    const row = this.panel(mode).locator('li').filter({ hasText: name })
-    await expect(row, `saved voice "${name}" should be listed under "Your voices"`).toHaveCount(1)
-    await row.getByRole('button', { name: 'Re-roll' }).click()
+    await row
+      .first()
+      .getByRole('button', { name: `Delete ${name}` })
+      .click()
+    await expect(row, `saved voice "${name}" should be gone after Delete`).toHaveCount(0)
   }
 
   /** Close the sidebar via its (responsive) Close button, scoped to the sidebar

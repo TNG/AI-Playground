@@ -271,8 +271,10 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
     const env: Record<string, string> = { HF_HUB_OFFLINE: '1', TRANSFORMERS_OFFLINE: '1' }
     const custom = this.localModelDir(QWEN3_TTS_MODEL_REPOS.customVoice)
     const voiceDesign = this.localModelDir(QWEN3_TTS_MODEL_REPOS.voiceDesign)
+    const voiceClone = this.localModelDir(QWEN3_TTS_MODEL_REPOS.voiceClone)
     if (custom) env.QWEN3_TTS_MODEL = custom
     if (voiceDesign) env.QWEN3_TTS_VOICE_DESIGN_MODEL = voiceDesign
+    if (voiceClone) env.QWEN3_TTS_VOICE_CLONE_MODEL = voiceClone
     return env
   }
 

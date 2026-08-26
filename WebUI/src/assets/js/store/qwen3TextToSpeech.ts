@@ -9,7 +9,8 @@ import * as toast from '@/assets/js/toast'
 import { createAppError } from '../errors/appError'
 import { qwen3TtsFetch } from '@/lib/loopbackAuth'
 import { resolveTtsSpeakerLabel } from '@/lib/ttsSpeakerLabel'
-import { randomVoiceSeed, seedForVoice, stableVoiceSeed } from '@/lib/ttsVoiceSeed'
+import { voicePreviewSentence } from '@/lib/ttsVoicePreview'
+import { seedForVoice, stableVoiceSeed } from '@/lib/ttsVoiceSeed'
 import { QWEN3_TTS_MODEL_REPOS } from '@/assets/js/qwen3TtsConstants'
 import type {
   Qwen3TtsApiResponse,
@@ -43,9 +44,9 @@ export const useQwen3TextToSpeech = defineStore(
     /** The HF repo backing a synthesis mode. Each mode has its own weights, so we
      *  only prompt to download the one the user is actually about to use. */
     function modelRepoForMode(mode: Qwen3TtsSynthesisMode): string {
-      return mode === 'voice_design'
-        ? QWEN3_TTS_MODEL_REPOS.voiceDesign
-        : QWEN3_TTS_MODEL_REPOS.customVoice
+      if (mode === 'voice_design') return QWEN3_TTS_MODEL_REPOS.voiceDesign
+      if (mode === 'voice_clone') return QWEN3_TTS_MODEL_REPOS.voiceClone
+      return QWEN3_TTS_MODEL_REPOS.customVoice
     }
 
     /** Whether the weights for a mode are present on disk (defaults to the current mode). */
@@ -143,14 +144,21 @@ export const useQwen3TextToSpeech = defineStore(
         const payload = (await response.json()) as Qwen3TtsApiResponse<{
           customVoiceModel: string
           voiceDesignModel: string
+          voiceCloneModel?: string
           status: { loadedModelIds: string[] }
         }>
         const data = payload.data
         if (!data) return false
+        const resolved = mode ?? defaultMode.value
         const targetId =
-          (mode ?? defaultMode.value) === 'voice_design'
+          resolved === 'voice_design'
             ? data.voiceDesignModel
-            : data.customVoiceModel
+            : resolved === 'voice_clone'
+              ? data.voiceCloneModel
+              : data.customVoiceModel
+        // An older sidecar doesn't report the clone model; treat that as "not resident"
+        // so the caller loads it explicitly rather than assuming it is ready.
+        if (!targetId) return false
         return data.status.loadedModelIds.includes(targetId)
       } catch {
         return false
@@ -187,6 +195,12 @@ export const useQwen3TextToSpeech = defineStore(
       mode?: Qwen3TtsSynthesisMode
       /** Name of a saved voice; overrides mode/instruct with the saved description. */
       voiceName?: string
+      /**
+       * Explicit voice-design seed, taking precedence over the one derived from the
+       * saved voice / description. Used to preview an unsaved voice with exactly the
+       * seed shown on the form, so what the user hears is what gets saved.
+       */
+      seed?: number
     }): Promise<Qwen3TtsSynthesizeResult> {
       let mode = args.mode ?? defaultMode.value
       let language = args.language ?? defaultLanguage.value
@@ -225,11 +239,26 @@ export const useQwen3TextToSpeech = defineStore(
       // separate generations. Preset speakers already have a fixed timbre, so they
       // keep their natural prosody variation.
       const seed =
-        mode === 'voice_design' && saved
-          ? seedForVoice(saved)
-          : mode === 'voice_design' && resolvedInstruct
-            ? stableVoiceSeed('', resolvedInstruct)
-            : undefined
+        mode === 'voice_design' && args.seed !== undefined
+          ? args.seed
+          : mode === 'voice_design' && saved
+            ? seedForVoice(saved)
+            : mode === 'voice_design' && resolvedInstruct
+              ? stableVoiceSeed('', resolvedInstruct)
+              : undefined
+
+      // A saved voice with a preview is reproduced by cloning that recording rather
+      // than by re-running the sampled design. The seed above can only pin a single
+      // generation: hand voice design the same seed and different words and it draws
+      // a different speaker, which is exactly what made saved voices drift. Cloning
+      // conditions on the audio, so the voice the user approved is the voice they get
+      // for any text. Voices saved before previews existed have nothing to clone from,
+      // so they keep the seeded design path.
+      const cloneRef =
+        mode === 'voice_design' && saved?.previewFilePath
+          ? { path: saved.previewFilePath, text: voicePreviewSentence(saved.name) }
+          : undefined
+      if (cloneRef) mode = 'voice_clone'
       // Only the model for the resolved mode is required.
       await ensureModelInstalled(mode)
       const baseUrl = await ensureBackendRunning()
@@ -240,6 +269,8 @@ export const useQwen3TextToSpeech = defineStore(
         instruct: resolvedInstruct,
         mode,
         seed,
+        refAudioPath: cloneRef?.path,
+        refText: cloneRef?.text,
       }
       const response = await qwen3TtsFetch(`${baseUrl}/api/synthesize`, {
         method: 'POST',
@@ -255,8 +286,16 @@ export const useQwen3TextToSpeech = defineStore(
     }
 
     /** Persist WAV bytes under Documents/AI-Playground/audio and return the absolute path. */
-    async function saveWavToDisk(audioBase64: string, suggestedName: string): Promise<string> {
-      const result = await window.electronAPI.saveGeneratedAudio(audioBase64, suggestedName)
+    async function saveWavToDisk(
+      audioBase64: string,
+      suggestedName: string,
+      options?: { overwrite?: boolean },
+    ): Promise<string> {
+      const result = await window.electronAPI.saveGeneratedAudio(
+        audioBase64,
+        suggestedName,
+        options,
+      )
       if (!result.success || !result.filePath) {
         throw new Error(result.error ?? 'Failed to save audio file')
       }
@@ -314,7 +353,16 @@ export const useQwen3TextToSpeech = defineStore(
         (existing && existing.instruct.trim() === instruct
           ? seedForVoice(existing)
           : stableVoiceSeed(name, instruct))
-      const entry: Qwen3TtsSavedVoice = { name, instruct, language: voice.language, seed }
+      // Keep the existing preview when the caller doesn't supply a fresh one, so a
+      // rename-free re-save doesn't silently leave the card with no Play audio.
+      const previewFilePath = voice.previewFilePath ?? existing?.previewFilePath
+      const entry: Qwen3TtsSavedVoice = {
+        name,
+        instruct,
+        language: voice.language,
+        seed,
+        previewFilePath,
+      }
       if (idx >= 0) savedVoices.value.splice(idx, 1, entry)
       else savedVoices.value.push(entry)
       // Keep an active selection of this voice in sync with the edited description.
@@ -324,24 +372,32 @@ export const useQwen3TextToSpeech = defineStore(
     }
 
     /**
-     * Give a saved voice a new random seed — i.e. draw a different speaker for the
-     * same description. The escape hatch when the pinned voice sounds wrong (too
-     * slow, wrong gender, odd prosody) instead of it silently changing on its own.
+     * Forget a saved voice, and with it the preview WAV that was generated for it —
+     * leaving the file behind would litter the audio folder with takes belonging to
+     * voices that no longer exist.
+     *
+     * Skipped when another saved voice still points at the same file: two names can
+     * slugify to a single preview filename, and the survivor still needs it. A failed
+     * delete only warns — the voice is gone either way, and a stuck file must not be
+     * able to keep it in the list.
      */
-    function rerollVoiceSeed(name: string): number | undefined {
-      const idx = savedVoices.value.findIndex(
-        (v) => v.name.toLowerCase() === name.trim().toLowerCase(),
-      )
-      if (idx < 0) return undefined
-      const seed = randomVoiceSeed()
-      savedVoices.value.splice(idx, 1, { ...savedVoices.value[idx], seed })
-      return seed
-    }
-
-    function deleteVoice(name: string): void {
+    async function deleteVoice(name: string): Promise<void> {
       const n = name.trim().toLowerCase()
+      const removed = savedVoices.value.find((v) => v.name.toLowerCase() === n)
       savedVoices.value = savedVoices.value.filter((v) => v.name.toLowerCase() !== n)
       if (defaultVoiceName.value.toLowerCase() === n) defaultVoiceName.value = ''
+
+      const previewFilePath = removed?.previewFilePath
+      if (!previewFilePath) return
+      if (savedVoices.value.some((v) => v.previewFilePath === previewFilePath)) return
+      try {
+        const result = await window.electronAPI.deleteGeneratedAudio(previewFilePath)
+        if (!result.success) {
+          console.warn(`Could not delete voice preview ${previewFilePath}: ${result.error}`)
+        }
+      } catch (error) {
+        console.warn(`Could not delete voice preview ${previewFilePath}:`, error)
+      }
     }
 
     function resolveVoice(name: string): Qwen3TtsSavedVoice | undefined {
@@ -368,7 +424,6 @@ export const useQwen3TextToSpeech = defineStore(
       applySavedVoice,
       applyPresetSpeaker,
       saveVoice,
-      rerollVoiceSeed,
       deleteVoice,
       resolveVoice,
     }

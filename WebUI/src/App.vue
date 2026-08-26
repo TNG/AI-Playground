@@ -215,7 +215,12 @@
           ></button>
         </DemoModeBlocker>
       </div>
-      <Chat v-if="promptStore.getCurrentMode() === 'chat'" ref="chatRef" />
+      <!-- The Audio mode renders its turns (synthesized audio, transcripts) as chat
+           messages, so it shares this view with the Chat mode. -->
+      <Chat
+        v-if="promptStore.getCurrentMode() === 'chat' || promptStore.getCurrentMode() === 'audio'"
+        ref="chatRef"
+      />
       <AgentMode v-if="promptStore.getCurrentMode() === 'agent'" />
       <WorkflowResult
         v-if="promptStore.getCurrentMode() === 'imageGen'"

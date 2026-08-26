@@ -21,6 +21,7 @@ import { useTextInference } from './textInference'
 import type { IndexedDocument, ValidFileExtension } from './textInference'
 import { useSpeechToText } from './speechToText'
 import { useTextToSpeech } from './textToSpeech'
+import { useQwen3TextToSpeech } from './qwen3TextToSpeech'
 import { base64ToBlob, transcribeAudioBlob } from '@/lib/transcribe'
 import { synthesizeSpeech, bytesToBase64 } from '@/lib/synthesizeSpeech'
 import { markdownToSpeechText } from '@/lib/markdownToSpeech'
@@ -1031,9 +1032,16 @@ export const useHomeAgent = defineStore(
     }
 
     /**
-     * Send a synthesized voice reply when the inbound message was itself a
-     * voice message and Text To Speech is enabled. Best-effort: failures are
-     * logged and never break the (already-delivered) text reply.
+     * Send a synthesized voice reply when the inbound message was itself a voice
+     * message and "Speak replies" is on for the Home Agent preset. That toggle sits
+     * on the Text To Speech tool row in Settings → Built-in tools, so the tool must
+     * be enabled too; it is read from the preset's stored settings because the live
+     * refs may already hold the desktop user's preset again. Best-effort: failures
+     * are logged and never break the (already-delivered) text reply.
+     *
+     * Synthesis goes through whichever engine the user selected, Qwen3 included.
+     * Nothing here may prompt: a remote sender cannot answer a download popup on
+     * the host, so a missing model simply means no voice reply.
      */
     async function maybeSendVoiceReply(
       adapter: ChannelAdapter,
@@ -1045,9 +1053,23 @@ export const useHomeAgent = defineStore(
       const trimmed = markdownToSpeechText(text ?? '').trim()
       if (!trimmed) return
       const textToSpeech = useTextToSpeech()
-      if (!textToSpeech.enabled || !textToSpeech.autoSpeakOnVoiceInput) return
+      if (!useTextInference().speakRepliesAllowed(HOME_AGENT_CHAT_PRESET_NAME)) return
 
       try {
+        if (textToSpeech.selectedEngine === 'qwen3') {
+          const qwen3 = useQwen3TextToSpeech()
+          // `synthesize` would open the download popup for a missing model, so
+          // check first and bail out instead.
+          if (!qwen3.isBackendSetUp() || !(await qwen3.isModelInstalled())) return
+          const { audioBase64, mediaType } = await qwen3.synthesize({ text: trimmed })
+          await adapter.voice(audioBase64, mediaType || 'audio/wav', meta)
+          return
+        }
+        // Kokoro / external endpoint. `available` covers exactly those two.
+        if (!textToSpeech.available) return
+        // Start the OVMS speech server on demand (no dialog; no-op if already up or
+        // the model isn't installed — a configured fallback still serves).
+        await textToSpeech.ensureSpeechServerRunning()
         const endpoint = await textToSpeech.resolveSpeech()
         if (!endpoint) return
         // Request WAV — it's universally supported by TTS servers (OVMS and
@@ -1296,11 +1318,22 @@ export const useHomeAgent = defineStore(
       meta?: InboundMeta,
     ): Promise<string | null> {
       const speechToText = useSpeechToText()
+      // Start the selected engine's server on demand. Both are dialog-free (a
+      // remote sender can't answer a download popup) and no-op when the backend or
+      // model isn't installed — a configured fallback still serves. The standalone
+      // sidecar needs this explicitly: its endpoint resolves from the registered
+      // service's baseUrl whether or not the process is running, so without the
+      // start below transcription would just fail to connect.
+      if (speechToText.effectiveSttEngine === 'standalone') {
+        await speechToText.ensureStandaloneServerRunning()
+      } else {
+        await speechToText.ensureTranscriptionServerRunning()
+      }
       const endpoint = await speechToText.resolveTranscription()
       if (!endpoint) {
         await reply(
           adapter,
-          '⚠️ No speech-to-text is available. Enable Speech To Text (OVMS) or configure a fallback transcription endpoint in Settings.',
+          '⚠️ No speech-to-text is available. Install the OpenVINO backend or the standalone Whisper backend, or configure a fallback transcription endpoint in the Speech to Text preset settings.',
           meta,
         )
         return null

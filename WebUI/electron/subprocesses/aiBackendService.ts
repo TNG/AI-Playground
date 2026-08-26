@@ -86,6 +86,11 @@ export class AiBackendService extends LongLivedPythonApiService {
         status: 'executing',
         debugMessage: `installing dependencies`,
       }
+      // Install into a fresh venv — see `prepareCleanPythonEnv`. A repair over a
+      // venv whose files are broken but whose dist-info survived (interrupted
+      // install, app reinstall) is otherwise a no-op that reports success.
+      await this.prepareCleanPythonEnv()
+
       const extraEnv =
         this.settings.productMode === 'nvidia' ? { UV_TORCH_BACKEND: 'cu128' } : undefined
       await installBackend(this.serviceFolder, undefined, extraEnv)

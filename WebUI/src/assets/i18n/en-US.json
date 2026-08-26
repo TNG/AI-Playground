@@ -154,6 +154,7 @@
   "TAB_ANSWER": "Answer",
   "TAB_LEARN_MORE": "Learn More",
   "MODE_CHAT": "Chat",
+  "MODE_AUDIO": "Audio",
   "MODE_IMAGE_GEN": "Image Gen",
   "MODE_IMAGE_EDIT": "Image Edit",
   "MODE_VIDEO": "Video",

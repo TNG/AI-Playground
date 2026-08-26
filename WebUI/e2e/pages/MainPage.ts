@@ -1,7 +1,7 @@
 import { type Locator, type Page, expect } from '@playwright/test'
 
 /** Prompt-area mode labels (accessible names of the mode buttons). */
-export type ChatMode = 'Chat' | 'Image Gen' | 'Image Edit' | 'Video'
+export type ChatMode = 'Chat' | 'Audio' | 'Image Gen' | 'Image Edit' | 'Video'
 
 /**
  * Page object for the running main view: the prompt area (mode switch, prompt
@@ -397,6 +397,33 @@ export class MainPage {
     await expect(
       this.mcpToolCallCards(serverId).first(),
       `expected the agent to invoke an MCP tool from the "${serverId}" server`,
+    ).toBeVisible({ timeout })
+  }
+
+  /** The hidden audio-upload input rendered by the Speech-to-Text preset surface. */
+  get sttUploadInput(): Locator {
+    return this.page.locator('#stt-file-upload')
+  }
+
+  /**
+   * Upload an audio file into the Speech-to-Text preset's record/upload surface,
+   * which kicks off transcription and appends a transcript chat turn.
+   */
+  async uploadSttAudio(filePath: string): Promise<void> {
+    await this.sttUploadInput.waitFor({ state: 'attached', timeout: 15_000 })
+    await this.sttUploadInput.setInputFiles(filePath)
+  }
+
+  /**
+   * Wait for the Speech-to-Text preset to render a non-empty transcript as an
+   * assistant reply. The STT preset has no Send/Stop control (it submits via the
+   * record/upload surface), so this waits directly on the transcript text rather
+   * than on the idle signal used by {@link waitForAssistantAnswer}.
+   */
+  async waitForTranscript(timeout: number = MainPage.TEXT_TIMEOUT): Promise<void> {
+    await expect(
+      this.assistantAnswer.filter({ hasText: /\S/ }).first(),
+      'the Speech-to-Text turn produced no non-empty transcript',
     ).toBeVisible({ timeout })
   }
 

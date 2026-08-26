@@ -387,7 +387,7 @@
                 <span class="text-xs ml-1">{{ languages.COM_COPY }}</span>
               </button>
               <button
-                v-if="textToSpeech.enabled"
+                v-if="textToSpeech.available"
                 class="flex items-end"
                 title="Speak"
                 :disabled="openAiCompatibleChat.processing"
@@ -575,9 +575,15 @@ defineExpose({
   scrollToBottom,
 })
 
+// The Audio mode streams into this same view (TTS audio bubbles, STT transcripts),
+// so it submits and cancels through the same handlers.
+const chatLikeModes: ChatLikeModeType[] = ['chat', 'audio']
+
 onMounted(() => {
-  promptStore.registerSubmitCallback('chat', handlePromptSubmit)
-  promptStore.registerCancelCallback('chat', handleCancel)
+  for (const mode of chatLikeModes) {
+    promptStore.registerSubmitCallback(mode, handlePromptSubmit)
+    promptStore.registerCancelCallback(mode, handleCancel)
+  }
 })
 
 // When async content (e.g. a generated picture) finishes loading, the panel
@@ -594,8 +600,10 @@ watch(chatPanel, (el, _old, onCleanup) => {
 })
 
 onUnmounted(() => {
-  promptStore.unregisterSubmitCallback('chat')
-  promptStore.unregisterCancelCallback('chat')
+  for (const mode of chatLikeModes) {
+    promptStore.unregisterSubmitCallback(mode)
+    promptStore.unregisterCancelCallback(mode)
+  }
 })
 
 watch(
@@ -722,7 +730,8 @@ watch(
   () => openAiCompatibleChat.processing,
   (processing, wasProcessing) => {
     if (!(wasProcessing && !processing)) return
-    if (!textToSpeech.enabled || !textToSpeech.autoSpeakOnVoiceInput) return
+    // "Speak replies" for the active preset (edited on the Text To Speech tool row).
+    if (!textToSpeech.available || !textInference.speakRepliesAllowed()) return
     if (!textToSpeech.pendingVoiceTurn) return
 
     textToSpeech.pendingVoiceTurn = false

@@ -1,6 +1,10 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { ref, computed, toRaw } from 'vue'
-import { useBackendServices, type BackendServiceName } from './backendServices'
+import {
+  allBackendServiceNames,
+  useBackendServices,
+  type BackendServiceName,
+} from './backendServices'
 import { useProductMode } from './productMode'
 import { useGlobalSetup } from './globalSetup'
 import { usePresets, type ChatPreset } from './presets'
@@ -12,20 +16,23 @@ import { useDemoMode } from './demoMode'
 import { useHomeAgent } from './homeAgent'
 import { useCloudMode } from './cloudMode'
 import { CHANNELS } from './channels/channelRegistry'
-import { mapStatusToColor, mapToDisplayStatus } from '@/lib/utils'
+import { mapServiceNameToDisplayName, mapStatusToColor, mapToDisplayStatus } from '@/lib/utils'
+import { isOnDemandBackend } from '@/lib/onDemandBackends'
 import * as toast from '@/assets/js/toast'
 import { useErrors } from './errors'
 import { extractMessage } from '../errors/appError'
 import type { ErrorDetails } from '../../../../electron/subprocesses/service'
 
-const ALL_BACKENDS: BackendServiceName[] = [
-  'ai-backend',
-  'home-agent-backend',
-  'qwen3-tts-backend',
-  'llamacpp-backend',
-  'openvino-backend',
-  'comfyui-backend',
-]
+// Derived from the single source of truth rather than restated: a backend added
+// there but forgotten here would silently never appear in the wizard.
+const ALL_BACKENDS: BackendServiceName[] = [...allBackendServiceNames]
+
+// The standalone Whisper backend only ships in builds that enable it (NVIDIA),
+// so it is filtered out everywhere else. The other backends are unconditional.
+function getBackends(whisperEnabled: boolean): BackendServiceName[] {
+  if (whisperEnabled) return ALL_BACKENDS
+  return ALL_BACKENDS.filter((b) => b !== 'whisper-backend')
+}
 
 function isBackendAvailableInProductMode(
   mode: ProductMode | null,
@@ -67,12 +74,27 @@ export type PhisonAidaptivRowViewModel = {
   toggleTooltip: string
 }
 
+/**
+ * Row labels are the shared ones (`mapServiceNameToDisplayName`) with one wizard-only
+ * exception: the core backend sits inside the "AI Playground" group box here, so
+ * repeating "AI Playground" on the row inside it says nothing — and would collide
+ * with the group's own accessible name. Elsewhere (Installation Management, App
+ * Settings) the row stands alone and keeps the product name.
+ */
+function wizardDisplayName(serviceName: BackendServiceName): string {
+  if (serviceName === 'ai-backend') return 'Core Services'
+  return mapServiceNameToDisplayName(serviceName)
+}
+
 const knownSteps: Record<BackendServiceName, string[]> = {
   'ai-backend': ['start', 'install dependencies'],
   'llamacpp-backend': ['start', 'download', 'extract', 'configure-service'],
   'openvino-backend': ['start', 'download', 'extract', 'install python'],
   'comfyui-backend': [
     'start',
+    // Linux-only step, emitted before the clone. Omitting it made Linux installs
+    // fall back to showing raw debug messages instead of a progress label.
+    'linux dependencies',
     'install comfyUI',
     'configure comfyUI',
     'install builtin custom nodes',
@@ -80,6 +102,7 @@ const knownSteps: Record<BackendServiceName, string[]> = {
   ],
   'home-agent-backend': ['start', 'install dependencies'],
   'qwen3-tts-backend': ['start', 'install dependencies'],
+  'whisper-backend': ['start', 'install dependencies'],
 }
 
 const stepDisplayNames: Record<string, string> = {
@@ -89,6 +112,7 @@ const stepDisplayNames: Record<string, string> = {
   'configure-service': 'Configuring SSD offload...',
   'install dependencies': 'Installing dependencies...',
   'install python': 'Installing Python environment...',
+  'linux dependencies': 'Installing system packages...',
   'install comfyUI': 'Installing ComfyUI...',
   'configure comfyUI': 'Configuring...',
   'install builtin custom nodes': 'Installing custom nodes...',
@@ -437,7 +461,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   })
 
   const backendRows = computed<BackendRowViewModel[]>(() => {
-    return ALL_BACKENDS.map((serviceName) => {
+    return getBackends(speechToText.isWhisperBackendEnabled).map((serviceName) => {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       const available = isBackendAvailableInProductMode(pendingProductMode.value, serviceName)
       const isRequired = info?.isRequired ?? serviceName === 'ai-backend'
@@ -493,7 +517,10 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
       let versionDisplay = ''
       if (serviceName === 'ai-backend') {
-        versionDisplay = globalSetup.state.version ?? ''
+        // Left blank on purpose: the core backend's version is the app version,
+        // and the wizard shows it once under its title (see SetupWizard.vue)
+        // rather than on this row, where it read as one component's version.
+        versionDisplay = ''
       } else if (
         serviceName === 'llamacpp-backend' &&
         backendServices.llamaCppBuildVariant === 'ssd-offload'
@@ -582,7 +609,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
       return {
         serviceName,
-        displayName: mapServiceNameToDisplayName(serviceName),
+        displayName: wizardDisplayName(serviceName),
         isRequired,
         isSetUp,
         status,
@@ -651,9 +678,36 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     return true
   })
 
+  /**
+   * Load the persisted set of components the user switched off. The toggle used to
+   * live only in this store, so an installed component the user had disabled was
+   * auto-started again by the main process on the next launch. It is kept in
+   * settings.json because the main process is what performs the boot-time
+   * auto-start (see `disabledBackends` there).
+   */
+  async function restoreDisabledBackends() {
+    try {
+      const s = await window.electronAPI.getLocalSettings()
+      const persisted = s.disabledBackends ?? []
+      disabledBackends.value = new Set(
+        persisted.filter((n): n is BackendServiceName =>
+          (allBackendServiceNames as readonly string[]).includes(n),
+        ),
+      )
+    } catch (e) {
+      console.warn(`Failed to restore disabled components: ${e}`)
+    }
+  }
+
+  function persistDisabledBackends() {
+    window.electronAPI
+      .updateLocalSettings({ disabledBackends: [...disabledBackends.value] })
+      .catch((e: unknown) => console.warn(`Failed to persist disabled components: ${e}`))
+  }
+
   function seedInstallSelection() {
     const newSelection = new Set<BackendServiceName>()
-    for (const serviceName of ALL_BACKENDS) {
+    for (const serviceName of getBackends(speechToText.isWhisperBackendEnabled)) {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       if (!info) continue
       if (info.isRequired) continue
@@ -690,7 +744,11 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       installSelection.value.add(serviceName)
       disabledBackends.value.delete(serviceName)
       disabledBackends.value = new Set(disabledBackends.value)
-      if (info?.isSetUp && (info.status === 'stopped' || info.status === 'notYetStarted')) {
+      if (
+        info?.isSetUp &&
+        (info.status === 'stopped' || info.status === 'notYetStarted') &&
+        !isOnDemandBackend(serviceName)
+      ) {
         await backendServices.startService(serviceName)
       }
     } else {
@@ -705,6 +763,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       }
     }
     installSelection.value = new Set(installSelection.value)
+    persistDisabledBackends()
   }
 
   async function togglePhisonAidaptiv(enabled: boolean) {
@@ -714,6 +773,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       disabledBackends.value.delete('llamacpp-backend')
       disabledBackends.value = new Set(disabledBackends.value)
       installSelection.value = new Set(installSelection.value)
+      persistDisabledBackends()
       const info = backendServices.info.find((s) => s.serviceName === 'llamacpp-backend')
       if (info?.isSetUp && (info.status === 'stopped' || info.status === 'notYetStarted')) {
         await backendServices.startService('llamacpp-backend')
@@ -725,7 +785,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
   function setPendingMode(mode: ProductMode) {
     pendingProductMode.value = mode
-    for (const sn of ALL_BACKENDS) {
+    for (const sn of getBackends(speechToText.isWhisperBackendEnabled)) {
       const wasAvailable = isBackendAvailableInProductMode(
         productModeStore.productMode ?? pendingProductMode.value,
         sn,
@@ -742,6 +802,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   }
 
   async function openWizard() {
+    await restoreDisabledBackends()
     if (!productModeStore.hardwareRecommendation) {
       await productModeStore.detectRecommendation()
     }
@@ -798,6 +859,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     // (now reachable) global failed screen and the error sink instead.
     try {
       await globalSetup.initSetup()
+      await restoreDisabledBackends()
       const modeStatus = await productModeStore.ensureReady()
 
       if (modeStatus === 'ready') {
@@ -945,10 +1007,14 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   }
 
   async function repairBackend(name: BackendServiceName) {
+    // A repair is the recovery path for a broken component, so a failed stop must
+    // not abort it — that used to leave the only visible affordance on a failed
+    // row (Repair) doing nothing but showing a toast. The setup itself stops the
+    // service again and wipes its environment before installing
+    // (`prepareCleanPythonEnv`), so continuing here is safe.
     const stopStatus = await backendServices.stopService(name)
     if (stopStatus !== 'stopped') {
-      toast.error('Service failed to stop')
-      return
+      console.warn(`Repair of ${name}: stop reported '${stopStatus}', continuing with reinstall`)
     }
     // Clear Home Agent channel configs on reinstall so the user must re-verify
     // each channel before turning it back on. Both Telegram and Slack credentials
@@ -973,6 +1039,10 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       wizardActivity.value.set(name, 'Detecting devices...')
       wizardActivity.value = new Map(wizardActivity.value)
       await backendServices.detectDevices(name)
+
+      if (isOnDemandBackend(name)) {
+        return
+      }
 
       wizardActivity.value.set(name, 'Starting...')
       wizardActivity.value = new Map(wizardActivity.value)
@@ -1000,11 +1070,11 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     await globalSetup.initSetup()
     globalSetup.loadingState = 'running'
 
-    for (const serviceName of ALL_BACKENDS) {
+    for (const serviceName of getBackends(speechToText.isWhisperBackendEnabled)) {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       if (!info?.isSetUp) continue
       if (info.isRequired || installSelection.value.has(serviceName)) {
-        if (info.status !== 'running') {
+        if (info.status !== 'running' && !isOnDemandBackend(serviceName)) {
           backendServices.startService(serviceName)
         }
       }
@@ -1099,25 +1169,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     closeErrorModal,
   }
 })
-
-function mapServiceNameToDisplayName(serviceName: string) {
-  switch (serviceName) {
-    case 'comfyui-backend':
-      return 'ComfyUI'
-    case 'ai-backend':
-      return 'AI Playground'
-    case 'llamacpp-backend':
-      return 'Llama.cpp - GGUF'
-    case 'openvino-backend':
-      return 'OpenVINO'
-    case 'home-agent-backend':
-      return 'Home Agent'
-    case 'qwen3-tts-backend':
-      return 'Text To Speech (Qwen3-TTS)'
-    default:
-      return serviceName
-  }
-}
 
 if (import.meta.hot) {
   import.meta.hot.accept(acceptHMRUpdate(useSetupWizard, import.meta.hot))

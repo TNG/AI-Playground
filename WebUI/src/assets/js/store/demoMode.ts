@@ -4,6 +4,9 @@ import { applyDemoModeExplicitDefaults } from './demoModeDefaults'
 
 export type DemoButtonId =
   | 'mode-button-chat'
+  // Not part of the guided demo (no notification dot / tour step): the kiosk demo
+  // profiles don't enable the Audio mode. Listed so the mode button's help id is typed.
+  | 'mode-button-audio'
   | 'mode-button-imageGen'
   | 'mode-button-imageEdit'
   | 'mode-button-video'

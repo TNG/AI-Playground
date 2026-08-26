@@ -249,14 +249,19 @@ export class SpecificSettingsPage {
 
   /**
    * Create a custom ("designed") TTS voice from the Text-to-Speech preset's settings
-   * (SettingsTts.vue "Create a custom voice" form): fill the name + description, save,
-   * and confirm it lands in the "Your voices" list. Saving makes the new voice the
+   * (SettingsTts.vue "Create a custom voice" form): fill the name + description, then
+   * "Save & preview" — which synthesizes the voice's own introduction, plays it, and
+   * only then saves the voice with that WAV as its preview.
+   * Confirms it lands in the "Your voices" list. Saving makes the new voice the
    * active one (see `saveCurrentVoice` → `applySavedVoice`), so the next synthesis uses
-   * it. Requires the settings sidebar open with the "Text to Speech" preset active.
+   * it. Requires the settings sidebar open with the "Text to Speech" preset active in the Audio mode.
+   *
+   * `expectOverwrite`: the name already exists, so saving raises the replace
+   * confirmation, which this then accepts.
    */
   async createTtsVoice(
-    opts: { name: string; description: string },
-    mode: ChatMode = 'Chat',
+    opts: { name: string; description: string; expectOverwrite?: boolean },
+    mode: ChatMode = 'Audio',
   ): Promise<void> {
     const panel = this.panel(mode)
     // The form fields are the only inputs carrying these placeholders (name = "e.g.
@@ -265,9 +270,34 @@ export class SpecificSettingsPage {
     await panel.getByPlaceholder('e.g. Tammy').fill(opts.name)
     await panel.getByPlaceholder(/British man/).fill(opts.description)
 
-    const save = panel.getByRole('button', { name: 'Save voice' })
-    await expect(save, 'Save voice is disabled until name + description are filled').toBeEnabled()
+    const save = panel.getByRole('button', { name: 'Save & preview' })
+    await expect(
+      save,
+      'Save & preview is disabled until name + description are filled',
+    ).toBeEnabled()
     await save.click()
+
+    if (opts.expectOverwrite) {
+      const dialog = this.page.getByRole('dialog', { name: 'Warning' })
+      await expect(dialog, 'saving over an existing voice must ask first').toBeVisible({
+        timeout: 15_000,
+      })
+      await dialog.getByRole('button', { name: 'Confirm', exact: true }).click()
+    }
+
+    // Wait for the *save* to land, not merely for a row to exist: overwriting an
+    // existing voice leaves its row on screen throughout, so a visibility check there
+    // passes instantly and lets the caller race ahead while the preview is still being
+    // synthesized -- which then clones the previous recording. The form is cleared only
+    // by a successful save (`resetVoiceForm`), so an empty name field is the
+    // unambiguous signal, and an idle button confirms the synthesis finished.
+    await expect(
+      panel.getByPlaceholder('e.g. Tammy'),
+      'the create-voice form is cleared once the save completes',
+    ).toHaveValue('', { timeout: 10 * 60_000 })
+    // Not `toBeEnabled` on the button: clearing the form is what disables it (the save
+    // needs a name and a description). Its *label* is the busy indicator, and the
+    // locator above already matches on the idle one.
 
     // Saved voices render in the "Your voices" list; our new one proves the save landed.
     // Match the name exactly and take the first hit: the active-voice dropdown also shows
@@ -275,7 +305,58 @@ export class SpecificSettingsPage {
     await expect(
       panel.getByText(opts.name, { exact: true }).first(),
       'the newly created voice should appear in the "Your voices" list',
-    ).toBeVisible({ timeout: 5_000 })
+    ).toBeVisible({ timeout: 30_000 })
+  }
+
+  /** The seed input on the create/edit-voice form (the shared RandomNumber row). */
+  private ttsSeedInput(mode: ChatMode): Locator {
+    return this.panel(mode).locator('.v-random .v-random-input')
+  }
+
+  /** Read the seed currently on the create/edit-voice form. */
+  async ttsSeed(mode: ChatMode = 'Audio'): Promise<string> {
+    return (await this.ttsSeedInput(mode).inputValue()).trim()
+  }
+
+  /** Set the seed on the create/edit-voice form, pinning which speaker is drawn. */
+  async setTtsSeed(seed: number, mode: ChatMode = 'Audio'): Promise<void> {
+    await this.ttsSeedInput(mode).fill(String(seed))
+    await expect(this.ttsSeedInput(mode)).toHaveValue(String(seed))
+  }
+
+  /** Roll a different speaker for the same description (the seed row's dice). */
+  async rollTtsSeed(mode: ChatMode = 'Audio'): Promise<string> {
+    const before = await this.ttsSeed(mode)
+    await this.panel(mode).locator('.v-random .v-random-btns button').first().click()
+    await expect.poll(() => this.ttsSeed(mode), { timeout: 10_000 }).not.toEqual(before)
+    return this.ttsSeed(mode)
+  }
+
+  /** A saved voice's row in the "Your voices" list. */
+  private savedVoiceRow(name: string, mode: ChatMode): Locator {
+    return this.panel(mode).locator('li').filter({ hasText: name })
+  }
+
+  /** Play a saved voice's stored preview (no synthesis). */
+  async playSavedTtsVoice(name: string, mode: ChatMode = 'Audio'): Promise<void> {
+    await this.savedVoiceRow(name, mode)
+      .getByRole('button', { name: `Play ${name}` })
+      .click()
+  }
+
+  /** Whether a saved voice offers playback — i.e. it has a stored preview WAV. */
+  async savedTtsVoiceHasPreview(name: string, mode: ChatMode = 'Audio'): Promise<boolean> {
+    return this.savedVoiceRow(name, mode)
+      .getByRole('button', { name: `Play ${name}` })
+      .isEnabled()
+  }
+
+  /** Load a saved voice back into the create/edit form. */
+  async editSavedTtsVoice(name: string, mode: ChatMode = 'Audio'): Promise<void> {
+    await this.savedVoiceRow(name, mode)
+      .getByRole('button', { name: `Edit ${name}` })
+      .click()
+    await expect(this.panel(mode).getByPlaceholder('e.g. Tammy')).toHaveValue(name)
   }
 
   /**
@@ -293,10 +374,38 @@ export class SpecificSettingsPage {
   /**
    * Select an entry from the "Voice" picker — a built-in speaker (listed as
    * "Ryan — English") or a saved one ("Tammy (your voice)"). Pass a regex to match a
-   * prefix. Requires the settings sidebar open with the "Text to Speech" preset active.
+   * prefix. Requires the settings sidebar open with the "Text to Speech" preset active in the Audio mode.
    */
-  async selectTtsVoice(label: string | RegExp, mode: ChatMode = 'Chat'): Promise<void> {
-    const trigger = this.ttsVoiceTrigger(mode)
+  async selectTtsVoice(label: string | RegExp, mode: ChatMode = 'Audio'): Promise<void> {
+    await this.selectFromPicker(this.ttsVoiceTrigger(mode), label)
+  }
+
+  /**
+   * The Text-to-Speech engine ("Model") picker trigger in SettingsTts. It's the only
+   * dropdown whose label shows the current engine, so we locate it by that text
+   * ("Qwen TTS" or "Kokoro …") rather than by the ambiguous "Model" row label (the
+   * fallback-endpoint form also has a "Model" field).
+   */
+  private ttsEngineTrigger(mode: ChatMode): Locator {
+    return this.panel(mode)
+      .getByRole('button')
+      .filter({ hasText: /Qwen TTS|Kokoro/ })
+      .first()
+  }
+
+  /**
+   * Select the Text-to-Speech engine ("Qwen TTS" or "Kokoro (OpenVINO)") from the
+   * Text-to-Speech preset's Model dropdown. Requires the settings sidebar open with
+   * the "Text to Speech" preset active. The trigger's label reflects the choice once
+   * it lands.
+   */
+  async selectTtsEngine(label: string, mode: ChatMode = 'Audio'): Promise<void> {
+    await this.selectFromPicker(this.ttsEngineTrigger(mode), label)
+  }
+
+  /** Open a dropdown trigger, pick the entry matching `label`, and wait for the
+   *  trigger's own label to reflect the choice. */
+  private async selectFromPicker(trigger: Locator, label: string | RegExp): Promise<void> {
     await trigger.click()
     const menu = this.page.getByRole('menu')
     await menu.getByRole('menuitem', { name: label }).first().click()
@@ -309,24 +418,14 @@ export class SpecificSettingsPage {
    * with an earlier one still *creates* the voice rather than re-saving it. No-op when
    * the voice isn't there.
    */
-  async deleteTtsVoiceIfPresent(name: string, mode: ChatMode = 'Chat'): Promise<void> {
-    const row = this.panel(mode).locator('li').filter({ hasText: name })
+  async deleteTtsVoiceIfPresent(name: string, mode: ChatMode = 'Audio'): Promise<void> {
+    const row = this.savedVoiceRow(name, mode)
     if ((await row.count()) === 0) return
-    await row.first().getByRole('button', { name: 'Remove' }).click()
-    await expect(row, `saved voice "${name}" should be gone after Remove`).toHaveCount(0)
-  }
-
-  /**
-   * Re-roll a saved TTS voice: draw a different speaker for the same description by
-   * giving the voice a new seed (SettingsTts.vue → `rerollVoiceSeed`). The counterpart
-   * of the pinned seed — proof that the seed is what fixes the voice, since audio
-   * synthesized after a re-roll must differ from audio synthesized before it.
-   * Requires the settings sidebar open with the "Text to Speech" preset active.
-   */
-  async rerollTtsVoice(name: string, mode: ChatMode = 'Chat'): Promise<void> {
-    const row = this.panel(mode).locator('li').filter({ hasText: name })
-    await expect(row, `saved voice "${name}" should be listed under "Your voices"`).toHaveCount(1)
-    await row.getByRole('button', { name: 'Re-roll' }).click()
+    await row
+      .first()
+      .getByRole('button', { name: `Delete ${name}` })
+      .click()
+    await expect(row, `saved voice "${name}" should be gone after Delete`).toHaveCount(0)
   }
 
   /** Close the sidebar via its (responsive) Close button, scoped to the sidebar

@@ -5,11 +5,13 @@ import type { ModelEntry, ModelServiceBackend } from './types'
 
 /**
  * The download API knows only the three backends that own a model directory.
- * Qwen3-TTS runs on its own sidecar but its weights live in the OpenVINO tree, so
- * that is what decides where they are fetched to.
+ * Qwen3-TTS and the standalone Whisper sidecar run on their own services but their
+ * weights live in the OpenVINO tree, so that is what decides where they are
+ * fetched to — the same `type`/`backend` pair the features themselves download
+ * with (`models.getMissingTranscriptionModel`).
  */
 function downloadBackendOf(backend: ModelServiceBackend): 'comfyui' | 'llama_cpp' | 'openvino' {
-  return backend === 'qwen3_tts' ? 'openvino' : backend
+  return backend === 'qwen3_tts' || backend === 'whisper' ? 'openvino' : backend
 }
 
 /** Resolves the on-disk directory for a download, i.e. `models.getModelPath`. */

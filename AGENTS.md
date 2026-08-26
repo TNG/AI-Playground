@@ -15,6 +15,14 @@ Electron main process orchestrates Vue.js frontend and multiple Python/native ba
 - Use **`type`** instead of `interface`, unless an interface is strictly necessary for implementation.
 - **Comment only when it is extremely important**, and keep it to one line where possible.
   See [Comments](#comments).
+- **Never auto-download model weights.** Installing a backend (its `set_up()`) installs only the
+  runtime/dependencies (torch, servers, etc.) — **never** model weights. Weights download **on
+  demand**, only when the user has selected a preset/engine **and** actually tries to use it, via
+  the shared download dialog (`dialogs.showDownloadDialog`). Mirror the existing pattern:
+  `qwen3TextToSpeech.ensureModelInstalled`, `speechToText.ensureWhisperReady` /
+  `ensureStandaloneReady` — check `models.checkTranscriptionModelExists(...)` /
+  `getMissing...Model(...)`, then prompt. Selecting an engine in settings must not trigger a
+  download, and Python sidecars run with `HF_HUB_OFFLINE=1` so they can't silently fetch.
 
 ## Build / Dev / Test Commands
 
@@ -219,7 +227,7 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
 
 **Before claiming it works:** `npm run typecheck` (`vue-tsc`; `e2e/` is in the root
 `tsconfig.json`) and a cheap no-launch smoke: `npx playwright test --config
-playwright-e2e.config.ts --list`.
+playwright-e2e.config.ts --list`. 
 
 ## Code Style
 
@@ -443,7 +451,8 @@ This section eliminates the need for codebase exploration at the start of each s
 There is **no Vue Router**. Navigation is state-driven:
 
 - `App.vue` checks `globalSetup.loadingState` (`verifyBackend` → `manageInstallations` → `loading` → `running`/`failed`)
-- Once running, `promptStore.currentMode` controls which view renders: `chat` → `Chat.vue`, `agent` → `AgentMode.vue`, `imageGen`/`imageEdit`/`video` → `WorkflowResult.vue`
+- Once running, `promptStore.currentMode` controls which view renders: `chat`/`audio` → `Chat.vue`, `agent` → `AgentMode.vue`, `imageGen`/`imageEdit`/`video` → `WorkflowResult.vue`
+- Each mode maps to a preset category (`chat`, `audio`, `create-images`, `edit-images`, `create-videos`). `chat`, `agent` and `audio` all run on `chat`-type presets; `audio` holds the speech presets (Text to Speech / Speech to Text) and gets its own settings panel (`SettingsAudio.vue`)
 - `PromptArea.vue` is the shared prompt input bar across all modes
 - **The preset picks the mode**, via `presetToMode()` in `src/lib/presetModes.ts`. A chat preset
   with `agentPreset: true` (Agent, Game Agent) renders Agent Mode, so there is no Agent mode
@@ -731,7 +740,7 @@ has no store deps (avoids cycles); reconciliation lives in the producing stores.
 - `backendServices` — Service lifecycle, device selection, version management. No store deps. Heavy IPC usage.
 - `presetSwitching` — Unified `switchPreset()`, `switchVariant()` across modes. Deps: `presets`, `promptArea`, `backendServices`, `dialogs`, `globalSetup`, `i18n` + lazy `textInference`, `imageGenerationPresets`
 - `globalSetup` — App initialization, loading state machine. Deps: `models`
-- `promptArea` — Current UI mode (`chat`/`imageGen`/`imageEdit`/`video`), prompt submit/cancel callbacks. Deps: `presetSwitching`
+- `promptArea` — Current UI mode (`chat`/`audio`/`imageGen`/`imageEdit`/`video`), prompt submit/cancel callbacks. Deps: `presetSwitching`, `presets`
 
 **Infrastructure stores** (UI state, no business logic):
 

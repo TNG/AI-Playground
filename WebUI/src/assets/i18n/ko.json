@@ -154,6 +154,7 @@
   "TAB_ANSWER": "답변",
   "TAB_LEARN_MORE": "자세히 알아보기",
   "MODE_CHAT": "Chat",
+  "MODE_AUDIO": "Audio",
   "MODE_IMAGE_GEN": "Image Gen",
   "MODE_IMAGE_EDIT": "Image Edit",
   "MODE_VIDEO": "Video",

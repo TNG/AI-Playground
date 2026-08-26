@@ -130,6 +130,9 @@ type LocalSettings = {
   isCloudModeEnabled: boolean
   isAgentPresetEnabled?: boolean
   oemVendorOverride?: string | null
+  isWhisperBackendEnabled?: boolean
+  /** Components switched off in the setup wizard; not auto-started at launch. */
+  disabledBackends?: string[]
   languageOverride: string | null
   remoteRepository: string
   huggingfaceEndpoint: string
@@ -290,7 +293,11 @@ type WebSearchResults = {
 
 type DemoModePage = 'chat' | 'imageGen' | 'imageEdit' | 'video'
 type WorkflowModeType = 'imageGen' | 'imageEdit' | 'video'
-type ModeType = 'chat' | 'agent' | WorkflowModeType
+// 'audio' hosts the speech presets (Text to Speech / Speech to Text). Like 'chat'
+// it runs on chat-type presets and renders its turns in the Chat view, but it has
+// its own preset category, picker and settings panel.
+type ChatLikeModeType = 'chat' | 'audio'
+type ModeType = ChatLikeModeType | 'agent' | WorkflowModeType
 
 // Agent Mode (Pi coding agent) — see src/types/agentIpc.ts.
 type AgentModeModelConfig = import('./types/agentIpc').AgentModeModelConfig
@@ -372,10 +379,14 @@ type electronAPI = {
   saveGeneratedAudio(
     audioBase64: string,
     filename: string,
+    /** `overwrite`: replace an existing file of that name instead of suffixing `_1`. */
+    options?: { overwrite?: boolean },
   ): Promise<{ success: boolean; filePath?: string; error?: string }>
   readLocalAudioAsDataUri(
     filePath: string,
   ): Promise<{ success: boolean; dataUri?: string; error?: string }>
+  /** Delete a generated audio file. Confined to the app's audio directory. */
+  deleteGeneratedAudio(filePath: string): Promise<{ success: boolean; error?: string }>
   readAipgMediaAsBase64(
     url: string,
   ): Promise<{ success: true; data: string } | { success: false; error: string }>
@@ -452,7 +463,7 @@ type electronAPI = {
   detectDevices(serviceName: string): Promise<void>
   startService(serviceName: string): Promise<BackendStatus>
   stopService(serviceName: string): Promise<BackendStatus>
-  setUpService(serviceName: string): void
+  setUpService(serviceName: string): Promise<void>
   onServiceSetUpProgress(callback: (data: SetupProgress) => void): void
   onServiceInfoUpdate(callback: (service: ApiServiceInformation) => void): void
   onShowToast(callback: (data: { type: string; message: string }) => void): void
@@ -994,6 +1005,7 @@ type BackendServiceName =
   | 'openvino-backend'
   | 'home-agent-backend'
   | 'qwen3-tts-backend'
+  | 'whisper-backend'
 
 type InferenceDevice = {
   id: string

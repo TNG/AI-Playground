@@ -8,7 +8,8 @@ import { useGlobalSetup } from './globalSetup'
 import { useTextInference } from './textInference'
 import { useProductMode } from './productMode'
 import { useErrors } from './errors'
-import { WHISPER_MODEL_NAME } from './speechToText'
+import { useSpeechToText } from './speechToText'
+import { WHISPER_OVMS_MODELS, WHISPER_STANDALONE_MODELS } from '../whisperConstants'
 import { SPEECHT5_MODEL_NAME } from './textToSpeech'
 import { QWEN3_TTS_MODEL_REPOS } from '../qwen3TtsConstants'
 import { createAppError } from '../errors/appError'
@@ -48,6 +49,7 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
   const textInference = useTextInference()
   const productMode = useProductMode()
   const errors = useErrors()
+  const speechToText = useSpeechToText()
 
   const scanned = ref<ScannedModel[]>([])
   const failedPathKeys = ref<string[]>([])
@@ -74,9 +76,9 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
   )
 
   /**
-   * The speech models the app can load. Neither STT nor TTS has a model picker —
-   * each feature loads one fixed repo — so without this list they are invisible
-   * until the feature downloads them, and there is no way to pre-fetch one or to
+   * The speech models the app can load. They are downloaded on first use by the
+   * STT/TTS features rather than picked from a catalog, so without this list they
+   * are invisible until that happens, and there is no way to pre-fetch one or to
    * reclaim its disk space.
    */
   const speechModels = computed<SpeechModelInput[]>(() => [
@@ -86,12 +88,14 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     ...(nvidiaMode.value
       ? []
       : [
-          {
-            name: WHISPER_MODEL_NAME,
+          // Every model the OpenVINO Whisper picker offers, so a user can pre-fetch
+          // or reclaim any of them — not just the one currently selected.
+          ...WHISPER_OVMS_MODELS.map((m) => ({
+            name: m.repo,
             pathKey: 'STT',
-            usedBy: 'Speech To Text',
+            usedBy: `Speech To Text (OpenVINO ${m.label})`,
             serviceBackend: 'openvino' as const,
-          },
+          })),
           {
             name: SPEECHT5_MODEL_NAME,
             pathKey: 'TTS',
@@ -111,6 +115,18 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
       usedBy: 'Text To Speech (Qwen3-TTS voice design)',
       serviceBackend: 'qwen3_tts',
     },
+    // The standalone (torch) Whisper sidecar runs on CUDA too, so unlike OVMS
+    // Whisper these stay listed on NVIDIA. Only offered when its optional backend
+    // is enabled — otherwise they are models nothing can load. This engine is the
+    // one place STT does have a model picker, so all three are listed.
+    ...(speechToText.isWhisperBackendEnabled
+      ? WHISPER_STANDALONE_MODELS.map((m) => ({
+          name: m.repo,
+          pathKey: 'STT',
+          usedBy: `Speech To Text (standalone ${m.label})`,
+          serviceBackend: 'whisper' as const,
+        }))
+      : []),
   ])
 
   const nvidiaMode = computed(() => productMode.isNvidiaModeSelected)

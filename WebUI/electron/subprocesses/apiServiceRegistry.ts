@@ -2,6 +2,7 @@ import { ApiService } from './service.ts'
 import { ComfyUiBackendService } from './comfyUIBackendService.ts'
 import { AiBackendService } from './aiBackendService.ts'
 import { BrowserWindow } from 'electron'
+import { isOnDemandBackend } from '@/lib/onDemandBackends'
 import { appLoggerInstance } from '../logging/logger.ts'
 import { killStaleProcesses } from './processLifecycle.ts'
 import getPort, { portNumbers } from 'get-port'
@@ -9,6 +10,7 @@ import { LlamaCppBackendService } from './llamaCppBackendService.ts'
 import { OpenVINOBackendService } from './openVINOBackendService.ts'
 import { HomeAgentBackendService } from './homeAgentBackendService.ts'
 import { Qwen3TtsBackendService } from './qwen3TtsBackendService.ts'
+import { WhisperBackendService } from './whisperBackendService.ts'
 import { LocalSettings } from '../main.ts'
 import { setLlmServiceLookup } from '../llmServerSnapshot.ts'
 
@@ -19,6 +21,7 @@ export type backend =
   | 'llamacpp-backend'
   | 'home-agent-backend'
   | 'qwen3-tts-backend'
+  | 'whisper-backend'
 
 export interface ApiServiceRegistry {
   register(apiService: ApiService): void
@@ -28,6 +31,11 @@ export interface ApiServiceRegistry {
 
 export class ApiServiceRegistryImpl implements ApiServiceRegistry {
   private registeredServices: ApiService[] = []
+  private disabledBackends: string[] = []
+
+  setDisabledBackends(names: string[]): void {
+    this.disabledBackends = names
+  }
 
   register(apiService: ApiService): void {
     if (this.registeredServices.includes(apiService)) {
@@ -109,11 +117,12 @@ export class ApiServiceRegistryImpl implements ApiServiceRegistry {
   }
 
   /**
-   * Automatically start all services that are set up.
+   * Automatically start all services that are set up, except on-demand TTS/STT
+   * sidecars (those start when a feature requests them, to preserve VRAM).
    * This runs in the background and doesn't block.
    * Waits for async setup checks to complete before starting services.
    */
-  async startAllSetUpServices(): Promise<void> {
+  async startAllSetUpServices(disabledBackends: string[] = this.disabledBackends): Promise<void> {
     // Check setup status for all services.
     // Some services check asynchronously (ai-backend, comfyui-backend) and some synchronously (llamacpp-backend).
     // We'll check all services that have a serviceIsSetUp method and use the actual result,
@@ -135,23 +144,81 @@ export class ApiServiceRegistryImpl implements ApiServiceRegistry {
       }),
     )
 
-    // Filter to only services that are set up
-    const setUpServices = setupChecks.filter(({ isSetUp }) => isSetUp).map(({ service }) => service)
+    // Filter to only services that are set up, are not being installed right
+    // now, and that the user has not switched off in the setup wizard (that
+    // choice is persisted in settings.json — see `disabledBackends`).
+    const setUpServices = setupChecks
+      .filter(({ isSetUp }) => isSetUp)
+      .map(({ service }) => service)
+      .filter((service) => {
+        if (disabledBackends.includes(service.name)) {
+          appLoggerInstance.info(
+            `Not auto-starting ${service.name}: disabled by the user`,
+            'apiServiceRegistry',
+          )
+          return false
+        }
+        if (service.setUpInProgress) {
+          appLoggerInstance.info(
+            `Not auto-starting ${service.name}: an installation is in progress`,
+            'apiServiceRegistry',
+          )
+          return false
+        }
+        return true
+      })
 
     if (setUpServices.length === 0) {
       appLoggerInstance.info('No services are set up to start', 'apiServiceRegistry')
       return
     }
 
-    appLoggerInstance.info(
-      `Starting ${setUpServices.length} backend service(s) automatically:`,
-      'apiServiceRegistry',
-    )
-    appLoggerInstance.info(setUpServices.map((s) => s.name).join(', '), 'apiServiceRegistry')
+    const autoStartServices = setUpServices.filter((service) => !isOnDemandBackend(service.name))
+    const onDemandServices = setUpServices.filter((service) => isOnDemandBackend(service.name))
+    if (onDemandServices.length > 0) {
+      appLoggerInstance.info(
+        `Not auto-starting on-demand backend(s) (started when requested): ${onDemandServices
+          .map((s) => s.name)
+          .join(', ')}`,
+        'apiServiceRegistry',
+      )
+    }
 
-    // Start all services in parallel, but don't block
+    if (autoStartServices.length > 0) {
+      appLoggerInstance.info(
+        `Starting ${autoStartServices.length} backend service(s) automatically:`,
+        'apiServiceRegistry',
+      )
+      appLoggerInstance.info(autoStartServices.map((s) => s.name).join(', '), 'apiServiceRegistry')
+    } else {
+      appLoggerInstance.info('No services are set up to auto-start', 'apiServiceRegistry')
+    }
+
+    // Detect devices for on-demand services so the device picker is accurate
+    // before first use; do not start them (they occupy VRAM once running).
     Promise.all(
-      setUpServices.map(async (service) => {
+      onDemandServices.map(async (service) => {
+        try {
+          await service.detectDevices()
+        } catch (error) {
+          appLoggerInstance.error(
+            `Failed to detect devices for ${service.name}: ${error}`,
+            'apiServiceRegistry',
+            true,
+          )
+        }
+      }),
+    ).catch((error) => {
+      appLoggerInstance.error(
+        `Error during on-demand device detection: ${error}`,
+        'apiServiceRegistry',
+        true,
+      )
+    })
+
+    // Start remaining services in parallel, but don't block
+    Promise.all(
+      autoStartServices.map(async (service) => {
         try {
           // Detect devices first
           await service.detectDevices()
@@ -216,6 +283,16 @@ export async function aiplaygroundApiServiceRegistry(
         settings,
       ),
     )
+    if (settings.isWhisperBackendEnabled) {
+      instance.register(
+        new WhisperBackendService(
+          'whisper-backend',
+          await getPort({ port: portNumbers(56000, 56999) }),
+          win,
+          settings,
+        ),
+      )
+    }
     instance.register(
       new OpenVINOBackendService(
         'openvino-backend',
@@ -247,6 +324,7 @@ export async function aiplaygroundApiServiceRegistry(
 
     // Automatically start all set-up services in the background
     // This happens regardless of frontend state, making it more reliable
+    instance.setDisabledBackends(settings.disabledBackends ?? [])
     instance.startAllSetUpServices()
   }
   return instance

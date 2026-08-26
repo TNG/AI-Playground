@@ -120,10 +120,13 @@ test('the model library lists, filters and round-trips a model through download,
   })
 
   await test.step('A filter with one possible value is stuck on it', async () => {
-    // Still on Speech from the step above. Speech spans two backends — the OVMS
-    // models and Qwen3-TTS, which brings its own — so "Backend" only has a single
-    // choice to lock onto where the OpenVINO half is filtered out, i.e. NVIDIA.
+    // "Media creation" is the reliable single-backend category on NVIDIA: every
+    // media model is ComfyUI's except the `openvino-image` ones, and those are
+    // filtered out there. (Speech no longer works as the vehicle — it now spans
+    // Qwen3-TTS *and* the standalone Whisper sidecar, both of which survive the
+    // NVIDIA filter, so its Backend list has two entries.)
     if (isNvidia) {
+      await app.models.selectUseCase('Media creation')
       await expect(app.models.backendFilter).toBeDisabled()
     }
     await app.models.selectUseCase('All')

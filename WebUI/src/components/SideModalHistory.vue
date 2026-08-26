@@ -9,8 +9,8 @@
   >
     <template #header-buttons>
       <!-- Clear-all is a delete-all-IMAGES action — only offered for the
-           workflow modes it applies to (not chat, not agent sessions). -->
-      <AlertDialog v-if="mode !== 'chat' && mode !== 'agent'">
+           workflow modes it applies to (not chat/audio, not agent sessions). -->
+      <AlertDialog v-if="isWorkflowMode">
         <AlertDialogTrigger asChild>
           <button class="svg-icon i-clear w-6 h-6" :title="languages.COM_CLEAR_HISTORY" />
         </AlertDialogTrigger>
@@ -32,13 +32,13 @@
         </AlertDialogContent>
       </AlertDialog>
       <button
-        v-show="mode === 'chat' && chatFilterKind !== 'homeAgent'"
+        v-show="isChatLikeMode && chatFilterKind !== 'homeAgent'"
         @click="selectNewConversation"
         class="svg-icon i-add w-7 h-7"
         :title="languages.COM_ADD"
       />
       <button
-        v-show="mode === 'imageGen' || mode === 'imageEdit' || mode === 'video'"
+        v-show="isWorkflowMode"
         @click="selectNewMedia"
         class="svg-icon i-add w-7 h-7"
         :title="languages.COM_ADD"
@@ -53,8 +53,9 @@
       />
     </template>
 
+    <!-- Audio turns (synthesized audio, transcripts) are chat conversations too. -->
     <HistoryChat
-      v-show="props.mode == 'chat'"
+      v-show="isChatLikeMode"
       @conversation-selected="emit('conversationSelected')"
       @filter-kind-change="(kind) => (chatFilterKind = kind)"
     />
@@ -69,7 +70,7 @@
 import HistoryChat from '@/components/HistoryChat.vue'
 import HistoryWorkflow from '@/components/HistoryWorkflow.vue'
 import HistoryAgentSessions from '@/components/HistoryAgentSessions.vue'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useConversations, type ThreadKind } from '@/assets/js/store/conversations.ts'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets'
 import { useAgentMode } from '@/assets/js/store/agentMode'
@@ -103,6 +104,10 @@ const emit = defineEmits<{
   (e: 'conversationSelected'): void
 }>()
 
+const workflowModes: ModeType[] = ['imageGen', 'imageEdit', 'video']
+const isWorkflowMode = computed(() => workflowModes.includes(props.mode))
+const isChatLikeMode = computed(() => !isWorkflowMode.value)
+
 function selectNewConversation() {
   const key = conversations.addNewConversation()
   if (!key) return
@@ -120,8 +125,9 @@ function selectNewMedia() {
 }
 
 function deleteAllImages() {
-  // Only the workflow modes have deletable image histories (never chat/agent).
-  if (props.mode === 'chat' || props.mode === 'agent') return
-  imageGeneration.deleteAllImagesForMode(props.mode as WorkflowModeType)
+  // Only the workflow modes have deletable image histories (never chat/audio/agent).
+  if (isWorkflowMode.value) {
+    imageGeneration.deleteAllImagesForMode(props.mode as WorkflowModeType)
+  }
 }
 </script>

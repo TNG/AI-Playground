@@ -261,6 +261,11 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
         debugMessage: 'installing dependencies',
       }
 
+      // Install into a fresh venv — see `prepareCleanPythonEnv`. A repair over a
+      // venv whose files are broken but whose dist-info survived (interrupted
+      // install, app reinstall) is otherwise a no-op that reports success.
+      await this.prepareCleanPythonEnv()
+
       await installBackend(this.serviceFolder)
 
       yield {

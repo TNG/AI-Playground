@@ -46,6 +46,10 @@ window.addEventListener('error', (event) => {
 
 if (initialPage !== null) {
   usePromptStore().setCurrentMode(initialPage)
+} else {
+  // No configured landing page: open on whichever mode the persisted active
+  // preset belongs to (the preset persists across restarts, the mode doesn't).
+  usePromptStore().alignModeToActivePreset()
 }
 
 const i18n = useI18N()

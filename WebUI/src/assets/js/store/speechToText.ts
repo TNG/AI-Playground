@@ -431,6 +431,23 @@ export const useSpeechToText = defineStore(
     }
 
     /**
+     * Restore the backend/model choices to their defaults, for the Audio mode's
+     * "Reset Preset Settings". Like the TTS side, the external endpoint's URL, model
+     * and API key survive: they're machine configuration entered once, not a
+     * per-preset choice, and a reset button offers no way back from wiping a key.
+     *
+     * The engine falls back to whatever is actually offered on this machine, so a
+     * reset can't select an engine that isn't available here (the default is the
+     * OpenVINO one, which NVIDIA mode doesn't have).
+     */
+    function resetToDefaults(): void {
+      selectedStandaloneModel.value = DEFAULT_WHISPER_STANDALONE_MODEL
+      selectedOvmsModel.value = DEFAULT_WHISPER_OVMS_MODEL
+      const offered = offeredSttEngines.value
+      selectedSttEngine.value = offered.includes('whisper') ? 'whisper' : (offered[0] ?? 'whisper')
+    }
+
+    /**
      * Validate STT prerequisites on app startup if STT is enabled.
      * Does not start the transcription server — that happens on first mic / transcribe.
      */
@@ -598,6 +615,7 @@ export const useSpeechToText = defineStore(
       ensureStandaloneReady,
       ensureStandaloneServerRunning,
       toggle,
+      resetToDefaults,
       initialize,
       ensureTranscriptionServerRunning,
       ensureWhisperReady,

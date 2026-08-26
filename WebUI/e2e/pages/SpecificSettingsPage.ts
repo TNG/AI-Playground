@@ -285,15 +285,27 @@ export class SpecificSettingsPage {
       await dialog.getByRole('button', { name: 'Confirm', exact: true }).click()
     }
 
+    // Wait for the *save* to land, not merely for a row to exist: overwriting an
+    // existing voice leaves its row on screen throughout, so a visibility check there
+    // passes instantly and lets the caller race ahead while the preview is still being
+    // synthesized -- which then clones the previous recording. The form is cleared only
+    // by a successful save (`resetVoiceForm`), so an empty name field is the
+    // unambiguous signal, and an idle button confirms the synthesis finished.
+    await expect(
+      panel.getByPlaceholder('e.g. Tammy'),
+      'the create-voice form is cleared once the save completes',
+    ).toHaveValue('', { timeout: 10 * 60_000 })
+    // Not `toBeEnabled` on the button: clearing the form is what disables it (the save
+    // needs a name and a description). Its *label* is the busy indicator, and the
+    // locator above already matches on the idle one.
+
     // Saved voices render in the "Your voices" list; our new one proves the save landed.
     // Match the name exactly and take the first hit: the active-voice dropdown also shows
     // it (as "<name> (your voice)"), so a loose match would be ambiguous under strict mode.
     await expect(
       panel.getByText(opts.name, { exact: true }).first(),
       'the newly created voice should appear in the "Your voices" list',
-      // The save only commits once the preview has been synthesized (first use also
-      // loads the voice-design model), so this waits far longer than a UI update.
-    ).toBeVisible({ timeout: 5 * 60_000 })
+    ).toBeVisible({ timeout: 30_000 })
   }
 
   /** The seed input on the create/edit-voice form (the shared RandomNumber row). */

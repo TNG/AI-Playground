@@ -201,6 +201,11 @@ export const useQwen3TextToSpeech = defineStore(
        * seed shown on the form, so what the user hears is what gets saved.
        */
       seed?: number
+      /**
+       * Draw a new speaker from `instruct` instead of reproducing the active saved
+       * voice. Set when creating or re-saving a voice — see the clone routing below.
+       */
+      designNewVoice?: boolean
     }): Promise<Qwen3TtsSynthesizeResult> {
       let mode = args.mode ?? defaultMode.value
       let language = args.language ?? defaultLanguage.value
@@ -254,8 +259,13 @@ export const useQwen3TextToSpeech = defineStore(
       // conditions on the audio, so the voice the user approved is the voice they get
       // for any text. Voices saved before previews existed have nothing to clone from,
       // so they keep the seeded design path.
+      //
+      // `designNewVoice` opts out: when the caller is *creating* a voice, the active
+      // voice is usually the one being replaced, and cloning its old preview would
+      // re-render the very speaker the user is trying to redraw — so a rolled seed
+      // would appear to do nothing.
       const cloneRef =
-        mode === 'voice_design' && saved?.previewFilePath
+        !args.designNewVoice && mode === 'voice_design' && saved?.previewFilePath
           ? { path: saved.previewFilePath, text: voicePreviewSentence(saved.name) }
           : undefined
       if (cloneRef) mode = 'voice_clone'
@@ -400,6 +410,22 @@ export const useQwen3TextToSpeech = defineStore(
       }
     }
 
+    /**
+     * Restore the voice/language/mode choices to their defaults — the Audio mode's
+     * equivalent of "Reset Preset Settings" for the chat and workflow panels.
+     *
+     * Saved voices are deliberately kept: they are content the user created (each with
+     * a preview recording on disk), not a setting, so a reset points back at a built-in
+     * speaker rather than destroying them.
+     */
+    function resetToDefaults(): void {
+      defaultSpeaker.value = 'Ryan'
+      defaultLanguage.value = 'Auto'
+      defaultMode.value = 'custom_voice'
+      defaultInstruct.value = ''
+      defaultVoiceName.value = ''
+    }
+
     function resolveVoice(name: string): Qwen3TtsSavedVoice | undefined {
       const n = name.trim().toLowerCase()
       return savedVoices.value.find((v) => v.name.toLowerCase() === n)
@@ -425,6 +451,7 @@ export const useQwen3TextToSpeech = defineStore(
       applyPresetSpeaker,
       saveVoice,
       deleteVoice,
+      resetToDefaults,
       resolveVoice,
     }
   },

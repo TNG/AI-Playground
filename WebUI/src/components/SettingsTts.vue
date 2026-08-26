@@ -594,6 +594,9 @@ async function saveCurrentVoice() {
       instruct,
       mode: 'voice_design',
       seed,
+      // Draw a new speaker: without this, re-saving a voice that is currently active
+      // would clone its old preview and the rolled seed would appear to do nothing.
+      designNewVoice: true,
     })
 
     // One file per voice (overwrite), so re-saving replaces its preview instead of

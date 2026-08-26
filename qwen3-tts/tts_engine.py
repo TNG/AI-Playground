@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import logging
 import os
@@ -85,11 +86,11 @@ _infer_lock = threading.Lock()
 # model ids, so we keep each resident once loaded instead of unloading/reloading on
 # every mode switch. Keyed by model id.
 _models: dict[str, Any] = {}
-# Built voice-clone prompts, keyed by (reference path, mtime, size, icl flag).
+# Built voice-clone prompts, keyed by (content digest, reference text, icl flag).
 # Building one encodes the reference audio and extracts a speaker embedding, which
 # is the expensive part of cloning and identical for every request using that
 # voice — so it is computed once per reference file rather than per synthesis.
-_clone_prompts: dict[tuple[str, int, int, bool], Any] = {}
+_clone_prompts: dict[tuple[str, str, bool], Any] = {}
 _load_error: str | None = None
 _resolved_device: str | None = None
 
@@ -263,15 +264,15 @@ def _clone_prompt(model: Any, ref_audio_path: str, ref_text: str | None) -> Any:
     """
     icl = bool(ref_text and ref_text.strip())
     try:
-        stat = os.stat(ref_audio_path)
-        key = (
-            os.path.normcase(ref_audio_path),
-            int(stat.st_mtime_ns),
-            int(stat.st_size),
-            icl,
-        )
+        with open(ref_audio_path, "rb") as fh:
+            digest = hashlib.sha256(fh.read()).hexdigest()
     except OSError as exc:
         raise ValueError(f"reference audio is not readable: {ref_audio_path}") from exc
+    # Keyed on the audio's content, not its path/mtime/size: a voice keeps one
+    # preview filename for life, so re-saving it rewrites that file in place. Any
+    # key derived from the path would then have to rely on the filesystem noticing —
+    # and a stale hit here is invisible, serving the previous speaker forever.
+    key = (digest, (ref_text or "").strip() if icl else "", icl)
 
     cached = _clone_prompts.get(key)
     if cached is not None:
@@ -286,8 +287,6 @@ def _clone_prompt(model: Any, ref_audio_path: str, ref_text: str | None) -> Any:
         raise RuntimeError(
             "Could not build a voice-clone prompt from the reference audio"
         )
-    # A reference file is rewritten only when the user re-saves that voice, and the
-    # key carries its mtime/size — so entries never go stale, they are just replaced.
     _clone_prompts[key] = items[0]
     return items[0]
 

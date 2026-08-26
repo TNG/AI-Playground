@@ -404,6 +404,19 @@ export const useTextToSpeech = defineStore(
     }
 
     /**
+     * Restore the engine/voice choices to their defaults, for the Audio mode's
+     * "Reset Preset Settings". The external endpoint's URL, model and API key are
+     * left alone: they're machine configuration the user entered once (and enabled
+     * in App Settings), not a per-preset choice — wiping a key from a reset button
+     * would be a surprise there is no undo for.
+     */
+    function resetToDefaults(): void {
+      stopSpeaking()
+      selectedEngine.value = 'qwen3'
+      selectedKokoroVoice.value = 'af_heart'
+    }
+
+    /**
      * Synthesize `text` and play it back in the desktop app. `id` ties the
      * playback to a specific chat message so the UI can show a stop affordance.
      */
@@ -464,6 +477,7 @@ export const useTextToSpeech = defineStore(
       synthesizeToWav,
       speak,
       stopSpeaking,
+      resetToDefaults,
     }
   },
   {

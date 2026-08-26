@@ -1,9 +1,19 @@
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
-import { jsonSchemaParameters, textResult, type SkillSource } from '../piCustomTools.ts'
+import {
+  executeToolInRenderer,
+  jsonResult,
+  jsonSchemaParameters,
+  textResult,
+  type SkillSource,
+} from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
 import { readGame, setGameIcon, updateGame } from '../../gameLibrary.ts'
 import type { AgentCapability, CapabilityHost } from './types.ts'
-import { GAME_STUDIO_ID, GAME_STUDIO_QUICK_ID } from '@/types/agentCapabilities'
+import {
+  GAME_STUDIO_ID,
+  GAME_STUDIO_QUICK_ID,
+  OFFER_GAME_AGENT_TOOL,
+} from '@/types/agentCapabilities'
 
 // ── game-studio capability ───────────────────────────────────────────────────
 //
@@ -39,6 +49,12 @@ const GAME_STUDIO_SKILL: SkillSource = {
     '',
     'Your job is to turn that into the game the user asked for, one section at a time. You are',
     'never writing a game from a blank file, and you should not try to.',
+    '',
+    'One workspace looks different: **no `game.js`**. Then `index.html` is a whole game already —',
+    'written in one shot elsewhere and handed to you — and the request is a change to something',
+    'that plays, not a game to build. `read index.html`, change it with `edit`, play-test. Keep it',
+    'a single file, skip `design.md` unless what they want is big enough to need a plan, and do',
+    'not lay the scaffold down over it or start the game again.',
     '',
     'Work in short cycles: one section, one `edit`, keep going. Do not compose code while you',
     'think — nothing you write there can be play-tested, and it is code you have to write twice.',
@@ -251,13 +267,64 @@ export const gameStudioCapability: AgentCapability = {
 
 export { GAME_STUDIO_QUICK_ID }
 
+// The way out of a one-shot run. Quick Coder writes the game and cannot come
+// back to it: with `write` as its only file tool it cannot read what it wrote,
+// try it, or draw for it, and a "fix the collision" request can only be answered
+// by writing the whole file again from memory. So it offers the switch instead,
+// and the user decides — the offer is a question, not a preset change, because
+// the two presets are a real trade (minutes against art and play-testing).
+
+const OFFER_GAME_AGENT_INPUT_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    reason: {
+      type: 'string',
+      description:
+        'What the user asked for, in one sentence and in their terms. It is shown to them on ' +
+        'the offer, e.g. "the ship keeps moving after you let go of the key".',
+    },
+  },
+  required: ['reason'],
+}
+
+async function buildQuickTools(host: CapabilityHost): Promise<ToolDefinition[]> {
+  const pi = await loadPi()
+  return [
+    ...(await buildGameTool(host)),
+    pi.defineTool({
+      name: 'offer_game_agent',
+      label: 'offer_game_agent',
+      description:
+        'Offer to hand this game over to Game Agent, which keeps the same folder and ' +
+        'conversation but can read and edit the file you wrote, play-test it in a browser and ' +
+        'generate art for it. Call this when the user reports a bug, asks to change a game ' +
+        'that is already written, or asks for something you have no tool for. The result says ' +
+        'whether they accepted.',
+      parameters: jsonSchemaParameters(OFFER_GAME_AGENT_INPUT_SCHEMA),
+      execute: async (toolCallId, params, signal) => {
+        const { reason } = params as { reason?: string }
+        // The offer is a card in the renderer's transcript and the switch is
+        // Pinia state, so both live there (`storeTools` in agentModeTurn.ts).
+        const result = await executeToolInRenderer(
+          OFFER_GAME_AGENT_TOOL,
+          { reason: reason ?? '' },
+          toolCallId,
+          signal ?? undefined,
+        )
+        return jsonResult(result)
+      },
+    }) as ToolDefinition,
+  ]
+}
+
 export const gameStudioQuickCapability: AgentCapability = {
   id: GAME_STUDIO_QUICK_ID,
   label: 'Game studio (one shot)',
   summary:
     'Write a whole browser game into a single HTML file in one step, then name it in the ' +
     'library. No art, no play-testing.',
-  buildTools: buildGameTool,
+  buildTools: buildQuickTools,
   // `write` puts the game on disk; nothing else in the builtin toolbox has a
   // part in a run that is one file long.
   ownSession: { baseTools: ['write'] },

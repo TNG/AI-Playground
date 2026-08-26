@@ -5,6 +5,14 @@ export const MCP_CAPABILITY_PREFIX = 'mcp:'
 export const GAME_STUDIO_ID = 'game-studio'
 export const GAME_STUDIO_QUICK_ID = 'game-studio-quick'
 
+/**
+ * Renderer-side name of the tool Quick Coder offers the switch to Game Agent
+ * with. The offer is a card in the transcript and the switch is Pinia state, so
+ * the Pi tool in main only dispatches under this name and the Agent Mode store
+ * answers it (`storeTools` in agentModeTurn.ts).
+ */
+export const OFFER_GAME_AGENT_TOOL = 'offerGameAgent'
+
 export function mcpCapabilityId(serverId: string): string {
   return `${MCP_CAPABILITY_PREFIX}${serverId}`
 }

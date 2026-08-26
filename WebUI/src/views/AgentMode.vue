@@ -77,6 +77,10 @@
         </div>
       </template>
 
+      <!-- A tool can put a question to the user mid-turn (Quick Coder offering to
+           hand the game to Game Agent). Same card as Chat, keyed by the session. -->
+      <ChatConfirmation :conversation-key="agentMode.activeSessionId" with-avatar />
+
       <div
         v-if="agentMode.processing"
         class="flex items-center gap-2 text-sm text-muted-foreground"
@@ -103,6 +107,7 @@ import { Button } from '@/components/ui/button'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import AgentMessagePart from '@/components/AgentMessagePart.vue'
 import AgentActivitySummary from '@/components/AgentActivitySummary.vue'
+import ChatConfirmation from '@/components/ChatConfirmation.vue'
 import GameBar from '@/components/GameBar.vue'
 import {
   busyLabelOf,

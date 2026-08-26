@@ -53,7 +53,11 @@ vi.mock('@/assets/js/store/presetSwitching', () => ({
 }))
 
 vi.mock('@/assets/js/store/textInference', () => ({
-  useTextInference: () => ({ backend: 'llamaCPP', ensureReadyForInference: vi.fn() }),
+  useTextInference: () => ({
+    backend: 'llamaCPP',
+    activeModel: 'Qwen3.8-27B-Q4_K_M.gguf',
+    ensureReadyForInference: vi.fn(),
+  }),
 }))
 
 vi.mock('@/assets/js/store/cloudMode', () => ({
@@ -137,9 +141,31 @@ describe('agentMode workspace kinds', () => {
 
     await store.generate('a game where I dodge asteroids')
 
-    expect(gamesCreate).toHaveBeenCalledWith('a game where I dodge asteroids', { scaffold: true })
+    expect(gamesCreate).toHaveBeenCalledWith(
+      'a game where I dodge asteroids',
+      expect.objectContaining({ scaffold: true }),
+    )
     expect(store.workspaceDir).toBe('/games/new-game')
     expect(store.currentGame?.dir).toBe('/games/new-game')
+  })
+
+  // The card is the only record of how a game was made: the turn that mints it is
+  // the one moment the app still knows what it was started on.
+  it('records what the game is being built with', async () => {
+    const store = useAgentMode()
+    activePreset.value = GAME_AGENT
+    await flush()
+
+    await store.generate('a game where I dodge asteroids')
+
+    expect(gamesCreate).toHaveBeenCalledWith(
+      'a game where I dodge asteroids',
+      expect.objectContaining({
+        backend: 'llamaCPP',
+        startingModel: 'Qwen3.8-27B-Q4_K_M.gguf',
+        initialPrompt: 'a game where I dodge asteroids',
+      }),
+    )
   })
 
   // The one-shot preset writes the whole page itself, so a scaffolded page would
@@ -151,7 +177,10 @@ describe('agentMode workspace kinds', () => {
 
     await store.generate('a game where I dodge asteroids')
 
-    expect(gamesCreate).toHaveBeenCalledWith('a game where I dodge asteroids', { scaffold: false })
+    expect(gamesCreate).toHaveBeenCalledWith(
+      'a game where I dodge asteroids',
+      expect.objectContaining({ scaffold: false }),
+    )
   })
 
   it('keeps working in a folder that is already a game', async () => {

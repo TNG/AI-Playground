@@ -39,9 +39,21 @@ const GameMetadataSchema = z.object({
   published: z.boolean().default(false),
   createdAt: z.number().default(0),
   updatedAt: z.number().default(0),
+  // How the game came to be, recorded once when the folder is minted. Optional
+  // because a game made before this existed (or copied in by hand) is still a
+  // game; nothing downstream may assume they are there.
+  /** Inference backend that ran the first turn: `llamaCPP` / `openVINO` / `cloud`. */
+  backend: z.string().optional(),
+  /** Model selected when the game was started; the agent may be switched later. */
+  startingModel: z.string().optional(),
+  /** The request that started the game, whole — `name` is a shortening of it. */
+  initialPrompt: z.string().optional(),
 })
 
 export type GameMetadata = z.infer<typeof GameMetadataSchema>
+
+/** What the first turn ran on, as `createGame` is told it. */
+export type GameProvenance = Pick<GameMetadata, 'backend' | 'startingModel' | 'initialPrompt'>
 
 /** A game as the UI sees it: its metadata plus where it lives. */
 export type GameEntry = GameMetadata & {
@@ -141,6 +153,16 @@ function toEntry(dir: string, metadata: GameMetadata): GameEntry {
   }
 }
 
+/** Provenance worth recording: a key nobody set is left out rather than empty. */
+function provenanceOf(source: GameProvenance): GameProvenance {
+  const kept: GameProvenance = {}
+  for (const key of ['backend', 'startingModel', 'initialPrompt'] as const) {
+    const value = source[key]?.trim()
+    if (value) kept[key] = value
+  }
+  return kept
+}
+
 function writeMetadata(dir: string, metadata: GameMetadata): GameEntry {
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(metadataPath(dir), `${JSON.stringify(metadata, null, 2)}\n`, 'utf-8')
@@ -157,7 +179,7 @@ function writeMetadata(dir: string, metadata: GameMetadata): GameEntry {
  * write is something to work around rather than something to build on.
  */
 export function createGame(
-  options: { name?: string; description?: string; scaffold?: boolean } = {},
+  options: { name?: string; description?: string; scaffold?: boolean } & GameProvenance = {},
   root: string = getGamesDir(),
 ): GameEntry {
   const name = options.name?.trim() || 'New game'
@@ -176,6 +198,7 @@ export function createGame(
     published: false,
     createdAt: now,
     updatedAt: now,
+    ...provenanceOf(options),
   })
   // The folder is playable from the first second, so the agent starts from a
   // running page it edits rather than from a blank one it has to write out
@@ -193,10 +216,13 @@ export function readGame(dir: string): GameEntry | null {
 /**
  * Patch a game's metadata. Fields the caller does not mention keep their value,
  * and `updatedAt` is always bumped so the library sorts by recent work.
+ *
+ * Provenance is not patchable: it describes how the game was started, so a later
+ * rename or publish must not be able to rewrite it.
  */
 export function updateGame(
   dir: string,
-  patch: Partial<Omit<GameMetadata, 'id' | 'createdAt'>>,
+  patch: Partial<Omit<GameMetadata, 'id' | 'createdAt' | keyof GameProvenance>>,
 ): GameEntry {
   const current = readMetadata(dir)
   if (!current) throw new Error(`Not a game folder: ${dir}`)
@@ -269,7 +295,7 @@ function escapeHtml(text: string): string {
 }
 
 /** What the arcade page and the (Q4) portal upload both read. */
-export type GameManifestEntry = {
+export type GameManifestEntry = GameProvenance & {
   id: string
   name: string
   description: string
@@ -295,6 +321,7 @@ function manifestOf(games: GameEntry[]): GameManifestEntry[] {
     icon: game.icon ? `${game.id}/${game.icon}` : undefined,
     createdAt: game.createdAt,
     updatedAt: game.updatedAt,
+    ...provenanceOf(game),
   }))
 }
 
@@ -351,11 +378,33 @@ function arcadeHtml(games: GameManifestEntry[], vendor?: string): string {
     display: grid; gap: 20px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   }
   li.game {
+    position: relative;
     background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 14px; overflow: hidden; transition: transform .15s ease, border-color .15s ease;
   }
   li.game:hover { transform: translateY(-3px); border-color: var(--accent); }
   li.game a { display: block; color: inherit; text-decoration: none; }
+  /* Sits above the card link, so opening it never starts the game. */
+  .info-button {
+    position: absolute; top: 10px; right: 10px; z-index: 2; padding: 0;
+    width: 28px; height: 28px; border-radius: 999px; cursor: pointer;
+    display: grid; place-items: center; color: #f2f4f8;
+    background: rgba(5, 7, 11, .65); border: 1px solid rgba(255, 255, 255, .18);
+  }
+  .info-button:hover, .info-button:focus-visible { color: var(--accent); border-color: var(--accent); }
+  /* Kept inside the card, which clips it: the panel scrolls rather than overflows. */
+  .info-panel {
+    position: absolute; top: 46px; right: 10px; left: 10px; z-index: 3;
+    max-height: calc(100% - 56px); overflow: auto;
+    padding: 12px 14px; border-radius: 10px; font-size: .8125rem;
+    background: rgba(9, 12, 20, .97); border: 1px solid rgba(255, 255, 255, .14);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, .45);
+  }
+  .info-panel dl { margin: 0; }
+  .info-panel dt { color: #9aa4b8; font-size: .6875rem; letter-spacing: .06em; text-transform: uppercase; }
+  .info-panel dt + dd { margin: 2px 0 10px; overflow-wrap: anywhere; }
+  .info-panel dd:last-child { margin-bottom: 0; }
+  .info-panel dd.prompt { max-height: 7.5em; overflow: auto; }
   .cover { aspect-ratio: 1 / 1; background: #131826 center/cover no-repeat; display: grid; place-items: center; }
   .cover span { font-size: 2.6rem; opacity: .35; }
   .meta { padding: 14px 16px 18px; }
@@ -378,6 +427,68 @@ function arcadeHtml(games: GameManifestEntry[], vendor?: string): string {
   const games = JSON.parse(document.getElementById('library').textContent)
   const list = document.getElementById('games')
   if (games.length === 0) document.getElementById('empty').hidden = false
+
+  const INFO_ICON = '<svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zm0 3.2a1.1 1.1 0 110 2.2 1.1 1.1 0 010-2.2zM11 15H9V9h2z"/></svg>'
+  const BACKEND_LABELS = { llamaCPP: 'llamaCPP - GGUF', openVINO: 'OpenVINO', cloud: 'Cloud Mode' }
+
+  function backendLabel(backend) {
+    if (!backend) return ''
+    return Object.prototype.hasOwnProperty.call(BACKEND_LABELS, backend)
+      ? BACKEND_LABELS[backend]
+      : backend
+  }
+
+  // Provenance a game was started with. Games made before it was recorded have
+  // none, and get no info button at all.
+  function infoRows(game) {
+    return [
+      { label: 'Backend', value: backendLabel(game.backend) },
+      { label: 'Starting Model', value: game.startingModel },
+      { label: 'Initial Prompt', value: game.initialPrompt, prompt: true },
+    ].filter((row) => typeof row.value === 'string' && row.value !== '')
+  }
+
+  function closeInfoPanels() {
+    for (const panel of document.querySelectorAll('.info-panel')) panel.hidden = true
+    for (const button of document.querySelectorAll('.info-button')) {
+      button.setAttribute('aria-expanded', 'false')
+    }
+  }
+
+  function buildInfo(game) {
+    const rows = infoRows(game)
+    if (rows.length === 0) return null
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'info-button'
+    button.setAttribute('aria-label', 'Generation info')
+    button.setAttribute('aria-expanded', 'false')
+    button.innerHTML = INFO_ICON
+    const panel = document.createElement('div')
+    panel.className = 'info-panel'
+    panel.hidden = true
+    const definitions = document.createElement('dl')
+    for (const row of rows) {
+      const term = document.createElement('dt')
+      term.textContent = row.label
+      const value = document.createElement('dd')
+      if (row.prompt) value.className = 'prompt'
+      value.textContent = row.value
+      definitions.append(term, value)
+    }
+    panel.append(definitions)
+    button.addEventListener('click', (event) => {
+      const opening = panel.hidden
+      closeInfoPanels()
+      panel.hidden = !opening
+      button.setAttribute('aria-expanded', String(opening))
+      event.stopPropagation()
+    })
+    // Otherwise selecting the prompt text would dismiss the panel mid-drag.
+    panel.addEventListener('click', (event) => event.stopPropagation())
+    return [button, panel]
+  }
+
   for (const game of games) {
     const item = document.createElement('li')
     item.className = 'game'
@@ -396,8 +507,15 @@ function arcadeHtml(games: GameManifestEntry[], vendor?: string): string {
     meta.append(name, description)
     link.append(cover, meta)
     item.append(link)
+    const info = buildInfo(game)
+    if (info) item.append(info[0], info[1])
     list.append(item)
   }
+
+  document.addEventListener('click', closeInfoPanels)
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeInfoPanels()
+  })
 </script>
 </body>
 </html>

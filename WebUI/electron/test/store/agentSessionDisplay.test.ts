@@ -3,6 +3,7 @@ import type { UIMessage } from 'ai'
 import {
   collapseGamesPrefix,
   listPresetSessions,
+  promoteSession,
   sessionDisplayTitle,
   snapshotSession,
   type AgentSessionRecord,
@@ -134,6 +135,48 @@ describe('snapshotSession', () => {
       presetName: 'Game Agent',
     })
     expect(next?.updatedAt).toBeGreaterThan(2_000)
+  })
+})
+
+describe('promoteSession', () => {
+  const promoted = () =>
+    promoteSession(
+      archived({ presetName: 'Quick Coder', capabilities: ['game-studio-quick'] }),
+      'Game Agent',
+      ['media', 'web-debug', 'game-studio'],
+    )
+
+  it('overwrites the fields a snapshot would otherwise freeze', () => {
+    const next = promoted()
+    expect(next.presetName).toBe('Game Agent')
+    expect(next.capabilities).toEqual(['media', 'web-debug', 'game-studio'])
+    // Everything that identifies the work is the point of moving rather than
+    // copying: same conversation, same folder, same clock.
+    expect(next.id).toBe('s1')
+    expect(next.workspaceDir).toBe('/games/space-dodger')
+    expect(next.messages).toHaveLength(1)
+    expect(next.updatedAt).toBe(2_000)
+  })
+
+  it('survives the next archive of the same session', () => {
+    const next = promoted()
+    expect(
+      snapshotSession({
+        id: next.id,
+        workspaceDir: next.workspaceDir,
+        messages: [...next.messages, userTurn('now add sound')],
+        existing: next,
+        capabilities: ['media', 'web-debug', 'game-studio'],
+        // What the store would pass if the switch had not been recorded.
+        presetName: 'Quick Coder',
+      }),
+    ).toMatchObject({ presetName: 'Game Agent' })
+  })
+
+  it('stays in the games list it was already in', () => {
+    const next = promoted()
+    expect(listPresetSessions({ [next.id]: next }, 'Quick Coder').map((s) => s.id)).toEqual(['s1'])
+    expect(listPresetSessions({ [next.id]: next }, 'Game Agent').map((s) => s.id)).toEqual(['s1'])
   })
 })
 

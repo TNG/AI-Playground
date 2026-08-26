@@ -79,6 +79,18 @@ so it finishes in minutes rather than tens of them and asks far less of a small 
 — and produces a simpler game. Iterative Game Agent is unchanged and is still the one to use
 when the game should be illustrated and tested.
 
+That leaves Quick Coder unable to follow up on its own game: it cannot read the file it wrote,
+try it, or draw for it, so "the ship keeps moving after you let go" can only be answered by
+writing the whole thing again from memory. So it does not try — a session can be handed to Game
+Agent, which keeps the same folder and the same conversation but arrives with `read`, `edit`,
+`browser` and `media`. The user can do it from the game bar ("Continue in Game Agent"), and the
+agent can offer it: its `offer_game_agent` tool puts the switch up as a card in the transcript,
+and accepting re-tags the session (`promoteSession`) and switches preset. The session record is
+moved rather than copied — the folder is the artifact, and a second session on it would split
+the history. Nothing is torn down: the Pi session's config key covers instructions and
+capabilities, so the next turn rebuilds it on the same session id and folder and reopens the
+transcript it already has.
+
 ## Turning it on
 
 Hidden by default because it is experimental: it can overrun a small model, and it writes to a

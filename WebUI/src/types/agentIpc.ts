@@ -73,6 +73,10 @@ export type GameLibraryEntry = {
   published: boolean
   createdAt: number
   updatedAt: number
+  /** How the first turn ran; absent on games made before this was recorded. */
+  backend?: string
+  startingModel?: string
+  initialPrompt?: string
   dir: string
   entryPath: string
   iconPath?: string

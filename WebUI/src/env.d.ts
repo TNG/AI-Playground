@@ -591,8 +591,17 @@ type electronAPI = {
     /**
      * Mints a folder for a new game; `name` is a starting point, not final.
      * `scaffold: false` leaves it empty for a preset that writes the game whole.
+     * The rest is provenance, recorded once and never patched afterwards.
      */
-    create(name?: string, options?: { scaffold?: boolean }): Promise<GameLibraryEntry>
+    create(
+      name?: string,
+      options?: {
+        scaffold?: boolean
+        backend?: string
+        startingModel?: string
+        initialPrompt?: string
+      },
+    ): Promise<GameLibraryEntry>
     publish(
       dir: string,
       fields: { name?: string; description?: string },

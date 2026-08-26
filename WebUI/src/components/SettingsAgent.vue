@@ -210,6 +210,12 @@
         </label>
       </div>
 
+      <!-- Which workflows the media capability may use. Shown whenever the
+           capability exists, including while it reports itself unavailable —
+           turning every workflow off is what makes it unavailable, and this is
+           where they are turned back on. -->
+      <SettingsBuiltinTools v-if="hasMediaCapability" variant="media" />
+
       <!-- Slash commands of the enabled capabilities: sending one as a prompt is
            exactly how the agent's own input dispatches it. -->
       <div v-if="capabilityCommands.length > 0" class="flex flex-col gap-2">
@@ -262,7 +268,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import DropDownNew from '@/components/DropDownNew.vue'
@@ -281,9 +287,11 @@ import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { useMcp } from '@/assets/js/store/mcp'
 import { getAgentToolSpecs } from '@/assets/js/tools/agentBridge'
+import { mediaAgentHasTools } from '@/assets/js/agents/mediaAgent'
 import { mcpCapabilityId } from '@/types/agentCapabilities'
 import ProviderSelector from '@/components/ProviderSelector.vue'
 import PresetSelector from '@/components/PresetSelector.vue'
+import SettingsBuiltinTools from '@/components/SettingsBuiltinTools.vue'
 import { usePresets } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import * as toast from '@/assets/js/toast'
@@ -305,6 +313,10 @@ const builtInCapabilities = computed(() =>
   capabilityCatalog.value.filter((capability) => !capability.id.startsWith('mcp:')),
 )
 
+const hasMediaCapability = computed(() =>
+  capabilityCatalog.value.some((capability) => capability.id === 'media'),
+)
+
 // Only the enabled capabilities' commands: an extension that is not part of the
 // session cannot answer them.
 const capabilityCommands = computed(() =>
@@ -313,13 +325,25 @@ const capabilityCommands = computed(() =>
     .flatMap((capability) => capability.commands),
 )
 
-onMounted(async () => {
-  void mcp.refreshAvailableServers()
+async function refreshCapabilityCatalog(): Promise<void> {
   capabilityCatalog.value = await window.electronAPI.agentMode.listCapabilities({
     workspaceDir: agentMode.workspaceDir,
     toolSpecs: getAgentToolSpecs(),
   })
+}
+
+onMounted(async () => {
+  void mcp.refreshAvailableServers()
+  await refreshCapabilityCatalog()
 })
+
+// Whether the media capability has anything to offer is decided in the main
+// process from the tool specs, so turning its last workflow off (or back on) in
+// the panel below only reaches the checkbox after re-asking.
+watch(
+  () => [mediaAgentHasTools(), textInference.toolDelegationEnabled],
+  () => void refreshCapabilityCatalog(),
+)
 
 // Game Agent's folders are the app's to create, and they stay sandboxed: a game is
 // plain HTML with no build step, so a real shell would only add risk.

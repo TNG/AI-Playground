@@ -2866,12 +2866,27 @@ function initEventHandle() {
   ipcMain.handle('games:read', (_event, dir: string) => readGame(dir))
 
   // `name` is the request that started the game, not a title: shorten it to
-  // something that reads as one, until the agent sets a real one.
-  ipcMain.handle('games:create', (_event, name?: string, options?: { scaffold?: boolean }) =>
-    createGame({
-      name: name ? provisionalName(name) : undefined,
-      ...(options?.scaffold === false ? { scaffold: false } : {}),
-    }),
+  // something that reads as one, until the agent sets a real one. The request
+  // itself is kept whole as provenance.
+  ipcMain.handle(
+    'games:create',
+    (
+      _event,
+      name?: string,
+      options?: {
+        scaffold?: boolean
+        backend?: string
+        startingModel?: string
+        initialPrompt?: string
+      },
+    ) =>
+      createGame({
+        name: name ? provisionalName(name) : undefined,
+        ...(options?.scaffold === false ? { scaffold: false } : {}),
+        backend: options?.backend,
+        startingModel: options?.startingModel,
+        initialPrompt: options?.initialPrompt,
+      }),
   )
 
   ipcMain.handle(

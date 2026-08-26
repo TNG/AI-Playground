@@ -286,13 +286,24 @@ describe('resolveCapabilities', () => {
 
     const registry = fakeExtensionApi()
     for (const factory of resolution.extensionFactories) factory(registry.api as never)
-    expect(registry.tools.map((tool) => tool.name)).toEqual(['game'])
+    // The library card, plus the way out: a one-shot run cannot revise the game
+    // it wrote, so it can offer to hand it to Game Agent instead.
+    expect(registry.tools.map((tool) => tool.name)).toEqual(['game', 'offer_game_agent'])
   })
 
   it('leaves the iterative game preset planning on disk, with the full session', async () => {
     const resolution = await resolveCapabilities(hostWith(), ['game-studio'])
     expect(resolution.ownSession).toBeUndefined()
     expect(resolution.planningEnd).toBe('plan-file')
+  })
+
+  // Game Agent already has the tools the offer buys, so offering it would only
+  // give the model a way to interrupt itself.
+  it('offers the switch to Game Agent only from the one-shot preset', async () => {
+    const resolution = await resolveCapabilities(hostWith(), ['game-studio'])
+    const registry = fakeExtensionApi()
+    for (const factory of resolution.extensionFactories) factory(registry.api as never)
+    expect(registry.tools.map((tool) => tool.name)).not.toContain('offer_game_agent')
   })
 
   it('refuses to mix two session-shaping capabilities', async () => {

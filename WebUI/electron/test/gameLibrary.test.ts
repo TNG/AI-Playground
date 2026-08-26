@@ -125,6 +125,31 @@ describe('createGame', () => {
     expect(page).not.toContain('type="module"')
   })
 
+  it('records what the game was started on, prompt included', () => {
+    const game = createGame(
+      {
+        name: 'a one-button endless runner…',
+        backend: 'llamaCPP',
+        startingModel: 'Qwen/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf',
+        initialPrompt: 'a one-button endless runner where I dodge asteroids',
+      },
+      root,
+    )
+    expect(readGame(game.dir)).toMatchObject({
+      backend: 'llamaCPP',
+      startingModel: 'Qwen/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf',
+      // The whole request, not the shortening that became the name.
+      initialPrompt: 'a one-button endless runner where I dodge asteroids',
+    })
+  })
+
+  it('leaves out provenance nobody supplied', () => {
+    const game = createGame({ name: 'Space Dodger', startingModel: '  ' }, root)
+    const card = JSON.parse(fs.readFileSync(path.join(game.dir, 'game.json'), 'utf-8'))
+    expect(Object.keys(card)).not.toContain('backend')
+    expect(Object.keys(card)).not.toContain('startingModel')
+  })
+
   it('gives a second game of the same name its own folder', () => {
     const first = createGame({ name: 'Space Dodger' }, root)
     const second = createGame({ name: 'Space Dodger' }, root)
@@ -138,6 +163,15 @@ describe('readGame', () => {
   it('reports a folder that is not a game', () => {
     fs.mkdirSync(path.join(root, 'not-a-game'))
     expect(readGame(path.join(root, 'not-a-game'))).toBeNull()
+  })
+
+  // Games made before provenance was recorded, and folders copied in by hand.
+  it('reads a card that carries no provenance', () => {
+    const dir = path.join(root, 'older-game')
+    fs.mkdirSync(dir)
+    fs.writeFileSync(path.join(dir, 'game.json'), JSON.stringify({ id: 'older-game', name: 'Old' }))
+    expect(readGame(dir)).toMatchObject({ id: 'older-game', name: 'Old' })
+    expect(readGame(dir)?.initialPrompt).toBeUndefined()
   })
 
   it('reports a card it cannot parse rather than throwing', () => {
@@ -254,6 +288,53 @@ describe('publishGame and writeArcade', () => {
     ])
     // No fetch of a sibling file, which a file:// page would be refused.
     expect(arcade).not.toMatch(/fetch\(/)
+  })
+
+  // Naming a game says nothing about how it was made, so publishing must leave
+  // the provenance the first turn recorded alone.
+  it('keeps provenance when the user names the game', () => {
+    const game = createGame(
+      { name: 'draft name', backend: 'openVINO', startingModel: 'OpenVINO/gpt-oss-20b-int4-ov' },
+      root,
+    )
+    const published = publishGame(game.dir, { name: 'Space Dodger' }, { root })
+    expect(published).toMatchObject({
+      name: 'Space Dodger',
+      backend: 'openVINO',
+      startingModel: 'OpenVINO/gpt-oss-20b-int4-ov',
+    })
+  })
+
+  it('carries provenance into the gallery, with the button that shows it', () => {
+    const game = createGame(
+      {
+        name: 'Space Dodger',
+        backend: 'llamaCPP',
+        startingModel: 'Qwen3.8-27B-Q4_K_M.gguf',
+        initialPrompt: 'a one-button endless runner where I dodge asteroids',
+      },
+      root,
+    )
+    publishGame(game.dir, {}, { root })
+
+    const arcade = fs.readFileSync(path.join(root, 'index.html'), 'utf-8')
+    const inlined = arcade.match(/<script type="application\/json" id="library">(.*?)<\/script>/s)
+    expect(JSON.parse(inlined![1])[0]).toMatchObject({
+      backend: 'llamaCPP',
+      startingModel: 'Qwen3.8-27B-Q4_K_M.gguf',
+      initialPrompt: 'a one-button endless runner where I dodge asteroids',
+    })
+    expect(arcade).toContain('Generation info')
+  })
+
+  it('escapes a prompt so it cannot break out of the page', () => {
+    const game = createGame(
+      { name: 'Space Dodger', initialPrompt: 'make me </script><img src=x onerror=alert(1)>' },
+      root,
+    )
+    publishGame(game.dir, {}, { root })
+    const arcade = fs.readFileSync(path.join(root, 'index.html'), 'utf-8')
+    expect(arcade).not.toContain('<img src=x')
   })
 
   it('writes library.json as the stable input for uploading a library', () => {

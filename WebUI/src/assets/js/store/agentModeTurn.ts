@@ -156,6 +156,14 @@ export function latestTurnMetadata<K extends keyof TurnMetadata>(
 export function createAgentTurnRuntime(options: {
   errors: { report: (error: unknown, overrides: Record<string, unknown>) => void }
   buildTurnConfig: () => Promise<AgentModeTurnConfig>
+  /**
+   * Tools the store implements itself, dispatched by name ahead of the media
+   * bridge. They are how a tool call can reach state the bridge must not import:
+   * `tools/agentBridge` is part of this module's own import graph, so reaching
+   * back into the Agent Mode store from there would close a cycle and drag the
+   * whole store graph into every module the bridge is loaded from.
+   */
+  storeTools?: Record<string, (input: Record<string, unknown>) => Promise<unknown>>
 }) {
   const processing = ref(false)
   const toolProgress = ref<Record<string, string>>({})
@@ -195,7 +203,10 @@ export function createAgentTurnRuntime(options: {
       const abort = new AbortController()
       runningTools.set(requestId, abort)
       try {
-        const result = await executeAgentTool(toolName, input, toolCallId, abort.signal)
+        const storeTool = options.storeTools?.[toolName]
+        const result = storeTool
+          ? await storeTool(input)
+          : await executeAgentTool(toolName, input, toolCallId, abort.signal)
         const plainResult: unknown = JSON.parse(JSON.stringify(result ?? null))
         await window.electronAPI.agentMode.submitToolResult(requestId, plainResult)
       } catch (error) {

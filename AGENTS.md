@@ -972,6 +972,23 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   of the Agent Settings checkbox list (`listCapabilities`): ticked next to another preset's agent it
   would take that agent's prompt and tools away. Use it to check the low-context path; iterative
   Game Agent is unchanged and remains the one with art and play-testing.
+- **A one-shot session can be handed to Game Agent, and that is the only way to revise its
+  game.** With `write` as its only file tool Quick Coder cannot read back what it wrote, so a bug
+  report or a change is not something it can answer. `agentMode.promoteToGameAgent()` re-tags the
+  session record (`promoteSession` overwrites `presetName` _and_ `capabilities`, which
+  `snapshotSession` otherwise freezes — leave the capabilities and the next archive puts `write`
+  back) and switches preset; the folder, the session id and the transcript stay, so the Pi session
+  rebuilds on the same history rather than starting over. Two surfaces reach it: **Continue in
+  Game Agent** in the game bar, and the agent's own `offer_game_agent` tool, which puts the switch
+  to the user as a `ChatConfirmation` card (Agent Mode mounts one, keyed by the session) and takes
+  it only if they accept. That tool is dispatched by name through `storeTools` on
+  `createAgentTurnRuntime` rather than `tools/agentBridge`: the bridge is inside the store's own
+  import graph, so reaching back into the store from there closes a cycle and drags the whole
+  store graph into everything the bridge loads from (it broke an unrelated test the first time).
+  Game Agent must not have the tool — it already has what the offer buys. Since the switch does
+  not restart anything, Game Agent can open a folder with **no `game.js`**: its prompt and the
+  `html-game-studio` skill both say that `index.html` is then a finished single-file game to
+  change, not a scaffold to grow.
 - **Gotcha:** a `media` call temporarily switches the active preset to an image-gen one, so
   anything derived from the active preset must not follow it — `agentMode.activeAgentPreset`
   remembers the last agent preset for exactly this reason (following it live aborted the turn

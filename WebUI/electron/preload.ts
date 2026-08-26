@@ -294,8 +294,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   games: {
     list: () => ipcRenderer.invoke('games:list'),
     read: (dir: string) => ipcRenderer.invoke('games:read', dir),
-    create: (name?: string, options?: { scaffold?: boolean }) =>
-      ipcRenderer.invoke('games:create', name, options),
+    create: (
+      name?: string,
+      options?: {
+        scaffold?: boolean
+        backend?: string
+        startingModel?: string
+        initialPrompt?: string
+      },
+    ) => ipcRenderer.invoke('games:create', name, options),
     publish: (dir: string, fields: { name?: string; description?: string }) =>
       ipcRenderer.invoke('games:publish', dir, fields),
     openFolder: (dir?: string) => ipcRenderer.invoke('games:openFolder', dir),

@@ -22,6 +22,18 @@
     </div>
 
     <div class="ml-auto flex items-center gap-2">
+      <!-- Quick Coder can only write the game once. Once it exists, changing it —
+           a fix, art, a play-test — is Game Agent's job, and this hands the same
+           folder and conversation over to it. -->
+      <Button
+        v-if="agentMode.canPromoteToGameAgent"
+        variant="secondary"
+        class="px-3 py-1.5 rounded text-sm"
+        :disabled="promoting"
+        @click="promote"
+      >
+        Continue in {{ gameAgentLabel }}
+      </Button>
       <Button
         variant="secondary"
         class="px-3 py-1.5 rounded text-sm"
@@ -108,6 +120,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import IconButton from '@/components/ui/IconButton.vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { GAME_AGENT_PRESET } from '@/assets/js/store/agentModeSessions'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import * as toast from '@/assets/js/toast'
 
@@ -132,6 +145,21 @@ const saveLabel = computed(() =>
     ? `Update in ${oemBranding.arcadeTarget}`
     : `Add to ${oemBranding.arcadeTarget}`,
 )
+
+const gameAgentLabel = computed(() => oemBranding.presetLabel(GAME_AGENT_PRESET))
+
+const promoting = ref(false)
+
+async function promote(): Promise<void> {
+  promoting.value = true
+  try {
+    if (await agentMode.promoteToGameAgent()) {
+      toast.success(`${gameAgentLabel.value} has this game — tell it what to change.`)
+    }
+  } finally {
+    promoting.value = false
+  }
+}
 
 const saveDialogOpen = ref(false)
 const draftName = ref('')

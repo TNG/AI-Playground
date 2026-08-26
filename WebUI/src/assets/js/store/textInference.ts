@@ -27,6 +27,13 @@ import * as toast from '@/assets/js/toast.ts'
 import { useActivities } from './activities'
 import { useI18N } from './i18n'
 import { renamePresetKeys } from '@/lib/presetRenames'
+import {
+  isToolEnabled,
+  readLegacyToolEnablement,
+  seedToolEnablementPerPreset,
+  toolEnablementForPreset,
+  type ToolEnablement,
+} from '@/lib/builtinToolEnablement'
 import { useModelPreferences } from './modelPreferences'
 import { pathKeyForCatalogModel } from '../models/library'
 import { withPreferenceFlags } from '../models/favorites'
@@ -514,19 +521,36 @@ export const useTextInference = defineStore(
 
     // Per-built-in-tool enablement overrides (by tool name). Most built-in tools
     // default on; opt-in/privacy-sensitive tools (captureScreenshot) default off.
+    // Persisted per chat preset via settingsPerPreset, like the per-workflow map
+    // below: Chat and Agent Mode share these refs, so a global would let one
+    // surface's tool choice disarm the other's.
     const builtinToolEnablement = ref<Record<string, boolean>>({})
+    // The global map an older build persisted, kept in memory as the fallback for
+    // presets whose settings were never saved and so could not be seeded on
+    // hydration (see migrateGlobalToolEnablement).
+    const legacyToolEnablement = ref<ToolEnablement | null>(null)
     // The single desktop window captureScreenshot is bound to. The screenshot
     // tool can only ever capture this user-selected window.
     const screenshotWindow = ref<ScreenshotWindow | null>(null)
 
     function isBuiltinToolEnabled(toolName: string): boolean {
-      const override = builtinToolEnablement.value[toolName]
-      if (override !== undefined) return override
-      return toolName === 'captureScreenshot' ? false : true
+      return isToolEnabled(builtinToolEnablement.value, toolName)
     }
 
     function setBuiltinToolEnabled(toolName: string, enabled: boolean): void {
       builtinToolEnablement.value = { ...builtinToolEnablement.value, [toolName]: enabled }
+    }
+
+    /**
+     * Carry a pre-per-preset global tool enablement into each preset's settings,
+     * so an upgrade keeps the tools the user had turned off. Run once on
+     * hydration, with the raw persisted state the plugin read.
+     */
+    function migrateGlobalToolEnablement(rawPersistedState: string | null): void {
+      const legacy = readLegacyToolEnablement(rawPersistedState)
+      if (!legacy) return
+      legacyToolEnablement.value = legacy
+      settingsPerPreset.value = seedToolEnablementPerPreset(settingsPerPreset.value, legacy)
     }
 
     // Per-workflow (ComfyUI preset) enablement for preset-backed built-in tools
@@ -1701,6 +1725,13 @@ export const useTextInference = defineStore(
       toolDelegationEnabled.value =
         (savedSettings.toolDelegationEnabled as boolean | undefined) ?? true
 
+      // Which built-in tools this preset may use (empty when unsaved, so
+      // isBuiltinToolEnabled falls back to its per-tool defaults).
+      builtinToolEnablement.value = toolEnablementForPreset(
+        savedSettings.builtinToolEnablement,
+        legacyToolEnablement.value,
+      )
+
       // Per-workflow enablement for preset-backed tools (defaults to all-enabled
       // when unsaved, matching isWorkflowPresetEnabled's default).
       builtinToolPresetEnablement.value =
@@ -1853,6 +1884,7 @@ export const useTextInference = defineStore(
         aipgToolsEnabled,
         mcpToolsEnabled,
         toolDelegationEnabled,
+        builtinToolEnablement,
         builtinToolPresetEnablement,
         builtinToolDefaultPresets,
         thinkingEnabled,
@@ -1884,6 +1916,7 @@ export const useTextInference = defineStore(
           aipgToolsEnabled: aipgToolsEnabled.value,
           mcpToolsEnabled: mcpToolsEnabled.value,
           toolDelegationEnabled: toolDelegationEnabled.value,
+          builtinToolEnablement: { ...builtinToolEnablement.value },
           builtinToolPresetEnablement: { ...builtinToolPresetEnablement.value },
           builtinToolDefaultPresets: { ...builtinToolDefaultPresets.value },
           thinkingEnabled: thinkingEnabled.value,
@@ -2128,6 +2161,7 @@ export const useTextInference = defineStore(
       endInferenceStream,
       waitForInferenceIdle,
       migrateRenamedPresetSettings,
+      migrateGlobalToolEnablement,
     }
   },
   {
@@ -2141,12 +2175,15 @@ export const useTextInference = defineStore(
         'temperature',
         'ragList',
         'settingsPerPreset',
-        'builtinToolEnablement',
         'screenshotWindow',
       ],
       afterHydrate: (ctx) => {
         // Settings are stored per preset name, which a renamed preset no longer has.
         ctx.store.migrateRenamedPresetSettings()
+        // Tool enablement used to be one global map at the root of this state.
+        // It is no longer picked (so it stops being re-persisted from whichever
+        // preset is active), which is why the migration re-reads the raw payload.
+        ctx.store.migrateGlobalToolEnablement(demoAwareStorage.getItem(ctx.store.$id))
       },
     },
   },

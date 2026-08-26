@@ -5,17 +5,27 @@ import { useTextInference } from './textInference'
 import { useCloudMode } from './cloudMode'
 import { usePresets, type ChatPreset } from './presets'
 import { usePresetSwitching } from './presetSwitching'
+import { useConfirmations } from './confirmations'
+import { useOemBranding } from './oemBranding'
 import { useErrors } from './errors'
 import { unregisterAgentModeIpc } from './agentModeIpc'
-import { DEFAULT_CAPABILITY_IDS, GAME_STUDIO_QUICK_ID } from '@/types/agentCapabilities'
+import {
+  DEFAULT_CAPABILITY_IDS,
+  GAME_STUDIO_ID,
+  GAME_STUDIO_QUICK_ID,
+  OFFER_GAME_AGENT_TOOL,
+} from '@/types/agentCapabilities'
 import type { GameLibraryEntry } from '@/types/agentIpc'
 import {
   AGENT_PRESET,
   applySessionPresetNames,
   computedPresetSessions,
   ensureSessionId,
+  GAME_AGENT_PRESET,
   migrateMcpServerIdsIntoCapabilities,
   mintSessionId,
+  promoteSession,
+  QUICK_CODER_PRESET,
   snapshotSession,
   takeLegacyPlanningThinkingOnly,
   toggleCapabilityIds,
@@ -61,6 +71,8 @@ export const useAgentMode = defineStore(
     const cloudMode = useCloudMode()
     const presetsStore = usePresets()
     const presetSwitching = usePresetSwitching()
+    const confirmations = useConfirmations()
+    const oemBranding = useOemBranding()
     const errors = useErrors()
 
     const workspaceDir = ref<string>('')
@@ -182,6 +194,7 @@ export const useAgentMode = defineStore(
 
     const turn = createAgentTurnRuntime({
       errors,
+      storeTools: { [OFFER_GAME_AGENT_TOOL]: (input) => offerGameAgent(input) },
       buildTurnConfig: () =>
         buildTurnConfig({
           sessionId: ensureSessionId(activeSessionId),
@@ -201,6 +214,16 @@ export const useAgentMode = defineStore(
 
     watch(activeSessionId, () => {
       toolImages.value = {}
+    })
+
+    // A tool can be waiting on a confirmation card when the turn ends, errors or
+    // is aborted. Settling it as declined keeps a question the user can no longer
+    // answer from lingering, and unblocks the tool if it is still listening
+    // (mirrors the chat store).
+    watch(processing, (isProcessing, wasProcessing) => {
+      if (wasProcessing && !isProcessing) {
+        confirmations.cancelForConversation(activeSessionId.value, false)
+      }
     })
 
     const messages = computed(() => chat.messages)
@@ -261,6 +284,100 @@ export const useAgentMode = defineStore(
         await refreshCurrentGame()
       } finally {
         restoringSession = false
+      }
+    }
+
+    /**
+     * Quick Coder writes a game and cannot come back to it: `write` is its only
+     * file tool, and the session's preset is what resuming it switches back to.
+     * This is the way out — the game it produced is handed to Game Agent, which
+     * can read, edit, play-test and illustrate it.
+     */
+    const canPromoteToGameAgent = computed(
+      () => agentPresetName.value === QUICK_CODER_PRESET && currentGame.value !== null,
+    )
+
+    function gameAgentCapabilities(): string[] {
+      const preset = presetsStore.presets.find((entry) => entry.name === GAME_AGENT_PRESET)
+      const declared =
+        preset?.type === 'chat' ? (preset as ChatPreset).agentCapabilities : undefined
+      return declared && declared.length > 0
+        ? [...declared]
+        : [...DEFAULT_CAPABILITIES, GAME_STUDIO_ID]
+    }
+
+    /**
+     * Move this session to Game Agent: same folder, same transcript, a preset
+     * that can work on what is already there. The record is re-tagged rather
+     * than copied — the game folder is the artifact, and a second session on it
+     * would split the history and win or lose `adoptWorkspace`'s latest-wins
+     * race depending on which was touched last.
+     *
+     * The Pi session is not torn down: its config key covers instructions and
+     * capabilities, so the next turn rebuilds it on the same session id and
+     * folder, which is what lets it reopen the transcript it already has.
+     */
+    async function promoteToGameAgent(id?: string): Promise<boolean> {
+      const sessionId = id ?? activeSessionId.value
+      // Whatever the running turn has produced belongs to the record before it
+      // is re-tagged; a preset switch archives nothing by itself.
+      if (sessionId === activeSessionId.value) snapshotActiveSession()
+      const session = sessions.value[sessionId]
+      if (session) {
+        sessions.value = {
+          ...sessions.value,
+          [sessionId]: promoteSession(session, GAME_AGENT_PRESET, gameAgentCapabilities()),
+        }
+      }
+      if (sessionId === activeSessionId.value) sessionCapabilities.value = null
+      const result = await presetSwitching.switchPreset(GAME_AGENT_PRESET, {
+        // A tool call offering the switch must not stall on a modal, and no
+        // agent preset is memory-gated anyway.
+        skipMemoryAlert: true,
+      })
+      return result.success
+    }
+
+    /**
+     * Quick Coder's `offer_game_agent` tool (see the `game-studio-quick`
+     * capability): put the switch to the user as a card in the transcript and
+     * take it if they accept. The model is told what came of it, because it has
+     * to stop either way — a declined offer is its cue to answer in the one tool
+     * it has, an accepted one that the game is no longer its to write.
+     */
+    async function offerGameAgent(input: Record<string, unknown>): Promise<unknown> {
+      const label = oemBranding.presetLabel(GAME_AGENT_PRESET)
+      const reason = typeof input.reason === 'string' ? input.reason.trim() : ''
+      const accepted = await confirmations.request({
+        conversationKey: activeSessionId.value,
+        title: `Continue in ${label}?`,
+        summaryMarkdown:
+          (reason ? `${reason}\n\n` : '') +
+          `That is more than this mode can do. **${label}** takes this game on — same folder, ` +
+          'same conversation — and can read and edit the code, play-test it in a browser and ' +
+          'generate art for it. It works step by step, so it takes longer.',
+        origin: 'desktop',
+      })
+      if (!accepted) {
+        return {
+          accepted: false,
+          message:
+            'The user declined and stays here. If the change is small, write the whole ' +
+            'index.html again with it applied; otherwise tell them plainly what this mode ' +
+            'cannot do.',
+        }
+      }
+      if (!(await promoteToGameAgent())) {
+        return {
+          accepted: false,
+          message: 'The user accepted but the switch failed. Carry on here and say so.',
+        }
+      }
+      return {
+        accepted: true,
+        message:
+          `${label} has this game now, with the same folder and this conversation. Do not ` +
+          'write the game again. Reply in one line saying their next message goes to it.',
       }
     }
 
@@ -365,6 +482,9 @@ export const useAgentMode = defineStore(
       if (agentWorkspaceKind.value === 'games' && !(await isGameFolder(workspaceDir.value))) {
         const game = await window.electronAPI.games.create(prompt, {
           scaffold: !capabilities.value.includes(GAME_STUDIO_QUICK_ID),
+          backend: textInference.backend,
+          startingModel: textInference.activeModel,
+          initialPrompt: prompt,
         })
         workspaceDir.value = game.dir
         lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, games: game.dir }
@@ -444,6 +564,8 @@ export const useAgentMode = defineStore(
       stop,
       newSession,
       switchSession,
+      canPromoteToGameAgent,
+      promoteToGameAgent,
       deleteSession,
       restoreActiveSession,
     }

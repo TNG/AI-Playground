@@ -7,12 +7,15 @@ import { observeAgentModelCalls } from './piCallTiming.ts'
 import { laminarConfig } from '../laminar.ts'
 import { type InferenceTraceContext } from '../laminarAttributes.ts'
 import type { AgentModeModelConfig } from '@/types/agentIpc'
+import { outputTokenBudget } from './piCompaction.ts'
 
 export const LOCAL_PROVIDER = 'aipg-local'
 export const CLOUD_PROVIDER = 'aipg-cloud'
 export const CLOUD_DEFAULT_CONTEXT_WINDOW = 128000
 
-const OUTPUT_TOKEN_TARGET = { local: 32768, cloud: 16384 } as const
+export function modelContextWindow(config: AgentModeModelConfig): number {
+  return config.contextWindow ?? (config.source === 'cloud' ? CLOUD_DEFAULT_CONTEXT_WINDOW : 8192)
+}
 
 let modelRuntime: ModelRuntime | null = null
 
@@ -35,17 +38,6 @@ export async function ensureModelRuntime(): Promise<ModelRuntime> {
   return modelRuntime
 }
 
-/**
- * Completion budget for one agent step, which is not the same thing as a chat
- * answer: a step is usually a tool call, and the arguments of a `write` carry a
- * whole file. Pi refuses a tool call whose arguments were cut off, so a 4096-token
- * ceiling made a game of any size unbuildable. Half the context window is the
- * hard bound; the local target is only reached from the 64k window up.
- */
-export function outputTokenBudget(contextWindow: number, source: 'local' | 'cloud'): number {
-  return Math.min(OUTPUT_TOKEN_TARGET[source], Math.floor(contextWindow / 2))
-}
-
 function modelInput(config: AgentModeModelConfig): ('text' | 'image')[] {
   return config.supportsVision ? ['text', 'image'] : ['text']
 }
@@ -55,7 +47,7 @@ export async function registerModel(
 ): Promise<{ provider: string; modelId: string }> {
   const runtime = await ensureModelRuntime()
   if (config.source === 'local') {
-    const contextWindow = config.contextWindow ?? 8192
+    const contextWindow = modelContextWindow(config)
     runtime.registerProvider(LOCAL_PROVIDER, {
       name: 'AI Playground local backend',
       baseUrl: localBaseUrl(config),
@@ -79,7 +71,7 @@ export async function registerModel(
     return { provider: LOCAL_PROVIDER, modelId: config.model }
   }
 
-  const contextWindow = config.contextWindow ?? CLOUD_DEFAULT_CONTEXT_WINDOW
+  const contextWindow = modelContextWindow(config)
   runtime.registerProvider(CLOUD_PROVIDER, {
     name: 'AI Playground cloud proxy',
     baseUrl: `${config.proxyBaseUrl}/v1`,
@@ -116,8 +108,7 @@ export function traceContext(
   config: AgentModeModelConfig,
   getSampling: () => Record<string, unknown> | undefined,
 ): () => InferenceTraceContext {
-  const contextWindow =
-    config.contextWindow ?? (config.source === 'cloud' ? CLOUD_DEFAULT_CONTEXT_WINDOW : 8192)
+  const contextWindow = modelContextWindow(config)
   return () => {
     const sampling = getSampling() ?? {}
     const kwargs = (sampling.chat_template_kwargs ?? {}) as Record<string, unknown>

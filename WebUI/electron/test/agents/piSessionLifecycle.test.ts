@@ -87,6 +87,7 @@ async function makeAgentSession(): Promise<{ session: FakeSession }> {
 }
 
 const createAgentSession = vi.fn(makeAgentSession)
+const settingsInMemory = vi.fn((_settings?: unknown) => ({}))
 
 const openSession = vi.fn((sessionFilePath: string) => ({ kind: 'opened', sessionFilePath }))
 const createSessionManager = vi.fn((cwd: string) => ({ kind: 'created', cwd }))
@@ -123,7 +124,7 @@ vi.mock('../../agentMode/piRuntime.ts', () => ({
       }),
     },
     SessionManager: { open: openSession, create: createSessionManager },
-    SettingsManager: { inMemory: () => ({}) },
+    SettingsManager: { inMemory: settingsInMemory },
     DefaultResourceLoader: class {
       constructor(options: ResourceLoaderOptions) {
         resourceLoaderOptions.push(options)
@@ -224,6 +225,7 @@ function pointerStore(): Record<string, { sessionFilePath: string; workspaceDir:
 beforeEach(() => {
   vi.resetModules()
   createAgentSession.mockClear()
+  settingsInMemory.mockClear()
   openSession.mockClear()
   createSessionManager.mockClear()
   sessionFiles.length = 0
@@ -845,6 +847,32 @@ describe('turn streaming', () => {
         authStyle: 'bearer',
       }
       expect(await registeredMaxTokens(configFor({ modelConfig }))).toBe(16384)
+    })
+  })
+
+  // Pi's 16k/20k compaction defaults overflow a 32k window. The live window has
+  // to reach SettingsManager or compact cannot free enough n_ctx for the next step.
+  describe('compaction settings', () => {
+    it('passes window-scaled compaction into the in-memory settings', async () => {
+      const manager = await loadManager()
+      await manager.startAgentTurn('t1', 'hello', configFor())
+      expect(settingsInMemory).toHaveBeenCalledWith({
+        compaction: { enabled: true, reserveTokens: 8192, keepRecentTokens: 10922 },
+      })
+    })
+
+    it('keeps Pi defaults on the 128k window agent presets ask for', async () => {
+      const manager = await loadManager()
+      const modelConfig = {
+        source: 'local' as const,
+        model: 'test-model',
+        baseUrl: 'http://127.0.0.1:39000/v1',
+        contextWindow: 131072,
+      }
+      await manager.startAgentTurn('t1', 'hello', configFor({ modelConfig }))
+      expect(settingsInMemory).toHaveBeenCalledWith({
+        compaction: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 },
+      })
     })
   })
 

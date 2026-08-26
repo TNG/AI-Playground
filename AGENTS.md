@@ -632,6 +632,15 @@ the build request drops thinking.
 cannot pay for up front. `effectiveContextWindow` applies the same cap so the context gauge shows
 what the turn actually gets. OpenVINO on GPU ignores `contextSize` entirely (dynamic KV cache).
 
+**Pi's compaction defaults assume a 64k+ window.** Auto-compact fires when occupancy exceeds
+`contextWindow − reserveTokens`, then keeps `keepRecentTokens` of the tail (Pi defaults 16384 /
+20000). On 32k those cannot fit: keep already exceeds the 16k trigger, so a compact lands at ~20k
+and the next llama.cpp request still overflows `n_ctx`. We pass window-scaled settings
+(`electron/agentMode/piCompaction.ts`: reserve ≤ ¼ window capped at 16k, keep ≤ ⅓ capped at 20k,
+`keep + reserve` under the window) into `SettingsManager.inMemory()`, and `outputTokenBudget` is
+capped so the post-compact tail plus generation still fits. A 32k session that did not auto-compact,
+or compacted a split Game Agent turn to "No prior history.", is this mismatch — not dropped context.
+
 ### Error & generation state architecture
 
 Errors and long-running operations converge on a few shared primitives instead of being handled

@@ -22,9 +22,11 @@ import {
 } from '../laminarAttributes.ts'
 import type { AgentModeModelConfig, AgentModeTurnConfig } from '@/types/agentIpc'
 import { piAgentDir, piSessionDir, loadSessionFilePath, savePointer } from './piSessionStore.ts'
+import { compactionSettingsForWindow } from './piCompaction.ts'
 import {
   copySamplingParams,
   ensureModelRuntime,
+  modelContextWindow,
   registerModel,
   traceContext,
 } from './piModelRuntime.ts'
@@ -261,7 +263,11 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     model,
     modelRuntime: models,
     sessionManager,
-    settingsManager: pi.SettingsManager.inMemory(),
+    // Pi's 16k/20k compaction defaults overflow a 32k window (keep already
+    // exceeds the trigger). Scale both to the live window so compact frees n_ctx.
+    settingsManager: pi.SettingsManager.inMemory({
+      compaction: compactionSettingsForWindow(modelContextWindow(config.modelConfig)),
+    }),
     // Pi's own file/shell tools are replaced by the mode-specific ones built in
     // piToolOperations.ts, so its builtins are switched off entirely. Capability
     // tools arrive through their extensions, not here.

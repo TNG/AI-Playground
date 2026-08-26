@@ -30,7 +30,6 @@
     <div class="flex justify-between items-center gap-5">
       <HomeAgentToggle
         v-if="
-          homeAgent.isFeatureEnabled &&
           globalSetup.loadingState === 'running' &&
           (promptStore.getCurrentMode() === 'chat' || promptStore.getCurrentMode() === 'imageGen')
         "

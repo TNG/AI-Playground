@@ -80,7 +80,7 @@ test.describe('Chat presets', () => {
         const ttsAvailable = await app.ensureTtsBackendInstalled()
         expect(
           ttsAvailable,
-          'Text-to-Speech must be available (feature flag on and mode supported)',
+          'Text-to-Speech must be available (mode supported)',
         ).toBe(true)
         await app.runTtsPreset({
           text: prompt,

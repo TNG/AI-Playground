@@ -200,26 +200,22 @@ export async function aiplaygroundApiServiceRegistry(
         settings,
       ),
     )
-    if (settings.isHomeAgentEnabled) {
-      instance.register(
-        new HomeAgentBackendService(
-          'home-agent-backend',
-          await getPort({ port: portNumbers(58000, 58999) }),
-          win,
-          settings,
-        ),
-      )
-    }
-    if (settings.isQwen3TtsEnabled) {
-      instance.register(
-        new Qwen3TtsBackendService(
-          'qwen3-tts-backend',
-          await getPort({ port: portNumbers(57000, 57999) }),
-          win,
-          settings,
-        ),
-      )
-    }
+    instance.register(
+      new HomeAgentBackendService(
+        'home-agent-backend',
+        await getPort({ port: portNumbers(58000, 58999) }),
+        win,
+        settings,
+      ),
+    )
+    instance.register(
+      new Qwen3TtsBackendService(
+        'qwen3-tts-backend',
+        await getPort({ port: portNumbers(57000, 57999) }),
+        win,
+        settings,
+      ),
+    )
     instance.register(
       new OpenVINOBackendService(
         'openvino-backend',

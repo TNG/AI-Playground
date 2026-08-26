@@ -415,7 +415,7 @@ const dialogStore = useDialogStore()
 // that may currently be off. They stay visible in the picker but greyed-out and
 // non-selectable (with a reason), unlike presets that are entirely unavailable on
 // this system — those are filtered out upstream (e.g. aiDAPTIV™/Phison without the
-// SSD, or Home Agent when the feature flag is off, which then isn't loaded at all).
+// SSD).
 const phisonUsable = computed(
   () =>
     backendServices.phisonSsdDetected &&

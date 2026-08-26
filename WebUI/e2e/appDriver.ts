@@ -203,12 +203,12 @@ export class AppDriver {
   }
 
   /**
-   * Ensure the (feature-flagged, audio-only) Qwen3-TTS backend is installed. Kept
-   * out of {@link installAllBackends} on purpose: it pulls a heavy TTS model that
-   * only the Text-to-Speech test needs, so the other specs shouldn't pay for it.
-   * Opens the wizard, enables the backend if it's offered in this product mode, and
-   * installs it. Returns false (leaving the app running) when TTS isn't available —
-   * the feature flag is off or the mode doesn't offer it — so the caller can skip.
+   * Ensure the audio-only Qwen3-TTS backend is installed. Kept out of
+   * {@link installAllBackends} on purpose: it pulls a heavy TTS model that only the
+   * Text-to-Speech test needs, so the other specs shouldn't pay for it. Opens the
+   * wizard, enables the backend if it's offered in this product mode, and installs
+   * it. Returns false (leaving the app running) when TTS isn't available so the
+   * caller can skip.
    */
   async ensureTtsBackendInstalled(): Promise<boolean> {
     return test.step('Ensure the Text-to-Speech backend is installed', async () => {

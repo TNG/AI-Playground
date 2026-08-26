@@ -152,8 +152,8 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
 
 - Installing is **one button**: enable each backend's toggle, then click **"Install &
   Continue"** — there are no per-backend install buttons.
-- **Deactivate a backend with its toggle, not the feature flag.** For "no Home Agent",
-  `wizard.disableBackend('Home Agent')`; do not touch `isHomeAgentEnabled`.
+- **Deactivate a backend with its toggle.** For "no Home Agent",
+  `wizard.disableBackend('Home Agent')`.
 - **Re-disable on every wizard open** — reopening reseeds install selection and re-enables
   installed backends, so a toggled-off backend comes back on.
 - **Home Agent left enabled diverts the wizard** to its setup page after install instead of

@@ -261,7 +261,7 @@
       </p>
       <p class="text-xs text-amber-500">
         Changes take effect on the next turn, which starts a fresh Pi session. Attached MCP servers
-        are started then too (Chrome DevTools launches a browser via npx — first run downloads it).
+        are started then too.
       </p>
     </div>
   </div>

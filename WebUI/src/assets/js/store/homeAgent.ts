@@ -145,14 +145,6 @@ export const useHomeAgent = defineStore(
     const errors = useErrors()
 
     /**
-     * Mirrors `isHomeAgentEnabled` from settings.json. Hydrated once on store
-     * setup. When false, every Home Agent surface (UI, polling, auto-activate)
-     * is held inert — defense in depth on top of the main process refusing to
-     * register the backend / IPC handlers / preset.
-     */
-    const isFeatureEnabled = ref(false)
-
-    /**
      * Master Home Agent on/off — the single title-bar toggle. Persisted so the
      * agent resumes (or stays off) across restarts. A channel only runs when
      * the master is on AND the channel itself is enabled + verified.
@@ -326,9 +318,8 @@ export const useHomeAgent = defineStore(
 
     const isAvailable = computed(
       () =>
-        isFeatureEnabled.value &&
         backendServices.info.find((s) => s.serviceName === 'home-agent-backend')?.status ===
-          'running',
+        'running',
     )
 
     const homeAgentBaseUrl = computed(
@@ -2534,17 +2525,6 @@ export const useHomeAgent = defineStore(
      *  in-memory secret config and back-fills identity when it is missing. */
     async function initConfig() {
       try {
-        try {
-          const localSettings = await window.electronAPI.getLocalSettings()
-          isFeatureEnabled.value = !!localSettings.isHomeAgentEnabled
-        } catch (e) {
-          console.error('homeAgent.initConfig: getLocalSettings failed:', e)
-          isFeatureEnabled.value = false
-        }
-        if (!isFeatureEnabled.value) {
-          for (const k of KINDS) channels[k] = emptyRuntimeState(k)
-          return
-        }
         for (const kind of KINDS) {
           const cfg = await window.electronAPI.homeAgent.channel.loadConfig(kind)
           if (cfg) {
@@ -2614,7 +2594,6 @@ export const useHomeAgent = defineStore(
     const slackUserId = computed(() => channelPrefs.slack.identity ?? '')
 
     return {
-      isFeatureEnabled,
       isHomeAgentActive,
       // Master title-bar switch + persisted per-channel prefs.
       masterEnabled,

@@ -358,7 +358,6 @@ export type PreferredDevice = z.infer<typeof PreferredDeviceSchema>
 
 const LocalSettingsSchema = z.object({
   debug: z.boolean().default(false),
-  deviceArchOverride: z.enum(['bmg', 'acm', 'arl_h', 'wcl', 'lnl', 'mtl']).nullable().default(null),
   isAdminExec: z.boolean().default(false),
   availableThemes: z.array(ThemeSchema).default(['dark', 'lnl', 'bmg', 'light']),
   currentTheme: ThemeSchema.default('bmg'),
@@ -366,15 +365,10 @@ const LocalSettingsSchema = z.object({
   isDemoModeEnabled: z.boolean().default(false),
   demoModeResetInSeconds: z.number().min(1).nullable().default(null),
   demoModePasscode: z.string().optional(),
-  // Gates the Home Agent feature (Telegram bridge backend, setup wizard surface,
-  // header toggle, bundled preset). Default false: opt-in by editing settings.json.
-  isHomeAgentEnabled: z.boolean().default(false),
   // Gates the Cloud Mode feature (remote OpenAI-compatible provider backend,
   // setup wizard surface, chat backend option). Frontend-only — there is no
   // Python service. Default false: opt-in by toggling it in the setup wizard.
   isCloudModeEnabled: z.boolean().default(false),
-  // Gates the optional Qwen3-TTS Python sidecar (agent synthesizeTextToSpeech tool).
-  isQwen3TtsEnabled: z.boolean().default(false),
   // Gates the experimental "Agent" chat preset — the raw harness with a folder the
   // user picks, as opposed to Game Agent, which is the same harness aimed at one
   // task. Default false: opt-in by editing settings.json. See docs/agent-preset.md.
@@ -442,7 +436,6 @@ type PresetLoadConfig = {
  */
 function disabledFeaturePresets(s: LocalSettings): string[] {
   const disabled: string[] = []
-  if (!s.isHomeAgentEnabled) disabled.push('home-agent-chat')
   if (!s.isAgentPresetEnabled) disabled.push('agent')
   return disabled
 }

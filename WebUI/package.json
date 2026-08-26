@@ -51,6 +51,8 @@
     "@langchain/community": "^1.1.29",
     "@langchain/core": "^1.2.0",
     "@langchain/openai": "^1.5.1",
+    "@lmnr-ai/lmnr": "^0.8.43",
+    "@lmnr-ai/pi-extension": "^0.1.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@radix-icons/vue": "^1.0.0",
     "@vueuse/core": "^14.3.0",
@@ -87,8 +89,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@lmnr-ai/lmnr": "^0.8.43",
-    "@lmnr-ai/pi-extension": "^0.1.0",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "^4.3.1",
     "@types/adm-zip": "^0.5.8",

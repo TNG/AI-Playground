@@ -1112,7 +1112,7 @@ model ready first.
 
 Unit coverage lives in `electron/test/channels/mockAdapter.test.ts`.
 
-### Tracing agent and chat turns (Laminar, dev)
+### Tracing agent and chat turns (Laminar)
 
 To judge a change to the agentic system you need the turn's shape, not its final answer:
 how many steps it took, which tools it called, how many prompt tokens each step paid for
@@ -1123,10 +1123,21 @@ Pi agent runs from the main process, Vercel AI SDK chat turns from the renderer.
 **It is off unless you opt in.** Nothing is imported, initialized or sent without
 `WebUI/external/laminar.dev.json` or `WebUI/external/laminar.localhost.json` (both
 gitignored; copy `laminar.dev.example.json`). The app prefers `.dev.json` (the team's
-self-hosted instance) and falls back to `.localhost.json` (local compose). The two
-packages are `devDependencies` and the config read is gated on `!app.isPackaged`, so a
-packaged build has no copy to load and no file to find. Every failure path logs a warning
-and leaves tracing off — an observability problem must never cost a turn or a startup.
+self-hosted instance) and falls back to `.localhost.json` (local compose). Every failure
+path logs a warning and leaves tracing off — an observability problem must never cost a
+turn or a startup.
+
+**An installed build traces too, on the same terms.** The interesting turns happen on test
+machines, not on the laptop that built them, so the config file is the only switch: drop
+`laminar.dev.json` into the installed app's `resources` folder (next to `models.json`) and
+restart. No config is ever shipped, so a project API key cannot ride along in an installer,
+and an install without one behaves exactly as before. What this costs is package weight:
+`@lmnr-ai/lmnr` and `@lmnr-ai/pi-extension` are `dependencies` rather than
+`devDependencies` (~25 MB, and 38 transitive packages including gRPC and the OpenTelemetry
+exporters), so they belong in the third-party notices. Both are `asarUnpack`ed: Pi loads
+the extension from its **TypeScript source** through jiti, which wants a real path on disk.
+The import stays dynamic regardless — a build that somehow lacks the SDK must lose its
+traces, not its startup.
 
 **Point the app at an instance.** Which Laminar it is does not matter — the team's
 self-hosted one, Laminar Cloud, or a stack you brought up yourself — because the
@@ -1434,7 +1445,8 @@ Things to know before changing it:
   reports millions of tokens per second — which is exactly what the first cloud agent trace
   claimed.
 
-**Verify it:** start `npm run dev`, look for `[laminar]: tracing to <your instance>` in the
+**Verify it:** start `npm run dev` (or the installed app, whose main log is the same one),
+look for `[laminar]: tracing to <your instance>` in the
 main log (it prints the endpoint it resolved, so a typo in the config shows up here) and
 `[laminar] chat traces via main to …` in the renderer console, then send one Chat turn and one
 Agent turn and open the instance's UI → traces. A chat turn appears as `ai.streamText` →

@@ -29,11 +29,15 @@ const productMode = useProductMode()
 const textInference = useTextInference()
 const errors = useErrors()
 
+// `largeMoe` is stated rather than left unset: its checkbox is hidden without a
+// Phison SSD, so a model added there must not be able to arrive as a large MoE.
+const llmCapabilityDefaults = (): ModelCapabilityValues => ({ largeMoe: false })
+
 const useCase = ref<AddUseCase>('llm')
 // Cloud has nothing to add locally, so a cloud chat session starts on llama.cpp.
 const backend = ref<LocalBackend>(textInference.backend === 'openVINO' ? 'openVINO' : 'llamaCPP')
 const modelName = ref('')
-const capabilities = ref<ModelCapabilityValues>({})
+const capabilities = ref<ModelCapabilityValues>(llmCapabilityDefaults())
 const errorMessage = ref('')
 const busy = ref(false)
 const animate = ref(false)
@@ -63,9 +67,11 @@ const isValidModelName = (name: string) =>
   needsFilePath.value ? name.split('/').length >= 3 : name.split('/').length === 2
 
 function selectUseCase(value: string) {
-  useCase.value = value as AddUseCase
+  const next = value as AddUseCase
+  if (next === useCase.value) return
+  useCase.value = next
   // Capabilities describe a chat model; an embedding server reads none of them.
-  if (useCase.value === 'embedding') capabilities.value = {}
+  capabilities.value = next === 'embedding' ? {} : llmCapabilityDefaults()
 }
 
 function selectBackend(value: string) {

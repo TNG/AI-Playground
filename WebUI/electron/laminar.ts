@@ -1,7 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
-import { app } from 'electron'
 import { z } from 'zod'
 import { appLoggerInstance } from './logging/logger.ts'
 import { externalResourcesDir } from './util.ts'
@@ -21,18 +20,20 @@ import {
   openMediaToolSpan,
 } from './laminarSpans.ts'
 
-// ── Laminar tracing (dev-only PoC) ───────────────────────────────────────────
+// ── Laminar tracing ──────────────────────────────────────────────────────────
 //
 // Observability for the agentic system: one trace per Pi agent run (LLM + tool
 // spans, via the official `@lmnr-ai/pi-extension`) and one per Vercel AI SDK
 // chat call (registered in the renderer, see src/lib/laminarTelemetry.ts). Both
-// export to a self-hosted Laminar the developer runs locally.
+// export to whichever Laminar instance the config names.
 //
-// Deliberately unconfigured by default: without `external/laminar.dev.json`
-// or `external/laminar.localhost.json` nothing is imported, nothing is
-// initialized, and the app runs exactly as it did before. `@lmnr-ai/lmnr` is
-// a devDependency, so a packaged build has no copy of it to load — hence the
-// `isPackaged` gate and the dynamic import.
+// The config file is the whole switch: without `laminar.dev.json` or
+// `laminar.localhost.json` beside the app's other external resources nothing is
+// imported, nothing is initialized, and the app runs exactly as it did before.
+// An installed build is included — a trace from the machine a tester reports a
+// slow turn on is worth more than one from a developer's laptop — which is why
+// both SDK packages ship, and why the import stays dynamic: a build missing
+// them must lose its traces, not its startup.
 //
 // The renderer needs the same numbers to register its own telemetry, but must
 // not have the project API key compiled into its bundle, so the config is read
@@ -75,32 +76,44 @@ export type LaminarConfig = z.infer<typeof LaminarConfigSchema>
 let resolved: LaminarConfig | null | undefined
 
 /**
- * Laminar config for this run, or null when tracing is off (no file, packaged
- * build, or unreadable/incomplete file). Read once — the file is a developer's
- * local opt-in, not something that changes while the app runs.
+ * Laminar config for this run, or null when tracing is off (no file, or one
+ * that is unreadable or incomplete). Read once — the file is an opt-in placed
+ * before the app starts, not something that changes while it runs. In an
+ * installed build that means dropping it into the app's `resources` folder; it
+ * is never shipped, so a project API key cannot travel in an installer.
  */
 export function laminarConfig(): LaminarConfig | null {
   if (resolved !== undefined) return resolved
-  resolved = null
-  if (app.isPackaged) return resolved
+  try {
+    resolved = readConfig()
+  } catch (error) {
+    resolved = null
+    logger.warn(`tracing disabled, config unreadable: ${error}`, LOG_SOURCE)
+  }
+  return resolved
+}
+
+/** The first config file that reads, parses and validates, or null for none. */
+function readConfig(): LaminarConfig | null {
   const dir = externalResourcesDir()
   for (const name of CONFIG_FILES) {
-    const configPath = path.join(dir, name)
-    let raw: string
+    let contents: unknown
     try {
-      raw = fs.readFileSync(configPath, 'utf-8')
-    } catch {
+      contents = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf-8'))
+    } catch (error) {
+      // Absent is the normal case; anything else is a file meant to be used.
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+        logger.warn(`ignoring ${name}: ${error}`, LOG_SOURCE)
       continue
     }
-    const parsed = LaminarConfigSchema.safeParse(JSON.parse(raw) as unknown)
+    const parsed = LaminarConfigSchema.safeParse(contents)
     if (!parsed.success) {
       logger.warn(`ignoring ${name}: ${parsed.error.message}`, LOG_SOURCE)
       continue
     }
-    resolved = parsed.data
-    return resolved
+    return parsed.data
   }
-  return resolved
+  return null
 }
 
 /**

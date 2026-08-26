@@ -1,6 +1,6 @@
 import type { Telemetry } from 'ai'
 
-// ── Laminar tracing for chat turns (dev-only PoC) ────────────────────────────
+// ── Laminar tracing for chat turns ───────────────────────────────────────────
 //
 // Chat runs on the Vercel AI SDK in the renderer, so its traces start here;
 // agent turns run on Pi in the main process and are traced there
@@ -16,9 +16,9 @@ import type { Telemetry } from 'ai'
 // can be forwarded to the main process and replayed into the real integration
 // there. The span mapping, the exporter and the project key all stay in main.
 //
-// Off unless a developer wrote `external/laminar.dev.json` or
-// `external/laminar.localhost.json` — see AGENTS.md,
-// 'Tracing agent and chat turns (Laminar, dev)'.
+// Off unless a Laminar config sits beside the app's external resources
+// (`laminar.dev.json` / `laminar.localhost.json`) — see AGENTS.md,
+// 'Tracing agent and chat turns (Laminar)'.
 
 /** Events forwarded to main. `onChunk` is left out on purpose (see below). */
 const FORWARDED = [

@@ -941,6 +941,18 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   `oemBranding.showsArcade`; everywhere else a game is just the files in its folder, reached with
   **Play** and the folder button. Wording comes from the store (`arcadeLabel` for the place,
   `arcadeTarget` for the action), never from a hardcoded "Acer".
+- **The Acer arcade ships with four games in it**, so it is not empty on a machine nobody has built
+  one on. They are bundled (`WebUI/external/arcade-samples`, an `extraResources` entry) and
+  `writeArcade` copies them into the library root on every Acer arcade write
+  (`electron/arcadeSamples.ts`), behind the user's own games and in `samples.json` order. Two
+  things are load-bearing about where they land. They go in `_arcade-samples/` rather than
+  alongside the user's games because `listGames()` reads `game.json` from the library root's
+  immediate children: nested, a sample can never appear in the Game Agent session list or be
+  adopted as a workspace — it is something to play, not a draft to continue. And they stay out of
+  `library.json`, which is the input for uploading a library to the portal, or Intel's demos would
+  be uploaded as games the user made. Each carries the `backend` / `startingModel` /
+  `initialPrompt` it was really built with, which is what gives its card the info button. They are
+  shipped as the agent wrote them, so `external/arcade-samples/` is prettier-ignored.
 - Files the user attaches are copied into `<workspace>/attachments/` and referenced in the prompt
   as `@attachments/<file>`, which is how Pi refers to a file everywhere (its file tools strip the
   `@` when resolving). Pi's `read` hands an image back as an image part, so that one reference is

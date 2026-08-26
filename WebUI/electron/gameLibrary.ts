@@ -3,6 +3,7 @@ import path from 'node:path'
 import { z } from 'zod'
 import { getGamesDir } from './util.ts'
 import { writeScaffold } from './gameScaffold.ts'
+import { installArcadeSamples, SAMPLES_FOLDER } from './arcadeSamples.ts'
 
 // ── The game library ─────────────────────────────────────────────────────────
 //
@@ -310,19 +311,46 @@ export type ArcadeOptions = {
   root?: string
   /** OEM the page is branded for; only 'acer' currently changes anything. */
   vendor?: string
+  /**
+   * Bundle to install the shipped sample games from (see arcadeSamples.ts).
+   * Omitted it is the app's own; `null` installs none, which is what a test that
+   * is not about samples wants.
+   */
+  samplesRoot?: string | null
 }
 
-function manifestOf(games: GameEntry[]): GameManifestEntry[] {
-  return games.map((game) => ({
-    id: game.id,
-    name: game.name,
-    description: game.description,
-    entry: `${game.id}/${game.entry}`,
-    icon: game.icon ? `${game.id}/${game.icon}` : undefined,
-    createdAt: game.createdAt,
-    updatedAt: game.updatedAt,
-    ...provenanceOf(game),
-  }))
+/** The arcade page and the samples are an Acer deliverable; see oemBranding.ts. */
+function isAcerVendor(vendor?: string): boolean {
+  return vendor?.toLowerCase() === 'acer'
+}
+
+/**
+ * `prefix` is where the games sit relative to the arcade page — empty for the
+ * user's own, the samples folder for the shipped ones. Links are built from the
+ * folder name rather than the id, since that is what the page has to reach.
+ */
+function manifestOf(games: GameEntry[], prefix = ''): GameManifestEntry[] {
+  return games.map((game) => {
+    const at = (relative: string) =>
+      `${prefix ? `${prefix}/` : ''}${path.basename(game.dir)}/${relative}`
+    return {
+      id: game.id,
+      name: game.name,
+      description: game.description,
+      entry: at(game.entry),
+      icon: game.icon ? at(game.icon) : undefined,
+      createdAt: game.createdAt,
+      updatedAt: game.updatedAt,
+      ...provenanceOf(game),
+    }
+  })
+}
+
+/** The shipped samples, installed into the library root and read back from it. */
+function sampleGames(root: string, samplesRoot?: string | null): GameEntry[] {
+  return installArcadeSamples(root, samplesRoot)
+    .map((slug) => readGame(path.join(root, SAMPLES_FOLDER, slug)))
+    .filter((game): game is GameEntry => game !== null && game.published)
 }
 
 /**
@@ -331,7 +359,8 @@ function manifestOf(games: GameEntry[]): GameManifestEntry[] {
  * The manifest is inlined into the page instead of fetched: the arcade is opened
  * as a `file://` URL, where `fetch` of a sibling file is blocked, and it has to
  * work with AI Playground closed. `library.json` is written next to it anyway —
- * it is the stable input for uploading a library to the social portal later.
+ * it is the stable input for uploading a library to the social portal later, so
+ * it holds the user's own games only and never the shipped samples.
  */
 export function writeArcade(options: ArcadeOptions = {}): {
   arcadePath: string
@@ -346,13 +375,21 @@ export function writeArcade(options: ArcadeOptions = {}): {
     `${JSON.stringify({ generatedAt: Date.now(), vendor: options.vendor ?? null, games }, null, 2)}\n`,
     'utf-8',
   )
+  // Behind the user's own games: what they made comes first.
+  const samples = isAcerVendor(options.vendor)
+    ? manifestOf(sampleGames(root, options.samplesRoot), SAMPLES_FOLDER)
+    : []
   const arcadePath = path.join(root, ARCADE_FILE)
-  fs.writeFileSync(arcadePath, arcadeHtml(games, options.vendor), 'utf-8')
+  fs.writeFileSync(
+    arcadePath,
+    arcadeHtml([...games, ...samples], options.vendor, samples.length > 0),
+    'utf-8',
+  )
   return { arcadePath, manifestPath }
 }
 
-function arcadeHtml(games: GameManifestEntry[], vendor?: string): string {
-  const isAcer = vendor?.toLowerCase() === 'acer'
+function arcadeHtml(games: GameManifestEntry[], vendor?: string, hasSamples = false): string {
+  const isAcer = isAcerVendor(vendor)
   const title = isAcer ? 'My Acer Arcade' : 'My Arcade'
   const accent = isAcer ? '#83b81a' : '#4f8cff'
   return `<!doctype html>
@@ -416,7 +453,11 @@ function arcadeHtml(games: GameManifestEntry[], vendor?: string): string {
 <body>
 <header>
   <h1>${isAcer ? 'My Acer <span>Arcade</span>' : 'My <span>Arcade</span>'}</h1>
-  <p class="lead">Games you made with AI Playground. Click one to play.</p>
+  <p class="lead">${
+    hasSamples
+      ? 'Games you made with AI Playground, plus a few to start with. Click one to play.'
+      : 'Games you made with AI Playground. Click one to play.'
+  }</p>
 </header>
 <ul class="games" id="games"></ul>
 <p class="empty" id="empty" hidden>No games saved yet — build one in AI Playground's Game Agent.</p>

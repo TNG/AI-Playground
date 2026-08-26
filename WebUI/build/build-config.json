@@ -75,6 +75,10 @@
       "to": "mcp.json"
     },
     {
+      "from": "external/arcade-samples",
+      "to": "arcade-samples"
+    },
+    {
       "from": "build/settings.json",
       "to": "settings.json"
     },

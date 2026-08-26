@@ -21,14 +21,53 @@ const {
 const { SCAFFOLD_ANCHORS } = await import('../gameScaffold.ts')
 
 let root: string
+/** Stand-in for the samples the app ships, so no test reads WebUI/external. */
+let bundle: string
 
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'aipg-games-'))
+  bundle = fs.mkdtempSync(path.join(os.tmpdir(), 'aipg-samples-'))
 })
 
 afterEach(() => {
   fs.rmSync(root, { recursive: true, force: true })
+  fs.rmSync(bundle, { recursive: true, force: true })
 })
+
+/** A bundle holding `slugs` as playable, published sample games, in that order. */
+function writeSampleBundle(slugs: string[]): void {
+  for (const slug of slugs) {
+    const folder = path.join(bundle, slug)
+    fs.mkdirSync(folder, { recursive: true })
+    fs.writeFileSync(
+      path.join(folder, 'game.json'),
+      JSON.stringify({
+        id: slug,
+        name: `Sample ${slug}`,
+        description: 'One of the games we ship.',
+        entry: 'index.html',
+        icon: 'icon.png',
+        published: true,
+        createdAt: 1,
+        updatedAt: 2,
+        backend: 'cloud',
+        startingModel: 'Grok 4.5',
+        initialPrompt: 'make me a sample',
+      }),
+    )
+    fs.writeFileSync(path.join(folder, 'index.html'), '<html></html>')
+    fs.writeFileSync(path.join(folder, 'icon.png'), 'not really a png')
+  }
+  fs.writeFileSync(path.join(bundle, 'samples.json'), JSON.stringify({ games: slugs }))
+}
+
+/** The manifest the gallery page carries, as the page's own script reads it. */
+function inlinedManifest(): Array<Record<string, unknown>> {
+  const arcade = fs.readFileSync(path.join(root, 'index.html'), 'utf-8')
+  const inlined = arcade.match(/<script type="application\/json" id="library">(.*?)<\/script>/s)
+  expect(inlined, 'gallery carries no inlined manifest').not.toBeNull()
+  return JSON.parse(inlined![1])
+}
 
 describe('slugify', () => {
   it('turns a request into a readable folder name', () => {
@@ -339,7 +378,7 @@ describe('publishGame and writeArcade', () => {
 
   it('writes library.json as the stable input for uploading a library', () => {
     const game = createGame({ name: 'Space Dodger' }, root)
-    publishGame(game.dir, {}, { root, vendor: 'acer' })
+    publishGame(game.dir, {}, { root, vendor: 'acer', samplesRoot: null })
     const manifest = JSON.parse(fs.readFileSync(path.join(root, 'library.json'), 'utf-8'))
     expect(manifest).toMatchObject({ vendor: 'acer' })
     expect(manifest.games).toHaveLength(1)
@@ -356,9 +395,9 @@ describe('publishGame and writeArcade', () => {
 
   it('brands the gallery for Acer only when the machine is one', () => {
     createGame({ name: 'Space Dodger' }, root)
-    writeArcade({ root, vendor: 'acer' })
+    writeArcade({ root, vendor: 'acer', samplesRoot: null })
     expect(fs.readFileSync(path.join(root, 'index.html'), 'utf-8')).toContain('My Acer Arcade')
-    writeArcade({ root, vendor: 'unknown' })
+    writeArcade({ root, vendor: 'unknown', samplesRoot: null })
     const neutral = fs.readFileSync(path.join(root, 'index.html'), 'utf-8')
     expect(neutral).not.toContain('Acer')
     expect(neutral).toContain('My Arcade')
@@ -371,5 +410,92 @@ describe('publishGame and writeArcade', () => {
     // The name is rendered via textContent from the inlined JSON, so the closing
     // tag must not survive as markup.
     expect(arcade).not.toContain('<img src=x')
+  })
+})
+
+describe('the sample games shipped with the app', () => {
+  it('shows them in the Acer gallery, behind the games the user made', () => {
+    // Bundle order, not folder order: alphabetically 'neon-drift' would be first.
+    writeSampleBundle(['pong', 'neon-drift'])
+    const mine = createGame({ name: 'Mine' }, root)
+    publishGame(mine.dir, {}, { root, vendor: 'acer', samplesRoot: bundle })
+
+    const manifest = inlinedManifest()
+    expect(manifest.map((entry) => entry.id)).toEqual(['mine', 'pong', 'neon-drift'])
+    expect(manifest[1]).toMatchObject({
+      name: 'Sample pong',
+      entry: '_arcade-samples/pong/index.html',
+      icon: '_arcade-samples/pong/icon.png',
+    })
+  })
+
+  // The whole point of the nested folder: a sample is something to play, never a
+  // draft the Game Agent session list offers to continue.
+  it('copies them where the library does not look for games', () => {
+    writeSampleBundle(['pong'])
+    writeArcade({ root, vendor: 'acer', samplesRoot: bundle })
+
+    expect(fs.existsSync(path.join(root, '_arcade-samples', 'pong', 'index.html'))).toBe(true)
+    expect(listGames(root)).toEqual([])
+  })
+
+  it('carries the provenance that gives them an info button', () => {
+    writeSampleBundle(['pong'])
+    writeArcade({ root, vendor: 'acer', samplesRoot: bundle })
+
+    expect(inlinedManifest()[0]).toMatchObject({
+      backend: 'cloud',
+      startingModel: 'Grok 4.5',
+      initialPrompt: 'make me a sample',
+    })
+    expect(fs.readFileSync(path.join(root, 'index.html'), 'utf-8')).toContain('Generation info')
+  })
+
+  // The arcade is an Acer deliverable, and so are the games in it.
+  it('ships none of them to a machine that is not an Acer', () => {
+    writeSampleBundle(['pong'])
+    writeArcade({ root, vendor: 'unknown', samplesRoot: bundle })
+
+    expect(fs.existsSync(path.join(root, '_arcade-samples'))).toBe(false)
+    expect(inlinedManifest()).toEqual([])
+  })
+
+  // library.json is the input for uploading the user's library to the portal, so
+  // shipped demos in it would be uploaded as games they made.
+  it('keeps them out of library.json', () => {
+    writeSampleBundle(['pong'])
+    const mine = createGame({ name: 'Mine' }, root)
+    publishGame(mine.dir, {}, { root, vendor: 'acer', samplesRoot: bundle })
+
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, 'library.json'), 'utf-8'))
+    expect(manifest.games.map((entry: { id: string }) => entry.id)).toEqual(['mine'])
+  })
+
+  it('refreshes a copy the app updated', () => {
+    writeSampleBundle(['pong'])
+    writeArcade({ root, vendor: 'acer', samplesRoot: bundle })
+    fs.writeFileSync(path.join(bundle, 'pong', 'index.html'), '<html>newer</html>')
+    writeArcade({ root, vendor: 'acer', samplesRoot: bundle })
+
+    const installed = path.join(root, '_arcade-samples', 'pong', 'index.html')
+    expect(fs.readFileSync(installed, 'utf-8')).toBe('<html>newer</html>')
+  })
+
+  it('ignores a bundle entry that points outside the bundle', () => {
+    writeSampleBundle(['pong'])
+    fs.writeFileSync(
+      path.join(bundle, 'samples.json'),
+      JSON.stringify({ games: ['../../etc', 'pong'] }),
+    )
+    writeArcade({ root, vendor: 'acer', samplesRoot: bundle })
+
+    expect(inlinedManifest().map((entry) => entry.id)).toEqual(['pong'])
+  })
+
+  it('writes the gallery as usual when the app ships no samples', () => {
+    const mine = createGame({ name: 'Mine' }, root)
+    publishGame(mine.dir, {}, { root, vendor: 'acer', samplesRoot: path.join(bundle, 'missing') })
+
+    expect(inlinedManifest().map((entry) => entry.id)).toEqual(['mine'])
   })
 })

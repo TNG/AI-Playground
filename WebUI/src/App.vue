@@ -11,8 +11,11 @@
     class="absolute -z-50 w-screen h-screen bg-cover bg-center bg-light"
   ></div>
   <header
-    class="main-title text-2xl font-bold flex justify-between items-center px-4 border-b border-border/20 text-foreground bg-background/20"
-    :class="{ 'bg-muted/50': theme.active === 'light' }"
+    class="main-title text-2xl font-bold flex justify-between items-center pl-4 border-b border-border/20 text-foreground bg-background/20"
+    :class="{
+      'bg-muted/50': theme.active === 'light',
+      'has-native-window-controls': nativeWindowControls,
+    }"
   >
     <div class="flex items-center gap-4">
       <h1 class="select-none flex gap-2 items-baseline">
@@ -75,19 +78,20 @@
         ?
       </button>
       <button
-        v-if="!demoMode.enabled"
+        v-if="!demoMode.enabled && !nativeWindowControls"
         :title="languages.COM_MINI"
         @click="miniWindow"
         class="svg-icon i-mini w-6 h-6"
       ></button>
       <button
-        v-if="!demoMode.enabled"
+        v-if="!demoMode.enabled && !nativeWindowControls"
         :title="fullscreen ? languages.COM_FULLSCREEN_EXIT : languages.COM_FULLSCREEN"
         @click="toggleFullScreen"
         class="svg-icon w-6 h-6"
         :class="fullscreen ? 'i-fullscreen-exit' : 'i-fullscreen'"
       ></button>
       <button
+        v-if="!nativeWindowControls"
         :title="languages.COM_CLOSE"
         @click="closeWindow"
         class="svg-icon i-close w-6 h-6"
@@ -384,6 +388,7 @@ const showSpecificSettings = ref(false)
 const platformTitle = window.envVars.platformTitle
 const productVersion = window.envVars.productVersion
 const debugToolsEnabled = window.envVars.debugToolsEnabled
+const nativeWindowControls = window.envVars.nativeWindowControls
 
 const gitHubRepoUrl = ref('https://github.com/intel/ai-playground/blob/main/')
 const userGuideUrl = computed(() => `${gitHubRepoUrl.value}AI%20Playground%20Users%20Guide.pdf`)
@@ -448,6 +453,9 @@ onMounted(async () => {
       // Add current theme class (light theme is default via :root, so no class needed)
       if (newTheme !== 'light') {
         root.classList.add(newTheme)
+      }
+      if (nativeWindowControls) {
+        window.electronAPI.setTitleBarTheme(newTheme)
       }
     },
     { immediate: true },

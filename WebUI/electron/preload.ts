@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import pkg from '../package.json'
 import { LocalSettings } from './main'
+import { usesNativeWindowControls } from './titleBarOverlay.ts'
 import { ModelPaths } from '@/assets/js/store/models'
 import {
   EmbedInquiry,
@@ -13,6 +14,7 @@ contextBridge.exposeInMainWorld('envVars', {
   platformTitle: import.meta.env.VITE_PLATFORM_TITLE,
   debugToolsEnabled: import.meta.env.VITE_DEBUG_TOOLS === 'true',
   productVersion: pkg.version,
+  nativeWindowControls: usesNativeWindowControls(process.platform),
 })
 contextBridge.exposeInMainWorld('electronAPI', {
   startDrag: (fileName: string) => ipcRenderer.send('ondragstart', fileName),
@@ -116,6 +118,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openImageWithSystem: (url: string) => ipcRenderer.send('openImageWithSystem', url),
   openImageInFolder: (url: string) => ipcRenderer.send('openImageInFolder', url),
   setFullScreen: (enable: boolean) => ipcRenderer.send('setFullScreen', enable),
+  setTitleBarTheme: (theme: Theme) => ipcRenderer.send('setTitleBarTheme', theme),
   onDebugLog: (callback: (data: { level: string; source: string; message: string }) => void) =>
     ipcRenderer.on('debugLog', (_event, value) => callback(value)),
   wakeupComfyUIService: () => ipcRenderer.send('wakeupComfyUIService'),

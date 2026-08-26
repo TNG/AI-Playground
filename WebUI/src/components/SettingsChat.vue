@@ -90,19 +90,62 @@
             :label="languages.ANSWER_CONTEXT_SIZE"
             label-for="chat-context-size"
           >
-            <input
-              id="chat-context-size"
-              type="number"
-              v-model="textInference.contextSize"
-              min="512"
-              max="131072"
-              step="512"
-              class="rounded-sm text-foreground text-center h-[30px] w-20 leading-[30px] p-0 bg-transparent border border-border"
-            />
+            <div class="flex flex-col gap-1">
+              <input
+                id="chat-context-size"
+                type="number"
+                v-model="textInference.contextSize"
+                :min="textInference.enforceKmContextFloor ? PHISON_KM_CONTEXT_FLOOR : 512"
+                max="131072"
+                step="512"
+                class="rounded-sm text-foreground text-center h-[30px] w-20 leading-[30px] p-0 bg-transparent border border-border"
+              />
+              <p v-if="textInference.enforceKmContextFloor" class="text-xs text-muted-foreground">
+                {{ languages.PHISON_KM_CONTEXT_HINT }}
+              </p>
+            </div>
           </SettingsRow>
         </div>
         <SettingsRow :label="`Temperature: ${textInference.temperature.toFixed(1)}`">
           <Slider v-model="textInference.temperature" :min="0" :max="2" :step="0.1" />
+        </SettingsRow>
+        <SettingsRow v-if="showRetrievalModeToggle" :label="languages.RAG_RETRIEVAL_MODE">
+          <div class="flex flex-col gap-1">
+            <div
+              class="inline-flex w-fit overflow-hidden rounded-md border border-border"
+              :title="retrievalModeUnavailableReason"
+            >
+              <button
+                type="button"
+                class="h-[30px] px-3 text-sm transition-colors"
+                :class="
+                  effectiveRagMode === 'standard'
+                    ? 'bg-primary text-foreground'
+                    : 'bg-transparent hover:bg-primary/20'
+                "
+                @click="textInference.ragMode = 'standard'"
+              >
+                {{ languages.RAG_MODE_STANDARD }}
+              </button>
+              <button
+                type="button"
+                :disabled="disableRetrievalModeToggle"
+                class="h-[30px] border-l border-border px-3 text-sm transition-colors"
+                :class="[
+                  effectiveRagMode === 'phisonKm'
+                    ? 'bg-primary text-foreground'
+                    : 'bg-transparent hover:bg-primary/20',
+                  disableRetrievalModeToggle ? 'cursor-not-allowed opacity-50' : '',
+                ]"
+                @click="textInference.ragMode = 'phisonKm'"
+              >
+                {{ languages.RAG_MODE_PHISON_KM }}
+              </button>
+            </div>
+            <p v-if="retrievalModeUnavailableReason" class="text-xs text-muted-foreground">
+              {{ retrievalModeUnavailableReason }}
+            </p>
+          </div>
         </SettingsRow>
         <!-- Both are per-reply switches; the thinking one only exists for models
              whose template supports enable_thinking. Not the label/control grid:
@@ -250,6 +293,7 @@ import PresetSelector from '@/components/PresetSelector.vue'
 import * as toast from '@/assets/js/toast'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
+import { PHISON_KM_CONTEXT_FLOOR } from '@/assets/js/phisonKmRag'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { reasoningEfforts, type ReasoningEffort } from '@/types/shared'
@@ -321,6 +365,21 @@ const embeddingModelItems = computed(() =>
 // UI visibility flags from preset
 const enableRAG = computed(() => activeChatPreset.value?.enableRAG ?? false)
 const showTools = computed(() => activeChatPreset.value?.showTools ?? false)
+const showRetrievalModeToggle = computed(
+  () =>
+    enableRAG.value &&
+    activeChatPreset.value?.supportsPhisonKmRag === true &&
+    activeChatPreset.value?.requiresPhison !== true &&
+    textInference.phisonSsdPresent,
+)
+const disableRetrievalModeToggle = computed(() => !textInference.phisonKmAvailable)
+const effectiveRagMode = computed(() => (textInference.isPhisonKmRag ? 'phisonKm' : 'standard'))
+const retrievalModeUnavailableReason = computed(() => {
+  if (textInference.phisonKmAvailable) return ''
+  return textInference.kmContextFloorReachable
+    ? i18nState.PHISON_KM_UNAVAILABLE_BUILD_HINT
+    : i18nState.PHISON_KM_UNAVAILABLE_CONTEXT_HINT
+})
 const advancedMode = computed(() => activeChatPreset.value?.advancedMode ?? false)
 
 // Get available backends from preset (fallback when none configured on preset)

@@ -2,7 +2,12 @@ import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'ele
 import pkg from '../package.json'
 import { LocalSettings } from './main'
 import { ModelPaths } from '@/assets/js/store/models'
-import { EmbedInquiry, IndexedDocument } from '@/assets/js/store/textInference'
+import {
+  EmbedInquiry,
+  IndexedDocument,
+  WarmupRequest,
+  PhisonKmIngestConfig,
+} from '@/assets/js/store/textInference'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
 
 function listen<T>(channel: string, callback: (data: T) => void): () => void {
@@ -97,9 +102,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       callback(seriveName, normalExit),
     ),
   existsPath: (path: string) => ipcRenderer.invoke('existsPath', path),
-  addDocumentToRAGList: (doc: IndexedDocument) => ipcRenderer.invoke('addDocumentToRAGList', doc),
+  addDocumentToRAGList: (doc: IndexedDocument, phisonKmConfig?: PhisonKmIngestConfig) =>
+    ipcRenderer.invoke('addDocumentToRAGList', doc, phisonKmConfig),
   embedInputUsingRag: (embedInquiry: EmbedInquiry) =>
     ipcRenderer.invoke('embedInputUsingRag', embedInquiry),
+  warmupKVCacheForDocument: (request: WarmupRequest) =>
+    ipcRenderer.invoke('warmupKVCacheForDocument', request),
   getEmbeddingServerUrl: (serviceName: string) =>
     ipcRenderer.invoke('getEmbeddingServerUrl', serviceName),
   ensureEmbeddingServerReady: (serviceName: string, embeddingModelName: string) =>

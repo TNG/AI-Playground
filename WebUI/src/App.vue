@@ -374,7 +374,6 @@ import DemoModeNotificationDots from '@/components/DemoModeNotificationDots.vue'
 import DemoModeAutoresetDialog from '@/components/DemoModeAutoresetDialog.vue'
 import HomeAgentToggle from '@/components/HomeAgentToggle.vue'
 import MockChannelPanel from '@/components/MockChannelPanel.vue'
-import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import ContextualHelpLayer from '@/components/ContextualHelpLayer.vue'
 import { useContextualHelp } from '@/assets/js/store/contextualHelp'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
@@ -389,7 +388,6 @@ const dialogStore = useDialogStore()
 const promptStore = usePromptStore()
 const uiStore = useUIStore()
 const setupWizardStore = useSetupWizard()
-const homeAgent = useHomeAgent()
 const presetSwitching = usePresetSwitching()
 const oemBranding = useOemBranding()
 

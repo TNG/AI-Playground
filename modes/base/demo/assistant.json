@@ -15,6 +15,7 @@
   "maxNewTokens": 8192,
   "advancedMode": true,
   "enableRAG": true,
+  "supportsPhisonKmRag": true,
   "showTools": true,
   "toolsEnabledByDefault": true,
   "requiredModels": []

@@ -7,6 +7,7 @@
 //
 // Imported by the Electron main process too (`electron/pathsManager.ts` uses
 // MODEL_SCAN_TARGETS), so this file must stay free of Vue/Pinia imports.
+import type { InferenceDefaults } from '@/types/shared'
 
 /** What the model is for. Drives the use-case filter in the management view. */
 export type ModelUseCase = 'llm' | 'embedding' | 'media' | 'speech'
@@ -38,6 +39,13 @@ export type ModelCapabilityValues = {
   maxContextSize?: number
   npuSupport?: boolean
   /**
+   * Good enough at writing code to drive a coding preset (Game Agent). A
+   * judgement about the model's training rather than a hard capability, but
+   * overridable all the same: without it a user-added model can never be picked
+   * for a coding preset.
+   */
+  supportsCoding?: boolean
+  /**
    * Large Mixture-of-Experts model. NOT a plain capability: it is a hardware
    * gate. Such models only load via Phison aiDAPTIV+ SSD offload, so pickers
    * hide them when no Phison SSD is detected.
@@ -58,6 +66,7 @@ export const CAPABILITY_KEYS = [
   'supportsThinkingToggle',
   'maxContextSize',
   'npuSupport',
+  'supportsCoding',
   'largeMoe',
 ] as const satisfies readonly (keyof ModelCapabilityValues)[]
 
@@ -67,6 +76,7 @@ export const EDITABLE_CAPABILITY_KEYS = [
   'supportsToolCalling',
   'supportsReasoning',
   'supportsThinkingToggle',
+  'supportsCoding',
   'npuSupport',
   'largeMoe',
 ] as const satisfies readonly (keyof ModelCapabilityValues)[]
@@ -94,6 +104,13 @@ export type ModelEntry = {
   isDirectory?: boolean
   /** Effective values after user overrides. Only meaningful for `llm`. */
   capabilities: ModelCapabilityValues
+  /**
+   * Sampling the model's publisher recommends. Catalog-owned, so the management
+   * view shows it read-only: it explains behaviour the user cannot otherwise see.
+   */
+  inferenceDefaults?: InferenceDefaults
+  /** Extra `llama-server` flags the catalog asks for. Read-only, as above. */
+  llamaCppArgs?: string
   /** True when the user has edited any capability, so the UI can offer "reset to defaults". */
   hasCapabilityOverrides: boolean
   favorite: boolean

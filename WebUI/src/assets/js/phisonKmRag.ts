@@ -184,6 +184,9 @@ export function createPhisonKmRag(deps: PhisonKmRagDeps) {
       // write as a "manual edit" and wipe the stash that load is about to restore.
       // loadSettingsForActivePreset applies both bounds explicitly instead.
       if (deps.isLoadingSettings()) return
+      // Cloud Mode never sends contextSize to a provider; it is the size we ask a
+      // local backend to allocate later, so a remote model's window must not shrink it.
+      if (deps.backend.value === 'cloud') return
 
       // A manual edit while in KM mode means the user has taken over — the stashed
       // pre-KM value is no longer what they'd want restored on switch-back.

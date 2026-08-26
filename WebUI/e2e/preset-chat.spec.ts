@@ -78,10 +78,7 @@ test.describe('Chat presets', () => {
         // required capability in this suite, so an unavailable backend fails the test
         // rather than skipping.
         const ttsAvailable = await app.ensureTtsBackendInstalled()
-        expect(
-          ttsAvailable,
-          'Text-to-Speech must be available (feature flag on and mode supported)',
-        ).toBe(true)
+        expect(ttsAvailable, 'Text-to-Speech must be available (mode supported)').toBe(true)
         await app.runTtsPreset({
           text: prompt,
           newVoice: {

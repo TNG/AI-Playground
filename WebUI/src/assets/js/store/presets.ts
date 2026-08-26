@@ -3,7 +3,9 @@ import { z } from 'zod'
 import { ref, computed } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
+import { withDevPresets } from './devPresets'
 import { llmBackendTypes } from '@/types/shared'
+import { currentPresetName, renamePresetKeys } from '@/lib/presetRenames'
 
 // DeepPartial utility type
 type DeepPartial<T> = {
@@ -212,6 +214,20 @@ const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).extend({
   // audio, no LLM loaded). The `backends` array is a schema-required placeholder and is
   // unused. See SettingsTts.vue and the direct-synthesis branch in openAiCompatibleChat.
   ttsPreset: z.boolean().optional(),
+  // When true, this "chat" preset runs on the agent harness (Pi coding agent in the
+  // main process) instead of plain chat inference: selecting it switches the app to
+  // Agent Mode, where the model works on files in a workspace folder with the tools
+  // its capabilities provide. `systemPrompt` becomes extra instructions appended to
+  // the agent's own prompt. See presetToMode() and the agentMode store.
+  agentPreset: z.boolean().optional(),
+  // Capability ids the agent session is equipped with ('media', 'web-debug',
+  // 'game-studio', 'memory', `mcp:<serverId>`). When set, it replaces the user's
+  // default selection for sessions started under this preset.
+  agentCapabilities: z.array(z.string()).optional(),
+  // Where the agent works: 'pick' lets the user choose any folder, 'games' has the
+  // app provision a folder per game under the games library (no folder picker).
+  agentWorkspace: z.enum(['pick', 'games']).optional(),
+  requiresCoding: z.boolean().optional(), // Filter models to ones fit for writing code
   // UI visibility controls
   enableRAG: z.boolean().optional(), // Show "Add Documents" + embeddings selector (default: false)
   showTools: z.boolean().optional(), // Show "Enable Tools" toggle (default: false)
@@ -550,7 +566,7 @@ export const usePresets = defineStore(
         }
 
         console.log('validatedPresets', validatedPresets)
-        presets.value = validatedPresets
+        presets.value = withDevPresets(validatedPresets)
         console.log(`Loaded ${validatedPresets.length} presets from files`)
       } catch (error) {
         console.error('Failed to load presets from files:', error)
@@ -647,7 +663,7 @@ export const usePresets = defineStore(
         })(),
       ])
       // Update the array only once to avoid multiple reactive triggers
-      presets.value = [...builtInPresets, ...userPresets]
+      presets.value = withDevPresets([...builtInPresets, ...userPresets])
       return syncResponse
     }
 
@@ -730,6 +746,24 @@ export const usePresets = defineStore(
 
     function setLastUsedPreset(category: string, presetName: string): void {
       lastUsedPresetName.value[category] = presetName
+    }
+
+    /**
+     * Carry state stored under a preset's former name over to the name it ships
+     * with now. Without it a rename reads as "preset gone": the picker falls back
+     * to another preset, the settings the user tuned revert to defaults and the
+     * variant they chose is forgotten.
+     */
+    function migrateRenamedPresets(): void {
+      if (activePresetName.value) {
+        activePresetName.value = currentPresetName(activePresetName.value)
+      }
+      for (const [category, name] of Object.entries(lastUsedPresetName.value)) {
+        if (name) lastUsedPresetName.value[category] = currentPresetName(name)
+      }
+      activeVariantName.value = renamePresetKeys(activeVariantName.value)
+      settingsPerPreset.value = renamePresetKeys(settingsPerPreset.value)
+      lastQualityVariantPerBackend.value = renamePresetKeys(lastQualityVariantPerBackend.value)
     }
 
     // ========================================================================
@@ -885,6 +919,7 @@ export const usePresets = defineStore(
       getPresetsByCategories,
       getLastUsedPreset,
       setLastUsedPreset,
+      migrateRenamedPresets,
       getDistinctBackendsForPreset,
       getVariantsForBackend,
       getActiveBackend,
@@ -901,6 +936,11 @@ export const usePresets = defineStore(
         'lastUsedPresetName',
         'lastQualityVariantPerBackend',
       ],
+      afterHydrate: (ctx) => {
+        // Selection and per-preset state are keyed by preset name, so a preset
+        // that shipped under another one has to be followed to its current name.
+        ctx.store.migrateRenamedPresets()
+      },
     },
   },
 )

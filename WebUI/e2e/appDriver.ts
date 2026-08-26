@@ -203,12 +203,12 @@ export class AppDriver {
   }
 
   /**
-   * Ensure the (feature-flagged, audio-only) Qwen3-TTS backend is installed. Kept
-   * out of {@link installAllBackends} on purpose: it pulls a heavy TTS model that
-   * only the Text-to-Speech test needs, so the other specs shouldn't pay for it.
-   * Opens the wizard, enables the backend if it's offered in this product mode, and
-   * installs it. Returns false (leaving the app running) when TTS isn't available —
-   * the feature flag is off or the mode doesn't offer it — so the caller can skip.
+   * Ensure the audio-only Qwen3-TTS backend is installed. Kept out of
+   * {@link installAllBackends} on purpose: it pulls a heavy TTS model that only the
+   * Text-to-Speech test needs, so the other specs shouldn't pay for it. Opens the
+   * wizard, enables the backend if it's offered in this product mode, and installs
+   * it. Returns false (leaving the app running) when TTS isn't available so the
+   * caller can skip.
    */
   async ensureTtsBackendInstalled(): Promise<boolean> {
     return test.step('Ensure the Text-to-Speech backend is installed', async () => {
@@ -503,7 +503,7 @@ export class AppDriver {
   /**
    * Give a reasoning model room to emit a real final answer instead of a reasoning-only
    * turn: raise max-new-tokens to its ceiling and turn thinking off. A heavy-context
-   * agentic turn (the 'defaults' tool set fills most of the 8192 window) can otherwise
+   * agentic turn (the 'defaults' tool set fills a large part of the window) can otherwise
    * spend its whole output budget inside <think> and finish with an empty reply, which
    * reads as "no assistant response". Expects the Chat "Assistant" preset active; each
    * control is a best-effort no-op when the model/preset doesn't expose it.
@@ -512,9 +512,9 @@ export class AppDriver {
     await test.step('Raise max tokens and disable thinking for a reliable final answer', async () => {
       await this.settings.open('Chat')
       const region = settingsRegion(this.window)
-      const maxTokens = region.locator('input[type="number"][max="4096"]')
+      const maxTokens = region.getByLabel('Max Tokens')
       if (await maxTokens.isVisible().catch(() => false)) {
-        await maxTokens.fill('4096')
+        await maxTokens.fill('32768')
       }
       const thinking = region.locator('#thinking')
       if (await thinking.isVisible().catch(() => false)) {

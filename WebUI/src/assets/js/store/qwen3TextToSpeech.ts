@@ -349,20 +349,6 @@ export const useQwen3TextToSpeech = defineStore(
       return savedVoices.value.find((v) => v.name.toLowerCase() === n)
     }
 
-    /** Mirrors `isQwen3TtsEnabled` from settings.json (dev: settings-dev.json). */
-    const isFeatureEnabled = ref(false)
-
-    async function initFeatureFlag() {
-      try {
-        const localSettings = await window.electronAPI.getLocalSettings()
-        isFeatureEnabled.value = !!localSettings.isQwen3TtsEnabled
-      } catch (e) {
-        console.error('qwen3TextToSpeech.initFeatureFlag failed:', e)
-        isFeatureEnabled.value = false
-      }
-    }
-    void initFeatureFlag()
-
     return {
       defaultSpeaker,
       defaultLanguage,
@@ -370,7 +356,6 @@ export const useQwen3TextToSpeech = defineStore(
       defaultInstruct,
       defaultVoiceName,
       savedVoices,
-      isFeatureEnabled,
       synthesize,
       saveWavToDisk,
       ensureBackendRunning,

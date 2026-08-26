@@ -2,7 +2,15 @@ declare interface Window {
   __AIPG_DEMO_MODE__?: boolean
   chrome: Chrome
   electronAPI: electronAPI
-  envVars: { platformTitle: string; productVersion: string; debugToolsEnabled: boolean }
+  envVars: {
+    platformTitle: string
+    productVersion: string
+    debugToolsEnabled: boolean
+    /** Short commit this build came from; '' when it could not be determined. */
+    gitCommit: string
+    /** Release tag on that commit; '' when the build is not from a tag. */
+    gitTag: string
+  }
   // Dev-only Home Agent mock-channel drive surface (see channels/mockAdapter.ts).
   // Only attached when debug tools are enabled.
   __homeAgentMock?: HomeAgentMockApi
@@ -55,6 +63,8 @@ type HomeAgentMockApi = {
 interface ImportMetaEnv {
   readonly VITE_PLATFORM_TITLE: string
   readonly VITE_DEBUG_TOOLS: 'true' | undefined
+  readonly VITE_GIT_COMMIT: string | undefined
+  readonly VITE_GIT_TAG: string | undefined
 }
 
 interface ImportMeta {
@@ -110,7 +120,6 @@ type ProductMode = 'studio' | 'essentials' | 'nvidia'
 /** Mirrors electron/main LocalSettingsSchema (renderer copy for IPC typing). */
 type LocalSettings = {
   debug: boolean
-  deviceArchOverride: 'bmg' | 'acm' | 'arl_h' | 'wcl' | 'lnl' | 'mtl' | null
   isAdminExec: boolean
   availableThemes: Array<'dark' | 'lnl' | 'bmg' | 'light'>
   currentTheme: 'dark' | 'lnl' | 'bmg' | 'light'
@@ -118,9 +127,9 @@ type LocalSettings = {
   isDemoModeEnabled: boolean
   demoModeResetInSeconds: number | null
   demoModePasscode?: string
-  isHomeAgentEnabled: boolean
   isCloudModeEnabled: boolean
-  isQwen3TtsEnabled?: boolean
+  isAgentPresetEnabled?: boolean
+  oemVendorOverride?: string | null
   languageOverride: string | null
   remoteRepository: string
   huggingfaceEndpoint: string
@@ -129,6 +138,15 @@ type LocalSettings = {
   preferredDevice: PreferredDevice | null
   /** Dev unpackaged: set via settings-dev.json / userData overlay. */
   PhisonSSDdetected?: boolean
+}
+
+/** Mirrors electron/laminar LaminarConfigSchema (renderer copy for IPC typing). */
+type LaminarConfig = {
+  projectApiKey: string
+  /** Scheme and host only — the SDK takes the ports separately. */
+  baseUrl: string
+  httpPort: number
+  grpcPort: number
 }
 
 type DeviceCategory = 'dgpu' | 'igpu' | 'npu' | 'cpu' | 'unknown'
@@ -272,7 +290,40 @@ type WebSearchResults = {
 
 type DemoModePage = 'chat' | 'imageGen' | 'imageEdit' | 'video'
 type WorkflowModeType = 'imageGen' | 'imageEdit' | 'video'
-type ModeType = 'chat' | WorkflowModeType
+type ModeType = 'chat' | 'agent' | WorkflowModeType
+
+// Agent Mode (Pi coding agent) — see src/types/agentIpc.ts.
+type AgentModeModelConfig = import('./types/agentIpc').AgentModeModelConfig
+type AgentToolSpec = import('./types/agentIpc').AgentToolSpec
+type AgentCapabilityInfo = import('./types/agentIpc').AgentCapabilityInfo
+type AgentModeTurnConfig = import('./types/agentIpc').AgentModeTurnConfig
+
+/** Streaming output of a running tool, keyed by the tool call it belongs to. */
+type AgentToolProgress = {
+  turnId: string
+  toolCallId: string
+  toolName: string
+  text: string
+}
+
+type GameLibraryEntry = import('./types/agentIpc').GameLibraryEntry
+
+/** An image a tool produced, shown to the user under that tool's card. */
+type AgentToolImage = {
+  toolCallId: string
+  /** The image itself, inlined — it never enters the model's context. */
+  dataUri: string
+  /** What the image is, e.g. the workspace path it was saved to. */
+  label: string
+}
+
+type AgentToolExecuteRequest = {
+  requestId: string
+  /** Model-side tool call id, matching the UI message part (progress keying). */
+  toolCallId: string
+  toolName: string
+  input: Record<string, unknown>
+}
 
 type electronAPI = {
   startDrag: (fileName: string) => void
@@ -353,6 +404,18 @@ type electronAPI = {
   updateModelPaths(modelPaths: ModelPaths): Promise<ModelLists>
   restorePathsSettings(): Promise<void>
   loadModels(): Promise<Model[]>
+  /**
+   * Local Laminar tracing settings, or null when tracing is off (the default).
+   * Read in main from `external/laminar.dev.json` (then
+   * `external/laminar.localhost.json`) so the project API key never lands in
+   * the renderer bundle. Dev-only (see electron/laminar.ts).
+   */
+  getLaminarConfig(): Promise<LaminarConfig | null>
+  /**
+   * Forward one AI SDK telemetry event (already serialized to JSON) to the
+   * Laminar integration running in main. Fire-and-forget.
+   */
+  laminarTelemetryEvent(name: string, payload: string): void
   zoomIn(): Promise<void>
   zoomOut(): Promise<void>
   getDownloadedGGUFLLMs(): Promise<string[]>
@@ -377,6 +440,8 @@ type electronAPI = {
   getComfyUiDefaultParameters(): Promise<string>
   getLlamaCppDefaultParameters(): Promise<string>
   detectPhisonSsd(): Promise<{ detected: boolean }>
+  /** Which OEM this machine came from, for partner co-branding. */
+  detectOem(): Promise<{ vendor: string; manufacturer: string; overridden: boolean }>
   getServices(): Promise<ApiServiceInformation[]>
   getBackendAuthToken(serviceName: string): Promise<string>
   updateServiceSettings(settings: ServiceSettings): Promise<BackendStatus>
@@ -396,6 +461,7 @@ type electronAPI = {
     llmModelName: string,
     embeddingModelName?: string,
     contextSize?: number,
+    modelArgs?: string,
   ): Promise<{ success: boolean; error?: string }>
   ensureComfyUIBackendRunning(): Promise<{
     success: boolean
@@ -492,6 +558,61 @@ type electronAPI = {
           },
     ): Promise<void>
     removeServer(serverId: string): Promise<void>
+  }
+  agentMode: {
+    startTurn(
+      turnId: string,
+      prompt: string,
+      config: AgentModeTurnConfig,
+    ): Promise<{ success: boolean; error?: string }>
+    cancel(): Promise<void>
+    resetSession(): Promise<void>
+    deleteSession(sessionId: string): Promise<{ success: boolean; error?: string }>
+    /**
+     * Copy an attached file into the workspace, so the agent can reach it with
+     * its file tools. Resolves with the workspace-relative path it was saved as.
+     */
+    importAttachment(
+      workspaceDir: string,
+      name: string,
+      bytes: Uint8Array,
+    ): Promise<{ success: boolean; path?: string; error?: string }>
+    listCapabilities(options: {
+      workspaceDir?: string
+      toolSpecs?: AgentToolSpec[]
+      mcpServerIds?: string[]
+    }): Promise<AgentCapabilityInfo[]>
+    onStreamChunk(callback: (data: { turnId: string; chunk: unknown }) => void): () => void
+    onToolProgress(callback: (data: AgentToolProgress) => void): () => void
+    onToolImage(callback: (data: AgentToolImage) => void): () => void
+    onTurnDone(callback: (data: { turnId: string }) => void): () => void
+    onExecuteTool(callback: (data: AgentToolExecuteRequest) => void): () => void
+    submitToolResult(requestId: string, result: unknown, error?: string): Promise<void>
+  }
+  games: {
+    list(): Promise<GameLibraryEntry[]>
+    read(dir: string): Promise<GameLibraryEntry | null>
+    /**
+     * Mints a folder for a new game; `name` is a starting point, not final.
+     * `scaffold: false` leaves it empty for a preset that writes the game whole.
+     * The rest is provenance, recorded once and never patched afterwards.
+     */
+    create(
+      name?: string,
+      options?: {
+        scaffold?: boolean
+        backend?: string
+        startingModel?: string
+        initialPrompt?: string
+      },
+    ): Promise<GameLibraryEntry>
+    publish(
+      dir: string,
+      fields: { name?: string; description?: string },
+    ): Promise<{ success: boolean; error?: string; game?: GameLibraryEntry }>
+    openFolder(dir?: string): Promise<void>
+    play(dir: string): Promise<{ success: boolean; error?: string }>
+    openArcade(): Promise<{ success: boolean; error?: string; path?: string }>
   }
   webBrowser: {
     navigate(url: string): Promise<WebPageSnapshot>
@@ -919,13 +1040,24 @@ type StorageTarget = {
   selected: boolean
 }
 
+// The catalog entry `loadModels` returns. Mirrors `ModelSchema` in
+// src/types/shared.ts, which is what the main process parses models.json with.
 type Model = {
   name: string
-  type: 'undefined' | 'embedding' | 'openVINO' | 'llamaCPP'
-  default: boolean
+  mmproj?: string
+  type: 'undefined' | 'embedding' | 'openVINO' | 'llamaCPP' | 'cloud'
+  default?: boolean
   downloaded?: boolean | undefined
-  backend?: 'openVINO' | 'llamaCPP' | undefined
+  backend?: 'openVINO' | 'llamaCPP' | 'cloud' | undefined
   supportsToolCalling?: boolean
+  toolParser?: string
   supportsVision?: boolean
+  supportsReasoning?: boolean
+  supportsCoding?: boolean
+  supportsThinkingToggle?: boolean
   maxContextSize?: number
+  inferenceDefaults?: import('@/types/shared').InferenceDefaults
+  llamaCppArgs?: string
+  npuSupport?: boolean
+  largeMoe?: boolean
 }

@@ -1,12 +1,13 @@
 import { ChildProcess } from 'node:child_process'
-import { app, BrowserWindow, net } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import * as filesystem from 'fs-extra'
 import fsPromises from 'fs/promises'
 import path from 'node:path'
 import { appLoggerInstance } from '../logging/logger.ts'
 import { packagedResourcesRoot } from '../aipgRoot.ts'
 import { existingFileOrError, spawnProcessAsync, ProcessError } from './osProcessHelper'
-import { terminateProcessTree } from './processLifecycle.ts'
+import { fetchInstallArtifact } from './fetchInstallArtifact.ts'
+import { terminateProcessTree, type ProcessSignature } from './processLifecycle.ts'
 import { assert } from 'node:console'
 import { createHash } from 'crypto'
 
@@ -419,7 +420,7 @@ export class GitService extends ExecutableService {
     }
 
     // Using electron net for better proxy support
-    const response = await net.fetch(this.remoteUrl)
+    const response = await fetchInstallArtifact(this.remoteUrl)
     if (!response.ok || response.status !== 200 || !response.body) {
       throw new Error(`Failed to download git: ${response.statusText}`)
     }
@@ -463,12 +464,22 @@ export interface ApiService {
   stop(): Promise<BackendStatus>
   updateSettings(settings: ServiceSettings): Promise<void>
   getInstalledVersion?(): Promise<{ version?: string; releaseTag?: string } | undefined>
+  /**
+   * How to recognise a process of this backend when reaping orphans from a
+   * previous session. Built from absolute paths inside the backend's own install
+   * directory, so a match cannot stray onto an unrelated system process.
+   */
+  orphanSignatures?(): ProcessSignature[]
+  /** Pids this service currently owns, which a sweep must spare. */
+  ownedPids?(): number[]
   uninstall(): Promise<void>
   get_info(): ApiServiceInformation
   ensureBackendReadiness(
     llmModelName: string,
     embeddingModelName?: string,
     contextSize?: number,
+    /** Extra server flags the model asks for; only llama.cpp acts on them. */
+    modelArgs?: string,
   ): Promise<void>
 }
 
@@ -524,6 +535,33 @@ export abstract class LongLivedPythonApiService implements ApiService {
 
   abstract serviceIsSetUp(): Promise<boolean>
   abstract detectDevices(): Promise<void>
+
+  /**
+   * The venv interpreter this backend runs. Unique to its environment directory,
+   * which is what makes it usable both as the spawn target and as the signature
+   * for finding leftovers of it — the two can never drift apart.
+   */
+  get venvPythonPath(): string {
+    return path.join(
+      this.pythonEnvDir,
+      process.platform === 'win32' ? 'Scripts' : 'bin',
+      process.platform === 'win32' ? 'python.exe' : 'python',
+    )
+  }
+
+  /** The script the long-lived server runs, as it appears on the command line. */
+  protected readonly serverEntryScript: string = 'web_api.py'
+
+  orphanSignatures(): ProcessSignature[] {
+    // Interpreter *and* script: the interpreter alone also matches our own
+    // tooling (uv's setup check, device detection) running out of the same venv.
+    return [[this.venvPythonPath, this.serverEntryScript]]
+  }
+
+  ownedPids(): number[] {
+    const pid = this.encapsulatedProcess?.pid
+    return pid === undefined ? [] : [pid]
+  }
 
   async selectDevice(deviceId: string): Promise<void> {
     if (!this.devices.find((d) => d.id === deviceId)) return
@@ -594,7 +632,9 @@ export abstract class LongLivedPythonApiService implements ApiService {
   abstract set_up(): AsyncIterable<SetupProgress>
 
   async uninstall(): Promise<void> {
-    this.stop()
+    // Awaited: deleting the env directory out from under a still-running
+    // interpreter fails on Windows (EPERM) and leaves a half-removed tree.
+    await this.stop()
     this.appLogger.info(`removing python env of ${this.name} service`, this.name)
     await filesystem.remove(this.pythonEnvDir)
     this.appLogger.info(`removed python env of ${this.name} service`, this.name)
@@ -744,9 +784,10 @@ export abstract class LongLivedPythonApiService implements ApiService {
     llmModelName: string,
     embeddingModelName?: string,
     contextSize?: number,
+    modelArgs?: string,
   ): Promise<void> {
     this.appLogger.info(
-      `ensureBackendReadiness called for LLM: ${llmModelName}, Embedding: ${embeddingModelName ?? 'none'}, Context Size: ${contextSize} ?? 'undefined'`,
+      `ensureBackendReadiness called for LLM: ${llmModelName}, Embedding: ${embeddingModelName ?? 'none'}, Context Size: ${contextSize} ?? 'undefined', Model args: ${modelArgs ?? 'none'}`,
       this.name,
     )
   }

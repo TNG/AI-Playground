@@ -3,7 +3,7 @@
     class="z-10 text-foreground rounded-xl bg-background/70 backdrop-blur-sm border border-border shadow-lg"
   >
     <HomeAgentSetupPage
-      v-if="wizard.wizardPage === 'homeAgentSetup' && homeAgent.isFeatureEnabled"
+      v-if="wizard.wizardPage === 'homeAgentSetup'"
       @back="wizard.wizardPage = 'main'"
       @done="wizard.finishHomeAgentSetup()"
     />
@@ -361,7 +361,6 @@
 import { computed, ref } from 'vue'
 import { useSetupWizard, type BackendRowViewModel } from '@/assets/js/store/setupWizard'
 import { useProductMode } from '@/assets/js/store/productMode'
-import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { useI18N } from '@/assets/js/store/i18n'
 import { Switch } from '@/components/ui/switch'
@@ -383,7 +382,6 @@ import CloudModeSetupPage from '@/components/CloudModeSetupPage.vue'
 
 const wizard = useSetupWizard()
 const productModeStore = useProductMode()
-const homeAgent = useHomeAgent()
 const cloudMode = useCloudMode()
 const i18n = useI18N()
 const languages = i18n.state

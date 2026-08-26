@@ -17,7 +17,8 @@ const props = defineProps<{
   title: string
   /** Id of the master switch, so the heading can point at it. */
   switchId: string
-  enabled: boolean
+  /** Omit for a section governed elsewhere (an agent capability), leaving the frame only. */
+  enabled?: boolean
   /** Why the switch can't be used, when it can't (e.g. the model has no tool calling). */
   disabledReason?: string
 }>()
@@ -45,6 +46,7 @@ function toggle() {
            rather than a plain Label's. -->
       <Label :for="switchId" class="whitespace-nowrap font-semibold">{{ title }}</Label>
       <Checkbox
+        v-if="enabled !== undefined"
         :id="switchId"
         :disabled="!!disabledReason"
         :aria-describedby="disabledReason ? reasonId : undefined"

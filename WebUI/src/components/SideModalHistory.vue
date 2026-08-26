@@ -1,12 +1,16 @@
 <template>
   <SideModalBase
     :is-visible="isVisible"
-    :title="`${mapModeToLabel(mode)} ${languages.COM_HISTORY}`"
+    :title="
+      mode === 'agent' ? languages.COM_SESSIONS : `${mapModeToLabel(mode)} ${languages.COM_HISTORY}`
+    "
     side="left"
     @close="$emit('close')"
   >
     <template #header-buttons>
-      <AlertDialog v-if="mode !== 'chat'">
+      <!-- Clear-all is a delete-all-IMAGES action — only offered for the
+           workflow modes it applies to (not chat, not agent sessions). -->
+      <AlertDialog v-if="mode !== 'chat' && mode !== 'agent'">
         <AlertDialogTrigger asChild>
           <button class="svg-icon i-clear w-6 h-6" :title="languages.COM_CLEAR_HISTORY" />
         </AlertDialogTrigger>
@@ -39,6 +43,14 @@
         class="svg-icon i-add w-7 h-7"
         :title="languages.COM_ADD"
       />
+      <!-- "New" follows the preset: a new game (own folder) under Game Agent, a
+           new conversation in the same workspace otherwise. -->
+      <button
+        v-show="mode === 'agent'"
+        @click="agentMode.startNew()"
+        class="svg-icon i-add w-7 h-7"
+        :title="agentMode.agentWorkspaceKind === 'games' ? 'New game' : languages.COM_ADD"
+      />
     </template>
 
     <HistoryChat
@@ -49,15 +61,18 @@
     <HistoryWorkflow v-show="props.mode === 'imageGen'" mode="imageGen" />
     <HistoryWorkflow v-show="props.mode === 'imageEdit'" mode="imageEdit" />
     <HistoryWorkflow v-show="props.mode === 'video'" mode="video" />
+    <HistoryAgentSessions v-show="props.mode === 'agent'" />
   </SideModalBase>
 </template>
 
 <script setup lang="ts">
 import HistoryChat from '@/components/HistoryChat.vue'
 import HistoryWorkflow from '@/components/HistoryWorkflow.vue'
+import HistoryAgentSessions from '@/components/HistoryAgentSessions.vue'
 import { ref } from 'vue'
 import { useConversations, type ThreadKind } from '@/assets/js/store/conversations.ts'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets'
+import { useAgentMode } from '@/assets/js/store/agentMode'
 import { mapModeToLabel } from '@/lib/utils.ts'
 import SideModalBase from '@/components/SideModalBase.vue'
 import {
@@ -74,6 +89,7 @@ import {
 
 const conversations = useConversations()
 const imageGeneration = useImageGenerationPresets()
+const agentMode = useAgentMode()
 
 const chatFilterKind = ref<ThreadKind>('main')
 
@@ -104,8 +120,8 @@ function selectNewMedia() {
 }
 
 function deleteAllImages() {
-  if (props.mode !== 'chat') {
-    imageGeneration.deleteAllImagesForMode(props.mode as WorkflowModeType)
-  }
+  // Only the workflow modes have deletable image histories (never chat/agent).
+  if (props.mode === 'chat' || props.mode === 'agent') return
+  imageGeneration.deleteAllImagesForMode(props.mode as WorkflowModeType)
 }
 </script>

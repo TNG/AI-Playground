@@ -30,7 +30,6 @@
     <div class="flex justify-between items-center gap-5">
       <HomeAgentToggle
         v-if="
-          homeAgent.isFeatureEnabled &&
           globalSetup.loadingState === 'running' &&
           (promptStore.getCurrentMode() === 'chat' || promptStore.getCurrentMode() === 'imageGen')
         "
@@ -187,7 +186,11 @@
           @click="openHistory"
           class="text-foreground px-3 py-1.5 bg-card border border-border shadow-sm hover:bg-muted rounded-lg text-sm"
         >
-          {{ languages.COM_SHOW_HISTORY }}
+          {{
+            promptStore.getCurrentMode() === 'agent'
+              ? languages.COM_SHOW_SESSIONS
+              : languages.COM_SHOW_HISTORY
+          }}
         </button>
       </div>
       <div
@@ -213,6 +216,7 @@
         </DemoModeBlocker>
       </div>
       <Chat v-if="promptStore.getCurrentMode() === 'chat'" ref="chatRef" />
+      <AgentMode v-if="promptStore.getCurrentMode() === 'agent'" />
       <WorkflowResult
         v-if="promptStore.getCurrentMode() === 'imageGen'"
         ref="imageGenRef"
@@ -289,7 +293,25 @@
           >
         </p>
         <p>
-          AI Playground version: v{{ productVersion }}
+          AI Playground version:
+          <TooltipProvider v-if="buildIdentity.length > 0" :delay-duration="200">
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <span class="underline decoration-dotted underline-offset-2 cursor-help"
+                  >v{{ productVersion }}</span
+                >
+              </TooltipTrigger>
+              <TooltipContent side="top" class="text-xs">
+                <span
+                  v-for="line in buildIdentity"
+                  :key="line.label"
+                  class="block whitespace-nowrap"
+                  >{{ line.label }}: {{ line.value }}</span
+                >
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <span v-else>v{{ productVersion }}</span>
           <a :href="userGuideUrl" target="_blank" class="text-primary"> User Guide</a>
 
           <a :href="noticesUrl" target="_blank" class="text-primary">
@@ -323,6 +345,7 @@ import { useGlobalSetup } from './assets/js/store/globalSetup'
 import { useProductMode } from './assets/js/store/productMode'
 import DownloadDialog from '@/components/DownloadDialog.vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTheme } from './assets/js/store/theme.ts'
 import WarningDialog from '@/components/WarningDialog.vue'
 import PresetRequirementsDialog from '@/components/PresetRequirementsDialog.vue'
@@ -335,6 +358,7 @@ import { useColorMode } from '@vueuse/core'
 import { useDemoMode } from './assets/js/store/demoMode.ts'
 import WorkflowResult from '@/views/WorkflowResult.vue'
 import Chat from '@/views/Chat.vue'
+import AgentMode from '@/views/AgentMode.vue'
 import { computed, ref, watch } from 'vue'
 import SideModalHistory from '@/components/SideModalHistory.vue'
 import SideModalAppSettings from '@/components/SideModalAppSettings.vue'
@@ -350,9 +374,10 @@ import DemoModeNotificationDots from '@/components/DemoModeNotificationDots.vue'
 import DemoModeAutoresetDialog from '@/components/DemoModeAutoresetDialog.vue'
 import HomeAgentToggle from '@/components/HomeAgentToggle.vue'
 import MockChannelPanel from '@/components/MockChannelPanel.vue'
-import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import ContextualHelpLayer from '@/components/ContextualHelpLayer.vue'
 import { useContextualHelp } from '@/assets/js/store/contextualHelp'
+import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
+import { useOemBranding } from '@/assets/js/store/oemBranding'
 
 const theme = useTheme()
 const globalSetup = useGlobalSetup()
@@ -363,7 +388,8 @@ const dialogStore = useDialogStore()
 const promptStore = usePromptStore()
 const uiStore = useUIStore()
 const setupWizardStore = useSetupWizard()
-const homeAgent = useHomeAgent()
+const presetSwitching = usePresetSwitching()
+const oemBranding = useOemBranding()
 
 const demoModeOverlayDriverJs = ref<InstanceType<typeof DemoModeOverlayDriverJsRef>>()
 const showSettingBtn = ref<HTMLButtonElement>()
@@ -384,6 +410,13 @@ const showSpecificSettings = ref(false)
 const platformTitle = window.envVars.platformTitle
 const productVersion = window.envVars.productVersion
 const debugToolsEnabled = window.envVars.debugToolsEnabled
+
+// Which build this is, for telling test builds apart. Both parts are absent in a
+// build made from a tree without git history, and then the version gets no hover.
+const buildIdentity = [
+  { label: 'Release tag', value: window.envVars.gitTag },
+  { label: 'Commit', value: window.envVars.gitCommit },
+].filter((entry) => !!entry.value)
 
 const gitHubRepoUrl = ref('https://github.com/intel/ai-playground/blob/main/')
 const userGuideUrl = computed(() => `${gitHubRepoUrl.value}AI%20Playground%20Users%20Guide.pdf`)
@@ -437,6 +470,9 @@ onBeforeMount(async () => {
 onMounted(async () => {
   // Fetch dynamic GitHub repo URL for footer links
   gitHubRepoUrl.value = await window.electronAPI.getGitHubRepoUrl()
+
+  // Which OEM's machine this is decides co-branded labels (e.g. Acer Game Agent).
+  void oemBranding.initialize()
 
   // Apply theme class to document root for CSS variables
   watch(
@@ -508,7 +544,11 @@ function startTour() {
 watch(
   () => globalSetup.loadingState,
   (state) => {
-    if (state === 'running' && demoMode.enabled) {
+    if (state !== 'running') return
+    // The prompt store isn't persisted, so the app boots in chat mode while the
+    // active preset comes back from disk — and an agent preset means Agent Mode.
+    presetSwitching.syncModeWithActivePreset()
+    if (demoMode.enabled) {
       void demoMode.applyExplicitDefaults()
       window.setTimeout(startTour, 2200)
     }

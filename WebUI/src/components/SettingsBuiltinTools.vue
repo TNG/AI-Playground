@@ -1,21 +1,49 @@
 <template>
   <TooltipProvider>
     <SettingsPanel
-      title="Built-in tools"
-      switch-id="tools"
-      :enabled="textInference.aipgToolsEnabled"
+      :title="isMediaVariant ? 'Media tools' : 'Built-in tools'"
+      :switch-id="isMediaVariant ? 'media-tools' : 'tools'"
+      :enabled="isMediaVariant ? undefined : textInference.aipgToolsEnabled"
       :disabled-reason="
-        textInference.modelSupportsToolCalling
+        isMediaVariant || textInference.modelSupportsToolCalling
           ? undefined
           : languages.SETTINGS_TOOLS_MODEL_UNSUPPORTED
       "
       @update:enabled="textInference.aipgToolsEnabled = $event"
     >
       <div
-        v-show="textInference.modelSupportsToolCalling"
+        v-show="isMediaVariant || textInference.modelSupportsToolCalling"
         class="flex flex-col gap-3"
-        :class="{ 'opacity-50': !textInference.aipgToolsEnabled }"
+        :class="{ 'opacity-50': !toolsEnabled }"
       >
+        <p v-if="isMediaVariant" class="text-xs text-muted-foreground">
+          What the Media generation capability may reach for. Stored with this agent preset, so
+          Chat's assistant keeps its own selection.
+        </p>
+        <!-- Media specialist delegation: one thin `media` tool instead of the two
+             full comfy tool schemas in the model's context. -->
+        <div class="flex items-center justify-between gap-3 pb-2 border-b border-border">
+          <div class="flex items-center gap-1.5 min-w-0">
+            <Label class="whitespace-nowrap">Media specialist agent</Label>
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <span class="svg-icon i-info w-4 h-4 shrink-0 opacity-50 cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent side="right" class="max-w-[300px] text-sm">
+                Route media generation through a nested specialist agent: the assistant sees a
+                single lightweight "media" tool instead of the full workflow catalog, keeping its
+                context small, and multi-step requests (e.g. image → 3D model) run in one call. In
+                Agent Mode, changing this starts a new agent session on the next message.
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          <Checkbox
+            id="builtin-tool-delegation"
+            :disabled="!toolsEnabled"
+            :model-value="textInference.toolDelegationEnabled"
+            @click="textInference.toolDelegationEnabled = !textInference.toolDelegationEnabled"
+          />
+        </div>
         <Collapsible
           v-for="builtinTool in builtinTools"
           :key="builtinTool.name"
@@ -64,7 +92,7 @@
               </CollapsibleTrigger>
               <Checkbox
                 :id="`builtin-tool-${builtinTool.name}`"
-                :disabled="!textInference.aipgToolsEnabled"
+                :disabled="!toolsEnabled"
                 :model-value="textInference.isBuiltinToolEnabled(builtinTool.name)"
                 @click="toggle(builtinTool.name)"
               />
@@ -96,19 +124,13 @@
                   <!-- Enable toggle in front; the name is also clickable to toggle. -->
                   <Switch
                     :id="`builtin-tool-${builtinTool.name}-preset-${workflow.name}`"
-                    :disabled="
-                      !textInference.aipgToolsEnabled ||
-                      !textInference.isBuiltinToolEnabled(builtinTool.name)
-                    "
+                    :disabled="!isToolActive(builtinTool.name)"
                     :model-value="textInference.isWorkflowPresetEnabled(workflow.name)"
                     @update:model-value="toggleWorkflow(builtinTool.name, workflow.name)"
                   />
                   <button
                     type="button"
-                    :disabled="
-                      !textInference.aipgToolsEnabled ||
-                      !textInference.isBuiltinToolEnabled(builtinTool.name)
-                    "
+                    :disabled="!isToolActive(builtinTool.name)"
                     class="text-xs text-foreground truncate text-left cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                     @click="toggleWorkflow(builtinTool.name, workflow.name)"
                   >
@@ -177,7 +199,7 @@
                 variant="secondary"
                 size="sm"
                 class="px-2 py-1 rounded text-xs"
-                :disabled="!textInference.aipgToolsEnabled"
+                :disabled="!toolsEnabled"
                 @click="showWindowDialog = true"
               >
                 {{ textInference.screenshotWindow ? 'Change window…' : 'Select window…' }}
@@ -213,9 +235,20 @@ import ScreenshotWindowDialog from '@/components/ScreenshotWindowDialog.vue'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { usePresets, type Preset } from '@/assets/js/store/presets'
 
+// `media` is the Agent Mode slice: the media tools and their workflows, without
+// Chat's master switch (an agent's tools hang off its Media generation
+// capability) and without the tools an agent gets as capabilities instead.
+const props = withDefaults(defineProps<{ variant?: 'chat' | 'media' }>(), { variant: 'chat' })
+
 const textInference = useTextInference()
 const presets = usePresets()
 const showWindowDialog = ref(false)
+
+const isMediaVariant = computed(() => props.variant === 'media')
+
+// Whether the panel's contents are live at all. Agent Mode ignores the chat
+// master switch (see getAgentToolSpecs), so the media slice is always live.
+const toolsEnabled = computed(() => isMediaVariant.value || textInference.aipgToolsEnabled)
 
 // Per-tool expand/collapse state for the preset lists. Collapsed by default.
 const openTools = ref<Record<string, boolean>>({})
@@ -224,7 +257,7 @@ const openTools = ref<Record<string, boolean>>({})
 // toggle and the tool's own checkbox are on. Inactive tools stay collapsed with
 // a greyed-out summary.
 function isToolActive(toolName: string): boolean {
-  return textInference.aipgToolsEnabled && textInference.isBuiltinToolEnabled(toolName)
+  return toolsEnabled.value && textInference.isBuiltinToolEnabled(toolName)
 }
 
 // Count of enabled workflows vs. total for the collapsed "n/m enabled" summary.
@@ -347,9 +380,13 @@ function chooseDefault(toolName: string, workflow: ToolWorkflow) {
   textInference.setDefaultWorkflow(slotKey(toolName, workflow), workflow.name)
 }
 
+// The media tools, in the order they appear. Everything else an agent can do is
+// a capability of its own, so the media slice lists only these two.
+const MEDIA_TOOLS = ['comfyUI', 'comfyUiImageEdit']
+
 // User-facing descriptors for the built-in (internal) tools. Keys must match the
 // tool names registered in `aipgTools`.
-const builtinTools: Array<{ name: string; label: string; description: string }> = [
+const allBuiltinTools: Array<{ name: string; label: string; description: string }> = [
   {
     name: 'comfyUI',
     label: 'Generate media',
@@ -387,17 +424,23 @@ const builtinTools: Array<{ name: string; label: string; description: string }> 
   },
 ]
 
+const builtinTools = computed(() =>
+  isMediaVariant.value
+    ? allBuiltinTools.filter((tool) => MEDIA_TOOLS.includes(tool.name))
+    : allBuiltinTools,
+)
+
 const modelSupportsVision = computed(() => textInference.modelSupportsVision)
 
 const boundWindowName = computed(() => textInference.screenshotWindow?.name ?? 'None selected')
 
 function toggle(toolName: string) {
-  if (!textInference.aipgToolsEnabled) return
+  if (!toolsEnabled.value) return
   textInference.setBuiltinToolEnabled(toolName, !textInference.isBuiltinToolEnabled(toolName))
 }
 
 function toggleWorkflow(toolName: string, workflowName: string) {
-  if (!textInference.aipgToolsEnabled || !textInference.isBuiltinToolEnabled(toolName)) return
+  if (!isToolActive(toolName)) return
   textInference.setWorkflowPresetEnabled(
     workflowName,
     !textInference.isWorkflowPresetEnabled(workflowName),

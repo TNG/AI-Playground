@@ -80,7 +80,7 @@
               type="number"
               v-model="textInference.maxTokens"
               min="0"
-              max="4096"
+              max="32768"
               step="1"
               class="rounded-sm text-foreground text-center h-[30px] w-20 leading-[30px] p-0 bg-transparent border border-border"
             />
@@ -178,6 +178,20 @@
             @click="() => (textInference.metricsEnabled = !textInference.metricsEnabled)"
           />
         </div>
+        <!-- How long the model reasons before answering. Only models whose
+             template reads reasoning_effort (Qwen3.8) recommend one, and only a
+             thinking turn has a trace to size. -->
+        <SettingsRow
+          v-if="textInference.modelSupportsReasoningEffort && textInference.thinkingActive"
+          label="Reasoning effort"
+        >
+          <drop-down-new
+            title="Reasoning effort"
+            :value="textInference.effectiveReasoningEffort ?? ''"
+            :items="reasoningEffortItems"
+            @change="(value: string) => (textInference.reasoningEffort = value as ReasoningEffort)"
+          ></drop-down-new>
+        </SettingsRow>
         <!-- Retrieval belongs together: the embedding model is what the documents
              are indexed with, so the uploader opens from the same row. The button
              is an icon plus its count — a full label left the dropdown too narrow
@@ -282,6 +296,7 @@ import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store
 import { PHISON_KM_CONTEXT_FLOOR } from '@/assets/js/phisonKmRag'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
+import { reasoningEfforts, type ReasoningEffort } from '@/types/shared'
 import { sortFavoritesFirst } from '@/assets/js/models/favorites'
 import { useUIStore } from '@/assets/js/store/ui'
 
@@ -380,6 +395,16 @@ const availableBackends = computed(() => {
   return base
 })
 
+// Reasoning-effort choices, cheapest first. The one the model recommends is
+// marked active so the dropdown shows where the default came from.
+const reasoningEffortItems = computed(() =>
+  reasoningEfforts.map((effort) => ({
+    label: effort,
+    value: effort,
+    active: effort === textInference.effectiveReasoningEffort,
+  })),
+)
+
 // Backend items for dropdown
 const availableBackendItems = computed(() => {
   return availableBackends.value.map((backend) => ({
@@ -409,9 +434,9 @@ async function handlePresetChange(presetName: string) {
   const switchingToHomeAgent = presetName === HOME_AGENT_CHAT_PRESET_NAME
   const onHomeAgentThread = conversations.getThreadKind(conversations.activeKey) === 'homeAgent'
 
-  const result = await presetSwitching.switchPreset(presetName, {
-    skipModeSwitch: true, // We're already in chat mode
-  })
+  // The mode follows the preset: an agent preset in this list switches the app to
+  // Agent Mode, so the switch is not told to stay put.
+  const result = await presetSwitching.switchPreset(presetName)
 
   if (result.success) {
     // Only reroute the conversation after the preset switch actually succeeds —

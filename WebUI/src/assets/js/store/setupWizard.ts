@@ -11,7 +11,6 @@ import { useTextToSpeech } from './textToSpeech'
 import { useDemoMode } from './demoMode'
 import { useHomeAgent } from './homeAgent'
 import { useCloudMode } from './cloudMode'
-import { useQwen3TextToSpeech } from './qwen3TextToSpeech'
 import { CHANNELS } from './channels/channelRegistry'
 import { mapStatusToColor, mapToDisplayStatus } from '@/lib/utils'
 import * as toast from '@/assets/js/toast'
@@ -27,17 +26,6 @@ const ALL_BACKENDS: BackendServiceName[] = [
   'openvino-backend',
   'comfyui-backend',
 ]
-
-function getBackends(homeAgentEnabled: boolean, qwen3TtsEnabled: boolean): BackendServiceName[] {
-  let list = ALL_BACKENDS
-  if (!homeAgentEnabled) {
-    list = list.filter((b) => b !== 'home-agent-backend')
-  }
-  if (!qwen3TtsEnabled) {
-    list = list.filter((b) => b !== 'qwen3-tts-backend')
-  }
-  return list
-}
 
 function isBackendAvailableInProductMode(
   mode: ProductMode | null,
@@ -118,7 +106,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   const textToSpeech = useTextToSpeech()
   const homeAgent = useHomeAgent()
   const cloudMode = useCloudMode()
-  const qwen3Tts = useQwen3TextToSpeech()
   const errors = useErrors()
 
   const pendingProductMode = ref<ProductMode | null>(null)
@@ -450,7 +437,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   })
 
   const backendRows = computed<BackendRowViewModel[]>(() => {
-    return getBackends(homeAgent.isFeatureEnabled, qwen3Tts.isFeatureEnabled).map((serviceName) => {
+    return ALL_BACKENDS.map((serviceName) => {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       const available = isBackendAvailableInProductMode(pendingProductMode.value, serviceName)
       const isRequired = info?.isRequired ?? serviceName === 'ai-backend'
@@ -666,7 +653,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
   function seedInstallSelection() {
     const newSelection = new Set<BackendServiceName>()
-    for (const serviceName of getBackends(homeAgent.isFeatureEnabled, qwen3Tts.isFeatureEnabled)) {
+    for (const serviceName of ALL_BACKENDS) {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       if (!info) continue
       if (info.isRequired) continue
@@ -690,7 +677,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   }
 
   function isHomeAgentInstalledAndActive(): boolean {
-    if (!homeAgent.isFeatureEnabled) return false
     const info = backendServices.info.find((s) => s.serviceName === 'home-agent-backend')
     return info?.isSetUp === true && !disabledBackends.value.has('home-agent-backend')
   }
@@ -739,7 +725,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
   function setPendingMode(mode: ProductMode) {
     pendingProductMode.value = mode
-    for (const sn of getBackends(homeAgent.isFeatureEnabled, qwen3Tts.isFeatureEnabled)) {
+    for (const sn of ALL_BACKENDS) {
       const wasAvailable = isBackendAvailableInProductMode(
         productModeStore.productMode ?? pendingProductMode.value,
         sn,
@@ -773,7 +759,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   }
 
   async function openHomeAgentSetup() {
-    if (!homeAgent.isFeatureEnabled) return
     if (!productModeStore.hardwareRecommendation) {
       await productModeStore.detectRecommendation()
     }
@@ -931,7 +916,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     }
 
     const noChannelVerified = CHANNELS.every((c) => !homeAgent.channelPrefs[c.kind].verified)
-    if (homeAgent.isFeatureEnabled && noChannelVerified) {
+    if (noChannelVerified) {
       const homeAgentJustInstalled = toInstall.some((r) => r.serviceName === 'home-agent-backend')
       if (homeAgentJustInstalled || isHomeAgentInstalledAndActive()) {
         // Sync presets *before* swapping the wizard page so the Home Agent setup
@@ -1015,7 +1000,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     await globalSetup.initSetup()
     globalSetup.loadingState = 'running'
 
-    for (const serviceName of getBackends(homeAgent.isFeatureEnabled, qwen3Tts.isFeatureEnabled)) {
+    for (const serviceName of ALL_BACKENDS) {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       if (!info?.isSetUp) continue
       if (info.isRequired || installSelection.value.has(serviceName)) {

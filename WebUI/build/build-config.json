@@ -2,6 +2,12 @@
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "YourAppID",
   "asar": true,
+  "asarUnpack": [
+    "**/node_modules/pi-hermes-memory/**",
+    "**/node_modules/better-sqlite3/**",
+    "**/node_modules/@lmnr-ai/**"
+  ],
+  "npmRebuild": true,
   "afterPack": "build/scripts/after-pack.cjs",
   "copyright": "Copyright © Intel. All rights reserved",
   "extraResources": [
@@ -73,6 +79,10 @@
       "to": "mcp.json"
     },
     {
+      "from": "external/arcade-samples",
+      "to": "arcade-samples"
+    },
+    {
       "from": "build/settings.json",
       "to": "settings.json"
     },
@@ -131,7 +141,7 @@
     "verifyUpdateCodeSignature": false,
     "requestedExecutionLevel": "asInvoker",
     "icon": "app.ico",
-    "artifactName": "${productName}-${version}.${ext}",
+    "artifactName": "AI.Playground-${env.INSTALLER_ID}.${ext}",
     "electronLanguages": ["en-US", "zh-CN"]
   },
   "nsis": {
@@ -157,7 +167,7 @@
       }
     ],
     "icon": "build/icons/icon.png",
-    "artifactName": "${productName}-${version}.${ext}",
+    "artifactName": "AI.Playground-${env.INSTALLER_ID}.${ext}",
     "category": "Utility",
     "synopsis": "AI inference desktop app for Intel GPUs",
     "vendor": "Intel Corporation",

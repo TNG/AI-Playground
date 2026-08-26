@@ -2,6 +2,7 @@ import { InferUITools, ToolSet } from 'ai'
 import { visualizeObjectDetections } from './visualizeObjectDetections'
 import { comfyUI } from './comfyUi'
 import { comfyUiImageEdit } from './comfyUiImageEdit'
+import { media } from './media'
 import { captureScreenshot } from './captureScreenshot'
 import { browseWeb, interactWithWebPage, screenshotWebPage, searchWeb } from './browseWeb'
 import { configureHomeAgent, getHomeAgentSettings, listHomeAgentModels } from './configureHomeAgent'
@@ -10,6 +11,9 @@ import { synthesizeTextToSpeech } from './synthesizeTextToSpeech'
 export const aipgTools = {
   comfyUI,
   comfyUiImageEdit,
+  // Thin delegation tool replacing the two comfy tools when
+  // textInference.toolDelegationEnabled — see resolveBuiltinTools().
+  media,
   visualizeObjectDetections,
   captureScreenshot,
   searchWeb,

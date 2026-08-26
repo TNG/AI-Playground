@@ -36,7 +36,24 @@ function setFlag(key: keyof ModelCapabilityValues, value: boolean) {
   set(key, (value ? true : undefined) as ModelCapabilityValues[typeof key])
 }
 
+// Vision and its projector are set together: an mmproj left behind by an
+// un-ticked Vision box turns vision back on by itself, since `refreshModels`
+// infers the capability from the projector.
+function setVision(value: boolean) {
+  emit('update:modelValue', {
+    ...props.modelValue,
+    supportsVision: value ? true : undefined,
+    mmproj: value ? props.modelValue.mmproj : undefined,
+  })
+}
+
 const isOpenVino = computed(() => props.serviceBackend === 'openvino')
+const isLlamaCpp = computed(() => props.serviceBackend === 'llama_cpp')
+
+const mmproj = computed({
+  get: () => props.modelValue.mmproj ?? '',
+  set: (value: string) => set('mmproj', value.trim() || undefined),
+})
 
 // Kept as its own text ref rather than derived straight from the prop: a getter
 // that renders `undefined` as '' would wipe the field the moment the user cleared
@@ -80,7 +97,7 @@ const toolParserItems = computed(() => [
         <Checkbox
           :id="`${prefix}-vision`"
           :model-value="modelValue.supportsVision === true"
-          @update:model-value="(v) => setFlag('supportsVision', v === true)"
+          @update:model-value="(v) => setVision(v === true)"
         />
         <Label :for="`${prefix}-vision`">{{ languages.MODEL_MANAGER_CAP_VISION }}</Label>
       </div>
@@ -116,32 +133,62 @@ const toolParserItems = computed(() => [
         />
         <Label :for="`${prefix}-npu`">{{ languages.MODEL_MANAGER_CAP_NPU }}</Label>
       </div>
-      <!-- Not a plain capability: large-MoE models only load via Phison
-           aiDAPTIV+ SSD offload, so ticking this on a machine without it makes
-           the model disappear from the pickers. The hint spells that out along
-           with whether this machine has the hardware. -->
-      <div v-if="showAdvanced" class="flex items-center gap-2">
+    </div>
+
+    <!-- Coding and large MoE are the two boxes whose label cannot carry their
+         meaning: one decides which presets offer the model, the other is a
+         hardware gate that can hide it everywhere. So they sit outside the grid,
+         each with its hint always on screen — a hint shown only once the box is
+         ticked comes too late to inform the decision. -->
+    <div class="flex flex-col gap-1">
+      <div class="flex items-center gap-2">
+        <Checkbox
+          :id="`${prefix}-coding`"
+          :model-value="modelValue.supportsCoding === true"
+          @update:model-value="(v) => setFlag('supportsCoding', v === true)"
+        />
+        <Label :for="`${prefix}-coding`">{{ languages.MODEL_MANAGER_CAP_CODING }}</Label>
+      </div>
+      <p class="text-xs text-muted-foreground">
+        {{ languages.MODEL_MANAGER_CAP_CODING_HINT }}
+      </p>
+    </div>
+
+    <!-- Offered only where the hardware is: without a Phison SSD, ticking it can
+         only hide the model from every picker. Any value already set is left
+         alone rather than cleared, so a catalog model stays marked as large MoE
+         on a machine that cannot load it. -->
+    <div v-if="showAdvanced && backendServices.phisonSsdDetected" class="flex flex-col gap-1">
+      <div class="flex items-center gap-2">
         <Checkbox
           :id="`${prefix}-large-moe`"
           :model-value="modelValue.largeMoe === true"
           @update:model-value="(v) => setFlag('largeMoe', v === true)"
         />
-        <Label :for="`${prefix}-large-moe`" class="flex items-center gap-1">
-          {{ languages.MODEL_MANAGER_CAP_LARGE_MOE }}
-        </Label>
+        <Label :for="`${prefix}-large-moe`">{{ languages.MODEL_MANAGER_CAP_LARGE_MOE }}</Label>
       </div>
+      <p class="text-xs text-muted-foreground">
+        {{ languages.MODEL_MANAGER_CAP_LARGE_MOE_HINT }}
+        {{ languages.MODEL_MANAGER_PHISON_DETECTED }}
+      </p>
     </div>
 
-    <p v-if="showAdvanced && modelValue.largeMoe" class="text-xs text-muted-foreground">
-      {{ languages.MODEL_MANAGER_CAP_LARGE_MOE_HINT }}
-      <span :class="backendServices.phisonSsdDetected ? 'text-foreground' : 'text-amber-500'">
-        {{
-          backendServices.phisonSsdDetected
-            ? languages.MODEL_MANAGER_PHISON_DETECTED
-            : languages.MODEL_MANAGER_PHISON_NOT_DETECTED
-        }}
-      </span>
-    </p>
+    <!-- The projector is the model's other half, so it belongs wherever vision
+         does. Settable only at add time until now, which made a wrong one a
+         one-way door. -->
+    <div v-if="isLlamaCpp && modelValue.supportsVision" class="flex flex-col gap-2">
+      <Label :for="`${prefix}-mmproj`" class="text-sm font-medium">
+        {{ languages.REQUEST_LLM_VISION_MODEL_OPTIONAL }}
+      </Label>
+      <Input
+        :id="`${prefix}-mmproj`"
+        v-model="mmproj"
+        :placeholder="languages.COM_LLM_HF_PROMPT_GGUF"
+      />
+      <p class="text-xs text-muted-foreground">
+        {{ languages.REQUEST_LLM_VISION_MODEL_DESCRIPTION }}
+      </p>
+    </div>
 
     <div class="flex flex-col gap-2">
       <Label :for="`${prefix}-context`" class="text-sm font-medium">

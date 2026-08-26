@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import z from 'zod'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { invalidateBackendAuthToken } from '@/lib/loopbackAuth'
+import { isOnDemandBackend } from '@/lib/onDemandBackends'
 
 export const allBackendServiceNames = [
   'ai-backend',
@@ -327,6 +328,12 @@ export const useBackendServices = defineStore(
                 console.log(`Re-selecting device ${lastSelectedDeviceId} for ${s.serviceName}`)
                 await selectDevice(s.serviceName, lastSelectedDeviceId)
               }
+              if (isOnDemandBackend(s.serviceName)) {
+                console.log(
+                  `Not auto-starting ${s.serviceName}: started when requested, to preserve VRAM`,
+                )
+                return 'notYetStarted'
+              }
               return await startService(s.serviceName)
             } catch (error) {
               console.error(`Service startup failed for ${s.serviceName}:`, error)
@@ -335,7 +342,9 @@ export const useBackendServices = defineStore(
           }),
       )
       const serverStartupsCompleted = {
-        allServicesStarted: serverStartups.every((serverStatus) => serverStatus === 'running'),
+        allServicesStarted: serverStartups.every(
+          (serverStatus) => serverStatus === 'running' || serverStatus === 'notYetStarted',
+        ),
       }
       if (!serverStartupsCompleted.allServicesStarted) {
         console.warn('Not all services started')

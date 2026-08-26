@@ -32,6 +32,7 @@ export class WhisperBackendService extends LongLivedPythonApiService {
 
   isSetUp: boolean = false
   readonly isRequired = false
+  // Started on first transcribe, not at boot or install, so idle VRAM stays free.
   healthEndpointUrl = `${this.baseUrl}/healthy`
 
   private loopbackAuthToken: string = randomBytes(32).toString('hex')

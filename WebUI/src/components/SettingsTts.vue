@@ -47,7 +47,7 @@
     <!-- === Qwen3-TTS engine === -->
     <template v-if="textToSpeech.selectedEngine === 'qwen3'">
       <!-- Hardware: which accelerator the TTS model loads on. Changing it restarts
-           the backend so the model reloads on the chosen device. -->
+           the backend only if it is already running. -->
       <div v-if="qwen3BackendSetUp" class="grid grid-cols-[120px_1fr] items-center gap-4">
         <Label class="whitespace-nowrap">{{ languages.SETTINGS_INFERENCE_DEVICE }}</Label>
         <device-selector backend="qwen3-tts-backend" name-only></device-selector>

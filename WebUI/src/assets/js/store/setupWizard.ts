@@ -17,6 +17,7 @@ import { useHomeAgent } from './homeAgent'
 import { useCloudMode } from './cloudMode'
 import { CHANNELS } from './channels/channelRegistry'
 import { mapServiceNameToDisplayName, mapStatusToColor, mapToDisplayStatus } from '@/lib/utils'
+import { isOnDemandBackend } from '@/lib/onDemandBackends'
 import * as toast from '@/assets/js/toast'
 import { useErrors } from './errors'
 import { extractMessage } from '../errors/appError'
@@ -744,7 +745,11 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       installSelection.value.add(serviceName)
       disabledBackends.value.delete(serviceName)
       disabledBackends.value = new Set(disabledBackends.value)
-      if (info?.isSetUp && (info.status === 'stopped' || info.status === 'notYetStarted')) {
+      if (
+        info?.isSetUp &&
+        (info.status === 'stopped' || info.status === 'notYetStarted') &&
+        !isOnDemandBackend(serviceName)
+      ) {
         await backendServices.startService(serviceName)
       }
     } else {
@@ -1036,6 +1041,10 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       wizardActivity.value = new Map(wizardActivity.value)
       await backendServices.detectDevices(name)
 
+      if (isOnDemandBackend(name)) {
+        return
+      }
+
       wizardActivity.value.set(name, 'Starting...')
       wizardActivity.value = new Map(wizardActivity.value)
       const startStatus = await backendServices.startService(name)
@@ -1066,7 +1075,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       if (!info?.isSetUp) continue
       if (info.isRequired || installSelection.value.has(serviceName)) {
-        if (info.status !== 'running') {
+        if (info.status !== 'running' && !isOnDemandBackend(serviceName)) {
           backendServices.startService(serviceName)
         }
       }

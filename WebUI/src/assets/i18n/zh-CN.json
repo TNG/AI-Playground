@@ -154,6 +154,7 @@
   "TAB_ANSWER": "回答",
   "TAB_LEARN_MORE": "了解更多",
   "MODE_CHAT": "Chat",
+  "MODE_AUDIO": "Audio",
   "MODE_IMAGE_GEN": "Image Gen",
   "MODE_IMAGE_EDIT": "Image Edit",
   "MODE_VIDEO": "Video",

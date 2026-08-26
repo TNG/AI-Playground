@@ -271,8 +271,8 @@ export class AppDriver {
     text: string
     newVoice: { name: string; description: string; text: string }
   }): Promise<void> {
-    const available = await test.step('Select Chat preset "Text to Speech"', () =>
-      this.selectModeAndPreset('Chat', 'Text to Speech'))
+    const available = await test.step('Select Audio preset "Text to Speech"', () =>
+      this.selectModeAndPreset('Audio', 'Text to Speech'))
     expect(available, 'Preset "Text to Speech" must be available in this product mode').toBe(true)
 
     await test.step('Start from a known voice selection', async () => {
@@ -282,10 +282,10 @@ export class AppDriver {
       // making "the default voice" a designed voice, skipping the preset-speaker path
       // entirely, and turning "create a voice" into "re-save the same voice". Pin a
       // built-in speaker and drop the leftover voice so both paths are exercised.
-      await this.settings.open('Chat')
+      await this.settings.open('Audio')
       await this.settings.deleteTtsVoiceIfPresent(opts.newVoice.name)
       await this.settings.selectTtsVoice(/^Ryan\b/)
-      await this.settings.close('Chat')
+      await this.settings.close('Audio')
     })
 
     await test.step('Synthesize speech with the default voice', async () => {
@@ -296,7 +296,7 @@ export class AppDriver {
     })
 
     await test.step('Create a custom voice and synthesize a second audio with it', async () => {
-      await this.settings.open('Chat')
+      await this.settings.open('Audio')
       await this.settings.createTtsVoice({
         name: opts.newVoice.name,
         description: opts.newVoice.description,
@@ -305,7 +305,7 @@ export class AppDriver {
       // preset speakers'. Saving the voice is what offers that download, so the
       // dialog (when the model isn't on disk yet) belongs to THIS step.
       await this.resolveDownloadsOrFail('the custom-voice Text-to-Speech model')
-      await this.settings.close('Chat')
+      await this.settings.close('Audio')
 
       await this.main.sendPrompt(opts.newVoice.text)
       // …and therefore the first synthesis with the new voice must not need one:
@@ -356,9 +356,9 @@ export class AppDriver {
     })
 
     await test.step('Re-rolling the voice draws a different speaker', async () => {
-      await this.settings.open('Chat')
+      await this.settings.open('Audio')
       await this.settings.rerollTtsVoice(opts.newVoice.name)
-      await this.settings.close('Chat')
+      await this.settings.close('Audio')
 
       await this.main.sendPrompt(opts.newVoice.text)
       expect(await this.downloads.resolve()).toBe('none')

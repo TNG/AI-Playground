@@ -1542,7 +1542,7 @@ function initEventHandle() {
    * the persisted mode untouched; returns the validated ModeType (or 'chat' as
    * a safe fallback for an invalid value) when it was. */
   ipcMain.handle('getInitialPage', (): ModeType | null => {
-    const validModes: ModeType[] = ['chat', 'imageGen', 'imageEdit', 'video']
+    const validModes: ModeType[] = ['chat', 'audio', 'imageGen', 'imageEdit', 'video']
     const startPageArg = process.argv.find((arg) => arg.startsWith('--start-page='))
     if (!startPageArg) return null
     const parsed = startPageArg.split('=')[1]

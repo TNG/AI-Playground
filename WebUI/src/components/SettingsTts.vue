@@ -175,21 +175,32 @@
         </div>
       </div>
 
-      <!-- Manage saved voices. -->
+      <!-- Manage saved voices. `minmax(0,1fr)` + `min-w-0`, not a plain `1fr`: a
+           `1fr` track is `minmax(auto,1fr)`, whose floor is the row's min-content
+           width — so a long voice description widened the track past the sidebar and
+           pushed Re-roll / Remove off screen instead of being truncated. -->
       <div
         v-if="qwen3Tts.savedVoices.length > 0"
-        class="grid grid-cols-[120px_1fr] items-start gap-4"
+        class="grid grid-cols-[120px_minmax(0,1fr)] items-start gap-4"
       >
         <Label class="whitespace-nowrap pt-1">Your voices</Label>
-        <ul class="flex flex-col gap-1">
+        <!-- `list-none pl-0`: Preflight's list reset does not reach this <ul>, so the
+             UA's 20px `padding-inline-start` survived and inset every voice card 20px
+             right of the pickers above it (and made it 20px narrower). -->
+        <ul class="flex min-w-0 list-none flex-col gap-1 pl-0">
           <li
             v-for="voice in qwen3Tts.savedVoices"
             :key="voice.name"
             class="flex items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-1"
           >
-            <div class="min-w-0">
-              <div class="text-sm text-foreground">{{ voice.name }}</div>
-              <div class="truncate text-xs text-muted-foreground">{{ voice.instruct }}</div>
+            <div class="min-w-0 flex-1">
+              <div class="truncate text-sm text-foreground" :title="voice.name">
+                {{ voice.name }}
+              </div>
+              <!-- The full description only fits in a tooltip; the row keeps to one line. -->
+              <div class="truncate text-xs text-muted-foreground" :title="voice.instruct">
+                {{ voice.instruct }}
+              </div>
             </div>
             <div class="flex shrink-0 items-center gap-3">
               <!-- A saved voice keeps the same seed so it sounds the same every

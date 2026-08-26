@@ -252,11 +252,11 @@ export class SpecificSettingsPage {
    * (SettingsTts.vue "Create a custom voice" form): fill the name + description, save,
    * and confirm it lands in the "Your voices" list. Saving makes the new voice the
    * active one (see `saveCurrentVoice` → `applySavedVoice`), so the next synthesis uses
-   * it. Requires the settings sidebar open with the "Text to Speech" preset active.
+   * it. Requires the settings sidebar open with the "Text to Speech" preset active in the Audio mode.
    */
   async createTtsVoice(
     opts: { name: string; description: string },
-    mode: ChatMode = 'Chat',
+    mode: ChatMode = 'Audio',
   ): Promise<void> {
     const panel = this.panel(mode)
     // The form fields are the only inputs carrying these placeholders (name = "e.g.
@@ -293,9 +293,9 @@ export class SpecificSettingsPage {
   /**
    * Select an entry from the "Voice" picker — a built-in speaker (listed as
    * "Ryan — English") or a saved one ("Tammy (your voice)"). Pass a regex to match a
-   * prefix. Requires the settings sidebar open with the "Text to Speech" preset active.
+   * prefix. Requires the settings sidebar open with the "Text to Speech" preset active in the Audio mode.
    */
-  async selectTtsVoice(label: string | RegExp, mode: ChatMode = 'Chat'): Promise<void> {
+  async selectTtsVoice(label: string | RegExp, mode: ChatMode = 'Audio'): Promise<void> {
     await this.selectFromPicker(this.ttsVoiceTrigger(mode), label)
   }
 
@@ -318,7 +318,7 @@ export class SpecificSettingsPage {
    * the "Text to Speech" preset active. The trigger's label reflects the choice once
    * it lands.
    */
-  async selectTtsEngine(label: string, mode: ChatMode = 'Chat'): Promise<void> {
+  async selectTtsEngine(label: string, mode: ChatMode = 'Audio'): Promise<void> {
     await this.selectFromPicker(this.ttsEngineTrigger(mode), label)
   }
 
@@ -337,7 +337,7 @@ export class SpecificSettingsPage {
    * with an earlier one still *creates* the voice rather than re-saving it. No-op when
    * the voice isn't there.
    */
-  async deleteTtsVoiceIfPresent(name: string, mode: ChatMode = 'Chat'): Promise<void> {
+  async deleteTtsVoiceIfPresent(name: string, mode: ChatMode = 'Audio'): Promise<void> {
     const row = this.panel(mode).locator('li').filter({ hasText: name })
     if ((await row.count()) === 0) return
     await row.first().getByRole('button', { name: 'Remove' }).click()
@@ -349,9 +349,9 @@ export class SpecificSettingsPage {
    * giving the voice a new seed (SettingsTts.vue → `rerollVoiceSeed`). The counterpart
    * of the pinned seed — proof that the seed is what fixes the voice, since audio
    * synthesized after a re-roll must differ from audio synthesized before it.
-   * Requires the settings sidebar open with the "Text to Speech" preset active.
+   * Requires the settings sidebar open with the "Text to Speech" preset active in the Audio mode.
    */
-  async rerollTtsVoice(name: string, mode: ChatMode = 'Chat'): Promise<void> {
+  async rerollTtsVoice(name: string, mode: ChatMode = 'Audio'): Promise<void> {
     const row = this.panel(mode).locator('li').filter({ hasText: name })
     await expect(row, `saved voice "${name}" should be listed under "Your voices"`).toHaveCount(1)
     await row.getByRole('button', { name: 'Re-roll' }).click()

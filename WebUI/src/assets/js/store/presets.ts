@@ -213,7 +213,8 @@ const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).extend({
   // When true, this "chat" preset is a direct Text-to-Speech generator rather than an LLM
   // chat: selecting it turns the prompt box into a synthesizer (typed text -> Qwen3-TTS
   // audio, no LLM loaded). The `backends` array is a schema-required placeholder and is
-  // unused. See SettingsTts.vue and the direct-synthesis branch in openAiCompatibleChat.
+  // unused. Lives in the `audio` category (the Audio mode), not `chat`.
+  // See SettingsTts.vue and the direct-synthesis branch in openAiCompatibleChat.
   ttsPreset: z.boolean().optional(),
   // When true, this "chat" preset runs on the agent harness (Pi coding agent in the
   // main process) instead of plain chat inference: selecting it switches the app to
@@ -232,9 +233,10 @@ const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).extend({
   // When true, this "chat" preset is a direct Speech-to-Text transcriber rather than
   // an LLM chat: selecting it turns the prompt box into a record/upload surface
   // (recorded or uploaded audio -> Whisper transcript, no LLM loaded). Like
-  // `ttsPreset`, the `backends` array is a schema-required placeholder and is unused.
-  // OpenVINO-only, so it is filtered out in NVIDIA product mode. See SettingsStt.vue
-  // and the direct-transcribe branch in openAiCompatibleChat.
+  // `ttsPreset`, the `backends` array is a schema-required placeholder and is unused,
+  // and it lives in the `audio` category. OpenVINO-only, so it is filtered out in NVIDIA
+  // product mode. See SettingsStt.vue and the direct-transcribe branch in
+  // openAiCompatibleChat.
   sttPreset: z.boolean().optional(),
   // UI visibility controls
   enableRAG: z.boolean().optional(), // Show "Add Documents" + embeddings selector (default: false)
@@ -268,6 +270,9 @@ export type ChatPreset = z.infer<typeof ChatPresetSchema>
 // ============================================================================
 // Pure derivations
 // ============================================================================
+
+/** Preset category backing the Audio mode (Text to Speech / Speech to Text). */
+export const AUDIO_CATEGORY = 'audio'
 
 /**
  * Whether a ComfyUI preset requires the user to enter a text prompt.
@@ -883,7 +888,8 @@ export const usePresets = defineStore(
       ) as Preset[]
     })
 
-    const chatPresets = computed(() => {
+    /** Chat-type presets the user can actually select, across the Chat and Audio modes. */
+    const selectableChatTypePresets = computed(() => {
       const backendServices = useBackendServices()
       const hasNpuDevice = backendServices.info
         .find((s) => s.serviceName === 'openvino-backend')
@@ -912,6 +918,17 @@ export const usePresets = defineStore(
         return true
       }) as ChatPreset[]
     })
+
+    // The speech presets moved out of Chat into their own Audio mode, so the chat
+    // picker must skip them. Presets without a category stay with Chat (that is
+    // where an uncategorized chat preset has always shown up).
+    const chatPresets = computed(() =>
+      selectableChatTypePresets.value.filter((p) => p.category !== AUDIO_CATEGORY),
+    )
+
+    const audioPresets = computed(() =>
+      selectableChatTypePresets.value.filter((p) => p.category === AUDIO_CATEGORY),
+    )
 
     // ========================================================================
     // Settings Persistence
@@ -956,6 +973,8 @@ export const usePresets = defineStore(
       imageEditPresets,
       videoPresets,
       chatPresets,
+      audioPresets,
+      selectableChatTypePresets,
       activePresetWithVariant,
 
       // Methods

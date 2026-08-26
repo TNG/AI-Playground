@@ -293,7 +293,7 @@
               id="camera-button"
               class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
               variant="secondary"
-              v-if="promptStore.getCurrentMode() === 'chat' && !isSttPreset"
+              v-if="promptStore.getCurrentMode() === 'chat'"
               @click="handleCameraClick"
               title="Capture image from camera"
             >
@@ -303,7 +303,7 @@
               id="microphone-button"
               class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
               variant="secondary"
-              v-if="promptStore.getCurrentMode() === 'chat' && !isSttPreset"
+              v-if="promptStore.getCurrentMode() === 'chat'"
               @click="handleRecordingClick"
               :disabled="
                 (!sttAvailable && !audioRecorder.isRecording) || audioRecorder.isTranscribing
@@ -499,6 +499,13 @@ function presetGate(preset: Preset): { enabled: boolean; reason?: string } {
 // Quick preset picker: which mode's picker popover is currently open (null = none).
 const openPickerMode = ref<ModeType | null>(null)
 
+// Modes that run on chat-type presets and stream their turns into a conversation
+// view. They share the prompt box's text handling (free-form text, cleared after a
+// turn), unlike the ComfyUI modes which keep the prompt around.
+const chatLikeModes: ModeType[] = ['chat', 'agent', 'audio']
+const isChatLikeMode = computed(() => chatLikeModes.includes(promptStore.getCurrentMode()))
+
+
 function presetsForMode(mode: ModeType): Preset[] {
   return presetsStore.getPresetsByCategories(MODE_TO_CATEGORIES[mode], MODE_TO_PRESET_TYPE[mode])
 }
@@ -677,6 +684,8 @@ audioRecorder.registerTranscriptionCallback((text) => {
 
 // Check if images can be attached (vision model selected)
 const canAttachImages = computed(() => {
+  // The Audio mode's presets take text or recorded audio, never an image.
+  if (promptStore.getCurrentMode() === 'audio') return false
   if (promptStore.getCurrentMode() !== 'chat') return true // Allow for image modes
   return textInference.modelSupportsVision
 })
@@ -715,6 +724,7 @@ const shouldShowImageUploadButton = computed(() => {
 const modesWithPresets = computed(() => {
   const modes: ModeType[] = []
   if (presetsStore.chatPresets.length > 0) modes.push('chat')
+  if (presetsStore.audioPresets.length > 0) modes.push('audio')
   if (presetsStore.imageGenPresets.length > 0) modes.push('imageGen')
   if (presetsStore.imageEditPresets.length > 0) modes.push('imageEdit')
   if (presetsStore.videoPresets.length > 0) modes.push('video')
@@ -816,8 +826,8 @@ const isFirstPrompt = computed(() => {
 // Check if prompt is modifiable for ComfyUI presets
 const isPromptModifiable = computed(() => {
   const mode = promptStore.getCurrentMode()
-  // For chat mode, prompt is always modifiable
-  if (mode === 'chat') return true
+  // In the chat-like modes (chat, audio) the prompt is always modifiable
+  if (chatLikeModes.includes(mode)) return true
 
   // For image/video modes, check if there's an active ComfyUI preset
   if (mode === 'imageGen' || mode === 'imageEdit' || mode === 'video') {
@@ -845,9 +855,9 @@ watch(isProcessing, (newValue, oldValue) => {
   }
 
   if (oldValue === true && newValue === false) {
-    const currentMode = promptStore.getCurrentMode()
-    // Only clear prompt for chat/agent modes; persist for ComfyUI modes (imageGen, imageEdit, video)
-    if (currentMode === 'chat' || currentMode === 'agent') {
+    // Only clear the prompt in the chat-like modes (chat, agent, audio); persist it
+    // for the ComfyUI modes (imageGen, imageEdit, video)
+    if (isChatLikeMode.value) {
       processingDebounceTimer.value = window.setTimeout(() => {
         prompt.value = ''
         promptStore.promptSubmitted = false
@@ -917,6 +927,8 @@ function getTextAreaPlaceholder() {
       return languages?.COM_PROMPT_CHAT || ''
     case 'agent':
       return 'Describe a task for the agent to perform in the selected folder...'
+    case 'audio':
+      return languages?.COM_PROMPT_TTS || ''
     case 'imageGen':
       return languages?.COM_PROMPT_IMAGE_GEN || ''
     case 'imageEdit':
@@ -929,8 +941,7 @@ function getTextAreaPlaceholder() {
 }
 
 function handleSubmitPromptClick() {
-  const mode = promptStore.getCurrentMode()
-  const needsPrompt = mode === 'chat' || mode === 'agent' || imageGeneration.requiresUserPrompt
+  const needsPrompt = isChatLikeMode.value || imageGeneration.requiresUserPrompt
   if (needsPrompt && !prompt.value.trim()) {
     toast.error(languages?.COM_ERROR_NO_MESSAGE || 'Please enter a message before sending.')
     return

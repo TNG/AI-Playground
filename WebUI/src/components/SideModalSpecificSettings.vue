@@ -7,12 +7,14 @@
     side="right"
     @close="$emit('close')"
   >
-    <!-- v-if (not v-show): SettingsChat's ModelSelector runs an auto-select
-         watcher that force-switches the shared model selection to match the
-         active chat preset's filters. Keeping it mounted while another mode
-         (e.g. agent) is active would silently override that mode's selection. -->
+    <!-- v-if (not v-show): these panels all drive the same (chat-type) active
+         preset, and SettingsChat's ModelSelector runs an auto-select watcher that
+         force-switches the shared model selection to match the active chat preset's
+         filters. Keeping one mounted while another mode is active would silently
+         override that mode's selection. -->
     <SettingsChat v-if="props.mode == 'chat'" />
-    <SettingsAgent v-if="props.mode == 'agent'" />
+    <SettingsAudio v-else-if="props.mode == 'audio'" />
+    <SettingsAgent v-else-if="props.mode == 'agent'" />
     <SettingsWorkflow
       v-show="props.mode == 'imageGen'"
       :categories="['create-images']"
@@ -35,6 +37,7 @@
 import SideModalBase from '@/components/SideModalBase.vue'
 import SettingsChat from '@/components/SettingsChat.vue'
 import SettingsAgent from '@/components/SettingsAgent.vue'
+import SettingsAudio from '@/components/SettingsAudio.vue'
 import SettingsWorkflow from '@/components/SettingsWorkflow.vue'
 import { mapModeToLabel } from '@/lib/utils.ts'
 

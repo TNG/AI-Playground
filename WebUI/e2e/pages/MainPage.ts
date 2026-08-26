@@ -1,7 +1,7 @@
 import { type Locator, type Page, expect } from '@playwright/test'
 
 /** Prompt-area mode labels (accessible names of the mode buttons). */
-export type ChatMode = 'Chat' | 'Image Gen' | 'Image Edit' | 'Video'
+export type ChatMode = 'Chat' | 'Audio' | 'Image Gen' | 'Image Edit' | 'Video'
 
 /**
  * Page object for the running main view: the prompt area (mode switch, prompt

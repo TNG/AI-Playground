@@ -2237,8 +2237,9 @@ export const useTextInference = defineStore(
     let initialSettingsLoaded = false
 
     // Initialize chat preset settings on startup.
-    // The app always boots into chat mode (the `prompt` store isn't persisted),
-    // so `activePresetName` must resolve to a *chat* preset here. It may not:
+    // `activePresetName` must resolve to a *chat-type* preset here — either a Chat
+    // one or an Audio one (TTS / STT), whose mode `alignModeToActivePreset` then
+    // follows. It may not:
     //   1. First launch: activePresetName is null.
     //   2. Subsequent launches: the persisted activePresetName can point at a
     //      non-chat preset (e.g. an image preset left active after the last
@@ -2251,24 +2252,28 @@ export const useTextInference = defineStore(
     // Note: We set activePresetName / call loadSettingsForActivePreset() directly
     // instead of presetSwitching.switchPreset() because the watcher is synchronous.
     watch(
-      () => presetsStore.chatPresets,
-      (chatPresets) => {
-        if (chatPresets.length > 0 && !initialSettingsLoaded) {
-          const activeIsChatPreset =
+      () => presetsStore.selectableChatTypePresets,
+      (chatTypePresets) => {
+        if (chatTypePresets.length > 0 && !initialSettingsLoaded) {
+          const activeIsChatTypePreset =
             presetsStore.activePresetName != null &&
-            chatPresets.some((p) => p.name === presetsStore.activePresetName)
+            chatTypePresets.some((p) => p.name === presetsStore.activePresetName)
 
-          if (!activeIsChatPreset) {
+          if (!activeIsChatTypePreset) {
+            // Only the Chat mode's own presets are candidates for the fallback: a
+            // launch with nothing usable persisted belongs in Chat, not in Audio.
+            const chatPresets = presetsStore.chatPresets
             const lastUsed = presetsStore.getLastUsedPreset(['chat'])
             const fallback =
               (lastUsed ? chatPresets.find((p) => p.name === lastUsed) : undefined) ??
               [...chatPresets].sort(
                 (a, b) => (b.displayPriority || 0) - (a.displayPriority || 0),
               )[0]
+            if (!fallback) return
             presetsStore.activePresetName = fallback.name
           }
 
-          // Load settings for the (now guaranteed chat) active preset
+          // Load settings for the (now guaranteed chat-type) active preset
           loadSettingsForActivePreset()
           initialSettingsLoaded = true
         }

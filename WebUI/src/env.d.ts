@@ -293,7 +293,11 @@ type WebSearchResults = {
 
 type DemoModePage = 'chat' | 'imageGen' | 'imageEdit' | 'video'
 type WorkflowModeType = 'imageGen' | 'imageEdit' | 'video'
-type ModeType = 'chat' | 'agent' | WorkflowModeType
+// 'audio' hosts the speech presets (Text to Speech / Speech to Text). Like 'chat'
+// it runs on chat-type presets and renders its turns in the Chat view, but it has
+// its own preset category, picker and settings panel.
+type ChatLikeModeType = 'chat' | 'audio'
+type ModeType = ChatLikeModeType | 'agent' | WorkflowModeType
 
 // Agent Mode (Pi coding agent) — see src/types/agentIpc.ts.
 type AgentModeModelConfig = import('./types/agentIpc').AgentModeModelConfig

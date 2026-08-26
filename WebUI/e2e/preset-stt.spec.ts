@@ -1,9 +1,9 @@
 import path from 'path'
 import { test, expect } from './fixtures'
 
-// Speech-to-Text preset: install backends, select the "Speech to Text" preset,
-// upload a fixture WAV, and assert a non-empty transcript is rendered as a chat
-// turn (transcribed by the OpenVINO Whisper server).
+// Speech-to-Text preset: install backends, select the "Speech to Text" preset from
+// the Audio mode, upload a fixture WAV, and assert a non-empty transcript is rendered
+// as a chat turn (transcribed by the OpenVINO Whisper server).
 //
 // STT is OpenVINO-only, so the preset is filtered out of the picker in the NVIDIA
 // product mode — an unavailable preset is the skip signal (mirrors how other specs
@@ -21,7 +21,7 @@ test.describe('Speech to Text', () => {
 
     await app.installAllBackends()
 
-    const available = await app.main.selectPreset('Chat', STT_PRESET)
+    const available = await app.main.selectPreset('Audio', STT_PRESET)
     test.skip(
       !available,
       'OpenVINO is not installable in this product mode — the Speech to Text preset is hidden',

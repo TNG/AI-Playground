@@ -1,6 +1,6 @@
 {
   "type": "chat",
-  "category": "chat",
+  "category": "audio",
   "name": "Speech to Text",
   "description": "Transcribe speech to text with Whisper. No chat model needed — record from your mic or upload an audio file and get the transcript.",
   "displayPriority": 39,

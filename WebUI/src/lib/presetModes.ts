@@ -1,4 +1,4 @@
-import type { ChatPreset, Preset } from '@/assets/js/store/presets'
+import { AUDIO_CATEGORY, type ChatPreset, type Preset } from '@/assets/js/store/presets'
 import { currentPresetName } from '@/lib/presetRenames'
 
 // ── Which view a preset belongs to ───────────────────────────────────────────
@@ -12,12 +12,14 @@ import { currentPresetName } from '@/lib/presetRenames'
  *
  * Chat presets normally mean chat mode, but an `agentPreset` runs on the agent
  * harness instead: it is listed with the chat presets (one list for the user)
- * while rendering Agent Mode. This is the only place that distinction is made —
- * everything downstream keys off the mode.
+ * while rendering Agent Mode. The speech presets (Text to Speech / Speech to
+ * Text) are chat-type too but live in their own Audio mode. This is the only
+ * place those distinctions are made — everything downstream keys off the mode.
  */
 export function presetToMode(preset: Preset): ModeType {
   if (preset.type === 'chat') {
-    return (preset as ChatPreset).agentPreset ? 'agent' : 'chat'
+    if ((preset as ChatPreset).agentPreset) return 'agent'
+    return preset.category === AUDIO_CATEGORY ? 'audio' : 'chat'
   }
 
   // ComfyUI presets - map by category
@@ -41,6 +43,7 @@ export function presetToMode(preset: Preset): ModeType {
 export const MODE_TO_CATEGORIES: Record<ModeType, string[]> = {
   chat: ['chat'],
   agent: ['chat'],
+  audio: [AUDIO_CATEGORY],
   imageGen: ['create-images'],
   imageEdit: ['edit-images'],
   video: ['create-videos'],
@@ -49,6 +52,7 @@ export const MODE_TO_CATEGORIES: Record<ModeType, string[]> = {
 export const MODE_TO_PRESET_TYPE: Record<ModeType, 'chat' | 'comfy'> = {
   chat: 'chat',
   agent: 'chat',
+  audio: 'chat',
   imageGen: 'comfy',
   imageEdit: 'comfy',
   video: 'comfy',

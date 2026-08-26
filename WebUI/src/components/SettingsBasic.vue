@@ -417,7 +417,9 @@ function openSetupWizard() {
 }
 </script>
 
-<style>
+<!-- scoped: `[data-tooltip]` is a bare attribute selector, so unscoped it would claim
+     every element in the app carrying that attribute, not just this panel's two. -->
+<style scoped>
 [data-tooltip]:hover::after {
   display: block;
   position: absolute;

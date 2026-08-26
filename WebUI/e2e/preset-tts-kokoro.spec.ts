@@ -32,11 +32,11 @@ test.describe('Text to Speech (Kokoro)', () => {
     )
 
     await test.step('Select the Text to Speech preset and switch to the Kokoro engine', async () => {
-      const available = await app.main.selectPreset('Chat', TTS_PRESET)
+      const available = await app.main.selectPreset('Audio', TTS_PRESET)
       expect(available, `Preset "${TTS_PRESET}" must be available`).toBe(true)
-      await app.settings.open('Chat')
-      await app.settings.selectTtsEngine(KOKORO_ENGINE)
-      await app.settings.close('Chat')
+      await app.settings.open('Audio')
+      await app.settings.selectTtsEngine(KOKORO_ENGINE, 'Audio')
+      await app.settings.close('Audio')
     })
 
     await test.step('Synthesize speech with Kokoro and expect a playable audio result', async () => {

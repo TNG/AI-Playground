@@ -3,6 +3,7 @@
     <div class="flex flex-col gap-6 p-1">
       <PresetSelector
         type="chat"
+        :categories="['chat']"
         :model-value="presetsStore.activePresetName || undefined"
         @update:model-value="handlePresetChange"
         @update:variant="handleVariantChange"
@@ -25,13 +26,7 @@
         </p>
       </div>
 
-      <!-- TTS preset: a direct Qwen3-TTS synthesizer, no LLM controls. -->
-      <SettingsTts v-if="isTtsPreset" />
-
-      <!-- STT preset: a direct Whisper transcriber, no LLM controls. -->
-      <SettingsStt v-else-if="isSttPreset" />
-
-      <div v-else class="flex flex-col gap-4">
+      <div class="flex flex-col gap-4">
         <!-- Backend selector - only shown when multiple backends are available -->
         <SettingsRow v-if="!isBackendLocked" label="Backend">
           <drop-down-new
@@ -287,8 +282,6 @@ import { useI18N } from '@/assets/js/store/i18n.ts'
 import Rag from '@/components/Rag.vue'
 import SettingsMcp from '@/components/SettingsMcp.vue'
 import SettingsBuiltinTools from '@/components/SettingsBuiltinTools.vue'
-import SettingsTts from '@/components/SettingsTts.vue'
-import SettingsStt from '@/components/SettingsStt.vue'
 import { useBackendServices } from '@/assets/js/store/backendServices.ts'
 import DropDownNew from '@/components/DropDownNew.vue'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets.ts'
@@ -338,12 +331,6 @@ const activeChatPreset = computed(() => {
 const isBackendLocked = computed(() => {
   return activeChatPreset.value?.backends?.length === 1
 })
-
-// Direct Text-to-Speech preset: hides all LLM controls in favour of SettingsTts.
-const isTtsPreset = computed(() => activeChatPreset.value?.ttsPreset === true)
-
-// Direct Speech-to-Text preset: hides all LLM controls in favour of SettingsStt.
-const isSttPreset = computed(() => activeChatPreset.value?.sttPreset === true)
 
 // Active model (capabilities) for the icon row next to the selector — same
 // source as ModelSelector / PromptStatusBar.

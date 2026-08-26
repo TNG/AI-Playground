@@ -395,9 +395,8 @@ function extensionUiContext(): ExtensionUIContext {
 
 /**
  * Hide the tools of capabilities that start dormant. Everything Pi registered is
- * active by default, which is the fast path (see
- * docs/agent-capability-benchmark.md), so this narrows rather than pins the set —
- * tools a third-party extension registered for itself stay untouched.
+ * active by default, which is the fast path, so this narrows rather than pins the
+ * set — tools a third-party extension registered for itself stay untouched.
  */
 function hideDormantTools(session: AgentSession, dormantToolNames: string[]): void {
   if (dormantToolNames.length === 0) return

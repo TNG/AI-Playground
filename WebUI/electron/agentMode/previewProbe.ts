@@ -264,8 +264,6 @@ export type ProbeReport = {
 // A page that draws nothing reads as exactly one colour. The margin above zero
 // only covers a stray pixel or two; a game whose whole scene is one small sprite
 // is legitimately down here, so this deliberately does not ask for much.
-// Exported so the offline judge (scripts/bench/gameJudge) calls a canvas blank at
-// the same threshold the agent's own verdict does.
 export const MIN_INK = 0.0002
 
 /**

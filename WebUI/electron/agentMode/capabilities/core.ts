@@ -6,7 +6,7 @@ import type { ResolvedCapability } from './types.ts'
 // ── The capabilities meta-tool ───────────────────────────────────────────────
 //
 // Only used when the activation policy keeps capabilities dormant (small context
-// windows — see docs/agent-capability-benchmark.md). Dormant capabilities are
+// windows). Dormant capabilities are
 // registered with Pi but not in the active tool set, so their schemas cost
 // nothing until the model asks for them.
 //

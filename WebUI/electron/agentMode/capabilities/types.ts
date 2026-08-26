@@ -151,10 +151,9 @@ export function estimateToolTokens(tools: readonly ToolDefinition[]): number {
 
 /**
  * Share of the context window that capability tool schemas may occupy before
- * they start being kept dormant. See docs/agent-capability-benchmark.md: on a
- * local llama.cpp model, deferring tools is a latency LOSS (activation
- * invalidates the whole prompt cache and re-processes the conversation), so the
- * only reason to defer is running out of room.
+ * they start being kept dormant. On a local llama.cpp model, deferring tools is
+ * a latency LOSS (activation invalidates the whole prompt cache and re-processes
+ * the conversation), so the only reason to defer is running out of room.
  */
 export const LAZY_ACTIVATION_BUDGET = 0.25
 

@@ -528,10 +528,8 @@ only costs: on edit-heavy Game Agent turns — the case n-grams are supposed to 
 `edit` quotes its context verbatim — it drafted 505 more tokens than MTP alone and had 27 _fewer_
 accepted, because at ~87% acceptance MTP has already taken the headroom. `ngram-simple` and
 `ngram-map-k4v` are worse still: both are slower than no speculation at all and both change the
-model's output at `temperature 0`. See
-[`docs/llamacpp-speculative-benchmark.md`](docs/llamacpp-speculative-benchmark.md) for the numbers,
-and note its method — timings on that box swing ±30% between identical runs, so configurations are
-compared on deterministic draft counters, not on stopwatch medians.
+model's output at `temperature 0`. Timings on that box swing ±30% between identical runs, so
+configurations were compared on deterministic draft counters, not on stopwatch medians.
 
 **Thinking is capped for Qwen3.8, and only for Qwen3.8.** `reasoning_effort: low` did not stop it
 drafting: a Game Agent run spent 20 minutes and ~6k tokens writing the whole asteroids game inside

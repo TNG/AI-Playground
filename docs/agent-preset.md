@@ -56,8 +56,7 @@ directly.
 The practical difference from Basic Chat is that Agent spends a large part of the context
 window before your task even starts — harness instructions, tool schemas, skill announcements.
 On a small model that is attention taken away from your problem, which is why a plain chat can
-out-write it on a self-contained task (see
-[the capability benchmark](agent-capability-benchmark.md)). Reach for Agent when the work
+out-write it on a self-contained task. Reach for Agent when the work
 _is_ the folder, not when you just want code in a reply.
 
 The difference from Game Agent is aim, not power. Game Agent is this same harness with a
@@ -126,5 +125,4 @@ persisted selection of it falls back to another chat preset at boot.
   the place to _try out_ capability combinations before they become their own preset?
 - Should the workspace picker default somewhere (Documents/AI Playground) instead of starting
   empty?
-- Do we want a "Lite" variant with only the file tools, as the benchmark suggests for small
-  models?
+- Do we want a "Lite" variant with only the file tools, for small-context runs?

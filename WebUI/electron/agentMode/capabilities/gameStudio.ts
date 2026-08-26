@@ -25,8 +25,7 @@ import {
 //
 // Skills are the right shape for that part: only the name and description sit in
 // the system prompt, and the model reads the body when a request actually calls
-// for a game (see docs/agent-capability-benchmark.md on why that is the cheap
-// direction).
+// for a game.
 //
 // The one tool it does add is `game`, which writes the library card — title,
 // description, icon. That is metadata about the folder the agent is working in, so

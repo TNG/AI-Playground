@@ -2,9 +2,9 @@ export const TITLE_BAR_HEIGHT = 58
 
 type Hsl = readonly [number, number, number]
 
-// Matches WebUI/src/assets/css/index.css --background/--foreground (light uses --muted).
+// Header composites to --background; --muted on light was a visible grey-blue block.
 const OVERLAY_HSL: Record<Theme, { color: Hsl; symbolColor: Hsl }> = {
-  light: { color: [210, 40, 96.1], symbolColor: [222.2, 47.4, 11.2] },
+  light: { color: [0, 0, 100], symbolColor: [222.2, 47.4, 11.2] },
   dark: { color: [280, 50, 5], symbolColor: [280, 5, 90] },
   lnl: { color: [209, 58, 10], symbolColor: [209, 5, 95] },
   bmg: { color: [280, 50, 10], symbolColor: [280, 5, 90] },

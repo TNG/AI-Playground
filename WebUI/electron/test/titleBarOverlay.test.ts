@@ -29,6 +29,10 @@ describe('titleBarOverlayForTheme', () => {
     }
   })
 
+  it('matches the light header’s solid --background, not --muted', () => {
+    expect(titleBarOverlayForTheme('light').color).toBe('#ffffff')
+  })
+
   it('uses dark symbols on the light theme and light symbols on dark themes', () => {
     expect(luminance(titleBarOverlayForTheme('light').symbolColor)).toBeLessThan(
       luminance(titleBarOverlayForTheme('light').color),

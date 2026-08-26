@@ -96,6 +96,13 @@ followed them. The folder is the artifact and it does not move; the hand-over me
 what was built, what is wanted, and that `index.html` is the whole game with no `game.js`. The
 one-shot session stays in the panel as the record of how the game was made.
 
+The tool is also the only way a game crosses from one preset to the other. Picking a different
+agent preset from the list always starts a blank session — the last game stays in the panel and is
+reopened from there — because a session's capabilities are frozen on its record while its
+instructions come from the live preset, so continuing one under the other preset means one
+preset's prompt driving the other's toolbox. Quick Coder's own prompt, for instance, tells the
+model there is no browser and nothing to read back, which is exactly wrong for Game Agent.
+
 ## Turning it on
 
 Hidden by default because it is experimental: it can overrun a small model, and it writes to a

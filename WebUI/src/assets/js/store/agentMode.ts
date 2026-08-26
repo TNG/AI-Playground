@@ -116,6 +116,11 @@ export const useAgentMode = defineStore(
       () => activeAgentPreset.value?.agentWorkspace ?? 'pick',
     )
 
+    function workspaceKindOf(presetName: string): 'pick' | 'games' {
+      const preset = presetsStore.presets.find((entry) => entry.name === presetName)
+      return preset?.type === 'chat' ? ((preset as ChatPreset).agentWorkspace ?? 'pick') : 'pick'
+    }
+
     const currentGame = ref<GameLibraryEntry | null>(null)
     const lastWorkspaceByKind = ref<Record<string, string>>({})
     const defaultCapabilities = ref<string[]>([...DEFAULT_CAPABILITIES])
@@ -126,7 +131,8 @@ export const useAgentMode = defineStore(
 
     const sessions = ref<Record<string, AgentSessionRecord>>({})
     const activeSessionId = ref<string>('')
-    let restoringSession = false
+    /** Set while a session is deliberately moved between presets, so the watcher below leaves it. */
+    let movingSession = false
 
     const presetSessions = computedPresetSessions(sessions, agentPresetName)
     const sessionCapabilities = ref<string[] | null>(null)
@@ -239,7 +245,12 @@ export const useAgentMode = defineStore(
     const contextUsage = computed(() => latestTurnMetadata(messages.value, 'contextUsage'))
     const lastStepUsage = computed(() => latestTurnMetadata(messages.value, 'lastStep'))
 
-    function snapshotActiveSession(): void {
+    /**
+     * `presetName` is the preset that held the session, which is the current one
+     * except while leaving it: a turn that was still running has no record yet,
+     * and would otherwise be filed under the preset it is moving to.
+     */
+    function snapshotActiveSession(presetName: string = agentPresetName.value): void {
       const id = activeSessionId.value
       if (!id || !workspaceDir.value) return
       const record = snapshotSession({
@@ -248,7 +259,7 @@ export const useAgentMode = defineStore(
         messages: chat.messages as UIMessage[],
         existing: sessions.value[id],
         capabilities: capabilities.value,
-        presetName: agentPresetName.value,
+        presetName,
       })
       if (!record) return
       sessions.value = { ...sessions.value, [id]: record }
@@ -272,7 +283,7 @@ export const useAgentMode = defineStore(
       // Tears down the live Pi session and preview server for the conversation
       // we are leaving; the next prompt rebuilds them for `id`.
       await stop()
-      restoringSession = true
+      movingSession = true
       try {
         if (target.presetName && target.presetName !== agentPresetName.value) {
           await presetSwitching.switchPreset(target.presetName)
@@ -287,7 +298,7 @@ export const useAgentMode = defineStore(
         restoreActiveSession()
         await refreshCurrentGame()
       } finally {
-        restoringSession = false
+        movingSession = false
       }
     }
 
@@ -348,9 +359,17 @@ export const useAgentMode = defineStore(
     }): Promise<void> {
       // No agent preset is memory-gated, and this switch answers a card the
       // user already said yes to — a modal here would only stall it.
-      const switched = await presetSwitching.switchPreset(GAME_AGENT_PRESET, {
-        skipMemoryAlert: true,
-      })
+      // `movingSession` keeps the preset watcher from blanking the very folder
+      // being handed over before `newSession()` below reaches it.
+      movingSession = true
+      let switched: { success: boolean; error?: string }
+      try {
+        switched = await presetSwitching.switchPreset(GAME_AGENT_PRESET, {
+          skipMemoryAlert: true,
+        })
+      } finally {
+        movingSession = false
+      }
       if (!switched.success) {
         errors.report(new Error(switched.error ?? 'Could not switch preset.'), {
           category: 'unknown',
@@ -452,19 +471,37 @@ export const useAgentMode = defineStore(
 
     watch(
       agentWorkspaceKind,
-      async (kind, previous) => {
-        if (restoringSession) return
-        if (previous === undefined) {
-          await reconcileWorkspaceKind()
-          return
-        }
-        if (kind === previous) return
-        lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, [previous]: workspaceDir.value }
-        const restored = lastWorkspaceByKind.value[kind] ?? ''
-        if (restored !== workspaceDir.value) await adoptWorkspace(restored)
+      async (_kind, previous) => {
+        if (movingSession) return
+        if (previous === undefined) await reconcileWorkspaceKind()
       },
       { immediate: true },
     )
+
+    /**
+     * Switching agent preset by hand always starts a blank session for the new
+     * preset. A session's capabilities are frozen on its record while the
+     * instructions are read live off the active preset, so continuing one under
+     * another preset runs that preset's prompt against the wrong toolbox. The
+     * `offer_game_agent` hand-over is the one way a game crosses over, and it
+     * sets `movingSession` to keep its folder.
+     */
+    watch(agentPresetName, async (name, previous) => {
+      if (!previous || name === previous || movingSession) return
+      snapshotActiveSession(previous)
+      lastWorkspaceByKind.value = {
+        ...lastWorkspaceByKind.value,
+        [workspaceKindOf(previous)]: workspaceDir.value,
+      }
+      if (agentWorkspaceKind.value === 'games') {
+        await newGame()
+        return
+      }
+      await stop()
+      workspaceDir.value = lastWorkspaceByKind.value.pick ?? ''
+      await newSession()
+      await refreshCurrentGame()
+    })
 
     async function generate(prompt: string): Promise<void> {
       // Game Agent never asks for a folder: the first turn of a game mints one.

@@ -176,8 +176,11 @@ async function offerDuringTurn(input: Record<string, unknown>, accept: boolean):
   await vi.waitFor(() => expect(switchPreset.mock.calls.length).toBe(accept ? 1 : 0))
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  // Back to Quick Coder first and let the preset watcher blank the session it
+  // finds there, so the game seeded below survives into the test.
   activePreset.value = QUICK_CODER
+  await new Promise((resolve) => setTimeout(resolve, 0))
   switchPreset.mockClear()
   submitToolResult.mockClear()
   executeAgentTool.mockClear()

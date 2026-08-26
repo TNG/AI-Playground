@@ -950,6 +950,21 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   Agent keeps its own list. The panel's **+** means "new game" under a games preset
   (`agentMode.startNew()`). Sessions from before `presetName` are migrated on hydration by
   their folder.
+- **Changing the agent preset by hand always starts a blank session**, in either direction and
+  for every pair of agent presets. A session cannot be carried across: its capabilities are
+  frozen on its record while the instructions are read live off the active preset, so a Quick
+  Coder session continued under Game Agent gets Game Agent's prompt with `game-studio-quick`'s
+  toolbox — told to `read` a skill with a tool it does not have — and the growing transcript
+  stays filed under the preset that is no longer driving it. The watcher hangs off
+  `agentPresetName` (`store/agentMode.ts`), which follows agent presets only, so the image-gen
+  preset a `media` call borrows mid-turn changes nothing; it snapshots under the preset being
+  left (which is why `snapshotActiveSession` takes one — a turn still running has no record yet)
+  and then blanks: no folder for a games preset, the last picked folder for Agent. The old
+  session stays in the panel and is reopened deliberately from there, which is the one thing
+  `movingSession` suppresses the watcher for.
+- **`offer_game_agent` is the only way a game moves between presets**, and it moves the folder,
+  not the session (below): `startGameAgentHandoff` holds `movingSession` across its
+  `switchPreset` so the game it is handing over is not blanked out from under it.
 - The game bar's cover image goes through `aipg-media://games/<folder>/<icon>` — the app window
   cannot load `file://` images, so the scheme serves the game library as a second root next to
   the media folder (`aipgMediaRoots` in `electron/main.ts`).

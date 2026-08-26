@@ -1,13 +1,13 @@
 export const TITLE_BAR_HEIGHT = 58
+export const OVERLAY_COLOR_TRANSPARENT = '#00000000'
 
 type Hsl = readonly [number, number, number]
 
-// Header composites to --background; --muted on light was a visible grey-blue block.
-const OVERLAY_HSL: Record<Theme, { color: Hsl; symbolColor: Hsl }> = {
-  light: { color: [0, 0, 100], symbolColor: [222.2, 47.4, 11.2] },
-  dark: { color: [280, 50, 5], symbolColor: [280, 5, 90] },
-  lnl: { color: [209, 58, 10], symbolColor: [209, 5, 95] },
-  bmg: { color: [280, 50, 10], symbolColor: [280, 5, 90] },
+const OVERLAY_SYMBOL_HSL: Record<Theme, Hsl> = {
+  light: [222.2, 47.4, 11.2],
+  dark: [280, 5, 90],
+  lnl: [209, 5, 95],
+  bmg: [280, 5, 90],
 }
 
 export type TitleBarOverlayOptions = {
@@ -31,10 +31,10 @@ export function hslToHex(h: number, sPercent: number, lPercent: number): string 
 }
 
 export function titleBarOverlayForTheme(theme: Theme): TitleBarOverlayOptions {
-  const { color, symbolColor } = OVERLAY_HSL[theme]
   return {
-    color: hslToHex(...color),
-    symbolColor: hslToHex(...symbolColor),
+    // Header is translucent over themed wallpaper/pattern; an opaque overlay cannot match it.
+    color: OVERLAY_COLOR_TRANSPARENT,
+    symbolColor: hslToHex(...OVERLAY_SYMBOL_HSL[theme]),
     height: TITLE_BAR_HEIGHT,
   }
 }

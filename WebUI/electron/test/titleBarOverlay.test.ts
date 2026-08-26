@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   TITLE_BAR_HEIGHT,
+  OVERLAY_COLOR_TRANSPARENT,
   hslToHex,
   mainWindowChromeOptions,
   titleBarOverlayForTheme,
@@ -24,23 +25,20 @@ describe('titleBarOverlayForTheme', () => {
     for (const theme of ['dark', 'lnl', 'bmg', 'light'] as const) {
       const overlay = titleBarOverlayForTheme(theme)
       expect(overlay.height).toBe(TITLE_BAR_HEIGHT)
-      expect(overlay.color).toMatch(HEX)
+      expect(overlay.color).toBe(OVERLAY_COLOR_TRANSPARENT)
       expect(overlay.symbolColor).toMatch(HEX)
     }
   })
 
-  it('matches the light header’s solid --background, not --muted', () => {
-    expect(titleBarOverlayForTheme('light').color).toBe('#ffffff')
+  it('keeps the overlay background transparent so the header shows through', () => {
+    expect(titleBarOverlayForTheme('light').color).toBe('#00000000')
+    expect(titleBarOverlayForTheme('bmg').color).toBe('#00000000')
   })
 
   it('uses dark symbols on the light theme and light symbols on dark themes', () => {
-    expect(luminance(titleBarOverlayForTheme('light').symbolColor)).toBeLessThan(
-      luminance(titleBarOverlayForTheme('light').color),
-    )
+    expect(luminance(titleBarOverlayForTheme('light').symbolColor)).toBeLessThan(128)
     for (const theme of ['dark', 'lnl', 'bmg'] as const) {
-      expect(luminance(titleBarOverlayForTheme(theme).symbolColor)).toBeGreaterThan(
-        luminance(titleBarOverlayForTheme(theme).color),
-      )
+      expect(luminance(titleBarOverlayForTheme(theme).symbolColor)).toBeGreaterThan(128)
     }
   })
 })

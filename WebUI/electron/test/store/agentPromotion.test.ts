@@ -13,8 +13,8 @@ type ToolCall = {
 
 // Quick Coder writes a game once and cannot revise it, so it can offer to hand
 // the game to Game Agent. What these tests cover is that whole path: the tool
-// call arriving from the main process, the card the user answers, and the
-// session ending up under the preset that can work on what was written.
+// call arriving from the main process, the card the user answers, and the fresh
+// session that then starts on their request by itself.
 
 const QUICK_CODER: ChatPreset = {
   type: 'chat',
@@ -79,14 +79,22 @@ vi.mock('@/assets/js/tools/agentBridge', () => ({
   getAgentToolSpecs: () => [],
 }))
 
+const sendMessage = vi.fn()
+
 vi.mock('@ai-sdk/vue', () => ({
   Chat: class {
     messages: unknown[] = []
     error = undefined
-    sendMessage = vi.fn()
+    sendMessage = sendMessage
     stop = vi.fn()
   },
 }))
+
+const SPACE_DODGER = {
+  dir: '/games/space-dodger',
+  name: 'Space Dodger',
+  description: 'Dodge asteroids for as long as you can.',
+}
 
 const submitToolResult = vi.fn(async () => {})
 let dispatchTool: ((request: ToolCall) => void | Promise<void>) | undefined
@@ -108,7 +116,8 @@ globalThis.window = {
         return () => {}
       }),
     },
-    games: { read: vi.fn(async () => null), list: vi.fn(async () => []) },
+    // A folder that already holds a game, or the hand-over turn would mint one.
+    games: { read: vi.fn(async () => SPACE_DODGER), list: vi.fn(async () => []) },
   },
 } as unknown as Window & typeof globalThis
 
@@ -143,6 +152,7 @@ function seedQuickCoderGame(): void {
   }
   store.activeSessionId = 'qc-1'
   store.workspaceDir = '/games/space-dodger'
+  store.currentGame = SPACE_DODGER as never
 }
 
 /** Answer the offer the tool call put up, once it exists. */
@@ -151,32 +161,51 @@ async function answerOffer(accept: boolean): Promise<void> {
   confirmations.resolve(confirmations.items[0].id, accept)
 }
 
+/** A tool only runs inside a turn, and the switch waits for that turn to end. */
+async function offerDuringTurn(input: Record<string, unknown>, accept: boolean): Promise<void> {
+  store.processing = true
+  const dispatched = dispatchTool?.({
+    requestId: 'req-1',
+    toolCallId: 'call-1',
+    toolName: 'offerGameAgent',
+    input,
+  })
+  await answerOffer(accept)
+  await dispatched
+  store.processing = false
+  await vi.waitFor(() => expect(switchPreset.mock.calls.length).toBe(accept ? 1 : 0))
+}
+
 beforeEach(() => {
   activePreset.value = QUICK_CODER
   switchPreset.mockClear()
   submitToolResult.mockClear()
   executeAgentTool.mockClear()
+  sendMessage.mockClear()
   seedQuickCoderGame()
 })
 
 describe('offering the switch to Game Agent', () => {
-  it('moves the session to Game Agent when the user accepts', async () => {
-    const dispatched = dispatchTool?.({
-      requestId: 'req-1',
-      toolCallId: 'call-1',
-      toolName: 'offerGameAgent',
-      input: { reason: 'the ship keeps moving after you let go' },
-    })
-
-    await answerOffer(true)
-    await dispatched
+  it('starts a Game Agent session on the game when the user accepts', async () => {
+    await offerDuringTurn(
+      {
+        reason: 'the ship keeps moving after you let go',
+        summary: 'Canvas shooter. Arrows move the ship, space fires.',
+      },
+      true,
+    )
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalled())
 
     expect(switchPreset).toHaveBeenCalledWith('Game Agent', { skipMemoryAlert: true })
-    // Same conversation and folder, under the preset that can change the game.
-    expect(store.sessions['qc-1'].presetName).toBe('Game Agent')
-    expect(store.sessions['qc-1'].capabilities).toEqual(['media', 'web-debug', 'game-studio'])
-    expect(store.sessions['qc-1'].workspaceDir).toBe('/games/space-dodger')
-    expect(store.activeSessionId).toBe('qc-1')
+    // A fresh conversation on the same folder: the one-shot run stays as it was,
+    // under the preset it was held with.
+    expect(store.activeSessionId).not.toBe('qc-1')
+    expect(store.sessions['qc-1'].presetName).toBe('Quick Coder')
+    expect(store.workspaceDir).toBe('/games/space-dodger')
+    // Everything Game Agent is told about the game it just inherited.
+    const { text } = sendMessage.mock.calls[0][0] as { text: string }
+    expect(text).toContain('Arrows move the ship')
+    expect(text).toContain('keeps moving after you let go')
     // The turn's remaining steps have to know they are no longer the ones
     // writing the game.
     expect(submitToolResult).toHaveBeenCalledWith(
@@ -186,21 +215,35 @@ describe('offering the switch to Game Agent', () => {
     expect(executeAgentTool).not.toHaveBeenCalled()
   })
 
-  it('leaves the session where it is when the user declines', async () => {
+  // The offering turn is still open when the tool answers, and a second turn
+  // inside it would run against the preset that is about to be left behind.
+  it('waits for the offering turn to end before switching', async () => {
+    store.processing = true
     const dispatched = dispatchTool?.({
       requestId: 'req-2',
       toolCallId: 'call-2',
       toolName: 'offerGameAgent',
-      input: { reason: 'make the rocks faster' },
+      input: { reason: 'add a boss', summary: 'Canvas shooter.' },
     })
-
-    await answerOffer(false)
+    await answerOffer(true)
     await dispatched
 
     expect(switchPreset).not.toHaveBeenCalled()
+    expect(store.activeSessionId).toBe('qc-1')
+
+    store.processing = false
+    await vi.waitFor(() => expect(switchPreset).toHaveBeenCalled())
+  })
+
+  it('leaves the session where it is when the user declines', async () => {
+    await offerDuringTurn({ reason: 'make the rocks faster', summary: 'Canvas shooter.' }, false)
+
+    expect(switchPreset).not.toHaveBeenCalled()
+    expect(sendMessage).not.toHaveBeenCalled()
+    expect(store.activeSessionId).toBe('qc-1')
     expect(store.sessions['qc-1'].presetName).toBe('Quick Coder')
     expect(submitToolResult).toHaveBeenCalledWith(
-      'req-2',
+      'req-1',
       expect.objectContaining({ accepted: false }),
     )
   })
@@ -208,14 +251,12 @@ describe('offering the switch to Game Agent', () => {
   // Otherwise a question the user can no longer answer would sit in the
   // transcript, and the tool waiting on it would never return.
   it('declines an unanswered offer when the turn ends', async () => {
-    // A tool only runs inside a turn, and it is that turn ending which has to
-    // settle the card.
     store.processing = true
     const dispatched = dispatchTool?.({
       requestId: 'req-3',
       toolCallId: 'call-3',
       toolName: 'offerGameAgent',
-      input: { reason: 'add a boss' },
+      input: { reason: 'add a boss', summary: 'Canvas shooter.' },
     })
 
     await vi.waitFor(() => expect(confirmations.items).toHaveLength(1))
@@ -223,21 +264,7 @@ describe('offering the switch to Game Agent', () => {
     await dispatched
 
     expect(confirmations.items).toHaveLength(0)
-    expect(store.sessions['qc-1'].presetName).toBe('Quick Coder')
-  })
-})
-
-describe('promoteToGameAgent', () => {
-  it('is offered while Quick Coder holds a game, and not afterwards', async () => {
-    store.currentGame = { dir: '/games/space-dodger', name: 'Space Dodger' } as never
-    expect(store.canPromoteToGameAgent).toBe(true)
-
-    expect(await store.promoteToGameAgent()).toBe(true)
-    expect(store.canPromoteToGameAgent).toBe(false)
-  })
-
-  it('has nothing to offer before a game exists', () => {
-    store.currentGame = null
-    expect(store.canPromoteToGameAgent).toBe(false)
+    expect(switchPreset).not.toHaveBeenCalled()
+    expect(store.activeSessionId).toBe('qc-1')
   })
 })

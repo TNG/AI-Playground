@@ -289,6 +289,12 @@ describe('resolveCapabilities', () => {
     // The library card, plus the way out: a one-shot run cannot revise the game
     // it wrote, so it can offer to hand it to Game Agent instead.
     expect(registry.tools.map((tool) => tool.name)).toEqual(['game', 'offer_game_agent'])
+    // The session Game Agent takes over in starts empty, so the summary asked
+    // for here is the only account of the game it ever gets.
+    const offer = registry.tools.find((tool) => tool.name === 'offer_game_agent') as {
+      parameters?: { required?: string[] }
+    }
+    expect(offer.parameters?.required).toEqual(['reason', 'summary'])
   })
 
   it('leaves the iterative game preset planning on disk, with the full session', async () => {

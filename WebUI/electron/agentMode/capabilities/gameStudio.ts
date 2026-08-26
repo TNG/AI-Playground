@@ -52,9 +52,10 @@ const GAME_STUDIO_SKILL: SkillSource = {
     '',
     'One workspace looks different: **no `game.js`**. Then `index.html` is a whole game already —',
     'written in one shot elsewhere and handed to you — and the request is a change to something',
-    'that plays, not a game to build. `read index.html`, change it with `edit`, play-test. Keep it',
-    'a single file, skip `design.md` unless what they want is big enough to need a plan, and do',
-    'not lay the scaffold down over it or start the game again.',
+    'that plays, not a game to build. The hand-over message that opens the conversation is all',
+    'you are told about it; the file is the truth, so `read index.html` first, change it with',
+    '`edit`, play-test. Keep it a single file, skip `design.md` unless what they want is big',
+    'enough to need a plan, and do not lay the scaffold down over it or start the game again.',
     '',
     'Work in short cycles: one section, one `edit`, keep going. Do not compose code while you',
     'think — nothing you write there can be play-tested, and it is code you have to write twice.',
@@ -284,8 +285,15 @@ const OFFER_GAME_AGENT_INPUT_SCHEMA: Record<string, unknown> = {
         'What the user asked for, in one sentence and in their terms. It is shown to them on ' +
         'the offer, e.g. "the ship keeps moving after you let go of the key".',
     },
+    summary: {
+      type: 'string',
+      description:
+        'Two or three sentences for the agent taking over, which never sees this conversation: ' +
+        'the game you wrote, its controls, the entities and their state, and anything you left ' +
+        'unfinished or know to be shaky.',
+    },
   },
-  required: ['reason'],
+  required: ['reason', 'summary'],
 }
 
 async function buildQuickTools(host: CapabilityHost): Promise<ToolDefinition[]> {
@@ -296,19 +304,19 @@ async function buildQuickTools(host: CapabilityHost): Promise<ToolDefinition[]> 
       name: 'offer_game_agent',
       label: 'offer_game_agent',
       description:
-        'Offer to hand this game over to Game Agent, which keeps the same folder and ' +
-        'conversation but can read and edit the file you wrote, play-test it in a browser and ' +
-        'generate art for it. Call this when the user reports a bug, asks to change a game ' +
-        'that is already written, or asks for something you have no tool for. The result says ' +
-        'whether they accepted.',
+        'Offer to hand this game over to Game Agent, which keeps the same folder but can read ' +
+        'and edit the file you wrote, play-test it in a browser and generate art for it. Call ' +
+        'this when the user reports a bug, asks to change a game that is already written, or ' +
+        'asks for something you have no tool for. If they accept, Game Agent starts on their ' +
+        'request itself, from the summary you send. The result says whether they accepted.',
       parameters: jsonSchemaParameters(OFFER_GAME_AGENT_INPUT_SCHEMA),
       execute: async (toolCallId, params, signal) => {
-        const { reason } = params as { reason?: string }
+        const { reason, summary } = params as { reason?: string; summary?: string }
         // The offer is a card in the renderer's transcript and the switch is
         // Pinia state, so both live there (`storeTools` in agentModeTurn.ts).
         const result = await executeToolInRenderer(
           OFFER_GAME_AGENT_TOOL,
-          { reason: reason ?? '' },
+          { reason: reason ?? '', summary: summary ?? '' },
           toolCallId,
           signal ?? undefined,
         )

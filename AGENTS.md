@@ -972,23 +972,35 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   of the Agent Settings checkbox list (`listCapabilities`): ticked next to another preset's agent it
   would take that agent's prompt and tools away. Use it to check the low-context path; iterative
   Game Agent is unchanged and remains the one with art and play-testing.
-- **A one-shot session can be handed to Game Agent, and that is the only way to revise its
-  game.** With `write` as its only file tool Quick Coder cannot read back what it wrote, so a bug
-  report or a change is not something it can answer. `agentMode.promoteToGameAgent()` re-tags the
-  session record (`promoteSession` overwrites `presetName` _and_ `capabilities`, which
-  `snapshotSession` otherwise freezes — leave the capabilities and the next archive puts `write`
-  back) and switches preset; the folder, the session id and the transcript stay, so the Pi session
-  rebuilds on the same history rather than starting over. Two surfaces reach it: **Continue in
-  Game Agent** in the game bar, and the agent's own `offer_game_agent` tool, which puts the switch
-  to the user as a `ChatConfirmation` card (Agent Mode mounts one, keyed by the session) and takes
-  it only if they accept. That tool is dispatched by name through `storeTools` on
-  `createAgentTurnRuntime` rather than `tools/agentBridge`: the bridge is inside the store's own
-  import graph, so reaching back into the store from there closes a cycle and drags the whole
-  store graph into everything the bridge loads from (it broke an unrelated test the first time).
-  Game Agent must not have the tool — it already has what the offer buys. Since the switch does
-  not restart anything, Game Agent can open a folder with **no `game.js`**: its prompt and the
-  `html-game-studio` skill both say that `index.html` is then a finished single-file game to
-  change, not a scaffold to grow.
+- **A one-shot game is handed to Game Agent, and that is the only way to revise it.** With
+  `write` as its only file tool Quick Coder cannot read back what it wrote, so a bug report or a
+  change is not something it can answer. Its `offer_game_agent` tool puts the switch to the user
+  as a `ChatConfirmation` card (Agent Mode mounts one, keyed by the session) and asks the model
+  for two things: the request in the user's words, which the card shows, and a `summary` of the
+  game written for the agent taking over. Game Agent must not have the tool — it already has what
+  the offer buys. It is dispatched by name through `storeTools` on `createAgentTurnRuntime`
+  rather than `tools/agentBridge`: the bridge is inside the store's own import graph, so reaching
+  back into the store from there closes a cycle and drags the whole store graph into everything
+  the bridge loads from (it broke an unrelated test the first time).
+  - **The switch runs after the offering turn ends, and runs the first Game Agent turn itself.**
+    Accepting only records `pendingHandoff`; the store's `watch(processing)` — the same one that
+    settles abandoned confirmation cards — then switches preset, starts a session and sends
+    `gameAgentHandoffPrompt` as its first message, so the user watches the work continue instead
+    of being handed a prompt box. It cannot happen inside the tool: `generate()` there would nest
+    a turn inside the open one, and moving the preset mid-turn would file the one-shot run itself
+    under Game Agent (`snapshotSession` freezes `presetName` only on a record that already
+    exists).
+  - **It is a new session, not the old one re-tagged.** Re-tagging kept the transcript, and that
+    was the problem: a Quick Coder transcript is a plan and one `write`, written under
+    instructions ("there is no browser", "you cannot read the file back") that are wrong for the
+    agent inheriting it, and models followed them. The new session starts empty on the same
+    folder, so the hand-over message is the whole context: what was built (the model's `summary`,
+    or the library card when it sent none), what the user asked for, and that the folder holds a
+    single `index.html` with no `game.js`. The one-shot record is kept — both sessions list under
+    either games preset, and `adoptWorkspace`'s latest-wins reopens the Game Agent one.
+  - Game Agent's prompt and the `html-game-studio` skill both say that a folder with **no
+    `game.js`** holds a finished single-file game to change, not a scaffold to grow, and that the
+    hand-over message is all it will be told about how the game came about.
 - **Gotcha:** a `media` call temporarily switches the active preset to an image-gen one, so
   anything derived from the active preset must not follow it — `agentMode.activeAgentPreset`
   remembers the last agent preset for exactly this reason (following it live aborted the turn

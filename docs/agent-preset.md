@@ -81,15 +81,20 @@ when the game should be illustrated and tested.
 
 That leaves Quick Coder unable to follow up on its own game: it cannot read the file it wrote,
 try it, or draw for it, so "the ship keeps moving after you let go" can only be answered by
-writing the whole thing again from memory. So it does not try — a session can be handed to Game
-Agent, which keeps the same folder and the same conversation but arrives with `read`, `edit`,
-`browser` and `media`. The user can do it from the game bar ("Continue in Game Agent"), and the
-agent can offer it: its `offer_game_agent` tool puts the switch up as a card in the transcript,
-and accepting re-tags the session (`promoteSession`) and switches preset. The session record is
-moved rather than copied — the folder is the artifact, and a second session on it would split
-the history. Nothing is torn down: the Pi session's config key covers instructions and
-capabilities, so the next turn rebuilds it on the same session id and folder and reopens the
-transcript it already has.
+writing the whole thing again from memory. So it does not try — it hands the game to Game Agent,
+which takes the same folder and arrives with `read`, `edit`, `browser` and `media`. Its
+`offer_game_agent` tool puts the switch up as a card in the transcript and asks the model for
+both the request in the user's words and a summary of the game for whoever takes it on.
+
+Accepting does not switch anything on the spot: it records the hand-over, the offering turn ends
+with a line to the user, and the store's `watch(processing)` then switches preset, starts a
+session and sends `gameAgentHandoffPrompt` as its first message — so Game Agent picks the request
+up by itself rather than leaving the user at a prompt box. The session is new rather than the old
+one re-tagged, because a Quick Coder transcript is written under instructions that are wrong for
+the agent inheriting it ("there is no browser", "you cannot read the file back") and models
+followed them. The folder is the artifact and it does not move; the hand-over message carries
+what was built, what is wanted, and that `index.html` is the whole game with no `game.js`. The
+one-shot session stays in the panel as the record of how the game was made.
 
 ## Turning it on
 

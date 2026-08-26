@@ -175,21 +175,34 @@ export function snapshotSession(options: {
 }
 
 /**
- * Hand a session over to another agent preset. `snapshotSession` freezes
- * `presetName` and `capabilities` so changing a default never re-equips an
- * ongoing conversation — which is exactly what a deliberate promotion has to
- * overwrite, and both of them: a Quick Coder record left with `write` as its
- * only tool would be archived back onto the next Game Agent turn.
- *
- * The clock is left alone. Re-tagging is not work on the transcript, and moving
- * it would reorder the Sessions panel for a switch that changed no messages.
+ * The first message of the session Game Agent takes a one-shot game over in. It
+ * starts empty on purpose — a Quick Coder transcript is a plan and one `write`,
+ * under instructions ("there is no browser", "you cannot read the file back")
+ * that are wrong for the agent now holding the folder — so this is the only
+ * context it gets: what was built, what the user asked for next, and the one
+ * thing about the folder it would otherwise assume wrongly.
  */
-export function promoteSession(
-  session: AgentSessionRecord,
-  presetName: string,
-  capabilities: string[],
-): AgentSessionRecord {
-  return { ...session, presetName, capabilities: [...capabilities] }
+export function gameAgentHandoffPrompt(options: {
+  summary: string
+  request: string
+  gameName?: string
+  gameDescription?: string
+}): string {
+  const card = [options.gameName?.trim(), options.gameDescription?.trim()]
+    .filter(Boolean)
+    .join(' — ')
+  const built = options.summary.trim() || card || 'A browser game, written in one step.'
+  const request = options.request.trim()
+  return [
+    'Taking over a game another agent wrote in one step. You did not see that conversation.',
+    '',
+    `What it built: ${built}`,
+    '',
+    request ? `What the user asks for now: ${request}` : 'The user will say what to change next.',
+    '',
+    'The whole game is `index.html` in this folder — one file, no `game.js` scaffold and no ' +
+      'plan on disk. Read it before changing anything.',
+  ].join('\n')
 }
 
 /**

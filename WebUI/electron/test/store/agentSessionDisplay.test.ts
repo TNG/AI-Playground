@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { UIMessage } from 'ai'
 import {
   collapseGamesPrefix,
+  gameAgentHandoffPrompt,
   listPresetSessions,
-  promoteSession,
   sessionDisplayTitle,
   snapshotSession,
   type AgentSessionRecord,
@@ -138,45 +138,26 @@ describe('snapshotSession', () => {
   })
 })
 
-describe('promoteSession', () => {
-  const promoted = () =>
-    promoteSession(
-      archived({ presetName: 'Quick Coder', capabilities: ['game-studio-quick'] }),
-      'Game Agent',
-      ['media', 'web-debug', 'game-studio'],
-    )
-
-  it('overwrites the fields a snapshot would otherwise freeze', () => {
-    const next = promoted()
-    expect(next.presetName).toBe('Game Agent')
-    expect(next.capabilities).toEqual(['media', 'web-debug', 'game-studio'])
-    // Everything that identifies the work is the point of moving rather than
-    // copying: same conversation, same folder, same clock.
-    expect(next.id).toBe('s1')
-    expect(next.workspaceDir).toBe('/games/space-dodger')
-    expect(next.messages).toHaveLength(1)
-    expect(next.updatedAt).toBe(2_000)
+describe('gameAgentHandoffPrompt', () => {
+  it('carries what was built, what is wanted, and the shape of the folder', () => {
+    const prompt = gameAgentHandoffPrompt({
+      summary: 'Canvas shooter. Arrows move the ship, space fires. Rocks fall on a timer.',
+      request: 'the ship keeps moving after you let go of the key',
+    })
+    expect(prompt).toContain('Arrows move the ship')
+    expect(prompt).toContain('keeps moving after you let go')
+    // Game Agent's procedure starts from a scaffold it will not find here.
+    expect(prompt).toContain('no `game.js` scaffold')
   })
 
-  it('survives the next archive of the same session', () => {
-    const next = promoted()
-    expect(
-      snapshotSession({
-        id: next.id,
-        workspaceDir: next.workspaceDir,
-        messages: [...next.messages, userTurn('now add sound')],
-        existing: next,
-        capabilities: ['media', 'web-debug', 'game-studio'],
-        // What the store would pass if the switch had not been recorded.
-        presetName: 'Quick Coder',
-      }),
-    ).toMatchObject({ presetName: 'Game Agent' })
-  })
-
-  it('stays in the games list it was already in', () => {
-    const next = promoted()
-    expect(listPresetSessions({ [next.id]: next }, 'Quick Coder').map((s) => s.id)).toEqual(['s1'])
-    expect(listPresetSessions({ [next.id]: next }, 'Game Agent').map((s) => s.id)).toEqual(['s1'])
+  it('falls back to the library card when the model sent no summary', () => {
+    const prompt = gameAgentHandoffPrompt({
+      summary: '',
+      request: 'make the rocks faster',
+      gameName: 'Space Dodger',
+      gameDescription: 'Dodge asteroids for as long as you can.',
+    })
+    expect(prompt).toContain('Space Dodger — Dodge asteroids for as long as you can.')
   })
 })
 

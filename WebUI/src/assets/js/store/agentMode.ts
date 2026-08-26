@@ -11,7 +11,6 @@ import { useErrors } from './errors'
 import { unregisterAgentModeIpc } from './agentModeIpc'
 import {
   DEFAULT_CAPABILITY_IDS,
-  GAME_STUDIO_ID,
   GAME_STUDIO_QUICK_ID,
   OFFER_GAME_AGENT_TOOL,
 } from '@/types/agentCapabilities'
@@ -22,10 +21,9 @@ import {
   computedPresetSessions,
   ensureSessionId,
   GAME_AGENT_PRESET,
+  gameAgentHandoffPrompt,
   migrateMcpServerIdsIntoCapabilities,
   mintSessionId,
-  promoteSession,
-  QUICK_CODER_PRESET,
   snapshotSession,
   takeLegacyPlanningThinkingOnly,
   toggleCapabilityIds,
@@ -133,6 +131,9 @@ export const useAgentMode = defineStore(
     const presetSessions = computedPresetSessions(sessions, agentPresetName)
     const sessionCapabilities = ref<string[] | null>(null)
 
+    /** An accepted `offer_game_agent`, waiting for the turn that offered it to end. */
+    const pendingHandoff = ref<{ summary: string; request: string } | null>(null)
+
     const capabilities = computed<string[]>(
       () =>
         sessions.value[activeSessionId.value]?.capabilities ??
@@ -221,9 +222,12 @@ export const useAgentMode = defineStore(
     // answer from lingering, and unblocks the tool if it is still listening
     // (mirrors the chat store).
     watch(processing, (isProcessing, wasProcessing) => {
-      if (wasProcessing && !isProcessing) {
-        confirmations.cancelForConversation(activeSessionId.value, false)
-      }
+      if (!wasProcessing || isProcessing) return
+      confirmations.cancelForConversation(activeSessionId.value, false)
+      const handoff = pendingHandoff.value
+      if (!handoff) return
+      pendingHandoff.value = null
+      void startGameAgentHandoff(handoff)
     })
 
     const messages = computed(() => chat.messages)
@@ -288,74 +292,24 @@ export const useAgentMode = defineStore(
     }
 
     /**
-     * Quick Coder writes a game and cannot come back to it: `write` is its only
-     * file tool, and the session's preset is what resuming it switches back to.
-     * This is the way out — the game it produced is handed to Game Agent, which
-     * can read, edit, play-test and illustrate it.
-     */
-    const canPromoteToGameAgent = computed(
-      () => agentPresetName.value === QUICK_CODER_PRESET && currentGame.value !== null,
-    )
-
-    function gameAgentCapabilities(): string[] {
-      const preset = presetsStore.presets.find((entry) => entry.name === GAME_AGENT_PRESET)
-      const declared =
-        preset?.type === 'chat' ? (preset as ChatPreset).agentCapabilities : undefined
-      return declared && declared.length > 0
-        ? [...declared]
-        : [...DEFAULT_CAPABILITIES, GAME_STUDIO_ID]
-    }
-
-    /**
-     * Move this session to Game Agent: same folder, same transcript, a preset
-     * that can work on what is already there. The record is re-tagged rather
-     * than copied — the game folder is the artifact, and a second session on it
-     * would split the history and win or lose `adoptWorkspace`'s latest-wins
-     * race depending on which was touched last.
-     *
-     * The Pi session is not torn down: its config key covers instructions and
-     * capabilities, so the next turn rebuilds it on the same session id and
-     * folder, which is what lets it reopen the transcript it already has.
-     */
-    async function promoteToGameAgent(id?: string): Promise<boolean> {
-      const sessionId = id ?? activeSessionId.value
-      // Whatever the running turn has produced belongs to the record before it
-      // is re-tagged; a preset switch archives nothing by itself.
-      if (sessionId === activeSessionId.value) snapshotActiveSession()
-      const session = sessions.value[sessionId]
-      if (session) {
-        sessions.value = {
-          ...sessions.value,
-          [sessionId]: promoteSession(session, GAME_AGENT_PRESET, gameAgentCapabilities()),
-        }
-      }
-      if (sessionId === activeSessionId.value) sessionCapabilities.value = null
-      const result = await presetSwitching.switchPreset(GAME_AGENT_PRESET, {
-        // A tool call offering the switch must not stall on a modal, and no
-        // agent preset is memory-gated anyway.
-        skipMemoryAlert: true,
-      })
-      return result.success
-    }
-
-    /**
      * Quick Coder's `offer_game_agent` tool (see the `game-studio-quick`
-     * capability): put the switch to the user as a card in the transcript and
-     * take it if they accept. The model is told what came of it, because it has
-     * to stop either way — a declined offer is its cue to answer in the one tool
-     * it has, an accepted one that the game is no longer its to write.
+     * capability): put the switch to the user as a card in the transcript, and
+     * on a yes note what the agent taking over needs to know. Nothing happens
+     * here beyond that note — the switch runs once this turn has ended.
      */
     async function offerGameAgent(input: Record<string, unknown>): Promise<unknown> {
       const label = oemBranding.presetLabel(GAME_AGENT_PRESET)
-      const reason = typeof input.reason === 'string' ? input.reason.trim() : ''
+      const request = typeof input.reason === 'string' ? input.reason.trim() : ''
+      const summary = typeof input.summary === 'string' ? input.summary.trim() : ''
       const accepted = await confirmations.request({
         conversationKey: activeSessionId.value,
         title: `Continue in ${label}?`,
         summaryMarkdown:
-          (reason ? `${reason}\n\n` : '') +
-          `That is more than this mode can do. **${label}** takes this game on — same folder, ` +
-          'same conversation — and can read and edit the code, play-test it in a browser and ' +
-          'generate art for it. It works step by step, so it takes longer.',
+          (request ? `${request}\n\n` : '') +
+          `That is more than this mode can do. **${label}** picks the game up from here — same ` +
+          'folder, a fresh conversation — and can read and edit the code, play-test it in a ' +
+          'browser and generate art for it. It starts on this straight away, and works step by ' +
+          'step, so it takes longer.',
         origin: 'desktop',
       })
       if (!accepted) {
@@ -367,18 +321,53 @@ export const useAgentMode = defineStore(
             'cannot do.',
         }
       }
-      if (!(await promoteToGameAgent())) {
-        return {
-          accepted: false,
-          message: 'The user accepted but the switch failed. Carry on here and say so.',
-        }
-      }
+      pendingHandoff.value = { summary, request }
       return {
         accepted: true,
         message:
-          `${label} has this game now, with the same folder and this conversation. Do not ` +
-          'write the game again. Reply in one line saying their next message goes to it.',
+          `${label} takes the game from here and starts on this itself as soon as you stop. ` +
+          'Say so in one line — no code, no further tool calls.',
       }
+    }
+
+    /**
+     * Start the session Game Agent takes the game over in: same folder, empty
+     * transcript, one hand-over message which it is then answering. A fresh
+     * session rather than this one re-tagged, because a Quick Coder transcript
+     * is written under instructions that are wrong for the agent inheriting it —
+     * the game folder is the artifact, and both sessions stay in the panel.
+     *
+     * Runs after the offering turn ended, never from inside the tool: a
+     * `generate()` there would nest a second turn inside the open one, and
+     * moving the preset mid-turn would file the one-shot run itself under Game
+     * Agent (`snapshotSession` only freezes a record that already exists).
+     */
+    async function startGameAgentHandoff(handoff: {
+      summary: string
+      request: string
+    }): Promise<void> {
+      // No agent preset is memory-gated, and this switch answers a card the
+      // user already said yes to — a modal here would only stall it.
+      const switched = await presetSwitching.switchPreset(GAME_AGENT_PRESET, {
+        skipMemoryAlert: true,
+      })
+      if (!switched.success) {
+        errors.report(new Error(switched.error ?? 'Could not switch preset.'), {
+          category: 'unknown',
+          code: 'agent/handoff-failed',
+          userMessage: `Could not hand the game to ${oemBranding.presetLabel(GAME_AGENT_PRESET)}.`,
+          surface: 'toast',
+        })
+        return
+      }
+      await newSession()
+      await generate(
+        gameAgentHandoffPrompt({
+          ...handoff,
+          gameName: currentGame.value?.name,
+          gameDescription: currentGame.value?.description,
+        }),
+      )
     }
 
     async function deleteSession(id: string): Promise<void> {
@@ -564,8 +553,6 @@ export const useAgentMode = defineStore(
       stop,
       newSession,
       switchSession,
-      canPromoteToGameAgent,
-      promoteToGameAgent,
       deleteSession,
       restoreActiveSession,
     }

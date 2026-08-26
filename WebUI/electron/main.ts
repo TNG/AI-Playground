@@ -101,6 +101,11 @@ import {
   type McpServerConfig,
 } from './subprocesses/mcpServers'
 import { getAudioDir, getMediaDir } from './util.ts'
+import {
+  mainWindowChromeOptions,
+  titleBarOverlayForTheme,
+  usesNativeWindowControls,
+} from './titleBarOverlay.ts'
 import { packagedResourcesRoot, writableConfigRoot } from './aipgRoot.ts'
 import { loadDemoProfile, type DemoProfile } from './demoProfile.ts'
 import type { ModelPaths } from '@/assets/js/store/models.ts'
@@ -653,7 +658,7 @@ async function createWindow() {
     icon: path.join(process.env.VITE_PUBLIC, 'app-ico.svg'),
     transparent: false,
     resizable: true,
-    frame: false,
+    ...mainWindowChromeOptions(process.platform, settings.currentTheme),
     // fullscreen: true,
     width: 1440,
     height: 951,
@@ -1197,6 +1202,13 @@ function initEventHandle() {
     if (win) {
       win.setFullScreen(enable)
     }
+  })
+
+  ipcMain.on('setTitleBarTheme', (_event: IpcMainEvent, theme: unknown) => {
+    const parsed = ThemeSchema.safeParse(theme)
+    if (!parsed.success || !win || win.isDestroyed()) return
+    if (!usesNativeWindowControls(process.platform)) return
+    win.setTitleBarOverlay(titleBarOverlayForTheme(parsed.data))
   })
 
   ipcMain.on('exitApp', async () => {

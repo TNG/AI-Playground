@@ -40,6 +40,12 @@ textarea {
   height: 58px;
   flex: none;
   -webkit-app-region: drag;
+  padding-inline-end: 1rem;
+}
+
+.main-title.has-native-window-controls {
+  /* Keep header actions in the WCO content rect (overlay is at the trailing edge). */
+  padding-inline-end: calc(100% - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100%));
 }
 
 .main-tabs {

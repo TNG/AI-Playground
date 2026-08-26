@@ -2,7 +2,12 @@ declare interface Window {
   __AIPG_DEMO_MODE__?: boolean
   chrome: Chrome
   electronAPI: electronAPI
-  envVars: { platformTitle: string; productVersion: string; debugToolsEnabled: boolean }
+  envVars: {
+    platformTitle: string
+    productVersion: string
+    debugToolsEnabled: boolean
+    nativeWindowControls: boolean
+  }
   // Dev-only Home Agent mock-channel drive surface (see channels/mockAdapter.ts).
   // Only attached when debug tools are enabled.
   __homeAgentMock?: HomeAgentMockApi
@@ -366,6 +371,7 @@ type electronAPI = {
   openImageWithSystem(url: string): void
   openImageInFolder(url: string): void
   setFullScreen(enable: boolean): void
+  setTitleBarTheme(theme: Theme): void
   onDebugLog(
     callback: (data: {
       level: 'error' | 'warn' | 'info'

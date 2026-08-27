@@ -430,6 +430,24 @@ export class SpecificSettingsPage {
 
   /** Close the sidebar via its (responsive) Close button, scoped to the sidebar
    *  region so it can't match the header's window-close (X) button. */
+  /**
+   * Set the active preset's context size. The preset ships the size its preferred
+   * model is tuned for, which a smaller model on a smaller GPU cannot allocate a KV
+   * cache for — llama.cpp then refuses to load with "not enough memory to run … with
+   * a context size of N", and the turn dies before it starts. Must be called with
+   * the settings sidebar open.
+   */
+  async setContextSize(tokens: number, mode: ChatMode = 'Chat'): Promise<void> {
+    const input = this.panel(mode).getByLabel('Context Size')
+    await expect(input, `${mode} settings should offer a context size`).toBeVisible({
+      timeout: 15_000,
+    })
+    await input.fill(String(tokens))
+    // v-model writes on input, but the store clamps to the model's ceiling, so read
+    // back rather than assuming the typed value stuck.
+    await expect(input).not.toHaveValue('')
+  }
+
   async close(mode: ChatMode = 'Chat'): Promise<void> {
     const sidebar = this.page.getByRole('region', { name: `${mode} Settings` })
     const closers = sidebar.getByRole('button', { name: 'Close' })

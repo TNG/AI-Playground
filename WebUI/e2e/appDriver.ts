@@ -38,11 +38,29 @@ export type ComfyOutput = 'image' | 'video' | 'model3d'
  */
 export class AppDriver {
   /**
-   * Budget for one game-building agent turn. Far above the chat budgets on
-   * purpose: a single turn here is dozens of model steps (plan, write, edit,
-   * play-test, draw), each a full generation of its own.
+   * Budget for one game-building agent turn. Well above the chat budgets: a single
+   * turn here is dozens of model steps (plan, write, edit, play-test), each a full
+   * generation of its own — even on the small model these tests pin.
    */
-  static readonly AGENT_GAME_TIMEOUT = 45 * 60_000
+  static readonly AGENT_GAME_TIMEOUT = 30 * 60_000
+
+  /**
+   * The model the game presets are pinned to, per backend, by its picker label
+   * (the last path segment of the model id).
+   *
+   * The presets' own `preferredModels` are big — a 35B MoE on llama.cpp — because
+   * they are tuned for game quality. These tests only care that a game gets built
+   * at all, so they pin the smallest model that still clears both preset gates
+   * (`requiresToolCalling` and `requiresCoding`): Qwen3.5-4B. That cuts the
+   * download to a few GB and the turn to a fraction of the time.
+   */
+  private static readonly AGENT_GAME_MODEL: Record<string, string> = {
+    'llamaCPP - GGUF': 'Qwen3.5-4B-Q4_K_M.gguf',
+    OpenVINO: 'Qwen3.5-4B-int4-ov',
+  }
+
+  /** Context size the pinned small model is run at — see the call site for why. */
+  private static readonly AGENT_GAME_CONTEXT = 32768
 
   readonly wizard: SetupWizardPage
   readonly shell: AppShellPage
@@ -230,25 +248,35 @@ export class AppDriver {
    * chosen backend, and hand back the game folder it produced for the caller to
    * assert on.
    *
-   * These presets are co-branded on Acer systems ("Acer Game Agent"), so the preset
-   * is looked up under both labels — the picker card and the active-preset chip both
-   * show `oemBranding.presetLabel()`. Returns null when the preset isn't offered in
-   * this product mode so the caller can skip.
+   * Both presets are co-branded on Acer systems ("Acer Game Agent"); `selectPreset`
+   * keys off the unbranded `data-aipg-preset-name`, so the canonical name works
+   * everywhere. Returns null when the preset isn't offered in this product mode so
+   * the caller can skip.
    */
   async runAgentGamePreset(opts: { preset: string; prompt: string }): Promise<GameSummary | null> {
-    const label = await test.step(`Select agent preset "${opts.preset}"`, async () => {
-      for (const candidate of [opts.preset, `Acer ${opts.preset}`]) {
-        if (await this.main.selectPreset('Chat', candidate)) return candidate
-      }
-      return null
-    })
-    if (!label) return null
+    const selected = await test.step(`Select agent preset "${opts.preset}"`, () =>
+      this.main.selectPreset('Chat', opts.preset))
+    if (!selected) return null
 
     await test.step('Start a fresh game on a randomly chosen backend', async () => {
       // Agent Mode has no mode button of its own — its sidebar is opened from the
       // prompt area like any other mode's, under the name "Agent Settings".
       await this.settings.open('Agent')
-      await this.pickRandomBackend('Agent')
+      const backend = await this.pickRandomBackend('Agent')
+      // After the backend, never before: the model list is per-backend, so a model
+      // picked first would be replaced when the backend changes under it. 'default'
+      // means the picker wasn't offered, which only happens on the lone llama.cpp.
+      const model =
+        AppDriver.AGENT_GAME_MODEL[backend] ?? AppDriver.AGENT_GAME_MODEL['llamaCPP - GGUF']
+      await test.step(`Pin the small agent model: ${model}`, () =>
+        this.settings.selectModel(model, 'Agent'))
+      // The preset asks for 128k, the size its big preferred model is tuned for. A 4B
+      // model on a laptop GPU cannot allocate a KV cache that size, and llama.cpp then
+      // refuses to load the model at all — the turn dies inside ensureReadyForInference
+      // before it ever starts. Still well above the 32k the panel says agentic sessions
+      // want.
+      await test.step(`Lower the context size to ${AppDriver.AGENT_GAME_CONTEXT}`, () =>
+        this.settings.setContextSize(AppDriver.AGENT_GAME_CONTEXT, 'Agent'))
       // Switching preset by hand already clears the workspace (agentMode.ts), but a
       // re-run that lands on the preset already active doesn't — so ask explicitly.
       // The folder itself is minted by the first turn.
@@ -264,8 +292,19 @@ export class AppDriver {
     // is there afterwards that isn't.
     const before = await this.agent.gameDirs()
 
-    return test.step(`Build a game with "${label}"`, async () => {
+    return test.step(`Build a game with "${opts.preset}"`, async () => {
       await this.main.sendPrompt(opts.prompt)
+      // Insist the turn actually starts. `generate()` can throw before it ever sets
+      // `processing` — a backend that won't load the model dies in
+      // ensureReadyForInference — and the busy control then never appears. The
+      // media-turn poller reads that as "already finished" and the run sails on to
+      // assert against a folder nothing was ever written to, reporting an empty
+      // index.html instead of the load failure that caused it. No real build turn
+      // starts this fast, so a missing busy control here is the failure itself.
+      await expect(
+        this.main.busyButton,
+        'the agent turn never started — the model or backend most likely failed to load (check the app log)',
+      ).toBeVisible({ timeout: 60_000 })
       // One turn, many possible downloads: the chat model up front, and for Game
       // Agent an image model mid-turn when it draws the thumbnail. waitForAgenticMediaTurn
       // clears each dialog as it appears and returns once the turn goes idle.

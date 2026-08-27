@@ -215,10 +215,18 @@ export class MainPage {
     return this.page.getByRole('button', { name: label, exact: true })
   }
 
-  /** A preset thumbnail inside the prompt-area quick-preset picker popover; each
-   *  carries the preset name as its accessible name (`aria-label`). */
+  /**
+   * A preset thumbnail inside the prompt-area quick-preset picker popover, keyed
+   * by the preset's canonical name.
+   *
+   * Deliberately NOT the accessible name: that is `oemBranding.presetLabel()`,
+   * which prefixes the co-branded presets on Acer systems ("Acer Game Agent"), so
+   * a test looking one up by name would find nothing on exactly the hardware the
+   * preset ships on. `data-aipg-preset-name` is the unbranded name. Only the open
+   * picker is mounted, so this stays unambiguous across modes.
+   */
   private presetCard(name: string): Locator {
-    return this.page.getByRole('button', { name, exact: true })
+    return this.page.locator(`[data-aipg-preset-name="${name}"]`)
   }
 
   /** The active-preset indicator at the top-left of the input. Its accessible
@@ -249,10 +257,22 @@ export class MainPage {
       await this.page.keyboard.press('Escape')
       return false
     }
+    // Move onto the card before clicking. The picker closes shortly after the
+    // pointer leaves the mode button (`schedulePickerClose`), and the card strip
+    // animates its thumbnails in (`transition-all duration-150`) — clicking straight
+    // from the button races both, which surfaced as "element is not stable" and then
+    // "element was detached from the DOM". Hovering the card cancels the scheduled
+    // close and lets the transition settle first.
+    await card.hover()
+    // The indicator shows the preset's DISPLAY label, which is OEM-branded while the
+    // card's data attribute is not — so assert on what this very card is labelled.
+    // Read it BEFORE clicking: the click closes the popover and unmounts the card, so
+    // reading afterwards races the unmount and throws once it wins.
+    const label = (await card.getAttribute('aria-label')) ?? preset
     await card.click()
     // Selecting closes the popover and kicks off an async preset switch (a
     // backend reload can take a while); the indicator flips once it lands.
-    await expect(this.activePresetIndicator(preset)).toBeVisible({ timeout: 30_000 })
+    await expect(this.activePresetIndicator(label)).toBeVisible({ timeout: 30_000 })
     return true
   }
 

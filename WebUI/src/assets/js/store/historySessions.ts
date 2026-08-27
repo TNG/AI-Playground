@@ -1,7 +1,7 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import type { UIMessage } from 'ai'
-import { useConversations } from './conversations'
+import { useConversations, type ThreadKind } from './conversations'
 import { useAgentMode } from './agentMode'
 import { useImageGenerationPresets, hasDisplayableMedia } from './imageGenerationPresets'
 import { usePresets } from './presets'
@@ -14,6 +14,7 @@ import {
   conversationMode,
   conversationTimes,
   conversationTitle,
+  entryRuntimeShown,
   isEmptyDraft,
   isWorkflowMode,
   matchesFilter,
@@ -155,6 +156,16 @@ export const useHistorySessions = defineStore('historySessions', () => {
    */
   const currentMode = computed<ModeType>(() => promptStore.userSelectedMode)
 
+  /**
+   * Home Agent is a mode in all but name: sitting on a remote thread makes the
+   * current-mode list the remote one, and there is no chip to pick it — the
+   * thread the app is on decides, the way the mode buttons decide the rest.
+   */
+  const conversationScope = computed<ThreadKind>(() => {
+    if (currentMode.value !== 'chat' && currentMode.value !== 'audio') return 'main'
+    return conversations.getThreadKind(conversations.activeKey)
+  })
+
   const matchingEntries = computed<HistoryEntry[]>(() =>
     searchEntries(
       entries.value.filter((entry) =>
@@ -163,6 +174,7 @@ export const useHistorySessions = defineStore('historySessions', () => {
           currentMode: currentMode.value,
           agentPresetName: agentMode.agentPresetName,
           activeConversationId: conversations.activeKey,
+          threadScope: conversationScope.value,
         }),
       ),
       query.value,
@@ -182,18 +194,6 @@ export const useHistorySessions = defineStore('historySessions', () => {
     matchingEntries.value.filter((entry) => !isEmptyDraft(entry)),
   )
 
-  // A remote turn moving the active thread onto Home Agent should land the
-  // chip there too, so opening the panel shows the conversation that just ran.
-  watch(
-    () => conversations.activeKey,
-    (key) => {
-      if (!key) return
-      const remote = conversations.getThreadKind(key) === 'homeAgent'
-      if (remote) filter.value = 'homeAgent'
-      else if (filter.value === 'homeAgent') filter.value = 'current'
-    },
-  )
-
   function selectedMediaId(mode: WorkflowModeType): string | null {
     if (mode === 'imageEdit') return imageGeneration.selectedEditedImageId
     if (mode === 'video') return imageGeneration.selectedVideoId
@@ -207,6 +207,7 @@ export const useHistorySessions = defineStore('historySessions', () => {
   }
 
   function isActive(entry: HistoryEntry): boolean {
+    if (!entryRuntimeShown(entry, currentMode.value)) return false
     switch (entry.kind) {
       case 'conversation':
         return conversations.activeKey === entry.id
@@ -336,6 +337,7 @@ export const useHistorySessions = defineStore('historySessions', () => {
     visibleEntries,
     pinnedDraft,
     currentMode,
+    conversationScope,
     newMediaSelected,
     refreshGameNames,
     isActive,

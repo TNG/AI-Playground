@@ -29,14 +29,8 @@
         </AlertDialogContent>
       </AlertDialog>
       <!-- "New" follows the mode: a new game or agent conversation, a new chat
-           thread, a blank canvas. Never offered under the Home Agent filter —
-           a remote thread is started from the chat platform. -->
-      <button
-        v-if="history.filter !== 'homeAgent'"
-        @click="history.startNew()"
-        class="svg-icon i-add w-7 h-7"
-        :title="newTitle"
-      />
+           thread, a blank canvas. -->
+      <button @click="history.startNew()" class="svg-icon i-add w-7 h-7" :title="newTitle" />
     </template>
 
     <HistoryList @selected="onSelected" />

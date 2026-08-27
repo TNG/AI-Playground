@@ -34,6 +34,7 @@ import PresetSelector from '@/components/PresetSelector.vue'
 import SettingsTts from '@/components/SettingsTts.vue'
 import SettingsStt from '@/components/SettingsStt.vue'
 import { AUDIO_CATEGORY, usePresets, type ChatPreset } from '@/assets/js/store/presets'
+import { useConversations } from '@/assets/js/store/conversations'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useQwen3TextToSpeech } from '@/assets/js/store/qwen3TextToSpeech'
@@ -43,6 +44,7 @@ import * as toast from '@/assets/js/toast'
 
 const languages = useI18N().state
 const presetsStore = usePresets()
+const conversations = useConversations()
 const presetSwitching = usePresetSwitching()
 const qwen3Tts = useQwen3TextToSpeech()
 const textToSpeech = useTextToSpeech()
@@ -79,6 +81,13 @@ async function handlePresetChange(presetName: string) {
     skipModeSwitch: true, // We're already in audio mode
   })
   if (result.success) {
+    // Text to Speech and Speech to Text share one list, so this stays on the
+    // current thread. Skipping the mode switch skips the thread routing with it,
+    // so a thread the panel was left on from elsewhere is claimed here instead —
+    // the next take would otherwise stamp an Assistant thread as audio.
+    if (conversations.getThreadKind(conversations.activeKey) !== 'audio') {
+      conversations.activateThreadForKind('audio')
+    }
     toast.success(`Switched to ${presetName}`)
   } else if (result.error) {
     toast.error(`Failed to switch preset: ${result.error}`)

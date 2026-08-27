@@ -1,6 +1,6 @@
 <template>
-  <TooltipProvider :delay-duration="200">
-    <div class="flex flex-col space-y-3 pr-3 h-full overflow-y-auto">
+  <div class="flex flex-col space-y-3 pr-3 h-full overflow-y-auto">
+    <TooltipProvider :delay-duration="200">
       <div v-if="groups.length === 0" class="px-2 py-4 text-xs text-muted-foreground italic">
         {{ emptyMessage }}
       </div>
@@ -91,8 +91,8 @@
           </AlertDialog>
         </div>
       </div>
-    </div>
-  </TooltipProvider>
+    </TooltipProvider>
+  </div>
 </template>
 
 <script setup lang="ts">

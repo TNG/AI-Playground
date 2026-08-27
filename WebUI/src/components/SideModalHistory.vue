@@ -55,14 +55,14 @@
 
     <!-- Audio turns (synthesized audio, transcripts) are chat conversations too. -->
     <HistoryChat
-      v-show="isChatLikeMode"
+      v-if="isChatLikeMode"
       @conversation-selected="emit('conversationSelected')"
       @filter-kind-change="(kind) => (chatFilterKind = kind)"
     />
-    <HistoryWorkflow v-show="props.mode === 'imageGen'" mode="imageGen" />
-    <HistoryWorkflow v-show="props.mode === 'imageEdit'" mode="imageEdit" />
-    <HistoryWorkflow v-show="props.mode === 'video'" mode="video" />
-    <HistoryAgentSessions v-show="props.mode === 'agent'" />
+    <HistoryWorkflow v-else-if="props.mode === 'imageGen'" mode="imageGen" />
+    <HistoryWorkflow v-else-if="props.mode === 'imageEdit'" mode="imageEdit" />
+    <HistoryWorkflow v-else-if="props.mode === 'video'" mode="video" />
+    <HistoryAgentSessions v-else-if="props.mode === 'agent'" />
   </SideModalBase>
 </template>
 

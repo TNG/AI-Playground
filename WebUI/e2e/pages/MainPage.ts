@@ -1,7 +1,14 @@
 import { type Locator, type Page, expect } from '@playwright/test'
 
-/** Prompt-area mode labels (accessible names of the mode buttons). */
-export type ChatMode = 'Chat' | 'Audio' | 'Image Gen' | 'Image Edit' | 'Video'
+/**
+ * Prompt-area mode labels (accessible names of the mode buttons), which are also
+ * what the mode's settings sidebar is named after ("<Mode> Settings").
+ *
+ * 'Agent' is settings-only: Agent Mode has no mode button of its own — it is
+ * entered by picking an agent preset from the Chat button's quick picker (see
+ * `presetModes.ts`), and only its sidebar carries the name.
+ */
+export type ChatMode = 'Chat' | 'Agent' | 'Audio' | 'Image Gen' | 'Image Edit' | 'Video'
 
 /**
  * Page object for the running main view: the prompt area (mode switch, prompt

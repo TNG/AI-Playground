@@ -3,6 +3,7 @@ import path from 'path'
 import { SetupWizardPage } from './pages/SetupWizardPage'
 import { AppShellPage } from './pages/AppShellPage'
 import { MainPage, type ChatMode } from './pages/MainPage'
+import { AgentModePage, type GameSummary } from './pages/AgentModePage'
 import { SpecificSettingsPage } from './pages/SpecificSettingsPage'
 import { DownloadDialogPage } from './pages/DownloadDialogPage'
 import { McpSettingsPage } from './pages/McpSettingsPage'
@@ -36,9 +37,17 @@ export type ComfyOutput = 'image' | 'video' | 'model3d'
  * shown) or from a previous run (app already running).
  */
 export class AppDriver {
+  /**
+   * Budget for one game-building agent turn. Far above the chat budgets on
+   * purpose: a single turn here is dozens of model steps (plan, write, edit,
+   * play-test, draw), each a full generation of its own.
+   */
+  static readonly AGENT_GAME_TIMEOUT = 45 * 60_000
+
   readonly wizard: SetupWizardPage
   readonly shell: AppShellPage
   readonly main: MainPage
+  readonly agent: AgentModePage
   readonly settings: SpecificSettingsPage
   readonly downloads: DownloadDialogPage
   readonly mcp: McpSettingsPage
@@ -49,6 +58,7 @@ export class AppDriver {
     this.wizard = new SetupWizardPage(window)
     this.shell = new AppShellPage(window)
     this.main = new MainPage(window)
+    this.agent = new AgentModePage(window)
     this.settings = new SpecificSettingsPage(window)
     this.downloads = new DownloadDialogPage(window)
     this.mcp = new McpSettingsPage(window)
@@ -170,19 +180,7 @@ export class AppDriver {
       this.selectModeAndPreset('Chat', opts.preset))
     test.skip(!available, `Preset "${opts.preset}" is not available in this product mode`)
 
-    // Randomly run on llama.cpp or OpenVINO when the preset offers both. OpenVINO is
-    // only offered on Intel/OpenVINO product modes — in NVIDIA mode the app filters it
-    // out (SettingsChat.vue), so this is a clean no-op there and the default backend
-    // (llama.cpp) is used. Done while the settings sidebar is still open.
-    let chosenBackend = 'default'
-    const offered = await test.step('Read chat backends', () =>
-      this.settings.availableBackends('Chat'))
-    if (offered.includes('OpenVINO')) {
-      chosenBackend = Math.random() < 0.5 ? 'OpenVINO' : 'llamaCPP - GGUF'
-      await test.step(`Switch chat backend to ${chosenBackend}`, () =>
-        this.settings.selectBackend(chosenBackend, 'Chat'))
-    }
-    test.info().annotations.push({ type: 'chat-backend', description: chosenBackend })
+    await this.pickRandomBackend('Chat')
 
     await this.settings.close('Chat')
 
@@ -201,6 +199,79 @@ export class AppDriver {
       await this.main.waitForAssistantAnswer()
       expect(await this.main.lastAssistantText()).not.toEqual('')
       await this.main.assertWellFormedResponse()
+    })
+  }
+
+  /**
+   * Randomly run the active preset on llama.cpp or OpenVINO when it offers both,
+   * so neither backend silently stops being exercised. OpenVINO is only offered in
+   * Intel/OpenVINO product modes — in NVIDIA mode the app filters it out
+   * (SettingsChat.vue / SettingsAgent.vue), so this is a clean no-op there and the
+   * default backend (llama.cpp) is used. Must be called with `mode`'s settings
+   * sidebar open; leaves it open. Returns the label it settled on, which is also
+   * recorded as a test annotation so a failed run says which backend it ran on.
+   */
+  private async pickRandomBackend(mode: ChatMode): Promise<string> {
+    let chosen = 'default'
+    const offered = await test.step(`Read ${mode} backends`, () =>
+      this.settings.availableBackends(mode))
+    if (offered.includes('OpenVINO')) {
+      chosen = Math.random() < 0.5 ? 'OpenVINO' : 'llamaCPP - GGUF'
+      await test.step(`Switch ${mode} backend to ${chosen}`, () =>
+        this.settings.selectBackend(chosen, mode))
+    }
+    test.info().annotations.push({ type: 'backend', description: `${mode}: ${chosen}` })
+    return chosen
+  }
+
+  /**
+   * Drive one of the game agent presets (Game Agent, Quick Coder) through its main
+   * flow: select it, start a fresh game, run a single build turn on a randomly
+   * chosen backend, and hand back the game folder it produced for the caller to
+   * assert on.
+   *
+   * These presets are co-branded on Acer systems ("Acer Game Agent"), so the preset
+   * is looked up under both labels — the picker card and the active-preset chip both
+   * show `oemBranding.presetLabel()`. Returns null when the preset isn't offered in
+   * this product mode so the caller can skip.
+   */
+  async runAgentGamePreset(opts: { preset: string; prompt: string }): Promise<GameSummary | null> {
+    const label = await test.step(`Select agent preset "${opts.preset}"`, async () => {
+      for (const candidate of [opts.preset, `Acer ${opts.preset}`]) {
+        if (await this.main.selectPreset('Chat', candidate)) return candidate
+      }
+      return null
+    })
+    if (!label) return null
+
+    await test.step('Start a fresh game on a randomly chosen backend', async () => {
+      // Agent Mode has no mode button of its own — its sidebar is opened from the
+      // prompt area like any other mode's, under the name "Agent Settings".
+      await this.settings.open('Agent')
+      await this.pickRandomBackend('Agent')
+      // Switching preset by hand already clears the workspace (agentMode.ts), but a
+      // re-run that lands on the preset already active doesn't — so ask explicitly.
+      // The folder itself is minted by the first turn.
+      await expect(
+        this.agent.newGameButton,
+        'a game preset should manage its own folder and offer "New game"',
+      ).toBeVisible({ timeout: 15_000 })
+      await this.agent.newGameButton.click()
+      await this.settings.close('Agent')
+    })
+
+    // Everything already in the library is the baseline; the turn's game is whatever
+    // is there afterwards that isn't.
+    const before = await this.agent.gameDirs()
+
+    return test.step(`Build a game with "${label}"`, async () => {
+      await this.main.sendPrompt(opts.prompt)
+      // One turn, many possible downloads: the chat model up front, and for Game
+      // Agent an image model mid-turn when it draws the thumbnail. waitForAgenticMediaTurn
+      // clears each dialog as it appears and returns once the turn goes idle.
+      await this.waitForAgenticMediaTurn(AppDriver.AGENT_GAME_TIMEOUT)
+      await this.agent.assertNoTurnError()
+      return this.agent.gameCreatedSince(before)
     })
   }
 

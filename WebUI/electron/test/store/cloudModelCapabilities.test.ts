@@ -23,6 +23,7 @@ describe('parseModelCapabilities', () => {
       supportsVision: true,
       supportsToolCalling: true,
       supportsReasoning: true,
+      reasoningAdvertised: true,
       contextLength: 262144,
     })
   })
@@ -48,6 +49,7 @@ describe('parseModelCapabilities', () => {
       supportsVision: true,
       supportsToolCalling: true,
       supportsReasoning: true,
+      reasoningAdvertised: false,
       contextLength: undefined,
     })
   })
@@ -84,7 +86,24 @@ describe('parseModelCapabilities', () => {
       supportsVision: false,
       supportsToolCalling: false,
       supportsReasoning: false,
+      reasoningAdvertised: false,
       contextLength: 400000,
     })
+  })
+
+  // Asking a model to think is a request parameter, so it takes the provider's
+  // own word for it — while the preset gate errs towards offering the model.
+  // The two only differ for a provider that advertises nothing at all.
+  it('separates advertised reasoning from assumed capability', () => {
+    expect(parseModelCapabilities({ id: 'gpt-4o' })).toMatchObject({
+      supportsReasoning: true,
+      reasoningAdvertised: false,
+    })
+    expect(
+      parseModelCapabilities({ id: 'o4-mini', supported_parameters: ['reasoning_effort'] }),
+    ).toMatchObject({ supportsReasoning: true, reasoningAdvertised: true })
+    expect(
+      parseModelCapabilities({ id: 'm', supported_parameters: ['temperature'] }),
+    ).toMatchObject({ supportsReasoning: false, reasoningAdvertised: false })
   })
 })

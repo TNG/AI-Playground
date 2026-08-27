@@ -54,6 +54,7 @@ import { appLoggerInstance } from './logging/logger.ts'
 import {
   aiplaygroundApiServiceRegistry,
   ApiServiceRegistryImpl,
+  peekApiServiceRegistry,
 } from './subprocesses/apiServiceRegistry'
 import {
   ComfyUiBackendService,
@@ -1777,14 +1778,15 @@ function initEventHandle() {
   })
 
   ipcMain.handle('getServices', () => {
-    if (!serviceRegistry) {
+    const registry = serviceRegistry ?? peekApiServiceRegistry()
+    if (!registry) {
       appLogger.warn(
         'frontend tried to getServices too early during aipg startup',
         'electron-backend',
       )
       return []
     }
-    return serviceRegistry.getServiceInformation()
+    return registry.getServiceInformation()
   })
 
   ipcMain.handle('getBackendAuthToken', (_event: IpcMainInvokeEvent, serviceName: string) => {

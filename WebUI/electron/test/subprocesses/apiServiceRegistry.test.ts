@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiServiceRegistryImpl } from '../../subprocesses/apiServiceRegistry'
+import {
+  ApiServiceRegistryImpl,
+  peekApiServiceRegistry,
+} from '../../subprocesses/apiServiceRegistry'
 import type { ApiService } from '../../subprocesses/service'
 
 vi.mock('electron', () => ({
@@ -77,6 +80,12 @@ describe('reapOrphansFromPreviousSession', () => {
     await registry.reapOrphansFromPreviousSession()
 
     expect(killStale).toHaveBeenCalledWith([], expect.anything())
+  })
+})
+
+describe('peekApiServiceRegistry', () => {
+  it('is null until the factory has started constructing the singleton', () => {
+    expect(peekApiServiceRegistry()).toBeNull()
   })
 })
 

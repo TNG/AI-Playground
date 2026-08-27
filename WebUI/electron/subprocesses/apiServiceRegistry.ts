@@ -250,6 +250,11 @@ export class ApiServiceRegistryImpl implements ApiServiceRegistry {
 
 let instance: ApiServiceRegistryImpl | null = null
 
+/** Registry once construction has started; may still be missing later services. */
+export function peekApiServiceRegistry(): ApiServiceRegistryImpl | null {
+  return instance
+}
+
 export async function aiplaygroundApiServiceRegistry(
   win: BrowserWindow,
   settings: LocalSettings,

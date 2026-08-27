@@ -219,6 +219,18 @@ export function createStreamTranslator(options: StreamTranslatorOptions): Stream
     openBlocks.clear()
   }
 
+  // llama.cpp (and other OpenAI-compat providers) only emit `thinking_end` after
+  // the whole completion finishes — including minutes of tool-call dictation.
+  // Close reasoning as soon as other content starts so the live timer and the
+  // persisted duration stop with the thinking, not with the message.
+  function closeOpenReasoning(): void {
+    for (const [id, kind] of [...openBlocks]) {
+      if (kind !== 'reasoning') continue
+      openBlocks.delete(id)
+      emit(endChunk(kind, id))
+    }
+  }
+
   // Opening the UI part needs both ids, so a call stays buffered until the
   // provider has named it; from then on argument text flows straight through.
   function pushToolCallText(event: AssistantMessageEvent): void {
@@ -276,10 +288,12 @@ export function createStreamTranslator(options: StreamTranslatorOptions): Stream
     switch (event.type) {
       case 'text_start':
         ensureStep()
+        closeOpenReasoning()
         openBlock('text', event.contentIndex)
         break
       case 'text_delta': {
         ensureStep()
+        closeOpenReasoning()
         const id = openBlock('text', event.contentIndex)
         emit({ type: 'text-delta', id, delta: event.delta ?? '' })
         break
@@ -306,6 +320,7 @@ export function createStreamTranslator(options: StreamTranslatorOptions): Stream
       case 'toolcall_start':
       case 'toolcall_delta':
         ensureStep()
+        closeOpenReasoning()
         pushToolCallText(event)
         break
       case 'toolcall_end':
@@ -336,6 +351,7 @@ export function createStreamTranslator(options: StreamTranslatorOptions): Stream
         break
       case 'tool_execution_start': {
         ensureStep()
+        closeOpenReasoning()
         toolNames.set(event.toolCallId, event.toolName)
         endToolCallStream(event.toolCallId)
         emit({

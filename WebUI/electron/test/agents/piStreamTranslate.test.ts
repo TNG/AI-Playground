@@ -144,6 +144,94 @@ describe('createStreamTranslator', () => {
     })
   })
 
+  // llama.cpp only emits thinking_end after the whole completion, so a write's
+  // argument stream would otherwise be counted as thinking. Close as soon as
+  // non-reasoning content starts, and ignore the late thinking_end.
+  it('stops the reasoning clock when the model starts dictating a tool call', () => {
+    const partial = {
+      content: [{ type: 'thinking' }, { type: 'toolCall', id: 'call-1', name: 'write' }],
+    }
+    const { chunks } = run(
+      [
+        turnStart,
+        messageStart,
+        message({ type: 'thinking_start', contentIndex: 0 }),
+        message({ type: 'thinking_delta', contentIndex: 0, delta: 'hmm' }),
+        message({ type: 'toolcall_start', contentIndex: 1, partial }),
+        message({
+          type: 'toolcall_delta',
+          contentIndex: 1,
+          delta: '{"path":"a.txt"}',
+          partial,
+        }),
+        message({ type: 'thinking_end', contentIndex: 0 }),
+        messageEnd,
+      ],
+      clockFrom(1_000, 500),
+    )
+
+    const typesList = types(chunks)
+    expect(typesList.filter((type) => type === 'reasoning-end')).toHaveLength(1)
+    expect(typesList.indexOf('reasoning-end')).toBeLessThan(typesList.indexOf('tool-input-start'))
+    expect(chunks.find((chunk) => chunk.type === 'reasoning-end')).toEqual({
+      type: 'reasoning-end',
+      id: expect.any(String),
+      providerMetadata: { aipg: { reasoningStarted: 1_000, reasoningFinished: 1_500 } },
+    })
+  })
+
+  it('stops the reasoning clock when a tool starts executing without a streamed call', () => {
+    const { chunks } = run(
+      [
+        turnStart,
+        messageStart,
+        message({ type: 'thinking_start', contentIndex: 0 }),
+        message({ type: 'thinking_delta', contentIndex: 0, delta: 'hmm' }),
+        {
+          type: 'tool_execution_start',
+          toolCallId: 'call-1',
+          toolName: 'bash',
+          args: { command: 'ls' },
+        } as unknown as AgentSessionEvent,
+        message({ type: 'thinking_end', contentIndex: 0 }),
+        messageEnd,
+      ],
+      clockFrom(1_000, 500),
+    )
+
+    const typesList = types(chunks)
+    expect(typesList.filter((type) => type === 'reasoning-end')).toHaveLength(1)
+    expect(typesList.indexOf('reasoning-end')).toBeLessThan(
+      typesList.indexOf('tool-input-available'),
+    )
+    expect(chunks.find((chunk) => chunk.type === 'reasoning-end')?.providerMetadata).toEqual({
+      aipg: { reasoningStarted: 1_000, reasoningFinished: 1_500 },
+    })
+  })
+
+  it('stops the reasoning clock when the model starts writing the answer', () => {
+    const { chunks } = run(
+      [
+        turnStart,
+        messageStart,
+        message({ type: 'thinking_start', contentIndex: 0 }),
+        message({ type: 'thinking_delta', contentIndex: 0, delta: 'hmm' }),
+        message({ type: 'text_start', contentIndex: 1 }),
+        message({ type: 'text_delta', contentIndex: 1, delta: 'done' }),
+        message({ type: 'thinking_end', contentIndex: 0 }),
+        messageEnd,
+      ],
+      clockFrom(1_000, 500),
+    )
+
+    const typesList = types(chunks)
+    expect(typesList.filter((type) => type === 'reasoning-end')).toHaveLength(1)
+    expect(typesList.indexOf('reasoning-end')).toBeLessThan(typesList.indexOf('text-start'))
+    expect(chunks.find((chunk) => chunk.type === 'reasoning-end')?.providerMetadata).toEqual({
+      aipg: { reasoningStarted: 1_000, reasoningFinished: 1_500 },
+    })
+  })
+
   it('keeps block ids unique across messages that reuse content indices', () => {
     const { chunks } = run([
       turnStart,

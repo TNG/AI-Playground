@@ -939,6 +939,69 @@ describe('turn streaming', () => {
     })
   })
 
+  // Pi only reports thinking as thinking when the provider split it off into
+  // `reasoning_content`, and only asks for that split for a model registered as
+  // reasoning. It would decide both from the model's `baseUrl`, which is our
+  // loopback proxy whoever the provider is (piCloudReasoning.ts).
+  describe('cloud reasoning', () => {
+    async function registeredModel(
+      config: AgentModeTurnConfig,
+    ): Promise<{ reasoning: boolean; compat?: Record<string, unknown> }> {
+      const manager = await loadManager()
+      registerProvider.mockClear()
+      await manager.startAgentTurn('t1', 'hello', config)
+      const [, provider] = registerProvider.mock.calls[0] as [
+        string,
+        { models: { reasoning: boolean; compat?: Record<string, unknown> }[] },
+      ]
+      return provider.models[0]
+    }
+
+    const cloudConfig = (overrides: Record<string, unknown>) => ({
+      source: 'cloud' as const,
+      model: 'zai-org/GLM-5.3-Flash',
+      proxyBaseUrl: 'http://127.0.0.1:45000',
+      upstreamBaseUrl: 'https://gateway.example.com/v1',
+      providerId: 'example',
+      authStyle: 'bearer',
+      ...overrides,
+    })
+
+    it('asks a GLM for its thinking in z.ai dialect', async () => {
+      const model = await registeredModel(configFor({ modelConfig: cloudConfig({}) }))
+      expect(model.reasoning).toBe(true)
+      expect(model.compat).toMatchObject({ thinkingFormat: 'zai', supportsDeveloperRole: false })
+    })
+
+    it('asks nothing of a model whose provider never claimed reasoning', async () => {
+      const modelConfig = cloudConfig({
+        model: 'gpt-4o',
+        upstreamBaseUrl: 'https://api.openai.com',
+      })
+      const model = await registeredModel(configFor({ modelConfig }))
+      expect(model.reasoning).toBe(false)
+      expect(model.compat).toBeUndefined()
+    })
+
+    it('takes the provider catalog at its word', async () => {
+      const modelConfig = cloudConfig({
+        model: 'o4-mini',
+        upstreamBaseUrl: 'https://api.openai.com',
+        reasoningAdvertised: true,
+      })
+      const model = await registeredModel(configFor({ modelConfig }))
+      expect(model.reasoning).toBe(true)
+      expect(model.compat).toMatchObject({ thinkingFormat: 'openai' })
+    })
+
+    // Local backends already emit `reasoning_content` of their own accord, and
+    // are driven by `chat_template_kwargs` instead of Pi's thinking parameters.
+    it('leaves a local model alone', async () => {
+      const model = await registeredModel(configFor())
+      expect(model.reasoning).toBe(false)
+    })
+  })
+
   it('re-asserts the preview URL when the port changed', async () => {
     const runtime = await import('../../agentMode/piWorkspaceRuntime')
     const manager = await loadManager()

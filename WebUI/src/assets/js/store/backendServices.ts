@@ -193,6 +193,18 @@ export const useBackendServices = defineStore(
         versionState.value[serviceName].target = version
       })
     })
+    function applyServiceSnapshot(services: ApiServiceInformation[]): void {
+      // getServices returns [] until the registry exists. A late empty snapshot
+      // must not wipe services that already arrived via serviceInfoUpdate.
+      if (services.length === 0 && currentServiceInfo.value.length > 0) {
+        return
+      }
+      currentServiceInfo.value = services
+      for (const service of services) {
+        applyInstalledVersionFromService(service)
+      }
+    }
+
     window.electronAPI
       .getServices()
       .catch(async (_reason: unknown) => {
@@ -205,18 +217,12 @@ export const useBackendServices = defineStore(
         return window.electronAPI.getServices()
       })
       .then((services) => {
-        currentServiceInfo.value = services
-        for (const service of services) {
-          applyInstalledVersionFromService(service)
-        }
+        applyServiceSnapshot(services)
       })
     setTimeout(() => {
       window.electronAPI.getServices().then((services) => {
         console.log('getServices', services)
-        currentServiceInfo.value = services
-        for (const service of services) {
-          applyInstalledVersionFromService(service)
-        }
+        applyServiceSnapshot(services)
       })
     }, 5000)
     window.electronAPI.onServiceInfoUpdate((updatedInfo) => {

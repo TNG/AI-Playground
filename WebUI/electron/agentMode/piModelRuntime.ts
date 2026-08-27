@@ -4,6 +4,7 @@ import { loadPi } from './piRuntime.ts'
 import { piAgentDir } from './piSessionStore.ts'
 import { localBaseUrl } from './piLocalEndpoint.ts'
 import { observeAgentModelCalls } from './piCallTiming.ts'
+import { cloudReasoningRegistration } from './piCloudReasoning.ts'
 import { laminarConfig } from '../laminar.ts'
 import { type InferenceTraceContext } from '../laminarAttributes.ts'
 import type { AgentModeModelConfig } from '@/types/agentIpc'
@@ -87,11 +88,18 @@ export async function registerModel(
       {
         id: config.model,
         name: config.model,
-        reasoning: false,
         input: modelInput(config),
         contextWindow,
         maxTokens: outputTokenBudget(contextWindow, 'cloud'),
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        // Whether this turn asks the provider to split its thinking off, and in
+        // whose dialect. Pi would read both off the model's `baseUrl`, which is
+        // our loopback proxy for every provider alike.
+        ...cloudReasoningRegistration({
+          model: config.model,
+          upstreamBaseUrl: config.upstreamBaseUrl,
+          reasoningAdvertised: config.reasoningAdvertised,
+        }),
       },
     ],
   })

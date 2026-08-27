@@ -38,6 +38,7 @@ type CloudForTurn = {
   ensureProxyUrl: () => Promise<string>
   selectedProviderId: string
   activeProviderAuthStyle: string
+  capabilitiesFor: (name: string) => { reasoningAdvertised: boolean }
 }
 
 export function buildSamplingParams(textInference: InferenceForTurn): Record<string, unknown> {
@@ -76,17 +77,19 @@ export async function buildTurnConfig(options: {
       )
     }
     const proxyBaseUrl = await cloudMode.ensureProxyUrl()
+    const model = textInference.activeModel ?? CLOUD_DEFAULT_MODEL
     return {
       sessionId: options.sessionId,
       workspaceDir: options.workspaceDir,
       modelConfig: {
         source: 'cloud',
-        model: textInference.activeModel ?? CLOUD_DEFAULT_MODEL,
+        model,
         proxyBaseUrl,
         upstreamBaseUrl,
         providerId: cloudMode.selectedProviderId,
         authStyle: cloudMode.activeProviderAuthStyle,
         supportsVision: textInference.modelSupportsVision,
+        reasoningAdvertised: cloudMode.capabilitiesFor(model).reasoningAdvertised,
         contextWindow: textInference.maxContextSizeFromModel
           ? textInference.effectiveContextWindow
           : undefined,

@@ -3,9 +3,9 @@
   <ChatReasoningDisplay
     v-else-if="part.type === 'reasoning'"
     :text="part.text"
-    :streaming="part.state === 'streaming'"
-    :startedAt="reasoningTimingOf(part).startedAt"
-    :finishedAt="reasoningTimingOf(part).finishedAt"
+    :streaming="part.state === 'streaming' && !reasoningTiming.finishedAt"
+    :startedAt="reasoningTiming.startedAt"
+    :finishedAt="reasoningTiming.finishedAt"
   />
   <div
     v-else-if="compaction"
@@ -115,6 +115,7 @@ const toolImages = computed<AgentToolImage[]>(
 )
 
 const compaction = computed(() => compactionOutputOf(props.part))
+const reasoningTiming = computed(() => reasoningTimingOf(props.part))
 
 // Pi's post-compaction size is an estimate it cannot always produce, so fall
 // back to reporting just how much was summarized.

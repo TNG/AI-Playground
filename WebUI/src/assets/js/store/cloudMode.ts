@@ -113,6 +113,14 @@ export type CloudModelCapabilities = {
   supportsVision: boolean
   supportsToolCalling: boolean
   supportsReasoning: boolean
+  /**
+   * Whether the provider itself declared reasoning, as opposed to being assumed
+   * capable because it declared nothing. Asking a model to think is a request
+   * parameter (see agentMode/piCloudReasoning.ts), so it needs the stricter
+   * signal — `supportsReasoning` is a preset gate and errs towards offering the
+   * model.
+   */
+  reasoningAdvertised: boolean
   /** Model's context window in tokens; undefined when the provider is silent. */
   contextLength?: number
 }
@@ -126,6 +134,7 @@ export const ASSUME_ALL_CAPABILITIES: CloudModelCapabilities = {
   supportsVision: true,
   supportsToolCalling: true,
   supportsReasoning: true,
+  reasoningAdvertised: false,
 }
 
 export type CloudProvider = {
@@ -191,18 +200,18 @@ export function parseModelCapabilities(model: Record<string, unknown>): CloudMod
   if (!advertised) return { ...ASSUME_ALL_CAPABILITIES, contextLength }
 
   const flag = (v: unknown) => v === true
+  const reasoningAdvertised =
+    flag(caps?.reasoning) ||
+    // OpenRouter-style payloads describe reasoning as an object and expose the
+    // knob as `reasoning_effort` rather than `reasoning`.
+    !!model.reasoning ||
+    params.some((p) => p === 'reasoning' || p === 'include_reasoning' || p === 'reasoning_effort')
   return {
     supportsVision: flag(caps?.vision) || modalities.some((m) => m.includes('image')),
     supportsToolCalling:
       flag(caps?.tools) || flag(caps?.function_calling) || params.includes('tools'),
-    supportsReasoning:
-      flag(caps?.reasoning) ||
-      // OpenRouter-style payloads describe reasoning as an object and expose the
-      // knob as `reasoning_effort` rather than `reasoning`.
-      !!model.reasoning ||
-      params.some(
-        (p) => p === 'reasoning' || p === 'include_reasoning' || p === 'reasoning_effort',
-      ),
+    supportsReasoning: reasoningAdvertised,
+    reasoningAdvertised,
     contextLength,
   }
 }

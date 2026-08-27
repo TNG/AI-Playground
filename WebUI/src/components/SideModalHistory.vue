@@ -106,7 +106,7 @@ const emit = defineEmits<{
 
 const workflowModes: ModeType[] = ['imageGen', 'imageEdit', 'video']
 const isWorkflowMode = computed(() => workflowModes.includes(props.mode))
-const isChatLikeMode = computed(() => !isWorkflowMode.value)
+const isChatLikeMode = computed(() => props.mode === 'chat' || props.mode === 'audio')
 
 function selectNewConversation() {
   const key = conversations.addNewConversation()

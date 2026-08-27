@@ -837,7 +837,8 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   let initialLoadingPollHandle: ReturnType<typeof setTimeout> | null = null
 
   async function initialize() {
-    if (!backendServices.serviceInfoUpdateReceived) {
+    const aiBackendReady = backendServices.info.some((s) => s.serviceName === 'ai-backend')
+    if (!aiBackendReady) {
       globalSetup.loadingState = 'verifyBackend'
       if (initialLoadingPollHandle !== null) {
         clearTimeout(initialLoadingPollHandle)

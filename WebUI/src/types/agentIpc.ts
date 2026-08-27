@@ -23,6 +23,13 @@ const CloudModelConfigSchema = z.object({
   authStyle: z.string().min(1),
   contextWindow: z.number().optional(),
   supportsVision: z.boolean().optional(),
+  /**
+   * Whether the provider's own catalog declared this model as reasoning. Decides
+   * whether the turn asks for thinking at all (agentMode/piCloudReasoning.ts); a
+   * provider that advertises nothing is assumed capable elsewhere, which is too
+   * loose a signal to put request parameters on.
+   */
+  reasoningAdvertised: z.boolean().optional(),
 })
 
 export const AgentModeModelConfigSchema = z.discriminatedUnion('source', [

@@ -1315,6 +1315,11 @@ export const useOpenAiCompatibleChat = defineStore(
         toast.warning("Couldn't make out any speech in that audio. Please try again.")
         return
       }
+      // A transcript is the whole turn, and it never goes through `generate`, so
+      // this is the only chance to record which preset held the thread — without
+      // it an STT conversation has no preset and no kind, and lands under the
+      // Assistant's history.
+      textInference.stampMetaForConversation(targetKey)
       const chat = getOrCreateChat(targetKey)
       const userMessage = {
         id: crypto.randomUUID(),

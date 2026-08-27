@@ -53,9 +53,11 @@
       />
     </template>
 
-    <!-- Audio turns (synthesized audio, transcripts) are chat conversations too. -->
+    <!-- Audio turns (synthesized takes, transcripts) render like chat messages, but
+         they are their own history: the same list component, locked to that kind. -->
     <HistoryChat
       v-if="isChatLikeMode"
+      :locked-kind="props.mode === 'audio' ? 'audio' : undefined"
       @conversation-selected="emit('conversationSelected')"
       @filter-kind-change="(kind) => (chatFilterKind = kind)"
     />
@@ -109,7 +111,7 @@ const isWorkflowMode = computed(() => workflowModes.includes(props.mode))
 const isChatLikeMode = computed(() => props.mode === 'chat' || props.mode === 'audio')
 
 function selectNewConversation() {
-  const key = conversations.addNewConversation()
+  const key = conversations.addNewConversation(props.mode === 'audio' ? 'audio' : 'main')
   if (!key) return
   conversations.activeKey = key
 }

@@ -3,6 +3,15 @@ import { computed, ref, watch, watchEffect } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { AipgUiMessage } from './openAiCompatibleChat'
 import { completeOrphanedToolParts, sanitizeBulkyToolOutputs } from './toolMessageSanitize'
+import {
+  backfillAudioThreadKind,
+  findOrCreateEmptyThread,
+  mintThreadKey,
+  resolveThreadForKind,
+  threadKindOf,
+  type ConversationThreadMeta,
+  type ThreadKind,
+} from './conversationThreads'
 import { currentPresetName } from '@/lib/presetRenames'
 
 /**
@@ -25,18 +34,10 @@ export const HOME_AGENT_CONVERSATION_TITLE = 'Home Agent'
  */
 export const HOME_AGENT_CHAT_PRESET_NAME = 'Home Agent'
 
-export type ThreadKind = 'main' | 'homeAgent'
+export type { ConversationThreadMeta, ThreadKind } from './conversationThreads'
 
-/**
- * Per-conversation inference profile snapshot. Stamped on every outbound
- * generate/regenerate so the thread is reproducible and "revisit = reactivate"
- * works in the Chat UI.
- */
-export type ConversationThreadMeta = {
-  presetName: string
-  variant?: string | null
-  kind?: ThreadKind
-}
+/** The two histories a mode switch moves between (Home Agent is a filter, not a mode). */
+export type ModeThreadKind = 'main' | 'audio'
 
 export type CreateConversationOptions = {
   kind?: ThreadKind
@@ -68,6 +69,8 @@ export const useConversations = defineStore(
      * thread by insertion order.
      */
     const lastMainKey = ref<string | null>(null)
+    /** The same, for the Audio mode's own list (Text to Speech / Speech to Text). */
+    const lastAudioKey = ref<string | null>(null)
 
     function updateConversation(messages: AipgUiMessage[], conversationKey: string) {
       // Never persist an orphaned tool call (interrupted/stopped turn): it would
@@ -115,7 +118,21 @@ export const useConversations = defineStore(
     }
 
     function getThreadKind(conversationKey: string): ThreadKind {
-      return conversationThreadMeta.value[conversationKey]?.kind ?? 'main'
+      return threadKindOf(conversationThreadMeta.value, conversationKey)
+    }
+
+    /**
+     * File a thread under a history without touching the preset it was stamped
+     * with. Used when a list allocates its own draft, so an empty Audio thread is
+     * in the Audio list before any turn has stamped a preset on it.
+     */
+    function setThreadKind(conversationKey: string, kind: ThreadKind) {
+      const existing = conversationThreadMeta.value[conversationKey]
+      conversationThreadMeta.value[conversationKey] = {
+        ...existing,
+        presetName: existing?.presetName ?? '',
+        kind,
+      }
     }
 
     function getThreadRagHashes(conversationKey: string): string[] {
@@ -126,15 +143,17 @@ export const useConversations = defineStore(
       conversationRagSelection.value[conversationKey] = [...new Set(hashes)]
     }
 
-    // Keep `lastMainKey` synced with the most recently selected main thread so
-    // toggling the history filter back to Local lands on what the user was
-    // working in (not just the newest bucket by timestamp).
+    // Keep the per-list "last active" keys synced with the most recently selected
+    // thread of each kind, so switching back to a list (the Local/Home Agent
+    // filter, or the Chat/Audio mode buttons) lands on what the user was working
+    // in — not just the newest bucket by timestamp.
     watch(
       () => activeKey.value,
       (k) => {
-        if (k && conversationList.value[k] && getThreadKind(k) === 'main') {
-          lastMainKey.value = k
-        }
+        if (!k || !conversationList.value[k]) return
+        const kind = getThreadKind(k)
+        if (kind === 'main') lastMainKey.value = k
+        else if (kind === 'audio') lastAudioKey.value = k
       },
       { immediate: true },
     )
@@ -145,7 +164,7 @@ export const useConversations = defineStore(
      * and the Home Agent /new command.
      */
     function createConversation(options: CreateConversationOptions = {}): string {
-      const newKey = new Date().getTime().toString()
+      const newKey = mintThreadKey(conversationList.value)
       conversationList.value[newKey] = []
       if (options.presetName || options.kind) {
         conversationThreadMeta.value[newKey] = {
@@ -157,29 +176,54 @@ export const useConversations = defineStore(
       return newKey
     }
 
-    function addNewConversation() {
-      const list = conversationList.value
-      const newKey = addNewConversationIfLatestIsNotEmpty(
-        list,
-        undefined,
+    /**
+     * Open a fresh (or the current empty) conversation in one of the lists. The
+     * Audio list gets its kind stamped right away — an unstamped draft counts as
+     * `main` and would show up under the Assistant.
+     */
+    function addNewConversation(kind: ThreadKind = 'main') {
+      const newKey = findOrCreateEmptyThread(
+        conversationList.value,
         conversationThreadMeta.value,
+        kind,
       )
+      if (kind !== 'main') setThreadKind(newKey, kind)
       activeKey.value = newKey
       return newKey
+    }
+
+    /**
+     * Land on a list's own conversation, which is what makes Chat and Audio
+     * separate histories: the mode owns the thread, so switching mode leaves the
+     * other list's thread behind instead of appending to it.
+     */
+    function activateThreadForKind(kind: ModeThreadKind): string {
+      const remembered = kind === 'audio' ? lastAudioKey.value : lastMainKey.value
+      const resolved = resolveThreadForKind(
+        conversationList.value,
+        conversationThreadMeta.value,
+        kind,
+        remembered,
+      )
+      if (!resolved) return addNewConversation(kind)
+      activeKey.value = resolved
+      return resolved
     }
 
     const isNewConversation = (key: string) => conversationList.value[key].length === 0
 
     watchEffect(() => {
       if (Object.keys(conversationList.value).includes(activeKey.value)) return
-      // Prefer the latest MAIN thread so app launch doesn't drop the user into
-      // a Home Agent thread (which would also flip the desktop preset to
-      // Home Agent via the activeKey watcher in textInference).
+      // Prefer the latest MAIN thread so app launch doesn't drop the user into a
+      // Home Agent or Audio thread (which would also flip the desktop preset to
+      // that thread's own preset via the activeKey watcher in textInference).
+      // The app boots in Chat mode; `alignModeToActivePreset` moves it to Audio
+      // afterwards when that is where the user left off, and takes the thread.
       const keys = Object.keys(conversationList.value)
       const meta = conversationThreadMeta.value
       let fallback: string | undefined
       for (let i = keys.length - 1; i >= 0; i--) {
-        if (meta[keys[i]]?.kind === 'homeAgent') continue
+        if (threadKindOf(meta, keys[i]) !== 'main') continue
         fallback = keys[i]
         break
       }
@@ -195,6 +239,7 @@ export const useConversations = defineStore(
       activeKey,
       activeConversation,
       lastMainKey,
+      lastAudioKey,
       deleteConversation,
       clearConversation,
       isNewConversation,
@@ -204,10 +249,12 @@ export const useConversations = defineStore(
       setThreadMeta,
       getThreadMeta,
       getThreadKind,
+      setThreadKind,
       getThreadRagHashes,
       setThreadRagHashes,
       createConversation,
       addNewConversation,
+      activateThreadForKind,
     }
   },
   {
@@ -218,6 +265,7 @@ export const useConversations = defineStore(
         'conversationThreadMeta',
         'conversationRagSelection',
         'lastMainKey',
+        'lastAudioKey',
       ],
       afterHydrate: (ctx) => {
         // Backfill legacy meta first so the helper below can correctly skip
@@ -229,57 +277,22 @@ export const useConversations = defineStore(
         // A thread names the preset it was held with; a renamed preset no longer
         // answers to that name, which would leave the thread's preset unresolved.
         followRenamedPresets(ctx.store.$state.conversationThreadMeta)
-        addNewConversationIfLatestIsNotEmpty(
+        // Speech threads predate the Audio history and are stamped `main`, so
+        // they have to be moved before anything reads a kind. Runs after the
+        // rename pass, whose names this recognizes.
+        backfillAudioThreadKind(ctx.store.$state.conversationThreadMeta)
+        // Guarantee an empty Assistant draft: the app boots in Chat mode, and
+        // its list must have somewhere to type. Audio allocates its own on
+        // demand (`activateThreadForKind`).
+        findOrCreateEmptyThread(
           ctx.store.$state.conversationList,
-          undefined,
           ctx.store.$state.conversationThreadMeta,
+          'main',
         )
       },
     },
   },
 )
-
-/**
- * Find or allocate the "current empty main bucket" — i.e. the most recently
- * inserted MAIN-kind conversation, reused when empty so we don't accumulate
- * a long tail of empty drafts.
- *
- * Home Agent threads are intentionally skipped: they form a separate logical
- * list (driven by Telegram /new and the bundled Home Agent preset). Reusing
- * an empty Home Agent thread as "the new main thread" would silently retitle
- * a remote chat AND, via the activeKey watcher in `textInference`, snap the
- * desktop preset back to Home Agent — observable as "first click on another
- * preset bounces back, second click sticks".
- */
-function addNewConversationIfLatestIsNotEmpty(
-  list: Record<string, AipgUiMessage[]>,
-  conversationKey?: string,
-  meta?: Record<string, ConversationThreadMeta>,
-): string {
-  console.log('Checking if new conversation is needed', {
-    threadCount: Object.keys(list).length,
-    conversationKey,
-  })
-
-  const isHomeAgent = (key: string) => meta?.[key]?.kind === 'homeAgent'
-
-  const keys = Object.keys(list)
-  let latestMainKey: string | undefined
-  for (let i = keys.length - 1; i >= 0; i--) {
-    const k = keys[i]
-    if (isHomeAgent(k)) continue
-    latestMainKey = k
-    break
-  }
-
-  if (latestMainKey && list[latestMainKey].length === 0) {
-    return latestMainKey
-  }
-
-  const newKey = new Date().getTime().toString()
-  list[newKey] = []
-  return newKey
-}
 
 /**
  * Migrate the legacy singleton Home Agent thread to the new metadata model so

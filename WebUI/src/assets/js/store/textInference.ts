@@ -23,6 +23,7 @@ import { useDeveloperSettings } from './developerSettings'
 import { useHomeAgent } from './homeAgent'
 import { useCloudMode, CLOUD_DEFAULT_MODEL } from './cloudMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
+import { threadKindForPreset } from './conversationThreads'
 import * as toast from '@/assets/js/toast.ts'
 import { useActivities } from './activities'
 import { useI18N } from './i18n'
@@ -2070,7 +2071,9 @@ export const useTextInference = defineStore(
       conversations.setThreadMeta(conversationKey, {
         presetName: resolved.presetName,
         variant: resolved.variant,
-        kind: existingKind ?? 'main',
+        // A speech preset files the thread under the Audio history, so its takes
+        // and transcripts never land among the Assistant's conversations.
+        kind: threadKindForPreset(resolved.presetName, existingKind, presetsStore.presets),
       })
     }
 

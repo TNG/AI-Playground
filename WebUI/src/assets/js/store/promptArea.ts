@@ -6,9 +6,11 @@ import { useBackendServices } from './backendServices'
 import { useDialogStore } from './dialogs'
 import { useSetupWizard } from './setupWizard'
 import { usePresets } from './presets'
+import { useConversations } from './conversations'
 
 export const usePromptStore = defineStore('prompt', () => {
   const setupWizard = useSetupWizard()
+  const conversations = useConversations()
 
   const currentMode = ref<ModeType>('chat')
   // The mode the user last deliberately selected from the UI (mode buttons /
@@ -25,6 +27,24 @@ export const usePromptStore = defineStore('prompt', () => {
 
   function getCurrentMode() {
     return currentMode.value
+  }
+
+  /**
+   * Chat and Audio keep separate histories, so the mode owns the conversation:
+   * entering one lands on that list's own thread rather than appending speech
+   * takes and assistant replies to each other. Keyed off the thread's kind, not
+   * the mode we came from, so a detour through a ComfyUI mode can't strand the
+   * Assistant on an Audio thread. Home Agent threads are left alone — that split
+   * is a filter inside Chat, not a mode. Only the deliberate entry points call
+   * this; `setModeOnly` (a tool borrowing a mode mid-turn) must not move a thread.
+   */
+  function alignThreadWithMode(mode: ModeType) {
+    const kind = conversations.getThreadKind(conversations.activeKey)
+    if (mode === 'audio') {
+      if (kind !== 'audio') conversations.activateThreadForKind('audio')
+    } else if (mode === 'chat' || mode === 'agent') {
+      if (kind === 'audio') conversations.activateThreadForKind('main')
+    }
   }
 
   /**
@@ -72,6 +92,8 @@ export const usePromptStore = defineStore('prompt', () => {
       // the preset that comes back decides which of the two actually renders.
       presetSwitching.switchToLastUsedForCategory(categories, presetType)
     }
+
+    alignThreadWithMode(mode)
     return true
   }
 
@@ -124,6 +146,7 @@ export const usePromptStore = defineStore('prompt', () => {
   function setModeForPreset(mode: ModeType) {
     currentMode.value = mode
     userSelectedMode.value = mode
+    alignThreadWithMode(mode)
   }
 
   function injectPromptText(text: string) {

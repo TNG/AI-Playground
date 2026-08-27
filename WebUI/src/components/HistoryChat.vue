@@ -1,134 +1,155 @@
 <template>
-  <div class="flex flex-col space-y-2 pr-3 h-full overflow-y-auto">
-    <div class="flex items-center justify-center gap-2 px-1 pb-1">
-      <span
-        class="text-xs font-medium select-none"
-        :class="filterKind === 'main' ? 'text-foreground' : 'text-muted-foreground'"
-      >
-        Local
-      </span>
-      <Switch
-        :model-value="filterKind === 'homeAgent'"
-        aria-label="Toggle between Local and Home Agent conversations"
-        @update:model-value="(checked: boolean) => switchKind(checked ? 'homeAgent' : 'main')"
-      />
-      <span
-        class="text-xs font-medium select-none"
-        :class="filterKind === 'homeAgent' ? 'text-foreground' : 'text-muted-foreground'"
-      >
-        Home Agent
-      </span>
-    </div>
-    <div
-      v-if="reversedConversationKeys.length === 0"
-      class="px-2 py-4 text-xs text-muted-foreground italic"
-    >
-      {{
-        filterKind === 'homeAgent'
-          ? 'No Home Agent conversations yet.'
-          : 'No local conversations yet.'
-      }}
-    </div>
-    <div
-      v-for="key in reversedConversationKeys"
-      :key="key"
-      class="flex flex-col items-center justify-between rounded-lg px-3 py-1 transition cursor-pointer border-2"
-      :class="
-        conversations.activeKey === key
-          ? 'border-primary bg-muted hover:bg-muted/80'
-          : 'border-transparent bg-muted hover:bg-muted/80'
-      "
-      @click="selectConversation(key)"
-    >
-      <div class="flex items-center justify-between w-full">
-        <span class="truncate text-sm text-foreground">
-          {{ conversationTitle(key) }}
-        </span>
-        <DropdownMenu
-          :open="menuOpenKey === key"
-          @update:open="(open) => onMenuOpenChange(key, open)"
+  <TooltipProvider :delay-duration="200">
+    <div class="flex flex-col space-y-2 pr-3 h-full overflow-y-auto">
+      <!-- The Local / Home Agent split lives inside the Assistant's own list. The
+           Audio list is a mode of its own, so it is locked to its kind. -->
+      <div v-if="!props.lockedKind" class="flex items-center justify-center gap-2 px-1 pb-1">
+        <span
+          class="text-xs font-medium select-none"
+          :class="filterKind === 'main' ? 'text-foreground' : 'text-muted-foreground'"
         >
-          <DropdownMenuTrigger as-child>
-            <Button variant="ghost" size="icon" class="h-6 w-6" @click.stop>
-              <span class="svg-icon i-dots-vertical w-4 h-4"></span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            class="w-28"
-            :onCloseAutoFocus="
-              (ev) => {
-                ev.preventDefault?.()
-              }
-            "
+          Local
+        </span>
+        <Switch
+          :model-value="filterKind === 'homeAgent'"
+          aria-label="Toggle between Local and Home Agent conversations"
+          @update:model-value="(checked: boolean) => switchKind(checked ? 'homeAgent' : 'main')"
+        />
+        <span
+          class="text-xs font-medium select-none"
+          :class="filterKind === 'homeAgent' ? 'text-foreground' : 'text-muted-foreground'"
+        >
+          Home Agent
+        </span>
+      </div>
+      <div
+        v-if="reversedConversationKeys.length === 0"
+        class="px-2 py-4 text-xs text-muted-foreground italic"
+      >
+        {{ emptyMessage }}
+      </div>
+      <div
+        v-for="key in reversedConversationKeys"
+        :key="key"
+        class="flex flex-col items-center justify-between rounded-lg px-3 py-1 transition cursor-pointer border-2"
+        :class="
+          conversations.activeKey === key
+            ? 'border-primary bg-muted hover:bg-muted/80'
+            : 'border-transparent bg-muted hover:bg-muted/80'
+        "
+        @click="selectConversation(key)"
+      >
+        <div class="flex items-center justify-between w-full gap-1.5">
+          <!-- Text to Speech and Speech to Text share the Audio list, so the preset
+               that held a thread is what tells its rows apart. -->
+          <Tooltip v-if="threadPresets[key]">
+            <TooltipTrigger as-child>
+              <span class="inline-flex flex-none cursor-help" :aria-label="threadPresets[key].name">
+                <img
+                  v-if="threadPresets[key].image"
+                  :src="threadPresets[key].image"
+                  :alt="threadPresets[key].name"
+                  class="size-5 rounded object-cover border border-border"
+                />
+                <span
+                  v-else
+                  class="size-5 rounded border border-border bg-muted grid place-items-center text-[10px] font-medium"
+                >
+                  {{ threadPresets[key].name.slice(0, 1) }}
+                </span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{{ threadPresets[key].name }}</TooltipContent>
+          </Tooltip>
+          <span class="truncate text-sm text-foreground mr-auto">
+            {{ conversationTitle(key) }}
+          </span>
+          <DropdownMenu
+            :open="menuOpenKey === key"
+            @update:open="(open) => onMenuOpenChange(key, open)"
           >
-            <Dialog
-              v-model:open="renameDialogOpen"
-              @update:open="
-                (open) => {
-                  if (!open) menuOpenKey = null
+            <DropdownMenuTrigger as-child>
+              <Button variant="ghost" size="icon" class="h-6 w-6" @click.stop>
+                <span class="svg-icon i-dots-vertical w-4 h-4"></span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              class="w-28"
+              :onCloseAutoFocus="
+                (ev) => {
+                  ev.preventDefault?.()
                 }
               "
             >
-              <DialogTrigger asChild>
-                <DropdownMenuItem
-                  @select="
-                    (e: Event) => {
-                      e.preventDefault()
-                      openRenameDialog(key)
-                    }
-                  "
-                >
-                  Rename
-                </DropdownMenuItem>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Rename conversation</DialogTitle>
-                  <DialogDescription>Set a new title for this conversation.</DialogDescription>
-                </DialogHeader>
-                <div class="mt-2">
-                  <Input
-                    autofocus
-                    type="text"
-                    placeholder="Enter title"
-                    v-model="renameTitle"
-                    @keydown.enter.prevent="saveRename"
-                  />
-                </div>
-                <DialogFooter>
-                  <Button variant="ghost" @click="cancelRename">Cancel</Button>
-                  <Button :disabled="!renameTitle.trim()" @click="saveRename">Save</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <DropdownMenuItem @select="(e: Event) => e.preventDefault()">
-                  Delete
-                </DropdownMenuItem>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete conversation?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will permanently remove this conversation and its messages.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction @click="() => conversations.deleteConversation(key)">
+              <Dialog
+                v-model:open="renameDialogOpen"
+                @update:open="
+                  (open) => {
+                    if (!open) menuOpenKey = null
+                  }
+                "
+              >
+                <DialogTrigger asChild>
+                  <DropdownMenuItem
+                    @select="
+                      (e: Event) => {
+                        e.preventDefault()
+                        openRenameDialog(key)
+                      }
+                    "
+                  >
+                    Rename
+                  </DropdownMenuItem>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Rename conversation</DialogTitle>
+                    <DialogDescription>Set a new title for this conversation.</DialogDescription>
+                  </DialogHeader>
+                  <div class="mt-2">
+                    <Input
+                      autofocus
+                      type="text"
+                      placeholder="Enter title"
+                      v-model="renameTitle"
+                      @keydown.enter.prevent="saveRename"
+                    />
+                  </div>
+                  <DialogFooter>
+                    <Button variant="ghost" @click="cancelRename">Cancel</Button>
+                    <Button :disabled="!renameTitle.trim()" @click="saveRename">Save</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <DropdownMenuItem @select="(e: Event) => e.preventDefault()">
                     Delete
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </DropdownMenuContent>
-        </DropdownMenu>
+                  </DropdownMenuItem>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete conversation?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently remove this conversation and its messages.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction @click="() => conversations.deleteConversation(key)">
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        <ThumbnailPreviewStrip :items="images(conversations.conversationList[key])" />
       </div>
-      <ThumbnailPreviewStrip :items="images(conversations.conversationList[key])" />
     </div>
-  </div>
+  </TooltipProvider>
 </template>
 
 <script setup lang="ts">
@@ -163,12 +184,24 @@ import {
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useConversations, type ThreadKind } from '@/assets/js/store/conversations'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
+import { usePresets } from '@/assets/js/store/presets'
 import { AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
 
 const conversations = useConversations()
 const homeAgent = useHomeAgent()
+const presetsStore = usePresets()
+
+/**
+ * The list this panel shows, when the mode owns one kind of conversation
+ * outright: Audio does, the Assistant's Local / Home Agent split does not.
+ */
+const props = defineProps<{
+  lockedKind?: ThreadKind
+}>()
+
 const emits = defineEmits<{
   (e: 'conversationSelected'): void
   (e: 'filterKindChange', kind: ThreadKind): void
@@ -216,8 +249,16 @@ const images = (conversation: AipgUiMessage[]) => {
 // kind of the currently active conversation so the switch reflects whatever
 // state the rest of the app left us in (e.g. Telegram poll just moved
 // activeKey onto a Home Agent thread). Kept in sync with external activeKey
-// changes via the watcher below.
-const filterKind = ref<ThreadKind>(conversations.getThreadKind(conversations.activeKey))
+// changes via the watcher below. A locked list has no filter to track.
+function filterFor(conversationKey: string): ThreadKind {
+  if (props.lockedKind) return props.lockedKind
+  const kind = conversations.getThreadKind(conversationKey)
+  // Only this panel's own two kinds can be filtered to; an Audio thread has no
+  // row here, so showing its (empty) list would be a dead end.
+  return kind === 'homeAgent' ? 'homeAgent' : 'main'
+}
+
+const filterKind = ref<ThreadKind>(filterFor(conversations.activeKey))
 
 watch(filterKind, (kind) => emits('filterKindChange', kind), { immediate: true })
 
@@ -225,7 +266,7 @@ watch(
   () => conversations.activeKey,
   (k) => {
     if (!k) return
-    filterKind.value = conversations.getThreadKind(k)
+    filterKind.value = filterFor(k)
   },
 )
 
@@ -234,6 +275,27 @@ const reversedConversationKeys = computed(() => {
   return Object.keys(list)
     .filter((k) => conversations.getThreadKind(k) === filterKind.value)
     .reverse()
+})
+
+const emptyMessage = computed(() => {
+  if (filterKind.value === 'audio') return 'No audio conversations yet.'
+  if (filterKind.value === 'homeAgent') return 'No Home Agent conversations yet.'
+  return 'No local conversations yet.'
+})
+
+/**
+ * The preset each listed thread was last held with, resolved once per render
+ * rather than per row element.
+ */
+const threadPresets = computed(() => {
+  const byKey: Record<string, { name: string; image?: string }> = {}
+  for (const key of reversedConversationKeys.value) {
+    const presetName = conversations.getThreadMeta(key)?.presetName
+    if (!presetName) continue
+    const preset = presetsStore.presets.find((p) => p.name === presetName)
+    byKey[key] = { name: presetName, image: preset?.image }
+  }
+  return byKey
 })
 
 // Pick the target conversation when the user flips the switch:

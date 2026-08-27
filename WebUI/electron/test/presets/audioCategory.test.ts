@@ -3,10 +3,11 @@ import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { AUDIO_CATEGORY, PresetSchema, type ChatPreset } from '@/assets/js/store/presets'
+import { AUDIO_PRESET_NAMES } from '@/assets/js/store/conversationThreads'
 
 // Pin test for the Chat / Audio split. The speech presets (Text to Speech, Speech to
-// Text) are chat-*type* presets — they reuse the chat conversation and message
-// rendering — but they belong to the Audio mode, which is derived purely from their
+// Text) are chat-*type* presets — they reuse the chat message rendering, though not
+// its history — but they belong to the Audio mode, which is derived purely from their
 // `category`. A speech preset that slips back into the `chat` category would show up
 // in the Chat picker and put a record/synthesize surface where a chat prompt belongs.
 
@@ -46,5 +47,15 @@ describe('audio preset category', () => {
       .filter(({ preset }) => !isSpeechPreset(preset) && preset.category === AUDIO_CATEGORY)
       .map(({ file }) => file)
     expect(misplaced, misplaced.join('\n')).toEqual([])
+  })
+
+  // The hydration backfill that moves pre-split threads into the Audio history has
+  // only their stamped preset *name* to go on (it runs before the catalog loads), so
+  // a speech preset missing from that list would leave its threads in the Assistant's.
+  it('names every audio preset in the thread-kind backfill list', () => {
+    const audioPresets = chatTypePresets
+      .filter(({ preset }) => preset.category === AUDIO_CATEGORY)
+      .map(({ preset }) => preset.name)
+    expect([...audioPresets].sort()).toEqual([...AUDIO_PRESET_NAMES].sort())
   })
 })

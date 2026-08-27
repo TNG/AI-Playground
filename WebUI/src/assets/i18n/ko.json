@@ -530,5 +530,16 @@
   "MODEL_MANAGER_PUBLISHER_TITLE": "배포자 설정",
   "MODEL_MANAGER_PUBLISHER_HINT": "모델 배포자가 권장하며 자동으로 적용됩니다. 카탈로그에서 가져오므로 편집할 수 없습니다.",
   "MODEL_MANAGER_PUBLISHER_SAMPLING": "샘플링",
-  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "서버 매개변수"
+  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "서버 매개변수",
+  "ARCADE_MANAGE_TOOLTIP": "{arcade}에 표시할 게임 선택",
+  "ARCADE_MANAGE_TITLE": "{arcade} 관리",
+  "ARCADE_MANAGE_DESCRIPTION": "체크하면 {arcade}에 표시됩니다. 체크를 해제해도 페이지에서만 빠지고 파일은 게임 폴더에 그대로 남습니다.",
+  "ARCADE_MANAGE_LOADING": "게임 라이브러리를 읽는 중…",
+  "ARCADE_MANAGE_EMPTY": "아직 게임이 없습니다. Game Agent로 하나 만들어 보세요.",
+  "ARCADE_MANAGE_YOUR_GAMES": "내 게임",
+  "ARCADE_MANAGE_STARTER_GAMES": "기본 제공 게임",
+  "ARCADE_MANAGE_CREATED": "{date} 생성",
+  "ARCADE_MANAGE_SHOW_GAME": "{arcade}에 {game} 표시",
+  "ARCADE_MANAGE_DONE": "완료",
+  "ARCADE_MANAGE_FAILED": "{arcade}를 업데이트할 수 없습니다."
 }

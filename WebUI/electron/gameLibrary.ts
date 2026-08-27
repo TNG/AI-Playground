@@ -3,7 +3,13 @@ import path from 'node:path'
 import { z } from 'zod'
 import { getGamesDir } from './util.ts'
 import { writeScaffold } from './gameScaffold.ts'
-import { installArcadeSamples, SAMPLES_FOLDER } from './arcadeSamples.ts'
+import {
+  hiddenSamples,
+  installArcadeSamples,
+  SAMPLES_FOLDER,
+  setSampleHidden,
+} from './arcadeSamples.ts'
+import type { ArcadeCatalogEntry } from '@/types/agentIpc'
 
 // ── The game library ─────────────────────────────────────────────────────────
 //
@@ -135,6 +141,12 @@ function readMetadata(dir: string): GameMetadata | null {
   }
 }
 
+/** A library-root-relative path as the renderer can load it (see `aipgMediaRoots`). */
+function mediaUrl(...segments: string[]): string {
+  const parts = segments.flatMap((segment) => segment.split(/[/\\]/)).filter(Boolean)
+  return `aipg-media://games/${parts.map(encodeURIComponent).join('/')}`
+}
+
 function toEntry(dir: string, metadata: GameMetadata): GameEntry {
   const iconPath = metadata.icon ? path.join(dir, metadata.icon) : undefined
   const hasIcon = !!iconPath && fs.existsSync(iconPath)
@@ -145,12 +157,7 @@ function toEntry(dir: string, metadata: GameMetadata): GameEntry {
     iconPath: hasIcon ? iconPath : undefined,
     // Every game folder sits directly under the library root, so the URL path is
     // the folder name plus the folder-relative icon.
-    iconUrl: hasIcon
-      ? `aipg-media://games/${encodeURIComponent(path.basename(dir))}/${metadata
-          .icon!.split(/[/\\]/)
-          .map(encodeURIComponent)
-          .join('/')}`
-      : undefined,
+    iconUrl: hasIcon ? mediaUrl(path.basename(dir), metadata.icon!) : undefined,
   }
 }
 
@@ -346,10 +353,22 @@ function manifestOf(games: GameEntry[], prefix = ''): GameManifestEntry[] {
   })
 }
 
+/**
+ * A sample sits one folder deeper than a game, so its icon URL is rebuilt from
+ * the nested path rather than taken from `readGame`.
+ */
+function readSample(root: string, slug: string): GameEntry | null {
+  const game = readGame(path.join(root, SAMPLES_FOLDER, slug))
+  if (!game?.iconPath) return game
+  return { ...game, iconUrl: mediaUrl(SAMPLES_FOLDER, slug, game.icon!) }
+}
+
 /** The shipped samples, installed into the library root and read back from it. */
 function sampleGames(root: string, samplesRoot?: string | null): GameEntry[] {
+  const hidden = hiddenSamples(root)
   return installArcadeSamples(root, samplesRoot)
-    .map((slug) => readGame(path.join(root, SAMPLES_FOLDER, slug)))
+    .filter((slug) => !hidden.has(slug))
+    .map((slug) => readSample(root, slug))
     .filter((game): game is GameEntry => game !== null && game.published)
 }
 
@@ -386,6 +405,64 @@ export function writeArcade(options: ArcadeOptions = {}): {
     'utf-8',
   )
   return { arcadePath, manifestPath }
+}
+
+/** A single library folder, so an id from the renderer cannot walk out of it. */
+function resolveGameDir(root: string, id: string): string {
+  const dir = path.resolve(root, id)
+  if (path.dirname(dir) !== path.resolve(root)) throw new Error(`Not a game in the library: ${id}`)
+  return dir
+}
+
+/**
+ * Everything the arcade could list, in gallery order, with whether it currently
+ * does. Samples are Acer's alone, so a machine that is not one is offered its own
+ * games only — and none are copied in to ask about.
+ */
+export function arcadeCatalog(options: ArcadeOptions = {}): ArcadeCatalogEntry[] {
+  const root = options.root ?? getGamesDir()
+  const entries: ArcadeCatalogEntry[] = listGames(root).map((game) => ({
+    kind: 'user',
+    id: path.basename(game.dir),
+    name: game.name,
+    description: game.description,
+    createdAt: game.createdAt,
+    iconUrl: game.iconUrl,
+    shown: game.published,
+  }))
+  if (!isAcerVendor(options.vendor)) return entries
+  const hidden = hiddenSamples(root)
+  for (const slug of installArcadeSamples(root, options.samplesRoot)) {
+    const sample = readSample(root, slug)
+    if (!sample) continue
+    entries.push({
+      kind: 'sample',
+      id: slug,
+      name: sample.name,
+      description: sample.description,
+      createdAt: sample.createdAt,
+      iconUrl: sample.iconUrl,
+      shown: sample.published && !hidden.has(slug),
+    })
+  }
+  return entries
+}
+
+/**
+ * Put a game on the arcade page, or take it off. A game the user made carries its
+ * own `published` flag; a sample cannot (see `hiddenSamples`).
+ */
+export function setArcadeShown(
+  target: { kind: 'user' | 'sample'; id: string; shown: boolean },
+  options: ArcadeOptions = {},
+): void {
+  const root = options.root ?? getGamesDir()
+  if (target.kind === 'user') {
+    updateGame(resolveGameDir(root, target.id), { published: target.shown })
+  } else {
+    setSampleHidden(root, target.id, !target.shown)
+  }
+  writeArcade(options)
 }
 
 function arcadeHtml(games: GameManifestEntry[], vendor?: string, hasSamples = false): string {

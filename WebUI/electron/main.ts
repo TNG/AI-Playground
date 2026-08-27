@@ -117,11 +117,13 @@ import { importAttachment } from './agentMode/workspaceAttachments.ts'
 import { AgentModeTurnConfigSchema } from '@/types/agentIpc'
 import { getAudioDir, getGamesDir, getMediaDir } from './util.ts'
 import {
+  arcadeCatalog,
   createGame,
   listGames,
   provisionalName,
   publishGame,
   readGame,
+  setArcadeShown,
   writeArcade,
 } from './gameLibrary.ts'
 import { detectOem } from './subprocesses/oemDetection.ts'
@@ -2995,6 +2997,24 @@ function initEventHandle() {
       try {
         const { vendor } = await detectOem(settings.oemVendorOverride)
         return { success: true, game: publishGame(dir, fields ?? {}, { vendor }) }
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    },
+  )
+
+  ipcMain.handle('games:arcadeCatalog', async () => {
+    const { vendor } = await detectOem(settings.oemVendorOverride)
+    return arcadeCatalog({ vendor })
+  })
+
+  ipcMain.handle(
+    'games:setArcadeShown',
+    async (_event, target: { kind: 'user' | 'sample'; id: string; shown: boolean }) => {
+      try {
+        const { vendor } = await detectOem(settings.oemVendorOverride)
+        setArcadeShown(target, { vendor })
+        return { success: true }
       } catch (error) {
         return { success: false, error: error instanceof Error ? error.message : String(error) }
       }

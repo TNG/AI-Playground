@@ -530,5 +530,16 @@
   "MODEL_MANAGER_PUBLISHER_TITLE": "Ustawienia wydawcy",
   "MODEL_MANAGER_PUBLISHER_HINT": "Zalecane przez wydawcę modelu i stosowane automatycznie. Pochodzą z katalogu i nie można ich edytować.",
   "MODEL_MANAGER_PUBLISHER_SAMPLING": "Próbkowanie",
-  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "Parametry serwera"
+  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "Parametry serwera",
+  "ARCADE_MANAGE_TOOLTIP": "Wybierz, które gry pojawiają się w {arcade}",
+  "ARCADE_MANAGE_TITLE": "Zarządzaj {arcade}",
+  "ARCADE_MANAGE_DESCRIPTION": "Zaznacz grę, aby pojawiła się w {arcade}. Odznaczenie tylko usuwa ją ze strony — pliki zostają w folderze gier.",
+  "ARCADE_MANAGE_LOADING": "Czytanie biblioteki gier…",
+  "ARCADE_MANAGE_EMPTY": "Nie ma jeszcze gier. Utwórz jedną w Game Agent.",
+  "ARCADE_MANAGE_YOUR_GAMES": "Twoje gry",
+  "ARCADE_MANAGE_STARTER_GAMES": "Gry dołączone do aplikacji",
+  "ARCADE_MANAGE_CREATED": "Utworzono {date}",
+  "ARCADE_MANAGE_SHOW_GAME": "Pokaż {game} w {arcade}",
+  "ARCADE_MANAGE_DONE": "Gotowe",
+  "ARCADE_MANAGE_FAILED": "Nie udało się zaktualizować {arcade}."
 }

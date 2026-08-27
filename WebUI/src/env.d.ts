@@ -263,6 +263,7 @@ type AgentToolProgress = {
 }
 
 type GameLibraryEntry = import('./types/agentIpc').GameLibraryEntry
+type ArcadeCatalogEntry = import('./types/agentIpc').ArcadeCatalogEntry
 
 /** An image a tool produced, shown to the user under that tool's card. */
 type AgentToolImage = {
@@ -573,6 +574,13 @@ type electronAPI = {
     openFolder(dir?: string): Promise<void>
     play(dir: string): Promise<{ success: boolean; error?: string }>
     openArcade(): Promise<{ success: boolean; error?: string; path?: string }>
+    /** Everything the arcade page could list; samples only on an Acer machine. */
+    arcadeCatalog(): Promise<ArcadeCatalogEntry[]>
+    setArcadeShown(target: {
+      kind: 'user' | 'sample'
+      id: string
+      shown: boolean
+    }): Promise<{ success: boolean; error?: string }>
   }
   webBrowser: {
     navigate(url: string): Promise<WebPageSnapshot>

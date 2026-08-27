@@ -530,5 +530,16 @@
   "MODEL_MANAGER_PUBLISHER_TITLE": "การตั้งค่าจากผู้เผยแพร่",
   "MODEL_MANAGER_PUBLISHER_HINT": "แนะนำโดยผู้เผยแพร่โมเดลและถูกใช้อัตโนมัติ ค่าเหล่านี้มาจากแค็ตตาล็อกและแก้ไขไม่ได้",
   "MODEL_MANAGER_PUBLISHER_SAMPLING": "การสุ่มตัวอย่าง",
-  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "พารามิเตอร์เซิร์ฟเวอร์"
+  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "พารามิเตอร์เซิร์ฟเวอร์",
+  "ARCADE_MANAGE_TOOLTIP": "เลือกเกมที่จะแสดงใน {arcade}",
+  "ARCADE_MANAGE_TITLE": "จัดการ {arcade}",
+  "ARCADE_MANAGE_DESCRIPTION": "ทำเครื่องหมายเพื่อให้เกมแสดงใน {arcade} การเอาเครื่องหมายออกเป็นเพียงการนำออกจากหน้านี้ ไฟล์ยังอยู่ในโฟลเดอร์เกมของคุณ",
+  "ARCADE_MANAGE_LOADING": "กำลังอ่านคลังเกมของคุณ…",
+  "ARCADE_MANAGE_EMPTY": "ยังไม่มีเกม สร้างเกมด้วย Game Agent ได้เลย",
+  "ARCADE_MANAGE_YOUR_GAMES": "เกมของคุณ",
+  "ARCADE_MANAGE_STARTER_GAMES": "เกมที่ให้มาพร้อมแอป",
+  "ARCADE_MANAGE_CREATED": "สร้างเมื่อ {date}",
+  "ARCADE_MANAGE_SHOW_GAME": "แสดง {game} ใน {arcade}",
+  "ARCADE_MANAGE_DONE": "เสร็จสิ้น",
+  "ARCADE_MANAGE_FAILED": "ไม่สามารถอัปเดต {arcade} ได้"
 }

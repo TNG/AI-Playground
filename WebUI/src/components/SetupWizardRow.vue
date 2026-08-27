@@ -39,13 +39,15 @@ const props = defineProps<{
   /** Nested inside a SetupWizardGroup: drop the row's own border and tighten it,
    *  so the group's box is the only frame and the list stays compact. */
   compact?: boolean
+  /** Indent the name under a parent row without shifting the gear / toggle column. */
+  nested?: boolean
 }>()
 
 defineSlots<{
   /** Settings menu (gear) for this component. */
   options?: () => unknown
-  /** Expand/collapse control for a row that owns nested rows (Core Services).
-   *  Rendered before the status bubble so the whole group reads as one item. */
+  /** Expand/collapse control, rendered immediately after the row's name so the
+   *  gear and toggle stay where they are on every other row. */
   disclosure?: () => unknown
 }>()
 const emit = defineEmits<{
@@ -71,7 +73,7 @@ const available = computed(() => props.row.availableInCurrentMode ?? true)
       'opacity-50': !available,
     }"
   >
-    <slot name="disclosure" />
+    <div v-if="nested" class="w-4 shrink-0" aria-hidden="true" />
 
     <!-- Status bubble -->
     <TooltipProvider :delay-duration="200">
@@ -88,12 +90,17 @@ const available = computed(() => props.row.availableInCurrentMode ?? true)
       </Tooltip>
     </TooltipProvider>
 
-    <!-- Name + version + info link -->
+    <!-- Name + version + info link. The disclosure sits in this cluster (right of
+         the label) so it takes space from the flexible name, not from the gear /
+         toggle column — those stay lined up with every other row. -->
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-1.5">
         <span class="font-medium leading-tight" :class="compact ? 'text-xs' : 'text-sm'">{{
           row.displayName
         }}</span>
+        <div v-if="$slots.disclosure" class="size-4 shrink-0 flex items-center justify-center">
+          <slot name="disclosure" />
+        </div>
         <InfoHint v-if="row.infoTooltip" :text="row.infoTooltip" />
         <InfoHint
           v-if="row.infoUrl"

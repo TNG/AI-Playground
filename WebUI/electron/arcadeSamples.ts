@@ -20,11 +20,13 @@ import { externalResourcesDir } from './util.ts'
 /** Bundle directory name, under the external resources root. */
 const BUNDLE_DIR = 'arcade-samples'
 const INDEX_FILE = 'samples.json'
+const HIDDEN_FILE = 'arcade-hidden.json'
 
 /** Where the copies live, relative to the library root. */
 export const SAMPLES_FOLDER = '_arcade-samples'
 
 const SamplesIndexSchema = z.object({ games: z.array(z.string()) })
+const HiddenSchema = z.object({ samples: z.array(z.string()).default([]) })
 
 /**
  * The bundled samples directory, or null when there is no answer — a build
@@ -74,6 +76,38 @@ function sampleSlugs(source: string): string[] {
  * `samplesRoot` is the bundle to install from: omitted it resolves to the app's
  * own, and `null` installs nothing.
  */
+/**
+ * Sample slugs the user took out of the arcade.
+ *
+ * It cannot be `published: false` on the installed copy: every arcade write
+ * recopies the bundle over it, so the flag would be wiped. The list lives in the
+ * library root instead, which also puts it outside the app — a reinstall keeps it.
+ */
+export function hiddenSamples(root: string): Set<string> {
+  try {
+    const parsed = HiddenSchema.safeParse(
+      JSON.parse(fs.readFileSync(path.join(root, HIDDEN_FILE), 'utf-8')),
+    )
+    return new Set(parsed.success ? parsed.data.samples : [])
+  } catch {
+    return new Set()
+  }
+}
+
+/** Take a sample out of the arcade, or put it back. */
+export function setSampleHidden(root: string, slug: string, hidden: boolean): void {
+  if (!isSafeSlug(slug)) throw new Error(`Not a sample game: ${slug}`)
+  const samples = hiddenSamples(root)
+  if (hidden) samples.add(slug)
+  else samples.delete(slug)
+  fs.mkdirSync(root, { recursive: true })
+  fs.writeFileSync(
+    path.join(root, HIDDEN_FILE),
+    `${JSON.stringify({ samples: [...samples] }, null, 2)}\n`,
+    'utf-8',
+  )
+}
+
 export function installArcadeSamples(root: string, samplesRoot?: string | null): string[] {
   const source = samplesRoot === undefined ? bundleDir() : samplesRoot
   if (!source || !fs.existsSync(source)) return []

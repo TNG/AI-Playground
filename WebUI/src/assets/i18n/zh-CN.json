@@ -530,5 +530,16 @@
   "MODEL_MANAGER_PUBLISHER_TITLE": "发布方设置",
   "MODEL_MANAGER_PUBLISHER_HINT": "由模型发布方推荐并自动应用。这些设置来自模型目录，无法编辑。",
   "MODEL_MANAGER_PUBLISHER_SAMPLING": "采样",
-  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "服务器参数"
+  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "服务器参数",
+  "ARCADE_MANAGE_TOOLTIP": "选择在 {arcade} 中显示的游戏",
+  "ARCADE_MANAGE_TITLE": "管理 {arcade}",
+  "ARCADE_MANAGE_DESCRIPTION": "勾选后游戏会显示在 {arcade} 中。取消勾选只是把它从页面上移除，文件仍保留在游戏文件夹里。",
+  "ARCADE_MANAGE_LOADING": "正在读取游戏库…",
+  "ARCADE_MANAGE_EMPTY": "还没有游戏。用 Game Agent 做一个吧。",
+  "ARCADE_MANAGE_YOUR_GAMES": "你的游戏",
+  "ARCADE_MANAGE_STARTER_GAMES": "内置游戏",
+  "ARCADE_MANAGE_CREATED": "创建于 {date}",
+  "ARCADE_MANAGE_SHOW_GAME": "在 {arcade} 中显示 {game}",
+  "ARCADE_MANAGE_DONE": "完成",
+  "ARCADE_MANAGE_FAILED": "无法更新 {arcade}。"
 }

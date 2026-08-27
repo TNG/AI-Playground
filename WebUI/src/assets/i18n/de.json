@@ -530,5 +530,16 @@
   "MODEL_MANAGER_PUBLISHER_TITLE": "Einstellungen des Anbieters",
   "MODEL_MANAGER_PUBLISHER_HINT": "Vom Modellanbieter empfohlen und automatisch angewendet. Sie kommen aus dem Katalog und können nicht bearbeitet werden.",
   "MODEL_MANAGER_PUBLISHER_SAMPLING": "Sampling",
-  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "Serverparameter"
+  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "Serverparameter",
+  "ARCADE_MANAGE_TOOLTIP": "Wählen, welche Spiele in {arcade} erscheinen",
+  "ARCADE_MANAGE_TITLE": "{arcade} verwalten",
+  "ARCADE_MANAGE_DESCRIPTION": "Häkchen setzen, damit ein Spiel in {arcade} erscheint. Ohne Häkchen wird es nur von der Seite genommen – die Dateien bleiben in deinem Spieleordner.",
+  "ARCADE_MANAGE_LOADING": "Spielebibliothek wird gelesen …",
+  "ARCADE_MANAGE_EMPTY": "Noch keine Spiele. Erstelle eins mit dem Game Agent.",
+  "ARCADE_MANAGE_YOUR_GAMES": "Deine Spiele",
+  "ARCADE_MANAGE_STARTER_GAMES": "Mitgelieferte Spiele",
+  "ARCADE_MANAGE_CREATED": "Erstellt am {date}",
+  "ARCADE_MANAGE_SHOW_GAME": "{game} in {arcade} anzeigen",
+  "ARCADE_MANAGE_DONE": "Fertig",
+  "ARCADE_MANAGE_FAILED": "{arcade} konnte nicht aktualisiert werden."
 }

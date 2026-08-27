@@ -8,11 +8,13 @@ import path from 'node:path'
 vi.mock('electron', () => ({ app: { isPackaged: false, getAppPath: () => '/app' } }))
 
 const {
+  arcadeCatalog,
   createGame,
   listGames,
   provisionalName,
   publishGame,
   readGame,
+  setArcadeShown,
   setGameIcon,
   slugify,
   updateGame,
@@ -497,5 +499,123 @@ describe('the sample games shipped with the app', () => {
     publishGame(mine.dir, {}, { root, vendor: 'acer', samplesRoot: path.join(bundle, 'missing') })
 
     expect(inlinedManifest().map((entry) => entry.id)).toEqual(['mine'])
+  })
+})
+
+// The page is regenerated on every open, so taking a game off it is a change to
+// the library rather than an edit of the HTML — which is what a tester who
+// deleted a card and watched it come back was running into.
+describe('taking a game off the arcade page', () => {
+  it('drops a game the user hid, and puts it back', () => {
+    const game = createGame({ name: 'Space Dodger' }, root)
+    publishGame(game.dir, {}, { root })
+
+    setArcadeShown({ kind: 'user', id: 'space-dodger', shown: false }, { root })
+    expect(inlinedManifest()).toEqual([])
+    expect(
+      JSON.parse(fs.readFileSync(path.join(root, 'library.json'), 'utf-8')).games,
+    ).toHaveLength(0)
+
+    setArcadeShown({ kind: 'user', id: 'space-dodger', shown: true }, { root })
+    expect(inlinedManifest().map((entry) => entry.id)).toEqual(['space-dodger'])
+  })
+
+  // The bundle is recopied over the installed samples on every write, so the flag
+  // cannot live in the copy's own game.json.
+  it('keeps a hidden sample hidden when the app reinstalls it', () => {
+    writeSampleBundle(['pong', 'neon-drift'])
+    const options = { root, vendor: 'acer', samplesRoot: bundle }
+    setArcadeShown({ kind: 'sample', id: 'pong', shown: false }, options)
+    expect(inlinedManifest().map((entry) => entry.id)).toEqual(['neon-drift'])
+
+    writeArcade(options)
+    expect(inlinedManifest().map((entry) => entry.id)).toEqual(['neon-drift'])
+    // Hidden from the page, still installed: showing it again needs no reinstall.
+    expect(fs.existsSync(path.join(root, '_arcade-samples', 'pong', 'index.html'))).toBe(true)
+
+    setArcadeShown({ kind: 'sample', id: 'pong', shown: true }, options)
+    expect(inlinedManifest().map((entry) => entry.id)).toEqual(['pong', 'neon-drift'])
+  })
+
+  it('leaves a hidden sample out of the upload manifest as well', () => {
+    writeSampleBundle(['pong'])
+    const mine = createGame({ name: 'Mine' }, root)
+    publishGame(mine.dir, {}, { root, vendor: 'acer', samplesRoot: bundle })
+    setArcadeShown(
+      { kind: 'sample', id: 'pong', shown: false },
+      { root, vendor: 'acer', samplesRoot: bundle },
+    )
+
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, 'library.json'), 'utf-8'))
+    expect(manifest.games.map((entry: { id: string }) => entry.id)).toEqual(['mine'])
+  })
+
+  it('writes the gallery as it always did when nothing is hidden', () => {
+    writeSampleBundle(['pong'])
+    const mine = createGame({ name: 'Mine' }, root)
+    publishGame(mine.dir, {}, { root, vendor: 'acer', samplesRoot: bundle })
+
+    expect(fs.existsSync(path.join(root, 'arcade-hidden.json'))).toBe(false)
+    expect(inlinedManifest().map((entry) => entry.id)).toEqual(['mine', 'pong'])
+  })
+
+  it('ignores an unreadable hide list rather than losing the samples', () => {
+    writeSampleBundle(['pong'])
+    fs.writeFileSync(path.join(root, 'arcade-hidden.json'), 'not json')
+    writeArcade({ root, vendor: 'acer', samplesRoot: bundle })
+
+    expect(inlinedManifest().map((entry) => entry.id)).toEqual(['pong'])
+  })
+
+  it('refuses an id that points outside the library', () => {
+    createGame({ name: 'Mine' }, root)
+    expect(() =>
+      setArcadeShown({ kind: 'user', id: '../elsewhere', shown: false }, { root }),
+    ).toThrow(/Not a game in the library/)
+    expect(() => setArcadeShown({ kind: 'sample', id: '../..', shown: false }, { root })).toThrow(
+      /Not a sample game/,
+    )
+  })
+})
+
+describe('arcadeCatalog', () => {
+  it('offers drafts and published games alike, with whether the page lists them', () => {
+    const saved = createGame({ name: 'Saved' }, root)
+    createGame({ name: 'Draft' }, root)
+    publishGame(saved.dir, {}, { root })
+
+    expect(arcadeCatalog({ root })).toEqual([
+      expect.objectContaining({ kind: 'user', id: 'saved', name: 'Saved', shown: true }),
+      expect.objectContaining({ kind: 'user', id: 'draft', name: 'Draft', shown: false }),
+    ])
+  })
+
+  it('offers the shipped samples too, and reports a hidden one as hidden', () => {
+    writeSampleBundle(['pong'])
+    const options = { root, vendor: 'acer', samplesRoot: bundle }
+    expect(arcadeCatalog(options)).toEqual([
+      expect.objectContaining({ kind: 'sample', id: 'pong', shown: true }),
+    ])
+
+    setArcadeShown({ kind: 'sample', id: 'pong', shown: false }, options)
+    expect(arcadeCatalog(options)).toEqual([
+      expect.objectContaining({ kind: 'sample', id: 'pong', shown: false }),
+    ])
+  })
+
+  // A sample's icon sits a folder deeper than a game's, and the app window can
+  // only load one through this scheme.
+  it('addresses a sample icon through the nested path the renderer needs', () => {
+    writeSampleBundle(['pong'])
+    const [sample] = arcadeCatalog({ root, vendor: 'acer', samplesRoot: bundle })
+    expect(sample.iconUrl).toBe('aipg-media://games/_arcade-samples/pong/icon.png')
+  })
+
+  // Samples are an Acer deliverable: elsewhere there is nothing to ask about, and
+  // nothing may be copied in by the asking.
+  it('offers no samples on a machine that is not an Acer', () => {
+    writeSampleBundle(['pong'])
+    expect(arcadeCatalog({ root, vendor: 'unknown', samplesRoot: bundle })).toEqual([])
+    expect(fs.existsSync(path.join(root, '_arcade-samples'))).toBe(false)
   })
 })

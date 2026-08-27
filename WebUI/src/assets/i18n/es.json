@@ -530,5 +530,16 @@
   "MODEL_MANAGER_PUBLISHER_TITLE": "Ajustes del publicador",
   "MODEL_MANAGER_PUBLISHER_HINT": "Recomendados por el publicador del modelo y aplicados automáticamente. Provienen del catálogo y no se pueden editar.",
   "MODEL_MANAGER_PUBLISHER_SAMPLING": "Muestreo",
-  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "Parámetros del servidor"
+  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "Parámetros del servidor",
+  "ARCADE_MANAGE_TOOLTIP": "Elige qué juegos aparecen en {arcade}",
+  "ARCADE_MANAGE_TITLE": "Gestionar {arcade}",
+  "ARCADE_MANAGE_DESCRIPTION": "Marca un juego para que aparezca en {arcade}. Al desmarcarlo solo se quita de la página: los archivos siguen en tu carpeta de juegos.",
+  "ARCADE_MANAGE_LOADING": "Leyendo tu biblioteca de juegos…",
+  "ARCADE_MANAGE_EMPTY": "Aún no hay juegos. Crea uno con el Game Agent.",
+  "ARCADE_MANAGE_YOUR_GAMES": "Tus juegos",
+  "ARCADE_MANAGE_STARTER_GAMES": "Juegos incluidos",
+  "ARCADE_MANAGE_CREATED": "Creado el {date}",
+  "ARCADE_MANAGE_SHOW_GAME": "Mostrar {game} en {arcade}",
+  "ARCADE_MANAGE_DONE": "Listo",
+  "ARCADE_MANAGE_FAILED": "No se pudo actualizar {arcade}."
 }

@@ -71,6 +71,20 @@ export type AgentCapabilityInfo = {
   unavailableReason?: string
 }
 
+/** A row in the arcade manager: what the gallery could list, and whether it does. */
+export type ArcadeCatalogEntry = {
+  /** `user` is a game in the library, `sample` one of the games the app ships. */
+  kind: 'user' | 'sample'
+  /** Folder name — under the library root for a game, under the samples folder. */
+  id: string
+  name: string
+  description: string
+  createdAt: number
+  iconUrl?: string
+  /** Whether the arcade page lists it as things stand. */
+  shown: boolean
+}
+
 export type GameLibraryEntry = {
   id: string
   name: string

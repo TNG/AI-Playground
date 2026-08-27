@@ -105,7 +105,7 @@
   </main>
   <main
     v-show="globalSetup.loadingState === 'setupWizard'"
-    class="flex-auto flex items-center justify-center"
+    class="flex-auto flex items-start justify-center overflow-y-auto py-8 [scrollbar-gutter:stable]"
   >
     <SetupWizard />
   </main>

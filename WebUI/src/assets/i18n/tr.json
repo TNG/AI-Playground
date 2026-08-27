@@ -530,5 +530,16 @@
   "MODEL_MANAGER_PUBLISHER_TITLE": "Yayıncı ayarları",
   "MODEL_MANAGER_PUBLISHER_HINT": "Model yayıncısı tarafından önerilir ve otomatik olarak uygulanır. Katalogdan gelir ve düzenlenemez.",
   "MODEL_MANAGER_PUBLISHER_SAMPLING": "Örnekleme",
-  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "Sunucu parametreleri"
+  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "Sunucu parametreleri",
+  "ARCADE_MANAGE_TOOLTIP": "{arcade} sayfasında hangi oyunların görüneceğini seçin",
+  "ARCADE_MANAGE_TITLE": "{arcade} yönetimi",
+  "ARCADE_MANAGE_DESCRIPTION": "Bir oyunu {arcade} sayfasında göstermek için işaretleyin. İşareti kaldırmak yalnızca sayfadan çıkarır; dosyalar oyun klasörünüzde kalır.",
+  "ARCADE_MANAGE_LOADING": "Oyun kitaplığınız okunuyor…",
+  "ARCADE_MANAGE_EMPTY": "Henüz oyun yok. Game Agent ile bir tane yapın.",
+  "ARCADE_MANAGE_YOUR_GAMES": "Oyunlarınız",
+  "ARCADE_MANAGE_STARTER_GAMES": "Uygulamayla gelen oyunlar",
+  "ARCADE_MANAGE_CREATED": "{date} tarihinde oluşturuldu",
+  "ARCADE_MANAGE_SHOW_GAME": "{game} oyununu {arcade} sayfasında göster",
+  "ARCADE_MANAGE_DONE": "Bitti",
+  "ARCADE_MANAGE_FAILED": "{arcade} güncellenemedi."
 }

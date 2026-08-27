@@ -317,6 +317,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openFolder: (dir?: string) => ipcRenderer.invoke('games:openFolder', dir),
     play: (dir: string) => ipcRenderer.invoke('games:play', dir),
     openArcade: () => ipcRenderer.invoke('games:openArcade'),
+    arcadeCatalog: () => ipcRenderer.invoke('games:arcadeCatalog'),
+    setArcadeShown: (target: { kind: 'user' | 'sample'; id: string; shown: boolean }) =>
+      ipcRenderer.invoke('games:setArcadeShown', target),
   },
   webBrowser: {
     navigate: (url: string) => ipcRenderer.invoke('webBrowser:navigate', url),

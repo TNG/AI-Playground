@@ -530,5 +530,16 @@
   "MODEL_MANAGER_PUBLISHER_TITLE": "Publisher settings",
   "MODEL_MANAGER_PUBLISHER_HINT": "Recommended by the model publisher and applied automatically. They come from the catalog and cannot be edited.",
   "MODEL_MANAGER_PUBLISHER_SAMPLING": "Sampling",
-  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "Server parameters"
+  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "Server parameters",
+  "ARCADE_MANAGE_TOOLTIP": "Choose which games show in {arcade}",
+  "ARCADE_MANAGE_TITLE": "Manage {arcade}",
+  "ARCADE_MANAGE_DESCRIPTION": "Tick a game to show it in {arcade}. Unticking only takes it off the page — the files stay in your game folder.",
+  "ARCADE_MANAGE_LOADING": "Reading your game library…",
+  "ARCADE_MANAGE_EMPTY": "No games yet. Build one with the Game Agent.",
+  "ARCADE_MANAGE_YOUR_GAMES": "Your games",
+  "ARCADE_MANAGE_STARTER_GAMES": "Starter games",
+  "ARCADE_MANAGE_CREATED": "Created {date}",
+  "ARCADE_MANAGE_SHOW_GAME": "Show {game} in {arcade}",
+  "ARCADE_MANAGE_DONE": "Done",
+  "ARCADE_MANAGE_FAILED": "Could not update {arcade}."
 }

@@ -530,5 +530,16 @@
   "MODEL_MANAGER_PUBLISHER_TITLE": "Pengaturan penerbit",
   "MODEL_MANAGER_PUBLISHER_HINT": "Direkomendasikan oleh penerbit model dan diterapkan secara otomatis. Nilai ini berasal dari katalog dan tidak dapat diubah.",
   "MODEL_MANAGER_PUBLISHER_SAMPLING": "Sampling",
-  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "Parameter server"
+  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "Parameter server",
+  "ARCADE_MANAGE_TOOLTIP": "Pilih game mana yang tampil di {arcade}",
+  "ARCADE_MANAGE_TITLE": "Kelola {arcade}",
+  "ARCADE_MANAGE_DESCRIPTION": "Centang sebuah game agar tampil di {arcade}. Menghapus centang hanya mengeluarkannya dari halaman — berkasnya tetap ada di folder game Anda.",
+  "ARCADE_MANAGE_LOADING": "Membaca pustaka game Anda…",
+  "ARCADE_MANAGE_EMPTY": "Belum ada game. Buat satu dengan Game Agent.",
+  "ARCADE_MANAGE_YOUR_GAMES": "Game Anda",
+  "ARCADE_MANAGE_STARTER_GAMES": "Game bawaan",
+  "ARCADE_MANAGE_CREATED": "Dibuat {date}",
+  "ARCADE_MANAGE_SHOW_GAME": "Tampilkan {game} di {arcade}",
+  "ARCADE_MANAGE_DONE": "Selesai",
+  "ARCADE_MANAGE_FAILED": "Tidak dapat memperbarui {arcade}."
 }

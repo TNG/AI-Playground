@@ -51,6 +51,23 @@
       >
         Open {{ oemBranding.arcadeLabel }}
       </Button>
+      <!-- Membership of that page, which is regenerated on every open: taking a game
+           off it has to be recorded here, not by editing the page. -->
+      <TooltipProvider v-if="oemBranding.showsArcade" :delay-duration="200">
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <button
+              type="button"
+              class="bg-muted rounded-xs w-6 h-6 flex items-center justify-center text-foreground"
+              :aria-label="manageLabel"
+              @click="arcadeManagerOpen = true"
+            >
+              <QueueListIcon class="w-4 h-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="left">{{ manageLabel }}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       <IconButton
         icon="i-folder"
         :tooltip="game ? 'Open the game folder' : 'Open the game library folder'"
@@ -91,6 +108,8 @@
       </div>
     </DialogContent>
   </Dialog>
+
+  <ArcadeManagerDialog v-model:open="arcadeManagerOpen" />
 </template>
 
 <script setup lang="ts">
@@ -106,13 +125,18 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { QueueListIcon } from '@heroicons/vue/24/outline'
 import IconButton from '@/components/ui/IconButton.vue'
+import ArcadeManagerDialog from '@/components/ArcadeManagerDialog.vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useI18N } from '@/assets/js/store/i18n'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import * as toast from '@/assets/js/toast'
 
 const agentMode = useAgentMode()
 const oemBranding = useOemBranding()
+const i18nState = useI18N().state
 
 const game = computed(() => agentMode.currentGame)
 
@@ -133,6 +157,14 @@ const saveLabel = computed(() =>
     : `Add to ${oemBranding.arcadeTarget}`,
 )
 
+const manageLabel = computed(() =>
+  (i18nState.ARCADE_MANAGE_TOOLTIP || 'Choose which games show in {arcade}').replace(
+    '{arcade}',
+    oemBranding.arcadeLabel,
+  ),
+)
+
+const arcadeManagerOpen = ref(false)
 const saveDialogOpen = ref(false)
 const draftName = ref('')
 const draftDescription = ref('')

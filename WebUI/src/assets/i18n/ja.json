@@ -530,5 +530,16 @@
   "MODEL_MANAGER_PUBLISHER_TITLE": "提供元の設定",
   "MODEL_MANAGER_PUBLISHER_HINT": "モデルの提供元が推奨し、自動的に適用されます。カタログに由来するため編集できません。",
   "MODEL_MANAGER_PUBLISHER_SAMPLING": "サンプリング",
-  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "サーバーパラメーター"
+  "MODEL_MANAGER_PUBLISHER_SERVER_ARGS": "サーバーパラメーター",
+  "ARCADE_MANAGE_TOOLTIP": "{arcade} に表示するゲームを選びます",
+  "ARCADE_MANAGE_TITLE": "{arcade} の管理",
+  "ARCADE_MANAGE_DESCRIPTION": "チェックを入れると {arcade} に表示されます。外してもページから消えるだけで、ファイルはゲームフォルダーに残ります。",
+  "ARCADE_MANAGE_LOADING": "ゲームライブラリを読み込んでいます…",
+  "ARCADE_MANAGE_EMPTY": "まだゲームがありません。Game Agent で作ってみましょう。",
+  "ARCADE_MANAGE_YOUR_GAMES": "あなたのゲーム",
+  "ARCADE_MANAGE_STARTER_GAMES": "付属のゲーム",
+  "ARCADE_MANAGE_CREATED": "作成日 {date}",
+  "ARCADE_MANAGE_SHOW_GAME": "{game} を {arcade} に表示",
+  "ARCADE_MANAGE_DONE": "完了",
+  "ARCADE_MANAGE_FAILED": "{arcade} を更新できませんでした。"
 }

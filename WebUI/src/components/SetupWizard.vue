@@ -216,10 +216,10 @@
                     <template v-if="coreDependentRows.length > 0" #disclosure>
                       <CollapsibleTrigger
                         :aria-label="`${coreRow.displayName} details`"
-                        class="inline-flex items-center justify-center shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                        class="size-4 inline-flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
                       >
                         <ChevronDownIcon
-                          class="size-3.5 transition-transform"
+                          class="size-3.5 origin-center transition-transform"
                           :class="{ 'rotate-180': coreServicesOpen }"
                         />
                       </CollapsibleTrigger>
@@ -230,21 +230,20 @@
                   </SetupWizardRow>
 
                   <CollapsibleContent v-if="coreDependentRows.length > 0">
-                    <div class="flex flex-col pl-5">
-                      <SetupWizardRow
-                        v-for="row in coreDependentRows"
-                        :key="row.serviceName"
-                        :row="backendRowView(row)"
-                        compact
-                        @toggle="(v) => wizard.toggleBackend(row.serviceName, v)"
-                        @repair="wizard.repairBackend(row.serviceName)"
-                        @show-error="wizard.showErrorModal(row.serviceName)"
-                      >
-                        <template #options>
-                          <BackendOptions :backend="row.serviceName" />
-                        </template>
-                      </SetupWizardRow>
-                    </div>
+                    <SetupWizardRow
+                      v-for="row in coreDependentRows"
+                      :key="row.serviceName"
+                      :row="backendRowView(row)"
+                      compact
+                      nested
+                      @toggle="(v) => wizard.toggleBackend(row.serviceName, v)"
+                      @repair="wizard.repairBackend(row.serviceName)"
+                      @show-error="wizard.showErrorModal(row.serviceName)"
+                    >
+                      <template #options>
+                        <BackendOptions :backend="row.serviceName" />
+                      </template>
+                    </SetupWizardRow>
                   </CollapsibleContent>
                 </Collapsible>
 

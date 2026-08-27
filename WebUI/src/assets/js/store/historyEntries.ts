@@ -50,13 +50,19 @@ export type MediaEntry = EntryBase & {
 
 export type HistoryEntry = ConversationEntry | AgentEntry | MediaEntry
 
-export type HistoryFilter = 'current' | 'all' | 'homeAgent'
+export type HistoryFilter = 'current' | 'all'
 
 export type FilterContext = {
   filter: HistoryFilter
   currentMode: ModeType
   /** Agent preset the Agent list belongs to; Game Agent and Quick Coder share one. */
   agentPresetName?: string
+  /**
+   * Which transcripts the current-mode list is about. Home Agent behaves like a
+   * mode of its own: while the app is on a remote thread, local chats are as
+   * out of scope as an image would be.
+   */
+  threadScope?: ThreadKind
   /** Thread the app is sitting on, so its unsent draft can still be shown. */
   activeConversationId?: string | null
 }
@@ -167,13 +173,12 @@ export function matchesFilter(entry: HistoryEntry, context: FilterContext): bool
   // A tool's output is already on the card of the turn that produced it.
   if (entry.kind === 'media' && entry.origin === 'tool') return false
   if (isEmptyDraft(entry) && entry.id !== context.activeConversationId) return false
-  if (context.filter === 'homeAgent') {
-    return entry.kind === 'conversation' && entry.threadKind === 'homeAgent'
-  }
   if (context.filter === 'all') return true
   switch (entry.kind) {
     case 'conversation':
-      return entry.threadKind === 'main' && entry.mode === context.currentMode
+      return (
+        entry.mode === context.currentMode && entry.threadKind === (context.threadScope ?? 'main')
+      )
     case 'agent':
       return (
         context.currentMode === 'agent' &&
@@ -181,6 +186,23 @@ export function matchesFilter(entry: HistoryEntry, context: FilterContext): bool
       )
     case 'media':
       return entry.mode === context.currentMode
+  }
+}
+
+/**
+ * Whether the row's runtime is the one on screen. Each kind remembers its own
+ * selection, so under All a selected image, transcript and agent session would
+ * otherwise all be marked active while only one of them is showing.
+ */
+export function entryRuntimeShown(entry: HistoryEntry, currentMode: ModeType): boolean {
+  switch (entry.kind) {
+    // Chat and Audio render the same transcript view.
+    case 'conversation':
+      return currentMode === 'chat' || currentMode === 'audio'
+    case 'agent':
+      return currentMode === 'agent'
+    case 'media':
+      return currentMode === entry.mode
   }
 }
 

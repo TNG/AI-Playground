@@ -7,6 +7,7 @@ import {
   conversationTimes,
   conversationTitle,
   entryHaystack,
+  entryRuntimeShown,
   isEmptyDraft,
   matchesFilter,
   mediaTimes,
@@ -208,13 +209,25 @@ describe('matchesFilter', () => {
     expect(all(media({ origin: 'tool' }))).toBe(false)
   })
 
-  it('shows only remote threads under Home Agent', () => {
-    const homeAgent = (entry: HistoryEntry) =>
-      matchesFilter(entry, { filter: 'homeAgent', currentMode: 'chat' })
-    expect(homeAgent(conversation({ threadKind: 'homeAgent' }))).toBe(true)
-    expect(homeAgent(conversation())).toBe(false)
-    expect(homeAgent(agent())).toBe(false)
-    expect(homeAgent(media())).toBe(false)
+  it('swaps the current-mode list for the remote one while a remote thread is open', () => {
+    const remote = (entry: HistoryEntry) =>
+      matchesFilter(entry, { filter: 'current', currentMode: 'chat', threadScope: 'homeAgent' })
+    expect(remote(conversation({ threadKind: 'homeAgent' }))).toBe(true)
+    expect(remote(conversation())).toBe(false)
+    expect(remote(agent())).toBe(false)
+    expect(remote(media())).toBe(false)
+  })
+})
+
+describe('entryRuntimeShown', () => {
+  it('marks only the kind the app is showing, so All has one active row', () => {
+    expect(entryRuntimeShown(conversation(), 'chat')).toBe(true)
+    expect(entryRuntimeShown(conversation(), 'audio')).toBe(true)
+    expect(entryRuntimeShown(conversation(), 'imageGen')).toBe(false)
+    expect(entryRuntimeShown(agent(), 'agent')).toBe(true)
+    expect(entryRuntimeShown(agent(), 'chat')).toBe(false)
+    expect(entryRuntimeShown(media(), 'imageGen')).toBe(true)
+    expect(entryRuntimeShown(media(), 'chat')).toBe(false)
   })
 })
 
@@ -235,13 +248,9 @@ describe('isEmptyDraft', () => {
     expect(matchesFilter(draft, { filter: 'all', currentMode: 'chat' })).toBe(false)
     // A remote bucket nobody wrote to is hidden on the same terms.
     const remote = conversation({ id: '3000', threadKind: 'homeAgent', messages: [] })
-    expect(matchesFilter(remote, { filter: 'homeAgent', currentMode: 'chat' })).toBe(false)
+    expect(matchesFilter(remote, { filter: 'all', currentMode: 'chat' })).toBe(false)
     expect(
-      matchesFilter(remote, {
-        filter: 'homeAgent',
-        currentMode: 'chat',
-        activeConversationId: '3000',
-      }),
+      matchesFilter(remote, { filter: 'all', currentMode: 'chat', activeConversationId: '3000' }),
     ).toBe(true)
   })
 })

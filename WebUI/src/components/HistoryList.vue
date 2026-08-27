@@ -113,10 +113,13 @@ async function removeDraft() {
   if (draft.value) await history.remove(draft.value)
 }
 
+const currentLabel = computed(() =>
+  history.conversationScope === 'homeAgent' ? 'Home Agent' : mapModeToLabel(history.currentMode),
+)
+
 const chips = computed(() => [
-  { value: 'current' as const, label: mapModeToLabel(history.currentMode) },
+  { value: 'current' as const, label: currentLabel.value },
   { value: 'all' as const, label: 'All' },
-  { value: 'homeAgent' as const, label: 'Home Agent' },
 ])
 
 const groups = computed(() => {
@@ -136,12 +139,11 @@ const showNewMediaRow = computed(
 
 const emptyMessage = computed(() => {
   if (history.query.trim()) return 'Nothing matches that search.'
-  if (history.filter === 'homeAgent') return 'No Home Agent conversations yet.'
   if (history.filter === 'all') return 'No history yet.'
   if (history.currentMode === 'agent')
     return 'No sessions yet. Each turn is archived automatically.'
   if (isWorkflowMode(history.currentMode)) return 'Nothing generated yet.'
-  return `No ${mapModeToLabel(history.currentMode)} conversations yet.`
+  return `No ${currentLabel.value} conversations yet.`
 })
 
 // Games are named after the fact (`set_metadata`), and a renamed game must

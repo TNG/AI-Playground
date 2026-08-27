@@ -4,14 +4,24 @@ export const LOG_SOURCE = 'piAgentManager'
 
 const ENV_TRUTHY = new Set(['1', 'true', 'yes', 'on'])
 
+// What Settings → Developer last asked for; null until the renderer says.
+let uiPreference: boolean | null = null
+
+/** Push the Settings → Developer choice. `null` restores the default. */
+export function setVerboseLogging(value: boolean | null): void {
+  uiPreference = value
+}
+
 /**
- * Verbose Pi turn logging. On in dev (`npm run dev`) so the turn lifecycle and
- * tool traffic flow into the app logger; off in packaged builds unless
- * `AGENT_DEBUG` says otherwise.
+ * Verbose Pi turn logging: the turn lifecycle and tool traffic flow into the app
+ * logger. `AGENT_DEBUG` stays a one-shot override for a launch that has no UI
+ * yet; otherwise the Settings → Developer checkbox decides, defaulting to on in
+ * dev (`npm run dev`) and off in packaged builds.
  */
 export function verboseLogging(): boolean {
   const envFlag = (process.env.AGENT_DEBUG ?? '').toLowerCase()
-  return envFlag ? ENV_TRUTHY.has(envFlag) : !app.isPackaged
+  if (envFlag) return ENV_TRUTHY.has(envFlag)
+  return uiPreference ?? !app.isPackaged
 }
 
 /** Compact one value to a single log-friendly line, truncated. */

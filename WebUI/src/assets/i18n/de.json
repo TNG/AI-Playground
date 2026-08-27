@@ -230,7 +230,6 @@
   "DOWNLOADER_DONWLOAD_TASK_PROGRESS": "Modell-Downloads abgeschlossen",
   "RAG_FILE_TOTAL_FORMAT": "Dateien gesamt: {total}",
   "RAG_DRAG_UPLOAD": "Dateien zum Hochladen hierher ziehen",
-  "RAG_DRAG_UPLOAD_UNSUPPORTED": "Das aktuelle Programm wurde mit Administratorrechten gestartet. Aufgrund von Windows-UAC-Einschränkungen kann das Hochladen per Drag & Drop nicht verwendet werden. Bitte verwenden Sie die Schaltfläche „Hinzufügen“ oben, um Dateien hochzuladen.",
   "RAG_UPLOAD_MIME_TYPE": "Unterstützte Dateitypen:\n\tTextdokument: .txt .md\n\tOffice-Dokument: .doc(x)\n\tPDF-Dokument: .pdf",
   "RAG_ENABLE_TIP": "Antworten nur auf Basis hochgeladener Dateien geben",
   "RAG_UPLOAD_TYPE_ERROR": "Die hochgeladenen Dateien enthalten einen nicht unterstützten Dateityp, der automatisch ausgeschlossen wurde",

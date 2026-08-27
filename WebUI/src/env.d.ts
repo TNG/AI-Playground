@@ -11,53 +11,6 @@ declare interface Window {
     /** Release tag on that commit; '' when the build is not from a tag. */
     gitTag: string
   }
-  // Dev-only Home Agent mock-channel drive surface (see channels/mockAdapter.ts).
-  // Only attached when debug tools are enabled.
-  __homeAgentMock?: HomeAgentMockApi
-}
-
-type HomeAgentMockInboundOpts = {
-  chat_id?: string
-  channel?: string
-  ts?: string
-  images?: Array<{ mime: string; data_base64: string }>
-  audio?: Array<{ mime: string; data_base64: string }>
-  documents?: Array<{ filename: string; mime: string; data_base64: string }>
-}
-
-type HomeAgentMockOutboundEvent = {
-  kind:
-    | 'reply'
-    | 'photo'
-    | 'video'
-    | 'voice'
-    | 'document'
-    | 'keyboard'
-    | 'keyboardEdit'
-    | 'draftUpdate'
-    | 'draftFinal'
-    | 'typingStart'
-    | 'typingStop'
-  text?: string
-  caption?: string
-  filename?: string
-  mime?: string
-  base64?: string
-  buttons?: Array<Array<{ text: string; callbackData: string }>>
-  meta?: { channel?: string; ts?: string; chatId?: string }
-  ts: number
-}
-
-type HomeAgentMockApi = {
-  send(text: string, opts?: HomeAgentMockInboundOpts): Promise<void>
-  sendCallback(callback: string): Promise<void>
-  sendMedia(
-    url: string,
-    opts?: { kind?: 'image' | 'video' | 'model3d'; caption?: string },
-  ): Promise<void>
-  outbox(): HomeAgentMockOutboundEvent[]
-  clear(): void
-  waitForIdle(timeoutMs?: number): Promise<void>
 }
 
 interface ImportMetaEnv {
@@ -119,18 +72,14 @@ type ProductMode = 'studio' | 'essentials' | 'nvidia'
 
 /** Mirrors electron/main LocalSettingsSchema (renderer copy for IPC typing). */
 type LocalSettings = {
-  debug: boolean
-  isAdminExec: boolean
-  availableThemes: Array<'dark' | 'lnl' | 'bmg' | 'light'>
-  currentTheme: 'dark' | 'lnl' | 'bmg' | 'light'
   productMode?: ProductMode
   isDemoModeEnabled: boolean
   demoModeResetInSeconds: number | null
   demoModePasscode?: string
-  isCloudModeEnabled: boolean
   isAgentPresetEnabled?: boolean
+  /** Shows the machine-level debug controls in Settings → Developer. */
+  showDebugSettingsInUI?: boolean
   oemVendorOverride?: string | null
-  isWhisperBackendEnabled?: boolean
   /** Components switched off in the setup wizard; not auto-started at launch. */
   disabledBackends?: string[]
   languageOverride: string | null
@@ -348,6 +297,7 @@ type electronAPI = {
   ): Promise<{ releaseTag?: string; version?: string } | undefined>
   getGitHubRepoUrl(): Promise<string>
   openDevTools(): void
+  setVerboseAgentLogging(enabled: boolean): void
   getDeveloperSettings(): Promise<{ openDevConsoleOnStartup: boolean }>
   openUrl(url: string): void
   changeWindowMessageFilter(): void
@@ -357,7 +307,6 @@ type electronAPI = {
     maxChatContentHeight: number
   }>
   getLocaleSettings(): Promise<LocaleSettings>
-  getThemeSettings(): Promise<ThemeSettings>
   updateLocalSettings(updates: Partial<LocalSettings>): Promise<{ success: boolean }>
   getLocalSettings(): Promise<LocalSettings>
   detectHardwareForModeRecommendation(): Promise<HardwareRecommendationResult>

@@ -30,7 +30,6 @@ vi.stubGlobal('window', {
     getInitSetting: vi.fn(async () => ({
       modelLists: { embedding: [] },
       modelPaths: {},
-      isAdminExec: false,
       version: '0.0.0',
       modelFolderReadOnly: false,
     })),

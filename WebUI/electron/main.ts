@@ -112,6 +112,7 @@ import {
   startAgentTurn,
   submitAgentToolResult,
 } from './agentMode/piAgentManager'
+import { setVerboseLogging as setVerboseAgentLogging } from './agentMode/piAgentLog.ts'
 import { importAttachment } from './agentMode/workspaceAttachments.ts'
 import { AgentModeTurnConfigSchema } from '@/types/agentIpc'
 import { getAudioDir, getGamesDir, getMediaDir } from './util.ts'
@@ -346,7 +347,6 @@ const appSize = {
   height: 128,
   maxChatContentHeight: 0,
 }
-const ThemeSchema = z.enum(['dark', 'lnl', 'bmg', 'light'])
 const ProductModeSchema = z.enum(['studio', 'essentials', 'nvidia'])
 // User's preferred GPU, captured in the setup wizard. Identified by name
 // (+ PCI id when known) so it can be matched to each backend's own device
@@ -364,25 +364,18 @@ const PreferredDeviceSchema = z.object({
 export type PreferredDevice = z.infer<typeof PreferredDeviceSchema>
 
 const LocalSettingsSchema = z.object({
-  debug: z.boolean().default(false),
-  isAdminExec: z.boolean().default(false),
-  availableThemes: z.array(ThemeSchema).default(['dark', 'lnl', 'bmg', 'light']),
-  currentTheme: ThemeSchema.default('bmg'),
   productMode: ProductModeSchema.optional(),
   isDemoModeEnabled: z.boolean().default(false),
   demoModeResetInSeconds: z.number().min(1).nullable().default(null),
   demoModePasscode: z.string().optional(),
-  // Gates the Cloud Mode feature (remote OpenAI-compatible provider backend,
-  // setup wizard surface, chat backend option). Frontend-only — there is no
-  // Python service. Default false: opt-in by toggling it in the setup wizard.
-  isCloudModeEnabled: z.boolean().default(false),
-  // Gates the experimental "Agent" chat preset — the raw harness with a folder the
-  // user picks, as opposed to Game Agent, which is the same harness aimed at one
-  // task. Default false: opt-in by editing settings.json. See docs/agent-preset.md.
+  // Gates the experimental "Agent" chat preset. Written by the Settings →
+  // Developer checkbox, not a documented hand-edit flag. See docs/agent-preset.md.
   isAgentPresetEnabled: z.boolean().default(false),
-  // Gates the optional standalone Whisper STT Python sidecar (torch, non-OpenVINO;
-  // works in every product mode incl. NVIDIA).
-  isWhisperBackendEnabled: z.boolean().default(false),
+  // Shows the machine-level debug controls (OEM override, Phison pretend, remote
+  // repository, OpenVINO image-gen devices, verbose agent logging, dummy media
+  // workflows, the title-bar wizard shortcut) in Settings → Developer, and
+  // unlocks the dev-only test model + dummy workflows in a packaged build.
+  showDebugSettingsInUI: z.boolean().default(false),
   // Components the user switched off in the setup wizard. Persisted because the
   // toggle used to live only in the renderer's wizard store: an installed
   // component the user had disabled was auto-started again by the main process on
@@ -777,24 +770,28 @@ async function createWindow() {
       )
     }, 100)
 
-    // Check localStorage for developer settings after page loads
+    // Check localStorage for developer settings after page loads. `null` means the
+    // renderer never stored a choice, which is what keeps DevTools opening by
+    // default on an unpackaged run.
     setTimeout(async () => {
       try {
-        const openDevConsoleOnStartup = await win!.webContents.executeJavaScript(
+        const stored: boolean | null = await win!.webContents.executeJavaScript(
           `(() => {
             try {
               const developerSettings = localStorage.getItem('developerSettings');
               if (developerSettings) {
                 const parsed = JSON.parse(developerSettings);
-                return parsed.openDevConsoleOnStartup === true;
+                if (typeof parsed.openDevConsoleOnStartup === 'boolean') {
+                  return parsed.openDevConsoleOnStartup;
+                }
               }
             } catch (e) {
-              return false;
+              return null;
             }
-            return false;
+            return null;
           })()`,
         )
-        if (openDevConsoleOnStartup && app.isPackaged && !settings.debug) {
+        if (stored ?? !app.isPackaged) {
           win!.webContents.openDevTools({ mode: 'detach', activate: true })
         }
       } catch (e) {
@@ -858,11 +855,6 @@ async function createWindow() {
   })
 
   const session = win.webContents.session
-
-  if (!app.isPackaged || settings.debug) {
-    //Open devTool if the app is not packaged
-    win.webContents.openDevTools({ mode: 'detach', activate: true })
-  }
 
   if (settings.isDemoModeEnabled) {
     win.setFullScreen(true)
@@ -1186,13 +1178,6 @@ function initEventHandle() {
         display.workAreaSize.width,
         display.workAreaSize.height,
       )
-    }
-  })
-
-  ipcMain.handle('getThemeSettings', async () => {
-    return {
-      availableThemes: settings.availableThemes,
-      currentTheme: settings.currentTheme,
     }
   })
 
@@ -1646,7 +1631,6 @@ function initEventHandle() {
     return {
       modelLists: pathsManager.scanAll(),
       modelPaths: pathsManager.modelPaths,
-      isAdminExec: settings.isAdminExec,
       version: app.getVersion(),
       modelFolderReadOnly: !pathsManager.isModelDirWritable(),
     }
@@ -1775,6 +1759,10 @@ function initEventHandle() {
 
   ipcMain.on('openDevTools', () => {
     win?.webContents.openDevTools({ mode: 'detach', activate: true })
+  })
+
+  ipcMain.on('setVerboseAgentLogging', (_event, enabled: boolean) => {
+    setVerboseAgentLogging(enabled)
   })
 
   ipcMain.handle('getServices', () => {

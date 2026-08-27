@@ -6,11 +6,13 @@
  * item typing, workspace saving, UI rendering) can be exercised end to end
  * without waiting minutes for a real diffusion run on a dev laptop.
  *
- * Injected into the preset list only when `debugToolsEnabled` is set (i.e.
- * `npm run dev`), mirroring the dev-only test LLM in `models.ts`.
+ * Injected into the preset list when `debugToolsEnabled` is set (i.e. `npm run
+ * dev`) or settings.json asks for the debug controls, mirroring the dev-only test
+ * LLM in `models.ts`.
  */
 import type { ComfyUiPreset, Preset } from './presets'
 import { useDeveloperSettings } from './developerSettings'
+import { debugSettingsVisible } from './debugSettings'
 import { getComfyAuthToken } from '@/lib/loopbackAuth'
 
 const DUMMY_TAGS = ['dev only', 'instant', 'no model']
@@ -325,7 +327,7 @@ export const devPresets: ComfyUiPreset[] = [
 export const DEV_PRESET_NAMES: ReadonlySet<string> = new Set(devPresets.map((p) => p.name))
 
 function devPresetsEnabled(): boolean {
-  return window.envVars?.debugToolsEnabled === true
+  return window.envVars?.debugToolsEnabled === true || debugSettingsVisible()
 }
 
 /** Appends the dev-only dummy presets to a freshly loaded preset list. */

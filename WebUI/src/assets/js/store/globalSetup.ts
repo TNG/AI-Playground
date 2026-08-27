@@ -11,7 +11,6 @@ export const useGlobalSetup = defineStore('globalSetup', () => {
   const backendServices = useBackendServices()
 
   const state = reactive<KVObject>({
-    isAdminExec: false,
     device: '',
     version: '0.0.0.1',
     modelFolderReadOnly: false,
@@ -45,7 +44,6 @@ export const useGlobalSetup = defineStore('globalSetup', () => {
     modelsStore.initPaths(setupData.modelPaths)
     models.value = setupData.modelLists
 
-    state.isAdminExec = setupData.isAdminExec
     state.version = setupData.version
     state.modelFolderReadOnly = setupData.modelFolderReadOnly
     const aiBackendInfo = await waitForAiBackend()

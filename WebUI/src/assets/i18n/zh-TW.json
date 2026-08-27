@@ -230,7 +230,6 @@
   "DOWNLOADER_DONWLOAD_TASK_PROGRESS": "模型下載完成",
   "RAG_FILE_TOTAL_FORMAT": "檔案總數：{total}",
   "RAG_DRAG_UPLOAD": "拖曳檔案以上傳",
-  "RAG_DRAG_UPLOAD_UNSUPPORTED": "目前程式以系統管理員權限啟動。由於 Windows UAC 限制，無法使用拖放上傳。請使用頂部的新增按鈕來上傳檔案。",
   "RAG_UPLOAD_MIME_TYPE": "支援的檔案類型：\n\t文字文件：.txt .md\n\tOffice 文件：.doc(x)\n\tPDF 文件：.pdf",
   "RAG_ENABLE_TIP": "僅根據已上傳的內容提供答案",
   "RAG_UPLOAD_TYPE_ERROR": "上傳的檔案中有不支援的檔案類型，已自動排除",

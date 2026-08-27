@@ -230,7 +230,6 @@
   "DOWNLOADER_DONWLOAD_TASK_PROGRESS": "Pobieranie modeli zakończone",
   "RAG_FILE_TOTAL_FORMAT": "Łącznie plików: {total}",
   "RAG_DRAG_UPLOAD": "Przeciągnij pliki, aby przesłać",
-  "RAG_DRAG_UPLOAD_UNSUPPORTED": "Bieżący program został uruchomiony z uprawnieniami administratora. Ze względu na ograniczenia systemu Windows UAC przesyłanie metodą przeciągnij i upuść jest niedostępne. Użyj przycisku dodawania u góry, aby przesłać pliki.",
   "RAG_UPLOAD_MIME_TYPE": "Obsługiwane typy plików:\n\tDokument tekstowy: .txt .md\n\tDokument Office: .doc(x)\n\tDokument PDF: .pdf",
   "RAG_ENABLE_TIP": "udzielaj odpowiedzi tylko na podstawie przesłanych plików",
   "RAG_UPLOAD_TYPE_ERROR": "W przesłanych plikach znajduje się nieobsługiwany typ pliku, który został automatycznie wykluczony",

@@ -74,9 +74,6 @@ export const useSpeechToText = defineStore(
     // Which model the OpenVINO (OVMS) Whisper engine serves. OVMS takes the repo id
     // per server launch, so switching this just restarts the transcription server.
     const selectedOvmsModel = ref<WhisperOvmsModel>(DEFAULT_WHISPER_OVMS_MODEL)
-    // Mirrors `isWhisperBackendEnabled` from settings.json — gates the optional
-    // standalone Whisper sidecar (offered in the setup wizard + as an STT engine).
-    const isWhisperBackendEnabled = ref(false)
     const backendServices = useBackendServices()
     const models = useModels()
     const dialogStore = useDialogStore()
@@ -114,7 +111,6 @@ export const useSpeechToText = defineStore(
     /** Whether the standalone (torch) Whisper engine can be offered: its optional
      *  backend must be installed. Works in every product mode (incl. NVIDIA). */
     const isStandaloneAvailable = computed(() => {
-      if (!isWhisperBackendEnabled.value) return false
       const svc = backendServices.info.find((s) => s.serviceName === 'whisper-backend')
       return svc?.isSetUp === true
     })
@@ -150,11 +146,11 @@ export const useSpeechToText = defineStore(
     )
 
     /** Engines the STT dropdown offers: Whisper (OpenVINO) only off NVIDIA;
-     *  standalone only when its backend feature is on; External only when its
-     *  App Settings checkbox is ticked — that checkbox is what "adds an External
-     *  endpoint engine to the Speech to Text preset", so an unticked box must not
-     *  leave the engine listed (this matches how the TTS panel gates its own
-     *  external engine on `textToSpeech.fallback.enabled`).
+     *  standalone always (its backend is installable in every mode); External only
+     *  when its App Settings checkbox is ticked — that checkbox is what "adds an
+     *  External endpoint engine to the Speech to Text preset", so an unticked box
+     *  must not leave the engine listed (this matches how the TTS panel gates its
+     *  own external engine on `textToSpeech.fallback.enabled`).
      *
      *  Gated on the checkbox alone, NOT on `hasFallback()`: the engine has to be
      *  selectable while the URL is still empty, since SettingsStt is where the
@@ -162,7 +158,7 @@ export const useSpeechToText = defineStore(
     const offeredSttEngines = computed<SttEngine[]>(() => {
       const list: SttEngine[] = []
       if (!productMode.isNvidiaModeSelected) list.push('whisper')
-      if (isWhisperBackendEnabled.value) list.push('standalone')
+      list.push('standalone')
       if (fallback.value.enabled) list.push('external')
       return list
     })
@@ -200,26 +196,15 @@ export const useSpeechToText = defineStore(
       isEngineUsable(selectedSttEngine.value) ? selectedSttEngine.value : preferredSttEngine.value,
     )
 
-    /** True once `initWhisperBackendFlag` has resolved (either way). Until then
-     *  `isWhisperBackendEnabled` is a placeholder `false`, so 'standalone' looks
-     *  un-offered — see the watch below. */
-    const whisperBackendFlagHydrated = ref(false)
-
-    // Keep the selection valid for the current mode/feature flags: when the chosen
-    // engine isn't offered (e.g. the persisted 'whisper' default in NVIDIA mode),
-    // fall back to the preferred engine. This drives every consumer (mic, tool, STT
-    // preset), not just the settings panel.
-    //
-    // Gated on the feature flag being loaded: the flag arrives over async IPC while
-    // the persisted selection is restored synchronously, so validating too early
-    // would see 'standalone' as not offered and overwrite a persisted 'standalone'
-    // choice with the preferred engine — which then gets persisted back, losing the
-    // user's engine on every launch. `whisperBackendFlagHydrated` is a watch source
-    // so the validation runs as soon as the flag is known.
+    // Keep the selection valid for the current mode: when the chosen engine isn't
+    // offered (e.g. the persisted 'whisper' default in NVIDIA mode), fall back to
+    // the preferred engine. This drives every consumer (mic, tool, STT preset), not
+    // just the settings panel. Product mode arrives over async IPC, but it starts
+    // out non-NVIDIA, so nothing offered is ever briefly missing — the correction
+    // only ever runs on real news.
     watch(
-      [offeredSttEngines, selectedSttEngine, whisperBackendFlagHydrated],
+      [offeredSttEngines, selectedSttEngine],
       () => {
-        if (!whisperBackendFlagHydrated.value) return
         if (!offeredSttEngines.value.includes(selectedSttEngine.value)) {
           selectedSttEngine.value = preferredSttEngine.value
         }
@@ -584,22 +569,6 @@ export const useSpeechToText = defineStore(
       }
     }
 
-    async function initWhisperBackendFlag() {
-      try {
-        const localSettings = await window.electronAPI.getLocalSettings()
-        isWhisperBackendEnabled.value = !!localSettings.isWhisperBackendEnabled
-      } catch (e) {
-        console.error('speechToText.initWhisperBackendFlag failed:', e)
-        isWhisperBackendEnabled.value = false
-      } finally {
-        // Even on failure the flag is now "known" (false), so engine validation
-        // must be allowed to run — otherwise an IPC hiccup would leave the
-        // selection unvalidated for the whole session.
-        whisperBackendFlagHydrated.value = true
-      }
-    }
-    void initWhisperBackendFlag()
-
     return {
       enabled,
       initializing,
@@ -607,7 +576,6 @@ export const useSpeechToText = defineStore(
       selectedSttEngine,
       selectedStandaloneModel,
       selectedOvmsModel,
-      isWhisperBackendEnabled,
       isWhisperAvailable,
       isStandaloneAvailable,
       isExternalAvailable,

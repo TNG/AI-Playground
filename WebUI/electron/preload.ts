@@ -55,10 +55,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('getInstalledBackendVersion', serviceName),
   getGitHubRepoUrl: () => ipcRenderer.invoke('getGitHubRepoUrl'),
   openDevTools: () => ipcRenderer.send('openDevTools'),
+  setVerboseAgentLogging: (enabled: boolean) => ipcRenderer.send('setVerboseAgentLogging', enabled),
   getDeveloperSettings: () => ipcRenderer.invoke('getDeveloperSettings'),
   openUrl: (url: string) => ipcRenderer.send('openUrl', url),
   getLocaleSettings: () => ipcRenderer.invoke('getLocaleSettings'),
-  getThemeSettings: () => ipcRenderer.invoke('getThemeSettings'),
   updateLocalSettings: (updates: Partial<LocalSettings>) =>
     ipcRenderer.invoke('updateLocalSettings', updates),
   getLocalSettings: () => ipcRenderer.invoke('getLocalSettings'),

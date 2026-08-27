@@ -36,7 +36,7 @@
         class="self-center"
       />
       <button
-        v-if="debugToolsEnabled"
+        v-if="showDebugSettings"
         :title="languages.COM_SETTINGS"
         @click="
           () => {
@@ -263,9 +263,6 @@
     ></installation-progress-dialog>
     <MaskEditorDialog />
 
-    <!-- Dev-only Home Agent mock channel for e2e testing -->
-    <MockChannelPanel v-if="debugToolsEnabled" />
-
     <!-- Demo Mode Overlay -->
     <DemoModeOverlayDriverJsRef ref="demoModeOverlayDriverJs" />
     <DemoModeNotificationDots />
@@ -361,6 +358,7 @@ import { CircleStackIcon, ServerStackIcon } from '@heroicons/vue/24/solid'
 import ModelManager from '@/views/ModelManager.vue'
 import { useColorMode } from '@vueuse/core'
 import { useDemoMode } from './assets/js/store/demoMode.ts'
+import { debugSettingsVisible } from './assets/js/store/debugSettings.ts'
 import WorkflowResult from '@/views/WorkflowResult.vue'
 import Chat from '@/views/Chat.vue'
 import AgentMode from '@/views/AgentMode.vue'
@@ -378,7 +376,6 @@ import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import DemoModeNotificationDots from '@/components/DemoModeNotificationDots.vue'
 import DemoModeAutoresetDialog from '@/components/DemoModeAutoresetDialog.vue'
 import HomeAgentToggle from '@/components/HomeAgentToggle.vue'
-import MockChannelPanel from '@/components/MockChannelPanel.vue'
 import ContextualHelpLayer from '@/components/ContextualHelpLayer.vue'
 import { useContextualHelp } from '@/assets/js/store/contextualHelp'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
@@ -414,7 +411,7 @@ const showSpecificSettings = ref(false)
 
 const platformTitle = window.envVars.platformTitle
 const productVersion = window.envVars.productVersion
-const debugToolsEnabled = window.envVars.debugToolsEnabled
+const showDebugSettings = debugSettingsVisible()
 
 // Which build this is, for telling test builds apart. Both parts are absent in a
 // build made from a tree without git history, and then the version gets no hover.

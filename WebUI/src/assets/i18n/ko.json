@@ -230,7 +230,6 @@
   "DOWNLOADER_DONWLOAD_TASK_PROGRESS": "모델 다운로드 완료",
   "RAG_FILE_TOTAL_FORMAT": "총 파일: {total}",
   "RAG_DRAG_UPLOAD": "파일을 끌어다 놓아 업로드",
-  "RAG_DRAG_UPLOAD_UNSUPPORTED": "현재 프로그램이 관리자 권한으로 시작되었습니다. Windows UAC 제한으로 인해 끌어다 놓기 업로드를 사용할 수 없습니다. 상단의 추가 버튼을 사용하여 파일을 업로드하세요.",
   "RAG_UPLOAD_MIME_TYPE": "지원 파일 형식:\n\t텍스트 문서: .txt .md\n\tOffice 문서: .doc(x)\n\tPDF 문서: .pdf",
   "RAG_ENABLE_TIP": "업로드된 파일에 대해서만 답변 제공",
   "RAG_UPLOAD_TYPE_ERROR": "업로드된 파일에 지원되지 않는 파일 형식이 있어 자동으로 제외되었습니다",

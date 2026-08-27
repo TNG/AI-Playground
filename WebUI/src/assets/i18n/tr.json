@@ -230,7 +230,6 @@
   "DOWNLOADER_DONWLOAD_TASK_PROGRESS": "Model İndirmeleri Tamamlandı",
   "RAG_FILE_TOTAL_FORMAT": "Toplam dosya: {total}",
   "RAG_DRAG_UPLOAD": "Yüklemek için dosyaları sürükleyin",
-  "RAG_DRAG_UPLOAD_UNSUPPORTED": "Mevcut program yönetici ayrıcalıklarıyla başlatıldı. Windows UAC kısıtlamaları nedeniyle sürükle bırak yükleme kullanılamaz. Lütfen dosya yüklemek için üstteki ekle düğmesini kullanın.",
   "RAG_UPLOAD_MIME_TYPE": "Desteklenen dosya türleri:\n\tMetin Belgesi: .txt .md\n\tOffice Belgesi: .doc(x)\n\tPDF Belgesi: .pdf",
   "RAG_ENABLE_TIP": "yalnızca yüklenenlere göre yanıt verir",
   "RAG_UPLOAD_TYPE_ERROR": "Yüklenen dosyada desteklenmeyen bir dosya türü var, otomatik olarak hariç tutuldu",

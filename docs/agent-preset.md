@@ -105,18 +105,14 @@ model there is no browser and nothing to read back, which is exactly wrong for G
 ## Turning it on
 
 Hidden by default because it is experimental: it can overrun a small model, and it writes to a
-folder of your choosing with no undo. Enable it by setting
-
-```json
-{ "isAgentPresetEnabled": true }
-```
-
-in the app's settings (`{userData}/ai-playground-local-settings.json` in dev, the per-user
-`settings.json` in a packaged install), then restarting. Dev builds have it on already through
-`WebUI/external/settings-dev.json`.
+folder of your choosing with no undo. Tick **Agent preset** under **Settings → Developer**. The
+checkbox writes `isAgentPresetEnabled` into the app's settings
+(`{userData}/ai-playground-local-settings.json` in dev, the per-user `settings.json` in a packaged
+install) and re-reads the preset list, so the preset appears without a restart. Dev builds have it
+on already through `WebUI/external/settings-dev.json`.
 
 The preset is dropped while presets are read (`disabledFeaturePresets` in
-`WebUI/electron/main.ts`), so with the flag off nothing downstream can select it, and a
+`WebUI/electron/main.ts`), so with the setting off nothing downstream can select it, and a
 persisted selection of it falls back to another chat preset at boot.
 
 ## Open questions for review

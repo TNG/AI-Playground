@@ -288,16 +288,14 @@ export async function aiplaygroundApiServiceRegistry(
         settings,
       ),
     )
-    if (settings.isWhisperBackendEnabled) {
-      instance.register(
-        new WhisperBackendService(
-          'whisper-backend',
-          await getPort({ port: portNumbers(56000, 56999) }),
-          win,
-          settings,
-        ),
-      )
-    }
+    instance.register(
+      new WhisperBackendService(
+        'whisper-backend',
+        await getPort({ port: portNumbers(56000, 56999) }),
+        win,
+        settings,
+      ),
+    )
     instance.register(
       new OpenVINOBackendService(
         'openvino-backend',

@@ -230,7 +230,6 @@
   "DOWNLOADER_DONWLOAD_TASK_PROGRESS": "Đã tải xong mô hình",
   "RAG_FILE_TOTAL_FORMAT": "Tổng số tệp: {total}",
   "RAG_DRAG_UPLOAD": "Kéo tệp vào để tải lên",
-  "RAG_DRAG_UPLOAD_UNSUPPORTED": "Chương trình hiện được khởi động với quyền quản trị viên. Do hạn chế của Windows UAC, không thể dùng tính năng kéo thả để tải lên. Vui lòng dùng nút thêm ở phía trên để tải tệp lên.",
   "RAG_UPLOAD_MIME_TYPE": "Các loại tệp được hỗ trợ:\n\tTài liệu văn bản: .txt .md\n\tTài liệu Office: .doc(x)\n\tTài liệu PDF: .pdf",
   "RAG_ENABLE_TIP": "chỉ trả lời dựa trên tệp đã tải lên",
   "RAG_UPLOAD_TYPE_ERROR": "Có loại tệp không được hỗ trợ trong các tệp đã tải lên và đã tự động bị loại trừ",

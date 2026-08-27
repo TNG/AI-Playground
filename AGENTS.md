@@ -403,8 +403,8 @@ When adding/removing/renaming a command, update all of these:
    it, and a stale entry offers one that no longer works.
 
 Slack commands must be lowercase; use `queued`/`telegram_aliases` in `commands.py` for camelCase
-spellings (e.g. `/imgGen`). The dev mock channel bypasses all of this (it injects raw text straight
-into the dispatcher), so a command working there does NOT prove it works on Telegram/Slack.
+spellings (e.g. `/imgGen`). LAN chat reaches the dispatcher through its own served page rather than
+through `commands.py`, so a command working there does NOT prove it works on Telegram/Slack.
 
 ## i18n / Translations (English is the Source of Truth)
 
@@ -709,7 +709,7 @@ has no store deps (avoids cycles); reconciliation lives in the producing stores.
 
 **Models**: `loadModels`, `updateModelPaths`, `restorePathsSettings`, `getDownloadedGGUFLLMs`, `getDownloadedOpenVINOLLMModels`, `getDownloadedEmbeddingModels`
 
-**Settings/config**: `getInitSetting`, `updateLocalSettings`, `getThemeSettings`, `getLocaleSettings`, `getInitialPage`, `getDemoModeSettings`
+**Settings/config**: `getInitSetting`, `updateLocalSettings`, `getLocaleSettings`, `getInitialPage`, `getDemoModeSettings`
 
 **Presets**: `reloadPresets`, `loadUserPresets`, `saveUserPreset`, `updatePresetsFromIntelRepo`, `getUserPresetsPath`
 
@@ -748,12 +748,38 @@ has no store deps (avoids cycles); reconciliation lives in the producing stores.
 - `activities` — **Central activity/progress sink.** `begin/update/end/track` long-running steps; `chatActivity(key, exclude?)` / `imageGenActivity` expose the most-specific active work; `endScope()` reconciles stragglers. Single source of truth for "what is the app busy with" (backend prep, RAG, tools, thinking, generation). No deps. See "Error & generation state architecture" below.
 - `dialogs` — Dialog visibility state (download, warning, requirements, installation progress, mask editor). No deps.
 - `ui` — History panel visibility. No deps.
-- `theme` — Theme selection. IPC: `getThemeSettings`. No deps.
+- `theme` — Theme selection, persisted in the renderer (the four themes are a constant in the store). No deps.
 - `i18n` — Locale/translations. IPC: `getLocaleSettings`. No deps.
 - `demoMode` — Demo mode overlay + auto-reset timer. IPC: `getDemoModeSettings`. No deps.
 - `speechToText` — STT enabled state, initialization. Deps: `backendServices`, `models`, `dialogs`, `globalSetup`
 - `audioRecorder` — Browser MediaRecorder, transcription via AI SDK. Deps: `backendServices` (lazy)
-- `developerSettings` — Dev console on startup toggle. No deps.
+- `developerSettings` — Renderer-persisted developer toggles: dev console on startup, keep models loaded, dummy media workflows, verbose agent logging. No deps.
+- `debugSettings` — The settings.json-backed half of Settings → Developer (see below). No deps.
+
+### Settings, feature gates and developer controls
+
+There are three places a switch can live, and which one it is decides who can flip it.
+
+**`settings.json` (`LocalSettingsSchema` in `electron/main.ts`)** is machine-level: hand-edited,
+read by the main process, survives a renderer storage wipe. It keeps the things a deployment
+decides — demo mode + passcode, `languageOverride`, `productMode`, `disabledBackends`, device
+preferences, `huggingfaceEndpoint` — plus **`showDebugSettingsInUI`**, which is the only gate on
+the debug controls below. A build that does not set it looks exactly as it always did.
+
+**Renderer persistence (Pinia)** is per-user and needs no file: theme selection, Cloud Mode
+enablement, everything in `developerSettings`.
+
+**Settings → Developer** is the UI. Always visible: keep models loaded, dev console on startup,
+and the **Agent preset** checkbox (writes `isAgentPresetEnabled`, then re-reads presets — no
+restart). Behind `showDebugSettingsInUI`: verbose agent logging, dummy media workflows, pretend
+Phison SSD, OEM vendor override, remote repository, OpenVINO image-gen devices — and the same
+flag shows the title-bar setup-wizard shortcut and unlocks the dev-only test LLM + dummy
+workflows, so a packaged build can use them.
+
+Two things are deliberately not flags any more. DevTools follows `openDevConsoleOnStartup`
+alone, whose default is "on when unpackaged" — main falls back to `!app.isPackaged` when the
+renderer has stored nothing. And verbose agent logging is a setting rather than the `AGENT_DEBUG`
+env var, which stays only as a one-shot override for a launch with no UI yet.
 
 ### Feature → File Map
 
@@ -830,9 +856,10 @@ Playground (Intel OMIX guide for compute/kernel; Vulkan for llama.cpp). See
 
 ### Testing inference end-to-end
 
-A small test model (`LFM2.5-350M-Q4_K_M.gguf`, ~255 MB) is available in dev mode only.
+A small test model (`LFM2.5-350M-Q4_K_M.gguf`, ~255 MB) is available in dev mode.
 It is injected by the models store (`WebUI/src/assets/js/store/models.ts`) when
-`debugToolsEnabled` is true (i.e., when running via `npm run dev`). It is not listed
+`debugToolsEnabled` is true (i.e., when running via `npm run dev`) or when settings.json
+sets `showDebugSettingsInUI` — which is how it reaches a packaged build. It is not listed
 in `models.json`. To test inference:
 
 1. Start the app via `npm run dev`, install both backends via the setup dialog, then click **Continue**.
@@ -887,8 +914,9 @@ Four dev-only ComfyUI presets return placeholder media in ~0.3s instead of runni
 model, so the media plumbing (tool catalogs, the media specialist agent, workflow input
 substitution, `MediaItem` typing, workspace saving, UI rendering) can be smoke-tested on a
 laptop. They are injected by `WebUI/src/assets/js/store/devPresets.ts` when
-`debugToolsEnabled` is true, mirroring the dev-only test LLM in `models.ts`, and they use
-only core ComfyUI nodes — no models, no custom nodes, no downloads.
+`debugToolsEnabled` is true or settings.json sets `showDebugSettingsInUI`, mirroring the
+dev-only test LLM in `models.ts`, and they use only core ComfyUI nodes — no models, no
+custom nodes, no downloads.
 
 | Preset                  | Mode / tool category        | Output              | Graph                                      |
 | ----------------------- | --------------------------- | ------------------- | ------------------------------------------ |
@@ -996,15 +1024,14 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
 - The game bar's cover image goes through `aipg-media://games/<folder>/<icon>` — the app window
   cannot load `file://` images, so the scheme serves the game library as a second root next to
   the media folder (`aipgMediaRoots` in `electron/main.ts`).
-- Pretend to be on an Acer machine with the `oemVendorOverride` local setting
-  (`window.electronAPI.updateLocalSettings({ oemVendorOverride: 'acer' })`, then reload):
-  the presets read "Acer Game Agent" / "Acer Quick Coder", the game bar gains the **Add to
-  Arcade** and **Open My Acer Arcade** buttons and the gallery is Acer-branded. Setting it back to
-  `null` is how to check the
-  non-Acer experience. Testers without a console can hand-edit the same key in
-  `{userData}/ai-playground-local-settings.json` (dev) or the per-user `settings.json`
-  (packaged) and restart. Detection itself (`electron/subprocesses/oemDetection.ts`) is
-  Windows-only, so without the override every machine is `unknown`.
+- Pretend to be on an Acer machine with **OEM vendor override** in Settings → Developer (shown
+  when settings.json sets `showDebugSettingsInUI`), then restart: the presets read "Acer Game
+  Agent" / "Acer Quick Coder", the game bar gains the **Add to Arcade** and **Open My Acer
+  Arcade** buttons and the gallery is Acer-branded. Setting it back to "No override" is how to
+  check the non-Acer experience. It writes `oemVendorOverride`, which can equally be hand-edited
+  in `{userData}/ai-playground-local-settings.json` (dev) or the per-user `settings.json`
+  (packaged). Detection itself (`electron/subprocesses/oemDetection.ts`) is Windows-only, so
+  without the override every machine is `unknown`.
 - **`Quick Coder` is the same library, one step long.** Its only capability is
   `game-studio-quick`, which _owns the session_ (`AgentCapability.ownSession`): the preset's
   instructions replace Pi's coding-agent prompt, the workspace orientation and the skills index,
@@ -1058,66 +1085,27 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   (`comfyRunsWaiting()`) skips freeing ComfyUI and reloading the LLM, so a batch of generations
   costs one model swap instead of one each; the last run out does the cleanup.
 
-### Verifying Home Agent features (mock channel)
+### Verifying Home Agent features (LAN chat)
 
-A dev-only **mock channel** lets you exercise the full Home Agent message pipeline
-(slash commands, agentic generation, image gen, confirmations) without Telegram/Slack
-credentials or the `home-agent-backend` running. It bypasses IPC and Python entirely:
-inbound messages come from an in-memory queue and every outbound send is captured
-in-memory, so behavior is deterministic and inspectable.
+**`local-web` is the way to drive the Home Agent by hand.** It needs no Telegram/Slack
+credentials — a password and a browser tab on loopback — and it goes through the same
+`processChannelMessages` → `drainCommonQueue` → handlers path in `store/homeAgent.ts` that
+every other channel does, so what works there works there for real. (A dev-only in-memory
+`mock` channel used to exist for this; it was removed once the LAN page could do the job,
+and unlike the mock it also proves the Python side and the served page.)
 
-- Only active in dev mode (`window.envVars.debugToolsEnabled`, i.e. `npm run dev`).
-- Implemented as a normal `ChannelAdapter` (`kind: 'mock'`) so it flows through the real
-  `processChannelMessages` → `drainCommonQueue` → handlers path in
-  `store/homeAgent.ts`. No code special-cases tests beyond the inbound source (the bus)
-  and `mock` activation (`debugToolsEnabled && masterEnabled`, no backend required).
-
-**Files:**
-
-- `src/assets/js/store/channels/mockAdapter.ts` — `mockChannelBus` (in-memory `inbox` +
-  reactive `outbox`) and `createMockAdapter()`.
-- `src/assets/js/store/homeAgent.ts` — `mock` wired into `KINDS` (dev-only), the per-kind
-  maps, activation, mock poll source, and the `mockSend` / `mockSendCallback` /
-  `mockOutbox` / `mockClear` / `mockWaitForIdle` store actions.
-- `src/components/MockChannelPanel.vue` — dev-only floating UI panel (mounted in `App.vue`
-  under `v-if="debugToolsEnabled"`) to type messages and watch captured output live.
-
-**Drive it manually:** click the **beaker** icon next to the Home Agent setup gear in the
-title bar (dev only) to open the panel, type a message (e.g. `/help`, `/imgGen`, or a chat
-prompt), and inspect the captured replies.
-
-**Drive it programmatically** (dev console, or the `user-chrome-devtools-aipg` MCP
-`evaluate_script` against `http://localhost:25413`) via `window.__homeAgentMock`:
-
-```js
-window.__homeAgentMock.clear();
-await window.__homeAgentMock.send("/help"); // inject a text message + drain
-await window.__homeAgentMock.sendCallback("imgGen:cancel"); // inject an inline-keyboard tap
-await window.__homeAgentMock.waitForIdle(); // resolves when the drain loop is idle
-window.__homeAgentMock.outbox(); // captured outbound events
-
-// Verify outbound media delivery WITHOUT a full generation: routes a media URL
-// through the real send path (sendImageToChannel / sendVideoToChannel /
-// send3DModelToChannel). For a .glb this renders the 3D thumbnail "screenshot"
-// (captured as a `photo`) and ships the model (captured as a `document`).
-await window.__homeAgentMock.sendMedia("aipg-media://AIPG_3D_00001_.glb");
-```
-
-`send(text, opts?)` accepts optional `images` / `audio` / `documents` / `chat_id` /
-`channel` / `ts` (same shape as a channel poll item) — so inbound image attachments are
-supported (agentic/photo turns also need a vision-capable chat model). `sendMedia(url,
-opts?)` infers `image` / `video` / `model3d` from the extension unless you pass
-`opts.kind`. Each outbox entry is
-`{ kind, text?, caption?, filename?, mime?, base64?, buttons?, meta?, ts }` where `kind`
-is one of `reply | photo | video | voice | document | keyboard | draftUpdate | draftFinal
-| typingStart | typingStop`.
+Set it up in the Home Agent setup screen (the gear next to the title-bar toggle), then open
+the printed URL and log in. From there `/help`, `/imgGen`, `/reset`, an image attachment or
+a plain chat prompt all exercise the real pipeline, including the outbound media path.
 
 **What needs a model vs. not:** slash commands like `/help`, `/cancel`, `/reset` are
 deterministic and need no LLM. Chat/agentic turns and `/imgGen` require a selected chat
 model (and ComfyUI for image gen) — see "Testing inference end-to-end" above to get a
 model ready first.
 
-Unit coverage lives in `electron/test/channels/mockAdapter.test.ts`.
+Automated coverage: `electron/test/channels/adapters.test.ts` and
+`electron/test/subprocesses/localWebConfig.test.ts` for the units,
+`e2e/home-agent-local-web.spec.ts` for the whole page in a real browser window.
 
 ### Tracing agent and chat turns (Laminar)
 

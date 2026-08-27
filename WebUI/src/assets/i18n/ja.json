@@ -230,7 +230,6 @@
   "DOWNLOADER_DONWLOAD_TASK_PROGRESS": "モデルのダウンロードが完了しました",
   "RAG_FILE_TOTAL_FORMAT": "ファイル合計: {total}",
   "RAG_DRAG_UPLOAD": "ファイルをドラッグしてアップロード",
-  "RAG_DRAG_UPLOAD_UNSUPPORTED": "現在のプログラムは管理者権限で起動されています。Windows UAC の制限により、ドラッグ＆ドロップによるアップロードは使用できません。上部の追加ボタンを使ってファイルをアップロードしてください。",
   "RAG_UPLOAD_MIME_TYPE": "対応ファイル形式:\n\tテキスト文書: .txt .md\n\tOffice 文書: .doc(x)\n\tPDF 文書: .pdf",
   "RAG_ENABLE_TIP": "アップロードしたファイルのみに基づいて回答します",
   "RAG_UPLOAD_TYPE_ERROR": "アップロードされたファイルに非対応の形式が含まれていたため、自動的に除外されました",

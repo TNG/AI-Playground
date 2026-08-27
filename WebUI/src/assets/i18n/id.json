@@ -230,7 +230,6 @@
   "DOWNLOADER_DONWLOAD_TASK_PROGRESS": "Unduhan Model Selesai",
   "RAG_FILE_TOTAL_FORMAT": "Total file: {total}",
   "RAG_DRAG_UPLOAD": "Seret file untuk diunggah",
-  "RAG_DRAG_UPLOAD_UNSUPPORTED": "Program saat ini dijalankan dengan hak istimewa administrator. Karena keterbatasan Windows UAC, unggah seret dan lepas tidak dapat digunakan. Silakan gunakan tombol tambah di bagian atas untuk mengunggah file.",
   "RAG_UPLOAD_MIME_TYPE": "Tipe file yang didukung:\n\tDokumen Teks: .txt .md\n\tDokumen Office: .doc(x)\n\tDokumen PDF: .pdf",
   "RAG_ENABLE_TIP": "berikan jawaban hanya berdasarkan yang diunggah",
   "RAG_UPLOAD_TYPE_ERROR": "Ada tipe file yang tidak didukung dalam file yang diunggah, yang telah dikecualikan secara otomatis",

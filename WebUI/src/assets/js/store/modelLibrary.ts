@@ -8,7 +8,6 @@ import { useGlobalSetup } from './globalSetup'
 import { useTextInference } from './textInference'
 import { useProductMode } from './productMode'
 import { useErrors } from './errors'
-import { useSpeechToText } from './speechToText'
 import { WHISPER_OVMS_MODELS, WHISPER_STANDALONE_MODELS } from '../whisperConstants'
 import { SPEECHT5_MODEL_NAME } from './textToSpeech'
 import { QWEN3_TTS_MODEL_REPOS } from '../qwen3TtsConstants'
@@ -49,7 +48,6 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
   const textInference = useTextInference()
   const productMode = useProductMode()
   const errors = useErrors()
-  const speechToText = useSpeechToText()
 
   const scanned = ref<ScannedModel[]>([])
   const failedPathKeys = ref<string[]>([])
@@ -116,17 +114,14 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
       serviceBackend: 'qwen3_tts',
     },
     // The standalone (torch) Whisper sidecar runs on CUDA too, so unlike OVMS
-    // Whisper these stay listed on NVIDIA. Only offered when its optional backend
-    // is enabled — otherwise they are models nothing can load. This engine is the
-    // one place STT does have a model picker, so all three are listed.
-    ...(speechToText.isWhisperBackendEnabled
-      ? WHISPER_STANDALONE_MODELS.map((m) => ({
-          name: m.repo,
-          pathKey: 'STT',
-          usedBy: `Speech To Text (standalone ${m.label})`,
-          serviceBackend: 'whisper' as const,
-        }))
-      : []),
+    // Whisper these stay listed on NVIDIA. This engine is the one place STT does
+    // have a model picker, so all three are listed.
+    ...WHISPER_STANDALONE_MODELS.map((m) => ({
+      name: m.repo,
+      pathKey: 'STT',
+      usedBy: `Speech To Text (standalone ${m.label})`,
+      serviceBackend: 'whisper' as const,
+    })),
   ])
 
   const nvidiaMode = computed(() => productMode.isNvidiaModeSelected)

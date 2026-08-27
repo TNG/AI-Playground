@@ -230,7 +230,6 @@
   "DOWNLOADER_DONWLOAD_TASK_PROGRESS": "Download dei modelli completato",
   "RAG_FILE_TOTAL_FORMAT": "File totali: {total}",
   "RAG_DRAG_UPLOAD": "Trascina i file per caricarli",
-  "RAG_DRAG_UPLOAD_UNSUPPORTED": "Il programma è stato avviato con privilegi di amministratore. A causa delle limitazioni UAC di Windows, non è possibile usare il trascinamento per il caricamento. Usa il pulsante di aggiunta in alto per caricare i file.",
   "RAG_UPLOAD_MIME_TYPE": "Tipi di file supportati:\n\tDocumenti di testo: .txt .md\n\tDocumenti Office: .doc(x)\n\tDocumenti PDF: .pdf",
   "RAG_ENABLE_TIP": "fornisci risposte solo sui file caricati",
   "RAG_UPLOAD_TYPE_ERROR": "Tra i file caricati è presente un tipo di file non supportato, che è stato escluso automaticamente",

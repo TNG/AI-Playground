@@ -233,7 +233,8 @@ const DEFAULT_PROVIDER: CloudProvider = {
 export const useCloudMode = defineStore(
   'cloudMode',
   () => {
-    // Mirrors `isCloudModeEnabled` from local settings. Hydrated on init().
+    // Whether Cloud Mode is switched on, toggled in the setup wizard. Persisted
+    // here rather than in settings.json: nothing in the main process needs it.
     const isFeatureEnabled = ref(false)
 
     const providers = ref<CloudProvider[]>([{ ...DEFAULT_PROVIDER }])
@@ -476,22 +477,13 @@ export const useCloudMode = defineStore(
 
     async function toggleFeature(enabled: boolean) {
       isFeatureEnabled.value = enabled
-      await window.electronAPI.updateLocalSettings({ isCloudModeEnabled: enabled })
       // Warm up the proxy so the chat backend URL is ready before first use.
       if (enabled) ensureProxyUrl().catch(() => undefined)
     }
 
-    /** Hydrate the feature flag and decrypted keys on startup. */
+    /** Warm the proxy and pull the decrypted keys into the session cache. */
     async function initConfig() {
-      try {
-        const localSettings = await window.electronAPI.getLocalSettings()
-        isFeatureEnabled.value = !!localSettings.isCloudModeEnabled
-      } catch (e) {
-        console.error('cloudMode.initConfig: getLocalSettings failed:', e)
-        isFeatureEnabled.value = false
-      }
       if (!isFeatureEnabled.value) return
-      // Start/resolve the proxy up front so the chat backend URL is ready.
       ensureProxyUrl().catch(() => undefined)
       // Re-load each provider's key from safeStorage into the session cache.
       await Promise.all(providers.value.map((p) => loadApiKey(p.id).catch(() => null)))
@@ -511,7 +503,15 @@ export const useCloudMode = defineStore(
       { immediate: true },
     )
 
-    initConfig()
+    // Enablement rehydrates from persisted store state, which lands after this
+    // setup function has run — so the warm-up hangs off a watch, not a call.
+    watch(
+      isFeatureEnabled,
+      (on) => {
+        if (on) void initConfig()
+      },
+      { immediate: true },
+    )
 
     return {
       isFeatureEnabled,
@@ -540,7 +540,7 @@ export const useCloudMode = defineStore(
     persist: {
       storage: demoAwareStorage,
       // Never persist API keys here — they live encrypted on disk via safeStorage.
-      pick: ['providers', 'selectedProviderId'],
+      pick: ['isFeatureEnabled', 'providers', 'selectedProviderId'],
     },
   },
 )

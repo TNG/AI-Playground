@@ -230,7 +230,6 @@
   "DOWNLOADER_DONWLOAD_TASK_PROGRESS": "Descargas de modelos completadas",
   "RAG_FILE_TOTAL_FORMAT": "Total de archivos: {total}",
   "RAG_DRAG_UPLOAD": "Arrastra archivos para subirlos",
-  "RAG_DRAG_UPLOAD_UNSUPPORTED": "El programa se ha iniciado con privilegios de administrador. Debido a las limitaciones del UAC de Windows, no se puede usar la carga mediante arrastrar y soltar. Usa el botón de añadir de la parte superior para subir archivos.",
   "RAG_UPLOAD_MIME_TYPE": "Tipos de archivo admitidos:\n\tDoc. de texto: .txt .md\n\tDoc. de Office: .doc(x)\n\tDoc. PDF: .pdf",
   "RAG_ENABLE_TIP": "responder solo a partir de lo subido",
   "RAG_UPLOAD_TYPE_ERROR": "Hay un tipo de archivo no admitido entre los archivos subidos, que se ha excluido automáticamente",

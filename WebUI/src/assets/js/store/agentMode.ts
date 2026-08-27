@@ -574,6 +574,7 @@ export const useAgentMode = defineStore(
 
     return {
       workspaceDir,
+      agentPresetName,
       activeAgentPreset,
       agentWorkspaceKind,
       currentGame,

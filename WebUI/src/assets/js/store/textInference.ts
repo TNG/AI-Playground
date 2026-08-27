@@ -27,6 +27,7 @@ import * as toast from '@/assets/js/toast.ts'
 import { useActivities } from './activities'
 import { useI18N } from './i18n'
 import { renamePresetKeys } from '@/lib/presetRenames'
+import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import {
   isToolEnabled,
   readLegacyToolEnablement,
@@ -150,7 +151,7 @@ export const thinkingModels: Record<string, string> = {
 export const textInferenceBackendDisplayName: Record<LlmBackend, string> = {
   llamaCPP: 'llamaCPP - GGUF',
   openVINO: 'OpenVINO',
-  cloud: 'Cloud Mode',
+  cloud: HYBRID_CLOUD_NAME,
 }
 
 export const textInferenceBackendDescription: Record<LlmBackend, string> = {
@@ -159,13 +160,13 @@ export const textInferenceBackendDescription: Record<LlmBackend, string> = {
   openVINO:
     'Optimized for Intel hardware with OpenVINO framework. Provides efficient and fast AI processing.',
   cloud:
-    'Connects to a remote OpenAI-compatible provider. Use a hosted or cloud model as if it were local.',
+    'Adds remote OpenAI-compatible endpoints alongside the local engines — hosted, cloud or another machine on your LAN — and uses them as if they were local.',
 }
 
 export const textInferenceBackendTags: Record<LlmBackend, string[]> = {
   llamaCPP: ['Lightweight', 'Portable'],
   openVINO: ['Intel', 'Optimized', 'Fast'],
-  cloud: ['Remote', 'OpenAI-compatible'],
+  cloud: ['Remote', 'LAN', 'OpenAI-compatible'],
 }
 
 export const useTextInference = defineStore(
@@ -1589,7 +1590,7 @@ export const useTextInference = defineStore(
       const embeddingModelName = activeEmbeddingModel.value
       if (!embeddingModelName) {
         toast.error(
-          'RAG needs a local embedding model. Install one to use documents with Cloud Mode.',
+          `RAG needs a local embedding model. Install one to use documents with ${HYBRID_CLOUD_NAME}.`,
         )
         return
       }

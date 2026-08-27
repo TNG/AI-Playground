@@ -3,6 +3,7 @@ import { Chat } from '@ai-sdk/vue'
 import type { ChatTransport, UIMessage, UIMessageChunk } from 'ai'
 import { chatTemplateKwargs } from '@/lib/samplingDefaults'
 import { openAiApiBase } from '@/lib/inferenceApiBase'
+import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import type { ReasoningEffort } from '@/types/shared'
 import { extractMessage } from '../errors/appError'
 import { executeAgentTool, getAgentToolSpecs } from '../tools/agentBridge'
@@ -73,7 +74,7 @@ export async function buildTurnConfig(options: {
     const upstreamBaseUrl = cloudMode.activeProviderBaseUrl
     if (!upstreamBaseUrl) {
       throw new Error(
-        'Cloud Mode has no provider base URL configured. Set one up in Cloud Settings.',
+        `${HYBRID_CLOUD_NAME} has no provider base URL configured. Set one up in its setup screen.`,
       )
     }
     const proxyBaseUrl = await cloudMode.ensureProxyUrl()

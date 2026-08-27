@@ -1,6 +1,7 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { createAppError, extractMessage } from '../errors/appError'
+import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 
 /**
  * A remote OpenAI-compatible provider (e.g. a self-hosted or cloud LLM
@@ -385,7 +386,7 @@ export const useCloudMode = defineStore(
           category: 'inference',
           code: 'cloud/fetch-models-unreachable',
           surface: 'inline',
-          userMessage: 'Could not reach the Cloud Mode proxy. Try restarting the app.',
+          userMessage: `Could not reach the ${HYBRID_CLOUD_NAME} proxy. Try restarting the app.`,
           technicalMessage: `GET ${url} threw: ${extractMessage(e)}`,
           context: { providerId: id, upstream: base },
           cause: e,

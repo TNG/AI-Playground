@@ -194,15 +194,62 @@
             <div class="flex flex-col gap-1.5">
               <!-- AI Playground: the core service plus the features layered on it.
                    Core cannot be turned off, so the group toggle drives only the
-                   optional members (Home Agent, Cloud Mode). -->
+                   optional members (Home Agent, Hybrid Cloud). -->
               <SetupWizardGroup
                 title="AI Playground"
                 :info-url="AI_PLAYGROUND_INFO_URL"
                 :toggle="aiPlaygroundGroupToggle"
                 @toggle="setAiPlaygroundGroup"
               >
+                <!-- Core Services owns the speech sidecars: they are runtimes the
+                     core experience needs, not products of their own, so a first
+                     run reads as one core install. The disclosure keeps the opt-out
+                     and the repair / reinstall controls one click away. -->
+                <Collapsible v-if="coreRow" v-model:open="coreServicesOpen" class="flex flex-col">
+                  <SetupWizardRow
+                    :row="backendRowView(coreRow)"
+                    compact
+                    @toggle="(v) => wizard.toggleBackend(coreRow!.serviceName, v)"
+                    @repair="wizard.repairBackend(coreRow!.serviceName)"
+                    @show-error="wizard.showErrorModal(coreRow!.serviceName)"
+                  >
+                    <template v-if="coreDependentRows.length > 0" #disclosure>
+                      <CollapsibleTrigger
+                        :aria-label="`${coreRow.displayName} details`"
+                        class="inline-flex items-center justify-center shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        <ChevronDownIcon
+                          class="size-3.5 transition-transform"
+                          :class="{ 'rotate-180': coreServicesOpen }"
+                        />
+                      </CollapsibleTrigger>
+                    </template>
+                    <template #options>
+                      <BackendOptions :backend="coreRow.serviceName" />
+                    </template>
+                  </SetupWizardRow>
+
+                  <CollapsibleContent v-if="coreDependentRows.length > 0">
+                    <div class="flex flex-col pl-5">
+                      <SetupWizardRow
+                        v-for="row in coreDependentRows"
+                        :key="row.serviceName"
+                        :row="backendRowView(row)"
+                        compact
+                        @toggle="(v) => wizard.toggleBackend(row.serviceName, v)"
+                        @repair="wizard.repairBackend(row.serviceName)"
+                        @show-error="wizard.showErrorModal(row.serviceName)"
+                      >
+                        <template #options>
+                          <BackendOptions :backend="row.serviceName" />
+                        </template>
+                      </SetupWizardRow>
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+
                 <SetupWizardRow
-                  v-for="row in aiPlaygroundRows"
+                  v-for="row in aiPlaygroundOptionalRows"
                   :key="row.serviceName"
                   :row="backendRowView(row)"
                   compact
@@ -215,7 +262,7 @@
                   </template>
                 </SetupWizardRow>
 
-                <!-- Cloud Mode: frontend-only component (remote OpenAI-compatible
+                <!-- Hybrid Cloud: frontend-only component (remote OpenAI-compatible
                      provider). Not a real backend service, but rendered identically
                      to a regular backend row via the shared component. -->
                 <SetupWizardRow :row="cloudRow" compact @toggle="(v) => cloudMode.toggleFeature(v)">
@@ -224,39 +271,14 @@
                          a single "Setup" item that opens the setup page. -->
                     <SettingsMenu
                       v-model:open="cloudMenuOpen"
-                      label="Cloud Mode"
-                      title="Configure Cloud Mode providers"
+                      :label="HYBRID_CLOUD_NAME"
+                      :title="`Configure ${HYBRID_CLOUD_NAME} providers`"
                       :disabled="!cloudMode.isFeatureEnabled"
                     >
                       <DropdownMenuItem @select="openCloudSetup">{{
                         languages.COM_GO_TO_SETUP || 'Setup'
                       }}</DropdownMenuItem>
                     </SettingsMenu>
-                  </template>
-                </SetupWizardRow>
-              </SetupWizardGroup>
-
-              <!-- Audio: the two standalone speech sidecars. Both run in every
-                   product mode; OpenVINO covers the same two features with
-                   different engines, which the ⓘ hints explain. -->
-              <SetupWizardGroup
-                v-if="audioRows.length > 0"
-                title="Audio"
-                :info-tooltip="audioGroupHint"
-                :toggle="audioGroupToggle"
-                @toggle="setAudioGroup"
-              >
-                <SetupWizardRow
-                  v-for="row in audioRows"
-                  :key="row.serviceName"
-                  :row="backendRowView(row)"
-                  compact
-                  @toggle="(v) => wizard.toggleBackend(row.serviceName, v)"
-                  @repair="wizard.repairBackend(row.serviceName)"
-                  @show-error="wizard.showErrorModal(row.serviceName)"
-                >
-                  <template #options>
-                    <BackendOptions :backend="row.serviceName" />
                   </template>
                 </SetupWizardRow>
               </SetupWizardGroup>
@@ -416,9 +438,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useSetupWizard, type BackendRowViewModel } from '@/assets/js/store/setupWizard'
 import type { BackendServiceName } from '@/assets/js/store/backendServices'
+import { CORE_DEPENDENT_BACKENDS } from '@/lib/wizardInstallDefaults'
+import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { useGlobalSetup } from '@/assets/js/store/globalSetup'
@@ -426,6 +450,8 @@ import { useI18N } from '@/assets/js/store/i18n'
 import { mapStatusToColor } from '@/lib/utils'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { ChevronDownIcon } from '@heroicons/vue/24/outline'
 import BackendOptions from '@/components/BackendOptions.vue'
 import SetupWizardRow, { type SetupWizardRowView } from '@/components/SetupWizardRow.vue'
 import SetupWizardGroup, { type SetupWizardGroupToggle } from '@/components/SetupWizardGroup.vue'
@@ -488,21 +514,52 @@ const resolvedModeOptions = computed(() => {
 
 // --- Row grouping ---------------------------------------------------------
 // The flat list of every backend had grown long enough that related pieces read
-// as unrelated peers. Two groups fix that; anything not named here keeps its own
-// full-width row, in the order the store returns it.
+// as unrelated peers. The AI Playground group fixes that; anything not named here
+// keeps its own full-width row, in the order the store returns it.
 const AI_PLAYGROUND_GROUP: BackendServiceName[] = ['ai-backend', 'home-agent-backend']
-const AUDIO_GROUP: BackendServiceName[] = ['qwen3-tts-backend', 'whisper-backend']
+const CORE_DEPENDENTS: BackendServiceName[] = [...CORE_DEPENDENT_BACKENDS]
 
 const aiPlaygroundRows = computed(() =>
   wizard.backendRows.filter((r) => AI_PLAYGROUND_GROUP.includes(r.serviceName)),
 )
-const audioRows = computed(() =>
-  wizard.backendRows.filter((r) => AUDIO_GROUP.includes(r.serviceName)),
+/** The core service itself — owner of the nested speech sidecars below. */
+const coreRow = computed(
+  () => wizard.backendRows.find((r) => r.serviceName === 'ai-backend') ?? null,
+)
+/** Optional members of the group that are NOT nested under Core Services. */
+const aiPlaygroundOptionalRows = computed(() =>
+  aiPlaygroundRows.value.filter((r) => r.serviceName !== 'ai-backend'),
+)
+const coreDependentRows = computed(() =>
+  wizard.backendRows.filter((r) => CORE_DEPENDENTS.includes(r.serviceName)),
 )
 const ungroupedRows = computed(() =>
   wizard.backendRows.filter(
-    (r) => !AI_PLAYGROUND_GROUP.includes(r.serviceName) && !AUDIO_GROUP.includes(r.serviceName),
+    (r) => !AI_PLAYGROUND_GROUP.includes(r.serviceName) && !CORE_DEPENDENTS.includes(r.serviceName),
   ),
+)
+
+const coreServicesNeedsAttention = computed(() =>
+  coreDependentRows.value.some(
+    (r) => r.isInstalling || r.status === 'failed' || r.status === 'installationFailed',
+  ),
+)
+
+// Collapsed on every wizard open (this component is never unmounted, so the state
+// has to be reset rather than merely initialized): the wizard reseeds everything
+// else it shows, and a screen meant to read as one core install must not open on a
+// previous visit's expansion. Expanded whenever a nested sidecar is working or
+// broken, so a failure and its Repair button are never hidden behind the chevron.
+const coreServicesOpen = ref(false)
+watch(coreServicesNeedsAttention, (needsAttention) => {
+  if (needsAttention) coreServicesOpen.value = true
+})
+watch(
+  () => globalSetup.loadingState === 'setupWizard',
+  (wizardVisible) => {
+    if (wizardVisible) coreServicesOpen.value = coreServicesNeedsAttention.value
+  },
+  { immediate: true },
 )
 
 /**
@@ -533,8 +590,6 @@ function groupToggle(
 const aiPlaygroundGroupToggle = computed(() =>
   groupToggle(aiPlaygroundRows.value, { enabled: cloudMode.isFeatureEnabled }),
 )
-const audioGroupToggle = computed(() => groupToggle(audioRows.value))
-
 async function setGroup(rows: BackendRowViewModel[], value: boolean) {
   for (const row of rows) {
     if (row.toggleDisabled) continue
@@ -543,8 +598,11 @@ async function setGroup(rows: BackendRowViewModel[], value: boolean) {
 }
 
 async function setAiPlaygroundGroup(value: boolean) {
+  // Only the group's own optional members: the speech sidecars nested under Core
+  // Services are core dependents, so a master switch meant for Home Agent must
+  // not silently skip the app's audio runtimes. Their opt-out is their own row.
   await setGroup(aiPlaygroundRows.value, value)
-  // Cloud Mode is opt-in and defaults to off: it needs no install, and switching
+  // Hybrid Cloud is opt-in and defaults to off: it needs no install, and switching
   // it on without a configured provider gains the user nothing while making the
   // row look ready. So the group's master switch never enables it — only its own
   // row toggle does. Turning the group OFF still disables it, which is what
@@ -552,26 +610,20 @@ async function setAiPlaygroundGroup(value: boolean) {
   if (!value) await cloudMode.toggleFeature(false)
 }
 
-function setAudioGroup(value: boolean) {
-  return setGroup(audioRows.value, value)
-}
-
-// OpenVINO reaches both audio features with its own engines, so the group needs to
-// say whether that alternative exists in the mode being set up — on NVIDIA it does
-// not, and these sidecars are the only local option.
-const audioGroupHint = computed(() =>
-  wizard.pendingProductMode === 'nvidia'
-    ? 'Optional local speech components. OpenVINO also provides Text To Speech (Kokoro) and Speech To Text (Whisper), but it is unavailable in NVIDIA mode — so these are the only local audio engines here.'
-    : 'Optional local speech components. OpenVINO provides the same two features with different engines (Kokoro for Text To Speech, Whisper for Speech To Text), so you can skip these and select OpenVINO in the audio settings instead.',
-)
-
 // Per-row ⓘ text: which engine the row installs, and what the alternative is.
+// The speech rows also say whether OpenVINO can serve the same feature in the
+// mode being set up — on NVIDIA it cannot, so these are the only local engines.
 function infoTooltipFor(serviceName: BackendServiceName): string | undefined {
+  const openVinoAvailable = wizard.pendingProductMode !== 'nvidia'
   switch (serviceName) {
     case 'qwen3-tts-backend':
-      return 'Runs Qwen3-TTS on its own sidecar, in every product mode (including NVIDIA), and is the only engine that supports created voices. OpenVINO offers Text To Speech too, using Kokoro — pick the engine in Settings → Text To Speech.'
+      return openVinoAvailable
+        ? 'Speech runtime installed with the core app; its voice models download the first time you use it. Runs Qwen3-TTS on its own sidecar and is the only engine that supports created voices. OpenVINO offers Text To Speech too, using Kokoro — pick the engine in Settings → Text To Speech.'
+        : 'Speech runtime installed with the core app; its voice models download the first time you use it. Runs Qwen3-TTS on its own sidecar. OpenVINO also provides Text To Speech (Kokoro), but it is unavailable in NVIDIA mode — so this is the only local engine here.'
     case 'whisper-backend':
-      return 'Runs Whisper through torch on its own sidecar, in every product mode (including NVIDIA), with a choice of Whisper model sizes. OpenVINO offers Speech To Text too, serving Whisper through OVMS — pick the engine in Settings → Speech To Text.'
+      return openVinoAvailable
+        ? 'Speech runtime installed with the core app; its Whisper model downloads the first time you use it. Runs Whisper through torch on its own sidecar, with a choice of model sizes. OpenVINO offers Speech To Text too, serving Whisper through OVMS — pick the engine in Settings → Speech To Text.'
+        : 'Speech runtime installed with the core app; its Whisper model downloads the first time you use it. Runs Whisper through torch on its own sidecar, with a choice of model sizes. OpenVINO also provides Speech To Text, but it is unavailable in NVIDIA mode — so this is the only local engine here.'
     default:
       return undefined
   }
@@ -618,7 +670,7 @@ function backendRowView(row: BackendRowViewModel): SetupWizardRowView {
   }
 }
 
-// Cloud Mode is a frontend-only feature, but it presents as a normal backend row
+// Hybrid Cloud is a frontend-only feature, but it presents as a normal backend row
 // — so it must speak the same colour vocabulary as the real rows. It used to
 // hardcode its own green/grey (#22c55e/#6b7280), which matched no other row, and
 // went green the moment the feature was switched on even though nothing was set
@@ -633,7 +685,9 @@ const cloudModeReady = computed(
   () => cloudMode.isFeatureEnabled && !!cloudMode.activeProviderBaseUrl,
 )
 const cloudRow = computed<SetupWizardRowView>(() => ({
-  displayName: 'Cloud Mode',
+  displayName: HYBRID_CLOUD_NAME,
+  infoTooltip:
+    'Adds an OpenAI-compatible endpoint to run inference on beside this device — hosted, cloud, or another machine on your LAN. No install: point it at a provider in its Setup screen.',
   statusColor: !cloudMode.isFeatureEnabled
     ? mapStatusToColor('notInstalled')
     : cloudModeReady.value
@@ -647,8 +701,8 @@ const cloudRow = computed<SetupWizardRowView>(() => ({
   versionDisplay: '',
   enabled: cloudMode.isFeatureEnabled,
   toggleTooltip: cloudMode.isFeatureEnabled
-    ? 'Toggle off to disable Cloud Mode'
-    : 'Toggle on to enable Cloud Mode',
+    ? `Toggle off to disable ${HYBRID_CLOUD_NAME}`
+    : `Toggle on to enable ${HYBRID_CLOUD_NAME}`,
 }))
 
 const cloudMenuOpen = ref(false)

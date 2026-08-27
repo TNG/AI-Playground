@@ -1,6 +1,7 @@
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { useI18N } from '@/assets/js/store/i18n.ts'
+import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 
 /**
  * Compares two version strings using numeric segment comparison.
@@ -108,7 +109,7 @@ export function mapServiceNameToDisplayName(serviceName: string) {
     case 'whisper-backend':
       return 'Speech To Text (Standalone Whisper)'
     case 'cloud-mode':
-      return 'Cloud Mode'
+      return HYBRID_CLOUD_NAME
     default:
       return serviceName
   }

@@ -470,7 +470,7 @@ function arcadeHtml(games: GameManifestEntry[], vendor?: string, hasSamples = fa
   if (games.length === 0) document.getElementById('empty').hidden = false
 
   const INFO_ICON = '<svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zm0 3.2a1.1 1.1 0 110 2.2 1.1 1.1 0 010-2.2zM11 15H9V9h2z"/></svg>'
-  const BACKEND_LABELS = { llamaCPP: 'llamaCPP - GGUF', openVINO: 'OpenVINO', cloud: 'Cloud Mode' }
+  const BACKEND_LABELS = { llamaCPP: 'llamaCPP - GGUF', openVINO: 'OpenVINO', cloud: 'Hybrid Cloud' }
 
   function backendLabel(backend) {
     if (!backend) return ''

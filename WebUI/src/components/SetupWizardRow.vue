@@ -40,6 +40,14 @@ const props = defineProps<{
    *  so the group's box is the only frame and the list stays compact. */
   compact?: boolean
 }>()
+
+defineSlots<{
+  /** Settings menu (gear) for this component. */
+  options?: () => unknown
+  /** Expand/collapse control for a row that owns nested rows (Core Services).
+   *  Rendered before the status bubble so the whole group reads as one item. */
+  disclosure?: () => unknown
+}>()
 const emit = defineEmits<{
   toggle: [boolean]
   repair: []
@@ -63,6 +71,8 @@ const available = computed(() => props.row.availableInCurrentMode ?? true)
       'opacity-50': !available,
     }"
   >
+    <slot name="disclosure" />
+
     <!-- Status bubble -->
     <TooltipProvider :delay-duration="200">
       <Tooltip>

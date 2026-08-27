@@ -18,6 +18,7 @@ import { useCloudMode } from './cloudMode'
 import { CHANNELS } from './channels/channelRegistry'
 import { mapServiceNameToDisplayName, mapStatusToColor, mapToDisplayStatus } from '@/lib/utils'
 import { isOnDemandBackend } from '@/lib/onDemandBackends'
+import { selectDefaultInstalls, type SeedCandidate } from '@/lib/wizardInstallDefaults'
 import * as toast from '@/assets/js/toast'
 import { useErrors } from './errors'
 import { extractMessage } from '../errors/appError'
@@ -699,28 +700,29 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   }
 
   function seedInstallSelection() {
-    const newSelection = new Set<BackendServiceName>()
+    const candidates: SeedCandidate[] = []
     for (const serviceName of ALL_BACKENDS) {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       if (!info) continue
-      if (info.isRequired) continue
-      if (!isBackendAvailableInProductMode(pendingProductMode.value, serviceName)) continue
-      if (disabledBackends.value.has(serviceName)) continue
-      if (info.isSetUp || !info.isRequired) {
-        if (
+      candidates.push({
+        serviceName,
+        isRequired: info.isRequired,
+        isSetUp: info.isSetUp,
+        availableInProductMode: isBackendAvailableInProductMode(
+          pendingProductMode.value,
+          serviceName,
+        ),
+        userDisabled: disabledBackends.value.has(serviceName),
+        phisonOwnsLlamaCpp:
           serviceName === 'llamacpp-backend' &&
           backendServices.phisonSsdDetected &&
           !info.isSetUp &&
           !(info.llamaCppPhisonArtifactReady ?? false) &&
           !(info.llamaCppStandardArtifactReady ?? false) &&
-          backendServices.llamaCppBuildVariant !== 'ssd-offload'
-        ) {
-          continue
-        }
-        newSelection.add(serviceName)
-      }
+          backendServices.llamaCppBuildVariant !== 'ssd-offload',
+      })
     }
-    installSelection.value = newSelection
+    installSelection.value = new Set(selectDefaultInstalls(candidates))
   }
 
   function isHomeAgentInstalledAndActive(): boolean {

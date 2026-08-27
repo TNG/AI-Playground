@@ -278,7 +278,7 @@ const presetIndicator = computed(() => {
 
 // Small badge on the preset/model line showing which inference backend is active
 // for a chat or agent turn: the engine logo for llama.cpp / OpenVINO, a cloud
-// glyph for Cloud Mode (which has no local engine, and no device badge either).
+// glyph for Hybrid Cloud (which has no local engine, and no device badge either).
 // Hidden for the image/video modes and for the speech presets, which run on their
 // own sidecars.
 const chatBackendBadge = computed(() => {
@@ -289,7 +289,9 @@ const chatBackendBadge = computed(() => {
   if (backend === 'cloud') {
     const provider = cloudMode.selectedProvider?.name
     return {
-      name: provider ? `${textInferenceBackendDisplayName.cloud} · ${provider}` : 'Cloud Mode',
+      name: provider
+        ? `${textInferenceBackendDisplayName.cloud} · ${provider}`
+        : textInferenceBackendDisplayName.cloud,
       description: textInferenceBackendDescription.cloud,
       logo: undefined,
     }
@@ -339,7 +341,7 @@ function selectedDeviceBadgeFor(serviceName: BackendServiceName) {
 // Selected inference device shown as a short text badge (GPU / NPU / CPU), device name
 // on hover — for whichever backend the active mode actually runs on, not just the chat
 // engine: llama.cpp / OpenVINO in chat and agent mode, the speech sidecars in audio
-// mode, and ComfyUI in the Image / Image Edit / Video modes. Null on Cloud Mode
+// mode, and ComfyUI in the Image / Image Edit / Video modes. Null on Hybrid Cloud
 // (remote — no local hardware) and before device detection has reported a selection.
 const deviceBadge = computed(() => {
   if (isLlmMode.value) {

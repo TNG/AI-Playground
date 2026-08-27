@@ -69,6 +69,8 @@ export class AppDriver {
       if (startedOnWizard) {
         await test.step('Enable all backends in the Setup Wizard (no Home Agent)', async () => {
           await this.wizard.expectVisible()
+          // Home Agent is off by default on a fresh machine, but this also runs on
+          // one where a previous run installed it (which re-selects it on open).
           await this.wizard.disableBackend('Home Agent')
           await this.wizard.enableAll(BACKENDS.map((b) => b.displayName))
         })
@@ -206,9 +208,9 @@ export class AppDriver {
    * Ensure the audio-only Qwen3-TTS backend is installed. Kept out of
    * {@link installAllBackends} on purpose: it pulls a heavy TTS model that only the
    * Text-to-Speech test needs, so the other specs shouldn't pay for it. Opens the
-   * wizard, enables the backend if it's offered in this product mode, and installs
-   * it. Returns false (leaving the app running) when TTS isn't available so the
-   * caller can skip.
+   * wizard, expands Core Services (which owns the speech rows), enables the
+   * backend if it's offered in this product mode, and installs it. Returns false
+   * (leaving the app running) when TTS isn't available so the caller can skip.
    */
   async ensureTtsBackendInstalled(): Promise<boolean> {
     return test.step('Ensure the Text-to-Speech backend is installed', async () => {
@@ -217,6 +219,8 @@ export class AppDriver {
       // Re-opening the wizard re-enables installed backends; keep Home Agent off so
       // it doesn't divert to its setup page after install.
       await this.wizard.disableBackend('Home Agent')
+      // The speech sidecars are nested under Core Services and collapsed on open.
+      await this.wizard.expandCoreServices()
 
       const ttsRow = BACKEND_DISPLAY_NAMES['qwen3-tts-backend']
       const available = await this.wizard.isAvailable(ttsRow)

@@ -264,6 +264,15 @@
         are started then too.
       </p>
     </div>
+
+    <!-- Same reset affordance the Chat, Audio and workflow panels carry, so every
+         preset offers a way back to its defaults. -->
+    <div class="border-t border-border items-center flex-wrap grid grid-cols-1 gap-2">
+      <button class="mt-4" @click="resetPresetSettings">
+        <div class="svg-icon i-refresh">Reset</div>
+        {{ languages.COM_LOAD_PRESET_DEFAULTS || 'Reset Preset Settings' }}
+      </button>
+    </div>
   </div>
 </template>
 
@@ -420,6 +429,19 @@ const currentModel = computed(() =>
 
 async function pickFolder() {
   await agentMode.pickWorkspaceFolder()
+}
+
+/**
+ * Back to the active agent preset's defaults: the shared model settings via
+ * textInference (as in Chat Settings), plus the agent-only ones this panel adds.
+ * The workspace folder, its sandbox consent and the sessions are user-owned
+ * state, not preset settings, so they survive.
+ */
+function resetPresetSettings() {
+  textInference.resetActivePresetSettings()
+  agentMode.resetPresetSettings()
+  void refreshCapabilityCatalog()
+  toast.success('Reset to preset defaults')
 }
 
 async function handlePresetChange(presetName: string) {

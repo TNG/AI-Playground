@@ -932,13 +932,6 @@ async function createWindow() {
     }
   })
 
-  if (VITE_DEV_SERVER_URL) {
-    await win.loadURL(VITE_DEV_SERVER_URL)
-    appLogger.info('load url:' + VITE_DEV_SERVER_URL, 'electron-backend')
-  } else {
-    await win.loadFile(path.join(process.env.DIST, 'index.html'))
-  }
-
   // Make all links open with the browser, not with the application
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https:')) shell.openExternal(url)
@@ -956,6 +949,25 @@ async function createWindow() {
     void shell.openExternal(url)
   })
   return win
+}
+
+/**
+ * Load the app document into an already-created window.
+ *
+ * Split from createWindow so the renderer only boots once the service registry
+ * exists: several stores fire IPC the moment they are created — homeAgent's
+ * `channel:loadConfig`, whose handler is registered off the registry's
+ * home-agent service, and the setup wizard's `getServices`. A renderer that won
+ * that race got "No handler registered for 'channel:loadConfig'" and an empty
+ * service list ("ai-backend service not found"), neither of which is retried.
+ */
+async function loadAppWindow(window: BrowserWindow): Promise<void> {
+  if (VITE_DEV_SERVER_URL) {
+    await window.loadURL(VITE_DEV_SERVER_URL)
+    appLogger.info('load url:' + VITE_DEV_SERVER_URL, 'electron-backend')
+  } else {
+    await window.loadFile(path.join(process.env.DIST, 'index.html'))
+  }
 }
 
 /** The renderer's own document — everything else belongs in the user's browser. */
@@ -1126,7 +1138,7 @@ app.on('activate', () => {
   // On OS X it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
   if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow()
+    void createWindow().then(loadAppWindow)
   }
 })
 
@@ -3345,6 +3357,9 @@ app.whenReady().then(async () => {
     const window = await createWindow()
     appLogger.info('startup step: initializing service registry', 'electron-backend', true)
     await initServiceRegistry(window, settings)
+    // After the registry: the renderer's stores call into it as they are created.
+    appLogger.info('startup step: loading app window', 'electron-backend', true)
+    await loadAppWindow(window)
     appLogger.info('startup step: spawning langchain utility process', 'electron-backend', true)
     spawnLangchainUtilityProcess()
     appLogger.info('startup step: ready', 'electron-backend', true)

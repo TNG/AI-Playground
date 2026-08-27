@@ -164,6 +164,31 @@ export const useAgentMode = defineStore(
       }
     }
 
+    /**
+     * "Reset Preset Settings" for Agent Mode: put the settings this panel owns
+     * back to what the preset (or the built-in default) asks for. The active
+     * session carries its own capability copy, so it is re-stamped too —
+     * otherwise the checkboxes would snap straight back on the next read.
+     *
+     * Workspace folder, sandbox consent and the sessions themselves are
+     * user-owned state, not preset settings, and are left alone. The shared
+     * model settings are reset by textInference's own reset.
+     */
+    function resetPresetSettings(): void {
+      planningThinkingOnly.value = true
+      sessionCapabilities.value = null
+      defaultCapabilities.value = [...DEFAULT_CAPABILITIES]
+      const session = sessions.value[activeSessionId.value]
+      if (!session) return
+      // Not `capabilities.value`: that still reads the session's own copy, which
+      // is the very override being cleared here.
+      const restored = presetCapabilities.value ?? defaultCapabilities.value
+      sessions.value = {
+        ...sessions.value,
+        [activeSessionId.value]: { ...session, capabilities: [...restored] },
+      }
+    }
+
     async function migrateSessionPresets(): Promise<void> {
       const legacy = Object.values(sessions.value).filter((session) => !session.presetName)
       const gameFolders = new Set<string>()
@@ -558,6 +583,7 @@ export const useAgentMode = defineStore(
       capabilities,
       isCapabilityEnabled,
       setCapabilityEnabled,
+      resetPresetSettings,
       migrateMcpServerIds,
       migrateSessionPresets,
       migratePlanningThinkingOnly,

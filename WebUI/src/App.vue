@@ -171,7 +171,6 @@
     <SideModalHistory
       id="history-panel"
       :isVisible="uiStore.showHistory"
-      :mode="promptStore.getCurrentMode()"
       @close="uiStore.closeHistory()"
       @conversation-selected="chatRef?.scrollToBottom"
     />

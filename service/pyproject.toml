@@ -9,7 +9,7 @@ dependencies = [
   "psutil",
   "Requests",
   "setuptools>=83.0.0",
-  "huggingface_hub",
+  "huggingface_hub>=1.23",  # 1.23+ reports Xet wire bytes via update_transfer (hf#4633)
   # Direct, not left to huggingface_hub's extras: without it every model download
   # falls back to a single HTTP stream off the CDN bridge instead of Xet.
   "hf-xet",

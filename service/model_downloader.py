@@ -18,8 +18,9 @@ import psutil
 import requests
 import utils
 from exceptions import DownloadException, HFReachabilityError
-from huggingface_hub import HfFileSystem, hf_hub_url, model_info
+from huggingface_hub import HfFileSystem, hf_hub_download, hf_hub_url, model_info
 from huggingface_hub.errors import HfHubHTTPError
+from huggingface_hub.utils import tqdm as hf_tqdm
 from psutil._common import bytes2human
 from utils import is_specific_file_reference
 
@@ -34,9 +35,18 @@ _HF_TRANSIENT_ERRORS = (
 )
 _HF_EXISTS_RETRIES = 3
 
-# (connect, read); read applies per chunk, so model-sized downloads are unaffected.
-_DOWNLOAD_TIMEOUT = (10, 60)
+# (connect, read); only the metadata/HEAD calls we still make ourselves use this.
 _REQUEST_TIMEOUT = (10, 30)
+
+_DOWNLOAD_RETRIES = 4
+
+# The progress-bar group name huggingface_hub uses for its Xet transfers; the HTTP
+# path reports under "huggingface_hub.http_get". See `_make_progress_reporter`.
+_XET_PROGRESS_NAME = "huggingface_hub.xet_get"
+
+# `hf_hub_download(local_dir=...)` keeps its bookkeeping (metadata, partial files)
+# in this subdirectory of the staging dir. It must never be moved into a model folder.
+_HUB_STAGING_CACHE_DIR = ".cache"
 
 model_list_cache = dict()
 model_lock = Lock()
@@ -77,16 +87,12 @@ class HFDownloadItem:
     name: str
     size: int
     url: str
-    disk_file_size: int
     save_filename: str
 
-    def __init__(
-        self, name: str, size: int, url: str, disk_file_size: int, save_filename: str
-    ) -> None:
+    def __init__(self, name: str, size: int, url: str, save_filename: str) -> None:
         self.name = name
         self.size = size
         self.url = url
-        self.disk_file_size = disk_file_size
         self.save_filename = save_filename
 
 
@@ -101,8 +107,58 @@ class NotEnoughDiskSpaceException(Exception):
         super().__init__(message)
 
 
+class _DownloadStopped(Exception):
+    """Raised inside the progress callback to unwind a transfer the user stopped.
+
+    Never leaves the worker: `download_model_file` swallows it, the same way the
+    old chunk loop simply broke out on `download_stop`.
+    """
+
+
 def getTmpPath(repo_id: str):
     return sha256(repo_id.encode("utf-8")).hexdigest()[0:16] + "_tmp"
+
+
+def _abort_xet_session() -> None:
+    """Cancel every in-flight Xet transfer in this process.
+
+    A Xet download cannot be stopped by raising from its progress callback: the
+    callback is invoked across hf_xet's Rust boundary, which prints the exception
+    and downloads the file to completion anyway. Aborting the session cancels the
+    Rust tasks immediately; huggingface_hub builds a fresh session on next use.
+    """
+    try:
+        from huggingface_hub.utils._xet import abort_xet_session
+    except ImportError:
+        return
+    try:
+        abort_xet_session()
+    except Exception:
+        logging.warning("could not abort the xet session", exc_info=True)
+
+
+def _make_progress_reporter(downloader: "HFPlaygroundDownloader") -> type:
+    """Build the `tqdm_class` that `hf_hub_download` reports transferred bytes to.
+
+    Both of hub's transfer paths funnel progress through it, so it is the only
+    place bytes are visible to the 1 Hz SSE feed. Raising from `update` aborts the
+    HTTP path; the Xet path swallows exceptions, so it is stopped by
+    `_abort_xet_session` and only counts bytes here.
+    """
+
+    class _ProgressReporter(hf_tqdm):
+        def __init__(self, *args, **kwargs):
+            self.interruptible = kwargs.get("name") != _XET_PROGRESS_NAME
+            kwargs["disable"] = True  # a backend service has no terminal to draw on
+            super().__init__(*args, **kwargs)
+
+        def update(self, n=1):
+            downloader.add_downloaded_bytes(n)
+            if self.interruptible and downloader.download_stop:
+                raise _DownloadStopped()
+            return super().update(n)
+
+    return _ProgressReporter
 
 
 class HFPlaygroundDownloader:
@@ -130,6 +186,13 @@ class HFPlaygroundDownloader:
         self.download_size = 0
         self.thread_lock = Lock()
         self.hf_token = hf_token
+        self.download_stop = False
+        self.completed = False
+        self.progress_reporter = _make_progress_reporter(self)
+
+    def add_downloaded_bytes(self, count: int) -> None:
+        with self.thread_lock:
+            self.download_size += count
 
     def hf_url_exists(self, repo_id: str) -> bool:
         """Return whether the given HF repo/file exists.
@@ -214,26 +277,23 @@ class HFPlaygroundDownloader:
         self.multiple_thread_download(thread_count)
 
     def build_queue(self, file_list: list[HFFileItem]):
+        """Queue the files still missing from the staging dir.
+
+        Resume is per file, not per byte: a file already staged at full size is
+        counted as done and skipped, while anything short is queued and fetched
+        whole, because `hf_hub_download` discards its own partial files.
+        """
         for file in file_list:
             save_filename = path.abspath(path.join(self.save_path_tmp, file.relpath))
-            if path.exists(save_filename):
-                local_file_size = path.getsize(save_filename)
+            local_file_size = (
+                path.getsize(save_filename) if path.exists(save_filename) else 0
+            )
+            if local_file_size > 0 and local_file_size >= file.size:
                 self.download_size += local_file_size
-                # if local file size less thand network file size download it, else skip it!
-                if local_file_size < file.size:
-                    self.file_queue.put(
-                        HFDownloadItem(
-                            file.relpath,
-                            file.size,
-                            file.url,
-                            local_file_size,
-                            save_filename,
-                        )
-                    )
-            else:
-                self.file_queue.put(
-                    HFDownloadItem(file.relpath, file.size, file.url, 0, save_filename)
-                )
+                continue
+            self.file_queue.put(
+                HFDownloadItem(file.relpath, file.size, file.url, save_filename)
+            )
 
     def enum_specific_file(
         self, file_list: list, repo_id: str, model_type: str
@@ -467,6 +527,9 @@ class HFPlaygroundDownloader:
         # On failure or user stop, keep save_path_tmp so partial files can resume later.
 
     def move_to_desired_position(self, retriable: bool = True):
+        shutil.rmtree(
+            path.join(self.save_path_tmp, _HUB_STAGING_CACHE_DIR), ignore_errors=True
+        )
         desired_repo_root_dir_name = os.path.join(
             self.save_path, utils.repo_local_root_dir_name(self.repo_id)
         )
@@ -534,33 +597,7 @@ class HFPlaygroundDownloader:
             self.prev_sec_download_size = self.download_size
             time.sleep(1)
 
-    def init_download(self, file: HFDownloadItem):
-        makedirs(path.dirname(file.save_filename), exist_ok=True)
-
-        headers = {}
-        if self.hf_token is not None:
-            headers["Authorization"] = f"Bearer {self.hf_token}"
-
-        if file.disk_file_size > 0:
-            # download skip exists part
-            headers["Range"] = f"bytes={file.disk_file_size}-"
-            response = requests.get(
-                file.url,
-                stream=True,
-                headers=headers,
-                timeout=_DOWNLOAD_TIMEOUT,
-            )
-            fw = open(file.save_filename, "ab")
-        else:
-            response = requests.get(
-                file.url, stream=True, headers=headers, timeout=_DOWNLOAD_TIMEOUT
-            )
-            fw = open(file.save_filename, "wb")
-
-        return response, fw
-
     def is_access_granted(self, repo_id: str, model_type: str, backend: str):
-
         repo_id = utils.trim_repo(repo_id)
         headers = {}
         if self.hf_token is not None:
@@ -594,55 +631,52 @@ class HFPlaygroundDownloader:
     def download_model_file(self):
         try:
             while not self.download_stop and not self.file_queue.empty():
-                file = self.file_queue.get_nowait()
-                download_retry = 0
-                while True:
-                    try:
-                        response, fw = self.init_download(file)
-                        code = response.status_code
-                        if file.disk_file_size > 0 and code == 416:
-                            response.close()
-                            fw.close()
-                            if path.getsize(file.save_filename) >= file.size:
-                                break
-                            download_retry += 2
-                            raise DownloadException(file.url)
-                        if not utils.hf_chunk_http_ok(code, file.disk_file_size):
-                            response.close()
-                            fw.close()
-                            download_retry += 2
-                            raise DownloadException(file.url)
-                        # start download file
-                        with response:
-                            with fw:
-                                for bytes in response.iter_content(chunk_size=4096):
-                                    download_len = bytes.__len__()
-                                    with self.thread_lock:
-                                        self.download_size += download_len
-                                    file.disk_file_size += fw.write(bytes)
-                                    if self.download_stop:
-                                        print(
-                                            f"thread {Thread.native_id} exit by user stop"
-                                        )
-                                        break
-                        break
-                    except Exception:
-                        traceback.print_exc()
-                        download_retry += 1
-                        if download_retry < 4:
-                            print(
-                                f"download file {file.url} failed. retry {download_retry} time"
-                            )
-                            time.sleep(download_retry)
-                        else:
-                            raise DownloadException(file.url)
-
+                try:
+                    file = self.file_queue.get_nowait()
+                except queue.Empty:
+                    return
+                self.download_one_file(file)
         except Exception as ex:
+            if self.download_stop:
+                # Both transfer paths surface a user stop as an exception (ours on
+                # HTTP, hf_xet's cancellation on Xet). Neither is a download failure.
+                return
             self.error = ex
             traceback.print_exc()
 
+    def download_one_file(self, file: HFDownloadItem):
+        """Fetch one file into the staging dir, letting hub pick Xet or HTTP.
+
+        Deliberately does not pass a resolve URL: handed one, hub can only stream it
+        over the single-connection HTTP bridge, which is what made large downloads
+        slow. Given repo and filename it uses the local Xet client where the repo
+        supports it, fetching chunks in parallel from a nearby CAS edge.
+        """
+        for attempt in range(_DOWNLOAD_RETRIES):
+            try:
+                # nosec B615 - the catalog names repos, not commits, and follows them
+                # as they are updated, so there is no revision to pin here.
+                hf_hub_download(  # nosec B615
+                    repo_id=utils.trim_repo(self.repo_id),
+                    # relpath is a local path, so it is separator-flavoured on Windows.
+                    filename=file.name.replace("\\", "/"),
+                    local_dir=self.save_path_tmp,
+                    token=self.hf_token,
+                    tqdm_class=self.progress_reporter,
+                )
+                return
+            except Exception:
+                if self.download_stop:
+                    raise
+                traceback.print_exc()
+                if attempt + 1 >= _DOWNLOAD_RETRIES:
+                    raise DownloadException(file.url)
+                print(f"download file {file.url} failed. retry {attempt + 1} time")
+                time.sleep(attempt + 1)
+
     def stop_download(self):
         self.download_stop = True
+        _abort_xet_session()
 
 
 def test_download_progress(

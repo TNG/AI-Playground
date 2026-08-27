@@ -10,6 +10,9 @@ dependencies = [
   "Requests",
   "setuptools>=83.0.0",
   "huggingface_hub",
+  # Direct, not left to huggingface_hub's extras: without it every model download
+  # falls back to a single HTTP stream off the CDN bridge instead of Xet.
+  "hf-xet",
 ]
 [tool.uv]
 python-preference = "only-managed"

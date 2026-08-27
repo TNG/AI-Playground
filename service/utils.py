@@ -29,13 +29,6 @@ def trim_repo(repo_id):
     return "/".join(repo_id.split("/")[:2])
 
 
-def hf_chunk_http_ok(status: int, resume_from: int) -> bool:
-    """Whether an HTTP status is acceptable for a Hugging Face file chunk download."""
-    if resume_from > 0:
-        return status in (200, 206)
-    return status == 200
-
-
 def is_single_file(filename: str):
     """Check if a filename is a single file (not a directory)"""
     return (

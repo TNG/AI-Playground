@@ -52,6 +52,7 @@
     "@lmnr-ai/pi-extension": "^0.1.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@radix-icons/vue": "^1.0.0",
+    "@vue/devtools-api": "^8.2.1",
     "@vueuse/core": "^14.3.0",
     "ai": "7.0.83",
     "class-variance-authority": "^0.7.1",

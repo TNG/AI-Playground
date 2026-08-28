@@ -132,13 +132,15 @@ describe('workspace instructions', () => {
     const instructions = buildWorkspaceInstructions({ ...options, emulatedPython: true })
 
     expect(instructions).toContain('python3')
-    expect(instructions).toContain('heredoc')
+    // just-bash 3.4.2 runs a multi-line `python3 -c` correctly, so the heredoc
+    // workaround it used to demand is no longer worth a line of the prompt.
+    expect(instructions).not.toContain('heredoc')
+    expect(instructions).not.toContain('There is no python3 in this shell')
   })
 
   it('does not offer python3 where every invocation would fail', () => {
     const instructions = buildWorkspaceInstructions({ ...options, emulatedPython: false })
 
     expect(instructions).toContain('There is no python3 in this shell')
-    expect(instructions).not.toContain('heredoc')
   })
 })

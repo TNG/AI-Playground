@@ -268,17 +268,18 @@ describe('sandboxed access', () => {
     expect(resultText(result)).toContain('42')
   })
 
-  // The emulated shell loses the indentation of continued lines inside a quoted
-  // argument, so a multi-line `python3 -c` dies with an IndentationError while
-  // the same script works from a heredoc. Models walk into this and then flail,
-  // so the workspace instructions warn about it — when this test starts failing,
-  // just-bash has fixed it and that warning can go.
-  itWithSandboxPython('needs a heredoc for a multi-line python script', async () => {
+  // The emulated shell used to lose the indentation of continued lines inside a
+  // quoted argument, so a multi-line `python3 -c` died with an IndentationError and
+  // only a heredoc worked — the workspace instructions warned models about it.
+  // just-bash 3.4.2 fixed that, so both forms are asserted here to keep the warning
+  // gone: if `-c` ever regresses, this fails rather than models silently flailing.
+  itWithSandboxPython('runs a multi-line python script, quoted or from a heredoc', async () => {
     const script = ['for value in [1, 2]:', '    print(value * 2)'].join('\n')
 
-    await expect(
-      invoke(toolOf(access, 'bash'), { command: `python3 -c "${script}"` }),
-    ).rejects.toThrow(/IndentationError/)
+    const inline = await invoke(toolOf(access, 'bash'), {
+      command: `python3 -c "${script}"`,
+    })
+    expect(resultText(inline)).toContain('4')
 
     const heredoc = await invoke(toolOf(access, 'bash'), {
       command: `python3 <<'PY'\n${script}\nPY`,

@@ -3,26 +3,28 @@ import path from 'path'
 import { test, expect } from './fixtures'
 import { AppDriver } from './appDriver'
 import { type GameSummary } from './pages/AgentModePage'
-import { SCAFFOLD_FILES } from '../electron/gameScaffold'
 
 // The two game-building agent presets, one test each. Both run on the Pi agent
 // harness (not the chat harness the "Assistant" specs cover) and both own a
-// managed game folder, so each test drives one real build turn and then asserts
-// against the folder that turn produced — the agent's actual output, rather than
-// whatever it said about it in the transcript.
+// managed game folder. Both presets are pinned to Qwen3.5-4B
+// (AppDriver.AGENT_GAME_MODEL) rather than the big models they prefer, so the run
+// stays cheap; a 4B model writes a rough game, and that is fine here. Nothing
+// below inspects gameplay.
 //
-// Scope: these prove a game gets BUILT, not that it plays well. Both presets are
-// pinned to Qwen3.5-4B (AppDriver.AGENT_GAME_MODEL) rather than the big models
-// they prefer, so the run stays cheap; a 4B model writes a rough game, and that
-// is fine here. Nothing below inspects gameplay.
+// The two tests deliberately assert to different depths, because the presets cost
+// very different amounts to run:
 //
-// What separates the two tests is what "built" means for each preset:
-//
-//  - Quick Coder gets an EMPTY folder (`scaffold: false` in agentMode.generate) and
-//    `write` as its only file tool. So `index.html` existing at all is the proof,
-//    and there is no `game.js`.
-//  - Game Agent starts from the running scaffold (index.html + game.js) and edits it
-//    section by section. So the proof is that the scaffold has *changed*.
+//  - Quick Coder is one shot: it gets an EMPTY folder (`scaffold: false` in
+//    agentMode.generate) and `write` as its only file tool, and it is done in
+//    minutes. So this one waits out the whole turn and asserts against the folder
+//    it produced: `index.html` existing at all is the proof, and there is no
+//    `game.js`.
+//  - Game Agent plans, edits section by section and play-tests in a browser — dozens
+//    of model steps, well over half an hour on a 4B model. Too long for the suite,
+//    so this one only proves the turn STARTS and is still going a minute later
+//    (AppDriver.AGENT_GAME_PROGRESS_WINDOW). That covers what actually regresses —
+//    preset wiring, model/backend load, the agent loop getting underway — and
+//    deliberately stops short of proving a finished game.
 //
 // Each runs on llama.cpp or OpenVINO at random (AppDriver.pickRandomBackend);
 // OpenVINO isn't offered in NVIDIA product mode, where the run falls back to
@@ -66,34 +68,13 @@ test.describe('Game agent presets', () => {
     await app.agent.expectGameBarNamed(game.name)
   })
 
-  test('"Game Agent" turns the scaffold into a game', async ({ app }) => {
-    // The longer one: this turn plans, edits and play-tests in a browser.
-    test.setTimeout(AppDriver.AGENT_GAME_TIMEOUT + 20 * 60_000)
+  test('"Game Agent" starts building and keeps working', async ({ app }) => {
+    // Backend install plus one minute of watching the turn — not a whole build.
+    test.setTimeout(AppDriver.AGENT_GAME_PROGRESS_WINDOW + 25 * 60_000)
 
     await app.installAllBackends()
 
-    const built = await app.runAgentGamePreset({ preset: 'Game Agent', prompt: GAME_REQUEST })
-    test.skip(built === null, 'Preset "Game Agent" is not available in this product mode')
-    const game = built as GameSummary
-
-    const gameJs = readGameFile(game, 'game.js')
-    const index = readGameFile(game, 'index.html')
-
-    expect(gameJs, "the scaffold's game.js should still be there").not.toEqual('')
-    expect(
-      gameJs,
-      'game.js is still the untouched scaffold — the agent never turned it into a game',
-    ).not.toEqual(SCAFFOLD_FILES['game.js'])
-    expect(index, 'the scaffold page should still load the game script').toMatch(/game\.js/)
-
-    // Generated art is this preset's other headline capability, but it needs a
-    // whole image generation on top of the build, so it is recorded rather than
-    // required — the subject here is that a game was built.
-    test.info().annotations.push({
-      type: 'thumbnail',
-      description: game.iconPath ? `generated: ${game.iconPath}` : 'none generated this run',
-    })
-
-    await app.agent.expectGameBarNamed(game.name)
+    const ran = await app.runAgentGamePresetBriefly({ preset: 'Game Agent', prompt: GAME_REQUEST })
+    test.skip(!ran, 'Preset "Game Agent" is not available in this product mode')
   })
 })

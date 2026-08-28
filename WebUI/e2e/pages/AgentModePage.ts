@@ -34,6 +34,33 @@ export class AgentModePage {
     return this.page.getByRole('group', { name: 'Current game' })
   }
 
+  /**
+   * The folder picker in the Agent settings sidebar, for presets that work in a
+   * folder the user chooses (`agentWorkspace: 'pick'` — the "Agent" preset).
+   * AgentMode.vue offers the same action in its empty state, but only while no
+   * workspace is set; this one is there either way, so a re-run that inherited a
+   * folder from a previous run can still be pointed somewhere else.
+   */
+  get selectFolderButton(): Locator {
+    return this.page
+      .getByRole('region', { name: 'Agent Settings' })
+      .getByRole('button', { name: 'Select folder…' })
+  }
+
+  /**
+   * Give the agent its workspace, with the Agent settings sidebar open. The click
+   * opens a native directory dialog, so the caller must have pointed that dialog
+   * at `dir` first (`stubDirectoryPicker` in helpers.ts); this then waits for the
+   * app to echo the folder back, which is what says it was actually adopted.
+   */
+  async selectWorkspaceFolder(dir: string): Promise<void> {
+    await this.selectFolderButton.click()
+    await expect(
+      this.page.getByText(dir, { exact: false }).first(),
+      'the agent should show the workspace folder it adopted',
+    ).toBeVisible({ timeout: 15_000 })
+  }
+
   /** The "New game" control in the Agent settings sidebar (managed workspaces only). */
   get newGameButton(): Locator {
     return this.page.getByRole('region', { name: 'Agent Settings' }).getByRole('button', {

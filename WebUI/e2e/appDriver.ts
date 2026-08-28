@@ -15,6 +15,10 @@ import { BACKENDS, BACKEND_DISPLAY_NAMES } from './backends'
 /** The chat preset that puts the assistant in agentic mode (built-in + MCP tools on). */
 const AGENTIC_PRESET = 'Assistant'
 
+/** The general-purpose agent preset: agent harness, a folder the user picks
+ *  (see modes/base/presets/agent.json). "Game Agent" is the same agent, aimed. */
+const AGENT_PRESET = 'Agent'
+
 /** The preset the Home Agent runs its channel turns on (its own agentic preset,
  *  distinct from "Assistant"; see modes/base/presets/home-agent-chat.json). */
 const HOME_AGENT_PRESET = 'Home Agent'
@@ -45,6 +49,13 @@ export class AppDriver {
   static readonly AGENT_GAME_TIMEOUT = 30 * 60_000
 
   /**
+   * How long {@link runAgentGamePresetBriefly} watches a turn before calling it a
+   * pass. Long enough to be past model load and into the agent's own tool loop,
+   * short enough that the suite doesn't stall on a full build.
+   */
+  static readonly AGENT_GAME_PROGRESS_WINDOW = 60_000
+
+  /**
    * The model the game presets are pinned to, per backend, by its picker label
    * (the last path segment of the model id).
    *
@@ -61,6 +72,16 @@ export class AppDriver {
 
   /** Context size the pinned small model is run at — see the call site for why. */
   private static readonly AGENT_GAME_CONTEXT = 32768
+
+  /**
+   * Context size the "Agent" preset is run at. Its own default is 128k, the size
+   * its preferred 9B is tuned for, and that is simply more KV cache than a laptop
+   * GPU has: llama.cpp refuses the load outright ("not enough memory to run … with
+   * a context size of 131072"), so the turn dies in ensureReadyForInference before
+   * the agent starts. 8k matches what the agentic smoke runs the Assistant preset
+   * at, and is enough for the two short turns this drives.
+   */
+  private static readonly AGENT_CONTEXT = 8192
 
   readonly wizard: SetupWizardPage
   readonly shell: AppShellPage
@@ -254,9 +275,69 @@ export class AppDriver {
    * the caller can skip.
    */
   async runAgentGamePreset(opts: { preset: string; prompt: string }): Promise<GameSummary | null> {
-    const selected = await test.step(`Select agent preset "${opts.preset}"`, () =>
-      this.main.selectPreset('Chat', opts.preset))
-    if (!selected) return null
+    const ready = await this.prepareAgentGamePreset(opts.preset)
+    if (!ready) return null
+
+    // Everything already in the library is the baseline; the turn's game is whatever
+    // is there afterwards that isn't.
+    const before = await this.agent.gameDirs()
+
+    return test.step(`Build a game with "${opts.preset}"`, async () => {
+      await this.startAgentTurn(opts.prompt)
+      // One turn, many possible downloads: the chat model up front, and for Game
+      // Agent an image model mid-turn when it draws the thumbnail. waitForAgenticMediaTurn
+      // clears each dialog as it appears and returns once the turn goes idle.
+      await this.waitForAgenticMediaTurn(AppDriver.AGENT_GAME_TIMEOUT)
+      await this.agent.assertNoTurnError()
+      return this.agent.gameCreatedSince(before)
+    })
+  }
+
+  /**
+   * The shorter proof for a game preset: select it, send one build request, and
+   * watch the agent stay at work for {@link AGENT_GAME_PROGRESS_WINDOW}, then stop
+   * the turn and hand back. Returns false when the preset isn't offered in this
+   * product mode so the caller can skip.
+   *
+   * Why this exists next to {@link runAgentGamePreset}: a full Game Agent build is
+   * dozens of model steps and runs well past half an hour on the pinned 4B model,
+   * which is too long to sit in the suite. What actually regresses — preset wiring,
+   * model/backend load, the agent harness starting and driving its tool loop — all
+   * shows up in the first minute, so this asserts that much and no more. It does
+   * NOT prove a finished game; {@link runAgentGamePreset} still does that for the
+   * one-shot Quick Coder preset.
+   */
+  async runAgentGamePresetBriefly(opts: { preset: string; prompt: string }): Promise<boolean> {
+    const ready = await this.prepareAgentGamePreset(opts.preset)
+    if (!ready) return false
+
+    await test.step(`Watch "${opts.preset}" work for ${AppDriver.AGENT_GAME_PROGRESS_WINDOW}ms`, async () => {
+      await this.startAgentTurn(opts.prompt)
+      const outcome = await this.watchAgenticTurn(AppDriver.AGENT_GAME_PROGRESS_WINDOW)
+      // An early finish is a pass, not a failure — the turn got where it was going
+      // sooner than expected. Either way the error banner decides.
+      await this.agent.assertNoTurnError()
+      test.info().annotations.push({
+        type: 'turn',
+        description:
+          outcome === 'working'
+            ? `still working after ${AppDriver.AGENT_GAME_PROGRESS_WINDOW}ms`
+            : 'turn finished inside the observation window',
+      })
+      if (outcome === 'working') await this.stopTurn()
+    })
+    return true
+  }
+
+  /**
+   * Shared first half of the game-preset flow: select the preset, pin the small
+   * model on a randomly chosen backend, and start a fresh game. False when the
+   * preset isn't offered in this product mode.
+   */
+  private async prepareAgentGamePreset(preset: string): Promise<boolean> {
+    const selected = await test.step(`Select agent preset "${preset}"`, () =>
+      this.main.selectPreset('Chat', preset))
+    if (!selected) return false
 
     await test.step('Start a fresh game on a randomly chosen backend', async () => {
       // Agent Mode has no mode button of its own — its sidebar is opened from the
@@ -287,31 +368,128 @@ export class AppDriver {
       await this.agent.newGameButton.click()
       await this.settings.close('Agent')
     })
+    return true
+  }
 
-    // Everything already in the library is the baseline; the turn's game is whatever
-    // is there afterwards that isn't.
-    const before = await this.agent.gameDirs()
+  /**
+   * Send the build request and insist the turn actually starts. `generate()` can
+   * throw before it ever sets `processing` — a backend that won't load the model
+   * dies in ensureReadyForInference — and the busy control then never appears. The
+   * turn pollers read that as "already finished" and the run sails on to assert
+   * against a folder nothing was ever written to, reporting an empty index.html
+   * instead of the load failure that caused it. No real build turn starts this
+   * fast, so a missing busy control here is the failure itself.
+   */
+  private async startAgentTurn(prompt: string): Promise<void> {
+    await this.main.sendPrompt(prompt)
+    await expect(
+      this.main.busyButton,
+      'the agent turn never started — the model or backend most likely failed to load (check the app log)',
+    ).toBeVisible({ timeout: 60_000 })
+  }
 
-    return test.step(`Build a game with "${opts.preset}"`, async () => {
-      await this.main.sendPrompt(opts.prompt)
-      // Insist the turn actually starts. `generate()` can throw before it ever sets
-      // `processing` — a backend that won't load the model dies in
-      // ensureReadyForInference — and the busy control then never appears. The
-      // media-turn poller reads that as "already finished" and the run sails on to
-      // assert against a folder nothing was ever written to, reporting an empty
-      // index.html instead of the load failure that caused it. No real build turn
-      // starts this fast, so a missing busy control here is the failure itself.
-      await expect(
-        this.main.busyButton,
-        'the agent turn never started — the model or backend most likely failed to load (check the app log)',
-      ).toBeVisible({ timeout: 60_000 })
-      // One turn, many possible downloads: the chat model up front, and for Game
-      // Agent an image model mid-turn when it draws the thumbnail. waitForAgenticMediaTurn
-      // clears each dialog as it appears and returns once the turn goes idle.
-      await this.waitForAgenticMediaTurn(AppDriver.AGENT_GAME_TIMEOUT)
-      await this.agent.assertNoTurnError()
-      return this.agent.gameCreatedSince(before)
+  /**
+   * Poll a running agent turn for at most `window` ms, clearing model-download
+   * dialogs as they appear (the chat model up front, an image model mid-turn).
+   * Returns 'working' if the turn was still running when the window ran out, or
+   * 'finished' if it went idle first.
+   */
+  private async watchAgenticTurn(window: number): Promise<'working' | 'finished'> {
+    const deadline = Date.now() + window
+    while (Date.now() < deadline) {
+      if (await this.downloads.isOpen()) {
+        const outcome = await this.downloads.resolve(deadline - Date.now())
+        test.skip(
+          outcome === 'blocked',
+          'Skipping: a model needed for this generation is gated / unavailable without Hugging Face access',
+        )
+        continue
+      }
+      if (!(await this.main.isBusy())) return 'finished'
+      await this.main.pause()
+    }
+    return 'working'
+  }
+
+  /**
+   * Cut a running turn short: press the busy (Stop) control and wait for the app to
+   * settle. Best-effort — a turn that ends on its own between the check and the
+   * click leaves nothing to press — but worth doing, so the app isn't mid-inference
+   * when the fixture closes it.
+   */
+  private async stopTurn(timeout = 60_000): Promise<void> {
+    await test.step('Stop the turn', async () => {
+      await this.main.busyButton.click({ timeout: 10_000 }).catch(() => {})
+      await expect(this.main.busyButton).toBeHidden({ timeout })
     })
+  }
+
+  /**
+   * Drive the general-purpose "Agent" preset through the same two turns the fast
+   * agentic smoke runs on the Assistant preset: write a haiku, then turn it into an
+   * image. The preset keeps its own defaults — its model per backend, its default
+   * capabilities (media + web-debug) — so this covers it close to how it ships. Two
+   * things are chosen for it: the backend, at random like the other preset specs,
+   * and the context size, cut to {@link AGENT_CONTEXT} because the shipped 128k
+   * cannot be allocated on a laptop GPU and the model then refuses to load at all.
+   *
+   * Unlike the game presets, this one works in a folder the *user* picks, so the
+   * caller passes a scratch directory (and stubs the native picker at it — see
+   * `stubDirectoryPicker`). The agent writes into that folder; nothing here asserts
+   * on its contents, the transcript and the generated image are the subject.
+   *
+   * Returns false when the preset isn't offered in this product mode so the caller
+   * can skip.
+   */
+  async runAgentPreset(opts: {
+    workspaceDir: string
+    prompt: string
+    imagePrompt: string
+  }): Promise<boolean> {
+    const selected = await test.step(`Select agent preset "${AGENT_PRESET}"`, () =>
+      this.main.selectPreset('Chat', AGENT_PRESET))
+    if (!selected) return false
+
+    await test.step('Point the agent at a scratch workspace on a random backend', async () => {
+      await this.settings.open('Agent')
+      await this.pickRandomBackend('Agent')
+      await test.step(`Lower the context size to ${AppDriver.AGENT_CONTEXT}`, () =>
+        this.settings.setContextSize(AppDriver.AGENT_CONTEXT, 'Agent'))
+      await this.agent.selectWorkspaceFolder(opts.workspaceDir)
+      await this.settings.close('Agent')
+    })
+
+    let imagesBefore = 0
+
+    await test.step('Prompt 1: write a haiku → expect a reply', async () => {
+      // startAgentTurn insists the turn actually starts: a model that won't load
+      // dies in ensureReadyForInference and never raises the busy control, which
+      // would otherwise surface much later as "the agent produced no image".
+      await this.startAgentTurn(opts.prompt)
+      // The preset's default model is pulled on first use, via the same download
+      // dialog the turn poller clears. Agent Mode renders its own transcript (no
+      // "Assistant reply" region for MainPage to read), so the reply is asserted as
+      // transcript text rather than through waitForAssistantAnswer.
+      await this.waitForAgenticMediaTurn(MainPage.TEXT_TIMEOUT)
+      await this.agent.assertNoTurnError()
+      expect(
+        await this.agent.transcriptText(),
+        'the agent turn finished but put nothing on screen',
+      ).not.toEqual('')
+      // The agent may generate media unprompted on the text turn, so the image turn
+      // asserts it ADDED an image rather than that this was zero.
+      imagesBefore = await this.main.generatedImages.count()
+    })
+
+    await test.step('Prompt 2: turn the haiku into an image → expect an image', async () => {
+      await this.startAgentTurn(opts.imagePrompt)
+      await this.waitForAgenticMediaTurn(MainPage.IMAGE_TIMEOUT)
+      await this.agent.assertNoTurnError()
+      await this.main.assertNoGenerationError()
+      expect(await this.main.generatedImages.count()).toBeGreaterThan(imagesBefore)
+    })
+
+    return true
   }
 
   /**

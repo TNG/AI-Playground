@@ -197,8 +197,10 @@ export class AppDriver {
       return false
     }
     // Leave the mode-settings sidebar open so callers can set preset-specific
-    // inputs (e.g. reference images) before closing it.
-    await this.settings.open(mode)
+    // inputs (e.g. reference images) before closing it. Reset first, so those
+    // inputs are applied on top of the preset's defaults rather than on top of
+    // whatever a previous run left saved for it.
+    await this.resetPresetDefaults(mode)
     return true
   }
 
@@ -238,6 +240,36 @@ export class AppDriver {
       await this.main.waitForAssistantAnswer()
       expect(await this.main.lastAssistantText()).not.toEqual('')
       await this.main.assertWellFormedResponse()
+    })
+  }
+
+  /**
+   * Put the active preset back to its shipped defaults, before the test changes
+   * anything of its own. Opens the mode's settings sidebar and leaves it open.
+   *
+   * Why every preset flow starts here: preset settings persist to disk per preset,
+   * so a run inherits whatever the last one (or a hand-driven session) left behind.
+   * That is how the Intel-box agentic smoke failed on llama.cpp — the Assistant
+   * preset had a saved model of smollm2-1.7b, which cannot tool-call, so the tool
+   * checkboxes the test wanted were hidden behind "The selected model does not
+   * support tool calling" and never became visible. Resetting first makes each test
+   * start from the preset as shipped rather than from the machine's history.
+   *
+   * One limit worth knowing: the reload applies `preferredModels` for the backend
+   * it lands on — the preset's first *running* backend (textInference's
+   * selectBestBackend), i.e. llama.cpp in practice. A test that then pins the other
+   * backend still gets whatever model was last selected for that one. Resetting
+   * after the pin would not help either: the reset re-picks the backend and would
+   * undo the pin. Pin a model explicitly where the choice has to be exact.
+   */
+  async resetPresetDefaults(mode: ChatMode = 'Chat'): Promise<void> {
+    await test.step(`Reset the ${mode} preset to its defaults`, async () => {
+      await this.settings.open(mode)
+      const reset = await this.settings.resetPresetDefaults(mode)
+      test.info().annotations.push({
+        type: 'preset-reset',
+        description: reset ? `${mode}: reset to preset defaults` : `${mode}: no reset control`,
+      })
     })
   }
 
@@ -339,10 +371,12 @@ export class AppDriver {
       this.main.selectPreset('Chat', preset))
     if (!selected) return false
 
+    // Agent Mode has no mode button of its own — its sidebar is opened from the
+    // prompt area like any other mode's, under the name "Agent Settings". Reset
+    // before the pins below, never after: a reset would undo them.
+    await this.resetPresetDefaults('Agent')
+
     await test.step('Start a fresh game on a randomly chosen backend', async () => {
-      // Agent Mode has no mode button of its own — its sidebar is opened from the
-      // prompt area like any other mode's, under the name "Agent Settings".
-      await this.settings.open('Agent')
       const backend = await this.pickRandomBackend('Agent')
       // After the backend, never before: the model list is per-backend, so a model
       // picked first would be replaced when the backend changes under it. 'default'
@@ -450,8 +484,10 @@ export class AppDriver {
       this.main.selectPreset('Chat', AGENT_PRESET))
     if (!selected) return false
 
+    // Reset before the context size below, never after — a reset would undo it.
+    await this.resetPresetDefaults('Agent')
+
     await test.step('Point the agent at a scratch workspace on a random backend', async () => {
-      await this.settings.open('Agent')
       await this.pickRandomBackend('Agent')
       await test.step(`Lower the context size to ${AppDriver.AGENT_CONTEXT}`, () =>
         this.settings.setContextSize(AppDriver.AGENT_CONTEXT, 'Agent'))
@@ -568,6 +604,8 @@ export class AppDriver {
     const available = await test.step('Select Audio preset "Text to Speech"', () =>
       this.selectModeAndPreset('Audio', 'Text to Speech'))
     expect(available, 'Preset "Text to Speech" must be available in this product mode').toBe(true)
+
+    await this.resetPresetDefaults('Audio')
 
     await test.step('Start from a known voice selection', async () => {
       // The app's TTS settings persist across runs (saved voices and the active

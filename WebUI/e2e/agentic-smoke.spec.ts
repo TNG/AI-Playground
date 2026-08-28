@@ -41,6 +41,12 @@ test.describe('Agentic smoke', () => {
         await app.main.selectPreset('Chat', AGENTIC_PRESET)
       })
 
+      // Preset settings persist per preset, so a machine that last ran this preset on
+      // a model without tool calling would keep it — and this test's tool checkboxes
+      // are hidden whenever the active model can't tool-call. Start from the preset's
+      // own defaults instead of the machine's history.
+      await app.resetPresetDefaults('Chat')
+
       // Pin the chat backend for this variant; skip OpenVINO where it isn't offered.
       const pinned = await app.selectChatBackendOrSkip(backend.label, backend.optional)
       test.skip(!pinned, `${backend.name} chat backend is not available in this product mode`)

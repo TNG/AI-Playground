@@ -88,18 +88,27 @@ export function sessionDisplayTitle(options: {
   }
 }
 
+/**
+ * Whether a session shows up in the list an agent preset owns. Game Agent and
+ * Quick Coder share the games library, so their sessions sit in one list;
+ * resuming one still switches back to the preset it was held with.
+ */
+export function sessionListedUnderPreset(
+  sessionPresetName: string | undefined,
+  agentPresetName: string,
+): boolean {
+  if (!sessionPresetName) return true
+  if (sessionPresetName === agentPresetName) return true
+  return isGamesPreset(agentPresetName) && isGamesPreset(sessionPresetName)
+}
+
 export function listPresetSessions(
   sessions: Record<string, AgentSessionRecord>,
   agentPresetName: string,
 ): AgentSessionRecord[] {
-  return Object.values(sessions).filter((session) => {
-    if (!session.presetName) return true
-    if (session.presetName === agentPresetName) return true
-    // Game Agent and Quick Coder share the games library, so their sessions
-    // sit in one list. Resuming one still switches back to the preset it
-    // was held with.
-    return isGamesPreset(agentPresetName) && isGamesPreset(session.presetName)
-  })
+  return Object.values(sessions).filter((session) =>
+    sessionListedUnderPreset(session.presetName, agentPresetName),
+  )
 }
 
 export function migrateMcpServerIdsIntoCapabilities(

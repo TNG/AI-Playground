@@ -144,19 +144,40 @@ def _make_progress_reporter(downloader: "HFPlaygroundDownloader") -> type:
     place bytes are visible to the 1 Hz SSE feed. Raising from `update` aborts the
     HTTP path; the Xet path swallows exceptions, so it is stopped by
     `_abort_xet_session` and only counts bytes here.
+
+    Xet emits two streams (huggingface/huggingface_hub#4633): `update` is bytes
+    flushed to disk, which only moves when a buffered block lands, and
+    `update_transfer` is bytes on the wire. Defining that method is what makes
+    hub aggregate both into this class instead of opening a second bar. HTTP
+    calls both with the same chunk, so transfer bytes are counted only on Xet.
     """
 
     class _ProgressReporter(hf_tqdm):
         def __init__(self, *args, **kwargs):
-            self.interruptible = kwargs.get("name") != _XET_PROGRESS_NAME
+            name = kwargs.get("name")
+            self._xet = isinstance(name, str) and name.startswith(_XET_PROGRESS_NAME)
+            self.interruptible = not self._xet
+            # Count reconstruction until the wire stream starts so a hub that
+            # never calls update_transfer (pre-1.23) still reports progress.
+            self._count_reconstruction = True
             kwargs["disable"] = True  # a backend service has no terminal to draw on
             super().__init__(*args, **kwargs)
 
         def update(self, n=1):
-            downloader.add_downloaded_bytes(n)
+            if not self._xet or self._count_reconstruction:
+                downloader.add_downloaded_bytes(n)
             if self.interruptible and downloader.download_stop:
                 raise _DownloadStopped()
             return super().update(n)
+
+        def update_transfer(self, n=1):
+            if not self._xet:
+                return
+            self._count_reconstruction = False
+            downloader.add_downloaded_bytes(n)
+
+        def set_transfer_postfix_str(self, *_args, **_kwargs):
+            pass
 
     return _ProgressReporter
 

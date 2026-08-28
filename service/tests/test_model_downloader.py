@@ -178,6 +178,84 @@ class TestProgressReporter(unittest.TestCase):
         bar.update(5)
         self.assertEqual(dl.download_size, 5)
 
+    def test_http_does_not_double_count_update_transfer(self):
+        """http_get calls update then update_transfer with the same chunk."""
+        md = _import_model_downloader()
+        dl = _bare_downloader(md)
+        bar = self._reporter(dl, md, "huggingface_hub.http_get")
+        bar.update(10)
+        bar.update_transfer(10)
+        self.assertEqual(dl.download_size, 10)
+
+    def test_xet_counts_wire_bytes_not_disk_flushes(self):
+        """Once update_transfer fires, reconstruction update() is the same bytes."""
+        md = _import_model_downloader()
+        dl = _bare_downloader(md)
+        bar = self._reporter(dl, md, md._XET_PROGRESS_NAME)
+        bar.update_transfer(40)
+        bar.update(10)
+        self.assertEqual(dl.download_size, 40)
+
+    def test_xet_counts_update_when_transfer_never_fires(self):
+        """huggingface_hub < 1.23 only reports reconstruction via update()."""
+        md = _import_model_downloader()
+        dl = _bare_downloader(md)
+        bar = self._reporter(dl, md, md._XET_PROGRESS_NAME)
+        bar.update(10)
+        bar.update(7)
+        self.assertEqual(dl.download_size, 17)
+
+    def test_xet_update_transfer_does_not_raise_on_stop(self):
+        md = _import_model_downloader()
+        dl = _bare_downloader(md)
+        bar = self._reporter(dl, md, md._XET_PROGRESS_NAME)
+        dl.download_stop = True
+        bar.update_transfer(5)
+        self.assertEqual(dl.download_size, 5)
+
+    def test_hub_treats_the_reporter_as_aggregated(self):
+        """Defining update_transfer is what makes hub collapse the two Xet bars."""
+        md = _import_model_downloader()
+        cls = md._make_progress_reporter(_bare_downloader(md))
+        self.assertTrue(callable(getattr(cls, "update_transfer", None)))
+        bar = cls(name=md._XET_PROGRESS_NAME, total=100, initial=0, desc="model")
+        bar.set_transfer_postfix_str("1.2MB/s", refresh=False)
+
+    def test_xet_reporter_feeds_wire_bytes_into_our_class(self):
+        """Drive hub's Xet reporter the way huggingface_hub#4633 reproduces it."""
+        try:
+            from huggingface_hub.utils._xet_progress_reporting import (
+                XetDownloadProgressReporter,
+            )
+        except ImportError:
+            self.skipTest("huggingface_hub Xet reporter not installed")
+
+        import logging
+        from types import SimpleNamespace
+
+        md = _import_model_downloader()
+        dl = _bare_downloader(md)
+        cls = md._make_progress_reporter(dl)
+        reporter = XetDownloadProgressReporter(
+            reconstruction_desc="x",
+            total=100,
+            log_level=logging.INFO,
+            name=md._XET_PROGRESS_NAME,
+            tqdm_class=cls,
+        )
+        self.assertIs(reporter.transfer_bar, reporter.reconstruction_bar)
+        reporter.update_progress(
+            SimpleNamespace(
+                total_bytes_completed=0,
+                total_transfer_bytes_completed=40,
+                total_bytes_completion_rate=None,
+                total_transfer_bytes_completion_rate=None,
+                total_bytes=100,
+            )
+        )
+        reporter.close()
+        self.assertEqual(dl.download_size, 40)
+
 
 class TestStopDownload(unittest.TestCase):
     def test_user_stop_keeps_staging_dir_and_reports_no_error(self):

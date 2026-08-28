@@ -1,13 +1,5 @@
 export type Qwen3TtsSpeakerId =
-  | 'Vivian'
-  | 'Serena'
-  | 'Uncle_Fu'
-  | 'Dylan'
-  | 'Eric'
-  | 'Ryan'
-  | 'Aiden'
-  | 'Ono_Anna'
-  | 'Sohee'
+  'Vivian' | 'Serena' | 'Uncle_Fu' | 'Dylan' | 'Eric' | 'Ryan' | 'Aiden' | 'Ono_Anna' | 'Sohee'
 
 export type Qwen3TtsLanguage =
   | 'Auto'

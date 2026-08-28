@@ -306,14 +306,12 @@ export function buildWorkspaceInstructions(options: WorkspaceInstructionsOptions
       '- Nothing in that shell reaches the internet: there is no curl or wget. Read web pages' +
         ' with the browser tool instead.',
     )
-    lines.push(
-      python
-        ? "- Pass multi-line scripts to python3 through a heredoc (`python3 <<'PY' … PY`) or write" +
-            ' a .py file into the workspace and run it. A multi-line `python3 -c "…"` loses the' +
-            ' indentation of its continued lines and fails with IndentationError.'
-        : '- There is no python3 in this shell. Script with `js-exec` instead, or do the work with' +
-            ' the file tools.',
-    )
+    if (!python) {
+      lines.push(
+        '- There is no python3 in this shell. Script with `js-exec` instead, or do the work with' +
+          ' the file tools.',
+      )
+    }
   }
   if (baseUrl) {
     lines.push(

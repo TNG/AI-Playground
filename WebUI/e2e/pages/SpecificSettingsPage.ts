@@ -430,6 +430,49 @@ export class SpecificSettingsPage {
 
   /** Close the sidebar via its (responsive) Close button, scoped to the sidebar
    *  region so it can't match the header's window-close (X) button. */
+  /**
+   * Set the active preset's context size. The preset ships the size its preferred
+   * model is tuned for, which a smaller model on a smaller GPU cannot allocate a KV
+   * cache for — llama.cpp then refuses to load with "not enough memory to run … with
+   * a context size of N", and the turn dies before it starts. Must be called with
+   * the settings sidebar open.
+   */
+  async setContextSize(tokens: number, mode: ChatMode = 'Chat'): Promise<void> {
+    const input = this.panel(mode).getByLabel('Context Size')
+    await expect(input, `${mode} settings should offer a context size`).toBeVisible({
+      timeout: 15_000,
+    })
+    await input.fill(String(tokens))
+    // v-model writes on input, but the store clamps to the model's ceiling, so read
+    // back rather than assuming the typed value stuck.
+    await expect(input).not.toHaveValue('')
+  }
+
+  /**
+   * The "Reset Preset Settings" control every settings panel carries (Chat, Agent,
+   * Audio, workflow). Its accessible name starts with the icon's own "Reset" text,
+   * hence the substring match rather than an exact one.
+   */
+  private resetButton(mode: ChatMode): Locator {
+    return this.panel(mode).getByRole('button', { name: /Reset Preset Settings/ })
+  }
+
+  /**
+   * Drop everything saved for the active preset and reload its shipped defaults —
+   * backend, model (its `preferredModels` for whichever backend the reload lands
+   * on, when that model is installed), context size, max tokens, tool selection.
+   *
+   * Must be called with the sidebar open. Returns false when the panel offers no
+   * reset (the Audio panel only renders one for the TTS/STT presets), so a caller
+   * driving another preset there isn't failed for it.
+   */
+  async resetPresetDefaults(mode: ChatMode = 'Chat'): Promise<boolean> {
+    const button = this.resetButton(mode)
+    if (!(await button.isVisible().catch(() => false))) return false
+    await button.click()
+    return true
+  }
+
   async close(mode: ChatMode = 'Chat'): Promise<void> {
     const sidebar = this.page.getByRole('region', { name: `${mode} Settings` })
     const closers = sidebar.getByRole('button', { name: 'Close' })

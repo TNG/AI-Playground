@@ -32,10 +32,7 @@ export type LocalWebChannelConfig = {
 }
 
 export type ChannelConfig =
-  | TelegramChannelConfig
-  | SlackChannelConfig
-  | DiscordChannelConfig
-  | LocalWebChannelConfig
+  TelegramChannelConfig | SlackChannelConfig | DiscordChannelConfig | LocalWebChannelConfig
 
 /** Pure, dependency-free description of a channel's config shape. Keeping this
  *  here (rather than in the renderer registry, which pulls in Vue components

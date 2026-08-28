@@ -86,6 +86,8 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@emnapi/core": "1.11.3",
+    "@emnapi/runtime": "1.11.3",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "^4.3.1",
     "@types/adm-zip": "^0.5.8",

@@ -28,6 +28,7 @@ import { useActivities } from './activities'
 import { useI18N } from './i18n'
 import { renamePresetKeys } from '@/lib/presetRenames'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
+import { boundMaxOutputTokens } from '@/lib/maxOutputTokens'
 import {
   isToolEnabled,
   readLegacyToolEnablement,
@@ -680,7 +681,13 @@ export const useTextInference = defineStore(
     }
 
     const maxTokens = ref<number>(1024)
+    // The size actually allocated: `requestedContextSize` bounded by the active model's
+    // ceiling (and the KM floor, where that applies).
     const contextSize = ref<number>(8192)
+    // The size asked for, kept unbounded so the bounds can be re-applied from scratch
+    // whenever they move. See PhisonKmRagDeps.requestedContextSize for why the bounded
+    // value alone is not enough to hold on to.
+    const requestedContextSize = ref<number>(8192)
     const DEFAULT_TEMPERATURE = 0.7
     const temperature = ref<number>(DEFAULT_TEMPERATURE)
     // The recommendation we last wrote into `temperature` / `reasoningEffort`.
@@ -717,6 +724,14 @@ export const useTextInference = defineStore(
       if (runningOnOpenvinoNpu.value) return npuPromptLen(contextSize.value)
       return contextSize.value
     })
+
+    /**
+     * `maxTokens` bounded by what the window can actually hold — the value to send as
+     * `max_output_tokens`, in place of the raw setting. See `boundMaxOutputTokens`.
+     */
+    const effectiveMaxTokens = computed(() =>
+      boundMaxOutputTokens(maxTokens.value, effectiveContextWindow.value),
+    )
 
     // Check if the active model supports tool calling
     const modelSupportsToolCalling = computed(() => {
@@ -846,6 +861,7 @@ export const useTextInference = defineStore(
       contextSizeAdjust,
     } = createPhisonKmRag({
       contextSize,
+      requestedContextSize,
       maxContextSizeFromModel,
       getActivePreset: () => activePreset.value,
       backend,
@@ -1826,11 +1842,18 @@ export const useTextInference = defineStore(
         maxTokens.value = preset.maxNewTokens
       }
 
-      // Load context size
-      if (savedSettings.contextSize !== undefined) {
+      // Load context size. `requestedContextSize` is the one that survives a model
+      // ceiling, so prefer it when restoring; settings saved before it existed only
+      // carry the bounded `contextSize`, which is the best intent they can offer.
+      if (savedSettings.requestedContextSize !== undefined) {
+        requestedContextSize.value = savedSettings.requestedContextSize as number
+        contextSize.value = (savedSettings.contextSize as number) ?? requestedContextSize.value
+      } else if (savedSettings.contextSize !== undefined) {
         contextSize.value = savedSettings.contextSize as number
+        requestedContextSize.value = contextSize.value
       } else if (preset.contextSize !== undefined) {
         contextSize.value = preset.contextSize
+        requestedContextSize.value = preset.contextSize
       }
 
       // Load temperature, plus the model recommendation it came from (if any) so
@@ -1958,7 +1981,10 @@ export const useTextInference = defineStore(
       // kmContextFloorReachable gates enforceKmContextFloor, so floor <= ceiling
       // whenever both bounds are present. Cloud Mode is exempt: contextSize is the
       // size we ask a local backend to allocate and is never sent to a provider.
-      let boundedContextSize = contextSize.value
+      // From the requested size, not the bounded one already in `contextSize`: this
+      // load may be arriving at a model with a *larger* ceiling than the one that last
+      // bounded it, and re-clamping the previous result would never let it grow back.
+      let boundedContextSize = requestedContextSize.value
       if (backend.value !== 'cloud') {
         if (contextCeiling !== undefined) {
           boundedContextSize = Math.min(boundedContextSize, contextCeiling)
@@ -2102,6 +2128,7 @@ export const useTextInference = defineStore(
         selectedEmbeddingModels,
         maxTokens,
         contextSize,
+        requestedContextSize,
         temperature,
         reasoningEffort,
         systemPrompt,
@@ -2135,6 +2162,7 @@ export const useTextInference = defineStore(
           selectedDeviceUuid: getCurrentDeviceUuid(),
           maxTokens: maxTokens.value,
           contextSize: contextSize.value,
+          requestedContextSize: requestedContextSize.value,
           temperature: temperature.value,
           temperatureFromModel: temperatureFromModel.value,
           reasoningEffort: reasoningEffort.value,
@@ -2308,8 +2336,12 @@ export const useTextInference = defineStore(
       screenshotWindow,
       maxTokens,
       contextSize,
+      // Returned so it is part of the store's state and therefore persistable — the
+      // `pick` list below only reaches what setup() returns.
+      requestedContextSize,
       maxContextSizeFromModel,
       effectiveContextWindow,
+      effectiveMaxTokens,
       temperature,
       fontSizeClass,
       nameSizeClass,
@@ -2422,6 +2454,7 @@ export const useTextInference = defineStore(
         'selectedModels',
         'maxTokens',
         'contextSize',
+        'requestedContextSize',
         'temperature',
         'ragList',
         'settingsPerPreset',

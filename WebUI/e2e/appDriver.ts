@@ -389,7 +389,7 @@ export class AppDriver {
       // model on a laptop GPU cannot allocate a KV cache that size, and llama.cpp then
       // refuses to load the model at all — the turn dies inside ensureReadyForInference
       // before it ever starts. Still well above the 32k the panel says agentic sessions
-      // want.
+      // want. A no-op on OpenVINO GPU, which has no such setting to get wrong.
       await test.step(`Lower the context size to ${AppDriver.AGENT_GAME_CONTEXT}`, () =>
         this.settings.setContextSize(AppDriver.AGENT_GAME_CONTEXT, 'Agent'))
       // Switching preset by hand already clears the workspace (agentMode.ts), but a
@@ -465,7 +465,8 @@ export class AppDriver {
    * capabilities (media + web-debug) — so this covers it close to how it ships. Two
    * things are chosen for it: the backend, at random like the other preset specs,
    * and the context size, cut to {@link AGENT_CONTEXT} because the shipped 128k
-   * cannot be allocated on a laptop GPU and the model then refuses to load at all.
+   * cannot be allocated on a laptop GPU and the model then refuses to load at all
+   * (where the backend exposes a context size at all — OpenVINO on GPU does not).
    *
    * Unlike the game presets, this one works in a folder the *user* picks, so the
    * caller passes a scratch directory (and stubs the native picker at it — see
@@ -489,6 +490,7 @@ export class AppDriver {
 
     await test.step('Point the agent at a scratch workspace on a random backend', async () => {
       await this.pickRandomBackend('Agent')
+      // A no-op on OpenVINO GPU, which has no such setting to get wrong.
       await test.step(`Lower the context size to ${AppDriver.AGENT_CONTEXT}`, () =>
         this.settings.setContextSize(AppDriver.AGENT_CONTEXT, 'Agent'))
       await this.agent.selectWorkspaceFolder(opts.workspaceDir)
@@ -629,14 +631,17 @@ export class AppDriver {
 
     await test.step('Create a custom voice and synthesize a second audio with it', async () => {
       await this.settings.open('Audio')
+      // A created voice needs two checkpoints that the preset speakers don't: voice
+      // design invents it, and the Base model clones it for everything it says later.
+      // Saving is what offers both downloads, so those dialogs belong to THIS step —
+      // and they have to be cleared *while* the save is in flight, since the save is
+      // what is blocked on them.
       await this.settings.createTtsVoice({
         name: opts.newVoice.name,
         description: opts.newVoice.description,
+        resolveDownloads: () =>
+          this.resolveDownloadSequenceOrFail('the custom-voice Text-to-Speech models'),
       })
-      // A created voice needs two checkpoints that the preset speakers don't: voice
-      // design invents it, and the Base model clones it for everything it says later.
-      // Saving is what offers both downloads, so those dialogs belong to THIS step.
-      await this.resolveDownloadSequenceOrFail('the custom-voice Text-to-Speech models')
 
       // "Save & preview" generated an introduction and kept it, so the card can be
       // played back without another synthesis.

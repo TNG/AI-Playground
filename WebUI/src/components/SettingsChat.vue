@@ -73,15 +73,26 @@
              the left one does. -->
         <div class="grid grid-cols-2 gap-4">
           <SettingsRow :label="languages.ANSWER_MAX_TOKENS" label-for="chat-max-tokens">
-            <input
-              id="chat-max-tokens"
-              type="number"
-              v-model="textInference.maxTokens"
-              min="0"
-              max="32768"
-              step="1"
-              class="rounded-sm text-foreground text-center h-[30px] w-20 leading-[30px] p-0 bg-transparent border border-border"
-            />
+            <div class="flex flex-col gap-1">
+              <input
+                id="chat-max-tokens"
+                type="number"
+                v-model="textInference.maxTokens"
+                min="0"
+                max="32768"
+                step="1"
+                class="rounded-sm text-foreground text-center h-[30px] w-20 leading-[30px] p-0 bg-transparent border border-border"
+              />
+              <!-- The request is capped at what the window can hold whatever is typed
+                   here (see `effectiveMaxTokens`); say so rather than letting the box
+                   claim a number the model will never be asked for. -->
+              <span
+                v-if="textInference.effectiveMaxTokens < textInference.maxTokens"
+                class="text-xs text-muted-foreground"
+              >
+                Capped to {{ textInference.effectiveMaxTokens }} by the model's context window.
+              </span>
+            </div>
           </SettingsRow>
           <SettingsRow
             v-if="textInference.contextSizeSettingSupported"

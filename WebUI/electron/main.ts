@@ -1711,8 +1711,7 @@ function initEventHandle() {
     }
 
     const comfyService = serviceRegistry?.getService('comfyui-backend') as
-      | ComfyUiBackendService
-      | undefined
+      ComfyUiBackendService | undefined
     const comfyUiModelsRoot = comfyService?.serviceDir
       ? path.join(comfyService.serviceDir, 'models')
       : undefined
@@ -1804,8 +1803,7 @@ function initEventHandle() {
 
   ipcMain.handle('comfyui:openInBrowser', async () => {
     const comfyService = serviceRegistry?.getService('comfyui-backend') as
-      | ComfyUiBackendService
-      | undefined
+      ComfyUiBackendService | undefined
     if (!comfyService) {
       return { success: false, error: 'ComfyUI backend service not found' }
     }
@@ -1890,8 +1888,7 @@ function initEventHandle() {
         return { detected: false }
       }
       const parsed = JSON.parse(trimmed) as
-        | { FirmwareVersion?: string }
-        | Array<{ FirmwareVersion?: string }>
+        { FirmwareVersion?: string } | Array<{ FirmwareVersion?: string }>
       const disks = Array.isArray(parsed) ? parsed : [parsed]
       const detected = disks.some((d) => {
         const fw = d.FirmwareVersion
@@ -2681,8 +2678,7 @@ function initEventHandle() {
 
   ipcMain.handle('comfyui:isComfyUIInstalled', () => {
     const comfyService = serviceRegistry?.getService('comfyui-backend') as
-      | ComfyUiBackendService
-      | undefined
+      ComfyUiBackendService | undefined
     if (!comfyService) {
       throw new Error('ComfyUI backend service not found')
     }
@@ -2699,8 +2695,7 @@ function initEventHandle() {
 
   ipcMain.handle('comfyui:installPypiPackage', async (_event, packageSpecifier: string) => {
     const comfyService = serviceRegistry?.getService('comfyui-backend') as
-      | ComfyUiBackendService
-      | undefined
+      ComfyUiBackendService | undefined
     return await comfyuiTools.installPypiPackage(
       packageSpecifier,
       comfyService?.getTorchBackendEnv(),
@@ -2711,8 +2706,7 @@ function initEventHandle() {
     'comfyui:isCustomNodeInstalled',
     (_event, nodeRepoRef: comfyuiTools.ComfyUICustomNodeRepoId) => {
       const comfyService = serviceRegistry?.getService('comfyui-backend') as
-        | ComfyUiBackendService
-        | undefined
+        ComfyUiBackendService | undefined
       if (!comfyService) {
         throw new Error('ComfyUI backend service not found')
       }
@@ -2724,8 +2718,7 @@ function initEventHandle() {
     'comfyui:downloadCustomNode',
     async (_event, nodeRepoData: comfyuiTools.ComfyUICustomNodeRepoId) => {
       const comfyService = serviceRegistry?.getService('comfyui-backend') as
-        | ComfyUiBackendService
-        | undefined
+        ComfyUiBackendService | undefined
       if (!comfyService) {
         throw new Error('ComfyUI backend service not found')
       }
@@ -2745,8 +2738,7 @@ function initEventHandle() {
     'comfyui:uninstallCustomNode',
     async (_event, nodeRepoData: comfyuiTools.ComfyUICustomNodeRepoId) => {
       const comfyService = serviceRegistry?.getService('comfyui-backend') as
-        | ComfyUiBackendService
-        | undefined
+        ComfyUiBackendService | undefined
       if (!comfyService) {
         throw new Error('ComfyUI backend service not found')
       }
@@ -2756,8 +2748,7 @@ function initEventHandle() {
 
   ipcMain.handle('comfyui:listInstalledCustomNodes', () => {
     const comfyService = serviceRegistry?.getService('comfyui-backend') as
-      | ComfyUiBackendService
-      | undefined
+      ComfyUiBackendService | undefined
     if (!comfyService) {
       throw new Error('ComfyUI backend service not found')
     }
@@ -2789,11 +2780,7 @@ function initEventHandle() {
     'apply to the already-running process.'
 
   function getScreenCaptureStatus():
-    | 'granted'
-    | 'denied'
-    | 'restricted'
-    | 'not-determined'
-    | 'unknown' {
+    'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown' {
     if (process.platform !== 'darwin') return 'granted'
     return systemPreferences.getMediaAccessStatus('screen')
   }

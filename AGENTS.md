@@ -110,18 +110,39 @@ runs the whole suite — the full agentic reference flow (`assistant-media-flow.
 edit → video) plus one smoke test per chat/image/video preset in `preset-*.spec.ts` — and
 excludes the quick smoke (`--grep-invert "Agentic smoke"`) so backends aren't installed twice.
 
+**"Smoke test" means `npm run e2e:fast`.** When a change asks to be smoke-tested — a
+dependency bump, a backend change, anything whose breakage a unit test wouldn't catch —
+run it yourself and report the result. Do not ask the user to run it, and do not
+substitute `npm test` or a `--list` dry run for it.
+
 **Architecture:** `vite --mode test` serves only the renderer (the Electron plugin is
 skipped in test mode — see `vite.config.mts`); the fixture launches the built Electron
 main (`dist/main`, built on demand) pointed at that dev server via `VITE_DEV_SERVER_URL`.
 
 **Only one instance of the app can run at a time** — a single-instance lock (a named
 mutex on Windows) makes a second launch attach to the existing instance instead of
-starting fresh. This applies to e2e too: close any running dev/app instance before an
-e2e run, and the suite never runs the app in parallel — it is serial (`workers: 1`,
-`fullyParallel: false`) and each test launches then closes its own Electron. A
-not-fully-reaped Electron from a previous run can make the next launch attach and quit
-with no window ("No Electron windows appeared"); the launch fixture retries once to ride
-out that flake.
+starting fresh. The suite never runs the app in parallel: it is serial (`workers: 1`,
+`fullyParallel: false`) and each test launches then closes its own Electron.
+
+**Required before every e2e run — check nothing is already running, and close it if it is:**
+
+```bash
+# Windows: any Electron (dev instance, packaged app, orphan from a killed run)
+tasklist | grep -i electron
+# and the test dev server
+netstat -ano | grep LISTEN | grep -E ':(5173|25413)'
+```
+
+Never start an e2e run while a dev/app instance is up, and never run two test invocations
+concurrently — not two e2e runs, and not an e2e run alongside a manually launched app. The
+second one attaches to the first instead of starting fresh, and both behave wrongly. A
+not-fully-reaped Electron from a previous run causes the same thing: the next launch
+attaches and quits with no window ("No Electron windows appeared"). The launch fixture
+retries once to ride out that flake, but it cannot recover from a live instance you left
+running. **If the app starts with an empty/blank window and the console shows
+`chrome-error://chromewebdata` failing to load `127.0.0.1:<port>`, that is this bug** — the
+renderer attached to an instance whose dev server is gone. Close every Electron process and
+relaunch.
 
 **Files:** `fixtures.ts` (launch + `window`/`app` fixtures), `appDriver.ts` (`AppDriver`,
 the high-level entry point; exposes `wizard`, `shell`, `main`, `settings`), `pages/*.ts`

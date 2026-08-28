@@ -40,8 +40,7 @@
     <pre
       v-if="toolProgressText"
       class="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
-      >{{ toolProgressText }}</pre
-    >
+      >{{ toolProgressText }}</pre>
     <!-- What the tool saw: a browser screenshot never reaches the model as
          pixels, so this is the only place it is visible. -->
     <figure v-for="image in toolImages" :key="image.dataUri" class="flex flex-col gap-1">

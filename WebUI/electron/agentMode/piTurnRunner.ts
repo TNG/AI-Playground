@@ -260,8 +260,7 @@ function endedWithoutReplyOrToolCall(session: AgentSession): boolean {
  */
 function modelCallError(session: AgentSession): string | undefined {
   const last = session.messages.at(-1) as
-    | { role?: string; stopReason?: string; errorMessage?: string }
-    | undefined
+    { role?: string; stopReason?: string; errorMessage?: string } | undefined
   if (last?.role !== 'assistant' || last.stopReason !== 'error') return undefined
   return readableProviderError(last.errorMessage) ?? 'The model call failed without a reason.'
 }

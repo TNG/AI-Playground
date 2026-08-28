@@ -4,7 +4,7 @@ import type { ChildProcess } from 'node:child_process'
 import vue from '@vitejs/plugin-vue'
 import AutoImport from 'unplugin-auto-import/vite'
 import electron from 'vite-plugin-electron'
-import pkg from './package.json'
+import pkg from './package.json' with { type: 'json' }
 import tailwindcss from '@tailwindcss/vite'
 import { resolveBuildIdentity } from './build/scripts/buildIdentity.mts'
 
@@ -159,7 +159,7 @@ export default defineConfig(({ command, mode }) => {
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, './src'),
+        '@': path.resolve(import.meta.dirname, './src'),
       },
     },
     server: {

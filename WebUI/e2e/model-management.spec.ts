@@ -28,13 +28,21 @@ const TARGETS = {
   'llamaCPP - GGUF': {
     label: 'smollm2-1.7b-instruct-q4_k_m.gguf',
     repo: 'HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF',
-    /** The "Assistant" preset's `preferredModels` entry for this backend. */
-    presetDefault: 'Qwen3.5-9B-Q4_K_M.gguf',
+    /** The "Assistant" preset's `preferredModels` entries for this backend. */
+    presetDefaults: ['Qwen3.5-9B-Q4_K_M.gguf'],
   },
   OpenVINO: {
     label: 'TinyLlama-1.1B-Chat-v1.0-int4-ov',
     repo: 'OpenVINO',
-    presetDefault: 'Qwen3-8B-int4-cw-ov',
+    /**
+     * Two entries because OpenVINO ships this model twice and the picker offers
+     * exactly one of them, decided by the inference device: ModelSelector filters
+     * out `npuSupport` models on GPU and non-`npuSupport` models on NPU, and the
+     * `-cw-` (channel-wise) build is the NPU one. Whichever device the run has
+     * landed on by then is the variant that exists, so the restore below takes the
+     * one on offer rather than assuming.
+     */
+    presetDefaults: ['Qwen3-8B-int4-ov', 'Qwen3-8B-int4-cw-ov'],
   },
 } as const
 
@@ -251,8 +259,13 @@ test('the model library lists, filters and round-trips a model through download,
     // Deleting it doesn't help: the picker then falls back to the first catalog entry,
     // which is a non-tool-calling model too. So restore the preset's own default
     // explicitly, the way the Text-to-Speech flow re-pins its voice.
+    //
+    // Whichever of its builds this device offers: the step above deliberately moved
+    // the inference device to unload the model, and on OpenVINO that decides which
+    // variant the picker lists at all (see TARGETS).
     await app.settings.open('Chat')
-    await app.settings.selectModel(target.presetDefault)
+    const restored = await app.settings.selectFirstOfferedModel(target.presetDefaults)
+    test.info().annotations.push({ type: 'preset-default-restored', description: restored })
     await app.settings.close('Chat')
   })
 })

@@ -1,7 +1,15 @@
 import { type Locator, type Page, expect } from '@playwright/test'
+import { reportingAppErrors } from '../appErrors'
 
-/** Prompt-area mode labels (accessible names of the mode buttons). */
-export type ChatMode = 'Chat' | 'Audio' | 'Image Gen' | 'Image Edit' | 'Video'
+/**
+ * Prompt-area mode labels (accessible names of the mode buttons), which are also
+ * what the mode's settings sidebar is named after ("<Mode> Settings").
+ *
+ * 'Agent' is settings-only: Agent Mode has no mode button of its own — it is
+ * entered by picking an agent preset from the Chat button's quick picker (see
+ * `presetModes.ts`), and only its sidebar carries the name.
+ */
+export type ChatMode = 'Chat' | 'Agent' | 'Audio' | 'Image Gen' | 'Image Edit' | 'Video'
 
 /**
  * Page object for the running main view: the prompt area (mode switch, prompt
@@ -155,9 +163,25 @@ export class MainPage {
     return this.assistantResponses.last().getByRole('region', { name: 'Assistant reply' })
   }
 
-  /** Error surfaced by the app when a generation/tool turn fails. */
+  /**
+   * Error surfaced by the app when a generation/tool turn fails.
+   *
+   * Three shapes, because they come from different places. "Generation failed" / "An
+   * error occurred" are the app's own copy for a failed media step or an opaque
+   * fault. `HTTP <status>:` is what `describeInferenceError` builds when the local
+   * inference backend refuses the request outright and the app toasts the status
+   * plus the response body — e.g. an OVMS 400 whose body says the prompt plus
+   * max_tokens exceeds the model's max length. Matching only the first shape let a
+   * hard backend refusal read as the model simply having declined to answer.
+   *
+   * "Text To Speech failed" is the third: a synthesis that dies in the sidecar is
+   * recorded in the transcript as a failed tool result rather than as either of the
+   * above, and unlike a toast it stays on screen for the whole run.
+   */
   get generationError(): Locator {
-    return this.page.getByText(/Generation failed|An error occurred/i)
+    return this.page.getByText(
+      /Generation failed|An error occurred|Text To Speech failed|HTTP \d{3}:/i,
+    )
   }
 
   /** Throw with the app's error text if a generation error is on screen. */
@@ -208,10 +232,18 @@ export class MainPage {
     return this.page.getByRole('button', { name: label, exact: true })
   }
 
-  /** A preset thumbnail inside the prompt-area quick-preset picker popover; each
-   *  carries the preset name as its accessible name (`aria-label`). */
+  /**
+   * A preset thumbnail inside the prompt-area quick-preset picker popover, keyed
+   * by the preset's canonical name.
+   *
+   * Deliberately NOT the accessible name: that is `oemBranding.presetLabel()`,
+   * which prefixes the co-branded presets on Acer systems ("Acer Game Agent"), so
+   * a test looking one up by name would find nothing on exactly the hardware the
+   * preset ships on. `data-aipg-preset-name` is the unbranded name. Only the open
+   * picker is mounted, so this stays unambiguous across modes.
+   */
   private presetCard(name: string): Locator {
-    return this.page.getByRole('button', { name, exact: true })
+    return this.page.locator(`[data-aipg-preset-name="${name}"]`)
   }
 
   /** The active-preset indicator at the top-left of the input. Its accessible
@@ -242,10 +274,22 @@ export class MainPage {
       await this.page.keyboard.press('Escape')
       return false
     }
+    // Move onto the card before clicking. The picker closes shortly after the
+    // pointer leaves the mode button (`schedulePickerClose`), and the card strip
+    // animates its thumbnails in (`transition-all duration-150`) — clicking straight
+    // from the button races both, which surfaced as "element is not stable" and then
+    // "element was detached from the DOM". Hovering the card cancels the scheduled
+    // close and lets the transition settle first.
+    await card.hover()
+    // The indicator shows the preset's DISPLAY label, which is OEM-branded while the
+    // card's data attribute is not — so assert on what this very card is labelled.
+    // Read it BEFORE clicking: the click closes the popover and unmounts the card, so
+    // reading afterwards races the unmount and throws once it wins.
+    const label = (await card.getAttribute('aria-label')) ?? preset
     await card.click()
     // Selecting closes the popover and kicks off an async preset switch (a
     // backend reload can take a while); the indicator flips once it lands.
-    await expect(this.activePresetIndicator(preset)).toBeVisible({ timeout: 30_000 })
+    await expect(this.activePresetIndicator(label)).toBeVisible({ timeout: 30_000 })
     return true
   }
 
@@ -325,11 +369,23 @@ export class MainPage {
     // present the model closed the turn with an empty final answer. Failing fast
     // here surfaces that as a clear diagnostic instead of blocking on the full
     // per-turn budget waiting for a region that will never appear.
-    await this.waitUntilIdle(timeout)
-    await expect(
-      this.assistantAnswer.filter({ hasText: /\S/ }).first(),
-      'model finished the turn but produced no non-empty text reply (reasoning-only response)',
-    ).toBeVisible({ timeout: 5_000 })
+    await reportingAppErrors(this.page, async () => {
+      await this.waitUntilIdle(timeout)
+      // A turn the backend rejected also ends with no reply region, so check for the
+      // app's own error bubble first and report THAT. Otherwise a hard backend refusal
+      // (an OVMS "prompt tokens + max tokens exceeds model max length" 400, say) is
+      // misreported below as the model having chosen to answer with reasoning alone,
+      // which sends anyone reading the failure after the wrong bug entirely.
+      await this.assertNoGenerationError()
+      await expect(
+        this.assistantAnswer.filter({ hasText: /\S/ }).first(),
+        // Hedged deliberately: the error toast above is transient, so a turn the
+        // backend rejected can reach here with nothing left on screen to prove it —
+        // which is why `reportingAppErrors` quotes the console log as well.
+        'model finished the turn but produced no non-empty text reply (a reasoning-only ' +
+          'response, or a failure whose error notice had already faded — check the app log)',
+      ).toBeVisible({ timeout: 5_000 })
+    })
   }
 
   /**
@@ -338,12 +394,14 @@ export class MainPage {
    * `<audio controls>` element once the WAV is produced and loaded.
    */
   async waitForTtsAudio(timeout: number = MainPage.TEXT_TIMEOUT): Promise<void> {
-    await this.waitUntilIdle(timeout)
-    await this.assertNoGenerationError()
-    await expect(
-      this.ttsAudioPlayer.first(),
-      'the Text-to-Speech turn finished but produced no playable audio result',
-    ).toBeVisible({ timeout: 15_000 })
+    await reportingAppErrors(this.page, async () => {
+      await this.waitUntilIdle(timeout)
+      await this.assertNoGenerationError()
+      await expect(
+        this.ttsAudioPlayer.first(),
+        'the Text-to-Speech turn finished but produced no playable audio result',
+      ).toBeVisible({ timeout: 15_000 })
+    })
   }
 
   /**
@@ -356,12 +414,14 @@ export class MainPage {
     expectedCount: number,
     timeout: number = MainPage.TEXT_TIMEOUT,
   ): Promise<void> {
-    await this.waitUntilIdle(timeout)
-    await this.assertNoGenerationError()
-    await expect(
-      this.ttsAudioPlayers,
-      `the Text-to-Speech conversation should hold ${expectedCount} playable audio result(s)`,
-    ).toHaveCount(expectedCount, { timeout: 15_000 })
+    await reportingAppErrors(this.page, async () => {
+      await this.waitUntilIdle(timeout)
+      await this.assertNoGenerationError()
+      await expect(
+        this.ttsAudioPlayers,
+        `the Text-to-Speech conversation should hold ${expectedCount} playable audio result(s)`,
+      ).toHaveCount(expectedCount, { timeout: 15_000 })
+    })
   }
 
   /**

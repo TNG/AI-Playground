@@ -584,9 +584,14 @@ describe('arcadeCatalog', () => {
     createGame({ name: 'Draft' }, root)
     publishGame(saved.dir, {}, { root })
 
-    expect(arcadeCatalog({ root })).toEqual([
-      expect.objectContaining({ kind: 'user', id: 'saved', name: 'Saved', shown: true }),
+    // Sorted by id, not taken in catalog order: listGames orders by `updatedAt`,
+    // and on a fast machine every write here lands in the same millisecond — so the
+    // publish does not reliably make "saved" the newer of the two. What this test is
+    // about is that both games are offered and each carries its own `shown`.
+    const catalog = [...arcadeCatalog({ root })].sort((a, b) => a.id.localeCompare(b.id))
+    expect(catalog).toEqual([
       expect.objectContaining({ kind: 'user', id: 'draft', name: 'Draft', shown: false }),
+      expect.objectContaining({ kind: 'user', id: 'saved', name: 'Saved', shown: true }),
     ])
   })
 

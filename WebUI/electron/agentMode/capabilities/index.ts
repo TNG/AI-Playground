@@ -81,7 +81,7 @@ export type CapabilityResolution = {
    * are the whole system prompt and the builtin toolbox is cut to these tools
    * (see `AgentCapability.ownSession`).
    */
-  ownSession?: { baseTools: string[] }
+  ownSession?: { baseTools: string[]; writableFiles?: string[] }
   /** How this session's planning phase ends, when a capability defines one. */
   planningEnd?: PlanningEnd
   /** The build request sent after the plan, for a session that plans first. */

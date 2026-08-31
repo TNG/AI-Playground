@@ -119,6 +119,33 @@ export class SpecificSettingsPage {
   }
 
   /**
+   * Select the first of `labels` the picker is actually offering.
+   *
+   * For models that ship in device-specific builds: OpenVINO publishes the same
+   * weights as a plain and a `-cw-` (channel-wise) variant, and ModelSelector shows
+   * exactly one of them — the `-cw-` build carries `npuSupport`, which is required on
+   * NPU and filtered out on GPU. A caller that wants "the model this preset prefers"
+   * therefore cannot name a single label without also pinning the device.
+   *
+   * Fails naming what *was* offered, so a picker that has genuinely lost the model
+   * doesn't read as a bad label.
+   */
+  async selectFirstOfferedModel(
+    labels: readonly string[],
+    mode: ChatMode = 'Chat',
+  ): Promise<string> {
+    const offered = await this.availableModels(mode)
+    const wanted = labels.find((label) => offered.some((item) => item.includes(label)))
+    expect(
+      wanted,
+      `none of [${labels.join(', ')}] is offered by the ${mode} model picker — it lists: ` +
+        `[${offered.join(', ')}]`,
+    ).toBeDefined()
+    await this.selectModel(wanted!, mode)
+    return wanted!
+  }
+
+  /**
    * The chat "Backend" picker trigger (a DropDownNew button). Present only when the
    * active preset allows more than one backend (see SettingsChat.vue `isBackendLocked`);
    * located via its "Backend" label row inside the settings region.
@@ -258,9 +285,22 @@ export class SpecificSettingsPage {
    *
    * `expectOverwrite`: the name already exists, so saving raises the replace
    * confirmation, which this then accepts.
+   *
+   * `resolveDownloads`: run after the save is submitted and before waiting for it to
+   * land. Voice design pulls its own weights at save time, so on a machine that
+   * hasn't got them the click raises the model-download dialog and the save cannot
+   * finish until it is confirmed — waiting for the form to clear first would just
+   * deadlock against a dialog nobody is going to answer. The caller owns the
+   * download policy (which models are acceptable, gated handling), so it passes the
+   * resolver in rather than this page object reaching for one.
    */
   async createTtsVoice(
-    opts: { name: string; description: string; expectOverwrite?: boolean },
+    opts: {
+      name: string
+      description: string
+      expectOverwrite?: boolean
+      resolveDownloads?: () => Promise<unknown>
+    },
     mode: ChatMode = 'Audio',
   ): Promise<void> {
     const panel = this.panel(mode)
@@ -284,6 +324,9 @@ export class SpecificSettingsPage {
       })
       await dialog.getByRole('button', { name: 'Confirm', exact: true }).click()
     }
+
+    // Before the wait below, never after — the save blocks on these downloads.
+    await opts.resolveDownloads?.()
 
     // Wait for the *save* to land, not merely for a row to exist: overwriting an
     // existing voice leaves its row on screen throughout, so a visibility check there
@@ -430,6 +473,61 @@ export class SpecificSettingsPage {
 
   /** Close the sidebar via its (responsive) Close button, scoped to the sidebar
    *  region so it can't match the header's window-close (X) button. */
+  /**
+   * Set the active preset's context size. The preset ships the size its preferred
+   * model is tuned for, which a smaller model on a smaller GPU cannot allocate a KV
+   * cache for — llama.cpp then refuses to load with "not enough memory to run … with
+   * a context size of N", and the turn dies before it starts. Must be called with
+   * the settings sidebar open.
+   *
+   * Returns false — nothing set — when the panel offers no context size at all.
+   * That is not a fault: the control is gated on `contextSizeSettingSupported`, and
+   * OpenVINO on a GPU sizes its KV cache dynamically from free VRAM rather than from
+   * a fixed setting, so there is no input to fill and no oversized allocation to
+   * guard against either. Only llama.cpp (and OpenVINO on the NPU) render one.
+   */
+  async setContextSize(tokens: number, mode: ChatMode = 'Chat'): Promise<boolean> {
+    const input = this.panel(mode).getByLabel('Context Size')
+    // Wait briefly rather than probing with a bare isVisible(): the row renders a
+    // beat after a backend switch, so an immediate check would race the re-render
+    // and report "unsupported" for a backend that does support it.
+    try {
+      await input.waitFor({ state: 'visible', timeout: 5_000 })
+    } catch {
+      return false
+    }
+    await input.fill(String(tokens))
+    // v-model writes on input, but the store clamps to the model's ceiling, so read
+    // back rather than assuming the typed value stuck.
+    await expect(input).not.toHaveValue('')
+    return true
+  }
+
+  /**
+   * The "Reset Preset Settings" control every settings panel carries (Chat, Agent,
+   * Audio, workflow). Its accessible name starts with the icon's own "Reset" text,
+   * hence the substring match rather than an exact one.
+   */
+  private resetButton(mode: ChatMode): Locator {
+    return this.panel(mode).getByRole('button', { name: /Reset Preset Settings/ })
+  }
+
+  /**
+   * Drop everything saved for the active preset and reload its shipped defaults —
+   * backend, model (its `preferredModels` for whichever backend the reload lands
+   * on, when that model is installed), context size, max tokens, tool selection.
+   *
+   * Must be called with the sidebar open. Returns false when the panel offers no
+   * reset (the Audio panel only renders one for the TTS/STT presets), so a caller
+   * driving another preset there isn't failed for it.
+   */
+  async resetPresetDefaults(mode: ChatMode = 'Chat'): Promise<boolean> {
+    const button = this.resetButton(mode)
+    if (!(await button.isVisible().catch(() => false))) return false
+    await button.click()
+    return true
+  }
+
   async close(mode: ChatMode = 'Chat'): Promise<void> {
     const sidebar = this.page.getByRole('region', { name: `${mode} Settings` })
     const closers = sidebar.getByRole('button', { name: 'Close' })

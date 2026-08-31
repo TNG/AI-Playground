@@ -104,7 +104,14 @@
       <Label class="whitespace-nowrap">{{ languages.DEVICE }}</Label>
       <DeviceSelector :backend="deviceServiceName" />
     </div>
-    <div class="grid grid-cols-[120px_1fr] items-center gap-4">
+    <!-- Named like Chat Settings' model row: the picker's trigger is named after
+         whichever model is selected, so the row carries the stable name saying
+         what the control is for. -->
+    <div
+      role="group"
+      :aria-label="languages.MODEL"
+      class="grid grid-cols-[120px_1fr] items-center gap-4"
+    >
       <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
       <!-- Same picker as Chat Settings, so an agent preset's requirements (tool
            calling, and coding for Game Agent) filter the list here too. -->
@@ -119,9 +126,12 @@
       v-if="textInference.contextSizeSettingSupported"
       class="grid grid-cols-[120px_1fr] items-center gap-4"
     >
-      <Label class="whitespace-nowrap">{{ languages.ANSWER_CONTEXT_SIZE }}</Label>
+      <Label for="agent-context-size" class="whitespace-nowrap">
+        {{ languages.ANSWER_CONTEXT_SIZE }}
+      </Label>
       <div class="flex items-center gap-3">
         <input
+          id="agent-context-size"
           type="number"
           v-model="textInference.contextSize"
           min="512"

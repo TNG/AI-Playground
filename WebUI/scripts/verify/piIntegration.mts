@@ -19,6 +19,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   DefaultResourceLoader,
   ModelRuntime,
@@ -47,9 +48,9 @@ fs.writeFileSync(
   JSON.stringify({ memoryDir, reviewTransport: 'direct', memoryMode: 'policy-only' }, null, 2),
 )
 
-const hermesEntry = import.meta.resolve
-  ? path.normalize(new URL(import.meta.resolve(HERMES_ENTRY)).pathname)
-  : ''
+// fileURLToPath, not URL.pathname: on Windows the latter yields a leading-slash
+// '/C:/...' that path.normalize turns into the non-existent '\C:\...'.
+const hermesEntry = import.meta.resolve ? fileURLToPath(import.meta.resolve(HERMES_ENTRY)) : ''
 if (!fs.existsSync(hermesEntry)) throw new Error(`cannot resolve ${HERMES_ENTRY}`)
 
 const models = await ModelRuntime.create({

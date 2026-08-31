@@ -751,7 +751,10 @@ export const useOpenAiCompatibleChat = defineStore(
         messages,
         abortSignal: options.signal,
         instructions: systemPromptToUse,
-        maxOutputTokens: textInference.maxTokens,
+        // Bounded by the model's window, not the raw setting — a preset's
+        // `maxNewTokens` routinely exceeds what a small model can hold, and OVMS
+        // rejects the whole turn for it. See `effectiveMaxTokens`.
+        maxOutputTokens: textInference.effectiveMaxTokens,
         temperature: textInference.temperature,
 
         ...(hasTools
@@ -1226,7 +1229,22 @@ export const useOpenAiCompatibleChat = defineStore(
           surface: opts.sideChannel ? 'silent' : 'toast',
           context: { conversationKey: targetKey },
         })
-        return
+        // Fall through and record the failure as the turn's result rather than
+        // returning here. A toast is the only thing this path used to leave behind,
+        // and it fades — so a synthesis that died in the sidecar (an Intel XPU
+        // `UR_RESULT_ERROR_DEVICE_LOST` mid-generation, say) left the thread showing
+        // the user's message with nothing under it and no way to tell whether it had
+        // failed or was still working. ChatTtsToolResult already renders `ok: false`
+        // as an error line; nothing had ever produced one.
+        const hint = inferenceFailureHint(extractMessage(error))
+        output = {
+          ok: false,
+          message: `Text To Speech failed: ${extractMessage(error)}${hint ? ` — ${hint}` : ''}`,
+          savedFilePath: '',
+          speaker: '',
+          language: '',
+          mode: '',
+        }
       } finally {
         activities.end(ttsActivityId)
       }

@@ -333,8 +333,14 @@ export const gameStudioQuickCapability: AgentCapability = {
     'library. No art, no play-testing.',
   buildTools: buildQuickTools,
   // `write` puts the game on disk; nothing else in the builtin toolbox has a
-  // part in a run that is one file long.
-  ownSession: { baseTools: ['write'] },
+  // part in a run that is one file long. `writableFiles` is what makes "one
+  // file" true rather than merely asked for: the prompt says to put everything
+  // in `index.html`, and a small model writes it and then a `game.js` beside it
+  // anyway — leaving a game whose code never loads (the written page has no
+  // `<script src>` for it) and a hand-off summary telling Game Agent the whole
+  // game is in one file. Refusing the second write turns that into a correction
+  // the model can act on inside the same turn.
+  ownSession: { baseTools: ['write'], writableFiles: ['index.html'] },
   // The plan and the game arrive in one breath unless the turn is cut in two, and
   // a thinking switch that flips after the game is written has nothing left to
   // pay for. So the plan is asked for on its own and this approves it.

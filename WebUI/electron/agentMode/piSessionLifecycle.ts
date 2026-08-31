@@ -171,7 +171,14 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     unsandboxed,
     skillsDir,
     skills,
-    ...(capabilities.ownSession ? { baseTools: capabilities.ownSession.baseTools } : {}),
+    ...(capabilities.ownSession
+      ? {
+          baseTools: capabilities.ownSession.baseTools,
+          ...(capabilities.ownSession.writableFiles
+            ? { writableFiles: capabilities.ownSession.writableFiles }
+            : {}),
+        }
+      : {}),
   })
 
   // Serve the workspace over localhost so the agent can preview/debug pages over

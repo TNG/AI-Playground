@@ -79,6 +79,11 @@ export type AgentToolAccessOptions = {
    * ones its workflow uses. The whole toolbox when absent.
    */
   baseTools?: string[]
+  /**
+   * Workspace-relative paths the file tools may write, for a capability whose
+   * output is a fixed set of files. Any path when absent.
+   */
+  writableFiles?: string[]
 }
 
 function containedIn(root: string, candidate: string): boolean {
@@ -92,6 +97,27 @@ function assertContained(root: string, candidate: string, action: string): void 
   throw new Error(
     `Refusing to ${action} outside the workspace folder: ${candidate}. ` +
       'All file operations must stay inside the workspace.',
+  )
+}
+
+/**
+ * Reject a write to a file a one-file session was never meant to produce.
+ *
+ * `relativePath` is already workspace-relative and POSIX-separated. The refusal
+ * is written for the model to act on rather than to give up on: it is the only
+ * thing standing between "put the whole game in `index.html`" as an instruction
+ * and a small model that writes `index.html` plus a `game.js` anyway — which
+ * leaves a game whose code never loads, and a hand-off summary that promises the
+ * next agent one file.
+ */
+function assertWritableFile(relativePath: string, writableFiles: string[], action: string): void {
+  const allowed = writableFiles.map((file) => file.split('\\').join('/').replace(/^\.\//, ''))
+  if (allowed.includes(relativePath)) return
+  const list = allowed.map((file) => `\`${file}\``).join(', ')
+  throw new Error(
+    `Refusing to ${action} ${relativePath}: this session writes ${list} and nothing else. ` +
+      `Put the whole thing in ${allowed.length === 1 ? allowed[0] : 'those files'} instead — ` +
+      'a second file is not loaded and the work in it is lost.',
   )
 }
 
@@ -280,7 +306,13 @@ function imageAwareReadOperations(
  * absolute sandbox paths (rooted at SANDBOX_WORKDIR), which is exactly the
  * namespace the MountableFs understands, so no translation is needed.
  */
-function sandboxFsOperations(vfs: IFileSystem, workspaceDir: string) {
+function sandboxFsOperations(vfs: IFileSystem, workspaceDir: string, writableFiles?: string[]) {
+  /** Guard a sandbox write against the session's fixed file list, if it has one. */
+  const assertWritable = (absolutePath: string, action: string): void => {
+    if (!writableFiles) return
+    assertWritableFile(path.posix.relative(SANDBOX_WORKDIR, absolutePath), writableFiles, action)
+  }
+
   const readFile = async (hostPath: string): Promise<Buffer> => {
     const absolutePath = toSandboxPath(hostPath)
     return await reportingHostDenials('read', absolutePath, workspaceDir, async () =>
@@ -299,6 +331,7 @@ function sandboxFsOperations(vfs: IFileSystem, workspaceDir: string) {
     writeFile: async (hostPath, content) => {
       const absolutePath = toSandboxPath(hostPath)
       assertInsideSandboxWorkspace(absolutePath, 'write')
+      assertWritable(absolutePath, 'write')
       await reportingHostDenials('write', absolutePath, workspaceDir, async () => {
         await vfs.mkdir(path.posix.dirname(absolutePath), { recursive: true })
         await vfs.writeFile(absolutePath, content)
@@ -319,6 +352,7 @@ function sandboxFsOperations(vfs: IFileSystem, workspaceDir: string) {
     writeFile: async (hostPath, content) => {
       const absolutePath = toSandboxPath(hostPath)
       assertInsideSandboxWorkspace(absolutePath, 'edit')
+      assertWritable(absolutePath, 'edit')
       await reportingHostDenials('edit', absolutePath, workspaceDir, async () => {
         await vfs.writeFile(absolutePath, content)
       })
@@ -508,7 +542,7 @@ function createSandboxAccess(
     defenseInDepth: false,
   })
 
-  const operations = sandboxFsOperations(vfs, workspaceDir)
+  const operations = sandboxFsOperations(vfs, workspaceDir, options.writableFiles)
   const bash: BashOperations = {
     // just-bash resolves the whole script in-process and returns its output at
     // once, so there is a single onData call rather than incremental streaming.
@@ -562,10 +596,10 @@ function createHostShellAccess(pi: PiModule, options: AgentToolAccessOptions): A
         autoResizeImages: false,
       }),
       pi.createWriteToolDefinition(workspaceDir, {
-        operations: guardedWriteOperations(workspaceDir),
+        operations: guardedWriteOperations(workspaceDir, options.writableFiles),
       }),
       pi.createEditToolDefinition(workspaceDir, {
-        operations: guardedEditOperations(workspaceDir),
+        operations: guardedEditOperations(workspaceDir, options.writableFiles),
       }),
       pi.createBashToolDefinition(workspaceDir, {
         // Every command starts in the workspace, whatever cwd Pi passes.
@@ -596,10 +630,11 @@ function hostReadOperations(workspaceDir: string): ReadOperations {
   })
 }
 
-function guardedWriteOperations(workspaceDir: string): WriteOperations {
+function guardedWriteOperations(workspaceDir: string, writableFiles?: string[]): WriteOperations {
   return {
     writeFile: async (absolutePath, content) => {
       assertContained(workspaceDir, absolutePath, 'write')
+      assertHostWritable(workspaceDir, absolutePath, writableFiles, 'write')
       await reportingHostDenials('write', absolutePath, workspaceDir, async () => {
         await fsp.mkdir(path.dirname(absolutePath), { recursive: true })
         await fsp.writeFile(absolutePath, content, 'utf8')
@@ -614,7 +649,19 @@ function guardedWriteOperations(workspaceDir: string): WriteOperations {
   }
 }
 
-function guardedEditOperations(workspaceDir: string): EditOperations {
+/** Host-path form of {@link assertWritableFile}; a no-op for an open session. */
+function assertHostWritable(
+  workspaceDir: string,
+  absolutePath: string,
+  writableFiles: string[] | undefined,
+  action: string,
+): void {
+  if (!writableFiles) return
+  const relative = path.relative(workspaceDir, path.resolve(absolutePath)).split('\\').join('/')
+  assertWritableFile(relative, writableFiles, action)
+}
+
+function guardedEditOperations(workspaceDir: string, writableFiles?: string[]): EditOperations {
   return {
     readFile: async (absolutePath) =>
       await reportingHostDenials(
@@ -625,6 +672,7 @@ function guardedEditOperations(workspaceDir: string): EditOperations {
       ),
     writeFile: async (absolutePath, content) => {
       assertContained(workspaceDir, absolutePath, 'edit')
+      assertHostWritable(workspaceDir, absolutePath, writableFiles, 'edit')
       await reportingHostDenials('edit', absolutePath, workspaceDir, async () => {
         await fsp.writeFile(absolutePath, content, 'utf8')
       })
@@ -672,6 +720,7 @@ export const testables = {
   containedIn,
   assertContained,
   assertInsideSandboxWorkspace,
+  assertWritableFile,
   reportingHostDenials,
   toSandboxPath,
   imageForModel,

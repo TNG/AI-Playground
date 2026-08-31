@@ -122,6 +122,38 @@ describe('the tool set a session is built with', () => {
       }
     }
   })
+
+  // Quick Coder's whole output is `index.html`, and its hand-off summary tells
+  // the next agent so. Asking for that in the prompt is not enough — a small
+  // model writes the page and then splits the code into a `game.js` the page
+  // never loads — so the file list is enforced where the write happens.
+  it('refuses a write outside a session’s file list, sandboxed or not', async () => {
+    for (const unsandboxed of [false, true]) {
+      const access = await createAgentToolAccess({
+        ...accessOptions(unsandboxed),
+        baseTools: ['write'],
+        writableFiles: ['index.html'],
+      })
+      const root = unsandboxed ? workspace : SANDBOX_WORKDIR
+      try {
+        await expect(
+          invoke(toolOf(access, 'write'), {
+            path: `${root}/game.js`,
+            content: 'const canvas = 1\n',
+          }),
+        ).rejects.toThrow(/this session writes `index\.html` and nothing else/)
+        expect(fs.existsSync(path.join(workspace, 'game.js'))).toBe(false)
+
+        await invoke(toolOf(access, 'write'), {
+          path: `${root}/index.html`,
+          content: '<html></html>\n',
+        })
+        expect(fs.readFileSync(path.join(workspace, 'index.html'), 'utf8')).toBe('<html></html>\n')
+      } finally {
+        await access.dispose()
+      }
+    }
+  })
 })
 
 describe('sandboxed access', () => {
@@ -425,6 +457,21 @@ describe('containment helpers', () => {
     expect(() => testables.assertContained('/work', '/etc/passwd', 'write')).toThrow(
       /Refusing to write outside the workspace folder/,
     )
+  })
+
+  it('names the files a restricted session may write, and tells the model why', () => {
+    expect(() => testables.assertWritableFile('game.js', ['index.html'], 'write')).toThrow(
+      /this session writes `index\.html` and nothing else.*a second file is not loaded/s,
+    )
+    expect(() => testables.assertWritableFile('index.html', ['index.html'], 'write')).not.toThrow()
+    // A path the model spelled with a leading `./` or a Windows separator is the
+    // same file, and refusing it would leave the run with nowhere to write at all.
+    expect(() =>
+      testables.assertWritableFile('index.html', ['./index.html'], 'write'),
+    ).not.toThrow()
+    expect(() =>
+      testables.assertWritableFile('src/index.html', ['src\\index.html'], 'write'),
+    ).not.toThrow()
   })
 
   it('leaves failures that are not permission denials alone', async () => {

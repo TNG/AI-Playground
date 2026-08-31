@@ -50,6 +50,17 @@ export type ActivePresetKmFlags = {
 
 export type PhisonKmRagDeps = {
   contextSize: Ref<number>
+  /**
+   * What the user (or the preset) actually asked for, before any model ceiling is
+   * applied. `contextSize` is the bounded result and is what gets allocated; this is
+   * the intent it was derived from, so the clamp below can be re-run from the same
+   * starting point every time the bounds move rather than compounding on its own
+   * previous output. Without it the clamp is a one-way ratchet: selecting a 2048-token
+   * model once pins the setting at 2048, and every larger model chosen afterwards is
+   * still served a 2048 window — which is how OVMS came to be started with
+   * `--max_prompt_len 2048` for an 8B model.
+   */
+  requestedContextSize: Ref<number>
   maxContextSizeFromModel: ComputedRef<number | undefined>
   /**
    * Thunk rather than a direct ComputedRef — this factory is called from
@@ -188,23 +199,27 @@ export function createPhisonKmRag(deps: PhisonKmRagDeps) {
       // local backend to allocate later, so a remote model's window must not shrink it.
       if (deps.backend.value === 'cloud') return
 
+      // Only a real contextSize change counts as an edit — the model ceiling and the
+      // floor also re-trigger this watcher, and a re-clamp of our own is not the user
+      // asking for anything.
+      const prevContextSize = previous?.[0]
+      const userEdited =
+        prevContextSize !== undefined && newValue !== prevContextSize && !isAutoAdjustingContextSize
+
       // A manual edit while in KM mode means the user has taken over — the stashed
       // pre-KM value is no longer what they'd want restored on switch-back.
-      // Only clear on a real contextSize change, not when model max / floor bounds
-      // alone re-trigger this watcher.
-      const prevContextSize = previous?.[0]
-      if (
-        prevContextSize !== undefined &&
-        newValue !== prevContextSize &&
-        !isAutoAdjustingContextSize &&
-        ragMode.value === 'phisonKm'
-      ) {
+      if (userEdited && ragMode.value === 'phisonKm') {
         stashedStandardContextSize.value = null
       }
 
+      // An edit is a new intent; anything else re-derives from the standing one, so a
+      // ceiling that drops and rises again lands back where the user put it instead of
+      // leaving the setting stuck at the smallest model ever selected.
+      if (userEdited) deps.requestedContextSize.value = newValue
+
       const hi = deps.maxContextSizeFromModel.value
       const lo = enforceKmContextFloor.value ? PHISON_KM_CONTEXT_FLOOR : undefined
-      let clamped = newValue
+      let clamped = deps.requestedContextSize.value
       if (hi !== undefined) clamped = Math.min(clamped, hi)
       if (lo !== undefined) clamped = Math.max(clamped, lo)
 

@@ -1,7 +1,7 @@
 {
   "name": "ai-playground",
   "private": true,
-  "version": "3.2.0-alpha",
+  "version": "3.2.0-beta",
   "license": "MIT",
   "homepage": "https://github.com/intel/AI-Playground",
   "author": {
@@ -87,6 +87,8 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@emnapi/core": "1.11.3",
+    "@emnapi/runtime": "1.11.3",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "^4.3.1",
     "@types/adm-zip": "^0.5.8",

@@ -307,7 +307,7 @@ describe('capability wiring', () => {
     dormantToolNames: [] as string[],
     dormantIds: [] as string[],
     dormantPromptSection: '',
-    ownSession: undefined as { baseTools: string[] } | undefined,
+    ownSession: undefined as { baseTools: string[]; writableFiles?: string[] } | undefined,
     planningEnd: undefined as 'plan-file' | 'first-write' | undefined,
     planHandoff: undefined as string | undefined,
   }
@@ -359,12 +359,17 @@ describe('capability wiring', () => {
   // toolbox: Pi's coding-agent instructions and the workspace orientation are
   // replaced by the preset's text, and the builtins are cut to what it named.
   it('hands the prompt and the toolbox to a capability that owns the session', async () => {
-    const manager = await managerWith({ ownSession: { baseTools: ['write'] } })
+    const manager = await managerWith({
+      ownSession: { baseTools: ['write'], writableFiles: ['index.html'] },
+    })
     await manager.startAgentTurn('t1', 'hello', configFor({ instructions: 'Write the game.' }))
 
     const { createAgentToolAccess } = await import('../../agentMode/piToolOperations')
+    // Both halves of the narrowing reach the tool layer: which tools exist, and
+    // which files they may write.
     expect(vi.mocked(createAgentToolAccess).mock.calls.at(-1)?.[0]).toMatchObject({
       baseTools: ['write'],
+      writableFiles: ['index.html'],
     })
     const options = resourceLoaderOptions.at(-1)
     expect(options?.systemPromptOverride?.('pi coding agent prompt')).toBe('Write the game.')

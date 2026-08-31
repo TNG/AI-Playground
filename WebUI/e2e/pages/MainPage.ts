@@ -1,4 +1,5 @@
 import { type Locator, type Page, expect } from '@playwright/test'
+import { reportingAppErrors } from '../appErrors'
 
 /**
  * Prompt-area mode labels (accessible names of the mode buttons), which are also
@@ -368,20 +369,23 @@ export class MainPage {
     // present the model closed the turn with an empty final answer. Failing fast
     // here surfaces that as a clear diagnostic instead of blocking on the full
     // per-turn budget waiting for a region that will never appear.
-    await this.waitUntilIdle(timeout)
-    // A turn the backend rejected also ends with no reply region, so check for the
-    // app's own error bubble first and report THAT. Otherwise a hard backend refusal
-    // (an OVMS "prompt tokens + max tokens exceeds model max length" 400, say) is
-    // misreported below as the model having chosen to answer with reasoning alone,
-    // which sends anyone reading the failure after the wrong bug entirely.
-    await this.assertNoGenerationError()
-    await expect(
-      this.assistantAnswer.filter({ hasText: /\S/ }).first(),
-      // Hedged deliberately: the error toast above is transient, so a turn the
-      // backend rejected can reach here with nothing left on screen to prove it.
-      'model finished the turn but produced no non-empty text reply (a reasoning-only ' +
-        'response, or a failure whose error notice had already faded — check the app log)',
-    ).toBeVisible({ timeout: 5_000 })
+    await reportingAppErrors(this.page, async () => {
+      await this.waitUntilIdle(timeout)
+      // A turn the backend rejected also ends with no reply region, so check for the
+      // app's own error bubble first and report THAT. Otherwise a hard backend refusal
+      // (an OVMS "prompt tokens + max tokens exceeds model max length" 400, say) is
+      // misreported below as the model having chosen to answer with reasoning alone,
+      // which sends anyone reading the failure after the wrong bug entirely.
+      await this.assertNoGenerationError()
+      await expect(
+        this.assistantAnswer.filter({ hasText: /\S/ }).first(),
+        // Hedged deliberately: the error toast above is transient, so a turn the
+        // backend rejected can reach here with nothing left on screen to prove it —
+        // which is why `reportingAppErrors` quotes the console log as well.
+        'model finished the turn but produced no non-empty text reply (a reasoning-only ' +
+          'response, or a failure whose error notice had already faded — check the app log)',
+      ).toBeVisible({ timeout: 5_000 })
+    })
   }
 
   /**
@@ -390,12 +394,14 @@ export class MainPage {
    * `<audio controls>` element once the WAV is produced and loaded.
    */
   async waitForTtsAudio(timeout: number = MainPage.TEXT_TIMEOUT): Promise<void> {
-    await this.waitUntilIdle(timeout)
-    await this.assertNoGenerationError()
-    await expect(
-      this.ttsAudioPlayer.first(),
-      'the Text-to-Speech turn finished but produced no playable audio result',
-    ).toBeVisible({ timeout: 15_000 })
+    await reportingAppErrors(this.page, async () => {
+      await this.waitUntilIdle(timeout)
+      await this.assertNoGenerationError()
+      await expect(
+        this.ttsAudioPlayer.first(),
+        'the Text-to-Speech turn finished but produced no playable audio result',
+      ).toBeVisible({ timeout: 15_000 })
+    })
   }
 
   /**
@@ -408,12 +414,14 @@ export class MainPage {
     expectedCount: number,
     timeout: number = MainPage.TEXT_TIMEOUT,
   ): Promise<void> {
-    await this.waitUntilIdle(timeout)
-    await this.assertNoGenerationError()
-    await expect(
-      this.ttsAudioPlayers,
-      `the Text-to-Speech conversation should hold ${expectedCount} playable audio result(s)`,
-    ).toHaveCount(expectedCount, { timeout: 15_000 })
+    await reportingAppErrors(this.page, async () => {
+      await this.waitUntilIdle(timeout)
+      await this.assertNoGenerationError()
+      await expect(
+        this.ttsAudioPlayers,
+        `the Text-to-Speech conversation should hold ${expectedCount} playable audio result(s)`,
+      ).toHaveCount(expectedCount, { timeout: 15_000 })
+    })
   }
 
   /**

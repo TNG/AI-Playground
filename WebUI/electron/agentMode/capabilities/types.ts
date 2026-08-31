@@ -74,8 +74,14 @@ export type AgentCapability = {
    * cut down to `baseTools`. A preset picks such a capability; the settings list
    * does not offer it, since switching it on next to a general agent would take
    * that agent's prompt and tools away.
+   *
+   * `writableFiles`, when set, is the complete list of workspace-relative paths
+   * the file tools may write. A capability whose output *is* one file says so
+   * here rather than only asking for it in its prompt: a small model reads "put
+   * everything in index.html" and still splits the code out into a second file,
+   * and downstream code that was promised one file then reads the wrong one.
    */
-  ownSession?: { baseTools: string[] }
+  ownSession?: { baseTools: string[]; writableFiles?: string[] }
   /**
    * What ends the thinking phase of a session running this capability, for users
    * who asked to think during planning only. Absent means the capability has no

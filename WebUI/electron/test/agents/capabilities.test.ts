@@ -279,7 +279,12 @@ describe('resolveCapabilities', () => {
       'game-studio-quick',
     ])
     expect(resolution.skillSources).toEqual([])
-    expect(resolution.ownSession).toEqual({ baseTools: ['write'] })
+    // One tool, one file: everything this run produces is `index.html`, and the
+    // hand-off to Game Agent is written on the strength of that.
+    expect(resolution.ownSession).toEqual({
+      baseTools: ['write'],
+      writableFiles: ['index.html'],
+    })
     expect(resolution.planningEnd).toBe('first-write')
     // The turn is split in two, so the harness has a build request to send.
     expect(resolution.planHandoff).toMatch(/index\.html/)

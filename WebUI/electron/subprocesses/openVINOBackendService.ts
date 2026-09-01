@@ -2470,18 +2470,10 @@ export class OpenVINOBackendService implements ApiService {
 
       this.appLogger.info(`OVMS speech launch args: ${args.join(' ')}`, this.name)
 
-      // Set up environment variables as per setupvars.ps1
-      const pythonDir = path.join(this.ovmsDir, 'python')
-      const scriptsDir = path.join(this.ovmsDir, 'python', 'Scripts')
-
+      const extraLibPaths = await this.resolveOvmsExtraLibPaths()
       const childProcess = spawnBackend(this.ovmsExePath, args, {
         cwd: this.ovmsDir,
-        env: {
-          ...process.env,
-          OVMS_DIR: this.ovmsDir,
-          PYTHONHOME: pythonDir,
-          PATH: `${this.ovmsDir};${pythonDir};${scriptsDir};${process.env.PATH}`,
-        },
+        env: this.buildOvmsEnv(extraLibPaths),
       })
 
       const healthUrl = `http://127.0.0.1:${port}/v2/health/ready`

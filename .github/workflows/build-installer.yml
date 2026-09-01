@@ -7,7 +7,6 @@ on:
   push:
     tags:
       - 'v*'
-      - 'linux-bugfix'
 
 jobs:
   # Skip on the upstream intel repo so tag pushes there never build or
@@ -92,11 +91,10 @@ jobs:
           overwrite: true
 
   # Publishes the built installers as public GitHub Release assets. Runs only for
-  # `v*` / `linux-bugfix` tag pushes on the TNG/AI-Playground fork (manual
-  # workflow_dispatch runs and other forks just upload artifacts above). The
-  # release is named after the pushed tag (e.g. v3.1.2-beta.rc1), and is upserted:
-  # re-pushing/moving the tag re-triggers the build and refreshes the existing
-  # release's assets in place rather than failing.
+  # `v*` tag pushes on the TNG/AI-Playground fork (manual workflow_dispatch runs and
+  # other forks just upload artifacts above). The release is named after the pushed
+  # tag (e.g. v3.1.2-beta.rc1), and is upserted: re-pushing/moving the tag re-triggers
+  # the build and refreshes the existing release's assets in place rather than failing.
   release:
     needs: [build-windows, build-linux]
     if: startsWith(github.ref, 'refs/tags/') && github.repository != 'intel/AI-Playground'

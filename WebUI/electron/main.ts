@@ -67,6 +67,7 @@ import { Qwen3TtsBackendService } from './subprocesses/qwen3TtsBackendService'
 import { WhisperBackendService } from './subprocesses/whisperBackendService'
 import { LLAMACPP_DEFAULT_PARAMETERS } from './subprocesses/llamaCppBackendService'
 import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateIntelPresets.ts'
+import { probeFreedesktopSecretService, shouldForceBasicPasswordStore } from './linuxPasswordStore'
 import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
 import * as comfyuiTools from './subprocesses/comfyuiTools'
 import {
@@ -244,6 +245,19 @@ if (process.platform === 'linux') {
   app.disableHardwareAcceleration()
   app.commandLine.appendSwitch('disable-gpu')
   app.commandLine.appendSwitch('no-sandbox')
+  // Chromium may select gnome_libsecret from XDG_CURRENT_DESKTOP even when no
+  // keyring daemon is running. setUsePlainTextEncryption cannot override that
+  // backend, so --password-store=basic must be set before app.whenReady().
+  if (
+    shouldForceBasicPasswordStore({
+      platform: process.platform,
+      xdgCurrentDesktop: process.env.XDG_CURRENT_DESKTOP,
+      secretServiceAvailable: probeFreedesktopSecretService(),
+      passwordStoreAlreadySet: app.commandLine.hasSwitch('password-store'),
+    })
+  ) {
+    app.commandLine.appendSwitch('password-store', 'basic')
+  }
 }
 const singleInstanceLock = app.requestSingleInstanceLock()
 
@@ -3278,11 +3292,12 @@ app.whenReady().then(async () => {
   // safeStorage (used for channel/API-key secrets) backs onto a Linux OS keyring
   // (gnome-libsecret/kwallet) that headless or minimal desktops don't run —
   // encryptString() then throws and anything persisting a secret breaks (Home
-  // Agent channel setup, cloud provider API keys). Only when no keyring is
-  // usable do we opt into the plaintext-backed BASIC_TEXT backend, which
-  // obfuscates rather than encrypts; where a real keyring exists it keeps being
-  // used. isEncryptionAvailable() is meaningful only after 'ready' on Linux, so
-  // this runs here — before any encryptString/decryptString call.
+  // Agent channel setup, cloud provider API keys). When Chromium already chose
+  // BASIC_TEXT, setUsePlainTextEncryption enables the in-memory password so
+  // encryptString works (obfuscated, not encrypted). It cannot switch away from
+  // gnome_libsecret — that case is handled by --password-store=basic above,
+  // before ready. isEncryptionAvailable() is meaningful only after 'ready' on
+  // Linux, so this runs here — before any encryptString/decryptString call.
   if (process.platform === 'linux' && !safeStorage.isEncryptionAvailable()) {
     safeStorage.setUsePlainTextEncryption(true)
     const available = safeStorage.isEncryptionAvailable()

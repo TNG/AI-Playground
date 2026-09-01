@@ -130,6 +130,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showModelInFolder: (modelPath: string) => ipcRenderer.invoke('showModelInFolder', modelPath),
   deleteModelPath: (modelPath: string) => ipcRenderer.invoke('deleteModelPath', modelPath),
   getPlatform: () => ipcRenderer.invoke('getPlatform') as Promise<NodeJS.Platform>,
+  safeStorage: {
+    isEncryptionAvailable: () => ipcRenderer.invoke('safeStorage:isEncryptionAvailable'),
+    enablePlainTextEncryption: () => ipcRenderer.invoke('safeStorage:enablePlainTextEncryption'),
+  },
   openImageWithSystem: (url: string) => ipcRenderer.send('openImageWithSystem', url),
   openImageInFolder: (url: string) => ipcRenderer.send('openImageInFolder', url),
   setFullScreen: (enable: boolean) => ipcRenderer.send('setFullScreen', enable),

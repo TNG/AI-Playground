@@ -97,9 +97,6 @@ async function launchOnce(mainPath: string): Promise<ElectronApplication> {
       VITE_DEBUG_TOOLS: 'true',
       VITE_PLATFORM_TITLE: 'from Intel®',
       NODE_ENV: 'development',
-      // The Linux plaintext-storage opt-in is a native dialog before the window
-      // exists; without this the launch fixture waits forever for a window.
-      AIPG_ALLOW_PLAINTEXT_STORAGE: '1',
       ...(process.platform === 'linux' ? { DISPLAY: process.env.DISPLAY || ':0' } : {}),
     },
     timeout: 60_000,
@@ -178,6 +175,16 @@ export const test = base.extend<E2EFixtures>({
     await window.addLocatorHandler(memoryWarning, async (dialog) => {
       const dontShowAgain = dialog.getByRole('checkbox')
       if (await dontShowAgain.isVisible().catch(() => false)) await dontShowAgain.click()
+      await dialog.getByRole('button', { name: 'Confirm', exact: true }).click()
+    })
+
+    // Linux without a keyring: saving a LAN chat password opens the same in-app
+    // Warning dialog. Confirm so Home Agent setup can finish; scoped by copy so
+    // it never consumes an unrelated warning.
+    const insecureStorageWarning = window
+      .getByRole('dialog', { name: 'Warning' })
+      .filter({ hasText: /obfuscated on disk/i })
+    await window.addLocatorHandler(insecureStorageWarning, async (dialog) => {
       await dialog.getByRole('button', { name: 'Confirm', exact: true }).click()
     })
 

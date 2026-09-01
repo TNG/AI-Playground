@@ -541,5 +541,6 @@
   "ARCADE_MANAGE_CREATED": "Tạo ngày {date}",
   "ARCADE_MANAGE_SHOW_GAME": "Hiển thị {game} trong {arcade}",
   "ARCADE_MANAGE_DONE": "Xong",
-  "ARCADE_MANAGE_FAILED": "Không thể cập nhật {arcade}."
+  "ARCADE_MANAGE_FAILED": "Không thể cập nhật {arcade}.",
+  "HOME_AGENT_LAN_INSECURE_STORAGE": "Không có keyring hệ điều hành nào khả dụng. Mật khẩu LAN chat sẽ bị **làm rối trên đĩa**, không được mã hóa.\n\nCài đặt và chạy trình nền keyring (GNOME Keyring hoặc KWallet) để lưu trữ được mã hóa.\n\nChỉ tiếp tục nếu bạn chấp nhận rằng mật khẩu này không được bảo vệ."
 }

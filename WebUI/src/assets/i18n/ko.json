@@ -541,5 +541,6 @@
   "ARCADE_MANAGE_CREATED": "{date} 생성",
   "ARCADE_MANAGE_SHOW_GAME": "{arcade}에 {game} 표시",
   "ARCADE_MANAGE_DONE": "완료",
-  "ARCADE_MANAGE_FAILED": "{arcade}를 업데이트할 수 없습니다."
+  "ARCADE_MANAGE_FAILED": "{arcade}를 업데이트할 수 없습니다.",
+  "HOME_AGENT_LAN_INSECURE_STORAGE": "OS 키링을 사용할 수 없습니다. LAN chat 비밀번호는 암호화되지 않고 **디스크에서 난독화**됩니다.\n\n암호화된 저장을 위해 키링 데몬(GNOME Keyring 또는 KWallet)을 설치하고 실행하세요.\n\n이 비밀번호가 보호되지 않는다는 점을 이해한 경우에만 계속하세요."
 }

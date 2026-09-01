@@ -541,5 +541,6 @@
   "ARCADE_MANAGE_CREATED": "Creado el {date}",
   "ARCADE_MANAGE_SHOW_GAME": "Mostrar {game} en {arcade}",
   "ARCADE_MANAGE_DONE": "Listo",
-  "ARCADE_MANAGE_FAILED": "No se pudo actualizar {arcade}."
+  "ARCADE_MANAGE_FAILED": "No se pudo actualizar {arcade}.",
+  "HOME_AGENT_LAN_INSECURE_STORAGE": "No hay un llavero del sistema operativo disponible. La contraseña de LAN chat se **ofuscaría en disco**, no se cifraría.\n\nInstale y ejecute un demonio de llavero (GNOME Keyring o KWallet) para el almacenamiento cifrado.\n\nContinúe solo si acepta que esta contraseña no está protegida."
 }

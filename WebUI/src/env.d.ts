@@ -90,6 +90,8 @@ type LocalSettings = {
   preferredDevice: PreferredDevice | null
   /** Dev unpackaged: set via settings-dev.json / userData overlay. */
   PhisonSSDdetected?: boolean
+  /** Linux: user accepted obfuscated-on-disk secrets when no OS keyring is available. */
+  allowPlaintextSecretStorage?: boolean
 }
 
 /** Mirrors electron/laminar LaminarConfigSchema (renderer copy for IPC typing). */
@@ -387,6 +389,10 @@ type electronAPI = {
   showModelInFolder(modelPath: string): Promise<{ success: boolean; error?: string }>
   deleteModelPath(modelPath: string): Promise<{ success: boolean; error?: string }>
   getPlatform(): Promise<NodeJS.Platform>
+  safeStorage: {
+    isEncryptionAvailable(): Promise<boolean>
+    enablePlainTextEncryption(): Promise<{ success: boolean; error?: string }>
+  }
   openImageWithSystem(url: string): void
   openImageInFolder(url: string): void
   setFullScreen(enable: boolean): void

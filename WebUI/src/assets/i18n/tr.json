@@ -541,5 +541,6 @@
   "ARCADE_MANAGE_CREATED": "{date} tarihinde oluşturuldu",
   "ARCADE_MANAGE_SHOW_GAME": "{game} oyununu {arcade} sayfasında göster",
   "ARCADE_MANAGE_DONE": "Bitti",
-  "ARCADE_MANAGE_FAILED": "{arcade} güncellenemedi."
+  "ARCADE_MANAGE_FAILED": "{arcade} güncellenemedi.",
+  "HOME_AGENT_LAN_INSECURE_STORAGE": "Kullanılabilir bir işletim sistemi anahtarlığı yok. LAN chat parolası şifrelenmez, **diskte gizlenir**.\n\nŞifreli depolama için bir anahtarlık daemon'ı (GNOME Keyring veya KWallet) kurup çalıştırın.\n\nBu parolanın korunmadığını kabul ediyorsanız devam edin."
 }

@@ -1,6 +1,9 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
+  confirmInsecureSecretStorage,
+  INSECURE_STORAGE_DIALOG,
   parseNameHasOwnerReply,
+  plaintextStorageEnvOverride,
   shouldForceBasicPasswordStore,
   xdgDesktopSelectsGnomeLibsecret,
 } from '../linuxPasswordStore'
@@ -63,5 +66,30 @@ describe('parseNameHasOwnerReply', () => {
     expect(parseNameHasOwnerReply('b true\n')).toBe(true)
     expect(parseNameHasOwnerReply('b false\n')).toBe(false)
     expect(parseNameHasOwnerReply('')).toBe(false)
+  })
+})
+
+describe('confirmInsecureSecretStorage', () => {
+  it('defaults the dialog to declining unencrypted storage', () => {
+    expect(INSECURE_STORAGE_DIALOG.defaultId).toBe(1)
+    expect(INSECURE_STORAGE_DIALOG.cancelId).toBe(1)
+    expect(INSECURE_STORAGE_DIALOG.buttons[0]).toBe('Use unencrypted storage')
+  })
+
+  it('honours AIPG_ALLOW_PLAINTEXT_STORAGE without showing a dialog', async () => {
+    const askUser = vi.fn(async () => 0)
+    expect(
+      await confirmInsecureSecretStorage({ env: { AIPG_ALLOW_PLAINTEXT_STORAGE: '1' }, askUser }),
+    ).toBe(true)
+    expect(
+      await confirmInsecureSecretStorage({ env: { AIPG_ALLOW_PLAINTEXT_STORAGE: '0' }, askUser }),
+    ).toBe(false)
+    expect(askUser).not.toHaveBeenCalled()
+    expect(plaintextStorageEnvOverride({})).toBeUndefined()
+  })
+
+  it('opts in only when the user picks the unencrypted-storage button', async () => {
+    expect(await confirmInsecureSecretStorage({ askUser: async () => 0 })).toBe(true)
+    expect(await confirmInsecureSecretStorage({ askUser: async () => 1 })).toBe(false)
   })
 })

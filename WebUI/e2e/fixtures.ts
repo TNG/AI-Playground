@@ -97,6 +97,9 @@ async function launchOnce(mainPath: string): Promise<ElectronApplication> {
       VITE_DEBUG_TOOLS: 'true',
       VITE_PLATFORM_TITLE: 'from Intel®',
       NODE_ENV: 'development',
+      // The Linux plaintext-storage opt-in is a native dialog before the window
+      // exists; without this the launch fixture waits forever for a window.
+      AIPG_ALLOW_PLAINTEXT_STORAGE: '1',
       ...(process.platform === 'linux' ? { DISPLAY: process.env.DISPLAY || ':0' } : {}),
     },
     timeout: 60_000,

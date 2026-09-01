@@ -40,6 +40,40 @@ export function parseNameHasOwnerReply(stdout: string): boolean {
   return /^\(\s*true\b/i.test(text) || /^b\s+true\b/i.test(text)
 }
 
+/** Opt-in is button 0; decline / Esc is 1 and is the default. */
+export const INSECURE_STORAGE_DIALOG = {
+  type: 'warning' as const,
+  buttons: ['Use unencrypted storage', "Don't store secrets"],
+  defaultId: 1,
+  cancelId: 1,
+  noLink: true,
+  title: 'Unencrypted secret storage',
+  message: 'No OS keyring is available on this system.',
+  detail:
+    'Home Agent channel passwords and cloud API keys would be obfuscated on disk, not encrypted.\n\n' +
+    'Install and run a keyring daemon (GNOME Keyring or KWallet) for encrypted storage.\n\n' +
+    'Continue only if you accept that these secrets are not protected.',
+}
+
+type EnvLike = { readonly [key: string]: string | undefined }
+
+export function plaintextStorageEnvOverride(env: EnvLike = process.env): boolean | undefined {
+  const raw = env.AIPG_ALLOW_PLAINTEXT_STORAGE?.trim().toLowerCase()
+  if (raw === '1' || raw === 'true' || raw === 'yes') return true
+  if (raw === '0' || raw === 'false' || raw === 'no') return false
+  return undefined
+}
+
+/** True when the user (or AIPG_ALLOW_PLAINTEXT_STORAGE) opted into obfuscated storage. */
+export async function confirmInsecureSecretStorage(opts: {
+  env?: EnvLike
+  askUser: () => Promise<number>
+}): Promise<boolean> {
+  const override = plaintextStorageEnvOverride(opts.env)
+  if (override !== undefined) return override
+  return (await opts.askUser()) === 0
+}
+
 /**
  * True when org.freedesktop.secrets is already on the session bus.
  * Uses NameHasOwner so we do not D-Bus-activate gnome-keyring-daemon

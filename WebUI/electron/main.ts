@@ -67,7 +67,12 @@ import { Qwen3TtsBackendService } from './subprocesses/qwen3TtsBackendService'
 import { WhisperBackendService } from './subprocesses/whisperBackendService'
 import { LLAMACPP_DEFAULT_PARAMETERS } from './subprocesses/llamaCppBackendService'
 import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateIntelPresets.ts'
-import { probeFreedesktopSecretService, shouldForceBasicPasswordStore } from './linuxPasswordStore'
+import {
+  confirmInsecureSecretStorage,
+  INSECURE_STORAGE_DIALOG,
+  probeFreedesktopSecretService,
+  shouldForceBasicPasswordStore,
+} from './linuxPasswordStore'
 import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
 import * as comfyuiTools from './subprocesses/comfyuiTools'
 import {
@@ -3298,17 +3303,32 @@ app.whenReady().then(async () => {
   // gnome_libsecret — that case is handled by --password-store=basic above,
   // before ready. isEncryptionAvailable() is meaningful only after 'ready' on
   // Linux, so this runs here — before any encryptString/decryptString call.
+  // Enabling it requires an explicit opt-in (dialog, or AIPG_ALLOW_PLAINTEXT_STORAGE).
   if (process.platform === 'linux' && !safeStorage.isEncryptionAvailable()) {
-    safeStorage.setUsePlainTextEncryption(true)
-    const available = safeStorage.isEncryptionAvailable()
-    appLogger.warn(
-      `No usable OS keyring (backend=${safeStorage.getSelectedStorageBackend()}); ` +
-        `fell back to plaintext-backed safeStorage — stored secrets are obfuscated, not encrypted. ` +
-        `Encryption available now: ${available}. ` +
-        `To get real encryption, install and run a keyring daemon`,
-      'electron-backend',
-      true,
-    )
+    const backend = safeStorage.getSelectedStorageBackend()
+    const accepted = await confirmInsecureSecretStorage({
+      askUser: async () => {
+        const { response } = await dialog.showMessageBox(INSECURE_STORAGE_DIALOG)
+        return response
+      },
+    })
+    if (accepted) {
+      safeStorage.setUsePlainTextEncryption(true)
+      appLogger.warn(
+        `No usable OS keyring (backend=${backend}); ` +
+          `user opted into plaintext-backed safeStorage — stored secrets are obfuscated, not encrypted. ` +
+          `Encryption available now: ${safeStorage.isEncryptionAvailable()}.`,
+        'electron-backend',
+        true,
+      )
+    } else {
+      appLogger.warn(
+        `No usable OS keyring (backend=${backend}); ` +
+          `user declined plaintext-backed safeStorage — secrets cannot be saved.`,
+        'electron-backend',
+        true,
+      )
+    }
   }
 
   /**Single instance processing */

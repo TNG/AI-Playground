@@ -253,7 +253,6 @@
          to appear on top of it. -->
     <ModelManager v-if="uiStore.showModelManager" @close="uiStore.closeModelManager()" />
     <download-dialog v-show="dialogStore.downloadDialogVisible"></download-dialog>
-    <warning-dialog v-show="dialogStore.warningDialogVisible"></warning-dialog>
     <preset-requirements-dialog
       v-show="dialogStore.presetRequirementsDialogVisible"
     ></preset-requirements-dialog>
@@ -335,6 +334,8 @@
       <img v-else-if="theme.active === 'dark'" class="h-8" src="@/assets/svg/intel.svg" />
     </div>
   </footer>
+  <!-- Outside the running-only main: Home Agent setup lives in the wizard. -->
+  <warning-dialog v-show="dialogStore.warningDialogVisible"></warning-dialog>
 </template>
 
 <script setup lang="ts">

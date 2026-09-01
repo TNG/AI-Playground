@@ -34,28 +34,55 @@ export function shouldForceBasicPasswordStore(input: {
   return xdgDesktopSelectsGnomeLibsecret(input.xdgCurrentDesktop) && !input.secretServiceAvailable
 }
 
-/** True when org.freedesktop.secrets is actually on the session bus. */
+/** gdbus `(true,)` / `(false,)` or busctl `b true` / `b false`. */
+export function parseNameHasOwnerReply(stdout: string): boolean {
+  const text = stdout.trim()
+  return /^\(\s*true\b/i.test(text) || /^b\s+true\b/i.test(text)
+}
+
+/**
+ * True when org.freedesktop.secrets is already on the session bus.
+ * Uses NameHasOwner so we do not D-Bus-activate gnome-keyring-daemon
+ * (Ping against the secrets dest would start it and false-positive).
+ */
 export function probeFreedesktopSecretService(): boolean {
   const attempts: Array<[string, string[]]> = [
-    ['busctl', ['--user', 'status', 'org.freedesktop.secrets']],
     [
       'gdbus',
       [
         'call',
         '--session',
         '--dest',
-        'org.freedesktop.secrets',
+        'org.freedesktop.DBus',
         '--object-path',
-        '/org/freedesktop/secrets',
+        '/org/freedesktop/DBus',
         '--method',
-        'org.freedesktop.DBus.Peer.Ping',
+        'org.freedesktop.DBus.NameHasOwner',
+        'org.freedesktop.secrets',
+      ],
+    ],
+    [
+      'busctl',
+      [
+        '--user',
+        'call',
+        'org.freedesktop.DBus',
+        '/org/freedesktop/DBus',
+        'org.freedesktop.DBus',
+        'NameHasOwner',
+        's',
+        'org.freedesktop.secrets',
       ],
     ],
   ]
   for (const [cmd, args] of attempts) {
     try {
-      execFileSync(cmd, args, { timeout: 800, stdio: 'ignore' })
-      return true
+      const out = execFileSync(cmd, args, {
+        timeout: 800,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+      return parseNameHasOwnerReply(out)
     } catch {
       continue
     }

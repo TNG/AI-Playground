@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  parseNameHasOwnerReply,
   shouldForceBasicPasswordStore,
   xdgDesktopSelectsGnomeLibsecret,
 } from '../linuxPasswordStore'
@@ -52,5 +53,15 @@ describe('shouldForceBasicPasswordStore', () => {
     expect(
       shouldForceBasicPasswordStore({ ...gnomeWithoutKeyring, xdgCurrentDesktop: 'KDE' }),
     ).toBe(false)
+  })
+})
+
+describe('parseNameHasOwnerReply', () => {
+  it('reads gdbus and busctl replies without treating a missing owner as present', () => {
+    expect(parseNameHasOwnerReply('(true,)\n')).toBe(true)
+    expect(parseNameHasOwnerReply('(false,)\n')).toBe(false)
+    expect(parseNameHasOwnerReply('b true\n')).toBe(true)
+    expect(parseNameHasOwnerReply('b false\n')).toBe(false)
+    expect(parseNameHasOwnerReply('')).toBe(false)
   })
 })

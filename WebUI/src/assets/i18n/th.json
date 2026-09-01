@@ -541,5 +541,6 @@
   "ARCADE_MANAGE_CREATED": "สร้างเมื่อ {date}",
   "ARCADE_MANAGE_SHOW_GAME": "แสดง {game} ใน {arcade}",
   "ARCADE_MANAGE_DONE": "เสร็จสิ้น",
-  "ARCADE_MANAGE_FAILED": "ไม่สามารถอัปเดต {arcade} ได้"
+  "ARCADE_MANAGE_FAILED": "ไม่สามารถอัปเดต {arcade} ได้",
+  "HOME_AGENT_LAN_INSECURE_STORAGE": "ไม่มีพวงกุญแจของระบบปฏิบัติการให้ใช้ รหัสผ่าน LAN chat จะถูก**ทำให้คลุมเครือบนดิสก์** ไม่ได้เข้ารหัส\n\nติดตั้งและเรียกใช้ daemon พวงกุญแจ (GNOME Keyring หรือ KWallet) สำหรับการจัดเก็บแบบเข้ารหัส\n\nดำเนินการต่อเฉพาะเมื่อคุณยอมรับว่ารหัสผ่านนี้ไม่ได้รับการป้องกัน"
 }

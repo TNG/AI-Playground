@@ -67,6 +67,7 @@ import { Qwen3TtsBackendService } from './subprocesses/qwen3TtsBackendService'
 import { WhisperBackendService } from './subprocesses/whisperBackendService'
 import { LLAMACPP_DEFAULT_PARAMETERS } from './subprocesses/llamaCppBackendService'
 import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateIntelPresets.ts'
+import { probeFreedesktopSecretService, shouldForceBasicPasswordStore } from './linuxPasswordStore'
 import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
 import * as comfyuiTools from './subprocesses/comfyuiTools'
 import {
@@ -244,6 +245,19 @@ if (process.platform === 'linux') {
   app.disableHardwareAcceleration()
   app.commandLine.appendSwitch('disable-gpu')
   app.commandLine.appendSwitch('no-sandbox')
+  // Chromium may select gnome_libsecret from XDG_CURRENT_DESKTOP even when no
+  // keyring daemon is running. setUsePlainTextEncryption cannot override that
+  // backend, so --password-store=basic must be set before app.whenReady().
+  if (
+    shouldForceBasicPasswordStore({
+      platform: process.platform,
+      xdgCurrentDesktop: process.env.XDG_CURRENT_DESKTOP,
+      secretServiceAvailable: probeFreedesktopSecretService(),
+      passwordStoreAlreadySet: app.commandLine.hasSwitch('password-store'),
+    })
+  ) {
+    app.commandLine.appendSwitch('password-store', 'basic')
+  }
 }
 const singleInstanceLock = app.requestSingleInstanceLock()
 
@@ -416,6 +430,10 @@ const LocalSettingsSchema = z.object({
    * firmware, so partner branding can be exercised on any dev box.
    */
   oemVendorOverride: z.string().nullable().optional().default(null),
+  // Linux without an OS keyring: the user confirmed the in-app Warning dialog
+  // while saving a LAN chat password. Re-applied at startup so decrypt still
+  // works; first-time opt-in is the renderer WarningDialog, not a native prompt.
+  allowPlaintextSecretStorage: z.boolean().default(false),
 })
 export type LocalSettings = z.infer<typeof LocalSettingsSchema>
 export type ProductMode = z.infer<typeof ProductModeSchema>
@@ -1731,6 +1749,35 @@ function initEventHandle() {
   })
 
   ipcMain.handle('getPlatform', () => process.platform)
+
+  ipcMain.handle('safeStorage:isEncryptionAvailable', () => safeStorage.isEncryptionAvailable())
+
+  ipcMain.handle('safeStorage:enablePlainTextEncryption', () => {
+    try {
+      if (!safeStorage.isEncryptionAvailable()) {
+        safeStorage.setUsePlainTextEncryption(true)
+      }
+      if (!safeStorage.isEncryptionAvailable()) {
+        return {
+          success: false,
+          error: 'Plaintext secret storage is not available on this system.',
+        }
+      }
+      if (!settings.allowPlaintextSecretStorage) {
+        settings.allowPlaintextSecretStorage = true
+        persistLocalSettingsToDisk()
+      }
+      appLogger.warn(
+        `User opted into plaintext-backed safeStorage (backend=${safeStorage.getSelectedStorageBackend()}); ` +
+          `stored secrets are obfuscated, not encrypted.`,
+        'electron-backend',
+        true,
+      )
+      return { success: true }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  })
 
   ipcMain.handle(
     'addDocumentToRAGList',
@@ -3267,6 +3314,27 @@ async function configureProxyFromEnv(): Promise<void> {
   await session.defaultSession.setProxy({ proxyRules: proxy, proxyBypassRules })
 }
 
+function applyLinuxPlaintextStorageOptIn(): void {
+  if (process.platform !== 'linux' || safeStorage.isEncryptionAvailable()) return
+  if (settings.allowPlaintextSecretStorage) {
+    safeStorage.setUsePlainTextEncryption(true)
+    appLogger.warn(
+      `No usable OS keyring (backend=${safeStorage.getSelectedStorageBackend()}); ` +
+        `re-enabling plaintext-backed safeStorage from a previous LAN chat opt-in — ` +
+        `stored secrets are obfuscated, not encrypted.`,
+      'electron-backend',
+      true,
+    )
+    return
+  }
+  appLogger.warn(
+    `No usable OS keyring (backend=${safeStorage.getSelectedStorageBackend()}); ` +
+      `secret storage stays disabled until the user opts in while setting a LAN chat password.`,
+    'electron-backend',
+    true,
+  )
+}
+
 app.whenReady().then(async () => {
   // Startup diagnostic — helps diagnose installation and configuration issues
   appLogger.info(
@@ -3274,27 +3342,6 @@ app.whenReady().then(async () => {
     'electron-backend',
     true,
   )
-
-  // safeStorage (used for channel/API-key secrets) backs onto a Linux OS keyring
-  // (gnome-libsecret/kwallet) that headless or minimal desktops don't run —
-  // encryptString() then throws and anything persisting a secret breaks (Home
-  // Agent channel setup, cloud provider API keys). Only when no keyring is
-  // usable do we opt into the plaintext-backed BASIC_TEXT backend, which
-  // obfuscates rather than encrypts; where a real keyring exists it keeps being
-  // used. isEncryptionAvailable() is meaningful only after 'ready' on Linux, so
-  // this runs here — before any encryptString/decryptString call.
-  if (process.platform === 'linux' && !safeStorage.isEncryptionAvailable()) {
-    safeStorage.setUsePlainTextEncryption(true)
-    const available = safeStorage.isEncryptionAvailable()
-    appLogger.warn(
-      `No usable OS keyring (backend=${safeStorage.getSelectedStorageBackend()}); ` +
-        `fell back to plaintext-backed safeStorage — stored secrets are obfuscated, not encrypted. ` +
-        `Encryption available now: ${available}. ` +
-        `To get real encryption, install and run a keyring daemon`,
-      'electron-backend',
-      true,
-    )
-  }
 
   /**Single instance processing */
   if (!singleInstanceLock) {
@@ -3312,7 +3359,8 @@ app.whenReady().then(async () => {
     // (webContents doesn't exist yet), so a hang before the window appears
     // pinpoints the exact stage instead of leaving no trace.
     appLogger.info('startup step: loading settings', 'electron-backend', true)
-    const settings = await loadSettings()
+    await loadSettings()
+    applyLinuxPlaintextStorageOptIn()
 
     // Honor *_proxy env vars for all backend downloads (net.fetch) before any
     // service setup kicks off.

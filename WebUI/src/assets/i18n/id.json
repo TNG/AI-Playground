@@ -541,5 +541,6 @@
   "ARCADE_MANAGE_CREATED": "Dibuat {date}",
   "ARCADE_MANAGE_SHOW_GAME": "Tampilkan {game} di {arcade}",
   "ARCADE_MANAGE_DONE": "Selesai",
-  "ARCADE_MANAGE_FAILED": "Tidak dapat memperbarui {arcade}."
+  "ARCADE_MANAGE_FAILED": "Tidak dapat memperbarui {arcade}.",
+  "HOME_AGENT_LAN_INSECURE_STORAGE": "Tidak ada keyring OS yang tersedia. Kata sandi LAN chat akan **diobfuskasi di disk**, bukan dienkripsi.\n\nPasang dan jalankan daemon keyring (GNOME Keyring atau KWallet) untuk penyimpanan terenkripsi.\n\nLanjutkan hanya jika Anda menerima bahwa kata sandi ini tidak dilindungi."
 }

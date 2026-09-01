@@ -541,5 +541,6 @@
   "ARCADE_MANAGE_CREATED": "Erstellt am {date}",
   "ARCADE_MANAGE_SHOW_GAME": "{game} in {arcade} anzeigen",
   "ARCADE_MANAGE_DONE": "Fertig",
-  "ARCADE_MANAGE_FAILED": "{arcade} konnte nicht aktualisiert werden."
+  "ARCADE_MANAGE_FAILED": "{arcade} konnte nicht aktualisiert werden.",
+  "HOME_AGENT_LAN_INSECURE_STORAGE": "Es ist kein Betriebssystem-Schlüsselbund verfügbar. Das LAN chat-Passwort würde **auf dem Datenträger nur verschleiert**, nicht verschlüsselt.\n\nInstallieren und starten Sie einen Schlüsselbund-Dienst (GNOME Keyring oder KWallet) für verschlüsselte Speicherung.\n\nFahren Sie nur fort, wenn Sie akzeptieren, dass dieses Passwort nicht geschützt ist."
 }

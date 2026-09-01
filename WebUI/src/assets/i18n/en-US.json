@@ -541,5 +541,6 @@
   "ARCADE_MANAGE_CREATED": "Created {date}",
   "ARCADE_MANAGE_SHOW_GAME": "Show {game} in {arcade}",
   "ARCADE_MANAGE_DONE": "Done",
-  "ARCADE_MANAGE_FAILED": "Could not update {arcade}."
+  "ARCADE_MANAGE_FAILED": "Could not update {arcade}.",
+  "HOME_AGENT_LAN_INSECURE_STORAGE": "No OS keyring is available. The LAN chat password would be **obfuscated on disk**, not encrypted.\n\nInstall and run a keyring daemon (GNOME Keyring or KWallet) for encrypted storage.\n\nContinue only if you accept that this password is not protected."
 }

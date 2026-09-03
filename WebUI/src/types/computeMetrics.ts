@@ -8,6 +8,12 @@ export type GpuSample = {
   utilPct?: number
   memUsedMiB?: number
   memTotalMiB?: number
+  /** VidMm dedicated (DXGI capacity + PDH usage). Discrete cards use this as vRAM. */
+  dedicatedUsedMiB?: number
+  dedicatedTotalMiB?: number
+  /** VidMm shared / system-stolen. Dominant on Intel iGPU. */
+  sharedUsedMiB?: number
+  sharedTotalMiB?: number
   freqMHz?: number
   powerW?: number
 }
@@ -15,7 +21,7 @@ export type GpuSample = {
 export type ComputeSnapshot = {
   ts: number
   /** How the GPU rows were filled. Host RAM is always present. */
-  source: 'nvidia-smi' | 'xpu-smi' | 'host' | 'mixed'
+  source: 'nvidia-smi' | 'xpu-smi' | 'wddm' | 'host' | 'mixed'
   host: { memUsedMiB: number; memTotalMiB: number }
   gpus: GpuSample[]
 }
@@ -36,6 +42,7 @@ export type ProbeReport = {
     lastOkAt?: number
   }
   nvidia: { bin: string; lastError?: string; lastOkAt?: number }
+  wddm?: { adapters: string[]; lastError?: string; lastOkAt?: number }
 }
 
 /** Peaks and last values over a time window, for a trace or a chat turn. */

@@ -10,7 +10,9 @@ import type {
   ProbeReport,
   XpuDialect,
 } from '@/types/computeMetrics.ts'
+import { overlaySmiOntoWddm } from '@/lib/wddmGpuMetrics.ts'
 import { pickPrimaryGpu, summarizeWindow } from '@/lib/computeMetricsWindow.ts'
+import { collectWddmGpus, resetWddmMetricsForTests, wddmLastError } from './windowsWddmMetrics.ts'
 
 export type { ComputeSnapshot, ComputeWindowStats, GpuSample, GpuVendor, ProbeReport, XpuDialect }
 export { pickPrimaryGpu, summarizeWindow }
@@ -36,6 +38,7 @@ export type ComputeMetricsOptions = {
   runCommand?: CommandRunner
   xpuSmiPath?: string | null
   now?: () => number
+  collectWddm?: () => GpuSample[] | Promise<GpuSample[]>
 }
 
 const NVIDIA_QUERY =
@@ -86,6 +89,7 @@ export function resetComputeMetricsForTests(): void {
   options = {}
   report = freshReport()
   loggedFailures.clear()
+  resetWddmMetricsForTests()
 }
 
 export function recordComputeSnapshotForTests(snapshot: ComputeSnapshot): void {
@@ -331,6 +335,7 @@ function freshReport(): ProbeReport {
     platform: process.platform,
     intel: { bin: null, devices: [] },
     nvidia: { bin: nvidiaBin() },
+    wddm: { adapters: [] },
   }
 }
 
@@ -593,20 +598,48 @@ function mergeGpus(nvidia: GpuSample[], intel: GpuSample[]): GpuSample[] {
   return [...nvidia, ...intel]
 }
 
-function sourceOf(nvidia: GpuSample[], intel: GpuSample[]): ComputeSnapshot['source'] {
+function sourceOf(
+  nvidia: GpuSample[],
+  intel: GpuSample[],
+  wddm: GpuSample[],
+): ComputeSnapshot['source'] {
+  const smi = nvidia.length + intel.length
+  if (wddm.length > 0 && smi > 0) return 'mixed'
+  if (wddm.length > 0) return 'wddm'
   if (nvidia.length > 0 && intel.length > 0) return 'mixed'
   if (nvidia.length > 0) return 'nvidia-smi'
   if (intel.length > 0) return 'xpu-smi'
   return 'host'
 }
 
+async function wddmGpus(): Promise<GpuSample[]> {
+  const collect = options.collectWddm ?? collectWddmGpus
+  try {
+    const gpus = await collect()
+    if (gpus.length > 0 && report.wddm) {
+      report.wddm.adapters = gpus.map((gpu) => gpu.name)
+      report.wddm.lastOkAt = nowMs()
+      delete report.wddm.lastError
+    } else if (report.wddm) {
+      const err = wddmLastError()
+      if (err) report.wddm.lastError = err
+    }
+    return gpus
+  } catch (error) {
+    if (report.wddm) report.wddm.lastError = String(error)
+    return []
+  }
+}
+
 export async function collectComputeSnapshot(): Promise<ComputeSnapshot> {
-  const [nvidia, intel] = await Promise.all([nvidiaGpus(), intelGpus()])
+  const [nvidia, intel, wddm] = await Promise.all([nvidiaGpus(), intelGpus(), wddmGpus()])
+  const smi = mergeGpus(nvidia, intel)
+  const gpus = overlaySmiOntoWddm(wddm, smi)
   const snapshot: ComputeSnapshot = {
     ts: nowMs(),
-    source: sourceOf(nvidia, intel),
+    source: sourceOf(nvidia, intel, wddm),
     host: hostMemorySnapshot(),
-    gpus: mergeGpus(nvidia, intel),
+    gpus,
   }
   return snapshot
 }
@@ -632,6 +665,7 @@ export function startComputeMetricsSampler(next: ComputeMetricsOptions = {}): vo
   // indistinguishable from a probe that was never attempted.
   logger.info(
     `sampling every ${next.intervalMs ?? DEFAULT_INTERVAL_MS}ms on ${process.platform}; ` +
+      `wddm: ${process.platform === 'win32' ? 'DXGI+PDH' : 'n/a'}; ` +
       `intel probe: ${xpuBin() ?? 'unavailable (no xpu-smi)'}; nvidia probe: ${nvidiaBin()}`,
     LOG_SOURCE,
     true,

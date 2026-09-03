@@ -119,6 +119,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadModels: () => ipcRenderer.invoke('loadModels'),
   getLaminarConfig: () => ipcRenderer.invoke('getLaminarConfig'),
   getComputeMetrics: () => ipcRenderer.invoke('getComputeMetrics'),
+  getComputeMetricsDiagnostics: () => ipcRenderer.invoke('getComputeMetricsDiagnostics'),
   onComputeMetricsUpdate: (
     callback: (snapshot: import('@/types/computeMetrics').ComputeSnapshot) => void,
   ) => listen('computeMetricsUpdate', callback),

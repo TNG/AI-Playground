@@ -375,6 +375,8 @@ type electronAPI = {
    */
   getLaminarConfig(): Promise<LaminarConfig | null>
   getComputeMetrics(): Promise<import('./types/computeMetrics').ComputeSnapshot | null>
+  /** Which GPU probes resolved, and why the last one failed. See docs/compute-resource-metrics.md. */
+  getComputeMetricsDiagnostics(): Promise<import('./types/computeMetrics').ProbeReport>
   onComputeMetricsUpdate(
     callback: (snapshot: import('./types/computeMetrics').ComputeSnapshot) => void,
   ): () => void

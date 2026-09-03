@@ -154,6 +154,7 @@ import {
 } from './laminar.ts'
 import {
   collectComputeSnapshot,
+  computeMetricsProbeReport,
   latestComputeSnapshot,
   setComputeMetricsSink,
   startComputeMetricsSampler,
@@ -1674,6 +1675,8 @@ function initEventHandle() {
   ipcMain.handle('getComputeMetrics', async () => {
     return latestComputeSnapshot() ?? collectComputeSnapshot()
   })
+
+  ipcMain.handle('getComputeMetricsDiagnostics', () => computeMetricsProbeReport())
   ipcMain.on('laminarTelemetryEvent', (_event, name: string, payload: string) => {
     void handleChatTelemetryEvent(name, payload)
   })

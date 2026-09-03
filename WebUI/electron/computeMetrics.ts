@@ -1,15 +1,17 @@
 import os from 'node:os'
-import { spawnProcessAsync } from './subprocesses/osProcessHelper.ts'
+import path from 'node:path'
+import { spawnProcessAsync, type ProcessResult } from './subprocesses/osProcessHelper.ts'
 import { appLoggerInstance } from './logging/logger.ts'
 import type {
   ComputeSnapshot,
   ComputeWindowStats,
   GpuSample,
   GpuVendor,
+  ProbeReport,
 } from '@/types/computeMetrics.ts'
 import { pickPrimaryGpu, summarizeWindow } from '@/lib/computeMetricsWindow.ts'
 
-export type { ComputeSnapshot, ComputeWindowStats, GpuSample, GpuVendor }
+export type { ComputeSnapshot, ComputeWindowStats, GpuSample, GpuVendor, ProbeReport }
 export { pickPrimaryGpu, summarizeWindow }
 
 const LOG_SOURCE = 'compute-metrics'
@@ -21,7 +23,12 @@ const NVIDIA_TIMEOUT_MS = 2500
 const XPU_DUMP_TIMEOUT_MS = 8000
 const DISCOVERY_TIMEOUT_MS = 5000
 
-export type CommandRunner = (command: string, args: string[], timeoutMs: number) => Promise<string>
+export type CommandRunner = (
+  command: string,
+  args: string[],
+  timeoutMs: number,
+  spawnOptions?: { cwd?: string; env?: Record<string, string> },
+) => Promise<string>
 
 export type ComputeMetricsOptions = {
   intervalMs?: number
@@ -33,6 +40,9 @@ export type ComputeMetricsOptions = {
 const NVIDIA_QUERY =
   'index,name,uuid,utilization.gpu,memory.used,memory.total,power.draw,clocks.current.graphics'
 
+/** GPU util, power, frequency, memory utilization, memory used. */
+const XPU_DUMP_METRICS = '0,1,2,5,18'
+
 type IntelCatalogEntry = { name: string; memTotalMiB?: number }
 
 let samples: ComputeSnapshot[] = []
@@ -43,8 +53,8 @@ let options: ComputeMetricsOptions = {}
 let intelCatalog: Map<string, IntelCatalogEntry> | null = null
 let intelCatalogAttempted = false
 
-const defaultRunner: CommandRunner = (command, args, timeoutMs) =>
-  spawnProcessAsync(command, args, () => {}, undefined, undefined, timeoutMs)
+const defaultRunner: CommandRunner = (command, args, timeoutMs, spawnOptions) =>
+  spawnProcessAsync(command, args, () => {}, spawnOptions?.env, spawnOptions?.cwd, timeoutMs)
 
 function runner(): CommandRunner {
   return options.runCommand ?? defaultRunner
@@ -69,6 +79,8 @@ export function resetComputeMetricsForTests(): void {
   intelCatalogAttempted = false
   sink = null
   options = {}
+  report = freshReport()
+  loggedFailures.clear()
 }
 
 export function recordComputeSnapshotForTests(snapshot: ComputeSnapshot): void {
@@ -168,6 +180,47 @@ export function parseXpuSmiDiscoveryCsv(output: string): Map<string, IntelCatalo
   return catalog
 }
 
+/** `xpu-smi discovery -j` (the Windows CLI's only listing form) → id → name. */
+export function parseXpuSmiDiscoveryJson(output: string): Map<string, string> {
+  const catalog = new Map<string, string>()
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(output)
+  } catch {
+    return catalog
+  }
+  const list = (parsed as { device_list?: unknown })?.device_list
+  if (!Array.isArray(list)) return catalog
+  for (const entry of list) {
+    const device = entry as { device_id?: unknown; device_name?: unknown }
+    if (device.device_id === undefined || device.device_id === null) continue
+    const id = String(device.device_id)
+    catalog.set(id, typeof device.device_name === 'string' ? device.device_name : `Intel GPU ${id}`)
+  }
+  return catalog
+}
+
+/**
+ * Board memory out of `xpu-smi discovery -d <id> -j`. The key has been spelled
+ * both in bytes and in MiB across versions, so it is matched rather than named.
+ */
+export function parseXpuSmiMemoryTotalMiB(output: string): number | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(output)
+  } catch {
+    return undefined
+  }
+  if (typeof parsed !== 'object' || parsed === null) return undefined
+  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!/memory_physical_size/i.test(key)) continue
+    const raw = parseOptionalNumber(typeof value === 'number' ? String(value) : String(value ?? ''))
+    if (raw === undefined) return undefined
+    return /byte/i.test(key) ? raw / (1024 * 1024) : raw
+  }
+  return undefined
+}
+
 /**
  * One or more `xpu-smi dump` CSV rows. Header names vary slightly by version;
  * columns are matched by name, not position, except DeviceId.
@@ -224,11 +277,50 @@ export function computeWindowSince(sinceMs: number, hint?: string): ComputeWindo
   )
 }
 
-async function tryRun(command: string, args: string[], timeoutMs: number): Promise<string | null> {
+let report: ProbeReport = freshReport()
+
+function freshReport(): ProbeReport {
+  return {
+    platform: process.platform,
+    intel: { bin: null, devices: [] },
+    nvidia: { bin: nvidiaBin() },
+  }
+}
+
+export function computeMetricsProbeReport(): ProbeReport {
+  return report
+}
+
+/**
+ * Failures are expected (no NVIDIA card, no XPU Manager) and are polled every
+ * couple of seconds, so the same failure is logged once rather than forever.
+ */
+const loggedFailures = new Set<string>()
+
+function describeFailure(error: unknown): string {
+  const result = (error as { result?: ProcessResult })?.result
+  if (!result) return String(error)
+  const detail = (result.stderr || result.stdout || '').trim().split('\n').slice(0, 3).join(' | ')
+  return `exit ${result.exitCode}${detail ? `: ${detail}` : ''}`
+}
+
+async function tryRun(
+  command: string,
+  args: string[],
+  timeoutMs: number,
+  spawnOptions?: { cwd?: string; env?: Record<string, string> },
+): Promise<{ out: string } | { error: string }> {
   try {
-    return await runner()(command, args, timeoutMs)
-  } catch {
-    return null
+    const out = await runner()(command, args, timeoutMs, spawnOptions)
+    return { out }
+  } catch (error) {
+    const described = describeFailure(error)
+    const key = `${command} ${args.join(' ')} → ${described}`
+    if (!loggedFailures.has(key)) {
+      loggedFailures.add(key)
+      logger.warn(`probe failed: ${command} ${args.join(' ')} — ${described}`, LOG_SOURCE)
+    }
+    return { error: described }
   }
 }
 
@@ -236,40 +328,123 @@ function nvidiaBin(): string {
   return process.platform === 'win32' ? 'nvidia-smi.exe' : 'nvidia-smi'
 }
 
+/**
+ * The bundled exe on Windows (resolved by the caller), or whatever XPU Manager
+ * put on PATH elsewhere. Windows has no `xpu-smi` on PATH, so without the
+ * bundled binary there is no Intel probe at all.
+ */
 function xpuBin(): string | null {
   if (options.xpuSmiPath) return options.xpuSmiPath
-  if (process.platform === 'linux') return 'xpu-smi'
-  return null
+  if (process.platform === 'win32') return null
+  return 'xpu-smi'
+}
+
+/** Same environment and working directory the (known-working) discovery probe uses. */
+function xpuSpawnOptions(bin: string): { cwd?: string; env: Record<string, string> } {
+  return {
+    ...(path.isAbsolute(bin) ? { cwd: path.dirname(bin) } : {}),
+    env: { ONEAPI_DEVICE_SELECTOR: '*' },
+  }
 }
 
 async function nvidiaGpus(): Promise<GpuSample[]> {
-  const out = await tryRun(
+  const result = await tryRun(
     nvidiaBin(),
     [`--query-gpu=${NVIDIA_QUERY}`, '--format=csv,noheader,nounits'],
     NVIDIA_TIMEOUT_MS,
   )
-  return out ? parseNvidiaSmiCsv(out) : []
+  if ('error' in result) {
+    report.nvidia.lastError = result.error
+    return []
+  }
+  report.nvidia.lastOkAt = nowMs()
+  delete report.nvidia.lastError
+  return parseNvidiaSmiCsv(result.out)
 }
 
+/**
+ * Windows and Linux ship different CLIs under the same name: the Windows build
+ * has no `discovery --dump`, so the catalog is read from `discovery -j` there
+ * and per-device detail is a second call.
+ */
 async function ensureIntelCatalog(bin: string): Promise<Map<string, IntelCatalogEntry>> {
   if (intelCatalog) return intelCatalog
-  if (intelCatalogAttempted) return intelCatalog ?? new Map()
+  if (intelCatalogAttempted) return new Map()
   intelCatalogAttempted = true
-  const out = await tryRun(bin, ['discovery', '--dump', '1,2,16'], DISCOVERY_TIMEOUT_MS)
-  intelCatalog = out ? parseXpuSmiDiscoveryCsv(out) : new Map()
-  return intelCatalog
+  const spawnOptions = xpuSpawnOptions(bin)
+  const catalog = new Map<string, IntelCatalogEntry>()
+
+  if (process.platform === 'win32') {
+    const listed = await tryRun(bin, ['discovery', '-j'], DISCOVERY_TIMEOUT_MS, spawnOptions)
+    if ('error' in listed) {
+      report.intel.lastError = listed.error
+      return catalog
+    }
+    for (const [id, name] of parseXpuSmiDiscoveryJson(listed.out)) {
+      const detail = await tryRun(
+        bin,
+        ['discovery', '-d', id, '-j'],
+        DISCOVERY_TIMEOUT_MS,
+        spawnOptions,
+      )
+      catalog.set(id, {
+        name,
+        memTotalMiB: 'out' in detail ? parseXpuSmiMemoryTotalMiB(detail.out) : undefined,
+      })
+    }
+  } else {
+    const dumped = await tryRun(
+      bin,
+      ['discovery', '--dump', '1,2,16'],
+      DISCOVERY_TIMEOUT_MS,
+      spawnOptions,
+    )
+    if ('error' in dumped) {
+      report.intel.lastError = dumped.error
+      return catalog
+    }
+    for (const [id, entry] of parseXpuSmiDiscoveryCsv(dumped.out)) catalog.set(id, entry)
+  }
+
+  intelCatalog = catalog
+  report.intel.devices = [...catalog.keys()]
+  logger.info(
+    `xpu-smi discovered ${catalog.size} device(s): ${
+      [...catalog.entries()].map(([id, e]) => `${id}=${e.name}`).join(', ') || 'none'
+    }`,
+    LOG_SOURCE,
+  )
+  return catalog
 }
 
 async function intelGpus(): Promise<GpuSample[]> {
   const bin = xpuBin()
+  report.intel.bin = bin
   if (!bin) return []
   const catalog = await ensureIntelCatalog(bin)
-  const out = await tryRun(
-    bin,
-    ['dump', '-d', '-1', '-m', '0,1,2,5,18', '-n', '1', '-i', '1'],
-    XPU_DUMP_TIMEOUT_MS,
-  )
-  return out ? parseXpuSmiDumpCsv(out, catalog) : []
+  // `dump` takes one device id: `-d -1` is the Linux `xpumcli` spelling and is
+  // rejected by the Windows CLI, so every device is dumped by its own id.
+  const ids = catalog.size > 0 ? [...catalog.keys()] : ['0']
+  const spawnOptions = xpuSpawnOptions(bin)
+  const gpus: GpuSample[] = []
+  for (const id of ids) {
+    const result = await tryRun(
+      bin,
+      ['dump', '-d', id, '-m', XPU_DUMP_METRICS, '-n', '1'],
+      XPU_DUMP_TIMEOUT_MS,
+      spawnOptions,
+    )
+    if ('error' in result) {
+      report.intel.lastError = result.error
+      continue
+    }
+    gpus.push(...parseXpuSmiDumpCsv(result.out, catalog))
+  }
+  if (gpus.length > 0) {
+    report.intel.lastOkAt = nowMs()
+    delete report.intel.lastError
+  }
+  return gpus
 }
 
 function mergeGpus(nvidia: GpuSample[], intel: GpuSample[]): GpuSample[] {
@@ -313,6 +488,14 @@ async function tick(): Promise<void> {
 export function startComputeMetricsSampler(next: ComputeMetricsOptions = {}): void {
   options = next
   if (timer) return
+  // Forced to the log file: without it, "no GPU numbers" on a user's machine is
+  // indistinguishable from a probe that was never attempted.
+  logger.info(
+    `sampling every ${next.intervalMs ?? DEFAULT_INTERVAL_MS}ms on ${process.platform}; ` +
+      `intel probe: ${xpuBin() ?? 'unavailable (no xpu-smi)'}; nvidia probe: ${nvidiaBin()}`,
+    LOG_SOURCE,
+    true,
+  )
   void tick()
   timer = setInterval(() => void tick(), next.intervalMs ?? DEFAULT_INTERVAL_MS)
   timer.unref?.()

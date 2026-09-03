@@ -20,6 +20,13 @@ export type ComputeSnapshot = {
   gpus: GpuSample[]
 }
 
+/** What each probe last did, so a missing GPU row can be explained rather than guessed at. */
+export type ProbeReport = {
+  platform: string
+  intel: { bin: string | null; devices: string[]; lastError?: string; lastOkAt?: number }
+  nvidia: { bin: string; lastError?: string; lastOkAt?: number }
+}
+
 /** Peaks and last values over a time window, for a trace or a chat turn. */
 export type ComputeWindowStats = {
   sampleCount: number

@@ -41,10 +41,24 @@ const NvidiaSmiLineSchema = z.object({
   uuid: z.string().optional(),
 })
 
+/**
+ * electron-builder installs xpu-smi under `device-service/` (build-config.json)
+ * while the fetch script leaves it at the root of `build/resources` in dev, so
+ * both have to be tried — checking only the dev path meant a packaged build
+ * never found it and silently fell back to the PowerShell probe.
+ */
 export function getXpuSmiExePath(): string | null {
-  const exePath = path.join(buildResources, 'xpu-smi.exe')
-  appLogger.info('Checking for xpu-smi.exe at path: ' + exePath, 'electron-backend')
-  if (fs.existsSync(exePath)) return exePath
+  const candidates = [
+    path.join(buildResources, 'device-service', 'xpu-smi.exe'),
+    path.join(buildResources, 'xpu-smi.exe'),
+  ]
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      appLogger.info(`Found xpu-smi.exe at ${candidate}`, 'electron-backend')
+      return candidate
+    }
+  }
+  appLogger.info(`xpu-smi.exe not found; tried ${candidates.join(', ')}`, 'electron-backend')
   return null
 }
 

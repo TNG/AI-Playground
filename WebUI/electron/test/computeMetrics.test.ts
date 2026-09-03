@@ -10,11 +10,15 @@ vi.mock('electron', () => ({
 
 import {
   computeAttributes,
+  computeMetricsProbeReport,
   computeWindowSince,
+  latestComputeSnapshot,
   parseNvidiaSmiCsv,
   parseOptionalNumber,
   parseXpuSmiDiscoveryCsv,
+  parseXpuSmiDiscoveryJson,
   parseXpuSmiDumpCsv,
+  parseXpuSmiMemoryTotalMiB,
   pickPrimaryGpu,
   recordComputeSnapshotForTests,
   resetComputeMetricsForTests,
@@ -171,7 +175,10 @@ describe('computeAttributes', () => {
 })
 
 describe('sampler', () => {
-  afterEach(() => resetComputeMetricsForTests())
+  afterEach(() => {
+    vi.restoreAllMocks()
+    resetComputeMetricsForTests()
+  })
 
   it('records host RAM even when GPU probes fail', async () => {
     const snapshots: ComputeSnapshot[] = []
@@ -204,6 +211,126 @@ describe('sampler', () => {
     })
     expect(computeWindowSince(1500).hostMemPeakMiB).toBe(5)
     expect(computeWindowSince(1500).sampleCount).toBe(1)
+  })
+})
+
+// The Windows CLI is a different program from Linux `xpumcli` under the same
+// name: no `discovery --dump`, and `dump` takes one device id (`-d -1` is
+// rejected). Both spellings shipped Linux-only at first, so no Windows machine
+// ever produced a GPU row.
+describe('intel probe commands', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    resetComputeMetricsForTests()
+  })
+
+  const DISCOVERY_JSON = JSON.stringify({
+    device_list: [
+      { device_id: 0, device_name: 'Intel(R) Arc(TM) B580 Graphics', device_type: 'GPU' },
+    ],
+  })
+  const DETAIL_JSON = JSON.stringify({ memory_physical_size_byte: 16 * 1024 * 1024 * 1024 })
+  const DUMP_CSV = [
+    'Timestamp, DeviceId, GPU Utilization (%), GPU Power (W), GPU Frequency (MHz), GPU Memory Utilization (%), GPU Memory Used (MiB)',
+    '15:44:36.481, 0, 64.0, 40.0, 2400, 50.0, 8192.0',
+  ].join('\n')
+
+  function windowsRunner(calls: string[][]) {
+    return async (command: string, args: string[]) => {
+      calls.push([command, ...args])
+      if (args[0] === 'discovery' && args.includes('-d')) return DETAIL_JSON
+      if (args[0] === 'discovery') return DISCOVERY_JSON
+      if (args[0] === 'dump') {
+        if (args.includes('-1')) throw new Error('Error: invalid device id')
+        return DUMP_CSV
+      }
+      throw new Error(`unexpected: ${command} ${args.join(' ')}`)
+    }
+  }
+
+  it('uses discovery -j and a per-device dump on Windows', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    const calls: string[][] = []
+    startComputeMetricsSampler({
+      intervalMs: 60_000,
+      xpuSmiPath: 'C:\\app\\resources\\device-service\\xpu-smi.exe',
+      runCommand: windowsRunner(calls),
+    })
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    stopComputeMetricsSampler()
+
+    const xpuCalls = calls.filter((c) => c[0].endsWith('xpu-smi.exe'))
+    expect(xpuCalls.some((c) => c[1] === 'discovery' && c[2] === '-j')).toBe(true)
+    expect(xpuCalls.some((c) => c.includes('--dump'))).toBe(false)
+    const dump = xpuCalls.find((c) => c[1] === 'dump')
+    expect(dump).toBeDefined()
+    expect(dump).not.toContain('-1')
+    expect(dump?.slice(1)).toEqual(['dump', '-d', '0', '-m', '0,1,2,5,18', '-n', '1'])
+
+    const snapshot = latestComputeSnapshot()
+    expect(snapshot?.source).toBe('xpu-smi')
+    expect(snapshot?.gpus[0]).toMatchObject({
+      name: 'Intel(R) Arc(TM) B580 Graphics',
+      utilPct: 64,
+      memUsedMiB: 8192,
+      memTotalMiB: 16384,
+    })
+  })
+
+  it('has no Intel probe on Windows without the bundled exe, and says so', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    const calls: string[][] = []
+    startComputeMetricsSampler({
+      intervalMs: 60_000,
+      xpuSmiPath: null,
+      runCommand: windowsRunner(calls),
+    })
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    stopComputeMetricsSampler()
+
+    expect(calls.some((c) => c[0].includes('xpu-smi'))).toBe(false)
+    expect(computeMetricsProbeReport().intel.bin).toBeNull()
+  })
+
+  it('records why a probe failed', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    startComputeMetricsSampler({
+      intervalMs: 60_000,
+      xpuSmiPath: 'C:\\xpu-smi.exe',
+      runCommand: async () => {
+        throw new Error('spawn ENOENT')
+      },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    stopComputeMetricsSampler()
+    expect(computeMetricsProbeReport().intel.lastError).toContain('ENOENT')
+  })
+})
+
+describe('parseXpuSmiDiscoveryJson', () => {
+  it('reads the Windows device list', () => {
+    const catalog = parseXpuSmiDiscoveryJson(
+      JSON.stringify({ device_list: [{ device_id: 1, device_name: 'Intel Arc A770' }] }),
+    )
+    expect(catalog.get('1')).toBe('Intel Arc A770')
+  })
+
+  it('survives non-JSON output', () => {
+    expect(parseXpuSmiDiscoveryJson('not json').size).toBe(0)
+  })
+})
+
+describe('parseXpuSmiMemoryTotalMiB', () => {
+  it('converts a byte-spelled key', () => {
+    expect(
+      parseXpuSmiMemoryTotalMiB(JSON.stringify({ memory_physical_size_byte: 1073741824 })),
+    ).toBe(1024)
+  })
+
+  it('takes a MiB-spelled key as-is', () => {
+    expect(parseXpuSmiMemoryTotalMiB(JSON.stringify({ memory_physical_size: '14336.00' }))).toBe(
+      14336,
+    )
   })
 })
 

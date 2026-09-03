@@ -24,12 +24,12 @@ host-RAM-only snapshot.
 
 ## Sources
 
-| Vendor / OS    | Probe                                                                                                   | Notes                                                                                   |
-| -------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| Host (all)     | `os.totalmem` / `os.freemem`                                                                            | Always present. On Intel iGPU, "vRAM" is stolen from this pool.                         |
-| NVIDIA         | `nvidia-smi --query-gpu=… --format=csv,noheader,nounits`                                                | Same binary already used for discovery. Instant.                                        |
-| Intel, Windows | bundled `xpu-smi.exe`: `discovery -j`, `discovery -d <id> -j`, then `dump -d <id> -m 0,1,2,5,18 -n 1`   | Windows has no `xpu-smi` on `PATH`; without the bundled binary there is no Intel probe. |
-| Intel, Linux   | `xpu-smi` on `PATH` if the user installed XPU Manager: `discovery --dump 1,2,16`, then `dump -d <id> …` | Not bundled today (Linux discovery still uses `lspci`). Without it, GPU rows are empty. |
+| Vendor / OS    | Probe                                                                                       | Notes                                                                                   |
+| -------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Host (all)     | `os.totalmem` / `os.freemem`                                                                | Always present. On Intel iGPU, "vRAM" is stolen from this pool.                         |
+| NVIDIA         | `nvidia-smi --query-gpu=… --format=csv,noheader,nounits`                                    | Same binary already used for discovery. Instant.                                        |
+| Intel, Windows | bundled `xpu-smi.exe`; device list from `discovery -j`, sampling command by dialect (below) | Windows has no `xpu-smi` on `PATH`; without the bundled binary there is no Intel probe. |
+| Intel, Linux   | `xpu-smi` on `PATH` if the user installed XPU Manager; same detection                       | Not bundled today (Linux discovery still uses `lspci`). Without it, GPU rows are empty. |
 
 NPU has no util/memory probe here. Cloud turns still record **host** RAM but
 omit GPU attributes — the serving GPU is not this machine.
@@ -37,16 +37,34 @@ omit GPU attributes — the serving GPU is not this machine.
 Metric IDs for `xpu-smi dump`: `0` GPU Utilization (%), `1` GPU Power (W),
 `2` GPU Frequency (MHz), `5` GPU Memory Utilization (%), `18` GPU Memory Used (MiB).
 
-### Two things the Windows CLI does not share with Linux
+### `xpu-smi` is not one CLI — detect the dialect, never assume it
 
-`xpu-smi.exe` and Linux `xpumcli` are different programs behind the same metric
-IDs, and using the Linux spellings meant no Windows machine ever produced a GPU
-row:
+Three incompatible command surfaces ship under this name, and neither the
+platform nor the version string tells them apart. Every attempt to assume one
+produced a machine with no GPU rows, so the probe reads `--help` once and routes
+on what it finds (`detectXpuDialect`):
 
-- **`dump` takes one device id.** `-d -1` ("all devices") is Linux-only and the
-  Windows CLI rejects it, so each device is dumped by its own id.
-- **There is no `discovery --dump`.** The Windows listing form is `discovery -j`,
-  and board memory needs a second `discovery -d <id> -j` per device.
+| Dialect     | Detected by                             | Sampling command                                     |
+| ----------- | --------------------------------------- | ---------------------------------------------------- |
+| `query-gpu` | `--query-gpu` appears in `--help`       | `--query-gpu=<fields> --format=csv,noheader,nounits` |
+| `dump`      | anything else (the CLI Intel documents) | `dump -d <id> -m 0,1,2,5,18 -n 1`, per device        |
+
+What each of the three got wrong when assumed:
+
+- **Linux `xpumcli`** accepts `dump -d -1` ("all devices") and `discovery --dump`.
+  Both are Linux-only spellings; the Windows CLI rejects them.
+- **The documented Windows CLI** takes `dump -d <id> -m …`, one device at a time,
+  and lists devices with `discovery -j` (board memory needs `discovery -d <id> -j`).
+- **xpu-smi v2.0 on Arc B-series** — the build this repo pins — is
+  nvidia-smi-shaped: `--query-gpu`, `--format=csv`, `--id`, `--list-gpus`. Its
+  `dump` exists but rejects `-m`/`-n`
+  (`The following arguments were not expected: -m 0,1,2,5,18 -n 1`).
+
+Because a build rejects the _whole_ query if one field is unknown, the
+`query-gpu` path walks a ladder of field sets (richest first, down to
+`memory.used`) and remembers the one that worked. `--query-gpu` field names are
+nvidia-smi's, so one parser (`parseQueryGpuCsv`, driven by the requested field
+list rather than column position) serves both vendors.
 
 The binary also lives in two places: electron-builder installs it to
 `<resources>/device-service/xpu-smi.exe` (`build-config.json`) while the fetch
@@ -62,13 +80,21 @@ dev: `WebUI/external/`).
 
 - At startup, forced to the log file:
   `[compute-metrics]: sampling every 2000ms on win32; intel probe: <path or "unavailable (no xpu-smi)">; nvidia probe: nvidia-smi.exe`
+- The detected dialect: `xpu-smi dialect: query-gpu`
 - After discovery: `xpu-smi discovered N device(s): 0=Intel(R) Arc(TM) B580 Graphics`
+- The sampling command that worked:
+  `xpu-smi sampling with --query-gpu=index,name,utilization.gpu,memory.used,memory.total`
 - On failure, once per distinct failure (the poll runs every 2s, so repeats are
   suppressed): `probe failed: <command> <args> — exit <code>: <stderr>`
 
 `window.electronAPI.getComputeMetricsDiagnostics()` in DevTools returns the same
-thing as data: which binary each probe resolved to, the device ids discovery
-returned, the last error per vendor, and when each last succeeded.
+thing as data: which binary each probe resolved to, the dialect and sampling
+command it settled on, the device ids discovery returned, the last error per
+vendor, and when each last succeeded.
+
+If a build turns out to speak a fourth dialect, that pair of log lines (dialect,
+then the failing command with its stderr) is what identifies it — start there
+rather than reading the code.
 
 ## Sampling
 

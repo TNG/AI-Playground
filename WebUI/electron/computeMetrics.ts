@@ -8,10 +8,11 @@ import type {
   GpuSample,
   GpuVendor,
   ProbeReport,
+  XpuDialect,
 } from '@/types/computeMetrics.ts'
 import { pickPrimaryGpu, summarizeWindow } from '@/lib/computeMetricsWindow.ts'
 
-export type { ComputeSnapshot, ComputeWindowStats, GpuSample, GpuVendor, ProbeReport }
+export type { ComputeSnapshot, ComputeWindowStats, GpuSample, GpuVendor, ProbeReport, XpuDialect }
 export { pickPrimaryGpu, summarizeWindow }
 
 const LOG_SOURCE = 'compute-metrics'
@@ -52,6 +53,8 @@ let sink: ((snapshot: ComputeSnapshot) => void) | null = null
 let options: ComputeMetricsOptions = {}
 let intelCatalog: Map<string, IntelCatalogEntry> | null = null
 let intelCatalogAttempted = false
+let xpuDialect: XpuDialect | null = null
+let xpuQueryFields: string | null = null
 
 const defaultRunner: CommandRunner = (command, args, timeoutMs, spawnOptions) =>
   spawnProcessAsync(command, args, () => {}, spawnOptions?.env, spawnOptions?.cwd, timeoutMs)
@@ -77,6 +80,8 @@ export function resetComputeMetricsForTests(): void {
   samples = []
   intelCatalog = null
   intelCatalogAttempted = false
+  xpuDialect = null
+  xpuQueryFields = null
   sink = null
   options = {}
   report = freshReport()
@@ -126,27 +131,69 @@ function splitCsvLine(line: string): string[] {
   return out
 }
 
-/** nvidia-smi `--format=csv,noheader,nounits` rows. */
-export function parseNvidiaSmiCsv(output: string): GpuSample[] {
+/** `--query-gpu` field name → the sample property it fills. Unlisted fields are ignored. */
+const QUERY_FIELDS = {
+  index: 'id',
+  name: 'name',
+  'utilization.gpu': 'utilPct',
+  'memory.used': 'memUsedMiB',
+  'memory.total': 'memTotalMiB',
+  'power.draw': 'powerW',
+  'clocks.current.graphics': 'freqMHz',
+} as const
+
+/**
+ * Rows of `--query-gpu=<fields> --format=csv,noheader,nounits`, read by the
+ * field list that was asked for rather than by column position — the field list
+ * varies (see the dialect ladder below), and nvidia-smi and the nvidia-style
+ * xpu-smi builds answer in the same shape.
+ */
+export function parseQueryGpuCsv(
+  output: string,
+  fields: string[],
+  vendor: GpuVendor,
+  fallbackId?: string,
+): GpuSample[] {
   const gpus: GpuSample[] = []
   for (const line of output.split('\n')) {
     const trimmed = line.trim()
     if (!trimmed) continue
     const cols = splitCsvLine(trimmed)
-    const index = cols[0]
-    if (index === undefined || !/^\d+$/.test(index)) continue
-    gpus.push({
-      id: index,
-      name: cols[1] || `NVIDIA ${index}`,
-      vendor: 'nvidia',
-      utilPct: parseOptionalNumber(cols[3]),
-      memUsedMiB: parseOptionalNumber(cols[4]),
-      memTotalMiB: parseOptionalNumber(cols[5]),
-      powerW: parseOptionalNumber(cols[6]),
-      freqMHz: parseOptionalNumber(cols[7]),
+    // A header slipped through (or a banner line): no numeric/known columns.
+    if (cols.length < fields.length) continue
+    const sample: GpuSample = {
+      id: fallbackId ?? String(gpus.length),
+      name: '',
+      vendor,
+    }
+    let usable = false
+    fields.forEach((field, column) => {
+      const key = QUERY_FIELDS[field as keyof typeof QUERY_FIELDS]
+      if (!key) return
+      const raw = cols[column]
+      if (key === 'id') {
+        if (raw !== undefined && /^\d+$/.test(raw)) sample.id = raw
+        return
+      }
+      if (key === 'name') {
+        if (raw) sample.name = raw
+        return
+      }
+      const value = parseOptionalNumber(raw)
+      if (value === undefined) return
+      ;(sample as Record<string, unknown>)[key] = value
+      usable = true
     })
+    if (!usable && !sample.name) continue
+    if (!sample.name) sample.name = `${vendor === 'nvidia' ? 'NVIDIA' : 'Intel'} GPU ${sample.id}`
+    gpus.push(sample)
   }
   return gpus
+}
+
+/** nvidia-smi `--format=csv,noheader,nounits` rows. */
+export function parseNvidiaSmiCsv(output: string): GpuSample[] {
+  return parseQueryGpuCsv(output, NVIDIA_QUERY.split(','), 'nvidia')
 }
 
 /**
@@ -381,6 +428,13 @@ async function ensureIntelCatalog(bin: string): Promise<Map<string, IntelCatalog
       return catalog
     }
     for (const [id, name] of parseXpuSmiDiscoveryJson(listed.out)) {
+      // `--query-gpu` reports memory.total itself, so the per-device detail call
+      // would be a second spawn (and a spurious failure on a build whose
+      // `discovery` takes no -d) for something already known.
+      if (xpuDialect === 'query-gpu') {
+        catalog.set(id, { name })
+        continue
+      }
       const detail = await tryRun(
         bin,
         ['discovery', '-d', id, '-j'],
@@ -417,11 +471,73 @@ async function ensureIntelCatalog(bin: string): Promise<Map<string, IntelCatalog
   return catalog
 }
 
-async function intelGpus(): Promise<GpuSample[]> {
-  const bin = xpuBin()
-  report.intel.bin = bin
-  if (!bin) return []
-  const catalog = await ensureIntelCatalog(bin)
+/**
+ * Builds of `xpu-smi` differ in how a single sample is asked for, and the name
+ * and version do not tell them apart: v2.0 on Arc B-series exposes an
+ * nvidia-smi-style `--query-gpu`, while the CLI Intel documents uses a `dump`
+ * subcommand — whose `-m`/`-n` options that same v2.0 build rejects. So the
+ * dialect is read out of `--help` once rather than assumed, and the command
+ * that worked is logged.
+ */
+export function detectXpuDialect(helpOutput: string): XpuDialect {
+  return /--query-gpu/.test(helpOutput) ? 'query-gpu' : 'dump'
+}
+
+/**
+ * Field sets to try, richest first. A build that rejects one unknown field
+ * rejects the whole query, so falling back costs a sample but never the probe;
+ * the set that worked is remembered for the session.
+ */
+const XPU_QUERY_CANDIDATES = [
+  'index,name,utilization.gpu,memory.used,memory.total,power.draw,clocks.current.graphics',
+  'index,name,utilization.gpu,memory.used,memory.total',
+  'utilization.gpu,memory.used,memory.total',
+  'memory.used',
+]
+
+async function intelViaQueryGpu(
+  bin: string,
+  catalog: Map<string, IntelCatalogEntry>,
+): Promise<GpuSample[]> {
+  const spawnOptions = xpuSpawnOptions(bin)
+  const candidates = xpuQueryFields ? [xpuQueryFields] : XPU_QUERY_CANDIDATES
+  for (const fields of candidates) {
+    const result = await tryRun(
+      bin,
+      [`--query-gpu=${fields}`, '--format=csv,noheader,nounits'],
+      XPU_DUMP_TIMEOUT_MS,
+      spawnOptions,
+    )
+    if ('error' in result) {
+      report.intel.lastError = result.error
+      continue
+    }
+    const requested = fields.split(',')
+    const gpus = parseQueryGpuCsv(result.out, requested, 'intel')
+    if (gpus.length === 0) continue
+    if (xpuQueryFields !== fields) {
+      xpuQueryFields = fields
+      report.intel.command = `--query-gpu=${fields}`
+      logger.info(`xpu-smi sampling with --query-gpu=${fields}`, LOG_SOURCE, true)
+    }
+    // A query that could not ask for `name`/`memory.total` still identifies its
+    // device through the catalog, which discovery filled in.
+    return gpus.map((gpu, position) => {
+      const entry = catalog.get(gpu.id) ?? [...catalog.values()][position]
+      return {
+        ...gpu,
+        name: requested.includes('name') ? gpu.name : (entry?.name ?? gpu.name),
+        memTotalMiB: gpu.memTotalMiB ?? entry?.memTotalMiB,
+      }
+    })
+  }
+  return []
+}
+
+async function intelViaDump(
+  bin: string,
+  catalog: Map<string, IntelCatalogEntry>,
+): Promise<GpuSample[]> {
   // `dump` takes one device id: `-d -1` is the Linux `xpumcli` spelling and is
   // rejected by the Windows CLI, so every device is dumped by its own id.
   const ids = catalog.size > 0 ? [...catalog.keys()] : ['0']
@@ -440,6 +556,30 @@ async function intelGpus(): Promise<GpuSample[]> {
     }
     gpus.push(...parseXpuSmiDumpCsv(result.out, catalog))
   }
+  return gpus
+}
+
+async function ensureXpuDialect(bin: string): Promise<XpuDialect> {
+  if (xpuDialect) return xpuDialect
+  const help = await tryRun(bin, ['--help'], DISCOVERY_TIMEOUT_MS, xpuSpawnOptions(bin))
+  // A build whose --help fails is not necessarily broken, so assume the
+  // documented dialect rather than giving up on the probe.
+  xpuDialect = 'out' in help ? detectXpuDialect(help.out) : 'dump'
+  report.intel.dialect = xpuDialect
+  logger.info(`xpu-smi dialect: ${xpuDialect}`, LOG_SOURCE, true)
+  return xpuDialect
+}
+
+async function intelGpus(): Promise<GpuSample[]> {
+  const bin = xpuBin()
+  report.intel.bin = bin
+  if (!bin) return []
+  const dialect = await ensureXpuDialect(bin)
+  const catalog = await ensureIntelCatalog(bin)
+  const gpus =
+    dialect === 'query-gpu'
+      ? await intelViaQueryGpu(bin, catalog)
+      : await intelViaDump(bin, catalog)
   if (gpus.length > 0) {
     report.intel.lastOkAt = nowMs()
     delete report.intel.lastError

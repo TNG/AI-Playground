@@ -1018,13 +1018,13 @@ export const useOpenAiCompatibleChat = defineStore(
             options.part.type === 'finish'
               ? computeMetrics.currentTurnEnergyWh(deviceHint)
               : undefined
+          const energyOutputTokens =
+            options.part.type === 'finish' ? options.part.totalUsage.outputTokens : undefined
           const energy =
-            wattHours !== undefined &&
-            options.part.type === 'finish' &&
-            options.part.totalUsage.outputTokens > 0
+            wattHours !== undefined && energyOutputTokens !== undefined && energyOutputTokens > 0
               ? {
                   wattHours,
-                  outputTokens: options.part.totalUsage.outputTokens,
+                  outputTokens: energyOutputTokens,
                 }
               : undefined
 

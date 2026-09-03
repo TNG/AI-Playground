@@ -8,7 +8,8 @@ see [§10 Decisions](#10-decisions).
 
 The Mermaid diagrams in this file are the source of truth: they render on GitHub, they diff in
 review, and they sit next to the code they describe. `docs/diagrams/architecture-target.excalidraw`
-is a hand-draggable copy of the two main diagrams (§2 and §3) for whiteboard sessions — open it at
+is a hand-draggable copy of the two main diagrams (§2 and §3) at a coarser grain — the per-capability
+event and persistence fan-in is only in the Mermaid — for whiteboard sessions. Open it at
 [excalidraw.com](https://excalidraw.com) via _File → Open_. Any other diagram here can be turned
 into shapes with Excalidraw's built-in _Mermaid to Excalidraw_ (the "+" in the toolbar): paste a
 block, drag it around, then fold whatever we decide back into this file.
@@ -124,7 +125,9 @@ flowchart TD
     orch["Orchestrator: queue, backend pick, GPU / VRAM"]
     text["Text: streamChat, transcribe, speak"]
     artifact["Artifact: image, video, 3D, speech clip"]
-    support["Backends, Models, Permissions, Activities, Errors"]
+    support["Backends, Models, Permissions"]
+    persist["Persistence: storage map, atomic write, commit policy"]
+    bus["Events: one ordered stream, scoped"]
   end
 
   subgraph adapters["Adapters"]
@@ -153,9 +156,17 @@ flowchart TD
   text --> speech
   artifact --> comfy
   artifact --> speech
-  support --> store
 
-  kernel -->|"events"| projection
+  text --> persist
+  artifact --> persist
+  support --> persist
+  persist --> store
+
+  orch --> bus
+  text --> bus
+  artifact --> bus
+  persist --> bus
+  bus --> projection
   projection --> uiState2
 ```
 
@@ -165,8 +176,12 @@ Four rules make the picture real:
    ComfyUI, llama.cpp or the service registry.
 2. The **orchestrator** is the only thing that decides *when* a request runs and *which* backend is
    loaded for it. Capabilities do the work; they do not start each other's processes.
-3. A **capability** never reads or writes UI state. It emits events; the view decides what to paint.
-4. The **renderer** subscribes and renders. It owns what to show, not what to run. Headless, for
+3. A **capability** never reads or writes UI state, and never builds a file path. It names what it
+   produced and emits events; **Persistence** decides where that lands (§4.5) and the view decides
+   what to paint.
+4. **Every** capability and the orchestrator emit onto one ordered event stream (§4.6) — not one
+   channel per capability, and not only Text.
+5. The **renderer** subscribes and renders. It owns what to show, not what to run. Headless, for
    now, is the same renderer with the window hidden — Chromium stays, Vue does not own the run.
 
 ---
@@ -304,15 +319,102 @@ waiting, and when a download/VRAM warning has to go through Permissions before w
 Fairness can stay simple at first (FIFO, media nested inside a chat/agent turn stays with that
 turn). The important part is that the policy lives in one function instead of in the tools.
 
-### 4.5 Supporting surfaces
+### 4.5 Persistence — who decides what, where and when
+
+The earlier diagram drew `support --> store`, which implied Backends/Models owned storage. They do
+not. Persistence is its own surface, and the ownership splits four ways:
+
+| Question | Owner | Why |
+| --- | --- | --- |
+| **What** the document is | the capability / session owner | only Text knows a transcript's shape, only Artifact knows an item's |
+| **When** it must be durable | the capability, as domain events (`turn complete`, `run settled`, `session shutdown`) | a timer cannot know a turn ended |
+| **Where** it lives | Persistence, from one storage map | so "where does X live" is answerable by reading one file, not grepping |
+| **How** it is written | Persistence only | atomic write, index upkeep, `schemaVersion` + migration, demo-mode root, single-writer discipline |
+
+```ts
+type Collection = 'conversations' | 'agent-sessions' | 'media' | 'games' | 'audio' | 'preferences'
+
+type Persistence = {
+  put(c: Collection, id: string, doc: Doc, opts?: { commit: 'now' | 'debounced' }): Promise<void>
+  get(c: Collection, id: string): Promise<Doc | undefined>
+  list(c: Collection): Promise<IndexEntry[]> // reads the index, not every document
+  writeBlob(c: Collection, name: string, bytes: Uint8Array): Promise<MediaRef>
+  remove(c: Collection, id: string): Promise<void>
+}
+```
+
+Rules that make this worth having:
+
+1. **No capability builds a path.** It names a collection and an id. The storage map in §6.1 is the
+   only place that knows `~/Documents/AI-Playground` vs `~/AI-Playground` vs `userData`.
+2. **Bytes vs references.** Artifact calls `writeBlob` and gets a `MediaRef`; Text stores only that
+   ref. This is the missing rule that `sanitizeBulkyToolOutputs` and the `generatedImages`
+   serializer are currently working around — both exist because payloads reach a document that
+   should only ever have held a reference.
+3. **One writer per document.** The owning capability. Home Agent, Pi and the renderer send
+   requests; they never write. That is the correctness win of moving persistence into the kernel —
+   localStorage is "single writer" only by accident of there being one window.
+4. **Commit points are domain events; the write policy is not.** A capability says "this is
+   durable now"; Persistence decides immediate vs debounced, batches an agent turn's checkpoints,
+   and flushes on quit. Otherwise we grow five debounce constants in five stores.
+5. **Machine config is not in here.** `settings.json` in `userData` keeps its own zod-validated,
+   main-owned path. Persistence is for the user's library and app data.
+6. **Deletion does not cascade.** Deleting a conversation does not delete images it referenced —
+   those are the user's files in their library, and a thread is not their owner. Worth confirming
+   (§10.9), because the opposite is also defensible.
+7. **Demo mode is a different root**, chosen inside Persistence — the analogue of today's
+   `demoAwareStorage` swap to `sessionStorage`. No capability learns about it.
+
+### 4.6 Events — one stream, not one per capability
+
+Fair catch: the events arrow came off Text because that is how I drew it, not because Text is
+special. It was wrong. Every capability and the orchestrator emit, onto **one** ordered stream:
+
+```ts
+type KernelEvent = { scope: EventScope; seq: number } & (
+  | { type: 'activity'; ... } // begin / update / end — today's Activities
+  | { type: 'error'; ... } // AppError — today's Errors
+  | { type: 'chat-chunk'; ... } // text
+  | { type: 'artifact-item'; ... } // queued / progress / done / failed
+  | { type: 'queue'; ... } // queued / backend-change / running — orchestrator
+  | { type: 'service'; ... } // backend status
+  | { type: 'stored'; ... } // a Ref the projection can render
+)
+
+type EventScope =
+  | { kind: 'global' }
+  | { kind: 'chat'; conversationKey: string }
+  | { kind: 'run'; runId: string }
+```
+
+Why one stream rather than a channel per capability:
+
+- **Ordering.** A progress event must not overtake the item it belongs to, and an artifact item
+  produced inside a chat turn has to interleave correctly with that turn's chunks. One sequence
+  per scope gives that for free; N channels do not.
+- **One bridge, one reconnect.** Hidden-window and future drivers subscribe once. The
+  anti-stuck reconciliation (`endScope()` today) has one place to live instead of one per
+  capability.
+- **The renderer already has this shape.** `activities` + `errors` sinks and `agentModeIpc`'s
+  chunk/progress/done handlers are three-quarters of this bus; scope already exists as
+  `ActivityScope` (`global | chat | imageGen`).
+
+`Permissions` is the deliberate exception: a prompt is a **request/response**, not a notification.
+It rides its own call so a driver can `await` an answer (or return a pre-grant) instead of watching
+a stream for a reply.
+
+### 4.7 Supporting surfaces
 
 | Surface        | Owns                                                                 | Replaces today                                            |
 | -------------- | -------------------------------------------------------------------- | --------------------------------------------------------- |
 | `Backends`     | start/stop/setup, device selection — the verbs the orchestrator uses | `backendServices` + service registry                      |
 | `Models`       | catalog, "is it on disk", download with progress                     | `models` store + parts of `modelLibrary`                   |
 | `Permissions`  | ask, remember, pre-grant: download, gated repo, VRAM, pref changes   | `useDialogStore()` inside inference; Home Agent confirms   |
-| `Activities`   | what the app is busy with                                            | `store/activities.ts` (already the right shape)            |
-| `Errors`       | typed failures and how they surface                                  | `store/errors.ts` (already the right shape)                |
+| `Persistence`  | where and how anything is stored (§4.5)                              | Pinia persist + scattered `userData` writes                |
+
+Activities and Errors are not surfaces of their own any more — they are **event types** on the bus
+(§4.6). The renderer-side sinks (`store/activities.ts`, `store/errors.ts`) stay as the projection
+of those events, which is what they already are.
 
 **Permissions** is the consent layer. A capability (or the orchestrator, for a backend swap that
 needs a download) calls `permissions.request(action)`. Adapters: modal dialog in the desktop UI,
@@ -321,7 +423,7 @@ the user can review and pre-fill so an agentic or channel-driven task does not s
 nobody is looking at. Hidden-window / headless still has a user — they are just not in this window.
 There is no silent auto-allow; there is prompt-once, remember, or pre-grant. See §10.4–10.5.
 
-### 4.6 Projections
+### 4.8 Projections
 
 ```mermaid
 flowchart LR
@@ -409,7 +511,7 @@ already does). After that, clicking a preset card only changes what this session
 not change the preference unless the user edits the setting. A media tool never reads this value; it
 passes `workflow` on the request.
 
-### 6.1 User-data files — layout, performance, correctness
+### 6.1 User-data files — the storage map (owned by Persistence, §4.5)
 
 App data should live next to the media the user can already find, not in Chromium's localStorage
 (opaque, quota-capped, the reason `generatedImages` has a serializer whose job is stripping data
@@ -615,8 +717,11 @@ scattered.
 | 6 | Is the active workflow UI state? | **Yes.** Cold start hydrates from `defaultPreset: Preset \| "last"` (a user preference). Runtime selection stays in UI state. |
 | 7 | Who queues concurrent work? | **An orchestrator in the kernel** (§4.4). Not FIFO-vs-fairness as an afterthought — it is why text and media move into the same process. |
 | 8 | Version the kernel IPC as a public protocol? | **No.** Internal function + existing Electron IPC. A versioned socket is a different product. |
+| 9 | Who owns persistence? | **A `Persistence` surface** (§4.5). Capabilities own *what* and declare *when*; Persistence owns *where* and *how*. Deletion does not cascade from a transcript to the artifacts it references — flag this one if you disagree. |
+| 10 | One event stream or one per capability? | **One ordered, scoped stream** (§4.6), emitted by every capability and the orchestrator. Permissions is the exception: it is request/response, not a notification. |
 
 Still worth a follow-up when we design Permissions and the orchestrator in detail (not blocking this
 map): the exact grant vocabulary (`download:<model>`, `change-pref:*`, `vram-warning`, …), whether
-FIFO is enough or a chat turn's nested media jumps the queue, and whether `defaultPreset` is per
-mode or one global.
+FIFO is enough or a chat turn's nested media jumps the queue, whether `defaultPreset` is per mode or
+one global, and whether the event bus needs replay (a hidden-window driver that reconnects
+mid-turn) or whether last-state-wins projections are enough.

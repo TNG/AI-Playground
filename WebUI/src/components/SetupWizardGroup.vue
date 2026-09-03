@@ -34,7 +34,11 @@ const emit = defineEmits<{ toggle: [boolean] }>()
 </script>
 
 <template>
-  <div role="group" :aria-label="title" class="rounded-lg border border-border bg-muted/30">
+  <div
+    role="group"
+    :aria-label="title"
+    class="min-w-0 rounded-lg border border-border bg-muted/30"
+  >
     <div class="flex items-center gap-1.5 px-3 py-2">
       <span class="text-sm font-medium leading-tight">{{ title }}</span>
       <InfoHint v-if="infoTooltip" :text="infoTooltip" />
@@ -63,7 +67,7 @@ const emit = defineEmits<{ toggle: [boolean] }>()
       </TooltipProvider>
     </div>
 
-    <div class="flex flex-col border-t border-border/60 px-1.5 py-1">
+    <div class="flex min-w-0 flex-col border-t border-border/60 px-1.5 py-1">
       <slot />
     </div>
   </div>

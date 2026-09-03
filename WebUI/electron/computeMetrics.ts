@@ -10,7 +10,7 @@ import type {
   ProbeReport,
   XpuDialect,
 } from '@/types/computeMetrics.ts'
-import { overlaySmiOntoWddm } from '@/lib/wddmGpuMetrics.ts'
+import { omitSmiUtilization, overlaySmiOntoWddm } from '@/lib/wddmGpuMetrics.ts'
 import { pickPrimaryGpu, summarizeWindow } from '@/lib/computeMetricsWindow.ts'
 import { collectWddmGpus, resetWddmMetricsForTests, wddmLastError } from './windowsWddmMetrics.ts'
 
@@ -634,7 +634,8 @@ async function wddmGpus(): Promise<GpuSample[]> {
 export async function collectComputeSnapshot(): Promise<ComputeSnapshot> {
   const [nvidia, intel, wddm] = await Promise.all([nvidiaGpus(), intelGpus(), wddmGpus()])
   const smi = mergeGpus(nvidia, intel)
-  const gpus = overlaySmiOntoWddm(wddm, smi)
+  const smiFallback = process.platform === 'win32' ? omitSmiUtilization(smi) : smi
+  const gpus = overlaySmiOntoWddm(wddm, smiFallback)
   const snapshot: ComputeSnapshot = {
     ts: nowMs(),
     source: sourceOf(nvidia, intel, wddm),

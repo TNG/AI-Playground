@@ -2,11 +2,11 @@ import koffi from 'koffi'
 import { appLoggerInstance } from './logging/logger.ts'
 import type { GpuSample } from '@/types/computeMetrics.ts'
 import {
+  aggregatePdhEngineUtil,
   applyGpuMemoryRollup,
   bytesToMiB,
   luidKey,
   parsePdhGpuInstance,
-  peakEngineUtil,
   vendorFromPciId,
 } from '@/lib/wddmGpuMetrics.ts'
 
@@ -301,19 +301,6 @@ function usageByLuid(rows: { name: string; value: number }[]): Map<string, numbe
   return out
 }
 
-function utilByLuid(rows: { name: string; value: number }[]): Map<string, number> {
-  const grouped = new Map<string, number[]>()
-  for (const row of rows) {
-    const parsed = parsePdhGpuInstance(row.name)
-    if (!parsed) continue
-    const key = luidKey(parsed.high, parsed.low, parsed.phys)
-    const list = grouped.get(key) ?? []
-    list.push(row.value)
-    grouped.set(key, list)
-  }
-  return peakEngineUtil(grouped)
-}
-
 export function collectWddmGpus(): GpuSample[] {
   if (!HOST_IS_WIN32) return []
   const api = initNative()
@@ -339,7 +326,7 @@ export function collectWddmGpus(): GpuSample[] {
     // Engine util is a rate counter; the first collect only arms it.
     const util = firstCollect
       ? new Map<string, number>()
-      : utilByLuid(readCounterArray(api, query.engine))
+      : aggregatePdhEngineUtil(readCounterArray(api, query.engine))
     return dxgiCache.map((adapter, index) => {
       const key = luidKey(adapter.high, adapter.low, 0)
       return applyGpuMemoryRollup({

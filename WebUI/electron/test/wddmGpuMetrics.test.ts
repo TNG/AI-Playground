@@ -1,17 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import {
+  aggregatePdhEngineUtil,
   applyGpuMemoryRollup,
   luidKey,
   namesOverlap,
+  omitSmiUtilization,
   overlaySmiOntoWddm,
   parsePdhGpuInstance,
-  peakEngineUtil,
 } from '@/lib/wddmGpuMetrics'
 import type { GpuSample } from '@/types/computeMetrics'
 
 describe('parsePdhGpuInstance', () => {
   it('reads adapter memory instance names Task Manager uses', () => {
     expect(parsePdhGpuInstance('luid_0x00000000_0x00017AB2_phys_0')).toEqual({
+      processId: undefined,
       high: 0,
       low: 0x17ab2,
       phys: 0,
@@ -19,13 +21,14 @@ describe('parsePdhGpuInstance', () => {
   })
 
   it('reads GPU engine instances', () => {
-    expect(parsePdhGpuInstance('luid_0x00000000_0x00017AB2_phys_0_eng_0_engtype_3D')).toMatchObject(
-      {
-        low: 0x17ab2,
-        engine: 0,
-        engineType: '3D',
-      },
-    )
+    expect(
+      parsePdhGpuInstance('pid_4820_luid_0x00000000_0x00017AB2_phys_0_eng_0_engtype_3D'),
+    ).toMatchObject({
+      processId: 4820,
+      low: 0x17ab2,
+      engine: 0,
+      engineType: '3D',
+    })
   })
 })
 
@@ -93,6 +96,26 @@ describe('overlaySmiOntoWddm', () => {
     expect(gpu?.utilPct).toBe(41)
   })
 
+  it('does not fill a warming-up WDDM utilization sample from xpu-smi', () => {
+    const wddm: GpuSample[] = [
+      {
+        id: '0',
+        name: 'Intel(R) Arc(TM) B390 GPU',
+        vendor: 'intel',
+        memUsedMiB: 3000,
+      },
+    ]
+    const smi: GpuSample[] = [
+      {
+        id: '0',
+        name: 'Intel(R) Arc(TM) B390 GPU',
+        vendor: 'intel',
+        utilPct: 99,
+      },
+    ]
+    expect(overlaySmiOntoWddm(wddm, smi)[0]?.utilPct).toBeUndefined()
+  })
+
   it('falls back to SMI when WDDM is empty', () => {
     const smi: GpuSample[] = [
       { id: '0', name: 'NVIDIA', vendor: 'nvidia', memUsedMiB: 1, memTotalMiB: 8 },
@@ -101,10 +124,51 @@ describe('overlaySmiOntoWddm', () => {
   })
 })
 
-describe('peakEngineUtil', () => {
-  it('takes the busiest engine per LUID, like Task Manager', () => {
+describe('aggregatePdhEngineUtil', () => {
+  it('sums process contexts per engine, then takes the busiest engine like Task Manager', () => {
     const key = luidKey(0, 0x17ab2, 0)
-    expect(peakEngineUtil(new Map([[key, [3, 88, 12]]])).get(key)).toBe(88)
+    const prefix = 'luid_0x00000000_0x00017AB2_phys_0'
+    const rows = [
+      { name: `pid_100_${prefix}_eng_0_engtype_3D`, value: 35 },
+      { name: `pid_200_${prefix}_eng_0_engtype_3D`, value: 40 },
+      { name: `pid_100_${prefix}_eng_1_engtype_Copy`, value: 88 },
+    ]
+    expect(aggregatePdhEngineUtil(rows).get(key)).toBe(88)
+  })
+
+  it('caps a physical engine total at 100%', () => {
+    const key = luidKey(0, 0x17ab2, 0)
+    const prefix = 'luid_0x00000000_0x00017AB2_phys_0_eng_0_engtype_Compute'
+    const rows = [
+      { name: `pid_100_${prefix}`, value: 70 },
+      { name: `pid_200_${prefix}`, value: 60 },
+    ]
+    expect(aggregatePdhEngineUtil(rows).get(key)).toBe(100)
+  })
+})
+
+describe('omitSmiUtilization', () => {
+  it('keeps SMI memory, clock and power while removing utilization', () => {
+    expect(
+      omitSmiUtilization([
+        {
+          id: '0',
+          name: 'Intel GPU',
+          vendor: 'intel',
+          utilPct: 99,
+          memUsedMiB: 100,
+          freqMHz: 2400,
+          powerW: 12,
+        },
+      ])[0],
+    ).toEqual({
+      id: '0',
+      name: 'Intel GPU',
+      vendor: 'intel',
+      memUsedMiB: 100,
+      freqMHz: 2400,
+      powerW: 12,
+    })
   })
 })
 

@@ -328,10 +328,10 @@ describe('intel probe commands', () => {
     expect(snapshot?.source).toBe('xpu-smi')
     expect(snapshot?.gpus[0]).toMatchObject({
       name: 'Intel(R) Arc(TM) B580 Graphics',
-      utilPct: 64,
       memUsedMiB: 8192,
       memTotalMiB: 16384,
     })
+    expect(snapshot?.gpus[0]?.utilPct).toBeUndefined()
   })
 
   it('has no Intel probe on Windows without the bundled exe, and says so', async () => {
@@ -383,12 +383,12 @@ describe('intel probe commands', () => {
       id: '0',
       name: 'Intel(R) Arc(TM) B390 GPU',
       vendor: 'intel',
-      utilPct: 71,
       memUsedMiB: 9001,
       memTotalMiB: 16384,
       powerW: 88.5,
       freqMHz: 2200,
     })
+    expect(latestComputeSnapshot()?.gpus[0]?.utilPct).toBeUndefined()
   })
 
   it('falls back to a smaller field set when a field is rejected', async () => {
@@ -418,7 +418,8 @@ describe('intel probe commands', () => {
     expect(computeMetricsProbeReport().intel.command).toBe(
       '--query-gpu=index,name,utilization.gpu,memory.used,memory.total',
     )
-    expect(latestComputeSnapshot()?.gpus[0]).toMatchObject({ utilPct: 71, memUsedMiB: 9001 })
+    expect(latestComputeSnapshot()?.gpus[0]).toMatchObject({ memUsedMiB: 9001 })
+    expect(latestComputeSnapshot()?.gpus[0]?.utilPct).toBeUndefined()
   })
 
   it('records why a probe failed', async () => {

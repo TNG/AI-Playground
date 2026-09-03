@@ -2,6 +2,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import type { ComputeSnapshot, ComputeWindowStats } from '@/types/computeMetrics'
 import { pickPrimaryGpu, summarizeWindow } from '@/lib/computeMetricsWindow'
+import { integrateGpuEnergyWh } from '@/lib/chatEnergy'
 
 export const useComputeMetrics = defineStore('computeMetrics', () => {
   const latest = ref<ComputeSnapshot | null>(null)
@@ -11,8 +12,7 @@ export const useComputeMetrics = defineStore('computeMetrics', () => {
   function applySnapshot(snapshot: ComputeSnapshot) {
     latest.value = snapshot
     if (turnStartedAt.value != null) {
-      const next = [...turnSamples.value, snapshot]
-      turnSamples.value = next.length > 120 ? next.slice(-120) : next
+      turnSamples.value = [...turnSamples.value, snapshot]
     }
   }
 
@@ -34,6 +34,11 @@ export const useComputeMetrics = defineStore('computeMetrics', () => {
     return null
   }
 
+  function currentTurnEnergyWh(hint?: string): number | undefined {
+    if (turnStartedAt.value === null) return undefined
+    return integrateGpuEnergyWh(turnSamples.value, turnStartedAt.value, Date.now(), hint)
+  }
+
   const primaryGpu = computed(() => (latest.value ? pickPrimaryGpu(latest.value.gpus) : undefined))
 
   void window.electronAPI.getComputeMetrics().then((snapshot) => {
@@ -48,6 +53,7 @@ export const useComputeMetrics = defineStore('computeMetrics', () => {
     beginTurn,
     endTurn,
     currentStats,
+    currentTurnEnergyWh,
   }
 })
 

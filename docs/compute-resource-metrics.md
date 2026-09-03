@@ -149,6 +149,30 @@ overlapping ticks (a 1s Intel dump must not pile up), and keeps ~120 samples
 Pick the GPU to report: name-match against the selected device (`deviceName` on
 the trace context), else the card with the highest memory used.
 
+## Experimental chat energy estimate
+
+The existing Chat Settings → Metrics checkbox also enables a deliberately
+small, removable experiment in `src/lib/chatEnergy.ts`
+(`CHAT_ENERGY_ESTIMATES_ENABLED` is the compile-time kill switch):
+
+1. At turn start, the renderer retains the latest sampled board power.
+2. Between 2-second snapshots it treats the last valid watt reading as held,
+   clips the first/last interval to the turn wall-clock boundaries, and sums
+   watt-milliseconds into Wh. Gaps with no power value contribute nothing.
+3. The completed assistant message persists `metadata.energy` with the turn's
+   Wh and AI SDK `totalUsage.outputTokens` (all tool/model steps, not merely
+   the final step).
+4. The chat footer sums only assistant turns that have **both** measured energy
+   and `usage.outputTokens`, then reports:
+   `sum(kWh) × $0.35 / sum(output tokens) × 1,000,000`.
+
+This is an estimate of GPU board energy during the whole user-visible turn,
+including model preparation, not total wall-plug/system energy. Cloud turns
+and local turns whose SMI dialect exposes no power are omitted; their tokens
+are also omitted from the denominator so missing measurements cannot make the
+cost look artificially low. Deleting or regenerating a message naturally
+recomputes the conversation figure from the messages that remain.
+
 ## Follow-ups worth doing, not in this slice
 
 - Bundle `xpu-smi` for Linux the way Windows already does, or a sysfs/`xe`

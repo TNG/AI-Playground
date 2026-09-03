@@ -16,6 +16,7 @@ import type { ArtifactRunRequest } from '@/types/artifactIpc'
 import type { ChatSummarizeRequest, ChatTurnRequest } from '@/types/chatIpc'
 import type { ChatAnswerPayload, ChatAskPayload } from '@/types/chatRequests'
 import type { ComfyUICustomNodeRepoId } from '@/types/comfyuiIpc'
+import type { ComputeSnapshot } from '@/types/computeMetrics'
 import type { ConversationSaveRequest } from '@/types/conversationIpc'
 import type { McpServerConfig } from '@/types/mcpIpc'
 import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaRequests'
@@ -147,6 +148,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   restorePathsSettings: () => invoke('restorePathsSettings'),
   loadModels: () => invoke('loadModels'),
   getLaminarConfig: () => invoke('getLaminarConfig'),
+  getComputeMetrics: () => invoke('getComputeMetrics'),
+  onComputeMetricsUpdate: (callback: (snapshot: ComputeSnapshot) => void) =>
+    onRaw('computeMetricsUpdate', callback),
   laminarTelemetryEvent: (name: string, payload: string) =>
     send('laminarTelemetryEvent', name, payload),
   zoomIn: () => invoke('zoomIn'),

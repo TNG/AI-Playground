@@ -277,6 +277,7 @@ import { loadDemoProfile, type DemoProfile } from './persist/demoProfile.ts'
 import {
   classifyDetectedDevices,
   detectGpuHardwareDevices,
+  getXpuSmiExePath,
 } from './adapters/hardware/hardwareDiscovery.ts'
 import { registerSettingsPersist } from './adapters/hardware/defaultDeviceSelection.ts'
 import { appShutdown } from './kernel/shutdown.ts'
@@ -288,6 +289,12 @@ import {
   noteMainChatTurnContext,
   shutdownLaminarTracing,
 } from './observability/laminar.ts'
+import {
+  collectComputeSnapshot,
+  latestComputeSnapshot,
+  setComputeMetricsSink,
+  startComputeMetricsSampler,
+} from './computeMetrics.ts'
 import z from 'zod'
 
 const ProductModeUiI18nSchema = z.object({
@@ -1970,6 +1977,10 @@ app.whenReady().then(async () => {
     })
     appLogger.info('startup step: creating window', 'electron-backend', true)
     const window = await createWindow()
+    setComputeMetricsSink((snapshot) => {
+      if (!window.isDestroyed()) typedSend(window.webContents, 'computeMetricsUpdate', snapshot)
+    })
+    startComputeMetricsSampler({ xpuSmiPath: getXpuSmiExePath() })
     appLogger.info('startup step: initializing service registry', 'electron-backend', true)
     await initServiceRegistry(window, settings)
     // After the registry: the renderer's stores call into it as they are created.

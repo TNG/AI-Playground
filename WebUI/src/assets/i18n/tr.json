@@ -369,6 +369,7 @@
   "PHISON_KM_UNAVAILABLE_BUILD_HINT": "Bu özelliği kullanmak için Phison Pascari aiDAPTIV içeren Llama.cpp'yi etkinleştirin.",
   "PHISON_KM_UNAVAILABLE_CONTEXT_HINT": "Bu modelin maksimum bağlam boyutu, aiDAPTIV KV Cache için gereken 16384 değerinin altındadır.",
   "ANSWER_METRICS": "Metrikler",
+  "COMPUTE_METRICS_LABEL": "Hesaplama kaynakları",
   "ANSWER_FONT_SIZE": "Yazı Tipi Boyutu",
   "RAG_DOCUMENT_EMBEDDING_MODEL": "Belge Gömme Modeli",
   "RAG_DOCUMENTS": "Belgeler",

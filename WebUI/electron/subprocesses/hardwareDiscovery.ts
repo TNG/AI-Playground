@@ -41,7 +41,7 @@ const NvidiaSmiLineSchema = z.object({
   uuid: z.string().optional(),
 })
 
-function getXpuSmiExePath(): string | null {
+export function getXpuSmiExePath(): string | null {
   const exePath = path.join(buildResources, 'xpu-smi.exe')
   appLogger.info('Checking for xpu-smi.exe at path: ' + exePath, 'electron-backend')
   if (fs.existsSync(exePath)) return exePath

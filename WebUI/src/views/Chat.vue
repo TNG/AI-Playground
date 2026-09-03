@@ -439,6 +439,18 @@
               <span class="mr-2"
                 >1st Token Time: {{ message.metadata?.timings.prompt_ms.toFixed(2) }}ms</span
               >
+              <template v-if="message.metadata?.compute?.gpuMemPeakMiB != null">
+                <span class="mr-2">⋅</span>
+                <span class="mr-2"
+                  >{{ formatMib(message.metadata.compute.gpuMemPeakMiB) }} vRAM peak</span
+                >
+              </template>
+              <template v-else-if="message.metadata?.compute?.hostMemPeakMiB != null">
+                <span class="mr-2">⋅</span>
+                <span class="mr-2"
+                  >{{ formatMib(message.metadata.compute.hostMemPeakMiB) }} RAM peak</span
+                >
+              </template>
             </div>
           </div>
         </div>
@@ -492,6 +504,7 @@ import { useComfyUiPresets } from '@/assets/js/store/comfyUiPresets'
 import { DynamicToolUIPart, isToolUIPart, ToolUIPart } from 'ai'
 import { aipgTools, AipgTools } from '@/assets/js/tools/tools'
 import { UserCircleIcon } from '@heroicons/vue/24/outline'
+import { formatMib } from '@/lib/computeMetricsFormat'
 
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const textToSpeech = useTextToSpeech()

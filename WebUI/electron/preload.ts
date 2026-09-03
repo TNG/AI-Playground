@@ -118,6 +118,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   restorePathsSettings: () => ipcRenderer.invoke('restorePathsSettings'),
   loadModels: () => ipcRenderer.invoke('loadModels'),
   getLaminarConfig: () => ipcRenderer.invoke('getLaminarConfig'),
+  getComputeMetrics: () => ipcRenderer.invoke('getComputeMetrics'),
+  onComputeMetricsUpdate: (
+    callback: (snapshot: import('@/types/computeMetrics').ComputeSnapshot) => void,
+  ) => listen('computeMetricsUpdate', callback),
   laminarTelemetryEvent: (name: string, payload: string) =>
     ipcRenderer.send('laminarTelemetryEvent', name, payload),
   zoomIn: () => ipcRenderer.invoke('zoomIn'),

@@ -141,6 +141,7 @@ import { BackendServiceName } from '@/assets/js/store/backendServices.ts'
 import {
   classifyDetectedDevices,
   detectGpuHardwareDevices,
+  getXpuSmiExePath,
   type GpuHardwareDevice,
 } from './subprocesses/hardwareDiscovery.ts'
 import { registerSettingsPersist } from './subprocesses/defaultDeviceSelection.ts'
@@ -151,6 +152,12 @@ import {
   laminarConfig,
   shutdownLaminarTracing,
 } from './laminar.ts'
+import {
+  collectComputeSnapshot,
+  latestComputeSnapshot,
+  setComputeMetricsSink,
+  startComputeMetricsSampler,
+} from './computeMetrics.ts'
 import z from 'zod'
 
 const ProductModeUiI18nSchema = z.object({
@@ -1664,6 +1671,9 @@ function initEventHandle() {
   // browser page); null config means no developer opted in, and the renderer
   // then registers nothing and sends nothing.
   ipcMain.handle('getLaminarConfig', () => laminarConfig())
+  ipcMain.handle('getComputeMetrics', async () => {
+    return latestComputeSnapshot() ?? collectComputeSnapshot()
+  })
   ipcMain.on('laminarTelemetryEvent', (_event, name: string, payload: string) => {
     void handleChatTelemetryEvent(name, payload)
   })
@@ -3400,6 +3410,10 @@ app.whenReady().then(async () => {
     })
     appLogger.info('startup step: creating window', 'electron-backend', true)
     const window = await createWindow()
+    setComputeMetricsSink((snapshot) => {
+      if (!window.isDestroyed()) window.webContents.send('computeMetricsUpdate', snapshot)
+    })
+    startComputeMetricsSampler({ xpuSmiPath: getXpuSmiExePath() })
     appLogger.info('startup step: initializing service registry', 'electron-backend', true)
     await initServiceRegistry(window, settings)
     // After the registry: the renderer's stores call into it as they are created.

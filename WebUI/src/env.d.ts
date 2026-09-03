@@ -374,6 +374,10 @@ type electronAPI = {
    * the renderer bundle. Dev-only (see electron/laminar.ts).
    */
   getLaminarConfig(): Promise<LaminarConfig | null>
+  getComputeMetrics(): Promise<import('./types/computeMetrics').ComputeSnapshot | null>
+  onComputeMetricsUpdate(
+    callback: (snapshot: import('./types/computeMetrics').ComputeSnapshot) => void,
+  ): () => void
   /**
    * Forward one AI SDK telemetry event (already serialized to JSON) to the
    * Laminar integration running in main. Fire-and-forget.

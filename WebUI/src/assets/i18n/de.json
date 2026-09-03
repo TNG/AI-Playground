@@ -361,6 +361,7 @@
   "PHISON_KM_UNAVAILABLE_BUILD_HINT": "Aktivieren Sie den Phison aiDAPTIV+ (SSD-Offload)-Llama.cpp-Build, um diese Funktion zu verwenden.",
   "PHISON_KM_UNAVAILABLE_CONTEXT_HINT": "Die maximale Kontextgröße dieses Modells liegt unter den für aiDAPTIV+ KV-Cache erforderlichen 16384.",
   "ANSWER_METRICS": "Metriken",
+  "COMPUTE_METRICS_LABEL": "Computeressourcen",
   "ANSWER_FONT_SIZE": "Schriftgröße",
   "RAG_DOCUMENT_EMBEDDING_MODEL": "Dokument-Embedding-Modell",
   "RAG_DOCUMENTS": "Dokumente",

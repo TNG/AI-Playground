@@ -25,6 +25,7 @@ import { useErrors } from './errors'
 import { useActivities } from './activities'
 import { useConfirmations } from './confirmations'
 import { useI18N } from './i18n'
+import { useComputeMetrics } from './computeMetrics'
 import { createAppError, extractMessage, isCancellation } from '../errors/appError'
 import type { AppError } from '../errors/types'
 import { aipgTools, homeAgentTools } from '../tools/tools'
@@ -118,6 +119,7 @@ export type AipgMetadata = {
   timestamp?: number
   conversationTitle?: string
   timings?: z.infer<typeof LlamaCppRawValueTimingsSchema>
+  compute?: import('@/types/computeMetrics').ComputeWindowStats
   ragSource?: string
   usage?: LanguageModelUsage
 }
@@ -142,6 +144,7 @@ export const useOpenAiCompatibleChat = defineStore(
     const activities = useActivities()
     const confirmations = useConfirmations()
     const i18nState = useI18N().state
+    const computeMetrics = useComputeMetrics()
     const manuallyStopped = ref(false)
 
     // True while the model is actively emitting reasoning (i.e. the last content
@@ -1009,6 +1012,7 @@ export const useOpenAiCompatibleChat = defineStore(
             model: textInference.activeModel,
             timestamp: Date.now(),
             timings,
+            compute: computeMetrics.currentStats() ?? undefined,
             usage: effectiveUsage ?? usage,
           }
         },
@@ -1408,6 +1412,7 @@ export const useOpenAiCompatibleChat = defineStore(
       // so `processing` stays true until the turn genuinely finishes. Cleared in
       // `finally` so a thrown/aborted turn can never leave the UI stuck busy.
       markGenerating(targetKey)
+      computeMetrics.beginTurn()
       try {
         // 1a. Reactivate the target thread's preset (if any) so the stream uses
         //     the right model/tools/system-prompt for THIS conversation, not
@@ -1525,6 +1530,7 @@ export const useOpenAiCompatibleChat = defineStore(
           fileInput.value = []
         }
       } finally {
+        computeMetrics.endTurn()
         unmarkGenerating(targetKey)
       }
     }
@@ -1593,8 +1599,10 @@ export const useOpenAiCompatibleChat = defineStore(
       temporarySystemPrompts[targetKey] = ragContext.systemPrompt
 
       try {
+        computeMetrics.beginTurn()
         await chat.regenerate({ messageId })
       } finally {
+        computeMetrics.endTurn()
         temporarySystemPrompts[targetKey] = null
       }
 

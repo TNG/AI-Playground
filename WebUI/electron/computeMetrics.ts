@@ -1,0 +1,369 @@
+import os from 'node:os'
+import { spawnProcessAsync } from './subprocesses/osProcessHelper.ts'
+import { appLoggerInstance } from './logging/logger.ts'
+import type {
+  ComputeSnapshot,
+  ComputeWindowStats,
+  GpuSample,
+  GpuVendor,
+} from '@/types/computeMetrics.ts'
+import { pickPrimaryGpu, summarizeWindow } from '@/lib/computeMetricsWindow.ts'
+
+export type { ComputeSnapshot, ComputeWindowStats, GpuSample, GpuVendor }
+export { pickPrimaryGpu, summarizeWindow }
+
+const LOG_SOURCE = 'compute-metrics'
+const logger = appLoggerInstance
+
+const MAX_SAMPLES = 120
+const DEFAULT_INTERVAL_MS = 2000
+const NVIDIA_TIMEOUT_MS = 2500
+const XPU_DUMP_TIMEOUT_MS = 8000
+const DISCOVERY_TIMEOUT_MS = 5000
+
+export type CommandRunner = (command: string, args: string[], timeoutMs: number) => Promise<string>
+
+export type ComputeMetricsOptions = {
+  intervalMs?: number
+  runCommand?: CommandRunner
+  xpuSmiPath?: string | null
+  now?: () => number
+}
+
+const NVIDIA_QUERY =
+  'index,name,uuid,utilization.gpu,memory.used,memory.total,power.draw,clocks.current.graphics'
+
+type IntelCatalogEntry = { name: string; memTotalMiB?: number }
+
+let samples: ComputeSnapshot[] = []
+let timer: ReturnType<typeof setInterval> | null = null
+let inFlight = false
+let sink: ((snapshot: ComputeSnapshot) => void) | null = null
+let options: ComputeMetricsOptions = {}
+let intelCatalog: Map<string, IntelCatalogEntry> | null = null
+let intelCatalogAttempted = false
+
+const defaultRunner: CommandRunner = (command, args, timeoutMs) =>
+  spawnProcessAsync(command, args, () => {}, undefined, undefined, timeoutMs)
+
+function runner(): CommandRunner {
+  return options.runCommand ?? defaultRunner
+}
+
+function nowMs(): number {
+  return options.now?.() ?? Date.now()
+}
+
+export function setComputeMetricsSink(next: ((snapshot: ComputeSnapshot) => void) | null): void {
+  sink = next
+}
+
+export function latestComputeSnapshot(): ComputeSnapshot | null {
+  return samples.at(-1) ?? null
+}
+
+export function resetComputeMetricsForTests(): void {
+  stopComputeMetricsSampler()
+  samples = []
+  intelCatalog = null
+  intelCatalogAttempted = false
+  sink = null
+  options = {}
+}
+
+export function recordComputeSnapshotForTests(snapshot: ComputeSnapshot): void {
+  pushSample(snapshot)
+}
+
+function pushSample(snapshot: ComputeSnapshot): void {
+  samples.push(snapshot)
+  if (samples.length > MAX_SAMPLES) samples = samples.slice(-MAX_SAMPLES)
+}
+
+export function hostMemorySnapshot(): { memUsedMiB: number; memTotalMiB: number } {
+  const memTotalMiB = os.totalmem() / (1024 * 1024)
+  const memUsedMiB = (os.totalmem() - os.freemem()) / (1024 * 1024)
+  return { memUsedMiB, memTotalMiB }
+}
+
+export function parseOptionalNumber(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined
+  const trimmed = raw.trim()
+  if (trimmed === '' || /^n\/a$/i.test(trimmed) || trimmed === '[N/A]') return undefined
+  const value = Number.parseFloat(trimmed.replace(/,/g, ''))
+  return Number.isFinite(value) ? value : undefined
+}
+
+function splitCsvLine(line: string): string[] {
+  const out: string[] = []
+  let cur = ''
+  let inQuotes = false
+  for (const ch of line) {
+    if (ch === '"') {
+      inQuotes = !inQuotes
+      continue
+    }
+    if (ch === ',' && !inQuotes) {
+      out.push(cur.trim())
+      cur = ''
+      continue
+    }
+    cur += ch
+  }
+  out.push(cur.trim())
+  return out
+}
+
+/** nvidia-smi `--format=csv,noheader,nounits` rows. */
+export function parseNvidiaSmiCsv(output: string): GpuSample[] {
+  const gpus: GpuSample[] = []
+  for (const line of output.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    const cols = splitCsvLine(trimmed)
+    const index = cols[0]
+    if (index === undefined || !/^\d+$/.test(index)) continue
+    gpus.push({
+      id: index,
+      name: cols[1] || `NVIDIA ${index}`,
+      vendor: 'nvidia',
+      utilPct: parseOptionalNumber(cols[3]),
+      memUsedMiB: parseOptionalNumber(cols[4]),
+      memTotalMiB: parseOptionalNumber(cols[5]),
+      powerW: parseOptionalNumber(cols[6]),
+      freqMHz: parseOptionalNumber(cols[7]),
+    })
+  }
+  return gpus
+}
+
+/**
+ * `xpu-smi discovery --dump 1,2,16` — Device ID, Device Name, Memory Physical Size.
+ * Memory may be `N/A` on some iGPUs.
+ */
+export function parseXpuSmiDiscoveryCsv(output: string): Map<string, IntelCatalogEntry> {
+  const catalog = new Map<string, IntelCatalogEntry>()
+  const lines = output
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const start = lines.findIndex((line) => /device\s*id/i.test(line))
+  const rows = start >= 0 ? lines.slice(start + 1) : lines
+  for (const line of rows) {
+    const cols = splitCsvLine(line)
+    const id = cols[0]
+    if (id === undefined || !/^\d+$/.test(id)) continue
+    const sizeRaw = cols[2] ?? ''
+    const sizeMatch = sizeRaw.match(/([\d.]+)/)
+    const unit = sizeRaw.toLowerCase()
+    let memTotalMiB: number | undefined
+    if (sizeMatch) {
+      const n = Number.parseFloat(sizeMatch[1] ?? '')
+      if (Number.isFinite(n)) {
+        memTotalMiB = unit.includes('gi') || unit.includes('gb') ? n * 1024 : n
+      }
+    }
+    catalog.set(id, { name: cols[1] || `Intel GPU ${id}`, memTotalMiB })
+  }
+  return catalog
+}
+
+/**
+ * One or more `xpu-smi dump` CSV rows. Header names vary slightly by version;
+ * columns are matched by name, not position, except DeviceId.
+ */
+export function parseXpuSmiDumpCsv(
+  output: string,
+  catalog?: Map<string, IntelCatalogEntry>,
+): GpuSample[] {
+  const lines = output
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const headerIndex = lines.findIndex((line) => /deviceid/i.test(line.replace(/\s/g, '')))
+  if (headerIndex < 0) return []
+  const headers = splitCsvLine(lines[headerIndex] ?? '').map((h) => h.toLowerCase())
+  const idx = (match: RegExp) => headers.findIndex((h) => match.test(h))
+  const deviceIdx = idx(/device\s*id/)
+  const utilIdx = idx(/gpu utilization/)
+  const powerIdx = idx(/gpu power/)
+  const freqIdx = idx(/gpu frequency/)
+  const memUtilIdx = idx(/memory utilization/)
+  const memUsedIdx = idx(/memory used/)
+
+  const byId = new Map<string, GpuSample>()
+  for (const line of lines.slice(headerIndex + 1)) {
+    const cols = splitCsvLine(line)
+    const id = deviceIdx >= 0 ? cols[deviceIdx] : undefined
+    if (id === undefined || !/^\d+$/.test(id)) continue
+    const entry = catalog?.get(id)
+    const memUsedMiB = memUsedIdx >= 0 ? parseOptionalNumber(cols[memUsedIdx]) : undefined
+    const memUtilPct = memUtilIdx >= 0 ? parseOptionalNumber(cols[memUtilIdx]) : undefined
+    const memTotalFromUtil =
+      memUsedMiB !== undefined && memUtilPct !== undefined && memUtilPct > 0
+        ? (memUsedMiB / memUtilPct) * 100
+        : undefined
+    byId.set(id, {
+      id,
+      name: entry?.name ?? `Intel GPU ${id}`,
+      vendor: 'intel',
+      utilPct: utilIdx >= 0 ? parseOptionalNumber(cols[utilIdx]) : undefined,
+      memUsedMiB,
+      memTotalMiB: entry?.memTotalMiB ?? memTotalFromUtil,
+      freqMHz: freqIdx >= 0 ? parseOptionalNumber(cols[freqIdx]) : undefined,
+      powerW: powerIdx >= 0 ? parseOptionalNumber(cols[powerIdx]) : undefined,
+    })
+  }
+  return [...byId.values()]
+}
+
+export function computeWindowSince(sinceMs: number, hint?: string): ComputeWindowStats {
+  return summarizeWindow(
+    samples.filter((sample) => sample.ts >= sinceMs),
+    hint,
+  )
+}
+
+async function tryRun(command: string, args: string[], timeoutMs: number): Promise<string | null> {
+  try {
+    return await runner()(command, args, timeoutMs)
+  } catch {
+    return null
+  }
+}
+
+function nvidiaBin(): string {
+  return process.platform === 'win32' ? 'nvidia-smi.exe' : 'nvidia-smi'
+}
+
+function xpuBin(): string | null {
+  if (options.xpuSmiPath) return options.xpuSmiPath
+  if (process.platform === 'linux') return 'xpu-smi'
+  return null
+}
+
+async function nvidiaGpus(): Promise<GpuSample[]> {
+  const out = await tryRun(
+    nvidiaBin(),
+    [`--query-gpu=${NVIDIA_QUERY}`, '--format=csv,noheader,nounits'],
+    NVIDIA_TIMEOUT_MS,
+  )
+  return out ? parseNvidiaSmiCsv(out) : []
+}
+
+async function ensureIntelCatalog(bin: string): Promise<Map<string, IntelCatalogEntry>> {
+  if (intelCatalog) return intelCatalog
+  if (intelCatalogAttempted) return intelCatalog ?? new Map()
+  intelCatalogAttempted = true
+  const out = await tryRun(bin, ['discovery', '--dump', '1,2,16'], DISCOVERY_TIMEOUT_MS)
+  intelCatalog = out ? parseXpuSmiDiscoveryCsv(out) : new Map()
+  return intelCatalog
+}
+
+async function intelGpus(): Promise<GpuSample[]> {
+  const bin = xpuBin()
+  if (!bin) return []
+  const catalog = await ensureIntelCatalog(bin)
+  const out = await tryRun(
+    bin,
+    ['dump', '-d', '-1', '-m', '0,1,2,5,18', '-n', '1', '-i', '1'],
+    XPU_DUMP_TIMEOUT_MS,
+  )
+  return out ? parseXpuSmiDumpCsv(out, catalog) : []
+}
+
+function mergeGpus(nvidia: GpuSample[], intel: GpuSample[]): GpuSample[] {
+  if (nvidia.length === 0) return intel
+  if (intel.length === 0) return nvidia
+  return [...nvidia, ...intel]
+}
+
+function sourceOf(nvidia: GpuSample[], intel: GpuSample[]): ComputeSnapshot['source'] {
+  if (nvidia.length > 0 && intel.length > 0) return 'mixed'
+  if (nvidia.length > 0) return 'nvidia-smi'
+  if (intel.length > 0) return 'xpu-smi'
+  return 'host'
+}
+
+export async function collectComputeSnapshot(): Promise<ComputeSnapshot> {
+  const [nvidia, intel] = await Promise.all([nvidiaGpus(), intelGpus()])
+  const snapshot: ComputeSnapshot = {
+    ts: nowMs(),
+    source: sourceOf(nvidia, intel),
+    host: hostMemorySnapshot(),
+    gpus: mergeGpus(nvidia, intel),
+  }
+  return snapshot
+}
+
+async function tick(): Promise<void> {
+  if (inFlight) return
+  inFlight = true
+  try {
+    const snapshot = await collectComputeSnapshot()
+    pushSample(snapshot)
+    sink?.(snapshot)
+  } catch (error) {
+    logger.warn(`sample failed: ${error}`, LOG_SOURCE)
+  } finally {
+    inFlight = false
+  }
+}
+
+export function startComputeMetricsSampler(next: ComputeMetricsOptions = {}): void {
+  options = next
+  if (timer) return
+  void tick()
+  timer = setInterval(() => void tick(), next.intervalMs ?? DEFAULT_INTERVAL_MS)
+  timer.unref?.()
+}
+
+export function stopComputeMetricsSampler(): void {
+  if (timer) {
+    clearInterval(timer)
+    timer = null
+  }
+  inFlight = false
+}
+
+export function computeAttributes(
+  stats: ComputeWindowStats,
+  includeGpu: boolean,
+): Record<string, number | string> {
+  const attrs: Record<string, number | string> = {}
+  if (stats.hostMemLastMiB !== undefined)
+    attrs['aipg.host.mem_used_mib'] = round1(stats.hostMemLastMiB)
+  if (stats.hostMemPeakMiB !== undefined)
+    attrs['aipg.host.mem_peak_mib'] = round1(stats.hostMemPeakMiB)
+  if (stats.hostMemTotalMiB !== undefined)
+    attrs['aipg.host.mem_total_mib'] = round1(stats.hostMemTotalMiB)
+  if (!includeGpu) return attrs
+  if (stats.gpuName) attrs['aipg.gpu.name'] = stats.gpuName
+  if (stats.gpuUtilLastPct !== undefined) attrs['aipg.gpu.util_pct'] = round1(stats.gpuUtilLastPct)
+  if (stats.gpuUtilPeakPct !== undefined)
+    attrs['aipg.gpu.util_peak_pct'] = round1(stats.gpuUtilPeakPct)
+  if (stats.gpuMemLastMiB !== undefined)
+    attrs['aipg.gpu.mem_used_mib'] = round1(stats.gpuMemLastMiB)
+  if (stats.gpuMemPeakMiB !== undefined)
+    attrs['aipg.gpu.mem_peak_mib'] = round1(stats.gpuMemPeakMiB)
+  if (stats.gpuMemTotalMiB !== undefined)
+    attrs['aipg.gpu.mem_total_mib'] = round1(stats.gpuMemTotalMiB)
+  return attrs
+}
+
+export function computeMetadata(
+  stats: ComputeWindowStats,
+  includeGpu: boolean,
+): Record<string, number> {
+  const attrs: Record<string, number> = {}
+  if (stats.hostMemPeakMiB !== undefined) attrs.hostMemPeakMib = round1(stats.hostMemPeakMiB)
+  if (includeGpu && stats.gpuUtilPeakPct !== undefined)
+    attrs.gpuUtilPeak = round1(stats.gpuUtilPeakPct)
+  if (includeGpu && stats.gpuMemPeakMiB !== undefined)
+    attrs.gpuMemPeakMib = round1(stats.gpuMemPeakMiB)
+  return attrs
+}
+
+function round1(value: number): number {
+  return Math.round(value * 10) / 10
+}

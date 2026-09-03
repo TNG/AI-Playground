@@ -24,12 +24,49 @@ host-RAM-only snapshot.
 
 ## Sources
 
-| Vendor / OS    | Probe                                                                                       | Notes                                                                                   |
-| -------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| Host (all)     | `os.totalmem` / `os.freemem`                                                                | Always present. On Intel iGPU, "vRAM" is stolen from this pool.                         |
-| NVIDIA         | `nvidia-smi --query-gpu=… --format=csv,noheader,nounits`                                    | Same binary already used for discovery. Instant.                                        |
-| Intel, Windows | bundled `xpu-smi.exe`; device list from `discovery -j`, sampling command by dialect (below) | Windows has no `xpu-smi` on `PATH`; without the bundled binary there is no Intel probe. |
-| Intel, Linux   | `xpu-smi` on `PATH` if the user installed XPU Manager; same detection                       | Not bundled today (Linux discovery still uses `lspci`). Without it, GPU rows are empty. |
+| Vendor / OS      | Probe                                                                                        | Notes                                                                                        |
+| ---------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Host (all)       | `os.totalmem` / `os.freemem`                                                                 | Always present. On Intel iGPU, most GPU memory is stolen from this pool (shared).            |
+| Windows GPUs     | DXGI `GetDesc1` + PDH `\GPU Adapter Memory(*)` / `\GPU Engine(*)` via `koffi` (`dxgi`/`pdh`) | Same VidMm counters Task Manager reads. Memory used/total come from here, not from xpu-smi.  |
+| NVIDIA (extra)   | `nvidia-smi --query-gpu=… --format=csv,noheader,nounits`                                     | Power / clocks overlay; memory still WDDM on Windows.                                        |
+| Intel SMI extra  | bundled `xpu-smi.exe` (Windows) or `xpu-smi` on `PATH` (Linux)                               | Power / freq / fallback when WDDM is missing. Do not trust its `memory.total` on Intel iGPU. |
+| Intel, Linux GPU | `xpu-smi` if XPU Manager is installed                                                        | No WDDM. Not bundled today (Linux discovery still uses `lspci`).                             |
+
+### Windows: Task Manager (WDDM), not xpu-smi
+
+xpu-smi (including 2.1.0) reports a board-firmware memory size that is wrong on
+Intel iGPU — Arc B390's carve-out is tiny; the working set lives in **shared**
+VidMm, which is what Task Manager shows. `torch.xpu.mem_get_info()` raises on
+that device. WMI `AdapterRAM` is a 32-bit field. DXGI
+`QueryVideoMemoryInfo` is **this process only**.
+
+Windows sampling talks to the same two APIs Task Manager uses, from Electron
+main, through `koffi` (already used for `user32` / `Shell32`):
+
+| Value           | API                                            | What                                             |
+| --------------- | ---------------------------------------------- | ------------------------------------------------ |
+| Dedicated used  | PDH `\GPU Adapter Memory(*)\Dedicated Usage`   | bytes, English path (`PdhAddEnglishCounterW`)    |
+| Shared used     | PDH `\GPU Adapter Memory(*)\Shared Usage`      | bytes                                            |
+| GPU util        | PDH `\GPU Engine(*)\Utilization Percentage`    | max engine, same as Task Manager's default graph |
+| Dedicated total | DXGI `DXGI_ADAPTER_DESC1.DedicatedVideoMemory` | bytes                                            |
+| Shared total    | DXGI `DXGI_ADAPTER_DESC1.SharedSystemMemory`   | bytes                                            |
+
+PDH instance names are `luid_0x{High}_0x{Low}_phys_N`. DXGI `AdapterLuid` is
+the join key. Software / Basic Render adapters are skipped.
+
+Roll-up for the existing `memUsedMiB` / `memTotalMiB` fields (chip, traces):
+
+- **Discrete** (dedicated capacity ≥ 3 GiB): dedicated only.
+- **iGPU**: dedicated + shared, so the chip matches Task Manager's combined GPU
+  memory rather than the 128 MiB carve-out xpu-smi calls "max".
+
+The tooltip still lists dedicated and shared separately. xpu-smi / nvidia-smi
+still run and overlay power, frequency, and util-if-WDDM-missed; they must not
+overwrite WDDM memory.
+
+The PDH query stays open for the sampler lifetime (engine util is a rate
+counter — the first collect only arms it). A COM/PDH failure never fails a
+turn; the sampler falls back to SMI or host RAM.
 
 NPU has no util/memory probe here. Cloud turns still record **host** RAM but
 omit GPU attributes — the serving GPU is not this machine.
@@ -113,5 +150,6 @@ the trace context), else the card with the highest memory used.
   also removes the per-device call this now makes on a multi-GPU box.
 - Backend-owned numbers: llama.cpp `/slots` KV bytes, ComfyUI's own VRAM
   estimate — complementary to board-level SMI, not a replacement.
-- Per-process GPU memory (needs `cap_perfmon` / admin on Intel) to split LLM vs
-  ComfyUI on the same card.
+- Per-process GPU memory: PDH `\GPU Process Memory(*)\Dedicated Usage` (needs
+  `cap_perfmon` / admin on some Intel setups) to split LLM vs ComfyUI.
+- Linux iGPU: drm/sysfs client memory so Linux is not stuck on xpu-smi totals.

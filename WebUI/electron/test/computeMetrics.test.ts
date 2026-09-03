@@ -198,6 +198,41 @@ describe('sampler', () => {
     expect(snapshots[0]?.gpus).toEqual([])
   })
 
+  it('uses WDDM dedicated/shared memory when that probe returns a row', async () => {
+    const snapshots: ComputeSnapshot[] = []
+    setComputeMetricsSink((s) => snapshots.push(s))
+    startComputeMetricsSampler({
+      intervalMs: 60_000,
+      runCommand: async () => {
+        throw new Error('no smi')
+      },
+      collectWddm: () => [
+        {
+          id: '0',
+          name: 'Intel(R) Arc(TM) B390 GPU',
+          vendor: 'intel',
+          dedicatedUsedMiB: 80,
+          dedicatedTotalMiB: 128,
+          sharedUsedMiB: 4000,
+          sharedTotalMiB: 16384,
+          memUsedMiB: 4080,
+          memTotalMiB: 16512,
+          utilPct: 22,
+        },
+      ],
+    })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    stopComputeMetricsSampler()
+    expect(snapshots[0]?.source).toBe('wddm')
+    expect(snapshots[0]?.gpus[0]).toMatchObject({
+      name: 'Intel(R) Arc(TM) B390 GPU',
+      memUsedMiB: 4080,
+      memTotalMiB: 16512,
+      dedicatedTotalMiB: 128,
+      sharedUsedMiB: 4000,
+    })
+  })
+
   it('windows samples from a start timestamp', () => {
     recordComputeSnapshotForTests({
       ts: 1000,

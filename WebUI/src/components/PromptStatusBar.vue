@@ -410,7 +410,20 @@ const computeChip = computed(() => {
   if (gpu?.memUsedMiB != null) {
     const total = gpu.memTotalMiB != null ? ` / ${formatMib(gpu.memTotalMiB)}` : ''
     const name = gpu.name ? ` · ${gpu.name}` : ''
-    detail.push(`${formatMib(gpu.memUsedMiB)}${total} vRAM${name}`)
+    const hasWddm = gpu.dedicatedTotalMiB != null || gpu.sharedTotalMiB != null
+    detail.push(`${formatMib(gpu.memUsedMiB)}${total} GPU memory${name}`)
+    if (hasWddm) {
+      if (gpu.dedicatedUsedMiB != null || gpu.dedicatedTotalMiB != null) {
+        detail.push(
+          `${formatMib(gpu.dedicatedUsedMiB ?? 0)}${gpu.dedicatedTotalMiB != null ? ` / ${formatMib(gpu.dedicatedTotalMiB)}` : ''} dedicated`,
+        )
+      }
+      if (gpu.sharedUsedMiB != null || gpu.sharedTotalMiB != null) {
+        detail.push(
+          `${formatMib(gpu.sharedUsedMiB ?? 0)}${gpu.sharedTotalMiB != null ? ` / ${formatMib(gpu.sharedTotalMiB)}` : ''} shared`,
+        )
+      }
+    }
   }
   if (gpu?.utilPct != null) detail.push(`${formatPct(gpu.utilPct)} GPU`)
   if (gpu?.freqMHz != null) detail.push(`${Math.round(gpu.freqMHz)} MHz`)

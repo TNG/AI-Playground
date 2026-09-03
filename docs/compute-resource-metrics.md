@@ -19,8 +19,10 @@ consumers:
    message footer, both gated by Chat Settings → Metrics (the same toggle as
    tokens/s).
 
-A probe failure never fails a turn. Missing `nvidia-smi` / `xpu-smi` yields a
-host-RAM-only snapshot.
+A probe failure never fails a turn. On Windows, missing vendor SMI still leaves
+DXGI/PDH; missing WDDM suppresses utilization rather than substituting a known
+incorrect vendor value. If every GPU probe is missing, the snapshot has host
+RAM only.
 
 ## Sources
 
@@ -29,7 +31,7 @@ host-RAM-only snapshot.
 | Host (all)       | `os.totalmem` / `os.freemem`                                                                 | Always present. On Intel iGPU, most GPU memory is stolen from this pool (shared).            |
 | Windows GPUs     | DXGI `GetDesc1` + PDH `\GPU Adapter Memory(*)` / `\GPU Engine(*)` via `koffi` (`dxgi`/`pdh`) | Same VidMm counters Task Manager reads. Memory used/total come from here, not from xpu-smi.  |
 | NVIDIA (extra)   | `nvidia-smi --query-gpu=… --format=csv,noheader,nounits`                                     | Power / clocks overlay; memory still WDDM on Windows.                                        |
-| Intel SMI extra  | bundled `xpu-smi.exe` (Windows) or `xpu-smi` on `PATH` (Linux)                               | Power / freq / fallback when WDDM is missing. Do not trust its `memory.total` on Intel iGPU. |
+| Intel SMI extra  | bundled `xpu-smi.exe` (Windows) or `xpu-smi` on `PATH` (Linux)                               | Power / freq / fallback memory. Windows discards its utilization; its iGPU total is suspect. |
 | Intel, Linux GPU | `xpu-smi` if XPU Manager is installed                                                        | No WDDM. Not bundled today (Linux discovery still uses `lspci`).                             |
 
 ### Windows: Task Manager (WDDM), not xpu-smi
@@ -43,13 +45,13 @@ that device. WMI `AdapterRAM` is a 32-bit field. DXGI
 Windows sampling talks to the same two APIs Task Manager uses, from Electron
 main, through `koffi` (already used for `user32` / `Shell32`):
 
-| Value           | API                                            | What                                             |
-| --------------- | ---------------------------------------------- | ------------------------------------------------ |
-| Dedicated used  | PDH `\GPU Adapter Memory(*)\Dedicated Usage`   | bytes, English path (`PdhAddEnglishCounterW`)    |
-| Shared used     | PDH `\GPU Adapter Memory(*)\Shared Usage`      | bytes                                            |
-| GPU util        | PDH `\GPU Engine(*)\Utilization Percentage`    | max engine, same as Task Manager's default graph |
-| Dedicated total | DXGI `DXGI_ADAPTER_DESC1.DedicatedVideoMemory` | bytes                                            |
-| Shared total    | DXGI `DXGI_ADAPTER_DESC1.SharedSystemMemory`   | bytes                                            |
+| Value           | API                                            | What                                                           |
+| --------------- | ---------------------------------------------- | -------------------------------------------------------------- |
+| Dedicated used  | PDH `\GPU Adapter Memory(*)\Dedicated Usage`   | bytes, English path (`PdhAddEnglishCounterW`)                  |
+| Shared used     | PDH `\GPU Adapter Memory(*)\Shared Usage`      | bytes                                                          |
+| GPU util        | PDH `\GPU Engine(*)\Utilization Percentage`    | busiest physical engine, same as Task Manager's overall figure |
+| Dedicated total | DXGI `DXGI_ADAPTER_DESC1.DedicatedVideoMemory` | bytes                                                          |
+| Shared total    | DXGI `DXGI_ADAPTER_DESC1.SharedSystemMemory`   | bytes                                                          |
 
 PDH instance names are `luid_0x{High}_0x{Low}_phys_N`. DXGI `AdapterLuid` is
 the join key. Software / Basic Render adapters are skipped.
@@ -61,12 +63,17 @@ Roll-up for the existing `memUsedMiB` / `memTotalMiB` fields (chip, traces):
   memory rather than the 128 MiB carve-out xpu-smi calls "max".
 
 The tooltip still lists dedicated and shared separately. xpu-smi / nvidia-smi
-still run and overlay power, frequency, and util-if-WDDM-missed; they must not
-overwrite WDDM memory.
+still run and overlay power and frequency; they must not overwrite WDDM memory
+or utilization. If WDDM is unavailable on Windows, vendor memory can remain as
+a fallback, but utilization is omitted rather than presenting the known-wrong
+xpu-smi value.
 
 The PDH query stays open for the sampler lifetime (engine util is a rate
-counter — the first collect only arms it). A COM/PDH failure never fails a
-turn; the sampler falls back to SMI or host RAM.
+counter — the first collect only arms it). `GPU Engine` rows are process
+contexts (`pid_…_luid_…_phys_…_eng_…`), not already-aggregated adapters. The
+sampler sums contexts belonging to the same physical engine, then reports the
+busiest engine for each adapter. Taking the largest individual row would
+undercount an engine shared by the app, compositor, and other processes.
 
 NPU has no util/memory probe here. Cloud turns still record **host** RAM but
 omit GPU attributes — the serving GPU is not this machine.

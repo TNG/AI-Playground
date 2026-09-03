@@ -1,4 +1,4 @@
-import koffi from 'koffi'
+import koffi, { type TypeObject } from 'koffi'
 import { appLoggerInstance } from './logging/logger.ts'
 import type { GpuSample } from '@/types/computeMetrics.ts'
 import {
@@ -36,10 +36,10 @@ type DxgiAdapter = {
 type Native = {
   CreateDXGIFactory1: (riid: object, ppFactory: unknown[]) => number
   IID_IDXGIFactory1: object
-  EnumAdapters1: unknown
-  GetDesc1: unknown
-  Release: unknown
-  DXGI_ADAPTER_DESC1: unknown
+  EnumAdapters1: TypeObject
+  GetDesc1: TypeObject
+  Release: TypeObject
+  DXGI_ADAPTER_DESC1: TypeObject
   PdhOpenQueryW: (src: unknown, user: number, out: unknown[]) => number
   PdhAddEnglishCounterW: (query: unknown, path: string, user: number, out: unknown[]) => number
   PdhCollectQueryData: (query: unknown) => number
@@ -51,7 +51,7 @@ type Native = {
     buffer: unknown,
   ) => number
   PdhCloseQuery: (query: unknown) => number
-  PDH_FMT_COUNTERVALUE_ITEM_W: unknown
+  PDH_FMT_COUNTERVALUE_ITEM_W: TypeObject
 }
 
 type PdhQuery = {

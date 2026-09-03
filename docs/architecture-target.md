@@ -123,7 +123,7 @@ flowchart TD
   subgraph kernel["Kernel (main process, no Vue)"]
     orch["Orchestrator: queue, backend pick, GPU / VRAM"]
     text["Text: streamChat, transcribe, speak"]
-    mediaCap["Generate: image, video, 3D, speech clip"]
+    artifact["Artifact: image, video, 3D, speech clip"]
     support["Backends, Models, Permissions, Activities, Errors"]
   end
 
@@ -146,13 +146,13 @@ flowchart TD
   hidden --> orch
 
   orch --> text
-  orch --> mediaCap
+  orch --> artifact
   orch --> support
 
   text --> inference
   text --> speech
-  mediaCap --> comfy
-  mediaCap --> speech
+  artifact --> comfy
+  artifact --> speech
   support --> store
 
   kernel -->|"events"| projection
@@ -177,7 +177,7 @@ A capability is a stable operation surface — not a Pi extension and not an AI 
 two are _projections_ of a capability onto a model, and they are the thinnest possible layer:
 schema, argument mapping, result shaping.
 
-### 4.1 Generate (artifacts)
+### 4.1 Artifact
 
 This is "produce a file the user keeps": an image, an edited image, a video, a 3D model, **or a
 speech clip**. The MIME type is not the capability. ComfyUI is one adapter; the TTS engines are
@@ -186,7 +186,7 @@ another. Both answer `run`.
 ```ts
 type ArtifactKind = 'create-image' | 'edit-image' | 'create-video' | 'create-3d' | 'create-speech'
 
-type GenerateRequest = {
+type ArtifactRequest = {
   kind: ArtifactKind
   workflow?: string // Comfy preset id; omitted for speech, which is not a Comfy workflow
   prompt?: string
@@ -194,9 +194,9 @@ type GenerateRequest = {
   params: MediaParams // seed/size/steps *or* voice/language/instruct
 }
 
-type GenerateCapability = {
+type ArtifactCapability = {
   listWorkflows(filter?: { kind?: ArtifactKind }): WorkflowInfo[]
-  run(request: GenerateRequest, ctx: RunContext): Promise<MediaResult>
+  run(request: ArtifactRequest, ctx: RunContext): Promise<ArtifactResult>
   cancel(runId: string): void
 }
 ```
@@ -207,8 +207,8 @@ TTS *felt* media-esque. It is not how the mic or "Speak replies" work; those are
 
 GPU handoff for Comfy kinds is an orchestrator concern, not `run`'s. Speech-clip generation usually
 does **not** require swapping the LLM off the GPU (today OVMS keeps the speech sub-server up while
-chat stops; Qwen3-TTS is its own sidecar). The orchestrator knows that per adapter; generate does
-not.
+chat stops; Qwen3-TTS is its own sidecar). The orchestrator knows that per adapter; `artifact.run`
+does not.
 
 What this deletes for Comfy kinds: the save/mutate/restore block in `tools/comfyUi.ts`, the
 `switchPreset` round trip, and `setModeOnly`.
@@ -254,22 +254,22 @@ model factory is the pattern to invert: the turn decides its configuration once,
 ```
 kernel/
   text/           # streamChat, ensureReady, speech I/O
-  generate/       # run(image|video|3d|speech-clip)
+  artifact/       # run(image|video|3d|speech-clip)
   orchestrator/
   backends/
   permissions/
 adapters/
   llamaCpp / ovms / cloud
   comfy
-  speech          # whisper, qwen3-tts, kokoro, external — used by text.speech *and* generate
+  speech          # whisper, qwen3-tts, kokoro, external — used by text.speech *and* artifact
 ```
 
 Putting `audio/` next to `media/` made the engine look like a product surface. It is not. Video is
-a generate kind; a spoken reply is text I/O; a saved WAV is generate using the speech adapter.
+an artifact kind; a spoken reply is text I/O; a saved WAV is an artifact that uses the speech adapter.
 
 ### 4.4 Orchestrator
 
-This is the piece that only exists once text and generate share a process. Today the same job is
+This is the piece that only exists once text and artifact share a process. Today the same job is
 smeared across three places that cannot see each other:
 
 - `tools/mediaPipeline.ts` — two serial lanes (one per delegated `media` request, one per ComfyUI
@@ -284,9 +284,9 @@ After the move, every driver submits a request to one scheduler:
 ```ts
 type KernelRequest =
   | { kind: 'text'; req: ChatRequest }
-  | { kind: 'generate'; req: GenerateRequest }
+  | { kind: 'artifact'; req: ArtifactRequest }
   // speech I/O is not a third kind: transcribe/speak ride on a text turn, or are
-  // generate(create-speech) when the user asked for a file.
+  // artifact(create-speech) when the user asked for a file.
 
 type Orchestrator = {
   submit(request: KernelRequest, ctx: RunContext): Promise<unknown>
@@ -325,7 +325,7 @@ There is no silent auto-allow; there is prompt-once, remember, or pre-grant. See
 
 ```mermaid
 flowchart LR
-  gen["Generate.run"]
+  gen["Artifact.run"]
   speech["Text.speech"]
   comfyTools["comfyUI / editImage / media tools"]
   ttsTool["synthesizeTextToSpeech"]
@@ -532,7 +532,7 @@ sequenceDiagram
   K-->>M: chunks
   M->>O: submit(media)
   Note over O: nested turn — swap LLM off GPU if needed
-  O->>K: media.run
+  O->>K: artifact.run
   K-->>M: progress + result
   M-->>P: events (IPC)
   P-->>V: reactive projection
@@ -578,7 +578,7 @@ flowchart TD
 | Step | Done when                                                                                  | Shippable alone |
 | ---- | ------------------------------------------------------------------------------------------ | --------------- |
 | 1    | `tools/comfyUi.ts` has no `switchPreset` and no save/restore block; UI and tools call `run` | yes             |
-| 2    | `transcribeAudio` / speak-replies import no TTS/STT store; same speech adapter as generate   | yes             |
+| 2    | `transcribeAudio` / speak-replies import no TTS/STT store; same speech adapter as artifact  | yes             |
 | 3    | no `useDialogStore()` inside inference/download; grants are a reviewable list               | yes             |
 | 4    | `capabilities/media.ts` no longer calls `executeToolInRenderer`                             | yes             |
 | 5    | renderer has no `streamText`; a turn survives with the window hidden                        | no, needs 1–4   |

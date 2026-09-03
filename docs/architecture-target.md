@@ -2,7 +2,7 @@
 
 **Status: draft for discussion. Nothing here is implemented.** This is a map of where the app is
 today, where we want it, and the order in which we could get there. It exists to be argued with —
-see [§10 Open questions](#10-open-questions-decisions-we-owe-ourselves).
+see [§10 Decisions](#10-decisions).
 
 ## 0. How to read and edit this
 
@@ -117,32 +117,38 @@ flowchart TD
     chatTools["Chat tool calls"]
     agent["Agent Mode (Pi)"]
     ha["Home Agent channels"]
-    cli["Headless / CLI (later)"]
+    hidden["Hidden window / headless"]
   end
 
   subgraph kernel["Kernel (main process, no Vue)"]
+    orch["Orchestrator: queue, backend pick, GPU / VRAM"]
     text["Text: ensureReady, streamChat"]
     mediaCap["Media: listWorkflows, run, cancel"]
     audioCap["Audio: synthesize, transcribe"]
-    support["Backends + GPU lease, Models, Confirm, Activities, Errors"]
+    support["Backends, Models, Permissions, Activities, Errors"]
   end
 
   subgraph adapters["Adapters"]
     inference["llama.cpp / OVMS / cloud HTTP"]
     comfy["ComfyUI HTTP + WS"]
-    store["Settings, model catalog, session files"]
+    store["settings.json + user-data files"]
   end
 
   subgraph view["Renderer — view only"]
     projection["Projections: messages, media items, service status"]
-    uiState2["UI state: current view, sidebars, dialogs"]
+    uiState2["UI state: current view, sidebars, dialogs, active preset"]
   end
 
-  ui --> kernel
-  chatTools --> kernel
-  agent --> kernel
-  ha --> kernel
-  cli --> kernel
+  ui --> orch
+  chatTools --> orch
+  agent --> orch
+  ha --> orch
+  hidden --> orch
+
+  orch --> text
+  orch --> mediaCap
+  orch --> audioCap
+  orch --> support
 
   text --> inference
   mediaCap --> comfy
@@ -153,12 +159,15 @@ flowchart TD
   projection --> uiState2
 ```
 
-Three rules make the picture real:
+Four rules make the picture real:
 
-1. A **driver** turns intent into a typed request and hands it to a capability. It never talks to
+1. A **driver** turns intent into a typed request and hands it to the kernel. It never talks to
    ComfyUI, llama.cpp or the service registry.
-2. A **capability** never reads or writes UI state. It emits events; the view decides what to paint.
-3. The **renderer** subscribes and renders. It owns what to show, not what to run.
+2. The **orchestrator** is the only thing that decides *when* a request runs and *which* backend is
+   loaded for it. Capabilities do the work; they do not start each other's processes.
+3. A **capability** never reads or writes UI state. It emits events; the view decides what to paint.
+4. The **renderer** subscribes and renders. It owns what to show, not what to run. Headless, for
+   now, is the same renderer with the window hidden — Chromium stays, Vue does not own the run.
 
 ---
 
@@ -189,13 +198,14 @@ type MediaCapability = {
 }
 ```
 
-`RunContext` carries the abort signal, a `confirm` handle (weights download, gated HF repo, VRAM
-warning) and the originator (`ui | chat-tool | agent | home-agent`) for tracing and GPU policy.
+`RunContext` carries the abort signal, a handle into **Permissions** (weights download, gated HF
+repo, VRAM warning) and the originator (`ui | chat-tool | agent | home-agent`) for tracing.
 
 What this deletes: the save/mutate/restore block in `tools/comfyUi.ts`, the `switchPreset` round
 trip, and `setModeOnly`. The GPU handoff currently in `tools/chatBackends.ts` (`stopChatBackends` /
-`returnGpuToChat`) moves _inside_ the media implementation — a tool has no business knowing that
-llama.cpp must die before ComfyUI can start.
+`returnGpuToChat`) does **not** move into the media capability — it becomes a request the
+orchestrator satisfies. A tool has no business knowing that llama.cpp must die before ComfyUI can
+start, and neither does `media.run` itself.
 
 ### 4.2 Audio
 
@@ -223,20 +233,60 @@ type TextCapability = {
 _inputs_. Nothing inside reads Pinia. `src/lib/chatModel.ts` calling `useTextInference()` inside the
 model factory is the pattern to invert: the turn decides its configuration once, then passes it.
 
-### 4.4 Supporting surfaces
+### 4.4 Orchestrator
 
-| Surface        | Owns                                                        | Replaces today                                            |
-| -------------- | ----------------------------------------------------------- | --------------------------------------------------------- |
-| `Backends`     | start/stop/setup, device selection, the single GPU lease     | `backendServices` + `tools/chatBackends.ts`                |
-| `Models`       | catalog, "is it on disk", download with progress             | `models` store + parts of `modelLibrary`                   |
-| `Confirm`      | ask a human: download, gated repo, VRAM warning              | direct `useDialogStore()` calls inside inference paths     |
-| `Activities`   | what the app is busy with                                    | `store/activities.ts` (already the right shape)            |
-| `Errors`       | typed failures and how they surface                          | `store/errors.ts` (already the right shape)                |
+This is the piece that only exists once text, media and audio share a process. Today the same job is
+smeared across three places that cannot see each other:
 
-`Confirm` is the one that unblocks headless: adapters are the modal dialog, an in-channel yes/no
-(Home Agent already implements this), auto-allow for CI, and stdin for a CLI.
+- `tools/mediaPipeline.ts` — two serial lanes (one per delegated `media` request, one per ComfyUI
+  run) so parallel tool calls do not steal each other's preset and items.
+- `tools/chatBackends.ts` — `stopChatBackends` / `returnGpuToChat`, plus `comfyRunsWaiting()` so a
+  spritesheet does not swap the LLM off the GPU once per sprite when Keep Models Loaded is off.
+- `ensureBackendReadiness` — start the right server and load the right model, with no knowledge of
+  what else is queued.
 
-### 4.5 Projections
+After the move, every driver submits a request to one scheduler:
+
+```ts
+type KernelRequest =
+  | { kind: 'text'; req: ChatRequest }
+  | { kind: 'media'; req: MediaRequest }
+  | { kind: 'audio'; req: AudioRequest }
+
+type Orchestrator = {
+  submit(request: KernelRequest, ctx: RunContext): Promise<unknown>
+  cancel(runId: string): void
+  // events: queued | backend-change | running | done
+}
+```
+
+What it knows: incoming requests from every driver, which backends are installed, what is loaded
+right now, the selected device and a coarse VRAM budget, Keep Models Loaded, and the permission
+grants that apply. What it decides: queue vs start, whether this request needs a backend swap (LLM
+off for ComfyUI, ComfyUI off for a chat turn), whether to skip the reload because more media is
+waiting, and when a download/VRAM warning has to go through Permissions before work starts.
+
+Fairness can stay simple at first (FIFO, media nested inside a chat/agent turn stays with that
+turn). The important part is that the policy lives in one function instead of in the tools.
+
+### 4.5 Supporting surfaces
+
+| Surface        | Owns                                                                 | Replaces today                                            |
+| -------------- | -------------------------------------------------------------------- | --------------------------------------------------------- |
+| `Backends`     | start/stop/setup, device selection — the verbs the orchestrator uses | `backendServices` + service registry                      |
+| `Models`       | catalog, "is it on disk", download with progress                     | `models` store + parts of `modelLibrary`                   |
+| `Permissions`  | ask, remember, pre-grant: download, gated repo, VRAM, pref changes   | `useDialogStore()` inside inference; Home Agent confirms   |
+| `Activities`   | what the app is busy with                                            | `store/activities.ts` (already the right shape)            |
+| `Errors`       | typed failures and how they surface                                  | `store/errors.ts` (already the right shape)                |
+
+**Permissions** is the consent layer. A capability (or the orchestrator, for a backend swap that
+needs a download) calls `permissions.request(action)`. Adapters: modal dialog in the desktop UI,
+in-channel yes/no on Home Agent (already exists for settings and downloads), and a **grant list**
+the user can review and pre-fill so an agentic or channel-driven task does not stall on a prompt
+nobody is looking at. Hidden-window / headless still has a user — they are just not in this window.
+There is no silent auto-allow; there is prompt-once, remember, or pre-grant. See §10.4–10.5.
+
+### 4.6 Projections
 
 ```mermaid
 flowchart LR
@@ -262,17 +312,18 @@ ways of hanging them on a model.
 
 ## 5. Drivers
 
-| Driver             | Supplies                                             | Runs in         | Needs Chromium? |
-| ------------------ | ---------------------------------------------------- | --------------- | --------------- |
-| Desktop UI         | form values, active preset, user intent               | renderer        | yes, it is the UI |
-| Chat tool calls    | model-chosen arguments against a JSON schema          | main (after §7) | no              |
-| Agent Mode (Pi)    | same, through Pi tool definitions                     | main            | no              |
-| Home Agent         | channel message, `/imgGen` picks, in-channel confirms | main (after §7) | no              |
-| Headless / CLI     | scripted requests                                     | main or Node    | no              |
+| Driver             | Supplies                                             | Runs in         | Needs a window?      |
+| ------------------ | ---------------------------------------------------- | --------------- | -------------------- |
+| Desktop UI         | form values, active preset, user intent               | renderer        | yes, it is the UI    |
+| Chat tool calls    | model-chosen arguments against a JSON schema          | main (after §7) | no                   |
+| Agent Mode (Pi)    | same, through Pi tool definitions                     | main            | no                   |
+| Home Agent         | channel message, `/imgGen` picks, in-channel confirms | main (after §7) | no                   |
+| Hidden window      | same kernel as desktop; BrowserWindow not shown       | renderer+main   | Chromium, not a view |
 
-Two tools genuinely need the window and should stay bridged: window screenshot capture and in-page
-web browsing/debugging, both of which drive a real `BrowserWindow`. Everything else crossing that
-bridge today is doing so because of where the stores are.
+Two tools genuinely need Chromium and should stay bridged: window screenshot capture and in-page
+web browsing/debugging, both of which drive a real `BrowserWindow`. A hidden window still provides
+that. Everything else crossing the bridge today is doing so because of where the stores are. A CLI
+with no Chromium at all is out of scope until we decide it isn't.
 
 ---
 
@@ -284,9 +335,9 @@ Classify by **who writes it** and **how long it lives**, not by which feature it
 | ------------------ | ------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------ |
 | Machine config     | `settings.json`                       | product mode, `disabledBackends`, HF endpoint, `preferredDevice`, OEM override, `showDebugSettingsInUI` | setup wizard, dev settings, hand-edit |
 | Hardware           | detected live; last choice in machine config | device lists + UUIDs, installed backend versions, VRAM gates                                       | backend adapters on probe/select |
-| User preferences   | one prefs store (renderer now, user-data file once chat moves) | theme, locale, keep-models-loaded, favorites, per-preset temperature / tools / thinking, default voice | settings UI                    |
-| App / session data | kernel memory + explicit files        | conversations, agent sessions, generated media, RAG index, loaded model, in-flight runs                 | kernel                         |
-| UI state           | Pinia, mostly unpersisted             | current view, sidebars, dialog stack, scroll, `userSelectedMode`                                        | Vue only                       |
+| User preferences   | one prefs file (see §6.1)             | theme, locale, keep-models-loaded, favorites, per-preset knobs, default voice, **default preset (`Preset \| last`)** | settings UI; agents only via Permissions |
+| App / session data | kernel memory + user-data files       | conversations, agent sessions, generated media, RAG index, loaded model, in-flight runs                 | kernel                         |
+| UI state           | Pinia, mostly unpersisted             | current view, sidebars, dialog stack, scroll, **active preset / mode for this session**                 | Vue only                       |
 
 ### Where today's fields land
 
@@ -304,12 +355,103 @@ Classify by **who writes it** and **how long it lives**, not by which feature it
 | `conversations.conversationList`                               | app data           | ditto                                                                 |
 | `agentMode.sessions`, `workspaceDir`                           | app data           | —                                                                     |
 | `agentMode.defaultCapabilities`, `planningThinkingOnly`        | user preference    | same store as the line above                                          |
-| `promptArea.currentMode`                                       | UI state           | stops being writable by capabilities                                  |
+| `promptArea.currentMode`                                       | UI state           | session-only; hydrated at startup from default-preset pref            |
 | `promptArea.userSelectedMode`                                  | UI state           | can be deleted once nothing borrows the mode                          |
+| last-used preset per category (today inside preset switching)  | user preference    | the `last` half of `defaultPreset: Preset \| last`                    |
+| active preset while the app is running                         | UI state           | not written back except as "last used" when the pref is `last`        |
 
 Rule of thumb: **if a headless run would still need it, it is not UI state**. If a fresh install
 should ship it, it is machine config. If the user chose it and would be annoyed to lose it, it is a
 preference. If the app produced it, it is app data and belongs in a file the kernel owns.
+
+The Image Gen (and Chat, Video, …) view keeps an active workflow so it has a form to render. That
+selection is UI state. On a cold start it is filled from a user preference
+`defaultPreset: <preset name> | "last"` (default `"last"`, which is what `switchToLastUsedForCategory`
+already does). After that, clicking a preset card only changes what this session shows — it does
+not change the preference unless the user edits the setting. A media tool never reads this value; it
+passes `workflow` on the request.
+
+### 6.1 User-data files — layout, performance, correctness
+
+App data should live next to the media the user can already find, not in Chromium's localStorage
+(opaque, quota-capped, the reason `generatedImages` has a serializer whose job is stripping data
+URIs) and not only in Electron `userData` (hidden, easy to lose on uninstall).
+
+We already have this split for generated output:
+
+| Path | Content |
+| ---- | ------- |
+| `~/Documents/AI-Playground/media` (Windows) / `~/AI-Playground/media` | images, video, RAG docs |
+| `…/games` | Game Agent library |
+| `…/audio` | TTS output |
+
+Conversations and agent transcripts join that tree. Machine config (`settings.json`, last GPU,
+disabled backends) stays in Electron `userData` — that is device state, not something to copy
+between machines by zipping a folder.
+
+```
+AI-Playground/
+  media/                  # already
+  games/                  # already
+  audio/                  # already
+  conversations/
+    index.json            # id, title, preset, mtime — cheap to list
+    <id>.json             # one thread, schemaVersion inside
+  agent-sessions/         # same idea; Pi's own files can stay as they are
+```
+
+User preferences that a human would want in a backup (`defaultPreset`, theme, per-preset knobs)
+can live as `AI-Playground/preferences.json`. Things a restore onto a different PC should not
+blindly apply (device ids, disabled backends) stay in `userData`.
+
+**Performance — the current store is the thing to beat, not SQLite.** Pinia persist rewrites the
+entire `conversationList` into one localStorage key on every message. One file per conversation,
+written by the kernel, is already an improvement: listing the history panel reads `index.json`,
+opening a thread reads one file, and a turn in conversation A does not rewrite B.
+
+What would actually hurt:
+
+- **Write-per-token.** Streaming a reply at 50 tok/s must not `fsync` a 2 MB JSON 50 times a
+  second. Write on turn complete, plus a periodic checkpoint during long agent turns so a crash
+  does not lose ten minutes. The in-memory projection is the live copy; the file is the durable
+  one.
+- **Loading every thread at startup.** Don't. The index is enough for the history list.
+- **Pixels in JSON.** Keep doing what `sanitizeBulkyToolOutputs` and the `generatedImages`
+  serializer already do: media is a file, the transcript holds an `aipg-media://` (or
+  workspace-relative) reference.
+- **Main-process stalls.** `JSON.stringify` of a huge thread on the main thread can hitch the
+  window. Write via a worker or after the turn, not on every IPC chunk.
+
+SQLite is already in the tree for persistent memory (`better-sqlite3` / `pi-hermes-memory`), and it
+is the right tool for *derived* work: full-text search across chats, "find this image's parent
+turn". That index is rebuildable from the files. It is not the source of truth. Mixing "the user
+opens a JSON in an editor" with "the only copy lives in a DB they cannot inspect" would undo the
+ownership argument.
+
+**Correctness — the real risks, and they are already ours:**
+
+- **Torn writes on crash.** Write to `*.json.tmp` and rename. Same trick for `index.json`.
+- **Interrupted turns.** `completeOrphanedToolParts` exists because a persisted orphaned tool call
+  bricks the thread on the next send. Files do not remove that; they make it a kernel
+  responsibility at checkpoint time, not a Pinia `afterHydrate`.
+- **One writer.** Renderer, Home Agent and Pi must not append the same file. The kernel owns the
+  files; everyone else sends events. That is the actual correctness win of the move — localStorage
+  is "one writer" only because one window exists.
+- **Demo mode.** Today `demoAwareStorage` swaps localStorage for sessionStorage. Files need a
+  session-scoped directory that is deleted on exit, not a write into the user's real library.
+- **The user editing a file while the app is running.** v1: last-write from the kernel wins; we do
+  not watch. Document it. A later watcher is possible because they are files.
+- **Schema.** Each document carries `schemaVersion`. Migrations are per-file, lazy, on read.
+- **Windows.** Antivirus briefly locking a file we just wrote; path-length; names that are not
+  legal filenames. Conversation ids are slugs (Game Agent already does this), titles stay inside
+  the JSON.
+- **HMR.** Pinia's hot-update merge has already eaten session maps. Files do not.
+- **Migration from localStorage.** One-shot, on first kernel boot that sees the old keys and no
+  `conversations/index.json`. Do not dual-write.
+
+None of that is a reason to pick SQLite as the store. It is a reason to treat the file layer as a
+real persistence adapter (atomic write, checkpoint policy, one writer) instead of `JSON.stringify`
+into `userData` on every mutation.
 
 ---
 
@@ -344,11 +486,15 @@ sequenceDiagram
   participant V as Vue
   participant P as Projection store
   participant M as Chat driver (main)
-  participant K as Kernel capabilities
+  participant O as Orchestrator
+  participant K as Capabilities
   V->>M: sendMessage (IPC)
-  M->>K: text.ensureReady + streamChat
+  M->>O: submit(text)
+  O->>K: text.streamChat
   K-->>M: chunks
-  M->>K: media.run (in-process)
+  M->>O: submit(media)
+  Note over O: nested turn — swap LLM off GPU if needed
+  O->>K: media.run
   K-->>M: progress + result
   M-->>P: events (IPC)
   P-->>V: reactive projection
@@ -364,7 +510,9 @@ them; abort/cancel becomes an IPC message; and conversation persistence should m
 same time rather than round-tripping localStorage over IPC.
 
 **Do not do this first.** If `streamText` moves while the comfy tools still mutate Pinia, we own two
-processes sharing UI state over IPC forever.
+processes sharing UI state over IPC forever. The orchestrator also cannot exist until both text and
+media requests arrive in the same process — until then it would just be another name for
+`ensureBackendReadiness`.
 
 ---
 
@@ -374,30 +522,34 @@ processes sharing UI state over IPC forever.
 flowchart TD
   s1["1. Media API in renderer, explicit workflow, no preset/mode mutation"]
   s2["2. Audio API, tools stop importing TTS/STT stores"]
-  s3["3. Confirm + Backends as injected functions"]
-  s4["4. Move media + GPU lease into main"]
+  s3["3. Permissions: prompt, remember, pre-grant — no dialogs inside inference"]
+  s4["4. Move media into main; GPU occupancy as a primitive"]
   s5["5. Move streamChat into main"]
-  s6["6. Split stores along the state table"]
+  s6["6. Orchestrator: one queue, backend pick, VRAM/GPU policy"]
+  s7["7. Split stores; conversations as user-data files"]
 
   s1 --> s3
   s2 --> s3
   s3 --> s4
   s4 --> s5
   s5 --> s6
-  s1 -.->|"unblocks agent media without the window"| s4
+  s6 --> s7
+  s1 -.->|"unblocks agent media without showing the window"| s4
 ```
 
 | Step | Done when                                                                                  | Shippable alone |
 | ---- | ------------------------------------------------------------------------------------------ | --------------- |
 | 1    | `tools/comfyUi.ts` has no `switchPreset` and no save/restore block; UI and tools call `run` | yes             |
 | 2    | `tools/synthesizeTextToSpeech.ts` imports no store                                          | yes             |
-| 3    | no `useDialogStore()` inside an inference or download path                                  | yes             |
+| 3    | no `useDialogStore()` inside inference/download; grants are a reviewable list               | yes             |
 | 4    | `capabilities/media.ts` no longer calls `executeToolInRenderer`                             | yes             |
 | 5    | renderer has no `streamText`; a turn survives with the window hidden                        | no, needs 1–4   |
-| 6    | each field in §6's table sits in its bucket; `userSelectedMode` deleted                     | incremental     |
+| 6    | text and media no longer start each other's backends; one queue visible in Activities       | no, needs 5     |
+| 7    | each field in §6's table sits in its bucket; `userSelectedMode` deleted; files own transcripts | incremental  |
 
 Steps 1–3 are worth doing even if we never move chat: they are what make the capabilities testable
-without Electron.
+without Electron. Step 6 is the reason to move them at all — until then the GPU policy stays
+scattered.
 
 ---
 
@@ -406,34 +558,27 @@ without Electron.
 - One code path per operation. The Send button, a chat tool, Pi and `/imgGen` differ only in how
   they build the request.
 - A media run stops changing what the user is looking at.
-- Adding a driver (CLI, headless service, a second window) is "call the capability", not "boot Pinia
-  without Vue".
-- "Where does the last GPU choice live?" has an answer instead of a grep.
+- Hidden-window Home Agent, and later a CLI, call the same kernel as the desktop.
+- GPU policy is one function, not three helpers that cannot see each other's queues.
+- "Where does the last GPU choice live?" has an answer instead of a grep. Transcripts are files the
+  user can copy.
 
 ---
 
-## 10. Open questions (decisions we owe ourselves)
+## 10. Decisions
 
-1. **What does headless mean for us — hidden window, or no Chromium at all?** Hidden window is
-   nearly free and stops after step 4. No Chromium means step 5 plus finding homes for the
-   screenshot and web-browse tools. This choice sizes the whole plan.
-2. **Do we converge the two harnesses?** Chat runs the AI SDK, Agent Mode runs Pi. They can stay two
-   adapters behind one capability set, or become one. Converging is a bigger change than everything
-   in §8 and should be decided on its own merits, not smuggled in.
-3. **Where do conversations and generated media live after step 5** — user-data files owned by the
-   kernel (my assumption), or a real embedded DB? `better-sqlite3` is already a dependency for
-   persistent memory.
-4. **May an agent change user preferences?** Home Agent's `configureHomeAgent` tool already does,
-   behind a confirmation. If capabilities cannot write preferences, that tool needs an explicit
-   preferences surface with its own confirm.
-5. **Confirmation policy when nobody is watching.** Auto-allow downloads in headless? Cap by size?
-   Refuse and report? This is a product decision that shapes the `Confirm` adapter set.
-6. **Does the Image Gen view keep an "active workflow"?** It needs one to render the form. The
-   question is whether that is UI state the view owns, or whether the view is a form over a
-   `MediaRequest` draft.
-7. **Who queues concurrent work?** There is one GPU, one `mediaPipeline` lane today, and after step
-   5 the kernel could get requests from four drivers at once. Explicit queue with fairness, or first
-   come first served?
-8. **Do we version the kernel's interface?** If a CLI talks to a running app, IPC becomes a contract.
-   A local socket with a versioned protocol is a different commitment than an internal function
-   call.
+| # | Question | Decision |
+| --- | --- | --- |
+| 1 | Headless = hidden window, or no Chromium? | **Hidden window for now.** Chromium stays; Vue does not own the run. Screenshot and web-browse keep working. A Chromium-free CLI is a later product decision. |
+| 2 | Converge AI SDK and Pi? | **No.** Two harnesses, one capability set. Converging is its own project. |
+| 3 | Files vs SQLite for conversations / media? | **User-data files as source of truth** (see §6.1). SQLite stays for persistent memory and may later be a rebuildable search index, not the store. |
+| 4 | May an agent change user preferences? | **Yes, after consent.** Same Permissions surface as downloads. |
+| 5 | Confirmation when nobody is watching? | **Still consent**, via the channel the user is on, or a **pre-grant** they set in settings so an agentic task does not block. No silent auto-allow. |
+| 6 | Is the active workflow UI state? | **Yes.** Cold start hydrates from `defaultPreset: Preset \| "last"` (a user preference). Runtime selection stays in UI state. |
+| 7 | Who queues concurrent work? | **An orchestrator in the kernel** (§4.4). Not FIFO-vs-fairness as an afterthought — it is why text and media move into the same process. |
+| 8 | Version the kernel IPC as a public protocol? | **No.** Internal function + existing Electron IPC. A versioned socket is a different product. |
+
+Still worth a follow-up when we design Permissions and the orchestrator in detail (not blocking this
+map): the exact grant vocabulary (`download:<model>`, `change-pref:*`, `vram-warning`, …), whether
+FIFO is enough or a chat turn's nested media jumps the queue, and whether `defaultPreset` is per
+mode or one global.

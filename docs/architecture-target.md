@@ -122,15 +122,15 @@ flowchart TD
 
   subgraph kernel["Kernel (main process, no Vue)"]
     orch["Orchestrator: queue, backend pick, GPU / VRAM"]
-    text["Text: ensureReady, streamChat"]
-    mediaCap["Media: listWorkflows, run, cancel"]
-    audioCap["Audio: synthesize, transcribe"]
+    text["Text: streamChat, transcribe, speak"]
+    mediaCap["Generate: image, video, 3D, speech clip"]
     support["Backends, Models, Permissions, Activities, Errors"]
   end
 
   subgraph adapters["Adapters"]
     inference["llama.cpp / OVMS / cloud HTTP"]
     comfy["ComfyUI HTTP + WS"]
+    speech["Whisper / Qwen3-TTS / Kokoro"]
     store["settings.json + user-data files"]
   end
 
@@ -147,12 +147,12 @@ flowchart TD
 
   orch --> text
   orch --> mediaCap
-  orch --> audioCap
   orch --> support
 
   text --> inference
+  text --> speech
   mediaCap --> comfy
-  audioCap --> inference
+  mediaCap --> speech
   support --> store
 
   kernel -->|"events"| projection
@@ -177,48 +177,63 @@ A capability is a stable operation surface — not a Pi extension and not an AI 
 two are _projections_ of a capability onto a model, and they are the thinnest possible layer:
 schema, argument mapping, result shaping.
 
-### 4.1 Media
+### 4.1 Generate (artifacts)
+
+This is "produce a file the user keeps": an image, an edited image, a video, a 3D model, **or a
+speech clip**. The MIME type is not the capability. ComfyUI is one adapter; the TTS engines are
+another. Both answer `run`.
 
 ```ts
-type MediaKind = 'create-image' | 'edit-image' | 'create-video' | 'create-3d'
+type ArtifactKind = 'create-image' | 'edit-image' | 'create-video' | 'create-3d' | 'create-speech'
 
-type MediaRequest = {
-  kind: MediaKind
-  workflow: string // preset id — explicit, never "whatever is active"
+type GenerateRequest = {
+  kind: ArtifactKind
+  workflow?: string // Comfy preset id; omitted for speech, which is not a Comfy workflow
   prompt?: string
-  source?: MediaRef // workspace path, data URI, or a previous item id
-  params: MediaParams // seed, size, steps, batch, extra node inputs
+  source?: MediaRef
+  params: MediaParams // seed/size/steps *or* voice/language/instruct
 }
 
-type MediaCapability = {
-  listWorkflows(filter?: { kind?: MediaKind }): WorkflowInfo[]
-  run(request: MediaRequest, ctx: RunContext): Promise<MediaResult>
+type GenerateCapability = {
+  listWorkflows(filter?: { kind?: ArtifactKind }): WorkflowInfo[]
+  run(request: GenerateRequest, ctx: RunContext): Promise<MediaResult>
   cancel(runId: string): void
-  // events: progress | item | failed | done
 }
 ```
 
-`RunContext` carries the abort signal, a handle into **Permissions** (weights download, gated HF
-repo, VRAM warning) and the originator (`ui | chat-tool | agent | home-agent`) for tracing.
+`create-speech` is how `tools/synthesizeTextToSpeech` (save a WAV into the thread / `audio/` folder)
+and voice-design previews show up — the same item/progress/result shape as an image, which is why
+TTS *felt* media-esque. It is not how the mic or "Speak replies" work; those are §4.2.
 
-What this deletes: the save/mutate/restore block in `tools/comfyUi.ts`, the `switchPreset` round
-trip, and `setModeOnly`. The GPU handoff currently in `tools/chatBackends.ts` (`stopChatBackends` /
-`returnGpuToChat`) does **not** move into the media capability — it becomes a request the
-orchestrator satisfies. A tool has no business knowing that llama.cpp must die before ComfyUI can
-start, and neither does `media.run` itself.
+GPU handoff for Comfy kinds is an orchestrator concern, not `run`'s. Speech-clip generation usually
+does **not** require swapping the LLM off the GPU (today OVMS keeps the speech sub-server up while
+chat stops; Qwen3-TTS is its own sidecar). The orchestrator knows that per adapter; generate does
+not.
 
-### 4.2 Audio
+What this deletes for Comfy kinds: the save/mutate/restore block in `tools/comfyUi.ts`, the
+`switchPreset` round trip, and `setModeOnly`.
+
+### 4.2 Speech as conversation I/O (belongs with Text)
+
+Mic, Home Agent voice notes, "Speak replies", channel voice bubbles: these are not artifacts. They
+are how a **text turn** is encoded and decoded. STT is a prompt entering the kernel; TTS-as-reply is
+the assistant message leaving it. That is why they sit in the prompt bar and on every Home Agent
+channel, and why video generation does not.
 
 ```ts
-type AudioCapability = {
-  synthesize(req: { text: string; voice?: VoiceRef; language?: string; instruct?: string }): Promise<AudioResult>
+type SpeechIO = {
   transcribe(req: { audio: AudioRef; language?: string }): Promise<TranscriptResult>
+  speak(req: { text: string; voice?: VoiceRef; language?: string }): Promise<AudioResult>
   listVoices(): VoiceInfo[]
 }
 ```
 
-Today `tools/synthesizeTextToSpeech.ts` imports `useQwen3TextToSpeech`, `useTextToSpeech`,
-`useConversations` and `useActivities`. After this it builds a request and calls `synthesize`.
+`streamChat` may call `speak` at the end of a turn when the preset has `speakReplies`. The prompt
+bar and Home Agent call `transcribe` *before* `streamChat`. The `transcribeAudio` tool is a thin
+projection of `transcribe` for when the model should do it explicitly.
+
+Same TTS/STT **adapters** as `create-speech`. Two drivers, one engine: do not grow a second Qwen3
+client for the tool vs the prompt bar.
 
 ### 4.3 Text
 
@@ -226,6 +241,7 @@ Today `tools/synthesizeTextToSpeech.ts` imports `useQwen3TextToSpeech`, `useText
 type TextCapability = {
   ensureReady(cfg: { backend: LlmBackend; model: string; contextSize?: number; args?: string }): Promise<void>
   streamChat(req: ChatRequest): AsyncIterable<ChatEvent>
+  speech: SpeechIO
 }
 ```
 
@@ -233,9 +249,27 @@ type TextCapability = {
 _inputs_. Nothing inside reads Pinia. `src/lib/chatModel.ts` calling `useTextInference()` inside the
 model factory is the pattern to invert: the turn decides its configuration once, then passes it.
 
+**Folders follow that split, not MIME type:**
+
+```
+kernel/
+  text/           # streamChat, ensureReady, speech I/O
+  generate/       # run(image|video|3d|speech-clip)
+  orchestrator/
+  backends/
+  permissions/
+adapters/
+  llamaCpp / ovms / cloud
+  comfy
+  speech          # whisper, qwen3-tts, kokoro, external — used by text.speech *and* generate
+```
+
+Putting `audio/` next to `media/` made the engine look like a product surface. It is not. Video is
+a generate kind; a spoken reply is text I/O; a saved WAV is generate using the speech adapter.
+
 ### 4.4 Orchestrator
 
-This is the piece that only exists once text, media and audio share a process. Today the same job is
+This is the piece that only exists once text and generate share a process. Today the same job is
 smeared across three places that cannot see each other:
 
 - `tools/mediaPipeline.ts` — two serial lanes (one per delegated `media` request, one per ComfyUI
@@ -250,8 +284,9 @@ After the move, every driver submits a request to one scheduler:
 ```ts
 type KernelRequest =
   | { kind: 'text'; req: ChatRequest }
-  | { kind: 'media'; req: MediaRequest }
-  | { kind: 'audio'; req: AudioRequest }
+  | { kind: 'generate'; req: GenerateRequest }
+  // speech I/O is not a third kind: transcribe/speak ride on a text turn, or are
+  // generate(create-speech) when the user asked for a file.
 
 type Orchestrator = {
   submit(request: KernelRequest, ctx: RunContext): Promise<unknown>
@@ -290,16 +325,19 @@ There is no silent auto-allow; there is prompt-once, remember, or pre-grant. See
 
 ```mermaid
 flowchart LR
-  cap["Media capability"]
-  aisdk["AI SDK tool: comfyUI / editImage / media"]
-  pitool["Pi tool: media capability"]
-  form["Image Gen sidebar + Generate button"]
-  hacmd["Home Agent /imgGen"]
+  gen["Generate.run"]
+  speech["Text.speech"]
+  comfyTools["comfyUI / editImage / media tools"]
+  ttsTool["synthesizeTextToSpeech"]
+  sttTool["transcribeAudio"]
+  imgBtn["Image Gen button"]
+  mic["Mic / Speak replies / HA voice"]
 
-  form --> cap
-  aisdk --> cap
-  pitool --> cap
-  hacmd --> cap
+  imgBtn --> gen
+  comfyTools --> gen
+  ttsTool --> gen
+  sttTool --> speech
+  mic --> speech
 ```
 
 The agent capability catalog in `electron/agentMode/capabilities/` keeps its current job: deciding
@@ -521,7 +559,7 @@ media requests arrive in the same process — until then it would just be anothe
 ```mermaid
 flowchart TD
   s1["1. Media API in renderer, explicit workflow, no preset/mode mutation"]
-  s2["2. Audio API, tools stop importing TTS/STT stores"]
+  s2["2. Speech I/O API, tools stop importing TTS/STT stores"]
   s3["3. Permissions: prompt, remember, pre-grant — no dialogs inside inference"]
   s4["4. Move media into main; GPU occupancy as a primitive"]
   s5["5. Move streamChat into main"]
@@ -540,7 +578,7 @@ flowchart TD
 | Step | Done when                                                                                  | Shippable alone |
 | ---- | ------------------------------------------------------------------------------------------ | --------------- |
 | 1    | `tools/comfyUi.ts` has no `switchPreset` and no save/restore block; UI and tools call `run` | yes             |
-| 2    | `tools/synthesizeTextToSpeech.ts` imports no store                                          | yes             |
+| 2    | `transcribeAudio` / speak-replies import no TTS/STT store; same speech adapter as generate   | yes             |
 | 3    | no `useDialogStore()` inside inference/download; grants are a reviewable list               | yes             |
 | 4    | `capabilities/media.ts` no longer calls `executeToolInRenderer`                             | yes             |
 | 5    | renderer has no `streamText`; a turn survives with the window hidden                        | no, needs 1–4   |

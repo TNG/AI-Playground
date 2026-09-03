@@ -20,10 +20,21 @@ export type ComputeSnapshot = {
   gpus: GpuSample[]
 }
 
+/** Which command shape a given `xpu-smi` build speaks. See docs/compute-resource-metrics.md. */
+export type XpuDialect = 'query-gpu' | 'dump'
+
 /** What each probe last did, so a missing GPU row can be explained rather than guessed at. */
 export type ProbeReport = {
   platform: string
-  intel: { bin: string | null; devices: string[]; lastError?: string; lastOkAt?: number }
+  intel: {
+    bin: string | null
+    dialect?: XpuDialect
+    /** The sampling command that last worked, once one has. */
+    command?: string
+    devices: string[]
+    lastError?: string
+    lastOkAt?: number
+  }
   nvidia: { bin: string; lastError?: string; lastOkAt?: number }
 }
 

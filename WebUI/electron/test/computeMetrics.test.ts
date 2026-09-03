@@ -12,8 +12,10 @@ import {
   computeAttributes,
   computeMetricsProbeReport,
   computeWindowSince,
+  detectXpuDialect,
   latestComputeSnapshot,
   parseNvidiaSmiCsv,
+  parseQueryGpuCsv,
   parseOptionalNumber,
   parseXpuSmiDiscoveryCsv,
   parseXpuSmiDiscoveryJson,
@@ -235,9 +237,29 @@ describe('intel probe commands', () => {
     '15:44:36.481, 0, 64.0, 40.0, 2400, 50.0, 8192.0',
   ].join('\n')
 
-  function windowsRunner(calls: string[][]) {
+  /** The CLI Intel documents: a `dump` subcommand, no `--query-gpu`. */
+  const DUMP_HELP = [
+    'Usage: xpu-smi [Options]',
+    'Subcommands:',
+    '  discovery                   Discover the GPU devices',
+    '  dump                        Dump device statistics data',
+  ].join('\n')
+
+  /** xpu-smi v2.0 on Arc B-series: nvidia-smi-style, and its `dump` rejects -m/-n. */
+  const QUERY_HELP = [
+    'Intel XPU System Management Interface -- v2.0',
+    'Options:',
+    '  --list-gpus                 Print a list of GPUs and exit',
+    '  --query-gpu=<fields>        Single-shot query of per-GPU metrics',
+    '  --format=csv[,noheader][,nounits]  Output format for --query-gpu',
+    'Subcommands:',
+    '  dump                        Dump device statistics data',
+  ].join('\n')
+
+  function windowsRunner(calls: string[][], help = DUMP_HELP) {
     return async (command: string, args: string[]) => {
       calls.push([command, ...args])
+      if (args[0] === '--help') return help
       if (args[0] === 'discovery' && args.includes('-d')) return DETAIL_JSON
       if (args[0] === 'discovery') return DISCOVERY_JSON
       if (args[0] === 'dump') {
@@ -292,6 +314,78 @@ describe('intel probe commands', () => {
     expect(computeMetricsProbeReport().intel.bin).toBeNull()
   })
 
+  // The v2.0 build on Arc B-series answers `--query-gpu` and rejects `dump -m`,
+  // so the dialect has to come from --help rather than from the platform.
+  it('uses --query-gpu on a build that advertises it', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    const calls: string[][] = []
+    startComputeMetricsSampler({
+      intervalMs: 60_000,
+      xpuSmiPath: 'C:\\xpu-smi.exe',
+      runCommand: async (command, args) => {
+        calls.push([command, ...args])
+        if (args[0] === '--help') return QUERY_HELP
+        if (args[0] === 'discovery' && args.includes('-d')) return DETAIL_JSON
+        if (args[0] === 'discovery') return DISCOVERY_JSON
+        if (args[0] === 'dump') {
+          throw new Error('[Error] The following arguments were not expected: -m 0,1,2,5,18 -n 1')
+        }
+        if (args[0]?.startsWith('--query-gpu=')) {
+          return '0, Intel(R) Arc(TM) B390 GPU, 71, 9001, 16384, 88.5, 2200'
+        }
+        throw new Error(`unexpected: ${command} ${args.join(' ')}`)
+      },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    stopComputeMetricsSampler()
+
+    expect(calls.some((c) => c[1] === 'dump')).toBe(false)
+    expect(calls.some((c) => c[1]?.startsWith('--query-gpu='))).toBe(true)
+    // memory.total comes from the query, so no per-device discovery detail call.
+    expect(calls.some((c) => c[1] === 'discovery' && c.includes('-d'))).toBe(false)
+    expect(computeMetricsProbeReport().intel.dialect).toBe('query-gpu')
+    expect(latestComputeSnapshot()?.gpus[0]).toMatchObject({
+      id: '0',
+      name: 'Intel(R) Arc(TM) B390 GPU',
+      vendor: 'intel',
+      utilPct: 71,
+      memUsedMiB: 9001,
+      memTotalMiB: 16384,
+      powerW: 88.5,
+      freqMHz: 2200,
+    })
+  })
+
+  it('falls back to a smaller field set when a field is rejected', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    const tried: string[] = []
+    startComputeMetricsSampler({
+      intervalMs: 60_000,
+      xpuSmiPath: 'C:\\xpu-smi.exe',
+      runCommand: async (_command, args) => {
+        if (args[0] === '--help') return QUERY_HELP
+        if (args[0] === 'discovery' && args.includes('-d')) return DETAIL_JSON
+        if (args[0] === 'discovery') return DISCOVERY_JSON
+        const query = args[0]?.startsWith('--query-gpu=') ? args[0].slice(12) : null
+        if (query === null) throw new Error(`unexpected: ${args.join(' ')}`)
+        tried.push(query)
+        // This build knows nothing about clocks or power.
+        if (query.includes('clocks') || query.includes('power')) {
+          throw new Error('[Error] Unknown field: clocks.current.graphics')
+        }
+        return '0, Intel(R) Arc(TM) B390 GPU, 71, 9001, 16384'
+      },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    stopComputeMetricsSampler()
+
+    expect(tried[0]).toContain('clocks.current.graphics')
+    expect(computeMetricsProbeReport().intel.command).toBe(
+      '--query-gpu=index,name,utilization.gpu,memory.used,memory.total',
+    )
+    expect(latestComputeSnapshot()?.gpus[0]).toMatchObject({ utilPct: 71, memUsedMiB: 9001 })
+  })
+
   it('records why a probe failed', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
     startComputeMetricsSampler({
@@ -304,6 +398,44 @@ describe('intel probe commands', () => {
     await new Promise((resolve) => setTimeout(resolve, 60))
     stopComputeMetricsSampler()
     expect(computeMetricsProbeReport().intel.lastError).toContain('ENOENT')
+  })
+})
+
+describe('detectXpuDialect', () => {
+  it('picks query-gpu when --help advertises it', () => {
+    expect(detectXpuDialect('  --query-gpu=<fields>  Single-shot query')).toBe('query-gpu')
+  })
+
+  it('defaults to the documented dump subcommand', () => {
+    expect(detectXpuDialect('Subcommands:\n  dump  Dump device statistics data')).toBe('dump')
+  })
+})
+
+describe('parseQueryGpuCsv', () => {
+  it('reads columns by the field list that was requested', () => {
+    const gpus = parseQueryGpuCsv(
+      '0, Intel Arc B390, 71, 9001, 16384',
+      ['index', 'name', 'utilization.gpu', 'memory.used', 'memory.total'],
+      'intel',
+    )
+    expect(gpus).toEqual([
+      {
+        id: '0',
+        name: 'Intel Arc B390',
+        vendor: 'intel',
+        utilPct: 71,
+        memUsedMiB: 9001,
+        memTotalMiB: 16384,
+      },
+    ])
+  })
+
+  it('numbers rows itself when the query has no index field', () => {
+    const gpus = parseQueryGpuCsv('4096\n2048', ['memory.used'], 'intel')
+    expect(gpus.map((g) => [g.id, g.memUsedMiB])).toEqual([
+      ['0', 4096],
+      ['1', 2048],
+    ])
   })
 })
 

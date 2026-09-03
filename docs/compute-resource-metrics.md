@@ -24,19 +24,51 @@ host-RAM-only snapshot.
 
 ## Sources
 
-| Vendor / OS | Probe | Notes |
-| --- | --- | --- |
-| Host (all) | `os.totalmem` / `os.freemem` | Always present. On Intel iGPU, "vRAM" is stolen from this pool. |
-| NVIDIA | `nvidia-smi --query-gpu=… --format=csv,noheader,nounits` | Same binary already used for discovery. Instant. |
-| Intel, Windows | bundled `xpu-smi.exe` (`dump -d -1 -m 0,1,2,5,18 -n 1`) | GPU util, power, freq, memory used. Names + total size from `discovery --dump 1,2,16`. |
-| Intel, Linux | `xpu-smi` on `PATH` if the user installed XPU Manager | Not bundled today (Linux discovery still uses `lspci`). Without it, GPU rows are empty. |
+| Vendor / OS    | Probe                                                                                                   | Notes                                                                                   |
+| -------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Host (all)     | `os.totalmem` / `os.freemem`                                                                            | Always present. On Intel iGPU, "vRAM" is stolen from this pool.                         |
+| NVIDIA         | `nvidia-smi --query-gpu=… --format=csv,noheader,nounits`                                                | Same binary already used for discovery. Instant.                                        |
+| Intel, Windows | bundled `xpu-smi.exe`: `discovery -j`, `discovery -d <id> -j`, then `dump -d <id> -m 0,1,2,5,18 -n 1`   | Windows has no `xpu-smi` on `PATH`; without the bundled binary there is no Intel probe. |
+| Intel, Linux   | `xpu-smi` on `PATH` if the user installed XPU Manager: `discovery --dump 1,2,16`, then `dump -d <id> …` | Not bundled today (Linux discovery still uses `lspci`). Without it, GPU rows are empty. |
 
 NPU has no util/memory probe here. Cloud turns still record **host** RAM but
 omit GPU attributes — the serving GPU is not this machine.
 
-Metric IDs for `xpu-smi dump` (Intel XPU Manager CLI): `0` GPU Utilization (%),
-`1` GPU Power (W), `2` GPU Frequency (MHz), `5` GPU Memory Utilization (%),
-`18` GPU Memory Used (MiB).
+Metric IDs for `xpu-smi dump`: `0` GPU Utilization (%), `1` GPU Power (W),
+`2` GPU Frequency (MHz), `5` GPU Memory Utilization (%), `18` GPU Memory Used (MiB).
+
+### Two things the Windows CLI does not share with Linux
+
+`xpu-smi.exe` and Linux `xpumcli` are different programs behind the same metric
+IDs, and using the Linux spellings meant no Windows machine ever produced a GPU
+row:
+
+- **`dump` takes one device id.** `-d -1` ("all devices") is Linux-only and the
+  Windows CLI rejects it, so each device is dumped by its own id.
+- **There is no `discovery --dump`.** The Windows listing form is `discovery -j`,
+  and board memory needs a second `discovery -d <id> -j` per device.
+
+The binary also lives in two places: electron-builder installs it to
+`<resources>/device-service/xpu-smi.exe` (`build-config.json`) while the fetch
+script leaves it at `build/resources/xpu-smi.exe` for `npm run dev`.
+`getXpuSmiExePath()` tries both — checking only the dev path is why a packaged
+build silently fell back to the PowerShell device probe.
+
+## Diagnosing a machine with no GPU numbers
+
+Everything below is logged under the `compute-metrics` source, to the console,
+the in-app debug stream, and `aip-<date>.log` (packaged: the app's config root;
+dev: `WebUI/external/`).
+
+- At startup, forced to the log file:
+  `[compute-metrics]: sampling every 2000ms on win32; intel probe: <path or "unavailable (no xpu-smi)">; nvidia probe: nvidia-smi.exe`
+- After discovery: `xpu-smi discovered N device(s): 0=Intel(R) Arc(TM) B580 Graphics`
+- On failure, once per distinct failure (the poll runs every 2s, so repeats are
+  suppressed): `probe failed: <command> <args> — exit <code>: <stderr>`
+
+`window.electronAPI.getComputeMetricsDiagnostics()` in DevTools returns the same
+thing as data: which binary each probe resolved to, the device ids discovery
+returned, the last error per vendor, and when each last succeeded.
 
 ## Sampling
 
@@ -51,7 +83,8 @@ the trace context), else the card with the highest memory used.
 
 - Bundle `xpu-smi` for Linux the way Windows already does, or a sysfs/`xe`
   fallback for freq + drm client memory when XPU Manager is absent.
-- Long-lived `xpu-smi dump` (no `-n 1`) to avoid the 1s dump interval.
+- Long-lived `xpu-smi dump` (no `-n 1`) to avoid the 1s dump interval — which
+  also removes the per-device call this now makes on a multi-GPU box.
 - Backend-owned numbers: llama.cpp `/slots` KV bytes, ComfyUI's own VRAM
   estimate — complementary to board-level SMI, not a replacement.
 - Per-process GPU memory (needs `cap_perfmon` / admin on Intel) to split LLM vs

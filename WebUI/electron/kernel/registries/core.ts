@@ -50,7 +50,11 @@ import type { DemoProfile, loadDemoProfile } from '../../persist/demoProfile'
 import type { getAudioDir } from '../../persist/userDataPaths'
 import type { saveGeneratedAudioFile } from '../../persist/audioFiles'
 import type { handleChatTelemetryEvent, laminarConfig } from '../../observability/laminar'
-import { collectComputeSnapshot, latestComputeSnapshot } from '../../computeMetrics'
+import {
+  collectComputeSnapshot,
+  computeMetricsProbeReport,
+  latestComputeSnapshot,
+} from '../../computeMetrics'
 import type { setVerboseLogging } from '../../agent/piAgentLog.ts'
 import type {
   ChatReadinessArgs,
@@ -592,6 +596,8 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
     getLaminarConfig: () => deps.laminarConfig(),
 
     getComputeMetrics: async () => latestComputeSnapshot() ?? collectComputeSnapshot(),
+
+    getComputeMetricsDiagnostics: () => computeMetricsProbeReport(),
 
     updateModelPaths: (_event, modelPaths: ModelPaths) => {
       deps.pathsManager.updateModelPaths(modelPaths)

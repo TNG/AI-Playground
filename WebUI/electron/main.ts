@@ -291,6 +291,7 @@ import {
 } from './observability/laminar.ts'
 import {
   collectComputeSnapshot,
+  computeMetricsProbeReport,
   latestComputeSnapshot,
   setComputeMetricsSink,
   startComputeMetricsSampler,

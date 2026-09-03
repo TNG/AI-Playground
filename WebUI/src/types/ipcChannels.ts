@@ -17,7 +17,7 @@ import type {
 } from './chatIpc'
 import type { ChatAnswerPayload, ChatAskPayload } from './chatRequests'
 import type { ComfyUICustomNodeRepoId } from './comfyuiIpc'
-import type { ComputeSnapshot } from './computeMetrics'
+import type { ComputeSnapshot, ProbeReport } from './computeMetrics'
 import type { ConversationBootstrap, ConversationSaveRequest } from './conversationIpc'
 import type { HomeAgentInboundMessage } from './homeAgentIpc'
 import type { KernelEvent, KernelSnapshot } from './kernelEvents'
@@ -829,6 +829,13 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as const,
     result: null as unknown as ComputeSnapshot | null,
+  },
+  /** Which GPU probes resolved, and why the last one failed. See docs/compute-resource-metrics.md. */
+  getComputeMetricsDiagnostics: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as ProbeReport,
   },
   /** Default ComfyUI launch flags for the backend-settings box. */
   getComfyUiDefaultParameters: {

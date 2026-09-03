@@ -149,6 +149,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadModels: () => invoke('loadModels'),
   getLaminarConfig: () => invoke('getLaminarConfig'),
   getComputeMetrics: () => invoke('getComputeMetrics'),
+  getComputeMetricsDiagnostics: () => invoke('getComputeMetricsDiagnostics'),
   onComputeMetricsUpdate: (callback: (snapshot: ComputeSnapshot) => void) =>
     onRaw('computeMetricsUpdate', callback),
   laminarTelemetryEvent: (name: string, payload: string) =>

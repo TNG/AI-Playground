@@ -37,6 +37,7 @@ import { AipgTools } from '../tools/tools'
 import { JSONSchema7 } from '@ai-sdk/provider'
 import { dynamicTool, jsonSchema, type ToolResultOutput } from '@ai-sdk/provider-utils'
 import { imageUrlToDataUri } from '@/lib/utils'
+import { CHAT_ENERGY_ESTIMATES_ENABLED, type ChatTurnEnergy } from '@/lib/chatEnergy'
 import { noteChatTimings, noteChatTraceContext } from '@/lib/laminarTelemetry'
 import { useQwen3TextToSpeech } from './qwen3TextToSpeech'
 import { useTextToSpeech } from './textToSpeech'
@@ -120,6 +121,7 @@ export type AipgMetadata = {
   conversationTitle?: string
   timings?: z.infer<typeof LlamaCppRawValueTimingsSchema>
   compute?: import('@/types/computeMetrics').ComputeWindowStats
+  energy?: ChatTurnEnergy
   ragSource?: string
   usage?: LanguageModelUsage
 }
@@ -1008,11 +1010,30 @@ export const useOpenAiCompatibleChat = defineStore(
             effectiveUsage = lastStepUsage ?? options.part.totalUsage
           }
 
+          const deviceHint = textInference.getCurrentDeviceName() ?? undefined
+          const wattHours =
+            CHAT_ENERGY_ESTIMATES_ENABLED &&
+            textInference.metricsEnabled &&
+            textInference.backend !== 'cloud' &&
+            options.part.type === 'finish'
+              ? computeMetrics.currentTurnEnergyWh(deviceHint)
+              : undefined
+          const energy =
+            wattHours !== undefined &&
+            options.part.type === 'finish' &&
+            options.part.totalUsage.outputTokens > 0
+              ? {
+                  wattHours,
+                  outputTokens: options.part.totalUsage.outputTokens,
+                }
+              : undefined
+
           return {
             model: textInference.activeModel,
             timestamp: Date.now(),
             timings,
-            compute: computeMetrics.currentStats() ?? undefined,
+            compute: computeMetrics.currentStats(deviceHint) ?? undefined,
+            energy,
             usage: effectiveUsage ?? usage,
           }
         },

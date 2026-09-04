@@ -138,6 +138,7 @@ flowchart TD
   end
 
   subgraph view["Renderer — view only"]
+    bridge["Projection API: snapshot + sequenced events, delta coalescing"]
     projection["Projections: messages, media items, service status"]
     uiState2["UI state: current view, sidebars, dialogs, active preset"]
   end
@@ -166,7 +167,9 @@ flowchart TD
   text --> bus
   artifact --> bus
   persist --> bus
-  bus --> projection
+  bus --> bridge
+  persist --> bridge
+  bridge --> projection
   projection --> uiState2
 ```
 
@@ -180,9 +183,11 @@ Four rules make the picture real:
    produced and emits events; **Persistence** decides where that lands (§4.5) and the view decides
    what to paint.
 4. **Every** capability and the orchestrator emit onto one ordered event stream (§4.6) — not one
-   channel per capability, and not only Text.
+   channel per capability, and not only Text. A projection connects with a snapshot plus sequence
+   watermark; events alone are insufficient.
 5. The **renderer** subscribes and renders. It owns what to show, not what to run. Headless, for
-   now, is the same renderer with the window hidden — Chromium stays, Vue does not own the run.
+   now, means main remains alive while the app window may be hidden. Chromium stays available
+   lazily for browser-backed tools; Vue does not own the run.
 
 ---
 
@@ -211,6 +216,7 @@ type ArtifactRequest = {
 
 type ArtifactCapability = {
   listWorkflows(filter?: { kind?: ArtifactKind }): WorkflowInfo[]
+  inspectRequirements(request: ArtifactRequest): Promise<ArtifactRequirements>
   run(request: ArtifactRequest, ctx: RunContext): Promise<ArtifactResult>
   cancel(runId: string): void
 }
@@ -227,6 +233,35 @@ does not.
 
 What this deletes for Comfy kinds: the save/mutate/restore block in `tools/comfyUi.ts`, the
 `switchPreset` round trip, and `setModeOnly`.
+
+`run` owns the complete readiness lifecycle; drivers do not sequence `ensureWorkflowReady()` then
+`run()`. `inspectRequirements()` is side-effect-free input to the orchestrator. It resolves the
+workflow's backend, models, custom nodes and Python packages without installing or downloading
+anything. Once submitted, `run` advances through explicit phases:
+
+```ts
+type ArtifactPhase =
+  | 'queued'
+  | 'preparing-backend'
+  | 'installing-components'
+  | 'loading-components'
+  | 'loading-model'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+```
+
+These replace, rather than discard, today's `GenerateState` lifecycle
+(`start_backend → install_workflow_components → load_workflow_components → generating`). Phase
+events carry the existing setup/download/generation progress so the projection can paint the same
+UI after media moves to main. Missing components and models pass through Permissions before
+preparation starts.
+
+**Current product invariant:** listing, selecting or making a workflow active may inspect catalog
+metadata but must not install components or download model weights. Readiness starts only when a
+driver submits an actual run. Changing that is an explicit product decision, not an accidental
+consequence of this refactor.
 
 ### 4.2 Speech as conversation I/O (belongs with Text)
 
@@ -297,18 +332,29 @@ smeared across three places that cannot see each other:
 After the move, every driver submits a request to one scheduler:
 
 ```ts
-type KernelRequest =
-  | { kind: 'text'; req: ChatRequest }
-  | { kind: 'artifact'; req: ArtifactRequest }
-  // speech I/O is not a third kind: transcribe/speak ride on a text turn, or are
-  // artifact(create-speech) when the user asked for a file.
+type KernelRequestMap = {
+  text: { request: ChatRequest; result: ChatResult }
+  artifact: { request: ArtifactRequest; result: ArtifactResult }
+}
+
+type KernelRequest<K extends keyof KernelRequestMap> = {
+  id: string
+  kind: K
+  payload: KernelRequestMap[K]['request']
+}
 
 type Orchestrator = {
-  submit(request: KernelRequest, ctx: RunContext): Promise<unknown>
+  submit<K extends keyof KernelRequestMap>(
+    request: KernelRequest<K>,
+    ctx: RunContext,
+  ): Promise<KernelRequestMap[K]['result']>
   cancel(runId: string): void
   // events: queued | backend-change | running | done
 }
 ```
+
+Speech I/O is not a third request kind: `transcribe` / `speak` ride on a text turn, or become
+`artifact(create-speech)` when the user asked for a file.
 
 What it knows: incoming requests from every driver, which backends are installed, what is loaded
 right now, the selected device and a coarse VRAM budget, Keep Models Loaded, and the permission
@@ -326,7 +372,7 @@ not. Persistence is its own surface, and the ownership splits four ways:
 
 | Question | Owner | Why |
 | --- | --- | --- |
-| **What** the document is | the capability / session owner | only Text knows a transcript's shape, only Artifact knows an item's |
+| **What** the document is | the capability / session owner | only Text knows a transcript's shape; only Artifact knows an item's |
 | **When** it must be durable | the capability, as domain events (`turn complete`, `run settled`, `session shutdown`) | a timer cannot know a turn ended |
 | **Where** it lives | Persistence, from one storage map | so "where does X live" is answerable by reading one file, not grepping |
 | **How** it is written | Persistence only | atomic write, index upkeep, `schemaVersion` + migration, demo-mode root, single-writer discipline |
@@ -360,10 +406,12 @@ Rules that make this worth having:
 5. **Machine config is not in here.** `settings.json` in `userData` keeps its own zod-validated,
    main-owned path. Persistence is for the user's library and app data.
 6. **Deletion does not cascade.** Deleting a conversation does not delete images it referenced —
-   those are the user's files in their library, and a thread is not their owner. Worth confirming
-   (§10.9), because the opposite is also defensible.
+   those are the user's files in their library, and a thread is not their owner.
 7. **Demo mode is a different root**, chosen inside Persistence — the analogue of today's
    `demoAwareStorage` swap to `sessionStorage`. No capability learns about it.
+8. **Run-owned temporary blobs are cleaned up** on completion, failure or cancellation. Completed
+   artifacts belong to the user's library, and transcripts only reference them. Cross-library
+   orphan detection or garbage collection is deferred until the product has a reason to offer it.
 
 ### 4.6 Events — one stream, not one per capability
 
@@ -402,6 +450,44 @@ Why one stream rather than a channel per capability:
 `Permissions` is the deliberate exception: a prompt is a **request/response**, not a notification.
 It rides its own call so a driver can `await` an answer (or return a pre-grant) instead of watching
 a stream for a reply.
+
+#### Projection hydration
+
+Events alone cannot initialize a renderer that opens or reconnects halfway through a run. The
+projection boundary therefore has a snapshot query and a sequence watermark:
+
+```ts
+type ProjectionSnapshot<T> = {
+  scope: EventScope
+  sequence: number
+  state: T
+}
+
+type ProjectionGateway = {
+  getSnapshot(scope: EventScope): Promise<ProjectionSnapshot<ScopeState>>
+  subscribe(listener: (event: KernelEvent) => void): () => void
+}
+```
+
+The renderer registers the event listener **before** requesting its snapshot, buffers events while
+the IPC request is in flight, installs the snapshot at sequence `N`, then applies buffered and
+future events with `seq > N`. The snapshot includes active/queued runs, latest artifact phases and
+items, service status, the requested conversation, and its current activities/errors. This
+listener-first handshake closes the race without requiring a public replay protocol.
+
+#### Streaming across IPC
+
+HTTP/SSE gets model deltas into main; it does not make the main → renderer hop free.
+`webContents.send()` is fire-and-forget, so the projection bridge coalesces **adjacent text and
+reasoning deltas in the same scope**, flushing every 16–33 ms and before the next semantic event.
+Tool calls/results, errors, completion, artifact phases/items and service transitions are never
+coalesced. Pending deltas flush before a later event so the scoped sequence remains meaningful.
+
+This is deliberately not a general backpressure protocol. Agent Mode already forwards translated
+stream chunks over IPC successfully. Laminar's raw `onChunk` telemetry is different: forwarding
+thousands of raw chunks just to recover TTFT has no product value, whereas UI deltas must arrive.
+Coalescing prevents avoidable IPC/reactivity churn without inventing acknowledgements or a second
+streaming transport. Snapshots store the accumulated text, never individual token deltas.
 
 ### 4.7 Supporting surfaces
 
@@ -464,6 +550,28 @@ Two tools genuinely need Chromium and should stay bridged: window screenshot cap
 web browsing/debugging, both of which drive a real `BrowserWindow`. A hidden window still provides
 that. Everything else crossing the bridge today is doing so because of where the stores are. A CLI
 with no Chromium at all is out of scope until we decide it isn't.
+
+### 5.1 Hidden-window lifecycle
+
+"Hidden" does not mean starting a second permanent Vue renderer:
+
+1. Electron main starts the kernel and owns Home Agent, active runs, Persistence and the
+   orchestrator.
+2. The normal application `BrowserWindow` may be shown or hidden. Closing it hides rather than
+   destroys it while Home Agent is enabled or a run is active; otherwise normal quit policy applies.
+3. Chat, Artifact, Speech I/O and persistence continue in main. They do not need any renderer.
+4. A browser-backed capability (window screenshot or in-page browsing/debugging) asks a
+   main-owned browser host for Chromium. That host creates its dedicated `BrowserWindow` lazily on
+   first use and disposes/reuses it according to the tool's existing lifecycle. It is not a second
+   application UI.
+5. Showing or recreating the application window reconnects its projection via the
+   listener-first snapshot handshake in §4.6; in-flight work does not restart.
+6. Explicit app quit cancels or checkpoints active work, shuts down sessions that flush on exit,
+   flushes Persistence, then stops backends. Closing a visible window is not implicitly app quit
+   while the headless host is serving.
+
+The lifecycle policy belongs in main, beside Electron's existing single-instance and quit
+handling. The renderer must never decide whether a process-backed run survives its own window.
 
 ---
 
@@ -625,18 +733,24 @@ sequenceDiagram
 sequenceDiagram
   participant V as Vue
   participant P as Projection store
+  participant G as Projection gateway
   participant M as Chat driver (main)
   participant O as Orchestrator
   participant K as Capabilities
+  P->>G: subscribe listener
+  P->>G: getSnapshot(scope)
+  G-->>P: state at sequence N
+  G-->>P: buffered events with seq > N
   V->>M: sendMessage (IPC)
   M->>O: submit(text)
   O->>K: text.streamChat
   K-->>M: chunks
-  M->>O: submit(media)
+  M->>O: submit(artifact)
   Note over O: nested turn — swap LLM off GPU if needed
   O->>K: artifact.run
   K-->>M: progress + result
-  M-->>P: events (IPC)
+  M-->>G: events
+  G-->>P: coalesced deltas + semantic events (IPC)
   P-->>V: reactive projection
 ```
 
@@ -660,13 +774,14 @@ media requests arrive in the same process — until then it would just be anothe
 
 ```mermaid
 flowchart TD
-  s1["1. Media API in renderer, explicit workflow, no preset/mode mutation"]
-  s2["2. Speech I/O API, tools stop importing TTS/STT stores"]
-  s3["3. Permissions: prompt, remember, pre-grant — no dialogs inside inference"]
-  s4["4. Move media into main; GPU occupancy as a primitive"]
-  s5["5. Move streamChat into main"]
-  s6["6. Orchestrator: one queue, backend pick, VRAM/GPU policy"]
-  s7["7. Split stores; conversations as user-data files"]
+  s1["1. Artifact API in renderer; explicit workflow + readiness phases"]
+  s2["2. Speech I/O API; tools stop importing TTS/STT stores"]
+  s3["3. Permissions: prompt, remember, pre-grant"]
+  s4["4. Projection protocol + hidden-window lifecycle"]
+  s5["5. Move Artifact into main; GPU occupancy primitive"]
+  s6["6. Move streamChat into main; coalesce IPC deltas"]
+  s7["7. Orchestrator: one queue, backend pick, VRAM/GPU policy"]
+  s8["8. Split stores; conversations as user-data files"]
 
   s1 --> s3
   s2 --> s3
@@ -674,22 +789,45 @@ flowchart TD
   s4 --> s5
   s5 --> s6
   s6 --> s7
-  s1 -.->|"unblocks agent media without showing the window"| s4
+  s7 --> s8
 ```
 
-| Step | Done when                                                                                  | Shippable alone |
-| ---- | ------------------------------------------------------------------------------------------ | --------------- |
-| 1    | `tools/comfyUi.ts` has no `switchPreset` and no save/restore block; UI and tools call `run` | yes             |
-| 2    | `transcribeAudio` / speak-replies import no TTS/STT store; same speech adapter as artifact  | yes             |
-| 3    | no `useDialogStore()` inside inference/download; grants are a reviewable list               | yes             |
-| 4    | `capabilities/media.ts` no longer calls `executeToolInRenderer`                             | yes             |
-| 5    | renderer has no `streamText`; a turn survives with the window hidden                        | no, needs 1–4   |
-| 6    | text and media no longer start each other's backends; one queue visible in Activities       | no, needs 5     |
-| 7    | each field in §6's table sits in its bucket; `userSelectedMode` deleted; files own transcripts | incremental  |
+| Step | Done when | Shippable alone |
+| ---- | --------- | --------------- |
+| 1 | `tools/comfyUi.ts` has no preset save/restore; `run` owns readiness and emits every current FSM phase; selection remains side-effect-free | yes |
+| 2 | `transcribeAudio` / speak-replies import no TTS/STT store; both use the same speech adapter as Artifact | yes |
+| 3 | no `useDialogStore()` inside inference/download; grants are a reviewable list | yes |
+| 4 | projection connects with listener + snapshot watermark; main owns hide/reopen/quit; browser-backed windows are lazy | yes |
+| 5 | `capabilities/media.ts` no longer calls `executeToolInRenderer`; the UI hydrates and renders readiness/generation progress from main | yes, needs 1–4 |
+| 6 | renderer has no `streamText`; adjacent deltas coalesce at the IPC bridge; semantic events remain immediate | no, needs 1–5 |
+| 7 | Text and Artifact no longer start each other's backends; one typed queue is visible through activity events | no, needs 6 |
+| 8 | fields in §6 sit in their bucket; `userSelectedMode` is deleted; files own transcripts; localStorage migrates once | incremental |
 
-Steps 1–3 are worth doing even if we never move chat: they are what make the capabilities testable
-without Electron. Step 6 is the reason to move them at all — until then the GPU policy stays
-scattered.
+Steps 1–4 are worth doing even if we never move chat: they make the capabilities testable and the
+projection boundary complete. Snapshot hydration and Artifact readiness are blocking before step
+5; IPC delta coalescing is blocking before step 6. Step 7 is the reason to put Text and Artifact in
+the same process — until then GPU policy stays scattered.
+
+### 8.1 Transition cost and per-step obligations
+
+Steady state is cheaper: one operation path, one persistence writer and one resource policy.
+Transition is temporarily more expensive because old stores coexist with projections, IPC widens
+before it converges, and migrations need rollback discipline. The shippable-alone column is a hard
+constraint: do not hide an unfinished cross-process move behind a long-lived branch.
+
+Every step that changes a boundary updates, in the same change:
+
+- this target document and the matching architecture sections in `AGENTS.md`;
+- all three files required by an IPC change (`electron/main.ts`, `electron/preload.ts`,
+  `src/env.d.ts`) — or removes old point-to-point channels when the projection stream replaces them;
+- unit tests for request/result typing, event ordering, snapshot race handling and persistence
+  migration affected by that step;
+- E2E page objects/assertions when a projection replaces `@ai-sdk/vue` or Pinia-owned state;
+- Laminar wiring and its architecture notes when telemetry moves from renderer to main;
+- migration, rollback and one-writer behavior for state moved out of localStorage.
+
+Steps 5–7 rewrite the app's documented nervous system. Documentation and tests move with each
+slice, not in a cleanup after all three.
 
 ---
 
@@ -717,11 +855,15 @@ scattered.
 | 6 | Is the active workflow UI state? | **Yes.** Cold start hydrates from `defaultPreset: Preset \| "last"` (a user preference). Runtime selection stays in UI state. |
 | 7 | Who queues concurrent work? | **An orchestrator in the kernel** (§4.4). Not FIFO-vs-fairness as an afterthought — it is why text and media move into the same process. |
 | 8 | Version the kernel IPC as a public protocol? | **No.** Internal function + existing Electron IPC. A versioned socket is a different product. |
-| 9 | Who owns persistence? | **A `Persistence` surface** (§4.5). Capabilities own *what* and declare *when*; Persistence owns *where* and *how*. Deletion does not cascade from a transcript to the artifacts it references — flag this one if you disagree. |
+| 9 | Who owns persistence? | **A `Persistence` surface** (§4.5). Capabilities own *what* and declare *when*; Persistence owns *where* and *how*. Completed artifacts belong to the user's library; transcript deletion does not cascade. |
 | 10 | One event stream or one per capability? | **One ordered, scoped stream** (§4.6), emitted by every capability and the orchestrator. Permissions is the exception: it is request/response, not a notification. |
+| 11 | Replay or snapshots for reconnect? | **Listener-first snapshot hydration** (§4.6). Buffer during `getSnapshot`, install at sequence N, then apply events above N. No public replay protocol for now. |
+| 12 | Who prepares workflow components? | **`Artifact.run` owns readiness** (§4.1). Drivers submit one operation; the orchestrator inspects side-effect-free requirements, Permissions gates changes, and phase events preserve today's progress UI. |
+| 13 | Stream every delta over IPC? | **Coalesce adjacent text/reasoning deltas at the projection bridge** (§4.6). Semantic events remain immediate and ordered. |
+| 14 | Garbage-collect completed artifacts? | **Deferred.** Run-owned temporary blobs are cleaned up; completed artifacts belong to the user's library and transcripts only reference them. |
 
 Still worth a follow-up when we design Permissions and the orchestrator in detail (not blocking this
 map): the exact grant vocabulary (`download:<model>`, `change-pref:*`, `vram-warning`, …), whether
 FIFO is enough or a chat turn's nested media jumps the queue, whether `defaultPreset` is per mode or
-one global, and whether the event bus needs replay (a hidden-window driver that reconnects
-mid-turn) or whether last-state-wins projections are enough.
+one global, and whether a later cross-library cleanup tool should identify unreferenced completed
+artifacts without deleting them automatically.

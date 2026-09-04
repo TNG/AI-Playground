@@ -2,10 +2,16 @@ import { ref } from 'vue'
 import { useSpeechToText, type SttReadyResult } from '../store/speechToText'
 import { useTextToSpeech } from '../store/textToSpeech'
 import { useQwen3TextToSpeech } from '../store/qwen3TextToSpeech'
+import { useErrors } from '../store/errors'
+import { createAppError } from '../errors/appError'
 import { transcribeAudioBlob, transcribeAudioBuffer } from '@/lib/transcribe'
-import { synthesizeSpeech, bytesToBase64, bytesToBlobUrl } from '@/lib/synthesizeSpeech'
+import {
+  base64ToBytes,
+  bytesToBase64,
+  bytesToBlobUrl,
+  synthesizeSpeech,
+} from '@/lib/synthesizeSpeech'
 import { markdownToSpeechText } from '@/lib/markdownToSpeech'
-import * as toast from '@/assets/js/toast'
 import type {
   Qwen3TtsLanguage,
   Qwen3TtsSpeakerId,
@@ -155,7 +161,15 @@ export async function transcribe(req: { audio: Blob }): Promise<TranscriptResult
  * engine path of the `synthesizeTextToSpeech` tool (Artifact's `create-speech`
  * to be) and the Home Agent voice reply. Qwen3 honors the full voice request;
  * Kokoro and the external endpoint synthesize with their configured voice.
+ *
+ * Attended synthesis throws on failure; only an `unattended` request can
+ * resolve `null` (prerequisites missing), which the overloads keep honest in
+ * the type — attended callers may use the clip without a null check.
  */
+export function synthesizeClip(
+  req: SynthesizeClipRequest & { unattended: true },
+): Promise<SpeechClipResult | null>
+export function synthesizeClip(req: SynthesizeClipRequest): Promise<SpeechClipResult>
 export async function synthesizeClip(req: SynthesizeClipRequest): Promise<SpeechClipResult | null> {
   const tts = useTextToSpeech()
   const text = req.text
@@ -203,39 +217,68 @@ export async function synthesizeClip(req: SynthesizeClipRequest): Promise<Speech
   }
 
   req.onPhase?.('generating')
-  if (req.unattended) {
-    // Kokoro / external endpoint. `available` covers exactly those two.
-    if (!tts.available) return null
-    // Start the OVMS speech server on demand (no dialog; no-op if already up or
-    // the model isn't installed — a configured fallback still serves).
-    await tts.ensureSpeechServerRunning()
-    const endpoint = await tts.resolveSpeech()
-    if (!endpoint) return null
-    const { bytes, mediaType } = await synthesizeSpeech(text, endpoint, { format: req.format })
+  return kokoroExternalClip({ text, interactive: !req.unattended, format: req.format })
+}
+
+/**
+ * The one Kokoro/external wire-up, shared by attended and unattended
+ * synthesis and by desktop playback. Attended goes through the TTS store's
+ * `synthesizeToWav` (which may prompt the Kokoro model download); unattended
+ * starts the OVMS speech server dialog-free and bails out (`null`) when no
+ * endpoint can serve.
+ */
+async function kokoroExternalClip(req: {
+  text: string
+  interactive: boolean
+  format?: 'wav'
+}): Promise<SpeechClipResult | null> {
+  const tts = useTextToSpeech()
+
+  if (req.interactive) {
+    const { audioBase64, voice } = await tts.synthesizeToWav(req.text)
     return {
-      audioBase64: bytesToBase64(bytes),
-      mediaType: mediaType || 'audio/wav',
-      voice: endpoint.voice,
+      audioBase64,
+      mediaType: 'audio/wav',
+      voice,
       engine: tts.selectedEngine === 'kokoro' ? 'kokoro' : 'external',
     }
   }
 
-  const { audioBase64, voice } = await tts.synthesizeToWav(text)
+  // Kokoro / external endpoint. `available` covers exactly those two.
+  if (!tts.available) return null
+  // Start the OVMS speech server on demand (no dialog; no-op if already up or
+  // the model isn't installed — a configured fallback still serves).
+  await tts.ensureSpeechServerRunning()
+  const endpoint = await tts.resolveSpeech()
+  if (!endpoint) return null
+  const { bytes, mediaType } = await synthesizeSpeech(
+    req.text,
+    endpoint,
+    req.format ? { format: req.format } : undefined,
+  )
   return {
-    audioBase64,
-    mediaType: 'audio/wav',
-    voice,
+    audioBase64: bytesToBase64(bytes),
+    mediaType: mediaType || 'audio/wav',
+    voice: endpoint.voice,
     engine: tts.selectedEngine === 'kokoro' ? 'kokoro' : 'external',
   }
 }
 
-/** Persist a speech clip under Documents/AI-Playground/audio and return the path. */
+/**
+ * Persist a speech clip under Documents/AI-Playground/audio and return the
+ * path. The IPC is engine-agnostic, so this must not borrow the Qwen3 store's
+ * saver — a clip here can come from any engine.
+ */
 export async function saveSpeechClip(
   audioBase64: string,
   suggestedName: string,
   options?: { overwrite?: boolean },
 ): Promise<string> {
-  return useQwen3TextToSpeech().saveWavToDisk(audioBase64, suggestedName, options)
+  const result = await window.electronAPI.saveGeneratedAudio(audioBase64, suggestedName, options)
+  if (!result.success || !result.filePath) {
+    throw new Error(result.error ?? 'Failed to save audio file')
+  }
+  return result.filePath
 }
 
 /**
@@ -284,23 +327,27 @@ export async function speak(req: { text: string; messageId?: string }): Promise<
 
   stopSpeaking()
 
-  const tts = useTextToSpeech()
-  // Start the OVMS speech server on demand (no-op if already running or if the
-  // model isn't installed — in which case a configured fallback still serves).
-  await tts.ensureSpeechServerRunning()
-
-  const endpoint = await tts.resolveSpeech()
-  if (!endpoint) {
-    toast.warning('Text To Speech is not available (no OVMS server or fallback configured)')
-    return
-  }
-
   try {
+    // Reply playback synthesizes through the shared non-Qwen3 path in its
+    // unattended shape: it never prompts (a download popup has nowhere to land
+    // mid-reply), degrading to a reported unavailability instead.
+    const clip = await kokoroExternalClip({ text: trimmed, interactive: false })
+    if (!clip) {
+      useErrors().report(
+        createAppError({
+          category: 'inference',
+          code: 'inference/tts-unavailable',
+          userMessage: 'Text To Speech is not available (no OVMS server or fallback configured)',
+          surface: 'toast',
+        }),
+      )
+      return
+    }
+
     isSpeaking.value = true
     speakingMessageId.value = req.messageId ?? null
 
-    const { bytes, mediaType } = await synthesizeSpeech(trimmed, endpoint)
-    const url = bytesToBlobUrl(bytes, mediaType)
+    const url = bytesToBlobUrl(base64ToBytes(clip.audioBase64), clip.mediaType)
     currentObjectUrl = url
 
     const audio = new Audio(url)
@@ -309,8 +356,12 @@ export async function speak(req: { text: string; messageId?: string }): Promise<
     audio.onerror = () => stopSpeaking()
     await audio.play()
   } catch (error) {
-    console.error('Failed to synthesize speech:', error)
-    toast.error(`Failed to play speech: ${error instanceof Error ? error.message : error}`)
+    useErrors().report(error, {
+      category: 'inference',
+      code: 'inference/tts-failed',
+      userMessage: `Failed to play speech: ${error instanceof Error ? error.message : error}`,
+      surface: 'toast',
+    })
     stopSpeaking()
   }
 }

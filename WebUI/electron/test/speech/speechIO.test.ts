@@ -42,9 +42,10 @@ const synthesizeSpeechMock = vi.fn(async () => ({
   mediaType: 'audio/wav',
 }))
 const bytesToBase64Mock = vi.fn(() => 'AQID')
+const base64ToBytesMock = vi.fn(() => new Uint8Array([1, 2, 3]))
 const bytesToBlobUrlMock = vi.fn(() => 'blob:fake-url')
-const toastWarningMock = vi.fn()
-const toastErrorMock = vi.fn()
+const errorsReportMock = vi.fn()
+const saveGeneratedAudioMock = vi.fn(async () => ({ success: true, filePath: '/audio/clip.wav' }))
 
 vi.mock('@/assets/js/store/speechToText', () => ({
   useSpeechToText: () => ({
@@ -87,11 +88,10 @@ vi.mock('@/lib/synthesizeSpeech', () => ({
   synthesizeSpeech: synthesizeSpeechMock,
   bytesToBase64: bytesToBase64Mock,
   bytesToBlobUrl: bytesToBlobUrlMock,
+  base64ToBytes: base64ToBytesMock,
 }))
-vi.mock('@/assets/js/toast', () => ({
-  warning: toastWarningMock,
-  error: toastErrorMock,
-  success: vi.fn(),
+vi.mock('@/assets/js/store/errors', () => ({
+  useErrors: () => ({ report: errorsReportMock }),
 }))
 
 // Imported late on purpose: a dynamic import runs in source order, so the
@@ -156,6 +156,7 @@ describe('speechIO (Speech I/O adapter)', () => {
       apiKey: '',
     })
     qwenIsModelInstalledMock.mockResolvedValue(true)
+    vi.stubGlobal('window', { electronAPI: { saveGeneratedAudio: saveGeneratedAudioMock } })
     ;(globalThis as Record<string, unknown>).Audio = FakeAudio
     ;(
       globalThis.URL as typeof globalThis.URL & { revokeObjectURL?: unknown }
@@ -369,7 +370,10 @@ describe('speechIO (Speech I/O adapter)', () => {
       expect(synthesizeSpeechMock).toHaveBeenCalledWith(
         'hello there',
         expect.objectContaining({ model: 'kokoro' }),
+        undefined,
       )
+      expect(bytesToBase64Mock).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]))
+      expect(bytesToBlobUrlMock).toHaveBeenCalledWith(expect.any(Uint8Array), 'audio/wav')
       expect(isSpeaking.value).toBe(true)
       expect(speakingMessageId.value).toBe('msg-1')
       expect(FakeAudio.last?.play).toHaveBeenCalledTimes(1)
@@ -378,14 +382,38 @@ describe('speechIO (Speech I/O adapter)', () => {
       expect(speakingMessageId.value).toBe(null)
     })
 
-    it('warns instead of playing when no endpoint resolves', async () => {
+    it('reports instead of playing when no endpoint resolves', async () => {
       resolveSpeechMock.mockResolvedValueOnce(null)
       await speak({ text: 'hello' })
-      expect(toastWarningMock).toHaveBeenCalledWith(
-        'Text To Speech is not available (no OVMS server or fallback configured)',
+      expect(errorsReportMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: 'inference/tts-unavailable',
+          userMessage: 'Text To Speech is not available (no OVMS server or fallback configured)',
+        }),
       )
       expect(synthesizeSpeechMock).not.toHaveBeenCalled()
       expect(isSpeaking.value).toBe(false)
+    })
+
+    it('reports instead of playing when no playback engine is configured', async () => {
+      ttsAvailable.value = false
+      await speak({ text: 'hello' })
+      expect(errorsReportMock).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'inference/tts-unavailable' }),
+      )
+      expect(ensureSpeechServerRunningMock).not.toHaveBeenCalled()
+      expect(synthesizeSpeechMock).not.toHaveBeenCalled()
+    })
+
+    it('reports synthesis failures through the error sink and stops playback', async () => {
+      synthesizeSpeechMock.mockRejectedValueOnce(new Error('server down'))
+      await speak({ text: 'hello', messageId: 'msg-9' })
+      expect(errorsReportMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ code: 'inference/tts-failed', surface: 'toast' }),
+      )
+      expect(isSpeaking.value).toBe(false)
+      expect(speakingMessageId.value).toBe(null)
     })
 
     it('skips synthesis for empty text', async () => {
@@ -413,10 +441,11 @@ describe('speechIO (Speech I/O adapter)', () => {
       expect(synthesizeToolAvailable()).toBe(false)
     })
 
-    it('saves a clip through the shared save path', async () => {
+    it('saves a clip through the engine-agnostic persistence IPC, not the Qwen3 store', async () => {
       const path = await saveSpeechClip('QXdlbjM=', 'clip.wav')
-      expect(qwenSaveWavToDiskMock).toHaveBeenCalledWith('QXdlbjM=', 'clip.wav', undefined)
+      expect(saveGeneratedAudioMock).toHaveBeenCalledWith('QXdlbjM=', 'clip.wav', undefined)
       expect(path).toBe('/audio/clip.wav')
+      expect(qwenSaveWavToDiskMock).not.toHaveBeenCalled()
     })
   })
 })

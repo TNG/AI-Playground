@@ -117,14 +117,16 @@ export const useTextToSpeech = defineStore(
     const isExternalAvailable = computed(() => hasFallback())
 
     /**
-     * Whether "speak replies aloud" is usable at all: either Kokoro (OVMS) or a
-     * configured external endpoint. Used by the desktop Speak button / auto-speak and
-     * the Home Agent voice reply now that the old global TTS enable toggle is gone.
+     * Whether desktop reply playback is usable: either Kokoro (OVMS) or a
+     * configured external endpoint. Gates only the speech adapter's `speak()`
+     * (the Speak button and auto-speak). Home Agent voice replies do NOT use
+     * this — they synthesize through the adapter's unattended clip path,
+     * which includes Qwen3.
      *
-     * Deliberately excludes the Qwen3 engine: those consumers all go through
-     * `speak()` → `resolveSpeech()`, which only knows the OVMS and external
-     * endpoints. Qwen3 synthesis lives in the qwen3TextToSpeech store, so it must
-     * not be counted here — check the Qwen backend separately if you need it.
+     * Deliberately excludes the Qwen3 engine: reply playback synthesizes
+     * through the OVMS/external endpoints only — Qwen3's model load is too
+     * slow for auto-speak and its download prompt has nowhere to land
+     * mid-reply. Check the Qwen backend separately if you need it.
      */
     const available = computed(() => isKokoroAvailable.value || isExternalAvailable.value)
 

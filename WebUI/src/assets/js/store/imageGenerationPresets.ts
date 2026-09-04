@@ -39,6 +39,8 @@ import { getMissingComfyuiBackendModels } from './imageGenerationUtils'
 import { useHomeAgent } from './homeAgent'
 import { imageUrlToDataUri, saveImageToMediaInput } from '@/lib/utils'
 import { withTraceSpan } from '@/lib/laminarSpans'
+import { runArtifact } from '../artifact/runArtifact'
+import type { Preset } from './presets'
 import {
   getDemoModeInputImage,
   getDemoModeSketchInputImage,
@@ -161,6 +163,16 @@ export const backendToService: Record<'comfyui', BackendServiceName> = {
   comfyui: 'comfyui-backend',
 }
 
+/**
+ * Persistence key for a preset's saved settings and dynamic inputs: the preset
+ * name, or `preset:variant` when one is applied. Shared by this store's
+ * settings-per-preset map and the artifact runner, which resolves a workflow's
+ * saved inputs without making it the active preset.
+ */
+export function presetSettingsKey(presetName: string, variant?: string | null): string {
+  return variant ? `${presetName}:${variant}` : presetName
+}
+
 export { findBestResolution } from './imageGenerationUtils'
 
 export const useImageGenerationPresets = defineStore(
@@ -240,32 +252,6 @@ export const useImageGenerationPresets = defineStore(
         (s) => 'settingName' in s && s.settingName === settingName,
       )
       return setting ? setting.displayed || setting.modifiable : false
-    }
-
-    const getGenerationParameters = (): GenerationSettings => {
-      const allSettings = {
-        preset: activePreset.value?.name ?? 'unknown',
-        variant: activePreset.value?.name
-          ? (presetsStore.activeVariantName[activePreset.value.name] ?? undefined)
-          : undefined,
-        device: 0, // TODO get correct device from backend service
-        prompt: prompt.value,
-        negativePrompt: negativePrompt.value,
-        batchSize: batchSize.value,
-        inferenceSteps: inferenceSteps.value,
-        seed: seed.value,
-        height: height.value,
-        width: width.value,
-        resolution: resolution.value,
-        safetyCheck: safetyCheck.value,
-        showPreview: showPreview.value,
-      }
-      return Object.fromEntries(
-        Object.entries(allSettings).filter(([key]) => {
-          if (key === 'preset' || key === 'variant' || key === 'device') return true
-          return settingIsRelevant(key)
-        }),
-      )
     }
 
     const settings = {
@@ -453,7 +439,7 @@ export const useImageGenerationPresets = defineStore(
         }
       }
 
-      return variantName ? `${activePreset.value.name}:${variantName}` : activePreset.value.name
+      return presetSettingsKey(activePreset.value.name, variantName)
     }
 
     // Note: Preset/variant changes are now handled by the orchestrator (usePresetSwitching),
@@ -692,17 +678,21 @@ export const useImageGenerationPresets = defineStore(
       }
     }
 
-    async function getMissingModels(): Promise<DownloadModelParam[]> {
-      if (!activePreset.value) return []
-      return getMissingComfyuiBackendModels(activePreset.value.requiredModels ?? [])
+    async function getMissingModelsFor(preset: Preset | null): Promise<DownloadModelParam[]> {
+      if (!preset) return []
+      return getMissingComfyuiBackendModels(preset.requiredModels ?? [])
     }
 
-    async function ensureModelsAreAvailable(): Promise<void> {
+    async function getMissingModels(): Promise<DownloadModelParam[]> {
+      return getMissingModelsFor(activePreset.value)
+    }
+
+    async function ensureModelsAreAvailableFor(preset: Preset | null): Promise<void> {
       // Avoid the `new Promise(async (resolve, reject) => ...)` antipattern:
       // an exception inside an async executor becomes an unhandled rejection
       // and the outer promise never settles. Now that getMissingModels() can
       // throw (when a required model is unavailable), this matters.
-      const downloadList = await getMissingModels()
+      const downloadList = await getMissingModelsFor(preset)
       if (downloadList.length === 0) return
       // Traced only when something is actually missing: a `models.download` span
       // in a trace means multi-GB files were fetched before generating, which is
@@ -728,18 +718,22 @@ export const useImageGenerationPresets = defineStore(
       )
     }
 
+    async function ensureModelsAreAvailable(): Promise<void> {
+      return ensureModelsAreAvailableFor(activePreset.value)
+    }
+
     /**
-     * Validates all requirements for the active preset
-     * @returns Object containing validation results for backend, custom nodes, Python packages, and models
+     * Validates all requirements for a preset (backend, custom nodes, Python
+     * packages, models) without making it the active preset.
      */
-    async function validatePresetRequirements(): Promise<{
+    async function validatePresetRequirementsFor(preset: Preset | null): Promise<{
       backendRunning: boolean
       missingCustomNodes: string[]
       missingPythonPackages: string[]
       missingModels: DownloadModelParam[]
       allRequirementsMet: boolean
     }> {
-      if (!activePreset.value) {
+      if (!preset) {
         return {
           backendRunning: false,
           missingCustomNodes: [],
@@ -750,21 +744,22 @@ export const useImageGenerationPresets = defineStore(
       }
 
       // Check backend status
-      const backendServiceName = backendToService[backend.value]
+      const backendServiceName =
+        preset.type === 'comfy' ? backendToService[preset.backend as 'comfyui'] : 'comfyui-backend'
       const backendInfo = backendServices.info.find((s) => s.serviceName === backendServiceName)
       const backendRunning = backendInfo?.status === 'running'
 
       // Check custom nodes and Python packages (only for ComfyUI presets)
       let missingCustomNodes: string[] = []
       let missingPythonPackages: string[] = []
-      if (activePreset.value.type === 'comfy') {
-        const requirements = await comfyUi.checkPresetRequirements()
+      if (preset.type === 'comfy') {
+        const requirements = await comfyUi.checkPresetRequirements(preset)
         missingCustomNodes = requirements.missingCustomNodes
         missingPythonPackages = requirements.missingPythonPackages
       }
 
       // Check models
-      const missingModels = await getMissingModels()
+      const missingModels = await getMissingModelsFor(preset)
 
       const allRequirementsMet =
         backendRunning &&
@@ -779,6 +774,20 @@ export const useImageGenerationPresets = defineStore(
         missingModels,
         allRequirementsMet,
       }
+    }
+
+    /**
+     * Validates all requirements for the active preset
+     * @returns Object containing validation results for backend, custom nodes, Python packages, and models
+     */
+    async function validatePresetRequirements(): Promise<{
+      backendRunning: boolean
+      missingCustomNodes: string[]
+      missingPythonPackages: string[]
+      missingModels: DownloadModelParam[]
+      allRequirementsMet: boolean
+    }> {
+      return validatePresetRequirementsFor(activePreset.value)
     }
 
     /**
@@ -799,9 +808,16 @@ export const useImageGenerationPresets = defineStore(
       }
     }
 
+    /**
+     * UI submit path for the Image Gen / Edit / Video panels: build an
+     * artifact request from the live form state and hand it to the shared
+     * runner. The queued placeholders, readiness phases and websocket-driven
+     * completion all live in `runArtifact` now — this wrapper only owns the
+     * UI-facing side effects (history view, last-backend bookkeeping).
+     */
     async function generate(mode: WorkflowModeType = 'imageGen', sourceImage?: string) {
-      console.log('### generate', mode, sourceImage, activePreset.value)
-      if (!activePreset.value) {
+      const preset = activePreset.value
+      if (!preset || preset.type !== 'comfy') {
         errors.report(
           createAppError({
             category: 'validation',
@@ -814,22 +830,8 @@ export const useImageGenerationPresets = defineStore(
       }
 
       lastError.value = null
+      // Drop abandoned placeholders from a previous cancelled/failed run
       generatedImages.value = generatedImages.value.filter((item) => item.state === 'done')
-      const imageIds: string[] = Array.from({ length: batchSize.value }, () => crypto.randomUUID())
-      imageIds.forEach((imageId) => {
-        updateImage({
-          id: imageId,
-          mode: mode,
-          sourceImageUrl: sourceImage,
-          state: 'queued',
-          settings: {},
-          type: 'image',
-          imageUrl: '',
-        })
-      })
-      currentState.value = 'no_start'
-      stepText.value = i18nState.COM_GENERATING
-
       // Auto-open history view for batch generation
       if (batchSize.value > 1) {
         uiStore.openHistory()
@@ -838,7 +840,28 @@ export const useImageGenerationPresets = defineStore(
       const inferenceBackendService = backendToService[backend.value]
       await backendServices.resetLastUsedInferenceBackend(inferenceBackendService)
       await backendServices.updateLastUsedBackend(inferenceBackendService)
-      await comfyUi.generate(imageIds, mode, sourceImage)
+
+      stepText.value = i18nState.COM_GENERATING
+      currentState.value = 'no_start'
+
+      // UI runs are top-level: no parent activity (the runner resets the stale
+      // tool-parented value the previous chat run may have left behind).
+      await runArtifact({
+        kind: 'create-image',
+        workflow: preset.name,
+        variant: presetsStore.activeVariantName[preset.name] || undefined,
+        mode,
+        prompt: prompt.value,
+        negativePrompt: negativePrompt.value,
+        source: sourceImage,
+        params: {
+          seed: seed.value,
+          width: width.value,
+          height: height.value,
+          inferenceSteps: inferenceSteps.value,
+          batchSize: batchSize.value,
+        },
+      })
     }
 
     function stopGeneration() {
@@ -929,8 +952,11 @@ export const useImageGenerationPresets = defineStore(
       comfyInputs,
       resetActivePresetSettings,
       getMissingModels,
+      getMissingModelsFor,
       ensureModelsAreAvailable,
+      ensureModelsAreAvailableFor,
       validatePresetRequirements,
+      validatePresetRequirementsFor,
       formatRequirementsForDialog,
       updateImage,
       generate,
@@ -938,7 +964,6 @@ export const useImageGenerationPresets = defineStore(
       deleteImage,
       deleteAllImages,
       deleteAllImagesForMode,
-      getGenerationParameters,
       selectedGeneratedImageId,
       selectedEditedImageId,
       selectedVideoId,

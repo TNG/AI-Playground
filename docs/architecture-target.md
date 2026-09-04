@@ -1,7 +1,10 @@
 # Target architecture — capabilities, drivers, state ownership
 
-**Status: draft for discussion. Nothing here is implemented.** This is a map of where the app is
-today, where we want it, and the order in which we could get there. It exists to be argued with —
+**Status: step 1 of the migration order (§8) is implemented; the rest is draft for discussion.**
+Media generation goes through the renderer-side Artifact runner, `src/assets/js/artifact/runArtifact.ts`
+— the Image Gen UI, both chat media tools and Home Agent `/imgGen` build one `ArtifactRequest` and
+share it, with no preset save/restore and no selection side effects. Everything after step 1 is a map
+of where we want it, and the order in which we could get there. It exists to be argued with —
 see [§10 Decisions](#10-decisions).
 
 ## 0. How to read and edit this
@@ -21,22 +24,27 @@ why the prose and the decisions live here and the canvas is scratch space.
 
 ## 1. Symptoms — what actually hurts today
 
-Every item below is a thing in the tree right now, not a hypothetical.
+Every item below was a thing in the tree when this document was drafted, not a hypothetical. The
+first two — the four implementations of one operation, and media generation as UI state mutation —
+were removed by step 1 (§8): every driver now calls `runArtifact`, and no tool save/restores
+selection state or borrows a mode.
 
 **One operation has four implementations.** "Generate an image" is reachable from the Image Gen
 button, a chat tool call, an Agent Mode tool, and Home Agent `/imgGen`. They do not share an entry
 point; they share a _mutable UI store_.
 
-**Media generation is implemented as UI state mutation.** `tools/comfyUi.ts` snapshots seven fields
+**Media generation was implemented as UI state mutation.** `tools/comfyUi.ts` used to snapshot seven
+fields
 off `imageGenerationPresets` (`prompt`, `negativePrompt`, `inferenceSteps`, `width`, `height`,
-`seed`, `batchSize`) plus the active preset and variant, calls `presetSwitching.switchPreset()` to
-borrow the workflow, writes the tool's arguments into those same fields, runs the generation, and
-restores everything in a `finally`. `tools/comfyUiImageEdit.ts` does the same. An agent asking for a
-picture is literally impersonating a user clicking through the sidebar.
+`seed`, `batchSize`) plus the active preset and variant, call `presetSwitching.switchPreset()` to
+borrow the workflow, write the tool's arguments into those same fields, run the generation, and
+restore everything in a `finally`. `tools/comfyUiImageEdit.ts` did the same. An agent asking for a
+picture was literally impersonating a user clicking through the sidebar.
 
-**The UI mode is part of that mutation.** `promptArea` carries both `currentMode` and
-`userSelectedMode`, and `setModeOnly()` exists so background tool calls can "borrow a mode without
-disturbing the UI". Two variables track one concept because a capability writes view state.
+**The UI mode was part of that mutation.** `promptArea` carries both `currentMode` and
+`userSelectedMode`, and `setModeOnly()` existed so background tool calls could "borrow a mode without
+disturbing the UI". Two variables tracked one concept because a capability wrote view state. (The
+tool-side mode borrowing is gone; the two variables remain until §8 step 8.)
 
 **The agent is in main but has to reach back into the window.** `electron/agentMode/capabilities/media.ts`
 builds Pi tools whose `execute` calls `executeToolInRenderer(...)`, "because the Pinia stores driving
@@ -88,7 +96,7 @@ flowchart TD
 
   ui --> media
   ui --> chat
-  chatTools -->|"switchPreset + mutate + restore"| media
+  chatTools -->|runArtifact (step 1)| media
   ha --> chat
   ha --> media
   chat --> media
@@ -202,6 +210,12 @@ schema, argument mapping, result shaping.
 This is "produce a file the user keeps": an image, an edited image, a video, a 3D model, **or a
 speech clip**. The MIME type is not the capability. ComfyUI is one adapter; the TTS engines are
 another. Both answer `run`.
+
+**Implemented in the renderer by `src/assets/js/artifact/runArtifact.ts`** (step 1): request/result
+types, side-effect-free workflow/variant resolution, source injection, readiness via the model
+dialog, tracked-item registration and terminal-state watching, with cancel through the
+`ArtifactRunContext` abort signal. The `listWorkflows` / `inspectRequirements` surface, explicit
+phase enum, speech kinds and the move into main are still ahead.
 
 ```ts
 type ArtifactKind = 'create-image' | 'edit-image' | 'create-video' | 'create-3d' | 'create-speech'
@@ -794,7 +808,7 @@ flowchart TD
 
 | Step | Done when | Shippable alone |
 | ---- | --------- | --------------- |
-| 1 | `tools/comfyUi.ts` has no preset save/restore; `run` owns readiness and emits every current FSM phase; selection remains side-effect-free | yes |
+| 1 | **Done.** `tools/comfyUi.ts` and `tools/comfyUiImageEdit.ts` have no preset save/restore; the run (`runArtifact` + `comfyUiPresets.generate`) owns readiness and settles through the current FSM phases; selection stays side-effect-free (`resolvePresetVariant`) | yes |
 | 2 | `transcribeAudio` / speak-replies import no TTS/STT store; both use the same speech adapter as Artifact | yes |
 | 3 | no `useDialogStore()` inside inference/download; grants are a reviewable list | yes |
 | 4 | projection connects with listener + snapshot watermark; main owns hide/reopen/quit; browser-backed windows are lazy | yes |

@@ -6,7 +6,7 @@ import { useBackendServices } from './backendServices'
 import { useOpenAiCompatibleChat, type AipgUiMessage } from './openAiCompatibleChat'
 import { useImageGenerationPresets, isImage, isVideo, is3D } from './imageGenerationPresets'
 import { usePromptStore } from './promptArea'
-import { usePresetSwitching } from './presetSwitching'
+import { runArtifact } from '../artifact/runArtifact'
 import { usePresets } from './presets'
 import { useConfirmations } from './confirmations'
 import { useActivities } from './activities'
@@ -131,7 +131,6 @@ export const useHomeAgent = defineStore(
     const chatStore = useOpenAiCompatibleChat()
     const imageGenStore = useImageGenerationPresets()
     const promptStore = usePromptStore()
-    const presetSwitching = usePresetSwitching()
     const conversations = useConversations()
     const presetsStore = usePresets()
     const confirmations = useConfirmations()
@@ -1906,12 +1905,11 @@ export const useHomeAgent = defineStore(
         return
       }
 
-      const previousMode = promptStore.getCurrentMode()
       // Match the typing indicator to the eventual delivery so Telegram shows
       // "sending a photo/video/document…" during the ComfyUI render. Read the
-      // media type from the target preset by name (the active preset hasn't
-      // been switched yet at this point). Slack ignores the action name and
-      // just toggles the :eyes: reaction.
+      // media type from the target preset by name (the desktop's active preset
+      // is not switched for a channel request). Slack ignores the action name
+      // and just toggles the :eyes: reaction.
       const targetMediaType = presetsStore.presets.find((p) => p.name === presetName)?.mediaType
       const uploadAction =
         targetMediaType === 'video'
@@ -1961,28 +1959,20 @@ export const useHomeAgent = defineStore(
       // instead of popping a desktop-only modal nobody at the channel can see.
       activeRemoteTurn = { adapter, meta }
       try {
-        promptStore.setModeOnly('imageGen')
-
-        const switchResult = await presetSwitching.switchPreset(presetName, {
-          skipModeSwitch: true,
-        })
-        if (!switchResult.success) {
+        // Resolve the target workflow without selecting it: the artifact
+        // runner drives the generation, so the user's desktop view (mode,
+        // preset, form values) stays exactly as it was.
+        const targetPreset = presetsStore.resolvePresetVariant(
+          presetName,
+          presetsStore.activeVariantName[presetName],
+        )
+        if (!targetPreset || targetPreset.type !== 'comfy') {
           const presetLabel = adapter.formatItalic(adapter.escapeInline(presetName))
-          const errLabel = adapter.escapeInline(switchResult.error ?? 'unknown error')
-          await reply(adapter, `⚠️ Could not select preset ${presetLabel}: ${errLabel}`, meta)
+          await reply(adapter, `⚠️ Preset ${presetLabel} is not available.`, meta)
           return
         }
 
-        if (!imageGenStore.activePreset) {
-          await reply(
-            adapter,
-            '⚠️ No image generation preset is selected. Please configure one in AI Playground.',
-            meta,
-          )
-          return
-        }
-
-        const validation = await imageGenStore.validatePresetRequirements()
+        const validation = await imageGenStore.validatePresetRequirementsFor(targetPreset)
         if (!validation.backendRunning) {
           await reply(
             adapter,
@@ -1993,7 +1983,7 @@ export const useHomeAgent = defineStore(
         }
         // Custom nodes / Python packages have no remote install path, so a
         // missing one is still a hard block. Missing models, however, are
-        // routed through the in-channel download flow below.
+        // routed through the in-channel download flow inside the runner.
         if (
           validation.missingCustomNodes.length > 0 ||
           validation.missingPythonPackages.length > 0
@@ -2011,35 +2001,32 @@ export const useHomeAgent = defineStore(
           return
         }
 
-        // Required models that are not downloaded yet: with activeRemoteTurn set
-        // above this routes the approval + progress to the channel. On decline /
-        // cancel / failure the helper has already messaged the channel, so just
-        // unwind cleanly.
+        let result
         try {
-          await imageGenStore.ensureModelsAreAvailable()
+          result = await runArtifact({
+            kind: 'create-image',
+            workflow: presetName,
+            mode: 'imageGen',
+            prompt,
+          })
         } catch {
+          // A declined/cancelled required-model download — the in-channel
+          // download flow has already messaged the channel; unwind quietly.
           return
         }
 
-        const knownIdsBefore = new Set(imageGenStore.generatedImages.map((img) => img.id))
-        imageGenStore.prompt = prompt
-        try {
-          await imageGenStore.generate('imageGen')
-        } catch (e) {
+        if (result.state === 'cancelled') return
+
+        if (result.state === 'failed') {
           await reply(
             adapter,
-            `⚠️ Image generation failed to start: ${e instanceof Error ? e.message : String(e)}`,
+            `⚠️ Image generation failed: ${result.error ?? 'unknown error'}`,
             meta,
           )
           return
         }
 
-        const newImageIds = new Set(
-          imageGenStore.generatedImages
-            .filter((img) => !knownIdsBefore.has(img.id))
-            .map((img) => img.id),
-        )
-
+        const newImageIds = new Set(result.items.map((img) => img.id))
         if (newImageIds.size === 0) {
           await reply(adapter, '⚠️ Image generation did not produce any images.', meta)
           return
@@ -2051,7 +2038,6 @@ export const useHomeAgent = defineStore(
         activeRemoteTurn = null
         stopDraft()
         stopTyping()
-        promptStore.setModeOnly(previousMode)
       }
     }
 

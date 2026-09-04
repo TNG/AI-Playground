@@ -449,6 +449,23 @@ export const usePresets = defineStore(
       return preset
     }
 
+    /**
+     * Resolve a preset with an explicit variant applied, without touching UI
+     * selection state. The artifact runner resolves workflows this way: a tool
+     * or channel request names its workflow and variant and must not move
+     * what the user is looking at. Falls back to the first variant when the
+     * requested one does not exist, like getPresetWithVariant does for the UI.
+     */
+    function resolvePresetVariant(presetName: string, variantName?: string | null): Preset | null {
+      const preset = presets.value.find((p) => p.name === presetName)
+      if (!preset) return null
+      if (!preset.variants || preset.variants.length === 0) return preset
+      const resolved =
+        (variantName && preset.variants.some((v) => v.name === variantName) && variantName) ||
+        getFirstVariantName(preset)
+      return resolved ? applyVariant(preset, resolved) : preset
+    }
+
     function setActiveVariant(presetName: string, variantName: string | null): void {
       const preset = presets.value.find((p) => p.name === presetName)
 
@@ -980,6 +997,7 @@ export const usePresets = defineStore(
       // Methods
       validatePreset,
       getPresetWithVariant,
+      resolvePresetVariant,
       setActiveVariant,
       applyVariant,
       getFirstVariantName,

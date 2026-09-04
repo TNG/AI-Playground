@@ -709,8 +709,16 @@ modeled as an explicit FSM rather than loose flags.
 - **Crash detection**: a watch on the ComfyUI service status fails in-flight items if the backend
   leaves `running` unexpectedly (guarded by `backendRestarting` so intentional restarts for custom-node
   installs don't false-positive). The main-process `service.ts` also reports unexpected child exits.
-- **Tool watchers** (`tools/comfyUi.ts`, `tools/comfyUiImageEdit.ts`) resolve on terminal item states
-  (`failed`/`stopped`) and on watchdog timeout, returning an error result to the LLM instead of hanging.
+- **Artifact runner** (`src/assets/js/artifact/runArtifact.ts`): one resolved `ArtifactRequest` in
+  (workflow, variant, prompt, source, params), one settled `ArtifactResult` out
+  (`completed`/`failed`/`cancelled` + done `MediaItem`s). It resolves the preset and variant
+  side-effect-free (`presets.resolvePresetVariant` — no switch, no `setModeOnly`), snapshots the
+  saved dynamic inputs as plain refs, injects the source image, drives the model dialog, registers
+  tracked items, then waits on the FSM/items with a re-arming 5-minute idle watchdog and abort
+  support. Refused submissions fail fast ("Another generation is already in progress"). A
+  user-cancelled model download still throws (`isCancellation`) so existing caller catches keep
+  working. The UI wrapper (`imageGenerationPresets.generate`), both chat tools and Home Agent
+  `/imgGen` all go through it.
 
 **Activity / progress sink (`store/activities.ts`):** the analog of the error sink for "what is the
 app busy with right now". Long-running steps report a typed `Activity`
@@ -806,7 +814,7 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 
 **Chat/LLM**: `views/Chat.vue` → stores: `openAiCompatibleChat`, `textInference`, `conversations`, `presets` → electron: `ensureBackendReadiness` IPC → backend: `llamacpp`/`openvino` via Vercel AI SDK
 
-**Image/Video Generation**: `views/WorkflowResult.vue` → stores: `imageGenerationPresets`, `comfyUiPresets`, `presets` → electron: service lifecycle IPC → backend: `comfyui-backend` via direct HTTP
+**Image/Video Generation**: `views/WorkflowResult.vue` and every other driver (chat tools, Home Agent `/imgGen`) → `src/assets/js/artifact/runArtifact.ts` (one resolved `ArtifactRequest` in, one settled `ArtifactResult` out; no preset switch, no UI-state mutation) → stores: `imageGenerationPresets`, `comfyUiPresets`, `presets` → electron: service lifecycle IPC → backend: `comfyui-backend` via direct HTTP
 
 **Model Management**: stores: `models` → electron: `loadModels`, `getDownloaded*` IPC → backend: `ai-backend` Flask `/api/*` via HTTP
 
@@ -1033,8 +1041,10 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   Coder session continued under Game Agent gets Game Agent's prompt with `game-studio-quick`'s
   toolbox — told to `read` a skill with a tool it does not have — and the growing transcript
   stays filed under the preset that is no longer driving it. The watcher hangs off
-  `agentPresetName` (`store/agentMode.ts`), which follows agent presets only, so the image-gen
-  preset a `media` call borrows mid-turn changes nothing; it snapshots under the preset being
+  `agentPresetName` (`store/agentMode.ts`), which follows agent presets only, so an image-gen
+  preset becoming active mid-turn changes nothing (media runs no longer move the active preset
+  anyway — the artifact runner resolves its workflow without switching); it snapshots under the
+  preset being
   left (which is why `snapshotActiveSession` takes one — a turn still running has no record yet)
   and then blanks: no folder for a games preset, the last picked folder for Agent. The old
   session stays in the panel and is reopened deliberately from there, which is the one thing
@@ -1092,19 +1102,20 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   - Game Agent's prompt and the `html-game-studio` skill both say that a folder with **no
     `game.js`** holds a finished single-file game to change, not a scaffold to grow, and that the
     hand-over message is all it will be told about how the game came about.
-- **Gotcha:** a `media` call temporarily switches the active preset to an image-gen one, so
-  anything derived from the active preset must not follow it — `agentMode.activeAgentPreset`
-  remembers the last agent preset for exactly this reason (following it live aborted the turn
-  that made the call).
+- **Gotcha:** anything derived from "the active preset" during an agent turn must go through
+  `agentMode.activeAgentPreset`, which remembers the last agent preset instead of following the
+  live active one — the user can click another preset mid-turn and that must not swap the
+  session's capabilities or abort it. (Media calls no longer move the active preset: the artifact
+  runner resolves its workflow without switching.)
 - **Gotcha:** models ask for a game's whole spritesheet in one step, and both Pi and the AI SDK
   dispatch those tool calls in parallel. All media work therefore queues on
   `assets/js/tools/mediaPipeline.ts` — one lane for a whole `media` request, one for a single
-  ComfyUI run, nested in that order only. Without it the queued runs saw no progress and their
-  watchers failed them as "stalled (no progress for 5 minutes)", and the runs stole each other's
-  preset and generated items. Never take the ComfyUI lane and then wait on the request lane.
-  With **Keep Models Loaded** off, a run that still sees work queued behind it
-  (`comfyRunsWaiting()`) skips freeing ComfyUI and reloading the LLM, so a batch of generations
-  costs one model swap instead of one each; the last run out does the cleanup.
+  ComfyUI run, nested in that order only. The queue serializes drivers against an engine that
+  takes one run at a time (`runArtifact` fails fast with "Another generation is already in
+  progress" if it submits into a busy one) and batches the GPU swaps: with **Keep Models Loaded**
+  off, a run that still sees work queued behind it (`comfyRunsWaiting()`) skips freeing ComfyUI and
+  reloading the LLM, so a batch of generations costs one model swap instead of one each; the last
+  run out does the cleanup. Never take the ComfyUI lane and then wait on the request lane.
 
 ### Verifying Home Agent features (LAN chat)
 
@@ -1280,8 +1291,9 @@ knows nothing. Worth knowing:
   as of the turn that produced it while `gameId` (the folder) never moves.
 - **It is registered per turn** (`piTurnRunner.startAgentTurn`), not per session like the
   inference context: a resumed session keeps its model but its game may have been named since.
-  The preset is the _remembered_ agent preset, never the live active one — a `media` call
-  switches the active preset to an image-gen one mid-turn.
+  The preset is the _remembered_ agent preset, never the live active one — the user can click
+  another preset mid-turn, and a media run must not change the label either (it resolves its
+  workflow without switching).
 - **Render templates cannot do this.** They render inside a trace (a span pane, or a whole-trace
   custom view beside Tree/Transcript); the overview reads the root span name and the metadata
   column, and a [table view](https://laminar.sh/docs/platform/table-views) saves a column layout

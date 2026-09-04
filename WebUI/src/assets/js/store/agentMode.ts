@@ -80,11 +80,11 @@ export const useAgentMode = defineStore(
      * selecting a chat preset marked `agentPreset` (Agent, Game Agent), and that
      * preset supplies the extra instructions and the capability set.
      *
-     * Remembered rather than read live, because the active preset is borrowed
-     * mid-turn: a `media` call switches to an image-gen preset for the duration of
-     * the generation. Following that would swap the session's capabilities,
-     * instructions and workspace policy while the agent is working — and the
-     * workspace watcher below would stop the very turn that made the call.
+     * Remembered rather than read live, because the active preset can change
+     * under a running turn — the user clicking another preset mid-turn must
+     * not swap the session's capabilities, instructions and workspace policy
+     * while the agent is working, and the workspace watcher below would stop
+     * the very turn that was interrupted.
      */
     const agentPresetName = ref<string>('')
 

@@ -1,7 +1,7 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
 import { WebSocket } from 'partysocket'
 import { demoAwareStorage } from '../demoAwareStorage'
-import { ComfyUIApiWorkflow, type Preset } from './presets'
+import { ComfyUIApiWorkflow, type ComfyInput, type ComfyUiPreset, type Preset } from './presets'
 import { ensureDummyWorkflowFixtures } from './devPresets'
 import { useDeveloperSettings } from './developerSettings'
 import {
@@ -66,9 +66,11 @@ async function comfyFetch(input: RequestInfo | URL, init?: RequestInit): Promise
 const WEBSOCKET_OPEN = 1
 
 /** Rewire and remove optional model nodes whose value is None (e.g. LoRA bypass). */
-function bypassOptionalModelNodes(workflow: ComfyUIApiWorkflow): void {
-  const imageGeneration = useImageGenerationPresets()
-  for (const input of imageGeneration.comfyInputs) {
+function bypassOptionalModelNodes(
+  workflow: ComfyUIApiWorkflow,
+  inputs: ComfyGenerationInput[],
+): void {
+  for (const input of inputs) {
     if (
       input.type !== 'model' ||
       input.optional !== true ||
@@ -92,6 +94,39 @@ export type InstallationProgressCallback = (progress: {
   totalItems: number
   statusMessage: string
 }) => void
+
+// ── Explicit generation run ───────────────────────────────────────────────────
+//
+// One ComfyUI execution, fully described by its caller: which variant-applied
+// preset to run, the queued items to fill, the resolved sampling params, and a
+// snapshot of the workflow's dynamic inputs. Nothing in here is read off the
+// UI's active preset or the imageGeneration form — the artifact runner
+// (assets/js/artifact/runArtifact.ts) resolves all of it from an explicit
+// request, which is what lets a tool or channel run a workflow without
+// touching what the user is looking at.
+
+/** Fully resolved sampling values for one run; the seed is the batch base. */
+export type ComfyGenerationParams = {
+  prompt: string
+  negativePrompt: string
+  seed: number
+  inferenceSteps: number
+  width: number
+  height: number
+  batchSize: number
+}
+
+/** A workflow dynamic input with its resolved current value (plain ref, not store-bound). */
+export type ComfyGenerationInput = ComfyInput & { current: Ref<unknown> }
+
+export type ComfyGenerationRun = {
+  preset: ComfyUiPreset
+  /** Queued items, one per batch entry; the websocket fills them in place. */
+  items: MediaItem[]
+  params: ComfyGenerationParams
+  inputs: ComfyGenerationInput[]
+  sourceImage?: string
+}
 
 export const useComfyUiPresets = defineStore(
   'comfyUiPresets',
@@ -276,11 +311,7 @@ export const useComfyUiPresets = defineStore(
     let generateIdx: number = 0
     let queuedImages: MediaItem[] = []
 
-    const pendingGenerationRequest = ref<{
-      imageIds: string[]
-      mode: WorkflowModeType
-      sourceImage?: string
-    } | null>(null)
+    const pendingGenerationRequest = ref<{ run: ComfyGenerationRun } | null>(null)
     const pendingRetryTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 
     const backendServices = useBackendServices()
@@ -288,8 +319,8 @@ export const useComfyUiPresets = defineStore(
       return backendServices.info.find((item) => item.serviceName === 'comfyui-backend')
     })
 
-    async function installCustomNodesForActivePresetFully() {
-      const requirements = await checkPresetRequirements()
+    async function installCustomNodesForPresetFully(preset: Preset) {
+      const requirements = await checkPresetRequirements(preset)
       // Traced from here on, so a generate that had nothing to install carries no
       // install span at all — its absence is the interesting part.
       if (!requirements.hasMissingRequirements) return
@@ -301,8 +332,8 @@ export const useComfyUiPresets = defineStore(
           backendRestarting = true
           try {
             await backendServices.stopService('comfyui-backend')
-            await triggerInstallPythonPackagesForActivePreset() // Backend already stopped above
-            await installCustomNodesForActivePreset()
+            await triggerInstallPythonPackagesForPreset(preset) // Backend already stopped above
+            await installCustomNodesForPreset(preset)
             const startingResult = await backendServices.startService('comfyui-backend')
             if (startingResult !== 'running') {
               throw new Error('Failed to restart comfyUI. Required Nodes are not active.')
@@ -322,12 +353,11 @@ export const useComfyUiPresets = defineStore(
       )
     }
 
-    async function checkPresetRequirements(): Promise<{
+    async function checkPresetRequirements(preset: Preset | null): Promise<{
       hasMissingRequirements: boolean
       missingCustomNodes: string[]
       missingPythonPackages: string[]
     }> {
-      const preset = imageGeneration.activePreset
       if (!preset || preset.type !== 'comfy') {
         return {
           hasMissingRequirements: false,
@@ -400,11 +430,11 @@ export const useComfyUiPresets = defineStore(
       return { username: username, repoName: repoName, gitRef: gitRef }
     }
 
-    async function installCustomNodesForActivePreset(
+    async function installCustomNodesForPreset(
+      preset: Preset,
       callback?: InstallationProgressCallback,
     ): Promise<boolean> {
-      const preset = imageGeneration.activePreset
-      if (!preset || preset.type !== 'comfy') return false
+      if (preset.type !== 'comfy') return false
 
       const requiredCustomNodes = preset.requiredCustomNodes ?? []
 
@@ -450,11 +480,11 @@ export const useComfyUiPresets = defineStore(
       }
     }
 
-    async function triggerInstallPythonPackagesForActivePreset(
+    async function triggerInstallPythonPackagesForPreset(
+      preset: Preset,
       callback?: InstallationProgressCallback,
     ) {
-      const preset = imageGeneration.activePreset
-      if (!preset || preset.type !== 'comfy') return
+      if (preset.type !== 'comfy') return
 
       const toBeInstalledPackages = preset.requiredPythonPackages ?? []
       console.info('Installing python packages', { toBeInstalledPackages })
@@ -489,19 +519,19 @@ export const useComfyUiPresets = defineStore(
     }
 
     /**
-     * Installs missing requirements for the active preset (custom nodes and Python packages)
+     * Installs missing requirements for a preset (custom nodes and Python packages)
      * This will restart the ComfyUI backend if needed
      */
     async function installMissingRequirements(
+      preset: Preset,
       callback?: InstallationProgressCallback,
     ): Promise<void> {
-      const preset = imageGeneration.activePreset
-      if (!preset || preset.type !== 'comfy') {
+      if (preset.type !== 'comfy') {
         throw new Error('No ComfyUI preset is active')
       }
 
       // Check what's missing
-      const requirements = await checkPresetRequirements()
+      const requirements = await checkPresetRequirements(preset)
 
       if (!requirements.hasMissingRequirements) {
         console.info('No missing requirements to install')
@@ -532,13 +562,13 @@ export const useComfyUiPresets = defineStore(
         // Install Python packages first (if any)
         if (requirements.missingPythonPackages.length > 0) {
           console.info('Installing Python packages:', requirements.missingPythonPackages)
-          await triggerInstallPythonPackagesForActivePreset(callback)
+          await triggerInstallPythonPackagesForPreset(preset, callback)
         }
 
         // Install custom nodes (if any)
         if (requirements.missingCustomNodes.length > 0) {
           console.info('Installing custom nodes:', requirements.missingCustomNodes)
-          await installCustomNodesForActivePreset(callback)
+          await installCustomNodesForPreset(preset, callback)
         }
 
         // Restart backend if it was running
@@ -909,7 +939,7 @@ export const useComfyUiPresets = defineStore(
                 return
               }
               pendingGenerationRequest.value = null
-              generate(pending.imageIds, pending.mode, pending.sourceImage, true)
+              generate(pending.run, true)
             }, 500)
           }
           attemptRetry()
@@ -999,10 +1029,10 @@ export const useComfyUiPresets = defineStore(
       return canvas.toDataURL('image/png')
     }
 
-    function validateRequiredImageInputs(): string[] {
+    function validateRequiredImageInputs(inputs: ComfyGenerationInput[]): string[] {
       const missingInputs: string[] = []
 
-      for (const input of imageGeneration.comfyInputs) {
+      for (const input of inputs) {
         // Skip optional image inputs - they will get black pixel injected
         if (input.optional === true) {
           continue
@@ -1033,8 +1063,9 @@ export const useComfyUiPresets = defineStore(
     async function modifyDynamicSettingsInWorkflow(
       mutableWorkflow: ComfyUIApiWorkflow,
       platform: NodeJS.Platform,
+      inputs: ComfyGenerationInput[],
     ) {
-      for (const input of imageGeneration.comfyInputs) {
+      for (const input of inputs) {
         const keys = findKeysByTitle(mutableWorkflow, input.nodeTitle)
         if (keys.length === 0) {
           continue
@@ -1153,13 +1184,15 @@ export const useComfyUiPresets = defineStore(
      * is running with the correct model. Returns the server URL on success, null if
      * the workflow doesn't need OVMS, or false on failure (caller should abort).
      */
-    async function ensureOvmsImageServerIfNeeded(preset: Preset): Promise<string | null | false> {
+    async function ensureOvmsImageServerIfNeeded(
+      preset: Preset,
+      inputs: ComfyGenerationInput[],
+      params: ComfyGenerationParams,
+    ): Promise<string | null | false> {
       if (preset.type !== 'comfy') return null
       if (!workflowUsesOvmsImage(preset.comfyUiApiWorkflow)) return null
 
-      const modelInput = imageGeneration.comfyInputs.find(
-        (input) => 'nodeInput' in input && input.nodeInput === 'model',
-      )
+      const modelInput = inputs.find((input) => 'nodeInput' in input && input.nodeInput === 'model')
       const modelId =
         (modelInput && 'current' in modelInput ? String(modelInput.current.value) : '') ||
         preset.requiredModels?.[0]?.model ||
@@ -1181,7 +1214,7 @@ export const useComfyUiPresets = defineStore(
         const { keepModelsLoaded } = developerSettings
         // Pass the current generation resolution so OVMS can statically reshape the image
         // pipeline when running on NPU (required by the NPU plugin). Ignored on other devices.
-        const resolution = `${imageGeneration.width}x${imageGeneration.height}`
+        const resolution = `${params.width}x${params.height}`
         const result = await window.electronAPI.ensureOvmsImageReady(
           'openvino-backend',
           modelId,
@@ -1213,23 +1246,27 @@ export const useComfyUiPresets = defineStore(
       }
     }
 
-    async function generate(
-      imageIds: string[],
-      mode: WorkflowModeType,
-      sourceImage?: string,
-      isRetry = false,
-    ) {
-      const preset = imageGeneration.activePreset
-      if (!preset || preset.type !== 'comfy') {
+    /**
+     * Submit one fully resolved generation run: start the backend if needed
+     * (queueing for an auto-retry while it boots), install the preset's
+     * missing workflow components, then POST the rewritten workflow once per
+     * batch item. Resolves as soon as the prompts are queued — the websocket
+     * drives the phase transitions from there. Returns false when the run was
+     * refused (a generation is already in flight), so callers can fail fast
+     * instead of watching items that will never move.
+     */
+    async function generate(run: ComfyGenerationRun, isRetry = false): Promise<boolean> {
+      const preset = run.preset
+      if (preset.type !== 'comfy') {
         console.warn('The selected preset is not a comfyui preset')
-        return
+        return false
       }
       // `isRetry` is the auto-retry that fires once the backend finishes starting.
       // It is a continuation of the same operation, so it must bypass the
       // re-entrancy guard (which still keeps `processing` true to drive the UI).
       if (imageGeneration.processing && !isRetry) {
         console.warn('Already processing')
-        return
+        return false
       }
 
       // The retry is a continuation, so it keeps the span the first attempt
@@ -1239,9 +1276,9 @@ export const useComfyUiPresets = defineStore(
         generateSpan = startTraceSpan('comfyui.generate', {
           attributes: {
             'aipg.preset': preset.name,
-            'aipg.mode': mode,
+            'aipg.mode': run.items[0]?.mode,
             'aipg.media_type': preset.mediaType,
-            'aipg.batch_size': imageGeneration.batchSize,
+            'aipg.batch_size': run.items.length,
             'aipg.keep_models_loaded': developerSettings.keepModelsLoaded,
           },
         })
@@ -1271,15 +1308,15 @@ export const useComfyUiPresets = defineStore(
             }),
           )
           resetGenerationState()
-          return
+          return false
         }
 
         if (result.starting) {
           console.info('ComfyUI backend is starting, queueing generation request')
-          pendingGenerationRequest.value = { imageIds, mode, sourceImage }
+          pendingGenerationRequest.value = { run }
           // Keep the 'start_backend' indicator up; the auto-retry will continue
           // this operation once the backend reaches 'running'.
-          return
+          return true
         }
       } catch (error) {
         errors.report(error, {
@@ -1290,24 +1327,24 @@ export const useComfyUiPresets = defineStore(
           context: { serviceName: 'comfyui-backend' },
         })
         resetGenerationState()
-        return
+        return false
       }
 
       if (comfyUiState.value?.status !== 'running') {
         console.warn('ComfyUI backend is not running. Current status:', comfyUiState.value?.status)
-        pendingGenerationRequest.value = { imageIds, mode, sourceImage }
+        pendingGenerationRequest.value = { run }
         // Keep the 'start_backend' indicator up; the auto-retry continues once running.
-        return
+        return true
       }
 
       if (websocket.value?.readyState !== WEBSOCKET_OPEN) {
         console.warn('Websocket not open')
         resetGenerationState()
-        return
+        return false
       }
 
       // Validate required image inputs before execution
-      const missingInputs = validateRequiredImageInputs()
+      const missingInputs = validateRequiredImageInputs(run.inputs)
       if (missingInputs.length > 0) {
         const inputLabels = missingInputs.join(', ')
         errors.report(
@@ -1319,21 +1356,21 @@ export const useComfyUiPresets = defineStore(
           }),
         )
         resetGenerationState()
-        return
+        return false
       }
 
       try {
         imageGeneration.processing = true
         imageGeneration.currentState = 'install_workflow_components'
-        await installCustomNodesForActivePresetFully()
+        await installCustomNodesForPresetFully(preset)
 
         await ensureDummyWorkflowFixtures(preset, comfyBaseUrl.value)
 
         // Ensure OVMS image server is ready if the workflow uses OpenAI-compatible image nodes
-        const ovmsImageUrl = await ensureOvmsImageServerIfNeeded(preset)
+        const ovmsImageUrl = await ensureOvmsImageServerIfNeeded(preset, run.inputs, run.params)
         if (ovmsImageUrl === false) {
           resetGenerationState()
-          return
+          return false
         }
 
         const platform = await window.electronAPI.getPlatform()
@@ -1341,22 +1378,23 @@ export const useComfyUiPresets = defineStore(
           JSON.stringify(preset.comfyUiApiWorkflow),
         )
         generateIdx = 0
-        const baseSeed =
-          imageGeneration.seed === -1 ? Math.floor(Math.random() * 1000000) : imageGeneration.seed
+        // The caller resolved and seeded every batch entry; the trace reports
+        // what the items actually carry, not a re-rolled wildcard.
+        const baseSeed = Number(run.items[0]?.settings.seed ?? run.params.seed)
 
-        modifySettingInWorkflow(mutableWorkflow, 'inferenceSteps', imageGeneration.inferenceSteps)
-        modifySettingInWorkflow(mutableWorkflow, 'height', imageGeneration.height)
-        modifySettingInWorkflow(mutableWorkflow, 'width', imageGeneration.width)
-        modifySettingInWorkflow(mutableWorkflow, 'prompt', imageGeneration.prompt)
-        modifySettingInWorkflow(mutableWorkflow, 'negativePrompt', imageGeneration.negativePrompt)
+        modifySettingInWorkflow(mutableWorkflow, 'inferenceSteps', run.params.inferenceSteps)
+        modifySettingInWorkflow(mutableWorkflow, 'height', run.params.height)
+        modifySettingInWorkflow(mutableWorkflow, 'width', run.params.width)
+        modifySettingInWorkflow(mutableWorkflow, 'prompt', run.params.prompt)
+        modifySettingInWorkflow(mutableWorkflow, 'negativePrompt', run.params.negativePrompt)
 
-        await modifyDynamicSettingsInWorkflow(mutableWorkflow, platform)
+        await modifyDynamicSettingsInWorkflow(mutableWorkflow, platform, run.inputs)
 
         if (ovmsImageUrl) {
           injectOvmsImageUrl(mutableWorkflow, ovmsImageUrl)
         }
 
-        bypassOptionalModelNodes(mutableWorkflow)
+        bypassOptionalModelNodes(mutableWorkflow, run.inputs)
         normalizeModelPathsInWorkflow(mutableWorkflow, platform)
 
         loaderNodes.value = [
@@ -1375,45 +1413,28 @@ export const useComfyUiPresets = defineStore(
             },
           ]),
         )
-        queuedImages = Array.from({ length: imageGeneration.batchSize }, (_, i) => {
-          const seed = baseSeed + i
-          const settings = imageGeneration.getGenerationParameters()
-          settings.seed = seed
-
-          return {
-            id: imageIds[i],
-            mode: mode,
-            sourceImageUrl: sourceImage,
-            type: 'image' as const,
-            imageUrl:
-              'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="1" height="1"%3E%3C/svg%3E',
-            state: 'queued' as const,
-            settings,
-            dynamicSettings: imageGeneration.comfyInputs.map((input) => ({
-              ...input,
-              current: input.current.value as never,
-            })),
-          }
-        })
+        // The caller resolved and seeded every batch entry; the items it
+        // queued are the run's tracked items.
+        queuedImages = run.items
         // Everything that decides the output is resolved by now — seed, size,
         // steps and the preset's own workflow knobs — so the span can say what
         // this run was actually asked for.
         if (generateSpan) {
           const traced = comfyTraceParameters({
             preset: preset.name,
-            mode,
+            mode: run.items[0]?.mode,
             mediaType: preset.mediaType,
-            settings: queuedImages[0]?.settings ?? imageGeneration.getGenerationParameters(),
+            settings: run.items[0]?.settings ?? {},
             seed: baseSeed,
-            batchSize: imageGeneration.batchSize,
+            batchSize: run.items.length,
             keepModelsLoaded: developerSettings.keepModelsLoaded,
-            inputs: (queuedImages[0]?.dynamicSettings ?? []).map((input) => ({
+            inputs: (run.items[0]?.dynamicSettings ?? []).map((input) => ({
               nodeTitle: input.nodeTitle,
               nodeInput: input.nodeInput,
               type: input.type,
               value: input.current,
             })),
-            hasSourceImage: sourceImage !== undefined,
+            hasSourceImage: run.sourceImage !== undefined,
           })
           generateSpan.setAttributes(traced.attributes)
           generateSpan.setInput(traced.input)
@@ -1441,6 +1462,7 @@ export const useComfyUiPresets = defineStore(
           state: 'generating',
         })
         imageGeneration.currentState = 'load_workflow_components'
+        return true
       } catch (ex) {
         clearWatchdog()
         imageGeneration.failGeneration('The ComfyUI backend could not generate the image.')
@@ -1453,6 +1475,7 @@ export const useComfyUiPresets = defineStore(
         })
         const promptStore = usePromptStore()
         promptStore.promptSubmitted = false
+        return false
       }
     }
 

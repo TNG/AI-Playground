@@ -1,6 +1,5 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
 import { computed } from 'vue'
-import type { Ref } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import type { ComfyInput, ComfyUiPreset, Preset } from './presets'
 import { useImageGenerationPresets, type MediaItem } from './imageGenerationPresets'
@@ -51,8 +50,8 @@ export type ComfyGenerationParams = {
   batchSize: number
 }
 
-/** A workflow dynamic input with its resolved current value (plain ref, not store-bound). */
-export type ComfyGenerationInput = ComfyInput & { current: Ref<unknown> }
+/** A workflow dynamic input with its resolved current value (plain, not store-bound). */
+export type ComfyGenerationInput = ComfyInput & { current: unknown }
 
 export type ComfyGenerationRun = {
   preset: ComfyUiPreset

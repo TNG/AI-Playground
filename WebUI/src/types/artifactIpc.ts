@@ -24,6 +24,14 @@ export const ArtifactRunRequestSchema = z.object({
   /** Item stubs the renderer registered so slots show immediately; the runner owns settlement. */
   items: z.array(z.object({ id: z.string().min(1) }).passthrough()).optional(),
   source: z.string().optional(),
+  /**
+   * The variant that was applied to `preset`. `applyVariant` keeps the full
+   * variants list on the merged entry, so `preset.variants[0]` is not the
+   * selected name.
+   */
+  variant: z.string().optional(),
+  /** Who submitted: renderer drivers register UI items; in-process agent tools do not. */
+  origin: z.enum(['renderer', 'agent']).optional(),
   modelsConsented: z.boolean().optional(),
   showPreview: z.boolean().optional(),
   safetyCheck: z.boolean().optional(),

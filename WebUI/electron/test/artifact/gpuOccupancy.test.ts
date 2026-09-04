@@ -15,6 +15,7 @@ vi.mock('../../artifact/comfyClient', async (importOriginal) => ({
 }))
 
 import {
+  mediaGpuOccupancy,
   resetGpuOccupancyForTest,
   setGpuOccupancyDeps,
   withGpuForMedia,
@@ -87,6 +88,46 @@ describe('withGpuForMedia', () => {
     await withGpuForMedia(async () => 'generated', { keepModelsLoaded: false })
     expect(d.restartChatBackend).not.toHaveBeenCalled()
     expect(freeMemoryAndUnloadModels).not.toHaveBeenCalled()
+  })
+
+  it('holds occupancy across overlapping wraps so the first out does not reload the LLM', async () => {
+    const d = deps()
+    setGpuOccupancyDeps(d)
+
+    let releaseSecond!: () => void
+    let secondEntered!: () => void
+    const secondInside = new Promise<void>((resolve) => {
+      secondEntered = resolve
+    })
+    const second = withGpuForMedia(
+      async () => {
+        secondEntered()
+        await new Promise<void>((resolve) => {
+          releaseSecond = resolve
+        })
+        return 'b'
+      },
+      { keepModelsLoaded: false },
+    )
+
+    const first = withGpuForMedia(
+      async () => {
+        await secondInside
+        expect(mediaGpuOccupancy()).toBe(2)
+        return 'a'
+      },
+      { keepModelsLoaded: false },
+    )
+
+    await expect(first).resolves.toBe('a')
+    expect(d.stopChatForMedia).toHaveBeenCalledTimes(1)
+    expect(d.restartChatBackend).not.toHaveBeenCalled()
+    expect(mediaGpuOccupancy()).toBe(1)
+
+    releaseSecond()
+    await expect(second).resolves.toBe('b')
+    expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
+    expect(mediaGpuOccupancy()).toBe(0)
   })
 
   it('still swaps back when the wrapped run throws', async () => {

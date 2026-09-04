@@ -261,6 +261,8 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
     expect(submitArtifactRunMock).toHaveBeenCalledTimes(1)
     expect(submitArtifactRunMock.mock.calls[0][1]).toEqual({ queue: 'queue' })
     expect(lastPayload.keepModelsLoaded).toBe(true)
+    expect(lastPayload.variant).toBe('Fast')
+    expect(lastPayload.origin).toBe('agent')
     // In-process runs leave consent to the runner: the flag stays unset.
     expect(lastPayload.modelsConsented).toBeUndefined()
     expect(lastPayload.items).toBeUndefined()

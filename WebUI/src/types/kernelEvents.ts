@@ -138,6 +138,11 @@ export type ArtifactRunSnapshot = {
   mode: WorkflowModeType
   workflow: string
   variant?: string
+  /**
+   * Renderer drivers pre-register Image Gen items; in-process agent tools do
+   * not. A reconnected renderer only hydrates the panel from `renderer` runs.
+   */
+  origin?: 'renderer' | 'agent'
   phase: ArtifactPhase
   progress?: { current: number; max: number }
   error?: string | null

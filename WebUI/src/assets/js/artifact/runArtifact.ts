@@ -1,5 +1,4 @@
-import { ref } from 'vue'
-import type { ComfyGenerationInput, ComfyGenerationParams } from '../store/comfyUiPresets'
+import type { ComfyGenerationParams } from '../store/comfyUiPresets'
 import { useDeveloperSettings } from '../store/developerSettings'
 import {
   OPTIONAL_MODEL_NONE,
@@ -142,28 +141,30 @@ function resolveParams(request: ArtifactRequest, preset: ComfyUiPreset): ComfyGe
   }
 }
 
+type ResolvedInput = ComfyInput & { current: unknown }
+
 /**
  * Snapshot of the workflow's dynamic inputs with their resolved current
  * values, read from the same per-persisted-preset map the settings sidebar
- * writes into. Plain refs: the run owns them, so injecting a source image (or
- * any other change) can't leak back into the persisted settings.
+ * writes into. Plain values: the run owns them, so injecting a source image
+ * cannot leak back into the persisted settings.
  */
 function resolveInputs(
   preset: ComfyUiPreset,
   savedInputs: Record<string, unknown> | undefined,
-): ComfyGenerationInput[] {
+): ResolvedInput[] {
   const inputSettings = preset.settings.filter(
     (s): s is ComfyInput => 'nodeTitle' in s && 'nodeInput' in s,
   )
   return inputSettings.map((input) => {
     const raw = savedInputs?.[`${input.nodeTitle}.${input.nodeInput}`] ?? input.defaultValue
-    const initial =
+    const current =
       input.type === 'model' &&
       input.optional === true &&
       (raw === undefined || raw === '' || raw === OPTIONAL_MODEL_NONE)
         ? OPTIONAL_MODEL_NONE
         : raw
-    return { ...input, current: ref(initial) }
+    return { ...input, current }
   })
 }
 
@@ -250,7 +251,7 @@ export async function runArtifact(
     )
     if (!imageInput) return failed('No suitable image input found in the preset')
     try {
-      imageInput.current.value = await imageUrlToDataUri(request.source)
+      imageInput.current = await imageUrlToDataUri(request.source)
     } catch (error) {
       return failed(
         `Failed to convert source image: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -295,7 +296,7 @@ export async function runArtifact(
     settings: { ...baseSettings, seed: baseSeed + i },
     dynamicSettings: inputs.map((input) => ({
       ...input,
-      current: input.current.value as never,
+      current: input.current as never,
     })),
   }))
   items.forEach((item) => imageGen.updateImage(item))
@@ -313,6 +314,7 @@ export async function runArtifact(
   // settles with the run. The abort listener is armed BEFORE submit so the
   // window between item registration and queueing is covered too.
   const runId = crypto.randomUUID()
+  imageGen.trackArtifactRun(runId)
   const onAbort = () => {
     void window.electronAPI.artifact.cancel(runId)
   }
@@ -325,9 +327,11 @@ export async function runArtifact(
       mode,
       preset,
       params,
-      inputs: inputs.map((input) => ({ ...input, current: input.current.value })),
+      inputs,
       items,
       source: request.source,
+      variant: variantName,
+      origin: 'renderer',
       modelsConsented: true,
       showPreview: imageGen.showPreview,
       safetyCheck: imageGen.safetyCheck,
@@ -339,6 +343,7 @@ export async function runArtifact(
     // settle them here rather than leave permanent queued placeholders.
     const message = error instanceof Error ? error.message : 'Generation failed'
     imageGen.failGeneration(message)
+    imageGen.untrackArtifactRun(runId)
     return failed(message)
   } finally {
     ctx.abortSignal?.removeEventListener('abort', onAbort)
@@ -353,6 +358,9 @@ export async function runArtifact(
     ) {
       removeQueuedStubs()
     }
+    // Fail-fast (and other no-event failures) never emit a terminal phase, so
+    // the projection would keep this runId forever without an explicit untrack.
+    imageGen.untrackArtifactRun(runId)
   }
   return result
 }

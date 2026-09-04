@@ -251,7 +251,7 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
 
 **Before claiming it works:** `npm run typecheck` (`vue-tsc`; `e2e/` is in the root
 `tsconfig.json`) and a cheap no-launch smoke: `npx playwright test --config
-playwright-e2e.config.ts --list`. 
+playwright-e2e.config.ts --list`.
 
 ## Code Style
 
@@ -729,8 +729,10 @@ modeled as an explicit FSM rather than loose flags.
     streams phase + item events on the kernel stream. Renderer-submitted runs fail fast when a
     run is active; in-process runs queue behind it.
   - UI hydration: `imageGenerationPresets` projects `artifact-phase`/`artifact-item` kernel events
-    (plus the snapshot's `activeArtifactRun`) onto `GenerateState`/`MediaItem`s — the same FSM the
-    old engine drove, so the activity bridge and failed-panel rendering are unchanged.
+    (plus the snapshot's `activeArtifactRun`) onto `GenerateState`/`MediaItem`s for
+    **renderer-originated** runs only — in-process agent tools stamp `origin: 'agent'` and stay
+    out of the Image Gen overlay/history. The FSM is unchanged, so the activity bridge and
+    failed-panel rendering keep working.
   - What still lives renderer-side on purpose: the model pre-flight (models store + HF token), the
     download-consent prompt (permissions layer) and the post-swap chat reload — main asks for them
     over the `artifact:request`/`artifact:respond` RPC (`src/assets/js/artifact/mediaRequestBridge.ts`,
@@ -853,7 +855,7 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 
 **Chat/LLM**: `views/Chat.vue` → stores: `openAiCompatibleChat`, `textInference`, `conversations`, `presets` → electron: `ensureBackendReadiness` IPC → backend: `llamacpp`/`openvino` via Vercel AI SDK
 
-**Image/Video Generation**: `views/WorkflowResult.vue` and every other renderer driver (chat tools, Home Agent `/imgGen`) → `src/assets/js/artifact/runArtifact.ts` (one resolved `ArtifactRequest` in, one settled `ArtifactResult` out; no preset switch, no UI-state mutation) → IPC `artifact:run` → `electron/artifact/runner.ts` (engine, readiness, watchdog) → backend: `comfyui-backend` via direct HTTP. Pi agent media tools run the same runner in-process: `electron/agentMode/capabilities/mediaDirect.ts` (generateImage/editImage, GPU swap via `electron/artifact/gpuOccupancy.ts`); the NL `media` tool stays a renderer proxy (`mediaDelegation.ts`). Progress reaches the UI through kernel `artifact-phase`/`artifact-item` events
+**Image/Video Generation**: `views/WorkflowResult.vue` and every other renderer driver (chat tools, Home Agent `/imgGen`) → `src/assets/js/artifact/runArtifact.ts` (one resolved `ArtifactRequest` in, one settled `ArtifactResult` out; no preset switch, no UI-state mutation) → IPC `artifact:run` → `electron/artifact/runner.ts` (engine, readiness, watchdog) → backend: `comfyui-backend` via direct HTTP. Pi agent media tools run the same runner in-process: `electron/agentMode/capabilities/mediaDirect.ts` (generateImage/editImage, GPU swap via refcounted `electron/artifact/gpuOccupancy.ts`); the NL `media` tool stays a renderer proxy (`mediaDelegation.ts`). Progress reaches the UI through kernel `artifact-phase`/`artifact-item` events (renderer-originated runs only)
 
 **Speech (STT/TTS)**: every driver (mic + STT preset in `views/PromptArea.vue`, speak-replies + Speak button in `views/Chat.vue`, `tools/transcribeAudio`, `tools/synthesizeTextToSpeech`, the direct TTS/STT preset turns in `openAiCompatibleChat`, Home Agent voice paths) → `src/assets/js/speech/speechIO.ts` — the one engine seam: interactive vs dialog-free unattended readiness, endpoint resolution, the Qwen3/Kokoro/external branch, and desktop playback state. Drivers import no TTS/STT store; the stores (`speechToText`, `textToSpeech`, `qwen3TextToSpeech`) keep engine config, persistence and the engine clients, consumed by the adapter (settings panels read them directly)
 

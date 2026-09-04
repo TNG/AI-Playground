@@ -40,7 +40,11 @@ import {
   type ArtifactRunPayload,
   type RunnerComfyService,
 } from '../../artifact/runner'
-import { resetKernelBusForTest, setKernelEventWindow } from '../../kernel/kernelBus'
+import {
+  resetKernelBusForTest,
+  setKernelEventWindow,
+  getKernelSnapshot,
+} from '../../kernel/kernelBus'
 import { submitPrompt, getComfySocket, interruptExecution } from '../../artifact/comfyClient'
 import type {
   ComfyClientDeps,
@@ -314,6 +318,84 @@ describe('artifact runner', () => {
     })
     const queuedResult = await queued
     expect(queuedResult.state).toBe('completed')
+  })
+
+  it('tags in-process items and the snapshot with the applied variant, not variants[0]', async () => {
+    setArtifactRunnerDeps(deps())
+    const request = payload({
+      variant: 'Fast',
+      origin: 'agent',
+      items: undefined,
+      params: { ...payload().params, batchSize: 1 },
+      preset: {
+        ...preset(),
+        variants: [
+          { name: 'Standard', overrides: {} },
+          { name: 'Fast', overrides: {} },
+        ],
+      } as ReturnType<typeof preset>,
+    })
+    const run = submitArtifactRun(request)
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(1))
+
+    const snapshot = getKernelSnapshot().state.activeArtifactRun
+    expect(snapshot?.variant).toBe('Fast')
+    expect(snapshot?.origin).toBe('agent')
+    expect(snapshot?.items[0]?.settings.variant).toBe('Fast')
+
+    socketHandlers!.onJson({
+      type: 'executed',
+      data: {
+        node: '2',
+        output: { images: [{ filename: 'out.png', subfolder: '', type: 'output' }] },
+      },
+    })
+    await run
+  })
+
+  it('ignores leftover websocket frames from a settled run after a queued run starts', async () => {
+    setArtifactRunnerDeps(deps())
+    const first = payload({ params: { ...payload().params, batchSize: 1 } })
+    const active = submitArtifactRun({ ...first, items: itemsFor(first) })
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(1))
+    const firstHandlers = socketHandlers!
+
+    const queued = submitArtifactRun(
+      payload({ runId: 'run-2', params: { ...payload().params, batchSize: 1 } }),
+      { queue: 'queue' },
+    )
+
+    firstHandlers.onJson({
+      type: 'executed',
+      data: {
+        node: '2',
+        output: { images: [{ filename: 'a.png', subfolder: '', type: 'output' }] },
+      },
+    })
+    expect((await active).state).toBe('completed')
+
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(2))
+    const secondHandlers = socketHandlers!
+    expect(secondHandlers).not.toBe(firstHandlers)
+
+    // A stray frame on the previous run's handlers must not settle the next one.
+    firstHandlers.onJson({
+      type: 'executed',
+      data: {
+        node: '2',
+        output: { images: [{ filename: 'stray.png', subfolder: '', type: 'output' }] },
+      },
+    })
+    expect(await Promise.race([queued, Promise.resolve('pending')])).toBe('pending')
+
+    secondHandlers.onJson({
+      type: 'executed',
+      data: {
+        node: '2',
+        output: { images: [{ filename: 'b.png', subfolder: '', type: 'output' }] },
+      },
+    })
+    expect((await queued).state).toBe('completed')
   })
 
   it('asks for consent when models are missing and cancels when declined', async () => {

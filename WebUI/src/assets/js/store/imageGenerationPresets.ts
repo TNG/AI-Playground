@@ -603,12 +603,24 @@ export const useImageGenerationPresets = defineStore(
       }
     }
 
+    // Renderer-submitted run ids. In-process agent tools also emit artifact
+    // events; adopting those would drive the Image Gen overlay / history from
+    // a run the user is not looking at.
+    const trackedArtifactRunIds = new Set<string>()
+    function trackArtifactRun(runId: string): void {
+      trackedArtifactRunIds.add(runId)
+    }
+    function untrackArtifactRun(runId: string): void {
+      trackedArtifactRunIds.delete(runId)
+    }
+
     // ── Artifact run projection (architecture-target §4.1 step 5) ────────────
     // The main-process artifact runner is the engine; its kernel events drive
     // this store's legacy FSM vocabulary, so every downstream consumer (the
     // generation overlay, the FSM→activity bridge, the tool watchers) keeps
     // working unchanged. Phases map 1:1 onto the states the old engine set.
     function applyArtifactPhase(
+      runId: string,
       phase: ArtifactPhase,
       progress?: { current: number; max: number },
       error?: string,
@@ -638,12 +650,15 @@ export const useImageGenerationPresets = defineStore(
         case 'completed':
           currentState.value = 'image_out'
           stepText.value = ''
+          untrackArtifactRun(runId)
           break
         case 'failed':
           failGeneration(error ?? 'Generation failed')
+          untrackArtifactRun(runId)
           break
         case 'cancelled':
           cancelGeneration()
+          untrackArtifactRun(runId)
           break
       }
     }
@@ -651,22 +666,35 @@ export const useImageGenerationPresets = defineStore(
     const artifactProjection = connectKernelEventStream(
       (event) => {
         if (event.type === 'artifact-phase') {
-          applyArtifactPhase(event.phase, event.progress, event.error)
+          if (!trackedArtifactRunIds.has(event.runId)) return
+          applyArtifactPhase(event.runId, event.phase, event.progress, event.error)
         } else if (event.type === 'artifact-item') {
+          if (!generatedImages.value.some((item) => item.id === event.item.id)) return
           updateImage(event.item)
         }
       },
       (snapshot) => {
-        // A reconnected renderer resumes the active run's progress view.
+        // A reconnected renderer resumes a renderer-originated run. In-process
+        // agent runs share this snapshot slot but must not paint the panel.
         const run = snapshot.state.activeArtifactRun
         if (!run) return
-        applyArtifactPhase(run.phase, run.progress, run.error ?? undefined)
-        for (const item of run.items) updateImage(item)
+        const known = new Set(generatedImages.value.map((item) => item.id))
+        const hasTrackedItems = run.items.some((item) => known.has(item.id))
+        if (!hasTrackedItems && run.origin === 'agent') return
+        trackArtifactRun(run.runId)
+        applyArtifactPhase(run.runId, run.phase, run.progress, run.error ?? undefined)
+        for (const item of run.items) {
+          if (hasTrackedItems && !known.has(item.id)) continue
+          updateImage(item)
+        }
       },
     )
     artifactProjection.ready.catch((reason: unknown) => {
       console.warn('artifact run snapshot unavailable; waiting on stream events instead', reason)
     })
+    if (import.meta.hot) {
+      import.meta.hot.dispose(() => artifactProjection.dispose())
+    }
 
     async function getMissingModelsFor(preset: Preset | null): Promise<DownloadModelParam[]> {
       if (!preset) return []
@@ -949,6 +977,8 @@ export const useImageGenerationPresets = defineStore(
       validatePresetRequirementsFor,
       formatRequirementsForDialog,
       updateImage,
+      trackArtifactRun,
+      untrackArtifactRun,
       generate,
       stopGeneration,
       deleteImage,

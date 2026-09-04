@@ -12,6 +12,7 @@ import {
   resetComfySocketsForTest,
   submitPrompt,
   uploadInputFile,
+  releaseComfySocket,
   type ComfyClientDeps,
 } from '../../artifact/comfyClient'
 
@@ -204,6 +205,19 @@ describe('comfyClient', () => {
       expect(second.onClose).toHaveBeenCalledWith(1006, '')
       // The closed socket is dropped, so the next connect creates a fresh one.
       getComfySocket(baseUrl, deps(), 'client-1', second)
+      expect(FakeWebSocket.instances).toHaveLength(2)
+    })
+
+    it('releaseComfySocket drops the connection so the next run opens a fresh one', () => {
+      const handlers = { onBinaryPreview: vi.fn(), onJson: vi.fn(), onClose: vi.fn() }
+      getComfySocket(baseUrl, deps(), 'client-1', handlers)
+      expect(FakeWebSocket.instances).toHaveLength(1)
+      FakeWebSocket.instances[0].simulateOpen()
+
+      releaseComfySocket(baseUrl)
+      expect(FakeWebSocket.instances[0].closed).toBe(true)
+
+      getComfySocket(baseUrl, deps(), 'client-2', handlers)
       expect(FakeWebSocket.instances).toHaveLength(2)
     })
   })

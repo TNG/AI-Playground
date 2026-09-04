@@ -73,6 +73,8 @@ vi.mock('@/assets/js/store/imageGenerationPresets', () => ({
     },
     failGeneration: failGenerationMock,
     ensureModelsAreAvailableFor: ensureModelsMock,
+    trackArtifactRun: vi.fn(),
+    untrackArtifactRun: vi.fn(),
   }),
 }))
 
@@ -121,6 +123,8 @@ type RunPayload = {
   inputs: Array<Record<string, unknown> & { current: unknown }>
   items: MediaItem[]
   source?: string
+  variant?: string
+  origin?: 'renderer' | 'agent'
   modelsConsented: boolean
   keepModelsLoaded: boolean
 }
@@ -343,6 +347,8 @@ describe('runArtifact', () => {
     // The variant's overrides are merged in; the preset's own name is untouched.
     expect(payload.preset.name).toBe('Draft Image')
     expect(payload.preset.description).toBe('standard variant')
+    expect(payload.variant).toBe('Standard')
+    expect(payload.origin).toBe('renderer')
   })
 
   it('falls back to the remembered variant when the request names none', async () => {

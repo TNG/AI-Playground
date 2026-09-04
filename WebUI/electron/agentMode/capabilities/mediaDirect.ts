@@ -27,9 +27,10 @@ import type { AgentToolSpec, CapabilityHost } from './types.ts'
 // `generateImage` / `editImage` executed beside the artifact runner in main
 // (architecture-target §8 step 5): the workflow is resolved from main's preset
 // catalog, the run submits through the same queue every driver uses, and the
-// GPU swap brackets it (`withGpuForMedia`) — chat tools keep the renderer-side
-// swap in chatBackends.ts, so both paths behave the same but never mix. Only
-// the specs (descriptions, schemas, default workflow) are still shipped by the
+// GPU swap brackets it (`withGpuForMedia`, occupancy-counted so overlapping
+// spritesheet calls share one swap). Chat tools keep the renderer-side swap
+// in chatBackends.ts; the two paths must not wrap the same run. Only the
+// specs (descriptions, schemas, default workflow) are still shipped by the
 // renderer, because which workflows are enabled is renderer settings.
 //
 // A run built here sets no `items` (the runner registers and streams them) and
@@ -255,6 +256,8 @@ async function runDirectTool(
     // In-process runs leave modelsConsented off: the runner asks the
     // renderer's permissions layer itself.
     keepModelsLoaded: host.keepModelsLoaded,
+    variant,
+    origin: 'agent' as const,
   }
 
   // Cancel routes through the runner (which interrupts the engine and settles

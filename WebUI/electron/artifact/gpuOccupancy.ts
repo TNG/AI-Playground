@@ -2,15 +2,17 @@
  * Main-side GPU occupancy wrap for in-process artifact callers
  * (docs/architecture-target.md §4.1, step 5).
  *
- * The renderer drivers (panel, chat tools, Home Agent) keep their own
- * stop/return wrap — they know the chat idle state and the reload params. The
- * in-process agent tools have no renderer to ask, so this is the same handoff
- * on main: with "keep models loaded" off, a media run swaps the chat LLM off
- * the GPU on the way in and gives the GPU back on the way out. A run that sees
- * more artifact runs waiting skips the swap back — the last one out does the
- * cleanup, so a spritesheet costs one swap instead of one per sprite.
+ * Occupancy is a refcount of `withGpuForMedia` holders, not a peek at the
+ * runner queue. Parallel Pi tool calls (a spritesheet) all enter this wrap
+ * before any of them has submitted — if we only asked "is a run active?" on
+ * the way out, the first to finish would reload the LLM while a sibling was
+ * still in `stopChatForMedia`. The last holder out does the swap-back.
  *
- * GPU policy stays with callers until step 7's orchestrator collects it.
+ * Renderer drivers (panel, chat tools, Home Agent) keep their own stop/return
+ * wrap until step 7's orchestrator collects GPU policy: they know to wait for
+ * an in-flight chat stream (`waitForInferenceIdle`) before killing llama.cpp.
+ * In-process agent tools have no renderer to ask, so this is the same handoff
+ * on main. The two paths must not wrap the same run.
  */
 import { appLoggerInstance } from '../logging/logger'
 import { artifactRunActive, artifactRunsQueued } from './runner'
@@ -28,6 +30,8 @@ export type GpuOccupancyDeps = {
 }
 
 let gpuDeps: GpuOccupancyDeps | null = null
+let occupancy = 0
+let gpuHeldByMedia = false
 
 export function setGpuOccupancyDeps(deps: GpuOccupancyDeps): void {
   gpuDeps = deps
@@ -36,6 +40,13 @@ export function setGpuOccupancyDeps(deps: GpuOccupancyDeps): void {
 // Test seam.
 export function resetGpuOccupancyForTest(): void {
   gpuDeps = null
+  occupancy = 0
+  gpuHeldByMedia = false
+}
+
+/** How many `withGpuForMedia` callers currently hold the GPU for media. */
+export function mediaGpuOccupancy(): number {
+  return occupancy
 }
 
 /**
@@ -53,23 +64,20 @@ export async function withGpuForMedia<T>(
   if (!gpuDeps) return fn()
   const deps = gpuDeps
 
-  let swapped = false
-  if (!options.keepModelsLoaded) {
-    await deps.stopChatForMedia()
-    swapped = true
-  }
-
-  let result: T
+  occupancy += 1
   try {
-    result = await fn()
+    if (!options.keepModelsLoaded && !gpuHeldByMedia) {
+      gpuHeldByMedia = true
+      await deps.stopChatForMedia()
+    }
+    return await fn()
   } finally {
-    // Another run (already started or waiting in the runner's queue) still
-    // wants the GPU where it is.
-    if (swapped && !artifactRunActive() && artifactRunsQueued() === 0) {
+    occupancy -= 1
+    if (gpuHeldByMedia && occupancy === 0 && !artifactRunActive() && artifactRunsQueued() === 0) {
+      gpuHeldByMedia = false
       await swapBack(deps)
     }
   }
-  return result
 }
 
 async function swapBack(deps: GpuOccupancyDeps): Promise<void> {

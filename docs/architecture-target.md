@@ -1,10 +1,10 @@
 # Target architecture — capabilities, drivers, state ownership
 
 **Status: steps 1–5 of the migration order (§8) are implemented; the rest is draft for discussion.**
-Media generation goes through the renderer-side Artifact runner; speech drivers through `speechIO`;
+Media generation is owned by the main-process Artifact runner; speech drivers go through `speechIO`;
 inference/download consent through Permissions; main→renderer notifications through one kernel
 event stream (`kernel:event`) with a listener-first snapshot handshake. Parked follow-ups from
-those landings live in [§8.2](#82-parked-follow-ups-from-landed-steps) — they do not block step 5.
+those landings live in [§8.2](#82-parked-follow-ups-from-landed-steps) — they do not block step 6.
 Everything after step 5 is a map of where we want it, and the order in which we could get there.
 It exists to be argued with — see [§10 Decisions](#10-decisions).
 
@@ -47,9 +47,11 @@ picture was literally impersonating a user clicking through the sidebar.
 disturbing the UI". Two variables tracked one concept because a capability wrote view state. (The
 tool-side mode borrowing is gone; the two variables remain until §8 step 8.)
 
-**The agent is in main but has to reach back into the window.** `electron/agentMode/capabilities/media.ts`
-builds Pi tools whose `execute` calls `executeToolInRenderer(...)`, "because the Pinia stores driving
-ComfyUI are there". So a headless host still needs a live renderer to make an image.
+**The agent is in main but the NL `media` tool still reaches back into the window.** Direct
+`generateImage` / `editImage` tools execute in-process against the main-process runner
+(`mediaDirect.ts`). The delegated `media` specialist still lives in the renderer, so
+`mediaDelegation.ts` calls `executeToolInRenderer(...)`. A headless host still needs a live
+renderer for that one tool (and for download consent / chat reload).
 
 **Stores mix state that has different owners and lifetimes.** `textInference` persists `backend`,
 `selectedModels`, `maxTokens`, `contextSize`, `temperature`, `ragList`, `settingsPerPreset` and
@@ -102,7 +104,7 @@ flowchart TD
   ha --> media
   chat --> media
   media -->|"writes view state"| uiState
-  pi -->|"executeToolInRenderer: back into the window"| media
+  pi -->|"direct tools: in-process runner; NL media still executeToolInRenderer"| media
   chat --> registry
   media --> registry
   audio --> registry
@@ -222,10 +224,13 @@ readiness, installs, the ComfyUI websocket engine, per-item seeds, the watchdog 
 detection, and streams phase/item events on the kernel stream (the renderer projects them onto the
 same FSM). The model pre-flight, download consent and post-swap chat reload stay renderer-side by
 design — main requests them over `artifact:request`/`artifact:respond`
-(`src/assets/js/artifact/mediaRequestBridge.ts`). The Pi media tools execute beside the runner
-in-process (`electron/agentMode/capabilities/mediaDirect.ts` + `mediaDelegation.ts` for the
-NL tool); the `listWorkflows` / `inspectRequirements` surface, explicit phase enum, speech kinds
-and the kernel request queue (§7) are still ahead.
+(`src/assets/js/artifact/mediaRequestBridge.ts`). In-process Pi tools wrap the runner with a
+refcounted GPU occupancy primitive (`electron/artifact/gpuOccupancy.ts`); renderer chat tools keep
+their own `stopChatBackends` wrap until step 7 — the two must not wrap the same run. The Image Gen
+store only projects renderer-originated runs (in-process agent items stay in the workspace). The
+Pi media tools execute beside the runner in-process (`electron/agentMode/capabilities/mediaDirect.ts`
++ `mediaDelegation.ts` for the NL tool); the `listWorkflows` / `inspectRequirements` surface, explicit
+phase enum, speech kinds and the kernel request queue (§7) are still ahead.
 
 `kind` is advisory in the step-1 renderer runner: routing is still by preset mediaType (the
 ComfyUI engine serves every workflow the same way), but callers must pass the kind that matches
@@ -515,17 +520,19 @@ future events with `seq > N`. The snapshot includes active/queued runs, latest a
 items, service status, the requested conversation, and its current activities/errors. This
 listener-first handshake closes the race without requiring a public replay protocol.
 
-**Renderer interim (step 4 done).** The stream exists and carries the notifications that were
-already pushed point-to-point: service status and the four agent-turn events (chunk, tool
-progress, tool image, turn done), over `kernel:event` with one monotonic `seq` (`KernelEvent` in
+**Renderer interim (step 4 done, artifact events added in step 5).** The stream exists and carries
+the notifications that were pushed point-to-point: service status, the four agent-turn events
+(chunk, tool progress, tool image, turn done), and the artifact run lifecycle (`artifact-phase` /
+`artifact-item` / `artifact-done`), over `kernel:event` with one monotonic `seq` (`KernelEvent` in
 `WebUI/src/types/kernelEvents.ts`, emitted by `electron/kernel/kernelBus.ts`, hydrated by
 `src/assets/js/projection/kernelProjection.ts`). The handshake installs the snapshot through an
 `onInstall` hook that runs **before** the buffered flush, because a consumer that adopts snapshot
 state (a resumed agent turn's stream controller) must exist before the events meant to follow it
-arrive. The snapshot carries service status plus the one active agent turn's accumulated chunks,
-tool progress and tool images — enough for a recreated window to resume a running turn through
-`Chat.resumeStream()` without restarting it. What is not on the bus yet: `activity`/`error`/
-`chat-chunk`/`artifact-item`/`stored` events and delta coalescing (steps 5–7), and the `chat` scope
+arrive. The snapshot carries service status, the one active agent turn's accumulated chunks,
+tool progress and tool images, and the one active artifact run (phase + items) — enough for a
+recreated window to resume a running turn through `Chat.resumeStream()` without restarting it, and
+to rehydrate a renderer-originated Image Gen run. What is not on the bus yet: `activity`/`error`/
+`chat-chunk`/`stored` events and delta coalescing (steps 6–7), and the `chat` scope
 exists in the vocabulary but nothing emits it. `agentMode:executeTool` stays point-to-point — it is
 a request the renderer answers, like Permissions. Leftovers are in [§8.2](#82-parked-follow-ups-from-landed-steps).
 
@@ -941,11 +948,11 @@ small fix on this branch) can pick them up instead of rediscovering them.
 
 **Step 4 (Projection protocol + hidden-window lifecycle):**
 
-- **Only service and agent-turn events are on the bus.** `activity` / `error` / `chat-chunk` /
-  `artifact-item` / `queue` / `stored` from §4.6 do not exist yet — they arrive with the
-  capabilities that move in steps 5–7. `chat` scopes are in the vocabulary but nothing emits
-  them. Nothing coalesces adjacent deltas yet (decision 13): chat still streams in the renderer
-  via Vercel AI SDK, so there is no main→renderer delta flood to coalesce.
+- **`activity` / `error` / `chat-chunk` / `queue` / `stored` are not on the bus yet.**
+  `artifact-phase` / `artifact-item` / `artifact-done` landed with step 5. `chat` scopes are in
+  the vocabulary but nothing emits them. Nothing coalesces adjacent deltas yet (decision 13):
+  chat still streams in the renderer via Vercel AI SDK, so there is no main→renderer delta flood
+  to coalesce.
 - **`AgentTurnSnapshot.chunks` accumulates unbounded per turn.** A turn is bounded and the
   snapshot only exists while one runs, but a very long turn replays a lot at once on reconnect.
   If that ever matters, cap the accumulated tail and accept that a resumed renderer misses the
@@ -954,9 +961,10 @@ small fix on this branch) can pick them up instead of rediscovering them.
   close would hide instead of quitting until a fresh renderer pushes `false` (immediate on
   reconnect). A `webContents` destroyed hook could clear it; not worth it until a crash loop
   shows up.
-- **Two projections subscribe independently** (backendServices, agentModeIpc), each with its own
-  snapshot request. Cheap today; when `getSnapshot` grows heavier (conversations in step 8),
-  converge on one shared projection or a scoped snapshot cache.
+- **Three projections subscribe independently** (backendServices, agentModeIpc,
+  imageGenerationPresets), each with its own snapshot request. Cheap today; when `getSnapshot`
+  grows heavier (conversations in step 8), converge on one shared projection or a scoped
+  snapshot cache. Each of those stores now disposes its projection on Pinia HMR.
 - **`getServices` IPC still exists** as an explicit refresh (`shouldShowInstallationDialog`) and
   for the setup wizard; only the *subscription* went through the bus. It collapses into the
   snapshot when the Backends surface (§4.7) lands.
@@ -969,11 +977,15 @@ small fix on this branch) can pick them up instead of rediscovering them.
   `debugLog`, `webBrowser:stateChanged`. Same stale-window class of bug the bus fixed for service
   status — route them through `getKernelEventWindow()` or onto the stream when those notifications
   move.
-- **`backendServices` never disposes its projection.** A Pinia HMR of that store can stack
-  `onKernelEvent` listeners. `agentModeIpc` already guards with a disposer list.
 
 **Step 5 (Artifact in main) — do with the kernel request queue (§7), or sooner if cheap:**
 
+- **GPU policy is still two wraps.** In-process tools use `withGpuForMedia` (refcounted); renderer
+  chat tools use `stopChatBackends` / `returnGpuToChat` (they wait for an in-flight chat stream
+  first). The Image Gen panel does not wrap at all. Step 7's orchestrator is the single owner —
+  do not nest both wraps on one run.
+- **Two queues still serialize media.** Chat tools go through `mediaPipeline` then `runArtifact`
+  fail-fast; in-process tools queue inside the runner. Collapse onto the orchestrator queue.
 - **In-process direct tools don't see saved dynamic inputs.** The settings sidebar's per-preset
   input map (`comfyInputsPerPreset`) is renderer state, so `mediaDirect.ts` resolves workflow
   inputs from preset defaults. Ship a snapshot of the relevant inputs with the turn (or answer it

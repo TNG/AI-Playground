@@ -242,6 +242,24 @@ export function getComfySocket(
   return handle
 }
 
+/**
+ * Drops the shared socket for `baseUrl` so the next run opens a fresh one.
+ * Called from the runner when a run settles, before a queued run starts —
+ * otherwise leftover `executed` frames of the previous prompt would land on
+ * the next run's handlers (same client, same connection).
+ */
+export function releaseComfySocket(baseUrl: string): void {
+  const existing = sockets.get(baseUrl)
+  if (!existing) return
+  sockets.delete(baseUrl)
+  activeHandlers = null
+  try {
+    existing.close()
+  } catch (error) {
+    appLogger.warn(`Error closing ComfyUI websocket: ${error}`, 'electron-backend')
+  }
+}
+
 /** Test seam: forget the shared sockets between unit tests. */
 export function resetComfySocketsForTest(): void {
   for (const socket of sockets.values()) {

@@ -53,6 +53,7 @@ import {
   clearQueue,
   getComfySocket,
   interruptExecution,
+  releaseComfySocket,
   submitPrompt,
   uploadInputFile,
   type ComfyClientDeps,
@@ -62,7 +63,6 @@ import { buildDummyGlb, DUMMY_3D_PRESET_NAME, VIEW_FIXTURE } from '@/lib/devPres
 const appLogger = appLoggerInstance
 
 const GENERATION_IDLE_TIMEOUT_MS = 5 * 60_000
-const CLIENT_ID = 'aipg-artifact-runner'
 const WEBSOCKET_CLOSED_BY_POLICY = 1000
 
 /** The renderer's queued-slot placeholder, kept byte-identical. */
@@ -94,6 +94,16 @@ export type ArtifactRunPayload = {
   items?: MediaItem[]
   /** Source image reference, kept for the item record and trace. */
   source?: string
+  /**
+   * The variant that was applied to `preset`. `applyVariant` keeps the full
+   * variants list, so `preset.variants[0]` is not the selected name.
+   */
+  variant?: string
+  /**
+   * Who submitted the run. Renderer drivers pre-register UI items; in-process
+   * agent tools do not, and the Image Gen store must not adopt their events.
+   */
+  origin?: 'renderer' | 'agent'
   /**
    * Whether required models were already consented AND downloaded by the
    * driver (the renderer's pre-flight). In-process tool runs leave this false
@@ -159,6 +169,9 @@ type ActiveRun = {
   settled: boolean
   loaderNodes: string[]
   phase: ArtifactPhase
+  /** ComfyUI client id for this run — unique so leftover WS frames cannot mix. */
+  clientId: string
+  comfyBaseUrl: string | null
 }
 
 type QueuedRun = { payload: ArtifactRunPayload; resolve: (result: ArtifactRunResult) => void }
@@ -223,8 +236,21 @@ export function cancelArtifactRun(runId: string): void {
   }
 }
 
+function resolvedVariantName(payload: ArtifactRunPayload): string | undefined {
+  return payload.variant ?? payload.preset.variants?.[0]?.name
+}
+
+function runOrigin(payload: ArtifactRunPayload): 'renderer' | 'agent' {
+  return payload.origin ?? (payload.items ? 'renderer' : 'agent')
+}
+
 // Test seam.
 export function resetArtifactRunnerForTest(): void {
+  if (activeRun?.idleTimer) {
+    clearTimeout(activeRun.idleTimer)
+    activeRun.idleTimer = null
+  }
+  if (activeRun?.comfyBaseUrl) releaseComfySocket(activeRun.comfyBaseUrl)
   activeRun = null
   runQueue.splice(0)
   runnerDeps = null
@@ -311,6 +337,10 @@ function finish(run: ActiveRun, result: ArtifactRunResult): void {
   emitArtifactDone(run.payload.runId, result.state, result.error)
   if (activeRun === run) {
     activeRun = null
+    // Drop this run's websocket before a queued run binds new handlers —
+    // leftover `executed` frames of the previous prompt would otherwise
+    // land on the next run (one shared connection, one client).
+    if (run.comfyBaseUrl) releaseComfySocket(run.comfyBaseUrl)
     const next = runQueue.shift()
     if (next) void startRun(next.payload).then(next.resolve)
   }
@@ -363,7 +393,7 @@ function buildItems(payload: ArtifactRunPayload): MediaItem[] {
     imageUrl: PLACEHOLDER_URL,
     settings: {
       preset: payload.preset.name,
-      variant: payload.preset.variants?.[0]?.name,
+      variant: resolvedVariantName(payload),
       prompt: payload.params.prompt,
       negativePrompt: payload.params.negativePrompt,
       batchSize: payload.params.batchSize,
@@ -404,6 +434,8 @@ function startRun(payload: ArtifactRunPayload): Promise<ArtifactRunResult> {
     settled: false,
     loaderNodes: [],
     phase: 'queued',
+    clientId: `aipg-artifact-${payload.runId}`,
+    comfyBaseUrl: null,
   }
   activeRun = run
 
@@ -412,14 +444,15 @@ function startRun(payload: ArtifactRunPayload): Promise<ArtifactRunResult> {
     run.cancel = () => cancelRun(run)
   })
 
-  for (const item of items) emitItem(run, item)
   beginArtifactRunSnapshot({
     runId: payload.runId,
     mode: payload.mode,
     workflow: payload.preset.name,
-    variant: payload.preset.variants?.[0]?.name,
+    variant: resolvedVariantName(payload),
+    origin: runOrigin(payload),
     phase: 'queued',
   })
+  for (const item of items) emitItem(run, item)
   emitArtifactPhase(payload.runId, 'queued')
 
   driveRun(run, deps).then(
@@ -596,6 +629,7 @@ function armCrashWatch(run: ActiveRun): void {
 }
 
 function handleWebsocketMessage(run: ActiveRun, msg: unknown): void {
+  if (run.settled || activeRun !== run) return
   let parsed: ReturnType<typeof ComfyMessageSchema.parse>
   try {
     parsed = ComfyMessageSchema.parse(msg)
@@ -684,6 +718,7 @@ function handleWebsocketMessage(run: ActiveRun, msg: unknown): void {
 }
 
 function handleBinaryPreview(run: ActiveRun, mime: string, bytes: ArrayBuffer): void {
+  if (run.settled || activeRun !== run) return
   if (run.payload.showPreview === false) return
   const current = run.items[run.generateIdx]
   if (!current || current.state === 'done') return
@@ -724,6 +759,7 @@ async function driveRun(run: ActiveRun, deps: ArtifactRunnerDeps): Promise<void>
   const baseUrl = await startBackendAndWait(run)
   if (run.settled) return
   if (!baseUrl) throw new Error('ComfyUI backend did not reach running state')
+  run.comfyBaseUrl = baseUrl
   armCrashWatch(run)
 
   await ensureDummyFixtures(run, baseUrl)
@@ -777,11 +813,11 @@ async function driveRun(run: ActiveRun, deps: ArtifactRunnerDeps): Promise<void>
     ...findKeysByClassType(workflow, 'DualCLIPLoader (GGUF)'),
   ]
 
-  const socket = getComfySocket(baseUrl, clientDeps(), CLIENT_ID, {
+  const socket = getComfySocket(baseUrl, clientDeps(), run.clientId, {
     onBinaryPreview: (mime, bytes) => handleBinaryPreview(run, mime, bytes),
     onJson: (msg) => handleWebsocketMessage(run, msg),
     onClose: (code) => {
-      if (!run.settled && code !== WEBSOCKET_CLOSED_BY_POLICY) {
+      if (!run.settled && activeRun === run && code !== WEBSOCKET_CLOSED_BY_POLICY) {
         failRun(run, `The ComfyUI websocket closed unexpectedly (code ${code}).`, true)
       }
     },
@@ -800,7 +836,7 @@ async function driveRun(run: ActiveRun, deps: ArtifactRunnerDeps): Promise<void>
   for (const item of run.items) {
     const seeded: ComfyUIApiWorkflow = structuredClone(workflow)
     modifySettingInWorkflow(seeded, 'seed', `${(item.settings.seed ?? 0).toFixed(0)}`)
-    await submitPrompt(baseUrl, clientDeps(), seeded, CLIENT_ID)
+    await submitPrompt(baseUrl, clientDeps(), seeded, run.clientId)
   }
   setPhase(run, 'loading-components')
 }

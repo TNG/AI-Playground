@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia'
+import { defineStore, acceptHMRUpdate } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import z from 'zod'
 import { demoAwareStorage } from '../demoAwareStorage'
@@ -225,6 +225,9 @@ export const useBackendServices = defineStore(
     kernelProjection.ready.catch((reason: unknown) => {
       console.warn('kernel snapshot unavailable; waiting on stream events instead', reason)
     })
+    if (import.meta.hot) {
+      import.meta.hot.dispose(() => kernelProjection.dispose())
+    }
 
     function applyServiceUpdate(updatedInfo: ApiServiceInformation): void {
       const idx = currentServiceInfo.value.findIndex(
@@ -847,6 +850,10 @@ export const useBackendServices = defineStore(
     },
   },
 )
+
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useBackendServices, import.meta.hot))
+}
 
 /**
  * Grace period between the main-process setup call settling and us declaring the

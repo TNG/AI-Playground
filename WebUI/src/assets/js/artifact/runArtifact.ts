@@ -218,9 +218,11 @@ function isDoneWithMedia(item: MediaItem): boolean {
 /**
  * Resolve and run one media generation. Resolves when every tracked item has
  * settled (done / failed / stopped), the FSM errored, the caller aborted, or
- * the idle watchdog fired. A user cancelling the required-model download
- * still throws (`isCancellation`) so the UI's pre-existing catch — which
- * resets the prompt bar — keeps working.
+ * the idle watchdog fired. The batch settles on the FIRST terminal item
+ * failure — ComfyUI keeps rendering the rest, but this run stops waiting and
+ * whatever reached 'done' rides along in `items`. A user cancelling the
+ * required-model download still throws (`isCancellation`) so the UI's
+ * pre-existing catch — which resets the prompt bar — keeps working.
  */
 export async function runArtifact(
   request: ArtifactRequest,
@@ -286,6 +288,10 @@ export async function runArtifact(
     )
   }
 
+  // Aborted while the model dialog was open — don't register placeholders for
+  // a run whose caller is already gone.
+  if (ctx.abortSignal?.aborted) return { state: 'cancelled', items: [] }
+
   // 4. Create the tracked items — the run's only footprint on shared state.
   const baseSeed =
     params.seed === -1 ? Math.floor(Math.random() * 1_000_000) : params.seed
@@ -320,21 +326,10 @@ export async function runArtifact(
     )
   }
 
-  // 5. Submit. Refused runs (a generation already in flight) fail fast
-  // instead of watching items that will never move.
+  // 5. Submit and wait for the FSM/websocket to settle the items. The abort
+  // listener is armed BEFORE submit so the window between item registration
+  // and queueing is covered too.
   const run: ComfyGenerationRun = { preset, items, params, inputs, sourceImage: request.source }
-  const accepted = await comfyUi.generate(run)
-  if (!accepted) {
-    const errored = items.some(
-      (item) => imageGen.generatedImages.find((img) => img.id === item.id)?.state === 'failed',
-    )
-    removeQueuedStubs()
-    return errored
-      ? failed(imageGen.lastError ?? 'Generation failed')
-      : failed('Another generation is already in progress')
-  }
-
-  // 6. Wait for the FSM/websocket to settle the items.
   const trackedIds = new Set(items.map((item) => item.id))
   const trackedItems = () => imageGen.generatedImages.filter((img) => trackedIds.has(img.id))
   const doneItems = () => trackedItems().filter(isDoneWithMedia)
@@ -342,7 +337,7 @@ export async function runArtifact(
   return await new Promise<ArtifactResult>((resolve) => {
     let timeout: ReturnType<typeof setTimeout> | null = null
     let stopWatcher: (() => void) | null = null
-    let stopListeningForAbort: (() => void) | null = null
+    let settled = false
 
     const cleanup = () => {
       if (timeout) {
@@ -353,43 +348,47 @@ export async function runArtifact(
         stopWatcher()
         stopWatcher = null
       }
-      if (stopListeningForAbort) {
-        stopListeningForAbort()
-        stopListeningForAbort = null
-      }
+      ctx.abortSignal?.removeEventListener('abort', onAbort)
+    }
+
+    const finish = (result: ArtifactResult) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(result)
     }
 
     // Aborting has to reach ComfyUI: it has the prompt already and would
     // happily load a 30 GB model and render it while nobody waits. `stop()`
     // clears the queue, interrupts the run and settles the tracked items.
     const onAbort = () => {
-      cleanup()
       void comfyUi.stop()
-      resolve({ state: 'cancelled', items: doneItems(), error: 'Generation cancelled.' })
+      finish({ state: 'cancelled', items: doneItems(), error: 'Generation cancelled.' })
     }
-    if (ctx.abortSignal) {
-      if (ctx.abortSignal.aborted) {
-        onAbort()
-        return
-      }
-      ctx.abortSignal.addEventListener('abort', onAbort, { once: true })
-      stopListeningForAbort = () => ctx.abortSignal?.removeEventListener('abort', onAbort)
+    if (ctx.abortSignal?.aborted) {
+      onAbort()
+      return
     }
+    ctx.abortSignal?.addEventListener('abort', onAbort, { once: true })
 
+    // The single stall owner: a re-arming idle watchdog over every phase
+    // (backend boot, component installs, model load, execution, item
+    // settlement) — it replaces both the old per-tool timers and the engine's
+    // execution-only watchdog. On fire it fails the tracked items through the
+    // store's settle path, so the UI gets its failed panel and tool callers
+    // get an error result, then interrupts the orphaned render.
     const armIdleTimeout = () => {
       if (timeout) clearTimeout(timeout)
       timeout = setTimeout(() => {
-        cleanup()
+        const message = 'Generation stalled (no progress for 5 minutes)'
+        imageGen.failGeneration(message)
         void comfyUi.stop()
-        resolve({
-          state: 'failed',
-          items: doneItems(),
-          error: 'Generation stalled (no progress for 5 minutes)',
-        })
+        finish({ state: 'failed', items: doneItems(), error: message })
       }, GENERATION_IDLE_TIMEOUT_MS)
     }
 
     const check = () => {
+      if (settled) return
       const tracked = trackedItems()
       // Don't keep waiting for a 'done' that will never arrive — this was the
       // source of multi-minute tool-call stalls in the old per-tool watchers.
@@ -397,8 +396,7 @@ export async function runArtifact(
         imageGen.currentState === 'error' ||
         tracked.some((item) => item.state === 'failed')
       ) {
-        cleanup()
-        resolve({
+        finish({
           state: 'failed',
           items: doneItems(),
           error: imageGen.lastError ?? 'Generation failed',
@@ -406,18 +404,15 @@ export async function runArtifact(
         return
       }
       if (tracked.some((item) => item.state === 'stopped')) {
-        cleanup()
-        resolve({ state: 'cancelled', items: doneItems(), error: 'Generation cancelled.' })
+        finish({ state: 'cancelled', items: doneItems(), error: 'Generation cancelled.' })
         return
       }
       const completed = tracked.filter(isDoneWithMedia)
       if (completed.length >= params.batchSize) {
-        cleanup()
-        resolve({ state: 'completed', items: completed })
+        finish({ state: 'completed', items: completed })
       }
     }
 
-    armIdleTimeout()
     // Watch the items, FSM state and step text: failures surface immediately
     // and every progress tick re-arms the idle watchdog.
     stopWatcher = watch(
@@ -428,6 +423,29 @@ export async function runArtifact(
       },
       { deep: true },
     )
+    armIdleTimeout()
     check()
+
+    void comfyUi.generate(run).then((accepted) => {
+      if (settled) {
+        // Aborted while submitting — the pre-queue stop() above may have run
+        // before the prompt landed, so clear whatever was queued after it.
+        if (accepted) void comfyUi.stop()
+        return
+      }
+      if (!accepted) {
+        const errored = items.some(
+          (item) => imageGen.generatedImages.find((img) => img.id === item.id)?.state === 'failed',
+        )
+        removeQueuedStubs()
+        finish(
+          errored
+            ? failed(imageGen.lastError ?? 'Generation failed')
+            : failed('Another generation is already in progress'),
+        )
+        return
+      }
+      check()
+    })
   })
 }

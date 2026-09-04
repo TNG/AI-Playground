@@ -39,7 +39,7 @@ import { getMissingComfyuiBackendModels } from './imageGenerationUtils'
 import { useHomeAgent } from './homeAgent'
 import { imageUrlToDataUri, saveImageToMediaInput } from '@/lib/utils'
 import { withTraceSpan } from '@/lib/laminarSpans'
-import { runArtifact } from '../artifact/runArtifact'
+import { runArtifact, type ArtifactKind, type ArtifactResult } from '../artifact/runArtifact'
 import type { Preset } from './presets'
 import {
   getDemoModeInputImage,
@@ -808,14 +808,26 @@ export const useImageGenerationPresets = defineStore(
       }
     }
 
+    // kind is advisory until per-kind adapters exist (routing is by preset
+    // mediaType), but it must still say what the panel actually asked for.
+    const MODE_TO_ARTIFACT_KIND: Record<WorkflowModeType, ArtifactKind> = {
+      imageGen: 'create-image',
+      imageEdit: 'edit-image',
+      video: 'create-video',
+    }
+
     /**
      * UI submit path for the Image Gen / Edit / Video panels: build an
      * artifact request from the live form state and hand it to the shared
-     * runner. The queued placeholders, readiness phases and websocket-driven
-     * completion all live in `runArtifact` now — this wrapper only owns the
-     * UI-facing side effects (history view, last-backend bookkeeping).
+     * runner. Resolves when the run settles (not when it is queued) — the
+     * prompt bar's busy state follows the FSM (`processing`) independently,
+     * so callers must not read the promise as "render finished" either way.
+     * The panel's source image rides the saved LoadImage inputs (the
+     * selectedEditedImageId watch), not `request.source`: multi-slot edit
+     * presets manage each slot through its own binding, and a generic
+     * source injection would clobber slot 1.
      */
-    async function generate(mode: WorkflowModeType = 'imageGen', sourceImage?: string) {
+    async function generate(mode: WorkflowModeType = 'imageGen'): Promise<ArtifactResult | undefined> {
       const preset = activePreset.value
       if (!preset || preset.type !== 'comfy') {
         errors.report(
@@ -846,14 +858,13 @@ export const useImageGenerationPresets = defineStore(
 
       // UI runs are top-level: no parent activity (the runner resets the stale
       // tool-parented value the previous chat run may have left behind).
-      await runArtifact({
-        kind: 'create-image',
+      return await runArtifact({
+        kind: MODE_TO_ARTIFACT_KIND[mode],
         workflow: preset.name,
         variant: presetsStore.activeVariantName[preset.name] || undefined,
         mode,
         prompt: prompt.value,
         negativePrompt: negativePrompt.value,
-        source: sourceImage,
         params: {
           seed: seed.value,
           width: width.value,

@@ -704,8 +704,10 @@ modeled as an explicit FSM rather than loose flags.
 - `MediaItem.state` has terminal states: `done`, `failed`, `stopped` (no more permanent spinners).
   `failGeneration(msg)` / `cancelGeneration()` settle all in-flight items and set `lastError`;
   `WorkflowResult.vue` / `ChatWorkflowResult.vue` render a `failed` panel from `lastError`.
-- **Watchdog**: `comfyUiPresets` arms a timer on `execution_start` and clears it on
-  success/error/interrupt; a stall reports `generation/timeout` and fails in-flight items.
+- **Watchdog**: a single stall owner — the artifact runner's re-arming 5-minute idle
+  watchdog (covers backend boot, installs, model load and execution). `comfyUiPresets` no longer
+  arms its own execution-only timer; on stall the runner fails the items
+  (`failGeneration`) and stops the engine.
 - **Crash detection**: a watch on the ComfyUI service status fails in-flight items if the backend
   leaves `running` unexpectedly (guarded by `backendRestarting` so intentional restarts for custom-node
   installs don't false-positive). The main-process `service.ts` also reports unexpected child exits.
@@ -715,10 +717,13 @@ modeled as an explicit FSM rather than loose flags.
   side-effect-free (`presets.resolvePresetVariant` — no switch, no `setModeOnly`), snapshots the
   saved dynamic inputs as plain refs, injects the source image, drives the model dialog, registers
   tracked items, then waits on the FSM/items with a re-arming 5-minute idle watchdog and abort
-  support. Refused submissions fail fast ("Another generation is already in progress"). A
+  support (the abort listener is armed before submit, so the registration-to-queue window is
+  covered, and a submission accepted after an abort is stopped again). The batch settles on the
+  FIRST terminal item failure — whatever already reached `done` rides along in `items`. Refused
+  submissions fail fast ("Another generation is already in progress"). A
   user-cancelled model download still throws (`isCancellation`) so existing caller catches keep
-  working. The UI wrapper (`imageGenerationPresets.generate`), both chat tools and Home Agent
-  `/imgGen` all go through it.
+  working. The UI wrapper (`imageGenerationPresets.generate`, kind derived from the panel mode),
+  both chat tools and Home Agent `/imgGen` all go through it.
 
 **Activity / progress sink (`store/activities.ts`):** the analog of the error sink for "what is the
 app busy with right now". Long-running steps report a typed `Activity`

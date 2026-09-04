@@ -21,6 +21,7 @@ const stepText = ref('')
 const generateMock = vi.fn<(run: unknown, isRetry?: boolean) => Promise<boolean>>()
 const stopMock = vi.fn<() => Promise<void>>()
 const ensureModelsMock = vi.fn<(preset: unknown) => Promise<void>>()
+const failGenerationMock = vi.fn<(message: string) => void>()
 const resolvePresetVariantMock = vi.fn<(name: string, variant?: string | null) => Preset | null>()
 const imageUrlToDataUriMock = vi.fn<(source: string) => Promise<string>>()
 
@@ -75,6 +76,7 @@ vi.mock('@/assets/js/store/imageGenerationPresets', () => ({
         generatedImages.value = copy
       }
     },
+    failGeneration: failGenerationMock,
     ensureModelsAreAvailableFor: ensureModelsMock,
   }),
 }))
@@ -192,6 +194,15 @@ describe('runArtifact', () => {
     generateMock.mockReset().mockResolvedValue(true)
     stopMock.mockReset().mockResolvedValue()
     ensureModelsMock.mockReset().mockResolvedValue()
+    failGenerationMock.mockReset().mockImplementation((message: string) => {
+      // Mirrors the real store: the failed panel reads this.
+      lastError.value = message
+      generatedImages.value = generatedImages.value.map((img) =>
+        img.state === 'queued' || img.state === 'generating'
+          ? ({ ...img, state: 'failed' as const } as MediaItem)
+          : img,
+      )
+    })
     imageUrlToDataUriMock.mockReset().mockImplementation(async (source: string) => source)
     resolvePresetVariantMock.mockReset().mockImplementation(applyVariantForReal)
   })
@@ -576,6 +587,111 @@ describe('runArtifact', () => {
     const result = await pending
     expect(result).toMatchObject({ state: 'cancelled' })
     expect(stopMock).toHaveBeenCalled()
+  })
+
+  it('resolves cancelled without registering items when the signal fires while models prepare', async () => {
+    presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
+    let resolveModels!: () => void
+    ensureModelsMock.mockImplementation(
+      () => new Promise<void>((resolve) => (resolveModels = resolve)),
+    )
+    const controller = new AbortController()
+
+    const pending = runArtifact(
+      { kind: 'create-image', workflow: 'Draft Image', prompt: 'a castle' },
+      { abortSignal: controller.signal },
+    )
+    controller.abort()
+    resolveModels()
+
+    const result = await pending
+    expect(result).toMatchObject({ state: 'cancelled', items: [] })
+    expect(generateMock).not.toHaveBeenCalled()
+    expect(generatedImages.value).toEqual([])
+    expect(stopMock).not.toHaveBeenCalled()
+  })
+
+  it('stops the engine again when a submit that was aborted lands in the queue afterwards', async () => {
+    presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
+    let resolveGenerate!: (accepted: boolean) => void
+    generateMock.mockImplementation(
+      () => new Promise<boolean>((resolve) => (resolveGenerate = resolve)),
+    )
+    const controller = new AbortController()
+
+    const pending = runArtifact(
+      { kind: 'create-image', workflow: 'Draft Image', prompt: 'a castle' },
+      { abortSignal: controller.signal },
+    )
+    // The placeholders are registered before submit, so the abort listener is
+    // armed for this window even though the prompt has not been queued yet.
+    await vi.waitFor(() => expect(generatedImages.value).toHaveLength(1))
+    controller.abort()
+
+    const result = await pending
+    expect(result).toMatchObject({ state: 'cancelled' })
+    expect(stopMock).toHaveBeenCalledTimes(1)
+
+    // The engine finishes queueing only after the abort — whatever landed in
+    // the queue after the pre-queue stop() must be cleared too.
+    resolveGenerate(true)
+    await vi.waitFor(() => expect(stopMock).toHaveBeenCalledTimes(2))
+  })
+
+  it('does not leak the injected source back into the persisted input map', async () => {
+    presetsFixture.value = [
+      comfyPreset({
+        name: 'Edit By Prompt',
+        category: 'edit-images',
+        settings: [imageInputFixture()],
+      }),
+    ]
+    comfyInputsPerPreset.value = { 'Edit By Prompt': { 'LoadImage.image': 'preset-default.png' } }
+    imageUrlToDataUriMock.mockResolvedValue('data:image/png;base64,SOURCE')
+
+    const { result } = await startAndAwaitSubmit({
+      kind: 'edit-image',
+      workflow: 'Edit By Prompt',
+      prompt: 'make it blue',
+      source: 'aipg-media://source.png',
+    })
+    settleDone()
+    await result
+
+    const run = generateMock.mock.calls[0][0] as {
+      inputs: Array<{ current: { value: unknown } }>
+    }
+    expect(run.inputs[0].current.value).toBe('data:image/png;base64,SOURCE')
+    expect(comfyInputsPerPreset.value['Edit By Prompt']['LoadImage.image']).toBe(
+      'preset-default.png',
+    )
+  })
+
+  it('owns the stall watchdog: fails the items and stops the engine after 5 idle minutes', async () => {
+    vi.useFakeTimers()
+    try {
+      presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
+      const pending = runArtifact({
+        kind: 'create-image',
+        workflow: 'Draft Image',
+        prompt: 'a castle',
+      })
+      // Flush the submit microtask chain without ticking the clock.
+      await vi.advanceTimersByTimeAsync(0)
+      expect(generateMock).toHaveBeenCalled()
+
+      const result = await vi.advanceTimersByTimeAsync(5 * 60_000).then(() => pending)
+      expect(result).toMatchObject({
+        state: 'failed',
+        error: 'Generation stalled (no progress for 5 minutes)',
+      })
+      expect(failGenerationMock).toHaveBeenCalledWith(
+        'Generation stalled (no progress for 5 minutes)',
+      )
+      expect(stopMock).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('buckets items by the requested mode, defaulting to the preset category', async () => {

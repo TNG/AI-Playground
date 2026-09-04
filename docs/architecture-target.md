@@ -217,6 +217,11 @@ dialog, tracked-item registration and terminal-state watching, with cancel throu
 `ArtifactRunContext` abort signal. The `listWorkflows` / `inspectRequirements` surface, explicit
 phase enum, speech kinds and the move into main are still ahead.
 
+`kind` is advisory in the step-1 renderer runner: routing is still by preset mediaType (the
+ComfyUI engine serves every workflow the same way), but callers must pass the kind that matches
+what they asked for — the UI wrapper derives it from the panel mode — so per-kind adapters in later
+steps can rely on it without re-deriving it from the preset.
+
 ```ts
 type ArtifactKind = 'create-image' | 'edit-image' | 'create-video' | 'create-3d' | 'create-speech'
 

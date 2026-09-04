@@ -264,41 +264,14 @@ export const useComfyUiPresets = defineStore(
       },
     )
 
-    // Watchdog: if a generation neither completes nor errors within this window,
-    // we assume the backend is wedged and fail the in-flight items so the UI and
-    // any LLM tool call waiting on completion are released instead of hanging.
-    const GENERATION_WATCHDOG_MS = 10 * 60 * 1000
-    let watchdogTimer: ReturnType<typeof setTimeout> | null = null
     // Set while we intentionally restart ComfyUI mid-generate (to install custom
     // nodes), so crash detection doesn't mistake the planned bounce for a crash.
     let backendRestarting = false
 
-    function clearWatchdog() {
-      if (watchdogTimer !== null) {
-        clearTimeout(watchdogTimer)
-        watchdogTimer = null
-      }
-    }
-
-    function armWatchdog() {
-      clearWatchdog()
-      watchdogTimer = setTimeout(() => {
-        watchdogTimer = null
-        if (!imageGeneration.processing) return
-        const promptStore = usePromptStore()
-        promptStore.promptSubmitted = false
-        imageGeneration.failGeneration('Image generation timed out.')
-        errors.report(
-          createAppError({
-            category: 'generation',
-            code: 'generation/timeout',
-            userMessage:
-              'Image generation timed out. The ComfyUI backend may be stuck — try again or restart it.',
-            surface: 'toast',
-          }),
-        )
-      }, GENERATION_WATCHDOG_MS)
-    }
+    // Stall protection lives in the artifact runner (runArtifact.ts), which
+    // every driver goes through: one re-arming idle watchdog covering the
+    // backend boot / install / model-load phases as well as execution. This
+    // store no longer arms its own execution-only timer.
     const comfyBaseUrl = computed(() => comfyUiState.value?.baseUrl)
 
     const websocket = ref<WebSocket | null>(null)
@@ -857,17 +830,14 @@ export const useComfyUiPresets = defineStore(
                 }
                 imageGeneration.processing = true
                 imageGeneration.currentState = 'load_workflow_components'
-                armWatchdog()
                 console.log('execution_start', { detail: msg.data })
                 break
               }
               case 'execution_success':
                 imageGeneration.processing = false
-                clearWatchdog()
                 console.log('execution_success', { detail: msg.data })
                 break
               case 'execution_error': {
-                clearWatchdog()
                 const promptStore = usePromptStore()
                 promptStore.promptSubmitted = false
                 const data = msg.data as ComfyExecutionErrorData
@@ -899,7 +869,6 @@ export const useComfyUiPresets = defineStore(
                 break
               }
               case 'execution_interrupted':
-                clearWatchdog()
                 imageGeneration.processing = false
                 imageGeneration.currentState = 'no_start'
                 break
@@ -971,7 +940,6 @@ export const useComfyUiPresets = defineStore(
         if (previousStatus === 'running' && status !== 'running') {
           if (backendRestarting) return
           if (!imageGeneration.processing && imageGeneration.currentState === 'no_start') return
-          clearWatchdog()
           const promptStore = usePromptStore()
           promptStore.promptSubmitted = false
           imageGeneration.failGeneration('The ComfyUI backend stopped unexpectedly.')
@@ -1464,7 +1432,6 @@ export const useComfyUiPresets = defineStore(
         imageGeneration.currentState = 'load_workflow_components'
         return true
       } catch (ex) {
-        clearWatchdog()
         imageGeneration.failGeneration('The ComfyUI backend could not generate the image.')
         errors.report(ex, {
           category: 'generation',
@@ -1490,7 +1457,6 @@ export const useComfyUiPresets = defineStore(
     }
 
     async function stop() {
-      clearWatchdog()
       imageGeneration.stopping = true
       try {
         await comfyFetch(`${comfyBaseUrl.value}/queue`, {

@@ -19,11 +19,13 @@ import { extractToolMedia } from '@/assets/js/tools/toolMedia'
 // which already instantiates useHomeAgent() at the top of its own setup.
 import { useTextInference } from './textInference'
 import type { IndexedDocument, ValidFileExtension } from './textInference'
-import { useSpeechToText } from './speechToText'
-import { useTextToSpeech } from './textToSpeech'
-import { useQwen3TextToSpeech } from './qwen3TextToSpeech'
-import { base64ToBlob, transcribeAudioBlob } from '@/lib/transcribe'
-import { synthesizeSpeech, bytesToBase64 } from '@/lib/synthesizeSpeech'
+import {
+  NO_TRANSCRIPTION_ENDPOINT,
+  readyTranscriptionUnattended,
+  synthesizeClip,
+  transcribe,
+} from '../speech/speechIO'
+import { base64ToBlob } from '@/lib/transcribe'
 import { markdownToSpeechText } from '@/lib/markdownToSpeech'
 import {
   useConversations,
@@ -1015,33 +1017,16 @@ export const useHomeAgent = defineStore(
       if (!fromVoice) return
       const trimmed = markdownToSpeechText(text ?? '').trim()
       if (!trimmed) return
-      const textToSpeech = useTextToSpeech()
       if (!useTextInference().speakRepliesAllowed(HOME_AGENT_CHAT_PRESET_NAME)) return
 
       try {
-        if (textToSpeech.selectedEngine === 'qwen3') {
-          const qwen3 = useQwen3TextToSpeech()
-          // `synthesize` would open the download popup for a missing model, so
-          // check first and bail out instead.
-          if (!qwen3.isBackendSetUp() || !(await qwen3.isModelInstalled())) return
-          const { audioBase64, mediaType } = await qwen3.synthesize({ text: trimmed })
-          await adapter.voice(audioBase64, mediaType || 'audio/wav', meta)
-          return
-        }
-        // Kokoro / external endpoint. `available` covers exactly those two.
-        if (!textToSpeech.available) return
-        // Start the OVMS speech server on demand (no dialog; no-op if already up or
-        // the model isn't installed — a configured fallback still serves).
-        await textToSpeech.ensureSpeechServerRunning()
-        const endpoint = await textToSpeech.resolveSpeech()
-        if (!endpoint) return
-        // Request WAV — it's universally supported by TTS servers (OVMS and
-        // OpenAI-compatible fallbacks). The home-agent channel layer transcodes
-        // to Ogg/Opus so Telegram still renders a real voice bubble, decoupling
-        // us from the server's `response_format` support.
-        const { bytes, mediaType } = await synthesizeSpeech(trimmed, endpoint, { format: 'wav' })
-        const base64 = bytesToBase64(bytes)
-        await adapter.voice(base64, mediaType || 'audio/wav', meta)
+        // Synthesis goes through whichever engine the user selected, Qwen3
+        // included, via the one engine seam — unattended, so a missing model
+        // simply means no voice reply instead of a popup nobody at the channel
+        // can answer.
+        const clip = await synthesizeClip({ text: trimmed, unattended: true, format: 'wav' })
+        if (!clip) return
+        await adapter.voice(clip.audioBase64, clip.mediaType, meta)
       } catch (e) {
         console.error('homeAgent: voice reply failed:', e)
       }
@@ -1280,43 +1265,35 @@ export const useHomeAgent = defineStore(
       audio: RemoteAudio[],
       meta?: InboundMeta,
     ): Promise<string | null> {
-      const speechToText = useSpeechToText()
       // Start the selected engine's server on demand. Both are dialog-free (a
       // remote sender can't answer a download popup) and no-op when the backend or
-      // model isn't installed — a configured fallback still serves. The standalone
-      // sidecar needs this explicitly: its endpoint resolves from the registered
-      // service's baseUrl whether or not the process is running, so without the
-      // start below transcription would just fail to connect.
-      if (speechToText.effectiveSttEngine === 'standalone') {
-        await speechToText.ensureStandaloneServerRunning()
-      } else {
-        await speechToText.ensureTranscriptionServerRunning()
-      }
-      const endpoint = await speechToText.resolveTranscription()
-      if (!endpoint) {
-        await reply(
-          adapter,
-          '⚠️ No speech-to-text is available. Install the OpenVINO backend or the standalone Whisper backend, or configure a fallback transcription endpoint in the Speech to Text preset settings.',
-          meta,
-        )
-        return null
-      }
+      // model isn't installed — a configured fallback still serves.
+      await readyTranscriptionUnattended()
+
       const stopTyping = typing(adapter, 'typing', meta)
       try {
         const parts: string[] = []
         for (const a of audio) {
           const blob = base64ToBlob(a.data_base64, a.mime)
-          const text = await transcribeAudioBlob(blob, endpoint)
+          const { text } = await transcribe({ audio: blob })
           if (text) parts.push(text.trim())
         }
         return parts.filter(Boolean).join(' ').trim()
       } catch (e) {
         console.error('homeAgent: audio transcription failed:', e)
-        await reply(
-          adapter,
-          `⚠️ Could not transcribe the audio: ${e instanceof Error ? e.message : String(e)}`,
-          meta,
-        )
+        if (e instanceof Error && e.message === NO_TRANSCRIPTION_ENDPOINT) {
+          await reply(
+            adapter,
+            '⚠️ No speech-to-text is available. Install the OpenVINO backend or the standalone Whisper backend, or configure a fallback transcription endpoint in the Speech to Text preset settings.',
+            meta,
+          )
+        } else {
+          await reply(
+            adapter,
+            `⚠️ Could not transcribe the audio: ${e instanceof Error ? e.message : String(e)}`,
+            meta,
+          )
+        }
         return null
       } finally {
         stopTyping()

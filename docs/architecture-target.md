@@ -306,6 +306,15 @@ projection of `transcribe` for when the model should do it explicitly.
 Same TTS/STT **adapters** as `create-speech`. Two drivers, one engine: do not grow a second Qwen3
 client for the tool vs the prompt bar.
 
+**Implemented in the renderer by `src/assets/js/speech/speechIO.ts`** (step 2): every speech driver
+(the mic and STT preset, `transcribeAudio`, "Speak replies" and the Speak button,
+`synthesizeTextToSpeech`, the direct TTS preset, the Home Agent voice paths) goes through this one
+adapter and imports no TTS/STT store. Engine readiness (interactive vs dialog-free unattended),
+endpoint resolution, the full Qwen3 voice request and desktop playback state live there; the
+stores keep engine config, persistence and the engine clients, which only the adapter (and the
+settings panels) consumes. `listVoices()` and the per-engine adapters the kernel will want are
+still ahead.
+
 ### 4.3 Text
 
 ```ts
@@ -816,7 +825,7 @@ flowchart TD
 | Step | Done when | Shippable alone |
 | ---- | --------- | --------------- |
 | 1 | **Done.** Tools and Home Agent `/imgGen` have no preset save/restore and no readiness preflight; the run (`runArtifact` + `comfyUiPresets.generate`) owns backend start, installs and model download; selection stays side-effect-free (`resolvePresetVariant`); callers pass `artifactKindForMedia` / panel-derived kind | yes |
-| 2 | `transcribeAudio` / speak-replies import no TTS/STT store; both use the same speech adapter as Artifact | yes |
+| 2 | **Done.** `transcribeAudio` / speak-replies (and every other speech driver — mic, TTS preset, `/imgGen` voice paths) import no TTS/STT store; all of them cross the one speech adapter (`speechIO`), which owns readiness, endpoint resolution and the Qwen3/Kokoro/external engine branch | yes |
 | 3 | no `useDialogStore()` inside inference/download; grants are a reviewable list | yes |
 | 4 | projection connects with listener + snapshot watermark; main owns hide/reopen/quit; browser-backed windows are lazy | yes |
 | 5 | `capabilities/media.ts` no longer calls `executeToolInRenderer`; the UI hydrates and renders readiness/generation progress from main | yes, needs 1–4 |

@@ -2,10 +2,12 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import { useActivities } from '../store/activities'
 import { useConversations } from '../store/conversations'
-import { useQwen3TextToSpeech } from '../store/qwen3TextToSpeech'
-import { useTextToSpeech } from '../store/textToSpeech'
+import {
+  saveSpeechClip,
+  synthesizeClip,
+  type SpeechClipResult,
+} from '../speech/speechIO'
 import { QWEN3_TTS_LANGUAGES, QWEN3_TTS_SPEAKERS } from '@/assets/js/qwen3TtsConstants'
-import type { Qwen3TtsLanguage, Qwen3TtsSpeakerId } from '@/assets/js/qwen3TtsConstants'
 import { buildTtsAudioFileName, conversationLabelForTtsFile } from '@/lib/ttsAudioFileName'
 import { ToolConversationContextSchema, conversationKeyFor } from './toolContext'
 
@@ -24,6 +26,14 @@ const SynthesizeSpeechOutputSchema = z.object({
 })
 
 type SynthesizeSpeechOutput = z.infer<typeof SynthesizeSpeechOutputSchema>
+
+function resultMessage(clip: SpeechClipResult, savedFilePath: string): string {
+  const detail =
+    clip.engine === 'qwen3'
+      ? `Synthesized ${clip.mode} speech (${clip.language}, ${clip.voice}).`
+      : `Synthesized speech with ${clip.engine === 'kokoro' ? 'Kokoro' : 'the external endpoint'} (${clip.voice}).`
+  return `${detail} Saved to ${savedFilePath}. The audio player is shown in the chat.`
+}
 
 export const synthesizeTextToSpeech = tool({
   description:
@@ -72,8 +82,6 @@ export const synthesizeTextToSpeech = tool({
   outputSchema: SynthesizeSpeechOutputSchema,
   contextSchema: ToolConversationContextSchema,
   execute: async (args, options): Promise<SynthesizeSpeechOutput> => {
-    const qwen3 = useQwen3TextToSpeech()
-    const tts = useTextToSpeech()
     const activities = useActivities()
     const conversations = useConversations()
     const conversationKey = conversationKeyFor(options.context)
@@ -82,80 +90,31 @@ export const synthesizeTextToSpeech = tool({
       conversationKey,
     }
 
-    // The TTS preset owns the engine choice; the agentic tool honors it. When a
-    // non-Qwen engine is selected (Kokoro/OVMS or the external endpoint), synthesize
-    // via that path — the Qwen3-only options (speaker/voiceName/instruct/mode) don't apply.
-    if (tts.selectedEngine !== 'qwen3') {
-      const activityId = activities.begin({
-        category: 'tools',
-        label: 'Generating audio file…',
-        scope,
-      })
-      try {
-        const { audioBase64, voice } = await tts.synthesizeToWav(args.text)
-        const label = conversationLabelForTtsFile({
-          conversationKey,
-          messages: conversations.conversationList[conversationKey],
-          threadMeta: conversations.getThreadMeta(conversationKey),
-        })
-        const fileName = buildTtsAudioFileName({
-          conversationKey,
-          conversationLabel: label,
-          userSlug: args.outputFileName,
-        })
-        const savedFilePath = await qwen3.saveWavToDisk(audioBase64, fileName)
-        const engineLabel = tts.selectedEngine === 'kokoro' ? 'Kokoro' : 'the external endpoint'
-        activities.end(activityId, 'done')
-        return {
-          ok: true,
-          message:
-            `Synthesized speech with ${engineLabel} (${voice}). ` +
-            `Saved to ${savedFilePath}. The audio player is shown in the chat.`,
-          savedFilePath,
-          speaker: voice,
-        }
-      } catch (error) {
-        activities.end(activityId, 'failed')
-        return { ok: false, message: error instanceof Error ? error.message : String(error) }
-      }
-    }
-
-    // Two visible phases: loading the model (slow on the first call / may prompt the
-    // install popup) then generating the audio file. Uses begin/update/end so the
-    // status line changes mid-flight; the activity is always ended (even on throw).
-    // A saved voice always resolves to voice_design; otherwise use the given mode.
-    const loadMode = args.voiceName ? 'voice_design' : args.mode
-    // Begin the activity FIRST — before the isModelLoaded probe and backend
-    // start, which can each take a moment — so the "Loading voice model…"
-    // indicator is visible for the whole load rather than only once synthesis
-    // begins. The label is downgraded below when the model is already resident.
+    // Two visible phases: loading the model (slow on the first call / may prompt
+    // the install popup) then generating the audio file. The engine fires its
+    // phase signal before its first await, so the activity's initial label is
+    // replaced before it ever renders. The activity is always ended (even on
+    // throw).
     const activityId = activities.begin({
       category: 'tools',
       label: 'Loading voice model…',
       scope,
     })
     try {
-      if (args.rememberAsDefault) {
-        await qwen3.applyUserVoicePreference({
-          speaker: args.speaker as Qwen3TtsSpeakerId | undefined,
-          language: args.language as Qwen3TtsLanguage | undefined,
-          mode: args.mode,
-        })
-      }
-
-      const alreadyLoaded = await qwen3.isModelLoaded(loadMode)
-      if (!alreadyLoaded) {
-        await qwen3.ensureModelLoaded(loadMode)
-      }
-      activities.update(activityId, { label: 'Generating audio file…' })
-
-      const result = await qwen3.synthesize({
+      const clip = await synthesizeClip({
         text: args.text,
-        language: args.language as Qwen3TtsLanguage | undefined,
-        speaker: args.speaker as Qwen3TtsSpeakerId | undefined,
-        instruct: args.instruct,
-        mode: args.mode,
-        voiceName: args.voiceName,
+        voice: {
+          speaker: args.speaker,
+          language: args.language,
+          mode: args.mode,
+          instruct: args.instruct,
+          voiceName: args.voiceName,
+          rememberAsDefault: args.rememberAsDefault,
+        },
+        onPhase: (phase) =>
+          activities.update(activityId, {
+            label: phase === 'loading-model' ? 'Loading voice model…' : 'Generating audio file…',
+          }),
       })
 
       const label = conversationLabelForTtsFile({
@@ -168,18 +127,17 @@ export const synthesizeTextToSpeech = tool({
         conversationLabel: label,
         userSlug: args.outputFileName,
       })
-      const savedFilePath = await qwen3.saveWavToDisk(result.audioBase64, fileName)
+      const savedFilePath = await saveSpeechClip(clip.audioBase64, fileName)
 
       activities.end(activityId, 'done')
       return {
         ok: true,
-        message:
-          `Synthesized ${result.mode} speech (${result.language}, ${result.speaker}). ` +
-          `Saved to ${savedFilePath}. The audio player is shown in the chat.`,
+        message: resultMessage(clip, savedFilePath),
         savedFilePath,
-        speaker: result.speaker,
-        language: result.language,
-        mode: result.mode,
+        speaker: clip.voice,
+        ...(clip.engine === 'qwen3'
+          ? { language: clip.language, mode: clip.mode }
+          : {}),
       }
     } catch (error) {
       activities.end(activityId, 'failed')

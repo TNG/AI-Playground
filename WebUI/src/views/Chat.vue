@@ -387,7 +387,7 @@
                 <span class="text-xs ml-1">{{ languages.COM_COPY }}</span>
               </button>
               <button
-                v-if="textToSpeech.available"
+                v-if="speakAvailable"
                 class="flex items-end"
                 title="Speak"
                 :disabled="openAiCompatibleChat.processing"
@@ -396,11 +396,9 @@
               >
                 <span
                   class="svg-icon w-4 h-4"
-                  :class="textToSpeech.speakingMessageId === message.id ? 'i-stop' : 'i-speaker'"
+                  :class="speakingMessageId === message.id ? 'i-stop' : 'i-speaker'"
                 ></span>
-                <span class="text-xs ml-1">{{
-                  textToSpeech.speakingMessageId === message.id ? 'Stop' : 'Speak'
-                }}</span>
+                <span class="text-xs ml-1">{{ speakingMessageId === message.id ? 'Stop' : 'Speak' }}</span>
               </button>
               <button
                 class="flex items-end"
@@ -470,7 +468,13 @@ import { usePromptStore } from '@/assets/js/store/promptArea.ts'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useErrors } from '@/assets/js/store/errors'
 import { createAppError } from '@/assets/js/errors/appError'
-import { useTextToSpeech } from '@/assets/js/store/textToSpeech'
+import {
+  pendingVoiceTurn,
+  speak,
+  speakRepliesAvailable,
+  speakingMessageId,
+  stopSpeaking,
+} from '@/assets/js/speech/speechIO'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
 import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
 import ChatMcpToolDisplay from '@/components/ChatMcpToolDisplay.vue'
@@ -494,7 +498,7 @@ import { aipgTools, AipgTools } from '@/assets/js/tools/tools'
 import { UserCircleIcon } from '@heroicons/vue/24/outline'
 
 const openAiCompatibleChat = useOpenAiCompatibleChat()
-const textToSpeech = useTextToSpeech()
+const speakAvailable = computed(() => speakRepliesAvailable())
 const textInference = useTextInference()
 const promptStore = usePromptStore()
 const imageGeneration = useImageGenerationPresets()
@@ -718,11 +722,11 @@ function getMessageTextForCopy(message: { parts: { type: string; text?: string }
 }
 
 function toggleSpeak(message: { id: string; parts: { type: string; text?: string }[] }): void {
-  if (textToSpeech.speakingMessageId === message.id) {
-    textToSpeech.stopSpeaking()
+  if (speakingMessageId.value === message.id) {
+    stopSpeaking()
     return
   }
-  textToSpeech.speak(getMessageTextForCopy(message), message.id)
+  void speak({ text: getMessageTextForCopy(message), messageId: message.id })
 }
 
 // Auto-play the assistant reply when the user's input came from speech.
@@ -731,10 +735,10 @@ watch(
   (processing, wasProcessing) => {
     if (!(wasProcessing && !processing)) return
     // "Speak replies" for the active preset (edited on the Text To Speech tool row).
-    if (!textToSpeech.available || !textInference.speakRepliesAllowed()) return
-    if (!textToSpeech.pendingVoiceTurn) return
+    if (!speakRepliesAvailable() || !textInference.speakRepliesAllowed()) return
+    if (!pendingVoiceTurn.value) return
 
-    textToSpeech.pendingVoiceTurn = false
+    pendingVoiceTurn.value = false
 
     const messages = openAiCompatibleChat.messages
     const last = messages?.[messages.length - 1]
@@ -742,7 +746,7 @@ watch(
 
     const text = getMessageTextForCopy(last)
     if (text.trim().length > 0) {
-      textToSpeech.speak(text, last.id)
+      void speak({ text, messageId: last.id })
     }
   },
 )

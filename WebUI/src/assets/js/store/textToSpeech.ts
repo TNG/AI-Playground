@@ -8,8 +8,7 @@ import { useDialogStore } from './dialogs'
 import * as toast from '@/assets/js/toast'
 import { useSetupWizard } from './setupWizard'
 import { useProductMode } from './productMode'
-import { synthesizeSpeech, bytesToBlobUrl, bytesToBase64 } from '@/lib/synthesizeSpeech'
-import { markdownToSpeechText } from '@/lib/markdownToSpeech'
+import { synthesizeSpeech, bytesToBase64 } from '@/lib/synthesizeSpeech'
 
 export const SPEECHT5_MODEL_NAME = 'tngtech/Kokoro-82M-int8-ov'
 
@@ -72,7 +71,8 @@ export const useTextToSpeech = defineStore(
     const initializing = ref(false)
     // Note: "Speak replies" is a per-preset tool setting (textInference.speakReplies,
     // edited on the Text To Speech tool row), not TTS-engine config — see
-    // `textInference.speakRepliesAllowed`.
+    // `textInference.speakRepliesAllowed`. Reply playback itself lives in the
+    // speech I/O adapter (`speechIO.speak`); this store is engine config.
 
     // Which engine the TTS preset (and the synthesizeTextToSpeech tool) uses. Edited
     // in SettingsTts; 'kokoro' is only selectable when `isKokoroAvailable` is true.
@@ -96,16 +96,6 @@ export const useTextToSpeech = defineStore(
       voice: '',
       apiKey: '',
     })
-
-    // Playback state for the desktop UI.
-    const isSpeaking = ref(false)
-    const speakingMessageId = ref<string | null>(null)
-    // Transient flag: set when a mic transcript arrives, consumed on reply
-    // completion so we only auto-speak turns that originated from speech.
-    const pendingVoiceTurn = ref(false)
-
-    let currentAudio: HTMLAudioElement | null = null
-    let currentObjectUrl: string | null = null
 
     /** True when a usable fallback endpoint is configured. */
     function hasFallback(): boolean {
@@ -396,21 +386,6 @@ export const useTextToSpeech = defineStore(
       }
     }
 
-    /** Stop any in-progress playback and release the object URL. */
-    function stopSpeaking(): void {
-      if (currentAudio) {
-        currentAudio.pause()
-        currentAudio.src = ''
-        currentAudio = null
-      }
-      if (currentObjectUrl) {
-        URL.revokeObjectURL(currentObjectUrl)
-        currentObjectUrl = null
-      }
-      isSpeaking.value = false
-      speakingMessageId.value = null
-    }
-
     /**
      * Restore the engine/voice choices to their defaults, for the Audio mode's
      * "Reset Preset Settings". The external endpoint's URL, model and API key are
@@ -419,49 +394,8 @@ export const useTextToSpeech = defineStore(
      * would be a surprise there is no undo for.
      */
     function resetToDefaults(): void {
-      stopSpeaking()
       selectedEngine.value = 'qwen3'
       selectedKokoroVoice.value = 'af_heart'
-    }
-
-    /**
-     * Synthesize `text` and play it back in the desktop app. `id` ties the
-     * playback to a specific chat message so the UI can show a stop affordance.
-     */
-    async function speak(text: string, id?: string): Promise<void> {
-      const trimmed = markdownToSpeechText(text ?? '').trim()
-      if (!trimmed) return
-
-      stopSpeaking()
-
-      // Start the OVMS speech server on demand (no-op if already running or if the
-      // model isn't installed — in which case a configured fallback still serves).
-      await ensureSpeechServerRunning()
-
-      const endpoint = await resolveSpeech()
-      if (!endpoint) {
-        toast.warning('Text To Speech is not available (no OVMS server or fallback configured)')
-        return
-      }
-
-      try {
-        isSpeaking.value = true
-        speakingMessageId.value = id ?? null
-
-        const { bytes, mediaType } = await synthesizeSpeech(trimmed, endpoint)
-        const url = bytesToBlobUrl(bytes, mediaType)
-        currentObjectUrl = url
-
-        const audio = new Audio(url)
-        currentAudio = audio
-        audio.onended = () => stopSpeaking()
-        audio.onerror = () => stopSpeaking()
-        await audio.play()
-      } catch (error) {
-        console.error('Failed to synthesize speech:', error)
-        toast.error(`Failed to play speech: ${error instanceof Error ? error.message : error}`)
-        stopSpeaking()
-      }
     }
 
     return {
@@ -473,9 +407,6 @@ export const useTextToSpeech = defineStore(
       isExternalAvailable,
       available,
       fallback,
-      isSpeaking,
-      speakingMessageId,
-      pendingVoiceTurn,
       hasFallback,
       resolveSpeech,
       toggle,
@@ -483,8 +414,6 @@ export const useTextToSpeech = defineStore(
       ensureSpeechServerRunning,
       ensureKokoroReady,
       synthesizeToWav,
-      speak,
-      stopSpeaking,
       resetToDefaults,
     }
   },

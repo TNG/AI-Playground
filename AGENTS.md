@@ -788,8 +788,8 @@ has no store deps (avoids cycles); reconciliation lives in the producing stores.
 - `theme` — Theme selection, persisted in the renderer (the four themes are a constant in the store). No deps.
 - `i18n` — Locale/translations. IPC: `getLocaleSettings`. No deps.
 - `demoMode` — Demo mode overlay + auto-reset timer. IPC: `getDemoModeSettings`. No deps.
-- `speechToText` — STT enabled state, initialization. Deps: `backendServices`, `models`, `dialogs`, `globalSetup`
-- `audioRecorder` — Browser MediaRecorder, transcription via AI SDK. Deps: `backendServices` (lazy)
+- `speechToText` — STT engine config + readiness. Deps: `backendServices`, `models`, `dialogs`, `globalSetup`
+- `audioRecorder` — Browser MediaRecorder; transcription via the speech adapter (`speechIO.transcribe`). No store deps
 - `developerSettings` — Renderer-persisted developer toggles: dev console on startup, keep models loaded, dummy media workflows, verbose agent logging. No deps.
 - `debugSettings` — The settings.json-backed half of Settings → Developer (see below). No deps.
 
@@ -823,6 +823,8 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 **Chat/LLM**: `views/Chat.vue` → stores: `openAiCompatibleChat`, `textInference`, `conversations`, `presets` → electron: `ensureBackendReadiness` IPC → backend: `llamacpp`/`openvino` via Vercel AI SDK
 
 **Image/Video Generation**: `views/WorkflowResult.vue` and every other driver (chat tools, Home Agent `/imgGen`) → `src/assets/js/artifact/runArtifact.ts` (one resolved `ArtifactRequest` in, one settled `ArtifactResult` out; no preset switch, no UI-state mutation) → stores: `imageGenerationPresets`, `comfyUiPresets`, `presets` → electron: service lifecycle IPC → backend: `comfyui-backend` via direct HTTP
+
+**Speech (STT/TTS)**: every driver (mic + STT preset in `views/PromptArea.vue`, speak-replies + Speak button in `views/Chat.vue`, `tools/transcribeAudio`, `tools/synthesizeTextToSpeech`, the direct TTS/STT preset turns in `openAiCompatibleChat`, Home Agent voice paths) → `src/assets/js/speech/speechIO.ts` — the one engine seam: interactive vs dialog-free unattended readiness, endpoint resolution, the Qwen3/Kokoro/external branch, and desktop playback state. Drivers import no TTS/STT store; the stores (`speechToText`, `textToSpeech`, `qwen3TextToSpeech`) keep engine config, persistence and the engine clients, consumed by the adapter (settings panels read them directly)
 
 **Model Management**: stores: `models` → electron: `loadModels`, `getDownloaded*` IPC → backend: `ai-backend` Flask `/api/*` via HTTP
 

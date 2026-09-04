@@ -2,8 +2,7 @@ import { tool, type FilePart, type ModelMessage } from 'ai'
 import { z } from 'zod'
 import { useActivities } from '../store/activities'
 import { useConversations } from '../store/conversations'
-import { useSpeechToText } from '../store/speechToText'
-import { transcribeAudioBlob } from '@/lib/transcribe'
+import { readyTranscriptionForInput, transcribe } from '../speech/speechIO'
 
 function conversationKeyFor(experimentalContext: unknown): string {
   const ctx = experimentalContext as { conversationKey?: string } | undefined
@@ -57,7 +56,6 @@ export const transcribeAudio = tool({
   outputSchema: TranscribeAudioOutputSchema,
   execute: async (_args, options): Promise<TranscribeAudioOutput> => {
     const activities = useActivities()
-    const speechToText = useSpeechToText()
     const conversationKey = conversationKeyFor(options.context)
     const messages = (options.messages ?? []) as ModelMessage[]
 
@@ -80,18 +78,11 @@ export const transcribeAudio = tool({
         throw new Error('No audio attachment found in the conversation to transcribe.')
       }
 
-      if (speechToText.effectiveSttEngine === 'whisper') {
-        await speechToText.ensureWhisperReady()
-      } else if (speechToText.effectiveSttEngine === 'standalone') {
-        await speechToText.ensureStandaloneReady()
-      }
-      const endpoint = await speechToText.resolveTranscription()
-      if (!endpoint) {
-        throw new Error('Speech To Text is not available (no OVMS server or fallback configured).')
-      }
-
+      // Already-captured audio: a prompted model download lands before the
+      // transcription, so `downloadPrompted` can be ignored (see SttReadyResult).
+      await readyTranscriptionForInput()
       const blob = await filePartToBlob(audioPart.data, audioPart.mediaType)
-      const transcript = await transcribeAudioBlob(blob, endpoint)
+      const { text: transcript } = await transcribe({ audio: blob })
 
       activities.end(activityId, 'done')
       return { ok: true, message: 'Transcribed audio.', transcript }

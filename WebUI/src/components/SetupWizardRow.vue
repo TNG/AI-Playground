@@ -64,7 +64,7 @@ const available = computed(() => props.row.availableInCurrentMode ?? true)
   <div
     role="group"
     :aria-label="row.displayName"
-    class="flex items-center gap-3 transition-colors"
+    class="flex min-w-0 items-center gap-3 transition-colors"
     :class="{
       'px-3 py-2.5 rounded-lg border bg-muted/30': !compact,
       'px-2 py-1.5 rounded-md': compact,
@@ -94,10 +94,15 @@ const available = computed(() => props.row.availableInCurrentMode ?? true)
          the label) so it takes space from the flexible name, not from the gear /
          toggle column — those stay lined up with every other row. -->
     <div class="flex-1 min-w-0">
-      <div class="flex items-center gap-1.5">
-        <span class="font-medium leading-tight" :class="compact ? 'text-xs' : 'text-sm'">{{
-          row.displayName
-        }}</span>
+      <div class="flex min-w-0 items-center gap-1.5">
+        <!-- Truncate: nested rows sit in CollapsibleContent (overflow:hidden). A
+             name that won't shrink pushes the row past that clip, and an ON
+             switch loses the thumb on its right edge. -->
+        <span
+          class="min-w-0 truncate font-medium leading-tight"
+          :class="compact ? 'text-xs' : 'text-sm'"
+          >{{ row.displayName }}</span
+        >
         <div v-if="$slots.disclosure" class="size-4 shrink-0 flex items-center justify-center">
           <slot name="disclosure" />
         </div>
@@ -108,7 +113,7 @@ const available = computed(() => props.row.availableInCurrentMode ?? true)
           text="Component info & license — opens the project page"
         />
       </div>
-      <div v-if="row.versionDisplay" class="text-xs text-muted-foreground leading-tight">
+      <div v-if="row.versionDisplay" class="truncate text-xs text-muted-foreground leading-tight">
         {{ row.versionDisplay }}
       </div>
     </div>

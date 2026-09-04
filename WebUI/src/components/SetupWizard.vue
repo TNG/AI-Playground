@@ -205,7 +205,11 @@
                      core experience needs, not products of their own, so a first
                      run reads as one core install. The disclosure keeps the opt-out
                      and the repair / reinstall controls one click away. -->
-                <Collapsible v-if="coreRow" v-model:open="coreServicesOpen" class="flex flex-col">
+                <Collapsible
+                  v-if="coreRow"
+                  v-model:open="coreServicesOpen"
+                  class="flex min-w-0 flex-col"
+                >
                   <SetupWizardRow
                     :row="backendRowView(coreRow)"
                     compact

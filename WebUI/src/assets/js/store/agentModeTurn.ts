@@ -7,6 +7,7 @@ import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import type { ReasoningEffort } from '@/types/shared'
 import { extractMessage } from '../errors/appError'
 import { executeAgentTool, getAgentToolSpecs } from '../tools/agentBridge'
+import { useDeveloperSettings } from './developerSettings'
 import { registerAgentModeIpc } from './agentModeIpc'
 import { CLOUD_DEFAULT_MODEL } from './cloudMode'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
@@ -101,6 +102,7 @@ export async function buildTurnConfig(options: {
       instructions: options.instructions,
       capabilities: options.capabilities,
       unsandboxed: options.unsandboxed,
+      keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
     }
   }
   const servedModelId = textInference.activeModel?.split('/').join('---') ?? ''
@@ -129,6 +131,7 @@ export async function buildTurnConfig(options: {
     instructions: options.instructions,
     capabilities: options.capabilities,
     unsandboxed: options.unsandboxed,
+    keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
     planningThinkingOnly:
       textInference.modelSupportsThinkingToggle &&
       textInference.thinkingEnabled &&

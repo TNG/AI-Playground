@@ -494,7 +494,6 @@ import {
   type MediaItem,
   type GenerateState,
 } from '@/assets/js/store/imageGenerationPresets'
-import { useComfyUiPresets } from '@/assets/js/store/comfyUiPresets'
 import { DynamicToolUIPart, isToolUIPart, ToolUIPart } from 'ai'
 import { aipgTools, AipgTools } from '@/assets/js/tools/tools'
 import { UserCircleIcon } from '@heroicons/vue/24/outline'
@@ -504,7 +503,6 @@ const speakAvailable = computed(() => speakRepliesAvailable())
 const textInference = useTextInference()
 const promptStore = usePromptStore()
 const imageGeneration = useImageGenerationPresets()
-const comfyUi = useComfyUiPresets()
 const conversations = useConversations()
 const activities = useActivities()
 const confirmations = useConfirmations()
@@ -666,8 +664,8 @@ function handleCancel() {
   if (openAiCompatibleChat.processing) {
     openAiCompatibleChat.stop()
   }
-  // Also cancel any ongoing ComfyUI inference from tool calls
-  comfyUi.stop()
+  // Also cancel any ongoing generation through the main-process runner
+  void window.electronAPI.artifact.cancel()
 
   // Immediately reset prompt state to unblock UI
   promptStore.promptSubmitted = false

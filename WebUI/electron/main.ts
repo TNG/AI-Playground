@@ -67,6 +67,12 @@ import { Qwen3TtsBackendService } from './subprocesses/qwen3TtsBackendService'
 import { WhisperBackendService } from './subprocesses/whisperBackendService'
 import { LLAMACPP_DEFAULT_PARAMETERS } from './subprocesses/llamaCppBackendService'
 import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateIntelPresets.ts'
+import {
+  invalidatePresetCatalog,
+  loadPresetFiles,
+  readPresetsFromDir,
+  type PresetLoadConfig,
+} from './artifact/catalog'
 import { probeFreedesktopSecretService, shouldForceBasicPasswordStore } from './linuxPasswordStore'
 import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
 import * as comfyuiTools from './subprocesses/comfyuiTools'
@@ -114,11 +120,32 @@ import {
   startAgentTurn,
   submitAgentToolResult,
 } from './agentMode/piAgentManager'
-import { getKernelSnapshot, setKernelEventWindow } from './kernel/kernelBus'
+import { getKernelSnapshot, onKernelEvent, setKernelEventWindow } from './kernel/kernelBus'
 import { resolveClosePolicy } from './kernel/windowLifecycle'
 import { setVerboseLogging as setVerboseAgentLogging } from './agentMode/piAgentLog.ts'
 import { importAttachment } from './agentMode/workspaceAttachments.ts'
 import { AgentModeTurnConfigSchema } from '@/types/agentIpc'
+import { ArtifactRunRequestSchema } from '@/types/artifactIpc'
+import type { MediaResponsePayload } from '@/types/mediaRequests'
+import type { MediaItem } from '@/types/mediaItem'
+import type { ArtifactMissingModel } from '@/types/mediaRequests'
+import {
+  cancelActiveArtifactRun,
+  cancelArtifactRun,
+  setArtifactRunnerDeps,
+  submitArtifactRun,
+  type ArtifactRunPayload,
+  type ArtifactRunResult,
+  type RunnerComfyService,
+} from './artifact/runner'
+import { setGpuOccupancyDeps } from './artifact/gpuOccupancy'
+import { setMediaCatalogProvider } from './agentMode/capabilities/mediaDirect'
+import { getPresetCatalog } from './artifact/catalog'
+import {
+  handleMediaResponse,
+  rejectAllMediaRequests,
+  requestRenderer,
+} from './artifact/rendererBridge'
 import { getAudioDir, getGamesDir, getMediaDir } from './util.ts'
 import {
   arcadeCatalog,
@@ -459,15 +486,6 @@ function resolveProductMode(s: LocalSettings): string {
       : 'studio'
 }
 
-type PresetLoadConfig = {
-  baseDir: string
-  modeDir: string
-  imageFallbackDirs: string[]
-  includePresets?: string[]
-  excludePresets?: string[]
-  excludeVariantBackends?: string[]
-}
-
 /**
  * Bundled presets whose feature is switched off on this machine.
  *
@@ -503,88 +521,6 @@ function getPresetLoadConfig(s: LocalSettings): PresetLoadConfig {
 
 function getModeDemoDir(s: LocalSettings): string {
   return path.join(modesDir, resolveProductMode(s), 'demo')
-}
-
-type PresetFile = { content: string; image: string | null }
-
-function findPresetImage(baseName: string, dirs: string[]): string | null {
-  for (const dir of dirs) {
-    for (const ext of ['.png', '.jpg', '.jpeg']) {
-      const imagePath = path.join(dir, `${baseName}${ext}`)
-      if (fs.existsSync(imagePath)) return imagePath
-    }
-  }
-  return null
-}
-
-async function readPresetsFromDir(
-  dir: string,
-  imageFallbackDirs: string[] = [],
-): Promise<Map<string, PresetFile>> {
-  const result = new Map<string, PresetFile>()
-  if (!fs.existsSync(dir)) return result
-
-  await fs.promises.mkdir(dir, { recursive: true })
-  const files = await fs.promises.readdir(dir)
-  const presetFiles = files.filter((f) => f.endsWith('.json') && !f.startsWith('_'))
-
-  await Promise.all(
-    presetFiles.map(async (file) => {
-      const raw = await fs.promises.readFile(path.join(dir, file), { encoding: 'utf-8' })
-      const content = process.platform !== 'win32' ? raw.replaceAll('\\\\', '/') : raw
-
-      const baseName = path.basename(file, '.json')
-      let imageBase64: string | null = null
-      const imagePath = findPresetImage(baseName, [dir, ...imageFallbackDirs])
-      if (imagePath) {
-        try {
-          const imageBuffer = await fs.promises.readFile(imagePath)
-          const ext = path.extname(imagePath).toLowerCase()
-          const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg'
-          imageBase64 = `data:${mimeType};base64,${imageBuffer.toString('base64')}`
-        } catch (error) {
-          appLogger.warn(`Failed to read image file ${imagePath}: ${error}`, 'electron-backend')
-        }
-      }
-
-      result.set(baseName, { content, image: imageBase64 })
-    }),
-  )
-  return result
-}
-
-function applyPresetFilter(
-  presets: Map<string, PresetFile>,
-  config: PresetLoadConfig,
-): Map<string, PresetFile> {
-  if (config.includePresets) {
-    const allowed = new Set(config.includePresets)
-    for (const key of presets.keys()) {
-      if (!allowed.has(key)) presets.delete(key)
-    }
-  } else if (config.excludePresets) {
-    for (const excluded of config.excludePresets) {
-      presets.delete(excluded)
-    }
-  }
-  if (config.excludeVariantBackends?.length) {
-    const excludedBackends = new Set(config.excludeVariantBackends)
-    for (const [key, file] of presets) {
-      try {
-        const parsed = JSON.parse(file.content)
-        if (parsed?.type !== 'comfy' || !Array.isArray(parsed.variants)) continue
-        const filtered = parsed.variants.filter(
-          (v: { backend?: string }) => !(v?.backend && excludedBackends.has(v.backend)),
-        )
-        if (filtered.length === parsed.variants.length) continue
-        parsed.variants = filtered
-        presets.set(key, { ...file, content: JSON.stringify(parsed) })
-      } catch (e) {
-        appLogger.warn(`Failed to filter variants for preset "${key}": ${e}`, 'electron-backend')
-      }
-    }
-  }
-  return presets
 }
 
 let settings = LocalSettingsSchema.parse({})
@@ -752,6 +688,9 @@ async function createWindow() {
   setWebBrowserMainWindow(win)
   setAgentModeMainWindow(win)
   setKernelEventWindow(win)
+  // The renderer that was asked a media request cannot answer from a new
+  // window; settle its pendings so waiters fail instead of hanging.
+  rejectAllMediaRequests('The app window was replaced')
   win.on('close', (event) => {
     // Main owns the hide/reopen/quit policy (architecture-target §5.1), never
     // the renderer: closing the window only hides it while headless work a
@@ -1219,7 +1158,170 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   if (homeAgent instanceof HomeAgentBackendService) {
     homeAgent.registerIpcHandlers()
   }
+  wireArtifactRunner(settings)
   return serviceRegistry
+}
+
+/**
+ * The artifact runner and GPU occupancy wrap (architecture-target §4.1 step 5)
+ * run in main; everything they need that lives renderer-side — the model
+ * pre-flight, download consent, the post-swap chat reload — crosses the
+ * `artifact:request` bridge. Service facts are read through the registry and
+ * the kernel stream.
+ */
+function wireArtifactRunner(settings: LocalSettings): void {
+  const comfyService = (): RunnerComfyService | null =>
+    (serviceRegistry?.getService('comfyui-backend') ?? null) as RunnerComfyService | null
+
+  // The in-process media tools resolve workflows from the same catalog the
+  // runner trusts (bundle + user presets, dummies behind the debug gate).
+  setMediaCatalogProvider(() =>
+    getPresetCatalog(
+      getPresetLoadConfig(settings),
+      !app.isPackaged || settings.showDebugSettingsInUI,
+    ),
+  )
+
+  setArtifactRunnerDeps({
+    getComfyService: comfyService,
+    onServiceStatusChange: (cb) =>
+      onKernelEvent((event) => {
+        if (event.type !== 'service') return
+        const info = event.info as { serviceName?: string; status?: string }
+        if (info?.serviceName === 'comfyui-backend' && info.status) cb(info.status)
+      }),
+    modelsMissing: async (preset) => {
+      const reply = await requestRenderer<{ models: ArtifactMissingModel[] }>({
+        kind: 'artifact-check-models',
+        requiredModels: preset.requiredModels ?? [],
+      })
+      return reply.models ?? []
+    },
+    requestModelConsent: async (models, onProgress) => {
+      try {
+        const approved = await requestRenderer<boolean>(
+          { kind: 'artifact-consent', models },
+          { onProgress },
+        )
+        return approved === true
+      } catch (error) {
+        appLogger.warn(`Model consent request failed: ${String(error)}`, 'electron-backend')
+        return false
+      }
+    },
+    ensureOvmsImageReady: (modelId, keepModelsLoaded, resolution) =>
+      ensureOvmsImageServerReady('openvino-backend', modelId, keepModelsLoaded, resolution),
+    readMediaAsDataUri: readAipgMediaAsDataUri,
+    getPlatform: () => process.platform,
+    devPresetsEnabled: () => !app.isPackaged || settings.showDebugSettingsInUI,
+  })
+
+  setGpuOccupancyDeps({
+    stopChatForMedia: stopChatServicesForMedia,
+    restartChatBackend: async () => {
+      await requestRenderer({ kind: 'reload-chat-backend' })
+    },
+    comfyBaseUrl: () => {
+      const service = comfyService()
+      return service && service.currentStatus === 'running' ? service.baseUrl : null
+    },
+    getComfyClientDeps: () => ({
+      getServiceBaseUrl: () => {
+        const service = comfyService()
+        return service && service.currentStatus === 'running' ? service.baseUrl : null
+      },
+      getToken: () => comfyService()?.getLoopbackAuthToken() ?? '',
+    }),
+  })
+}
+
+/**
+ * Frees GPU memory the chat/LLM models hold before image generation — the
+ * main-side twin of the renderer's `stopChatBackends` (tools/chatBackends.ts):
+ * only running backends are touched, and OpenVINO keeps its speech servers.
+ */
+async function stopChatServicesForMedia(): Promise<void> {
+  if (!serviceRegistry) return
+  for (const serviceName of ['llamacpp-backend', 'openvino-backend'] as const) {
+    const service = serviceRegistry.getService(serviceName)
+    if (!service || service.currentStatus !== 'running') continue
+    try {
+      if (
+        serviceName === 'openvino-backend' &&
+        'stopChatServers' in service &&
+        typeof service.stopChatServers === 'function'
+      ) {
+        await service.stopChatServers()
+      } else {
+        await service.stop()
+      }
+    } catch (error) {
+      appLogger.warn(
+        `Failed to stop ${serviceName} before media: ${String(error)}`,
+        'electron-backend',
+      )
+    }
+  }
+}
+
+async function readAipgMediaAsDataUri(url: string): Promise<string | null> {
+  const localPath = getLocalPathFromAipgMediaUrl(url)
+  if (!localPath) return null
+  try {
+    const data = await fs.promises.readFile(localPath)
+    const ext = path.extname(localPath).toLowerCase()
+    const mime =
+      ext === '.jpg' || ext === '.jpeg'
+        ? 'image/jpeg'
+        : ext === '.webp'
+          ? 'image/webp'
+          : ext === '.gif'
+            ? 'image/gif'
+            : 'image/png'
+    return `data:${mime};base64,${data.toString('base64')}`
+  } catch (error) {
+    appLogger.warn(`Could not read media ${url}: ${String(error)}`, 'electron-backend')
+    return null
+  }
+}
+
+/**
+ * Starts (or confirms) the OVMS image-gen server — shared by the renderer IPC
+ * handler and the artifact runner, which calls it directly.
+ */
+async function ensureOvmsImageServerReady(
+  serviceName: string,
+  modelName: string,
+  keepModelsLoaded?: boolean,
+  resolution?: string,
+): Promise<{ success: boolean; url?: string; error?: string }> {
+  if (!serviceRegistry) {
+    return { success: false, error: 'Service registry not ready' }
+  }
+  const service = serviceRegistry.getService(serviceName)
+  if (!service) {
+    return { success: false, error: `Service ${serviceName} not found` }
+  }
+
+  if ('startImageServer' in service && typeof service.startImageServer === 'function') {
+    try {
+      await service.startImageServer(modelName, keepModelsLoaded, resolution)
+      const url =
+        'getImageServerUrl' in service && typeof service.getImageServerUrl === 'function'
+          ? service.getImageServerUrl()
+          : null
+      if (url) {
+        return { success: true, url }
+      }
+      return { success: false, error: 'Image server started but URL not available' }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      appLogger.error(`Failed to ensure OVMS image readiness: ${errorMessage}`, 'electron-backend')
+      return { success: false, error: errorMessage }
+    }
+  }
+
+  return { success: false, error: 'Image server not supported by this backend' }
 }
 
 function initEventHandle() {
@@ -1252,6 +1354,15 @@ function initEventHandle() {
 
   ipcMain.handle('updateLocalSettings', (_event, updates: Partial<LocalSettings>) => {
     Object.assign(settings, updates)
+    // Any of these can change which preset files the catalog reads or injects.
+    if (
+      'productMode' in updates ||
+      'isDemoModeEnabled' in updates ||
+      'isAgentPresetEnabled' in updates ||
+      'showDebugSettingsInUI' in updates
+    ) {
+      invalidatePresetCatalog()
+    }
     const shouldReloadDemoProfile =
       settings.isDemoModeEnabled && ('productMode' in updates || 'isDemoModeEnabled' in updates)
     if (shouldReloadDemoProfile) {
@@ -2257,6 +2368,50 @@ function initEventHandle() {
     }
   })
 
+  // ── Artifact runner IPC (architecture-target §4.1 step 5) ─────────────────
+  // The renderer ships fully-resolved runs; the runner owns readiness,
+  // submission and the progress stream back over the kernel bus.
+
+  ipcMain.handle(
+    'artifact:run',
+    async (
+      _event: IpcMainInvokeEvent,
+      request: unknown,
+      options?: { queue?: 'fail-fast' | 'queue' },
+    ): Promise<ArtifactRunResult> => {
+      const parsed = ArtifactRunRequestSchema.safeParse(request)
+      if (!parsed.success) {
+        appLogger.warn(
+          `artifact:run rejected a malformed request: ${parsed.error.message}`,
+          'electron-backend',
+        )
+        return { state: 'failed', items: [], error: 'Malformed artifact run request' }
+      }
+      const payload: ArtifactRunPayload = {
+        ...parsed.data,
+        items: parsed.data.items as MediaItem[] | undefined,
+      }
+      return submitArtifactRun(payload, {
+        queue: options?.queue === 'queue' ? 'queue' : 'fail-fast',
+      })
+    },
+  )
+
+  ipcMain.handle('artifact:cancel', (_event: IpcMainInvokeEvent, runId?: string) => {
+    if (typeof runId === 'string' && runId.length > 0) {
+      cancelArtifactRun(runId)
+    } else {
+      cancelActiveArtifactRun()
+    }
+  })
+
+  ipcMain.handle(
+    'artifact:respond',
+    (_event: IpcMainInvokeEvent, payload: MediaResponsePayload) => {
+      handleMediaResponse(payload)
+    },
+  )
+
   ipcMain.handle(
     'getEmbeddingServerUrl',
     async (_event: IpcMainInvokeEvent, serviceName: string) => {
@@ -2538,38 +2693,7 @@ function initEventHandle() {
       modelName: string,
       keepModelsLoaded?: boolean,
       resolution?: string,
-    ) => {
-      if (!serviceRegistry) {
-        return { success: false, error: 'Service registry not ready' }
-      }
-      const service = serviceRegistry.getService(serviceName)
-      if (!service) {
-        return { success: false, error: `Service ${serviceName} not found` }
-      }
-
-      if ('startImageServer' in service && typeof service.startImageServer === 'function') {
-        try {
-          await service.startImageServer(modelName, keepModelsLoaded, resolution)
-          const url =
-            'getImageServerUrl' in service && typeof service.getImageServerUrl === 'function'
-              ? service.getImageServerUrl()
-              : null
-          if (url) {
-            return { success: true, url }
-          }
-          return { success: false, error: 'Image server started but URL not available' }
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          appLogger.error(
-            `Failed to ensure OVMS image readiness: ${errorMessage}`,
-            'electron-backend',
-          )
-          return { success: false, error: errorMessage }
-        }
-      }
-
-      return { success: false, error: 'Image server not supported by this backend' }
-    },
+    ) => ensureOvmsImageServerReady(serviceName, modelName, keepModelsLoaded, resolution),
   )
 
   ipcMain.handle('stopOvmsImageServer', async (_event: IpcMainInvokeEvent) => {
@@ -2660,13 +2784,16 @@ function initEventHandle() {
     const mode = resolveProductMode(settings)
     const variant = settings.isDemoModeEnabled ? 'demo' : 'presets'
     const config = getPresetLoadConfig(settings)
-    return updateIntelPresets(
+    const result = updateIntelPresets(
       settings.remoteRepository,
       mode,
       variant,
       config.baseDir,
       config.modeDir,
     )
+    if (result instanceof Promise) result.then(() => invalidatePresetCatalog())
+    else invalidatePresetCatalog()
+    return result
   })
 
   ipcMain.handle('reloadPresets', async () => {
@@ -2676,18 +2803,9 @@ function initEventHandle() {
     } catch (error) {
       appLogger.error(`Failed to filter partner presets: ${error}`, 'electron-backend')
     }
+    invalidatePresetCatalog()
     try {
-      const basePresets = applyPresetFilter(
-        await readPresetsFromDir(config.baseDir, config.imageFallbackDirs),
-        config,
-      )
-      const modePresets = await readPresetsFromDir(config.modeDir, config.imageFallbackDirs)
-
-      for (const [name, preset] of modePresets) {
-        basePresets.set(name, preset)
-      }
-
-      return [...basePresets.values()]
+      return await loadPresetFiles(config)
     } catch (error) {
       appLogger.error(`Failed to load presets: ${error}`, 'electron-backend')
       return []
@@ -2727,6 +2845,7 @@ function initEventHandle() {
 
       await fs.promises.writeFile(filePath, presetContent, { encoding: 'utf-8' })
       appLogger.info(`Saved user preset to ${filePath}`, 'electron-backend')
+      invalidatePresetCatalog()
       return true
     } catch (error) {
       appLogger.error(`Failed to save user preset: ${error}`, 'electron-backend')

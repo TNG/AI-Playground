@@ -83,6 +83,7 @@ function hostWith(overrides: Partial<Host> = {}): Host {
     workspaceDir: path.join(agentDir, 'workspace'),
     agentDir,
     toolSpecs: [MEDIA_TOOL_SPEC] as Host['toolSpecs'],
+    keepModelsLoaded: false,
     ...overrides,
   }
 }

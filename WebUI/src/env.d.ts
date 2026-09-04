@@ -437,6 +437,17 @@ type electronAPI = {
     error?: string
     starting?: boolean
   }>
+  artifact: {
+    run(
+      request: import('./types/artifactIpc').ArtifactRunRequest,
+      options?: { queue?: 'fail-fast' | 'queue' },
+    ): Promise<import('../electron/artifact/runner').ArtifactRunResult>
+    cancel(runId?: string): Promise<void>
+    respond(payload: import('./types/mediaRequests').MediaResponsePayload): Promise<void>
+    onRequest(
+      callback: (payload: import('./types/mediaRequests').MediaRequestPayload) => void,
+    ): () => void
+  }
   startTranscriptionServer(modelName: string): Promise<{ success: boolean; error?: string }>
   stopTranscriptionServer(): Promise<{ success: boolean; error?: string }>
   getTranscriptionServerUrl(): Promise<{ success: boolean; url?: string; error?: string }>

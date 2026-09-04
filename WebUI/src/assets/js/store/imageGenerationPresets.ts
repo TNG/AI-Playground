@@ -7,32 +7,24 @@ import { useI18N } from './i18n'
 import { useErrors } from './errors'
 import { createAppError } from '../errors/appError'
 import { useBackendServices } from './backendServices'
+import { connectKernelEventStream } from '@/assets/js/projection/kernelProjection'
+import type { ArtifactPhase } from '@/types/kernelEvents'
 import { usePresets, presetRequiresUserPrompt, type ComfyInput } from './presets'
 
-/** Convert requiredModels "repo/path/file.safetensors" to ComfyUI format "repo---path\\file.safetensors" */
-function requiredModelToComfyUIName(modelPath: string): string {
-  const parts = modelPath.split('/')
-  if (parts.length < 2) return modelPath
-  const firstTwo = parts.slice(0, 2).join('---')
-  const rest = parts.slice(2).join('\\')
-  return rest ? `${firstTwo}\\${rest}` : firstTwo
-}
-
-/** Normalize to ComfyUI format (backslash) so disk scan and requiredModels dedupe correctly across OS. */
-function normalizeComfyUIModelName(name: string): string {
-  return name.replace(/\//g, '\\')
-}
-
-/** Value for optional model inputs when the node should be bypassed (e.g. no LoRA). */
-export const OPTIONAL_MODEL_NONE = 'None'
-
-/**
- * Convert stored model name to the path separator ComfyUI expects for the current OS.
- * Matches preset handling in main.ts: Windows expects backslash, non-Windows expects forward slash.
- */
-export function modelNameForComfyApi(name: string, platform: NodeJS.Platform): string {
-  return platform === 'win32' ? name.replace(/\//g, '\\') : name.replace(/\\/g, '/')
-}
+// ComfyUI model-name/path helpers and the optional-model sentinel live in
+// `@/lib/comfyWorkflow` (shared with the main-process artifact runner) and are
+// re-exported here because this store has always been their import site.
+import {
+  normalizeComfyUIModelName,
+  OPTIONAL_MODEL_NONE,
+  requiredModelToComfyUIName,
+} from '@/lib/comfyWorkflow'
+export {
+  modelNameForComfyApi,
+  normalizeComfyUIModelName,
+  OPTIONAL_MODEL_NONE,
+  requiredModelToComfyUIName,
+} from '@/lib/comfyWorkflow'
 import { useUIStore } from './ui'
 import type { PresetRequirementsData } from './dialogs'
 import { getMissingComfyuiBackendModels } from './imageGenerationUtils'
@@ -47,99 +39,34 @@ import {
   getDemoModeUpscaleInputImage,
 } from './demoModeDefaults'
 
-export type GenerateState =
-  | 'no_start'
-  | 'start_backend'
-  | 'input_image'
-  | 'install_workflow_components'
-  | 'load_workflow_components'
-  | 'load_model'
-  | 'load_model_components'
-  | 'generating'
-  | 'image_out'
-  | 'error'
-
-export type GenerationSettings = Partial<{
-  preset: string
-  variant?: string
-  device: number
-  prompt: string
-  seed: number
-  inferenceSteps: number
-  width: number
-  height: number
-  resolution: string
-  batchSize: number
-  negativePrompt: string
-  safetyCheck: boolean
-  showPreview: boolean
-}>
-
-export type ComfyDynamicInputWithCurrent = ComfyInput & { current: string | number | boolean }
-
-export type MediaItemState = 'queued' | 'generating' | 'done' | 'stopped' | 'failed'
-
-/** A media item that has not reached a terminal state yet. */
-export const isInFlight = (item: MediaItem): boolean =>
-  item.state === 'queued' || item.state === 'generating'
-
-type BaseMediaItem = {
-  id: string
-  state: MediaItemState
-  mode: WorkflowModeType
-  sourceImageUrl?: string
-  settings: GenerationSettings
-  dynamicSettings?: ComfyDynamicInputWithCurrent[]
-  createdAt?: number
-}
-
-export type ImageMediaItem = BaseMediaItem & {
-  type: 'image'
-  fromImageGen?: boolean
-  imageUrl: string
-  isNsfwBlocked?: boolean
-}
-
-export type VideoMediaItem = BaseMediaItem & {
-  type: 'video'
-  videoUrl: string
-  thumbnailUrl?: string // Optional thumbnail for video preview
-}
-
-export type Model3DMediaItem = BaseMediaItem & {
-  type: 'model3d'
-  model3dUrl: string
-  thumbnailUrl?: string // Optional thumbnail for 3D preview
-}
-
-export type MediaItem = ImageMediaItem | VideoMediaItem | Model3DMediaItem
-
-export const isVideo = (item: MediaItem): item is VideoMediaItem => item.type === 'video'
-
-export const is3D = (item: MediaItem): item is Model3DMediaItem => item.type === 'model3d'
-
-export const isImage = (item: MediaItem): item is ImageMediaItem => item.type === 'image'
-
-/**
- * Transparent 1x1 SVG injected as the `imageUrl` for queued items so the slot
- * exists before any real output arrives (see `comfyUiPresets.queueBatch`). It is
- * not real output, so "has media" checks must treat it as empty.
- */
-export const PLACEHOLDER_IMAGE_URL =
-  'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="1" height="1"%3E%3C/svg%3E'
-
-/**
- * Whether a media item carries real, displayable output (not an empty or
- * placeholder slot). Used to hide cancelled/failed items that never produced
- * media (e.g. items left in a terminal `stopped`/`failed` state after a batch
- * is cancelled) from galleries and auto-selection.
- */
-export const hasDisplayableMedia = (item: MediaItem): boolean => {
-  if (isVideo(item)) return !!item.videoUrl && item.videoUrl.trim() !== ''
-  if (is3D(item)) return !!item.model3dUrl && item.model3dUrl.trim() !== ''
-  const url = item.imageUrl
-  return !!url && url.trim() !== '' && url !== PLACEHOLDER_IMAGE_URL
-}
+// MediaItem, the generation FSM state vocabulary and their predicates live in
+// `@/types/mediaItem` (shared with the main-process artifact runner and the
+// kernel event vocabulary) and are re-exported here as the historical import
+// site.
+import {
+  isInFlight,
+  type GenerateState,
+  type ImageMediaItem,
+  type MediaItem,
+} from '@/types/mediaItem'
+export {
+  hasDisplayableMedia,
+  isInFlight,
+  is3D,
+  isImage,
+  isVideo,
+  PLACEHOLDER_IMAGE_URL,
+} from '@/types/mediaItem'
+export type {
+  ComfyDynamicInputWithCurrent,
+  GenerateState,
+  GenerationSettings,
+  ImageMediaItem,
+  MediaItem,
+  MediaItemState,
+  Model3DMediaItem,
+  VideoMediaItem,
+} from '@/types/mediaItem'
 
 const globalDefaultSettings = {
   seed: -1,
@@ -676,6 +603,71 @@ export const useImageGenerationPresets = defineStore(
       }
     }
 
+    // ── Artifact run projection (architecture-target §4.1 step 5) ────────────
+    // The main-process artifact runner is the engine; its kernel events drive
+    // this store's legacy FSM vocabulary, so every downstream consumer (the
+    // generation overlay, the FSM→activity bridge, the tool watchers) keeps
+    // working unchanged. Phases map 1:1 onto the states the old engine set.
+    function applyArtifactPhase(
+      phase: ArtifactPhase,
+      progress?: { current: number; max: number },
+      error?: string,
+    ): void {
+      switch (phase) {
+        case 'queued':
+          break
+        case 'preparing-backend':
+          currentState.value = 'start_backend'
+          stepText.value = ''
+          break
+        case 'installing-components':
+          currentState.value = 'install_workflow_components'
+          break
+        case 'loading-components':
+          currentState.value = 'load_workflow_components'
+          break
+        case 'loading-model':
+          currentState.value = 'load_model'
+          break
+        case 'running':
+          currentState.value = 'generating'
+          if (progress) {
+            stepText.value = `${i18nState.COM_GENERATING} ${progress.current}/${progress.max}`
+          }
+          break
+        case 'completed':
+          currentState.value = 'image_out'
+          stepText.value = ''
+          break
+        case 'failed':
+          failGeneration(error ?? 'Generation failed')
+          break
+        case 'cancelled':
+          cancelGeneration()
+          break
+      }
+    }
+
+    const artifactProjection = connectKernelEventStream(
+      (event) => {
+        if (event.type === 'artifact-phase') {
+          applyArtifactPhase(event.phase, event.progress, event.error)
+        } else if (event.type === 'artifact-item') {
+          updateImage(event.item)
+        }
+      },
+      (snapshot) => {
+        // A reconnected renderer resumes the active run's progress view.
+        const run = snapshot.state.activeArtifactRun
+        if (!run) return
+        applyArtifactPhase(run.phase, run.progress, run.error ?? undefined)
+        for (const item of run.items) updateImage(item)
+      },
+    )
+    artifactProjection.ready.catch((reason: unknown) => {
+      console.warn('artifact run snapshot unavailable; waiting on stream events instead', reason)
+    })
+
     async function getMissingModelsFor(preset: Preset | null): Promise<DownloadModelParam[]> {
       if (!preset) return []
       return getMissingComfyuiBackendModels(preset.requiredModels ?? [])
@@ -862,7 +854,8 @@ export const useImageGenerationPresets = defineStore(
     }
 
     function stopGeneration() {
-      comfyUi.stop()
+      stopping.value = true
+      void window.electronAPI.artifact.cancel().finally(() => cancelGeneration())
     }
 
     function deleteImage(id: string) {

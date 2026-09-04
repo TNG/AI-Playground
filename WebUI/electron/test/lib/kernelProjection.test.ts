@@ -15,7 +15,11 @@ function serviceEvent(seq: number, name = 'ai-backend'): KernelEvent {
 }
 
 function snapshotAt(sequence: number, services: unknown[] = []): KernelSnapshot {
-  return { scope: { kind: 'global' }, sequence, state: { services, activeTurn: null } }
+  return {
+    scope: { kind: 'global' },
+    sequence,
+    state: { services, activeTurn: null, activeArtifactRun: null },
+  }
 }
 
 function deferredDeps(): {

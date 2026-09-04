@@ -707,36 +707,41 @@ modeled as an explicit FSM rather than loose flags.
 - `MediaItem.state` has terminal states: `done`, `failed`, `stopped` (no more permanent spinners).
   `failGeneration(msg)` / `cancelGeneration()` settle all in-flight items and set `lastError`;
   `WorkflowResult.vue` / `ChatWorkflowResult.vue` render a `failed` panel from `lastError`.
-- **Watchdog**: a single stall owner — the artifact runner's re-arming 5-minute idle
-  watchdog (covers backend boot, installs, model load and execution). `comfyUiPresets` no longer
-  arms its own execution-only timer; on stall the runner fails the items
-  (`failGeneration`) and stops the engine.
-- **Crash detection**: a watch on the ComfyUI service status fails in-flight items if the backend
-  leaves `running` unexpectedly (guarded by `backendRestarting` so intentional restarts for custom-node
-  installs don't false-positive). The main-process `service.ts` also reports unexpected child exits.
-- **Artifact runner** (`src/assets/js/artifact/runArtifact.ts`): one resolved `ArtifactRequest` in
-  (workflow, variant, prompt, source, params), one settled `ArtifactResult` out
-  (`completed`/`failed`/`cancelled` + done `MediaItem`s). It resolves the preset and variant
-  side-effect-free (`presets.resolvePresetVariant` — no switch, no `setModeOnly`), snapshots the
-  saved dynamic inputs as plain refs, injects the source image, drives the model dialog, registers
-  tracked items, then waits on the FSM/items with a re-arming 5-minute idle watchdog and abort
-  support (the abort listener is armed before submit, so the registration-to-queue window is
-  covered, and a submission accepted after an abort is stopped again). The batch settles on the
-  FIRST terminal item failure — whatever already reached `done` rides along in `items`. Refused
-  submissions fail fast ("Another generation is already in progress"). A
-  user-cancelled model download still throws (`isCancellation`) so existing caller catches keep
-  working. The UI wrapper (`imageGenerationPresets.generate`, kind derived from the panel mode),
-  both chat tools (`artifactKindForMedia` from the workflow's mediaType) and Home Agent `/imgGen`
-  all go through it. Home Agent does not preflight backend/nodes; readiness is the runner's. The
-  watcher settles on this run's tracked items only — a leftover `currentState === 'error'` from a
-  previous generation does not fail the next submit.
+- **Watchdog**: a single stall owner — the main-process artifact runner's re-arming 5-minute idle
+  watchdog (covers backend boot, installs, model load and execution). On stall the runner fails the
+  run and cancels it; the renderer's projected `failed` phase settles the items. Model-consent waits
+  re-arm the watchdog through progress pings the renderer bridge sends.
+- **Crash detection**: the main-process runner fails the run if the ComfyUI service leaves
+  `running` unexpectedly (it subscribes before `start()`, so a fast start without a status event
+  can't hang it either). The main-process `service.ts` also reports unexpected child exits.
+- **Artifact runner, split across the process line (architecture-target §8 step 5):**
+  - Renderer (`src/assets/js/artifact/runArtifact.ts`): one resolved `ArtifactRequest` in, one
+    settled `ArtifactResult` out (`completed`/`failed`/`cancelled` + done `MediaItem`s). It resolves
+    the preset and variant side-effect-free (`presets.resolvePresetVariant` — no switch, no
+    `setModeOnly`), snapshots the saved dynamic inputs, injects the source image, runs the model
+    pre-flight through the permissions layer, registers tracked items, then submits over
+    `electronAPI.artifact.run` (an abort listener is armed before submit) and returns main's
+    result. A refused submission ("Another generation is already in progress") or a failure with
+    nothing in flight drops the queued stubs. A user-cancelled model download still throws
+    (`isCancellation`) so existing caller catches keep working.
+  - Main (`electron/artifact/runner.ts`): owns readiness (backend start, custom-node/python
+    installs), the ComfyUI websocket engine, per-item seeds, the watchdog and cancellation, and
+    streams phase + item events on the kernel stream. Renderer-submitted runs fail fast when a
+    run is active; in-process runs queue behind it.
+  - UI hydration: `imageGenerationPresets` projects `artifact-phase`/`artifact-item` kernel events
+    (plus the snapshot's `activeArtifactRun`) onto `GenerateState`/`MediaItem`s — the same FSM the
+    old engine drove, so the activity bridge and failed-panel rendering are unchanged.
+  - What still lives renderer-side on purpose: the model pre-flight (models store + HF token), the
+    download-consent prompt (permissions layer) and the post-swap chat reload — main asks for them
+    over the `artifact:request`/`artifact:respond` RPC (`src/assets/js/artifact/mediaRequestBridge.ts`,
+    wired in `src/main.ts`) and re-arms its watchdog on the bridge's progress pings.
 
 **Activity / progress sink (`store/activities.ts`):** the analog of the error sink for "what is the
 app busy with right now". Long-running steps report a typed `Activity`
 (`assets/js/activities/types.ts`: `category`, `label`, `progress?`, `scope`, `parentId?`, `state`).
 Producers: backend/model prep + RAG (`textInference`), MCP/tool resolution + image conversion +
 "Processing prompt…"/"Processing results…" inference waits (`openAiCompatibleChat`), MCP/ComfyUI tool execution (`tools/*`), and the
-generation FSM bridge (`comfyUiPresets`, with determinate progress from the WS). Consumers:
+generation FSM bridge (`comfyUiPresets`, fed by the projected artifact-phase events). Consumers:
 `ChatActivityIndicator.vue` (anchored to the in-progress chat turn; replaced the old
 `isPreparingBackend` bar) and `PromptArea.vue` busy state. `begin/update/end/track` manage lifecycle;
 `track()` guarantees cleanup; `chatActivity(key, exclude?)` returns the innermost active (or nested,
@@ -757,9 +762,9 @@ under `vram-warning:<presetName>`. `notify(message, onConfirm?)` is one-way guid
 `permissionGrants` store as a reviewable, revocable list shown under Settings → Permissions;
 the legacy `memoryAlertSuppress_*` localStorage flags migrate in once. There is no silent
 auto-allow: every grant exists because the user ticked "do not show again" or pre-filled it.
-Parked follow-ups are in `docs/architecture-target.md` §8.2 (Permissions and the kernel stream) —
-do not re-open them as gaps in the landed step; pick them up before the kernel move or as a small
-fix.
+Parked follow-ups (permissions, kernel stream, and the step-5 artifact leftovers) are in
+`docs/architecture-target.md` §8.2 — do not re-open them as gaps in the landed step; pick them up
+before the kernel move or as a small fix.
 
 ### Key IPC Channels by Category
 
@@ -777,6 +782,8 @@ fix.
 
 **ComfyUI tools**: `comfyui:isGitInstalled`, `comfyui:isComfyUIInstalled`, `comfyui:downloadCustomNode`, `comfyui:uninstallCustomNode`, `comfyui:installPypiPackage`, `comfyui:isPackageInstalled`, `comfyui:listInstalledCustomNodes`
 
+**Artifact pipeline** (step 5): `artifact:run`, `artifact:cancel`, `artifact:respond` (R→M), `artifact:request` (M→R — model checks, download consent, chat reload; replies keyed by requestId, `{progress: true}` pings re-arm the runner's watchdog)
+
 **Transcription**: `startTranscriptionServer`, `stopTranscriptionServer`, `getTranscriptionServerUrl`
 
 **Dialogs/files**: `showOpenDialog`, `showSaveDialog`, `showMessageBox`, `existsPath`, `saveImage`
@@ -790,7 +797,7 @@ fix.
 - `textInference` — LLM backend/model selection, RAG config, system prompt, context size, per-preset settings. Deps: `backendServices`, `models`, `dialogs`, `presets`
 - `openAiCompatibleChat` — Vercel AI SDK chat instances, message streaming, tool calling, vision, token tracking. Deps: `textInference`, `conversations`
 - `imageGenerationPresets` — Image/video generation state (prompt, seed, dimensions, batch), ComfyUI dynamic inputs. Deps: `presets`, `comfyUiPresets`, `backendServices`, `ui`, `dialogs`, `i18n`
-- `comfyUiPresets` — ComfyUI WebSocket + REST communication, workflow execution, custom node management. Deps: `imageGenerationPresets`, `i18n`, `backendServices`, `promptArea`
+- `comfyUiPresets` — Settings-side ComfyUI store: preset requirement checks, freeing ComfyUI memory (`free`), and the generation-activity bridge. The WebSocket engine moved to main (`electron/artifact/runner.ts`, §8 step 5). Deps: `imageGenerationPresets`, `i18n`, `backendServices`
 - `models` — Model discovery, download checking, HuggingFace integration, path management. Deps: `backendServices`
 - `presets` — Unified preset system with Zod schemas (`chat` + `comfy` types), variants, file I/O. Deps: `backendServices`
 - `conversations` — Conversation CRUD and persistence. No store deps.
@@ -846,7 +853,7 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 
 **Chat/LLM**: `views/Chat.vue` → stores: `openAiCompatibleChat`, `textInference`, `conversations`, `presets` → electron: `ensureBackendReadiness` IPC → backend: `llamacpp`/`openvino` via Vercel AI SDK
 
-**Image/Video Generation**: `views/WorkflowResult.vue` and every other driver (chat tools, Home Agent `/imgGen`) → `src/assets/js/artifact/runArtifact.ts` (one resolved `ArtifactRequest` in, one settled `ArtifactResult` out; no preset switch, no UI-state mutation) → stores: `imageGenerationPresets`, `comfyUiPresets`, `presets` → electron: service lifecycle IPC → backend: `comfyui-backend` via direct HTTP
+**Image/Video Generation**: `views/WorkflowResult.vue` and every other renderer driver (chat tools, Home Agent `/imgGen`) → `src/assets/js/artifact/runArtifact.ts` (one resolved `ArtifactRequest` in, one settled `ArtifactResult` out; no preset switch, no UI-state mutation) → IPC `artifact:run` → `electron/artifact/runner.ts` (engine, readiness, watchdog) → backend: `comfyui-backend` via direct HTTP. Pi agent media tools run the same runner in-process: `electron/agentMode/capabilities/mediaDirect.ts` (generateImage/editImage, GPU swap via `electron/artifact/gpuOccupancy.ts`); the NL `media` tool stays a renderer proxy (`mediaDelegation.ts`). Progress reaches the UI through kernel `artifact-phase`/`artifact-item` events
 
 **Speech (STT/TTS)**: every driver (mic + STT preset in `views/PromptArea.vue`, speak-replies + Speak button in `views/Chat.vue`, `tools/transcribeAudio`, `tools/synthesizeTextToSpeech`, the direct TTS/STT preset turns in `openAiCompatibleChat`, Home Agent voice paths) → `src/assets/js/speech/speechIO.ts` — the one engine seam: interactive vs dialog-free unattended readiness, endpoint resolution, the Qwen3/Kokoro/external branch, and desktop playback state. Drivers import no TTS/STT store; the stores (`speechToText`, `textToSpeech`, `qwen3TextToSpeech`) keep engine config, persistence and the engine clients, consumed by the adapter (settings panels read them directly)
 
@@ -998,7 +1005,8 @@ Notes:
   proves the source image actually reached ComfyUI.
 - `Dummy 3D Model (test)` needs two fixture files in ComfyUI's input dir (a ~700-byte pyramid
   `.glb` and a tiny preview PNG). They are generated in TypeScript and uploaded via
-  `/upload/image` by `ensureDummyWorkflowFixtures()`, called from `comfyUiPresets.generate()`
+  `/upload/image` by the main runner's fixture upload (`ensureDummyFixtures`,
+  `electron/artifact/runner.ts`)
   once per session. Its `Load Image` node is deliberately unconsumed: it keeps the
   "needs a source image" contract (and exercises the upload path) without being executed.
 - `toolInstructions` tell the model these are test-only workflows, so ask for them explicitly
@@ -1146,12 +1154,14 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
 - **Gotcha:** models ask for a game's whole spritesheet in one step, and both Pi and the AI SDK
   dispatch those tool calls in parallel. All media work therefore queues on
   `assets/js/tools/mediaPipeline.ts` — one lane for a whole `media` request, one for a single
-  ComfyUI run, nested in that order only. The queue serializes drivers against an engine that
-  takes one run at a time (`runArtifact` fails fast with "Another generation is already in
-  progress" if it submits into a busy one) and batches the GPU swaps: with **Keep Models Loaded**
-  off, a run that still sees work queued behind it (`comfyRunsWaiting()`) skips freeing ComfyUI and
-  reloading the LLM, so a batch of generations costs one model swap instead of one each; the last
-  run out does the cleanup. Never take the ComfyUI lane and then wait on the request lane.
+  ComfyUI run, nested in that order only. The queue serializes renderer drivers against a runner
+  that takes one run at a time (renderer submits fail fast with "Another generation is already in
+  progress"; in-process Pi tool runs queue behind the active one instead) and batches the GPU
+  swaps: with **Keep Models Loaded** off, a run that still sees work queued behind it
+  (`comfyRunsWaiting()`) skips freeing ComfyUI and reloading the LLM, so a batch of generations
+  costs one model swap instead of one each; the last run out does the cleanup — the same skip the
+  main-side `withGpuForMedia` applies to in-process runs. Never take the ComfyUI lane and then
+  wait on the request lane.
 
 ### Verifying Home Agent features (LAN chat)
 

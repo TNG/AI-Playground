@@ -89,7 +89,7 @@ function snapshotWithTurn(sequence: number, activeTurn: typeof RUNNING_TURN | nu
   return {
     scope: { kind: 'global' } as const,
     sequence,
-    state: { services: [], activeTurn },
+    state: { services: [], activeTurn, activeArtifactRun: null },
   }
 }
 

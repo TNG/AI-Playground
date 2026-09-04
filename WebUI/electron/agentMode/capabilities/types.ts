@@ -3,6 +3,8 @@ import type { SkillSource } from '../piCustomTools.ts'
 import type { PlanningEnd } from '../planningPhase.ts'
 import type { AgentToolSpec } from '@/types/agentIpc'
 
+export type { AgentToolSpec }
+
 // ── Agent capabilities ───────────────────────────────────────────────────────
 //
 // A capability is one user-toggleable chunk of agent functionality: the media
@@ -24,6 +26,8 @@ export type CapabilityHost = {
   agentDir: string
   /** The model's context window, for the activation policy. */
   contextWindow?: number
+  /** Developer setting: skip the GPU swap around in-process media calls. */
+  keepModelsLoaded: boolean
 }
 
 /** A slash command a capability offers, runnable as a prompt of its own. */

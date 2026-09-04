@@ -8,6 +8,7 @@ import { useErrors } from './assets/js/store/errors'
 import { usePromptStore } from './assets/js/store/promptArea'
 import { initLaminarTelemetry } from './lib/laminarTelemetry'
 import { initDebugSettings } from './assets/js/store/debugSettings'
+import { startMediaRequestBridge } from './assets/js/artifact/mediaRequestBridge'
 
 const [settings, initialPage] = await Promise.all([
   window.electronAPI.getDemoModeSettings(),
@@ -55,6 +56,10 @@ if (initialPage !== null) {
   // preset belongs to (the preset persists across restarts, the mode doesn't).
   usePromptStore().alignModeToActivePreset()
 }
+
+// The main-process artifact runner asks the renderer for model checks,
+// download consent and chat reloads over this bridge.
+startMediaRequestBridge()
 
 const i18n = useI18N()
 i18n.init().then(() => {

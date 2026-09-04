@@ -66,6 +66,7 @@ export function listAgentCapabilities(options: {
       workspaceDir: options.workspaceDir ?? '',
       toolSpecs: options.toolSpecs ?? [],
       agentDir: piAgentDir(),
+      keepModelsLoaded: false,
     },
     options.mcpServerIds ?? [],
   )

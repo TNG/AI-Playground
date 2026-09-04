@@ -42,6 +42,8 @@ export const AgentToolSpecSchema = z.object({
   description: z.string(),
   inputSchema: z.record(z.string(), z.unknown()),
   workspacePathInputs: z.array(z.string()).optional(),
+  /** Workflow to run when the model's call names none (generate tool). */
+  defaultWorkflow: z.string().optional(),
 })
 
 export const AgentModeTurnConfigSchema = z.object({
@@ -56,6 +58,8 @@ export const AgentModeTurnConfigSchema = z.object({
   mcpServerIds: z.array(z.string()).optional(),
   unsandboxed: z.boolean().optional(),
   planningThinkingOnly: z.boolean().optional(),
+  /** Developer setting: skip the GPU swap around in-process media calls. */
+  keepModelsLoaded: z.boolean().optional(),
 })
 
 export type AgentModeModelConfig = z.infer<typeof AgentModeModelConfigSchema>

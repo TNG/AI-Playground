@@ -399,7 +399,7 @@ async function runComfyGeneration(
 // presets. These are standalone, explicitly-typed helpers on purpose: keeping the
 // heavy `useTextInference()` store type out of `getToolDefinition` (whose inferred
 // shape feeds the ai-SDK `tool()` generics) avoids a type-instantiation blow-up.
-function resolveDefaultImageWorkflow(imageNames: string[]): string {
+export function resolveDefaultImageWorkflow(imageNames: string[]): string {
   return useTextInference().getDefaultWorkflow('comfyUI:image', imageNames) ?? 'Draft Image'
 }
 

@@ -236,38 +236,11 @@ export async function checkIfNsfwBlocked(imageUrl: string): Promise<boolean> {
  * @param url - The string to check
  * @returns true if the string is a valid base64 image data URI
  */
-export function isBase64ImageDataUri(url: string | undefined | null): boolean {
-  if (!url || typeof url !== 'string') return false
-  return /^data:image\/(png|jpeg|webp);base64,/.test(url)
-}
-
-/**
- * Checks if a string is a displayable image URL (base64 data URI or aipg-media).
- * Use this for "has image" UI checks (e.g. img src, drop zones).
- */
-export function isImageUrl(url: string | undefined | null): boolean {
-  if (!url || typeof url !== 'string') return false
-  return isBase64ImageDataUri(url) || url.startsWith('aipg-media://')
-}
-
-/**
- * Builds an `aipg-media://` URL for a path relative to the media directory.
- *
- * The media-relative path MUST live in the URL *path*, under a constant
- * `media` authority — never in the authority itself. `aipg-media` is
- * registered as a *standard* scheme (see `registerSchemesAsPrivileged` in
- * `electron/main.ts`), and Chromium lowercases the authority of standard URLs.
- * Putting a case-sensitive filename there (e.g. ComfyUI's `ComfyUI_00001_.png`)
- * therefore resolves to `comfyui_00001_.png`, which silently works on
- * case-insensitive filesystems (Windows/macOS) but fails with
- * `net::ERR_FILE_NOT_FOUND` on case-sensitive ones (Linux). Keeping the path in
- * the URL path preserves case on every OS.
- */
-export function mediaUrl(relativePath: string): string {
-  const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
-  const encoded = normalized.split('/').map(encodeURIComponent).join('/')
-  return `aipg-media://media/${encoded}`
-}
+// Image-URL predicates and the aipg-media:// URL builder moved to
+// `@/lib/comfyWorkflow` (shared with the main-process artifact runner);
+// re-exported here as the historical import site.
+export { isBase64ImageDataUri, isImageUrl, mediaUrl } from './comfyWorkflow'
+import { isBase64ImageDataUri, mediaUrl } from './comfyWorkflow'
 
 /**
  * Saves an image data URI to media/input and returns an aipg-media URL.

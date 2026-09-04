@@ -1,6 +1,11 @@
 import { asSchema, type ModelMessage } from 'ai'
 import { z } from 'zod'
-import { comfyUI, executeComfyGeneration } from './comfyUi'
+import {
+  comfyUI,
+  executeComfyGeneration,
+  getAvailableWorkflows,
+  resolveDefaultImageWorkflow,
+} from './comfyUi'
 import { comfyUiImageEdit, executeImageEdit } from './comfyUiImageEdit'
 import { queueMediaRequest } from './mediaPipeline'
 import { mediaAgentHasTools, runMediaAgent } from '../agents/mediaAgent'
@@ -92,11 +97,17 @@ export function getAgentToolSpecs(): AgentToolSpec[] {
       },
     ]
   }
+  const imageWorkflowNames = getAvailableWorkflows()
+    .filter((w) => w.mediaType !== 'video')
+    .map((w) => w.name)
   return [
     {
       name: 'generateImage',
       description: comfyUI.description + GENERATED_FILES_NOTE,
       inputSchema: asSchema(comfyUI.inputSchema).jsonSchema as Record<string, unknown>,
+      // Main executes this in-process and can't see the enabled-workflow list;
+      // the default is what the description already tells the model to use.
+      defaultWorkflow: resolveDefaultImageWorkflow(imageWorkflowNames),
     },
     {
       name: 'editImage',

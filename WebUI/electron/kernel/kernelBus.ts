@@ -2,12 +2,15 @@ import type { BrowserWindow } from 'electron'
 import { appLoggerInstance } from '../logging/logger'
 import type {
   AgentTurnSnapshot,
+  ArtifactRunSnapshot,
+  ArtifactPhase,
   KernelAgentToolImageEvent,
   KernelEvent,
   KernelEventPayload,
   KernelEventScope,
   KernelSnapshot,
 } from '@/types/kernelEvents'
+import type { MediaItem } from '@/types/mediaItem'
 
 const appLogger = appLoggerInstance
 
@@ -44,8 +47,29 @@ export function getKernelEventWindow(): BrowserWindow | null {
   return currentWin
 }
 
+type KernelEventTap = (event: KernelEvent) => void
+const taps = new Set<KernelEventTap>()
+
+/**
+ * Main-side tap into the stream — the artifact runner subscribes to service
+ * status through this instead of reaching into the services.
+ */
+export function onKernelEvent(tap: KernelEventTap): () => void {
+  taps.add(tap)
+  return () => {
+    taps.delete(tap)
+  }
+}
+
 function emit(payload: KernelEventPayload, scope: KernelEventScope): void {
   const event = { ...payload, scope, seq: ++sequence } as KernelEvent
+  for (const tap of taps) {
+    try {
+      tap(event)
+    } catch (error) {
+      appLogger.warn(`kernel event tap failed: ${String(error)}`, 'kernel')
+    }
+  }
   const target = currentWin
   if (!target || target.isDestroyed()) return
   try {
@@ -109,6 +133,52 @@ export function emitAgentTurnDone(turnId: string): void {
   if (activeTurn?.turnId === turnId) activeTurn = null
 }
 
+// ── Artifact run accumulator ──────────────────────────────────────────────────
+
+let activeArtifactRun: ArtifactRunSnapshot | null = null
+
+/** Track a run the artifact runner is about to start, so snapshots can name it. */
+export function beginArtifactRunSnapshot(run: Omit<ArtifactRunSnapshot, 'items'>): void {
+  activeArtifactRun = { ...run, items: [] }
+}
+
+export function emitArtifactPhase(
+  runId: string,
+  phase: ArtifactPhase,
+  progress?: { current: number; max: number },
+  error?: string,
+): void {
+  if (activeArtifactRun?.runId === runId) {
+    activeArtifactRun.phase = phase
+    activeArtifactRun.progress = progress
+    if (error !== undefined) activeArtifactRun.error = error
+  }
+  emit({ type: 'artifact-phase', runId, phase, progress, error }, { kind: 'run', runId })
+}
+
+export function emitArtifactItem(runId: string, item: MediaItem): void {
+  if (activeArtifactRun?.runId === runId) {
+    const index = activeArtifactRun.items.findIndex((existing) => existing.id === item.id)
+    if (index === -1) activeArtifactRun.items.push(item)
+    else activeArtifactRun.items[index] = item
+  }
+  emit({ type: 'artifact-item', runId, item }, { kind: 'run', runId })
+}
+
+export function emitArtifactDone(
+  runId: string,
+  state: 'completed' | 'failed' | 'cancelled',
+  error?: string,
+): void {
+  emit({ type: 'artifact-done', runId, state, error }, { kind: 'run', runId })
+  if (activeArtifactRun?.runId === runId) activeArtifactRun = null
+}
+
+/** The run main is executing right now, if any — the GPU occupancy primitive asks. */
+export function getActiveArtifactRun(): ArtifactRunSnapshot | null {
+  return activeArtifactRun
+}
+
 // ── Snapshot ───────────────────────────────────────────────────────────────────
 
 /**
@@ -123,6 +193,7 @@ export function getKernelSnapshot(): KernelSnapshot {
     state: {
       services: [...services.values()],
       activeTurn: activeTurn ? { ...activeTurn } : null,
+      activeArtifactRun: activeArtifactRun ? { ...activeArtifactRun } : null,
     },
   }
 }
@@ -133,4 +204,6 @@ export function resetKernelBusForTest(): void {
   sequence = 0
   services.clear()
   activeTurn = null
+  activeArtifactRun = null
+  taps.clear()
 }

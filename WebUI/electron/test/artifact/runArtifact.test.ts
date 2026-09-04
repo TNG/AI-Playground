@@ -3,11 +3,14 @@ import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
 import type { MediaItem } from '@/assets/js/store/imageGenerationPresets'
 import type { ComfyInput, Preset, Setting } from '@/assets/js/store/presets'
+import type { ArtifactRequest } from '@/assets/js/artifact/runArtifact'
 
-// The artifact runner is tested against hand-driven store mocks: only its own
-// contract matters here — request → resolved run (params, variant, inputs,
-// items), and the terminal-state watcher. The engine store (comfyUiPresets)
-// is stubbed at its generate()/stop() seam.
+// The artifact client is tested against hand-driven store mocks: only its own
+// contract matters here — request → resolved payload (params, variant,
+// inputs, items) shipped over the artifact:run IPC, and how the main-process
+// runner's result settles back onto the caller. The engine itself lives in
+// main (electron/artifact/runner.ts) and has its own suite against a fake
+// ComfyUI; here the IPC seam is the fake.
 
 const generatedImages = ref<MediaItem[]>([])
 const comfyInputsPerPreset = ref<Record<string, Record<string, unknown>>>({})
@@ -15,17 +18,15 @@ const lastError = ref<string | null>(null)
 const parentActivityId = ref<string | null>(null)
 const presetsFixture = ref<Preset[]>([])
 const activeVariantName = ref<Record<string, string>>({})
-const currentState = ref<string>('no_start')
-const stepText = ref('')
 
-const generateMock = vi.fn<(run: unknown, isRetry?: boolean) => Promise<boolean>>()
-const stopMock = vi.fn<() => Promise<void>>()
+const runIpcMock = vi.fn<(payload: unknown) => Promise<unknown>>()
+const cancelIpcMock = vi.fn<(runId?: string) => Promise<void>>()
 const ensureModelsMock = vi.fn<(preset: unknown) => Promise<void>>()
 const failGenerationMock = vi.fn<(message: string) => void>()
 const resolvePresetVariantMock = vi.fn<(name: string, variant?: string | null) => Preset | null>()
 const imageUrlToDataUriMock = vi.fn<(source: string) => Promise<string>>()
 
-// Mirrors the real pure helper the runner imports (the module itself is mocked
+// Mirrors the real pure helper the client imports (the module itself is mocked
 // below because its store half drags the whole renderer graph with it).
 vi.mock('@/assets/js/store/imageGenerationPresets', () => ({
   OPTIONAL_MODEL_NONE: 'None',
@@ -40,12 +41,6 @@ vi.mock('@/assets/js/store/imageGenerationPresets', () => ({
     },
     get comfyInputsPerPreset() {
       return comfyInputsPerPreset.value
-    },
-    get currentState() {
-      return currentState.value
-    },
-    get stepText() {
-      return stepText.value
     },
     get lastError() {
       return lastError.value
@@ -81,11 +76,8 @@ vi.mock('@/assets/js/store/imageGenerationPresets', () => ({
   }),
 }))
 
-vi.mock('@/assets/js/store/comfyUiPresets', () => ({
-  useComfyUiPresets: () => ({
-    generate: generateMock,
-    stop: stopMock,
-  }),
+vi.mock('@/assets/js/store/developerSettings', () => ({
+  useDeveloperSettings: () => ({ keepModelsLoaded: false }),
 }))
 
 vi.mock('@/assets/js/store/presets', () => ({
@@ -107,8 +99,33 @@ vi.mock('@/lib/utils', () => ({
   imageUrlToDataUri: imageUrlToDataUriMock,
 }))
 
+// The IPC seam. window does not exist in the node test environment; the client
+// reads it lazily at submit time, never at import time.
+vi.stubGlobal('window', {
+  electronAPI: {
+    artifact: {
+      run: runIpcMock,
+      cancel: cancelIpcMock,
+    },
+  },
+})
+
 const { runArtifact, artifactKindForMedia } = await import('@/assets/js/artifact/runArtifact')
 const { createAppError } = await import('@/assets/js/errors/appError')
+
+type RunPayload = {
+  runId: string
+  mode: string
+  preset: Preset
+  params: Record<string, unknown>
+  inputs: Array<Record<string, unknown> & { current: unknown }>
+  items: MediaItem[]
+  source?: string
+  modelsConsented: boolean
+  keepModelsLoaded: boolean
+}
+
+type IpcResult = { state: 'completed' | 'failed' | 'cancelled'; items: MediaItem[]; error?: string }
 
 type ComfyFixture = Preset & {
   type: 'comfy'
@@ -132,8 +149,6 @@ function applyVariantForReal(name: string, variant?: string | null): Preset | nu
   if (!preset) return null
   if (!variant || !preset.variants?.some((v) => v.name === variant)) return preset
   const overrides = preset.variants.find((v) => v.name === variant)?.overrides
-  // Mirrors the real applyVariant: deep merge of the variant's overrides into
-  // the base preset — the preset's own name stays untouched.
   return { ...preset, ...overrides }
 }
 
@@ -160,25 +175,30 @@ function imageInputFixture(): ComfyInput {
   } as unknown as ComfyInput
 }
 
-/**
- * Start a run and wait until it has submitted to the (mocked) engine. The
- * pending promise rides in a box: an async function returning it directly
- * would adopt it, so `await startAndAwaitSubmit(...)` would wait for the
- * generation itself — which only the caller's next line can settle.
- */
-async function startAndAwaitSubmit(request: Parameters<typeof runArtifact>[0]) {
-  const pending = runArtifact(request)
-  await vi.waitFor(() => expect(generateMock).toHaveBeenCalled())
-  return { result: pending }
+/** The happy path: main reports every batch entry done. */
+function resolveCompleted(): IpcResult {
+  const payload = runIpcMock.mock.calls[0][0] as RunPayload
+  return {
+    state: 'completed',
+    items: payload.items.map((item) => ({
+      ...item,
+      type: 'image',
+      state: 'done',
+      imageUrl: `aipg-media://${item.id}.png`,
+    })),
+  }
 }
 
-function settleDone() {
-  generatedImages.value = generatedImages.value.map((img) => ({
-    ...img,
-    type: 'image',
-    state: 'done',
-    imageUrl: `aipg-media://${img.id}.png`,
-  })) as MediaItem[]
+/**
+ * Start a run and wait until it has been shipped to main. The pending promise
+ * rides in a box: an async function returning it directly would adopt it, so
+ * `await startAndAwaitSubmit(...)` would wait for the run itself — which only
+ * the caller's next line can settle.
+ */
+async function startAndAwaitSubmit(request: ArtifactRequest) {
+  const pending = runArtifact(request)
+  await vi.waitFor(() => expect(runIpcMock).toHaveBeenCalled())
+  return { result: pending }
 }
 
 describe('runArtifact', () => {
@@ -188,11 +208,9 @@ describe('runArtifact', () => {
     comfyInputsPerPreset.value = {}
     lastError.value = null
     parentActivityId.value = null
-    currentState.value = 'no_start'
-    stepText.value = ''
     activeVariantName.value = {}
-    generateMock.mockReset().mockResolvedValue(true)
-    stopMock.mockReset().mockResolvedValue()
+    runIpcMock.mockReset().mockImplementation(async () => resolveCompleted())
+    cancelIpcMock.mockReset().mockResolvedValue()
     ensureModelsMock.mockReset().mockResolvedValue()
     failGenerationMock.mockReset().mockImplementation((message: string) => {
       // Mirrors the real store: the failed panel reads this.
@@ -215,14 +233,10 @@ describe('runArtifact', () => {
       workflow: 'Draft Image',
       prompt: 'a castle',
     })
-    settleDone()
     expect((await result).state).toBe('completed')
 
-    const run = generateMock.mock.calls[0][0] as {
-      params: Record<string, unknown>
-      preset: Preset
-    }
-    expect(run.params).toMatchObject({
+    const payload = runIpcMock.mock.calls[0][0] as RunPayload
+    expect(payload.params).toMatchObject({
       prompt: 'a castle',
       negativePrompt: 'nsfw',
       seed: -1,
@@ -247,23 +261,18 @@ describe('runArtifact', () => {
       }),
     ]
 
-    const pending = runArtifact({
+    const { result } = await startAndAwaitSubmit({
       kind: 'create-image',
       workflow: 'Draft Image',
       prompt: 'a castle',
       negativePrompt: 'custom',
       params: { seed: 42, inferenceSteps: 12, batchSize: 2 },
     })
-    await vi.waitFor(() => expect(generateMock).toHaveBeenCalled())
-    settleDone()
-    await pending
+    await result
 
-    const run = generateMock.mock.calls[0][0] as {
-      params: Record<string, unknown>
-      items: MediaItem[]
-    }
+    const payload = runIpcMock.mock.calls[0][0] as RunPayload
     // Request wins for what it named; preset defaults fill the rest.
-    expect(run.params).toMatchObject({
+    expect(payload.params).toMatchObject({
       prompt: 'a castle',
       negativePrompt: 'custom',
       seed: 42,
@@ -273,7 +282,7 @@ describe('runArtifact', () => {
       batchSize: 2,
     })
     // Fixed seed + batch index → per-item seeds 42, 43.
-    expect(run.items.map((item) => item.settings.seed)).toEqual([42, 43])
+    expect(payload.items.map((item) => item.settings.seed)).toEqual([42, 43])
   })
 
   it('forces batchSize 1 for video workflows regardless of the request', async () => {
@@ -287,14 +296,13 @@ describe('runArtifact', () => {
       prompt: 'a wave',
       params: { batchSize: 4 },
     })
-    settleDone()
     await result
 
-    const run = generateMock.mock.calls[0][0] as { params: { batchSize: number } }
-    expect(run.params.batchSize).toBe(1)
+    const payload = runIpcMock.mock.calls[0][0] as RunPayload
+    expect(payload.params.batchSize).toBe(1)
   })
 
-  it('fails fast on an unknown workflow without touching the engine', async () => {
+  it('fails fast on an unknown workflow without reaching main', async () => {
     presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
 
     const result = await runArtifact({
@@ -307,7 +315,7 @@ describe('runArtifact', () => {
       state: 'failed',
       error: expect.stringContaining('Unknown workflow'),
     })
-    expect(generateMock).not.toHaveBeenCalled()
+    expect(runIpcMock).not.toHaveBeenCalled()
   })
 
   it('resolves the variant like a preset switch would, without switching', async () => {
@@ -327,15 +335,14 @@ describe('runArtifact', () => {
       variant: 'Bogus',
       prompt: 'a castle',
     })
-    settleDone()
     await result
 
     // Invalid requested variant falls back to the first, like getPresetWithVariant.
     expect(resolvePresetVariantMock).toHaveBeenCalledWith('Draft Image', 'Standard')
-    const run = generateMock.mock.calls[0][0] as { preset: Preset }
+    const payload = runIpcMock.mock.calls[0][0] as RunPayload
     // The variant's overrides are merged in; the preset's own name is untouched.
-    expect(run.preset.name).toBe('Draft Image')
-    expect(run.preset.description).toBe('standard variant')
+    expect(payload.preset.name).toBe('Draft Image')
+    expect(payload.preset.description).toBe('standard variant')
   })
 
   it('falls back to the remembered variant when the request names none', async () => {
@@ -355,7 +362,6 @@ describe('runArtifact', () => {
       workflow: 'Draft Image',
       prompt: 'a castle',
     })
-    settleDone()
     await result
 
     expect(resolvePresetVariantMock).toHaveBeenCalledWith('Draft Image', 'Fast')
@@ -400,17 +406,14 @@ describe('runArtifact', () => {
       workflow: 'Draft Image',
       prompt: 'a castle',
     })
-    settleDone()
     await result
 
-    const run = generateMock.mock.calls[0][0] as {
-      inputs: Array<{ nodeTitle: string; current: { value: unknown } }>
-    }
-    const byRef = (title: string) =>
-      run.inputs.find((input) => input.nodeTitle === title)!.current.value
-    expect(byRef('LoraLoader')).toBe('my-lora.safetensors')
+    const payload = runIpcMock.mock.calls[0][0] as RunPayload
+    const byTitle = (title: string) =>
+      payload.inputs.find((input) => input.nodeTitle === title)!.current
+    expect(byTitle('LoraLoader')).toBe('my-lora.safetensors')
     // Optional model input with no saved value → bypass marker.
-    expect(byRef('CheckpointLoaderSimple')).toBe('None')
+    expect(byTitle('CheckpointLoaderSimple')).toBe('None')
   })
 
   it('injects the source image into the first required image input', async () => {
@@ -429,18 +432,13 @@ describe('runArtifact', () => {
       prompt: 'make it blue',
       source: 'aipg-media://source.png',
     })
-    settleDone()
     await result
 
     expect(imageUrlToDataUriMock).toHaveBeenCalledWith('aipg-media://source.png')
-    const run = generateMock.mock.calls[0][0] as {
-      inputs: Array<{ current: { value: unknown } }>
-      sourceImage: string
-      items: MediaItem[]
-    }
-    expect(run.inputs[0].current.value).toBe('data:image/png;base64,SOURCE')
-    expect(run.sourceImage).toBe('aipg-media://source.png')
-    expect(run.items[0].sourceImageUrl).toBe('aipg-media://source.png')
+    const payload = runIpcMock.mock.calls[0][0] as RunPayload
+    expect(payload.inputs[0].current).toBe('data:image/png;base64,SOURCE')
+    expect(payload.source).toBe('aipg-media://source.png')
+    expect(payload.items[0].sourceImageUrl).toBe('aipg-media://source.png')
   })
 
   it('fails when an edit has no suitable image input', async () => {
@@ -463,7 +461,7 @@ describe('runArtifact', () => {
       state: 'failed',
       error: expect.stringContaining('No suitable image input'),
     })
-    expect(generateMock).not.toHaveBeenCalled()
+    expect(runIpcMock).not.toHaveBeenCalled()
   })
 
   it('rethrows a cancelled model download instead of failing silently', async () => {
@@ -479,12 +477,33 @@ describe('runArtifact', () => {
     await expect(
       runArtifact({ kind: 'create-image', workflow: 'Draft Image', prompt: 'a castle' }),
     ).rejects.toMatchObject({ code: 'user/cancelled' })
-    expect(generateMock).not.toHaveBeenCalled()
+    expect(runIpcMock).not.toHaveBeenCalled()
   })
 
-  it('removes the queued stubs and fails fast when the engine refuses a run', async () => {
+  it('marks the payload as consented and forwards the keep-models-loaded flag', async () => {
     presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
-    generateMock.mockResolvedValue(false)
+
+    const { result } = await startAndAwaitSubmit({
+      kind: 'create-image',
+      workflow: 'Draft Image',
+      prompt: 'a castle',
+    })
+    await result
+
+    // The renderer's pre-flight (permissions dialog) already ran, so main
+    // must not ask again; the GPU-hold flag rides the payload.
+    const payload = runIpcMock.mock.calls[0][0] as RunPayload
+    expect(payload.modelsConsented).toBe(true)
+    expect(payload.keepModelsLoaded).toBe(false)
+  })
+
+  it('removes the queued stubs and fails fast when main refuses a run', async () => {
+    presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
+    runIpcMock.mockResolvedValueOnce({
+      state: 'failed',
+      items: [],
+      error: 'Another generation is already in progress',
+    })
 
     const result = await runArtifact({
       kind: 'create-image',
@@ -499,101 +518,115 @@ describe('runArtifact', () => {
     expect(generatedImages.value).toEqual([])
   })
 
-  it('resolves completed with the done items once every batch entry settles', async () => {
+  it('drops the queued stubs when main fails the run before anything generated', async () => {
+    presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
+    runIpcMock.mockResolvedValueOnce({
+      state: 'failed',
+      items: [],
+      error: 'The ComfyUI backend stopped unexpectedly',
+    })
+
+    const result = await runArtifact({
+      kind: 'create-image',
+      workflow: 'Draft Image',
+      prompt: 'a castle',
+    })
+
+    expect(result.state).toBe('failed')
+    // Nothing of this run is in flight — no permanent placeholders in history.
+    expect(generatedImages.value).toEqual([])
+  })
+
+  it('keeps already-done items in the history when a later failure carries them', async () => {
     presetsFixture.value = [
       comfyPreset({
         name: 'Draft Image',
-        settings: [
-          standardSetting('inferenceSteps', 30),
-          { ...standardSetting('batchSize', 4), displayed: false, modifiable: false },
-        ],
+        settings: [standardSetting('batchSize', 2)],
       }),
     ]
+    runIpcMock.mockImplementation(async () => {
+      const payload = runIpcMock.mock.calls[0][0] as RunPayload
+      return {
+        state: 'failed',
+        // First batch entry made it out before the run died.
+        items: payload.items.slice(0, 1).map((item) => ({
+          ...item,
+          state: 'done',
+          imageUrl: `aipg-media://${item.id}.png`,
+        })),
+        error: 'Workflow execution failed',
+      }
+    })
 
-    const { result } = await startAndAwaitSubmit({
+    const result = await runArtifact({
       kind: 'create-image',
       workflow: 'Draft Image',
       prompt: 'a castle',
-      params: { seed: 5, batchSize: 2 },
     })
 
-    // Two queued placeholders are registered before the run is submitted.
+    expect(result.state).toBe('failed')
+    expect(result.items).toHaveLength(1)
+    // The failure reached main mid-run, so the stubs stay in history.
     expect(generatedImages.value).toHaveLength(2)
-    expect(parentActivityId.value).toBeNull()
-
-    settleDone()
-    const settled = await result
-
-    expect(settled.state).toBe('completed')
-    expect(settled.items).toHaveLength(2)
-    expect(
-      settled.items.every(
-        (item) => 'imageUrl' in item && item.imageUrl.startsWith('aipg-media://'),
-      ),
-    ).toBe(true)
-    // Settings snapshots are filtered by what the preset displays/modifies;
-    // the seed rides along regardless — the engine reads it off every item.
-    expect(settled.items[0].settings).toMatchObject({
-      preset: 'Draft Image',
-      inferenceSteps: 30,
-      seed: 5,
-    })
-    expect(settled.items[0].settings).not.toHaveProperty('batchSize')
-    expect(settled.items[0].settings).not.toHaveProperty('resolution')
   })
 
-  it('resolves failed when an item fails, carrying the store error', async () => {
+  it('forwards the runner result untouched: failed carries the error', async () => {
     presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
+    runIpcMock.mockResolvedValueOnce({
+      state: 'failed',
+      items: [],
+      error: 'The ComfyUI backend could not generate the image.',
+    })
 
-    const { result: pending } = await startAndAwaitSubmit({
+    const result = await runArtifact({
       kind: 'create-image',
       workflow: 'Draft Image',
       prompt: 'a castle',
     })
-    lastError.value = 'The ComfyUI backend could not generate the image.'
-    generatedImages.value = generatedImages.value.map((img) => ({
-      ...img,
-      state: 'failed',
-    })) as MediaItem[]
 
-    const result = await pending
     expect(result).toMatchObject({
       state: 'failed',
       error: 'The ComfyUI backend could not generate the image.',
     })
   })
 
-  it('resolves cancelled when an item is stopped', async () => {
+  it('forwards the runner result untouched: cancelled', async () => {
     presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
+    runIpcMock.mockResolvedValueOnce({ state: 'cancelled', items: [] })
 
-    const { result: pending } = await startAndAwaitSubmit({
+    const result = await runArtifact({
       kind: 'create-image',
       workflow: 'Draft Image',
       prompt: 'a castle',
     })
-    generatedImages.value = generatedImages.value.map((img) => ({
-      ...img,
-      state: 'stopped',
-    })) as MediaItem[]
 
-    const result = await pending
     expect(result).toMatchObject({ state: 'cancelled' })
   })
 
-  it('stops the engine and resolves cancelled when the caller aborts mid-run', async () => {
+  it('cancels the run by id and resolves cancelled when the caller aborts mid-run', async () => {
     presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
+    let resolveRun!: (result: IpcResult) => void
+    runIpcMock.mockImplementationOnce(
+      () =>
+        new Promise<IpcResult>((resolve) => {
+          resolveRun = resolve
+        }),
+    )
     const controller = new AbortController()
 
     const pending = runArtifact(
       { kind: 'create-image', workflow: 'Draft Image', prompt: 'a castle' },
       { abortSignal: controller.signal },
     )
-    await vi.waitFor(() => expect(generateMock).toHaveBeenCalled())
+    await vi.waitFor(() => expect(runIpcMock).toHaveBeenCalled())
     controller.abort()
+    resolveRun({ state: 'cancelled', items: [] })
 
     const result = await pending
+    const payload = runIpcMock.mock.calls[0][0] as RunPayload
     expect(result).toMatchObject({ state: 'cancelled' })
-    expect(stopMock).toHaveBeenCalled()
+    expect(cancelIpcMock).toHaveBeenCalledTimes(1)
+    expect(cancelIpcMock).toHaveBeenCalledWith(payload.runId)
   })
 
   it('resolves cancelled without registering items when the signal fires while models prepare', async () => {
@@ -613,36 +646,9 @@ describe('runArtifact', () => {
 
     const result = await pending
     expect(result).toMatchObject({ state: 'cancelled', items: [] })
-    expect(generateMock).not.toHaveBeenCalled()
+    expect(runIpcMock).not.toHaveBeenCalled()
     expect(generatedImages.value).toEqual([])
-    expect(stopMock).not.toHaveBeenCalled()
-  })
-
-  it('stops the engine again when a submit that was aborted lands in the queue afterwards', async () => {
-    presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
-    let resolveGenerate!: (accepted: boolean) => void
-    generateMock.mockImplementation(
-      () => new Promise<boolean>((resolve) => (resolveGenerate = resolve)),
-    )
-    const controller = new AbortController()
-
-    const pending = runArtifact(
-      { kind: 'create-image', workflow: 'Draft Image', prompt: 'a castle' },
-      { abortSignal: controller.signal },
-    )
-    // The placeholders are registered before submit, so the abort listener is
-    // armed for this window even though the prompt has not been queued yet.
-    await vi.waitFor(() => expect(generatedImages.value).toHaveLength(1))
-    controller.abort()
-
-    const result = await pending
-    expect(result).toMatchObject({ state: 'cancelled' })
-    expect(stopMock).toHaveBeenCalledTimes(1)
-
-    // The engine finishes queueing only after the abort — whatever landed in
-    // the queue after the pre-queue stop() must be cleared too.
-    resolveGenerate(true)
-    await vi.waitFor(() => expect(stopMock).toHaveBeenCalledTimes(2))
+    expect(cancelIpcMock).not.toHaveBeenCalled()
   })
 
   it('does not leak the injected source back into the persisted input map', async () => {
@@ -662,43 +668,27 @@ describe('runArtifact', () => {
       prompt: 'make it blue',
       source: 'aipg-media://source.png',
     })
-    settleDone()
     await result
 
-    const run = generateMock.mock.calls[0][0] as {
-      inputs: Array<{ current: { value: unknown } }>
-    }
-    expect(run.inputs[0].current.value).toBe('data:image/png;base64,SOURCE')
+    const payload = runIpcMock.mock.calls[0][0] as RunPayload
+    expect(payload.inputs[0].current).toBe('data:image/png;base64,SOURCE')
     expect(comfyInputsPerPreset.value['Edit By Prompt']['LoadImage.image']).toBe(
       'preset-default.png',
     )
   })
 
-  it('owns the stall watchdog: fails the items and stops the engine after 5 idle minutes', async () => {
-    vi.useFakeTimers()
-    try {
-      presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
-      const pending = runArtifact({
-        kind: 'create-image',
-        workflow: 'Draft Image',
-        prompt: 'a castle',
-      })
-      // Flush the submit microtask chain without ticking the clock.
-      await vi.advanceTimersByTimeAsync(0)
-      expect(generateMock).toHaveBeenCalled()
+  it('settles the items locally when the IPC itself rejects', async () => {
+    presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
+    runIpcMock.mockRejectedValueOnce(new Error('socket closed'))
 
-      const result = await vi.advanceTimersByTimeAsync(5 * 60_000).then(() => pending)
-      expect(result).toMatchObject({
-        state: 'failed',
-        error: 'Generation stalled (no progress for 5 minutes)',
-      })
-      expect(failGenerationMock).toHaveBeenCalledWith(
-        'Generation stalled (no progress for 5 minutes)',
-      )
-      expect(stopMock).toHaveBeenCalled()
-    } finally {
-      vi.useRealTimers()
-    }
+    const result = await runArtifact({
+      kind: 'create-image',
+      workflow: 'Draft Image',
+      prompt: 'a castle',
+    })
+
+    expect(result).toMatchObject({ state: 'failed', error: 'socket closed' })
+    expect(failGenerationMock).toHaveBeenCalledWith('socket closed')
   })
 
   it('buckets items by the requested mode, defaulting to the preset category', async () => {
@@ -709,42 +699,9 @@ describe('runArtifact', () => {
       workflow: 'Edit By Prompt',
       prompt: 'make it blue',
     })
-    settleDone()
-    const settled = await result
+    const settled = (await result) as IpcResult
 
     expect(settled.items.every((item) => item.mode === 'imageEdit')).toBe(true)
-  })
-
-  it('does not treat a leftover FSM error as this run failing', async () => {
-    presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
-    currentState.value = 'error'
-    lastError.value = 'previous run died'
-
-    const { result } = await startAndAwaitSubmit({
-      kind: 'create-image',
-      workflow: 'Draft Image',
-      prompt: 'a castle',
-    })
-    settleDone()
-    const settled = await result
-
-    expect(generateMock).toHaveBeenCalledTimes(1)
-    expect(settled.state).toBe('completed')
-    expect(settled.items).toHaveLength(1)
-  })
-
-  it('fails the run when generate() rejects instead of hanging on the watchdog', async () => {
-    presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
-    generateMock.mockRejectedValueOnce(new Error('socket closed'))
-
-    const result = await runArtifact({
-      kind: 'create-image',
-      workflow: 'Draft Image',
-      prompt: 'a castle',
-    })
-
-    expect(result).toMatchObject({ state: 'failed', error: 'socket closed' })
-    expect(failGenerationMock).toHaveBeenCalledWith('socket closed')
   })
 })
 

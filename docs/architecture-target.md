@@ -1,11 +1,11 @@
 # Target architecture — capabilities, drivers, state ownership
 
-**Status: steps 1–4 of the migration order (§8) are implemented; the rest is draft for discussion.**
+**Status: steps 1–5 of the migration order (§8) are implemented; the rest is draft for discussion.**
 Media generation goes through the renderer-side Artifact runner; speech drivers through `speechIO`;
 inference/download consent through Permissions; main→renderer notifications through one kernel
 event stream (`kernel:event`) with a listener-first snapshot handshake. Parked follow-ups from
 those landings live in [§8.2](#82-parked-follow-ups-from-landed-steps) — they do not block step 5.
-Everything after step 4 is a map of where we want it, and the order in which we could get there.
+Everything after step 5 is a map of where we want it, and the order in which we could get there.
 It exists to be argued with — see [§10 Decisions](#10-decisions).
 
 ## 0. How to read and edit this
@@ -215,8 +215,17 @@ another. Both answer `run`.
 **Implemented in the renderer by `src/assets/js/artifact/runArtifact.ts`** (step 1): request/result
 types, side-effect-free workflow/variant resolution, source injection, readiness via the model
 dialog, tracked-item registration and terminal-state watching, with cancel through the
-`ArtifactRunContext` abort signal. The `listWorkflows` / `inspectRequirements` surface, explicit
-phase enum, speech kinds and the move into main are still ahead.
+`ArtifactRunContext` abort signal. **Step 5 moved the engine into main**
+(`electron/artifact/runner.ts`): the renderer client now resolves the request, runs the
+permissions-layer pre-flight, registers tracked items and submits over `artifact:run`; main owns
+readiness, installs, the ComfyUI websocket engine, per-item seeds, the watchdog and crash
+detection, and streams phase/item events on the kernel stream (the renderer projects them onto the
+same FSM). The model pre-flight, download consent and post-swap chat reload stay renderer-side by
+design — main requests them over `artifact:request`/`artifact:respond`
+(`src/assets/js/artifact/mediaRequestBridge.ts`). The Pi media tools execute beside the runner
+in-process (`electron/agentMode/capabilities/mediaDirect.ts` + `mediaDelegation.ts` for the
+NL tool); the `listWorkflows` / `inspectRequirements` surface, explicit phase enum, speech kinds
+and the kernel request queue (§7) are still ahead.
 
 `kind` is advisory in the step-1 renderer runner: routing is still by preset mediaType (the
 ComfyUI engine serves every workflow the same way), but callers must pass the kind that matches
@@ -864,7 +873,7 @@ flowchart TD
 | 2 | **Done.** `transcribeAudio` / speak-replies (and every other speech driver — mic, TTS preset, `/imgGen` voice paths) import no TTS/STT store; all of them cross the one speech adapter (`speechIO`), which owns readiness, endpoint resolution and the Qwen3/Kokoro/external engine branch | yes |
 | 3 | **Done.** Inference/download code calls the Permissions layer (`requestDownload` / `requestVramWarning` / `notify` in `src/assets/js/permissions/permissions.ts`); no `useDialogStore()` outside the adapter, the settings-setup flows and the dialog components. "Do not show again" and the remote-download pre-grant are entries in the persisted `permissionGrants` store, reviewed and revoked in Settings → Permissions (legacy `memoryAlertSuppress_*` flags migrate once) | yes |
 | 4 | **Done.** Notifications that were pushed point-to-point (`serviceInfoUpdate`, the four `agentMode:*` push channels) cross the kernel stream (`kernel:event`, one monotonic `seq`; listener-first snapshot handshake with install-before-flush; bus holds the current window so no service pushes to a stale webContents). Main owns hide/reopen/quit via `resolveClosePolicy` (`lifecycle:busy` from the activities sink, Home Agent status, active agent turn); a reconnected renderer resumes a running agent turn from the snapshot (`Chat.resumeStream`). Browser-backed windows were already lazy. Remaining event types (`activity`, `error`, `chat-chunk`, …) ride with steps 5–7 | yes |
-| 5 | `capabilities/media.ts` no longer calls `executeToolInRenderer`; the UI hydrates and renders readiness/generation progress from main | yes, needs 1–4 |
+| 5 | **Done.** `capabilities/media.ts` no longer calls `executeToolInRenderer` — direct tools execute in-process against `electron/artifact/runner.ts` (`mediaDirect.ts`), the NL `media` tool lives in `mediaDelegation.ts` — and the UI hydrates readiness/generation progress from main via kernel `artifact-phase`/`artifact-item` events. In-process runs ask the renderer for model checks, download consent and chat reload over `artifact:request` | yes, needs 1–4 |
 | 6 | renderer has no `streamText`; adjacent deltas coalesce at the IPC bridge; semantic events remain immediate | no, needs 1–5 |
 | 7 | Text and Artifact no longer start each other's backends; one typed queue is visible through activity events | no, needs 6 |
 | 8 | fields in §6 sit in their bucket; `userSelectedMode` is deleted; files own transcripts; localStorage migrates once | incremental |
@@ -962,6 +971,27 @@ small fix on this branch) can pick them up instead of rediscovering them.
   move.
 - **`backendServices` never disposes its projection.** A Pinia HMR of that store can stack
   `onKernelEvent` listeners. `agentModeIpc` already guards with a disposer list.
+
+**Step 5 (Artifact in main) — do with the kernel request queue (§7), or sooner if cheap:**
+
+- **In-process direct tools don't see saved dynamic inputs.** The settings sidebar's per-preset
+  input map (`comfyInputsPerPreset`) is renderer state, so `mediaDirect.ts` resolves workflow
+  inputs from preset defaults. Ship a snapshot of the relevant inputs with the turn (or answer it
+  over the request RPC) when a fidelity mismatch shows up.
+- **Consent/reload pings are a heartbeat, not download progress.** The media-request bridge pings
+  every 30 s while a request is open, which keeps the runner's watchdog re-armed but says nothing
+  about bytes moving. Route the download dialog's real progress through the bridge (or the stream)
+  when downloads need meaningful progress in traces.
+- **No Pi-side tool-call repair.** The renderer's `repairCreateToolInput` (AI SDK
+  `experimental_repairToolCall`) coerces a bad workflow name to the default; Pi tool calls with an
+  unknown workflow fail visibly with "not available". Deliberate for now — loud beats silent —
+  revisit if local models routinely miss the workflow name.
+- **The generate spec's `workflow` is still a plain string.** The edit spec carries an enum of
+  enabled workflows; the generate spec could too, so the model's choices are constrained instead
+  of validated after the fact.
+- **Laminar spans for main-side runs.** The engine's `comfyui.*` spans were renderer-side
+  (`comfyUiPresets`) and went with the engine; the runner streams phases but opens no spans. Wire
+  the span bridge to the projected phases, or move it main-side with the Pi extension.
 
 **Step 2 (Speech I/O) — already noted at the adapter, still ahead:**
 

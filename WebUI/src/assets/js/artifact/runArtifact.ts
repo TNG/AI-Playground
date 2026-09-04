@@ -1,17 +1,13 @@
-import { ref, watch } from 'vue'
-import {
-  useComfyUiPresets,
-  type ComfyGenerationInput,
-  type ComfyGenerationParams,
-  type ComfyGenerationRun,
-} from '../store/comfyUiPresets'
+import { ref } from 'vue'
+import type { ComfyGenerationInput, ComfyGenerationParams } from '../store/comfyUiPresets'
+import { useDeveloperSettings } from '../store/developerSettings'
 import {
   OPTIONAL_MODEL_NONE,
   presetSettingsKey,
   useImageGenerationPresets,
   type GenerationSettings,
-  type MediaItem,
 } from '../store/imageGenerationPresets'
+import type { MediaItem } from '@/types/mediaItem'
 import { usePresets, type ComfyInput, type ComfyUiPreset, type Preset } from '../store/presets'
 import { imageUrlToDataUri } from '@/lib/utils'
 import { isCancellation } from '../errors/appError'
@@ -75,13 +71,6 @@ export type ArtifactResult = {
   items: MediaItem[]
   error?: string
 }
-
-/**
- * Idle watchdog window, matching the tool watchers this module replaces: the
- * timer re-arms on every progress signal (tracked item, FSM state, step text)
- * so long-but-healthy renders run to completion and only a true stall fires.
- */
-const GENERATION_IDLE_TIMEOUT_MS = 5 * 60_000
 
 // Fallbacks when neither the request nor the preset declares a value. Matches
 // the create tool's historic defaults; presets normally declare their own.
@@ -211,23 +200,14 @@ function buildSettings(
   )
 }
 
-function isDoneWithMedia(item: MediaItem): boolean {
-  return (
-    item.state === 'done' &&
-    ((item.type === 'image' && !!item.imageUrl) ||
-      (item.type === 'video' && !!item.videoUrl) ||
-      (item.type === 'model3d' && !!item.model3dUrl))
-  )
-}
-
 /**
- * Resolve and run one media generation. Resolves when every tracked item has
- * settled (done / failed / stopped), the FSM errored, the caller aborted, or
- * the idle watchdog fired. The batch settles on the FIRST terminal item
- * failure — ComfyUI keeps rendering the rest, but this run stops waiting and
- * whatever reached 'done' rides along in `items`. A user cancelling the
- * required-model download still throws (`isCancellation`) so the UI's
- * pre-existing catch — which resets the prompt bar — keeps working.
+ * Resolve and run one media generation. Model pre-flight stays renderer-side
+ * (the permissions layer); everything after — readiness, installs, submission,
+ * progress, the idle watchdog — is the main-process runner's, reached over
+ * `artifact:run`. Resolves when the run settles; `items` carries what reached
+ * 'done'. A user cancelling the required-model download still throws
+ * (`isCancellation`) so the UI's pre-existing catch — which resets the prompt
+ * bar — keeps working.
  */
 export async function runArtifact(
   request: ArtifactRequest,
@@ -235,7 +215,6 @@ export async function runArtifact(
 ): Promise<ArtifactResult> {
   const presetsStore = usePresets()
   const imageGen = useImageGenerationPresets()
-  const comfyUi = useComfyUiPresets()
 
   const failed = (error: string): ArtifactResult => ({ state: 'failed', items: [], error })
 
@@ -328,133 +307,52 @@ export async function runArtifact(
     imageGen.generatedImages = imageGen.generatedImages.filter((img) => !trackedIds.has(img.id))
   }
 
-  // 5. Submit and wait for the FSM/websocket to settle the items. The abort
-  // listener is armed BEFORE submit so the window between item registration
-  // and queueing is covered too.
-  const run: ComfyGenerationRun = { preset, items, params, inputs, sourceImage: request.source }
-  const trackedIds = new Set(items.map((item) => item.id))
-  const trackedItems = () => imageGen.generatedImages.filter((img) => trackedIds.has(img.id))
-  const doneItems = () => trackedItems().filter(isDoneWithMedia)
+  // 5. Submit to the main-process runner. Readiness, installs, submission and
+  // the progress stream are main's; live UI state arrives through the kernel
+  // artifact events (the imageGenerationPresets projection), and this promise
+  // settles with the run. The abort listener is armed BEFORE submit so the
+  // window between item registration and queueing is covered too.
+  const runId = crypto.randomUUID()
+  const onAbort = () => {
+    void window.electronAPI.artifact.cancel(runId)
+  }
+  ctx.abortSignal?.addEventListener('abort', onAbort, { once: true })
 
-  return await new Promise<ArtifactResult>((resolve) => {
-    let timeout: ReturnType<typeof setTimeout> | null = null
-    let stopWatcher: (() => void) | null = null
-    let settled = false
+  let result: ArtifactResult
+  try {
+    result = await window.electronAPI.artifact.run({
+      runId,
+      mode,
+      preset,
+      params,
+      inputs: inputs.map((input) => ({ ...input, current: input.current.value })),
+      items,
+      source: request.source,
+      modelsConsented: true,
+      showPreview: imageGen.showPreview,
+      safetyCheck: imageGen.safetyCheck,
+      keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
+    })
+  } catch (error) {
+    // IPC itself failed (window replaced mid-run, handler threw) — the main
+    // runner settles its own runs, but nothing will update this run's items, so
+    // settle them here rather than leave permanent queued placeholders.
+    const message = error instanceof Error ? error.message : 'Generation failed'
+    imageGen.failGeneration(message)
+    return failed(message)
+  } finally {
+    ctx.abortSignal?.removeEventListener('abort', onAbort)
+  }
 
-    const cleanup = () => {
-      if (timeout) {
-        clearTimeout(timeout)
-        timeout = null
-      }
-      if (stopWatcher) {
-        stopWatcher()
-        stopWatcher = null
-      }
-      ctx.abortSignal?.removeEventListener('abort', onAbort)
+  // A refused submission left nothing of this run in flight — drop the queued
+  // stubs so the history shows no permanent placeholders.
+  if (result.state === 'failed' && result.items.length === 0) {
+    if (
+      result.error === 'Another generation is already in progress' ||
+      !items.some((item) => item.state !== 'queued')
+    ) {
+      removeQueuedStubs()
     }
-
-    const finish = (result: ArtifactResult) => {
-      if (settled) return
-      settled = true
-      cleanup()
-      resolve(result)
-    }
-
-    // Aborting has to reach ComfyUI: it has the prompt already and would
-    // happily load a 30 GB model and render it while nobody waits. `stop()`
-    // clears the queue, interrupts the run and settles the tracked items.
-    const onAbort = () => {
-      void comfyUi.stop()
-      finish({ state: 'cancelled', items: doneItems(), error: 'Generation cancelled.' })
-    }
-    if (ctx.abortSignal?.aborted) {
-      onAbort()
-      return
-    }
-    ctx.abortSignal?.addEventListener('abort', onAbort, { once: true })
-
-    // The single stall owner: a re-arming idle watchdog over every phase
-    // (backend boot, component installs, model load, execution, item
-    // settlement) — it replaces both the old per-tool timers and the engine's
-    // execution-only watchdog. On fire it fails the tracked items through the
-    // store's settle path, so the UI gets its failed panel and tool callers
-    // get an error result, then interrupts the orphaned render.
-    const armIdleTimeout = () => {
-      if (timeout) clearTimeout(timeout)
-      timeout = setTimeout(() => {
-        const message = 'Generation stalled (no progress for 5 minutes)'
-        imageGen.failGeneration(message)
-        void comfyUi.stop()
-        finish({ state: 'failed', items: doneItems(), error: message })
-      }, GENERATION_IDLE_TIMEOUT_MS)
-    }
-
-    const check = () => {
-      if (settled) return
-      const tracked = trackedItems()
-      // Only this run's items. A leftover `currentState === 'error'` from the
-      // previous generation must not fail a new submit before the engine has
-      // overwritten the FSM (tools do not reset it the way the UI wrapper does).
-      if (tracked.some((item) => item.state === 'failed')) {
-        finish({
-          state: 'failed',
-          items: doneItems(),
-          error: imageGen.lastError ?? 'Generation failed',
-        })
-        return
-      }
-      if (tracked.some((item) => item.state === 'stopped')) {
-        finish({ state: 'cancelled', items: doneItems(), error: 'Generation cancelled.' })
-        return
-      }
-      const completed = tracked.filter(isDoneWithMedia)
-      if (completed.length >= params.batchSize) {
-        finish({ state: 'completed', items: completed })
-      }
-    }
-
-    // Watch the items, FSM state and step text: failures surface immediately
-    // and every progress tick re-arms the idle watchdog.
-    stopWatcher = watch(
-      () => [imageGen.generatedImages, imageGen.currentState, imageGen.stepText],
-      () => {
-        armIdleTimeout()
-        check()
-      },
-      { deep: true },
-    )
-    armIdleTimeout()
-    check()
-
-    void comfyUi.generate(run).then(
-      (accepted) => {
-        if (settled) {
-          // Aborted while submitting — the pre-queue stop() above may have run
-          // before the prompt landed, so clear whatever was queued after it.
-          if (accepted) void comfyUi.stop()
-          return
-        }
-        if (!accepted) {
-          const errored = items.some(
-            (item) =>
-              imageGen.generatedImages.find((img) => img.id === item.id)?.state === 'failed',
-          )
-          removeQueuedStubs()
-          finish(
-            errored
-              ? failed(imageGen.lastError ?? 'Generation failed')
-              : failed('Another generation is already in progress'),
-          )
-          return
-        }
-        check()
-      },
-      (error: unknown) => {
-        if (settled) return
-        const message = error instanceof Error ? error.message : 'Generation failed'
-        imageGen.failGeneration(message)
-        finish(failed(message))
-      },
-    )
-  })
+  }
+  return result
 }

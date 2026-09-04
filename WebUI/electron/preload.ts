@@ -171,6 +171,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
       modelArgs,
     ),
   ensureComfyUIBackendRunning: () => ipcRenderer.invoke('ensureComfyUIBackendRunning'),
+  artifact: {
+    run: (
+      request: import('../src/types/artifactIpc').ArtifactRunRequest,
+      options?: { queue?: 'fail-fast' | 'queue' },
+    ) =>
+      ipcRenderer.invoke('artifact:run', request, options) as Promise<
+        import('./artifact/runner').ArtifactRunResult
+      >,
+    cancel: (runId?: string) => ipcRenderer.invoke('artifact:cancel', runId),
+    respond: (payload: import('../src/types/mediaRequests').MediaResponsePayload) =>
+      ipcRenderer.invoke('artifact:respond', payload),
+    onRequest: (
+      callback: (payload: import('../src/types/mediaRequests').MediaRequestPayload) => void,
+    ) => listen('artifact:request', callback),
+  },
   startTranscriptionServer: (modelName: string) =>
     ipcRenderer.invoke('startTranscriptionServer', modelName),
   stopTranscriptionServer: () => ipcRenderer.invoke('stopTranscriptionServer'),

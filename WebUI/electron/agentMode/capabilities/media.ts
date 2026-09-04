@@ -1,29 +1,19 @@
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
-import {
-  executeToolInRenderer,
-  jsonResult,
-  jsonSchemaParameters,
-  saveGeneratedMediaToWorkspace,
-  workspaceFileToDataUri,
-  type SkillSource,
-} from '../piCustomTools.ts'
-import { loadPi } from '../piRuntime.ts'
 import type { AgentCapability, CapabilityHost } from './types.ts'
+import { buildDelegatedMediaTool } from './mediaDelegation.ts'
+import { buildDirectMediaTools } from './mediaDirect.ts'
 
 // ── media capability ─────────────────────────────────────────────────────────
 //
-// The AIPG media tools (image/video/3D generation and editing). Their
-// implementations live in the RENDERER, where the Pinia stores driving ComfyUI
-// are, so these Pi tools are proxies: main resolves workspace paths to data
-// URIs on the way in, dispatches over IPC, and saves generated media into the
-// workspace on the way out.
-//
-// Which tools exist is decided by the renderer and shipped with the turn as
-// `toolSpecs` (one thin `media` delegation tool, or generateImage + editImage
-// when tool delegation is off), so this capability is unavailable when the
-// renderer has no media workflows to offer.
+// The AIPG media tools (image/video/3D generation and editing). Which tools
+// exist is decided by the renderer and shipped with the turn as `toolSpecs`:
+// one thin `media` delegation tool when tool delegation is on, else
+// generateImage + editImage. The delegation tool proxies the renderer's media
+// specialist (mediaDelegation.ts); the direct tools execute in-process
+// against the main-side artifact runner (mediaDirect.ts) — step 5 of
+// architecture-target §8 — so this module only routes specs to their executor.
 
-const MEDIA_GENERATION_SKILL: SkillSource = {
+const MEDIA_GENERATION_SKILL = {
   name: 'media-generation',
   description:
     'Create or transform images, videos and 3D models with the `media` tool; results are ' +
@@ -46,37 +36,19 @@ const MEDIA_GENERATION_SKILL: SkillSource = {
     'Media generation takes minutes — call the tool once, then wait for its result. Do not',
     'retry while a call is running.',
   ].join('\n'),
-}
+} as const
 
-/** Pi tool definitions proxying to the renderer implementations. */
-async function buildBridgedTools(host: CapabilityHost): Promise<ToolDefinition[]> {
-  const pi = await loadPi()
-  const { workspaceDir } = host
-  return host.toolSpecs.map(
-    (spec) =>
-      pi.defineTool({
-        name: spec.name,
-        label: spec.name,
-        description: spec.description,
-        parameters: jsonSchemaParameters(spec.inputSchema),
-        execute: async (toolCallId, params, signal) => {
-          const dispatchInput = { ...(params as Record<string, unknown>) }
-          for (const key of spec.workspacePathInputs ?? []) {
-            const value = dispatchInput[key]
-            if (typeof value === 'string' && value !== '') {
-              dispatchInput[key] = workspaceFileToDataUri(workspaceDir, value)
-            }
-          }
-          const result = await executeToolInRenderer(
-            spec.name,
-            dispatchInput,
-            toolCallId,
-            signal ?? undefined,
-          )
-          return jsonResult(await saveGeneratedMediaToWorkspace(result, workspaceDir))
-        },
-      }) as ToolDefinition,
-  )
+const DELEGATION_TOOL_NAME = 'media'
+const DIRECT_TOOL_NAMES = new Set(['generateImage', 'editImage'])
+
+/** Routes each shipped spec to its executor: delegation proxy or in-process run. */
+async function buildMediaTools(host: CapabilityHost): Promise<ToolDefinition[]> {
+  const delegationSpecs = host.toolSpecs.filter((spec) => spec.name === DELEGATION_TOOL_NAME)
+  const directSpecs = host.toolSpecs.filter((spec) => DIRECT_TOOL_NAMES.has(spec.name))
+  return [
+    ...(await buildDirectMediaTools(host, directSpecs)),
+    ...(await Promise.all(delegationSpecs.map((spec) => buildDelegatedMediaTool(host, spec)))),
+  ]
 }
 
 export const mediaCapability: AgentCapability = {
@@ -85,7 +57,7 @@ export const mediaCapability: AgentCapability = {
   summary:
     'Generate and transform images, videos and 3D models; results are saved into the workspace.',
   skills: [MEDIA_GENERATION_SKILL],
-  buildTools: buildBridgedTools,
+  buildTools: buildMediaTools,
   unavailableReason: (host) =>
     host.toolSpecs.length === 0
       ? 'No image or video workflows are installed — install a ComfyUI workflow first.'

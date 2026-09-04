@@ -7,6 +7,11 @@ import { computed, ref } from 'vue'
 // expose the two identifiers as globals, exactly what the plugin injects.
 Object.assign(globalThis, { computed, ref })
 
+// The store's kernel projection reads window.electronAPI at setup time; with
+// an empty stub it no-ops, exactly like a renderer without the artifact IPC.
+const cancelIpcMock = vi.fn<(runId?: string) => Promise<void>>().mockResolvedValue()
+vi.stubGlobal('window', { electronAPI: { artifact: { cancel: cancelIpcMock } } })
+
 // vi.mock factories are hoisted above every top-level const, so the shared
 // proxy helper must live here.
 function anyMemberStore() {
@@ -165,6 +170,16 @@ describe('imageGenerationPresets.generate (UI wrapper)', () => {
     await store.generate('imageEdit')
 
     expect(runArtifactMock.mock.calls[0][0]).not.toHaveProperty('source')
+  })
+
+  it('routes the stop button to the main runner cancel and settles the UI', async () => {
+    const store = useImageGenerationPresets()
+
+    store.stopGeneration()
+
+    await vi.waitFor(() => expect(cancelIpcMock).toHaveBeenCalledTimes(1))
+    // Locally the FSM leaves the processing state immediately.
+    expect(store.processing).toBe(false)
   })
 
   it('reports generation/no-preset and never reaches the runner without a comfy preset', async () => {

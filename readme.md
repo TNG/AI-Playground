@@ -145,7 +145,11 @@ To build the installer, run:
 npm run build
 ```
 
-The installer executable will be located in the `build/electron` folder.
+The installer executable will be located in the `build/electron` folder. Its name
+identifies the build it came from: a release tag when the build was started by
+pushing one (`AI.Playground-3.2.0-alpha.test8.exe`), otherwise the app version
+plus the short commit (`AI.Playground-3.2.0-alpha.8adad7c.exe`). The same commit
+and tag are shown when hovering the version in the app's footer.
 
 ### Build and run on Linux (AppImage or .deb)
 
@@ -167,7 +171,7 @@ root) and a **`.deb`** package for a system-wide install via `apt`.
    npm run build:linux
    ```
 
-   Both `AI Playground-<version>.AppImage` and `AI Playground-<version>.deb` are
+   Both `AI.Playground-<build>.AppImage` and `AI.Playground-<build>.deb` are
    written to `build/electron`. The build host needs `ar` (from `binutils`,
    usually already present) to assemble the `.deb`.
 
@@ -181,8 +185,8 @@ root) and a **`.deb`** package for a system-wide install via `apt`.
 
    ```bash
    cd build/electron
-   chmod +x "AI Playground-"*.AppImage
-   ./"AI Playground-"*.AppImage
+   chmod +x AI.Playground-*.AppImage
+   ./AI.Playground-*.AppImage
    ```
 
    `--no-sandbox` is baked into the launcher (see `build/scripts/after-pack.cjs`),
@@ -199,7 +203,7 @@ root) and a **`.deb`** package for a system-wide install via `apt`.
 
    ```bash
    cd build/electron
-   sudo apt install ./"AI Playground-"*.deb
+   sudo apt install ./AI.Playground-*.deb
    ```
 
    This installs the app system-wide; launch it as **AI Playground** from your

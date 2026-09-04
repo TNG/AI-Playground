@@ -146,8 +146,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   detectOem: () => ipcRenderer.invoke('detectOem'),
   onServiceSetUpProgress: (callback: (data: SetupProgress) => void) =>
     ipcRenderer.on('serviceSetUpProgress', (_event, value) => callback(value)),
-  onServiceInfoUpdate: (callback: (service: ApiServiceInformation) => void) =>
-    ipcRenderer.on('serviceInfoUpdate', (_event, value) => callback(value)),
+  onKernelEvent: (callback: (event: import('../src/types/kernelEvents').KernelEvent) => void) =>
+    listen('kernel:event', callback),
+  getKernelSnapshot: () =>
+    ipcRenderer.invoke('kernel:getSnapshot') as Promise<
+      import('../src/types/kernelEvents').KernelSnapshot
+    >,
+  setLifecycleBusy: (busy: boolean) => ipcRenderer.send('lifecycle:busy', busy),
   onShowToast: (callback: (data: { type: string; message: string }) => void) =>
     ipcRenderer.on('show-toast', (_event, data) => callback(data)),
   ensureBackendReadiness: (
@@ -278,21 +283,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
       toolSpecs?: unknown[]
       mcpServerIds?: string[]
     }) => ipcRenderer.invoke('agentMode:listCapabilities', options),
-    onStreamChunk: (callback: (data: { turnId: string; chunk: unknown }) => void) =>
-      listen('agentMode:streamChunk', callback),
-    onToolProgress: (
-      callback: (data: {
-        turnId: string
-        toolCallId: string
-        toolName: string
-        text: string
-      }) => void,
-    ) => listen('agentMode:toolProgress', callback),
-    onToolImage: (
-      callback: (data: { toolCallId: string; dataUri: string; label: string }) => void,
-    ) => listen('agentMode:toolImage', callback),
-    onTurnDone: (callback: (data: { turnId: string }) => void) =>
-      listen('agentMode:turnDone', callback),
     onExecuteTool: (
       callback: (data: {
         requestId: string

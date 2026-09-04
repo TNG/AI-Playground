@@ -106,6 +106,7 @@ import {
 import {
   cancelAgentTurn,
   deleteAgentSession,
+  isAgentTurnActive,
   listAgentCapabilities,
   resetAgentSession,
   setAgentModeMainWindow,
@@ -113,6 +114,8 @@ import {
   startAgentTurn,
   submitAgentToolResult,
 } from './agentMode/piAgentManager'
+import { getKernelSnapshot, setKernelEventWindow } from './kernel/kernelBus'
+import { resolveClosePolicy } from './kernel/windowLifecycle'
 import { setVerboseLogging as setVerboseAgentLogging } from './agentMode/piAgentLog.ts'
 import { importAttachment } from './agentMode/workspaceAttachments.ts'
 import { AgentModeTurnConfigSchema } from '@/types/agentIpc'
@@ -265,6 +268,16 @@ const appLogger = appLoggerInstance
 
 let win: BrowserWindow | null
 let serviceRegistry: ApiServiceRegistryImpl | null = null
+
+// The renderer's half of the hidden-window close policy: true while it has
+// tracked activities in flight (a chat turn, a generation — see the activities
+// sink). Pushed over `lifecycle:busy` whenever it flips.
+let rendererBusy = false
+
+function isHomeAgentRunning(): boolean {
+  const service = serviceRegistry?.getService('home-agent-backend')
+  return service?.get_info().status === 'running'
+}
 
 // Cloud Mode runs its networking in the main process via a loopback proxy (see
 // cloudProxy.ts), so the renderer never calls remote providers directly. The
@@ -738,7 +751,24 @@ async function createWindow() {
   })
   setWebBrowserMainWindow(win)
   setAgentModeMainWindow(win)
-  win.on('close', () => {
+  setKernelEventWindow(win)
+  win.on('close', (event) => {
+    // Main owns the hide/reopen/quit policy (architecture-target §5.1), never
+    // the renderer: closing the window only hides it while headless work a
+    // quit would orphan is in flight — a Home Agent serving channels, an
+    // in-flight agent turn in main, or anything the renderer reported busy
+    // (tracked activities: a chat turn, a generation). A hidden window is
+    // reopened by relaunching (second-instance) or dock activation.
+    const decision = resolveClosePolicy({
+      homeAgentRunning: isHomeAgentRunning(),
+      rendererBusy,
+      agentTurnActive: isAgentTurnActive(),
+    })
+    if (decision === 'hide') {
+      event.preventDefault()
+      win?.hide()
+      return
+    }
     // Tear down the headless web-browser window so the app can quit cleanly.
     destroyWebBrowser()
     // Quit from the main window's own close rather than waiting for
@@ -1152,6 +1182,10 @@ app.on('activate', () => {
   // dock icon is clicked and there are no other windows open.
   if (BrowserWindow.getAllWindows().length === 0) {
     void createWindow().then(loadAppWindow)
+  } else if (win && !win.isDestroyed() && !win.isVisible()) {
+    // Hidden by the close-while-headless policy: dock activation reopens it.
+    win.show()
+    win.focus()
   }
 })
 
@@ -1160,6 +1194,10 @@ app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
     if (win.isMinimized()) {
       win.restore()
     }
+    // A hidden window (closed while headless work was in flight — see the
+    // close handler in createWindow) is reopened here: a relaunch means the
+    // user wants the UI back, not a second copy.
+    if (!win.isVisible()) win.show()
     win.focus()
     return
   }
@@ -1370,6 +1408,17 @@ function initEventHandle() {
       win.minimize()
     }
   })
+
+  // The renderer reports whether it has tracked work in flight; an input to
+  // the main-owned close policy (see createWindow's 'close' handler).
+  ipcMain.on('lifecycle:busy', (_event: IpcMainInvokeEvent, busy: boolean) => {
+    rendererBusy = busy === true
+  })
+
+  // Projection hydration: the renderer subscribes to the kernel event stream
+  // BEFORE requesting this snapshot and applies only events above its
+  // sequence (docs/architecture-target.md §4.6).
+  ipcMain.handle('kernel:getSnapshot', () => getKernelSnapshot())
 
   ipcMain.on('setFullScreen', (_event: IpcMainEvent, enable: boolean) => {
     if (win) {
@@ -2936,8 +2985,9 @@ function initEventHandle() {
   )
 
   // Agent Mode (Pi coding agent) IPC handlers — see agentMode/piAgentManager.ts.
-  // Stream chunks are pushed main→renderer on 'agentMode:streamChunk', live tool
-  // output on 'agentMode:toolProgress'.
+  // Stream chunks and live tool output cross the kernel event bus
+  // (electron/kernel/kernelBus.ts) as 'agent-chunk' / 'agent-tool-progress' /
+  // 'agent-tool-image' / 'agent-turn-done' events.
   ipcMain.handle(
     'agentMode:startTurn',
     async (_event, turnId: string, prompt: string, config: unknown) => {

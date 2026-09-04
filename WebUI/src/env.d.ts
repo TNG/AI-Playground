@@ -421,7 +421,9 @@ type electronAPI = {
   stopService(serviceName: string): Promise<BackendStatus>
   setUpService(serviceName: string): Promise<void>
   onServiceSetUpProgress(callback: (data: SetupProgress) => void): void
-  onServiceInfoUpdate(callback: (service: ApiServiceInformation) => void): void
+  onKernelEvent(callback: (event: import('./types/kernelEvents').KernelEvent) => void): () => void
+  getKernelSnapshot(): Promise<import('./types/kernelEvents').KernelSnapshot>
+  setLifecycleBusy(busy: boolean): void
   onShowToast(callback: (data: { type: string; message: string }) => void): void
   ensureBackendReadiness(
     serviceName: string,
@@ -549,10 +551,6 @@ type electronAPI = {
       toolSpecs?: AgentToolSpec[]
       mcpServerIds?: string[]
     }): Promise<AgentCapabilityInfo[]>
-    onStreamChunk(callback: (data: { turnId: string; chunk: unknown }) => void): () => void
-    onToolProgress(callback: (data: AgentToolProgress) => void): () => void
-    onToolImage(callback: (data: AgentToolImage) => void): () => void
-    onTurnDone(callback: (data: { turnId: string }) => void): () => void
     onExecuteTool(callback: (data: AgentToolExecuteRequest) => void): () => void
     submitToolResult(requestId: string, result: unknown, error?: string): Promise<void>
   }

@@ -4,15 +4,13 @@ import { setToolBridgeWindow, submitAgentToolResult } from './piCustomTools.ts'
 import { listCapabilities, type CapabilityInfo } from './capabilities/index.ts'
 import type { AgentToolSpec } from '@/types/agentIpc'
 import { piAgentDir } from './piSessionStore.ts'
-import { setMainWin } from './piAgentState.ts'
+import { setMainWin, currentTurn } from './piAgentState.ts'
 import {
   cancelAgentTurn,
   deleteAgentSession,
   resetAgentSession,
   shutdownAgentMode,
   startAgentTurn,
-  type AgentModeStreamChunk,
-  type AgentModeToolProgress,
   type AgentModeTurnResult,
 } from './piTurnRunner.ts'
 
@@ -44,6 +42,11 @@ import {
 export function setAgentModeMainWindow(win: BrowserWindow): void {
   setMainWin(win)
   setToolBridgeWindow(win)
+}
+
+/** Whether main is mid-agent-turn — input to the hidden-window close policy. */
+export function isAgentTurnActive(): boolean {
+  return currentTurn !== null
 }
 
 /**
@@ -78,4 +81,4 @@ export {
 }
 
 export { COMPACTION_TOOL_NAME } from './piStreamTranslate.ts'
-export type { ToolDefinition, AgentModeStreamChunk, AgentModeToolProgress, AgentModeTurnResult }
+export type { ToolDefinition, AgentModeTurnResult }

@@ -5,6 +5,7 @@ import { app, BrowserWindow, dialog } from 'electron'
 import { appLoggerInstance } from '../logging/logger.ts'
 import { packagedResourcesRoot } from '../aipgRoot.ts'
 import { ApiService, createEnhancedErrorDetails, ErrorDetails } from './service.ts'
+import { emitServiceUpdate, getKernelEventWindow } from '../kernel/kernelBus.ts'
 import { fetchFirstInstallArtifact } from './fetchInstallArtifact.ts'
 import { buildOvmsCandidates, parseUbuntuMajor, ubuntuDistroTargets } from './ovmsDownloadUrls.ts'
 import { promisify } from 'util'
@@ -734,7 +735,9 @@ export class OpenVINOBackendService implements ApiService {
     }
 
     const packageList = missingPackages.map((p) => `- ${p}`).join('\n')
-    const { response } = await dialog.showMessageBox(this.win, {
+    // The live window (the bus's current one), not the one this service was
+    // constructed with — after a macOS window recreate that one is destroyed.
+    const { response } = await dialog.showMessageBox(getKernelEventWindow() ?? this.win, {
       type: 'warning',
       buttons: ['Install now', 'Cancel setup'],
       defaultId: 0,
@@ -1237,7 +1240,7 @@ export class OpenVINOBackendService implements ApiService {
   }
 
   updateStatus() {
-    this.win.webContents.send('serviceInfoUpdate', this.get_info())
+    emitServiceUpdate(this.get_info())
   }
 
   async updateSettings(settings: ServiceSettings): Promise<void> {

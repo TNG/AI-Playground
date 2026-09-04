@@ -495,7 +495,7 @@ Managed by `electron/subprocesses/apiServiceRegistry.ts`. Each service spawns a 
 
 ### Three Communication Patterns
 
-1. **Electron IPC** (renderer ↔ main): ALL service lifecycle — start, stop, setup, device selection, `ensureBackendReadiness`. Renderer calls `window.electronAPI.*`, main handles via `ipcMain.handle()`. Main pushes events via `win.webContents.send()`.
+1. **Electron IPC** (renderer ↔ main): ALL service lifecycle — start, stop, setup, device selection, `ensureBackendReadiness`. Renderer calls `window.electronAPI.*`, main handles via `ipcMain.handle()`. Main's **notifications** cross one ordered **kernel event stream** (`kernel:event`, one monotonic `seq` — `electron/kernel/kernelBus.ts`); the renderer hydrates with a listener-first snapshot handshake (`kernel:getSnapshot`, `src/assets/js/projection/kernelProjection.ts`: subscribe → buffer → install at sequence N → apply events above N). Requests stay point-to-point.
 
 2. **Direct HTTP** (renderer → backend): For actual AI operations after service is ready:
    - **Chat inference**: Vercel AI SDK `streamText()` → `{backendUrl}/v1/chat/completions` (LlamaCpp/OpenVINO)
@@ -757,13 +757,12 @@ under `vram-warning:<presetName>`. `notify(message, onConfirm?)` is one-way guid
 `permissionGrants` store as a reviewable, revocable list shown under Settings → Permissions;
 the legacy `memoryAlertSuppress_*` localStorage flags migrate in once. There is no silent
 auto-allow: every grant exists because the user ticked "do not show again" or pre-filled it.
-Parked follow-ups (Home Agent coupling, generic `request(action)`, desktop remember, `skipMemoryAlert`,
-legacy-import vs persist) are in `docs/architecture-target.md` §8.2 — do not re-open them as step-3
-gaps; pick them up before the kernel move or as a small fix.
 
 ### Key IPC Channels by Category
 
-**Service lifecycle**: `getServices`, `startService`, `stopService`, `setUpService`, `serviceSetUpProgress` (M→R), `serviceInfoUpdate` (M→R), `uninstall`, `updateServiceSettings`, `detectDevices`, `selectDevice`, `ensureBackendReadiness`
+**Kernel stream (M→R notifications)**: `kernel:event` — service status and agent-turn events (chunk / tool progress / tool image / turn done), stamped with one monotonic `seq`; `kernel:getSnapshot` (R→M) hydrates a (re)connecting renderer, which resumes a running agent turn via `Chat.resumeStream()`. `lifecycle:busy` (R→M) pushes the renderer's busy flag for the close policy.
+
+**Service lifecycle**: `getServices`, `startService`, `stopService`, `setUpService`, `serviceSetUpProgress` (M→R), `uninstall`, `updateServiceSettings`, `detectDevices`, `selectDevice`, `ensureBackendReadiness`
 
 **Models**: `loadModels`, `updateModelPaths`, `restorePathsSettings`, `getDownloadedGGUFLLMs`, `getDownloadedOpenVINOLLMModels`, `getDownloadedEmbeddingModels`
 

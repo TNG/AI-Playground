@@ -4,6 +4,7 @@ import z from 'zod'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { invalidateBackendAuthToken } from '@/lib/loopbackAuth'
 import { isOnDemandBackend } from '@/lib/onDemandBackends'
+import { connectKernelEventStream } from '@/assets/js/projection/kernelProjection'
 
 export const allBackendServiceNames = [
   'ai-backend',
@@ -205,27 +206,27 @@ export const useBackendServices = defineStore(
       }
     }
 
-    window.electronAPI
-      .getServices()
-      .catch(async (_reason: unknown) => {
-        console.warn('initial service call failed - retrying')
-        await new Promise<void>((resolve) => {
-          setTimeout(async () => {
-            resolve()
-          }, 1000)
-        })
-        return window.electronAPI.getServices()
-      })
-      .then((services) => {
-        applyServiceSnapshot(services)
-      })
-    setTimeout(() => {
-      window.electronAPI.getServices().then((services) => {
-        console.log('getServices', services)
-        applyServiceSnapshot(services)
-      })
-    }, 5000)
-    window.electronAPI.onServiceInfoUpdate((updatedInfo) => {
+    // Service status is a projection of the kernel event stream: subscribe
+    // first, then install the snapshot, then apply pushes. The listener-first
+    // handshake replaces the old init dance (pull + retry + a 5s re-poll to
+    // paper over pushes the pull raced against) — no service can be missed
+    // between snapshot and stream, and a recreated window (macOS close +
+    // dock activate) hydrates the same way, where the old point-to-point
+    // channel went to the destroyed webContents.
+    const kernelProjection = connectKernelEventStream(
+      (event) => {
+        if (event.type !== 'service') return
+        applyServiceUpdate(event.info as ApiServiceInformation)
+      },
+      (snapshot) => {
+        applyServiceSnapshot(snapshot.state.services as ApiServiceInformation[])
+      },
+    )
+    kernelProjection.ready.catch((reason: unknown) => {
+      console.warn('kernel snapshot unavailable; waiting on stream events instead', reason)
+    })
+
+    function applyServiceUpdate(updatedInfo: ApiServiceInformation): void {
       const idx = currentServiceInfo.value.findIndex(
         (s) => s.serviceName === updatedInfo.serviceName,
       )
@@ -234,11 +235,12 @@ export const useBackendServices = defineStore(
         next[idx] = updatedInfo
         currentServiceInfo.value = next
       } else {
-        // Initial getServices can return [] if IPC ran before the registry existed — upsert so pushes still populate.
+        // The snapshot can predate a service (registered after connect) —
+        // upsert so pushes still populate.
         currentServiceInfo.value = [...currentServiceInfo.value, updatedInfo]
       }
       applyInstalledVersionFromService(updatedInfo)
-    })
+    }
 
     /**
      * Fold an authoritative status straight into the cached service info.

@@ -506,6 +506,20 @@ future events with `seq > N`. The snapshot includes active/queued runs, latest a
 items, service status, the requested conversation, and its current activities/errors. This
 listener-first handshake closes the race without requiring a public replay protocol.
 
+**Renderer interim (step 4 done).** The stream exists and carries the notifications that were
+already pushed point-to-point: service status and the four agent-turn events (chunk, tool
+progress, tool image, turn done), over `kernel:event` with one monotonic `seq` (`KernelEvent` in
+`WebUI/src/types/kernelEvents.ts`, emitted by `electron/kernel/kernelBus.ts`, hydrated by
+`src/assets/js/projection/kernelProjection.ts`). The handshake installs the snapshot through an
+`onInstall` hook that runs **before** the buffered flush, because a consumer that adopts snapshot
+state (a resumed agent turn's stream controller) must exist before the events meant to follow it
+arrive. The snapshot carries service status plus the one active agent turn's accumulated chunks,
+tool progress and tool images — enough for a recreated window to resume a running turn through
+`Chat.resumeStream()` without restarting it. What is not on the bus yet: `activity`/`error`/
+`chat-chunk`/`artifact-item`/`stored` events and delta coalescing (steps 5–7), and the `chat` scope
+exists in the vocabulary but nothing emits it. `agentMode:executeTool` stays point-to-point — it is
+a request the renderer answers, like Permissions. Leftovers are in [§8.2](#82-parked-follow-ups-from-landed-steps).
+
 #### Streaming across IPC
 
 HTTP/SSE gets model deltas into main; it does not make the main → renderer hop free.
@@ -611,6 +625,19 @@ with no Chromium at all is out of scope until we decide it isn't.
 
 The lifecycle policy belongs in main, beside Electron's existing single-instance and quit
 handling. The renderer must never decide whether a process-backed run survives its own window.
+
+**Renderer interim (step 4 done).** The policy is a pure function,
+`resolveClosePolicy({ homeAgentRunning, rendererBusy, agentTurnActive }) → 'hide' | 'close'`
+(`electron/kernel/windowLifecycle.ts`), consulted in the window's `close` handler: `hide` prevents
+the default and hides the window; `close` tears down the browser-backed windows and quits (via
+`app.quit()` off-darwin, backends freed in `window-all-closed` on macOS, as before). Main owns all
+three inputs: the Home Agent service status, `isAgentTurnActive()` from the agent runtime, and a
+`rendererBusy` flag the renderer pushes over `lifecycle:busy` whenever the activities sink flips
+between empty and non-empty. A hidden window is reopened by relaunch (`second-instance`) and dock
+activation (`activate`), and the recreated/relaunched renderer resumes a running agent turn from
+the kernel snapshot (§4.6 interim). Explicit quit still runs the shutdown task — the title-bar X
+and `exitApp` bypass `close` via `app.quit()`, which the `before-quit` handler routes to the
+shutdown sequence, so no isQuitting flag is needed.
 
 ---
 
@@ -836,7 +863,7 @@ flowchart TD
 | 1 | **Done.** Tools and Home Agent `/imgGen` have no preset save/restore and no readiness preflight; the run (`runArtifact` + `comfyUiPresets.generate`) owns backend start, installs and model download; selection stays side-effect-free (`resolvePresetVariant`); callers pass `artifactKindForMedia` / panel-derived kind | yes |
 | 2 | **Done.** `transcribeAudio` / speak-replies (and every other speech driver — mic, TTS preset, `/imgGen` voice paths) import no TTS/STT store; all of them cross the one speech adapter (`speechIO`), which owns readiness, endpoint resolution and the Qwen3/Kokoro/external engine branch | yes |
 | 3 | **Done.** Inference/download code calls the Permissions layer (`requestDownload` / `requestVramWarning` / `notify` in `src/assets/js/permissions/permissions.ts`); no `useDialogStore()` outside the adapter, the settings-setup flows and the dialog components. "Do not show again" and the remote-download pre-grant are entries in the persisted `permissionGrants` store, reviewed and revoked in Settings → Permissions (legacy `memoryAlertSuppress_*` flags migrate once) | yes |
-| 4 | projection connects with listener + snapshot watermark; main owns hide/reopen/quit; browser-backed windows are lazy | yes |
+| 4 | **Done.** Notifications that were pushed point-to-point (`serviceInfoUpdate`, the four `agentMode:*` push channels) cross the kernel stream (`kernel:event`, one monotonic `seq`; listener-first snapshot handshake with install-before-flush; bus holds the current window so no service pushes to a stale webContents). Main owns hide/reopen/quit via `resolveClosePolicy` (`lifecycle:busy` from the activities sink, Home Agent status, active agent turn); a reconnected renderer resumes a running agent turn from the snapshot (`Chat.resumeStream`). Browser-backed windows were already lazy. Remaining event types (`activity`, `error`, `chat-chunk`, …) ride with steps 5–7 | yes |
 | 5 | `capabilities/media.ts` no longer calls `executeToolInRenderer`; the UI hydrates and renders readiness/generation progress from main | yes, needs 1–4 |
 | 6 | renderer has no `streamText`; adjacent deltas coalesce at the IPC bridge; semantic events remain immediate | no, needs 1–5 |
 | 7 | Text and Artifact no longer start each other's backends; one typed queue is visible through activity events | no, needs 6 |
@@ -898,6 +925,28 @@ small fix on this branch) can pick them up instead of rediscovering them.
   `grants`. If persisted state is already `{ grants: {} }`, hydrate can overwrite the import.
   First boot of this store should not have that key; if we want it bulletproof, import after
   hydrate when the map is empty.
+
+**Step 4 (Projection protocol + hidden-window lifecycle):**
+
+- **Only service and agent-turn events are on the bus.** `activity` / `error` / `chat-chunk` /
+  `artifact-item` / `queue` / `stored` from §4.6 do not exist yet — they arrive with the
+  capabilities that move in steps 5–7. `chat` scopes are in the vocabulary but nothing emits
+  them. Nothing coalesces adjacent deltas yet (decision 13): chat still streams in the renderer
+  via Vercel AI SDK, so there is no main→renderer delta flood to coalesce.
+- **`AgentTurnSnapshot.chunks` accumulates unbounded per turn.** A turn is bounded and the
+  snapshot only exists while one runs, but a very long turn replays a lot at once on reconnect.
+  If that ever matters, cap the accumulated tail and accept that a resumed renderer misses the
+  head of an old message.
+- **A renderer that dies without flipping `lifecycle:busy` leaves it stale `true`.** The next
+  close would hide instead of quitting until a fresh renderer pushes `false` (immediate on
+  reconnect). A `webContents` destroyed hook could clear it; not worth it until a crash loop
+  shows up.
+- **Two projections subscribe independently** (backendServices, agentModeIpc), each with its own
+  snapshot request. Cheap today; when `getSnapshot` grows heavier (conversations in step 8),
+  converge on one shared projection or a scoped snapshot cache.
+- **`getServices` IPC still exists** as an explicit refresh (`shouldShowInstallationDialog`) and
+  for the setup wizard; only the *subscription* went through the bus. It collapses into the
+  snapshot when the Backends surface (§4.7) lands.
 - **Lock the "no dialog store in inference" rule.** A lint or test so the eight inference/download
   stores cannot re-import `dialogs`. Stale comment: `models.getMissingQwenTtsModels` still says
   "hand to `showDownloadDialog`". Settings → Permissions: associate the remote-download `Label`

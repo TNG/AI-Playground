@@ -4,6 +4,7 @@ import * as filesystem from 'fs-extra'
 import fsPromises from 'fs/promises'
 import path from 'node:path'
 import { appLoggerInstance } from '../logging/logger.ts'
+import { emitServiceUpdate } from '../kernel/kernelBus.ts'
 import { packagedResourcesRoot } from '../aipgRoot.ts'
 import { existingFileOrError, spawnProcessAsync, ProcessError } from './osProcessHelper'
 import { fetchInstallArtifact } from './fetchInstallArtifact.ts'
@@ -641,7 +642,7 @@ export abstract class LongLivedPythonApiService implements ApiService {
   }
 
   updateStatus() {
-    this.win.webContents.send('serviceInfoUpdate', this.get_info())
+    emitServiceUpdate(this.get_info())
   }
 
   get_info(): ApiServiceInformation {
@@ -893,7 +894,7 @@ export abstract class LongLivedPythonApiService implements ApiService {
       )
       this.lastStartupErrorDetails = errorDetails
     } finally {
-      this.win.webContents.send('serviceInfoUpdate', this.get_info())
+      emitServiceUpdate(this.get_info())
     }
     return this.currentStatus
   }

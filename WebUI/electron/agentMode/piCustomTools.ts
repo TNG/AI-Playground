@@ -4,6 +4,7 @@ import { BrowserWindow, net } from 'electron'
 import { Type, type TSchema } from 'typebox'
 import type { AgentToolResult } from '@earendil-works/pi-coding-agent'
 import { appLoggerInstance } from '../logging/logger.ts'
+import { emitAgentToolImage } from '../kernel/kernelBus.ts'
 
 // ── Agent Mode tool plumbing ─────────────────────────────────────────────────
 //
@@ -133,7 +134,7 @@ export function executeToolInRenderer(
  * them under the tool card, the same way it does with streamed tool output.
  */
 export function sendToolImage(toolCallId: string, dataUri: string, label: string): void {
-  mainWin?.webContents.send('agentMode:toolImage', { toolCallId, dataUri, label })
+  emitAgentToolImage(toolCallId, dataUri, label)
 }
 
 const DATA_URI_MIME_BY_EXT: Record<string, string> = {

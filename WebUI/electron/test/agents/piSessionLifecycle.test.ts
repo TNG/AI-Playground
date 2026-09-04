@@ -182,10 +182,16 @@ vi.mock('../../subprocesses/agentBrowser', () => ({
 }))
 
 type SentMessage = { channel: string; payload: Record<string, unknown> }
+
+/** Kernel events of one payload type, in stream order. */
+function kernelEvents(type: string): SentMessage[] {
+  return sent.filter((message) => message.payload.type === type)
+}
 let sent: SentMessage[]
 
 function fakeWindow() {
   return {
+    isDestroyed: () => false,
     webContents: {
       send: (channel: string, payload: Record<string, unknown>) => sent.push({ channel, payload }),
     },
@@ -212,6 +218,10 @@ type Manager = typeof import('../../agentMode/piAgentManager')
 
 async function loadManager(): Promise<Manager> {
   const manager = await import('../../agentMode/piAgentManager')
+  const { setKernelEventWindow } = await import('../../kernel/kernelBus')
+  // The kernel bus owns the window agent events are pushed to now; it needs
+  // the same fake as the rest of the manager wiring.
+  setKernelEventWindow(fakeWindow() as never)
   manager.setAgentModeMainWindow(fakeWindow() as never)
   return manager
 }
@@ -590,11 +600,10 @@ describe('turn streaming', () => {
     const manager = await loadManager()
     await manager.startAgentTurn('t1', 'hello', configFor())
 
-    const channels = sent.map((message) => message.channel)
-    expect(channels).toContain('agentMode:streamChunk')
-    expect(channels.at(-1)).toBe('agentMode:turnDone')
-    const finish = sent
-      .filter((message) => message.channel === 'agentMode:streamChunk')
+    const types = sent.map((message) => message.payload.type)
+    expect(types).toContain('agent-chunk')
+    expect(types.at(-1)).toBe('agent-turn-done')
+    const finish = kernelEvents('agent-chunk')
       .map((message) => message.payload.chunk as Record<string, unknown>)
       .at(-1)
     expect(finish).toMatchObject({
@@ -624,8 +633,7 @@ describe('turn streaming', () => {
 
     await manager.startAgentTurn('t1', 'hello', configFor())
 
-    const metadata = sent
-      .filter((message) => message.channel === 'agentMode:streamChunk')
+    const metadata = kernelEvents('agent-chunk')
       .map((message) => message.payload.chunk as Record<string, unknown>)
       .filter((chunk) => chunk.type === 'message-metadata')
     expect(metadata.length).toBeGreaterThan(0)
@@ -645,12 +653,12 @@ describe('turn streaming', () => {
       error: 'model unavailable',
     })
 
-    const chunks = sent.filter((message) => message.channel === 'agentMode:streamChunk')
+    const chunks = kernelEvents('agent-chunk')
     expect(chunks.at(-1)?.payload.chunk).toEqual({
       type: 'error',
       errorText: 'model unavailable',
     })
-    expect(sent.at(-1)?.channel).toBe('agentMode:turnDone')
+    expect(sent.at(-1)?.payload.type).toBe('agent-turn-done')
   })
 
   /** A session whose turns end with the given assistant messages, in order. */
@@ -669,16 +677,14 @@ describe('turn streaming', () => {
   const answered = { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] }
 
   function noticeTexts(): string[] {
-    return sent
-      .filter((message) => message.channel === 'agentMode:streamChunk')
+    return kernelEvents('agent-chunk')
       .map((message) => message.payload.chunk as Record<string, unknown>)
       .filter((chunk) => chunk.type === 'text-delta' && String(chunk.id).startsWith('notice-'))
       .map((chunk) => String(chunk.delta))
   }
 
   function errorTexts(): string[] {
-    return sent
-      .filter((message) => message.channel === 'agentMode:streamChunk')
+    return kernelEvents('agent-chunk')
       .map((message) => message.payload.chunk as Record<string, unknown>)
       .filter((chunk) => chunk.type === 'error')
       .map((chunk) => String(chunk.errorText))

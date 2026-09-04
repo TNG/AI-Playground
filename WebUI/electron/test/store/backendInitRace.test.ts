@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 // The window loads (and initSetup runs) while the service registry is still
-// being built. getServices() then returns [] even though a serviceInfoUpdate
-// for ai-backend has already arrived. Boot used to treat that as fatal.
+// being built. In the kernel world the renderer buffers stream events during
+// the snapshot handshake and applies them once the snapshot installs — so a
+// push that raced the handshake must survive an empty snapshot, and boot must
+// not treat the still-pending state as fatal.
 
 const AI_BACKEND = {
   serviceName: 'ai-backend',
@@ -14,28 +16,30 @@ const AI_BACKEND = {
   devices: [],
 }
 
-let resolveGetServices: (services: unknown[]) => void
-const getServices = vi.fn(
+let pushKernelEvent: (event: unknown) => void = () => {}
+let resolveSnapshot: (snapshot: unknown) => void
+
+const getKernelSnapshot = vi.fn(
   () =>
-    new Promise<unknown[]>((resolve) => {
-      resolveGetServices = resolve
+    new Promise<unknown>((resolve) => {
+      resolveSnapshot = resolve
     }),
 )
 
-let onServiceInfoUpdate: (info: typeof AI_BACKEND) => void = () => {}
-
 vi.stubGlobal('window', {
   electronAPI: {
-    getServices,
+    getServices: vi.fn(async () => []),
     getInitSetting: vi.fn(async () => ({
       modelLists: { embedding: [] },
       modelPaths: {},
       version: '0.0.0',
       modelFolderReadOnly: false,
     })),
-    onServiceInfoUpdate: vi.fn((cb: (info: typeof AI_BACKEND) => void) => {
-      onServiceInfoUpdate = cb
+    onKernelEvent: vi.fn((cb: (event: unknown) => void) => {
+      pushKernelEvent = cb
+      return () => {}
     }),
+    getKernelSnapshot,
     onServiceSetUpProgress: vi.fn(),
     getComfyUiDefaultParameters: vi.fn(async () => ''),
     getLlamaCppDefaultParameters: vi.fn(async () => ''),
@@ -59,34 +63,70 @@ vi.mock('@/assets/js/store/models', () => ({
   }),
 }))
 
+function serviceEvent(info: unknown, seq: number) {
+  return { type: 'service', info, scope: { kind: 'global' }, seq }
+}
+
 beforeEach(() => {
   setActivePinia(createPinia())
-  getServices.mockClear()
+  getKernelSnapshot.mockClear()
+  getKernelSnapshot.mockImplementation(
+    () =>
+      new Promise<unknown>((resolve) => {
+        resolveSnapshot = resolve
+      }),
+  )
 })
 
 describe('backend init race', () => {
-  it('keeps services that arrived via push when a late getServices returns []', async () => {
+  it('applies a push that raced the handshake once the snapshot installs', async () => {
     const { useBackendServices } = await import('@/assets/js/store/backendServices')
     const store = useBackendServices()
 
-    onServiceInfoUpdate(AI_BACKEND)
-    expect(store.info.some((s) => s.serviceName === 'ai-backend')).toBe(true)
+    // Buffered while the snapshot request is in flight...
+    pushKernelEvent(serviceEvent(AI_BACKEND, 1))
+    expect(store.info.length).toBe(0)
 
-    resolveGetServices([])
-    await Promise.resolve()
-    await Promise.resolve()
-
+    // ...and applied once an empty snapshot installs at sequence 0.
+    resolveSnapshot({
+      scope: { kind: 'global' },
+      sequence: 0,
+      state: { services: [], activeTurn: null },
+    })
+    await vi.waitFor(() => expect(store.info.length).toBeGreaterThan(0))
     expect(store.info.some((s) => s.serviceName === 'ai-backend')).toBe(true)
   })
 
-  it('initSetup succeeds from the store when getServices is still empty', async () => {
+  it('drops a push the snapshot already contains, without losing the service', async () => {
+    const { useBackendServices } = await import('@/assets/js/store/backendServices')
+    const store = useBackendServices()
+
+    pushKernelEvent(serviceEvent(AI_BACKEND, 1))
+    resolveSnapshot({
+      scope: { kind: 'global' },
+      sequence: 1,
+      state: { services: [AI_BACKEND], activeTurn: null },
+    })
+    await vi.waitFor(() => expect(store.info.length).toBeGreaterThan(0))
+    // Applied exactly once — from the snapshot, not double-upserted.
+    expect(store.info.filter((s) => s.serviceName === 'ai-backend')).toHaveLength(1)
+  })
+
+  it('initSetup succeeds from the store when hydration came from the stream', async () => {
     const { useBackendServices } = await import('@/assets/js/store/backendServices')
     const { useGlobalSetup } = await import('@/assets/js/store/globalSetup')
     const backendServices = useBackendServices()
     const globalSetup = useGlobalSetup()
 
-    onServiceInfoUpdate(AI_BACKEND)
-    expect(backendServices.info.some((s) => s.serviceName === 'ai-backend')).toBe(true)
+    pushKernelEvent(serviceEvent(AI_BACKEND, 1))
+    resolveSnapshot({
+      scope: { kind: 'global' },
+      sequence: 0,
+      state: { services: [], activeTurn: null },
+    })
+    await vi.waitFor(() =>
+      expect(backendServices.info.some((s) => s.serviceName === 'ai-backend')).toBe(true),
+    )
 
     await globalSetup.initSetup()
 

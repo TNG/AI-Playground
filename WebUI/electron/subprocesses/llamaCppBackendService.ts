@@ -10,6 +10,7 @@ import { app, type BrowserWindow } from 'electron'
 import { appLoggerInstance } from '../logging/logger.ts'
 import { packagedResourcesRoot } from '../aipgRoot.ts'
 import { createEnhancedErrorDetails, type ApiService, type ErrorDetails } from './service.ts'
+import { emitServiceUpdate } from '../kernel/kernelBus.ts'
 import { fetchInstallArtifact } from './fetchInstallArtifact.ts'
 import {
   spawnBackend,
@@ -644,7 +645,7 @@ export class LlamaCppBackendService implements ApiService {
   }
 
   updateStatus() {
-    this.win.webContents.send('serviceInfoUpdate', this.get_info())
+    emitServiceUpdate(this.get_info())
   }
 
   async updateSettings(settings: ServiceSettings): Promise<void> {

@@ -11,7 +11,8 @@ import type { KernelEvent, KernelSnapshot } from '@/types/kernelEvents'
 //   4. apply buffered and future events with seq > N only
 //
 // The watermark is what makes replay safe: anything the snapshot already
-// contains is dropped from the buffer, so no event is applied twice.
+// contains is dropped from the buffer, so no event is applied twice. Parked
+// follow-ups: docs/architecture-target.md §8.2.
 
 export type KernelProjectionDeps = {
   subscribe: (onEvent: (event: KernelEvent) => void) => () => void

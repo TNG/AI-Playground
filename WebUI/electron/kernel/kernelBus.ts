@@ -26,7 +26,9 @@ const appLogger = appLoggerInstance
 // BrowserWindow they were constructed with, so after the app window was
 // recreated (macOS close + dock re-activate) their status pushes went to a
 // destroyed webContents and the new renderer never learned anything. Main sets
-// the current window here on every createWindow().
+// the current window here on every createWindow(). Parked leftovers (remaining
+// event types, leftover send channels, resume-gap progress) are in
+// docs/architecture-target.md §8.2.
 
 const KERNEL_EVENT_CHANNEL = 'kernel:event'
 

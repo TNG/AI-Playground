@@ -757,10 +757,13 @@ under `vram-warning:<presetName>`. `notify(message, onConfirm?)` is one-way guid
 `permissionGrants` store as a reviewable, revocable list shown under Settings → Permissions;
 the legacy `memoryAlertSuppress_*` localStorage flags migrate in once. There is no silent
 auto-allow: every grant exists because the user ticked "do not show again" or pre-filled it.
+Parked follow-ups are in `docs/architecture-target.md` §8.2 (Permissions and the kernel stream) —
+do not re-open them as gaps in the landed step; pick them up before the kernel move or as a small
+fix.
 
 ### Key IPC Channels by Category
 
-**Kernel stream (M→R notifications)**: `kernel:event` — service status and agent-turn events (chunk / tool progress / tool image / turn done), stamped with one monotonic `seq`; `kernel:getSnapshot` (R→M) hydrates a (re)connecting renderer, which resumes a running agent turn via `Chat.resumeStream()`. `lifecycle:busy` (R→M) pushes the renderer's busy flag for the close policy.
+**Kernel stream (M→R notifications)**: `kernel:event` — service status and agent-turn events (chunk / tool progress / tool image / turn done), stamped with one monotonic `seq`; `kernel:getSnapshot` (R→M) hydrates a (re)connecting renderer, which resumes a running agent turn via `Chat.resumeStream()`. `lifecycle:busy` (R→M) pushes the renderer's busy flag for the close policy. Remaining event types, leftover `webContents.send` channels, and resume-gap buffering are parked in `docs/architecture-target.md` §8.2.
 
 **Service lifecycle**: `getServices`, `startService`, `stopService`, `setUpService`, `serviceSetUpProgress` (M→R), `uninstall`, `updateServiceSettings`, `detectDevices`, `selectDevice`, `ensureBackendReadiness`
 

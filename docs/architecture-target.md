@@ -1,12 +1,12 @@
 # Target architecture — capabilities, drivers, state ownership
 
-**Status: steps 1–3 of the migration order (§8) are implemented; the rest is draft for discussion.**
-Media generation goes through the renderer-side Artifact runner, `src/assets/js/artifact/runArtifact.ts`;
-speech drivers go through `src/assets/js/speech/speechIO.ts`; inference/download consent goes through
-`src/assets/js/permissions/permissions.ts`. Parked follow-ups from those landings live in
-[§8.2](#82-parked-follow-ups-from-landed-steps) — they do not block step 4. Everything after step 3
-is a map of where we want it, and the order in which we could get there. It exists to be argued with
-— see [§10 Decisions](#10-decisions).
+**Status: steps 1–4 of the migration order (§8) are implemented; the rest is draft for discussion.**
+Media generation goes through the renderer-side Artifact runner; speech drivers through `speechIO`;
+inference/download consent through Permissions; main→renderer notifications through one kernel
+event stream (`kernel:event`) with a listener-first snapshot handshake. Parked follow-ups from
+those landings live in [§8.2](#82-parked-follow-ups-from-landed-steps) — they do not block step 5.
+Everything after step 4 is a map of where we want it, and the order in which we could get there.
+It exists to be argued with — see [§10 Decisions](#10-decisions).
 
 ## 0. How to read and edit this
 
@@ -925,6 +925,10 @@ small fix on this branch) can pick them up instead of rediscovering them.
   `grants`. If persisted state is already `{ grants: {} }`, hydrate can overwrite the import.
   First boot of this store should not have that key; if we want it bulletproof, import after
   hydrate when the map is empty.
+- **Lock the "no dialog store in inference" rule.** A lint or test so the eight inference/download
+  stores cannot re-import `dialogs`. Stale comment: `models.getMissingQwenTtsModels` still says
+  "hand to `showDownloadDialog`". Settings → Permissions: associate the remote-download `Label`
+  with its checkbox (`for` / wrap).
 
 **Step 4 (Projection protocol + hidden-window lifecycle):**
 
@@ -947,10 +951,17 @@ small fix on this branch) can pick them up instead of rediscovering them.
 - **`getServices` IPC still exists** as an explicit refresh (`shouldShowInstallationDialog`) and
   for the setup wizard; only the *subscription* went through the bus. It collapses into the
   snapshot when the Backends surface (§4.7) lands.
-- **Lock the "no dialog store in inference" rule.** A lint or test so the eight inference/download
-  stores cannot re-import `dialogs`. Stale comment: `models.getMissingQwenTtsModels` still says
-  "hand to `showDownloadDialog`". Settings → Permissions: associate the remote-download `Label`
-  with its checkbox (`for` / wrap).
+- **`onToolProgress` is not buffered during `pendingResume`.** Chunks that arrive between snapshot
+  install and `reconnectToStream` are queued on `pendingResume`; progress updates in that gap are
+  dropped (`activeTurn` is still null). Tool images always append. Buffer progress the same way as
+  chunks, or ignore it if the snapshot's last progress is enough.
+- **Leftover window captures / point-to-point sends.** ComfyUI still does
+  `this.win.webContents.send('show-toast', …)`. Also still off-bus: `serviceSetUpProgress`,
+  `debugLog`, `webBrowser:stateChanged`. Same stale-window class of bug the bus fixed for service
+  status — route them through `getKernelEventWindow()` or onto the stream when those notifications
+  move.
+- **`backendServices` never disposes its projection.** A Pinia HMR of that store can stack
+  `onKernelEvent` listeners. `agentModeIpc` already guards with a disposer list.
 
 **Step 2 (Speech I/O) — already noted at the adapter, still ahead:**
 

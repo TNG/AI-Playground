@@ -8,7 +8,9 @@ import { usePresetSwitching } from './presetSwitching'
 import { useConfirmations } from './confirmations'
 import { useOemBranding } from './oemBranding'
 import { useErrors } from './errors'
+import { useI18N } from './i18n'
 import { unregisterAgentModeIpc } from './agentModeIpc'
+import { withResponseLanguage } from '@/lib/responseLanguage'
 import {
   DEFAULT_CAPABILITY_IDS,
   GAME_STUDIO_QUICK_ID,
@@ -72,6 +74,7 @@ export const useAgentMode = defineStore(
     const confirmations = useConfirmations()
     const oemBranding = useOemBranding()
     const errors = useErrors()
+    const i18n = useI18N()
 
     const workspaceDir = ref<string>('')
 
@@ -234,7 +237,10 @@ export const useAgentMode = defineStore(
           // The remembered agent preset, not the active one: a media call
           // switches the active preset to an image-gen one mid-turn.
           presetName: agentPresetName.value,
-          instructions: activeAgentPreset.value?.systemPrompt?.trim() ?? '',
+          instructions: withResponseLanguage(
+            activeAgentPreset.value?.systemPrompt?.trim() ?? '',
+            i18n.langName,
+          ),
           capabilities: [...capabilities.value],
           unsandboxed: unsandboxed.value,
           planningThinkingOnly: planningThinkingOnly.value,

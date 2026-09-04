@@ -45,3 +45,26 @@ export function withResponseLanguage(systemPrompt: string, locale: string): stri
   const base = systemPrompt.trimEnd()
   return base ? `${base}\n\n${instruction}` : instruction
 }
+
+/**
+ * Opening model turn of a conversation: at most one user message. A regenerate
+ * of the first reply still counts; a follow-up does not.
+ */
+export function isConversationStart(messages: ReadonlyArray<{ role: string }>): boolean {
+  let users = 0
+  for (const message of messages) {
+    if (message.role !== 'user') continue
+    users += 1
+    if (users > 1) return false
+  }
+  return true
+}
+
+export function withResponseLanguageAtStart(
+  systemPrompt: string,
+  locale: string,
+  messages: ReadonlyArray<{ role: string }>,
+): string {
+  if (!isConversationStart(messages)) return systemPrompt
+  return withResponseLanguage(systemPrompt, locale)
+}

@@ -17,7 +17,7 @@ import {
   UIMessage,
 } from 'ai'
 import { chatTraceContext, createChatModel } from '@/lib/chatModel'
-import { withResponseLanguage } from '@/lib/responseLanguage'
+import { withResponseLanguageAtStart } from '@/lib/responseLanguage'
 import { useTextInference } from './textInference'
 import { useBackendServices } from './backendServices'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
@@ -450,9 +450,10 @@ export const useOpenAiCompatibleChat = defineStore(
         { category: 'tools', label: i18nState.COM_ACTIVITY_PREPARING_TOOLS, scope: activityScope },
         () => resolveMcpInstructions(),
       )
-      const systemPromptToUse = withResponseLanguage(
+      const systemPromptToUse = withResponseLanguageAtStart(
         `${baseSystemPrompt}${mcpInstructions}`,
         i18n.langName,
+        Array.isArray(m.messages) ? m.messages : [],
       )
       // Self-heal orphaned tool calls (interrupted/stopped turns, HMR) before
       // converting: an assistant tool-call with no matching result would make

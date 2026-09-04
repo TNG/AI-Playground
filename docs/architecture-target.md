@@ -219,8 +219,10 @@ phase enum, speech kinds and the move into main are still ahead.
 
 `kind` is advisory in the step-1 renderer runner: routing is still by preset mediaType (the
 ComfyUI engine serves every workflow the same way), but callers must pass the kind that matches
-what they asked for — the UI wrapper derives it from the panel mode — so per-kind adapters in later
-steps can rely on it without re-deriving it from the preset.
+what they asked for — `artifactKindForMedia` for tools and Home Agent `/imgGen`, the panel mode
+for the UI wrapper — so per-kind adapters in later steps can rely on it without re-deriving it
+from the preset. Home Agent submits one `runArtifact` call; backend start and node/package
+installs are the runner's, and missing models still use the in-channel download flow.
 
 ```ts
 type ArtifactKind = 'create-image' | 'edit-image' | 'create-video' | 'create-3d' | 'create-speech'
@@ -813,7 +815,7 @@ flowchart TD
 
 | Step | Done when | Shippable alone |
 | ---- | --------- | --------------- |
-| 1 | **Done.** `tools/comfyUi.ts` and `tools/comfyUiImageEdit.ts` have no preset save/restore; the run (`runArtifact` + `comfyUiPresets.generate`) owns readiness and settles through the current FSM phases; selection stays side-effect-free (`resolvePresetVariant`) | yes |
+| 1 | **Done.** Tools and Home Agent `/imgGen` have no preset save/restore and no readiness preflight; the run (`runArtifact` + `comfyUiPresets.generate`) owns backend start, installs and model download; selection stays side-effect-free (`resolvePresetVariant`); callers pass `artifactKindForMedia` / panel-derived kind | yes |
 | 2 | `transcribeAudio` / speak-replies import no TTS/STT store; both use the same speech adapter as Artifact | yes |
 | 3 | no `useDialogStore()` inside inference/download; grants are a reviewable list | yes |
 | 4 | projection connects with listener + snapshot watermark; main owns hide/reopen/quit; browser-backed windows are lazy | yes |

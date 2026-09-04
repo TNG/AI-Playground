@@ -107,7 +107,7 @@ vi.mock('@/lib/utils', () => ({
   imageUrlToDataUri: imageUrlToDataUriMock,
 }))
 
-const { runArtifact } = await import('@/assets/js/artifact/runArtifact')
+const { runArtifact, artifactKindForMedia } = await import('@/assets/js/artifact/runArtifact')
 const { createAppError } = await import('@/assets/js/errors/appError')
 
 type ComfyFixture = Preset & {
@@ -695,9 +695,7 @@ describe('runArtifact', () => {
   })
 
   it('buckets items by the requested mode, defaulting to the preset category', async () => {
-    presetsFixture.value = [
-      comfyPreset({ name: 'Edit By Prompt', category: 'edit-images' }),
-    ]
+    presetsFixture.value = [comfyPreset({ name: 'Edit By Prompt', category: 'edit-images' })]
 
     const { result } = await startAndAwaitSubmit({
       kind: 'edit-image',
@@ -708,5 +706,48 @@ describe('runArtifact', () => {
     const settled = await result
 
     expect(settled.items.every((item) => item.mode === 'imageEdit')).toBe(true)
+  })
+
+  it('does not treat a leftover FSM error as this run failing', async () => {
+    presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
+    currentState.value = 'error'
+    lastError.value = 'previous run died'
+
+    const { result } = await startAndAwaitSubmit({
+      kind: 'create-image',
+      workflow: 'Draft Image',
+      prompt: 'a castle',
+    })
+    settleDone()
+    const settled = await result
+
+    expect(generateMock).toHaveBeenCalledTimes(1)
+    expect(settled.state).toBe('completed')
+    expect(settled.items).toHaveLength(1)
+  })
+
+  it('fails the run when generate() rejects instead of hanging on the watchdog', async () => {
+    presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
+    generateMock.mockRejectedValueOnce(new Error('socket closed'))
+
+    const result = await runArtifact({
+      kind: 'create-image',
+      workflow: 'Draft Image',
+      prompt: 'a castle',
+    })
+
+    expect(result).toMatchObject({ state: 'failed', error: 'socket closed' })
+    expect(failGenerationMock).toHaveBeenCalledWith('socket closed')
+  })
+})
+
+describe('artifactKindForMedia', () => {
+  it('maps media type and source onto the kind later adapters will key off', () => {
+    expect(artifactKindForMedia('image', false)).toBe('create-image')
+    expect(artifactKindForMedia('image', true)).toBe('edit-image')
+    expect(artifactKindForMedia('video', false)).toBe('create-video')
+    expect(artifactKindForMedia('video', true)).toBe('create-video')
+    expect(artifactKindForMedia('model3d', false)).toBe('create-3d')
+    expect(artifactKindForMedia(undefined, false)).toBe('create-image')
   })
 })

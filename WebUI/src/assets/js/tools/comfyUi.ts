@@ -9,7 +9,7 @@ import { useTextInference } from '../store/textInference'
 import { usePromptStore } from '../store/promptArea'
 import { useDeveloperSettings } from '../store/developerSettings'
 import { DEV_PRESET_NAMES, dummyWorkflowsOnly } from '../store/devPresets'
-import { runArtifact } from '../artifact/runArtifact'
+import { artifactKindForMedia, runArtifact } from '../artifact/runArtifact'
 import { stopChatBackends, returnGpuToChat } from './chatBackends'
 import { comfyRunsWaiting, queueComfyRun } from './mediaPipeline'
 import {
@@ -248,7 +248,9 @@ async function runComfyGeneration(
   let variant: string | undefined
   if (preset.variants?.length) {
     variant =
-      (args.variant && preset.variants.some((v) => v.name === args.variant) ? args.variant : null) ||
+      (args.variant && preset.variants.some((v) => v.name === args.variant)
+        ? args.variant
+        : null) ||
       findFastVariant(preset) ||
       preset.variants[0].name
   }
@@ -305,7 +307,7 @@ async function runComfyGeneration(
   try {
     const result = await runArtifact(
       {
-        kind: 'create-image',
+        kind: artifactKindForMedia(comfyPreset.mediaType, false),
         workflow: preset.name,
         variant,
         // The tool's output schema is imageGen-tagged regardless of media type.

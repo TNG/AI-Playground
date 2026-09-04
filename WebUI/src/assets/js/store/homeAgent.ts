@@ -6,7 +6,7 @@ import { useBackendServices } from './backendServices'
 import { useOpenAiCompatibleChat, type AipgUiMessage } from './openAiCompatibleChat'
 import { useImageGenerationPresets, isImage, isVideo, is3D } from './imageGenerationPresets'
 import { usePromptStore } from './promptArea'
-import { runArtifact } from '../artifact/runArtifact'
+import { artifactKindForMedia, runArtifact } from '../artifact/runArtifact'
 import { usePresets } from './presets'
 import { useConfirmations } from './confirmations'
 import { useActivities } from './activities'
@@ -1829,16 +1829,6 @@ export const useHomeAgent = defineStore(
     ): Promise<void> {
       focusRemoteChatDiscussion()
 
-      const comfyService = backendServices.info.find((s) => s.serviceName === 'comfyui-backend')
-      if (!comfyService || comfyService.status !== 'running') {
-        await reply(
-          adapter,
-          '⚠️ Image generation is not available — the ComfyUI backend is not running.',
-          meta,
-        )
-        return
-      }
-
       const presetsList = presetsStore
         .getPresetsByCategories(['create-images'], 'comfy')
         .filter((p) => !p.excludeFromHomeAgentPicker)
@@ -1895,22 +1885,22 @@ export const useHomeAgent = defineStore(
       prompt: string,
       meta?: InboundMeta,
     ): Promise<void> {
-      const comfyService = backendServices.info.find((s) => s.serviceName === 'comfyui-backend')
-      if (!comfyService || comfyService.status !== 'running') {
-        await reply(
-          adapter,
-          '⚠️ Image generation is not available — the ComfyUI backend is not running.',
-          meta,
-        )
+      // Resolve without selecting: the runner drives the generation, so the
+      // desktop view (mode, preset, form) stays exactly as it was.
+      const targetPreset = presetsStore.resolvePresetVariant(
+        presetName,
+        presetsStore.activeVariantName[presetName],
+      )
+      if (!targetPreset || targetPreset.type !== 'comfy') {
+        const presetLabel = adapter.formatItalic(adapter.escapeInline(presetName))
+        await reply(adapter, `⚠️ Preset ${presetLabel} is not available.`, meta)
         return
       }
 
       // Match the typing indicator to the eventual delivery so Telegram shows
-      // "sending a photo/video/document…" during the ComfyUI render. Read the
-      // media type from the target preset by name (the desktop's active preset
-      // is not switched for a channel request). Slack ignores the action name
-      // and just toggles the :eyes: reaction.
-      const targetMediaType = presetsStore.presets.find((p) => p.name === presetName)?.mediaType
+      // "sending a photo/video/document…" during the ComfyUI render. Slack
+      // ignores the action name and just toggles the :eyes: reaction.
+      const targetMediaType = targetPreset.mediaType
       const uploadAction =
         targetMediaType === 'video'
           ? 'upload_video'
@@ -1957,54 +1947,15 @@ export const useHomeAgent = defineStore(
       // Mark this as a remote turn so any required model downloads route their
       // approval + progress to the channel (via handleRemoteModelDownload)
       // instead of popping a desktop-only modal nobody at the channel can see.
+      // Backend start and node/package installs are the runner's — same as the
+      // desktop UI. Installs run on this machine; missing models still go
+      // through the in-channel download flow.
       activeRemoteTurn = { adapter, meta }
       try {
-        // Resolve the target workflow without selecting it: the artifact
-        // runner drives the generation, so the user's desktop view (mode,
-        // preset, form values) stays exactly as it was.
-        const targetPreset = presetsStore.resolvePresetVariant(
-          presetName,
-          presetsStore.activeVariantName[presetName],
-        )
-        if (!targetPreset || targetPreset.type !== 'comfy') {
-          const presetLabel = adapter.formatItalic(adapter.escapeInline(presetName))
-          await reply(adapter, `⚠️ Preset ${presetLabel} is not available.`, meta)
-          return
-        }
-
-        const validation = await imageGenStore.validatePresetRequirementsFor(targetPreset)
-        if (!validation.backendRunning) {
-          await reply(
-            adapter,
-            '⚠️ Image generation is not available — the ComfyUI backend is not running.',
-            meta,
-          )
-          return
-        }
-        // Custom nodes / Python packages have no remote install path, so a
-        // missing one is still a hard block. Missing models, however, are
-        // routed through the in-channel download flow inside the runner.
-        if (
-          validation.missingCustomNodes.length > 0 ||
-          validation.missingPythonPackages.length > 0
-        ) {
-          const parts: string[] = []
-          if (validation.missingCustomNodes.length > 0)
-            parts.push(`missing custom nodes: ${validation.missingCustomNodes.join(', ')}`)
-          if (validation.missingPythonPackages.length > 0)
-            parts.push(`missing packages: ${validation.missingPythonPackages.join(', ')}`)
-          await reply(
-            adapter,
-            `⚠️ Image generation requirements are not met: ${parts.join('; ')}. Please configure AI Playground first.`,
-            meta,
-          )
-          return
-        }
-
         let result
         try {
           result = await runArtifact({
-            kind: 'create-image',
+            kind: artifactKindForMedia(targetMediaType, false),
             workflow: presetName,
             mode: 'imageGen',
             prompt,

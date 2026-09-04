@@ -723,7 +723,10 @@ modeled as an explicit FSM rather than loose flags.
   submissions fail fast ("Another generation is already in progress"). A
   user-cancelled model download still throws (`isCancellation`) so existing caller catches keep
   working. The UI wrapper (`imageGenerationPresets.generate`, kind derived from the panel mode),
-  both chat tools and Home Agent `/imgGen` all go through it.
+  both chat tools (`artifactKindForMedia` from the workflow's mediaType) and Home Agent `/imgGen`
+  all go through it. Home Agent does not preflight backend/nodes; readiness is the runner's. The
+  watcher settles on this run's tracked items only — a leftover `currentState === 'error'` from a
+  previous generation does not fail the next submit.
 
 **Activity / progress sink (`store/activities.ts`):** the analog of the error sink for "what is the
 app busy with right now". Long-running steps report a typed `Activity`

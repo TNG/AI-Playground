@@ -28,6 +28,16 @@ import { presetToMode } from '@/lib/presetModes'
 
 export type ArtifactKind = 'create-image' | 'edit-image' | 'create-video' | 'create-3d'
 
+/** Kind the later adapters will key off. Step 1 still routes by preset mediaType. */
+export function artifactKindForMedia(
+  mediaType: 'image' | 'video' | 'model3d' | undefined,
+  hasSource: boolean,
+): ArtifactKind {
+  if (mediaType === 'video') return 'create-video'
+  if (mediaType === 'model3d') return 'create-3d'
+  return hasSource ? 'edit-image' : 'create-image'
+}
+
 export type ArtifactRequest = {
   kind: ArtifactKind
   /** Preset (workflow) name, as offered by the tool catalog / preset list. */
@@ -88,15 +98,12 @@ const QUEUED_PLACEHOLDER_URL =
   'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="1" height="1"%3E%3C/svg%3E'
 
 function presetDefault(preset: Preset, settingName: string): unknown {
-  return preset.settings.find(
-    (s) => 'settingName' in s && s.settingName === settingName,
-  )?.defaultValue
+  return preset.settings.find((s) => 'settingName' in s && s.settingName === settingName)
+    ?.defaultValue
 }
 
 function settingIsRelevantFor(preset: Preset, settingName: string): boolean {
-  const setting = preset.settings.find(
-    (s) => 'settingName' in s && s.settingName === settingName,
-  )
+  const setting = preset.settings.find((s) => 'settingName' in s && s.settingName === settingName)
   return setting ? setting.displayed || setting.modifiable : false
 }
 
@@ -115,10 +122,7 @@ function resolveVariantName(preset: Preset, requested: string | undefined): stri
   return undefined
 }
 
-function resolveParams(
-  request: ArtifactRequest,
-  preset: ComfyUiPreset,
-): ComfyGenerationParams {
+function resolveParams(request: ArtifactRequest, preset: ComfyUiPreset): ComfyGenerationParams {
   const params = request.params ?? {}
   const mediaType = preset.mediaType ?? 'image'
   const resolutionDefault = presetDefault(preset, 'resolution')
@@ -137,8 +141,8 @@ function resolveParams(
       request.negativePrompt ??
       (presetDefault(preset, 'negativePrompt') as string | undefined) ??
       FALLBACK_PARAMS.negativePrompt,
-    seed: params.seed ?? (presetDefault(preset, 'seed') as number | undefined) ??
-      FALLBACK_PARAMS.seed,
+    seed:
+      params.seed ?? (presetDefault(preset, 'seed') as number | undefined) ?? FALLBACK_PARAMS.seed,
     inferenceSteps:
       params.inferenceSteps ??
       (presetDefault(preset, 'inferenceSteps') as number | undefined) ??
@@ -157,15 +161,13 @@ function resolveParams(
  */
 function resolveInputs(
   preset: ComfyUiPreset,
-  variantName: string | undefined,
   savedInputs: Record<string, unknown> | undefined,
 ): ComfyGenerationInput[] {
   const inputSettings = preset.settings.filter(
     (s): s is ComfyInput => 'nodeTitle' in s && 'nodeInput' in s,
   )
   return inputSettings.map((input) => {
-    const raw =
-      savedInputs?.[`${input.nodeTitle}.${input.nodeInput}`] ?? input.defaultValue
+    const raw = savedInputs?.[`${input.nodeTitle}.${input.nodeInput}`] ?? input.defaultValue
     const initial =
       input.type === 'model' &&
       input.optional === true &&
@@ -201,7 +203,10 @@ function buildSettings(
   return Object.fromEntries(
     Object.entries(allSettings).filter(
       ([key]) =>
-        key === 'preset' || key === 'variant' || key === 'device' || settingIsRelevantFor(preset, key),
+        key === 'preset' ||
+        key === 'variant' ||
+        key === 'device' ||
+        settingIsRelevantFor(preset, key),
     ),
   )
 }
@@ -242,15 +247,15 @@ export async function runArtifact(
 
   const requestedVariant = request.variant ?? presetsStore.activeVariantName[request.workflow]
   const variantName = resolveVariantName(basePreset, requestedVariant)
-  const preset = (variantName
-    ? presetsStore.resolvePresetVariant(request.workflow, variantName)
-    : basePreset) as ComfyUiPreset | null
+  const preset = (
+    variantName ? presetsStore.resolvePresetVariant(request.workflow, variantName) : basePreset
+  ) as ComfyUiPreset | null
   if (!preset) return failed(`Unknown workflow "${request.workflow}"`)
 
   const mode: WorkflowModeType = request.mode ?? (presetToMode(preset) as WorkflowModeType)
   const params = resolveParams(request, preset)
   const settingsKey = presetSettingsKey(preset.name, variantName)
-  const inputs = resolveInputs(preset, variantName, imageGen.comfyInputsPerPreset[settingsKey])
+  const inputs = resolveInputs(preset, imageGen.comfyInputsPerPreset[settingsKey])
 
   // 2. Edit kinds: inject the source image into the first required image
   // input, matching what the settings sidebar's LoadImage field would hold.
@@ -293,8 +298,7 @@ export async function runArtifact(
   if (ctx.abortSignal?.aborted) return { state: 'cancelled', items: [] }
 
   // 4. Create the tracked items — the run's only footprint on shared state.
-  const baseSeed =
-    params.seed === -1 ? Math.floor(Math.random() * 1_000_000) : params.seed
+  const baseSeed = params.seed === -1 ? Math.floor(Math.random() * 1_000_000) : params.seed
   const baseSettings = buildSettings(
     preset,
     variantName,
@@ -321,9 +325,7 @@ export async function runArtifact(
 
   const removeQueuedStubs = () => {
     const trackedIds = new Set(items.map((item) => item.id))
-    imageGen.generatedImages = imageGen.generatedImages.filter(
-      (img) => !trackedIds.has(img.id),
-    )
+    imageGen.generatedImages = imageGen.generatedImages.filter((img) => !trackedIds.has(img.id))
   }
 
   // 5. Submit and wait for the FSM/websocket to settle the items. The abort
@@ -390,12 +392,10 @@ export async function runArtifact(
     const check = () => {
       if (settled) return
       const tracked = trackedItems()
-      // Don't keep waiting for a 'done' that will never arrive — this was the
-      // source of multi-minute tool-call stalls in the old per-tool watchers.
-      if (
-        imageGen.currentState === 'error' ||
-        tracked.some((item) => item.state === 'failed')
-      ) {
+      // Only this run's items. A leftover `currentState === 'error'` from the
+      // previous generation must not fail a new submit before the engine has
+      // overwritten the FSM (tools do not reset it the way the UI wrapper does).
+      if (tracked.some((item) => item.state === 'failed')) {
         finish({
           state: 'failed',
           items: doneItems(),
@@ -426,26 +426,35 @@ export async function runArtifact(
     armIdleTimeout()
     check()
 
-    void comfyUi.generate(run).then((accepted) => {
-      if (settled) {
-        // Aborted while submitting — the pre-queue stop() above may have run
-        // before the prompt landed, so clear whatever was queued after it.
-        if (accepted) void comfyUi.stop()
-        return
-      }
-      if (!accepted) {
-        const errored = items.some(
-          (item) => imageGen.generatedImages.find((img) => img.id === item.id)?.state === 'failed',
-        )
-        removeQueuedStubs()
-        finish(
-          errored
-            ? failed(imageGen.lastError ?? 'Generation failed')
-            : failed('Another generation is already in progress'),
-        )
-        return
-      }
-      check()
-    })
+    void comfyUi.generate(run).then(
+      (accepted) => {
+        if (settled) {
+          // Aborted while submitting — the pre-queue stop() above may have run
+          // before the prompt landed, so clear whatever was queued after it.
+          if (accepted) void comfyUi.stop()
+          return
+        }
+        if (!accepted) {
+          const errored = items.some(
+            (item) =>
+              imageGen.generatedImages.find((img) => img.id === item.id)?.state === 'failed',
+          )
+          removeQueuedStubs()
+          finish(
+            errored
+              ? failed(imageGen.lastError ?? 'Generation failed')
+              : failed('Another generation is already in progress'),
+          )
+          return
+        }
+        check()
+      },
+      (error: unknown) => {
+        if (settled) return
+        const message = error instanceof Error ? error.message : 'Generation failed'
+        imageGen.failGeneration(message)
+        finish(failed(message))
+      },
+    )
   })
 }

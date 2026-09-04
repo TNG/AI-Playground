@@ -24,7 +24,9 @@ import {
  * There is no silent auto-allow: a grant exists only because the user ticked
  * "do not show again" or pre-filled it in settings. The dialog store stays the
  * desktop adapter's presentation; this module owns the decision. It moves to
- * main with the kernel in later steps.
+ * main with the kernel in later steps. Parked follow-ups (homeAgent coupling,
+ * `request(action)`, desktop remember, skipMemoryAlert) are in
+ * docs/architecture-target.md §8.2.
  */
 
 export { REMOTE_DOWNLOAD_GRANT, vramWarningGrantKey }

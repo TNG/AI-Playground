@@ -1,11 +1,12 @@
 # Target architecture — capabilities, drivers, state ownership
 
-**Status: step 1 of the migration order (§8) is implemented; the rest is draft for discussion.**
-Media generation goes through the renderer-side Artifact runner, `src/assets/js/artifact/runArtifact.ts`
-— the Image Gen UI, both chat media tools and Home Agent `/imgGen` build one `ArtifactRequest` and
-share it, with no preset save/restore and no selection side effects. Everything after step 1 is a map
-of where we want it, and the order in which we could get there. It exists to be argued with —
-see [§10 Decisions](#10-decisions).
+**Status: steps 1–3 of the migration order (§8) are implemented; the rest is draft for discussion.**
+Media generation goes through the renderer-side Artifact runner, `src/assets/js/artifact/runArtifact.ts`;
+speech drivers go through `src/assets/js/speech/speechIO.ts`; inference/download consent goes through
+`src/assets/js/permissions/permissions.ts`. Parked follow-ups from those landings live in
+[§8.2](#82-parked-follow-ups-from-landed-steps) — they do not block step 4. Everything after step 3
+is a map of where we want it, and the order in which we could get there. It exists to be argued with
+— see [§10 Decisions](#10-decisions).
 
 ## 0. How to read and edit this
 
@@ -545,7 +546,7 @@ There is no silent auto-allow; there is prompt-once, remember, or pre-grant. See
 question the `download:remote-turns` pre-grant skips), and the grant list is the persisted
 `permissionGrants` store, surfaced under Settings → Permissions. Inference/download paths call
 `requestDownload` / `requestVramWarning` / `notify` and import no dialog store. It moves into the
-kernel with the later steps.
+kernel with the later steps. What this interim deliberately left behind is in [§8.2](#82-parked-follow-ups-from-landed-steps).
 
 ### 4.8 Projections
 
@@ -867,6 +868,55 @@ Every step that changes a boundary updates, in the same change:
 Steps 5–7 rewrite the app's documented nervous system. Documentation and tests move with each
 slice, not in a cleanup after all three.
 
+### 8.2 Parked follow-ups from landed steps
+
+None of these blocks the next migration row. They are the review leftovers so a later step (or a
+small fix on this branch) can pick them up instead of rediscovering them.
+
+**Step 3 (Permissions) — do before the kernel move, or sooner if cheap:**
+
+- **Break `permissions` → `homeAgent`.** `requestDownload` instantiates the whole Home Agent store
+  so it can ask `isRemoteTurnActive` / `handleRemoteModelDownload`. That is a cycle waiting to
+  happen (`permissions` → `homeAgent` → `speechIO` → TTS stores → `permissions`); it only works
+  because nothing runs at import time. Replace it with a thin remote-turn / channel-download port
+  before Permissions moves into main.
+- **Still not `permissions.request(action)`.** The renderer has three named verbs, which is enough
+  for step 3. Gated-repo license acceptance still lives inside `DownloadDialog`, and preference
+  changes (`SettingsBasic` HuggingFace apply, `SettingsTts` confirmations, Home Agent
+  self-config) still call `requestConfirmation` on the dialog store. Fold those onto the same
+  surface when the grant vocabulary is designed (`download:<model>`, `change-pref:*`, a gated-repo
+  action).
+- **Desktop downloads have no remember / pre-grant.** Only VRAM warnings remember, and only remote
+  Home Agent turns have a pre-grant. Host-side model downloads always prompt. Decide whether that
+  is the product (big weights, always confirm on the machine) or whether desktop should share the
+  prompt / remember / pre-grant story.
+- **`skipMemoryAlert` still bypasses `requestVramWarning`.** Game Agent promotion and history
+  restore pass `skipMemoryAlert: true` and never ask. That is not a silent *grant*, but it is a
+  path that never goes through Permissions. Revisit when session restore / preset promotion is
+  owned by the kernel rather than `presetSwitching`.
+- **Legacy `memoryAlertSuppress_*` vs persist hydrate.** Import runs as the store's initial
+  `grants`. If persisted state is already `{ grants: {} }`, hydrate can overwrite the import.
+  First boot of this store should not have that key; if we want it bulletproof, import after
+  hydrate when the map is empty.
+- **Lock the "no dialog store in inference" rule.** A lint or test so the eight inference/download
+  stores cannot re-import `dialogs`. Stale comment: `models.getMissingQwenTtsModels` still says
+  "hand to `showDownloadDialog`". Settings → Permissions: associate the remote-download `Label`
+  with its checkbox (`for` / wrap).
+
+**Step 2 (Speech I/O) — already noted at the adapter, still ahead:**
+
+- `listVoices()` and the per-engine kernel adapters.
+- `transcribe` does not take `language` yet (the target `SpeechIO` does).
+- Artifact `create-speech`: `synthesizeTextToSpeech` still goes through Speech I/O, not
+  `runArtifact`.
+- `PromptStatusBar` still reads `textToSpeech.selectedEngine` for the backend badge (chrome, not a
+  driver).
+
+**Still open from the original map (§10), not a landed-step leftover:** exact grant vocabulary,
+whether FIFO is enough or a chat turn's nested media jumps the queue, whether `defaultPreset` is
+per mode or one global, and whether a later cross-library cleanup tool should identify unreferenced
+completed artifacts without deleting them automatically.
+
 ---
 
 ## 9. What this buys
@@ -900,8 +950,6 @@ slice, not in a cleanup after all three.
 | 13 | Stream every delta over IPC? | **Coalesce adjacent text/reasoning deltas at the projection bridge** (§4.6). Semantic events remain immediate and ordered. |
 | 14 | Garbage-collect completed artifacts? | **Deferred.** Run-owned temporary blobs are cleaned up; completed artifacts belong to the user's library and transcripts only reference them. |
 
-Still worth a follow-up when we design Permissions and the orchestrator in detail (not blocking this
-map): the exact grant vocabulary (`download:<model>`, `change-pref:*`, `vram-warning`, …), whether
-FIFO is enough or a chat turn's nested media jumps the queue, whether `defaultPreset` is per mode or
-one global, and whether a later cross-library cleanup tool should identify unreferenced completed
-artifacts without deleting them automatically.
+Open questions that were parked when this map was written (grant vocabulary, queueing, `defaultPreset`
+scope, artifact GC) now live with the landed-step leftovers in
+[§8.2](#82-parked-follow-ups-from-landed-steps). They do not block the next migration row.

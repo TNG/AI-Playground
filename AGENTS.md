@@ -757,6 +757,9 @@ under `vram-warning:<presetName>`. `notify(message, onConfirm?)` is one-way guid
 `permissionGrants` store as a reviewable, revocable list shown under Settings → Permissions;
 the legacy `memoryAlertSuppress_*` localStorage flags migrate in once. There is no silent
 auto-allow: every grant exists because the user ticked "do not show again" or pre-filled it.
+Parked follow-ups (Home Agent coupling, generic `request(action)`, desktop remember, `skipMemoryAlert`,
+legacy-import vs persist) are in `docs/architecture-target.md` §8.2 — do not re-open them as step-3
+gaps; pick them up before the kernel move or as a small fix.
 
 ### Key IPC Channels by Category
 

@@ -17,7 +17,7 @@ import {
   resolveSampling,
   toRequestBody,
 } from '@/lib/samplingDefaults'
-import { useDialogStore } from '@/assets/js/store/dialogs.ts'
+import { requestDownload } from '@/assets/js/permissions/permissions'
 import { usePresets, type ChatPreset } from './presets'
 import { useDeveloperSettings } from './developerSettings'
 import { useHomeAgent } from './homeAgent'
@@ -174,7 +174,6 @@ export const useTextInference = defineStore(
   'textInference',
   () => {
     const backendServices = useBackendServices()
-    const dialogStore = useDialogStore()
     const models = useModels()
     const presetsStore = usePresets()
     const developerSettings = useDeveloperSettings()
@@ -1567,33 +1566,22 @@ export const useTextInference = defineStore(
 
     async function checkModelAvailability() {
       // ToDo: the path for embedding downloads must be corrected and BAAI/bge-large-zh-v1.5 was accidentally downloaded to the wrong place
-      return new Promise<void>(async (resolve, reject) => {
-        const requiredModelDownloads = await getDownloadParamsForCurrentModelIfRequired('llm')
-        if (willUseRag.value) {
-          const requiredEmbeddingModelDownloads =
-            await getDownloadParamsForCurrentModelIfRequired('embedding')
-          requiredModelDownloads.push(...requiredEmbeddingModelDownloads)
-        }
+      const requiredModelDownloads = await getDownloadParamsForCurrentModelIfRequired('llm')
+      if (willUseRag.value) {
+        const requiredEmbeddingModelDownloads =
+          await getDownloadParamsForCurrentModelIfRequired('embedding')
+        requiredModelDownloads.push(...requiredEmbeddingModelDownloads)
+      }
 
-        // Deduplicate download list by repo_id to prevent the same model from appearing multiple times
-        const uniqueDownloads = requiredModelDownloads.filter(
-          (download, index, self) =>
-            index === self.findIndex((d) => d.repo_id === download.repo_id),
-        )
+      // Deduplicate download list by repo_id to prevent the same model from appearing multiple times
+      const uniqueDownloads = requiredModelDownloads.filter(
+        (download, index, self) => index === self.findIndex((d) => d.repo_id === download.repo_id),
+      )
 
-        if (uniqueDownloads.length > 0) {
-          // On a remote Home Agent turn there is nobody at the desktop to act on
-          // the download modal; route the approval + progress to the channel
-          // (mirrored into the desktop window) instead of getting stuck.
-          if (homeAgent.isRemoteTurnActive()) {
-            homeAgent.handleRemoteModelDownload(uniqueDownloads).then(resolve).catch(reject)
-          } else {
-            dialogStore.showDownloadDialog(uniqueDownloads, resolve, reject)
-          }
-        } else {
-          resolve()
-        }
-      })
+      if (uniqueDownloads.length === 0) return
+      // The permissions layer owns the prompt: the download modal, or the
+      // channel when a remote Home Agent turn is active.
+      await requestDownload(uniqueDownloads)
     }
 
     // Cloud Mode RAG: the chat LLM is remote and cannot embed, so bring up a

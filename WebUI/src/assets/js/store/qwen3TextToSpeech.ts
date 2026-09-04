@@ -4,7 +4,7 @@ import { acceptHMRUpdate } from 'pinia'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
 import { useModels } from './models'
-import { useDialogStore } from './dialogs'
+import { requestDownload } from '@/assets/js/permissions/permissions'
 import * as toast from '@/assets/js/toast'
 import { createAppError } from '../errors/appError'
 import { qwen3TtsFetch } from '@/lib/loopbackAuth'
@@ -68,21 +68,15 @@ export const useQwen3TextToSpeech = defineStore(
       mode: Qwen3TtsSynthesisMode = defaultMode.value,
     ): Promise<void> {
       const models = useModels()
-      const dialogs = useDialogStore()
       const missing = await models.getMissingQwenTtsModels([modelRepoForMode(mode)])
       if (missing.length === 0) return
-      await new Promise<void>((resolve, reject) => {
-        dialogs.showDownloadDialog(
-          missing,
-          () => resolve(),
-          (reason) =>
-            reject(
-              reason instanceof Error
-                ? reason
-                : new Error('Text To Speech model download was cancelled'),
-            ),
-        )
-      })
+      try {
+        await requestDownload(missing)
+      } catch (reason) {
+        throw reason instanceof Error
+          ? reason
+          : new Error('Text To Speech model download was cancelled')
+      }
       // If the service was already running (e.g. started from the device picker
       // before the model existed), restart it so it picks up the freshly
       // downloaded weights via QWEN3_TTS_MODEL on the next spawn.

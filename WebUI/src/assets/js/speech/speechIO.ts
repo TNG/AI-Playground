@@ -47,13 +47,14 @@ export type SpeechClipResult = {
   /** Which engine produced the clip; drivers shape their result text from this. */
   engine: 'qwen3' | 'kokoro' | 'external'
   /** Qwen3 only: the mode that actually ran, including `voice_clone`. */
-  mode?: string
+  mode?: Qwen3TtsSynthesisMode
   /** Qwen3 only: the language the sidecar reports. */
   language?: string
 }
 
 /** Error message `transcribe` throws when no STT endpoint can be resolved. */
-export const NO_TRANSCRIPTION_ENDPOINT = 'Speech To Text is not available (no OVMS server or fallback configured).'
+export const NO_TRANSCRIPTION_ENDPOINT =
+  'Speech To Text is not available (no OVMS server or fallback configured).'
 
 export type SpeechVoiceRequest = {
   /** Preset speaker id (Qwen3 custom_voice) — validated by the tool's enum. */

@@ -18,7 +18,6 @@ import {
 } from 'ai'
 import { chatTraceContext, createChatModel } from '@/lib/chatModel'
 import { useTextInference } from './textInference'
-import { useBackendServices } from './backendServices'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import { completeOrphanedToolParts, sanitizeBulkyToolOutputs } from './toolMessageSanitize'
 import { useErrors } from './errors'
@@ -138,7 +137,6 @@ export const useOpenAiCompatibleChat = defineStore(
   'openAiCompatibleChat',
   () => {
     const textInference = useTextInference()
-    const backendServices = useBackendServices()
     const conversations = useConversations()
     const errors = useErrors()
     const activities = useActivities()
@@ -1171,6 +1169,7 @@ export const useOpenAiCompatibleChat = defineStore(
         language: string
         mode: string
       }
+      let modelLabel = ''
       try {
         const label = conversationLabelForTtsFile({
           conversationKey: targetKey,
@@ -1189,6 +1188,12 @@ export const useOpenAiCompatibleChat = defineStore(
             }),
         })
         const savedFilePath = await saveSpeechClip(clip.audioBase64, fileName)
+        modelLabel =
+          clip.engine === 'kokoro'
+            ? 'Kokoro'
+            : clip.engine === 'external'
+              ? 'External TTS'
+              : 'Qwen TTS'
         if (clip.engine === 'qwen3') {
           output = {
             ok: true,
@@ -1253,8 +1258,7 @@ export const useOpenAiCompatibleChat = defineStore(
           },
         ],
         metadata: {
-          model:
-            engine === 'kokoro' ? 'Kokoro' : engine === 'external' ? 'External TTS' : 'Qwen TTS',
+          model: modelLabel,
           timestamp: Date.now(),
         },
       } as unknown as AipgUiMessage

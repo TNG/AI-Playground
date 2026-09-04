@@ -878,15 +878,19 @@ export const useHomeAgent = defineStore(
     }
 
     /**
-     * Remote model-download path used when `checkModelAvailability` finds missing
+     * Remote model-download path used when a readiness check finds missing
      * models during a remote turn (no desktop user to drive the modal). Declines
      * gated models that need browser interaction, asks approval in-channel
-     * (mirrored on the desktop), then runs the download headlessly with progress
+     * (mirrored on the desktop) unless the caller passes a pre-grant's
+     * `skipConfirmation`, then runs the download headlessly with progress
      * streamed to both the channel and the desktop activity sink. Resolves on
      * success; throws (silent/cancelled AppError) on decline or failure so the
      * caller's `reject` unwinds the inference attempt cleanly.
      */
-    async function handleRemoteModelDownload(list: DownloadModelParam[]): Promise<void> {
+    async function handleRemoteModelDownload(
+      list: DownloadModelParam[],
+      options?: { skipConfirmation?: boolean },
+    ): Promise<void> {
       const turn = activeRemoteTurn
       if (!turn) {
         throw createAppError({
@@ -934,7 +938,9 @@ export const useHomeAgent = defineStore(
 
       const summaryLines = metaList.map((m) => `• \`${m.repo_id}\`${m.size ? ` (${m.size})` : ''}`)
       const summaryMarkdown = `I need to download ${metaList.length === 1 ? 'a model' : `${metaList.length} models`} before I can answer:\n${summaryLines.join('\n')}`
-      const approved = await requestDownloadConfirmation(turn, conversationKey, summaryMarkdown)
+      const approved =
+        options?.skipConfirmation === true ||
+        (await requestDownloadConfirmation(turn, conversationKey, summaryMarkdown))
       if (!approved) {
         throw createCancellation({ technicalMessage: 'remote model download declined' })
       }

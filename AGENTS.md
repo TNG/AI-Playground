@@ -18,11 +18,14 @@ Electron main process orchestrates Vue.js frontend and multiple Python/native ba
 - **Never auto-download model weights.** Installing a backend (its `set_up()`) installs only the
   runtime/dependencies (torch, servers, etc.) — **never** model weights. Weights download **on
   demand**, only when the user has selected a preset/engine **and** actually tries to use it, via
-  the shared download dialog (`dialogs.showDownloadDialog`). Mirror the existing pattern:
+  the Permissions layer (`permissions.requestDownload` — the shared download modal, or the
+  in-channel question on a remote Home Agent turn). Mirror the existing pattern:
   `qwen3TextToSpeech.ensureModelInstalled`, `speechToText.ensureWhisperReady` /
   `ensureStandaloneReady` — check `models.checkTranscriptionModelExists(...)` /
   `getMissing...Model(...)`, then prompt. Selecting an engine in settings must not trigger a
-  download, and Python sidecars run with `HF_HUB_OFFLINE=1` so they can't silently fetch.
+  download, and Python sidecars run with `HF_HUB_OFFLINE=1` so they can't silently fetch. The only
+  prompt a pre-grant (Settings → Permissions) can skip is the remote-turn download question —
+  never the desktop modal.
 
 ## Build / Dev / Test Commands
 
@@ -740,6 +743,21 @@ generation FSM bridge (`comfyUiPresets`, with determinate progress from the WS).
 via `parentId`) activity for a conversation; `endScope()` is the anti-stuck reconciliation. The store
 has no store deps (avoids cycles); reconciliation lives in the producing stores.
 
+**Permissions layer (`assets/js/permissions/permissions.ts`):** the one consent seam — every prompt
+an inference or download path needs is a request/response through it, and no inference/download
+code instantiates the dialog store (the settings-setup flows, `useLocalWebSetup`, and the dialog
+components are the remaining `useDialogStore` consumers). `requestDownload(models)` prompts
+through the desktop download modal, or — while a remote Home Agent turn is active — asks
+in-channel via `homeAgent.handleRemoteModelDownload` (mirrored on the desktop); the
+`download:remote-turns` pre-grant skips that in-channel question while gated models still
+decline and progress still streams. `requestVramWarning({ presetName, message })` gates the
+high-memory / video-VRAM presets — a confirmed "do not show again" records a `remember` grant
+under `vram-warning:<presetName>`. `notify(message, onConfirm?)` is one-way guidance
+(install-needed notices whose Confirm opens the setup wizard). Grants live in the persisted
+`permissionGrants` store as a reviewable, revocable list shown under Settings → Permissions;
+the legacy `memoryAlertSuppress_*` localStorage flags migrate in once. There is no silent
+auto-allow: every grant exists because the user ticked "do not show again" or pre-filled it.
+
 ### Key IPC Channels by Category
 
 **Service lifecycle**: `getServices`, `startService`, `stopService`, `setUpService`, `serviceSetUpProgress` (M→R), `serviceInfoUpdate` (M→R), `uninstall`, `updateServiceSettings`, `detectDevices`, `selectDevice`, `ensureBackendReadiness`
@@ -791,6 +809,7 @@ has no store deps (avoids cycles); reconciliation lives in the producing stores.
 - `speechToText` — STT engine config + readiness. Deps: `backendServices`, `models`, `dialogs`, `globalSetup`
 - `audioRecorder` — Browser MediaRecorder; transcription via the speech adapter (`speechIO.transcribe`). No store deps
 - `developerSettings` — Renderer-persisted developer toggles: dev console on startup, keep models loaded, dummy media workflows, verbose agent logging. No deps.
+- `permissionGrants` — **Reviewable consent grants** behind the permissions layer: `vram-warning:<preset>` remember grants and the `download:remote-turns` pre-grant. Surfaced and revoked in Settings → Permissions; the legacy `memoryAlertSuppress_*` localStorage flags migrate in on first use. No deps.
 - `debugSettings` — The settings.json-backed half of Settings → Developer (see below). No deps.
 
 ### Settings, feature gates and developer controls
@@ -825,6 +844,8 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 **Image/Video Generation**: `views/WorkflowResult.vue` and every other driver (chat tools, Home Agent `/imgGen`) → `src/assets/js/artifact/runArtifact.ts` (one resolved `ArtifactRequest` in, one settled `ArtifactResult` out; no preset switch, no UI-state mutation) → stores: `imageGenerationPresets`, `comfyUiPresets`, `presets` → electron: service lifecycle IPC → backend: `comfyui-backend` via direct HTTP
 
 **Speech (STT/TTS)**: every driver (mic + STT preset in `views/PromptArea.vue`, speak-replies + Speak button in `views/Chat.vue`, `tools/transcribeAudio`, `tools/synthesizeTextToSpeech`, the direct TTS/STT preset turns in `openAiCompatibleChat`, Home Agent voice paths) → `src/assets/js/speech/speechIO.ts` — the one engine seam: interactive vs dialog-free unattended readiness, endpoint resolution, the Qwen3/Kokoro/external branch, and desktop playback state. Drivers import no TTS/STT store; the stores (`speechToText`, `textToSpeech`, `qwen3TextToSpeech`) keep engine config, persistence and the engine clients, consumed by the adapter (settings panels read them directly)
+
+**Download consent**: every download prompt (chat models in `textInference`, ComfyUI models via the artifact runner + `imageGenerationPresets`, Whisper/Kokoro/Qwen3-TTS readiness, the model library) → `src/assets/js/permissions/permissions.ts` (`requestDownload`) — desktop download modal, Home Agent in-channel approval, pre-grants. Gated-preset VRAM warnings (`presetSwitching`) and install-needed notices go through it too (`requestVramWarning` / `notify`)
 
 **Model Management**: stores: `models` → electron: `loadModels`, `getDownloaded*` IPC → backend: `ai-backend` Flask `/api/*` via HTTP
 

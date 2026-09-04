@@ -2,11 +2,7 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import { useActivities } from '../store/activities'
 import { useConversations } from '../store/conversations'
-import {
-  saveSpeechClip,
-  synthesizeClip,
-  type SpeechClipResult,
-} from '../speech/speechIO'
+import { saveSpeechClip, synthesizeClip, type SpeechClipResult } from '../speech/speechIO'
 import { QWEN3_TTS_LANGUAGES, QWEN3_TTS_SPEAKERS } from '@/assets/js/qwen3TtsConstants'
 import { buildTtsAudioFileName, conversationLabelForTtsFile } from '@/lib/ttsAudioFileName'
 import { ToolConversationContextSchema, conversationKeyFor } from './toolContext'
@@ -135,9 +131,7 @@ export const synthesizeTextToSpeech = tool({
         message: resultMessage(clip, savedFilePath),
         savedFilePath,
         speaker: clip.voice,
-        ...(clip.engine === 'qwen3'
-          ? { language: clip.language, mode: clip.mode }
-          : {}),
+        ...(clip.engine === 'qwen3' ? { language: clip.language, mode: clip.mode } : {}),
       }
     } catch (error) {
       activities.end(activityId, 'failed')

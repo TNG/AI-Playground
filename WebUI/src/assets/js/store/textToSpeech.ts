@@ -4,7 +4,7 @@ import { acceptHMRUpdate } from 'pinia'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
 import { useModels } from './models'
-import { useDialogStore } from './dialogs'
+import { notify, requestDownload } from '@/assets/js/permissions/permissions'
 import * as toast from '@/assets/js/toast'
 import { useSetupWizard } from './setupWizard'
 import { useProductMode } from './productMode'
@@ -81,7 +81,6 @@ export const useTextToSpeech = defineStore(
     const selectedKokoroVoice = ref<KokoroVoice>('af_heart')
     const backendServices = useBackendServices()
     const models = useModels()
-    const dialogStore = useDialogStore()
     const setupWizard = useSetupWizard()
     const productMode = useProductMode()
 
@@ -212,12 +211,8 @@ export const useTextToSpeech = defineStore(
       if (!modelExists) {
         const missing = await models.getMissingSpeechModel(SPEECHT5_MODEL_NAME)
         if (missing.length > 0) {
-          await new Promise<void>((resolve, reject) => {
-            dialogStore.showDownloadDialog(
-              missing,
-              () => resolve(),
-              () => reject(new Error('Kokoro speech model download was cancelled')),
-            )
+          await requestDownload(missing).catch(() => {
+            throw new Error('Kokoro speech model download was cancelled')
           })
         }
       }
@@ -337,7 +332,7 @@ export const useTextToSpeech = defineStore(
             toast.success('Text To Speech enabled (using fallback speech endpoint)')
             return
           }
-          dialogStore.showWarningDialog(
+          notify(
             'OpenVINO backend is required for Text To Speech. Please install it first, or configure a fallback speech endpoint in Settings.',
             () => {
               setupWizard.openWizard()
@@ -351,21 +346,19 @@ export const useTextToSpeech = defineStore(
         if (!modelExists) {
           const missingModels = await models.getMissingSpeechModel(SPEECHT5_MODEL_NAME)
           if (missingModels.length > 0) {
-            dialogStore.showDownloadDialog(
-              missingModels,
-              async () => {
-                try {
-                  await backendServices.startSpeechServer(SPEECHT5_MODEL_NAME)
-                  enabled.value = true
-                  toast.success('Text To Speech enabled')
-                } catch (error) {
-                  toast.error(`Failed to start speech server: ${error}`)
-                }
-              },
-              () => {
-                toast.warning('Text To Speech requires the speech model')
-              },
-            )
+            try {
+              await requestDownload(missingModels)
+            } catch {
+              toast.warning('Text To Speech requires the speech model')
+              return
+            }
+            try {
+              await backendServices.startSpeechServer(SPEECHT5_MODEL_NAME)
+              enabled.value = true
+              toast.success('Text To Speech enabled')
+            } catch (error) {
+              toast.error(`Failed to start speech server: ${error}`)
+            }
             return
           }
         }

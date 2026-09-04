@@ -398,7 +398,9 @@
                   class="svg-icon w-4 h-4"
                   :class="speakingMessageId === message.id ? 'i-stop' : 'i-speaker'"
                 ></span>
-                <span class="text-xs ml-1">{{ speakingMessageId === message.id ? 'Stop' : 'Speak' }}</span>
+                <span class="text-xs ml-1">{{
+                  speakingMessageId === message.id ? 'Stop' : 'Speak'
+                }}</span>
               </button>
               <button
                 class="flex items-end"

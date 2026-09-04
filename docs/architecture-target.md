@@ -539,6 +539,14 @@ the user can review and pre-fill so an agentic or channel-driven task does not s
 nobody is looking at. Hidden-window / headless still has a user — they are just not in this window.
 There is no silent auto-allow; there is prompt-once, remember, or pre-grant. See §10.4–10.5.
 
+**Renderer interim (step 3 done).** The consent layer lives at
+`src/assets/js/permissions/permissions.ts`; the desktop adapter is the dialog store
+(`useDialogStore`), the channel adapter is `homeAgent.handleRemoteModelDownload` (whose in-channel
+question the `download:remote-turns` pre-grant skips), and the grant list is the persisted
+`permissionGrants` store, surfaced under Settings → Permissions. Inference/download paths call
+`requestDownload` / `requestVramWarning` / `notify` and import no dialog store. It moves into the
+kernel with the later steps.
+
 ### 4.8 Projections
 
 ```mermaid
@@ -826,7 +834,7 @@ flowchart TD
 | ---- | --------- | --------------- |
 | 1 | **Done.** Tools and Home Agent `/imgGen` have no preset save/restore and no readiness preflight; the run (`runArtifact` + `comfyUiPresets.generate`) owns backend start, installs and model download; selection stays side-effect-free (`resolvePresetVariant`); callers pass `artifactKindForMedia` / panel-derived kind | yes |
 | 2 | **Done.** `transcribeAudio` / speak-replies (and every other speech driver — mic, TTS preset, `/imgGen` voice paths) import no TTS/STT store; all of them cross the one speech adapter (`speechIO`), which owns readiness, endpoint resolution and the Qwen3/Kokoro/external engine branch | yes |
-| 3 | no `useDialogStore()` inside inference/download; grants are a reviewable list | yes |
+| 3 | **Done.** Inference/download code calls the Permissions layer (`requestDownload` / `requestVramWarning` / `notify` in `src/assets/js/permissions/permissions.ts`); no `useDialogStore()` outside the adapter, the settings-setup flows and the dialog components. "Do not show again" and the remote-download pre-grant are entries in the persisted `permissionGrants` store, reviewed and revoked in Settings → Permissions (legacy `memoryAlertSuppress_*` flags migrate once) | yes |
 | 4 | projection connects with listener + snapshot watermark; main owns hide/reopen/quit; browser-backed windows are lazy | yes |
 | 5 | `capabilities/media.ts` no longer calls `executeToolInRenderer`; the UI hydrates and renders readiness/generation progress from main | yes, needs 1–4 |
 | 6 | renderer has no `streamText`; adjacent deltas coalesce at the IPC bridge; semantic events remain immediate | no, needs 1–5 |

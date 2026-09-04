@@ -16,10 +16,22 @@ const ensureWhisperReadyMock = vi.fn(async () => ({ downloadPrompted: false }))
 const ensureStandaloneReadyMock = vi.fn(async () => ({ downloadPrompted: false }))
 const ensureStandaloneServerRunningMock = vi.fn(async () => {})
 const ensureTranscriptionServerRunningMock = vi.fn(async () => {})
-const resolveTranscriptionMock = vi.fn(async () => null)
+const resolveTranscriptionMock = vi.fn(
+  async (..._args: unknown[]): Promise<{ baseURL: string; model: string; apiKey: string } | null> =>
+    null,
+)
 
 const ensureSpeechServerRunningMock = vi.fn(async () => {})
-const resolveSpeechMock = vi.fn(async () => null)
+const resolveSpeechMock = vi.fn(
+  async (
+    ..._args: unknown[]
+  ): Promise<{
+    baseURL: string
+    model: string
+    voice: string
+    apiKey: string
+  } | null> => null,
+)
 const synthesizeToWavMock = vi.fn(async () => ({ audioBase64: 'Tts9', voice: 'af_heart' }))
 
 const qwenIsModelInstalledMock = vi.fn(async () => true)
@@ -37,7 +49,7 @@ const qwenSaveWavToDiskMock = vi.fn(async () => '/audio/clip.wav')
 
 const transcribeAudioBufferMock = vi.fn(async () => 'buffer transcript')
 const transcribeAudioBlobMock = vi.fn(async () => 'blob transcript')
-const synthesizeSpeechMock = vi.fn(async () => ({
+const synthesizeSpeechMock = vi.fn(async (..._args: unknown[]) => ({
   bytes: new Uint8Array([1, 2, 3]),
   mediaType: 'audio/wav',
 }))
@@ -115,9 +127,7 @@ const {
 
 /** A minimal RIFF/WAVE header so `transcribe` takes the no-re-encode path. */
 function wavBlob(): Blob {
-  const header = new Uint8Array([
-    0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x41, 0x56, 0x45,
-  ])
+  const header = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x41, 0x56, 0x45])
   return new Blob([header], { type: 'audio/wav' })
 }
 
@@ -158,9 +168,8 @@ describe('speechIO (Speech I/O adapter)', () => {
     qwenIsModelInstalledMock.mockResolvedValue(true)
     vi.stubGlobal('window', { electronAPI: { saveGeneratedAudio: saveGeneratedAudioMock } })
     ;(globalThis as Record<string, unknown>).Audio = FakeAudio
-    ;(
-      globalThis.URL as typeof globalThis.URL & { revokeObjectURL?: unknown }
-    ).revokeObjectURL = vi.fn()
+    ;(globalThis.URL as typeof globalThis.URL & { revokeObjectURL?: unknown }).revokeObjectURL =
+      vi.fn()
     stopSpeaking()
     pendingVoiceTurn.value = false
   })
@@ -288,7 +297,12 @@ describe('speechIO (Speech I/O adapter)', () => {
     it('persists the default voice only when asked', async () => {
       await synthesizeClip({
         text: 'hello',
-        voice: { speaker: 'Vivian', language: 'German', mode: 'custom_voice', rememberAsDefault: true },
+        voice: {
+          speaker: 'Vivian',
+          language: 'German',
+          mode: 'custom_voice',
+          rememberAsDefault: true,
+        },
       })
       expect(qwenApplyUserVoicePreferenceMock).toHaveBeenCalledWith({
         speaker: 'Vivian',

@@ -3,7 +3,7 @@ import { ref, watch } from 'vue'
 import { MODE_TO_CATEGORIES, MODE_TO_PRESET_TYPE } from '@/lib/presetModes'
 import { usePresetSwitching } from './presetSwitching'
 import { useBackendServices } from './backendServices'
-import { useDialogStore } from './dialogs'
+import { notify } from '@/assets/js/permissions/permissions'
 import { useSetupWizard } from './setupWizard'
 import { usePresets } from './presets'
 
@@ -42,13 +42,10 @@ export const usePromptStore = defineStore('prompt', () => {
       const comfyUIService = backendServices.info.find((s) => s.serviceName === 'comfyui-backend')
 
       if (servicesLoaded && comfyUIService && comfyUIService.isSetUp === false) {
-        const dialogStore = useDialogStore()
-
-        dialogStore.showWarningDialog(
+        notify(
           `This mode requires you to have the ComfyUI backend component installed. You can choose **Confirm** to install now or **Cancel** to install later from App Settings.`,
           () => {
             setupWizard.openWizard()
-            dialogStore.closeWarningDialog()
           },
         )
         return false

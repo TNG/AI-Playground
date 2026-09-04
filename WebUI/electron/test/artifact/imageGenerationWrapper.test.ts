@@ -87,9 +87,7 @@ vi.mock('@/assets/js/imageGenerationUtils', () => ({
 
 // Imported late on purpose: a dynamic import runs in source order, so the
 // hoisted factories only execute after the mock consts are initialized.
-const { useImageGenerationPresets } = await import(
-  '@/assets/js/store/imageGenerationPresets'
-)
+const { useImageGenerationPresets } = await import('@/assets/js/store/imageGenerationPresets')
 
 const comfyPresetFixture = (overrides: Record<string, unknown> = {}) => ({
   name: 'Draft Image',

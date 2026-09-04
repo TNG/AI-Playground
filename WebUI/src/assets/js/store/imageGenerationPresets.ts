@@ -34,9 +34,9 @@ export function modelNameForComfyApi(name: string, platform: NodeJS.Platform): s
   return platform === 'win32' ? name.replace(/\//g, '\\') : name.replace(/\\/g, '/')
 }
 import { useUIStore } from './ui'
-import { PresetRequirementsData, useDialogStore } from './dialogs'
+import type { PresetRequirementsData } from './dialogs'
 import { getMissingComfyuiBackendModels } from './imageGenerationUtils'
-import { useHomeAgent } from './homeAgent'
+import { requestDownload } from '@/assets/js/permissions/permissions'
 import { imageUrlToDataUri, saveImageToMediaInput } from '@/lib/utils'
 import { withTraceSpan } from '@/lib/laminarSpans'
 import { runArtifact, type ArtifactKind, type ArtifactResult } from '../artifact/runArtifact'
@@ -183,10 +183,8 @@ export const useImageGenerationPresets = defineStore(
     const comfyUi = useComfyUiPresets()
     const backendServices = useBackendServices()
     const uiStore = useUIStore()
-    const dialogStore = useDialogStore()
     const errors = useErrors()
     const i18nState = useI18N().state
-    const homeAgent = useHomeAgent()
 
     const activePreset = computed(() => {
       console.log('### activePreset', presetsStore.activePresetWithVariant)
@@ -697,25 +695,11 @@ export const useImageGenerationPresets = defineStore(
       // Traced only when something is actually missing: a `models.download` span
       // in a trace means multi-GB files were fetched before generating, which is
       // usually the reason a first run took so much longer than the next.
-      return withTraceSpan(
-        'models.download',
-        () =>
-          new Promise<void>((resolve, reject) => {
-            // On a remote Home Agent turn there is nobody at the desktop to act on
-            // the download modal; route the approval + progress to the channel
-            // (mirrored into the desktop window) instead of getting stuck.
-            if (homeAgent.isRemoteTurnActive()) {
-              homeAgent.handleRemoteModelDownload(downloadList).then(resolve).catch(reject)
-            } else {
-              dialogStore.showDownloadDialog(downloadList, resolve, reject)
-            }
-          }),
-        {
-          attributes: {
-            'aipg.models': downloadList.map((model) => model.repo_id).join(', ') || undefined,
-          },
+      return withTraceSpan('models.download', () => requestDownload(downloadList), {
+        attributes: {
+          'aipg.models': downloadList.map((model) => model.repo_id).join(', ') || undefined,
         },
-      )
+      })
     }
 
     async function ensureModelsAreAvailable(): Promise<void> {
@@ -827,7 +811,9 @@ export const useImageGenerationPresets = defineStore(
      * presets manage each slot through its own binding, and a generic
      * source injection would clobber slot 1.
      */
-    async function generate(mode: WorkflowModeType = 'imageGen'): Promise<ArtifactResult | undefined> {
+    async function generate(
+      mode: WorkflowModeType = 'imageGen',
+    ): Promise<ArtifactResult | undefined> {
       const preset = activePreset.value
       if (!preset || preset.type !== 'comfy') {
         errors.report(

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
 import type { MediaItem } from '@/assets/js/store/imageGenerationPresets'
-import type { Preset } from '@/assets/js/store/presets'
+import type { ComfyInput, Preset, Setting } from '@/assets/js/store/presets'
 
 // The artifact runner is tested against hand-driven store mocks: only its own
 // contract matters here — request → resolved run (params, variant, inputs,
@@ -137,7 +137,7 @@ function applyVariantForReal(name: string, variant?: string | null): Preset | nu
   return { ...preset, ...overrides }
 }
 
-function standardSetting(settingName: string, defaultValue: unknown) {
+function standardSetting(settingName: string, defaultValue: unknown): Setting {
   return {
     type: 'number',
     label: settingName,
@@ -145,10 +145,10 @@ function standardSetting(settingName: string, defaultValue: unknown) {
     modifiable: true,
     settingName,
     defaultValue,
-  }
+  } as unknown as Setting
 }
 
-function imageInputFixture() {
+function imageInputFixture(): ComfyInput {
   return {
     type: 'image',
     label: 'Source',
@@ -157,7 +157,7 @@ function imageInputFixture() {
     displayed: true,
     modifiable: true,
     defaultValue: '',
-  }
+  } as unknown as ComfyInput
 }
 
 /**
@@ -316,7 +316,7 @@ describe('runArtifact', () => {
         name: 'Draft Image',
         variants: [
           { name: 'Standard', overrides: { description: 'standard variant' } },
-          { name: 'Fast' },
+          { name: 'Fast', overrides: {} },
         ],
       }),
     ]
@@ -342,7 +342,10 @@ describe('runArtifact', () => {
     presetsFixture.value = [
       comfyPreset({
         name: 'Draft Image',
-        variants: [{ name: 'Standard' }, { name: 'Fast' }],
+        variants: [
+          { name: 'Standard', overrides: {} },
+          { name: 'Fast', overrides: {} },
+        ],
       }),
     ]
     activeVariantName.value = { 'Draft Image': 'Fast' }
@@ -362,7 +365,7 @@ describe('runArtifact', () => {
     presetsFixture.value = [
       comfyPreset({
         name: 'Draft Image',
-        variants: [{ name: 'Fast' }],
+        variants: [{ name: 'Fast', overrides: {} }],
         settings: [
           {
             type: 'model',
@@ -401,7 +404,7 @@ describe('runArtifact', () => {
     await result
 
     const run = generateMock.mock.calls[0][0] as {
-      inputs: Array<{ current: { value: unknown } }>
+      inputs: Array<{ nodeTitle: string; current: { value: unknown } }>
     }
     const byRef = (title: string) =>
       run.inputs.find((input) => input.nodeTitle === title)!.current.value
@@ -467,7 +470,7 @@ describe('runArtifact', () => {
     presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
     ensureModelsMock.mockRejectedValue(
       createAppError({
-        category: 'user',
+        category: 'validation',
         code: 'user/cancelled',
         userMessage: 'Download cancelled',
       }),
@@ -523,7 +526,11 @@ describe('runArtifact', () => {
 
     expect(settled.state).toBe('completed')
     expect(settled.items).toHaveLength(2)
-    expect(settled.items.every((item) => item.imageUrl.startsWith('aipg-media://'))).toBe(true)
+    expect(
+      settled.items.every(
+        (item) => 'imageUrl' in item && item.imageUrl.startsWith('aipg-media://'),
+      ),
+    ).toBe(true)
     // Settings snapshots are filtered by what the preset displays/modifies;
     // the seed rides along regardless — the engine reads it off every item.
     expect(settled.items[0].settings).toMatchObject({

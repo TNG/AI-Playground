@@ -284,7 +284,10 @@ export const useComfyUiPresets = defineStore(
     let generateIdx: number = 0
     let queuedImages: MediaItem[] = []
 
-    const pendingGenerationRequest = ref<{ run: ComfyGenerationRun } | null>(null)
+    // shallowRef: the run carries live plain refs in its inputs (the settings
+    // snapshot the artifact runner owns); a deep ref would unwrap them and a
+    // queued retry would read `current.value` off a raw value.
+    const pendingGenerationRequest = shallowRef<{ run: ComfyGenerationRun } | null>(null)
     const pendingRetryTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 
     const backendServices = useBackendServices()

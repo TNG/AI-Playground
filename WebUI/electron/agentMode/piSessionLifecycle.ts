@@ -150,6 +150,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     toolSpecs: config.toolSpecs ?? [],
     agentDir: piAgentDir(),
     contextWindow: config.modelConfig.contextWindow,
+    keepModelsLoaded: config.keepModelsLoaded ?? false,
   }
   const capabilities = await resolveCapabilities(capabilityHost, enabledCapabilityIds(config))
   logger.info(

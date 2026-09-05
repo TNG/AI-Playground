@@ -5,6 +5,7 @@ import { app, BrowserWindow, dialog } from 'electron'
 import { appLoggerInstance } from '../logging/logger.ts'
 import { packagedResourcesRoot } from '../aipgRoot.ts'
 import { ApiService, createEnhancedErrorDetails, ErrorDetails } from './service.ts'
+import { emitServiceUpdate, getKernelEventWindow } from '../kernel/kernelBus.ts'
 import { fetchFirstInstallArtifact } from './fetchInstallArtifact.ts'
 import { buildOvmsCandidates, parseUbuntuMajor, ubuntuDistroTargets } from './ovmsDownloadUrls.ts'
 import { promisify } from 'util'
@@ -168,11 +169,14 @@ export class OpenVINOBackendService implements ApiService {
     this.isSetUp = this.serviceIsSetUp()
     console.log('OVMS isSetUp:', this.isSetUp)
 
-    // Cache version on startup if already set up
+    // Cache version on startup if already set up. Always publish so a fresh
+    // machine's kernel snapshot still names this backend (notInstalled).
     if (this.isSetUp) {
       this.updateCachedVersion().then(() => {
         this.updateStatus()
       })
+    } else {
+      this.updateStatus()
     }
   }
 
@@ -734,7 +738,9 @@ export class OpenVINOBackendService implements ApiService {
     }
 
     const packageList = missingPackages.map((p) => `- ${p}`).join('\n')
-    const { response } = await dialog.showMessageBox(this.win, {
+    // The live window (the bus's current one), not the one this service was
+    // constructed with — after a macOS window recreate that one is destroyed.
+    const { response } = await dialog.showMessageBox(getKernelEventWindow() ?? this.win, {
       type: 'warning',
       buttons: ['Install now', 'Cancel setup'],
       defaultId: 0,
@@ -1237,7 +1243,7 @@ export class OpenVINOBackendService implements ApiService {
   }
 
   updateStatus() {
-    this.win.webContents.send('serviceInfoUpdate', this.get_info())
+    emitServiceUpdate(this.get_info())
   }
 
   async updateSettings(settings: ServiceSettings): Promise<void> {
@@ -2145,7 +2151,7 @@ export class OpenVINOBackendService implements ApiService {
       // text-generation graph that backs /v3/chat/completions can register a beat
       // later — so a request racing that window 404s with "Mediapipe graph definition
       // with requested name is not found". This bites the agentic image flow, which
-      // stops + restarts the chat server mid-turn (chatBackends → restartChatBackend)
+      // stops + restarts the chat server mid-turn (the orchestrator's GPU window)
       // and then immediately issues a follow-up completion. Gate on the model's own
       // KServe readiness endpoint so we only report ready once the graph is servable.
       // Best-effort: some OVMS versions may not expose this per-graph — on timeout we

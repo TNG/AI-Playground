@@ -18,11 +18,14 @@ Electron main process orchestrates Vue.js frontend and multiple Python/native ba
 - **Never auto-download model weights.** Installing a backend (its `set_up()`) installs only the
   runtime/dependencies (torch, servers, etc.) — **never** model weights. Weights download **on
   demand**, only when the user has selected a preset/engine **and** actually tries to use it, via
-  the shared download dialog (`dialogs.showDownloadDialog`). Mirror the existing pattern:
+  the Permissions layer (`permissions.requestDownload` — the shared download modal, or the
+  in-channel question on a remote Home Agent turn). Mirror the existing pattern:
   `qwen3TextToSpeech.ensureModelInstalled`, `speechToText.ensureWhisperReady` /
   `ensureStandaloneReady` — check `models.checkTranscriptionModelExists(...)` /
   `getMissing...Model(...)`, then prompt. Selecting an engine in settings must not trigger a
-  download, and Python sidecars run with `HF_HUB_OFFLINE=1` so they can't silently fetch.
+  download, and Python sidecars run with `HF_HUB_OFFLINE=1` so they can't silently fetch. The only
+  prompt a pre-grant (Settings → Permissions) can skip is the remote-turn download question —
+  never the desktop modal.
 
 ## Build / Dev / Test Commands
 
@@ -248,7 +251,7 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
 
 **Before claiming it works:** `npm run typecheck` (`vue-tsc`; `e2e/` is in the root
 `tsconfig.json`) and a cheap no-launch smoke: `npx playwright test --config
-playwright-e2e.config.ts --list`. 
+playwright-e2e.config.ts --list`.
 
 ## Code Style
 
@@ -314,6 +317,8 @@ Use the shadcn wrappers in `src/components/ui/tooltip` (`TooltipProvider` / `Too
   per-preset settings maps. `preserveStateAcrossHmr`
   (`src/assets/js/piniaHmrStatePreservation.ts`, registered in `main.ts`) re-applies the old
   entries during the update. It is inert in production builds, which have no hot update hook.
+  (Step 8 made agent sessions and conversations kernel-owned files, so the durable copy is now
+  immune to that class of bug; the plugin still protects the in-memory map during a hot swap.)
 - Store files: **camelCase** in `WebUI/src/assets/js/store/` (e.g., `backendServices.ts`).
 - Store hooks use `use` prefix: `useBackendServices`, `useTextInference`.
 - Stores may import other stores for composition.
@@ -492,18 +497,23 @@ Managed by `electron/subprocesses/apiServiceRegistry.ts`. Each service spawns a 
 
 ### Three Communication Patterns
 
-1. **Electron IPC** (renderer ↔ main): ALL service lifecycle — start, stop, setup, device selection, `ensureBackendReadiness`. Renderer calls `window.electronAPI.*`, main handles via `ipcMain.handle()`. Main pushes events via `win.webContents.send()`.
+1. **Electron IPC** (renderer ↔ main): ALL service lifecycle — start, stop, setup, device selection, `ensureBackendReadiness`. Renderer calls `window.electronAPI.*`, main handles via `ipcMain.handle()`. Main's **notifications** cross one ordered **kernel event stream** (`kernel:event`, one monotonic `seq` — `electron/kernel/kernelBus.ts`); the renderer hydrates with a listener-first snapshot handshake (`kernel:getSnapshot`, `src/assets/js/projection/kernelProjection.ts`: subscribe → buffer → install at sequence N → apply events above N). Requests stay point-to-point.
 
-2. **Direct HTTP** (renderer → backend): For actual AI operations after service is ready:
-   - **Chat inference**: Vercel AI SDK `streamText()` → `{backendUrl}/v1/chat/completions` (LlamaCpp/OpenVINO)
+2. **Direct HTTP**: For actual AI operations after service is ready:
    - **Model management**: `fetch()` → Flask ai-backend `/api/*` (download, check, size)
    - **Image generation**: `fetch()` → ComfyUI `/prompt`, `/upload/image`, `/interrupt`, `/free`
+   - **Chat inference** runs in the **main process** (step 6, `electron/chat/`): the renderer store
+     ships a resolved turn (`chat:submitTurn` — messages, model config, prompt, serialized tool
+     specs) and consumes the stream as coalesced kernel `chat-chunk` events through its transport
+     (`src/lib/kernelChatTransport.ts`); the engine (`electron/chat/turnEngine.ts`) calls the
+     backend's `/v1/chat/completions` directly. Tool executions round-trip to the renderer
+     (`chat:executeTool` → `src/lib/chatToolRegistry.ts` → `chat:toolResult`).
 
 3. **Utility process** (main ↔ langchain worker): `electron/subprocesses/langchain.ts` for RAG document processing via `process.parentPort` messaging.
 
 ### Chat Inference Flow
 
-User sends message → `textInference.ensureReadyForInference()` → IPC `ensureBackendReadiness` (loads model on-demand) → `openAiCompatibleChat` uses Vercel AI SDK `streamText()` → direct HTTP to backend's `/v1/chat/completions` → streamed response.
+User sends message → `textInference.ensureReadyForInference()` → IPC `ensureBackendReadiness` (loads model on-demand) → the chat store resolves the turn (model config via `buildChatModelConfig`, tools via the registry) and submits it over `chat:submitTurn` → main's turn engine runs Vercel AI SDK `streamText()` against the backend's `/v1/chat/completions` → chunks cross the kernel bus as `chat-chunk` events (adjacent deltas coalesced) → the renderer's `Chat` consumes them through `kernelChatTransport`. A reload mid-turn resumes from the kernel snapshot (`chat:resumeTurn`). The nested media specialist runs in main too (`electron/chat/mediaAgentRunner.ts`), its inner tools over the same bridge; one-shot summary is `chat:summarize`.
 
 ### Model catalog (`WebUI/external/models.json`)
 
@@ -704,29 +714,77 @@ modeled as an explicit FSM rather than loose flags.
 - `MediaItem.state` has terminal states: `done`, `failed`, `stopped` (no more permanent spinners).
   `failGeneration(msg)` / `cancelGeneration()` settle all in-flight items and set `lastError`;
   `WorkflowResult.vue` / `ChatWorkflowResult.vue` render a `failed` panel from `lastError`.
-- **Watchdog**: `comfyUiPresets` arms a timer on `execution_start` and clears it on
-  success/error/interrupt; a stall reports `generation/timeout` and fails in-flight items.
-- **Crash detection**: a watch on the ComfyUI service status fails in-flight items if the backend
-  leaves `running` unexpectedly (guarded by `backendRestarting` so intentional restarts for custom-node
-  installs don't false-positive). The main-process `service.ts` also reports unexpected child exits.
-- **Tool watchers** (`tools/comfyUi.ts`, `tools/comfyUiImageEdit.ts`) resolve on terminal item states
-  (`failed`/`stopped`) and on watchdog timeout, returning an error result to the LLM instead of hanging.
+- **Watchdog**: a single stall owner — the main-process artifact runner's re-arming 5-minute idle
+  watchdog (covers backend boot, installs, model load and execution). On stall the runner fails the
+  run and cancels it; the renderer's projected `failed` phase settles the items. Model-consent waits
+  re-arm the watchdog through progress pings the renderer bridge sends.
+- **Crash detection**: the main-process runner fails the run if the ComfyUI service leaves
+  `running` unexpectedly (it subscribes before `start()`, so a fast start without a status event
+  can't hang it either). The main-process `service.ts` also reports unexpected child exits.
+- **Artifact runner, split across the process line (architecture-target §8 step 5):**
+  - Renderer (`src/assets/js/artifact/runArtifact.ts`): one resolved `ArtifactRequest` in, one
+    settled `ArtifactResult` out (`completed`/`failed`/`cancelled` + done `MediaItem`s). It resolves
+    the preset and variant side-effect-free (`presets.resolvePresetVariant` — no switch, no
+    `setModeOnly`), snapshots the saved dynamic inputs, injects the source image, runs the model
+    pre-flight through the permissions layer, registers tracked items, then submits over
+    `electronAPI.artifact.run` (an abort listener is armed before submit) and returns main's
+    result. A refused submission ("Another generation is already in progress") or a failure with
+    nothing in flight drops the queued stubs. A user-cancelled model download still throws
+    (`isCancellation`) so existing caller catches keep working.
+  - Main (`electron/artifact/runner.ts`): owns readiness (backend start, custom-node/python
+    installs), the ComfyUI websocket engine, per-item seeds, the watchdog and cancellation, and
+    streams phase + item events on the kernel stream. Admission is the orchestrator's
+    (`electron/orchestrator/orchestrator.ts`, step 7): panel and Home Agent submissions fail
+    fast when a run is active, while chat-tool submissions and in-process Pi tool runs queue
+    (FIFO) behind it, each run bracketing a GPU window — chat backends stopped before, ComfyUI
+    freed and the chat backend restarted after, the whole swap skipped with Keep Models
+    Loaded or when more runs are still queued (a spritesheet costs one swap, not one per
+    sprite).
+  - UI hydration: `imageGenerationPresets` projects `artifact-phase`/`artifact-item` kernel events
+    (plus the snapshot's `activeArtifactRun`) onto `GenerateState`/`MediaItem`s for
+    **renderer-originated** runs only — in-process agent tools stamp `origin: 'agent'` and stay
+    out of the Image Gen overlay/history. The FSM is unchanged, so the activity bridge and
+    failed-panel rendering keep working.
+  - What still lives renderer-side on purpose: the model pre-flight (models store + HF token), the
+    download-consent prompt (permissions layer) and the post-swap chat reload — main asks for them
+    over the `artifact:request`/`artifact:respond` RPC (`src/assets/js/artifact/mediaRequestBridge.ts`,
+    wired in `src/main.ts`) and re-arms its watchdog on the bridge's progress pings.
 
 **Activity / progress sink (`store/activities.ts`):** the analog of the error sink for "what is the
 app busy with right now". Long-running steps report a typed `Activity`
 (`assets/js/activities/types.ts`: `category`, `label`, `progress?`, `scope`, `parentId?`, `state`).
 Producers: backend/model prep + RAG (`textInference`), MCP/tool resolution + image conversion +
 "Processing prompt…"/"Processing results…" inference waits (`openAiCompatibleChat`), MCP/ComfyUI tool execution (`tools/*`), and the
-generation FSM bridge (`comfyUiPresets`, with determinate progress from the WS). Consumers:
+generation FSM bridge (`comfyUiPresets`, fed by the projected artifact-phase events). Consumers:
 `ChatActivityIndicator.vue` (anchored to the in-progress chat turn; replaced the old
 `isPreparingBackend` bar) and `PromptArea.vue` busy state. `begin/update/end/track` manage lifecycle;
 `track()` guarantees cleanup; `chatActivity(key, exclude?)` returns the innermost active (or nested,
 via `parentId`) activity for a conversation; `endScope()` is the anti-stuck reconciliation. The store
 has no store deps (avoids cycles); reconciliation lives in the producing stores.
 
+**Permissions layer (`assets/js/permissions/permissions.ts`):** the one consent seam — every prompt
+an inference or download path needs is a request/response through it, and no inference/download
+code instantiates the dialog store (the settings-setup flows, `useLocalWebSetup`, and the dialog
+components are the remaining `useDialogStore` consumers). `requestDownload(models)` prompts
+through the desktop download modal, or — while a remote Home Agent turn is active — asks
+in-channel via `homeAgent.handleRemoteModelDownload` (mirrored on the desktop); the
+`download:remote-turns` pre-grant skips that in-channel question while gated models still
+decline and progress still streams. `requestVramWarning({ presetName, message })` gates the
+high-memory / video-VRAM presets — a confirmed "do not show again" records a `remember` grant
+under `vram-warning:<presetName>`. `notify(message, onConfirm?)` is one-way guidance
+(install-needed notices whose Confirm opens the setup wizard). Grants live in the persisted
+`permissionGrants` store as a reviewable, revocable list shown under Settings → Permissions;
+the legacy `memoryAlertSuppress_*` localStorage flags migrate in once. There is no silent
+auto-allow: every grant exists because the user ticked "do not show again" or pre-filled it.
+Parked follow-ups (permissions, kernel stream, and the step-5 artifact leftovers) are in
+`docs/architecture-target.md` §8.2 — do not re-open them as gaps in the landed step; pick them up
+before the kernel move or as a small fix.
+
 ### Key IPC Channels by Category
 
-**Service lifecycle**: `getServices`, `startService`, `stopService`, `setUpService`, `serviceSetUpProgress` (M→R), `serviceInfoUpdate` (M→R), `uninstall`, `updateServiceSettings`, `detectDevices`, `selectDevice`, `ensureBackendReadiness`
+**Kernel stream (M→R notifications)**: `kernel:event` — service status, agent-turn events (chunk / tool progress / tool image / turn done), artifact-phase/item events, chat turns (`chat-chunk` — delta-coalesced — and `chat-turn-done`), media-specialist progress (`media-agent-event`), and orchestrator queue events (`queue-event` — enqueued/started/finished per run; the renderer relabels the queued tool's activity with its queue position, `src/lib/queueActivityProjection.ts`), all stamped with one monotonic `seq`; `kernel:getSnapshot` (R→M) hydrates a (re)connecting renderer, which resumes a running agent or chat turn via `Chat.resumeStream()`. `lifecycle:busy` (R→M) pushes the renderer's busy flag for the close policy. Remaining event types, leftover `webContents.send` channels, and resume-gap buffering are parked in `docs/architecture-target.md` §8.2.
+
+**Service lifecycle**: `getServices`, `startService`, `stopService`, `setUpService`, `serviceSetUpProgress` (M→R), `uninstall`, `updateServiceSettings`, `detectDevices`, `selectDevice`, `ensureBackendReadiness`
 
 **Models**: `loadModels`, `updateModelPaths`, `restorePathsSettings`, `getDownloadedGGUFLLMs`, `getDownloadedOpenVINOLLMModels`, `getDownloadedEmbeddingModels`
 
@@ -737,6 +795,14 @@ has no store deps (avoids cycles); reconciliation lives in the producing stores.
 **RAG**: `addDocumentToRAGList`, `embedInputUsingRag`, `getEmbeddingServerUrl`
 
 **ComfyUI tools**: `comfyui:isGitInstalled`, `comfyui:isComfyUIInstalled`, `comfyui:downloadCustomNode`, `comfyui:uninstallCustomNode`, `comfyui:installPypiPackage`, `comfyui:isPackageInstalled`, `comfyui:listInstalledCustomNodes`
+
+**Artifact pipeline** (step 5): `artifact:run`, `artifact:cancel`, `artifact:respond` (R→M), `artifact:request` (M→R — model checks, download consent, chat reload; replies keyed by requestId, `{progress: true}` pings re-arm the runner's watchdog)
+
+**Chat turns** (step 6): `chat:submitTurn`, `chat:resumeTurn`, `chat:cancelTurn` (R→M), `chat:executeTool` (M→R) + `chat:toolResult` (R→M — the tool execution bridge), `chat:summarize`, `chat:runMediaAgent` / `chat:cancelMediaAgent` (the nested media specialist, R→M)
+
+**Conversations** (step 8): `conversations:bootstrap`, `conversations:migrate` (one-shot legacy upload), `conversations:save`, `conversations:delete`, `conversations:saveLastMainKey` (R→M — the kernel owns the thread files under `AI-Playground/conversations/`)
+
+**Agent sessions** (step 8): `agentMode:bootstrapSessions`, `agentMode:migrateSessions` (one-shot legacy upload from the old Pinia key), `agentMode:saveSession`, `agentMode:saveActiveSessionId` (R→M — session records under `AI-Playground/agent-sessions/`); the record-file delete folds into the existing `agentMode:deleteSession`
 
 **Transcription**: `startTranscriptionServer`, `stopTranscriptionServer`, `getTranscriptionServerUrl`
 
@@ -751,10 +817,10 @@ has no store deps (avoids cycles); reconciliation lives in the producing stores.
 - `textInference` — LLM backend/model selection, RAG config, system prompt, context size, per-preset settings. Deps: `backendServices`, `models`, `dialogs`, `presets`
 - `openAiCompatibleChat` — Vercel AI SDK chat instances, message streaming, tool calling, vision, token tracking. Deps: `textInference`, `conversations`
 - `imageGenerationPresets` — Image/video generation state (prompt, seed, dimensions, batch), ComfyUI dynamic inputs. Deps: `presets`, `comfyUiPresets`, `backendServices`, `ui`, `dialogs`, `i18n`
-- `comfyUiPresets` — ComfyUI WebSocket + REST communication, workflow execution, custom node management. Deps: `imageGenerationPresets`, `i18n`, `backendServices`, `promptArea`
+- `comfyUiPresets` — Settings-side ComfyUI store: preset requirement checks, freeing ComfyUI memory (`free`), and the generation-activity bridge. The WebSocket engine moved to main (`electron/artifact/runner.ts`, §8 step 5). Deps: `imageGenerationPresets`, `i18n`, `backendServices`
 - `models` — Model discovery, download checking, HuggingFace integration, path management. Deps: `backendServices`
 - `presets` — Unified preset system with Zod schemas (`chat` + `comfy` types), variants, file I/O. Deps: `backendServices`
-- `conversations` — Conversation CRUD and persistence. No store deps.
+- `conversations` — Conversation CRUD. Live projection of the kernel-owned thread files (step 8): `init()` hydrates once before mount via `conversations:bootstrap` (plus a one-shot `conversations:migrate` of the legacy localStorage state on first boot), and mutators write through at settle points. No store deps.
 
 **Orchestration stores:**
 
@@ -772,9 +838,10 @@ has no store deps (avoids cycles); reconciliation lives in the producing stores.
 - `theme` — Theme selection, persisted in the renderer (the four themes are a constant in the store). No deps.
 - `i18n` — Locale/translations. IPC: `getLocaleSettings`. No deps.
 - `demoMode` — Demo mode overlay + auto-reset timer. IPC: `getDemoModeSettings`. No deps.
-- `speechToText` — STT enabled state, initialization. Deps: `backendServices`, `models`, `dialogs`, `globalSetup`
-- `audioRecorder` — Browser MediaRecorder, transcription via AI SDK. Deps: `backendServices` (lazy)
+- `speechToText` — STT engine config + readiness. Deps: `backendServices`, `models`, `dialogs`, `globalSetup`
+- `audioRecorder` — Browser MediaRecorder; transcription via the speech adapter (`speechIO.transcribe`). No store deps
 - `developerSettings` — Renderer-persisted developer toggles: dev console on startup, keep models loaded, dummy media workflows, verbose agent logging. No deps.
+- `permissionGrants` — **Reviewable consent grants** behind the permissions layer: `vram-warning:<preset>` remember grants and the `download:remote-turns` pre-grant. Surfaced and revoked in Settings → Permissions; the legacy `memoryAlertSuppress_*` localStorage flags migrate in on first use. No deps.
 - `debugSettings` — The settings.json-backed half of Settings → Developer (see below). No deps.
 
 ### Settings, feature gates and developer controls
@@ -806,7 +873,11 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 
 **Chat/LLM**: `views/Chat.vue` → stores: `openAiCompatibleChat`, `textInference`, `conversations`, `presets` → electron: `ensureBackendReadiness` IPC → backend: `llamacpp`/`openvino` via Vercel AI SDK
 
-**Image/Video Generation**: `views/WorkflowResult.vue` → stores: `imageGenerationPresets`, `comfyUiPresets`, `presets` → electron: service lifecycle IPC → backend: `comfyui-backend` via direct HTTP
+**Image/Video Generation**: `views/WorkflowResult.vue` and every other renderer driver (chat tools, Home Agent `/imgGen`) → `src/assets/js/artifact/runArtifact.ts` (one resolved `ArtifactRequest` in, one settled `ArtifactResult` out; no preset switch, no UI-state mutation) → IPC `artifact:run` → `electron/artifact/runner.ts` (engine, readiness, watchdog) → backend: `comfyui-backend` via direct HTTP. Both submit through the orchestrator's queue (`electron/orchestrator/orchestrator.ts`, which owns the GPU window): in-process Pi media tools via `electron/agentMode/capabilities/mediaDirect.ts` (generateImage/editImage), the NL `media` tool's specialist in main (`chat:runMediaAgent` → `electron/chat/mediaAgentRunner.ts`, inner tools bridged back to the renderer). Progress reaches the UI through kernel `artifact-phase`/`artifact-item` events (renderer-originated runs only)
+
+**Speech (STT/TTS)**: every driver (mic + STT preset in `views/PromptArea.vue`, speak-replies + Speak button in `views/Chat.vue`, `tools/transcribeAudio`, `tools/synthesizeTextToSpeech`, the direct TTS/STT preset turns in `openAiCompatibleChat`, Home Agent voice paths) → `src/assets/js/speech/speechIO.ts` — the one engine seam: interactive vs dialog-free unattended readiness, endpoint resolution, the Qwen3/Kokoro/external branch, and desktop playback state. Drivers import no TTS/STT store; the stores (`speechToText`, `textToSpeech`, `qwen3TextToSpeech`) keep engine config, persistence and the engine clients, consumed by the adapter (settings panels read them directly)
+
+**Download consent**: every download prompt (chat models in `textInference`, ComfyUI models via the artifact runner + `imageGenerationPresets`, Whisper/Kokoro/Qwen3-TTS readiness, the model library) → `src/assets/js/permissions/permissions.ts` (`requestDownload`) — desktop download modal, Home Agent in-channel approval, pre-grants. Gated-preset VRAM warnings (`presetSwitching`) and install-needed notices go through it too (`requestVramWarning` / `notify`)
 
 **Model Management**: stores: `models` → electron: `loadModels`, `getDownloaded*` IPC → backend: `ai-backend` Flask `/api/*` via HTTP
 
@@ -825,12 +896,18 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 | `electron/pathsManager.ts`                        | Singleton managing all app/model/service filesystem paths                        |
 | `electron/remoteUpdates.ts`                       | Fetching model lists and preset updates from GitHub                              |
 | `electron/subprocesses/apiServiceRegistry.ts`     | Service registration, port allocation, lifecycle orchestration                   |
+| `electron/orchestrator/orchestrator.ts`           | Typed run queue + GPU window (step 7): artifact-run FIFO, media-request lane     |
 | `electron/subprocesses/service.ts`                | Base classes: `GenericService`, `ExecutableService`, `LongLivedPythonApiService` |
 | `electron/subprocesses/aiBackendService.ts`       | Python Flask model-management backend                                            |
 | `electron/subprocesses/llamaCppBackendService.ts` | LlamaCPP native server (LLM + embedding sub-servers)                             |
 | `electron/subprocesses/openVINOBackendService.ts` | OpenVINO OVMS (LLM + embedding + transcription sub-servers)                      |
 | `electron/subprocesses/comfyUIBackendService.ts`  | ComfyUI Python server                                                            |
 | `electron/subprocesses/langchain.ts`              | RAG utility process (document splitting, embedding, vector search)               |
+| `electron/chat/turnEngine.ts`                     | Main-side chat turn engine (step 6): streamText, tool bridge, turn lifecycle     |
+| `electron/chat/mediaAgentRunner.ts`               | Nested media specialist (step 6): tool loop in main, inner tools over the bridge |
+| `electron/chat/chatModelMain.ts`                  | Chat model factory for main (backend routing, readiness, Home-Agent proxy)       |
+| `electron/chat/chatSummarize.ts`                  | One-shot conversation title summarization                                        |
+| `electron/chat/toolBridge.ts`                     | Main→renderer request/response for chat tool execution                           |
 | `electron/subprocesses/deviceDetection.ts`        | Intel GPU device detection and env var setup                                     |
 | `electron/logging/logger.ts`                      | Logging, sends `debugLog` events to renderer                                     |
 
@@ -954,7 +1031,8 @@ Notes:
   proves the source image actually reached ComfyUI.
 - `Dummy 3D Model (test)` needs two fixture files in ComfyUI's input dir (a ~700-byte pyramid
   `.glb` and a tiny preview PNG). They are generated in TypeScript and uploaded via
-  `/upload/image` by `ensureDummyWorkflowFixtures()`, called from `comfyUiPresets.generate()`
+  `/upload/image` by the main runner's fixture upload (`ensureDummyFixtures`,
+  `electron/artifact/runner.ts`)
   once per session. Its `Load Image` node is deliberately unconsumed: it keeps the
   "needs a source image" contract (and exercises the upload path) without being executed.
 - `toolInstructions` tell the model these are test-only workflows, so ask for them explicitly
@@ -1033,8 +1111,10 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   Coder session continued under Game Agent gets Game Agent's prompt with `game-studio-quick`'s
   toolbox — told to `read` a skill with a tool it does not have — and the growing transcript
   stays filed under the preset that is no longer driving it. The watcher hangs off
-  `agentPresetName` (`store/agentMode.ts`), which follows agent presets only, so the image-gen
-  preset a `media` call borrows mid-turn changes nothing; it snapshots under the preset being
+  `agentPresetName` (`store/agentMode.ts`), which follows agent presets only, so an image-gen
+  preset becoming active mid-turn changes nothing (media runs no longer move the active preset
+  anyway — the artifact runner resolves its workflow without switching); it snapshots under the
+  preset being
   left (which is why `snapshotActiveSession` takes one — a turn still running has no record yet)
   and then blanks: no folder for a games preset, the last picked folder for Agent. The old
   session stays in the panel and is reopened deliberately from there, which is the one thing
@@ -1092,19 +1172,23 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   - Game Agent's prompt and the `html-game-studio` skill both say that a folder with **no
     `game.js`** holds a finished single-file game to change, not a scaffold to grow, and that the
     hand-over message is all it will be told about how the game came about.
-- **Gotcha:** a `media` call temporarily switches the active preset to an image-gen one, so
-  anything derived from the active preset must not follow it — `agentMode.activeAgentPreset`
-  remembers the last agent preset for exactly this reason (following it live aborted the turn
-  that made the call).
+- **Gotcha:** anything derived from "the active preset" during an agent turn must go through
+  `agentMode.activeAgentPreset`, which remembers the last agent preset instead of following the
+  live active one — the user can click another preset mid-turn and that must not swap the
+  session's capabilities or abort it. (Media calls no longer move the active preset: the artifact
+  runner resolves its workflow without switching.)
 - **Gotcha:** models ask for a game's whole spritesheet in one step, and both Pi and the AI SDK
-  dispatch those tool calls in parallel. All media work therefore queues on
-  `assets/js/tools/mediaPipeline.ts` — one lane for a whole `media` request, one for a single
-  ComfyUI run, nested in that order only. Without it the queued runs saw no progress and their
-  watchers failed them as "stalled (no progress for 5 minutes)", and the runs stole each other's
-  preset and generated items. Never take the ComfyUI lane and then wait on the request lane.
-  With **Keep Models Loaded** off, a run that still sees work queued behind it
-  (`comfyRunsWaiting()`) skips freeing ComfyUI and reloading the LLM, so a batch of generations
-  costs one model swap instead of one each; the last run out does the cleanup.
+  dispatch those tool calls in parallel. All media work therefore queues **main-side**, on the
+  orchestrator (`electron/orchestrator/orchestrator.ts`, step 7): one FIFO for artifact runs,
+  one lane for a whole `media` request, nested in that order only (the renderer's
+  `mediaPipeline.ts` / `chatBackends.ts` are deleted). Panel and Home Agent submissions still
+  fail fast ("Another generation is already in progress"); chat-tool submissions and
+  in-process Pi tool runs queue instead, and the queue batches the GPU swaps: with
+  **Keep Models Loaded** off, a run that still sees work queued behind it
+  (`artifactRunsQueued()`) skips freeing ComfyUI and reloading the LLM, so a batch of
+  generations costs one model swap instead of one each; the last run out does the cleanup. A
+  parked chat tool's activity relabels to its queue position through `queue-event` kernel
+  events.
 
 ### Verifying Home Agent features (LAN chat)
 
@@ -1134,7 +1218,8 @@ To judge a change to the agentic system you need the turn's shape, not its final
 how many steps it took, which tools it called, how many prompt tokens each step paid for
 and how many of those the server actually reused. [Laminar](https://github.com/lmnr-ai/lmnr)
 is an OpenTelemetry trace viewer for exactly that, and both halves of the app can feed it —
-Pi agent runs from the main process, Vercel AI SDK chat turns from the renderer.
+Pi agent runs and Vercel AI SDK chat turns, both from the main process (step 6 moved chat
+inference there).
 
 **It is off unless you opt in.** Nothing is imported, initialized or sent without
 `WebUI/external/laminar.dev.json` or `WebUI/external/laminar.localhost.json` (both
@@ -1205,12 +1290,15 @@ something a user picks per session. One trace per run: `pi agent run` → `LLM c
   changing anything that rewrites prompt history (see "Reasoning is set for the expensive
   case" above for why).
 
-**Chat turns** are traced through the renderer, which is why there are two files:
-
-- `electron/laminar.ts` — config, SDK init, shutdown flush, the Pi extension path, **and**
-  the AI SDK integration running on the renderer's behalf.
-- `src/lib/laminarTelemetry.ts` — the renderer half: an AI SDK 7 `Telemetry` integration
-  that serializes each event and ships it over IPC.
+**Chat turns** run in main (step 6), so their traces start there too. `electron/laminar.ts`
+initializes the SDK, registers Laminar's `LaminarAiSdkTelemetry` against the AI SDK's global
+telemetry registry (`registerMainChatTelemetry`), and repeats what the old IPC replay did
+before the engine moved: call stats and llama.cpp timings are handed to the stamping processor
+just before the call's span ends, and a run marked delegated (the nested media specialist) is
+created inside the open media tool span. The turn engine stamps each turn's context from the
+request's `trace` field (`buildChatModelConfig` ships it); `src/lib/laminarTelemetry.ts` is
+now only the renderer's span send-half (ComfyUI phases and GPU swaps,
+`src/lib/laminarSpans.ts`), gated on the same config.
 
 **What each turn is tagged with.** Laminar has no tokens-per-second of its own (its dashboard
 example is `total_tokens / duration`, which mixes prefill into generation), and nothing in the
@@ -1280,8 +1368,9 @@ knows nothing. Worth knowing:
   as of the turn that produced it while `gameId` (the folder) never moves.
 - **It is registered per turn** (`piTurnRunner.startAgentTurn`), not per session like the
   inference context: a resumed session keeps its model but its game may have been named since.
-  The preset is the _remembered_ agent preset, never the live active one — a `media` call
-  switches the active preset to an image-gen one mid-turn.
+  The preset is the _remembered_ agent preset, never the live active one — the user can click
+  another preset mid-turn, and a media run must not change the label either (it resolves its
+  workflow without switching).
 - **Render templates cannot do this.** They render inside a trace (a span pane, or a whole-trace
   custom view beside Tree/Transcript); the overview reads the root span name and the metadata
   column, and a [table view](https://laminar.sh/docs/platform/table-views) saves a column layout
@@ -1336,7 +1425,6 @@ pi agent run
    │  ├─ ai.llm model.chat:<model>   picks the workflow, writes the prompt
    │  ├─ ai.tool comfyUI             its call into the pipeline
    │  └─ ai.llm model.chat:<model>   reports what came back
-   ├─ backend.stop_llm               keepModelsLoaded off
    ├─ models.download                only when files were missing
    ├─ comfyui.generate               the run's parameters (below)
    │  ├─ comfyui.start_backend
@@ -1344,15 +1432,15 @@ pi agent run
    │  ├─ comfyui.load_workflow_components
    │  ├─ comfyui.load_model          one per loader node, naming the model file
    │  └─ comfyui.generating          progress as attributes, not a span per step
-   └─ backend.reload_llm             last run in the lane; skipped when more wait
 ```
 
 Things to know before changing it:
 
-- **The GPU swaps are siblings, not children**, because `stopChatBackends()` runs before
-  `generate()` exists and `returnGpuToChat()` after it has settled — the media tool span is the
-  only thing open around all three. The `comfyRunsWaiting()` skip stays visible as an absent
-  `backend.reload_llm` on intermediate sprites, and desktop Image Gen simply has neither.
+- **The GPU swap spans are gone with step 7.** `backend.stop_llm` / `backend.reload_llm` lived
+  in the renderer's `chatBackends.ts`, which the orchestrator deleted; the swap now runs
+  main-side around the run and opens no spans, so the wait it costs is only the gap between
+  the tool span and `comfyui.generate`'s children. Wiring swap spans from the orchestrator is
+  parked in `docs/architecture-target.md` §8.2.
 - **The open media TOOL span is remembered as the parent**, since neither Pi nor the AI SDK
   puts its tool spans on the OpenTelemetry active context — `Laminar.withSpan` around the IPC
   dispatch would parent nothing. What both do is create spans through the SDK's tracer, so the
@@ -1361,7 +1449,8 @@ Things to know before changing it:
   `ai.tool `, and sets the span type one statement _after_ creation, so the name is all there
   is to match on at start). A renderer span with no `parentId` attaches to the **oldest** open
   one: models ask for a whole spritesheet at once and both harnesses dispatch those calls in
-  parallel, while the media pipeline runs them one at a time in call order, so the oldest open
+  parallel, while the orchestrator's request lane runs them one at a time in call order, so the
+  oldest open
   media tool span is the run being served. Its `LaminarSpanContext` carries Pi's session id and
   the trace metadata along, so children land in the agent's session for free. With no tool span
   open (desktop Image Gen) `comfyui.generate` is a root, still stamped with `hostname`.
@@ -1441,12 +1530,10 @@ Things to know before changing it:
   inside Electron.
 - **`@lmnr-ai/lmnr` cannot run in the renderer.** It is a Node library (it reaches for
   `createRequire` and dies on Vite's browser stub) and the page has `nodeIntegration` off,
-  which is worth keeping. But AI SDK 7 telemetry is plain data keyed by `callId`, and
-  Laminar's integration is data-driven too, so the renderer forwards events over IPC
-  (`laminarTelemetryEvent`) and main replays them into the real `LaminarAiSdkTelemetry`.
-  Span mapping, the exporter and the project key all stay in main. `onChunk` is not
-  forwarded — it fires per streamed chunk (thousands of IPC messages per reply) and only
-  feeds a time-to-first-token attribute.
+  which is worth keeping. Chat model calls no longer run there (step 6), so nothing needs
+  forwarding for them; what still crosses the `laminarTelemetryEvent` channel is the
+  renderer's own span work — the ComfyUI phase and GPU-swap spans
+  (`src/lib/laminarSpans.ts`) — which main replays into real spans.
 - **The stamping processor must not be a `LaminarSpanProcessor`.** `Laminar.initialize`
   wraps whatever `spanProcessor` it is given in a fresh one of its own, and for an instance
   of its own class it lifts out the inner processor and discards the object — so a patched
@@ -1464,7 +1551,7 @@ Things to know before changing it:
 **Verify it:** start `npm run dev` (or the installed app, whose main log is the same one),
 look for `[laminar]: tracing to <your instance>` in the
 main log (it prints the endpoint it resolved, so a typo in the config shows up here) and
-`[laminar] chat traces via main to …` in the renderer console, then send one Chat turn and one
+`[laminar] renderer spans via main to …` in the renderer console, then send one Chat turn and one
 Agent turn and open the instance's UI → traces. A chat turn appears as `ai.streamText` →
 `ai.llm model.chat:<model>`; an agent turn as the `pi agent run` tree above. For the media
 spans, one Game Agent cover image (`Draft Image`) should show `media` with `comfyui.generate`

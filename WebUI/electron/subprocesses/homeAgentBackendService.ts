@@ -209,15 +209,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
 
   constructor(name: BackendServiceName, port: number, win: BrowserWindow, settings: LocalSettings) {
     super(name, port, win, settings)
-
-    this.serviceIsSetUp().then(async (setUp) => {
-      this.isSetUp = setUp
-      if (this.isSetUp) {
-        await this.updateCachedVersion()
-        this.setStatus('notYetStarted')
-      }
-      this.appLogger.info(`Service ${this.name} isSetUp: ${this.isSetUp}`, this.name)
-    })
+    void this.publishInitialSetupStatus()
 
     // One-shot migration: legacy `home-agent-config.json` (Telegram) and
     // `home-agent-slack-config.json` (Slack) move to the new uniform

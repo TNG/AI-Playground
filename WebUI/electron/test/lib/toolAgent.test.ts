@@ -3,7 +3,7 @@ import { tool, type ModelMessage } from 'ai'
 import { MockLanguageModelV3 } from 'ai/test'
 import { simulateReadableStream } from 'ai'
 import { z } from 'zod'
-import { createToolAgent, type ToolAgentEvent } from '@/assets/js/agents/toolAgent'
+import { createToolAgent, type ToolAgentEvent } from '@/lib/toolAgent'
 
 // Unit tests for the nested tool-agent factory (streamText tool loop).
 // A scripted mock model drives the loop; the assertions cover the properties

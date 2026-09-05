@@ -146,8 +146,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   detectOem: () => ipcRenderer.invoke('detectOem'),
   onServiceSetUpProgress: (callback: (data: SetupProgress) => void) =>
     ipcRenderer.on('serviceSetUpProgress', (_event, value) => callback(value)),
-  onServiceInfoUpdate: (callback: (service: ApiServiceInformation) => void) =>
-    ipcRenderer.on('serviceInfoUpdate', (_event, value) => callback(value)),
+  onKernelEvent: (callback: (event: import('../src/types/kernelEvents').KernelEvent) => void) =>
+    listen('kernel:event', callback),
+  getKernelSnapshot: () =>
+    ipcRenderer.invoke('kernel:getSnapshot') as Promise<
+      import('../src/types/kernelEvents').KernelSnapshot
+    >,
+  setLifecycleBusy: (busy: boolean) => ipcRenderer.send('lifecycle:busy', busy),
   onShowToast: (callback: (data: { type: string; message: string }) => void) =>
     ipcRenderer.on('show-toast', (_event, data) => callback(data)),
   ensureBackendReadiness: (
@@ -156,6 +161,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     embeddingModelName?: string,
     contextSize?: number,
     modelArgs?: string,
+    stopImageServer?: boolean,
   ) =>
     ipcRenderer.invoke(
       'ensureBackendReadiness',
@@ -164,8 +170,78 @@ contextBridge.exposeInMainWorld('electronAPI', {
       embeddingModelName,
       contextSize,
       modelArgs,
+      stopImageServer,
     ),
   ensureComfyUIBackendRunning: () => ipcRenderer.invoke('ensureComfyUIBackendRunning'),
+  artifact: {
+    run: (
+      request: import('../src/types/artifactIpc').ArtifactRunRequest,
+      options?: { queue?: 'fail-fast' | 'queue' },
+    ) =>
+      ipcRenderer.invoke('artifact:run', request, options) as Promise<
+        import('./artifact/runner').ArtifactRunResult
+      >,
+    cancel: (runId?: string) => ipcRenderer.invoke('artifact:cancel', runId),
+    respond: (payload: import('../src/types/mediaRequests').MediaResponsePayload) =>
+      ipcRenderer.invoke('artifact:respond', payload),
+    onRequest: (
+      callback: (payload: import('../src/types/mediaRequests').MediaRequestPayload) => void,
+    ) => listen('artifact:request', callback),
+  },
+  chat: {
+    submitTurn: (request: import('../src/types/chatIpc').ChatTurnRequest) =>
+      ipcRenderer.invoke('chat:submitTurn', request) as Promise<
+        { success: true; turnId: string } | { success: false; error: string }
+      >,
+    resumeTurn: (conversationKey: string) =>
+      ipcRenderer.invoke('chat:resumeTurn', conversationKey) as Promise<
+        import('../src/types/chatIpc').ChatTurnResumeResult
+      >,
+    cancelTurn: (conversationKey: string, turnId: string) =>
+      ipcRenderer.invoke('chat:cancelTurn', conversationKey, turnId),
+    toolResult: (payload: import('../src/types/chatIpc').ChatToolResult) =>
+      ipcRenderer.invoke('chat:toolResult', payload),
+    summarize: (request: import('../src/types/chatIpc').ChatSummarizeRequest) =>
+      ipcRenderer.invoke('chat:summarize', request) as Promise<
+        { success: true; data: string } | { success: false; error: string }
+      >,
+    runMediaAgent: (request: import('../src/types/chatIpc').MediaAgentRunRequest) =>
+      ipcRenderer.invoke('chat:runMediaAgent', request) as Promise<
+        | { success: true; data: import('../src/types/chatIpc').MediaAgentRunResult }
+        | {
+            success: false
+            error: string
+          }
+      >,
+    cancelMediaAgent: (runKey: string) => ipcRenderer.invoke('chat:cancelMediaAgent', runKey),
+    onToolExecution: (
+      callback: (payload: import('../src/types/chatIpc').ChatToolExecution) => void,
+    ) => listen('chat:executeTool', callback),
+  },
+  conversations: {
+    bootstrap: () =>
+      ipcRenderer.invoke('conversations:bootstrap') as Promise<
+        | import('../src/types/conversationIpc').ConversationBootstrap
+        | { status: 'error'; error: string }
+      >,
+    migrate: (payload: unknown) =>
+      ipcRenderer.invoke('conversations:migrate', payload) as Promise<
+        | import('../src/types/conversationIpc').ConversationBootstrap
+        | { status: 'error'; error: string }
+      >,
+    save: (request: import('../src/types/conversationIpc').ConversationSaveRequest) =>
+      ipcRenderer.invoke('conversations:save', request) as Promise<
+        { success: true } | { success: false; error: string }
+      >,
+    delete: (id: string) =>
+      ipcRenderer.invoke('conversations:delete', id) as Promise<
+        { success: true } | { success: false; error: string }
+      >,
+    saveLastMainKey: (key: string | null) =>
+      ipcRenderer.invoke('conversations:saveLastMainKey', key) as Promise<
+        { success: true } | { success: false; error: string }
+      >,
+  },
   startTranscriptionServer: (modelName: string) =>
     ipcRenderer.invoke('startTranscriptionServer', modelName),
   stopTranscriptionServer: () => ipcRenderer.invoke('stopTranscriptionServer'),
@@ -194,7 +270,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
       keepModelsLoaded,
       resolution,
     ),
-  stopOvmsImageServer: () => ipcRenderer.invoke('stopOvmsImageServer'),
   stopOvmsChatServers: () => ipcRenderer.invoke('stopOvmsChatServers'),
   getOvmsImageServerUrl: () => ipcRenderer.invoke('getOvmsImageServerUrl'),
   // ComfyUI Tools
@@ -271,6 +346,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     cancel: () => ipcRenderer.invoke('agentMode:cancel'),
     resetSession: () => ipcRenderer.invoke('agentMode:resetSession'),
     deleteSession: (sessionId: string) => ipcRenderer.invoke('agentMode:deleteSession', sessionId),
+    bootstrapSessions: () => ipcRenderer.invoke('agentMode:bootstrapSessions'),
+    migrateSessions: (legacy: unknown) => ipcRenderer.invoke('agentMode:migrateSessions', legacy),
+    saveSession: (record: unknown) => ipcRenderer.invoke('agentMode:saveSession', record),
+    saveActiveSessionId: (id: string | null) =>
+      ipcRenderer.invoke('agentMode:saveActiveSessionId', id),
     importAttachment: (workspaceDir: string, name: string, bytes: Uint8Array) =>
       ipcRenderer.invoke('agentMode:importAttachment', workspaceDir, name, bytes),
     listCapabilities: (options: {
@@ -278,21 +358,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
       toolSpecs?: unknown[]
       mcpServerIds?: string[]
     }) => ipcRenderer.invoke('agentMode:listCapabilities', options),
-    onStreamChunk: (callback: (data: { turnId: string; chunk: unknown }) => void) =>
-      listen('agentMode:streamChunk', callback),
-    onToolProgress: (
-      callback: (data: {
-        turnId: string
-        toolCallId: string
-        toolName: string
-        text: string
-      }) => void,
-    ) => listen('agentMode:toolProgress', callback),
-    onToolImage: (
-      callback: (data: { toolCallId: string; dataUri: string; label: string }) => void,
-    ) => listen('agentMode:toolImage', callback),
-    onTurnDone: (callback: (data: { turnId: string }) => void) =>
-      listen('agentMode:turnDone', callback),
     onExecuteTool: (
       callback: (data: {
         requestId: string

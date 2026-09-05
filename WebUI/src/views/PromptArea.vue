@@ -399,8 +399,12 @@ import {
   saveImageToMediaInput,
 } from '@/lib/utils.ts'
 import { useAudioRecorder } from '@/assets/js/store/audioRecorder'
-import { useSpeechToText, type SttReadyResult } from '@/assets/js/store/speechToText'
-import { useTextToSpeech } from '@/assets/js/store/textToSpeech'
+import {
+  pendingVoiceTurn,
+  readyTranscriptionForInput,
+  transcriptionAvailable,
+  type SttReadyResult,
+} from '@/assets/js/speech/speechIO'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import {
   useImageGenerationPresets,
@@ -440,8 +444,6 @@ import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/compon
 
 const instance = getCurrentInstance()
 const audioRecorder = useAudioRecorder()
-const speechToText = useSpeechToText()
-const textToSpeech = useTextToSpeech()
 const languages = instance?.appContext.config.globalProperties.languages
 const i18nState = useI18N().state
 const prompt = ref('')
@@ -649,7 +651,7 @@ const isSttPreset = computed(() => activeChatPreset.value?.sttPreset === true)
 // disabled when this is false — it used to be `v-if`'d away, so anything that
 // flipped availability (e.g. a transient backend start failure) made the button
 // vanish with no explanation and no way back inside the session.
-const sttAvailable = computed(() => speechToText.available)
+const sttAvailable = computed(() => transcriptionAvailable())
 
 const sttUnavailableHint = computed(() =>
   productModeStore.isNvidiaModeSelected
@@ -678,7 +680,7 @@ audioRecorder.registerTranscriptionCallback((text) => {
   }
   prompt.value = text
   // Mark this as a voice-originated turn so the reply can be auto-spoken.
-  textToSpeech.pendingVoiceTurn = true
+  pendingVoiceTurn.value = true
 })
 
 // Check if images can be attached (vision model selected)
@@ -965,12 +967,9 @@ async function handleRecordingClick() {
   // first use), so transcription is ready when the clip is captured. The External
   // engine needs nothing started.
   try {
-    let ready: SttReadyResult = { downloadPrompted: false }
-    if (speechToText.effectiveSttEngine === 'whisper') {
-      ready = await speechToText.ensureWhisperReady()
-    } else if (speechToText.effectiveSttEngine === 'standalone') {
-      ready = await speechToText.ensureStandaloneReady()
-    }
+    // Ready the selected engine before recording (may prompt a model download on
+    // first use), so transcription is ready when the clip is captured.
+    const ready: SttReadyResult = await readyTranscriptionForInput()
     // This click was spent on the model download popup. Do not roll straight into
     // a recording once the download finishes: the user is not talking yet, so the
     // mic would capture whatever comes next and transcribe it as gibberish. Let

@@ -421,7 +421,9 @@ type electronAPI = {
   stopService(serviceName: string): Promise<BackendStatus>
   setUpService(serviceName: string): Promise<void>
   onServiceSetUpProgress(callback: (data: SetupProgress) => void): void
-  onServiceInfoUpdate(callback: (service: ApiServiceInformation) => void): void
+  onKernelEvent(callback: (event: import('./types/kernelEvents').KernelEvent) => void): () => void
+  getKernelSnapshot(): Promise<import('./types/kernelEvents').KernelSnapshot>
+  setLifecycleBusy(busy: boolean): void
   onShowToast(callback: (data: { type: string; message: string }) => void): void
   ensureBackendReadiness(
     serviceName: string,
@@ -429,12 +431,62 @@ type electronAPI = {
     embeddingModelName?: string,
     contextSize?: number,
     modelArgs?: string,
+    stopImageServer?: boolean,
   ): Promise<{ success: boolean; error?: string }>
   ensureComfyUIBackendRunning(): Promise<{
     success: boolean
     error?: string
     starting?: boolean
   }>
+  artifact: {
+    run(
+      request: import('./types/artifactIpc').ArtifactRunRequest,
+      options?: { queue?: 'fail-fast' | 'queue' },
+    ): Promise<import('../electron/artifact/runner').ArtifactRunResult>
+    cancel(runId?: string): Promise<void>
+    respond(payload: import('./types/mediaRequests').MediaResponsePayload): Promise<void>
+    onRequest(
+      callback: (payload: import('./types/mediaRequests').MediaRequestPayload) => void,
+    ): () => void
+  }
+  chat: {
+    submitTurn(
+      request: import('./types/chatIpc').ChatTurnRequest,
+    ): Promise<{ success: true; turnId: string } | { success: false; error: string }>
+    resumeTurn(conversationKey: string): Promise<import('./types/chatIpc').ChatTurnResumeResult>
+    cancelTurn(conversationKey: string, turnId: string): Promise<{ success: boolean }>
+    toolResult(payload: import('./types/chatIpc').ChatToolResult): Promise<void>
+    summarize(
+      request: import('./types/chatIpc').ChatSummarizeRequest,
+    ): Promise<{ success: true; data: string } | { success: false; error: string }>
+    runMediaAgent(
+      request: import('./types/chatIpc').MediaAgentRunRequest,
+    ): Promise<
+      | { success: true; data: import('./types/chatIpc').MediaAgentRunResult }
+      | { success: false; error: string }
+    >
+    cancelMediaAgent(runKey: string): Promise<{ success: boolean }>
+    onToolExecution(
+      callback: (payload: import('./types/chatIpc').ChatToolExecution) => void,
+    ): () => void
+  }
+  conversations: {
+    bootstrap(): Promise<
+      import('./types/conversationIpc').ConversationBootstrap | { status: 'error'; error: string }
+    >
+    migrate(
+      payload: unknown,
+    ): Promise<
+      import('./types/conversationIpc').ConversationBootstrap | { status: 'error'; error: string }
+    >
+    save(
+      request: import('./types/conversationIpc').ConversationSaveRequest,
+    ): Promise<{ success: true } | { success: false; error: string }>
+    delete(id: string): Promise<{ success: true } | { success: false; error: string }>
+    saveLastMainKey(
+      key: string | null,
+    ): Promise<{ success: true } | { success: false; error: string }>
+  }
   startTranscriptionServer(modelName: string): Promise<{ success: boolean; error?: string }>
   stopTranscriptionServer(): Promise<{ success: boolean; error?: string }>
   getTranscriptionServerUrl(): Promise<{ success: boolean; url?: string; error?: string }>
@@ -457,7 +509,6 @@ type electronAPI = {
     keepModelsLoaded?: boolean,
     resolution?: string,
   ): Promise<{ success: boolean; url?: string; error?: string }>
-  stopOvmsImageServer(): Promise<{ success: boolean; error?: string }>
   stopOvmsChatServers(): Promise<{ success: boolean; error?: string }>
   getOvmsImageServerUrl(): Promise<{ success: boolean; url?: string; error?: string }>
   // ComfyUI Tools - uses uv for Python package management
@@ -535,6 +586,18 @@ type electronAPI = {
     cancel(): Promise<void>
     resetSession(): Promise<void>
     deleteSession(sessionId: string): Promise<{ success: boolean; error?: string }>
+    bootstrapSessions(): Promise<
+      import('./types/agentSessionIpc').AgentSessionBootstrap | { status: 'error'; error: string }
+    >
+    migrateSessions(
+      legacy: import('./types/agentSessionIpc').LegacyAgentSessionState,
+    ): Promise<
+      import('./types/agentSessionIpc').AgentSessionBootstrap | { status: 'error'; error: string }
+    >
+    saveSession(
+      record: import('./types/agentSessionIpc').AgentSessionRecordWire,
+    ): Promise<{ success: boolean; error?: string }>
+    saveActiveSessionId(id: string | null): Promise<{ success: boolean; error?: string }>
     /**
      * Copy an attached file into the workspace, so the agent can reach it with
      * its file tools. Resolves with the workspace-relative path it was saved as.
@@ -549,10 +612,6 @@ type electronAPI = {
       toolSpecs?: AgentToolSpec[]
       mcpServerIds?: string[]
     }): Promise<AgentCapabilityInfo[]>
-    onStreamChunk(callback: (data: { turnId: string; chunk: unknown }) => void): () => void
-    onToolProgress(callback: (data: AgentToolProgress) => void): () => void
-    onToolImage(callback: (data: AgentToolImage) => void): () => void
-    onTurnDone(callback: (data: { turnId: string }) => void): () => void
     onExecuteTool(callback: (data: AgentToolExecuteRequest) => void): () => void
     submitToolResult(requestId: string, result: unknown, error?: string): Promise<void>
   }

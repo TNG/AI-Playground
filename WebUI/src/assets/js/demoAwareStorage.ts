@@ -14,4 +14,7 @@ export const demoAwareStorage = {
   setItem(key: string, value: string): void {
     getStorage().setItem(key, value)
   },
+  removeItem(key: string): void {
+    getStorage().removeItem(key)
+  },
 }

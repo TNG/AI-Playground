@@ -1,9 +1,10 @@
-import { defineStore } from 'pinia'
+import { defineStore, acceptHMRUpdate } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import z from 'zod'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { invalidateBackendAuthToken } from '@/lib/loopbackAuth'
 import { isOnDemandBackend } from '@/lib/onDemandBackends'
+import { connectKernelEventStream } from '@/assets/js/projection/kernelProjection'
 
 export const allBackendServiceNames = [
   'ai-backend',
@@ -199,33 +200,50 @@ export const useBackendServices = defineStore(
       if (services.length === 0 && currentServiceInfo.value.length > 0) {
         return
       }
-      currentServiceInfo.value = services
-      for (const service of services) {
+      // A snapshot taken while some backends are still checking is a subset.
+      // Keep hydrated extras (getServices / a racing hydrate) so ai-backend
+      // does not vanish when llama.cpp publishes first.
+      const incomingNames = new Set(services.map((s) => s.serviceName))
+      const extras = currentServiceInfo.value.filter((s) => !incomingNames.has(s.serviceName))
+      currentServiceInfo.value = extras.length === 0 ? services : [...services, ...extras]
+      for (const service of currentServiceInfo.value) {
         applyInstalledVersionFromService(service)
       }
     }
 
-    window.electronAPI
-      .getServices()
-      .catch(async (_reason: unknown) => {
-        console.warn('initial service call failed - retrying')
-        await new Promise<void>((resolve) => {
-          setTimeout(async () => {
-            resolve()
-          }, 1000)
-        })
-        return window.electronAPI.getServices()
-      })
-      .then((services) => {
-        applyServiceSnapshot(services)
-      })
-    setTimeout(() => {
-      window.electronAPI.getServices().then((services) => {
-        console.log('getServices', services)
-        applyServiceSnapshot(services)
-      })
-    }, 5000)
-    window.electronAPI.onServiceInfoUpdate((updatedInfo) => {
+    async function hydrateFromMain(): Promise<void> {
+      try {
+        applyServiceSnapshot(await window.electronAPI.getServices())
+      } catch (error) {
+        console.warn('Failed to refresh service info from main', error)
+      }
+    }
+
+    // Service status is a projection of the kernel event stream: subscribe
+    // first, then install the snapshot, then apply pushes. The listener-first
+    // handshake replaces the old init dance (pull + retry + a 5s re-poll to
+    // paper over pushes the pull raced against) — no service can be missed
+    // between snapshot and stream, and a recreated window (macOS close +
+    // dock activate) hydrates the same way, where the old point-to-point
+    // channel went to the destroyed webContents.
+    const kernelProjection = connectKernelEventStream(
+      (event) => {
+        if (event.type !== 'service') return
+        applyServiceUpdate(event.info as ApiServiceInformation)
+      },
+      (snapshot) => {
+        applyServiceSnapshot(snapshot.state.services as ApiServiceInformation[])
+      },
+    )
+    kernelProjection.ready.catch((reason: unknown) => {
+      console.warn('kernel snapshot unavailable; waiting on stream events instead', reason)
+      void hydrateFromMain()
+    })
+    if (import.meta.hot) {
+      import.meta.hot.dispose(() => kernelProjection.dispose())
+    }
+
+    function applyServiceUpdate(updatedInfo: ApiServiceInformation): void {
       const idx = currentServiceInfo.value.findIndex(
         (s) => s.serviceName === updatedInfo.serviceName,
       )
@@ -234,11 +252,12 @@ export const useBackendServices = defineStore(
         next[idx] = updatedInfo
         currentServiceInfo.value = next
       } else {
-        // Initial getServices can return [] if IPC ran before the registry existed — upsert so pushes still populate.
+        // The snapshot can predate a service (registered after connect) —
+        // upsert so pushes still populate.
         currentServiceInfo.value = [...currentServiceInfo.value, updatedInfo]
       }
       applyInstalledVersionFromService(updatedInfo)
-    })
+    }
 
     /**
      * Fold an authoritative status straight into the cached service info.
@@ -617,6 +636,7 @@ export const useBackendServices = defineStore(
       embeddingModelName?: string,
       contextSize?: number,
       modelArgs?: string,
+      stopImageServer?: boolean,
     ): Promise<void> {
       try {
         const result = await window.electronAPI.ensureBackendReadiness(
@@ -625,6 +645,7 @@ export const useBackendServices = defineStore(
           embeddingModelName,
           contextSize,
           modelArgs,
+          stopImageServer,
         )
         if (!result.success) {
           throw new Error(result.error || 'Failed to ensure backend readiness')
@@ -734,8 +755,7 @@ export const useBackendServices = defineStore(
 
       // Re-fetch service info to get the latest setup status
       try {
-        const latestServices = await window.electronAPI.getServices()
-        currentServiceInfo.value = latestServices
+        await hydrateFromMain()
       } catch (error) {
         console.warn('Failed to refresh service info for installation check:', error)
       }
@@ -828,6 +848,7 @@ export const useBackendServices = defineStore(
       startAllSetUpServicesInBackground,
       backendStartupInProgress,
       latestSetupProgress,
+      hydrateFromMain,
     }
   },
   {
@@ -845,6 +866,10 @@ export const useBackendServices = defineStore(
     },
   },
 )
+
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useBackendServices, import.meta.hot))
+}
 
 /**
  * Grace period between the main-process setup call settling and us declaring the

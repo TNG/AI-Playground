@@ -1,5 +1,5 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { createActivity, type CreateActivityInput } from '../activities/activity'
 import type { Activity, ActivityCategory, ActivityState } from '../activities/types'
 
@@ -101,6 +101,15 @@ export const useActivities = defineStore('activities', () => {
     const toEnd = items.value.filter(pred)
     toEnd.forEach((item) => end(item.id, state))
   }
+
+  // The close policy (electron/kernel/windowLifecycle.ts) hides the window
+  // instead of quitting while the renderer is mid-work. This sink already knows
+  // "is anything running", so it owns that signal.
+  watch(
+    () => items.value.length > 0,
+    (busy) => window.electronAPI?.setLifecycleBusy?.(busy),
+    { immediate: true },
+  )
 
   return {
     items,

@@ -42,3 +42,58 @@ export const getAudioDir = () => {
   }
   return path.join(externalResourcesDir(), 'service', 'static', 'audio')
 }
+
+/**
+ * The user's chat threads: one JSON file per conversation plus `index.json`
+ * (architecture-target §6.1). Sibling to `media/` so a folder copy takes the
+ * conversations with it.
+ */
+export const getConversationsDir = () => {
+  if (process.env.USERPROFILE) {
+    return path.join(process.env.USERPROFILE, 'Documents', 'AI-Playground', 'conversations')
+  }
+  if (process.env.HOME) {
+    return path.join(process.env.HOME, 'AI-Playground', 'conversations')
+  }
+  return path.join(externalResourcesDir(), 'service', 'static', 'conversations')
+}
+
+/**
+ * Demo-mode conversations live here instead of the real library and are wiped
+ * on exit (§6.1: session-scoped, never a write into the user's real library).
+ */
+export const getConversationsDemoDir = () => {
+  if (process.env.USERPROFILE) {
+    return path.join(process.env.USERPROFILE, 'Documents', 'AI-Playground', 'conversations-demo')
+  }
+  if (process.env.HOME) {
+    return path.join(process.env.HOME, 'AI-Playground', 'conversations-demo')
+  }
+  return path.join(externalResourcesDir(), 'service', 'static', 'conversations-demo')
+}
+
+/**
+ * The user's agent sessions: one JSON file per session record plus
+ * `index.json` (architecture-target §6.1). The record carries the renderer
+ * transcript; Pi's own session files stay where Pi keeps them.
+ */
+export const getAgentSessionsDir = () => {
+  if (process.env.USERPROFILE) {
+    return path.join(process.env.USERPROFILE, 'Documents', 'AI-Playground', 'agent-sessions')
+  }
+  if (process.env.HOME) {
+    return path.join(process.env.HOME, 'AI-Playground', 'agent-sessions')
+  }
+  return path.join(externalResourcesDir(), 'service', 'static', 'agent-sessions')
+}
+
+/** Demo-mode agent sessions, wiped on exit like demo conversations (§6.1). */
+export const getAgentSessionsDemoDir = () => {
+  if (process.env.USERPROFILE) {
+    return path.join(process.env.USERPROFILE, 'Documents', 'AI-Playground', 'agent-sessions-demo')
+  }
+  if (process.env.HOME) {
+    return path.join(process.env.HOME, 'AI-Playground', 'agent-sessions-demo')
+  }
+  return path.join(externalResourcesDir(), 'service', 'static', 'agent-sessions-demo')
+}

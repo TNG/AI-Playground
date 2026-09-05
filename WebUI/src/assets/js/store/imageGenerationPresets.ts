@@ -7,137 +7,66 @@ import { useI18N } from './i18n'
 import { useErrors } from './errors'
 import { createAppError } from '../errors/appError'
 import { useBackendServices } from './backendServices'
+import { connectKernelEventStream } from '@/assets/js/projection/kernelProjection'
+import type { ArtifactPhase } from '@/types/kernelEvents'
 import { usePresets, presetRequiresUserPrompt, type ComfyInput } from './presets'
 
-/** Convert requiredModels "repo/path/file.safetensors" to ComfyUI format "repo---path\\file.safetensors" */
-function requiredModelToComfyUIName(modelPath: string): string {
-  const parts = modelPath.split('/')
-  if (parts.length < 2) return modelPath
-  const firstTwo = parts.slice(0, 2).join('---')
-  const rest = parts.slice(2).join('\\')
-  return rest ? `${firstTwo}\\${rest}` : firstTwo
-}
-
-/** Normalize to ComfyUI format (backslash) so disk scan and requiredModels dedupe correctly across OS. */
-function normalizeComfyUIModelName(name: string): string {
-  return name.replace(/\//g, '\\')
-}
-
-/** Value for optional model inputs when the node should be bypassed (e.g. no LoRA). */
-export const OPTIONAL_MODEL_NONE = 'None'
-
-/**
- * Convert stored model name to the path separator ComfyUI expects for the current OS.
- * Matches preset handling in main.ts: Windows expects backslash, non-Windows expects forward slash.
- */
-export function modelNameForComfyApi(name: string, platform: NodeJS.Platform): string {
-  return platform === 'win32' ? name.replace(/\//g, '\\') : name.replace(/\\/g, '/')
-}
+// ComfyUI model-name/path helpers and the optional-model sentinel live in
+// `@/lib/comfyWorkflow` (shared with the main-process artifact runner) and are
+// re-exported here because this store has always been their import site.
+import {
+  normalizeComfyUIModelName,
+  OPTIONAL_MODEL_NONE,
+  requiredModelToComfyUIName,
+} from '@/lib/comfyWorkflow'
+export {
+  modelNameForComfyApi,
+  normalizeComfyUIModelName,
+  OPTIONAL_MODEL_NONE,
+  requiredModelToComfyUIName,
+} from '@/lib/comfyWorkflow'
 import { useUIStore } from './ui'
-import { PresetRequirementsData, useDialogStore } from './dialogs'
+import type { PresetRequirementsData } from './dialogs'
 import { getMissingComfyuiBackendModels } from './imageGenerationUtils'
-import { useHomeAgent } from './homeAgent'
+import { requestDownload } from '@/assets/js/permissions/permissions'
 import { imageUrlToDataUri, saveImageToMediaInput } from '@/lib/utils'
 import { withTraceSpan } from '@/lib/laminarSpans'
+import { runArtifact, type ArtifactKind, type ArtifactResult } from '../artifact/runArtifact'
+import type { Preset } from './presets'
 import {
   getDemoModeInputImage,
   getDemoModeSketchInputImage,
   getDemoModeUpscaleInputImage,
 } from './demoModeDefaults'
 
-export type GenerateState =
-  | 'no_start'
-  | 'start_backend'
-  | 'input_image'
-  | 'install_workflow_components'
-  | 'load_workflow_components'
-  | 'load_model'
-  | 'load_model_components'
-  | 'generating'
-  | 'image_out'
-  | 'error'
-
-export type GenerationSettings = Partial<{
-  preset: string
-  variant?: string
-  device: number
-  prompt: string
-  seed: number
-  inferenceSteps: number
-  width: number
-  height: number
-  resolution: string
-  batchSize: number
-  negativePrompt: string
-  safetyCheck: boolean
-  showPreview: boolean
-}>
-
-export type ComfyDynamicInputWithCurrent = ComfyInput & { current: string | number | boolean }
-
-export type MediaItemState = 'queued' | 'generating' | 'done' | 'stopped' | 'failed'
-
-/** A media item that has not reached a terminal state yet. */
-export const isInFlight = (item: MediaItem): boolean =>
-  item.state === 'queued' || item.state === 'generating'
-
-type BaseMediaItem = {
-  id: string
-  state: MediaItemState
-  mode: WorkflowModeType
-  sourceImageUrl?: string
-  settings: GenerationSettings
-  dynamicSettings?: ComfyDynamicInputWithCurrent[]
-  createdAt?: number
-}
-
-export type ImageMediaItem = BaseMediaItem & {
-  type: 'image'
-  fromImageGen?: boolean
-  imageUrl: string
-  isNsfwBlocked?: boolean
-}
-
-export type VideoMediaItem = BaseMediaItem & {
-  type: 'video'
-  videoUrl: string
-  thumbnailUrl?: string // Optional thumbnail for video preview
-}
-
-export type Model3DMediaItem = BaseMediaItem & {
-  type: 'model3d'
-  model3dUrl: string
-  thumbnailUrl?: string // Optional thumbnail for 3D preview
-}
-
-export type MediaItem = ImageMediaItem | VideoMediaItem | Model3DMediaItem
-
-export const isVideo = (item: MediaItem): item is VideoMediaItem => item.type === 'video'
-
-export const is3D = (item: MediaItem): item is Model3DMediaItem => item.type === 'model3d'
-
-export const isImage = (item: MediaItem): item is ImageMediaItem => item.type === 'image'
-
-/**
- * Transparent 1x1 SVG injected as the `imageUrl` for queued items so the slot
- * exists before any real output arrives (see `comfyUiPresets.queueBatch`). It is
- * not real output, so "has media" checks must treat it as empty.
- */
-export const PLACEHOLDER_IMAGE_URL =
-  'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="1" height="1"%3E%3C/svg%3E'
-
-/**
- * Whether a media item carries real, displayable output (not an empty or
- * placeholder slot). Used to hide cancelled/failed items that never produced
- * media (e.g. items left in a terminal `stopped`/`failed` state after a batch
- * is cancelled) from galleries and auto-selection.
- */
-export const hasDisplayableMedia = (item: MediaItem): boolean => {
-  if (isVideo(item)) return !!item.videoUrl && item.videoUrl.trim() !== ''
-  if (is3D(item)) return !!item.model3dUrl && item.model3dUrl.trim() !== ''
-  const url = item.imageUrl
-  return !!url && url.trim() !== '' && url !== PLACEHOLDER_IMAGE_URL
-}
+// MediaItem, the generation FSM state vocabulary and their predicates live in
+// `@/types/mediaItem` (shared with the main-process artifact runner and the
+// kernel event vocabulary) and are re-exported here as the historical import
+// site.
+import {
+  isInFlight,
+  type GenerateState,
+  type ImageMediaItem,
+  type MediaItem,
+} from '@/types/mediaItem'
+export {
+  hasDisplayableMedia,
+  isInFlight,
+  is3D,
+  isImage,
+  isVideo,
+  PLACEHOLDER_IMAGE_URL,
+} from '@/types/mediaItem'
+export type {
+  ComfyDynamicInputWithCurrent,
+  GenerateState,
+  GenerationSettings,
+  ImageMediaItem,
+  MediaItem,
+  MediaItemState,
+  Model3DMediaItem,
+  VideoMediaItem,
+} from '@/types/mediaItem'
 
 const globalDefaultSettings = {
   seed: -1,
@@ -161,6 +90,16 @@ export const backendToService: Record<'comfyui', BackendServiceName> = {
   comfyui: 'comfyui-backend',
 }
 
+/**
+ * Persistence key for a preset's saved settings and dynamic inputs: the preset
+ * name, or `preset:variant` when one is applied. Shared by this store's
+ * settings-per-preset map and the artifact runner, which resolves a workflow's
+ * saved inputs without making it the active preset.
+ */
+export function presetSettingsKey(presetName: string, variant?: string | null): string {
+  return variant ? `${presetName}:${variant}` : presetName
+}
+
 export { findBestResolution } from './imageGenerationUtils'
 
 export const useImageGenerationPresets = defineStore(
@@ -171,10 +110,8 @@ export const useImageGenerationPresets = defineStore(
     const comfyUi = useComfyUiPresets()
     const backendServices = useBackendServices()
     const uiStore = useUIStore()
-    const dialogStore = useDialogStore()
     const errors = useErrors()
     const i18nState = useI18N().state
-    const homeAgent = useHomeAgent()
 
     const activePreset = computed(() => {
       console.log('### activePreset', presetsStore.activePresetWithVariant)
@@ -240,32 +177,6 @@ export const useImageGenerationPresets = defineStore(
         (s) => 'settingName' in s && s.settingName === settingName,
       )
       return setting ? setting.displayed || setting.modifiable : false
-    }
-
-    const getGenerationParameters = (): GenerationSettings => {
-      const allSettings = {
-        preset: activePreset.value?.name ?? 'unknown',
-        variant: activePreset.value?.name
-          ? (presetsStore.activeVariantName[activePreset.value.name] ?? undefined)
-          : undefined,
-        device: 0, // TODO get correct device from backend service
-        prompt: prompt.value,
-        negativePrompt: negativePrompt.value,
-        batchSize: batchSize.value,
-        inferenceSteps: inferenceSteps.value,
-        seed: seed.value,
-        height: height.value,
-        width: width.value,
-        resolution: resolution.value,
-        safetyCheck: safetyCheck.value,
-        showPreview: showPreview.value,
-      }
-      return Object.fromEntries(
-        Object.entries(allSettings).filter(([key]) => {
-          if (key === 'preset' || key === 'variant' || key === 'device') return true
-          return settingIsRelevant(key)
-        }),
-      )
     }
 
     const settings = {
@@ -453,7 +364,7 @@ export const useImageGenerationPresets = defineStore(
         }
       }
 
-      return variantName ? `${activePreset.value.name}:${variantName}` : activePreset.value.name
+      return presetSettingsKey(activePreset.value.name, variantName)
     }
 
     // Note: Preset/variant changes are now handled by the orchestrator (usePresetSwitching),
@@ -692,54 +603,141 @@ export const useImageGenerationPresets = defineStore(
       }
     }
 
-    async function getMissingModels(): Promise<DownloadModelParam[]> {
-      if (!activePreset.value) return []
-      return getMissingComfyuiBackendModels(activePreset.value.requiredModels ?? [])
+    // Renderer-submitted run ids. In-process agent tools also emit artifact
+    // events; adopting those would drive the Image Gen overlay / history from
+    // a run the user is not looking at.
+    const trackedArtifactRunIds = new Set<string>()
+    function trackArtifactRun(runId: string): void {
+      trackedArtifactRunIds.add(runId)
+    }
+    function untrackArtifactRun(runId: string): void {
+      trackedArtifactRunIds.delete(runId)
     }
 
-    async function ensureModelsAreAvailable(): Promise<void> {
+    // ── Artifact run projection (architecture-target §4.1 step 5) ────────────
+    // The main-process artifact runner is the engine; its kernel events drive
+    // this store's legacy FSM vocabulary, so every downstream consumer (the
+    // generation overlay, the FSM→activity bridge, the tool watchers) keeps
+    // working unchanged. Phases map 1:1 onto the states the old engine set.
+    function applyArtifactPhase(
+      runId: string,
+      phase: ArtifactPhase,
+      progress?: { current: number; max: number },
+      error?: string,
+    ): void {
+      switch (phase) {
+        case 'queued':
+          break
+        case 'preparing-backend':
+          currentState.value = 'start_backend'
+          stepText.value = ''
+          break
+        case 'installing-components':
+          currentState.value = 'install_workflow_components'
+          break
+        case 'loading-components':
+          currentState.value = 'load_workflow_components'
+          break
+        case 'loading-model':
+          currentState.value = 'load_model'
+          break
+        case 'running':
+          currentState.value = 'generating'
+          if (progress) {
+            stepText.value = `${i18nState.COM_GENERATING} ${progress.current}/${progress.max}`
+          }
+          break
+        case 'completed':
+          currentState.value = 'image_out'
+          stepText.value = ''
+          untrackArtifactRun(runId)
+          break
+        case 'failed':
+          failGeneration(error ?? 'Generation failed')
+          untrackArtifactRun(runId)
+          break
+        case 'cancelled':
+          cancelGeneration()
+          untrackArtifactRun(runId)
+          break
+      }
+    }
+
+    const artifactProjection = connectKernelEventStream(
+      (event) => {
+        if (event.type === 'artifact-phase') {
+          if (!trackedArtifactRunIds.has(event.runId)) return
+          applyArtifactPhase(event.runId, event.phase, event.progress, event.error)
+        } else if (event.type === 'artifact-item') {
+          if (!generatedImages.value.some((item) => item.id === event.item.id)) return
+          updateImage(event.item)
+        }
+      },
+      (snapshot) => {
+        // A reconnected renderer resumes a renderer-originated run. In-process
+        // agent runs share this snapshot slot but must not paint the panel.
+        const run = snapshot.state.activeArtifactRun
+        if (!run) return
+        const known = new Set(generatedImages.value.map((item) => item.id))
+        const hasTrackedItems = run.items.some((item) => known.has(item.id))
+        if (!hasTrackedItems && run.origin === 'agent') return
+        trackArtifactRun(run.runId)
+        applyArtifactPhase(run.runId, run.phase, run.progress, run.error ?? undefined)
+        for (const item of run.items) {
+          if (hasTrackedItems && !known.has(item.id)) continue
+          updateImage(item)
+        }
+      },
+    )
+    artifactProjection.ready.catch((reason: unknown) => {
+      console.warn('artifact run snapshot unavailable; waiting on stream events instead', reason)
+    })
+    if (import.meta.hot) {
+      import.meta.hot.dispose(() => artifactProjection.dispose())
+    }
+
+    async function getMissingModelsFor(preset: Preset | null): Promise<DownloadModelParam[]> {
+      if (!preset) return []
+      return getMissingComfyuiBackendModels(preset.requiredModels ?? [])
+    }
+
+    async function getMissingModels(): Promise<DownloadModelParam[]> {
+      return getMissingModelsFor(activePreset.value)
+    }
+
+    async function ensureModelsAreAvailableFor(preset: Preset | null): Promise<void> {
       // Avoid the `new Promise(async (resolve, reject) => ...)` antipattern:
       // an exception inside an async executor becomes an unhandled rejection
       // and the outer promise never settles. Now that getMissingModels() can
       // throw (when a required model is unavailable), this matters.
-      const downloadList = await getMissingModels()
+      const downloadList = await getMissingModelsFor(preset)
       if (downloadList.length === 0) return
       // Traced only when something is actually missing: a `models.download` span
       // in a trace means multi-GB files were fetched before generating, which is
       // usually the reason a first run took so much longer than the next.
-      return withTraceSpan(
-        'models.download',
-        () =>
-          new Promise<void>((resolve, reject) => {
-            // On a remote Home Agent turn there is nobody at the desktop to act on
-            // the download modal; route the approval + progress to the channel
-            // (mirrored into the desktop window) instead of getting stuck.
-            if (homeAgent.isRemoteTurnActive()) {
-              homeAgent.handleRemoteModelDownload(downloadList).then(resolve).catch(reject)
-            } else {
-              dialogStore.showDownloadDialog(downloadList, resolve, reject)
-            }
-          }),
-        {
-          attributes: {
-            'aipg.models': downloadList.map((model) => model.repo_id).join(', ') || undefined,
-          },
+      return withTraceSpan('models.download', () => requestDownload(downloadList), {
+        attributes: {
+          'aipg.models': downloadList.map((model) => model.repo_id).join(', ') || undefined,
         },
-      )
+      })
+    }
+
+    async function ensureModelsAreAvailable(): Promise<void> {
+      return ensureModelsAreAvailableFor(activePreset.value)
     }
 
     /**
-     * Validates all requirements for the active preset
-     * @returns Object containing validation results for backend, custom nodes, Python packages, and models
+     * Validates all requirements for a preset (backend, custom nodes, Python
+     * packages, models) without making it the active preset.
      */
-    async function validatePresetRequirements(): Promise<{
+    async function validatePresetRequirementsFor(preset: Preset | null): Promise<{
       backendRunning: boolean
       missingCustomNodes: string[]
       missingPythonPackages: string[]
       missingModels: DownloadModelParam[]
       allRequirementsMet: boolean
     }> {
-      if (!activePreset.value) {
+      if (!preset) {
         return {
           backendRunning: false,
           missingCustomNodes: [],
@@ -750,21 +748,22 @@ export const useImageGenerationPresets = defineStore(
       }
 
       // Check backend status
-      const backendServiceName = backendToService[backend.value]
+      const backendServiceName =
+        preset.type === 'comfy' ? backendToService[preset.backend as 'comfyui'] : 'comfyui-backend'
       const backendInfo = backendServices.info.find((s) => s.serviceName === backendServiceName)
       const backendRunning = backendInfo?.status === 'running'
 
       // Check custom nodes and Python packages (only for ComfyUI presets)
       let missingCustomNodes: string[] = []
       let missingPythonPackages: string[] = []
-      if (activePreset.value.type === 'comfy') {
-        const requirements = await comfyUi.checkPresetRequirements()
+      if (preset.type === 'comfy') {
+        const requirements = await comfyUi.checkPresetRequirements(preset)
         missingCustomNodes = requirements.missingCustomNodes
         missingPythonPackages = requirements.missingPythonPackages
       }
 
       // Check models
-      const missingModels = await getMissingModels()
+      const missingModels = await getMissingModelsFor(preset)
 
       const allRequirementsMet =
         backendRunning &&
@@ -779,6 +778,20 @@ export const useImageGenerationPresets = defineStore(
         missingModels,
         allRequirementsMet,
       }
+    }
+
+    /**
+     * Validates all requirements for the active preset
+     * @returns Object containing validation results for backend, custom nodes, Python packages, and models
+     */
+    async function validatePresetRequirements(): Promise<{
+      backendRunning: boolean
+      missingCustomNodes: string[]
+      missingPythonPackages: string[]
+      missingModels: DownloadModelParam[]
+      allRequirementsMet: boolean
+    }> {
+      return validatePresetRequirementsFor(activePreset.value)
     }
 
     /**
@@ -799,9 +812,30 @@ export const useImageGenerationPresets = defineStore(
       }
     }
 
-    async function generate(mode: WorkflowModeType = 'imageGen', sourceImage?: string) {
-      console.log('### generate', mode, sourceImage, activePreset.value)
-      if (!activePreset.value) {
+    // kind is advisory until per-kind adapters exist (routing is by preset
+    // mediaType), but it must still say what the panel actually asked for.
+    const MODE_TO_ARTIFACT_KIND: Record<WorkflowModeType, ArtifactKind> = {
+      imageGen: 'create-image',
+      imageEdit: 'edit-image',
+      video: 'create-video',
+    }
+
+    /**
+     * UI submit path for the Image Gen / Edit / Video panels: build an
+     * artifact request from the live form state and hand it to the shared
+     * runner. Resolves when the run settles (not when it is queued) — the
+     * prompt bar's busy state follows the FSM (`processing`) independently,
+     * so callers must not read the promise as "render finished" either way.
+     * The panel's source image rides the saved LoadImage inputs (the
+     * selectedEditedImageId watch), not `request.source`: multi-slot edit
+     * presets manage each slot through its own binding, and a generic
+     * source injection would clobber slot 1.
+     */
+    async function generate(
+      mode: WorkflowModeType = 'imageGen',
+    ): Promise<ArtifactResult | undefined> {
+      const preset = activePreset.value
+      if (!preset || preset.type !== 'comfy') {
         errors.report(
           createAppError({
             category: 'validation',
@@ -814,22 +848,8 @@ export const useImageGenerationPresets = defineStore(
       }
 
       lastError.value = null
+      // Drop abandoned placeholders from a previous cancelled/failed run
       generatedImages.value = generatedImages.value.filter((item) => item.state === 'done')
-      const imageIds: string[] = Array.from({ length: batchSize.value }, () => crypto.randomUUID())
-      imageIds.forEach((imageId) => {
-        updateImage({
-          id: imageId,
-          mode: mode,
-          sourceImageUrl: sourceImage,
-          state: 'queued',
-          settings: {},
-          type: 'image',
-          imageUrl: '',
-        })
-      })
-      currentState.value = 'no_start'
-      stepText.value = i18nState.COM_GENERATING
-
       // Auto-open history view for batch generation
       if (batchSize.value > 1) {
         uiStore.openHistory()
@@ -838,11 +858,32 @@ export const useImageGenerationPresets = defineStore(
       const inferenceBackendService = backendToService[backend.value]
       await backendServices.resetLastUsedInferenceBackend(inferenceBackendService)
       await backendServices.updateLastUsedBackend(inferenceBackendService)
-      await comfyUi.generate(imageIds, mode, sourceImage)
+
+      stepText.value = i18nState.COM_GENERATING
+      currentState.value = 'no_start'
+
+      // UI runs are top-level: no parent activity (the runner resets the stale
+      // tool-parented value the previous chat run may have left behind).
+      return await runArtifact({
+        kind: MODE_TO_ARTIFACT_KIND[mode],
+        workflow: preset.name,
+        variant: presetsStore.activeVariantName[preset.name] || undefined,
+        mode,
+        prompt: prompt.value,
+        negativePrompt: negativePrompt.value,
+        params: {
+          seed: seed.value,
+          width: width.value,
+          height: height.value,
+          inferenceSteps: inferenceSteps.value,
+          batchSize: batchSize.value,
+        },
+      })
     }
 
     function stopGeneration() {
-      comfyUi.stop()
+      stopping.value = true
+      void window.electronAPI.artifact.cancel().finally(() => cancelGeneration())
     }
 
     function deleteImage(id: string) {
@@ -929,16 +970,20 @@ export const useImageGenerationPresets = defineStore(
       comfyInputs,
       resetActivePresetSettings,
       getMissingModels,
+      getMissingModelsFor,
       ensureModelsAreAvailable,
+      ensureModelsAreAvailableFor,
       validatePresetRequirements,
+      validatePresetRequirementsFor,
       formatRequirementsForDialog,
       updateImage,
+      trackArtifactRun,
+      untrackArtifactRun,
       generate,
       stopGeneration,
       deleteImage,
       deleteAllImages,
       deleteAllImagesForMode,
-      getGenerationParameters,
       selectedGeneratedImageId,
       selectedEditedImageId,
       selectedVideoId,

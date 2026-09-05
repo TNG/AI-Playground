@@ -17,7 +17,7 @@ import {
   resolveSampling,
   toRequestBody,
 } from '@/lib/samplingDefaults'
-import { useDialogStore } from '@/assets/js/store/dialogs.ts'
+import { requestDownload } from '@/assets/js/permissions/permissions'
 import { usePresets, type ChatPreset } from './presets'
 import { useDeveloperSettings } from './developerSettings'
 import { useHomeAgent } from './homeAgent'
@@ -174,7 +174,6 @@ export const useTextInference = defineStore(
   'textInference',
   () => {
     const backendServices = useBackendServices()
-    const dialogStore = useDialogStore()
     const models = useModels()
     const presetsStore = usePresets()
     const developerSettings = useDeveloperSettings()
@@ -872,32 +871,6 @@ export const useTextInference = defineStore(
     // Per-preset settings persistence
     const settingsPerPreset = ref<Record<string, Record<string, unknown>>>({})
 
-    // Number of inference HTTP requests currently streaming from the chat
-    // backend. Maintained by the chat transport's custom fetch (see
-    // openAiCompatibleChat): incremented when a request starts, decremented when
-    // its response body finishes (completes, is cancelled, or errors). Image
-    // tools consult this via waitForInferenceIdle() so they never tear down the
-    // chat backend while a stream to it is still open (which would reset the
-    // socket mid-stream and surface as a "network error").
-    const activeInferenceStreams = ref(0)
-    function beginInferenceStream() {
-      activeInferenceStreams.value++
-    }
-    function endInferenceStream() {
-      if (activeInferenceStreams.value > 0) activeInferenceStreams.value--
-    }
-    // Resolve once no inference stream is open, or after `timeoutMs` as a
-    // safety valve so a wedged/keep-alive socket can't block image generation
-    // indefinitely. In the common case the stream is already drained (the SDK
-    // finishes each step before running a tool), so this returns immediately.
-    async function waitForInferenceIdle(timeoutMs = 3000): Promise<void> {
-      const start = Date.now()
-      while (activeInferenceStreams.value > 0) {
-        if (Date.now() - start >= timeoutMs) break
-        await new Promise((resolve) => setTimeout(resolve, 50))
-      }
-    }
-
     // Raw URL of the selected local inference backend, without any of the
     // loopback proxies `currentBackendUrl` prefers. Callers that cannot attach
     // the proxies' headers (X-AIPG-Auth / X-Upstream-Url for Home Agent,
@@ -1525,16 +1498,10 @@ export const useTextInference = defineStore(
           throw new Error('No embedding model selected but RAG documents are enabled')
         }
 
-        // Stop OVMS image server to free GPU memory before loading LLM
-        if (!developerSettings.keepModelsLoaded) {
-          try {
-            await window.electronAPI.stopOvmsImageServer()
-          } catch (_e) {
-            // Ignore — server may not be running
-          }
-        }
-
         try {
+          // The image-server stop and GPU-window admission are the
+          // orchestrator's now (main's ensureBackendReadiness handler, step 7)
+          // — the setting rides along so it can apply the same policy.
           await backendServices.ensureBackendReadiness(
             serviceName,
             llmModelName,
@@ -1543,6 +1510,7 @@ export const useTextInference = defineStore(
             // Only llama.cpp reads these; OVMS is started from a different
             // command line and ignores them.
             backend.value === 'llamaCPP' ? activeLlmModel.value?.llamaCppArgs : undefined,
+            !developerSettings.keepModelsLoaded,
           )
         } catch (error) {
           // Surface model-load failures (e.g. out of memory for the chosen
@@ -1567,33 +1535,22 @@ export const useTextInference = defineStore(
 
     async function checkModelAvailability() {
       // ToDo: the path for embedding downloads must be corrected and BAAI/bge-large-zh-v1.5 was accidentally downloaded to the wrong place
-      return new Promise<void>(async (resolve, reject) => {
-        const requiredModelDownloads = await getDownloadParamsForCurrentModelIfRequired('llm')
-        if (willUseRag.value) {
-          const requiredEmbeddingModelDownloads =
-            await getDownloadParamsForCurrentModelIfRequired('embedding')
-          requiredModelDownloads.push(...requiredEmbeddingModelDownloads)
-        }
+      const requiredModelDownloads = await getDownloadParamsForCurrentModelIfRequired('llm')
+      if (willUseRag.value) {
+        const requiredEmbeddingModelDownloads =
+          await getDownloadParamsForCurrentModelIfRequired('embedding')
+        requiredModelDownloads.push(...requiredEmbeddingModelDownloads)
+      }
 
-        // Deduplicate download list by repo_id to prevent the same model from appearing multiple times
-        const uniqueDownloads = requiredModelDownloads.filter(
-          (download, index, self) =>
-            index === self.findIndex((d) => d.repo_id === download.repo_id),
-        )
+      // Deduplicate download list by repo_id to prevent the same model from appearing multiple times
+      const uniqueDownloads = requiredModelDownloads.filter(
+        (download, index, self) => index === self.findIndex((d) => d.repo_id === download.repo_id),
+      )
 
-        if (uniqueDownloads.length > 0) {
-          // On a remote Home Agent turn there is nobody at the desktop to act on
-          // the download modal; route the approval + progress to the channel
-          // (mirrored into the desktop window) instead of getting stuck.
-          if (homeAgent.isRemoteTurnActive()) {
-            homeAgent.handleRemoteModelDownload(uniqueDownloads).then(resolve).catch(reject)
-          } else {
-            dialogStore.showDownloadDialog(uniqueDownloads, resolve, reject)
-          }
-        } else {
-          resolve()
-        }
-      })
+      if (uniqueDownloads.length === 0) return
+      // The permissions layer owns the prompt: the download modal, or the
+      // channel when a remote Home Agent turn is active.
+      await requestDownload(uniqueDownloads)
     }
 
     // Cloud Mode RAG: the chat LLM is remote and cannot embed, so bring up a
@@ -2435,9 +2392,6 @@ export const useTextInference = defineStore(
 
       // In-flight inference stream tracking (used by image tools to avoid
       // resetting an open chat-backend socket when freeing the GPU)
-      beginInferenceStream,
-      endInferenceStream,
-      waitForInferenceIdle,
       migrateRenamedPresetSettings,
       migrateGlobalToolEnablement,
     }

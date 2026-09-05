@@ -92,6 +92,28 @@ afterEach(async () => {
   resetConversationFilesForTest()
 })
 
+async function writeThreadFile(
+  id: string,
+  messages: unknown[],
+  meta: { presetName: string; kind: 'main' | 'homeAgent' } | null = {
+    presetName: 'Qwen',
+    kind: 'main',
+  },
+): Promise<void> {
+  await fs.mkdir(dirs.real, { recursive: true })
+  await fs.writeFile(
+    path.join(dirs.real, `${id}.json`),
+    `${JSON.stringify({
+      schemaVersion: 1,
+      meta,
+      ragHashes: [],
+      messages,
+      updatedAt: 1,
+    })}\n`,
+    'utf8',
+  )
+}
+
 describe('bootstrapConversations', () => {
   it('reports empty on a fresh install', async () => {
     await expect(bootstrapConversations()).resolves.toEqual({ status: 'empty' })
@@ -136,6 +158,44 @@ describe('bootstrapConversations', () => {
     expect(boot).toMatchObject({ status: 'ok', lastMainKey: '100' })
     if (boot.status !== 'ok') return
     expect(boot.threads).toEqual([{ id: '100', meta: null, ragHashes: [], messages: [] }])
+  })
+
+  it('rebuilds from thread files when index.json is unreadable', async () => {
+    await writeThreadFile('800', titledThread('Survived'))
+    await fs.writeFile(path.join(dirs.real, 'index.json'), '{not json', 'utf8')
+    const boot = await bootstrapConversations()
+    expect(boot).toMatchObject({ status: 'ok', lastMainKey: null })
+    if (boot.status !== 'ok') return
+    expect(boot.threads).toHaveLength(1)
+    expect(boot.threads[0].id).toBe('800')
+    expect(boot.threads[0].meta).toMatchObject({ presetName: 'Qwen', kind: 'main' })
+    const index = await readJson(path.join(dirs.real, 'index.json'))
+    expect(index).toMatchObject({
+      schemaVersion: 1,
+      threads: [{ id: '800', title: 'Survived' }],
+    })
+  })
+
+  it('rebuilds from thread files when index.json fails schema', async () => {
+    await writeThreadFile('800', titledThread('Survived'))
+    await fs.writeFile(
+      path.join(dirs.real, 'index.json'),
+      `${JSON.stringify({ schemaVersion: 99, threads: [] })}\n`,
+      'utf8',
+    )
+    const boot = await bootstrapConversations()
+    expect(boot).toMatchObject({ status: 'ok' })
+    if (boot.status !== 'ok') return
+    expect(boot.threads.map((thread) => thread.id)).toEqual(['800'])
+  })
+
+  it('rebuilds from thread files when index.json is missing but threads remain', async () => {
+    await writeThreadFile('800', titledThread('Orphan'))
+    const boot = await bootstrapConversations()
+    expect(boot).toMatchObject({ status: 'ok' })
+    if (boot.status !== 'ok') return
+    expect(boot.threads.map((thread) => thread.id)).toEqual(['800'])
+    expect(await listDir(dirs.real)).toEqual(expect.arrayContaining(['800.json', 'index.json']))
   })
 })
 
@@ -224,6 +284,30 @@ describe('saveConversation', () => {
     expect(ids).toEqual(['600', '700'])
     expect(index.lastMainKey).toBe('600')
   })
+
+  it('rejects an id that would overwrite index.json', async () => {
+    await expect(
+      saveConversation({
+        id: 'index',
+        meta: null,
+        ragHashes: [],
+        messages: [userMessage('attacker')],
+      }),
+    ).rejects.toThrow(/invalid conversation id/)
+    expect(await listDir(dirs.real)).toEqual([])
+  })
+
+  it('rejects a path-shaped id', async () => {
+    await expect(
+      saveConversation({
+        id: '../x',
+        meta: null,
+        ragHashes: [],
+        messages: [userMessage('attacker')],
+      }),
+    ).rejects.toThrow(/invalid conversation id/)
+    expect(await listDir(dirs.real)).toEqual([])
+  })
 })
 
 describe('deleteConversation', () => {
@@ -256,5 +340,61 @@ describe('migrateLegacyConversations', () => {
     expect(boot).toMatchObject({ status: 'ok', threads: [] })
     const again = await bootstrapConversations()
     expect(again.status).toBe('ok')
+  })
+
+  it('does not overwrite an existing index on a second migrate', async () => {
+    await migrateLegacyConversations({
+      conversationList: { '100': [userMessage('first')] },
+      conversationThreadMeta: {},
+      conversationRagSelection: {},
+      lastMainKey: '100',
+    })
+    const second = await migrateLegacyConversations({
+      conversationList: { '999': [userMessage('attacker')] },
+      conversationThreadMeta: {},
+      conversationRagSelection: {},
+      lastMainKey: '999',
+    })
+    expect(second).toMatchObject({ status: 'ok', lastMainKey: '100' })
+    if (second.status !== 'ok') return
+    expect(second.threads.map((thread) => thread.id)).toEqual(['100'])
+    expect(await listDir(dirs.real)).not.toContain('999.json')
+  })
+
+  it('migrates the Home Agent singleton id', async () => {
+    const boot = await migrateLegacyConversations({
+      conversationList: { __aipg_home_agent__: [userMessage('hi')] },
+      conversationThreadMeta: {
+        __aipg_home_agent__: { presetName: 'Home Agent', kind: 'homeAgent' },
+      },
+      conversationRagSelection: {},
+      lastMainKey: null,
+    })
+    expect(boot).toMatchObject({ status: 'ok' })
+    if (boot.status !== 'ok') return
+    expect(boot.threads).toHaveLength(1)
+    expect(boot.threads[0].id).toBe('__aipg_home_agent__')
+    expect(boot.threads[0].meta).toMatchObject({ kind: 'homeAgent' })
+    expect(await listDir(dirs.real)).toEqual(
+      expect.arrayContaining(['__aipg_home_agent__.json', 'index.json']),
+    )
+  })
+
+  it('skips a legacy id that would overwrite the index file', async () => {
+    const boot = await migrateLegacyConversations({
+      conversationList: {
+        index: [userMessage('attacker')],
+        '100': [userMessage('keeper')],
+      },
+      conversationThreadMeta: {},
+      conversationRagSelection: {},
+      lastMainKey: null,
+    })
+    expect(boot).toMatchObject({ status: 'ok' })
+    if (boot.status !== 'ok') return
+    expect(boot.threads.map((thread) => thread.id)).toEqual(['100'])
+    const index = await readJson(path.join(dirs.real, 'index.json'))
+    expect(index.schemaVersion).toBe(1)
+    expect((index.threads as { id: string }[]).map((thread) => thread.id)).toEqual(['100'])
   })
 })

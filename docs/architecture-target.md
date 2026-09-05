@@ -1,13 +1,15 @@
 # Target architecture — capabilities, drivers, state ownership
 
-**Status: steps 1–7 of the migration order (§8) are implemented; the rest is draft for discussion.**
+**Status: steps 1–8 of the migration order (§8) have a first slice landed (conversations as
+kernel-owned files, `userSelectedMode` deleted); remaining §6 buckets are incremental.**
 Media generation is owned by the main-process Artifact runner; speech drivers go through `speechIO`;
 inference/download consent through Permissions; main→renderer notifications through one kernel
 event stream (`kernel:event`) with a listener-first snapshot handshake; chat turns run in main
 and stream back as kernel `chat-chunk` events; media runs share one main-side queue and GPU
 window. Parked follow-ups from those landings live in
-[§8.2](#82-parked-follow-ups-from-landed-steps) — they do not block step 8.
-Everything after step 7 is a map of where we want it, and the order in which we could get there.
+[§8.2](#82-parked-follow-ups-from-landed-steps) — they do not block the next slice of step 8.
+Everything after the landed first slices of step 8 is a map of where we want it, and the order
+in which we could get there.
 It exists to be argued with — see [§10 Decisions](#10-decisions).
 
 ## 0. How to read and edit this
@@ -44,10 +46,11 @@ borrow the workflow, write the tool's arguments into those same fields, run the 
 restore everything in a `finally`. `tools/comfyUiImageEdit.ts` did the same. An agent asking for a
 picture was literally impersonating a user clicking through the sidebar.
 
-**The UI mode was part of that mutation.** `promptArea` carries both `currentMode` and
+**The UI mode was part of that mutation.** `promptArea` carried both `currentMode` and
 `userSelectedMode`, and `setModeOnly()` existed so background tool calls could "borrow a mode without
-disturbing the UI". Two variables tracked one concept because a capability wrote view state. (The
-tool-side mode borrowing is gone; the two variables remain until §8 step 8.)
+disturbing the UI". Two variables tracked one concept because a capability wrote view state.
+Step 8 deleted `userSelectedMode`: nothing borrows the mode since step 7, so the status bar and the
+history filter read `currentMode`. `setModeOnly()` remains for Home Agent remote focus.
 
 **The agent is in main but the NL `media` tool still reaches back into the window.** Direct
 `generateImage` / `editImage` tools execute in-process against the main-process runner
@@ -64,7 +67,8 @@ two owners.
 
 **App data lives in the renderer's localStorage.** `imageGenerationPresets` persists
 `generatedImages`, with a custom serializer that strips data URIs specifically to stay under the
-localStorage quota. `conversations` persists every transcript; `agentMode` persists `sessions` next
+localStorage quota. Conversations moved to kernel-owned files with step 8's first slice;
+`agentMode` still persists `sessions` next
 to `defaultCapabilities` and `planningThinkingOnly` (session data next to user preferences).
 
 **Home Agent needs the whole renderer graph.** `store/homeAgent.ts` imports chat, image generation,
@@ -687,11 +691,11 @@ Classify by **who writes it** and **how long it lives**, not by which feature it
 | `backendServices.currentServiceInfo`                           | app data           | live process status, correctly ephemeral                              |
 | `imageGenerationPresets.settingsPerPreset`                     | user preference    | keep                                                                  |
 | `imageGenerationPresets.generatedImages`                       | app data           | in localStorage with a quota-dodging serializer; should be files      |
-| `conversations.conversationList`                               | app data           | ditto                                                                 |
+| `conversations.conversationList`                               | app data           | kernel-owned files as of step 8 (`AI-Playground/conversations/`); the store is the live projection |
 | `agentMode.sessions`, `workspaceDir`                           | app data           | —                                                                     |
 | `agentMode.defaultCapabilities`, `planningThinkingOnly`        | user preference    | same store as the line above                                          |
 | `promptArea.currentMode`                                       | UI state           | session-only; hydrated at startup from default-preset pref            |
-| `promptArea.userSelectedMode`                                  | UI state           | can be deleted once nothing borrows the mode                          |
+| `promptArea.userSelectedMode`                                  | UI state           | **deleted** (step 8); status bar / history filter read `currentMode`; `setModeOnly` remains for Home Agent remote focus |
 | last-used preset per category (today inside preset switching)  | user preference    | the `last` half of `defaultPreset: Preset \| last`                    |
 | active preset while the app is running                         | UI state           | not written back except as "last used" when the pref is `last`        |
 
@@ -897,6 +901,7 @@ with step 7 (`queue-event`, not snapshotted) | yes |
 Steps 1–4 are worth doing even if we never move chat: they make the capabilities testable and the
 projection boundary complete. Snapshot hydration and Artifact readiness landed with steps 4–5;
 IPC delta coalescing landed with step 6, the single queue and GPU policy with step 7.
+Conversation files and the `userSelectedMode` deletion landed with step 8's first slice.
 
 ### 8.1 Transition cost and per-step obligations
 
@@ -1012,7 +1017,7 @@ small fix on this branch) can pick them up instead of rediscovering them.
   (`comfyUiPresets`) and went with the engine; the runner streams phases but opens no spans. Wire
   the span bridge to the projected phases, or move it main-side with the Pi extension.
 
-**Step 6 (chat in main) — leftovers, none blocking step 8:**
+**Step 6 (chat in main) — leftovers, none blocking the next slice of step 8:**
 
 - **RAG retrieval stayed renderer-side.** The turn request ships the prepared prompt and the UI
   messages, but `prepareRagContext` remains renderer state. Conversation persistence moved to
@@ -1086,6 +1091,13 @@ small fix on this branch) can pick them up instead of rediscovering them.
   flags (`comfyUiParameters` / `llamaCppParameters`) → `settings.json`, `generatedImages` → files
   beside the media they reference, `ragList` → the RAG bucket, `lastSelectedDeviceIdPerBackend`
   dedupe, `agentMode.sessions` / workspace files, the `defaultPreset` preference.
+- **`lastMainKey` is persisted (and the empty session draft overwrites it on boot) but no UI reads
+  it.** The store comment intended it for restoring the last Local thread when toggling the history
+  filter; that restore was never wired. Do not treat a missing restore as a regression of this
+  slice — wire it when the filter actually needs it.
+- **`writeChains` is never pruned.** Each conversation id (plus `index`) keeps the tail of its
+  serialize promise in a Map for the process lifetime. Harmless at current thread counts; drop
+  settled entries if a long-lived session accumulates thousands of ids.
 
 **Step 2 (Speech I/O) — already noted at the adapter, still ahead:**
 

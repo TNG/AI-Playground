@@ -7,6 +7,12 @@ import { createPinia, setActivePinia } from 'pinia'
 // and which mutations forward to the writer — and which deliberately do not
 // (an empty main draft stays in memory until it has content).
 
+const { errorsReport } = vi.hoisted(() => ({ errorsReport: vi.fn() }))
+
+vi.mock('@/assets/js/store/errors', () => ({
+  useErrors: () => ({ report: errorsReport }),
+}))
+
 type ConversationsApi = {
   bootstrap: ReturnType<typeof vi.fn>
   migrate: ReturnType<typeof vi.fn>
@@ -45,6 +51,7 @@ function fakeWindow(): void {
 beforeEach(() => {
   setActivePinia(createPinia())
   fakeWindow()
+  errorsReport.mockClear()
 })
 
 afterEach(async () => {
@@ -156,6 +163,36 @@ describe('useConversations hydration', () => {
 
     expect(api.bootstrap).toHaveBeenCalledTimes(1)
   })
+
+  it('drops leftover localStorage when files already own the conversations', async () => {
+    storage.set(
+      'conversations',
+      JSON.stringify({
+        conversationList: { stale: [{ id: 'u', role: 'user', parts: [] }] },
+      }),
+    )
+    api.bootstrap.mockResolvedValue(
+      okBootstrap(
+        [
+          {
+            id: '1',
+            meta: { presetName: 'Qwen', kind: 'main' },
+            ragHashes: [],
+            messages: [{ id: 'u', role: 'user', parts: [] }],
+          },
+        ],
+        '1',
+      ),
+    )
+    const { useConversations } = await import('@/assets/js/store/conversations')
+    const store = useConversations()
+
+    await store.init()
+
+    expect(api.migrate).not.toHaveBeenCalled()
+    expect(store.conversationList['1']).toHaveLength(1)
+    expect(storage.has('conversations')).toBe(false)
+  })
 })
 
 describe('useConversations write-through', () => {
@@ -235,6 +272,22 @@ describe('useConversations write-through', () => {
     ).not.toThrow()
     await vi.waitFor(() => expect(api.save).toHaveBeenCalled())
     // The live copy survived.
+    expect(store.conversationList[key]).toHaveLength(1)
+  })
+
+  it('reports a failed persist reply without dropping the live copy', async () => {
+    const store = await hydratedStore()
+    const key = store.addNewConversation()
+    api.save.mockResolvedValueOnce({ success: false, error: 'disk full' })
+
+    expect(() =>
+      store.updateConversation(
+        [{ id: 'u', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as never,
+        key,
+      ),
+    ).not.toThrow()
+    await vi.waitFor(() => expect(errorsReport).toHaveBeenCalled())
+    expect(errorsReport.mock.calls[0][0]).toMatchObject({ message: 'disk full' })
     expect(store.conversationList[key]).toHaveLength(1)
   })
 })

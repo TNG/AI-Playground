@@ -80,18 +80,36 @@ export const useConversations = defineStore('conversations', () => {
 
   // The kernel owns the files; failures surface through the error sink but
   // never break the live copy — a failed write must not take the thread down.
+  // IPC mutations resolve `{ success: false }` rather than rejecting, so both
+  // shapes have to reach the sink.
+  function reportPersistFailure(error: unknown): void {
+    useErrors().report(error, {
+      code: 'conversations/persist-failed',
+      category: 'backend',
+      severity: 'warning',
+      surface: 'silent',
+      technicalMessage: 'saving a conversation file failed',
+    })
+  }
+
   function forwardPersist(call: () => Promise<unknown>): void {
     if (!hydrated.value) return
-    const errors = useErrors()
-    call().catch((error) => {
-      errors.report(error, {
-        code: 'conversations/persist-failed',
-        category: 'backend',
-        severity: 'warning',
-        surface: 'silent',
-        technicalMessage: 'saving a conversation file failed',
+    call()
+      .then((result) => {
+        if (
+          result &&
+          typeof result === 'object' &&
+          'success' in result &&
+          (result as { success: unknown }).success === false
+        ) {
+          const message =
+            'error' in result && typeof (result as { error: unknown }).error === 'string'
+              ? (result as { error: string }).error
+              : 'saving a conversation file failed'
+          reportPersistFailure(new Error(message))
+        }
       })
-    })
+      .catch(reportPersistFailure)
   }
 
   function saveThread(conversationKey: string): void {
@@ -274,8 +292,15 @@ export const useConversations = defineStore('conversations', () => {
           const legacy = readLegacyState()
           if (legacy && Object.keys(legacy.conversationList).length > 0) {
             bootstrap = await window.electronAPI.conversations.migrate(legacy)
-            if (bootstrap.status === 'ok') demoAwareStorage.removeItem(LEGACY_STORAGE_KEY)
           }
+        }
+        // Files own the threads: drop the Pinia key. Keep it when migrate
+        // failed so the next boot can retry.
+        if (
+          bootstrap.status === 'ok' ||
+          (bootstrap.status === 'empty' && demoAwareStorage.getItem(LEGACY_STORAGE_KEY))
+        ) {
+          demoAwareStorage.removeItem(LEGACY_STORAGE_KEY)
         }
       } catch (error) {
         bootstrap = null
@@ -379,11 +404,6 @@ function addNewConversationIfLatestIsNotEmpty(
   conversationKey?: string,
   meta?: Record<string, ConversationThreadMeta>,
 ): string {
-  console.log('Checking if new conversation is needed', {
-    threadCount: Object.keys(list).length,
-    conversationKey,
-  })
-
   const isHomeAgent = (key: string) => meta?.[key]?.kind === 'homeAgent'
 
   const keys = Object.keys(list)

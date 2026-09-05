@@ -59,7 +59,17 @@ function conversationsDir(): string {
 const INDEX_CHAIN = 'index'
 const INDEX_FILE = 'index.json'
 
+/** Timestamp ids plus the legacy Home Agent singleton; never a path or `index`. */
+function isSafeConversationId(id: string): boolean {
+  return id.length > 0 && id.length <= 200 && id !== 'index' && /^[\w.-]+$/.test(id)
+}
+
+function assertSafeConversationId(id: string): void {
+  if (!isSafeConversationId(id)) throw new Error(`invalid conversation id: ${id}`)
+}
+
 function threadFile(id: string): string {
+  assertSafeConversationId(id)
   return path.join(conversationsDir(), `${id}.json`)
 }
 
@@ -75,14 +85,21 @@ async function atomicWriteJson(file: string, data: unknown): Promise<void> {
   await fs.rename(tmp, file)
 }
 
-async function readJson(file: string): Promise<unknown | null> {
+type JsonRead = { status: 'missing' } | { status: 'ok'; value: unknown } | { status: 'corrupt' }
+
+async function readJson(file: string): Promise<JsonRead> {
   try {
-    return JSON.parse(await fs.readFile(file, 'utf8'))
+    return { status: 'ok', value: JSON.parse(await fs.readFile(file, 'utf8')) }
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { status: 'missing' }
     appLogger.warn(`conversation file unreadable (${file}): ${String(error)}`, 'conversations')
-    return null
+    return { status: 'corrupt' }
   }
+}
+
+function threadDocFromRead(read: JsonRead): ConversationThreadFile | null {
+  if (read.status !== 'ok') return null
+  return parseThreadDoc(read.value)
 }
 
 function parseThreadDoc(raw: unknown): ConversationThreadFile | null {
@@ -96,14 +113,61 @@ function emptyIndex(): ConversationIndexFile {
   return { schemaVersion: 1, lastMainKey: null, threads: [] }
 }
 
-/** Null when the file does not exist yet; corrupt-but-present rebuilds empty. */
+async function listThreadIds(): Promise<string[]> {
+  try {
+    const names = await fs.readdir(conversationsDir())
+    return names
+      .filter((name) => name.endsWith('.json') && name !== INDEX_FILE)
+      .map((name) => name.slice(0, -'.json'.length))
+      .filter(isSafeConversationId)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw error
+  }
+}
+
+async function rebuildIndexFromThreadFiles(): Promise<ConversationIndexFile> {
+  const ids = await listThreadIds()
+  const threads: ConversationIndexEntry[] = []
+  for (const id of ids) {
+    const doc = threadDocFromRead(await readJson(threadFile(id)))
+    if (!doc) continue
+    threads.push({
+      id,
+      title: titleFromMessages(doc.messages),
+      presetName: doc.meta?.presetName || undefined,
+      kind: doc.meta?.kind,
+      updatedAt: doc.updatedAt,
+    })
+  }
+  threads.sort((a, b) => a.updatedAt - b.updatedAt)
+  const index: ConversationIndexFile = { schemaVersion: 1, lastMainKey: null, threads }
+  await writeIndex(index)
+  return index
+}
+
+function indexWithSafeIds(index: ConversationIndexFile): ConversationIndexFile {
+  return {
+    ...index,
+    threads: index.threads.filter((thread) => isSafeConversationId(thread.id)),
+  }
+}
+
+/** Null only when nothing has ever been written (no index and no thread files). */
 async function readIndex(): Promise<ConversationIndexFile | null> {
   const raw = await readJson(indexFile())
-  if (raw === null) return null
-  const parsed = ConversationIndexFileSchema.safeParse(raw)
-  if (parsed.success) return parsed.data
+  if (raw.status === 'missing') {
+    const ids = await listThreadIds()
+    if (ids.length === 0) return null
+    appLogger.warn('conversation index missing; rebuilding from thread files', 'conversations')
+    return rebuildIndexFromThreadFiles()
+  }
+  if (raw.status === 'ok') {
+    const parsed = ConversationIndexFileSchema.safeParse(raw.value)
+    if (parsed.success) return indexWithSafeIds(parsed.data)
+  }
   appLogger.warn('conversation index failed schema; rebuilding from thread files', 'conversations')
-  return emptyIndex()
+  return rebuildIndexFromThreadFiles()
 }
 
 async function currentIndex(): Promise<ConversationIndexFile> {
@@ -146,6 +210,24 @@ function hydratedThread(id: string, doc: ConversationThreadFile | null): Hydrate
   return { id, meta: doc.meta, ragHashes: doc.ragHashes, messages: doc.messages }
 }
 
+async function threadsFromIndex(index: ConversationIndexFile): Promise<HydratedThread[]> {
+  return Promise.all(
+    index.threads
+      .filter((entry) => isSafeConversationId(entry.id))
+      .map(async (entry) =>
+        hydratedThread(entry.id, threadDocFromRead(await readJson(threadFile(entry.id)))),
+      ),
+  )
+}
+
+async function bootstrapFromIndex(index: ConversationIndexFile): Promise<ConversationBootstrap> {
+  return {
+    status: 'ok' as const,
+    lastMainKey: index.lastMainKey,
+    threads: await threadsFromIndex(index),
+  }
+}
+
 // ── Public API (IPC handlers) ─────────────────────────────────────────────────
 
 export async function bootstrapConversations(): Promise<ConversationBootstrap> {
@@ -158,12 +240,7 @@ export async function bootstrapConversations(): Promise<ConversationBootstrap> {
       // was written, so the legacy upload already happened.
       return { status: 'empty' as const }
     }
-    const threads = await Promise.all(
-      index.threads.map(async (entry) =>
-        hydratedThread(entry.id, parseThreadDoc(await readJson(threadFile(entry.id)))),
-      ),
-    )
-    return { status: 'ok' as const, lastMainKey: index.lastMainKey, threads }
+    return bootstrapFromIndex(index)
   })
 }
 
@@ -177,11 +254,17 @@ export async function migrateLegacyConversations(
   legacy: ConversationLegacyState,
 ): Promise<ConversationBootstrap> {
   return serialize(INDEX_CHAIN, async () => {
+    const existing = await readIndex()
+    if (existing !== null) return bootstrapFromIndex(existing)
     const now = Date.now()
     const ids = Object.keys(legacy.conversationList)
     const entries: ConversationIndexEntry[] = []
     const threads: HydratedThread[] = []
     for (const id of ids) {
+      if (!isSafeConversationId(id)) {
+        appLogger.warn(`skipping unsafe legacy conversation id: ${id}`, 'conversations')
+        continue
+      }
       const messages = sanitizeMessages(legacy.conversationList[id])
       const meta = legacy.conversationThreadMeta[id] ?? null
       const doc: ConversationThreadFile = {
@@ -213,6 +296,7 @@ export async function migrateLegacyConversations(
 
 /** Upsert one thread (messages sanitized here) plus its index entry. */
 export async function saveConversation(request: ConversationSaveRequest): Promise<void> {
+  assertSafeConversationId(request.id)
   return serialize(request.id, async () => {
     const now = Date.now()
     const doc: ConversationThreadFile = {
@@ -243,6 +327,7 @@ export async function saveConversation(request: ConversationSaveRequest): Promis
 }
 
 export async function deleteConversation(id: string): Promise<void> {
+  assertSafeConversationId(id)
   return serialize(id, async () => {
     try {
       await fs.rm(threadFile(id))

@@ -20,6 +20,10 @@ export { pickPrimaryGpu, summarizeWindow }
 const LOG_SOURCE = 'compute-metrics'
 const logger = appLoggerInstance
 
+/** Level Zero queries from xpu-smi reset Vulkan llama.cpp on Intel Arc (ErrorDeviceLost). */
+export const XPU_SMI_WINDOWS_DISABLED =
+  'disabled on Windows: xpu-smi Level Zero queries reset Vulkan llama.cpp (ErrorDeviceLost)'
+
 const MAX_SAMPLES = 120
 const DEFAULT_INTERVAL_MS = 2000
 const NVIDIA_TIMEOUT_MS = 2500
@@ -578,6 +582,10 @@ async function ensureXpuDialect(bin: string): Promise<XpuDialect> {
 async function intelGpus(): Promise<GpuSample[]> {
   const bin = xpuBin()
   report.intel.bin = bin
+  if (process.platform === 'win32') {
+    report.intel.lastError = XPU_SMI_WINDOWS_DISABLED
+    return []
+  }
   if (!bin) return []
   const dialect = await ensureXpuDialect(bin)
   const catalog = await ensureIntelCatalog(bin)
@@ -664,10 +672,14 @@ export function startComputeMetricsSampler(next: ComputeMetricsOptions = {}): vo
   if (timer) return
   // Forced to the log file: without it, "no GPU numbers" on a user's machine is
   // indistinguishable from a probe that was never attempted.
+  const intelProbe =
+    process.platform === 'win32'
+      ? 'disabled (Vulkan device-lost)'
+      : (xpuBin() ?? 'unavailable (no xpu-smi)')
   logger.info(
     `sampling every ${next.intervalMs ?? DEFAULT_INTERVAL_MS}ms on ${process.platform}; ` +
       `wddm: ${process.platform === 'win32' ? 'DXGI+PDH' : 'n/a'}; ` +
-      `intel probe: ${xpuBin() ?? 'unavailable (no xpu-smi)'}; nvidia probe: ${nvidiaBin()}`,
+      `intel probe: ${intelProbe}; nvidia probe: ${nvidiaBin()}`,
     LOG_SOURCE,
     true,
   )

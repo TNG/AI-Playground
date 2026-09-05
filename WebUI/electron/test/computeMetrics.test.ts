@@ -28,6 +28,7 @@ import {
   startComputeMetricsSampler,
   stopComputeMetricsSampler,
   summarizeWindow,
+  XPU_SMI_WINDOWS_DISABLED,
 } from '../computeMetrics.ts'
 import type { ComputeSnapshot } from '@/types/computeMetrics.ts'
 
@@ -251,22 +252,18 @@ describe('sampler', () => {
   })
 })
 
-// The Windows CLI is a different program from Linux `xpumcli` under the same
-// name: no `discovery --dump`, and `dump` takes one device id (`-d -1` is
-// rejected). Both spellings shipped Linux-only at first, so no Windows machine
-// ever produced a GPU row.
+// xpu-smi Level Zero queries reset Vulkan llama.cpp on Intel Arc (Windows).
+// The Windows sampler is DXGI+PDH only; Linux still uses xpu-smi.
 describe('intel probe commands', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     resetComputeMetricsForTests()
   })
 
-  const DISCOVERY_JSON = JSON.stringify({
-    device_list: [
-      { device_id: 0, device_name: 'Intel(R) Arc(TM) B580 Graphics', device_type: 'GPU' },
-    ],
-  })
-  const DETAIL_JSON = JSON.stringify({ memory_physical_size_byte: 16 * 1024 * 1024 * 1024 })
+  const DISCOVERY_CSV = [
+    'Device ID,Device Name,Memory Physical Size',
+    '0,"Intel(R) Arc(TM) B580 Graphics","16 GiB"',
+  ].join('\n')
   const DUMP_CSV = [
     'Timestamp, DeviceId, GPU Utilization (%), GPU Power (W), GPU Frequency (MHz), GPU Memory Utilization (%), GPU Memory Used (MiB)',
     '15:44:36.481, 0, 64.0, 40.0, 2400, 50.0, 8192.0',
@@ -291,12 +288,11 @@ describe('intel probe commands', () => {
     '  dump                        Dump device statistics data',
   ].join('\n')
 
-  function windowsRunner(calls: string[][], help = DUMP_HELP) {
+  function linuxRunner(calls: string[][], help = DUMP_HELP) {
     return async (command: string, args: string[]) => {
       calls.push([command, ...args])
       if (args[0] === '--help') return help
-      if (args[0] === 'discovery' && args.includes('-d')) return DETAIL_JSON
-      if (args[0] === 'discovery') return DISCOVERY_JSON
+      if (args[0] === 'discovery') return DISCOVERY_CSV
       if (args[0] === 'dump') {
         if (args.includes('-1')) throw new Error('Error: invalid device id')
         return DUMP_CSV
@@ -305,33 +301,23 @@ describe('intel probe commands', () => {
     }
   }
 
-  it('uses discovery -j and a per-device dump on Windows', async () => {
+  it('does not spawn xpu-smi on Windows even when the bundled exe is present', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
     const calls: string[][] = []
     startComputeMetricsSampler({
       intervalMs: 60_000,
       xpuSmiPath: 'C:\\app\\resources\\device-service\\xpu-smi.exe',
-      runCommand: windowsRunner(calls),
+      runCommand: linuxRunner(calls),
     })
     await new Promise((resolve) => setTimeout(resolve, 60))
     stopComputeMetricsSampler()
 
-    const xpuCalls = calls.filter((c) => c[0].endsWith('xpu-smi.exe'))
-    expect(xpuCalls.some((c) => c[1] === 'discovery' && c[2] === '-j')).toBe(true)
-    expect(xpuCalls.some((c) => c.includes('--dump'))).toBe(false)
-    const dump = xpuCalls.find((c) => c[1] === 'dump')
-    expect(dump).toBeDefined()
-    expect(dump).not.toContain('-1')
-    expect(dump?.slice(1)).toEqual(['dump', '-d', '0', '-m', '0,1,2,5,18', '-n', '1'])
-
-    const snapshot = latestComputeSnapshot()
-    expect(snapshot?.source).toBe('xpu-smi')
-    expect(snapshot?.gpus[0]).toMatchObject({
-      name: 'Intel(R) Arc(TM) B580 Graphics',
-      memUsedMiB: 8192,
-      memTotalMiB: 16384,
-    })
-    expect(snapshot?.gpus[0]?.utilPct).toBeUndefined()
+    expect(calls.some((c) => c[0].includes('xpu-smi'))).toBe(false)
+    expect(computeMetricsProbeReport().intel.bin).toBe(
+      'C:\\app\\resources\\device-service\\xpu-smi.exe',
+    )
+    expect(computeMetricsProbeReport().intel.lastError).toBe(XPU_SMI_WINDOWS_DISABLED)
+    expect(latestComputeSnapshot()?.gpus).toEqual([])
   })
 
   it('has no Intel probe on Windows without the bundled exe, and says so', async () => {
@@ -340,28 +326,50 @@ describe('intel probe commands', () => {
     startComputeMetricsSampler({
       intervalMs: 60_000,
       xpuSmiPath: null,
-      runCommand: windowsRunner(calls),
+      runCommand: linuxRunner(calls),
     })
     await new Promise((resolve) => setTimeout(resolve, 60))
     stopComputeMetricsSampler()
 
     expect(calls.some((c) => c[0].includes('xpu-smi'))).toBe(false)
     expect(computeMetricsProbeReport().intel.bin).toBeNull()
+    expect(computeMetricsProbeReport().intel.lastError).toBe(XPU_SMI_WINDOWS_DISABLED)
   })
 
-  // The v2.0 build on Arc B-series answers `--query-gpu` and rejects `dump -m`,
-  // so the dialect has to come from --help rather than from the platform.
-  it('uses --query-gpu on a build that advertises it', async () => {
-    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+  it('uses discovery --dump and a per-device dump on Linux', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux')
     const calls: string[][] = []
     startComputeMetricsSampler({
       intervalMs: 60_000,
-      xpuSmiPath: 'C:\\xpu-smi.exe',
+      runCommand: linuxRunner(calls),
+    })
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    stopComputeMetricsSampler()
+
+    const xpuCalls = calls.filter((c) => c[0] === 'xpu-smi')
+    expect(xpuCalls.some((c) => c[1] === 'discovery' && c.includes('--dump'))).toBe(true)
+    const dump = xpuCalls.find((c) => c[1] === 'dump')
+    expect(dump?.slice(1)).toEqual(['dump', '-d', '0', '-m', '0,1,2,5,18', '-n', '1'])
+
+    const snapshot = latestComputeSnapshot()
+    expect(snapshot?.source).toBe('xpu-smi')
+    expect(snapshot?.gpus[0]).toMatchObject({
+      name: 'Intel(R) Arc(TM) B580 Graphics',
+      memUsedMiB: 8192,
+      memTotalMiB: 16384,
+      utilPct: 64,
+    })
+  })
+
+  it('uses --query-gpu on a Linux build that advertises it', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux')
+    const calls: string[][] = []
+    startComputeMetricsSampler({
+      intervalMs: 60_000,
       runCommand: async (command, args) => {
         calls.push([command, ...args])
         if (args[0] === '--help') return QUERY_HELP
-        if (args[0] === 'discovery' && args.includes('-d')) return DETAIL_JSON
-        if (args[0] === 'discovery') return DISCOVERY_JSON
+        if (args[0] === 'discovery') return DISCOVERY_CSV
         if (args[0] === 'dump') {
           throw new Error('[Error] The following arguments were not expected: -m 0,1,2,5,18 -n 1')
         }
@@ -376,35 +384,30 @@ describe('intel probe commands', () => {
 
     expect(calls.some((c) => c[1] === 'dump')).toBe(false)
     expect(calls.some((c) => c[1]?.startsWith('--query-gpu='))).toBe(true)
-    // memory.total comes from the query, so no per-device discovery detail call.
-    expect(calls.some((c) => c[1] === 'discovery' && c.includes('-d'))).toBe(false)
     expect(computeMetricsProbeReport().intel.dialect).toBe('query-gpu')
     expect(latestComputeSnapshot()?.gpus[0]).toMatchObject({
       id: '0',
       name: 'Intel(R) Arc(TM) B390 GPU',
       vendor: 'intel',
+      utilPct: 71,
       memUsedMiB: 9001,
       memTotalMiB: 16384,
       powerW: 88.5,
       freqMHz: 2200,
     })
-    expect(latestComputeSnapshot()?.gpus[0]?.utilPct).toBeUndefined()
   })
 
   it('falls back to a smaller field set when a field is rejected', async () => {
-    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux')
     const tried: string[] = []
     startComputeMetricsSampler({
       intervalMs: 60_000,
-      xpuSmiPath: 'C:\\xpu-smi.exe',
       runCommand: async (_command, args) => {
         if (args[0] === '--help') return QUERY_HELP
-        if (args[0] === 'discovery' && args.includes('-d')) return DETAIL_JSON
-        if (args[0] === 'discovery') return DISCOVERY_JSON
+        if (args[0] === 'discovery') return DISCOVERY_CSV
         const query = args[0]?.startsWith('--query-gpu=') ? args[0].slice(12) : null
         if (query === null) throw new Error(`unexpected: ${args.join(' ')}`)
         tried.push(query)
-        // This build knows nothing about clocks or power.
         if (query.includes('clocks') || query.includes('power')) {
           throw new Error('[Error] Unknown field: clocks.current.graphics')
         }
@@ -418,15 +421,13 @@ describe('intel probe commands', () => {
     expect(computeMetricsProbeReport().intel.command).toBe(
       '--query-gpu=index,name,utilization.gpu,memory.used,memory.total',
     )
-    expect(latestComputeSnapshot()?.gpus[0]).toMatchObject({ memUsedMiB: 9001 })
-    expect(latestComputeSnapshot()?.gpus[0]?.utilPct).toBeUndefined()
+    expect(latestComputeSnapshot()?.gpus[0]).toMatchObject({ memUsedMiB: 9001, utilPct: 71 })
   })
 
   it('records why a probe failed', async () => {
-    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux')
     startComputeMetricsSampler({
       intervalMs: 60_000,
-      xpuSmiPath: 'C:\\xpu-smi.exe',
       runCommand: async () => {
         throw new Error('spawn ENOENT')
       },

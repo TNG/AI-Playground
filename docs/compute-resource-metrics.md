@@ -31,7 +31,7 @@ RAM only.
 | Host (all)       | `os.totalmem` / `os.freemem`                                                                 | Always present. On Intel iGPU, most GPU memory is stolen from this pool (shared).            |
 | Windows GPUs     | DXGI `GetDesc1` + PDH `\GPU Adapter Memory(*)` / `\GPU Engine(*)` via `koffi` (`dxgi`/`pdh`) | Same VidMm counters Task Manager reads. Memory used/total come from here, not from xpu-smi.  |
 | NVIDIA (extra)   | `nvidia-smi --query-gpu=… --format=csv,noheader,nounits`                                     | Power / clocks overlay; memory still WDDM on Windows.                                        |
-| Intel SMI extra  | bundled `xpu-smi.exe` (Windows) or `xpu-smi` on `PATH` (Linux)                               | Power / freq / fallback memory. Windows discards its utilization; its iGPU total is suspect. |
+| Intel SMI extra  | `xpu-smi` on `PATH` (Linux only)                                                             | Power / freq / memory. **Not sampled on Windows** — Level Zero queries reset Vulkan llama.cpp (`ErrorDeviceLost`). |
 | Intel, Linux GPU | `xpu-smi` if XPU Manager is installed                                                        | No WDDM. Not bundled today (Linux discovery still uses `lspci`).                             |
 
 ### Windows: Task Manager (WDDM), not xpu-smi
@@ -62,11 +62,17 @@ Roll-up for the existing `memUsedMiB` / `memTotalMiB` fields (chip, traces):
 - **iGPU**: dedicated + shared, so the chip matches Task Manager's combined GPU
   memory rather than the 128 MiB carve-out xpu-smi calls "max".
 
-The tooltip still lists dedicated and shared separately. xpu-smi / nvidia-smi
-still run and overlay power and frequency; they must not overwrite WDDM memory
-or utilization. If WDDM is unavailable on Windows, vendor memory can remain as
-a fallback, but utilization is omitted rather than presenting the known-wrong
-xpu-smi value.
+The tooltip still lists dedicated and shared separately. nvidia-smi still
+overlays power and frequency on NVIDIA Windows boxes. **Intel `xpu-smi` is not
+sampled on Windows**: spawning it every 2s while llama.cpp is in Vulkan decode
+causes `vk::Device::getFenceStatus: ErrorDeviceLost` (reproduced standalone
+against xpu-smi 2.1.0 + llama.cpp b10666 on Arc B390). WDDM already supplies
+memory and utilization; the only loss is Intel board power/clocks (and thus
+the experimental chat energy estimate on Intel Windows). Linux still uses
+xpu-smi — there is no WDDM there.
+
+If WDDM is unavailable on Windows, NVIDIA memory can remain as a fallback, but
+Intel SMI is not substituted.
 
 The PDH query stays open for the sampler lifetime (engine util is a rate
 counter — the first collect only arms it). `GPU Engine` rows are process
@@ -74,6 +80,17 @@ contexts (`pid_…_luid_…_phys_…_eng_…`), not already-aggregated adapters.
 sampler sums contexts belonging to the same physical engine, then reports the
 busiest engine for each adapter. Taking the largest individual row would
 undercount an engine shared by the app, compositor, and other processes.
+
+Stock WDDM PDH has **no GPU power, clocks, or temperature**. On intel-ptl
+(Arc B390) the extra counter sets are:
+
+| Counter set | Useful? |
+| --- | --- |
+| `\GPU Adapter Memory(*)\Total Committed` | Different accounting than Dedicated+Shared Usage (Task Manager uses the latter, which we already read). |
+| `\GPU Process Memory(*)\Dedicated/Shared Usage` | Works without admin here. iGPU working set is **shared**. Instance names are `pid_N_luid_…` — needs a PID→process map to split llama-server vs Electron vs DWM. |
+| `\GPU Engine(*)\Running Time` | Cumulative; Utilization Percentage is the rate we already use. |
+| `\Power Meter(*)\Power` | ACPI/RAPL; `0` on this machine, not GPU board power. |
+| `\Thermal Zone Information(*)` | Package/CPU, not the Arc die. |
 
 NPU has no util/memory probe here. Cloud turns still record **host** RAM but
 omit GPU attributes — the serving GPU is not this machine.
@@ -123,7 +140,7 @@ the in-app debug stream, and `aip-<date>.log` (packaged: the app's config root;
 dev: `WebUI/external/`).
 
 - At startup, forced to the log file:
-  `[compute-metrics]: sampling every 2000ms on win32; intel probe: <path or "unavailable (no xpu-smi)">; nvidia probe: nvidia-smi.exe`
+  `[compute-metrics]: sampling every 2000ms on win32; intel probe: disabled (Vulkan device-lost); nvidia probe: nvidia-smi.exe`
 - The detected dialect: `xpu-smi dialect: query-gpu`
 - After discovery: `xpu-smi discovered N device(s): 0=Intel(R) Arc(TM) B580 Graphics`
 - The sampling command that worked:
@@ -181,6 +198,11 @@ recomputes the conversation figure from the messages that remain.
   also removes the per-device call this now makes on a multi-GPU box.
 - Backend-owned numbers: llama.cpp `/slots` KV bytes, ComfyUI's own VRAM
   estimate — complementary to board-level SMI, not a replacement.
-- Per-process GPU memory: PDH `\GPU Process Memory(*)\Dedicated Usage` (needs
-  `cap_perfmon` / admin on some Intel setups) to split LLM vs ComfyUI.
+- Per-process GPU memory: PDH `\GPU Process Memory(*)\Shared Usage` (iGPU) /
+  `Dedicated Usage` (dGPU). Instance names are PIDs; map `llama-server` /
+  Electron / ComfyUI to split the adapter total. Worked without admin on
+  Arc B390; some Intel setups still need `cap_perfmon`.
+- Re-enable Windows `xpu-smi` only after Intel fixes Level Zero vs Vulkan
+  device-lost (`scripts/gpu-metrics-llama-repro/`). Until then there is no
+  safe WDDM source for Intel board power/clocks.
 - Linux iGPU: drm/sysfs client memory so Linux is not stuck on xpu-smi totals.

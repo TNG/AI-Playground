@@ -361,6 +361,7 @@
   "PHISON_KM_UNAVAILABLE_BUILD_HINT": "이 기능을 사용하려면 Phison aiDAPTIV+ (SSD 오프로드) Llama.cpp 빌드를 활성화하세요.",
   "PHISON_KM_UNAVAILABLE_CONTEXT_HINT": "이 모델의 최대 컨텍스트 크기는 aiDAPTIV+ KV Cache에 필요한 16384보다 작습니다.",
   "ANSWER_METRICS": "지표",
+  "COMPUTE_METRICS_LABEL": "컴퓨팅 리소스",
   "ANSWER_FONT_SIZE": "글꼴 크기",
   "RAG_DOCUMENT_EMBEDDING_MODEL": "문서 임베딩 모델",
   "RAG_DOCUMENTS": "문서",

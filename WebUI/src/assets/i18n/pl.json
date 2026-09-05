@@ -361,6 +361,7 @@
   "PHISON_KM_UNAVAILABLE_BUILD_HINT": "Włącz kompilację Llama.cpp Phison aiDAPTIV+ (odciążanie na SSD), aby użyć tej funkcji.",
   "PHISON_KM_UNAVAILABLE_CONTEXT_HINT": "Maksymalny rozmiar kontekstu tego modelu jest mniejszy niż 16384 wymagane przez KV Cache aiDAPTIV+.",
   "ANSWER_METRICS": "Metryki",
+  "COMPUTE_METRICS_LABEL": "Zasoby obliczeniowe",
   "ANSWER_FONT_SIZE": "Rozmiar czcionki",
   "RAG_DOCUMENT_EMBEDDING_MODEL": "Model osadzania dokumentów",
   "RAG_DOCUMENTS": "Dokumenty",

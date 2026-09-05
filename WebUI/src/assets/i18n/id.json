@@ -361,6 +361,7 @@
   "PHISON_KM_UNAVAILABLE_BUILD_HINT": "Aktifkan build Llama.cpp Phison aiDAPTIV+ (offload SSD) untuk menggunakan fitur ini.",
   "PHISON_KM_UNAVAILABLE_CONTEXT_HINT": "Ukuran konteks maksimum model ini lebih kecil dari 16384 yang diperlukan oleh KV Cache aiDAPTIV+.",
   "ANSWER_METRICS": "Metrik",
+  "COMPUTE_METRICS_LABEL": "Sumber daya komputasi",
   "ANSWER_FONT_SIZE": "Ukuran Font",
   "RAG_DOCUMENT_EMBEDDING_MODEL": "Model Embedding Dokumen",
   "RAG_DOCUMENTS": "Dokumen",

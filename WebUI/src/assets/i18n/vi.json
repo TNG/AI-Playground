@@ -361,6 +361,7 @@
   "PHISON_KM_UNAVAILABLE_BUILD_HINT": "Bật bản dựng Llama.cpp Phison aiDAPTIV+ (giảm tải sang SSD) để sử dụng tính năng này.",
   "PHISON_KM_UNAVAILABLE_CONTEXT_HINT": "Kích thước ngữ cảnh tối đa của mô hình này thấp hơn mức 16384 mà KV Cache aiDAPTIV+ yêu cầu.",
   "ANSWER_METRICS": "Chỉ số",
+  "COMPUTE_METRICS_LABEL": "Tài nguyên tính toán",
   "ANSWER_FONT_SIZE": "Cỡ chữ",
   "RAG_DOCUMENT_EMBEDDING_MODEL": "Mô hình embedding tài liệu",
   "RAG_DOCUMENTS": "Tài liệu",

@@ -361,6 +361,7 @@
   "PHISON_KM_UNAVAILABLE_BUILD_HINT": "เปิดใช้บิลด์ Llama.cpp ของ Phison aiDAPTIV+ (ถ่ายโอนไปยัง SSD) เพื่อใช้คุณสมบัตินี้",
   "PHISON_KM_UNAVAILABLE_CONTEXT_HINT": "ขนาดบริบทสูงสุดของโมเดลนี้ต่ำกว่า 16384 ที่ KV Cache ของ aiDAPTIV+ ต้องการ",
   "ANSWER_METRICS": "เมตริก",
+  "COMPUTE_METRICS_LABEL": "ทรัพยากรประมวลผล",
   "ANSWER_FONT_SIZE": "ขนาดตัวอักษร",
   "RAG_DOCUMENT_EMBEDDING_MODEL": "โมเดล Embedding เอกสาร",
   "RAG_DOCUMENTS": "เอกสาร",

@@ -361,6 +361,7 @@
   "PHISON_KM_UNAVAILABLE_BUILD_HINT": "啟用 Phison aiDAPTIV+（SSD 卸載）Llama.cpp 組建以使用此功能。",
   "PHISON_KM_UNAVAILABLE_CONTEXT_HINT": "此模型的最大內容大小低於 aiDAPTIV+ KV Cache 所需的 16384。",
   "ANSWER_METRICS": "指標",
+  "COMPUTE_METRICS_LABEL": "運算資源",
   "ANSWER_FONT_SIZE": "字型大小",
   "RAG_DOCUMENT_EMBEDDING_MODEL": "文件嵌入模型",
   "RAG_DOCUMENTS": "文件",

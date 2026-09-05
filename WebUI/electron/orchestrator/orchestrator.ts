@@ -56,6 +56,12 @@ type QueuedRun = {
 
 const runQueue: QueuedRun[] = []
 
+// Admitted = executeRun has been entered and not yet settled. `artifactRunActive`
+// only flips once the runner starts, which is after the GPU acquire can await,
+// so fail-fast has to key off this or two panel submits in the same tick both
+// enter executeRun and the second cancels the first inside the runner.
+let admittedArtifactRuns = 0
+
 // The media-request lane: one whole `media` bracket (nested specialist + its
 // generations) at a time — four parallel `media` tool calls must not prompt
 // the model four at once, and the bracket's own LLM steps need the chat
@@ -86,6 +92,7 @@ export function setOrchestratorDeps(deps: OrchestratorDeps): void {
 export function resetOrchestratorForTest(): void {
   orchestratorDeps = null
   runQueue.splice(0)
+  admittedArtifactRuns = 0
   for (const entry of mediaRequestQueue) {
     entry.reject(new Error('Orchestrator reset for test'))
   }
@@ -105,7 +112,7 @@ export function mediaRequestsQueued(): number {
 
 /** Runs waiting behind the active one (media requests have their own lane). */
 function queueBusy(): boolean {
-  return artifactRunActive() || runQueue.length > 0
+  return admittedArtifactRuns > 0 || artifactRunActive() || runQueue.length > 0
 }
 
 // ── Artifact run queue ────────────────────────────────────────────────────────
@@ -144,6 +151,7 @@ export function submitArtifactRun(
 }
 
 function executeRun(payload: ArtifactRunPayload): Promise<ArtifactRunResult> {
+  admittedArtifactRuns += 1
   emitQueueEvent({
     runKey: payload.runId,
     kind: 'artifact',
@@ -153,26 +161,36 @@ function executeRun(payload: ArtifactRunPayload): Promise<ArtifactRunResult> {
     conversationKey: payload.conversationKey,
     activityId: payload.activityId,
   })
-  const settled = withGpuWindow(payload, () => startArtifactRun(payload)).finally(() => {
-    emitQueueEvent({
-      runKey: payload.runId,
-      kind: 'artifact',
-      action: 'finished',
-      queueDepth: runQueue.length,
-      origin: payload.origin,
-      conversationKey: payload.conversationKey,
-      activityId: payload.activityId,
-    })
-    dequeueNext()
+  return withGpuWindow(payload, () => startArtifactRun(payload)).finally(async () => {
+    emitArtifactFinished(payload)
+    admittedArtifactRuns -= 1
+    await drainQueue()
   })
-  return settled
 }
 
-function dequeueNext(): void {
-  if (artifactRunActive()) return
+async function drainQueue(): Promise<void> {
+  if (admittedArtifactRuns > 0 || artifactRunActive()) return
   const next = runQueue.shift()
-  if (!next) return
-  void executeRun(next.payload).then(next.resolve)
+  if (next) {
+    void executeRun(next.payload).then(next.resolve)
+    return
+  }
+  // Release lives here, not in withGpuWindow: Keep Models Loaded skips acquire
+  // but a queued keep-true tail after a swap still has to return the GPU to
+  // chat, and cancelling the last waiter must not leave the window on media.
+  await considerRelease()
+}
+
+function emitArtifactFinished(payload: ArtifactRunPayload): void {
+  emitQueueEvent({
+    runKey: payload.runId,
+    kind: 'artifact',
+    action: 'finished',
+    queueDepth: runQueue.length,
+    origin: payload.origin,
+    conversationKey: payload.conversationKey,
+    activityId: payload.activityId,
+  })
 }
 
 /** Cancels one run by id, whether it is active or still waiting in the queue. */
@@ -184,6 +202,7 @@ export function cancelArtifactRun(runId: string): void {
   const index = runQueue.findIndex((entry) => entry.payload.runId === runId)
   if (index !== -1) {
     const [entry] = runQueue.splice(index, 1)
+    emitArtifactFinished(entry.payload)
     entry.resolve({ state: 'cancelled', items: [], error: 'Generation cancelled.' })
   }
 }
@@ -199,6 +218,9 @@ export function runMediaRequest<T>(
   run: () => Promise<T>,
   options: { runKey: string; conversationKey?: string; abortSignal?: AbortSignal },
 ): Promise<T> {
+  if (options.abortSignal?.aborted) {
+    return Promise.reject(new Error('Cancelled while waiting for the media request lane.'))
+  }
   return new Promise<T>((resolve, reject) => {
     const entry: QueuedMediaRequest = {
       runKey: options.runKey,
@@ -208,6 +230,20 @@ export function runMediaRequest<T>(
       resolve: resolve as (value: unknown) => void,
       reject,
     }
+    const onAbort = () => {
+      const index = mediaRequestQueue.indexOf(entry)
+      if (index === -1) return
+      mediaRequestQueue.splice(index, 1)
+      emitQueueEvent({
+        runKey: entry.runKey,
+        kind: 'media-request',
+        action: 'finished',
+        queueDepth: mediaRequestQueue.length,
+        conversationKey: entry.conversationKey,
+      })
+      reject(new Error('Cancelled while waiting for the media request lane.'))
+    }
+    options.abortSignal?.addEventListener('abort', onAbort, { once: true })
     mediaRequestQueue.push(entry)
     emitQueueEvent({
       runKey: options.runKey,
@@ -262,20 +298,16 @@ function drainMediaRequestLane(): void {
 // ── GPU window policy ──────────────────────────────────────────────────────────
 
 /**
- * Brackets GPU-holding work. `keepModelsLoaded` is the user's developer
- * setting, carried per run: with it set nothing is ever swapped. Failures in
- * the swap-back are logged, never thrown — this runs where throwing would
- * replace a finished result with a cleanup error, and the chat model comes
- * back with the next turn anyway.
+ * Brackets GPU-holding work. `keepModelsLoaded` skips the swap *onto* media
+ * (the user's developer setting, carried per run) but never the swap back —
+ * that lives in `drainQueue` so a keep-true tail after a real swap still
+ * returns the GPU to chat. Failures in the swap-back are logged, never thrown
+ * — throwing would replace a finished result with a cleanup error, and the
+ * chat model comes back with the next turn anyway.
  */
 async function withGpuWindow<T>(payload: ArtifactRunPayload, fn: () => Promise<T>): Promise<T> {
-  if (payload.keepModelsLoaded) return fn()
-  try {
-    await acquireMediaWindow()
-    return await fn()
-  } finally {
-    await considerRelease()
-  }
+  if (!payload.keepModelsLoaded) await acquireMediaWindow()
+  return fn()
 }
 
 /** Reads the window without flow narrowing — an awaited swap-back can flip it. */

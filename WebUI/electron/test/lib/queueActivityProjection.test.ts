@@ -123,4 +123,36 @@ describe('queue activity projection', () => {
     })
     expect(activities.activeItems.find((a) => a.id === id)?.label).toBe('Creating media…')
   })
+
+  it('restores the stashed label when a queued run finishes without starting', async () => {
+    const { startQueueActivityProjection } = await import('@/lib/queueActivityProjection')
+    const { useActivities } = await import('@/assets/js/store/activities')
+    const { useI18N } = await import('@/assets/js/store/i18n')
+    useI18N().state.COM_ACTIVITY_QUEUED_BEHIND = 'Waiting for {count} generation(s) to finish'
+    const activities = useActivities()
+    const id = activities.begin({ category: 'tools', label: 'Generating image…' })
+
+    startQueueActivityProjection()
+    emit({
+      type: 'queue-event',
+      runKey: 'artifact-run-cancelled',
+      kind: 'artifact',
+      action: 'enqueued',
+      queueDepth: 0,
+      activityId: id,
+    })
+    expect(activities.activeItems.find((a) => a.id === id)?.label).toBe(
+      'Waiting for 1 generation(s) to finish',
+    )
+
+    emit({
+      type: 'queue-event',
+      runKey: 'artifact-run-cancelled',
+      kind: 'artifact',
+      action: 'finished',
+      queueDepth: 0,
+      activityId: id,
+    })
+    expect(activities.activeItems.find((a) => a.id === id)?.label).toBe('Generating image…')
+  })
 })

@@ -1,11 +1,12 @@
 # Target architecture — capabilities, drivers, state ownership
 
-**Status: steps 1–6 of the migration order (§8) are implemented; the rest is draft for discussion.**
+**Status: steps 1–7 of the migration order (§8) are implemented; the rest is draft for discussion.**
 Media generation is owned by the main-process Artifact runner; speech drivers go through `speechIO`;
 inference/download consent through Permissions; main→renderer notifications through one kernel
 event stream (`kernel:event`) with a listener-first snapshot handshake; chat turns run in main
-and stream back as kernel `chat-chunk` events. Parked follow-ups from those landings live in
-[§8.2](#82-parked-follow-ups-from-landed-steps) — they do not block step 7.
+and stream back as kernel `chat-chunk` events; media runs share one main-side queue and GPU
+window. Parked follow-ups from those landings live in
+[§8.2](#82-parked-follow-ups-from-landed-steps) — they do not block step 8.
 Everything after step 7 is a map of where we want it, and the order in which we could get there.
 It exists to be argued with — see [§10 Decisions](#10-decisions).
 
@@ -1008,7 +1009,7 @@ small fix on this branch) can pick them up instead of rediscovering them.
   (`comfyUiPresets`) and went with the engine; the runner streams phases but opens no spans. Wire
   the span bridge to the projected phases, or move it main-side with the Pi extension.
 
-**Step 6 (chat in main) — leftovers, none blocking step 7:**
+**Step 6 (chat in main) — leftovers, none blocking step 8:**
 
 - **RAG retrieval and conversation persistence stayed renderer-side.** The turn request ships the
   prepared prompt and the UI messages, but `prepareRagContext` and the conversation bucket remain
@@ -1058,6 +1059,9 @@ small fix on this branch) can pick them up instead of rediscovering them.
   the swap only as the gap between the tool span and `comfyui.generate`'s children. Wire swap
   spans (or attributes on the artifact-phase events) from the orchestrator if that gap needs
   explaining in traces.
+- **`awaitChatWindow` polls abort every 500ms.** A media request cancelled while waiting for the
+  GPU window (already the head of its lane, not parked) sits until the next poll. Race the
+  delay against `AbortSignal` if that latency shows up.
 
 **Step 2 (Speech I/O) — already noted at the adapter, still ahead:**
 

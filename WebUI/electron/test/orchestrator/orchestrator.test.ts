@@ -27,6 +27,7 @@ import {
   artifactRunsQueued,
   awaitChatWindow,
   cancelArtifactRun,
+  mediaRequestsQueued,
   resetOrchestratorForTest,
   runMediaRequest,
   setOrchestratorDeps,
@@ -197,6 +198,40 @@ describe('the orchestrator', () => {
     expect(d.restartChatBackend).not.toHaveBeenCalled()
   })
 
+  it('still returns the GPU after a keepModelsLoaded tail that followed a swap', async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    const holdOne = holdNextRun()
+    const active = submitArtifactRun(payload())
+    await vi.waitFor(() => expect(d.stopChatForMedia).toHaveBeenCalledTimes(1))
+
+    const holdTwo = holdNextRun()
+    const queued = submitArtifactRun(payload({ runId: 'run-2', keepModelsLoaded: true }), {
+      queue: 'queue',
+    })
+    holdOne.resolve({ state: 'completed', items: [] })
+    await active
+    expect(d.freeComfyMemory).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(activeRunId).toBe('run-2'))
+
+    holdTwo.resolve({ state: 'completed', items: [] })
+    await queued
+    expect(d.freeComfyMemory).toHaveBeenCalledTimes(1)
+    expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
+  })
+
+  it('fail-fast refuses a second submit in the same tick, before the runner is active', async () => {
+    setOrchestratorDeps(deps())
+    const hold = holdNextRun()
+    const first = submitArtifactRun(payload({ runId: 'run-1' }))
+    const second = submitArtifactRun(payload({ runId: 'run-2' }))
+    expect((await second).state).toBe('failed')
+    expect((await second).error).toBe('Another generation is already in progress')
+    await vi.waitFor(() => expect(activeRunId).toBe('run-1'))
+    hold.resolve({ state: 'completed', items: [] })
+    await first
+  })
+
   it('waits for open chat requests before stopping the backend', async () => {
     let openRequests = 2
     const d = deps({ chatRequestsOpen: () => openRequests })
@@ -232,19 +267,28 @@ describe('the orchestrator', () => {
   })
 
   it('cancels a queued run by id without touching the active one', async () => {
-    setOrchestratorDeps(deps())
+    const d = deps()
+    setOrchestratorDeps(d)
     const hold = holdNextRun()
     const active = submitArtifactRun(payload())
     await vi.waitFor(() => expect(activeRunId).toBe('run-1'))
 
     holdNextRun()
-    const queued = submitArtifactRun(payload({ runId: 'run-2' }), { queue: 'queue' })
+    const queued = submitArtifactRun(payload({ runId: 'run-2', activityId: 'act-2' }), {
+      queue: 'queue',
+    })
     cancelArtifactRun('run-2')
     expect((await queued).state).toBe('cancelled')
     expect(cancelActiveMock).not.toHaveBeenCalled()
     expect(activeRunId).toBe('run-1')
+    expect(queueEvents.filter((e) => e.runKey === 'run-2').map((e) => e.action)).toEqual([
+      'enqueued',
+      'finished',
+    ])
     hold.resolve({ state: 'completed', items: [] })
     await active
+    expect(d.freeComfyMemory).toHaveBeenCalledTimes(1)
+    expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
   })
 
   it('serializes media requests, and waits for the GPU window before starting one', async () => {
@@ -299,5 +343,36 @@ describe('the orchestrator', () => {
         abortSignal: controller.signal,
       }),
     ).rejects.toThrow('Cancelled while waiting')
+  })
+
+  it('aborts a parked media request without waiting for the head', async () => {
+    setOrchestratorDeps(deps())
+    const first = deferred()
+    const ran: string[] = []
+    const request1 = runMediaRequest(
+      async () => {
+        ran.push('one')
+        return (await first.promise) as never
+      },
+      { runKey: 'media-1' },
+    )
+    await vi.waitFor(() => expect(ran).toEqual(['one']))
+
+    const controller = new AbortController()
+    const request2 = runMediaRequest(
+      async () => {
+        ran.push('two')
+        return 'nope'
+      },
+      { runKey: 'media-2', abortSignal: controller.signal },
+    )
+    expect(mediaRequestsQueued()).toBe(1)
+    controller.abort()
+    await expect(request2).rejects.toThrow('Cancelled while waiting')
+    expect(mediaRequestsQueued()).toBe(0)
+    expect(ran).toEqual(['one'])
+    first.resolve('done')
+    expect(await request1).toBe('done')
+    expect(ran).toEqual(['one'])
   })
 })

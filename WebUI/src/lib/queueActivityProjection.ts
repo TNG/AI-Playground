@@ -8,8 +8,9 @@ import type { KernelQueueEvent } from '@/types/kernelEvents'
 // as `queue-event`. What the renderer does with it is deliberately narrow:
 // a chat tool's own "Generating image…" activity already covers the wait, so
 // while its run is PARKED the activity is relabelled with its queue position
-// and restored when the run starts. Panel runs carry no activity — their
-// waiting state is the generation FSM's `queued` phase, as before.
+// and restored when the run starts or is cancelled while queued. Panel runs
+// carry no activity — their waiting state is the generation FSM's `queued`
+// phase, as before.
 
 let unsubscribe: (() => void) | null = null
 const stashed = new Map<string, { activityId: string; label: string }>()
@@ -57,5 +58,9 @@ function applyQueueEvent(
   const stash = stashed.get(event.runKey)
   if (!stash) return
   stashed.delete(event.runKey)
-  if (event.action === 'started') activities.update(stash.activityId, { label: stash.label })
+  // Cancel-while-queued emits `finished` without `started`; restoring on
+  // either is a no-op if the other already cleared the stash.
+  if (event.action === 'started' || event.action === 'finished') {
+    activities.update(stash.activityId, { label: stash.label })
+  }
 }

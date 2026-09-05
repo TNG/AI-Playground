@@ -20,6 +20,8 @@ const AGENT: ChatPreset = {
 
 const activePreset = ref<ChatPreset>(AGENT)
 
+const { errorsReport } = vi.hoisted(() => ({ errorsReport: vi.fn() }))
+
 vi.mock('@/assets/js/store/presets', () => ({
   usePresets: () => ({
     presets: [AGENT],
@@ -44,7 +46,9 @@ vi.mock('@/assets/js/store/cloudMode', () => ({
   CLOUD_DEFAULT_MODEL: 'test-model',
 }))
 
-vi.mock('@/assets/js/store/errors', () => ({ useErrors: () => ({ report: vi.fn() }) }))
+vi.mock('@/assets/js/store/errors', () => ({
+  useErrors: () => ({ report: errorsReport }),
+}))
 
 vi.mock('@/assets/js/tools/agentBridge', () => ({
   executeAgentTool: vi.fn(),
@@ -62,12 +66,18 @@ vi.mock('@ai-sdk/vue', () => ({
 
 const agentModeApi = {
   cancel: vi.fn(async () => {}),
-  deleteSession: vi.fn(async () => ({ success: true })),
+  deleteSession: vi.fn(async (): Promise<{ success: boolean; error?: string }> => ({
+    success: true,
+  })),
   onExecuteTool: vi.fn(),
   bootstrapSessions: vi.fn(),
   migrateSessions: vi.fn(),
-  saveSession: vi.fn(async (_record: unknown) => ({ success: true })),
-  saveActiveSessionId: vi.fn(async (_id: string | null) => ({ success: true })),
+  saveSession: vi.fn(
+    async (_record: unknown): Promise<{ success: boolean; error?: string }> => ({ success: true }),
+  ),
+  saveActiveSessionId: vi.fn(
+    async (_id: string | null): Promise<{ success: boolean; error?: string }> => ({ success: true }),
+  ),
 }
 
 let storage: Map<string, string>
@@ -96,6 +106,7 @@ beforeEach(() => {
   setActivePinia(createPinia())
   fakeWindow()
   vi.clearAllMocks()
+  errorsReport.mockClear()
 })
 
 afterEach(() => {
@@ -218,6 +229,32 @@ describe('useAgentMode session hydration', () => {
     await expect(store.init()).resolves.toBeUndefined()
     expect(Object.keys(store.sessions)).toHaveLength(0)
   })
+
+  it('strips leftover sessions from the Pinia key when files already own them', async () => {
+    storage.set(
+      'agentMode',
+      JSON.stringify({
+        workspaceDir: '/work',
+        sessions: { stale: wireRecord('stale') },
+        activeSessionId: 'stale',
+      }),
+    )
+    agentModeApi.bootstrapSessions.mockResolvedValue({
+      status: 'ok',
+      activeSessionId: 'aipg-agent-1',
+      sessions: [wireRecord('aipg-agent-1')],
+    })
+    const store: Store = useAgentMode()
+
+    await store.init()
+
+    expect(agentModeApi.migrateSessions).not.toHaveBeenCalled()
+    expect(store.sessions['aipg-agent-1']).toBeDefined()
+    const key = JSON.parse(storage.get('agentMode') ?? '{}') as Record<string, unknown>
+    expect(key.sessions).toBeUndefined()
+    expect(key.activeSessionId).toBeUndefined()
+    expect(key.workspaceDir).toBe('/work')
+  })
 })
 
 describe('useAgentMode session write-through', () => {
@@ -268,5 +305,39 @@ describe('useAgentMode session write-through', () => {
 
     store.activeSessionId = ''
     await vi.waitFor(() => expect(agentModeApi.saveActiveSessionId).toHaveBeenCalledWith(null))
+  })
+
+  it('reports a failed persist reply without dropping the live copy', async () => {
+    const store = await hydratedStore()
+    agentModeApi.saveSession.mockResolvedValueOnce({ success: false, error: 'disk full' })
+    store.sessions = {
+      'aipg-agent-1': { ...wireRecord('aipg-agent-1'), updatedAt: 9 } as never,
+    }
+    await vi.waitFor(() => expect(errorsReport).toHaveBeenCalled())
+    expect(errorsReport.mock.calls[0][0]).toMatchObject({ message: 'disk full' })
+    expect(store.sessions['aipg-agent-1']).toMatchObject({ id: 'aipg-agent-1', updatedAt: 9 })
+  })
+
+  it('keeps the row when the kernel refuses the delete', async () => {
+    const store = await hydratedStore()
+    store.sessions = { 'aipg-agent-1': wireRecord('aipg-agent-1') as never }
+    await vi.waitFor(() => expect(agentModeApi.saveSession).toHaveBeenCalled())
+    agentModeApi.deleteSession.mockResolvedValueOnce({ success: false, error: 'disk full' })
+
+    await store.deleteSession('aipg-agent-1')
+
+    expect(store.sessions['aipg-agent-1']).toBeDefined()
+    expect(errorsReport).toHaveBeenCalled()
+  })
+
+  it('drops the row only after the kernel confirms the delete', async () => {
+    const store = await hydratedStore()
+    store.sessions = { 'aipg-agent-1': wireRecord('aipg-agent-1') as never }
+    await vi.waitFor(() => expect(agentModeApi.saveSession).toHaveBeenCalled())
+    agentModeApi.deleteSession.mockResolvedValueOnce({ success: true })
+
+    await store.deleteSession('aipg-agent-1')
+
+    expect(store.sessions['aipg-agent-1']).toBeUndefined()
   })
 })

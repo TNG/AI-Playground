@@ -121,8 +121,11 @@ async function rebuildIndexFromSessionFiles(): Promise<AgentSessionIndexFile> {
 }
 
 function indexWithSafeIds(index: AgentSessionIndexFile): AgentSessionIndexFile {
+  const active =
+    index.activeSessionId && isSafeFileId(index.activeSessionId) ? index.activeSessionId : null
   return {
     ...index,
+    activeSessionId: active,
     sessions: index.sessions.filter((entry) => isSafeFileId(entry.id)),
   }
 }
@@ -216,9 +219,11 @@ export async function migrateLegacyAgentSessions(
       entries.push({ id, updatedAt: doc.updatedAt })
     }
     entries.sort((a, b) => a.updatedAt - b.updatedAt)
+    const active =
+      legacy.activeSessionId && isSafeFileId(legacy.activeSessionId) ? legacy.activeSessionId : null
     const index: AgentSessionIndexFile = {
       schemaVersion: 1,
-      activeSessionId: legacy.activeSessionId ?? null,
+      activeSessionId: active,
       sessions: entries,
     }
     await writeIndex(index)

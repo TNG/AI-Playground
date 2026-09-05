@@ -3403,14 +3403,17 @@ function initEventHandle() {
     await resetAgentSession()
   })
 
-  ipcMain.handle('agentMode:deleteSession', async (_event, sessionId: string) => {
-    // Both halves run even if one fails: a session whose record file survives
-    // would reappear in the panel next boot (and Pi's file is an orphan the
-    // moment the record is gone).
-    const record = await deleteAgentSessionRecord(sessionId)
-    const live = await deleteAgentSession(sessionId)
-    if (!record.success) return record
-    return live
+  ipcMain.handle('agentMode:deleteSession', async (_event, sessionId: unknown) => {
+    // Both halves run even if one fails. Invalid ids return `{success:false}`.
+    try {
+      if (typeof sessionId !== 'string') throw new Error('session id must be a string')
+      const record = await deleteAgentSessionRecord(sessionId)
+      const live = await deleteAgentSession(sessionId)
+      if (!record.success) return record
+      return live
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   // Copy a file the user attached into the agent's workspace, so the agent can

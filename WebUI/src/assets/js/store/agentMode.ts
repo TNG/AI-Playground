@@ -565,15 +565,10 @@ export const useAgentMode = defineStore(
     }
 
     async function deleteSession(id: string): Promise<void> {
-      const next = { ...sessions.value }
-      delete next[id]
-      sessions.value = next
-      if (id === activeSessionId.value) {
-        await stop()
-        activeSessionId.value = mintSessionId()
-        sessionCapabilities.value = null
-        chat.messages = []
-      }
+      // Stop first so Pi teardown in the same IPC is not racing a live turn,
+      // then wait for the kernel: dropping the row before that would make a
+      // failed delete vanish from the panel and come back on the next boot.
+      if (id === activeSessionId.value) await stop()
       const result = await window.electronAPI.agentMode.deleteSession(id)
       if (!result.success) {
         errors.report(new Error(result.error ?? 'Failed to delete session.'), {
@@ -582,6 +577,15 @@ export const useAgentMode = defineStore(
           userMessage: result.error ?? 'Failed to delete the agent session.',
           surface: 'silent',
         })
+        return
+      }
+      const next = { ...sessions.value }
+      delete next[id]
+      sessions.value = next
+      if (id === activeSessionId.value) {
+        activeSessionId.value = mintSessionId()
+        sessionCapabilities.value = null
+        chat.messages = []
       }
     }
 

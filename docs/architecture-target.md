@@ -1,7 +1,8 @@
 # Target architecture — capabilities, drivers, state ownership
 
-**Status: steps 1–8 of the migration order (§8) have a first slice landed (conversations as
-kernel-owned files, `userSelectedMode` deleted); remaining §6 buckets are incremental.**
+**Status: steps 1–8 of the migration order (§8) have two slices landed (conversations and
+agent-session files as kernel-owned stores, `userSelectedMode` deleted); remaining §6 buckets
+are incremental.**
 Media generation is owned by the main-process Artifact runner; speech drivers go through `speechIO`;
 inference/download consent through Permissions; main→renderer notifications through one kernel
 event stream (`kernel:event`) with a listener-first snapshot handshake; chat turns run in main
@@ -903,7 +904,8 @@ with step 7 (`queue-event`, not snapshotted) | yes |
 Steps 1–4 are worth doing even if we never move chat: they make the capabilities testable and the
 projection boundary complete. Snapshot hydration and Artifact readiness landed with steps 4–5;
 IPC delta coalescing landed with step 6, the single queue and GPU policy with step 7.
-Conversation files and the `userSelectedMode` deletion landed with step 8's first slice.
+Conversation files and the `userSelectedMode` deletion landed with step 8's first slice;
+agent-session records landed with the second.
 
 ### 8.1 Transition cost and per-step obligations
 
@@ -1073,7 +1075,7 @@ small fix on this branch) can pick them up instead of rediscovering them.
   GPU window (already the head of its lane, not parked) sits until the next poll. Race the
   delay against `AbortSignal` if that latency shows up.
 
-**Step 8 (split stores) — what the first slice left behind:**
+**Step 8 (split stores) — what the landed slices left behind:**
 
 - **Hydration is eager.** `conversations:bootstrap` reads every thread file at once, which §6.1
   said not to do. The store's consumers (history list, Chat view, kernel resume) read
@@ -1094,8 +1096,8 @@ small fix on this branch) can pick them up instead of rediscovering them.
   saved again, which overwrites the file. The rebuilt-after-corruption index honestly does not
   know `activeSessionId`, so the boot after losing an index opens no session.
 - **Agent-session deletes fold into `agentMode:deleteSession`.** The renderer's sessions watcher
-  deliberately does not forward removals — the explicit delete IPC owns the record file, the
-  index entry and Pi's own session file, so a half-failed delete cannot leave a ghost row.
+  does not forward removals; `deleteSession` waits for that IPC (record file + Pi teardown) before
+  dropping the row, so a failed delete cannot vanish from the panel and reappear next boot.
 - **The agentMode legacy key is slimmed, not dropped.** The Pinia key survives this slice (it
   still persists preferences and last-used workspace state), so the one-shot migration strips
   `sessions` / `activeSessionId` out of the stored payload instead of removing the key.
@@ -1107,9 +1109,9 @@ small fix on this branch) can pick them up instead of rediscovering them.
   it.** The store comment intended it for restoring the last Local thread when toggling the history
   filter; that restore was never wired. Do not treat a missing restore as a regression of this
   slice — wire it when the filter actually needs it.
-- **`writeChains` is never pruned.** Each conversation id (plus `index`) keeps the tail of its
-  serialize promise in a Map for the process lifetime. Harmless at current thread counts; drop
-  settled entries if a long-lived session accumulates thousands of ids.
+- **`writeChains` is never pruned.** Each conversation or agent-session id (plus `index`) keeps
+  the tail of its serialize promise in a Map for the process lifetime. Harmless at current
+  counts; drop settled entries if a long-lived session accumulates thousands of ids.
 
 **Step 2 (Speech I/O) — already noted at the adapter, still ahead:**
 

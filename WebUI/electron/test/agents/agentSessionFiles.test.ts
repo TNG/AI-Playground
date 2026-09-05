@@ -124,6 +124,29 @@ describe('bootstrapAgentSessions', () => {
     if (boot.status !== 'ok') throw new Error('expected ok')
     expect(boot.sessions).toEqual([])
   })
+
+  it('rebuilds from session files when index.json is missing but records remain', async () => {
+    await saveAgentSession(record('aipg-agent-1'))
+    await fs.rm(path.join(dirs.real, 'index.json'))
+    const boot = await bootstrapAgentSessions()
+    expect(boot).toMatchObject({ status: 'ok' })
+    if (boot.status !== 'ok') return
+    expect(boot.sessions.map((session) => session.id)).toEqual(['aipg-agent-1'])
+    expect(boot.activeSessionId).toBeNull()
+  })
+
+  it('rebuilds from session files when index.json fails schema', async () => {
+    await saveAgentSession(record('aipg-agent-1'))
+    await fs.writeFile(
+      path.join(dirs.real, 'index.json'),
+      `${JSON.stringify({ schemaVersion: 99, sessions: [] })}\n`,
+      'utf8',
+    )
+    const boot = await bootstrapAgentSessions()
+    expect(boot).toMatchObject({ status: 'ok' })
+    if (boot.status !== 'ok') return
+    expect(boot.sessions.map((session) => session.id)).toEqual(['aipg-agent-1'])
+  })
 })
 
 describe('migrateLegacyAgentSessions', () => {
@@ -154,6 +177,14 @@ describe('migrateLegacyAgentSessions', () => {
     })
     if (boot.status !== 'ok') throw new Error('expected ok')
     expect(boot.sessions.map((session) => session.id)).toEqual(['aipg-agent-1'])
+  })
+
+  it('does not store an unsafe legacy activeSessionId', async () => {
+    const boot = await migrateLegacyAgentSessions({
+      sessions: { 'aipg-agent-1': record('aipg-agent-1') },
+      activeSessionId: '../escape',
+    })
+    expect(boot).toMatchObject({ status: 'ok', activeSessionId: null })
   })
 })
 
@@ -205,6 +236,16 @@ describe('saveAgentSession', () => {
     const ids = (index.sessions as { id: string }[]).map((entry) => entry.id).sort()
     expect(ids).toEqual(['aipg-agent-1', 'aipg-agent-2'])
     expect(index.activeSessionId).toBe('aipg-agent-2')
+  })
+
+  it('rejects an id that would overwrite index.json', async () => {
+    await expect(saveAgentSession(record('index'))).rejects.toThrow(/invalid agent session id/)
+    expect(await listDir(dirs.real)).toEqual([])
+  })
+
+  it('rejects a path-shaped id', async () => {
+    await expect(saveAgentSession(record('../x'))).rejects.toThrow(/invalid agent session id/)
+    expect(await listDir(dirs.real)).toEqual([])
   })
 })
 

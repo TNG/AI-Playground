@@ -6,6 +6,7 @@ import { preserveStateAcrossHmr } from './assets/js/piniaHmrStatePreservation'
 import { useI18N } from './assets/js/store/i18n'
 import { useErrors } from './assets/js/store/errors'
 import { usePromptStore } from './assets/js/store/promptArea'
+import { useConversations } from './assets/js/store/conversations'
 import { initLaminarTelemetry } from './lib/laminarTelemetry'
 import { initDebugSettings } from './assets/js/store/debugSettings'
 import { startMediaRequestBridge } from './assets/js/artifact/mediaRequestBridge'
@@ -61,6 +62,12 @@ if (initialPage !== null) {
 // The main-process artifact runner asks the renderer for model checks,
 // download consent and chat reloads over this bridge.
 startMediaRequestBridge()
+
+// Hydrate the conversation threads from the kernel's files (step 8) before
+// anything mounts, so the history panel and a resumed chat turn never see a
+// half-hydrated map. This is also where the one-shot localStorage migration
+// runs on a legacy boot.
+await useConversations().init()
 
 // Relabel a parked chat tool's activity with its queue position (the
 // orchestrator's queue events, step 7).

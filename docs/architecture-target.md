@@ -735,6 +735,9 @@ AI-Playground/
   agent-sessions/         # same idea; Pi's own files can stay as they are
 ```
 
+(Landed with step 8's first slice: `conversations/index.json` + `<id>.json` exactly as above,
+written by `electron/conversations/conversationFiles.ts`; `agent-sessions/` is the next slice.)
+
 User preferences that a human would want in a backup (`defaultPreset`, theme, per-preset knobs)
 can live as `AI-Playground/preferences.json`. Things a restore onto a different PC should not
 blindly apply (device ids, disabled backends) stay in `userData`.
@@ -887,9 +890,9 @@ flowchart TD
 | 4 | **Done.** Notifications that were pushed point-to-point (`serviceInfoUpdate`, the four `agentMode:*` push channels) cross the kernel stream (`kernel:event`, one monotonic `seq`; listener-first snapshot handshake with install-before-flush; bus holds the current window so no service pushes to a stale webContents). Main owns hide/reopen/quit via `resolveClosePolicy` (`lifecycle:busy` from the activities sink, Home Agent status, active agent turn); a reconnected renderer resumes a running agent turn from the snapshot (`Chat.resumeStream`). Browser-backed windows were already lazy. Remaining event types (`activity`, `error`, `stored`) ride with steps 7–8 work; `queue` landed
 with step 7 (`queue-event`, not snapshotted) | yes |
 | 5 | **Done.** `capabilities/media.ts` no longer calls `executeToolInRenderer` — direct tools execute in-process against `electron/artifact/runner.ts` (`mediaDirect.ts`), the NL `media` tool lives in `mediaDelegation.ts` — and the UI hydrates readiness/generation progress from main via kernel `artifact-phase`/`artifact-item` events. In-process runs ask the renderer for model checks, download consent and chat reload over `artifact:request` | yes, needs 1–4 |
-| 6 | **Done.** The renderer has no `streamText` — chat turns run in the main-side engine (`electron/chat/turnEngine.ts`) over `chat:submitTurn` and stream back as kernel `chat-chunk` events (adjacent deltas coalesced at the bus, semantic chunks immediate) through the renderer's kernel transport (`src/lib/kernelChatTransport.ts`); a reloaded renderer resumes from the snapshot (`chat:resumeTurn`). Tool executions round-trip to the renderer registry (`src/lib/chatToolRegistry.ts`) over the tool bridge; the nested media specialist runs in main too (`electron/chat/mediaAgentRunner.ts`) with its inner tools on the same bridge, progress as `media-agent-event`; one-shot summarize is `chat:summarize`; Laminar's AI SDK integration is registered in main against the SDK's global telemetry registry. RAG retrieval and conversation persistence stayed renderer-side (§8.2) | yes, needs 1–5 |
+| 6 | **Done.** The renderer has no `streamText` — chat turns run in the main-side engine (`electron/chat/turnEngine.ts`) over `chat:submitTurn` and stream back as kernel `chat-chunk` events (adjacent deltas coalesced at the bus, semantic chunks immediate) through the renderer's kernel transport (`src/lib/kernelChatTransport.ts`); a reloaded renderer resumes from the snapshot (`chat:resumeTurn`). Tool executions round-trip to the renderer registry (`src/lib/chatToolRegistry.ts`) over the tool bridge; the nested media specialist runs in main too (`electron/chat/mediaAgentRunner.ts`) with its inner tools on the same bridge, progress as `media-agent-event`; one-shot summarize is `chat:summarize`; Laminar's AI SDK integration is registered in main against the SDK's global telemetry registry. RAG retrieval stayed renderer-side (§8.2; conversation files landed with step 8) | yes, needs 1–5 |
 | 7 | **Done.** One queue and one GPU policy: `electron/orchestrator/orchestrator.ts` owns a FIFO for artifact runs (panel/Home Agent submissions fail-fast as before; chat-tool submissions and in-process Pi tool runs queue) and a request lane for whole `media` requests; every media run brackets the one GPU window (chat backends stopped before, ComfyUI freed and the chat backend restarted after, skipped with Keep Models Loaded or while runs are queued — one spritesheet = one swap); `ensureBackendReadiness` waits for the window, so Text and Artifact no longer start/stop each other's backends blind; the queue is visible as `queue-event` kernel events, which relabel the parked chat tool's activity with its position (`src/lib/queueActivityProjection.ts`). Chat turns are not queue entries (§8.2) | yes, needs 6 |
-| 8 | fields in §6 sit in their bucket; `userSelectedMode` is deleted; files own transcripts; localStorage migrates once | incremental |
+| 8 | **Partial (incremental).** Conversations are kernel-owned user-data files per §6.1: `electron/conversations/conversationFiles.ts` writes one JSON per thread plus `index.json` (atomic tmp+rename, one writer, `schemaVersion`) under `AI-Playground/conversations/` (demo mode: `conversations-demo/`, wiped on exit and boot); the store is a live projection hydrated once pre-mount (`init()`) over `conversations:bootstrap/migrate/save/delete/saveLastMainKey` and writes through at the settle points the old persist plugin hooked; the legacy localStorage state uploads once on the first boot that sees no index (`empty` + legacy key → `migrate`) and the key is then dropped — no dual-write. `promptArea.userSelectedMode` is deleted: nothing borrows the mode since step 7, so the status bar and the history filter read `currentMode` (whose only non-foreground writer left is the Home Agent remote-focus). Remaining §6 buckets — preferences file, backend launch flags, `generatedImages`, `ragList`, device-id dedupe, agent-session files — are parked in §8.2 | incremental |
 
 Steps 1–4 are worth doing even if we never move chat: they make the capabilities testable and the
 projection boundary complete. Snapshot hydration and Artifact readiness landed with steps 4–5;
@@ -1011,10 +1014,10 @@ small fix on this branch) can pick them up instead of rediscovering them.
 
 **Step 6 (chat in main) — leftovers, none blocking step 8:**
 
-- **RAG retrieval and conversation persistence stayed renderer-side.** The turn request ships the
-  prepared prompt and the UI messages, but `prepareRagContext` and the conversation bucket remain
-  renderer state — as the step-8 row already plans. The engine sees only what the request carries,
-  so moving conversations takes them along.
+- **RAG retrieval stayed renderer-side.** The turn request ships the prepared prompt and the UI
+  messages, but `prepareRagContext` remains renderer state. Conversation persistence moved to
+  kernel-owned files with step 8's first slice; the engine still sees only what the request
+  carries, so moving RAG takes it along the same seam.
 - **The tool bridge has no timeout.** `executeToolInRenderer` waits forever for the renderer's
   reply, the same class of stall as the artifact request RPC. A cancelled turn rejects pending
   calls; a replaced window settles everything. Add a budget if a wedged tool closure starts
@@ -1062,6 +1065,27 @@ small fix on this branch) can pick them up instead of rediscovering them.
 - **`awaitChatWindow` polls abort every 500ms.** A media request cancelled while waiting for the
   GPU window (already the head of its lane, not parked) sits until the next poll. Race the
   delay against `AbortSignal` if that latency shows up.
+
+**Step 8 (split stores) — what the first slice left behind:**
+
+- **Hydration is eager.** `conversations:bootstrap` reads every thread file at once, which §6.1
+  said not to do. The store's consumers (history list, Chat view, kernel resume) read
+  `conversationList` directly, so lazy per-thread reads need the store to become an
+  index-plus-active-thread projection first. At current thread sizes the whole-directory read is
+  a few MB; do the lazy split together with the snapshot-convergence item in step 4 above when
+  hydration grows heavy.
+- **Conversation ids are still timestamp strings**, not the slugs §6.1 floated — legacy keys
+  move verbatim into filenames (legal everywhere, no collision with `index.json`); re-keying
+  would break Home Agent thread addressability and saved `lastMainKey` references for no gain.
+- **The renderer still decides when to save** (the settle points); main is only the writer. When
+  chat turns move fully main-side (§7's deferred half), the engine should write the turn itself
+  and the store becomes a pure projection.
+- **No periodic checkpoint mid-turn** beyond the settle points: a tool-using chat turn writes per
+  tool result, so a crash loses only the unsettled tail.
+- **Remaining §6 buckets** (unchanged, for the next slices): `preferences.json`, backend launch
+  flags (`comfyUiParameters` / `llamaCppParameters`) → `settings.json`, `generatedImages` → files
+  beside the media they reference, `ragList` → the RAG bucket, `lastSelectedDeviceIdPerBackend`
+  dedupe, `agentMode.sessions` / workspace files, the `defaultPreset` preference.
 
 **Step 2 (Speech I/O) — already noted at the adapter, still ahead:**
 

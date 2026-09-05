@@ -470,6 +470,23 @@ type electronAPI = {
       callback: (payload: import('./types/chatIpc').ChatToolExecution) => void,
     ): () => void
   }
+  conversations: {
+    bootstrap(): Promise<
+      import('./types/conversationIpc').ConversationBootstrap | { status: 'error'; error: string }
+    >
+    migrate(
+      payload: unknown,
+    ): Promise<
+      import('./types/conversationIpc').ConversationBootstrap | { status: 'error'; error: string }
+    >
+    save(
+      request: import('./types/conversationIpc').ConversationSaveRequest,
+    ): Promise<{ success: true } | { success: false; error: string }>
+    delete(id: string): Promise<{ success: true } | { success: false; error: string }>
+    saveLastMainKey(
+      key: string | null,
+    ): Promise<{ success: true } | { success: false; error: string }>
+  }
   startTranscriptionServer(modelName: string): Promise<{ success: boolean; error?: string }>
   stopTranscriptionServer(): Promise<{ success: boolean; error?: string }>
   getTranscriptionServerUrl(): Promise<{ success: boolean; url?: string; error?: string }>

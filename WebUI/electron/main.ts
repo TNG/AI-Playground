@@ -166,6 +166,19 @@ import {
   runMediaAgentInMain,
 } from './chat/mediaAgentRunner'
 import { MediaAgentRunRequestSchema } from '@/types/chatIpc'
+import {
+  bootstrapConversations,
+  deleteConversation,
+  migrateLegacyConversations,
+  saveConversation,
+  saveConversationLastMainKey,
+  setConversationFileDeps,
+  wipeDemoConversations,
+} from './conversations/conversationFiles'
+import {
+  ConversationLegacyStateSchema,
+  ConversationSaveRequestSchema,
+} from '@/types/conversationIpc'
 
 import { llmServerBaseUrl } from './llmServerSnapshot'
 import type { ChatToolResult } from '@/types/chatIpc'
@@ -1087,6 +1100,9 @@ appShutdown.register({
   },
 })
 appShutdown.register({ name: 'web browser', run: () => destroyWebBrowser() })
+// Demo conversations are session-scoped (§6.1): nothing demo-written may
+// survive the process that wrote it.
+appShutdown.register({ name: 'demo conversations', run: () => wipeDemoConversations() })
 appShutdown.register({ name: 'cloud proxy', run: () => cloudProxy?.close() })
 // After the agent, so the spans its extensions emit while shutting down are
 // still exported. No-op unless a developer opted into Laminar tracing.
@@ -1187,8 +1203,19 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
     homeAgent.registerIpcHandlers()
   }
   wireArtifactRunner(settings)
+  wireConversations(settings)
   wireChatEngine()
   return serviceRegistry
+}
+
+/**
+ * Conversation persistence (step 8, §6.1): demo mode routes threads to a
+ * session-scoped sibling directory. Wipe it on boot too — a crash can leave a
+ * tail behind, and the app only ever wipes on exit otherwise.
+ */
+function wireConversations(settings: LocalSettings): void {
+  setConversationFileDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoConversations()
 }
 
 /**
@@ -2566,6 +2593,59 @@ function initEventHandle() {
   ipcMain.handle('chat:cancelMediaAgent', (_event: IpcMainInvokeEvent, runKey: unknown) => {
     if (typeof runKey === 'string') cancelMediaAgentRun(runKey)
   })
+
+  // Conversation persistence (step 8, architecture-target §6.1): the kernel
+  // is the one writer of the user's threads. Hydration and the one-shot
+  // legacy upload return data; the mutations follow the {success} convention.
+  ipcMain.handle('conversations:bootstrap', async () => {
+    try {
+      return await bootstrapConversations()
+    } catch (e) {
+      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('conversations:migrate', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+    try {
+      return await migrateLegacyConversations(ConversationLegacyStateSchema.parse(payload))
+    } catch (e) {
+      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('conversations:save', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+    try {
+      await saveConversation(ConversationSaveRequestSchema.parse(payload))
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('conversations:delete', async (_event: IpcMainInvokeEvent, id: unknown) => {
+    try {
+      if (typeof id !== 'string') throw new Error('conversation id must be a string')
+      await deleteConversation(id)
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle(
+    'conversations:saveLastMainKey',
+    async (_event: IpcMainInvokeEvent, key: unknown) => {
+      try {
+        if (typeof key !== 'string' && key !== null) {
+          throw new Error('lastMainKey must be a string or null')
+        }
+        await saveConversationLastMainKey(key)
+        return { success: true as const }
+      } catch (e) {
+        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+  )
 
   ipcMain.handle(
     'getEmbeddingServerUrl',

@@ -42,3 +42,32 @@ export const getAudioDir = () => {
   }
   return path.join(externalResourcesDir(), 'service', 'static', 'audio')
 }
+
+/**
+ * The user's chat threads: one JSON file per conversation plus `index.json`
+ * (architecture-target §6.1). Sibling to `media/` so a folder copy takes the
+ * conversations with it.
+ */
+export const getConversationsDir = () => {
+  if (process.env.USERPROFILE) {
+    return path.join(process.env.USERPROFILE, 'Documents', 'AI-Playground', 'conversations')
+  }
+  if (process.env.HOME) {
+    return path.join(process.env.HOME, 'AI-Playground', 'conversations')
+  }
+  return path.join(externalResourcesDir(), 'service', 'static', 'conversations')
+}
+
+/**
+ * Demo-mode conversations live here instead of the real library and are wiped
+ * on exit (§6.1: session-scoped, never a write into the user's real library).
+ */
+export const getConversationsDemoDir = () => {
+  if (process.env.USERPROFILE) {
+    return path.join(process.env.USERPROFILE, 'Documents', 'AI-Playground', 'conversations-demo')
+  }
+  if (process.env.HOME) {
+    return path.join(process.env.HOME, 'AI-Playground', 'conversations-demo')
+  }
+  return path.join(externalResourcesDir(), 'service', 'static', 'conversations-demo')
+}

@@ -798,6 +798,8 @@ before the kernel move or as a small fix.
 
 **Chat turns** (step 6): `chat:submitTurn`, `chat:resumeTurn`, `chat:cancelTurn` (R→M), `chat:executeTool` (M→R) + `chat:toolResult` (R→M — the tool execution bridge), `chat:summarize`, `chat:runMediaAgent` / `chat:cancelMediaAgent` (the nested media specialist, R→M)
 
+**Conversations** (step 8): `conversations:bootstrap`, `conversations:migrate` (one-shot legacy upload), `conversations:save`, `conversations:delete`, `conversations:saveLastMainKey` (R→M — the kernel owns the thread files under `AI-Playground/conversations/`)
+
 **Transcription**: `startTranscriptionServer`, `stopTranscriptionServer`, `getTranscriptionServerUrl`
 
 **Dialogs/files**: `showOpenDialog`, `showSaveDialog`, `showMessageBox`, `existsPath`, `saveImage`
@@ -814,7 +816,7 @@ before the kernel move or as a small fix.
 - `comfyUiPresets` — Settings-side ComfyUI store: preset requirement checks, freeing ComfyUI memory (`free`), and the generation-activity bridge. The WebSocket engine moved to main (`electron/artifact/runner.ts`, §8 step 5). Deps: `imageGenerationPresets`, `i18n`, `backendServices`
 - `models` — Model discovery, download checking, HuggingFace integration, path management. Deps: `backendServices`
 - `presets` — Unified preset system with Zod schemas (`chat` + `comfy` types), variants, file I/O. Deps: `backendServices`
-- `conversations` — Conversation CRUD and persistence. No store deps.
+- `conversations` — Conversation CRUD. Live projection of the kernel-owned thread files (step 8): `init()` hydrates once before mount via `conversations:bootstrap` (plus a one-shot `conversations:migrate` of the legacy localStorage state on first boot), and mutators write through at settle points. No store deps.
 
 **Orchestration stores:**
 

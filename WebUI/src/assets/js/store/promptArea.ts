@@ -11,12 +11,6 @@ export const usePromptStore = defineStore('prompt', () => {
   const setupWizard = useSetupWizard()
 
   const currentMode = ref<ModeType>('chat')
-  // The mode the user last deliberately selected from the UI (mode buttons /
-  // navigation). Unlike `currentMode`, this is NOT touched by background flips
-  // via `setModeOnly` (agentic tool use, Home Agent turns), so UI that should
-  // reflect the user's chosen context can stay stable while a tool temporarily
-  // switches the app to a ComfyUI mode under the hood.
-  const userSelectedMode = ref<ModeType>('chat')
   const promptSubmitted = ref(false)
   const injectedPromptText = ref<string | null>(null)
 
@@ -54,10 +48,9 @@ export const usePromptStore = defineStore('prompt', () => {
 
     const presetSwitching = usePresetSwitching()
 
-    // Set the mode first. This is the genuine foreground path, so also record it
-    // as the user's selected mode.
+    // Set the mode first; the preset switch below may move it again (chat and
+    // agent share a category, so the preset that lands decides the mode).
     currentMode.value = mode
-    userSelectedMode.value = mode
 
     if (!options.skipPresetSwitch) {
       // Get categories for this mode
@@ -105,8 +98,9 @@ export const usePromptStore = defineStore('prompt', () => {
   }
 
   /**
-   * Set the current mode without triggering preset switching.
-   * Used by the preset switching orchestrator when it handles preset selection itself.
+   * Set the current mode without triggering preset switching. Only the Home
+   * Agent remote-focus path uses this: it puts the Chat view on the active
+   * remote thread without moving the user's preset selection.
    */
   function setModeOnly(mode: ModeType) {
     currentMode.value = mode
@@ -114,13 +108,11 @@ export const usePromptStore = defineStore('prompt', () => {
 
   /**
    * Set the mode a freshly selected preset belongs to. Used by the preset
-   * switching orchestrator on foreground switches: the preset itself may move the
-   * app between Chat and Agent Mode, and that is a deliberate user choice, so
-   * `userSelectedMode` follows (UI such as the status bar reads it).
+   * switching orchestrator on foreground switches: the preset itself may move
+   * the app between Chat and Agent Mode.
    */
   function setModeForPreset(mode: ModeType) {
     currentMode.value = mode
-    userSelectedMode.value = mode
   }
 
   function injectPromptText(text: string) {
@@ -159,7 +151,6 @@ export const usePromptStore = defineStore('prompt', () => {
 
   return {
     currentMode,
-    userSelectedMode,
     promptSubmitted,
     injectedPromptText,
     getCurrentMode,

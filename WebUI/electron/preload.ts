@@ -218,6 +218,30 @@ contextBridge.exposeInMainWorld('electronAPI', {
       callback: (payload: import('../src/types/chatIpc').ChatToolExecution) => void,
     ) => listen('chat:executeTool', callback),
   },
+  conversations: {
+    bootstrap: () =>
+      ipcRenderer.invoke('conversations:bootstrap') as Promise<
+        | import('../src/types/conversationIpc').ConversationBootstrap
+        | { status: 'error'; error: string }
+      >,
+    migrate: (payload: unknown) =>
+      ipcRenderer.invoke('conversations:migrate', payload) as Promise<
+        | import('../src/types/conversationIpc').ConversationBootstrap
+        | { status: 'error'; error: string }
+      >,
+    save: (request: import('../src/types/conversationIpc').ConversationSaveRequest) =>
+      ipcRenderer.invoke('conversations:save', request) as Promise<
+        { success: true } | { success: false; error: string }
+      >,
+    delete: (id: string) =>
+      ipcRenderer.invoke('conversations:delete', id) as Promise<
+        { success: true } | { success: false; error: string }
+      >,
+    saveLastMainKey: (key: string | null) =>
+      ipcRenderer.invoke('conversations:saveLastMainKey', key) as Promise<
+        { success: true } | { success: false; error: string }
+      >,
+  },
   startTranscriptionServer: (modelName: string) =>
     ipcRenderer.invoke('startTranscriptionServer', modelName),
   stopTranscriptionServer: () => ipcRenderer.invoke('stopTranscriptionServer'),

@@ -72,11 +72,13 @@ const agentModeApi = {
   onExecuteTool: vi.fn(),
   bootstrapSessions: vi.fn(),
   migrateSessions: vi.fn(),
-  saveSession: vi.fn(
-    async (_record: unknown): Promise<{ success: boolean; error?: string }> => ({ success: true }),
-  ),
+  saveSession: vi.fn(async (_record: unknown): Promise<{ success: boolean; error?: string }> => ({
+    success: true,
+  })),
   saveActiveSessionId: vi.fn(
-    async (_id: string | null): Promise<{ success: boolean; error?: string }> => ({ success: true }),
+    async (_id: string | null): Promise<{ success: boolean; error?: string }> => ({
+      success: true,
+    }),
   ),
 }
 

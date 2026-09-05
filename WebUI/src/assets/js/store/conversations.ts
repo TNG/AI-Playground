@@ -226,11 +226,7 @@ export const useConversations = defineStore('conversations', () => {
 
   function addNewConversation() {
     const list = conversationList.value
-    const newKey = addNewConversationIfLatestIsNotEmpty(
-      list,
-      undefined,
-      conversationThreadMeta.value,
-    )
+    const newKey = addNewConversationIfLatestIsNotEmpty(list, conversationThreadMeta.value)
     activeKey.value = newKey
     return newKey
   }
@@ -334,11 +330,7 @@ export const useConversations = defineStore('conversations', () => {
       followRenamedPresets(conversationThreadMeta.value)
       // A session always opens on an empty main draft; it materializes on
       // disk with its first content.
-      addNewConversationIfLatestIsNotEmpty(
-        conversationList.value,
-        undefined,
-        conversationThreadMeta.value,
-      )
+      addNewConversationIfLatestIsNotEmpty(conversationList.value, conversationThreadMeta.value)
       hydrated.value = true
     })()
     return initPromise
@@ -401,7 +393,6 @@ export const useConversations = defineStore('conversations', () => {
  */
 function addNewConversationIfLatestIsNotEmpty(
   list: Record<string, AipgUiMessage[]>,
-  conversationKey?: string,
   meta?: Record<string, ConversationThreadMeta>,
 ): string {
   const isHomeAgent = (key: string) => meta?.[key]?.kind === 'homeAgent'

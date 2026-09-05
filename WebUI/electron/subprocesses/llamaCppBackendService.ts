@@ -340,6 +340,7 @@ export class LlamaCppBackendService implements ApiService {
       })
       .catch((error) => {
         this.appLogger.warn(`Failed to detect storage targets on startup: ${error}`, this.name)
+        this.updateStatus()
       })
   }
 

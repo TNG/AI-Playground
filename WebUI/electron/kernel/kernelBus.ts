@@ -392,6 +392,10 @@ export function getActiveChatTurns(): ChatTurnSnapshot[] {
  * this snapshot can be double-applied.
  */
 export function getKernelSnapshot(): KernelSnapshot {
+  // Flush pending chat deltas first: they emit and bump `sequence`, and the
+  // watermark must be captured after that so a resumed renderer does not also
+  // apply the just-flushed chunks as live events.
+  const chatTurnSnapshots = getActiveChatTurns()
   return {
     scope: { kind: 'global' },
     sequence,
@@ -399,7 +403,7 @@ export function getKernelSnapshot(): KernelSnapshot {
       services: [...services.values()],
       activeTurn: activeTurn ? { ...activeTurn } : null,
       activeArtifactRun: activeArtifactRun ? { ...activeArtifactRun } : null,
-      chatTurns: getActiveChatTurns(),
+      chatTurns: chatTurnSnapshots,
     },
   }
 }

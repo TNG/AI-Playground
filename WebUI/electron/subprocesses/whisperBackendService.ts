@@ -43,15 +43,7 @@ export class WhisperBackendService extends LongLivedPythonApiService {
 
   constructor(name: BackendServiceName, port: number, win: BrowserWindow, settings: LocalSettings) {
     super(name, port, win, settings)
-
-    this.serviceIsSetUp().then(async (setUp) => {
-      this.isSetUp = setUp
-      if (this.isSetUp) {
-        await this.updateCachedVersion()
-        this.setStatus('notYetStarted')
-      }
-      this.appLogger.info(`Service ${this.name} isSetUp: ${this.isSetUp}`, this.name)
-    })
+    void this.publishInitialSetupStatus()
   }
 
   /** CUDA in NVIDIA product mode, Intel XPU on Windows, CPU elsewhere. */

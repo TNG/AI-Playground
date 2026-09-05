@@ -272,6 +272,25 @@ describe('kernel bus chat chunks', () => {
     expect(getKernelSnapshot().state.chatTurns[0]?.chunks).toEqual(captured!.chunks)
   })
 
+  it('getKernelSnapshot watermarks sequence after flushing pending chat deltas', () => {
+    vi.useFakeTimers()
+    try {
+      const { win, sent } = fakeWindow()
+      setKernelEventWindow(win)
+      beginChatTurnSnapshot('conv-1', 'turn-1')
+      emitChatChunk('conv-1', 'turn-1', { type: 'text-delta', id: 'text-0', delta: 'x' })
+      expect(chatEvents(sent)).toHaveLength(0)
+      const snapshot = getKernelSnapshot()
+      expect(snapshot.state.chatTurns[0]?.chunks).toEqual([
+        { type: 'text-delta', id: 'text-0', delta: 'x' },
+      ])
+      expect(snapshot.sequence).toBe(1)
+      expect(chatEvents(sent)).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('tracks concurrent turns per conversation independently', () => {
     const { win, sent } = fakeWindow()
     setKernelEventWindow(win)

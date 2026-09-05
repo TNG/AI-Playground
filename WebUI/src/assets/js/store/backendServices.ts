@@ -200,9 +200,22 @@ export const useBackendServices = defineStore(
       if (services.length === 0 && currentServiceInfo.value.length > 0) {
         return
       }
-      currentServiceInfo.value = services
-      for (const service of services) {
+      // A snapshot taken while some backends are still checking is a subset.
+      // Keep hydrated extras (getServices / a racing hydrate) so ai-backend
+      // does not vanish when llama.cpp publishes first.
+      const incomingNames = new Set(services.map((s) => s.serviceName))
+      const extras = currentServiceInfo.value.filter((s) => !incomingNames.has(s.serviceName))
+      currentServiceInfo.value = extras.length === 0 ? services : [...services, ...extras]
+      for (const service of currentServiceInfo.value) {
         applyInstalledVersionFromService(service)
+      }
+    }
+
+    async function hydrateFromMain(): Promise<void> {
+      try {
+        applyServiceSnapshot(await window.electronAPI.getServices())
+      } catch (error) {
+        console.warn('Failed to refresh service info from main', error)
       }
     }
 
@@ -224,6 +237,7 @@ export const useBackendServices = defineStore(
     )
     kernelProjection.ready.catch((reason: unknown) => {
       console.warn('kernel snapshot unavailable; waiting on stream events instead', reason)
+      void hydrateFromMain()
     })
     if (import.meta.hot) {
       import.meta.hot.dispose(() => kernelProjection.dispose())
@@ -739,8 +753,7 @@ export const useBackendServices = defineStore(
 
       // Re-fetch service info to get the latest setup status
       try {
-        const latestServices = await window.electronAPI.getServices()
-        currentServiceInfo.value = latestServices
+        await hydrateFromMain()
       } catch (error) {
         console.warn('Failed to refresh service info for installation check:', error)
       }
@@ -833,6 +846,7 @@ export const useBackendServices = defineStore(
       startAllSetUpServicesInBackground,
       backendStartupInProgress,
       latestSetupProgress,
+      hydrateFromMain,
     }
   },
   {

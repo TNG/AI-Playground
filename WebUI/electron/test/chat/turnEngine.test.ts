@@ -16,6 +16,7 @@ const {
   submitChatTurn,
   cancelChatTurn,
   chatTurnActive,
+  resumeChatTurn,
   setChatEngineDeps,
   resetChatEngineDepsForTest,
 } = await import('../../chat/turnEngine')
@@ -557,5 +558,22 @@ describe('turn engine', () => {
 
     expect(chatChunks().some((c) => c.type === 'error')).toBe(false)
     expect(chatTurnActive('conv-1')).toBe(false)
+  })
+
+  it('resumeChatTurn includes the live turnId so a reloaded renderer can reconnect', async () => {
+    queueFetchMock(pending())
+    const { turnId } = submitChatTurn(turnRequest())
+    await vi.waitFor(() => {
+      expect(requests.length).toBeGreaterThan(0)
+    })
+    const resumed = resumeChatTurn('conv-1')
+    expect(resumed).toMatchObject({
+      turnId,
+      chunks: expect.any(Array),
+      sequence: expect.any(Number),
+    })
+    expect(resumeChatTurn('conv-missing')).toBeNull()
+    cancelChatTurn('conv-1', turnId)
+    await waitForTurnDone(turnId)
   })
 })

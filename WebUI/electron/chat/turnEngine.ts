@@ -444,7 +444,9 @@ export function cancelChatTurn(conversationKey: string, turnId: string): void {
 export function resumeChatTurn(conversationKey: string) {
   const turn = activeTurns.get(conversationKey)
   if (!turn) return null
-  return getChatTurnChunks(conversationKey, turn.turnId)
+  const captured = getChatTurnChunks(conversationKey, turn.turnId)
+  if (!captured) return null
+  return { turnId: turn.turnId, ...captured }
 }
 
 async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Promise<void> {

@@ -25,10 +25,11 @@ const getKernelSnapshot = vi.fn(
       resolveSnapshot = resolve
     }),
 )
+const getServices = vi.fn(async () => [] as Array<typeof AI_BACKEND>)
 
 vi.stubGlobal('window', {
   electronAPI: {
-    getServices: vi.fn(async () => []),
+    getServices,
     getInitSetting: vi.fn(async () => ({
       modelLists: { embedding: [] },
       modelPaths: {},
@@ -70,6 +71,8 @@ function serviceEvent(info: unknown, seq: number) {
 beforeEach(() => {
   setActivePinia(createPinia())
   getKernelSnapshot.mockClear()
+  getServices.mockReset()
+  getServices.mockResolvedValue([])
   getKernelSnapshot.mockImplementation(
     () =>
       new Promise<unknown>((resolve) => {
@@ -91,7 +94,7 @@ describe('backend init race', () => {
     resolveSnapshot({
       scope: { kind: 'global' },
       sequence: 0,
-      state: { services: [], activeTurn: null },
+      state: { services: [], activeTurn: null, activeArtifactRun: null, chatTurns: [] },
     })
     await vi.waitFor(() => expect(store.info.length).toBeGreaterThan(0))
     expect(store.info.some((s) => s.serviceName === 'ai-backend')).toBe(true)
@@ -105,7 +108,7 @@ describe('backend init race', () => {
     resolveSnapshot({
       scope: { kind: 'global' },
       sequence: 1,
-      state: { services: [AI_BACKEND], activeTurn: null },
+      state: { services: [AI_BACKEND], activeTurn: null, activeArtifactRun: null, chatTurns: [] },
     })
     await vi.waitFor(() => expect(store.info.length).toBeGreaterThan(0))
     // Applied exactly once — from the snapshot, not double-upserted.
@@ -122,7 +125,7 @@ describe('backend init race', () => {
     resolveSnapshot({
       scope: { kind: 'global' },
       sequence: 0,
-      state: { services: [], activeTurn: null },
+      state: { services: [], activeTurn: null, activeArtifactRun: null, chatTurns: [] },
     })
     await vi.waitFor(() =>
       expect(backendServices.info.some((s) => s.serviceName === 'ai-backend')).toBe(true),
@@ -131,5 +134,46 @@ describe('backend init race', () => {
     await globalSetup.initSetup()
 
     expect(globalSetup.apiHost).toBe('http://127.0.0.1:59000')
+  })
+
+  it('fills info from getServices when the kernel snapshot has no services', async () => {
+    getServices.mockResolvedValueOnce([AI_BACKEND])
+    const { useBackendServices } = await import('@/assets/js/store/backendServices')
+    const store = useBackendServices()
+    expect(store.info).toHaveLength(0)
+    await store.hydrateFromMain()
+    expect(store.info).toHaveLength(1)
+    expect(store.info[0]?.serviceName).toBe('ai-backend')
+  })
+
+  it('keeps a hydrated service that the kernel snapshot has not published yet', async () => {
+    const llama = {
+      serviceName: 'llamacpp-backend',
+      isSetUp: false,
+      status: 'notInstalled',
+      baseUrl: 'http://127.0.0.1:39000',
+      isRequired: false,
+      devices: [],
+    }
+    getServices.mockResolvedValueOnce([AI_BACKEND])
+    const { useBackendServices } = await import('@/assets/js/store/backendServices')
+    const store = useBackendServices()
+    await store.hydrateFromMain()
+    expect(store.info.some((s) => s.serviceName === 'ai-backend')).toBe(true)
+
+    resolveSnapshot({
+      scope: { kind: 'global' },
+      sequence: 1,
+      state: {
+        services: [llama],
+        activeTurn: null,
+        activeArtifactRun: null,
+        chatTurns: [],
+      },
+    })
+    await vi.waitFor(() =>
+      expect(store.info.some((s) => s.serviceName === 'llamacpp-backend')).toBe(true),
+    )
+    expect(store.info.some((s) => s.serviceName === 'ai-backend')).toBe(true)
   })
 })

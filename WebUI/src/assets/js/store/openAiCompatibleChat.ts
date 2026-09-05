@@ -453,6 +453,10 @@ export const useOpenAiCompatibleChat = defineStore(
         // bus sequence handshake on a renderer reload. The per-request body
         // (model config, prompt, tools) is attached per send by
         // `buildTurnExtras` and spread by the transport.
+        // `id` must be the conversation key: send/resume put it on the wire as
+        // `chatId`, and main's turn table / tool registry / kernel events all
+        // key off it. A generated id would orphan cancel, tools, and resume.
+        id: conversationKey,
         transport: createKernelChatTransport({
           submitTurn: (request) => window.electronAPI.chat.submitTurn(request),
           resumeTurn: (key) => window.electronAPI.chat.resumeTurn(key),
@@ -506,7 +510,7 @@ export const useOpenAiCompatibleChat = defineStore(
     void window.electronAPI
       ?.getKernelSnapshot?.()
       .then((snapshot) => {
-        for (const turn of snapshot.state.chatTurns) {
+        for (const turn of snapshot.state.chatTurns ?? []) {
           void getOrCreateChat(turn.conversationKey)
             .resumeStream()
             .catch((error: unknown) => {

@@ -1,11 +1,12 @@
 # Target architecture — capabilities, drivers, state ownership
 
-**Status: steps 1–5 of the migration order (§8) are implemented; the rest is draft for discussion.**
+**Status: steps 1–6 of the migration order (§8) are implemented; the rest is draft for discussion.**
 Media generation is owned by the main-process Artifact runner; speech drivers go through `speechIO`;
 inference/download consent through Permissions; main→renderer notifications through one kernel
-event stream (`kernel:event`) with a listener-first snapshot handshake. Parked follow-ups from
-those landings live in [§8.2](#82-parked-follow-ups-from-landed-steps) — they do not block step 6.
-Everything after step 5 is a map of where we want it, and the order in which we could get there.
+event stream (`kernel:event`) with a listener-first snapshot handshake; chat turns run in main
+and stream back as kernel `chat-chunk` events. Parked follow-ups from those landings live in
+[§8.2](#82-parked-follow-ups-from-landed-steps) — they do not block step 7.
+Everything after step 6 is a map of where we want it, and the order in which we could get there.
 It exists to be argued with — see [§10 Decisions](#10-decisions).
 
 ## 0. How to read and edit this
@@ -531,10 +532,11 @@ state (a resumed agent turn's stream controller) must exist before the events me
 arrive. The snapshot carries service status, the one active agent turn's accumulated chunks,
 tool progress and tool images, and the one active artifact run (phase + items) — enough for a
 recreated window to resume a running turn through `Chat.resumeStream()` without restarting it, and
-to rehydrate a renderer-originated Image Gen run. What is not on the bus yet: `activity`/`error`/
-`chat-chunk`/`stored` events and delta coalescing (steps 6–7), and the `chat` scope
-exists in the vocabulary but nothing emits it. `agentMode:executeTool` stays point-to-point — it is
-a request the renderer answers, like Permissions. Leftovers are in [§8.2](#82-parked-follow-ups-from-landed-steps).
+to rehydrate a renderer-originated Image Gen run. Chat turns also ride the bus (`chat-chunk` /
+`chat-turn-done`, with adjacent deltas coalesced at the bridge — step 6). What is not on the bus
+yet: `activity`/`error`/`queue`/`stored` (steps 7–8). `agentMode:executeTool` stays
+point-to-point — it is a request the renderer answers, like Permissions. Leftovers are in
+[§8.2](#82-parked-follow-ups-from-landed-steps).
 
 #### Streaming across IPC
 
@@ -879,15 +881,15 @@ flowchart TD
 | 1 | **Done.** Tools and Home Agent `/imgGen` have no preset save/restore and no readiness preflight; the run (`runArtifact` + `comfyUiPresets.generate`) owns backend start, installs and model download; selection stays side-effect-free (`resolvePresetVariant`); callers pass `artifactKindForMedia` / panel-derived kind | yes |
 | 2 | **Done.** `transcribeAudio` / speak-replies (and every other speech driver — mic, TTS preset, `/imgGen` voice paths) import no TTS/STT store; all of them cross the one speech adapter (`speechIO`), which owns readiness, endpoint resolution and the Qwen3/Kokoro/external engine branch | yes |
 | 3 | **Done.** Inference/download code calls the Permissions layer (`requestDownload` / `requestVramWarning` / `notify` in `src/assets/js/permissions/permissions.ts`); no `useDialogStore()` outside the adapter, the settings-setup flows and the dialog components. "Do not show again" and the remote-download pre-grant are entries in the persisted `permissionGrants` store, reviewed and revoked in Settings → Permissions (legacy `memoryAlertSuppress_*` flags migrate once) | yes |
-| 4 | **Done.** Notifications that were pushed point-to-point (`serviceInfoUpdate`, the four `agentMode:*` push channels) cross the kernel stream (`kernel:event`, one monotonic `seq`; listener-first snapshot handshake with install-before-flush; bus holds the current window so no service pushes to a stale webContents). Main owns hide/reopen/quit via `resolveClosePolicy` (`lifecycle:busy` from the activities sink, Home Agent status, active agent turn); a reconnected renderer resumes a running agent turn from the snapshot (`Chat.resumeStream`). Browser-backed windows were already lazy. Remaining event types (`activity`, `error`, `chat-chunk`, …) ride with steps 5–7 | yes |
+| 4 | **Done.** Notifications that were pushed point-to-point (`serviceInfoUpdate`, the four `agentMode:*` push channels) cross the kernel stream (`kernel:event`, one monotonic `seq`; listener-first snapshot handshake with install-before-flush; bus holds the current window so no service pushes to a stale webContents). Main owns hide/reopen/quit via `resolveClosePolicy` (`lifecycle:busy` from the activities sink, Home Agent status, active agent turn); a reconnected renderer resumes a running agent turn from the snapshot (`Chat.resumeStream`). Browser-backed windows were already lazy. Remaining event types (`activity`, `error`, `queue`, `stored`) ride with steps 7–8 | yes |
 | 5 | **Done.** `capabilities/media.ts` no longer calls `executeToolInRenderer` — direct tools execute in-process against `electron/artifact/runner.ts` (`mediaDirect.ts`), the NL `media` tool lives in `mediaDelegation.ts` — and the UI hydrates readiness/generation progress from main via kernel `artifact-phase`/`artifact-item` events. In-process runs ask the renderer for model checks, download consent and chat reload over `artifact:request` | yes, needs 1–4 |
 | 6 | **Done.** The renderer has no `streamText` — chat turns run in the main-side engine (`electron/chat/turnEngine.ts`) over `chat:submitTurn` and stream back as kernel `chat-chunk` events (adjacent deltas coalesced at the bus, semantic chunks immediate) through the renderer's kernel transport (`src/lib/kernelChatTransport.ts`); a reloaded renderer resumes from the snapshot (`chat:resumeTurn`). Tool executions round-trip to the renderer registry (`src/lib/chatToolRegistry.ts`) over the tool bridge; the nested media specialist runs in main too (`electron/chat/mediaAgentRunner.ts`) with its inner tools on the same bridge, progress as `media-agent-event`; one-shot summarize is `chat:summarize`; Laminar's AI SDK integration is registered in main against the SDK's global telemetry registry. RAG retrieval and conversation persistence stayed renderer-side (§8.2) | yes, needs 1–5 |
 | 7 | Text and Artifact no longer start each other's backends; one typed queue is visible through activity events | no, needs 6 |
 | 8 | fields in §6 sit in their bucket; `userSelectedMode` is deleted; files own transcripts; localStorage migrates once | incremental |
 
 Steps 1–4 are worth doing even if we never move chat: they make the capabilities testable and the
-projection boundary complete. Snapshot hydration and Artifact readiness are blocking before step
-5; IPC delta coalescing is blocking before step 6. Step 7 is the reason to put Text and Artifact in
+projection boundary complete. Snapshot hydration and Artifact readiness landed with steps 4–5;
+IPC delta coalescing landed with step 6. Step 7 is the reason to put Text and Artifact in
 the same process — until then GPU policy stays scattered.
 
 ### 8.1 Transition cost and per-step obligations
@@ -1010,6 +1012,10 @@ small fix on this branch) can pick them up instead of rediscovering them.
   prepared prompt and the UI messages, but `prepareRagContext` and the conversation bucket remain
   renderer state — as the step-8 row already plans. The engine sees only what the request carries,
   so moving conversations takes them along.
+- **The tool bridge has no timeout.** `executeToolInRenderer` waits forever for the renderer's
+  reply, the same class of stall as the artifact request RPC. A cancelled turn rejects pending
+  calls; a replaced window settles everything. Add a budget if a wedged tool closure starts
+  hanging turns.
 - **`transcribeAudio` cannot read a v7 file part holding an `aipg-media://` audio attachment**
   (pre-existing, surfaced by the port): `filePartToBlob` predates the `{type:'url', url}` wrapper.
   The registry reproduces the old prompt bit-for-bit instead of fixing it, so the failure mode is

@@ -169,11 +169,14 @@ export class OpenVINOBackendService implements ApiService {
     this.isSetUp = this.serviceIsSetUp()
     console.log('OVMS isSetUp:', this.isSetUp)
 
-    // Cache version on startup if already set up
+    // Cache version on startup if already set up. Always publish so a fresh
+    // machine's kernel snapshot still names this backend (notInstalled).
     if (this.isSetUp) {
       this.updateCachedVersion().then(() => {
         this.updateStatus()
       })
+    } else {
+      this.updateStatus()
     }
   }
 

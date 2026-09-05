@@ -186,6 +186,38 @@ contextBridge.exposeInMainWorld('electronAPI', {
       callback: (payload: import('../src/types/mediaRequests').MediaRequestPayload) => void,
     ) => listen('artifact:request', callback),
   },
+  chat: {
+    submitTurn: (request: import('../src/types/chatIpc').ChatTurnRequest) =>
+      ipcRenderer.invoke('chat:submitTurn', request) as Promise<
+        { success: true; turnId: string } | { success: false; error: string }
+      >,
+    resumeTurn: (conversationKey: string) =>
+      ipcRenderer.invoke('chat:resumeTurn', conversationKey) as Promise<
+        import('../src/types/chatIpc').ChatTurnResumeResult
+      >,
+    cancelTurn: (conversationKey: string, turnId: string) =>
+      ipcRenderer.invoke('chat:cancelTurn', conversationKey, turnId),
+    toolResult: (payload: import('../src/types/chatIpc').ChatToolResult) =>
+      ipcRenderer.invoke('chat:toolResult', payload),
+    summarize: (request: import('../src/types/chatIpc').ChatSummarizeRequest) =>
+      ipcRenderer.invoke('chat:summarize', request) as Promise<
+        { success: true; data: string } | { success: false; error: string }
+      >,
+    inferenceActive: () =>
+      ipcRenderer.invoke('chat:inferenceActive') as Promise<{ success: true; active: boolean }>,
+    runMediaAgent: (request: import('../src/types/chatIpc').MediaAgentRunRequest) =>
+      ipcRenderer.invoke('chat:runMediaAgent', request) as Promise<
+        | { success: true; data: import('../src/types/chatIpc').MediaAgentRunResult }
+        | {
+            success: false
+            error: string
+          }
+      >,
+    cancelMediaAgent: (runKey: string) => ipcRenderer.invoke('chat:cancelMediaAgent', runKey),
+    onToolExecution: (
+      callback: (payload: import('../src/types/chatIpc').ChatToolExecution) => void,
+    ) => listen('chat:executeTool', callback),
+  },
   startTranscriptionServer: (modelName: string) =>
     ipcRenderer.invoke('startTranscriptionServer', modelName),
   stopTranscriptionServer: () => ipcRenderer.invoke('stopTranscriptionServer'),

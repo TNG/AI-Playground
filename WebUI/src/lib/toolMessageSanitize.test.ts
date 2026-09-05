@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { completeOrphanedToolParts, sanitizeBulkyToolOutputs } from './toolMessageSanitize'
-import type { AipgUiMessage } from './openAiCompatibleChat'
+import type { AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
 
 // The helper only inspects `role`, `parts[].type`, and `parts[].state`, so the
 // fixtures below are intentionally loose and cast to the message type.

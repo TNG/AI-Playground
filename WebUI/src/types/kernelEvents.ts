@@ -4,6 +4,7 @@
 // `scope` and `seq`; the renderer's listener-first handshake installs a
 // snapshot at sequence N and applies only events with a greater sequence.
 
+import type { UIMessageChunk } from 'ai'
 import type { MediaItem } from './mediaItem'
 
 export type KernelEventScope =
@@ -104,6 +105,43 @@ export type KernelArtifactDoneEvent = {
   error?: string
 }
 
+// ── Chat turn events, docs/architecture-target.md §4.6 / §7 ─────────────────
+//
+// The chat turn engine in main owns the AI SDK call; the renderer's Chat
+// consumes these chunks through its transport. Adjacent text/reasoning deltas
+// are coalesced at the bus (§4.6 "Streaming across IPC"); every semantic chunk
+// flushes them first, so the scoped sequence stays meaningful.
+
+/** One UIMessageChunk of a chat turn main is streaming. */
+export type KernelChatChunkEvent = {
+  type: 'chat-chunk'
+  conversationKey: string
+  turnId: string
+  chunk: UIMessageChunk
+}
+
+/** The turn settled (success, error or abort); its stream can close. */
+export type KernelChatTurnDoneEvent = {
+  type: 'chat-turn-done'
+  conversationKey: string
+  turnId: string
+}
+
+/**
+ * Live progress of a nested media-specialist run (one per `media` tool call).
+ * Transient timeline data — not part of any snapshot; a renderer that reloads
+ * mid-run loses the timeline but still receives the tool's result.
+ */
+export type KernelMediaAgentEvent = {
+  type: 'media-agent-event'
+  runKey: string
+  event:
+    | { type: 'phase'; phase: 'planning' | 'running-tool' }
+    | { type: 'narration-delta'; kind: 'reasoning' | 'text'; text: string }
+    | { type: 'tool-start'; toolCallId: string; toolName: string; input: unknown }
+    | { type: 'tool-finish'; toolCallId: string; output: unknown; error?: string }
+}
+
 export type KernelEventPayload =
   | KernelServiceEvent
   | KernelAgentChunkEvent
@@ -113,6 +151,9 @@ export type KernelEventPayload =
   | KernelArtifactPhaseEvent
   | KernelArtifactItemEvent
   | KernelArtifactDoneEvent
+  | KernelChatChunkEvent
+  | KernelChatTurnDoneEvent
+  | KernelMediaAgentEvent
 
 export type KernelEvent = KernelEventPayload & KernelEventEnvelope
 
@@ -149,11 +190,24 @@ export type ArtifactRunSnapshot = {
   items: MediaItem[]
 }
 
+/**
+ * The accumulated state of a chat turn main is running, for a renderer that
+ * (re)connects halfway through. Chunks are stored accumulated — post-coalesce
+ * batches, never individual token deltas.
+ */
+export type ChatTurnSnapshot = {
+  turnId: string
+  conversationKey: string
+  chunks: UIMessageChunk[]
+}
+
 export type KernelSnapshotState = {
   /** `ApiServiceInformation` payloads, keyed off the live service registry. */
   services: unknown[]
   activeTurn: AgentTurnSnapshot | null
   activeArtifactRun: ArtifactRunSnapshot | null
+  /** Chat turns main is running, one per conversation (desktop + side channels). */
+  chatTurns: ChatTurnSnapshot[]
 }
 
 export type KernelSnapshot = {

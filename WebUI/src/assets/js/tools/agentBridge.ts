@@ -10,7 +10,6 @@ import { comfyUiImageEdit, executeImageEdit } from './comfyUiImageEdit'
 import { queueMediaRequest } from './mediaPipeline'
 import { mediaAgentHasTools, runMediaAgent } from '../agents/mediaAgent'
 import { useTextInference } from '../store/textInference'
-import { createChatModel } from '@/lib/chatModel'
 import type { AgentToolSpec } from '@/types/agentIpc'
 
 // ── Agent Mode tool bridge (renderer side) ───────────────────────────────────
@@ -161,7 +160,6 @@ async function runAgentTool(
     const result = await runMediaAgent({
       request: String(request ?? ''),
       sourceImage,
-      model: createChatModel(),
       abortSignal,
       // Matches the tool part rendered in Agent Mode, so the timeline can show
       // this run's progress while the bridged call blocks.

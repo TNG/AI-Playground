@@ -1,4 +1,4 @@
-import type { AipgUiMessage } from './openAiCompatibleChat'
+import type { AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
 
 /**
  * Repair orphaned tool calls in a UI message history.

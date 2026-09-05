@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
 import { FilePart, ModelMessage, tool } from 'ai'
 import { useImageGenerationPresets } from '../store/imageGenerationPresets'
 import { useComfyUiPresets } from '../store/comfyUiPresets'
@@ -395,22 +396,25 @@ function resolveDefaultEditWorkflow(imageNames: string[]): string {
  * as an "unknown" tool card / failed edit.
  */
 export function repairEditToolInput(rawInput: string): string | null {
+  const data = createEditToolRepairData()
+  return data ? repairWorkflowToolInput(rawInput, data) : null
+}
+
+/**
+ * Edit-tool twin of `createToolRepairData` (comfyUi.ts): shipped as the turn
+ * request's `repairData.comfyUiImageEdit` for the main-side turn engine.
+ */
+export function createEditToolRepairData():
+  import('@/lib/comfyToolRepair').WorkflowRepairData | null {
   const workflows = getAvailableEditWorkflows()
   if (workflows.length === 0) return null
-  let obj: Record<string, unknown>
-  try {
-    const parsed: unknown = JSON.parse(rawInput || '{}')
-    obj = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
-  } catch {
-    obj = {}
-  }
-  const names = workflows.map((w) => w.name)
-  if (typeof obj.workflow === 'string' && names.includes(obj.workflow)) return null
   const imageNames = workflows
     .filter((w) => (w.mediaType ?? 'image') === 'image')
     .map((w) => w.name)
-  obj.workflow = resolveDefaultEditWorkflow(imageNames)
-  return JSON.stringify(obj)
+  return {
+    names: workflows.map((w) => w.name),
+    defaultWorkflow: resolveDefaultEditWorkflow(imageNames),
+  }
 }
 
 function resolveDefaultAnimateWorkflow(videoNames: string[]): string | null {

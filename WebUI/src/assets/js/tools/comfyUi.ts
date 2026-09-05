@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
 import { useImageGenerationPresets } from '../store/imageGenerationPresets'
 import { useComfyUiPresets } from '../store/comfyUiPresets'
 import { useActivities } from '../store/activities'
@@ -412,20 +413,26 @@ export function resolveDefaultImageWorkflow(imageNames: string[]): string {
  * surface as an "unknown" tool card / failed generation.
  */
 export function repairCreateToolInput(rawInput: string): string | null {
+  const data = createToolRepairData()
+  return data ? repairWorkflowToolInput(rawInput, data) : null
+}
+
+/**
+ * The repair data the main-side turn engine needs: shipped with the turn
+ * request (chatIpc `repairData.comfyUI`) so the engine can validate the
+ * model's `workflow` pick and coerce an unknown one to the default before
+ * executing the tool renderer-side. Null when no workflow is available (no
+ * repair possible — the call fails visibly, same as before the move).
+ */
+export function createToolRepairData():
+  import('@/lib/comfyToolRepair').WorkflowRepairData | null {
   const workflows = getAvailableWorkflows()
   if (workflows.length === 0) return null
-  let obj: Record<string, unknown>
-  try {
-    const parsed: unknown = JSON.parse(rawInput || '{}')
-    obj = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
-  } catch {
-    obj = {}
-  }
-  const names = workflows.map((w) => w.name)
-  if (typeof obj.workflow === 'string' && names.includes(obj.workflow)) return null
   const imageNames = workflows.filter((w) => w.mediaType !== 'video').map((w) => w.name)
-  obj.workflow = resolveDefaultImageWorkflow(imageNames)
-  return JSON.stringify(obj)
+  return {
+    names: workflows.map((w) => w.name),
+    defaultWorkflow: resolveDefaultImageWorkflow(imageNames),
+  }
 }
 
 function resolveDefaultVideoWorkflow(videoNames: string[]): string | null {

@@ -497,16 +497,21 @@ Managed by `electron/subprocesses/apiServiceRegistry.ts`. Each service spawns a 
 
 1. **Electron IPC** (renderer ↔ main): ALL service lifecycle — start, stop, setup, device selection, `ensureBackendReadiness`. Renderer calls `window.electronAPI.*`, main handles via `ipcMain.handle()`. Main's **notifications** cross one ordered **kernel event stream** (`kernel:event`, one monotonic `seq` — `electron/kernel/kernelBus.ts`); the renderer hydrates with a listener-first snapshot handshake (`kernel:getSnapshot`, `src/assets/js/projection/kernelProjection.ts`: subscribe → buffer → install at sequence N → apply events above N). Requests stay point-to-point.
 
-2. **Direct HTTP** (renderer → backend): For actual AI operations after service is ready:
-   - **Chat inference**: Vercel AI SDK `streamText()` → `{backendUrl}/v1/chat/completions` (LlamaCpp/OpenVINO)
+2. **Direct HTTP**: For actual AI operations after service is ready:
    - **Model management**: `fetch()` → Flask ai-backend `/api/*` (download, check, size)
    - **Image generation**: `fetch()` → ComfyUI `/prompt`, `/upload/image`, `/interrupt`, `/free`
+   - **Chat inference** runs in the **main process** (step 6, `electron/chat/`): the renderer store
+     ships a resolved turn (`chat:submitTurn` — messages, model config, prompt, serialized tool
+     specs) and consumes the stream as coalesced kernel `chat-chunk` events through its transport
+     (`src/lib/kernelChatTransport.ts`); the engine (`electron/chat/turnEngine.ts`) calls the
+     backend's `/v1/chat/completions` directly. Tool executions round-trip to the renderer
+     (`chat:executeTool` → `src/lib/chatToolRegistry.ts` → `chat:toolResult`).
 
 3. **Utility process** (main ↔ langchain worker): `electron/subprocesses/langchain.ts` for RAG document processing via `process.parentPort` messaging.
 
 ### Chat Inference Flow
 
-User sends message → `textInference.ensureReadyForInference()` → IPC `ensureBackendReadiness` (loads model on-demand) → `openAiCompatibleChat` uses Vercel AI SDK `streamText()` → direct HTTP to backend's `/v1/chat/completions` → streamed response.
+User sends message → `textInference.ensureReadyForInference()` → IPC `ensureBackendReadiness` (loads model on-demand) → the chat store resolves the turn (model config via `buildChatModelConfig`, tools via the registry) and submits it over `chat:submitTurn` → main's turn engine runs Vercel AI SDK `streamText()` against the backend's `/v1/chat/completions` → chunks cross the kernel bus as `chat-chunk` events (adjacent deltas coalesced) → the renderer's `Chat` consumes them through `kernelChatTransport`. A reload mid-turn resumes from the kernel snapshot (`chat:resumeTurn`). The nested media specialist runs in main too (`electron/chat/mediaAgentRunner.ts`), its inner tools over the same bridge; one-shot summary is `chat:summarize`.
 
 ### Model catalog (`WebUI/external/models.json`)
 
@@ -770,7 +775,7 @@ before the kernel move or as a small fix.
 
 ### Key IPC Channels by Category
 
-**Kernel stream (M→R notifications)**: `kernel:event` — service status and agent-turn events (chunk / tool progress / tool image / turn done), stamped with one monotonic `seq`; `kernel:getSnapshot` (R→M) hydrates a (re)connecting renderer, which resumes a running agent turn via `Chat.resumeStream()`. `lifecycle:busy` (R→M) pushes the renderer's busy flag for the close policy. Remaining event types, leftover `webContents.send` channels, and resume-gap buffering are parked in `docs/architecture-target.md` §8.2.
+**Kernel stream (M→R notifications)**: `kernel:event` — service status, agent-turn events (chunk / tool progress / tool image / turn done), artifact-phase/item events, chat turns (`chat-chunk` — delta-coalesced — and `chat-turn-done`), and media-specialist progress (`media-agent-event`), all stamped with one monotonic `seq`; `kernel:getSnapshot` (R→M) hydrates a (re)connecting renderer, which resumes a running agent or chat turn via `Chat.resumeStream()`. `lifecycle:busy` (R→M) pushes the renderer's busy flag for the close policy. Remaining event types, leftover `webContents.send` channels, and resume-gap buffering are parked in `docs/architecture-target.md` §8.2.
 
 **Service lifecycle**: `getServices`, `startService`, `stopService`, `setUpService`, `serviceSetUpProgress` (M→R), `uninstall`, `updateServiceSettings`, `detectDevices`, `selectDevice`, `ensureBackendReadiness`
 
@@ -785,6 +790,8 @@ before the kernel move or as a small fix.
 **ComfyUI tools**: `comfyui:isGitInstalled`, `comfyui:isComfyUIInstalled`, `comfyui:downloadCustomNode`, `comfyui:uninstallCustomNode`, `comfyui:installPypiPackage`, `comfyui:isPackageInstalled`, `comfyui:listInstalledCustomNodes`
 
 **Artifact pipeline** (step 5): `artifact:run`, `artifact:cancel`, `artifact:respond` (R→M), `artifact:request` (M→R — model checks, download consent, chat reload; replies keyed by requestId, `{progress: true}` pings re-arm the runner's watchdog)
+
+**Chat turns** (step 6): `chat:submitTurn`, `chat:resumeTurn`, `chat:cancelTurn` (R→M), `chat:executeTool` (M→R) + `chat:toolResult` (R→M — the tool execution bridge), `chat:summarize`, `chat:inferenceActive`, `chat:runMediaAgent` / `chat:cancelMediaAgent` (the nested media specialist, R→M)
 
 **Transcription**: `startTranscriptionServer`, `stopTranscriptionServer`, `getTranscriptionServerUrl`
 
@@ -884,6 +891,11 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 | `electron/subprocesses/openVINOBackendService.ts` | OpenVINO OVMS (LLM + embedding + transcription sub-servers)                      |
 | `electron/subprocesses/comfyUIBackendService.ts`  | ComfyUI Python server                                                            |
 | `electron/subprocesses/langchain.ts`              | RAG utility process (document splitting, embedding, vector search)               |
+| `electron/chat/turnEngine.ts`                     | Main-side chat turn engine (step 6): streamText, tool bridge, turn lifecycle     |
+| `electron/chat/mediaAgentRunner.ts`               | Nested media specialist (step 6): tool loop in main, inner tools over the bridge |
+| `electron/chat/chatModelMain.ts`                  | Chat model factory for main (backend routing, readiness, Home-Agent proxy)       |
+| `electron/chat/chatSummarize.ts`                  | One-shot conversation title summarization                                        |
+| `electron/chat/toolBridge.ts`                     | Main→renderer request/response for chat tool execution                           |
 | `electron/subprocesses/deviceDetection.ts`        | Intel GPU device detection and env var setup                                     |
 | `electron/logging/logger.ts`                      | Logging, sends `debugLog` events to renderer                                     |
 
@@ -1193,7 +1205,8 @@ To judge a change to the agentic system you need the turn's shape, not its final
 how many steps it took, which tools it called, how many prompt tokens each step paid for
 and how many of those the server actually reused. [Laminar](https://github.com/lmnr-ai/lmnr)
 is an OpenTelemetry trace viewer for exactly that, and both halves of the app can feed it —
-Pi agent runs from the main process, Vercel AI SDK chat turns from the renderer.
+Pi agent runs and Vercel AI SDK chat turns, both from the main process (step 6 moved chat
+inference there).
 
 **It is off unless you opt in.** Nothing is imported, initialized or sent without
 `WebUI/external/laminar.dev.json` or `WebUI/external/laminar.localhost.json` (both
@@ -1264,12 +1277,15 @@ something a user picks per session. One trace per run: `pi agent run` → `LLM c
   changing anything that rewrites prompt history (see "Reasoning is set for the expensive
   case" above for why).
 
-**Chat turns** are traced through the renderer, which is why there are two files:
-
-- `electron/laminar.ts` — config, SDK init, shutdown flush, the Pi extension path, **and**
-  the AI SDK integration running on the renderer's behalf.
-- `src/lib/laminarTelemetry.ts` — the renderer half: an AI SDK 7 `Telemetry` integration
-  that serializes each event and ships it over IPC.
+**Chat turns** run in main (step 6), so their traces start there too. `electron/laminar.ts`
+initializes the SDK, registers Laminar's `LaminarAiSdkTelemetry` against the AI SDK's global
+telemetry registry (`registerMainChatTelemetry`), and repeats what the old IPC replay did
+before the engine moved: call stats and llama.cpp timings are handed to the stamping processor
+just before the call's span ends, and a run marked delegated (the nested media specialist) is
+created inside the open media tool span. The turn engine stamps each turn's context from the
+request's `trace` field (`buildChatModelConfig` ships it); `src/lib/laminarTelemetry.ts` is
+now only the renderer's span send-half (ComfyUI phases and GPU swaps,
+`src/lib/laminarSpans.ts`), gated on the same config.
 
 **What each turn is tagged with.** Laminar has no tokens-per-second of its own (its dashboard
 example is `total_tokens / duration`, which mixes prefill into generation), and nothing in the
@@ -1501,12 +1517,10 @@ Things to know before changing it:
   inside Electron.
 - **`@lmnr-ai/lmnr` cannot run in the renderer.** It is a Node library (it reaches for
   `createRequire` and dies on Vite's browser stub) and the page has `nodeIntegration` off,
-  which is worth keeping. But AI SDK 7 telemetry is plain data keyed by `callId`, and
-  Laminar's integration is data-driven too, so the renderer forwards events over IPC
-  (`laminarTelemetryEvent`) and main replays them into the real `LaminarAiSdkTelemetry`.
-  Span mapping, the exporter and the project key all stay in main. `onChunk` is not
-  forwarded — it fires per streamed chunk (thousands of IPC messages per reply) and only
-  feeds a time-to-first-token attribute.
+  which is worth keeping. Chat model calls no longer run there (step 6), so nothing needs
+  forwarding for them; what still crosses the `laminarTelemetryEvent` channel is the
+  renderer's own span work — the ComfyUI phase and GPU-swap spans
+  (`src/lib/laminarSpans.ts`) — which main replays into real spans.
 - **The stamping processor must not be a `LaminarSpanProcessor`.** `Laminar.initialize`
   wraps whatever `spanProcessor` it is given in a fresh one of its own, and for an instance
   of its own class it lifts out the inner processor and discards the object — so a patched
@@ -1524,7 +1538,7 @@ Things to know before changing it:
 **Verify it:** start `npm run dev` (or the installed app, whose main log is the same one),
 look for `[laminar]: tracing to <your instance>` in the
 main log (it prints the endpoint it resolved, so a typo in the config shows up here) and
-`[laminar] chat traces via main to …` in the renderer console, then send one Chat turn and one
+`[laminar] renderer spans via main to …` in the renderer console, then send one Chat turn and one
 Agent turn and open the instance's UI → traces. A chat turn appears as `ai.streamText` →
 `ai.llm model.chat:<model>`; an agent turn as the `pi agent run` tree above. For the media
 spans, one Game Agent cover image (`Draft Image`) should show `media` with `comfyui.generate`

@@ -16,6 +16,12 @@ const {
   emitAgentTurnDone,
   getKernelSnapshot,
   resetKernelBusForTest,
+  beginChatTurnSnapshot,
+  emitChatChunk,
+  endChatTurn,
+  getChatTurnChunks,
+  emitMediaAgentEvent,
+  endMediaAgentRun,
 } = await import('../../kernel/kernelBus')
 
 function fakeWindow(): { win: BrowserWindow; sent: KernelEvent[] } {
@@ -127,5 +133,234 @@ describe('kernel bus', () => {
     emitServiceUpdate({ serviceName: 'ai-backend' })
     expect(first.sent).toHaveLength(0)
     expect(second.sent).toHaveLength(1)
+  })
+})
+
+describe('kernel bus chat chunks', () => {
+  type ChatEvent = Extract<KernelEvent, { type: 'chat-chunk' }>
+
+  function chatEvents(sent: KernelEvent[]): ChatEvent[] {
+    return sent.filter((event): event is ChatEvent => event.type === 'chat-chunk')
+  }
+
+  it('coalesces adjacent text deltas of the same part until the flush window', () => {
+    vi.useFakeTimers()
+    try {
+      const { win, sent } = fakeWindow()
+      setKernelEventWindow(win)
+      beginChatTurnSnapshot('conv-1', 'turn-1')
+      emitChatChunk('conv-1', 'turn-1', { type: 'start' })
+      emitChatChunk('conv-1', 'turn-1', { type: 'text-start', id: 'text-0' })
+      emitChatChunk('conv-1', 'turn-1', { type: 'text-delta', id: 'text-0', delta: 'Hel' })
+      emitChatChunk('conv-1', 'turn-1', { type: 'text-delta', id: 'text-0', delta: 'lo' })
+      // Only the semantic start chunks are out; both deltas are still pending.
+      expect(chatEvents(sent).map((e) => e.chunk.type)).toEqual(['start', 'text-start'])
+      vi.advanceTimersByTime(31)
+      expect(chatEvents(sent)).toHaveLength(2)
+      vi.advanceTimersByTime(1)
+      const events = chatEvents(sent)
+      expect(events).toHaveLength(3)
+      expect(events.at(-1)!.chunk).toEqual({ type: 'text-delta', id: 'text-0', delta: 'Hello' })
+      expect(events.at(-1)!.conversationKey).toBe('conv-1')
+      expect(events[0].turnId).toBe('turn-1')
+      expect(events[0].scope).toEqual({ kind: 'chat', conversationKey: 'conv-1' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('flushes pending deltas before a semantic chunk, preserving order', () => {
+    const { win, sent } = fakeWindow()
+    setKernelEventWindow(win)
+    beginChatTurnSnapshot('conv-1', 'turn-1')
+    emitChatChunk('conv-1', 'turn-1', { type: 'text-delta', id: 'text-0', delta: 'Hi' })
+    emitChatChunk('conv-1', 'turn-1', {
+      type: 'tool-input-available',
+      toolCallId: 'call-1',
+      toolName: 'comfyUI',
+      input: {},
+    })
+    const events = chatEvents(sent)
+    expect(events.map((e) => e.chunk.type)).toEqual(['text-delta', 'tool-input-available'])
+    expect(events[0].chunk).toEqual({ type: 'text-delta', id: 'text-0', delta: 'Hi' })
+  })
+
+  it('does not merge across parts: a new id flushes the previous delta', () => {
+    const { win, sent } = fakeWindow()
+    setKernelEventWindow(win)
+    beginChatTurnSnapshot('conv-1', 'turn-1')
+    emitChatChunk('conv-1', 'turn-1', { type: 'text-delta', id: 'text-0', delta: 'a' })
+    emitChatChunk('conv-1', 'turn-1', { type: 'text-delta', id: 'text-1', delta: 'b' })
+    // The new part's delta flushes the old one; the new one stays pending.
+    expect(chatEvents(sent).map((e) => e.chunk)).toEqual([
+      { type: 'text-delta', id: 'text-0', delta: 'a' },
+    ])
+    endChatTurn('conv-1', 'turn-1')
+    expect(chatEvents(sent).map((e) => e.chunk)).toEqual([
+      { type: 'text-delta', id: 'text-0', delta: 'a' },
+      { type: 'text-delta', id: 'text-1', delta: 'b' },
+    ])
+  })
+
+  it('does not merge reasoning into text of the same id', () => {
+    const { win, sent } = fakeWindow()
+    setKernelEventWindow(win)
+    beginChatTurnSnapshot('conv-1', 'turn-1')
+    emitChatChunk('conv-1', 'turn-1', { type: 'text-delta', id: 'part-0', delta: 'a' })
+    emitChatChunk('conv-1', 'turn-1', { type: 'reasoning-delta', id: 'part-0', delta: 'b' })
+    // The reasoning delta flushes the text one; reasoning itself stays pending.
+    expect(chatEvents(sent).map((e) => e.chunk.type)).toEqual(['text-delta'])
+    endChatTurn('conv-1', 'turn-1')
+    expect(chatEvents(sent).map((e) => e.chunk.type)).toEqual(['text-delta', 'reasoning-delta'])
+  })
+
+  it('merges reasoning timing metadata: first start, latest finish', () => {
+    vi.useFakeTimers()
+    try {
+      const { win, sent } = fakeWindow()
+      setKernelEventWindow(win)
+      beginChatTurnSnapshot('conv-1', 'turn-1')
+      emitChatChunk('conv-1', 'turn-1', {
+        type: 'reasoning-delta',
+        id: 'reasoning-0',
+        delta: 'th',
+        providerMetadata: { aipg: { reasoningStarted: 100, reasoningFinished: 110 } },
+      })
+      emitChatChunk('conv-1', 'turn-1', {
+        type: 'reasoning-delta',
+        id: 'reasoning-0',
+        delta: 'inking',
+        providerMetadata: { aipg: { reasoningStarted: 999, reasoningFinished: 120 } },
+      })
+      vi.advanceTimersByTime(32)
+      const events = chatEvents(sent)
+      expect(events).toHaveLength(1)
+      expect(events[0].chunk).toEqual({
+        type: 'reasoning-delta',
+        id: 'reasoning-0',
+        delta: 'thinking',
+        providerMetadata: { aipg: { reasoningStarted: 100, reasoningFinished: 120 } },
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('endChatTurn flushes pending deltas and clears the snapshot', () => {
+    const { win, sent } = fakeWindow()
+    setKernelEventWindow(win)
+    beginChatTurnSnapshot('conv-1', 'turn-1')
+    emitChatChunk('conv-1', 'turn-1', { type: 'text-delta', id: 'text-0', delta: 'tail' })
+    endChatTurn('conv-1', 'turn-1')
+    const events = chatEvents(sent)
+    expect(events.at(-1)?.chunk).toEqual({ type: 'text-delta', id: 'text-0', delta: 'tail' })
+    expect(sent.at(-1)?.type).toBe('chat-turn-done')
+    expect(getKernelSnapshot().state.chatTurns).toEqual([])
+  })
+
+  it('getChatTurnChunks returns the coalesced log with the current sequence', () => {
+    const { win, sent } = fakeWindow()
+    setKernelEventWindow(win)
+    beginChatTurnSnapshot('conv-1', 'turn-1')
+    emitChatChunk('conv-1', 'turn-1', { type: 'text-delta', id: 'text-0', delta: 'x' })
+    emitChatChunk('conv-1', 'turn-1', { type: 'text-delta', id: 'text-0', delta: 'y' })
+    const captured = getChatTurnChunks('conv-1', 'turn-1')
+    expect(captured).not.toBeNull()
+    expect(captured!.chunks).toEqual([{ type: 'text-delta', id: 'text-0', delta: 'xy' }])
+    expect(captured!.sequence).toBe(1)
+    expect(chatEvents(sent)).toHaveLength(1)
+    expect(getKernelSnapshot().state.chatTurns[0]?.chunks).toEqual(captured!.chunks)
+  })
+
+  it('tracks concurrent turns per conversation independently', () => {
+    const { win, sent } = fakeWindow()
+    setKernelEventWindow(win)
+    beginChatTurnSnapshot('conv-1', 'turn-1')
+    beginChatTurnSnapshot('conv-2', 'turn-2')
+    emitChatChunk('conv-1', 'turn-1', { type: 'text-delta', id: 'text-0', delta: 'a' })
+    emitChatChunk('conv-2', 'turn-2', { type: 'text-delta', id: 'text-0', delta: 'b' })
+    endChatTurn('conv-1', 'turn-1')
+    endChatTurn('conv-2', 'turn-2')
+    const events = chatEvents(sent)
+    expect(events.map((e) => e.conversationKey)).toEqual(['conv-1', 'conv-2'])
+    expect(getKernelSnapshot().state.chatTurns).toEqual([])
+  })
+})
+
+describe('kernel bus media agent events', () => {
+  it('coalesces adjacent narration deltas of one run until the flush window', async () => {
+    vi.useFakeTimers()
+    try {
+      const { win, sent } = fakeWindow()
+      setKernelEventWindow(win)
+      emitMediaAgentEvent('run-1', { type: 'narration-delta', kind: 'text', text: 'Think' })
+      emitMediaAgentEvent('run-1', { type: 'narration-delta', kind: 'text', text: 'ing' })
+      emitMediaAgentEvent('run-1', { type: 'narration-delta', kind: 'text', text: '…' })
+      expect(sent).toHaveLength(0)
+      vi.advanceTimersByTime(40)
+      expect(sent).toHaveLength(1)
+      const event = sent[0] as Extract<KernelEvent, { type: 'media-agent-event' }>
+      expect(event.runKey).toBe('run-1')
+      expect(event.event).toEqual({ type: 'narration-delta', kind: 'text', text: 'Thinking…' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('flushes pending narration before a semantic event of the same run, preserving order', async () => {
+    vi.useFakeTimers()
+    try {
+      const { win, sent } = fakeWindow()
+      setKernelEventWindow(win)
+      emitMediaAgentEvent('run-1', { type: 'narration-delta', kind: 'reasoning', text: 'plan' })
+      emitMediaAgentEvent('run-1', {
+        type: 'tool-start',
+        toolCallId: 'c1',
+        toolName: 'comfyUI',
+        input: {},
+      })
+      expect(sent).toHaveLength(2)
+      expect(sent[0]).toMatchObject({
+        type: 'media-agent-event',
+        event: { type: 'narration-delta', kind: 'reasoning', text: 'plan' },
+      })
+      expect(sent[1]).toMatchObject({ type: 'media-agent-event', event: { type: 'tool-start' } })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not merge narration across runs or kinds', async () => {
+    vi.useFakeTimers()
+    try {
+      const { win, sent } = fakeWindow()
+      setKernelEventWindow(win)
+      emitMediaAgentEvent('run-1', { type: 'narration-delta', kind: 'text', text: 'a' })
+      emitMediaAgentEvent('run-1', { type: 'narration-delta', kind: 'reasoning', text: 'b' })
+      emitMediaAgentEvent('run-2', { type: 'narration-delta', kind: 'text', text: 'c' })
+      vi.advanceTimersByTime(40)
+      expect(sent).toHaveLength(3)
+      const texts = sent.map((e) => (e as { event: { text?: string } }).event.text)
+      expect(texts).toEqual(['a', 'b', 'c'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('endMediaAgentRun flushes pending narration and stops tracking the run', async () => {
+    vi.useFakeTimers()
+    try {
+      const { win, sent } = fakeWindow()
+      setKernelEventWindow(win)
+      emitMediaAgentEvent('run-1', { type: 'narration-delta', kind: 'text', text: 'final' })
+      endMediaAgentRun('run-1')
+      expect(sent).toHaveLength(1)
+      // Post-run narration (should not happen) starts a fresh accumulator.
+      emitMediaAgentEvent('run-1', { type: 'narration-delta', kind: 'text', text: 'late' })
+      vi.advanceTimersByTime(40)
+      expect(sent).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

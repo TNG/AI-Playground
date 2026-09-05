@@ -4,13 +4,16 @@ import type {
   AgentTurnSnapshot,
   ArtifactRunSnapshot,
   ArtifactPhase,
+  ChatTurnSnapshot,
   KernelAgentToolImageEvent,
   KernelEvent,
   KernelEventPayload,
   KernelEventScope,
+  KernelMediaAgentEvent,
   KernelSnapshot,
 } from '@/types/kernelEvents'
 import type { MediaItem } from '@/types/mediaItem'
+import type { UIMessageChunk } from 'ai'
 
 const appLogger = appLoggerInstance
 
@@ -179,6 +182,208 @@ export function getActiveArtifactRun(): ArtifactRunSnapshot | null {
   return activeArtifactRun
 }
 
+// ── Media specialist progress (transient; narration deltas coalesce) ─────────
+
+// A nested run narrates per token; adjacent narration deltas of one run merge
+// into one event on the same short timer the chat deltas use, and any other
+// event of that run flushes them first.
+const MEDIA_NARRATION_FLUSH_MS = 32
+
+type MediaRunState = {
+  pending: { kind: 'reasoning' | 'text'; text: string } | null
+  timer: ReturnType<typeof setTimeout> | null
+}
+
+const mediaRuns = new Map<string, MediaRunState>()
+
+function flushMediaPending(runKey: string, state: MediaRunState): void {
+  if (state.timer) {
+    clearTimeout(state.timer)
+    state.timer = null
+  }
+  const pending = state.pending
+  if (!pending) return
+  state.pending = null
+  emit(
+    { type: 'media-agent-event', runKey, event: { type: 'narration-delta', ...pending } },
+    { kind: 'run', runId: runKey },
+  )
+}
+
+export function emitMediaAgentEvent(runKey: string, event: KernelMediaAgentEvent['event']): void {
+  if (event.type === 'narration-delta') {
+    let state = mediaRuns.get(runKey)
+    if (!state) {
+      state = { pending: null, timer: null }
+      mediaRuns.set(runKey, state)
+    }
+    if (state.pending && state.pending.kind !== event.kind) flushMediaPending(runKey, state)
+    state.pending = {
+      kind: event.kind,
+      text: (state.pending?.text ?? '') + event.text,
+    }
+    if (!state.timer) {
+      state.timer = setTimeout(() => flushMediaPending(runKey, state!), MEDIA_NARRATION_FLUSH_MS)
+    }
+    return
+  }
+  const state = mediaRuns.get(runKey)
+  if (state) flushMediaPending(runKey, state)
+  emit({ type: 'media-agent-event', runKey, event }, { kind: 'run', runId: runKey })
+}
+
+/** The run settled; flush and stop tracking its narration. */
+export function endMediaAgentRun(runKey: string): void {
+  const state = mediaRuns.get(runKey)
+  if (state) {
+    flushMediaPending(runKey, state)
+    mediaRuns.delete(runKey)
+  }
+}
+
+// ── Chat turn accumulator + delta coalescing (§4.6 "Streaming across IPC") ───
+//
+// The chat turn engine in main streams UIMessageChunks over the bus. Adjacent
+// text/reasoning deltas of the same part are merged into one chunk and flushed
+// on a short timer; any semantic chunk (tool, error, finish, …) flushes the
+// pending delta first, so it can never overtake the content it follows.
+
+const CHAT_DELTA_FLUSH_MS = 32
+
+type MergeableDelta = Extract<UIMessageChunk, { type: 'text-delta' | 'reasoning-delta' }>
+
+type ChatTurnState = {
+  snapshot: ChatTurnSnapshot
+  pending: MergeableDelta | null
+  timer: ReturnType<typeof setTimeout> | null
+}
+
+const chatTurns = new Map<string, ChatTurnState>()
+
+function chatTurnKey(conversationKey: string, turnId: string): string {
+  return `${conversationKey}::${turnId}`
+}
+
+function isMergeableDelta(chunk: UIMessageChunk): boolean {
+  return chunk.type === 'text-delta' || chunk.type === 'reasoning-delta'
+}
+
+function flushChatPending(state: ChatTurnState): void {
+  if (state.timer) {
+    clearTimeout(state.timer)
+    state.timer = null
+  }
+  const pending = state.pending
+  if (!pending) return
+  state.pending = null
+  emitChatChunkNow(state.snapshot.conversationKey, state.snapshot.turnId, pending)
+}
+
+function emitChatChunkNow(conversationKey: string, turnId: string, chunk: UIMessageChunk): void {
+  const state = chatTurns.get(chatTurnKey(conversationKey, turnId))
+  if (state) state.snapshot.chunks.push(chunk)
+  emit({ type: 'chat-chunk', conversationKey, turnId, chunk }, { kind: 'chat', conversationKey })
+}
+
+/** Track a chat turn main is about to run, so snapshots can name it. */
+export function beginChatTurnSnapshot(conversationKey: string, turnId: string): void {
+  chatTurns.set(chatTurnKey(conversationKey, turnId), {
+    snapshot: { conversationKey, turnId, chunks: [] },
+    pending: null,
+    timer: null,
+  })
+}
+
+/**
+ * Coalescing emit for one UIMessageChunk of a running chat turn. Semantic
+ * chunks go out immediately (flushing any pending delta first); adjacent
+ * text/reasoning deltas of the same part merge until the flush timer fires.
+ */
+export function emitChatChunk(
+  conversationKey: string,
+  turnId: string,
+  chunk: UIMessageChunk,
+): void {
+  const state = chatTurns.get(chatTurnKey(conversationKey, turnId))
+  if (!state) {
+    // A turn main does not track (should not happen) streams uncoalesced.
+    emitChatChunkNow(conversationKey, turnId, chunk)
+    return
+  }
+  if (isMergeableDelta(chunk)) {
+    const pending = state.pending
+    if (pending && pending.type === chunk.type && pending.id === chunk.id) {
+      pending.delta += chunk.delta
+      // Reasoning deltas carry the block's timing metadata: the merged chunk
+      // keeps the block's first start and the latest finish.
+      const a = pending.providerMetadata?.aipg as Record<string, unknown> | undefined
+      const b = (chunk as MergeableDelta).providerMetadata?.aipg as
+        Record<string, unknown> | undefined
+      if (a || b) {
+        pending.providerMetadata = {
+          ...(pending.providerMetadata ?? {}),
+          aipg: {
+            ...(b ?? {}),
+            ...(a?.reasoningStarted != null
+              ? { reasoningStarted: a.reasoningStarted as number }
+              : {}),
+          },
+        }
+      }
+    } else {
+      flushChatPending(state)
+      state.pending = { ...(chunk as MergeableDelta) }
+    }
+    if (!state.timer) {
+      state.timer = setTimeout(() => flushChatPending(state), CHAT_DELTA_FLUSH_MS)
+    }
+    return
+  }
+  flushChatPending(state)
+  emitChatChunkNow(conversationKey, turnId, chunk)
+}
+
+/**
+ * The turn settled: flush any pending delta (so the streamed text is never
+ * lost behind the done event) and stop tracking the turn. Snapshots no longer
+ * name it — resume only applies to turns still running.
+ */
+export function endChatTurn(conversationKey: string, turnId: string): void {
+  const key = chatTurnKey(conversationKey, turnId)
+  const state = chatTurns.get(key)
+  if (state) {
+    flushChatPending(state)
+    chatTurns.delete(key)
+  }
+  emit({ type: 'chat-turn-done', conversationKey, turnId }, { kind: 'chat', conversationKey })
+}
+
+/**
+ * The coalesced chunk log of a running turn plus the bus sequence it was
+ * captured at — the renderer resumes by replaying the log, then applying only
+ * events stamped above that sequence. Synchronous on main's single thread, so
+ * no event can slip between the copy and the watermark.
+ */
+export function getChatTurnChunks(
+  conversationKey: string,
+  turnId: string,
+): { chunks: UIMessageChunk[]; sequence: number } | null {
+  const state = chatTurns.get(chatTurnKey(conversationKey, turnId))
+  if (!state) return null
+  flushChatPending(state)
+  return { chunks: [...state.snapshot.chunks], sequence }
+}
+
+/** All chat turns main is running right now (for the kernel snapshot). */
+export function getActiveChatTurns(): ChatTurnSnapshot[] {
+  const turns: ChatTurnSnapshot[] = []
+  for (const state of chatTurns.values()) {
+    flushChatPending(state)
+    turns.push({ ...state.snapshot, chunks: [...state.snapshot.chunks] })
+  }
+  return turns
+}
+
 // ── Snapshot ───────────────────────────────────────────────────────────────────
 
 /**
@@ -194,6 +399,7 @@ export function getKernelSnapshot(): KernelSnapshot {
       services: [...services.values()],
       activeTurn: activeTurn ? { ...activeTurn } : null,
       activeArtifactRun: activeArtifactRun ? { ...activeArtifactRun } : null,
+      chatTurns: getActiveChatTurns(),
     },
   }
 }
@@ -205,5 +411,13 @@ export function resetKernelBusForTest(): void {
   services.clear()
   activeTurn = null
   activeArtifactRun = null
+  for (const state of chatTurns.values()) {
+    if (state.timer) clearTimeout(state.timer)
+  }
+  chatTurns.clear()
+  for (const state of mediaRuns.values()) {
+    if (state.timer) clearTimeout(state.timer)
+  }
+  mediaRuns.clear()
   taps.clear()
 }

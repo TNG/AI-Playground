@@ -881,7 +881,7 @@ flowchart TD
 | 3 | **Done.** Inference/download code calls the Permissions layer (`requestDownload` / `requestVramWarning` / `notify` in `src/assets/js/permissions/permissions.ts`); no `useDialogStore()` outside the adapter, the settings-setup flows and the dialog components. "Do not show again" and the remote-download pre-grant are entries in the persisted `permissionGrants` store, reviewed and revoked in Settings → Permissions (legacy `memoryAlertSuppress_*` flags migrate once) | yes |
 | 4 | **Done.** Notifications that were pushed point-to-point (`serviceInfoUpdate`, the four `agentMode:*` push channels) cross the kernel stream (`kernel:event`, one monotonic `seq`; listener-first snapshot handshake with install-before-flush; bus holds the current window so no service pushes to a stale webContents). Main owns hide/reopen/quit via `resolveClosePolicy` (`lifecycle:busy` from the activities sink, Home Agent status, active agent turn); a reconnected renderer resumes a running agent turn from the snapshot (`Chat.resumeStream`). Browser-backed windows were already lazy. Remaining event types (`activity`, `error`, `chat-chunk`, …) ride with steps 5–7 | yes |
 | 5 | **Done.** `capabilities/media.ts` no longer calls `executeToolInRenderer` — direct tools execute in-process against `electron/artifact/runner.ts` (`mediaDirect.ts`), the NL `media` tool lives in `mediaDelegation.ts` — and the UI hydrates readiness/generation progress from main via kernel `artifact-phase`/`artifact-item` events. In-process runs ask the renderer for model checks, download consent and chat reload over `artifact:request` | yes, needs 1–4 |
-| 6 | renderer has no `streamText`; adjacent deltas coalesce at the IPC bridge; semantic events remain immediate | no, needs 1–5 |
+| 6 | **Done.** The renderer has no `streamText` — chat turns run in the main-side engine (`electron/chat/turnEngine.ts`) over `chat:submitTurn` and stream back as kernel `chat-chunk` events (adjacent deltas coalesced at the bus, semantic chunks immediate) through the renderer's kernel transport (`src/lib/kernelChatTransport.ts`); a reloaded renderer resumes from the snapshot (`chat:resumeTurn`). Tool executions round-trip to the renderer registry (`src/lib/chatToolRegistry.ts`) over the tool bridge; the nested media specialist runs in main too (`electron/chat/mediaAgentRunner.ts`) with its inner tools on the same bridge, progress as `media-agent-event`; one-shot summarize is `chat:summarize`; Laminar's AI SDK integration is registered in main against the SDK's global telemetry registry. RAG retrieval and conversation persistence stayed renderer-side (§8.2) | yes, needs 1–5 |
 | 7 | Text and Artifact no longer start each other's backends; one typed queue is visible through activity events | no, needs 6 |
 | 8 | fields in §6 sit in their bucket; `userSelectedMode` is deleted; files own transcripts; localStorage migrates once | incremental |
 
@@ -948,11 +948,10 @@ small fix on this branch) can pick them up instead of rediscovering them.
 
 **Step 4 (Projection protocol + hidden-window lifecycle):**
 
-- **`activity` / `error` / `chat-chunk` / `queue` / `stored` are not on the bus yet.**
-  `artifact-phase` / `artifact-item` / `artifact-done` landed with step 5. `chat` scopes are in
-  the vocabulary but nothing emits them. Nothing coalesces adjacent deltas yet (decision 13):
-  chat still streams in the renderer via Vercel AI SDK, so there is no main→renderer delta flood
-  to coalesce.
+- **`activity` / `error` / `queue` / `stored` are not on the bus yet.**
+  `artifact-phase` / `artifact-item` / `artifact-done` landed with step 5; `chat-chunk` /
+  `chat-turn-done` / `media-agent-event` with step 6 (delta coalescing lives at the bus,
+  decision 13). The remaining kinds ride with step 7–8 work.
 - **`AgentTurnSnapshot.chunks` accumulates unbounded per turn.** A turn is bounded and the
   snapshot only exists while one runs, but a very long turn replays a lot at once on reconnect.
   If that ever matters, cap the accumulated tail and accept that a resumed renderer misses the
@@ -1004,6 +1003,25 @@ small fix on this branch) can pick them up instead of rediscovering them.
 - **Laminar spans for main-side runs.** The engine's `comfyui.*` spans were renderer-side
   (`comfyUiPresets`) and went with the engine; the runner streams phases but opens no spans. Wire
   the span bridge to the projected phases, or move it main-side with the Pi extension.
+
+**Step 6 (chat in main) — leftovers, none blocking step 7:**
+
+- **RAG retrieval and conversation persistence stayed renderer-side.** The turn request ships the
+  prepared prompt and the UI messages, but `prepareRagContext` and the conversation bucket remain
+  renderer state — as the step-8 row already plans. The engine sees only what the request carries,
+  so moving conversations takes them along.
+- **`transcribeAudio` cannot read a v7 file part holding an `aipg-media://` audio attachment**
+  (pre-existing, surfaced by the port): `filePartToBlob` predates the `{type:'url', url}` wrapper.
+  The registry reproduces the old prompt bit-for-bit instead of fixing it, so the failure mode is
+  unchanged, not new.
+- **Media-specialist progress is not snapshotted.** `media-agent-event` kernel events drive the
+  live timeline only; a renderer that reloads mid-run loses the timeline (the tool result still
+  lands with the turn). Snapshot it only if that timeline ever matters across a reload.
+- **Chat trace context is one last-write-wins slot** across concurrent conversations — the same
+  single-context shape the IPC flow it replaced had; scoped only if concurrent-turn traces blur.
+- **`chat:summarize` / `chat:inferenceActive` are coarse** — no cancellation and no
+  per-conversation scoping, and inferenceActive is a global boolean over all turns plus media
+  runs, which is exactly the granularity the old renderer counter had.
 
 **Step 2 (Speech I/O) — already noted at the adapter, still ahead:**
 

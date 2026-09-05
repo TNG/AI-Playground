@@ -44,7 +44,7 @@ vi.mock('@lmnr-ai/lmnr', () => ({
   },
 }))
 
-const { handleChatTelemetryEvent } = await import('../laminar.ts')
+const { handleChatTelemetryEvent, markDelegatedMediaRun } = await import('../laminar.ts')
 const { noteSpanEnd, noteSpanStart } = await import('../laminarSpans.ts')
 
 function mediaToolSpan(spanId: string) {
@@ -53,10 +53,6 @@ function mediaToolSpan(spanId: string) {
     attributes: { 'lmnr.span.type': 'TOOL' },
     spanContext: () => ({ spanId }),
   }
-}
-
-async function noteContext(context: Record<string, unknown>) {
-  await handleChatTelemetryEvent('aipgChatContext', JSON.stringify(context))
 }
 
 async function startCall(callId: string) {
@@ -72,7 +68,7 @@ describe('delegated AI SDK runs', () => {
   it('creates the media specialist run inside the media tool call it serves', async () => {
     const tool = mediaToolSpan('aa')
     noteSpanStart(tool)
-    await noteContext({ backend: 'cloud', delegated: true })
+    markDelegatedMediaRun()
     await startCall('1')
     expect(calls).toEqual([{ callId: '1', parent: 'media' }])
     noteSpanEnd(tool)
@@ -81,7 +77,6 @@ describe('delegated AI SDK runs', () => {
   it('leaves a chat turn a root, even while a media tool call is open', async () => {
     const tool = mediaToolSpan('bb')
     noteSpanStart(tool)
-    await noteContext({ backend: 'cloud' })
     await startCall('1')
     expect(calls).toEqual([{ callId: '1', parent: undefined }])
     noteSpanEnd(tool)
@@ -90,10 +85,10 @@ describe('delegated AI SDK runs', () => {
   it('spends the declaration on one run, so a later call is not swept in', async () => {
     const tool = mediaToolSpan('cc')
     noteSpanStart(tool)
-    await noteContext({ backend: 'cloud', delegated: true })
+    markDelegatedMediaRun()
     await startCall('1')
-    // Nothing sent a context in between — in Agent Mode nothing ever does, since
-    // the parent turn runs on Pi in this process.
+    // Nothing declared the run in between — in Agent Mode nothing ever does,
+    // since the parent turn runs on Pi in this process.
     await startCall('2')
     expect(calls).toEqual([
       { callId: '1', parent: 'media' },
@@ -103,7 +98,7 @@ describe('delegated AI SDK runs', () => {
   })
 
   it('still creates the run when there is no media tool call open', async () => {
-    await noteContext({ backend: 'cloud', delegated: true })
+    markDelegatedMediaRun()
     await startCall('1')
     expect(calls).toEqual([{ callId: '1', parent: undefined }])
   })

@@ -146,6 +146,25 @@ import {
   rejectAllMediaRequests,
   requestRenderer,
 } from './artifact/rendererBridge'
+import {
+  cancelChatTurn,
+  resumeChatTurn,
+  setChatEngineDeps,
+  submitChatTurn,
+  anyChatTurnActive,
+} from './chat/turnEngine'
+import { summarizeConversationText } from './chat/chatSummarize'
+import { setChatModelDeps } from './chat/chatModelMain'
+import { handleChatToolResult, rejectAllChatToolRequests } from './chat/toolBridge'
+import {
+  activeMediaAgentRunKeys,
+  cancelMediaAgentRun,
+  runMediaAgentInMain,
+} from './chat/mediaAgentRunner'
+import { MediaAgentRunRequestSchema } from '@/types/chatIpc'
+
+import { llmServerBaseUrl } from './llmServerSnapshot'
+import type { ChatToolResult } from '@/types/chatIpc'
 import { getAudioDir, getGamesDir, getMediaDir } from './util.ts'
 import {
   arcadeCatalog,
@@ -179,6 +198,8 @@ import {
   handleChatTelemetryEvent,
   initLaminarTracing,
   laminarConfig,
+  noteLlamaCppChatTimings,
+  noteMainChatTurnContext,
   shutdownLaminarTracing,
 } from './laminar.ts'
 import z from 'zod'
@@ -689,8 +710,11 @@ async function createWindow() {
   setAgentModeMainWindow(win)
   setKernelEventWindow(win)
   // The renderer that was asked a media request cannot answer from a new
-  // window; settle its pendings so waiters fail instead of hanging.
+  // window; settle its pendings so waiters fail instead of hanging. The same
+  // holds for a chat tool execution the old renderer was told to run.
   rejectAllMediaRequests('The app window was replaced')
+  rejectAllChatToolRequests('The app window was replaced')
+  for (const runKey of activeMediaAgentRunKeys()) cancelMediaAgentRun(runKey)
   win.on('close', (event) => {
     // Main owns the hide/reopen/quit policy (architecture-target §5.1), never
     // the renderer: closing the window only hides it while headless work a
@@ -1159,7 +1183,53 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
     homeAgent.registerIpcHandlers()
   }
   wireArtifactRunner(settings)
+  wireChatEngine()
   return serviceRegistry
+}
+
+/**
+ * Chat turns run in main (architecture-target §8 step 6): the renderer submits
+ * a typed request over `chat:submitTurn` and consumes kernel `chat-chunk`
+ * events. These deps are the only pieces of that engine that live outside the
+ * chat modules — the service registry, the Home Agent loopback token, and
+ * on-disk aipg-media bytes.
+ */
+function wireChatEngine(): void {
+  setChatModelDeps({
+    llmApiBase: (backend) => llmServerBaseUrl(backend),
+    ensureBackendReadiness: async (args) => {
+      const service = serviceRegistry?.getService(args.serviceName)
+      if (!service) throw new Error(`Service ${args.serviceName} not found`)
+      await service.ensureBackendReadiness(
+        args.llmModelName,
+        args.embeddingModelName,
+        args.contextSize,
+        args.modelArgs,
+      )
+      const homeAgentSvc = serviceRegistry?.getService('home-agent-backend')
+      if (homeAgentSvc instanceof HomeAgentBackendService) {
+        homeAgentSvc.notifyUpstreamReady(service.baseUrl ?? '')
+      }
+    },
+    homeAgentAuthToken: () => {
+      const homeAgentSvc = serviceRegistry?.getService('home-agent-backend')
+      return homeAgentSvc instanceof HomeAgentBackendService
+        ? homeAgentSvc.getLoopbackAuthToken()
+        : ''
+    },
+  })
+  // Reuses the main-side aipg-media reader the agent attachments already use;
+  // the engine contract throws on failure (the ported customFetch behavior).
+  setChatEngineDeps({
+    readMediaAsDataUri: async (url) => {
+      const dataUri = await readAipgMediaAsDataUri(url)
+      if (!dataUri) throw new Error(`Could not read media ${url}`)
+      return dataUri
+    },
+    // Tracing hooks: no-ops in laminar.ts unless a Laminar config is present.
+    noteTimings: (timings) => noteLlamaCppChatTimings(timings),
+    noteTraceContext: (context) => noteMainChatTurnContext(context),
+  })
 }
 
 /**
@@ -2411,6 +2481,70 @@ function initEventHandle() {
       handleMediaResponse(payload)
     },
   )
+
+  // Chat turns run in main (architecture-target §8 step 6); the renderer
+  // submits/resumes/cancels over IPC and receives the stream as kernel
+  // chat-chunk events plus a chat:executeTool callback for tool bodies.
+  ipcMain.handle('chat:submitTurn', (_event: IpcMainInvokeEvent, request: unknown) => {
+    try {
+      return { success: true as const, turnId: submitChatTurn(request).turnId }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('chat:resumeTurn', (_event: IpcMainInvokeEvent, conversationKey: string) => {
+    const resumed = resumeChatTurn(conversationKey)
+    return resumed
+      ? { success: true as const, active: true, ...resumed }
+      : { success: true as const, active: false as const }
+  })
+
+  ipcMain.handle(
+    'chat:cancelTurn',
+    (_event: IpcMainInvokeEvent, conversationKey: string, turnId: string) => {
+      cancelChatTurn(conversationKey, turnId)
+      return { success: true as const }
+    },
+  )
+
+  ipcMain.handle('chat:toolResult', (_event: IpcMainInvokeEvent, payload: ChatToolResult) => {
+    handleChatToolResult(payload)
+  })
+
+  // One-shot title summarization, model call included (step 6).
+  ipcMain.handle('chat:summarize', async (_event: IpcMainInvokeEvent, request: unknown) => {
+    try {
+      return { success: true as const, data: await summarizeConversationText(request) }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  // The GPU-handoff guard: renderer image tools wait on this before freeing
+  // the chat backend, which now also streams turns main-side. A nested media
+  // run holds the same guard: its LLM calls run here too (step 6), and the old
+  // renderer counted them the same way.
+  ipcMain.handle('chat:inferenceActive', () => ({
+    success: true as const,
+    active: anyChatTurnActive() || activeMediaAgentRunKeys().length > 0,
+  }))
+
+  // Nested media-specialist run (step 6): the LLM loop runs in main; the
+  // renderer registered the inner tool executors under runKey beforehand and
+  // condenses the result when it returns.
+  ipcMain.handle('chat:runMediaAgent', async (_event: IpcMainInvokeEvent, request: unknown) => {
+    try {
+      const parsed = MediaAgentRunRequestSchema.parse(request)
+      return { success: true as const, data: await runMediaAgentInMain(parsed) }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('chat:cancelMediaAgent', (_event: IpcMainInvokeEvent, runKey: unknown) => {
+    if (typeof runKey === 'string') cancelMediaAgentRun(runKey)
+  })
 
   ipcMain.handle(
     'getEmbeddingServerUrl',

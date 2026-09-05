@@ -2,7 +2,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref, watch, watchEffect } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { AipgUiMessage } from './openAiCompatibleChat'
-import { completeOrphanedToolParts, sanitizeBulkyToolOutputs } from './toolMessageSanitize'
+import { completeOrphanedToolParts, sanitizeBulkyToolOutputs } from '@/lib/toolMessageSanitize'
 import { currentPresetName } from '@/lib/presetRenames'
 
 /**
@@ -71,7 +71,7 @@ export const useConversations = defineStore(
 
     function updateConversation(messages: AipgUiMessage[], conversationKey: string) {
       // Never persist an orphaned tool call (interrupted/stopped turn): it would
-      // brick the thread on the next generation. See toolMessageSanitize.ts.
+      // brick the thread on the next generation. See src/lib/toolMessageSanitize.ts.
       conversationList.value[conversationKey] = sanitizeBulkyToolOutputs(
         completeOrphanedToolParts(messages),
       )

@@ -871,13 +871,13 @@ export const useTextInference = defineStore(
     // Per-preset settings persistence
     const settingsPerPreset = ref<Record<string, Record<string, unknown>>>({})
 
-    // Number of inference HTTP requests currently streaming from the chat
-    // backend. Maintained by the chat transport's custom fetch (see
-    // openAiCompatibleChat): incremented when a request starts, decremented when
-    // its response body finishes (completes, is cancelled, or errors). Image
-    // tools consult this via waitForInferenceIdle() so they never tear down the
-    // chat backend while a stream to it is still open (which would reset the
-    // socket mid-stream and surface as a "network error").
+    // Number of renderer-side inference HTTP requests currently streaming from
+    // the chat backend (the shared model factory's fetch — the nested media
+    // specialist, until it moves to main; chat turns themselves stream in
+    // main and are counted there). Image tools consult this via
+    // waitForInferenceIdle() so they never tear down the chat backend while a
+    // stream to it is still open (which would reset the socket mid-stream and
+    // surface as a "network error").
     const activeInferenceStreams = ref(0)
     function beginInferenceStream() {
       activeInferenceStreams.value++
@@ -889,9 +889,22 @@ export const useTextInference = defineStore(
     // safety valve so a wedged/keep-alive socket can't block image generation
     // indefinitely. In the common case the stream is already drained (the SDK
     // finishes each step before running a tool), so this returns immediately.
+    // Since chat turns moved to main (step 6), the same wait also consults the
+    // engine's own turn table — a streaming turn holds the backend just as a
+    // renderer socket did, and freeing the GPU under it resets the socket.
     async function waitForInferenceIdle(timeoutMs = 3000): Promise<void> {
       const start = Date.now()
-      while (activeInferenceStreams.value > 0) {
+      const busy = async (): Promise<boolean> => {
+        if (activeInferenceStreams.value > 0) return true
+        try {
+          const result = await window.electronAPI.chat.inferenceActive()
+          return result.success && result.active
+        } catch {
+          // IPC not available (unit tests, early startup): local count only.
+          return false
+        }
+      }
+      while (await busy()) {
         if (Date.now() - start >= timeoutMs) break
         await new Promise((resolve) => setTimeout(resolve, 50))
       }

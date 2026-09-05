@@ -448,6 +448,28 @@ type electronAPI = {
       callback: (payload: import('./types/mediaRequests').MediaRequestPayload) => void,
     ): () => void
   }
+  chat: {
+    submitTurn(
+      request: import('./types/chatIpc').ChatTurnRequest,
+    ): Promise<{ success: true; turnId: string } | { success: false; error: string }>
+    resumeTurn(conversationKey: string): Promise<import('./types/chatIpc').ChatTurnResumeResult>
+    cancelTurn(conversationKey: string, turnId: string): Promise<{ success: boolean }>
+    toolResult(payload: import('./types/chatIpc').ChatToolResult): Promise<void>
+    summarize(
+      request: import('./types/chatIpc').ChatSummarizeRequest,
+    ): Promise<{ success: true; data: string } | { success: false; error: string }>
+    inferenceActive(): Promise<{ success: true; active: boolean }>
+    runMediaAgent(
+      request: import('./types/chatIpc').MediaAgentRunRequest,
+    ): Promise<
+      | { success: true; data: import('./types/chatIpc').MediaAgentRunResult }
+      | { success: false; error: string }
+    >
+    cancelMediaAgent(runKey: string): Promise<{ success: boolean }>
+    onToolExecution(
+      callback: (payload: import('./types/chatIpc').ChatToolExecution) => void,
+    ): () => void
+  }
   startTranscriptionServer(modelName: string): Promise<{ success: boolean; error?: string }>
   stopTranscriptionServer(): Promise<{ success: boolean; error?: string }>
   getTranscriptionServerUrl(): Promise<{ success: boolean; url?: string; error?: string }>

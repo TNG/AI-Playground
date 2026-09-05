@@ -1,10 +1,9 @@
 import { tool, type ModelMessage } from 'ai'
-import type { ToolResultOutput } from '@ai-sdk/provider-utils'
 import { z } from 'zod'
 import { runMediaAgent, MediaAgentMediaSchema } from '../agents/mediaAgent'
 import { findSourceImage } from './comfyUiImageEdit'
 import { queueMediaRequest } from './mediaPipeline'
-import { createChatModel } from '@/lib/chatModel'
+import { slimMediaModelOutput } from '@/lib/mediaModelOutput'
 import { useActivities } from '../store/activities'
 import { useConversations } from '../store/conversations'
 import { useI18N } from '../store/i18n'
@@ -56,7 +55,11 @@ export const media = tool({
       ),
   }),
   outputSchema: MediaToolOutputSchema,
-  execute: async (args, { messages, abortSignal, toolCallId }): Promise<MediaToolOutput> => {
+  execute: async (
+    args,
+    { messages, abortSignal, toolCallId, context },
+  ): Promise<MediaToolOutput> => {
+    const conversationKey = (context as { conversationKey?: string } | undefined)?.conversationKey
     const activities = useActivities()
     const conversations = useConversations()
     const i18nState = useI18N().state
@@ -76,7 +79,7 @@ export const media = tool({
             runMediaAgent({
               request: args.request,
               sourceImage,
-              model: createChatModel(),
+              conversationKey,
               abortSignal,
               // Keys the live timeline to this tool part (see mediaAgentRuns).
               runId: toolCallId,
@@ -88,31 +91,4 @@ export const media = tool({
   toModelOutput: ({ output }) => slimMediaModelOutput(output),
 })
 
-/**
- * Model-facing condensation of a media tool result: summary + step lines +
- * slim image refs (id/type/url only — no settings payloads). Used both live
- * (`toModelOutput`) and when replaying persisted history (the chat store's
- * request post-processing), so the rich UI output never reaches the model.
- */
-export function slimMediaModelOutput(output: MediaToolOutput): ToolResultOutput {
-  if (output.success === false || output.images.length === 0) {
-    return {
-      type: 'error-text',
-      value: output.message ?? output.summary ?? 'Media generation failed.',
-    }
-  }
-  return {
-    type: 'json',
-    value: {
-      summary: output.summary,
-      steps: output.steps,
-      images: output.images.map((item) => {
-        const slim: Record<string, string> = { id: item.id, type: item.type }
-        if (item.imageUrl) slim.imageUrl = item.imageUrl
-        if (item.videoUrl) slim.videoUrl = item.videoUrl
-        if (item.model3dUrl) slim.model3dUrl = item.model3dUrl
-        return slim
-      }),
-    },
-  }
-}
+export { slimMediaModelOutput }

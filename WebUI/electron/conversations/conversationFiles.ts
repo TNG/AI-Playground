@@ -4,6 +4,15 @@ import { appLoggerInstance } from '../logging/logger'
 import { getConversationsDemoDir, getConversationsDir } from '../util.ts'
 import { completeOrphanedToolParts, sanitizeBulkyToolOutputs } from '@/lib/toolMessageSanitize'
 import {
+  assertSafeFileId,
+  atomicWriteJson,
+  isSafeFileId,
+  listFileIds,
+  makeWriteChains,
+  readJson,
+  type JsonRead,
+} from '../fsJsonStore'
+import {
   ConversationIndexFileSchema,
   ConversationThreadFileSchema,
   type ConversationBootstrap,
@@ -43,14 +52,7 @@ export function setConversationFileDeps(deps: ConversationFileDeps): void {
   conversationFileDeps = deps
 }
 
-const writeChains = new Map<string, Promise<unknown>>()
-
-function serialize<T>(id: string, run: () => Promise<T>): Promise<T> {
-  const previous = writeChains.get(id) ?? Promise.resolve()
-  const next = previous.then(run, run)
-  writeChains.set(id, next)
-  return next
-}
+const { serialize, clear: clearChains } = makeWriteChains()
 
 function conversationsDir(): string {
   return conversationFileDeps?.isDemoMode() ? getConversationsDemoDir() : getConversationsDir()
@@ -59,42 +61,13 @@ function conversationsDir(): string {
 const INDEX_CHAIN = 'index'
 const INDEX_FILE = 'index.json'
 
-/** Timestamp ids plus the legacy Home Agent singleton; never a path or `index`. */
-function isSafeConversationId(id: string): boolean {
-  return id.length > 0 && id.length <= 200 && id !== 'index' && /^[\w.-]+$/.test(id)
-}
-
-function assertSafeConversationId(id: string): void {
-  if (!isSafeConversationId(id)) throw new Error(`invalid conversation id: ${id}`)
-}
-
 function threadFile(id: string): string {
-  assertSafeConversationId(id)
+  assertSafeFileId(id, 'conversation')
   return path.join(conversationsDir(), `${id}.json`)
 }
 
 function indexFile(): string {
   return path.join(conversationsDir(), INDEX_FILE)
-}
-
-/** Torn-write-safe JSON write: a crash mid-write leaves the old file intact. */
-async function atomicWriteJson(file: string, data: unknown): Promise<void> {
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
-  await fs.mkdir(path.dirname(file), { recursive: true })
-  await fs.writeFile(tmp, `${JSON.stringify(data)}\n`, 'utf8')
-  await fs.rename(tmp, file)
-}
-
-type JsonRead = { status: 'missing' } | { status: 'ok'; value: unknown } | { status: 'corrupt' }
-
-async function readJson(file: string): Promise<JsonRead> {
-  try {
-    return { status: 'ok', value: JSON.parse(await fs.readFile(file, 'utf8')) }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { status: 'missing' }
-    appLogger.warn(`conversation file unreadable (${file}): ${String(error)}`, 'conversations')
-    return { status: 'corrupt' }
-  }
 }
 
 function threadDocFromRead(read: JsonRead): ConversationThreadFile | null {
@@ -113,24 +86,11 @@ function emptyIndex(): ConversationIndexFile {
   return { schemaVersion: 1, lastMainKey: null, threads: [] }
 }
 
-async function listThreadIds(): Promise<string[]> {
-  try {
-    const names = await fs.readdir(conversationsDir())
-    return names
-      .filter((name) => name.endsWith('.json') && name !== INDEX_FILE)
-      .map((name) => name.slice(0, -'.json'.length))
-      .filter(isSafeConversationId)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
-    throw error
-  }
-}
-
 async function rebuildIndexFromThreadFiles(): Promise<ConversationIndexFile> {
-  const ids = await listThreadIds()
+  const ids = await listFileIds(conversationsDir())
   const threads: ConversationIndexEntry[] = []
   for (const id of ids) {
-    const doc = threadDocFromRead(await readJson(threadFile(id)))
+    const doc = threadDocFromRead(await readJson(threadFile(id), 'conversations'))
     if (!doc) continue
     threads.push({
       id,
@@ -149,15 +109,15 @@ async function rebuildIndexFromThreadFiles(): Promise<ConversationIndexFile> {
 function indexWithSafeIds(index: ConversationIndexFile): ConversationIndexFile {
   return {
     ...index,
-    threads: index.threads.filter((thread) => isSafeConversationId(thread.id)),
+    threads: index.threads.filter((thread) => isSafeFileId(thread.id)),
   }
 }
 
 /** Null only when nothing has ever been written (no index and no thread files). */
 async function readIndex(): Promise<ConversationIndexFile | null> {
-  const raw = await readJson(indexFile())
+  const raw = await readJson(indexFile(), 'conversations')
   if (raw.status === 'missing') {
-    const ids = await listThreadIds()
+    const ids = await listFileIds(conversationsDir())
     if (ids.length === 0) return null
     appLogger.warn('conversation index missing; rebuilding from thread files', 'conversations')
     return rebuildIndexFromThreadFiles()
@@ -213,9 +173,12 @@ function hydratedThread(id: string, doc: ConversationThreadFile | null): Hydrate
 async function threadsFromIndex(index: ConversationIndexFile): Promise<HydratedThread[]> {
   return Promise.all(
     index.threads
-      .filter((entry) => isSafeConversationId(entry.id))
+      .filter((entry) => isSafeFileId(entry.id))
       .map(async (entry) =>
-        hydratedThread(entry.id, threadDocFromRead(await readJson(threadFile(entry.id)))),
+        hydratedThread(
+          entry.id,
+          threadDocFromRead(await readJson(threadFile(entry.id), 'conversations')),
+        ),
       ),
   )
 }
@@ -261,7 +224,7 @@ export async function migrateLegacyConversations(
     const entries: ConversationIndexEntry[] = []
     const threads: HydratedThread[] = []
     for (const id of ids) {
-      if (!isSafeConversationId(id)) {
+      if (!isSafeFileId(id)) {
         appLogger.warn(`skipping unsafe legacy conversation id: ${id}`, 'conversations')
         continue
       }
@@ -296,7 +259,7 @@ export async function migrateLegacyConversations(
 
 /** Upsert one thread (messages sanitized here) plus its index entry. */
 export async function saveConversation(request: ConversationSaveRequest): Promise<void> {
-  assertSafeConversationId(request.id)
+  assertSafeFileId(request.id, 'conversation')
   return serialize(request.id, async () => {
     const now = Date.now()
     const doc: ConversationThreadFile = {
@@ -327,7 +290,7 @@ export async function saveConversation(request: ConversationSaveRequest): Promis
 }
 
 export async function deleteConversation(id: string): Promise<void> {
-  assertSafeConversationId(id)
+  assertSafeFileId(id, 'conversation')
   return serialize(id, async () => {
     try {
       await fs.rm(threadFile(id))
@@ -363,5 +326,5 @@ export async function wipeDemoConversations(): Promise<void> {
 
 export function resetConversationFilesForTest(): void {
   conversationFileDeps = null
-  writeChains.clear()
+  clearChains()
 }

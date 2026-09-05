@@ -179,6 +179,16 @@ import {
   ConversationLegacyStateSchema,
   ConversationSaveRequestSchema,
 } from '@/types/conversationIpc'
+import {
+  bootstrapAgentSessions,
+  deleteAgentSessionRecord,
+  migrateLegacyAgentSessions,
+  saveAgentSession,
+  saveAgentSessionActiveId,
+  setAgentSessionFileDeps,
+  wipeDemoAgentSessions,
+} from './agentMode/agentSessionFiles'
+import { AgentSessionRecordSchema, LegacyAgentSessionStateSchema } from '@/types/agentSessionIpc'
 
 import { llmServerBaseUrl } from './llmServerSnapshot'
 import type { ChatToolResult } from '@/types/chatIpc'
@@ -1103,6 +1113,7 @@ appShutdown.register({ name: 'web browser', run: () => destroyWebBrowser() })
 // Demo conversations are session-scoped (§6.1): nothing demo-written may
 // survive the process that wrote it.
 appShutdown.register({ name: 'demo conversations', run: () => wipeDemoConversations() })
+appShutdown.register({ name: 'demo agent sessions', run: () => wipeDemoAgentSessions() })
 appShutdown.register({ name: 'cloud proxy', run: () => cloudProxy?.close() })
 // After the agent, so the spans its extensions emit while shutting down are
 // still exported. No-op unless a developer opted into Laminar tracing.
@@ -1204,6 +1215,7 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   }
   wireArtifactRunner(settings)
   wireConversations(settings)
+  wireAgentSessions(settings)
   wireChatEngine()
   return serviceRegistry
 }
@@ -1216,6 +1228,12 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
 function wireConversations(settings: LocalSettings): void {
   setConversationFileDeps({ isDemoMode: () => settings.isDemoModeEnabled })
   if (settings.isDemoModeEnabled) void wipeDemoConversations()
+}
+
+/** Same demo discipline for agent-session records (step 8, §6.1). */
+function wireAgentSessions(settings: LocalSettings): void {
+  setAgentSessionFileDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoAgentSessions()
 }
 
 /**
@@ -2647,6 +2665,53 @@ function initEventHandle() {
     },
   )
 
+  // Agent-session records (step 8, §6.1): same one-writer contract as the
+  // conversations above — the record file and its index entry live here, Pi's
+  // own session files stay with Pi. Deletes fold into `agentMode:deleteSession`
+  // below, next to the Pi-side teardown.
+  ipcMain.handle('agentMode:bootstrapSessions', async () => {
+    try {
+      return await bootstrapAgentSessions()
+    } catch (e) {
+      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle(
+    'agentMode:migrateSessions',
+    async (_event: IpcMainInvokeEvent, payload: unknown) => {
+      try {
+        return await migrateLegacyAgentSessions(LegacyAgentSessionStateSchema.parse(payload))
+      } catch (e) {
+        return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+  )
+
+  ipcMain.handle('agentMode:saveSession', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+    try {
+      await saveAgentSession(AgentSessionRecordSchema.parse(payload))
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle(
+    'agentMode:saveActiveSessionId',
+    async (_event: IpcMainInvokeEvent, id: unknown) => {
+      try {
+        if (typeof id !== 'string' && id !== null) {
+          throw new Error('activeSessionId must be a string or null')
+        }
+        await saveAgentSessionActiveId(id)
+        return { success: true as const }
+      } catch (e) {
+        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+  )
+
   ipcMain.handle(
     'getEmbeddingServerUrl',
     async (_event: IpcMainInvokeEvent, serviceName: string) => {
@@ -3339,7 +3404,13 @@ function initEventHandle() {
   })
 
   ipcMain.handle('agentMode:deleteSession', async (_event, sessionId: string) => {
-    return await deleteAgentSession(sessionId)
+    // Both halves run even if one fails: a session whose record file survives
+    // would reappear in the panel next boot (and Pi's file is an orphan the
+    // moment the record is gone).
+    const record = await deleteAgentSessionRecord(sessionId)
+    const live = await deleteAgentSession(sessionId)
+    if (!record.success) return record
+    return live
   })
 
   // Copy a file the user attached into the agent's workspace, so the agent can

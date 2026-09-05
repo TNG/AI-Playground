@@ -317,6 +317,8 @@ Use the shadcn wrappers in `src/components/ui/tooltip` (`TooltipProvider` / `Too
   per-preset settings maps. `preserveStateAcrossHmr`
   (`src/assets/js/piniaHmrStatePreservation.ts`, registered in `main.ts`) re-applies the old
   entries during the update. It is inert in production builds, which have no hot update hook.
+  (Step 8 made agent sessions and conversations kernel-owned files, so the durable copy is now
+  immune to that class of bug; the plugin still protects the in-memory map during a hot swap.)
 - Store files: **camelCase** in `WebUI/src/assets/js/store/` (e.g., `backendServices.ts`).
 - Store hooks use `use` prefix: `useBackendServices`, `useTextInference`.
 - Stores may import other stores for composition.
@@ -799,6 +801,8 @@ before the kernel move or as a small fix.
 **Chat turns** (step 6): `chat:submitTurn`, `chat:resumeTurn`, `chat:cancelTurn` (R→M), `chat:executeTool` (M→R) + `chat:toolResult` (R→M — the tool execution bridge), `chat:summarize`, `chat:runMediaAgent` / `chat:cancelMediaAgent` (the nested media specialist, R→M)
 
 **Conversations** (step 8): `conversations:bootstrap`, `conversations:migrate` (one-shot legacy upload), `conversations:save`, `conversations:delete`, `conversations:saveLastMainKey` (R→M — the kernel owns the thread files under `AI-Playground/conversations/`)
+
+**Agent sessions** (step 8): `agentMode:bootstrapSessions`, `agentMode:migrateSessions` (one-shot legacy upload from the old Pinia key), `agentMode:saveSession`, `agentMode:saveActiveSessionId` (R→M — session records under `AI-Playground/agent-sessions/`); the record-file delete folds into the existing `agentMode:deleteSession`
 
 **Transcription**: `startTranscriptionServer`, `stopTranscriptionServer`, `getTranscriptionServerUrl`
 

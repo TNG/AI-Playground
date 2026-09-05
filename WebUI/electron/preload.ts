@@ -346,6 +346,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     cancel: () => ipcRenderer.invoke('agentMode:cancel'),
     resetSession: () => ipcRenderer.invoke('agentMode:resetSession'),
     deleteSession: (sessionId: string) => ipcRenderer.invoke('agentMode:deleteSession', sessionId),
+    bootstrapSessions: () => ipcRenderer.invoke('agentMode:bootstrapSessions'),
+    migrateSessions: (legacy: unknown) => ipcRenderer.invoke('agentMode:migrateSessions', legacy),
+    saveSession: (record: unknown) => ipcRenderer.invoke('agentMode:saveSession', record),
+    saveActiveSessionId: (id: string | null) =>
+      ipcRenderer.invoke('agentMode:saveActiveSessionId', id),
     importAttachment: (workspaceDir: string, name: string, bytes: Uint8Array) =>
       ipcRenderer.invoke('agentMode:importAttachment', workspaceDir, name, bytes),
     listCapabilities: (options: {

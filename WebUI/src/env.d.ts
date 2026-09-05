@@ -586,6 +586,18 @@ type electronAPI = {
     cancel(): Promise<void>
     resetSession(): Promise<void>
     deleteSession(sessionId: string): Promise<{ success: boolean; error?: string }>
+    bootstrapSessions(): Promise<
+      import('./types/agentSessionIpc').AgentSessionBootstrap | { status: 'error'; error: string }
+    >
+    migrateSessions(
+      legacy: import('./types/agentSessionIpc').LegacyAgentSessionState,
+    ): Promise<
+      import('./types/agentSessionIpc').AgentSessionBootstrap | { status: 'error'; error: string }
+    >
+    saveSession(
+      record: import('./types/agentSessionIpc').AgentSessionRecordWire,
+    ): Promise<{ success: boolean; error?: string }>
+    saveActiveSessionId(id: string | null): Promise<{ success: boolean; error?: string }>
     /**
      * Copy an attached file into the workspace, so the agent can reach it with
      * its file tools. Resolves with the workspace-relative path it was saved as.

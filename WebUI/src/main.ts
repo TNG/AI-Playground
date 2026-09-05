@@ -7,6 +7,7 @@ import { useI18N } from './assets/js/store/i18n'
 import { useErrors } from './assets/js/store/errors'
 import { usePromptStore } from './assets/js/store/promptArea'
 import { useConversations } from './assets/js/store/conversations'
+import { useAgentMode } from './assets/js/store/agentMode'
 import { initLaminarTelemetry } from './lib/laminarTelemetry'
 import { initDebugSettings } from './assets/js/store/debugSettings'
 import { startMediaRequestBridge } from './assets/js/artifact/mediaRequestBridge'
@@ -68,6 +69,11 @@ startMediaRequestBridge()
 // half-hydrated map. This is also where the one-shot localStorage migration
 // runs on a legacy boot.
 await useConversations().init()
+
+// Same for agent-session records (step 8): the Sessions panel and a resumed
+// agent turn read a fully hydrated map. Instantiating the store here is safe —
+// its setup only wires IPC and chat transport, no backend work.
+await useAgentMode().init()
 
 // Relabel a parked chat tool's activity with its queue position (the
 // orchestrator's queue events, step 7).

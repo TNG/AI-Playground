@@ -4,6 +4,7 @@ import { demoAwareStorage } from '../demoAwareStorage'
 import { AipgUiMessage } from './openAiCompatibleChat'
 import { completeOrphanedToolParts, sanitizeBulkyToolOutputs } from '@/lib/toolMessageSanitize'
 import { currentPresetName } from '@/lib/presetRenames'
+import { makeForwardPersist } from '@/lib/ipcPersist'
 import { useErrors } from './errors'
 import type { ConversationBootstrap, ConversationLegacyState } from '@/types/conversationIpc'
 
@@ -80,36 +81,14 @@ export const useConversations = defineStore('conversations', () => {
 
   // The kernel owns the files; failures surface through the error sink but
   // never break the live copy — a failed write must not take the thread down.
-  // IPC mutations resolve `{ success: false }` rather than rejecting, so both
-  // shapes have to reach the sink.
-  function reportPersistFailure(error: unknown): void {
-    useErrors().report(error, {
-      code: 'conversations/persist-failed',
-      category: 'backend',
-      severity: 'warning',
-      surface: 'silent',
-      technicalMessage: 'saving a conversation file failed',
-    })
-  }
+  const persistMutation = makeForwardPersist({
+    code: 'conversations/persist-failed',
+    technicalMessage: 'saving a conversation file failed',
+  })
 
   function forwardPersist(call: () => Promise<unknown>): void {
     if (!hydrated.value) return
-    call()
-      .then((result) => {
-        if (
-          result &&
-          typeof result === 'object' &&
-          'success' in result &&
-          (result as { success: unknown }).success === false
-        ) {
-          const message =
-            'error' in result && typeof (result as { error: unknown }).error === 'string'
-              ? (result as { error: string }).error
-              : 'saving a conversation file failed'
-          reportPersistFailure(new Error(message))
-        }
-      })
-      .catch(reportPersistFailure)
+    persistMutation(call)
   }
 
   function saveThread(conversationKey: string): void {

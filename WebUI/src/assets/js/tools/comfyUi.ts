@@ -424,8 +424,7 @@ export function repairCreateToolInput(rawInput: string): string | null {
  * executing the tool renderer-side. Null when no workflow is available (no
  * repair possible — the call fails visibly, same as before the move).
  */
-export function createToolRepairData():
-  import('@/lib/comfyToolRepair').WorkflowRepairData | null {
+export function createToolRepairData(): import('@/lib/comfyToolRepair').WorkflowRepairData | null {
   const workflows = getAvailableWorkflows()
   if (workflows.length === 0) return null
   const imageNames = workflows.filter((w) => w.mediaType !== 'video').map((w) => w.name)

@@ -29,20 +29,13 @@ vi.mock('../../agentMode/piRuntime.ts', () => ({
 const submitArtifactRunMock =
   vi.fn<(payload: unknown, options?: unknown) => Promise<ArtifactRunResult>>()
 const cancelArtifactRunMock = vi.fn<(runId: string) => void>()
-vi.mock('../../artifact/runner.ts', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../artifact/runner.ts')>()
+vi.mock('../../orchestrator/orchestrator.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../orchestrator/orchestrator.ts')>()
   return {
     ...actual,
     submitArtifactRun: submitArtifactRunMock,
     cancelArtifactRun: cancelArtifactRunMock,
   }
-})
-
-const withGpuForMediaMock =
-  vi.fn<(fn: () => Promise<unknown>, options: { keepModelsLoaded: boolean }) => Promise<unknown>>()
-vi.mock('../../artifact/gpuOccupancy.ts', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../artifact/gpuOccupancy.ts')>()
-  return { ...actual, withGpuForMedia: withGpuForMediaMock }
 })
 
 const { buildDirectMediaTools, setMediaCatalogProvider, resetMediaCatalogProviderForTest } =
@@ -170,7 +163,6 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
       return completedResult(payload as Record<string, unknown>)
     })
     cancelArtifactRunMock.mockReset()
-    withGpuForMediaMock.mockReset().mockImplementation(async (fn) => fn())
   })
 
   it('falls back to the spec default workflow, and prefers a requested one', async () => {
@@ -251,13 +243,11 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
     expect(output.images).toHaveLength(1)
   })
 
-  it('queues behind other runs and brackets the GPU swap with the host setting', async () => {
+  it('queues behind other runs and carries the host setting on the payload', async () => {
     const host = hostWith({ keepModelsLoaded: true })
     const tool = await buildTool(GENERATE_SPEC, host)
     await tool.execute('call-1', { prompt: 'x' }, new AbortController().signal)
 
-    expect(withGpuForMediaMock).toHaveBeenCalledTimes(1)
-    expect(withGpuForMediaMock.mock.calls[0][1]).toEqual({ keepModelsLoaded: true })
     expect(submitArtifactRunMock).toHaveBeenCalledTimes(1)
     expect(submitArtifactRunMock.mock.calls[0][1]).toEqual({ queue: 'queue' })
     expect(lastPayload.keepModelsLoaded).toBe(true)

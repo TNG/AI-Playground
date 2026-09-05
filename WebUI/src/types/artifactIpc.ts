@@ -36,6 +36,10 @@ export const ArtifactRunRequestSchema = z.object({
   showPreview: z.boolean().optional(),
   safetyCheck: z.boolean().optional(),
   keepModelsLoaded: z.boolean().optional(),
+  /** Chat conversation the run was asked from — routes orchestrator queue events. */
+  conversationKey: z.string().optional(),
+  /** The renderer activity the tool began for this run — lets queue events relabel it. */
+  activityId: z.string().optional(),
 })
 
 export type ArtifactRunRequest = z.infer<typeof ArtifactRunRequestSchema>

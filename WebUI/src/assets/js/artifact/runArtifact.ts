@@ -62,6 +62,13 @@ export type ArtifactRunContext = {
   /** Chat/tool activity the generation FSM phases nest under. */
   parentActivityId?: string | null
   abortSignal?: AbortSignal
+  /**
+   * `'queue'` parks the run behind an active one (chat tool calls); the
+   * default fail-fast keeps the panel's one-generation-at-a-time contract.
+   */
+  queueMode?: 'queue'
+  /** The conversation this run was asked from — routes orchestrator queue events. */
+  conversationKey?: string
 }
 
 export type ArtifactResult = {
@@ -322,21 +329,27 @@ export async function runArtifact(
 
   let result: ArtifactResult
   try {
-    result = await window.electronAPI.artifact.run({
-      runId,
-      mode,
-      preset,
-      params,
-      inputs,
-      items,
-      source: request.source,
-      variant: variantName,
-      origin: 'renderer',
-      modelsConsented: true,
-      showPreview: imageGen.showPreview,
-      safetyCheck: imageGen.safetyCheck,
-      keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
-    })
+    result = await window.electronAPI.artifact.run(
+      {
+        runId,
+        mode,
+        preset,
+        params,
+        inputs,
+        items,
+        source: request.source,
+        variant: variantName,
+        origin: 'renderer',
+        modelsConsented: true,
+        showPreview: imageGen.showPreview,
+        safetyCheck: imageGen.safetyCheck,
+        keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
+        conversationKey: ctx.conversationKey,
+        // The tool activity's id lets queue events relabel it while parked.
+        activityId: typeof ctx.parentActivityId === 'string' ? ctx.parentActivityId : undefined,
+      },
+      ctx.queueMode ? { queue: ctx.queueMode } : undefined,
+    )
   } catch (error) {
     // IPC itself failed (window replaced mid-run, handler threw) — the main
     // runner settles its own runs, but nothing will update this run's items, so

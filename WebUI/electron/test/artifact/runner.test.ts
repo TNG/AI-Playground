@@ -33,13 +33,16 @@ vi.mock('../../artifact/comfyClient', async (importOriginal) => {
 
 import {
   cancelActiveArtifactRun,
-  cancelArtifactRun,
   resetArtifactRunnerForTest,
   setArtifactRunnerDeps,
-  submitArtifactRun,
   type ArtifactRunPayload,
   type RunnerComfyService,
 } from '../../artifact/runner'
+import {
+  cancelArtifactRun,
+  resetOrchestratorForTest,
+  submitArtifactRun,
+} from '../../orchestrator/orchestrator'
 import {
   resetKernelBusForTest,
   setKernelEventWindow,
@@ -186,6 +189,7 @@ describe('artifact runner', () => {
   beforeEach(() => {
     resetKernelBusForTest()
     resetArtifactRunnerForTest()
+    resetOrchestratorForTest()
     kernelEvents = []
     const send = vi.fn((_channel: string, payload: { type: string }) => {
       kernelEvents.push(payload as { type: string } & Record<string, unknown>)

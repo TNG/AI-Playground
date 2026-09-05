@@ -142,6 +142,25 @@ export type KernelMediaAgentEvent = {
     | { type: 'tool-finish'; toolCallId: string; output: unknown; error?: string }
 }
 
+/**
+ * One queue entry's lifecycle on the orchestrator's typed queue (step 7).
+ * Transient like media progress — a reloaded renderer does not adopt queue
+ * positions, the entries either run or were cancelled.
+ */
+export type KernelQueueEvent = {
+  type: 'queue-event'
+  runKey: string
+  kind: 'artifact' | 'media-request'
+  action: 'enqueued' | 'started' | 'finished'
+  /** Entries still waiting after this one. */
+  queueDepth: number
+  origin?: 'renderer' | 'agent'
+  /** Present for chat-scoped work — lets the projection relabel the tool activity. */
+  conversationKey?: string
+  /** The renderer activity id the tool began for this work, when it has one. */
+  activityId?: string
+}
+
 export type KernelEventPayload =
   | KernelServiceEvent
   | KernelAgentChunkEvent
@@ -154,6 +173,7 @@ export type KernelEventPayload =
   | KernelChatChunkEvent
   | KernelChatTurnDoneEvent
   | KernelMediaAgentEvent
+  | KernelQueueEvent
 
 export type KernelEvent = KernelEventPayload & KernelEventEnvelope
 

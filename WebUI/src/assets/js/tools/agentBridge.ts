@@ -7,7 +7,6 @@ import {
   resolveDefaultImageWorkflow,
 } from './comfyUi'
 import { comfyUiImageEdit, executeImageEdit } from './comfyUiImageEdit'
-import { queueMediaRequest } from './mediaPipeline'
 import { mediaAgentHasTools, runMediaAgent } from '../agents/mediaAgent'
 import { useTextInference } from '../store/textInference'
 import type { AgentToolSpec } from '@/types/agentIpc'
@@ -126,10 +125,12 @@ function dataUriMessage(dataUri: string): ModelMessage {
 }
 
 /**
- * Pi executes tool calls concurrently, and a model illustrating a game asks for
- * all of its art at once — so every bridged call queues on the shared media
- * pipeline (see mediaPipeline.ts) instead of racing the others over the one
- * ComfyUI server and the one generation store.
+ * Pi executes tool calls concurrently, and a model illustrating a game asks
+ * for all of its art at once — but the media-request bracket (specialist plus
+ * its generations) is serialized by the main-side orchestrator's request lane
+ * (step 7), and each bracket's generations queue on the same orchestrator
+ * queue as every other run, so parallel calls cannot race the one ComfyUI
+ * server and the one generation store.
  */
 export function executeAgentTool(
   toolName: string,
@@ -137,10 +138,7 @@ export function executeAgentTool(
   toolCallId?: string,
   abortSignal?: AbortSignal,
 ): Promise<unknown> {
-  return queueMediaRequest(
-    () => runAgentTool(toolName, input, toolCallId, abortSignal),
-    abortSignal,
-  )
+  return runAgentTool(toolName, input, toolCallId, abortSignal)
 }
 
 async function runAgentTool(

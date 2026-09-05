@@ -131,15 +131,20 @@ import type { MediaItem } from '@/types/mediaItem'
 import type { ArtifactMissingModel } from '@/types/mediaRequests'
 import {
   cancelActiveArtifactRun,
-  cancelArtifactRun,
   setArtifactRunnerDeps,
-  submitArtifactRun,
   type ArtifactRunPayload,
   type ArtifactRunResult,
   type RunnerComfyService,
 } from './artifact/runner'
-import { setGpuOccupancyDeps } from './artifact/gpuOccupancy'
+import {
+  awaitChatWindow,
+  cancelArtifactRun,
+  setOrchestratorDeps,
+  submitArtifactRun,
+} from './orchestrator/orchestrator'
 import { setMediaCatalogProvider } from './agentMode/capabilities/mediaDirect'
+import { chatInferenceStreamsActive } from './chat/chatModelMain'
+import { freeMemoryAndUnloadModels } from './artifact/comfyClient'
 import { getPresetCatalog } from './artifact/catalog'
 import {
   handleMediaResponse,
@@ -151,7 +156,6 @@ import {
   resumeChatTurn,
   setChatEngineDeps,
   submitChatTurn,
-  anyChatTurnActive,
 } from './chat/turnEngine'
 import { summarizeConversationText } from './chat/chatSummarize'
 import { setChatModelDeps } from './chat/chatModelMain'
@@ -1286,29 +1290,30 @@ function wireArtifactRunner(settings: LocalSettings): void {
     devPresetsEnabled: () => !app.isPackaged || settings.showDebugSettingsInUI,
   })
 
-  setGpuOccupancyDeps({
+  // The orchestrator owns GPU policy (step 7): every run — panel, chat tool,
+  // Home Agent or in-process agent tool — is bracketed through these, so the
+  // renderer's stop/return wraps and the occupancy refcount are gone.
+  setOrchestratorDeps({
     stopChatForMedia: stopChatServicesForMedia,
+    freeComfyMemory: async () => {
+      const service = comfyService()
+      if (!service || service.currentStatus !== 'running') return
+      await freeMemoryAndUnloadModels(service.baseUrl, {
+        getServiceBaseUrl: () => service.baseUrl,
+        getToken: () => comfyService()?.getLoopbackAuthToken() ?? '',
+      })
+    },
     restartChatBackend: async () => {
       await requestRenderer({ kind: 'reload-chat-backend' })
     },
-    comfyBaseUrl: () => {
-      const service = comfyService()
-      return service && service.currentStatus === 'running' ? service.baseUrl : null
-    },
-    getComfyClientDeps: () => ({
-      getServiceBaseUrl: () => {
-        const service = comfyService()
-        return service && service.currentStatus === 'running' ? service.baseUrl : null
-      },
-      getToken: () => comfyService()?.getLoopbackAuthToken() ?? '',
-    }),
+    chatRequestsOpen: () => chatInferenceStreamsActive(),
   })
 }
 
 /**
- * Frees GPU memory the chat/LLM models hold before image generation — the
- * main-side twin of the renderer's `stopChatBackends` (tools/chatBackends.ts):
- * only running backends are touched, and OpenVINO keeps its speech servers.
+ * Frees GPU memory the chat/LLM models hold before image generation — an
+ * orchestrator dep (step 7): only running backends are touched, and OpenVINO
+ * keeps its speech servers.
  */
 async function stopChatServicesForMedia(): Promise<void> {
   if (!serviceRegistry) return
@@ -2363,6 +2368,7 @@ function initEventHandle() {
       embeddingModelName?: string,
       contextSize?: number,
       modelArgs?: string,
+      keepModelsLoaded?: boolean,
     ) => {
       appLogger.info(
         `Ensuring backend readiness for service: ${serviceName}, LLM: ${llmModelName}, Embedding: ${embeddingModelName || 'none'}, Context Size: ${contextSize ?? 'undefined'}, Model args: ${modelArgs || 'none'}`,
@@ -2379,6 +2385,33 @@ function initEventHandle() {
       if (!service) {
         appLogger.warn(`Service ${serviceName} not found`, 'electron-backend')
         return { success: false, error: `Service ${serviceName} not found` }
+      }
+
+      // Chat backend loads are admitted through the orchestrator (step 7):
+      // wait for a media run to release the GPU, then free the OVMS image
+      // server's VRAM. This is the old renderer-side stopOvmsImageServer call,
+      // moved so Text no longer pokes Artifact's backends from outside the
+      // one GPU policy.
+      if (
+        !keepModelsLoaded &&
+        (serviceName === 'llamacpp-backend' || serviceName === 'openvino-backend')
+      ) {
+        try {
+          await awaitChatWindow()
+        } catch (error) {
+          return { success: false, error: error instanceof Error ? error.message : String(error) }
+        }
+        const ovms = serviceRegistry.getService('openvino-backend')
+        if (ovms && 'stopImageServer' in ovms && typeof ovms.stopImageServer === 'function') {
+          try {
+            await ovms.stopImageServer()
+          } catch (error) {
+            appLogger.warn(
+              `Stopping the OVMS image server failed: ${String(error)}`,
+              'electron-backend',
+            )
+          }
+        }
       }
 
       try {
@@ -2521,18 +2554,6 @@ function initEventHandle() {
     }
   })
 
-  // The GPU-handoff guard: renderer image tools wait on this before freeing
-  // the chat backend, which now also streams turns main-side. A nested media
-  // run holds the same guard: its LLM calls run here too (step 6), and the old
-  // renderer counted them the same way.
-  ipcMain.handle('chat:inferenceActive', () => ({
-    success: true as const,
-    active: anyChatTurnActive() || activeMediaAgentRunKeys().length > 0,
-  }))
-
-  // Nested media-specialist run (step 6): the LLM loop runs in main; the
-  // renderer registered the inner tool executors under runKey beforehand and
-  // condenses the result when it returns.
   ipcMain.handle('chat:runMediaAgent', async (_event: IpcMainInvokeEvent, request: unknown) => {
     try {
       const parsed = MediaAgentRunRequestSchema.parse(request)
@@ -2829,29 +2850,6 @@ function initEventHandle() {
       resolution?: string,
     ) => ensureOvmsImageServerReady(serviceName, modelName, keepModelsLoaded, resolution),
   )
-
-  ipcMain.handle('stopOvmsImageServer', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    if ('stopImageServer' in service && typeof service.stopImageServer === 'function') {
-      try {
-        await service.stopImageServer()
-        return { success: true }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        appLogger.error(`Failed to stop OVMS image server: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
-      }
-    }
-
-    return { success: false, error: 'Image server not supported' }
-  })
 
   ipcMain.handle('stopOvmsChatServers', async (_event: IpcMainInvokeEvent) => {
     if (!serviceRegistry) {

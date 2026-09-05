@@ -2,7 +2,6 @@ import { tool, type ModelMessage } from 'ai'
 import { z } from 'zod'
 import { runMediaAgent, MediaAgentMediaSchema } from '../agents/mediaAgent'
 import { findSourceImage } from './comfyUiImageEdit'
-import { queueMediaRequest } from './mediaPipeline'
 import { slimMediaModelOutput } from '@/lib/mediaModelOutput'
 import { useActivities } from '../store/activities'
 import { useConversations } from '../store/conversations'
@@ -70,22 +69,19 @@ export const media = tool({
         label: i18nState.COM_ACTIVITY_CREATING_MEDIA,
         scope: { kind: 'chat', conversationKey: conversations.activeKey },
       },
-      // One request at a time: a model that asks for several images in one step
-      // gets parallel tool calls from the AI SDK, and they all share one ComfyUI
-      // and one generation store (see mediaPipeline.ts).
+      // One media-request bracket at a time: a model asking for several images
+      // in one step gets parallel tool calls, and the brackets all share one
+      // ComfyUI, one generation store and one GPU window — the main-side
+      // orchestrator's request lane serializes them (step 7).
       () =>
-        queueMediaRequest(
-          () =>
-            runMediaAgent({
-              request: args.request,
-              sourceImage,
-              conversationKey,
-              abortSignal,
-              // Keys the live timeline to this tool part (see mediaAgentRuns).
-              runId: toolCallId,
-            }),
+        runMediaAgent({
+          request: args.request,
+          sourceImage,
+          conversationKey,
           abortSignal,
-        ),
+          // Keys the live timeline to this tool part (see mediaAgentRuns).
+          runId: toolCallId,
+        }),
     )
   },
   toModelOutput: ({ output }) => slimMediaModelOutput(output),

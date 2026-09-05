@@ -32,6 +32,13 @@ vi.mock('../../laminar', () => ({
   markDelegatedMediaRun: vi.fn(),
 }))
 
+// The request lane and GPU window are the orchestrator's (covered in
+// orchestrator.test.ts); a passthrough keeps this file's import graph free of
+// the real runner (which drags in the uv/electron module tree).
+vi.mock('../../orchestrator/orchestrator', () => ({
+  runMediaRequest: async <T>(fn: () => Promise<T>) => fn(),
+}))
+
 const { runMediaAgentInMain, cancelMediaAgentRun } = await import('../../chat/mediaAgentRunner')
 const { createMainChatModel } = await import('../../chat/chatModelMain')
 const { setKernelEventWindow, resetKernelBusForTest, onKernelEvent } =

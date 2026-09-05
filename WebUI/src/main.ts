@@ -9,6 +9,7 @@ import { usePromptStore } from './assets/js/store/promptArea'
 import { initLaminarTelemetry } from './lib/laminarTelemetry'
 import { initDebugSettings } from './assets/js/store/debugSettings'
 import { startMediaRequestBridge } from './assets/js/artifact/mediaRequestBridge'
+import { startQueueActivityProjection } from './lib/queueActivityProjection'
 
 const [settings, initialPage] = await Promise.all([
   window.electronAPI.getDemoModeSettings(),
@@ -60,6 +61,10 @@ if (initialPage !== null) {
 // The main-process artifact runner asks the renderer for model checks,
 // download consent and chat reloads over this bridge.
 startMediaRequestBridge()
+
+// Relabel a parked chat tool's activity with its queue position (the
+// orchestrator's queue events, step 7).
+startQueueActivityProjection()
 
 const i18n = useI18N()
 i18n.init().then(() => {

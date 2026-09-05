@@ -4,6 +4,7 @@ import { createToolAgent, type ToolAgentEvent, type ToolAgentRunOptions } from '
 import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
 import type { MediaAgentRunRequest, MediaAgentRunResult, WorkflowRepairData } from '@/types/chatIpc'
 import { emitMediaAgentEvent, endMediaAgentRun } from '../kernel/kernelBus'
+import { runMediaRequest } from '../orchestrator/orchestrator'
 import { markDelegatedMediaRun, noteMainChatTurnContext } from '../laminar'
 import { createMainChatModel } from './chatModelMain'
 import { buildToolSet } from './turnEngine'
@@ -43,6 +44,26 @@ export async function runMediaAgentInMain(
 ): Promise<MediaAgentRunResult> {
   const controller = new AbortController()
   activeRuns.set(request.runKey, controller)
+  try {
+    // One media-request bracket at a time, and never while a generation holds
+    // the GPU for media: the bracket's own LLM steps need the chat backend
+    // (the orchestrator's request lane — the old renderer pipeline's
+    // queueMediaRequest, moved to where the specialist runs).
+    return await runMediaRequest(() => runMediaAgentBracket(request, controller), {
+      runKey: request.runKey,
+      conversationKey: request.conversationKey,
+      abortSignal: controller.signal,
+    })
+  } finally {
+    endMediaAgentRun(request.runKey)
+    activeRuns.delete(request.runKey)
+  }
+}
+
+async function runMediaAgentBracket(
+  request: MediaAgentRunRequest,
+  controller: AbortController,
+): Promise<MediaAgentRunResult> {
   const priorMessages: ModelMessage[] = request.sourceImage
     ? [sourceImageMessage(request.sourceImage)]
     : []
@@ -65,19 +86,14 @@ export async function runMediaAgentInMain(
   // Laminar config).
   noteMainChatTurnContext(request.model.trace)
   markDelegatedMediaRun()
-  try {
-    return await agent.run({
-      model: createMainChatModel(request.model),
-      request: request.request,
-      priorMessages,
-      abortSignal: controller.signal,
-      repairToolCall: request.repairData ? buildRepair(request) : undefined,
-      onEvent,
-    })
-  } finally {
-    endMediaAgentRun(request.runKey)
-    activeRuns.delete(request.runKey)
-  }
+  return await agent.run({
+    model: createMainChatModel(request.model),
+    request: request.request,
+    priorMessages,
+    abortSignal: controller.signal,
+    repairToolCall: request.repairData ? buildRepair(request) : undefined,
+    onEvent,
+  })
 }
 
 function buildRepair(

@@ -2151,7 +2151,7 @@ export class OpenVINOBackendService implements ApiService {
       // text-generation graph that backs /v3/chat/completions can register a beat
       // later — so a request racing that window 404s with "Mediapipe graph definition
       // with requested name is not found". This bites the agentic image flow, which
-      // stops + restarts the chat server mid-turn (chatBackends → restartChatBackend)
+      // stops + restarts the chat server mid-turn (the orchestrator's GPU window)
       // and then immediately issues a follow-up completion. Gate on the model's own
       // KServe readiness endpoint so we only report ready once the graph is servable.
       // Best-effort: some OVMS versions may not expose this per-graph — on timeout we

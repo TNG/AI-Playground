@@ -1,18 +1,14 @@
 import { z } from 'zod'
 import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
 import { useImageGenerationPresets } from '../store/imageGenerationPresets'
-import { useComfyUiPresets } from '../store/comfyUiPresets'
 import { useActivities } from '../store/activities'
 import { useConversations } from '../store/conversations'
 import { useI18N } from '../store/i18n'
 import { usePresets, type Preset, type ComfyUiPreset } from '../store/presets'
 import { useTextInference } from '../store/textInference'
 import { usePromptStore } from '../store/promptArea'
-import { useDeveloperSettings } from '../store/developerSettings'
 import { DEV_PRESET_NAMES, dummyWorkflowsOnly } from '../store/devPresets'
 import { artifactKindForMedia, runArtifact } from '../artifact/runArtifact'
-import { stopChatBackends, returnGpuToChat } from './chatBackends'
-import { comfyRunsWaiting, queueComfyRun } from './mediaPipeline'
 import {
   DEFAULT_RESOLUTION_CONFIG,
   getResolutionsFromConfig,
@@ -171,36 +167,43 @@ type ComfyGenerationArgs = {
   batchSize?: number
 }
 
+/** Options every chat-side comfy tool call carries. */
+export type ComfyToolOptions = {
+  abortSignal?: AbortSignal
+  /** The conversation whose registry turn is executing this tool. */
+  conversationKey?: string
+}
+
 /**
- * Runs one generation for a tool call. ComfyUI serves prompts one at a time and
- * the whole run drives the single global generation store (item tracking and
- * readiness phases live in the artifact runner), so concurrent callers queue
- * rather than interleave — see mediaPipeline.ts.
+ * Runs one generation for a tool call. ComfyUI serves prompts one at a time
+ * and the whole run drives the single global generation store, so concurrent
+ * callers queue rather than interleave — the main-side orchestrator's queue
+ * (step 7) serializes them, along with the GPU window policy.
  */
 export function executeComfyGeneration(
   args: ComfyGenerationArgs,
-  options: { abortSignal?: AbortSignal } = {},
+  options: ComfyToolOptions = {},
 ): Promise<ComfyUiToolOutput> {
-  return queueComfyRun(() => runComfyGeneration(args, options), options.abortSignal)
+  return runComfyGeneration(args, options)
 }
 async function runComfyGeneration(
   args: ComfyGenerationArgs,
-  options: { abortSignal?: AbortSignal } = {},
+  options: ComfyToolOptions = {},
 ): Promise<ComfyUiToolOutput> {
   const activities = useActivities()
   const conversations = useConversations()
   const i18nState = useI18N().state
   const imageGeneration = useImageGenerationPresets()
-  const comfyUi = useComfyUiPresets()
   const presets = usePresets()
 
   // Surface the whole tool call as a chat activity ("Generating image…") and let
   // the runner nest the image-gen FSM phases under it (via parentActivityId)
   // so the chat status line shows live progress instead of a silent wait.
+  const conversationKey = options.conversationKey ?? conversations.activeKey
   const toolActivityId = activities.begin({
     category: 'tools',
     label: i18nState.COM_ACTIVITY_GENERATING_IMAGE,
-    scope: { kind: 'chat', conversationKey: conversations.activeKey },
+    scope: { kind: 'chat', conversationKey },
   })
   let toolActivityEnded = false
   const finishToolActivity = (state: 'done' | 'failed' = 'done') => {
@@ -218,16 +221,6 @@ async function runComfyGeneration(
       message,
       images: [],
     }
-  }
-
-  if (!useDeveloperSettings().keepModelsLoaded) {
-    // Wait for any in-flight chat stream (the request that carried this tool
-    // call) to finish before freeing the GPU, so stopping the chat backend
-    // can't reset an open llama.cpp socket mid-stream (=> "network error").
-    // Replaces a fixed 100ms guess; bounded internally so a stuck stream can't
-    // hang generation.
-    await useTextInference().waitForInferenceIdle()
-    await stopChatBackends()
   }
 
   // Resolve the workflow: the tool catalog (enabled presets, dev-only dummy
@@ -323,7 +316,15 @@ async function runComfyGeneration(
           batchSize: args.batchSize,
         },
       },
-      { parentActivityId: toolActivityId, abortSignal: options.abortSignal },
+      {
+        parentActivityId: toolActivityId,
+        abortSignal: options.abortSignal,
+        // Chat tool runs queue behind whatever is generating (the panel's
+        // fail-fast contract stays panel-only) and carry their conversation
+        // so queue events can relabel this tool's activity.
+        queueMode: 'queue',
+        conversationKey,
+      },
     )
 
     if (result.state === 'cancelled') {
@@ -381,15 +382,9 @@ async function runComfyGeneration(
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     return createErrorResult(`ComfyUI generation failed: ${errorMessage}`)
   } finally {
-    // Keep the activity alive through cleanup so the post-generation window (which
-    // frees the GPU and restarts the chat backend — several seconds) isn't silent.
-    // Relabel it to reflect what's actually happening before the LLM responds.
-    // Nothing to hand back to while the queue still holds generations: they want
-    // ComfyUI loaded and have no use for the LLM (see comfyRunsWaiting).
-    if (!useDeveloperSettings().keepModelsLoaded && !comfyRunsWaiting()) {
-      activities.update(toolActivityId, { label: i18nState.COM_ACTIVITY_RELOADING_CHAT })
-      await returnGpuToChat(() => comfyUi.free())
-    }
+    // The post-generation window (freeing image models, reloading the chat
+    // backend) is the orchestrator's now; the run result settles after it,
+    // so this activity has nothing left to wait for.
     finishToolActivity()
   }
 }
@@ -665,8 +660,11 @@ export const comfyUI = tool({
       seed?: number
       batchSize?: number
     },
-    { abortSignal }: { abortSignal?: AbortSignal },
+    { abortSignal, context }: { abortSignal?: AbortSignal; context?: unknown },
   ) => {
-    return await executeComfyGeneration(args, { abortSignal })
+    return await executeComfyGeneration(args, {
+      abortSignal,
+      conversationKey: (context as { conversationKey?: string } | undefined)?.conversationKey,
+    })
   },
 })

@@ -2,18 +2,14 @@ import { z } from 'zod'
 import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
 import { FilePart, ModelMessage, tool } from 'ai'
 import { useImageGenerationPresets } from '../store/imageGenerationPresets'
-import { useComfyUiPresets } from '../store/comfyUiPresets'
 import { useActivities } from '../store/activities'
 import { useConversations } from '../store/conversations'
 import { useI18N } from '../store/i18n'
 import { usePresets, type Preset } from '../store/presets'
 import { useTextInference } from '../store/textInference'
 import { usePromptStore } from '../store/promptArea'
-import { useDeveloperSettings } from '../store/developerSettings'
 import { DEV_PRESET_NAMES, dummyWorkflowsOnly } from '../store/devPresets'
 import { artifactKindForMedia, runArtifact } from '../artifact/runArtifact'
-import { stopChatBackends, returnGpuToChat } from './chatBackends'
-import { comfyRunsWaiting, queueComfyRun } from './mediaPipeline'
 import { isCancellation } from '../errors/appError'
 
 const ImageEditImageOutputSchema = z.object({
@@ -198,35 +194,36 @@ const createErrorResult = (message: string): ImageEditToolOutput => ({
 
 /**
  * Runs one edit for a tool call. Shares ComfyUI and the global generation store
- * with every other media run, so concurrent callers queue — see mediaPipeline.ts.
+ * with every other media run, so concurrent callers queue — the main-side
+ * orchestrator's queue (step 7) serializes them and owns the GPU window.
  */
 export function executeImageEdit(
   args: ImageEditArgs,
   messages: ModelMessage[],
-  options: { abortSignal?: AbortSignal } = {},
+  options: { abortSignal?: AbortSignal; conversationKey?: string } = {},
 ): Promise<ImageEditToolOutput> {
-  return queueComfyRun(() => runImageEdit(args, messages, options), options.abortSignal)
+  return runImageEdit(args, messages, options)
 }
 
 async function runImageEdit(
   args: ImageEditArgs,
   messages: ModelMessage[],
-  options: { abortSignal?: AbortSignal } = {},
+  options: { abortSignal?: AbortSignal; conversationKey?: string } = {},
 ): Promise<ImageEditToolOutput> {
   const activities = useActivities()
   const conversations = useConversations()
   const i18nState = useI18N().state
   const imageGeneration = useImageGenerationPresets()
-  const comfyUi = useComfyUiPresets()
   const presets = usePresets()
 
   // Surface the tool call as a chat activity ("Editing image…") and let the
   // runner nest the image-gen FSM phases under it so the chat status line shows
   // live progress.
+  const conversationKey = options.conversationKey ?? conversations.activeKey
   const toolActivityId = activities.begin({
     category: 'tools',
     label: i18nState.COM_ACTIVITY_EDITING_IMAGE,
-    scope: { kind: 'chat', conversationKey: conversations.activeKey },
+    scope: { kind: 'chat', conversationKey },
   })
   let toolActivityEnded = false
   const finishToolActivity = (state: 'done' | 'failed' = 'done') => {
@@ -234,16 +231,6 @@ async function runImageEdit(
     toolActivityEnded = true
     imageGeneration.generationParentActivityId = null
     activities.end(toolActivityId, state)
-  }
-
-  if (!useDeveloperSettings().keepModelsLoaded) {
-    // Wait for any in-flight chat stream (the request that carried this tool
-    // call) to finish before freeing the GPU, so stopping the chat backend
-    // can't reset an open llama.cpp socket mid-stream (=> "network error").
-    // Replaces a fixed 100ms guess; bounded internally so a stuck stream can't
-    // hang generation.
-    await useTextInference().waitForInferenceIdle()
-    await stopChatBackends()
   }
 
   // Image selection priority: dragged into the current prompt, else the most
@@ -293,7 +280,12 @@ async function runImageEdit(
         // transformed version of the input.
         params: { seed: args.seed, batchSize: 1 },
       },
-      { parentActivityId: toolActivityId, abortSignal: options.abortSignal },
+      {
+        parentActivityId: toolActivityId,
+        abortSignal: options.abortSignal,
+        queueMode: 'queue',
+        conversationKey,
+      },
     )
 
     if (result.state === 'cancelled') {
@@ -365,14 +357,8 @@ async function runImageEdit(
       `Image edit failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
     )
   } finally {
-    // Keep the activity alive through cleanup (GPU free + chat backend restart) so
-    // the window before the LLM's final response isn't silent.
-    // Queued generations want ComfyUI loaded and not the LLM, so the last run out
-    // of the lane does the swapping back (see comfyRunsWaiting).
-    if (!useDeveloperSettings().keepModelsLoaded && !comfyRunsWaiting()) {
-      activities.update(toolActivityId, { label: i18nState.COM_ACTIVITY_RELOADING_CHAT })
-      await returnGpuToChat(() => comfyUi.free())
-    }
+    // The post-generation GPU window is the orchestrator's now; the run result
+    // settles after it, so this activity has nothing left to wait for.
     finishToolActivity()
   }
 }
@@ -528,8 +514,15 @@ export const comfyUiImageEdit = tool({
   outputSchema: ImageEditToolOutputSchema,
   execute: async (
     args: ImageEditArgs,
-    { messages, abortSignal }: { messages: ModelMessage[]; abortSignal?: AbortSignal },
+    {
+      messages,
+      abortSignal,
+      context,
+    }: { messages: ModelMessage[]; abortSignal?: AbortSignal; context?: unknown },
   ) => {
-    return await executeImageEdit(args, messages, { abortSignal })
+    return await executeImageEdit(args, messages, {
+      abortSignal,
+      conversationKey: (context as { conversationKey?: string } | undefined)?.conversationKey,
+    })
   },
 })

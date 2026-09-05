@@ -636,6 +636,7 @@ export const useBackendServices = defineStore(
       embeddingModelName?: string,
       contextSize?: number,
       modelArgs?: string,
+      stopImageServer?: boolean,
     ): Promise<void> {
       try {
         const result = await window.electronAPI.ensureBackendReadiness(
@@ -644,6 +645,7 @@ export const useBackendServices = defineStore(
           embeddingModelName,
           contextSize,
           modelArgs,
+          stopImageServer,
         )
         if (!result.success) {
           throw new Error(result.error || 'Failed to ensure backend readiness')

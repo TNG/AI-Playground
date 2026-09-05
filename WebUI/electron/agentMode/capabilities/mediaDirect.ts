@@ -1,7 +1,6 @@
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
-import { submitArtifactRun, cancelArtifactRun } from '../../artifact/runner.ts'
+import { submitArtifactRun, cancelArtifactRun } from '../../orchestrator/orchestrator.ts'
 import type { ArtifactRunResult } from '../../artifact/runner.ts'
-import { withGpuForMedia } from '../../artifact/gpuOccupancy.ts'
 import { resolveComfyEntry, type PresetCatalog } from '../../artifact/catalog.ts'
 import { randomUUID } from 'node:crypto'
 import type { ComfyInput, ComfyUiPreset, Preset } from '@/lib/presetSchemas'
@@ -26,11 +25,10 @@ import type { AgentToolSpec, CapabilityHost } from './types.ts'
 //
 // `generateImage` / `editImage` executed beside the artifact runner in main
 // (architecture-target §8 step 5): the workflow is resolved from main's preset
-// catalog, the run submits through the same queue every driver uses, and the
-// GPU swap brackets it (`withGpuForMedia`, occupancy-counted so overlapping
-// spritesheet calls share one swap). Chat tools keep the renderer-side swap
-// in chatBackends.ts; the two paths must not wrap the same run. Only the
-// specs (descriptions, schemas, default workflow) are still shipped by the
+// catalog and the run submits through the same queue every driver uses; the
+// GPU window is the orchestrator's, with the same keepModelsLoaded /
+// skip-when-queued policy every other driver gets (step 7). Only the specs
+// (descriptions, schemas, default workflow) are still shipped by the
 // renderer, because which workflows are enabled is renderer settings.
 //
 // A run built here sets no `items` (the runner registers and streams them) and
@@ -270,9 +268,10 @@ async function runDirectTool(
   signal?.addEventListener('abort', onAbort, { once: true })
   let result: ArtifactRunResult
   try {
-    result = await withGpuForMedia(() => submitArtifactRun(payload, { queue: 'queue' }), {
-      keepModelsLoaded: host.keepModelsLoaded,
-    })
+    // The GPU window is the orchestrator's now: the run is bracketed when it
+    // reaches the queue head, with the same keepModelsLoaded / skip-when-
+    // queued policy every other driver gets (step 7).
+    result = await submitArtifactRun(payload, { queue: 'queue' })
   } finally {
     signal?.removeEventListener('abort', onAbort)
   }

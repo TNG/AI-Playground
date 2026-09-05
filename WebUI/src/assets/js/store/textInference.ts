@@ -871,45 +871,6 @@ export const useTextInference = defineStore(
     // Per-preset settings persistence
     const settingsPerPreset = ref<Record<string, Record<string, unknown>>>({})
 
-    // Number of renderer-side inference HTTP requests currently streaming from
-    // the chat backend (the shared model factory's fetch — the nested media
-    // specialist, until it moves to main; chat turns themselves stream in
-    // main and are counted there). Image tools consult this via
-    // waitForInferenceIdle() so they never tear down the chat backend while a
-    // stream to it is still open (which would reset the socket mid-stream and
-    // surface as a "network error").
-    const activeInferenceStreams = ref(0)
-    function beginInferenceStream() {
-      activeInferenceStreams.value++
-    }
-    function endInferenceStream() {
-      if (activeInferenceStreams.value > 0) activeInferenceStreams.value--
-    }
-    // Resolve once no inference stream is open, or after `timeoutMs` as a
-    // safety valve so a wedged/keep-alive socket can't block image generation
-    // indefinitely. In the common case the stream is already drained (the SDK
-    // finishes each step before running a tool), so this returns immediately.
-    // Since chat turns moved to main (step 6), the same wait also consults the
-    // engine's own turn table — a streaming turn holds the backend just as a
-    // renderer socket did, and freeing the GPU under it resets the socket.
-    async function waitForInferenceIdle(timeoutMs = 3000): Promise<void> {
-      const start = Date.now()
-      const busy = async (): Promise<boolean> => {
-        if (activeInferenceStreams.value > 0) return true
-        try {
-          const result = await window.electronAPI.chat.inferenceActive()
-          return result.success && result.active
-        } catch {
-          // IPC not available (unit tests, early startup): local count only.
-          return false
-        }
-      }
-      while (await busy()) {
-        if (Date.now() - start >= timeoutMs) break
-        await new Promise((resolve) => setTimeout(resolve, 50))
-      }
-    }
-
     // Raw URL of the selected local inference backend, without any of the
     // loopback proxies `currentBackendUrl` prefers. Callers that cannot attach
     // the proxies' headers (X-AIPG-Auth / X-Upstream-Url for Home Agent,
@@ -1537,16 +1498,10 @@ export const useTextInference = defineStore(
           throw new Error('No embedding model selected but RAG documents are enabled')
         }
 
-        // Stop OVMS image server to free GPU memory before loading LLM
-        if (!developerSettings.keepModelsLoaded) {
-          try {
-            await window.electronAPI.stopOvmsImageServer()
-          } catch (_e) {
-            // Ignore — server may not be running
-          }
-        }
-
         try {
+          // The image-server stop and GPU-window admission are the
+          // orchestrator's now (main's ensureBackendReadiness handler, step 7)
+          // — the setting rides along so it can apply the same policy.
           await backendServices.ensureBackendReadiness(
             serviceName,
             llmModelName,
@@ -1555,6 +1510,7 @@ export const useTextInference = defineStore(
             // Only llama.cpp reads these; OVMS is started from a different
             // command line and ignores them.
             backend.value === 'llamaCPP' ? activeLlmModel.value?.llamaCppArgs : undefined,
+            !developerSettings.keepModelsLoaded,
           )
         } catch (error) {
           // Surface model-load failures (e.g. out of memory for the chosen
@@ -2436,9 +2392,6 @@ export const useTextInference = defineStore(
 
       // In-flight inference stream tracking (used by image tools to avoid
       // resetting an open chat-backend socket when freeing the GPU)
-      beginInferenceStream,
-      endInferenceStream,
-      waitForInferenceIdle,
       migrateRenamedPresetSettings,
       migrateGlobalToolEnablement,
     }

@@ -6,7 +6,7 @@ inference/download consent through Permissions; main→renderer notifications th
 event stream (`kernel:event`) with a listener-first snapshot handshake; chat turns run in main
 and stream back as kernel `chat-chunk` events. Parked follow-ups from those landings live in
 [§8.2](#82-parked-follow-ups-from-landed-steps) — they do not block step 7.
-Everything after step 6 is a map of where we want it, and the order in which we could get there.
+Everything after step 7 is a map of where we want it, and the order in which we could get there.
 It exists to be argued with — see [§10 Decisions](#10-decisions).
 
 ## 0. How to read and edit this
@@ -225,9 +225,9 @@ readiness, installs, the ComfyUI websocket engine, per-item seeds, the watchdog 
 detection, and streams phase/item events on the kernel stream (the renderer projects them onto the
 same FSM). The model pre-flight, download consent and post-swap chat reload stay renderer-side by
 design — main requests them over `artifact:request`/`artifact:respond`
-(`src/assets/js/artifact/mediaRequestBridge.ts`). In-process Pi tools wrap the runner with a
-refcounted GPU occupancy primitive (`electron/artifact/gpuOccupancy.ts`); renderer chat tools keep
-their own `stopChatBackends` wrap until step 7 — the two must not wrap the same run. The Image Gen
+(`src/assets/js/artifact/mediaRequestBridge.ts`). In-process Pi tools and renderer chat tools both submit through the
+orchestrator's GPU window now (step 7; the refcounted `gpuOccupancy` primitive and the renderer
+wraps it replaced are deleted — one bracket per run, never nested). The Image Gen
 store only projects renderer-originated runs (in-process agent items stay in the workspace). The
 Pi media tools execute beside the runner in-process (`electron/agentMode/capabilities/mediaDirect.ts`
 + `mediaDelegation.ts` for the NL tool); the `listWorkflows` / `inspectRequirements` surface, explicit
@@ -365,17 +365,19 @@ an artifact kind; a spoken reply is text I/O; a saved WAV is an artifact that us
 
 ### 4.4 Orchestrator
 
-This is the piece that only exists once text and artifact share a process. Today the same job is
-smeared across three places that cannot see each other:
+This is the piece that only exists once text and artifact share a process. Until step 7 the same
+job was smeared across three places that could not see each other — the renderer's
+`tools/mediaPipeline.ts` (two serial lanes), `tools/chatBackends.ts` (`stopChatBackends` /
+`returnGpuToChat` plus the `comfyRunsWaiting()` swap-batching skip) and a `withGpuForMedia`
+wrap for in-process tools — all three deleted by the move.
 
-- `tools/mediaPipeline.ts` — two serial lanes (one per delegated `media` request, one per ComfyUI
-  run) so parallel tool calls do not steal each other's preset and items.
-- `tools/chatBackends.ts` — `stopChatBackends` / `returnGpuToChat`, plus `comfyRunsWaiting()` so a
-  spritesheet does not swap the LLM off the GPU once per sprite when Keep Models Loaded is off.
-- `ensureBackendReadiness` — start the right server and load the right model, with no knowledge of
-  what else is queued.
-
-After the move, every driver submits a request to one scheduler:
+Step 7 landed the scheduler's core (`electron/orchestrator/orchestrator.ts`): one FIFO for
+artifact runs plus a request lane for whole `media` requests, and one GPU window that brackets
+every media run (chat backends stopped before, ComfyUI freed and the chat backend restarted
+after, skipped with Keep Models Loaded or while more runs are queued). `ensureBackendReadiness`
+is admitted through the same window. The full shape below — chat turns as queue entries, VRAM
+budgets — remains the step-8+ target; a chat turn still runs straight in the engine and only
+its backend readiness waits:
 
 ```ts
 type KernelRequestMap = {
@@ -881,16 +883,16 @@ flowchart TD
 | 1 | **Done.** Tools and Home Agent `/imgGen` have no preset save/restore and no readiness preflight; the run (`runArtifact` + `comfyUiPresets.generate`) owns backend start, installs and model download; selection stays side-effect-free (`resolvePresetVariant`); callers pass `artifactKindForMedia` / panel-derived kind | yes |
 | 2 | **Done.** `transcribeAudio` / speak-replies (and every other speech driver — mic, TTS preset, `/imgGen` voice paths) import no TTS/STT store; all of them cross the one speech adapter (`speechIO`), which owns readiness, endpoint resolution and the Qwen3/Kokoro/external engine branch | yes |
 | 3 | **Done.** Inference/download code calls the Permissions layer (`requestDownload` / `requestVramWarning` / `notify` in `src/assets/js/permissions/permissions.ts`); no `useDialogStore()` outside the adapter, the settings-setup flows and the dialog components. "Do not show again" and the remote-download pre-grant are entries in the persisted `permissionGrants` store, reviewed and revoked in Settings → Permissions (legacy `memoryAlertSuppress_*` flags migrate once) | yes |
-| 4 | **Done.** Notifications that were pushed point-to-point (`serviceInfoUpdate`, the four `agentMode:*` push channels) cross the kernel stream (`kernel:event`, one monotonic `seq`; listener-first snapshot handshake with install-before-flush; bus holds the current window so no service pushes to a stale webContents). Main owns hide/reopen/quit via `resolveClosePolicy` (`lifecycle:busy` from the activities sink, Home Agent status, active agent turn); a reconnected renderer resumes a running agent turn from the snapshot (`Chat.resumeStream`). Browser-backed windows were already lazy. Remaining event types (`activity`, `error`, `queue`, `stored`) ride with steps 7–8 | yes |
+| 4 | **Done.** Notifications that were pushed point-to-point (`serviceInfoUpdate`, the four `agentMode:*` push channels) cross the kernel stream (`kernel:event`, one monotonic `seq`; listener-first snapshot handshake with install-before-flush; bus holds the current window so no service pushes to a stale webContents). Main owns hide/reopen/quit via `resolveClosePolicy` (`lifecycle:busy` from the activities sink, Home Agent status, active agent turn); a reconnected renderer resumes a running agent turn from the snapshot (`Chat.resumeStream`). Browser-backed windows were already lazy. Remaining event types (`activity`, `error`, `stored`) ride with steps 7–8 work; `queue` landed
+with step 7 (`queue-event`, not snapshotted) | yes |
 | 5 | **Done.** `capabilities/media.ts` no longer calls `executeToolInRenderer` — direct tools execute in-process against `electron/artifact/runner.ts` (`mediaDirect.ts`), the NL `media` tool lives in `mediaDelegation.ts` — and the UI hydrates readiness/generation progress from main via kernel `artifact-phase`/`artifact-item` events. In-process runs ask the renderer for model checks, download consent and chat reload over `artifact:request` | yes, needs 1–4 |
 | 6 | **Done.** The renderer has no `streamText` — chat turns run in the main-side engine (`electron/chat/turnEngine.ts`) over `chat:submitTurn` and stream back as kernel `chat-chunk` events (adjacent deltas coalesced at the bus, semantic chunks immediate) through the renderer's kernel transport (`src/lib/kernelChatTransport.ts`); a reloaded renderer resumes from the snapshot (`chat:resumeTurn`). Tool executions round-trip to the renderer registry (`src/lib/chatToolRegistry.ts`) over the tool bridge; the nested media specialist runs in main too (`electron/chat/mediaAgentRunner.ts`) with its inner tools on the same bridge, progress as `media-agent-event`; one-shot summarize is `chat:summarize`; Laminar's AI SDK integration is registered in main against the SDK's global telemetry registry. RAG retrieval and conversation persistence stayed renderer-side (§8.2) | yes, needs 1–5 |
-| 7 | Text and Artifact no longer start each other's backends; one typed queue is visible through activity events | no, needs 6 |
+| 7 | **Done.** One queue and one GPU policy: `electron/orchestrator/orchestrator.ts` owns a FIFO for artifact runs (panel/Home Agent submissions fail-fast as before; chat-tool submissions and in-process Pi tool runs queue) and a request lane for whole `media` requests; every media run brackets the one GPU window (chat backends stopped before, ComfyUI freed and the chat backend restarted after, skipped with Keep Models Loaded or while runs are queued — one spritesheet = one swap); `ensureBackendReadiness` waits for the window, so Text and Artifact no longer start/stop each other's backends blind; the queue is visible as `queue-event` kernel events, which relabel the parked chat tool's activity with its position (`src/lib/queueActivityProjection.ts`). Chat turns are not queue entries (§8.2) | yes, needs 6 |
 | 8 | fields in §6 sit in their bucket; `userSelectedMode` is deleted; files own transcripts; localStorage migrates once | incremental |
 
 Steps 1–4 are worth doing even if we never move chat: they make the capabilities testable and the
 projection boundary complete. Snapshot hydration and Artifact readiness landed with steps 4–5;
-IPC delta coalescing landed with step 6. Step 7 is the reason to put Text and Artifact in
-the same process — until then GPU policy stays scattered.
+IPC delta coalescing landed with step 6, the single queue and GPU policy with step 7.
 
 ### 8.1 Transition cost and per-step obligations
 
@@ -950,10 +952,11 @@ small fix on this branch) can pick them up instead of rediscovering them.
 
 **Step 4 (Projection protocol + hidden-window lifecycle):**
 
-- **`activity` / `error` / `queue` / `stored` are not on the bus yet.**
+- **`activity` / `error` / `stored` are not on the bus yet.**
   `artifact-phase` / `artifact-item` / `artifact-done` landed with step 5; `chat-chunk` /
   `chat-turn-done` / `media-agent-event` with step 6 (delta coalescing lives at the bus,
-  decision 13). The remaining kinds ride with step 7–8 work.
+  decision 13); `queue-event` with step 7 (transient — enqueue/start/finish for a parked
+  activity's label, deliberately not snapshotted).
 - **`AgentTurnSnapshot.chunks` accumulates unbounded per turn.** A turn is bounded and the
   snapshot only exists while one runs, but a very long turn replays a lot at once on reconnect.
   If that ever matters, cap the accumulated tail and accept that a resumed renderer misses the
@@ -981,12 +984,11 @@ small fix on this branch) can pick them up instead of rediscovering them.
 
 **Step 5 (Artifact in main) — do with the kernel request queue (§7), or sooner if cheap:**
 
-- **GPU policy is still two wraps.** In-process tools use `withGpuForMedia` (refcounted); renderer
-  chat tools use `stopChatBackends` / `returnGpuToChat` (they wait for an in-flight chat stream
-  first). The Image Gen panel does not wrap at all. Step 7's orchestrator is the single owner —
-  do not nest both wraps on one run.
-- **Two queues still serialize media.** Chat tools go through `mediaPipeline` then `runArtifact`
-  fail-fast; in-process tools queue inside the runner. Collapse onto the orchestrator queue.
+- **GPU policy is one bracket now** — landed with step 7: the orchestrator's GPU window is the
+  single owner (the two renderer wraps and `withGpuForMedia` are deleted), and it waits for
+  open chat requests before stopping, so the Image Gen panel wraps for the first time.
+- **One queue serializes media now** — landed with step 7: chat-tool runs and in-process tools
+  queue on the orchestrator; panel/Home Agent submissions stay fail-fast by design.
 - **In-process direct tools don't see saved dynamic inputs.** The settings sidebar's per-preset
   input map (`comfyInputsPerPreset`) is renderer state, so `mediaDirect.ts` resolves workflow
   inputs from preset defaults. Ship a snapshot of the relevant inputs with the turn (or answer it
@@ -1025,9 +1027,37 @@ small fix on this branch) can pick them up instead of rediscovering them.
   lands with the turn). Snapshot it only if that timeline ever matters across a reload.
 - **Chat trace context is one last-write-wins slot** across concurrent conversations — the same
   single-context shape the IPC flow it replaced had; scoped only if concurrent-turn traces blur.
-- **`chat:summarize` / `chat:inferenceActive` are coarse** — no cancellation and no
-  per-conversation scoping, and inferenceActive is a global boolean over all turns plus media
-  runs, which is exactly the granularity the old renderer counter had.
+- **`chat:summarize` is coarse** — no cancellation and no per-conversation scoping.
+  `chat:inferenceActive` is gone: step 7 deleted the channel (the renderer wraps that read it
+  are gone too, and the orchestrator counts open chat requests itself, per run).
+
+**Step 7 (Orchestrator) — leftovers:**
+
+- **Chat turns are not queue entries.** A turn submits straight to the engine once its
+  readiness has been admitted (`awaitChatWindow`, bounded at 5 minutes then proceeds with a
+  warning). The race the old code had survives: a turn whose stream opened just before a media
+  run stops its backend can still fail with a network error. Queueing turns themselves is
+  step-8+ work (§4.4's `KernelRequestMap`).
+- **The chat reload is still renderer-answered.** The swap-back asks the renderer to re-run
+  `ensureBackendReadiness` over the `artifact:request` RPC (`reload-chat-backend`) — the one
+  thing keeping a hidden-window-less CLI from reloading a model. The window it costs no longer
+  shows a "Reloading chat model…" activity in chat (the old renderer bracket labelled it);
+  the swap is silent until step 8 moves reload fully main-side.
+- **`queue-event` is transient, not snapshotted** — a renderer that reloads mid-queue loses the
+  parked activities' labels (their own `enqueued`→`started` lifecycles rebuild from the
+  activities the tools registered). Harmless for now; snapshot it if a reload ever lands
+  mid-spritesheet.
+- **No VRAM budget.** The GPU window is a chat↔media *swap* gate, not an occupancy ledger: the
+  orchestrator knows nothing about how much VRAM a checkpoint needs, and Permissions still
+  gates the heavy presets per-name. The coarse budget of §4.4 remains future work.
+- **The media-request lane has one lane for all media requests** — no fairness between a chat
+  tool's request and a Home Agent turn's beyond FIFO, and no per-conversation scoping of the
+  queue (a busy conversation's spritesheet parks another conversation's edit the same way).
+- **GPU swap spans are gone.** `backend.stop_llm` / `backend.reload_llm` were renderer spans in
+  `chatBackends.ts`; the swap now runs main-side and opens no spans, so a Laminar trace shows
+  the swap only as the gap between the tool span and `comfyui.generate`'s children. Wire swap
+  spans (or attributes on the artifact-phase events) from the orchestrator if that gap needs
+  explaining in traces.
 
 **Step 2 (Speech I/O) — already noted at the adapter, still ahead:**
 

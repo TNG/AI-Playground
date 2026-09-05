@@ -431,6 +431,7 @@ type electronAPI = {
     embeddingModelName?: string,
     contextSize?: number,
     modelArgs?: string,
+    stopImageServer?: boolean,
   ): Promise<{ success: boolean; error?: string }>
   ensureComfyUIBackendRunning(): Promise<{
     success: boolean
@@ -458,7 +459,6 @@ type electronAPI = {
     summarize(
       request: import('./types/chatIpc').ChatSummarizeRequest,
     ): Promise<{ success: true; data: string } | { success: false; error: string }>
-    inferenceActive(): Promise<{ success: true; active: boolean }>
     runMediaAgent(
       request: import('./types/chatIpc').MediaAgentRunRequest,
     ): Promise<
@@ -492,7 +492,6 @@ type electronAPI = {
     keepModelsLoaded?: boolean,
     resolution?: string,
   ): Promise<{ success: boolean; url?: string; error?: string }>
-  stopOvmsImageServer(): Promise<{ success: boolean; error?: string }>
   stopOvmsChatServers(): Promise<{ success: boolean; error?: string }>
   getOvmsImageServerUrl(): Promise<{ success: boolean; url?: string; error?: string }>
   // ComfyUI Tools - uses uv for Python package management

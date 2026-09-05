@@ -161,6 +161,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     embeddingModelName?: string,
     contextSize?: number,
     modelArgs?: string,
+    stopImageServer?: boolean,
   ) =>
     ipcRenderer.invoke(
       'ensureBackendReadiness',
@@ -169,6 +170,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       embeddingModelName,
       contextSize,
       modelArgs,
+      stopImageServer,
     ),
   ensureComfyUIBackendRunning: () => ipcRenderer.invoke('ensureComfyUIBackendRunning'),
   artifact: {
@@ -203,8 +205,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('chat:summarize', request) as Promise<
         { success: true; data: string } | { success: false; error: string }
       >,
-    inferenceActive: () =>
-      ipcRenderer.invoke('chat:inferenceActive') as Promise<{ success: true; active: boolean }>,
     runMediaAgent: (request: import('../src/types/chatIpc').MediaAgentRunRequest) =>
       ipcRenderer.invoke('chat:runMediaAgent', request) as Promise<
         | { success: true; data: import('../src/types/chatIpc').MediaAgentRunResult }
@@ -246,7 +246,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
       keepModelsLoaded,
       resolution,
     ),
-  stopOvmsImageServer: () => ipcRenderer.invoke('stopOvmsImageServer'),
   stopOvmsChatServers: () => ipcRenderer.invoke('stopOvmsChatServers'),
   getOvmsImageServerUrl: () => ipcRenderer.invoke('getOvmsImageServerUrl'),
   // ComfyUI Tools

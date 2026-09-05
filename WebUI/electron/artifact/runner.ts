@@ -11,7 +11,8 @@
  * pure projections of this module. One run is active at a time; later
  * submissions either fail fast ("Another generation is already in progress",
  * the panel and Home Agent behavior) or queue behind it (the chat tools'
- * lanes, and in-process agent direct tools waiting for the GPU).
+ * lane, and in-process agent direct tools waiting for the GPU — all of which
+ * is the orchestrator's queue now).
  *
  * The single stall owner is here, unchanged from the renderer runner it
  * replaces: one re-arming 5-minute idle watchdog over every phase — backend
@@ -114,6 +115,10 @@ export type ArtifactRunPayload = {
   safetyCheck?: boolean
   /** Whether the user asked to keep models loaded (renderer's developer setting). */
   keepModelsLoaded?: boolean
+  /** Chat conversation the run was asked from — routes orchestrator queue events. */
+  conversationKey?: string
+  /** The renderer activity the tool began for this run — lets queue events relabel it. */
+  activityId?: string
 }
 
 export type ArtifactRunResult = {
@@ -174,66 +179,35 @@ type ActiveRun = {
   comfyBaseUrl: string | null
 }
 
-type QueuedRun = { payload: ArtifactRunPayload; resolve: (result: ArtifactRunResult) => void }
-
 let activeRun: ActiveRun | null = null
-const runQueue: QueuedRun[] = []
 let runnerDeps: ArtifactRunnerDeps | null = null
 
 export function setArtifactRunnerDeps(deps: ArtifactRunnerDeps): void {
   runnerDeps = deps
 }
 
-/** Whether a run is executing right now — the GPU occupancy primitive asks. */
+/** Whether a run is executing right now — the snapshot and crash watch ask. */
 export function artifactRunActive(): boolean {
   return activeRun !== null
 }
 
-/** Runs waiting behind the active one; decides whether the GPU can be freed. */
-export function artifactRunsQueued(): number {
-  return runQueue.length
+/** The active run's id, or null — the orchestrator routes cancels by id. */
+export function activeArtifactRunId(): string | null {
+  return activeRun?.payload.runId ?? null
 }
 
 /**
- * Submits a resolved run. `queue: 'fail-fast'` rejects immediately when a run
- * is active (panel / Home Agent behavior); `'queue'` parks it until the GPU is
- * free (chat-tool lanes, in-process agent tools).
+ * Starts a resolved run. Queueing, GPU windowing and queue events are the
+ * orchestrator's (electron/orchestrator/orchestrator.ts, step 7) — it calls
+ * this once a run reaches the head.
  */
-export function submitArtifactRun(
-  payload: ArtifactRunPayload,
-  options: { queue: 'fail-fast' | 'queue' } = { queue: 'fail-fast' },
-): Promise<ArtifactRunResult> {
-  if (activeRun) {
-    if (options.queue === 'fail-fast') {
-      return Promise.resolve({
-        state: 'failed',
-        items: [],
-        error: 'Another generation is already in progress',
-      })
-    }
-    return new Promise<ArtifactRunResult>((resolve) => {
-      runQueue.push({ payload, resolve })
-    })
-  }
+export function startArtifactRun(payload: ArtifactRunPayload): Promise<ArtifactRunResult> {
   return startRun(payload)
 }
 
 /** Cancels the active run — the Stop button. Queued runs are untouched. */
 export function cancelActiveArtifactRun(): void {
   activeRun?.cancel()
-}
-
-/** Cancels one run by id, whether it is active or still waiting in the queue. */
-export function cancelArtifactRun(runId: string): void {
-  if (activeRun?.payload.runId === runId) {
-    activeRun.cancel()
-    return
-  }
-  const index = runQueue.findIndex((entry) => entry.payload.runId === runId)
-  if (index !== -1) {
-    const [entry] = runQueue.splice(index, 1)
-    entry.resolve({ state: 'cancelled', items: [], error: 'Generation cancelled.' })
-  }
 }
 
 function resolvedVariantName(payload: ArtifactRunPayload): string | undefined {
@@ -252,7 +226,6 @@ export function resetArtifactRunnerForTest(): void {
   }
   if (activeRun?.comfyBaseUrl) releaseComfySocket(activeRun.comfyBaseUrl)
   activeRun = null
-  runQueue.splice(0)
   runnerDeps = null
 }
 
@@ -341,8 +314,6 @@ function finish(run: ActiveRun, result: ArtifactRunResult): void {
     // leftover `executed` frames of the previous prompt would otherwise
     // land on the next run (one shared connection, one client).
     if (run.comfyBaseUrl) releaseComfySocket(run.comfyBaseUrl)
-    const next = runQueue.shift()
-    if (next) void startRun(next.payload).then(next.resolve)
   }
   run.settle(result)
 }

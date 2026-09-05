@@ -10,6 +10,7 @@ import type {
   KernelEventPayload,
   KernelEventScope,
   KernelMediaAgentEvent,
+  KernelQueueEvent,
   KernelSnapshot,
 } from '@/types/kernelEvents'
 import type { MediaItem } from '@/types/mediaItem'
@@ -239,6 +240,21 @@ export function endMediaAgentRun(runKey: string): void {
     flushMediaPending(runKey, state)
     mediaRuns.delete(runKey)
   }
+}
+
+// ── Orchestrator queue events (§4.4, step 7) ─────────────────────────────────
+//
+// Queue positions are transient state, not coalesced and not snapshotted: a
+// reloaded renderer does not adopt queue positions, and the entries either
+// run or were cancelled with their callers.
+
+export function emitQueueEvent(event: Omit<KernelQueueEvent, 'type'>): void {
+  emit(
+    { type: 'queue-event', ...event },
+    event.conversationKey
+      ? { kind: 'chat', conversationKey: event.conversationKey }
+      : { kind: 'global' },
+  )
 }
 
 // ── Chat turn accumulator + delta coalescing (§4.6 "Streaming across IPC") ───

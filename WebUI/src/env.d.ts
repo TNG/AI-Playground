@@ -499,6 +499,19 @@ type electronAPI = {
     save(items: unknown[]): Promise<{ success: true } | { success: false; error: string }>
     delete(ids: string[]): Promise<{ success: true } | { success: false; error: string }>
   }
+  preferences: {
+    read(): Promise<
+      { success: true; sections: Record<string, unknown> } | { success: false; error: string }
+    >
+    migrate(
+      section: string,
+      payload: unknown,
+    ): Promise<{ success: true } | { success: false; error: string }>
+    write(
+      section: string,
+      value: unknown,
+    ): Promise<{ success: true } | { success: false; error: string }>
+  }
   startTranscriptionServer(modelName: string): Promise<{ success: boolean; error?: string }>
   stopTranscriptionServer(): Promise<{ success: boolean; error?: string }>
   getTranscriptionServerUrl(): Promise<{ success: boolean; url?: string; error?: string }>

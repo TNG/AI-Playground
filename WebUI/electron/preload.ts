@@ -260,6 +260,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
         { success: true } | { success: false; error: string }
       >,
   },
+  preferences: {
+    read: () =>
+      ipcRenderer.invoke('preferences:read') as Promise<
+        { success: true; sections: Record<string, unknown> } | { success: false; error: string }
+      >,
+    migrate: (section: string, payload: unknown) =>
+      ipcRenderer.invoke('preferences:migrate', section, payload) as Promise<
+        { success: true } | { success: false; error: string }
+      >,
+    write: (section: string, value: unknown) =>
+      ipcRenderer.invoke('preferences:write', section, value) as Promise<
+        { success: true } | { success: false; error: string }
+      >,
+  },
   startTranscriptionServer: (modelName: string) =>
     ipcRenderer.invoke('startTranscriptionServer', modelName),
   stopTranscriptionServer: () => ipcRenderer.invoke('stopTranscriptionServer'),

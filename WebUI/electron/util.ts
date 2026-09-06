@@ -107,3 +107,21 @@ export const getMediaRecordsDir = () => path.join(getMediaDir(), 'records')
 
 /** Demo-mode gallery records, wiped on exit like demo conversations (§6.1). */
 export const getMediaRecordsDemoDir = () => path.join(getMediaDir(), 'records-demo')
+
+/**
+ * The user's preferences (architecture-target §6.1, step 8): what a human
+ * would want in a backup — theme, dev toggles, model favorites, voices. One
+ * small file with one section per store.
+ */
+export const getPreferencesFile = () => {
+  if (process.env.USERPROFILE) {
+    return path.join(process.env.USERPROFILE, 'Documents', 'AI-Playground', 'preferences.json')
+  }
+  if (process.env.HOME) {
+    return path.join(process.env.HOME, 'AI-Playground', 'preferences.json')
+  }
+  return path.join(externalResourcesDir(), 'service', 'static', 'preferences.json')
+}
+
+/** Demo-mode preferences, wiped on exit like demo conversations (§6.1). */
+export const getPreferencesDemoFile = () => getPreferencesFile().replace(/\.json$/, '-demo.json')

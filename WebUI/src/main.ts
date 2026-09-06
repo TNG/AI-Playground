@@ -9,6 +9,11 @@ import { usePromptStore } from './assets/js/store/promptArea'
 import { useConversations } from './assets/js/store/conversations'
 import { useAgentMode } from './assets/js/store/agentMode'
 import { useImageGenerationPresets } from './assets/js/store/imageGenerationPresets'
+import { useTheme } from './assets/js/store/theme'
+import { useDeveloperSettings } from './assets/js/store/developerSettings'
+import { useModelPreferences } from './assets/js/store/modelPreferences'
+import { useTextToSpeech } from './assets/js/store/textToSpeech'
+import { useQwen3TextToSpeech } from './assets/js/store/qwen3TextToSpeech'
 import { initLaminarTelemetry } from './lib/laminarTelemetry'
 import { initDebugSettings } from './assets/js/store/debugSettings'
 import { startMediaRequestBridge } from './assets/js/artifact/mediaRequestBridge'
@@ -80,6 +85,19 @@ await useAgentMode().init()
 // from the record files under media/records/, and the one-shot localStorage
 // upload runs on a legacy boot.
 await useImageGenerationPresets().init()
+
+// User preferences moved out of localStorage (step 8, §6.1): theme, dev
+// toggles, model favorites and the TTS voice stores hydrate from the
+// kernel's preferences.json — in parallel, since each section is
+// independent — before anything mounts, so the theme applies on first paint
+// and no consumer sees a pre-hydration default.
+await Promise.all([
+  useTheme().init(),
+  useDeveloperSettings().init(),
+  useModelPreferences().init(),
+  useTextToSpeech().init(),
+  useQwen3TextToSpeech().init(),
+])
 
 // Relabel a parked chat tool's activity with its queue position (the
 // orchestrator's queue events, step 7).

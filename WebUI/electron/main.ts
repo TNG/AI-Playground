@@ -197,6 +197,14 @@ import {
   setMediaItemFileDeps,
   wipeDemoMediaRecords,
 } from './media/mediaItemFiles'
+import {
+  migratePreferenceSection,
+  readAllPreferences,
+  readPreferenceSection,
+  setPreferencesFileDeps,
+  wipeDemoPreferences,
+  writePreferenceSection,
+} from './preferences/preferencesFile'
 
 import { llmServerBaseUrl } from './llmServerSnapshot'
 import type { ChatToolResult } from '@/types/chatIpc'
@@ -818,27 +826,20 @@ async function createWindow() {
       )
     }, 100)
 
-    // Check localStorage for developer settings after page loads. `null` means the
-    // renderer never stored a choice, which is what keeps DevTools opening by
-    // default on an unpackaged run.
+    // Check the kernel-owned preferences file after page loads. `undefined`
+    // means no choice was ever stored, which is what keeps DevTools opening
+    // by default on an unpackaged run (step 8 moved this out of localStorage).
     setTimeout(async () => {
       try {
-        const stored: boolean | null = await win!.webContents.executeJavaScript(
-          `(() => {
-            try {
-              const developerSettings = localStorage.getItem('developerSettings');
-              if (developerSettings) {
-                const parsed = JSON.parse(developerSettings);
-                if (typeof parsed.openDevConsoleOnStartup === 'boolean') {
-                  return parsed.openDevConsoleOnStartup;
-                }
-              }
-            } catch (e) {
-              return null;
+        const section = (await readPreferenceSection('developerSettings')) as
+          | {
+              openDevConsoleOnStartup?: unknown
             }
-            return null;
-          })()`,
-        )
+          | undefined
+        const stored: boolean | undefined =
+          section && typeof section.openDevConsoleOnStartup === 'boolean'
+            ? section.openDevConsoleOnStartup
+            : undefined
         if (stored ?? !app.isPackaged) {
           win!.webContents.openDevTools({ mode: 'detach', activate: true })
         }
@@ -1123,6 +1124,7 @@ appShutdown.register({ name: 'web browser', run: () => destroyWebBrowser() })
 appShutdown.register({ name: 'demo conversations', run: () => wipeDemoConversations() })
 appShutdown.register({ name: 'demo agent sessions', run: () => wipeDemoAgentSessions() })
 appShutdown.register({ name: 'demo media records', run: () => wipeDemoMediaRecords() })
+appShutdown.register({ name: 'demo preferences', run: () => wipeDemoPreferences() })
 appShutdown.register({ name: 'cloud proxy', run: () => cloudProxy?.close() })
 // After the agent, so the spans its extensions emit while shutting down are
 // still exported. No-op unless a developer opted into Laminar tracing.
@@ -1226,6 +1228,7 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   wireConversations(settings)
   wireAgentSessions(settings)
   wireMediaRecords(settings)
+  wirePreferences(settings)
   wireChatEngine()
   return serviceRegistry
 }
@@ -1250,6 +1253,12 @@ function wireAgentSessions(settings: LocalSettings): void {
 function wireMediaRecords(settings: LocalSettings): void {
   setMediaItemFileDeps({ isDemoMode: () => settings.isDemoModeEnabled })
   if (settings.isDemoModeEnabled) void wipeDemoMediaRecords()
+}
+
+/** Same demo discipline for user preferences (step 8, §6.1). */
+function wirePreferences(settings: LocalSettings): void {
+  setPreferencesFileDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoPreferences()
 }
 
 /**
@@ -2768,6 +2777,43 @@ function initEventHandle() {
       return { success: false as const, error: e instanceof Error ? e.message : String(e) }
     }
   })
+
+  // User preferences (step 8, §6.1): one file, one section per store. The
+  // one-shot migrate writes only when the section is absent, so a retry can
+  // never overwrite what the files already own.
+  ipcMain.handle('preferences:read', async () => {
+    try {
+      return { success: true as const, sections: await readAllPreferences() }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle(
+    'preferences:migrate',
+    async (_event: IpcMainInvokeEvent, section: unknown, payload: unknown) => {
+      try {
+        if (typeof section !== 'string') throw new Error('preference section must be a string')
+        await migratePreferenceSection(section, payload)
+        return { success: true as const }
+      } catch (e) {
+        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'preferences:write',
+    async (_event: IpcMainInvokeEvent, section: unknown, value: unknown) => {
+      try {
+        if (typeof section !== 'string') throw new Error('preference section must be a string')
+        await writePreferenceSection(section, value)
+        return { success: true as const }
+      } catch (e) {
+        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+  )
 
   ipcMain.handle(
     'getEmbeddingServerUrl',

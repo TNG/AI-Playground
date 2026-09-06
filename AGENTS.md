@@ -806,6 +806,8 @@ before the kernel move or as a small fix.
 
 **Media gallery records** (step 8): `mediaItems:bootstrap`, `mediaItems:migrate` (idempotent legacy merge-upload), `mediaItems:save`, `mediaItems:delete` (R→M — one JSON per gallery item plus an ordered index under `media/records/`, beside the media files)
 
+**User preferences** (step 8): `preferences:read`, `preferences:migrate` (one-shot section upload only when absent), `preferences:write` (R→M — `AI-Playground/preferences.json`, one section per store; the shared renderer helper `src/lib/fileBackedPreferences.ts` hydrates, migrates the legacy Pinia key, and writes through)
+
 **Transcription**: `startTranscriptionServer`, `stopTranscriptionServer`, `getTranscriptionServerUrl`
 
 **Dialogs/files**: `showOpenDialog`, `showSaveDialog`, `showMessageBox`, `existsPath`, `saveImage`
@@ -837,12 +839,12 @@ before the kernel move or as a small fix.
 - `activities` — **Central activity/progress sink.** `begin/update/end/track` long-running steps; `chatActivity(key, exclude?)` / `imageGenActivity` expose the most-specific active work; `endScope()` reconciles stragglers. Single source of truth for "what is the app busy with" (backend prep, RAG, tools, thinking, generation). No deps. See "Error & generation state architecture" below.
 - `dialogs` — Dialog visibility state (download, warning, requirements, installation progress, mask editor). No deps.
 - `ui` — History panel visibility. No deps.
-- `theme` — Theme selection, persisted in the renderer (the four themes are a constant in the store). No deps.
+- `theme` — Theme selection, kernel-owned preference (`preferences.json` via the file-backed helper; the four themes are a constant in the store). No deps.
 - `i18n` — Locale/translations. IPC: `getLocaleSettings`. No deps.
 - `demoMode` — Demo mode overlay + auto-reset timer. IPC: `getDemoModeSettings`. No deps.
 - `speechToText` — STT engine config + readiness. Deps: `backendServices`, `models`, `dialogs`, `globalSetup`
 - `audioRecorder` — Browser MediaRecorder; transcription via the speech adapter (`speechIO.transcribe`). No store deps
-- `developerSettings` — Renderer-persisted developer toggles: dev console on startup, keep models loaded, dummy media workflows, verbose agent logging. No deps.
+- `developerSettings` — Developer toggles as kernel-owned preferences (`preferences.json` via the file-backed helper; main reads the same file for the DevTools-on-startup decision): dev console on startup, keep models loaded, dummy media workflows, verbose agent logging. No deps.
 - `permissionGrants` — **Reviewable consent grants** behind the permissions layer: `vram-warning:<preset>` remember grants and the `download:remote-turns` pre-grant. Surfaced and revoked in Settings → Permissions; the legacy `memoryAlertSuppress_*` localStorage flags migrate in on first use. No deps.
 - `debugSettings` — The settings.json-backed half of Settings → Developer (see below). No deps.
 
@@ -856,8 +858,9 @@ decides — demo mode + passcode, `languageOverride`, `productMode`, `disabledBa
 preferences, `huggingfaceEndpoint` — plus **`showDebugSettingsInUI`**, which is the only gate on
 the debug controls below. A build that does not set it looks exactly as it always did.
 
-**Renderer persistence (Pinia)** is per-user and needs no file: theme selection, Cloud Mode
-enablement, everything in `developerSettings`.
+**Renderer persistence (Pinia)** is per-user and needs no file: Cloud Mode enablement and the
+stores not yet on `preferences.json` (step 8 moved theme, `developerSettings`, model favorites
+and the TTS voice stores to the kernel-owned file via `src/lib/fileBackedPreferences.ts`).
 
 **Settings → Developer** is the UI. Always visible: keep models loaded, dev console on startup,
 and the **Agent preset** checkbox (writes `isAgentPresetEnabled`, then re-reads presets — no

@@ -875,8 +875,6 @@ export const useTextInference = defineStore(
     // Step 8 (§6.1): the per-preset settings are kernel-owned preferences
     // (preferences.json). The Pinia key still persists the rest of the pick,
     // so the one-shot upload only slims this field out of it.
-    // Captured before persist hydrate/`afterHydrate` can rewrite the key.
-    const textInferenceLegacyRaw = demoAwareStorage.getItem('textInference')
     const settingsPrefs = makeFileBackedPreference({
       section: 'textInference',
       refs: { settingsPerPreset },
@@ -892,7 +890,7 @@ export const useTextInference = defineStore(
       migrateRenamedPresetSettings()
       // The old global tool map is not a section field; seed it into the
       // hydrated per-preset settings from the leftover captured at setup.
-      migrateGlobalToolEnablement(textInferenceLegacyRaw)
+      migrateGlobalToolEnablement(settingsPrefs.legacyRaw)
       // The catalog-ready watch can fire before this hydrate (preset files
       // load during conversations/media init) and would otherwise apply
       // defaults from an empty map, then never reload.

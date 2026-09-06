@@ -27,6 +27,8 @@ export type FileBackedPreference = {
   init: () => Promise<void>
   hydrated: Ref<boolean>
   dispose: () => void
+  /** Leftover Pinia payload captured at construction, before persist can rewrite it. */
+  legacyRaw: string | null
 }
 
 const FLUSH_DEBOUNCE_MS = 300
@@ -55,7 +57,15 @@ export function makeFileBackedPreference(options: {
   let legacyKeyDropped = false
   // Pinia persist of the remaining pick can rewrite this key between store
   // setup (now) and init(); capture the leftover while it is still whole.
-  const legacyRaw = legacyKey ? demoAwareStorage.getItem(legacyKey) : null
+  // Store tests may construct without localStorage — no leftover then.
+  let legacyRaw: string | null = null
+  if (legacyKey) {
+    try {
+      legacyRaw = demoAwareStorage.getItem(legacyKey)
+    } catch {
+      legacyRaw = null
+    }
+  }
 
   function snapshot(): Record<string, unknown> {
     const out: Record<string, unknown> = {}
@@ -257,6 +267,7 @@ export function makeFileBackedPreference(options: {
   return {
     init,
     hydrated,
+    legacyRaw,
     dispose: () => {
       stopWatch()
       if (flushTimer) clearTimeout(flushTimer)

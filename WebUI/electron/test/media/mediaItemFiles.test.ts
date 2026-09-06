@@ -157,11 +157,15 @@ describe('migrateLegacyMediaItems', () => {
     expect((doc.settings as { seed: number }).seed).toBe(1)
   })
 
-  it('rejects an unsafe legacy id without writing anything', async () => {
-    await expect(migrateLegacyMediaItems([imageItem('../escape')])).rejects.toThrow(
-      /invalid media item id/,
-    )
-    expect(await listDir(dirs.real)).toEqual([])
+  it('skips unsafe legacy ids and still writes the safe items in the same batch', async () => {
+    const boot = await migrateLegacyMediaItems([
+      imageItem('item-1'),
+      imageItem('../escape'),
+      imageItem('index'),
+    ])
+    if (boot.status !== 'ok') throw new Error('expected ok')
+    expect(boot.items.map((item) => item.id)).toEqual(['item-1'])
+    expect((await listDir(dirs.real)).sort()).toEqual(['index.json', 'item-1.json'])
   })
 })
 
@@ -174,6 +178,11 @@ describe('saveMediaItems', () => {
     expect(index).toMatchObject({ schemaVersion: 1, items: ['item-1', 'item-2'] })
     const doc = await readJson(path.join(dirs.real, 'item-1.json'))
     expect(doc).toMatchObject({ id: 'item-1', state: 'done', type: 'image' })
+  })
+
+  it('does not write an empty index when every item is in-flight', async () => {
+    await saveMediaItems([imageItem('item-queued', { state: 'queued' })])
+    expect(await listDir(dirs.real)).toEqual([])
   })
 
   it('drops items that are not done — in-flight items never reach a file', async () => {
@@ -213,14 +222,14 @@ describe('saveMediaItems', () => {
     expect((index.items as string[]).sort()).toEqual(['item-1', 'item-2'])
   })
 
-  it('rejects an id that would overwrite index.json', async () => {
-    await expect(saveMediaItems([imageItem('index')])).rejects.toThrow(/invalid media item id/)
+  it('skips an id that would overwrite index.json, without writing an empty index', async () => {
+    await expect(saveMediaItems([imageItem('index')])).resolves.toBeUndefined()
     expect(await listDir(dirs.real)).toEqual([])
   })
 
-  it('rejects a path-shaped id', async () => {
-    await expect(saveMediaItems([imageItem('../x')])).rejects.toThrow(/invalid media item id/)
-    expect(await listDir(dirs.real)).toEqual([])
+  it('skips path-shaped ids and still writes the rest of the batch', async () => {
+    await saveMediaItems([imageItem('../x'), imageItem('item-1')])
+    expect((await listDir(dirs.real)).sort()).toEqual(['index.json', 'item-1.json'])
   })
 })
 

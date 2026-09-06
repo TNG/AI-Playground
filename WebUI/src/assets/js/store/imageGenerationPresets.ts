@@ -539,6 +539,17 @@ export const useImageGenerationPresets = defineStore(
       }
     }
 
+    function persistMediaRecordsNow(): void {
+      if (mediaFlushTimer) {
+        clearTimeout(mediaFlushTimer)
+        mediaFlushTimer = null
+      }
+      void flushMediaRecords()
+    }
+    if (typeof window.addEventListener === 'function') {
+      window.addEventListener('beforeunload', persistMediaRecordsNow)
+    }
+
     /** Read the pre-step-8 Pinia payload's gallery, if any, for the one-shot upload. */
     function readLegacyGeneratedImages(): unknown[] | null {
       const raw = demoAwareStorage.getItem(MEDIA_LEGACY_KEY)
@@ -633,10 +644,11 @@ export const useImageGenerationPresets = defineStore(
         if (bootstrap && bootstrap.status === 'ok') {
           generatedImages.value = bootstrap.items
         }
-        // On a failed bootstrap the gallery keeps whatever the pinia plugin
-        // hydrated from the legacy key (usually nothing) — write-through then
-        // persists it as files, which is the recovery path for a store that
-        // did not answer. The diff base always mirrors the ref as booted.
+        // On a failed bootstrap the live gallery stays empty (`generatedImages`
+        // is not in the persist pick, so Pinia cannot hydrate the leftover
+        // key). The leftover key is kept so the next boot can merge-migrate;
+        // write-through of an empty projection would not recover it. The diff
+        // base always mirrors the ref as booted.
         flushedMediaItems.clear()
         for (const item of generatedImages.value) {
           if (item.state === 'done') flushedMediaItems.set(item.id, mediaItemJson(item))
@@ -651,6 +663,9 @@ export const useImageGenerationPresets = defineStore(
       import.meta.hot.dispose(() => {
         stopMediaRecordsWatch()
         if (mediaFlushTimer) clearTimeout(mediaFlushTimer)
+        if (typeof window.removeEventListener === 'function') {
+          window.removeEventListener('beforeunload', persistMediaRecordsNow)
+        }
       })
     }
 

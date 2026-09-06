@@ -82,9 +82,11 @@ const mediaItemsApi = {
 }
 
 let storage: Map<string, string>
+let windowListeners: Record<string, Array<() => void>>
 
 function fakeWindow(): void {
   storage = new Map()
+  windowListeners = {}
   const localStorageShim = {
     getItem: (key: string) => storage.get(key) ?? null,
     setItem: (key: string, value: string) => void storage.set(key, value),
@@ -95,6 +97,12 @@ function fakeWindow(): void {
   globalThis.window = {
     electronAPI: { mediaItems: mediaItemsApi },
     __AIPG_DEMO_MODE__: false,
+    addEventListener: (event: string, handler: () => void) => {
+      ;(windowListeners[event] ??= []).push(handler)
+    },
+    removeEventListener: (event: string, handler: () => void) => {
+      windowListeners[event] = (windowListeners[event] ?? []).filter((h) => h !== handler)
+    },
   } as unknown as Window & typeof globalThis
 }
 
@@ -311,5 +319,23 @@ describe('useImageGenerationPresets media-record write-through', () => {
     await advanceFlush()
     expect(mediaItemsApi.save).toHaveBeenCalledTimes(2)
     expect(mediaItemsApi.save.mock.calls[1][0]).toHaveLength(1)
+  })
+
+  it('flushes immediately on beforeunload so a quit does not drop the debounce window', async () => {
+    const store = await hydratedStore()
+    const saved = new Promise<void>((resolve) => {
+      mediaItemsApi.save.mockImplementation(async () => {
+        resolve()
+        return { success: true }
+      })
+    })
+
+    store.updateImage(doneImage('item-1'))
+    expect(mediaItemsApi.save).not.toHaveBeenCalled()
+    for (const handler of windowListeners.beforeunload ?? []) handler()
+    await saved
+
+    expect(mediaItemsApi.save).toHaveBeenCalledTimes(1)
+    expect(mediaItemsApi.save.mock.calls[0][0]).toHaveLength(1)
   })
 })

@@ -6,8 +6,8 @@ import { appLoggerInstance } from './logging/logger'
  * Shared primitives for the kernel's user-data file stores (§6.1, step 8):
  * torn-write-safe JSON writes, read-with-status, per-key write chains, and the
  * id guard that keeps an IPC-supplied id from ever becoming a path. The
- * per-domain stores (conversations, agent sessions) own their schemas and
- * index shapes; these are the mechanics both need.
+ * per-domain stores (conversations, agent sessions, media records) own their
+ * schemas and index shapes; these are the mechanics they share.
  */
 
 export const fsJsonLogger = appLoggerInstance

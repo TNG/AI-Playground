@@ -188,7 +188,10 @@ export async function migrateLegacyMediaItems(items: unknown[]): Promise<MediaIt
         appLogger.warn('skipping legacy media item that failed schema or was not done', LOG_SCOPE)
         continue
       }
-      assertSafeFileId(item.id, 'media item')
+      if (!isSafeFileId(item.id)) {
+        appLogger.warn(`skipping unsafe media item id: ${item.id}`, LOG_SCOPE)
+        continue
+      }
       if (known.has(item.id)) continue
       await atomicWriteJson(itemFile(item.id), scrubDynamicSettingDataUris(item))
       known.add(item.id)
@@ -208,9 +211,13 @@ export async function saveMediaItems(items: unknown[]): Promise<void> {
   for (const raw of items) {
     const item = persistableItem(raw)
     if (!item) continue
-    assertSafeFileId(item.id, 'media item')
+    if (!isSafeFileId(item.id)) {
+      appLogger.warn(`skipping unsafe media item id: ${item.id}`, LOG_SCOPE)
+      continue
+    }
     docs.push(scrubDynamicSettingDataUris(item))
   }
+  if (docs.length === 0) return
   await Promise.all(
     docs.map((doc) =>
       serialize(doc.id, async () => {

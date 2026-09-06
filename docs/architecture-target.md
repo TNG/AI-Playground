@@ -1,15 +1,15 @@
 # Target architecture — capabilities, drivers, state ownership
 
-**Status: steps 1–8 of the migration order (§8) have two slices landed (conversations and
-agent-session files as kernel-owned stores, `userSelectedMode` deleted); remaining §6 buckets
-are incremental.**
+**Status: steps 1–8 of the migration order (§8) have three slices landed (conversations,
+agent-session files, and generated-media records as kernel-owned stores, `userSelectedMode`
+deleted); remaining §6 buckets are incremental.**
 Media generation is owned by the main-process Artifact runner; speech drivers go through `speechIO`;
 inference/download consent through Permissions; main→renderer notifications through one kernel
 event stream (`kernel:event`) with a listener-first snapshot handshake; chat turns run in main
 and stream back as kernel `chat-chunk` events; media runs share one main-side queue and GPU
 window. Parked follow-ups from those landings live in
 [§8.2](#82-parked-follow-ups-from-landed-steps) — they do not block the next slice of step 8.
-Everything after the landed first slices of step 8 is a map of where we want it, and the order
+Everything after the landed slices of step 8 is a map of where we want it, and the order
 in which we could get there.
 It exists to be argued with — see [§10 Decisions](#10-decisions).
 
@@ -732,6 +732,7 @@ between machines by zipping a folder.
 ```
 AI-Playground/
   media/                  # already
+    records/              # gallery JSON + index (step 8)
   games/                  # already
   audio/                  # already
   conversations/
@@ -906,7 +907,8 @@ Steps 1–4 are worth doing even if we never move chat: they make the capabiliti
 projection boundary complete. Snapshot hydration and Artifact readiness landed with steps 4–5;
 IPC delta coalescing landed with step 6, the single queue and GPU policy with step 7.
 Conversation files and the `userSelectedMode` deletion landed with step 8's first slice;
-agent-session records landed with the second.
+agent-session records landed with the second; generated-media records (`media/records/`)
+landed with the third.
 
 ### 8.1 Transition cost and per-step obligations
 
@@ -1107,7 +1109,9 @@ small fix on this branch) can pick them up instead of rediscovering them.
   artifact-event projection — the faithful port of the persist plugin's per-mutation
   subscription, coalesced into per-item file writes. Deletes ride the same diff (a removed id is
   re-sent until the file store confirms), and a failed save leaves the item un-flushed so the
-  next flush retries it.
+  next flush retries it. `beforeunload` cancels the 300ms timer and flushes immediately so a
+  quit does not drop the last terminal items the conversations/agent-session stores never
+  risked (they write on the mutation, not on a timer).
 - **The legacy media upload merges, it does not refuse a pre-existing index.** A boot whose
   bootstrap failed can write session items to files while the gallery copy stays stranded in
   localStorage; the idempotent merge (ids the files hold are skipped) is the rescue path, and it
@@ -1123,9 +1127,19 @@ small fix on this branch) can pick them up instead of rediscovering them.
   it.** The store comment intended it for restoring the last Local thread when toggling the history
   filter; that restore was never wired. Do not treat a missing restore as a regression of this
   slice — wire it when the filter actually needs it.
-- **`writeChains` is never pruned.** Each conversation or agent-session id (plus `index`) keeps
-  the tail of its serialize promise in a Map for the process lifetime. Harmless at current
-  counts; drop settled entries if a long-lived session accumulates thousands of ids.
+- **`writeChains` is never pruned.** Each conversation, agent-session, or media-record id (plus
+  `index`) keeps the tail of its serialize promise in a Map for the process lifetime. Harmless
+  at current counts; drop settled entries if a long-lived session accumulates thousands of ids.
+- **Conversations and agent-session migrate still refuse a pre-existing index.** The media
+  gallery merge is the rescue those slices do not have: a boot whose bootstrap failed can write
+  session items to files while the legacy copy stays stranded in localStorage, and a later
+  migrate then no-ops. Do not treat that as a regression of this slice — lift the merge when
+  those writers are next touched.
+- **Generated-media hydration is eager.** `mediaItems:bootstrap` reads every record file at
+  once, same class as conversations. The history strip consumes the array directly, so lazy
+  reads need an index-plus-visible-page projection first.
+- **Save appends new ids in gallery order**; only migrate/rebuild sorts by `createdAt`. In-session
+  new items are already newest-last, so a sort here would only reshuffle an edited `createdAt`.
 
 **Step 2 (Speech I/O) — already noted at the adapter, still ahead:**
 

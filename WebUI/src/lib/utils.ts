@@ -241,17 +241,38 @@ export function isBase64ImageDataUri(url: string | undefined | null): boolean {
   return /^data:image\/(png|jpeg|webp);base64,/.test(url)
 }
 
+// Headless mode can't resolve the `aipg-media://` custom scheme (it's only
+// registered inside the Electron process, and browsers reject unknown
+// resource schemes outright) — `mediaUrl()` emits this HTTP-fetchable prefix
+// instead when running through the headless bridge; the server route lives
+// in electron/headlessServer.ts.
+const AIPG_MEDIA_HEADLESS_PREFIX = '/api/media/'
+
+/**
+ * Checks if a string is an app-local media reference — either the desktop
+ * `aipg-media://` scheme or its headless-mode HTTP equivalent (`mediaUrl()`
+ * picks one or the other depending on `window.electronAPI.isHeadlessBridge`).
+ */
+export function isAipgMediaUrl(url: string | undefined | null): boolean {
+  if (!url || typeof url !== 'string') return false
+  return url.startsWith('aipg-media://') || url.startsWith(AIPG_MEDIA_HEADLESS_PREFIX)
+}
+
 /**
  * Checks if a string is a displayable image URL (base64 data URI or aipg-media).
  * Use this for "has image" UI checks (e.g. img src, drop zones).
  */
 export function isImageUrl(url: string | undefined | null): boolean {
   if (!url || typeof url !== 'string') return false
-  return isBase64ImageDataUri(url) || url.startsWith('aipg-media://')
+  return isBase64ImageDataUri(url) || isAipgMediaUrl(url)
 }
 
 /**
- * Builds an `aipg-media://` URL for a path relative to the media directory.
+ * Builds a URL for a path relative to the media directory: the desktop
+ * `aipg-media://` custom scheme normally, or an HTTP path served by the
+ * headless server's '/api/media/' route when running through the headless
+ * bridge (browsers can't resolve `aipg-media://` at all — it's only
+ * registered inside the Electron process).
  *
  * The media-relative path MUST live in the URL *path*, under a constant
  * `media` authority — never in the authority itself. `aipg-media` is
@@ -266,6 +287,9 @@ export function isImageUrl(url: string | undefined | null): boolean {
 export function mediaUrl(relativePath: string): string {
   const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
   const encoded = normalized.split('/').map(encodeURIComponent).join('/')
+  if (typeof window !== 'undefined' && window.electronAPI?.isHeadlessBridge) {
+    return `${AIPG_MEDIA_HEADLESS_PREFIX}${encoded}`
+  }
   return `aipg-media://media/${encoded}`
 }
 

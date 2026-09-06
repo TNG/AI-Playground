@@ -16,8 +16,12 @@ import { useActivities } from './activities'
 import { createAppError } from '../errors/appError'
 import { useBackendServices } from '@/assets/js/store/backendServices.ts'
 import { usePromptStore } from './promptArea'
-import { imageUrlToDataUri, isImageUrl, mediaUrl } from '@/lib/utils'
-import { getComfyAuthToken, invalidateComfyAuthToken } from '@/lib/loopbackAuth'
+import { imageUrlToDataUri, isAipgMediaUrl, isImageUrl, mediaUrl } from '@/lib/utils'
+import {
+  getComfyAuthToken,
+  invalidateComfyAuthToken,
+  toHeadlessSafeBaseUrl,
+} from '@/lib/loopbackAuth'
 import { startTraceSpan, withTraceSpan, type TraceSpan } from '@/lib/laminarSpans'
 import { comfyTraceParameters } from '@/lib/comfyTraceParameters'
 import {
@@ -264,7 +268,10 @@ export const useComfyUiPresets = defineStore(
         )
       }, GENERATION_WATCHDOG_MS)
     }
-    const comfyBaseUrl = computed(() => comfyUiState.value?.baseUrl)
+    const comfyBaseUrl = computed(() => {
+      const raw = comfyUiState.value?.baseUrl
+      return raw ? toHeadlessSafeBaseUrl(raw, 'comfyui-backend') : raw
+    })
 
     const websocket = ref<WebSocket | null>(null)
     const clientId = '12345'
@@ -572,6 +579,14 @@ export const useComfyUiPresets = defineStore(
       }
     }
 
+    /** Resolves once the socket is open, or after `timeoutMs` if it never gets there. */
+    async function waitForWebsocketOpen(timeoutMs = 15_000): Promise<void> {
+      const deadline = Date.now() + timeoutMs
+      while (websocket.value?.readyState !== WEBSOCKET_OPEN && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 250))
+      }
+    }
+
     async function connectToComfyUi() {
       if (comfyUiState.value?.status !== 'running') {
         console.warn('ComfyUI backend not running, cannot start websocket')
@@ -582,16 +597,27 @@ export const useComfyUiPresets = defineStore(
       // bundled aipg-auth middleware accepts the loopback token via query
       // string for the /ws endpoint.
       //
-      // Force-refresh the token: a rejected WS upgrade just shows up as a
-      // close event with no auth-specific status code, so we can't detect
-      // and retry like we do for HTTP 401. Pulling fresh from the Electron
-      // main process on every connect attempt is cheap (single IPC) and
-      // ensures we never connect with a token from a previous ComfyUI spawn
-      // (each spawn regenerates AIPG_LOOPBACK_TOKEN).
-      const wsToken = await getComfyAuthToken(true)
-      const comfyWsUrl =
-        `ws://localhost:${comfyPort.value}/ws?clientId=${clientId}` +
-        (wsToken ? `&token=${encodeURIComponent(wsToken)}` : '')
+      // Built per attempt (partysocket accepts an async URL provider and calls
+      // it again on every auto-reconnect): a rejected WS upgrade just shows up
+      // as a close event with no auth-specific status code, so we can't detect
+      // and retry like we do for HTTP 401. With a fixed URL string, a ComfyUI
+      // restart (each spawn regenerates AIPG_LOOPBACK_TOKEN) left partysocket
+      // reconnecting forever with a dead token, and generation silently never
+      // started.
+      const buildComfyWsUrl = async () => {
+        const wsToken = await getComfyAuthToken(true)
+        // Same reasoning as comfyBaseUrl above: a direct ws://localhost:<port>
+        // connection only works when the browser is on the same host as the
+        // container. In headless mode, route through the headless server's raw
+        // TCP WS proxy (/api/proxy/comfyui-backend/ws) instead.
+        const wsBase = window.electronAPI.isHeadlessBridge
+          ? `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/api/proxy/comfyui-backend`
+          : `ws://localhost:${comfyPort.value}`
+        return (
+          `${wsBase}/ws?clientId=${clientId}` +
+          (wsToken ? `&token=${encodeURIComponent(wsToken)}` : '')
+        )
+      }
 
       if (websocket.value) {
         const state = websocket.value.readyState
@@ -608,8 +634,8 @@ export const useComfyUiPresets = defineStore(
         websocket.value = null
       }
 
-      console.info('Connecting to ComfyUI', { comfyWsUrl })
-      websocket.value = new WebSocket(comfyWsUrl)
+      console.info('Connecting to ComfyUI')
+      websocket.value = new WebSocket(buildComfyWsUrl)
       websocket.value.binaryType = 'arraybuffer'
 
       websocket.value.addEventListener('open', () => {
@@ -1078,9 +1104,7 @@ export const useComfyUiPresets = defineStore(
             imageDataUri =
               'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
           } else if (typeof rawValue === 'string' && rawValue !== '') {
-            imageDataUri = rawValue.startsWith('aipg-media://')
-              ? await imageUrlToDataUri(rawValue)
-              : rawValue
+            imageDataUri = isAipgMediaUrl(rawValue) ? await imageUrlToDataUri(rawValue) : rawValue
           } else {
             continue
           }
@@ -1301,9 +1325,16 @@ export const useComfyUiPresets = defineStore(
       }
 
       if (websocket.value?.readyState !== WEBSOCKET_OPEN) {
-        console.warn('Websocket not open')
-        resetGenerationState()
-        return
+        // Try once to (re)establish it — the socket may be mid-reconnect after a
+        // ComfyUI restart. Failing that this must surface as an error: silently
+        // returning left the queued media items in limbo forever, which hung the
+        // agentic image tool (and with it the Home Agent turn) with no feedback.
+        await connectToComfyUi()
+        await waitForWebsocketOpen()
+        if (websocket.value?.readyState !== WEBSOCKET_OPEN) {
+          imageGeneration.failGeneration('Lost the connection to the ComfyUI backend. Try again.')
+          return
+        }
       }
 
       // Validate required image inputs before execution

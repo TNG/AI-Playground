@@ -1068,7 +1068,19 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
     for (const serviceName of ALL_BACKENDS) {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
-      if (!info?.isSetUp) continue
+      if (!info) continue
+      // isSetUp only flips true after a successful start() health check (see
+      // service.ts) — a backend whose install just finished (status
+      // 'notYetStarted') or that was previously running and got stopped
+      // ('stopped') is already installed but would otherwise never be picked up
+      // here, since isSetUp is still false. That's how an install interrupted
+      // between set_up() finishing and its automatic restart (e.g. a dropped
+      // setup-progress event in headless/browser mode) got stuck forever: the
+      // wizard no longer considered it "needs install", and dismiss() refused
+      // to start it because isSetUp wasn't set yet either.
+      const readyToStart =
+        info.isSetUp || info.status === 'notYetStarted' || info.status === 'stopped'
+      if (!readyToStart) continue
       if (info.isRequired || installSelection.value.has(serviceName)) {
         if (info.status !== 'running' && !isOnDemandBackend(serviceName)) {
           backendServices.startService(serviceName)

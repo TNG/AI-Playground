@@ -1,6 +1,6 @@
 import { extractReasoningMiddleware, wrapLanguageModel, type LanguageModel } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
-import { useTextInference } from '@/assets/js/store/textInference'
+import { useTextInference, backendToService } from '@/assets/js/store/textInference'
 import { useCloudMode, CLOUD_DEFAULT_MODEL } from '@/assets/js/store/cloudMode'
 import { usePresets } from '@/assets/js/store/presets'
 import { getHomeAgentAuthToken, invalidateHomeAgentAuthToken } from '@/lib/loopbackAuth'
@@ -78,7 +78,27 @@ export function createChatModel(): LanguageModel {
   function resolveInferenceApiBaseUrl(): string | undefined {
     const base = textInference.currentBackendUrl
     if (!base) return undefined
-    return openAiApiBase(base)
+    const withVersion = openAiApiBase(base)
+    // `base` is a backend's own 127.0.0.1:<port> baseUrl — only reachable if the
+    // browser is on the same host as the container. Over an SSH tunnel that
+    // forwards only the headless server's port, that address means the
+    // BROWSER's own machine, not the container, and the fetch fails. Route
+    // through the headless server's reverse proxy instead, which resolves the
+    // service's current baseUrl server-side. The proxy only supplies the
+    // origin (see headlessServer.ts's resolveProxyTarget) — the version segment
+    // computed above is preserved as part of the tail so /v1 vs /v3 still
+    // reaches the right route. When Home Agent is active `base` is the Home
+    // Agent LLM proxy's own 127.0.0.1 address, which has exactly the same
+    // problem, so it is proxied too. Cloud Mode goes through the main-process
+    // proxy and is left untouched.
+    const serviceName = textInference.homeAgentUpstreamUrl
+      ? 'home-agent-backend'
+      : backendToService[textInference.backend]
+    if (window.electronAPI.isHeadlessBridge && serviceName) {
+      const u = new URL(withVersion)
+      return `${window.location.origin}/api/proxy/${serviceName}${u.pathname}`
+    }
+    return withVersion
   }
 
   const base = createOpenAICompatible({
@@ -116,9 +136,29 @@ export function createChatModel(): LanguageModel {
       return body
     },
     fetch: async (url, init) => {
+      // The AI SDK stamps the model id when the turn starts, but the chat
+      // backend can change mid-turn — the image tool restores the previous
+      // preset, which may move llama.cpp → OVMS. The URL is re-rooted below;
+      // the body has to follow, or OVMS 404s with "Mediapipe graph definition
+      // with requested name is not found" for a graph that is not its own.
+      const withCurrentModel = (original?: RequestInit): RequestInit | undefined => {
+        if (textInference.backend === 'cloud' || typeof original?.body !== 'string') {
+          return original
+        }
+        const modelId = textInference.activeModel?.split('/').join('---')
+        if (!modelId) return original
+        try {
+          const parsed = JSON.parse(original.body)
+          if (!parsed || typeof parsed !== 'object' || parsed.model === modelId) return original
+          return { ...original, body: JSON.stringify({ ...parsed, model: modelId }) }
+        } catch {
+          return original
+        }
+      }
       // Resolve the request against the latest backend URL each call, so a
       // retry after a relaunch picks up the (possibly new) port.
       const doFetch = async (): Promise<Response> => {
+        const requestInit = withCurrentModel(init)
         const requestUrl = new URL(url as string)
         // Re-root the request onto the LATEST API base each call. The provider's
         // baseURL is captured when `model` is created; a mid-turn backend relaunch
@@ -144,12 +184,12 @@ export function createChatModel(): LanguageModel {
         // tag the request with the upstream base URL and provider id — the key
         // never leaves main.
         if (textInference.backend === 'cloud') {
-          const headers = new Headers(init?.headers)
+          const headers = new Headers(requestInit?.headers)
           const upstream = cloudMode.activeProviderBaseUrl
           if (upstream) headers.set('X-Cloud-Upstream', upstream)
           headers.set('X-Cloud-Provider', cloudMode.selectedProviderId)
           headers.set('X-Cloud-Auth-Style', cloudMode.activeProviderAuthStyle)
-          return globalThis.fetch(requestUrl.toString(), { ...init, headers })
+          return globalThis.fetch(requestUrl.toString(), { ...requestInit, headers })
         }
         // When Home Agent is active, the LLM proxy lives behind the Home
         // Agent Flask service. Attach the upstream inference URL header and
@@ -158,10 +198,10 @@ export function createChatModel(): LanguageModel {
         if (upstreamUrl) {
           let token = await getHomeAgentAuthToken()
           const build = (t: string): RequestInit => {
-            const headers = new Headers(init?.headers)
+            const headers = new Headers(requestInit?.headers)
             headers.set('X-Upstream-Url', upstreamUrl)
             if (t) headers.set('X-AIPG-Auth', t)
-            return { ...init, headers }
+            return { ...requestInit, headers }
           }
           let response = await globalThis.fetch(requestUrl.toString(), build(token))
           if (response.status === 401) {
@@ -173,7 +213,7 @@ export function createChatModel(): LanguageModel {
           }
           return response
         }
-        return globalThis.fetch(requestUrl.toString(), init)
+        return globalThis.fetch(requestUrl.toString(), requestInit)
       }
 
       // A local inference server briefly answers with a transient error right after
@@ -205,7 +245,25 @@ export function createChatModel(): LanguageModel {
         const isLocalInferenceBackend =
           textInference.backend === 'openVINO' || textInference.backend === 'llamaCPP'
         const deadline = Date.now() + retryBudgetMs
-        let response = await doFetch()
+        const delay = () => new Promise((resolve) => setTimeout(resolve, retryDelayMs))
+        // The same restart window can also drop the connection outright rather
+        // than answer with a retryable status — a refused/reset socket surfaces
+        // as a thrown TypeError ("Failed to fetch"), which used to fail the whole
+        // turn. Give it the same budget; a user abort is never retried.
+        const attempt = async (): Promise<Response> => {
+          for (;;) {
+            try {
+              return await doFetch()
+            } catch (error) {
+              const aborted =
+                (error instanceof Error && error.name === 'AbortError') ||
+                init?.signal?.aborted === true
+              if (aborted || !isLocalInferenceBackend || Date.now() >= deadline) throw error
+              await delay()
+            }
+          }
+        }
+        let response = await attempt()
         while (!response.ok && isLocalInferenceBackend) {
           let body: string
           try {
@@ -215,8 +273,8 @@ export function createChatModel(): LanguageModel {
           }
           if (!isTransientRestartSignal(response.status, body)) break
           if (Date.now() >= deadline) break
-          await new Promise((resolve) => setTimeout(resolve, retryDelayMs))
-          response = await doFetch()
+          await delay()
+          response = await attempt()
         }
         return response
       }

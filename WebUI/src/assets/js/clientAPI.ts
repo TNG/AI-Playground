@@ -1,7 +1,4 @@
-export const isClient =
-  window.chrome.webview &&
-  window.chrome.webview.hostObjects &&
-  window.chrome.webview.hostObjects.clientAPI
+export const isClient = Boolean(window.chrome?.webview?.hostObjects?.clientAPI)
 
 export function minimizedWin() {
   window.electronAPI.miniWindow()

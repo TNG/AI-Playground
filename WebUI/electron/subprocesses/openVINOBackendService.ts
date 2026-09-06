@@ -2160,6 +2160,13 @@ export class OpenVINOBackendService implements ApiService {
           this.name,
         )
       }
+
+      // …and even that lies: the KServe endpoint has been observed reporting ready
+      // ~20 s before /v3/chat/completions stops 404ing, which outlives the renderer's
+      // route-retry budget and fails the turn. The only honest signal is the route
+      // itself, so finish with a minimal dry-run completion.
+      await this.waitForChatRouteServable(servedModelName, childProcess)
+
       ovmsProcess.isReady = true
 
       this.ovmsLlmProcess = ovmsProcess
@@ -2707,6 +2714,51 @@ export class OpenVINOBackendService implements ApiService {
       captureExitDiagnostics: true,
       appLogger: this.appLogger,
     })
+  }
+
+  /**
+   * Polls the OpenAI chat route with a throwaway 1-token completion until it stops
+   * answering 404 "Mediapipe graph definition ... is not found". Best-effort: on
+   * timeout we log and let the caller proceed rather than fail a server that is
+   * otherwise healthy.
+   */
+  private async waitForChatRouteServable(
+    servedModelName: string,
+    childProcess: ChildProcess,
+    budgetMs = 90_000,
+  ): Promise<void> {
+    const url = `http://127.0.0.1:${this.port}/v3/chat/completions`
+    const body = JSON.stringify({
+      model: servedModelName,
+      messages: [{ role: 'user', content: 'ping' }],
+      max_tokens: 1,
+      stream: false,
+    })
+    const deadline = Date.now() + budgetMs
+    while (Date.now() < deadline) {
+      if (childProcess.exitCode !== null || childProcess.signalCode !== null) return
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+          signal: AbortSignal.timeout(10_000),
+        })
+        // Any answer other than the missing-graph 404 means the route is mounted and
+        // serving — a rejection of this specific payload is still a served request.
+        if (response.status !== 404) {
+          this.appLogger.info(`OVMS chat route servable for "${servedModelName}"`, this.name)
+          return
+        }
+      } catch {
+        // Connection not accepting the request yet — keep polling.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+    this.appLogger.warn(
+      `OVMS chat route for "${servedModelName}" still 404ing after ${budgetMs}ms; proceeding`,
+      this.name,
+    )
   }
 
   // Error management methods for startup failures

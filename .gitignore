@@ -50,3 +50,7 @@ home-agent/.*id
 # Laminar tracing — local project API keys (dev opt-in); never commit
 WebUI/external/laminar.dev.json
 WebUI/external/laminar.localhost.json
+
+# Containerization — run.sh-generated env and optional corporate CA cert
+containers/.env
+containers/ca-certs/*.crt

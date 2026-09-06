@@ -47,6 +47,7 @@ vi.stubGlobal('window', {
 vi.mock('@/lib/loopbackAuth', () => ({
   invalidateBackendAuthToken: vi.fn(),
   getBackendAuthToken: vi.fn(async () => 'token'),
+  toHeadlessSafeBaseUrl: vi.fn((url: string) => url),
 }))
 
 vi.mock('@/assets/js/demoAwareStorage', () => ({

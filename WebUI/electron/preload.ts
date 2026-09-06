@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('envVars', {
   gitTag: import.meta.env.VITE_GIT_TAG ?? '',
 })
 contextBridge.exposeInMainWorld('electronAPI', {
+  isHeadlessBridge: false,
   startDrag: (fileName: string) => ipcRenderer.send('ondragstart', fileName),
   getFilePath: (file: File) => webUtils.getPathForFile(file),
   getServices: () => ipcRenderer.invoke('getServices'),

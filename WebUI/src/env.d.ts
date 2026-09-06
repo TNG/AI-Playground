@@ -1,6 +1,8 @@
 declare interface Window {
   __AIPG_DEMO_MODE__?: boolean
-  chrome: Chrome
+  // Only defined in real Chromium-based hosts (Electron, desktop Chrome).
+  // Headless Chromium and non-Chromium browsers leave this undefined.
+  chrome?: Chrome
   electronAPI: electronAPI
   envVars: {
     platformTitle: string
@@ -285,6 +287,13 @@ type AgentToolExecuteRequest = {
 }
 
 type electronAPI = {
+  // true when window.electronAPI is the browser/SSE polyfill (headless mode),
+  // false when it's the real preload.ts contextBridge (desktop/Electron). The
+  // polyfill's REST bridge covers the control plane, but chat completions fetch
+  // a backend's raw 127.0.0.1:<port> baseUrl directly — this flag lets that fetch
+  // route through the headless server's reverse proxy instead, since 127.0.0.1
+  // means the browser's own machine over an SSH tunnel that only forwards one port.
+  isHeadlessBridge: boolean
   startDrag: (fileName: string) => void
   getFilePath: (file: File) => string
   updatePresetsFromIntelRepo(): Promise<UpdatePresetsFromIntelResult>

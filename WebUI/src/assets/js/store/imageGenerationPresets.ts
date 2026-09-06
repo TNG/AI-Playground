@@ -37,7 +37,7 @@ import { useUIStore } from './ui'
 import { PresetRequirementsData, useDialogStore } from './dialogs'
 import { getMissingComfyuiBackendModels } from './imageGenerationUtils'
 import { useHomeAgent } from './homeAgent'
-import { imageUrlToDataUri, saveImageToMediaInput } from '@/lib/utils'
+import { imageUrlToDataUri, isAipgMediaUrl, saveImageToMediaInput } from '@/lib/utils'
 import { withTraceSpan } from '@/lib/laminarSpans'
 import {
   getDemoModeInputImage,
@@ -658,7 +658,7 @@ export const useImageGenerationPresets = defineStore(
       newImage.mode = mode
       if (image.type === 'image' && newImage.type === 'image') {
         newImage.sourceImageUrl = image.imageUrl
-        if (image.imageUrl.startsWith('aipg-media://')) {
+        if (isAipgMediaUrl(image.imageUrl)) {
           newImage.imageUrl = image.imageUrl
         } else {
           try {

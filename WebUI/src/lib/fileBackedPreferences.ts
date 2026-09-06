@@ -42,8 +42,8 @@ export function makeFileBackedPreference(options: {
    * runs empty, instead of removing it outright. */
   legacySlim?: boolean
   /** Shape the section for the file — e.g. scrub data URIs the way the old
-   * pinia serializer did. Applied to the write payload and the diff base,
-   * never to hydration. */
+   * pinia serializer did. Applied to the write payload, the migrate payload
+   * and the diff base, never to hydration. */
   toFile?: (section: Record<string, unknown>) => Record<string, unknown>
 }): FileBackedPreference {
   const { section, refs, legacyKey, legacySlim, toFile } = options
@@ -53,6 +53,9 @@ export function makeFileBackedPreference(options: {
   let flushInFlight = false
   let lastFlushedJson: string | null = null
   let legacyKeyDropped = false
+  // Pinia persist of the remaining pick can rewrite this key between store
+  // setup (now) and init(); capture the leftover while it is still whole.
+  const legacyRaw = legacyKey ? demoAwareStorage.getItem(legacyKey) : null
 
   function snapshot(): Record<string, unknown> {
     const out: Record<string, unknown> = {}
@@ -184,10 +187,9 @@ export function makeFileBackedPreference(options: {
         } else if (legacyKey) {
           // One-shot legacy upload (§6.1: "localStorage migrates once").
           let legacySection: Record<string, unknown> | null = null
-          const raw = demoAwareStorage.getItem(legacyKey)
-          if (raw) {
+          if (legacyRaw) {
             try {
-              legacySection = legacyPick(JSON.parse(raw))
+              legacySection = legacyPick(JSON.parse(legacyRaw))
             } catch {
               legacySection = null
             }
@@ -196,8 +198,9 @@ export function makeFileBackedPreference(options: {
             // Hydrate from the in-memory payload either way — the value is
             // right even when the upload has to wait for the next boot.
             applySection(legacySection)
+            const payload = toFile ? toFile(legacySection) : legacySection
             try {
-              const migrated = await window.electronAPI.preferences.migrate(section, legacySection)
+              const migrated = await window.electronAPI.preferences.migrate(section, payload)
               if (migrated.success) dropLegacyKey()
               else {
                 // The file store answered but refused: retry next boot.

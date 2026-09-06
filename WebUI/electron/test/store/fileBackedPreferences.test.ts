@@ -358,4 +358,50 @@ describe('file-backed preferences', () => {
     await advanceFlush()
     expect(preferencesApi.write).toHaveBeenCalledTimes(1)
   })
+
+  it('migrates a leftover captured at construction even if the key is rewritten before init', async () => {
+    storage.data.set(
+      'theme',
+      JSON.stringify({ selected: 'bmg', enabled: true, someoneElsesField: { a: 1 } }),
+    )
+    const selected = ref<string | null>(null)
+    const enabled = ref(false)
+    const prefs = makeFileBackedPreference({
+      section: 'theme',
+      refs: { selected, enabled },
+      legacyKey: 'theme',
+      legacySlim: true,
+    })
+    // Pinia persist of the remaining pick replaces the whole key.
+    storage.data.set('theme', JSON.stringify({ someoneElsesField: { a: 1 } }))
+    await prefs.init()
+    expect(preferencesApi.migrate).toHaveBeenCalledTimes(1)
+    expect(preferencesApi.migrate.mock.calls[0]).toEqual([
+      'theme',
+      { selected: 'bmg', enabled: true },
+    ])
+    expect(selected.value).toBe('bmg')
+    expect(JSON.parse(storage.data.get('theme') ?? '{}')).toEqual({ someoneElsesField: { a: 1 } })
+  })
+
+  it('scrubs the migrate payload with toFile and still hydrates the leftover as stored', async () => {
+    const leftover = { mask: { keep: 'x', scrub: 'data:image/png;base64,AAAA' } }
+    storage.data.set('theme', JSON.stringify(leftover))
+    const mask = ref<Record<string, unknown>>({})
+    const prefs = makeFileBackedPreference({
+      section: 'theme',
+      refs: { mask },
+      legacyKey: 'theme',
+      toFile: (section) => ({
+        mask: Object.fromEntries(
+          Object.entries(section.mask as Record<string, unknown>).filter(
+            ([, value]) => !(typeof value === 'string' && value.startsWith('data:image/')),
+          ),
+        ),
+      }),
+    })
+    await prefs.init()
+    expect(mask.value).toEqual(leftover.mask)
+    expect(preferencesApi.migrate.mock.calls[0][1]).toEqual({ mask: { keep: 'x' } })
+  })
 })

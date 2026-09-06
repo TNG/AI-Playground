@@ -1,8 +1,8 @@
 # Target architecture — capabilities, drivers, state ownership
 
-**Status: steps 1–8 of the migration order (§8) have four slices landed (conversations,
-agent-session files, generated-media records, and user preferences as kernel-owned stores,
-`userSelectedMode` deleted); remaining §6 buckets are incremental.**
+**Status: steps 1–8 of the migration order (§8) have five slices landed (conversations,
+agent-session files, generated-media records, user preferences, and per-preset settings knobs
+as kernel-owned stores, `userSelectedMode` deleted); remaining §6 buckets are incremental.**
 Media generation is owned by the main-process Artifact runner; speech drivers go through `speechIO`;
 inference/download consent through Permissions; main→renderer notifications through one kernel
 event stream (`kernel:event`) with a listener-first snapshot handshake; chat turns run in main
@@ -751,8 +751,8 @@ AI-Playground/
 `activeSessionId`; Pi's own session files are untouched.)
 
 User preferences that a human would want in a backup live as `AI-Playground/preferences.json`
-(theme, developer toggles, model favorites, TTS voices landed; `defaultPreset` and per-preset
-knobs still wait). Things a restore onto a different PC should not blindly apply (device ids,
+(theme, developer toggles, model favorites, TTS voices, per-preset knobs landed; `defaultPreset`
+still waits). Things a restore onto a different PC should not blindly apply (device ids,
 disabled backends) stay in `userData`.
 
 **Performance — the current store is the thing to beat, not SQLite.** Pinia persist rewrites the
@@ -912,7 +912,8 @@ projection boundary complete. Snapshot hydration and Artifact readiness landed w
 IPC delta coalescing landed with step 6, the single queue and GPU policy with step 7.
 Conversation files and the `userSelectedMode` deletion landed with step 8's first slice;
 agent-session records landed with the second; generated-media records (`media/records/`)
-landed with the third; user preferences (`preferences.json`) landed with the fourth.
+landed with the third; user preferences (`preferences.json`) landed with the fourth; the
+per-preset settings knobs (three more sections of that file) landed with the fifth.
 
 ### 8.1 Transition cost and per-step obligations
 
@@ -1120,17 +1121,25 @@ small fix on this branch) can pick them up instead of rediscovering them.
   bootstrap failed can write session items to files while the gallery copy stays stranded in
   localStorage; the idempotent merge (ids the files hold are skipped) is the rescue path, and it
   rebuilds the index in `createdAt` order so rescued legacy items do not render as newest.
-- **The imageGenerationPresets key is slimmed, not dropped** — same as agentMode: it still
-  persists `settingsPerPreset` / `comfyInputsPerPreset`, so the one-shot upload removes only the
-  `generatedImages` half of the stored payload.
+- **The imageGenerationPresets Pinia key drops entirely after both halves migrate.** The
+  gallery left it slimmed (settings still lived there); the knobs slice moved those
+  maps too, so there is no persist pick left. An empty leftover after the gallery slim
+  is removed rather than written back as `{}`.
 - **The preferences slice moves whole stores, so their Pinia keys drop entirely** (theme,
   developerSettings, modelPreferences, textToSpeech, qwen3TextToSpeech) — unlike the slimmed
-  agentMode/imageGenerationPresets keys. The per-store wiring is ~5 lines each because the
-  shared helper owns the mechanics: hand over the refs the persist plugin used to pick, get
-  hydration + one-shot legacy upload + debounced deep-watch write-through + `beforeunload`
-  flush. The per-preset knobs (textInference / imageGenerationPresets settings maps) and the
-  last-used preset (whose boot consumer `alignModeToActivePreset` runs before any async init)
-  deliberately wait for a later slice.
+  agentMode key and the presets store (active/last-used names stay, because
+  `alignModeToActivePreset` reads them synchronously before any async init). The per-store
+  wiring is ~5 lines each because the shared helper owns the mechanics: hand over the refs
+  the persist plugin used to pick, get hydration + one-shot legacy upload + debounced
+  deep-watch write-through + `beforeunload` flush. The per-preset knobs (textInference /
+  imageGenerationPresets settings maps, presets variant picks) joined that file in the
+  fifth slice; `defaultPreset` (last-used names) still waits.
+- **The leftover Pinia key is snapshotted at helper construction, not at init.** Store
+  setup runs persist hydrate/`afterHydrate` before `init()`, and Pinia's remaining-pick
+  rewrite replaces the whole key — so a `getItem` at init time can already lack the
+  fields this section must upload. Construction is the last moment the leftover is whole;
+  `toFile` also shapes the migrate payload so a leftover that still holds data URIs
+  does not land them in the file.
 - **A failed preferences read migrates nothing.** With the file unreadable nothing proves the
   legacy payload is newer than what the file may already hold, so the helper boots defaults,
   reports, and lets the first user change write the section through (the recovery path); the
@@ -1151,13 +1160,14 @@ small fix on this branch) can pick them up instead of rediscovering them.
   are `legacySlim` (remove only your fields, drop the key when it empties) and both uploads are
   idempotent, so an interrupted boot continues wherever it stopped.
 - **The `toFile` transform is the old pinia serializer, moved with the data.** The helper
-  applies it to the write payload *and* the diff base, never to hydration — so a change
-  confined to a scrubbed field (a mask re-drawn while its preset is open) never reaches the
-  file, exactly like the serializer's quota-dodging behavior.
-- **Per-preset-keyed sections re-run their rename migration after file hydration.** Both
-  stores' pinia `afterHydrate` hooks still fix their persisted halves; each store's `init()`
-  applies the same `renamePresetKeys` fix to the freshly hydrated section, so a renamed
-  preset does not strand its tuned settings whichever half lands first.
+  applies it to the write payload, the migrate payload, *and* the diff base, never to hydration
+  — so a change confined to a scrubbed field (a mask re-drawn while its preset is open) never
+  reaches the file, exactly like the serializer's quota-dodging behavior.
+- **Per-preset-keyed sections re-run their rename migration after file hydration.** The
+  presets store's pinia `afterHydrate` still fixes the persisted active/last-used names;
+  each store's `init()` applies the same `renamePresetKeys` fix to the freshly hydrated
+  section (and textInference also seeds the old global tool map into those settings), so
+  a renamed preset does not strand its tuned settings whichever half lands first.
 - **Remaining §6 buckets** (for the next slices): backend launch flags
   (`comfyUiParameters` / `llamaCppParameters`) → `settings.json`, `ragList` → the RAG
   bucket, `lastSelectedDeviceIdPerBackend` dedupe, workspace last-used files, the

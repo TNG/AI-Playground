@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 // The renderer half of step 8's generated-media slice (architecture-target
 // §6.1): the store hydrates the gallery from the kernel's record files before
 // mount, uploads the legacy Pinia-persisted gallery once (then slims it out
-// of the still-persisted key), and writes through through a debounced deep
+// of the leftover key), and writes through through a debounced deep
 // watch — only terminal `done` items are durable, deletes are idempotent
 // diffs, and nothing writes before hydration.
 
@@ -191,7 +191,7 @@ describe('useImageGenerationPresets media-record hydration', () => {
     expect(mediaItemsApi.bootstrap).toHaveBeenCalledTimes(1)
   })
 
-  it('uploads the legacy gallery once and slims it out of the still-persisted key', async () => {
+  it('uploads the legacy gallery once and slims it out of the leftover key', async () => {
     mediaItemsApi.bootstrap.mockResolvedValue({ status: 'empty' })
     mediaItemsApi.migrate.mockResolvedValue({
       status: 'ok',
@@ -265,6 +265,24 @@ describe('useImageGenerationPresets media-record hydration', () => {
     expect(errorsReport).toHaveBeenCalled()
     expect(store.mediaRecordsHydrated).toBe(true)
     expect(store.generatedImages).toEqual([])
+  })
+
+  it('drops the leftover key when the gallery was the last remaining field', async () => {
+    mediaItemsApi.bootstrap.mockResolvedValue({ status: 'empty' })
+    mediaItemsApi.migrate.mockResolvedValue({
+      status: 'ok',
+      items: [doneImage('legacy-1')],
+    })
+    storage.set(
+      'imageGenerationPresets',
+      JSON.stringify({ generatedImages: [doneImage('legacy-1')] }),
+    )
+    const store: Store = useImageGenerationPresets()
+
+    await store.init()
+
+    expect(store.generatedImages.map((item) => (item as { id: string }).id)).toEqual(['legacy-1'])
+    expect(storage.has('imageGenerationPresets')).toBe(false)
   })
 })
 

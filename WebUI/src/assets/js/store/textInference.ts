@@ -875,6 +875,8 @@ export const useTextInference = defineStore(
     // Step 8 (§6.1): the per-preset settings are kernel-owned preferences
     // (preferences.json). The Pinia key still persists the rest of the pick,
     // so the one-shot upload only slims this field out of it.
+    // Captured before persist hydrate/`afterHydrate` can rewrite the key.
+    const textInferenceLegacyRaw = demoAwareStorage.getItem('textInference')
     const settingsPrefs = makeFileBackedPreference({
       section: 'textInference',
       refs: { settingsPerPreset },
@@ -886,8 +888,15 @@ export const useTextInference = defineStore(
     async function init(): Promise<void> {
       await settingsPrefs.init()
       // Settings are stored per preset name, which a renamed preset no longer
-      // has — the same fix the pinia afterHydrate applies to its own half.
+      // has — the same fix that used to live in pinia afterHydrate.
       migrateRenamedPresetSettings()
+      // The old global tool map is not a section field; seed it into the
+      // hydrated per-preset settings from the leftover captured at setup.
+      migrateGlobalToolEnablement(textInferenceLegacyRaw)
+      // The catalog-ready watch can fire before this hydrate (preset files
+      // load during conversations/media init) and would otherwise apply
+      // defaults from an empty map, then never reload.
+      loadSettingsForActivePreset()
     }
 
     // Raw URL of the selected local inference backend, without any of the
@@ -2435,14 +2444,6 @@ export const useTextInference = defineStore(
         // kernel-owned preferences.json (step 8 §6.1), hydrated by init().
         'screenshotWindow',
       ],
-      afterHydrate: (ctx) => {
-        // Settings are stored per preset name, which a renamed preset no longer has.
-        ctx.store.migrateRenamedPresetSettings()
-        // Tool enablement used to be one global map at the root of this state.
-        // It is no longer picked (so it stops being re-persisted from whichever
-        // preset is active), which is why the migration re-reads the raw payload.
-        ctx.store.migrateGlobalToolEnablement(demoAwareStorage.getItem(ctx.store.$id))
-      },
     },
   },
 )

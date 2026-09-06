@@ -598,9 +598,8 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     }
   }
 
-  // The key survives this slice — it still persists per-preset settings — so
-  // the one-shot upload slims the gallery half out of it rather than
-  // dropping the key. A failed upload leaves it in place to retry next boot.
+  // Slim only the gallery half; the settings half of this key is uploaded
+  // next. A failed upload leaves `generatedImages` in place to retry next boot.
   function slimLegacyKey(): void {
     const raw = demoAwareStorage.getItem(MEDIA_LEGACY_KEY)
     if (!raw) return
@@ -608,9 +607,13 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
       const parsed = JSON.parse(raw) as Record<string, unknown>
       if (!parsed || typeof parsed !== 'object' || !('generatedImages' in parsed)) return
       delete parsed.generatedImages
-      demoAwareStorage.setItem(MEDIA_LEGACY_KEY, JSON.stringify(parsed))
+      if (Object.keys(parsed).length === 0) {
+        demoAwareStorage.removeItem(MEDIA_LEGACY_KEY)
+      } else {
+        demoAwareStorage.setItem(MEDIA_LEGACY_KEY, JSON.stringify(parsed))
+      }
     } catch {
-      // An unparsable payload is best left alone; the plugin overwrites it.
+      // An unparsable payload is best left alone; the next boot retries it.
     }
   }
 

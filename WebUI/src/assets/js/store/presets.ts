@@ -1,4 +1,5 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
+import { makeFileBackedPreference } from '@/lib/fileBackedPreferences'
 import { ref, computed, shallowRef } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
@@ -50,6 +51,27 @@ export const usePresets = defineStore(
     // toggling Backend in SettingsWorkflow restores the previous quality choice instead
     // of always snapping to the first variant. Shape: { [presetName]: { [backend]: variantName } }
     const lastQualityVariantPerBackend = ref<Record<string, Record<string, string>>>({})
+
+    // Step 8 (§6.1): the variant picks are kernel-owned preferences
+    // (preferences.json); `activePresetName` / `activeVariantName` /
+    // `lastUsedPresetName` stay in the Pinia key — active is UI state, and
+    // last-used is the `defaultPreset` bucket for a later slice — so the
+    // one-shot upload only slims these two fields out of the key.
+    const variantPrefs = makeFileBackedPreference({
+      section: 'presets',
+      refs: { settingsPerPreset, lastQualityVariantPerBackend },
+      legacyKey: 'presets',
+      legacySlim: true,
+    })
+    if (import.meta.hot) import.meta.hot.dispose(() => variantPrefs.dispose())
+
+    async function init(): Promise<void> {
+      await variantPrefs.init()
+      // Selection and per-preset state are keyed by preset name, so a preset
+      // that shipped under another one has to be followed to its current
+      // name — the same fix the pinia afterHydrate applies to its own half.
+      migrateRenamedPresets()
+    }
 
     const DEFAULT_BACKEND = 'comfyui'
 
@@ -649,6 +671,7 @@ export const usePresets = defineStore(
       getLastUsedPreset,
       setLastUsedPreset,
       migrateRenamedPresets,
+      init,
       getDistinctBackendsForPreset,
       getVariantsForBackend,
       getActiveBackend,
@@ -658,13 +681,12 @@ export const usePresets = defineStore(
   {
     persist: {
       storage: demoAwareStorage,
-      pick: [
-        'activePresetName',
-        'activeVariantName',
-        'settingsPerPreset',
-        'lastUsedPresetName',
-        'lastQualityVariantPerBackend',
-      ],
+      // `settingsPerPreset` / `lastQualityVariantPerBackend` are NOT persisted
+      // here anymore: they live in the kernel-owned preferences.json (step 8
+      // §6.1), hydrated by init(). Active/last-used names stay — the active
+      // preset is UI state and `alignModeToActivePreset` reads it
+      // synchronously at boot, before any async init.
+      pick: ['activePresetName', 'activeVariantName', 'lastUsedPresetName'],
       afterHydrate: (ctx) => {
         // Selection and per-preset state are keyed by preset name, so a preset
         // that shipped under another one has to be followed to its current name.

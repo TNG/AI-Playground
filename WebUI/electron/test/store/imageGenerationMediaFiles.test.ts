@@ -81,6 +81,28 @@ const mediaItemsApi = {
   })),
 }
 
+// The store's init also hydrates its per-preset settings half via the
+// preferences file helper (step 8); absent sections keep the defaults.
+const preferencesApi = {
+  read: vi.fn(
+    async (): Promise<
+      { success: true; sections: Record<string, unknown> } | { success: false; error: string }
+    > => ({ success: true, sections: {} }),
+  ),
+  migrate: vi.fn(
+    async (
+      _section: string,
+      _payload: unknown,
+    ): Promise<{ success: true } | { success: false; error: string }> => ({ success: true }),
+  ),
+  write: vi.fn(
+    async (
+      _section: string,
+      _value: unknown,
+    ): Promise<{ success: true } | { success: false; error: string }> => ({ success: true }),
+  ),
+}
+
 let storage: Map<string, string>
 let windowListeners: Record<string, Array<() => void>>
 
@@ -95,7 +117,7 @@ function fakeWindow(): void {
   globalThis.localStorage = localStorageShim as unknown as Storage
   globalThis.sessionStorage = localStorageShim as unknown as Storage
   globalThis.window = {
-    electronAPI: { mediaItems: mediaItemsApi },
+    electronAPI: { mediaItems: mediaItemsApi, preferences: preferencesApi },
     __AIPG_DEMO_MODE__: false,
     addEventListener: (event: string, handler: () => void) => {
       ;(windowListeners[event] ??= []).push(handler)
@@ -182,9 +204,15 @@ describe('useImageGenerationPresets media-record hydration', () => {
 
     expect(mediaItemsApi.migrate).toHaveBeenCalledTimes(1)
     expect(store.generatedImages.map((item) => (item as { id: string }).id)).toEqual(['legacy-1'])
-    const key = JSON.parse(storage.get('imageGenerationPresets') ?? '{}') as Record<string, unknown>
-    expect(key.generatedImages).toBeUndefined()
-    expect(key.settingsPerPreset).toEqual({ 'Pro Image': { width: 1024 } })
+    // The per-preset settings half reads the same key and slims its own
+    // fields out after uploading them; with both halves migrated the key
+    // runs empty and disappears — no dual-write left behind.
+    expect(store.settingsPerPreset).toEqual({ 'Pro Image': { width: 1024 } })
+    expect(preferencesApi.migrate).toHaveBeenCalledWith('imageGenerationPresets', {
+      settingsPerPreset: { 'Pro Image': { width: 1024 } },
+      comfyInputsPerPreset: {},
+    })
+    expect(storage.has('imageGenerationPresets')).toBe(false)
   })
 
   it('merges a stranded legacy gallery even when the files already hold items', async () => {
@@ -221,6 +249,9 @@ describe('useImageGenerationPresets media-record hydration', () => {
     expect(errorsReport).toHaveBeenCalled()
     const key = JSON.parse(storage.get('imageGenerationPresets') ?? '{}') as Record<string, unknown>
     expect(Array.isArray(key.generatedImages)).toBe(true)
+    // The settings half still migrates and slims its own fields out; only the
+    // gallery copy stays behind for the media retry next boot.
+    expect(key.settingsPerPreset).toBeUndefined()
     expect(store.mediaRecordsHydrated).toBe(true)
   })
 

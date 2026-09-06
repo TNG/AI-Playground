@@ -1,6 +1,7 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { z } from 'zod'
 import { demoAwareStorage } from '../demoAwareStorage'
+import { makeFileBackedPreference } from '@/lib/fileBackedPreferences'
 import { useBackendServices, type BackendServiceName } from './backendServices'
 import { useModels } from './models'
 import { Document } from '@langchain/classic/document'
@@ -870,6 +871,24 @@ export const useTextInference = defineStore(
 
     // Per-preset settings persistence
     const settingsPerPreset = ref<Record<string, Record<string, unknown>>>({})
+
+    // Step 8 (§6.1): the per-preset settings are kernel-owned preferences
+    // (preferences.json). The Pinia key still persists the rest of the pick,
+    // so the one-shot upload only slims this field out of it.
+    const settingsPrefs = makeFileBackedPreference({
+      section: 'textInference',
+      refs: { settingsPerPreset },
+      legacyKey: 'textInference',
+      legacySlim: true,
+    })
+    if (import.meta.hot) import.meta.hot.dispose(() => settingsPrefs.dispose())
+
+    async function init(): Promise<void> {
+      await settingsPrefs.init()
+      // Settings are stored per preset name, which a renamed preset no longer
+      // has — the same fix the pinia afterHydrate applies to its own half.
+      migrateRenamedPresetSettings()
+    }
 
     // Raw URL of the selected local inference backend, without any of the
     // loopback proxies `currentBackendUrl` prefers. Callers that cannot attach
@@ -2394,6 +2413,7 @@ export const useTextInference = defineStore(
       // resetting an open chat-backend socket when freeing the GPU)
       migrateRenamedPresetSettings,
       migrateGlobalToolEnablement,
+      init,
     }
   },
   {
@@ -2411,7 +2431,8 @@ export const useTextInference = defineStore(
         'requestedContextSize',
         'temperature',
         'ragList',
-        'settingsPerPreset',
+        // `settingsPerPreset` is NOT persisted here anymore: it lives in the
+        // kernel-owned preferences.json (step 8 §6.1), hydrated by init().
         'screenshotWindow',
       ],
       afterHydrate: (ctx) => {

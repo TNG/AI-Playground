@@ -818,9 +818,9 @@ before the kernel move or as a small fix.
 
 **Domain stores** (core business logic):
 
-- `textInference` — LLM backend/model selection, RAG config, system prompt, context size, per-preset settings. Deps: `backendServices`, `models`, `dialogs`, `presets`
+- `textInference` — LLM backend/model selection, RAG config, system prompt, context size. Per-preset settings live in the kernel-owned preferences file (hydrated by `init()`). Deps: `backendServices`, `models`, `dialogs`, `presets`
 - `openAiCompatibleChat` — Vercel AI SDK chat instances, message streaming, tool calling, vision, token tracking. Deps: `textInference`, `conversations`
-- `imageGenerationPresets` — Image/video generation state (prompt, seed, dimensions, batch), ComfyUI dynamic inputs. The generated-media gallery is a live projection of kernel-owned files (`media/records/`, hydrated by `init()` and written through by a debounced flush). Deps: `presets`, `comfyUiPresets`, `backendServices`, `ui`, `dialogs`, `i18n`
+- `imageGenerationPresets` — Image/video generation state (prompt, seed, dimensions, batch), ComfyUI dynamic inputs. The generated-media gallery is a live projection of kernel-owned files (`media/records/`, hydrated by `init()` and written through by a debounced flush), and the per-preset settings/inputs live in the kernel-owned preferences file — the store has no Pinia persistence left. Deps: `presets`, `comfyUiPresets`, `backendServices`, `ui`, `dialogs`, `i18n`
 - `comfyUiPresets` — Settings-side ComfyUI store: preset requirement checks, freeing ComfyUI memory (`free`), and the generation-activity bridge. The WebSocket engine moved to main (`electron/artifact/runner.ts`, §8 step 5). Deps: `imageGenerationPresets`, `i18n`, `backendServices`
 - `models` — Model discovery, download checking, HuggingFace integration, path management. Deps: `backendServices`
 - `presets` — Unified preset system with Zod schemas (`chat` + `comfy` types), variants, file I/O. Deps: `backendServices`
@@ -859,8 +859,10 @@ preferences, `huggingfaceEndpoint` — plus **`showDebugSettingsInUI`**, which i
 the debug controls below. A build that does not set it looks exactly as it always did.
 
 **Renderer persistence (Pinia)** is per-user and needs no file: Cloud Mode enablement and the
-stores not yet on `preferences.json` (step 8 moved theme, `developerSettings`, model favorites
-and the TTS voice stores to the kernel-owned file via `src/lib/fileBackedPreferences.ts`).
+stores not yet on `preferences.json` (step 8 moved theme, `developerSettings`, model favorites,
+the TTS voice stores, and the per-preset settings knobs — chat settings, ComfyUI inputs, variant
+picks — to the kernel-owned file via `src/lib/fileBackedPreferences.ts`; the active/last-used
+preset names stay Pinia-persisted because boot reads them synchronously).
 
 **Settings → Developer** is the UI. Always visible: keep models loaded, dev console on startup,
 and the **Agent preset** checkbox (writes `isAgentPresetEnabled`, then re-reads presets — no

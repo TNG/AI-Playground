@@ -32,6 +32,9 @@ const errorsReport = vi.hoisted(() => vi.fn())
 vi.mock('@/assets/js/demoAwareStorage', () => ({
   demoAwareStorage: {
     getItem: (key: string) => storage.data.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      storage.data.set(key, value)
+    },
     removeItem: (key: string) => {
       storage.data.delete(key)
     },
@@ -259,5 +262,100 @@ describe('file-backed preferences', () => {
     const { prefs } = makeHarness()
     await Promise.all([prefs.init(), prefs.init()])
     expect(preferencesApi.read).toHaveBeenCalledTimes(1)
+  })
+
+  it('slims only its own keys out of a shared legacy key', async () => {
+    storage.data.set(
+      'theme',
+      JSON.stringify({ selected: 'bmg', enabled: true, someoneElsesField: { a: 1 } }),
+    )
+    const selected = ref<string | null>(null)
+    const enabled = ref(false)
+    const prefs = makeFileBackedPreference({
+      section: 'theme',
+      refs: { selected, enabled },
+      legacyKey: 'theme',
+      legacySlim: true,
+    })
+    await prefs.init()
+    expect(preferencesApi.migrate).toHaveBeenCalledTimes(1)
+    expect(selected.value).toBe('bmg')
+    const key = JSON.parse(storage.data.get('theme') ?? '{}') as Record<string, unknown>
+    expect(key).toEqual({ someoneElsesField: { a: 1 } })
+  })
+
+  it('drops the legacy key in slim mode when it runs empty', async () => {
+    storage.data.set('theme', JSON.stringify({ selected: 'bmg', enabled: true }))
+    const selected = ref<string | null>(null)
+    const enabled = ref(false)
+    const prefs = makeFileBackedPreference({
+      section: 'theme',
+      refs: { selected, enabled },
+      legacyKey: 'theme',
+      legacySlim: true,
+    })
+    await prefs.init()
+    expect(storage.data.has('theme')).toBe(false)
+  })
+
+  it('leaves a slim-mode key alone when it holds none of its fields', async () => {
+    storage.data.set('theme', JSON.stringify({ someoneElsesField: true }))
+    const selected = ref<string | null>(null)
+    const prefs = makeFileBackedPreference({
+      section: 'theme',
+      refs: { selected },
+      legacyKey: 'theme',
+      legacySlim: true,
+    })
+    await prefs.init()
+    expect(preferencesApi.migrate).not.toHaveBeenCalled()
+    expect(storage.data.has('theme')).toBe(true)
+    expect(JSON.parse(storage.data.get('theme') ?? '{}')).toEqual({ someoneElsesField: true })
+  })
+
+  it('slims its keys out after a successful write-through (the rescue path)', async () => {
+    storage.data.set('theme', JSON.stringify({ selected: 'bmg', someoneElsesField: { a: 1 } }))
+    preferencesApi.migrate.mockImplementation(async () => ({
+      success: false as const,
+      error: 'refused',
+    }))
+    const selected = ref<string | null>(null)
+    const prefs = makeFileBackedPreference({
+      section: 'theme',
+      refs: { selected },
+      legacyKey: 'theme',
+      legacySlim: true,
+    })
+    await prefs.init()
+    selected.value = 'dark'
+    await advanceFlush()
+    expect(preferencesApi.write).toHaveBeenCalledTimes(1)
+    const key = JSON.parse(storage.data.get('theme') ?? '{}') as Record<string, unknown>
+    expect(key).toEqual({ someoneElsesField: { a: 1 } })
+  })
+
+  it('writes the toFile transform and diffs against it', async () => {
+    const mask = ref<Record<string, unknown>>({})
+    const prefs = makeFileBackedPreference({
+      section: 'theme',
+      refs: { mask },
+      legacyKey: undefined,
+      toFile: (section) => ({
+        mask: Object.fromEntries(
+          Object.entries(section.mask as Record<string, unknown>).filter(
+            ([, value]) => !(typeof value === 'string' && value.startsWith('data:image/')),
+          ),
+        ),
+      }),
+    })
+    await prefs.init()
+    mask.value = { keep: 'x', scrub: 'data:image/png;base64,AAAA' }
+    await advanceFlush()
+    expect(preferencesApi.write).toHaveBeenCalledTimes(1)
+    expect(preferencesApi.write.mock.calls[0][1]).toEqual({ mask: { keep: 'x' } })
+    // A change confined to the scrubbed field never reaches the file.
+    mask.value.scrub = 'data:image/png;base64,BBBB'
+    await advanceFlush()
+    expect(preferencesApi.write).toHaveBeenCalledTimes(1)
   })
 })

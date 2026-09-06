@@ -34,10 +34,19 @@ const FLUSH_DEBOUNCE_MS = 300
 export function makeFileBackedPreference(options: {
   section: string
   refs: FileBackedPreferenceRefs
-  /** The pre-step-8 Pinia key; dropped after the one-shot upload succeeds. */
+  /** The pre-step-8 Pinia key; its own keys are slimmed out after the one-shot
+   * upload succeeds (or dropped entirely when `legacySlim` is not set). */
   legacyKey?: string
+  /** The Pinia key is shared with another section's migrator or still persists
+   * other fields: remove only this section's keys and drop the key when it
+   * runs empty, instead of removing it outright. */
+  legacySlim?: boolean
+  /** Shape the section for the file — e.g. scrub data URIs the way the old
+   * pinia serializer did. Applied to the write payload and the diff base,
+   * never to hydration. */
+  toFile?: (section: Record<string, unknown>) => Record<string, unknown>
 }): FileBackedPreference {
-  const { section, refs, legacyKey } = options
+  const { section, refs, legacyKey, legacySlim, toFile } = options
   const hydrated = ref(false)
   let initPromise: Promise<void> | null = null
   let flushTimer: ReturnType<typeof setTimeout> | null = null
@@ -48,7 +57,7 @@ export function makeFileBackedPreference(options: {
   function snapshot(): Record<string, unknown> {
     const out: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(refs)) out[key] = value.value
-    return out
+    return toFile ? toFile(out) : out
   }
 
   function applySection(sectionValue: Record<string, unknown>): void {
@@ -73,6 +82,31 @@ export function makeFileBackedPreference(options: {
   function dropLegacyKey(): void {
     if (!legacyKey || legacyKeyDropped) return
     legacyKeyDropped = true
+    if (legacySlim) {
+      // Remove only this section's keys; the key may hold other consumers'
+      // data (another section's migrator, or fields the store still persists).
+      const raw = demoAwareStorage.getItem(legacyKey)
+      if (!raw) return
+      try {
+        const parsed = JSON.parse(raw) as Record<string, unknown>
+        if (!parsed || typeof parsed !== 'object') return
+        let any = false
+        for (const key of Object.keys(parsed)) {
+          if (key in refs) {
+            delete parsed[key]
+            any = true
+          }
+        }
+        if (any && Object.keys(parsed).length === 0) {
+          demoAwareStorage.removeItem(legacyKey)
+        } else if (any) {
+          demoAwareStorage.setItem(legacyKey, JSON.stringify(parsed))
+        }
+      } catch {
+        // An unparsable payload is best left alone.
+      }
+      return
+    }
     demoAwareStorage.removeItem(legacyKey)
   }
 

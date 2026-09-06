@@ -14,6 +14,8 @@ import { useDeveloperSettings } from './assets/js/store/developerSettings'
 import { useModelPreferences } from './assets/js/store/modelPreferences'
 import { useTextToSpeech } from './assets/js/store/textToSpeech'
 import { useQwen3TextToSpeech } from './assets/js/store/qwen3TextToSpeech'
+import { useTextInference } from './assets/js/store/textInference'
+import { usePresets } from './assets/js/store/presets'
 import { initLaminarTelemetry } from './lib/laminarTelemetry'
 import { initDebugSettings } from './assets/js/store/debugSettings'
 import { startMediaRequestBridge } from './assets/js/artifact/mediaRequestBridge'
@@ -90,13 +92,18 @@ await useImageGenerationPresets().init()
 // toggles, model favorites and the TTS voice stores hydrate from the
 // kernel's preferences.json — in parallel, since each section is
 // independent — before anything mounts, so the theme applies on first paint
-// and no consumer sees a pre-hydration default.
+// and no consumer sees a pre-hydration default. The per-preset settings
+// (textInference, presets variant picks) ride the same file; they init
+// alongside their stores' rename migrations, after the imageGeneration
+// store's own init has consumed its half of the shared legacy key.
 await Promise.all([
   useTheme().init(),
   useDeveloperSettings().init(),
   useModelPreferences().init(),
   useTextToSpeech().init(),
   useQwen3TextToSpeech().init(),
+  useTextInference().init(),
+  usePresets().init(),
 ])
 
 // Relabel a parked chat tool's activity with its queue position (the

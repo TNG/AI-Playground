@@ -242,6 +242,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
         { success: true } | { success: false; error: string }
       >,
   },
+  mediaItems: {
+    bootstrap: () =>
+      ipcRenderer.invoke('mediaItems:bootstrap') as Promise<
+        import('../src/types/mediaItemIpc').MediaItemsBootstrap | { status: 'error'; error: string }
+      >,
+    migrate: (items: unknown[]) =>
+      ipcRenderer.invoke('mediaItems:migrate', items) as Promise<
+        import('../src/types/mediaItemIpc').MediaItemsBootstrap | { status: 'error'; error: string }
+      >,
+    save: (items: unknown[]) =>
+      ipcRenderer.invoke('mediaItems:save', items) as Promise<
+        { success: true } | { success: false; error: string }
+      >,
+    delete: (ids: string[]) =>
+      ipcRenderer.invoke('mediaItems:delete', ids) as Promise<
+        { success: true } | { success: false; error: string }
+      >,
+  },
   startTranscriptionServer: (modelName: string) =>
     ipcRenderer.invoke('startTranscriptionServer', modelName),
   stopTranscriptionServer: () => ipcRenderer.invoke('stopTranscriptionServer'),

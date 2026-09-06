@@ -8,6 +8,7 @@ import { useErrors } from './assets/js/store/errors'
 import { usePromptStore } from './assets/js/store/promptArea'
 import { useConversations } from './assets/js/store/conversations'
 import { useAgentMode } from './assets/js/store/agentMode'
+import { useImageGenerationPresets } from './assets/js/store/imageGenerationPresets'
 import { initLaminarTelemetry } from './lib/laminarTelemetry'
 import { initDebugSettings } from './assets/js/store/debugSettings'
 import { startMediaRequestBridge } from './assets/js/artifact/mediaRequestBridge'
@@ -74,6 +75,11 @@ await useConversations().init()
 // agent turn read a fully hydrated map. Instantiating the store here is safe —
 // its setup only wires IPC and chat transport, no backend work.
 await useAgentMode().init()
+
+// Same for the generated-media gallery (step 8): the history strip hydrates
+// from the record files under media/records/, and the one-shot localStorage
+// upload runs on a legacy boot.
+await useImageGenerationPresets().init()
 
 // Relabel a parked chat tool's activity with its queue position (the
 // orchestrator's queue events, step 7).

@@ -66,11 +66,10 @@ and a capture-source pick. `backendServices` persists `lastSelectedDeviceIdPerBa
 `settings.json` separately persists `lastSelectedDevicePerBackend`: the same fact in two stores with
 two owners.
 
-**App data lives in the renderer's localStorage.** `imageGenerationPresets` persists
-`generatedImages`, with a custom serializer that strips data URIs specifically to stay under the
-localStorage quota. Conversations and agent-session records moved to kernel-owned files with
-step 8; what `agentMode` still persists (`defaultCapabilities`, `planningThinkingOnly`,
-`workspaceDir`, last-used and sandbox consent) is user preference and last-used state.
+**App data lives in the renderer's localStorage.** Conversations, agent-session records and the
+generated-media gallery moved to kernel-owned files with step 8; what still persists in the
+renderer is user preference and last-used state (`imageGenerationPresets` keeps its per-preset
+settings with a serializer that strips data URIs to stay under the localStorage quota).
 
 **Home Agent needs the whole renderer graph.** `store/homeAgent.ts` imports chat, image generation,
 prompt area, preset switching, confirmations, dialogs, TTS and STT. A Telegram message only works
@@ -691,7 +690,7 @@ Classify by **who writes it** and **how long it lives**, not by which feature it
 | `backendServices.comfyUiParameters`, `llamaCppParameters`      | machine config     | launch flags; today renderer-persisted                                |
 | `backendServices.currentServiceInfo`                           | app data           | live process status, correctly ephemeral                              |
 | `imageGenerationPresets.settingsPerPreset`                     | user preference    | keep                                                                  |
-| `imageGenerationPresets.generatedImages`                       | app data           | in localStorage with a quota-dodging serializer; should be files      |
+| `imageGenerationPresets.generatedImages`                       | app data           | kernel-owned files as of step 8 (`media/records/`)                    |
 | `conversations.conversationList`                               | app data           | kernel-owned files as of step 8 (`AI-Playground/conversations/`); the store is the live projection |
 | `agentMode.sessions`                                          | app data           | kernel-owned files as of step 8 (`AI-Playground/agent-sessions/`)     |
 | `agentMode.defaultCapabilities`, `planningThinkingOnly`        | user preference    | same store as the line above                                          |
@@ -715,8 +714,8 @@ passes `workflow` on the request.
 ### 6.1 User-data files — the storage map (owned by Persistence, §4.5)
 
 App data should live next to the media the user can already find, not in Chromium's localStorage
-(opaque, quota-capped, the reason `generatedImages` has a serializer whose job is stripping data
-URIs) and not only in Electron `userData` (hidden, easy to lose on uninstall).
+(opaque, quota-capped — the reason the per-preset inputs still have a serializer whose job is
+stripping data URIs) and not only in Electron `userData` (hidden, easy to lose on uninstall).
 
 We already have this split for generated output:
 
@@ -741,9 +740,11 @@ AI-Playground/
   agent-sessions/         # same idea; Pi's own files can stay as they are
 ```
 
-(Landed with step 8: `conversations/` and `agent-sessions/` exactly as above, written by
-`electron/conversations/conversationFiles.ts` and `electron/agentMode/agentSessionFiles.ts`.
-The agent-session index also carries `activeSessionId`; Pi's own session files are untouched.)
+(Landed with step 8: `conversations/`, `agent-sessions/` and `media/records/` — the generated
+gallery lives beside the media files it references — written by `electron/conversations/
+conversationFiles.ts`, `electron/agentMode/agentSessionFiles.ts` and
+`electron/media/mediaItemFiles.ts`. The agent-session index also carries `activeSessionId`;
+Pi's own session files are untouched.)
 
 User preferences that a human would want in a backup (`defaultPreset`, theme, per-preset knobs)
 can live as `AI-Playground/preferences.json`. Things a restore onto a different PC should not
@@ -899,7 +900,7 @@ with step 7 (`queue-event`, not snapshotted) | yes |
 | 5 | **Done.** `capabilities/media.ts` no longer calls `executeToolInRenderer` — direct tools execute in-process against `electron/artifact/runner.ts` (`mediaDirect.ts`), the NL `media` tool lives in `mediaDelegation.ts` — and the UI hydrates readiness/generation progress from main via kernel `artifact-phase`/`artifact-item` events. In-process runs ask the renderer for model checks, download consent and chat reload over `artifact:request` | yes, needs 1–4 |
 | 6 | **Done.** The renderer has no `streamText` — chat turns run in the main-side engine (`electron/chat/turnEngine.ts`) over `chat:submitTurn` and stream back as kernel `chat-chunk` events (adjacent deltas coalesced at the bus, semantic chunks immediate) through the renderer's kernel transport (`src/lib/kernelChatTransport.ts`); a reloaded renderer resumes from the snapshot (`chat:resumeTurn`). Tool executions round-trip to the renderer registry (`src/lib/chatToolRegistry.ts`) over the tool bridge; the nested media specialist runs in main too (`electron/chat/mediaAgentRunner.ts`) with its inner tools on the same bridge, progress as `media-agent-event`; one-shot summarize is `chat:summarize`; Laminar's AI SDK integration is registered in main against the SDK's global telemetry registry. RAG retrieval stayed renderer-side (§8.2; conversation files landed with step 8) | yes, needs 1–5 |
 | 7 | **Done.** One queue and one GPU policy: `electron/orchestrator/orchestrator.ts` owns a FIFO for artifact runs (panel/Home Agent submissions fail-fast as before; chat-tool submissions and in-process Pi tool runs queue) and a request lane for whole `media` requests; every media run brackets the one GPU window (chat backends stopped before, ComfyUI freed and the chat backend restarted after, skipped with Keep Models Loaded or while runs are queued — one spritesheet = one swap); `ensureBackendReadiness` waits for the window, so Text and Artifact no longer start/stop each other's backends blind; the queue is visible as `queue-event` kernel events, which relabel the parked chat tool's activity with its position (`src/lib/queueActivityProjection.ts`). Chat turns are not queue entries (§8.2) | yes, needs 6 |
-| 8 | **Partial (incremental).** Conversations are kernel-owned user-data files per §6.1: `electron/conversations/conversationFiles.ts` writes one JSON per thread plus `index.json` (atomic tmp+rename, one writer, `schemaVersion`) under `AI-Playground/conversations/` (demo mode: `conversations-demo/`, wiped on exit and boot); the store is a live projection hydrated once pre-mount (`init()`) over `conversations:bootstrap/migrate/save/delete/saveLastMainKey` and writes through at the settle points the old persist plugin hooked; the legacy localStorage state uploads once on the first boot that sees no index (`empty` + legacy key → `migrate`) and the key is then dropped — no dual-write. `promptArea.userSelectedMode` is deleted: nothing borrows the mode since step 7, so the status bar and the history filter read `currentMode` (whose only non-foreground writer left is the Home Agent remote-focus). Agent-session records (transcripts included) joined them in the second slice: `electron/agentMode/agentSessionFiles.ts` writes `<id>.json` + `index.json` (which carries `activeSessionId`) under `AI-Playground/agent-sessions/`; the agentMode store drops `sessions`/`activeSessionId` from its persist pick, hydrates pre-mount over `agentMode:bootstrapSessions/migrateSessions/saveSession/saveActiveSessionId`, writes records through on every map rewrite and the active id on change, and the record-file delete folds into the existing `agentMode:deleteSession` (next to Pi's own teardown). Remaining §6 buckets — preferences file, backend launch flags, `generatedImages`, `ragList`, device-id dedupe, workspace last-used files — are parked in §8.2 | incremental |
+| 8 | **Partial (incremental).** Conversations are kernel-owned user-data files per §6.1: `electron/conversations/conversationFiles.ts` writes one JSON per thread plus `index.json` (atomic tmp+rename, one writer, `schemaVersion`) under `AI-Playground/conversations/` (demo mode: `conversations-demo/`, wiped on exit and boot); the store is a live projection hydrated once pre-mount (`init()`) over `conversations:bootstrap/migrate/save/delete/saveLastMainKey` and writes through at the settle points the old persist plugin hooked; the legacy localStorage state uploads once on the first boot that sees no index (`empty` + legacy key → `migrate`) and the key is then dropped — no dual-write. `promptArea.userSelectedMode` is deleted: nothing borrows the mode since step 7, so the status bar and the history filter read `currentMode` (whose only non-foreground writer left is the Home Agent remote-focus). Agent-session records (transcripts included) joined them in the second slice: `electron/agentMode/agentSessionFiles.ts` writes `<id>.json` + `index.json` (which carries `activeSessionId`) under `AI-Playground/agent-sessions/`; the agentMode store drops `sessions`/`activeSessionId` from its persist pick, hydrates pre-mount over `agentMode:bootstrapSessions/migrateSessions/saveSession/saveActiveSessionId`, writes records through on every map rewrite and the active id on change, and the record-file delete folds into the existing `agentMode:deleteSession` (next to Pi's own teardown). The generated-media gallery joined them in the third slice: `electron/media/mediaItemFiles.ts` writes `<id>.json` + an ordered `index.json` inside `media/records/` (demo mode: `records-demo/`, wiped on exit and boot); the imageGenerationPresets store drops `generatedImages` from its persist pick, hydrates pre-mount over `mediaItems:bootstrap/migrate/save/delete`, and writes through via a debounced deep watch over the array — only terminal `done` items are durable and `dynamicSettings` data URIs are scrubbed on write, both inherited from the quota-dodging serializer this replaces; the one-shot legacy upload is an idempotent merge that also rescues a gallery stranded by a failed bootstrap. Remaining §6 buckets — preferences file, backend launch flags, `ragList`, device-id dedupe, workspace last-used files — are parked in §8.2 | incremental |
 
 Steps 1–4 are worth doing even if we never move chat: they make the capabilities testable and the
 projection boundary complete. Snapshot hydration and Artifact readiness landed with steps 4–5;
@@ -1101,10 +1102,23 @@ small fix on this branch) can pick them up instead of rediscovering them.
 - **The agentMode legacy key is slimmed, not dropped.** The Pinia key survives this slice (it
   still persists preferences and last-used workspace state), so the one-shot migration strips
   `sessions` / `activeSessionId` out of the stored payload instead of removing the key.
+- **Generated-media records: a debounced deep watch is the write-through**, because the array is
+  mutated in every shape (`push`, `splice`, reassign, `length = 0`) across ~10 sites including the
+  artifact-event projection — the faithful port of the persist plugin's per-mutation
+  subscription, coalesced into per-item file writes. Deletes ride the same diff (a removed id is
+  re-sent until the file store confirms), and a failed save leaves the item un-flushed so the
+  next flush retries it.
+- **The legacy media upload merges, it does not refuse a pre-existing index.** A boot whose
+  bootstrap failed can write session items to files while the gallery copy stays stranded in
+  localStorage; the idempotent merge (ids the files hold are skipped) is the rescue path, and it
+  rebuilds the index in `createdAt` order so rescued legacy items do not render as newest.
+- **The imageGenerationPresets key is slimmed, not dropped** — same as agentMode: it still
+  persists `settingsPerPreset` / `comfyInputsPerPreset`, so the one-shot upload removes only the
+  `generatedImages` half of the stored payload.
 - **Remaining §6 buckets** (unchanged, for the next slices): `preferences.json`, backend launch
-  flags (`comfyUiParameters` / `llamaCppParameters`) → `settings.json`, `generatedImages` → files
-  beside the media they reference, `ragList` → the RAG bucket, `lastSelectedDeviceIdPerBackend`
-  dedupe, workspace last-used files, the `defaultPreset` preference.
+  flags (`comfyUiParameters` / `llamaCppParameters`) → `settings.json`, `ragList` → the RAG
+  bucket, `lastSelectedDeviceIdPerBackend` dedupe, workspace last-used files, the `defaultPreset`
+  preference.
 - **`lastMainKey` is persisted (and the empty session draft overwrites it on boot) but no UI reads
   it.** The store comment intended it for restoring the last Local thread when toggling the history
   filter; that restore was never wired. Do not treat a missing restore as a regression of this

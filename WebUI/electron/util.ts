@@ -97,3 +97,13 @@ export const getAgentSessionsDemoDir = () => {
   }
   return path.join(externalResourcesDir(), 'service', 'static', 'agent-sessions-demo')
 }
+
+/**
+ * Gallery records for generated media (architecture-target §6.1, step 8): one
+ * JSON per item plus `index.json`, inside `media/` so a folder copy carries
+ * the history beside the files it references.
+ */
+export const getMediaRecordsDir = () => path.join(getMediaDir(), 'records')
+
+/** Demo-mode gallery records, wiped on exit like demo conversations (§6.1). */
+export const getMediaRecordsDemoDir = () => path.join(getMediaDir(), 'records-demo')

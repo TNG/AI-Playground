@@ -189,6 +189,14 @@ import {
   wipeDemoAgentSessions,
 } from './agentMode/agentSessionFiles'
 import { AgentSessionRecordSchema, LegacyAgentSessionStateSchema } from '@/types/agentSessionIpc'
+import {
+  bootstrapMediaItems,
+  deleteMediaItemRecords,
+  migrateLegacyMediaItems,
+  saveMediaItems,
+  setMediaItemFileDeps,
+  wipeDemoMediaRecords,
+} from './media/mediaItemFiles'
 
 import { llmServerBaseUrl } from './llmServerSnapshot'
 import type { ChatToolResult } from '@/types/chatIpc'
@@ -1114,6 +1122,7 @@ appShutdown.register({ name: 'web browser', run: () => destroyWebBrowser() })
 // survive the process that wrote it.
 appShutdown.register({ name: 'demo conversations', run: () => wipeDemoConversations() })
 appShutdown.register({ name: 'demo agent sessions', run: () => wipeDemoAgentSessions() })
+appShutdown.register({ name: 'demo media records', run: () => wipeDemoMediaRecords() })
 appShutdown.register({ name: 'cloud proxy', run: () => cloudProxy?.close() })
 // After the agent, so the spans its extensions emit while shutting down are
 // still exported. No-op unless a developer opted into Laminar tracing.
@@ -1216,6 +1225,7 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   wireArtifactRunner(settings)
   wireConversations(settings)
   wireAgentSessions(settings)
+  wireMediaRecords(settings)
   wireChatEngine()
   return serviceRegistry
 }
@@ -1234,6 +1244,12 @@ function wireConversations(settings: LocalSettings): void {
 function wireAgentSessions(settings: LocalSettings): void {
   setAgentSessionFileDeps({ isDemoMode: () => settings.isDemoModeEnabled })
   if (settings.isDemoModeEnabled) void wipeDemoAgentSessions()
+}
+
+/** Same demo discipline for generated-media gallery records (step 8, §6.1). */
+function wireMediaRecords(settings: LocalSettings): void {
+  setMediaItemFileDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoMediaRecords()
 }
 
 /**
@@ -2711,6 +2727,47 @@ function initEventHandle() {
       }
     },
   )
+
+  // Generated-media gallery records (step 8, §6.1): same one-writer contract
+  // as the conversations and agent sessions above — one JSON per item plus an
+  // ordered index inside `media/records/`, beside the media files themselves.
+  ipcMain.handle('mediaItems:bootstrap', async () => {
+    try {
+      return await bootstrapMediaItems()
+    } catch (e) {
+      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('mediaItems:migrate', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+    try {
+      if (!Array.isArray(payload)) throw new Error('legacy media items payload must be an array')
+      return await migrateLegacyMediaItems(payload)
+    } catch (e) {
+      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('mediaItems:save', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+    try {
+      if (!Array.isArray(payload)) throw new Error('media items payload must be an array')
+      await saveMediaItems(payload)
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('mediaItems:delete', async (_event: IpcMainInvokeEvent, ids: unknown) => {
+    try {
+      if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) {
+        throw new Error('media item ids payload must be an array of strings')
+      }
+      return await deleteMediaItemRecords(ids)
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
 
   ipcMain.handle(
     'getEmbeddingServerUrl',

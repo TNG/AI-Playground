@@ -804,6 +804,8 @@ before the kernel move or as a small fix.
 
 **Agent sessions** (step 8): `agentMode:bootstrapSessions`, `agentMode:migrateSessions` (one-shot legacy upload from the old Pinia key), `agentMode:saveSession`, `agentMode:saveActiveSessionId` (R→M — session records under `AI-Playground/agent-sessions/`); the record-file delete folds into the existing `agentMode:deleteSession`
 
+**Media gallery records** (step 8): `mediaItems:bootstrap`, `mediaItems:migrate` (idempotent legacy merge-upload), `mediaItems:save`, `mediaItems:delete` (R→M — one JSON per gallery item plus an ordered index under `media/records/`, beside the media files)
+
 **Transcription**: `startTranscriptionServer`, `stopTranscriptionServer`, `getTranscriptionServerUrl`
 
 **Dialogs/files**: `showOpenDialog`, `showSaveDialog`, `showMessageBox`, `existsPath`, `saveImage`
@@ -816,7 +818,7 @@ before the kernel move or as a small fix.
 
 - `textInference` — LLM backend/model selection, RAG config, system prompt, context size, per-preset settings. Deps: `backendServices`, `models`, `dialogs`, `presets`
 - `openAiCompatibleChat` — Vercel AI SDK chat instances, message streaming, tool calling, vision, token tracking. Deps: `textInference`, `conversations`
-- `imageGenerationPresets` — Image/video generation state (prompt, seed, dimensions, batch), ComfyUI dynamic inputs. Deps: `presets`, `comfyUiPresets`, `backendServices`, `ui`, `dialogs`, `i18n`
+- `imageGenerationPresets` — Image/video generation state (prompt, seed, dimensions, batch), ComfyUI dynamic inputs. The generated-media gallery is a live projection of kernel-owned files (`media/records/`, hydrated by `init()` and written through by a debounced flush). Deps: `presets`, `comfyUiPresets`, `backendServices`, `ui`, `dialogs`, `i18n`
 - `comfyUiPresets` — Settings-side ComfyUI store: preset requirement checks, freeing ComfyUI memory (`free`), and the generation-activity bridge. The WebSocket engine moved to main (`electron/artifact/runner.ts`, §8 step 5). Deps: `imageGenerationPresets`, `i18n`, `backendServices`
 - `models` — Model discovery, download checking, HuggingFace integration, path management. Deps: `backendServices`
 - `presets` — Unified preset system with Zod schemas (`chat` + `comfy` types), variants, file I/O. Deps: `backendServices`

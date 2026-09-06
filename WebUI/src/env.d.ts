@@ -487,6 +487,18 @@ type electronAPI = {
       key: string | null,
     ): Promise<{ success: true } | { success: false; error: string }>
   }
+  mediaItems: {
+    bootstrap(): Promise<
+      import('./types/mediaItemIpc').MediaItemsBootstrap | { status: 'error'; error: string }
+    >
+    migrate(
+      items: unknown[],
+    ): Promise<
+      import('./types/mediaItemIpc').MediaItemsBootstrap | { status: 'error'; error: string }
+    >
+    save(items: unknown[]): Promise<{ success: true } | { success: false; error: string }>
+    delete(ids: string[]): Promise<{ success: true } | { success: false; error: string }>
+  }
   startTranscriptionServer(modelName: string): Promise<{ success: boolean; error?: string }>
   stopTranscriptionServer(): Promise<{ success: boolean; error?: string }>
   getTranscriptionServerUrl(): Promise<{ success: boolean; url?: string; error?: string }>

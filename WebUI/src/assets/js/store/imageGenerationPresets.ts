@@ -1,5 +1,5 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { useComfyUiPresets } from './comfyUiPresets'
 import { useDemoMode } from './demoMode'
@@ -452,6 +452,206 @@ export const useImageGenerationPresets = defineStore(
       generatedImages.value = generatedImages.value.map((item) =>
         isInFlight(item) ? { ...item, state } : item,
       )
+    }
+
+    // ── Kernel-owned gallery records (step 8, §6.1) ───────────────────────────
+    // `generatedImages` is a live projection of `media/records/` files: one
+    // JSON per item plus an ordered index, written by the main process. The
+    // pinia persist plugin used to rewrite the whole gallery into localStorage
+    // on every mutation; a debounced deep watch over the array is the faithful
+    // port of that subscription across every mutation shape this store uses
+    // (push/splice/reassign/`length = 0`). Only terminal `done` items are
+    // durable — in-flight items never survived a reload before step 8 either.
+    const MEDIA_LEGACY_KEY = 'imageGenerationPresets'
+    /** Set once `init()` has hydrated (or migrated) — gates every write-through. */
+    const mediaRecordsHydrated = ref(false)
+    let mediaRecordsInitPromise: Promise<void> | null = null
+    const FLUSH_DEBOUNCE_MS = 300
+    let mediaFlushTimer: ReturnType<typeof setTimeout> | null = null
+    let mediaFlushInFlight = false
+    /** id → JSON of what the record files hold; the diff base for save/delete. */
+    const flushedMediaItems = new Map<string, string>()
+
+    function mediaItemJson(item: MediaItem): string {
+      return JSON.stringify(item)
+    }
+
+    function scheduleMediaRecordsFlush(): void {
+      if (!mediaRecordsHydrated.value) return
+      if (mediaFlushTimer) clearTimeout(mediaFlushTimer)
+      mediaFlushTimer = setTimeout(() => {
+        mediaFlushTimer = null
+        void flushMediaRecords()
+      }, FLUSH_DEBOUNCE_MS)
+    }
+
+    async function flushMediaRecords(): Promise<void> {
+      if (!mediaRecordsHydrated.value) return
+      if (mediaFlushInFlight) {
+        // Re-arm instead of overlapping: this flush must diff against the
+        // post-IPC base the in-flight one is about to write.
+        scheduleMediaRecordsFlush()
+        return
+      }
+      const doneItems = generatedImages.value.filter((item) => item.state === 'done')
+      const currentIds = new Set<string>()
+      const changed: MediaItem[] = []
+      for (const item of doneItems) {
+        currentIds.add(item.id)
+        if (flushedMediaItems.get(item.id) !== mediaItemJson(item)) changed.push(item)
+      }
+      const removed = [...flushedMediaItems.keys()].filter((id) => !currentIds.has(id))
+      if (changed.length === 0 && removed.length === 0) return
+      mediaFlushInFlight = true
+      const errorsStore = useErrors()
+      try {
+        if (changed.length > 0) {
+          const result = await window.electronAPI.mediaItems.save(changed)
+          if (result.success) {
+            for (const item of changed) flushedMediaItems.set(item.id, mediaItemJson(item))
+          } else {
+            // The items stay un-flushed, so the next flush retries them.
+            errorsStore.report(new Error(result.error), {
+              category: 'backend',
+              code: 'media-records/save-failed',
+              severity: 'warning',
+              surface: 'silent',
+              technicalMessage: 'the media record file store rejected the write',
+            })
+          }
+        }
+        if (removed.length > 0) {
+          const result = await window.electronAPI.mediaItems.delete(removed)
+          if (result.success) {
+            for (const id of removed) flushedMediaItems.delete(id)
+          } else {
+            errorsStore.report(new Error(result.error), {
+              category: 'backend',
+              code: 'media-records/delete-failed',
+              severity: 'warning',
+              surface: 'silent',
+              technicalMessage: 'the media record file store rejected the delete',
+            })
+          }
+        }
+      } finally {
+        mediaFlushInFlight = false
+      }
+    }
+
+    /** Read the pre-step-8 Pinia payload's gallery, if any, for the one-shot upload. */
+    function readLegacyGeneratedImages(): unknown[] | null {
+      const raw = demoAwareStorage.getItem(MEDIA_LEGACY_KEY)
+      if (!raw) return null
+      try {
+        const parsed = JSON.parse(raw) as { generatedImages?: unknown }
+        if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.generatedImages)) {
+          return null
+        }
+        return parsed.generatedImages.length > 0 ? parsed.generatedImages : null
+      } catch {
+        return null
+      }
+    }
+
+    // The key survives this slice — it still persists per-preset settings — so
+    // the one-shot upload slims the gallery half out of it rather than
+    // dropping the key. A failed upload leaves it in place to retry next boot.
+    function slimLegacyKey(): void {
+      const raw = demoAwareStorage.getItem(MEDIA_LEGACY_KEY)
+      if (!raw) return
+      try {
+        const parsed = JSON.parse(raw) as Record<string, unknown>
+        if (!parsed || typeof parsed !== 'object' || !('generatedImages' in parsed)) return
+        delete parsed.generatedImages
+        demoAwareStorage.setItem(MEDIA_LEGACY_KEY, JSON.stringify(parsed))
+      } catch {
+        // An unparsable payload is best left alone; the plugin overwrites it.
+      }
+    }
+
+    async function init(): Promise<void> {
+      if (mediaRecordsInitPromise) return mediaRecordsInitPromise
+      mediaRecordsInitPromise = (async () => {
+        const errorsStore = useErrors()
+        let bootstrap: Awaited<ReturnType<typeof window.electronAPI.mediaItems.bootstrap>> | null =
+          null
+        let bootstrapError: unknown = null
+        try {
+          bootstrap = await window.electronAPI.mediaItems.bootstrap()
+          const legacy = readLegacyGeneratedImages()
+          if (legacy) {
+            // Merge-migrate (idempotent): it also rescues the case where an
+            // index exists but the legacy upload never ran — a boot whose
+            // bootstrap failed wrote session items to files, which used to
+            // strand the gallery copy in the key.
+            const migrated = await window.electronAPI.mediaItems.migrate(legacy)
+            if (migrated.status === 'ok') {
+              bootstrap = migrated
+              slimLegacyKey()
+            } else if (migrated.status === 'error') {
+              if (bootstrap.status === 'ok') {
+                // The rescue failed; keep the file view, leave the key for the
+                // next boot, but do not lose the failure silently.
+                errorsStore.report(new Error(migrated.error), {
+                  category: 'backend',
+                  code: 'media-records/migrate-failed',
+                  severity: 'warning',
+                  surface: 'silent',
+                  technicalMessage: 'the legacy gallery upload failed; keeping the key to retry',
+                })
+              } else {
+                // Nothing to fall back to — the generic error path reports it.
+                bootstrap = { status: 'error', error: migrated.error }
+              }
+            }
+          } else if (bootstrap.status !== 'error') {
+            slimLegacyKey()
+          }
+        } catch (error) {
+          bootstrap = null
+          bootstrapError = error
+        }
+        if (!bootstrap) {
+          errorsStore.report(bootstrapError ?? new Error('media records bootstrap IPC failed'), {
+            category: 'backend',
+            code: 'media-records/bootstrap-failed',
+            severity: 'warning',
+            surface: 'silent',
+            technicalMessage: 'the record file store did not answer',
+          })
+        } else if (bootstrap.status === 'error') {
+          errorsStore.report(new Error(bootstrap.error), {
+            category: 'backend',
+            code: 'media-records/bootstrap-failed',
+            severity: 'warning',
+            surface: 'silent',
+            technicalMessage: 'the record file store rejected the boot hydration',
+          })
+          bootstrap = null
+        }
+        if (bootstrap && bootstrap.status === 'ok') {
+          generatedImages.value = bootstrap.items
+        }
+        // On a failed bootstrap the gallery keeps whatever the pinia plugin
+        // hydrated from the legacy key (usually nothing) — write-through then
+        // persists it as files, which is the recovery path for a store that
+        // did not answer. The diff base always mirrors the ref as booted.
+        flushedMediaItems.clear()
+        for (const item of generatedImages.value) {
+          if (item.state === 'done') flushedMediaItems.set(item.id, mediaItemJson(item))
+        }
+        mediaRecordsHydrated.value = true
+      })()
+      return mediaRecordsInitPromise
+    }
+
+    const stopMediaRecordsWatch = watch(generatedImages, scheduleMediaRecordsFlush, { deep: true })
+    if (import.meta.hot) {
+      import.meta.hot.dispose(() => {
+        stopMediaRecordsWatch()
+        if (mediaFlushTimer) clearTimeout(mediaFlushTimer)
+      })
     }
 
     function failGeneration(message: string) {
@@ -992,15 +1192,20 @@ export const useImageGenerationPresets = defineStore(
       requiresUserPrompt,
       loadSettingsForActivePreset,
       copyImageAsInputForMode,
+      init,
+      mediaRecordsHydrated,
     }
   },
   {
     persist: {
       storage: demoAwareStorage,
       debug: true,
-      pick: ['settingsPerPreset', 'comfyInputsPerPreset', 'generatedImages'],
+      // `generatedImages` is NOT persisted here anymore: the gallery is a
+      // live projection of kernel-owned files (media/records/, step 8 §6.1)
+      // hydrated by `init()` and written through by the debounced flush.
+      pick: ['settingsPerPreset', 'comfyInputsPerPreset'],
       serializer: {
-        // Custom serializer to filter out large data URIs and incomplete images from persistence
+        // Custom serializer to filter out large data URIs from persistence
         serialize: (state) => {
           if (!state.comfyInputsPerPreset) return JSON.stringify(state)
           const comfyInputsPerPreset = state.comfyInputsPerPreset as Record<
@@ -1010,9 +1215,9 @@ export const useImageGenerationPresets = defineStore(
 
           // `comfyUiPresets.queueBatch` snapshots each `comfyInputs[i].current.value`
           // into `MediaItem.dynamicSettings[].current`. Inpaint mask / outpaint
-          // composite data URIs would inflate `generatedImages` past the
-          // localStorage quota — keep them in memory but scrub the persisted copy.
-          // Shared with the `comfyInputsPerPreset` loop below so both stay in sync.
+          // composite data URIs would inflate the persisted per-preset inputs
+          // past the localStorage quota — keep them in memory but scrub the
+          // persisted copy.
           const isPersistableDataUri = (v: unknown): v is string =>
             typeof v === 'string' && (v.startsWith('data:image/') || v.startsWith('data:video/'))
 
@@ -1025,23 +1230,9 @@ export const useImageGenerationPresets = defineStore(
             }
             filteredInputs[presetName] = filtered
           }
-          const sanitizeDynamicSettings = (img: MediaItem): MediaItem => {
-            if (!img.dynamicSettings) return img
-            const dynamicSettings = img.dynamicSettings.map((s) =>
-              isPersistableDataUri(s.current) ? { ...s, current: '' as never } : s,
-            )
-            return { ...img, dynamicSettings }
-          }
-          const imagesToPersist = Array.isArray(state.generatedImages)
-            ? state.generatedImages
-                .filter((img) => img && img.state === 'done')
-                .toSorted((a: MediaItem, b: MediaItem) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
-                .map(sanitizeDynamicSettings)
-            : state.generatedImages
           return JSON.stringify({
             ...state,
             comfyInputsPerPreset: filteredInputs,
-            generatedImages: imagesToPersist,
           })
         },
         deserialize: (value) => JSON.parse(value),

@@ -1,8 +1,8 @@
 # Target architecture — capabilities, drivers, state ownership
 
-**Status: steps 1–8 of the migration order (§8) have three slices landed (conversations,
-agent-session files, and generated-media records as kernel-owned stores, `userSelectedMode`
-deleted); remaining §6 buckets are incremental.**
+**Status: steps 1–8 of the migration order (§8) have four slices landed (conversations,
+agent-session files, generated-media records, and user preferences as kernel-owned stores,
+`userSelectedMode` deleted); remaining §6 buckets are incremental.**
 Media generation is owned by the main-process Artifact runner; speech drivers go through `speechIO`;
 inference/download consent through Permissions; main→renderer notifications through one kernel
 event stream (`kernel:event`) with a listener-first snapshot handshake; chat turns run in main
@@ -66,10 +66,11 @@ and a capture-source pick. `backendServices` persists `lastSelectedDeviceIdPerBa
 `settings.json` separately persists `lastSelectedDevicePerBackend`: the same fact in two stores with
 two owners.
 
-**App data lives in the renderer's localStorage.** Conversations, agent-session records and the
-generated-media gallery moved to kernel-owned files with step 8; what still persists in the
-renderer is user preference and last-used state (`imageGenerationPresets` keeps its per-preset
-settings with a serializer that strips data URIs to stay under the localStorage quota).
+**App data lives in the renderer's localStorage.** Conversations, agent-session records, the
+generated-media gallery and five preference stores (theme, developerSettings, modelPreferences,
+textToSpeech, qwen3TextToSpeech) moved to kernel-owned files with step 8; what still persists
+in the renderer is last-used / per-preset state (`imageGenerationPresets` keeps its settings
+maps with a serializer that strips data URIs to stay under the localStorage quota).
 
 **Home Agent needs the whole renderer graph.** `store/homeAgent.ts` imports chat, image generation,
 prompt area, preset switching, confirmations, dialogs, TTS and STT. A Telegram message only works
@@ -739,17 +740,19 @@ AI-Playground/
     index.json            # id, title, preset, mtime — cheap to list
     <id>.json             # one thread, schemaVersion inside
   agent-sessions/         # same idea; Pi's own files can stay as they are
+  preferences.json        # theme, dev toggles, favorites, voices (step 8)
 ```
 
-(Landed with step 8: `conversations/`, `agent-sessions/` and `media/records/` — the generated
-gallery lives beside the media files it references — written by `electron/conversations/
-conversationFiles.ts`, `electron/agentMode/agentSessionFiles.ts` and
-`electron/media/mediaItemFiles.ts`. The agent-session index also carries `activeSessionId`;
-Pi's own session files are untouched.)
+(Landed with step 8: `conversations/`, `agent-sessions/`, `media/records/` and
+`preferences.json` — written by `electron/conversations/conversationFiles.ts`,
+`electron/agentMode/agentSessionFiles.ts`, `electron/media/mediaItemFiles.ts` and
+`electron/preferences/preferencesFile.ts`. The agent-session index also carries
+`activeSessionId`; Pi's own session files are untouched.)
 
-User preferences that a human would want in a backup (`defaultPreset`, theme, per-preset knobs)
-can live as `AI-Playground/preferences.json`. Things a restore onto a different PC should not
-blindly apply (device ids, disabled backends) stay in `userData`.
+User preferences that a human would want in a backup live as `AI-Playground/preferences.json`
+(theme, developer toggles, model favorites, TTS voices landed; `defaultPreset` and per-preset
+knobs still wait). Things a restore onto a different PC should not blindly apply (device ids,
+disabled backends) stay in `userData`.
 
 **Performance — the current store is the thing to beat, not SQLite.** Pinia persist rewrites the
 entire `conversationList` into one localStorage key on every message. One file per conversation,
@@ -908,7 +911,7 @@ projection boundary complete. Snapshot hydration and Artifact readiness landed w
 IPC delta coalescing landed with step 6, the single queue and GPU policy with step 7.
 Conversation files and the `userSelectedMode` deletion landed with step 8's first slice;
 agent-session records landed with the second; generated-media records (`media/records/`)
-landed with the third.
+landed with the third; user preferences (`preferences.json`) landed with the fourth.
 
 ### 8.1 Transition cost and per-step obligations
 
@@ -1136,7 +1139,9 @@ small fix on this branch) can pick them up instead of rediscovering them.
 - **Main reads preferences from its own file now.** The DevTools-on-startup check used to
   `executeJavaScript` into the renderer's localStorage for `developerSettings`; it reads
   `preferences.json` via the same file store the IPC serves (demo-routing included), so the
-  decision works before any renderer code runs and the localStorage scrape is gone.
+  decision no longer depends on the renderer having written a Pinia key. The check still
+  waits for `did-finish-load` plus 500 ms — leftover timing from the scrape, not a file-store
+  requirement.
 - **Remaining §6 buckets** (for the next slices): the per-preset knobs half of
   `preferences.json` (textInference / imageGenerationPresets settings maps, the presets
   variant picks) and the `defaultPreset` preference, backend launch flags
@@ -1147,8 +1152,9 @@ small fix on this branch) can pick them up instead of rediscovering them.
   filter; that restore was never wired. Do not treat a missing restore as a regression of this
   slice — wire it when the filter actually needs it.
 - **`writeChains` is never pruned.** Each conversation, agent-session, or media-record id (plus
-  `index`) keeps the tail of its serialize promise in a Map for the process lifetime. Harmless
-  at current counts; drop settled entries if a long-lived session accumulates thousands of ids.
+  `index`) keeps the tail of its serialize promise in a Map for the process lifetime; the
+  preferences file uses one `file` chain for the whole document. Harmless at current counts;
+  drop settled entries if a long-lived session accumulates thousands of ids.
 - **Conversations and agent-session migrate still refuse a pre-existing index.** The media
   gallery merge is the rescue those slices do not have: a boot whose bootstrap failed can write
   session items to files while the legacy copy stays stranded in localStorage, and a later

@@ -140,7 +140,20 @@ describe('file-backed preferences', () => {
     expect(errorsReport.mock.calls[0][1]).toMatchObject({ code: 'preferences/migrate-failed' })
   })
 
-  it('boots defaults and does not touch the legacy key when the read fails', async () => {
+  it('reports a thrown migrate after a successful read and keeps the leftover key', async () => {
+    storage.data.set('theme', JSON.stringify({ selected: 'bmg' }))
+    preferencesApi.migrate.mockImplementation(async () => {
+      throw new Error('no handler')
+    })
+    const { prefs, selected } = makeHarness('theme')
+    await prefs.init()
+    expect(selected.value).toBe('bmg')
+    expect(storage.data.has('theme')).toBe(true)
+    expect(errorsReport).toHaveBeenCalledTimes(1)
+    expect(errorsReport.mock.calls[0][1]).toMatchObject({ code: 'preferences/migrate-failed' })
+  })
+
+  it('boots defaults and does not touch the leftover key when the read fails', async () => {
     storage.data.set('theme', JSON.stringify({ selected: 'bmg' }))
     preferencesApi.read.mockImplementation(async () => {
       throw new Error('no answer')

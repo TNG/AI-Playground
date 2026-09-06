@@ -175,8 +175,16 @@ export function makeFileBackedPreference(options: {
                   technicalMessage: `the '${section}' legacy upload failed; keeping the key to retry`,
                 })
               }
-            } catch {
-              // Store did not answer at all — reported by the read above.
+            } catch (error) {
+              // Read succeeded; a thrown migrate is a different failure and
+              // must not stay silent — the leftover key is kept to retry.
+              errorsStore.report(error, {
+                category: 'backend',
+                code: 'preferences/migrate-failed',
+                severity: 'warning',
+                surface: 'silent',
+                technicalMessage: `the '${section}' legacy upload failed; keeping the key to retry`,
+              })
             }
           } else {
             // No payload worth keeping: the key is stale, and it can never

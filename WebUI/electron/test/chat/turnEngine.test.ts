@@ -21,7 +21,12 @@ const {
   resetChatEngineDepsForTest,
 } = await import('../../chat/turnEngine')
 const { setChatModelDeps, resetChatModelDepsForTest } = await import('../../chat/chatModelMain')
-const { resetChatReadinessForTest, setChatReadinessDeps } = await import('../../chat/chatReadiness')
+const {
+  resetChatReadinessForTest,
+  setChatReadinessDeps,
+  ensureChatBackendReady,
+  reloadLastChatBackend,
+} = await import('../../chat/chatReadiness')
 const { setKernelEventWindow, resetKernelBusForTest, onKernelEvent } =
   await import('../../kernel/kernelBus')
 const { handleChatToolResult, resetChatToolBridgeForTest } = await import('../../chat/toolBridge')
@@ -285,6 +290,42 @@ describe('turn engine', () => {
       undefined,
       undefined,
     )
+  })
+
+  it('disarms last-load swap-back on a cloud turn without forgetting the snapshot', async () => {
+    const ensureBackendReadiness = vi.fn(async () => {})
+    setChatReadinessDeps({
+      getService: () => ({ ensureBackendReadiness, baseUrl: 'http://127.0.0.1:39101' }),
+      awaitChatWindow: vi.fn(async () => {}),
+      stopOvmsImageServer: vi.fn(async () => {}),
+      notifyHomeAgentUpstreamReady: vi.fn(),
+    })
+    await ensureChatBackendReady({
+      serviceName: 'llamacpp-backend',
+      llmModelName: 'test/model.gguf',
+    })
+    queueFetchMock(sse(textChunks('ok')))
+    const { turnId } = submitChatTurn({
+      ...turnRequest(),
+      model: {
+        backend: 'cloud',
+        modelId: 'gpt-4o',
+        baseUrl: 'http://127.0.0.1:39101',
+      },
+    })
+    await waitForTurnDone(turnId)
+
+    ensureBackendReadiness.mockClear()
+    await reloadLastChatBackend()
+    expect(ensureBackendReadiness).not.toHaveBeenCalled()
+
+    await ensureChatBackendReady({
+      serviceName: 'llamacpp-backend',
+      llmModelName: 'test/model.gguf',
+    })
+    ensureBackendReadiness.mockClear()
+    await reloadLastChatBackend()
+    expect(ensureBackendReadiness).toHaveBeenCalledTimes(1)
   })
 
   it('carries model + llama.cpp timings into message metadata', async () => {

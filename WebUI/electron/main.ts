@@ -148,7 +148,9 @@ import {
   ensureChatBackendReady,
   reloadLastChatBackend,
   setChatReadinessDeps,
+  setLastChatBackendLoadActive,
 } from './chat/chatReadiness'
+import { piAgentCallsActive } from './agentMode/piCallTiming'
 import { freeMemoryAndUnloadModels } from './artifact/comfyClient'
 import { getPresetCatalog } from './artifact/catalog'
 import {
@@ -1426,7 +1428,7 @@ function wireArtifactRunner(settings: LocalSettings): void {
       })
     },
     restartChatBackend: reloadLastChatBackend,
-    chatRequestsOpen: () => chatInferenceStreamsActive(),
+    chatRequestsOpen: () => chatInferenceStreamsActive() + piAgentCallsActive(),
   })
 }
 
@@ -2555,6 +2557,7 @@ function initEventHandle() {
       contextSize?: number,
       modelArgs?: string,
       keepModelsLoaded?: boolean,
+      options?: { remember?: boolean },
     ) => {
       if (!serviceRegistry) {
         appLogger.warn(
@@ -2569,7 +2572,10 @@ function initEventHandle() {
           { serviceName, llmModelName, embeddingModelName, contextSize, modelArgs },
           // 6th IPC arg is the renderer's stopImageServer, misnamed here.
           // Preserve the inverted gate: a truthy 6th arg skips GPU admission.
-          { skipGpuAdmission: Boolean(keepModelsLoaded) },
+          {
+            skipGpuAdmission: Boolean(keepModelsLoaded),
+            remember: options?.remember,
+          },
         )
         return { success: true }
       } catch (error) {
@@ -2582,6 +2588,11 @@ function initEventHandle() {
       }
     },
   )
+
+  ipcMain.handle('setLastChatBackendLoadActive', (_event: IpcMainInvokeEvent, active: boolean) => {
+    setLastChatBackendLoadActive(Boolean(active))
+    return { success: true }
+  })
 
   ipcMain.handle('ensureComfyUIBackendRunning', async () => {
     if (!serviceRegistry) {

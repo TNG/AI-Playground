@@ -1094,20 +1094,12 @@ small fix on this branch) can pick them up instead of rediscovering them.
   IPC-loads from Pinia first; the IPC 6th argument is still inverted (`stopImageServer` sent,
   `keepModelsLoaded` read) — preserved on that wrapper; `runChatTurn` / reload use explicit
   `skipGpuAdmission`. Swap-back is silent (no "Reloading chat model…" activity).
-- **Last-load is not live Pinia.** Swap-back restores the last successful
-  `ensureChatBackendReady`, not the dropdown/backend the user has selected since. The old
-  renderer reload re-read `textInference`. Concrete misses: switching to cloud after a local
-  chat puts the local LLM back after Image Gen; Home Agent `/load` summarization loads the HA
-  model (and remembers it) then restores Pinia without loading the user's model, so a later
-  swap-back brings the HA model back. Do not auto-clear on preset switch — a CLI has no Pinia.
-  An explicit `remember: false` (or a cloud/clear IPC) is the next policy slice if those
-  transients matter.
-- **Pi agent HTTP is invisible to the GPU idle wait.** `chatRequestsOpen` counts AI SDK
-  streams in `chatModelMain` (chat turns, media specialist, summarize). A Pi agent step uses
-  its own fetch (`piCallTiming` observes it for traces, nothing increments the counter), so
-  a panel Image Gen can stop llama-server mid-agent-token. The 120s wait only helps SDK
-  callers. Count Pi in-flight calls the same way, or admit agent turns through the same
-  gate, if a Game Agent run overlapping Image Gen starts losing steps.
+- **Last-load is the last successful local load, not the dropdown.** Switching model in settings
+  without a turn still swap-backs the previous load. Cloud is the exception:
+  `setLastChatBackendLoadActive(false)` (renderer watch on `textInference.backend`, and a cloud
+  `runChatTurn`) skips reload without forgetting the snapshot, so switching back to local can
+  still restore it. Home Agent `/load` summarization passes `remember: false` so it cannot
+  overwrite the snapshot. Do not auto-clear on preset switch — a CLI has no Pinia.
 - **`queue-event` is transient, not snapshotted** — a renderer that reloads mid-queue loses the
   parked activities' labels (their own `enqueued`→`started` lifecycles rebuild from the
   activities the tools registered). Harmless for now; snapshot it if a reload ever lands

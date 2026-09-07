@@ -34,7 +34,7 @@ import {
 } from '../kernel/kernelBus'
 import { listMcpServers, getMcpServerStatus } from '../subprocesses/mcpManager'
 import { createMainChatModel } from './chatModelMain'
-import { ensureChatBackendReady } from './chatReadiness'
+import { ensureChatBackendReady, setLastChatBackendLoadActive } from './chatReadiness'
 import { abortTurnToolRequests, executeToolInRenderer } from './toolBridge'
 
 // ── Main-side chat turn engine (docs/architecture-target.md §7, step 6) ──────
@@ -505,7 +505,9 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
     // deps seam was wired.
     engineDeps?.noteTraceContext?.((config.trace as Record<string, unknown> | undefined) ?? null)
 
-    if (config.readiness) {
+    if (config.backend === 'cloud') {
+      setLastChatBackendLoadActive(false)
+    } else if (config.readiness) {
       await ensureChatBackendReady(config.readiness, { abortSignal: turn.controller.signal })
     }
 

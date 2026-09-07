@@ -440,7 +440,9 @@ type electronAPI = {
     contextSize?: number,
     modelArgs?: string,
     stopImageServer?: boolean,
+    options?: { remember?: boolean },
   ): Promise<{ success: boolean; error?: string }>
+  setLastChatBackendLoadActive(active: boolean): Promise<{ success: boolean }>
   ensureComfyUIBackendRunning(): Promise<{
     success: boolean
     error?: string

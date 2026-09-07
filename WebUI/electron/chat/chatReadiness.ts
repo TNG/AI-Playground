@@ -10,6 +10,12 @@ import type { ChatModelConfig } from '@/types/chatIpc'
 // Successful loads remember their args here. Swap-back reloads that snapshot
 // in-process. Which model to load still arrives as data (IPC args or the turn's
 // `readiness`); download consent stays renderer-side.
+//
+// Transient loads (Home Agent summarizer) pass remember: false so they cannot
+// overwrite the snapshot a later swap-back would restore. Cloud disarms the
+// snapshot without forgetting it (`setLastChatBackendLoadActive`) so Image Gen
+// while on cloud does not bring a local LLM back, and switching back to local
+// can still reload the last one.
 
 const appLogger = appLoggerInstance
 
@@ -18,6 +24,7 @@ export type ChatReadinessArgs = NonNullable<ChatModelConfig['readiness']>
 export type EnsureChatBackendReadyOptions = {
   skipGpuAdmission?: boolean
   abortSignal?: AbortSignal
+  remember?: boolean
 }
 
 export type ChatBackendHandle = {
@@ -39,6 +46,7 @@ export type ChatReadinessDeps = {
 
 let deps: ChatReadinessDeps | null = null
 let lastLoad: ChatReadinessArgs | null = null
+let lastLoadActive = true
 
 export function setChatReadinessDeps(next: ChatReadinessDeps): void {
   deps = next
@@ -47,10 +55,19 @@ export function setChatReadinessDeps(next: ChatReadinessDeps): void {
 export function resetChatReadinessForTest(): void {
   deps = null
   lastLoad = null
+  lastLoadActive = true
 }
 
 export function lastChatBackendLoadForTest(): ChatReadinessArgs | null {
   return lastLoad
+}
+
+export function lastChatBackendLoadActiveForTest(): boolean {
+  return lastLoadActive
+}
+
+export function setLastChatBackendLoadActive(active: boolean): void {
+  lastLoadActive = active
 }
 
 function requireDeps(): ChatReadinessDeps {
@@ -93,7 +110,10 @@ export async function ensureChatBackendReady(
     args.contextSize,
     args.modelArgs,
   )
-  lastLoad = { ...args }
+  if (options?.remember !== false) {
+    lastLoad = { ...args }
+    lastLoadActive = true
+  }
   d.notifyHomeAgentUpstreamReady(service.baseUrl ?? '')
   appLogger.info(
     `Backend ${args.serviceName} ready for LLM: ${args.llmModelName}, ` +
@@ -103,7 +123,7 @@ export async function ensureChatBackendReady(
 }
 
 export async function reloadLastChatBackend(): Promise<void> {
-  if (!lastLoad) return
+  if (!lastLoad || !lastLoadActive) return
   // Swap-back already set gpuWindow to 'chat' and is running inside
   // swapBackInFlight; awaiting the window here deadlocks until the 5-minute bound.
   await ensureChatBackendReady(lastLoad, { skipGpuAdmission: true })

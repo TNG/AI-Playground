@@ -162,6 +162,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     contextSize?: number,
     modelArgs?: string,
     stopImageServer?: boolean,
+    options?: { remember?: boolean },
   ) =>
     ipcRenderer.invoke(
       'ensureBackendReadiness',
@@ -171,7 +172,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       contextSize,
       modelArgs,
       stopImageServer,
+      options,
     ),
+  setLastChatBackendLoadActive: (active: boolean) =>
+    ipcRenderer.invoke('setLastChatBackendLoadActive', active),
   ensureComfyUIBackendRunning: () => ipcRenderer.invoke('ensureComfyUIBackendRunning'),
   artifact: {
     run: (

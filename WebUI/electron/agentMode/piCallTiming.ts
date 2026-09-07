@@ -1,23 +1,15 @@
 import { appLoggerInstance } from '../logging/logger.ts'
 import { recordAgentCallStats, type InferenceCallStats } from '../laminarAttributes.ts'
 
-// ── How fast an agent step actually ran ──────────────────────────────────────
+// ── Agent-model HTTP: occupancy + optional timings ───────────────────────────
 //
-// Pi hands its extensions the assembled request (`before_provider_request`) and
-// the response *headers* (`after_provider_response`), but never the body, and
-// pi-ai's assistant message keeps only token counts — so nothing in the agent
-// stack can say how long prefill took or how much of the prompt the server's
-// cache served. The one place those numbers pass through is the HTTP response
-// itself: llama.cpp puts a `timings` object on its final SSE chunk, and every
-// OpenAI-compatible server puts `usage` there.
+// Pi talks to the LLM with its own fetch, not the AI SDK wrapper in
+// chatModelMain, so the GPU idle wait would otherwise stop llama-server
+// mid-token. This wrapper counts matching local calls from dispatch until the
+// body is drained (same lifetime as chatInferenceStreamsActive).
 //
-// So the response stream is observed on its way past — only for the endpoint
-// the current agent model is registered at, so the cloud proxy forwarding a
-// *chat* turn (also a `/chat/completions` call out of this process) is never
-// mistaken for an agent step. Only the tail of the stream is kept, and it is
-// parsed once, at the end.
-//
-// Off unless tracing is on: nothing installs this otherwise.
+// Timings stay opt-in: Laminar's observer is layered on the same wrapper and
+// still ignores the cloud proxy forwarding a *chat* turn.
 
 const logger = appLoggerInstance
 const LOG_SOURCE = 'laminar'
@@ -26,7 +18,24 @@ const LOG_SOURCE = 'laminar'
 const TAIL_LIMIT = 16_384
 
 let installed = false
-let agentEndpoint: (() => string) | null = null
+let innerFetch: typeof fetch | null = null
+let occupancyEndpoint: (() => string) | null = null
+let timingsEndpoint: (() => string) | null = null
+let timingsEnabled = false
+let activeCalls = 0
+
+export function piAgentCallsActive(): number {
+  return activeCalls
+}
+
+/**
+ * Count in-flight Pi calls to this local endpoint toward the GPU idle wait.
+ * Idempotent; a later call re-points it at the model the next session runs on.
+ */
+export function trackAgentModelCalls(endpoint: () => string): void {
+  occupancyEndpoint = endpoint
+  install()
+}
 
 /**
  * Watch model calls to the agent's registered provider endpoint and report each
@@ -39,24 +48,63 @@ let agentEndpoint: (() => string) | null = null
  * after the relaunch would lose its speeds.
  */
 export function observeAgentModelCalls(endpoint: () => string): void {
-  agentEndpoint = endpoint
+  timingsEndpoint = endpoint
+  timingsEnabled = true
+  install()
+}
+
+export function resetAgentModelCallTrackingForTest(): void {
+  if (innerFetch) {
+    globalThis.fetch = innerFetch
+    innerFetch = null
+  }
+  installed = false
+  occupancyEndpoint = null
+  timingsEndpoint = null
+  timingsEnabled = false
+  activeCalls = 0
+}
+
+function matches(endpoint: (() => string) | null, url: string): boolean {
+  const prefix = endpoint?.().replace(/\/+$/, '')
+  return Boolean(prefix && url.startsWith(prefix))
+}
+
+function beginOccupancy(): void {
+  activeCalls++
+}
+
+function endOccupancy(): void {
+  if (activeCalls > 0) activeCalls--
+}
+
+function install(): void {
   if (installed) return
   installed = true
-  const original = globalThis.fetch
+  innerFetch = globalThis.fetch
+  const original = innerFetch
   globalThis.fetch = async (input, init) => {
-    // Before the call: a streaming server answers with headers as soon as it
-    // has the first token, so timing from the resolved response would put
-    // prefill at ~0 ms and report an absurd prefill rate.
+    const url = requestUrl(input)
+    const occupancy = matches(occupancyEndpoint, url)
+    const timings = timingsEnabled && matches(timingsEndpoint, url)
+    if (!occupancy && !timings) return original(input, init)
+
+    if (occupancy) beginOccupancy()
     const startedAt = Date.now()
-    const response = await original(input, init)
     try {
-      const prefix = agentEndpoint?.().replace(/\/+$/, '')
-      if (!prefix || !response.ok || !response.body) return response
-      if (!requestUrl(input).startsWith(prefix)) return response
-      return observe(response, startedAt)
+      const response = await original(input, init)
+      try {
+        const timeThis = timings && response.ok && Boolean(response.body)
+        if (!occupancy && !timeThis) return response
+        return wrapAgentResponse(response, { occupancy, timings: timeThis, startedAt })
+      } catch (error) {
+        logger.warn(`could not observe a model call: ${error}`, LOG_SOURCE)
+        if (occupancy) endOccupancy()
+        return response
+      }
     } catch (error) {
-      logger.warn(`could not observe a model call: ${error}`, LOG_SOURCE)
-      return response
+      if (occupancy) endOccupancy()
+      throw error
     }
   }
 }
@@ -67,25 +115,53 @@ function requestUrl(input: Parameters<typeof fetch>[0]): string {
   return input.url
 }
 
-/** Pass the body through untouched, keeping only its tail and two timestamps. */
-function observe(response: Response, startedAt: number): Response {
+function wrapAgentResponse(
+  response: Response,
+  opts: { occupancy: boolean; timings: boolean; startedAt: number },
+): Response {
+  if (!response.body) {
+    if (opts.occupancy) endOccupancy()
+    return response
+  }
+  let settled = false
+  const settle = () => {
+    if (settled) return
+    settled = true
+    if (opts.occupancy) endOccupancy()
+  }
   let firstChunkAt = 0
   let tail = ''
   const decoder = new TextDecoder()
-  const body = response.body!.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        controller.enqueue(chunk)
+  const reader = response.body.getReader()
+  const tracked = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read()
+        if (done) {
+          if (opts.timings) {
+            const stats = summarize(tail, opts.startedAt, firstChunkAt, Date.now())
+            if (stats) recordAgentCallStats(stats)
+          }
+          settle()
+          controller.close()
+          return
+        }
         if (!firstChunkAt) firstChunkAt = Date.now()
-        tail = (tail + decoder.decode(chunk, { stream: true })).slice(-TAIL_LIMIT)
-      },
-      flush() {
-        const stats = summarize(tail, startedAt, firstChunkAt, Date.now())
-        if (stats) recordAgentCallStats(stats)
-      },
-    }),
-  )
-  return new Response(body, {
+        if (opts.timings && value) {
+          tail = (tail + decoder.decode(value, { stream: true })).slice(-TAIL_LIMIT)
+        }
+        if (value) controller.enqueue(value)
+      } catch (error) {
+        settle()
+        controller.error(error)
+      }
+    },
+    cancel(reason) {
+      settle()
+      return reader.cancel(reason)
+    },
+  })
+  return new Response(tracked, {
     status: response.status,
     statusText: response.statusText,
     headers: response.headers,

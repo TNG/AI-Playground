@@ -184,8 +184,10 @@ flowchart TB
 
 Chat turns do **not** enter the artifact queue. They are concurrent by conversation. Their
 backend load (`chatReadiness`) is admitted through the orchestrator so a load cannot OOM against an
-active ComfyUI run. Swap-back reloads the last successful load in-process (no renderer RPC). Nested
-media from a chat/agent tool *does* take the GPU window.
+active ComfyUI run. Swap-back reloads the last successful remembered load in-process (no renderer
+RPC); cloud disarms that reload without forgetting the snapshot. Nested media from a chat/agent
+tool *does* take the GPU window. The GPU idle wait counts AI SDK streams and in-flight Pi agent
+HTTP.
 
 ---
 
@@ -318,7 +320,7 @@ sequenceDiagram
   Bus->>IG: projection updates items
   Art-->>Orch: result
   Orch->>Ready: reloadLastChatBackend (skip GPU admit)
-  Note over Ready: last successful ensure, not live Pinia selection
+  Note over Ready: last remembered local load; cloud disarms swap-back
   IG->>Media: mediaItems.save(done items)
   Note over IG,Media: same Proxy/structured-clone trap as conversations.save
 ```

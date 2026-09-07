@@ -6,10 +6,12 @@ vi.mock('../../logging/logger.ts', () => ({
 
 const {
   ensureChatBackendReady,
+  lastChatBackendLoadActiveForTest,
   lastChatBackendLoadForTest,
   reloadLastChatBackend,
   resetChatReadinessForTest,
   setChatReadinessDeps,
+  setLastChatBackendLoadActive,
 } = await import('../../chat/chatReadiness')
 
 function wire(overrides: Record<string, unknown> = {}) {
@@ -135,5 +137,57 @@ describe('chatReadiness', () => {
     })
     expect(d.awaitChatWindow).not.toHaveBeenCalled()
     expect(d.ensureBackendReadiness).toHaveBeenCalledTimes(1)
+  })
+
+  it('remember: false loads without replacing the swap-back snapshot', async () => {
+    const d = wire()
+    await ensureChatBackendReady(loadArgs)
+    d.ensureBackendReadiness.mockClear()
+
+    await ensureChatBackendReady(
+      { ...loadArgs, llmModelName: 'home-agent-model' },
+      { remember: false },
+    )
+
+    expect(d.ensureBackendReadiness).toHaveBeenCalledWith(
+      'home-agent-model',
+      'bge',
+      8192,
+      '--jinja',
+    )
+    expect(lastChatBackendLoadForTest()?.llmModelName).toBe('Qwen3-9B')
+  })
+
+  it('reload is a no-op while last-load is disarmed, then resumes the snapshot', async () => {
+    const d = wire()
+    await ensureChatBackendReady(loadArgs)
+    setLastChatBackendLoadActive(false)
+    expect(lastChatBackendLoadActiveForTest()).toBe(false)
+    d.ensureBackendReadiness.mockClear()
+
+    await reloadLastChatBackend()
+    expect(d.ensureBackendReadiness).not.toHaveBeenCalled()
+    expect(lastChatBackendLoadForTest()?.llmModelName).toBe('Qwen3-9B')
+
+    setLastChatBackendLoadActive(true)
+    await reloadLastChatBackend()
+    expect(d.ensureBackendReadiness).toHaveBeenCalledWith('Qwen3-9B', 'bge', 8192, '--jinja')
+  })
+
+  it('a remembered load re-arms swap-back after a cloud disarm', async () => {
+    const d = wire()
+    await ensureChatBackendReady(loadArgs)
+    setLastChatBackendLoadActive(false)
+    d.ensureBackendReadiness.mockClear()
+
+    await ensureChatBackendReady({ ...loadArgs, llmModelName: 'LFM2.5' })
+
+    expect(lastChatBackendLoadActiveForTest()).toBe(true)
+    expect(lastChatBackendLoadForTest()?.llmModelName).toBe('LFM2.5')
+    d.awaitChatWindow.mockClear()
+    d.ensureBackendReadiness.mockClear()
+    await reloadLastChatBackend()
+    expect(d.awaitChatWindow).not.toHaveBeenCalled()
+    expect(d.ensureBackendReadiness).toHaveBeenCalledWith('LFM2.5', 'bge', 8192, '--jinja')
   })
 })

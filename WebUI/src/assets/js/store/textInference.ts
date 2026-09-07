@@ -191,6 +191,18 @@ export const useTextInference = defineStore(
     // start/completeBackendPreparation).
     let backendPrepActivityId: string | null = null
     const backend = ref<LlmBackend>('llamaCPP')
+    watch(
+      backend,
+      (next) => {
+        if (typeof window === 'undefined') return
+        const arm = window.electronAPI?.setLastChatBackendLoadActive
+        if (!arm) return
+        void arm(next !== 'cloud').catch((error: unknown) => {
+          console.warn('Could not update last-chat-load arming:', error)
+        })
+      },
+      { immediate: true },
+    )
     const ragList = ref<IndexedDocument[]>([])
     const defaultSystemPrompt = `You are a helpful AI assistant embedded in an application called AI Playground, developed by Intel.
       You assist users by answering questions and providing information based on your training data and any additional context provided.`
@@ -1545,7 +1557,7 @@ export const useTextInference = defineStore(
       backendReadinessState.lastUsedContextSize[currentBackend] = contextSize.value
     }
 
-    async function ensureBackendReadiness(): Promise<void> {
+    async function ensureBackendReadiness(options?: { remember?: boolean }): Promise<void> {
       // Cloud Mode has no local subprocess and no model to (re)load — the
       // remote provider is always "ready".
       if (backend.value === 'cloud') return
@@ -1577,6 +1589,7 @@ export const useTextInference = defineStore(
             // command line and ignores them.
             backend.value === 'llamaCPP' ? activeLlmModel.value?.llamaCppArgs : undefined,
             !developerSettings.keepModelsLoaded,
+            options,
           )
         } catch (error) {
           // Surface model-load failures (e.g. out of memory for the chosen
@@ -1645,7 +1658,7 @@ export const useTextInference = defineStore(
       }
     }
 
-    async function prepareBackendIfNeeded() {
+    async function prepareBackendIfNeeded(options?: { remember?: boolean }) {
       console.log('in prepareBackendIfNeeded')
 
       // Cloud Mode: the chat LLM is remote — nothing to start, load, or
@@ -1661,7 +1674,7 @@ export const useTextInference = defineStore(
       if (backend.value === 'llamaCPP' || backend.value === 'openVINO') {
         startBackendPreparation()
         try {
-          await ensureBackendReadiness()
+          await ensureBackendReadiness(options)
           completeBackendPreparation()
         } catch (error) {
           completeBackendPreparation() // Reset state on error
@@ -1677,14 +1690,14 @@ export const useTextInference = defineStore(
       }
     }
 
-    async function ensureReadyForInference() {
+    async function ensureReadyForInference(options?: { remember?: boolean }) {
       // Cloud Mode has no local backend to prepare, but the loopback proxy URL
       // must be resolved before the first request (it backs currentBackendUrl).
       if (backend.value === 'cloud') {
         await cloudMode.ensureProxyUrl()
       }
       await checkModelAvailability()
-      await prepareBackendIfNeeded()
+      await prepareBackendIfNeeded(options)
     }
 
     // ========================================================================

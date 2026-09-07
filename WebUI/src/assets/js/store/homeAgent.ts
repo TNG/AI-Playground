@@ -1068,6 +1068,8 @@ export const useHomeAgent = defineStore(
      * Pin the live preset/backend to Home Agent and prep inference so the
      * summarizer uses the bundled Home Agent model. Returns `false` and
      * replies to the active channel with an error if readiness fails.
+     * `remember: false` so this transient load cannot become the GPU swap-back
+     * snapshot — Pinia is restored afterwards without reloading the user's model.
      */
     async function ensureSummarizerReady(
       adapter: ChannelAdapter,
@@ -1083,7 +1085,7 @@ export const useHomeAgent = defineStore(
         : null
       textInference.applyPresetToGlobals(HOME_AGENT_CHAT_PRESET_NAME, null)
       try {
-        await textInference.ensureReadyForInference()
+        await textInference.ensureReadyForInference({ remember: false })
         return true
       } catch (e) {
         console.error('homeAgent: ensureReadyForInference for summary failed:', e)

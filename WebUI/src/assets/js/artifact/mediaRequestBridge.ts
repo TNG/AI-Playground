@@ -1,22 +1,21 @@
 import { getMissingComfyuiBackendModels } from '@/assets/js/store/imageGenerationUtils'
 import { requestDownload } from '@/assets/js/permissions/permissions'
-import { useTextInference } from '@/assets/js/store/textInference'
 import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaRequests'
 
 /**
  * Renderer half of the artifact pipeline's request/response seam (§4.1 step 5).
  *
  * The in-process agent tools and the artifact runner live in main, but the
- * model pre-flight (models store + HF token), the download-consent prompt
- * (permissions layer) and the post-swap chat reload (textInference) all live
- * here. Main sends `artifact:request` payloads and waits for the reply by
- * requestId; this module routes each kind to the renderer code that can answer.
+ * model pre-flight (models store + HF token) and the download-consent prompt
+ * (permissions layer) live here. Main sends `artifact:request` payloads and
+ * waits for the reply by requestId; this module routes each kind to the
+ * renderer code that can answer.
  */
 
-// A consent dialog plus download — or a chat model reload — can easily outlast
-// the runner's 5-minute idle watchdog. Pings say "a human/renderer is actively
-// working on it", not "bytes moved"; the watchdog exists to catch dead
-// pipelines, and a window that dies rejects the request from main's side.
+// A consent dialog plus download can easily outlast the runner's 5-minute idle
+// watchdog. Pings say "a human/renderer is actively working on it", not "bytes
+// moved"; the watchdog exists to catch dead pipelines, and a window that dies
+// rejects the request from main's side.
 const PING_INTERVAL_MS = 30_000
 
 function respond(payload: MediaResponsePayload): void {
@@ -50,11 +49,6 @@ async function handleRequest(request: MediaRequestPayload): Promise<void> {
             error: error instanceof Error ? error.message : 'Download declined',
           })
         }
-        break
-      }
-      case 'reload-chat-backend': {
-        await useTextInference().ensureBackendReadiness()
-        respond({ requestId: request.requestId, result: null })
         break
       }
     }

@@ -18,9 +18,9 @@
 // - chat readiness admission: a chat backend load asks for the window, so it
 //   no longer races (or OOMs against) an active media run.
 //
-// What deliberately stays out: which model to load is renderer state (the
-// reload round-trips through the artifact request RPC until step 8), and
-// chat turns themselves never queue — they are concurrent by design and only
+// What deliberately stays out: which model to load is still data from the last
+// successful load (or the turn request); download consent stays renderer-side.
+// Chat turns themselves never queue — they are concurrent by design and only
 // their backend readiness is admitted here.
 
 import { appLoggerInstance } from '../logging/logger'
@@ -41,7 +41,7 @@ export type OrchestratorDeps = {
   stopChatForMedia(): Promise<void>
   /** Free ComfyUI memory and unload its models (no-op when it is not running). */
   freeComfyMemory(): Promise<void>
-  /** Load the chat model again — main asks the renderer, which owns model selection. */
+  /** Load the last chat model again (in-process; no-op if none was loaded). */
   restartChatBackend(): Promise<void>
   /** In-flight /v1/chat/completions requests (chat turns, media specialists, summarize). */
   chatRequestsOpen(): number

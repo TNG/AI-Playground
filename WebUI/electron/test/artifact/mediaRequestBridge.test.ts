@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The media request bridge routes main's artifact:request payloads to the
-// renderer modules that can answer them (model pre-flight, permissions,
-// textInference). Those modules are mocked at their import seams; only the
-// bridge's own contract is under test — reply shapes, error forwarding, and
-// the watchdog-keeping pings.
+// renderer modules that can answer them (model pre-flight, permissions).
+// Those modules are mocked at their import seams; only the bridge's own
+// contract is under test — reply shapes, error forwarding, and the
+// watchdog-keeping pings.
 
 type Handler = (payload: import('@/types/mediaRequests').MediaRequestPayload) => void
 
@@ -12,16 +12,12 @@ const onRequestMock = vi.fn<(callback: Handler) => () => void>()
 const respondMock = vi.fn<(payload: unknown) => Promise<void>>()
 const getMissingModelsMock = vi.fn<(requiredModels: unknown[]) => Promise<unknown[]>>()
 const requestDownloadMock = vi.fn<(models: unknown[]) => Promise<void>>()
-const ensureBackendReadinessMock = vi.fn<() => Promise<void>>()
 
 vi.mock('@/assets/js/store/imageGenerationUtils', () => ({
   getMissingComfyuiBackendModels: getMissingModelsMock,
 }))
 vi.mock('@/assets/js/permissions/permissions', () => ({
   requestDownload: requestDownloadMock,
-}))
-vi.mock('@/assets/js/store/textInference', () => ({
-  useTextInference: () => ({ ensureBackendReadiness: ensureBackendReadinessMock }),
 }))
 
 vi.stubGlobal('window', {
@@ -47,7 +43,6 @@ beforeEach(() => {
   respondMock.mockReset().mockResolvedValue()
   getMissingModelsMock.mockReset().mockResolvedValue([{ repo_id: 'flux' }])
   requestDownloadMock.mockReset().mockResolvedValue()
-  ensureBackendReadinessMock.mockReset().mockResolvedValue()
   startMediaRequestBridge()
 })
 
@@ -139,23 +134,6 @@ describe('mediaRequestBridge', () => {
     await vi.waitFor(() => expect(requests('error')).toHaveLength(1))
 
     expect(requests('error')[0]).toEqual({ requestId: 'r4', error: 'Download cancelled' })
-  })
-
-  it('reloads the chat backend through textInference', async () => {
-    handler!({ kind: 'reload-chat-backend', requestId: 'r5' })
-    await vi.waitFor(() => expect(requests('result')).toHaveLength(1))
-
-    expect(ensureBackendReadinessMock).toHaveBeenCalledTimes(1)
-    expect(requests('result')[0]).toEqual({ requestId: 'r5', result: null })
-  })
-
-  it('forwards a reload failure as the request error', async () => {
-    ensureBackendReadinessMock.mockRejectedValueOnce(new Error('model load failed'))
-
-    handler!({ kind: 'reload-chat-backend', requestId: 'r6' })
-    await vi.waitFor(() => expect(requests('error')).toHaveLength(1))
-
-    expect(requests('error')[0]).toEqual({ requestId: 'r6', error: 'model load failed' })
   })
 
   it('pings while a request is open and stops once it settles', async () => {

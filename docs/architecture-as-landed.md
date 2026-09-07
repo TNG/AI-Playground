@@ -78,10 +78,12 @@ flowchart TB
 
 What still lives in the renderer on purpose: message list and Chat instance, tool *closures*
 (they read Pinia), download consent UI, screenshot / web-browse, the Image Gen sidebar fields that
-`runArtifact` *reads* to build a request (it no longer writes the active preset).
+`runArtifact` *reads* to build a request (it no longer writes the active preset). Which model to
+load is still a Pinia fact shipped on the turn / IPC; the load itself is main.
 
-What lives in main: `streamText`, Artifact execution, GPU policy, the one writer of conversation /
-session / media / preference files, the ordered event stream.
+What lives in main: `streamText`, last-load memory and swap-back reload, Artifact execution, GPU
+policy, the one writer of conversation / session / media / preference files, the ordered event
+stream.
 
 ---
 
@@ -146,9 +148,10 @@ flowchart TB
 
   subgraph textPath["Text"]
     submit["submitChatTurn"]
+    ready["chatReadiness: last load + GPU admit"]
     engine["runChatTurn: streamText"]
     tools["toolBridge: chat:executeTool round-trip"]
-    submit --> engine
+    submit --> ready --> engine
     engine --> tools
   end
 
@@ -157,6 +160,7 @@ flowchart TB
     gpu["GPU window: stop LLM / start ComfyUI / skip-when-queued"]
     runner["artifact/runner startArtifactRun"]
     oq --> gpu --> runner
+    gpu -->|"swap-back reloadLastChatBackend"| ready
   end
 
   subgraph persistPath["Persistence"]
@@ -179,8 +183,9 @@ flowchart TB
 ```
 
 Chat turns do **not** enter the artifact queue. They are concurrent by conversation. Their
-`ensureBackendReadiness` is admitted through the orchestrator so a load cannot OOM against an
-active ComfyUI run. Nested media from a chat/agent tool *does* take the GPU window.
+backend load (`chatReadiness`) is admitted through the orchestrator so a load cannot OOM against an
+active ComfyUI run. Swap-back reloads the last successful load in-process (no renderer RPC). Nested
+media from a chat/agent tool *does* take the GPU window.
 
 ---
 
@@ -264,6 +269,7 @@ sequenceDiagram
   Store->>IPC: chat.submitTurn(request)
   IPC->>Eng: submitChatTurn — Zod parse, begin snapshot
   Eng-->>Store: { turnId }
+  Eng->>Eng: ensureChatBackendReady (request.model.readiness)
   Eng->>LLM: streamText HTTP
   LLM-->>Eng: tokens
   Eng->>Bus: chat-chunk (coalesced)
@@ -291,6 +297,7 @@ sequenceDiagram
   participant IG as imageGenerationPresets
   participant RA as runArtifact
   participant Orch as orchestrator
+  participant Ready as chatReadiness
   participant Art as artifact/runner
   participant Comfy as ComfyUI
   participant Bus as kernelBus
@@ -310,7 +317,8 @@ sequenceDiagram
   Art->>Bus: artifact-phase, artifact-item
   Bus->>IG: projection updates items
   Art-->>Orch: result
-  Orch->>Orch: release GPU — reload LLM if nothing queued
+  Orch->>Ready: reloadLastChatBackend (skip GPU admit)
+  Note over Ready: last load from chat/agent; no artifact:request
   IG->>Media: mediaItems.save(done items)
   Note over IG,Media: same Proxy/structured-clone trap as conversations.save
 ```

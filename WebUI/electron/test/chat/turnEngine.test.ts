@@ -21,6 +21,7 @@ const {
   resetChatEngineDepsForTest,
 } = await import('../../chat/turnEngine')
 const { setChatModelDeps, resetChatModelDepsForTest } = await import('../../chat/chatModelMain')
+const { resetChatReadinessForTest, setChatReadinessDeps } = await import('../../chat/chatReadiness')
 const { setKernelEventWindow, resetKernelBusForTest, onKernelEvent } =
   await import('../../kernel/kernelBus')
 const { handleChatToolResult, resetChatToolBridgeForTest } = await import('../../chat/toolBridge')
@@ -182,6 +183,7 @@ beforeEach(() => {
   resetChatToolBridgeForTest()
   resetChatModelDepsForTest()
   resetChatEngineDepsForTest()
+  resetChatReadinessForTest()
   events = []
   detachTap = onKernelEvent((event) => void events.push(event))
   const window = fakeWindow()
@@ -251,6 +253,38 @@ describe('turn engine', () => {
     })
     expect(bodyMessages()[0]).toMatchObject({ role: 'system', content: 'You are helpful.' })
     expect(chatTurnActive('conv-1')).toBe(false)
+  })
+
+  it('loads the local backend from the turn request before streaming', async () => {
+    const ensureBackendReadiness = vi.fn(async () => {})
+    const awaitChatWindow = vi.fn(async () => {})
+    setChatReadinessDeps({
+      getService: () => ({ ensureBackendReadiness, baseUrl: 'http://127.0.0.1:39101' }),
+      awaitChatWindow,
+      stopOvmsImageServer: vi.fn(async () => {}),
+      notifyHomeAgentUpstreamReady: vi.fn(),
+    })
+    queueFetchMock(sse(textChunks('ok')))
+    const base = turnRequest()
+    const { turnId } = submitChatTurn({
+      ...base,
+      model: {
+        ...base.model,
+        readiness: {
+          serviceName: 'llamacpp-backend',
+          llmModelName: 'test/model.gguf',
+        },
+      },
+    })
+    await waitForTurnDone(turnId)
+
+    expect(awaitChatWindow).toHaveBeenCalledTimes(1)
+    expect(ensureBackendReadiness).toHaveBeenCalledWith(
+      'test/model.gguf',
+      undefined,
+      undefined,
+      undefined,
+    )
   })
 
   it('carries model + llama.cpp timings into message metadata', async () => {

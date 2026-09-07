@@ -79,10 +79,10 @@ export function chatTraceContext(): ChatTraceContext {
  * factory (`electron/chat/chatModelMain.ts`) needs, captured at submit time
  * from the same store reads `createChatModel` performs — backend selection,
  * the encoded model id, cloud/Home-Agent proxy routing, recommended sampling,
- * thinking kwargs, and the local-backend readiness facts for the
- * relaunch-and-retry path. Chat turns ship this over `chat:submitTurn`; the
- * media specialist (electron/chat/mediaAgentRunner.ts) — every main-side
- * caller receives this on its request.
+ * thinking kwargs, and the local-backend readiness facts so main can load
+ * (and relaunch) without another Pinia read. Chat turns ship this over
+ * `chat:submitTurn`; the media specialist (electron/chat/mediaAgentRunner.ts)
+ * — every main-side caller receives this on its request.
  */
 export function buildChatModelConfig(): ChatModelConfig {
   const textInference = useTextInference()

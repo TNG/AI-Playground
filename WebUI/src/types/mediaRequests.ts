@@ -16,9 +16,8 @@ export type ArtifactMissingModel = {
 
 /**
  * Main → renderer requests the artifact pipeline needs answered by code that
- * lives renderer-side: the model pre-flight (models store + HF token), the
- * download-consent prompt (permissions layer) and the chat-backend reload
- * after an in-process GPU swap (textInference settings).
+ * lives renderer-side: the model pre-flight (models store + HF token) and the
+ * download-consent prompt (permissions layer).
  *
  * The renderer replies through `electronAPI.artifact.respond` with a
  * `MediaResponsePayload` carrying the same `requestId`; `{ progress: true }`
@@ -27,7 +26,6 @@ export type ArtifactMissingModel = {
 export type MediaRequestBody =
   | { kind: 'artifact-check-models'; requiredModels: RequiredModel[] }
   | { kind: 'artifact-consent'; models: ArtifactMissingModel[] }
-  | { kind: 'reload-chat-backend' }
 
 export type MediaRequestPayload = MediaRequestBody & { requestId: string }
 

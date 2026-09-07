@@ -144,6 +144,11 @@ import {
 } from './orchestrator/orchestrator'
 import { setMediaCatalogProvider } from './agentMode/capabilities/mediaDirect'
 import { chatInferenceStreamsActive } from './chat/chatModelMain'
+import {
+  ensureChatBackendReady,
+  reloadLastChatBackend,
+  setChatReadinessDeps,
+} from './chat/chatReadiness'
 import { freeMemoryAndUnloadModels } from './artifact/comfyClient'
 import { getPresetCatalog } from './artifact/catalog'
 import {
@@ -1309,26 +1314,29 @@ function wireAgentWorkspace(settings: LocalSettings): void {
  * Chat turns run in main (architecture-target §8 step 6): the renderer submits
  * a typed request over `chat:submitTurn` and consumes kernel `chat-chunk`
  * events. These deps are the only pieces of that engine that live outside the
- * chat modules — the service registry, the Home Agent loopback token, and
- * on-disk aipg-media bytes.
+ * chat modules — the service registry, last-load memory, the Home Agent
+ * loopback token, and on-disk aipg-media bytes.
  */
 function wireChatEngine(): void {
-  setChatModelDeps({
-    llmApiBase: (backend) => llmServerBaseUrl(backend),
-    ensureBackendReadiness: async (args) => {
-      const service = serviceRegistry?.getService(args.serviceName)
-      if (!service) throw new Error(`Service ${args.serviceName} not found`)
-      await service.ensureBackendReadiness(
-        args.llmModelName,
-        args.embeddingModelName,
-        args.contextSize,
-        args.modelArgs,
-      )
-      const homeAgentSvc = serviceRegistry?.getService('home-agent-backend')
-      if (homeAgentSvc instanceof HomeAgentBackendService) {
-        homeAgentSvc.notifyUpstreamReady(service.baseUrl ?? '')
+  setChatReadinessDeps({
+    getService: (name) => serviceRegistry?.getService(name),
+    awaitChatWindow,
+    stopOvmsImageServer: async () => {
+      const ovms = serviceRegistry?.getService('openvino-backend')
+      if (ovms && 'stopImageServer' in ovms && typeof ovms.stopImageServer === 'function') {
+        await ovms.stopImageServer()
       }
     },
+    notifyHomeAgentUpstreamReady: (baseUrl) => {
+      const homeAgentSvc = serviceRegistry?.getService('home-agent-backend')
+      if (homeAgentSvc instanceof HomeAgentBackendService) {
+        homeAgentSvc.notifyUpstreamReady(baseUrl)
+      }
+    },
+  })
+  setChatModelDeps({
+    llmApiBase: (backend) => llmServerBaseUrl(backend),
+    ensureBackendReadiness: (args) => ensureChatBackendReady(args),
     homeAgentAuthToken: () => {
       const homeAgentSvc = serviceRegistry?.getService('home-agent-backend')
       return homeAgentSvc instanceof HomeAgentBackendService
@@ -1353,9 +1361,9 @@ function wireChatEngine(): void {
 /**
  * The artifact runner and GPU occupancy wrap (architecture-target §4.1 step 5)
  * run in main; everything they need that lives renderer-side — the model
- * pre-flight, download consent, the post-swap chat reload — crosses the
- * `artifact:request` bridge. Service facts are read through the registry and
- * the kernel stream.
+ * pre-flight and download consent — crosses the `artifact:request` bridge.
+ * Post-swap chat reload is in-process (`reloadLastChatBackend`). Service facts
+ * are read through the registry and the kernel stream.
  */
 function wireArtifactRunner(settings: LocalSettings): void {
   const comfyService = (): RunnerComfyService | null =>
@@ -1417,9 +1425,7 @@ function wireArtifactRunner(settings: LocalSettings): void {
         getToken: () => comfyService()?.getLoopbackAuthToken() ?? '',
       })
     },
-    restartChatBackend: async () => {
-      await requestRenderer({ kind: 'reload-chat-backend' })
-    },
+    restartChatBackend: reloadLastChatBackend,
     chatRequestsOpen: () => chatInferenceStreamsActive(),
   })
 }
@@ -2550,10 +2556,6 @@ function initEventHandle() {
       modelArgs?: string,
       keepModelsLoaded?: boolean,
     ) => {
-      appLogger.info(
-        `Ensuring backend readiness for service: ${serviceName}, LLM: ${llmModelName}, Embedding: ${embeddingModelName || 'none'}, Context Size: ${contextSize ?? 'undefined'}, Model args: ${modelArgs || 'none'}`,
-        'electron-backend',
-      )
       if (!serviceRegistry) {
         appLogger.warn(
           'received ensureBackendReadiness too early during aipg startup',
@@ -2561,54 +2563,14 @@ function initEventHandle() {
         )
         return { success: false, error: 'Service registry not ready' }
       }
-      const service = serviceRegistry.getService(serviceName)
-      if (!service) {
-        appLogger.warn(`Service ${serviceName} not found`, 'electron-backend')
-        return { success: false, error: `Service ${serviceName} not found` }
-      }
-
-      // Chat backend loads are admitted through the orchestrator (step 7):
-      // wait for a media run to release the GPU, then free the OVMS image
-      // server's VRAM. This is the old renderer-side stopOvmsImageServer call,
-      // moved so Text no longer pokes Artifact's backends from outside the
-      // one GPU policy.
-      if (
-        !keepModelsLoaded &&
-        (serviceName === 'llamacpp-backend' || serviceName === 'openvino-backend')
-      ) {
-        try {
-          await awaitChatWindow()
-        } catch (error) {
-          return { success: false, error: error instanceof Error ? error.message : String(error) }
-        }
-        const ovms = serviceRegistry.getService('openvino-backend')
-        if (ovms && 'stopImageServer' in ovms && typeof ovms.stopImageServer === 'function') {
-          try {
-            await ovms.stopImageServer()
-          } catch (error) {
-            appLogger.warn(
-              `Stopping the OVMS image server failed: ${String(error)}`,
-              'electron-backend',
-            )
-          }
-        }
-      }
 
       try {
-        await service.ensureBackendReadiness(
-          llmModelName,
-          embeddingModelName,
-          contextSize,
-          modelArgs,
+        await ensureChatBackendReady(
+          { serviceName, llmModelName, embeddingModelName, contextSize, modelArgs },
+          // 6th IPC arg is the renderer's stopImageServer, misnamed here.
+          // Preserve the inverted gate: a truthy 6th arg skips GPU admission.
+          { skipGpuAdmission: Boolean(keepModelsLoaded) },
         )
-        appLogger.info(
-          `Backend ${serviceName} ready for LLM: ${llmModelName}, Embedding: ${embeddingModelName || 'none'}`,
-          'electron-backend',
-        )
-        const homeAgentSvc = serviceRegistry?.getService('home-agent-backend')
-        if (homeAgentSvc instanceof HomeAgentBackendService) {
-          homeAgentSvc.notifyUpstreamReady(service.baseUrl ?? '')
-        }
         return { success: true }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)

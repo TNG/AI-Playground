@@ -34,6 +34,7 @@ import {
 } from '../kernel/kernelBus'
 import { listMcpServers, getMcpServerStatus } from '../subprocesses/mcpManager'
 import { createMainChatModel } from './chatModelMain'
+import { ensureChatBackendReady } from './chatReadiness'
 import { abortTurnToolRequests, executeToolInRenderer } from './toolBridge'
 
 // ── Main-side chat turn engine (docs/architecture-target.md §7, step 6) ──────
@@ -45,11 +46,12 @@ import { abortTurnToolRequests, executeToolInRenderer } from './toolBridge'
 // events, coalesced at the bus. Tool execution round-trips to the renderer,
 // which owns the tool closures and their Pinia reads.
 //
-// What deliberately stayed renderer-side: turn preparation (backend readiness,
-// RAG context, system prompt resolution), the activities sink (the transport
-// observes chunk types to drive "Processing prompt…" state), message state and
+// What deliberately stayed renderer-side: RAG context, system prompt
+// resolution, download consent, the activities sink (the transport observes
+// chunk types to drive "Processing prompt…" state), message state and
 // persistence (the Chat instance keeps them), and the reasoning-in-progress
-// flag (derived from the same chunk types).
+// flag (derived from the same chunk types). Local backend load runs here when
+// `model.readiness` is present.
 
 const appLogger = appLoggerInstance
 
@@ -502,6 +504,10 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
     // what Laminar stamps this turn's spans with; tracing stays off unless the
     // deps seam was wired.
     engineDeps?.noteTraceContext?.((config.trace as Record<string, unknown> | undefined) ?? null)
+
+    if (config.readiness) {
+      await ensureChatBackendReady(config.readiness, { abortSignal: turn.controller.signal })
+    }
 
     const diagTurnStart = Date.now()
     let diagStepIdx = 0

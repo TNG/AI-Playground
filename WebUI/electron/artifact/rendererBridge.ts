@@ -2,11 +2,10 @@
  * Main → renderer request/response seam for the artifact pipeline (step 5).
  *
  * The in-process agent tools run beside the runner in main, but the model
- * pre-flight (models store + HF token), the download-consent prompt
- * (permissions layer) and the post-swap chat reload (textInference settings)
- * all live renderer-side. Rather than duplicating that state into main, main
- * asks the renderer over one channel and waits for the reply by requestId —
- * the same trust direction as `agentMode:executeTool`, inverted.
+ * pre-flight (models store + HF token) and the download-consent prompt
+ * (permissions layer) live renderer-side. Rather than duplicating that state
+ * into main, main asks the renderer over one channel and waits for the reply
+ * by requestId — the same trust direction as `agentMode:executeTool`, inverted.
  */
 import { randomUUID } from 'node:crypto'
 import { getKernelEventWindow } from '../kernel/kernelBus'

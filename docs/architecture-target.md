@@ -242,9 +242,10 @@ dialog, tracked-item registration and terminal-state watching, with cancel throu
 permissions-layer pre-flight, registers tracked items and submits over `artifact:run`; main owns
 readiness, installs, the ComfyUI websocket engine, per-item seeds, the watchdog and crash
 detection, and streams phase/item events on the kernel stream (the renderer projects them onto the
-same FSM). The model pre-flight, download consent and post-swap chat reload stay renderer-side by
+same FSM). The model pre-flight and download consent stay renderer-side by
 design — main requests them over `artifact:request`/`artifact:respond`
-(`src/assets/js/artifact/mediaRequestBridge.ts`). In-process Pi tools and renderer chat tools both submit through the
+(`src/assets/js/artifact/mediaRequestBridge.ts`). Post-swap chat reload is in-process
+(`electron/chat/chatReadiness.ts`). In-process Pi tools and renderer chat tools both submit through the
 orchestrator's GPU window now (step 7; the refcounted `gpuOccupancy` primitive and the renderer
 wraps it replaced are deleted — one bracket per run, never nested). The Image Gen
 store only projects renderer-originated runs (in-process agent items stay in the workspace). The
@@ -1036,7 +1037,7 @@ small fix on this branch) can pick them up instead of rediscovering them.
   input map (`comfyInputsPerPreset`) is renderer state, so `mediaDirect.ts` resolves workflow
   inputs from preset defaults. Ship a snapshot of the relevant inputs with the turn (or answer it
   over the request RPC) when a fidelity mismatch shows up.
-- **Consent/reload pings are a heartbeat, not download progress.** The media-request bridge pings
+- **Consent pings are a heartbeat, not download progress.** The media-request bridge pings
   every 30 s while a request is open, which keeps the runner's watchdog re-armed but says nothing
   about bytes moving. Route the download dialog's real progress through the bridge (or the stream)
   when downloads need meaningful progress in traces.
@@ -1057,6 +1058,11 @@ small fix on this branch) can pick them up instead of rediscovering them.
   messages, but `prepareRagContext` remains renderer state. Conversation persistence moved to
   kernel-owned files with step 8's first slice; the engine still sees only what the request
   carries, so moving RAG takes it along the same seam.
+- **`generate()` still IPC-loads before `submitTurn`.** `runChatTurn` admits and loads when
+  `model.readiness` is present (`electron/chat/chatReadiness.ts`), but the renderer still calls
+  `ensureBackendReadiness` first for download consent, the "Loading model…" activity, cloud RAG
+  embedding, and agent/Home Agent paths that never submit a chat turn. Dropping that IPC is the
+  next kernel-policy slice; do not auto-download weights on the way.
 - **The tool bridge has no timeout.** `executeToolInRenderer` waits forever for the renderer's
   reply, the same class of stall as the artifact request RPC. A cancelled turn rejects pending
   calls; a replaced window settles everything. Add a budget if a wedged tool closure starts
@@ -1081,11 +1087,12 @@ small fix on this branch) can pick them up instead of rediscovering them.
   warning). The race the old code had survives: a turn whose stream opened just before a media
   run stops its backend can still fail with a network error. Queueing turns themselves is
   step-8+ work (§4.4's `KernelRequestMap`).
-- **The chat reload is still renderer-answered.** The swap-back asks the renderer to re-run
-  `ensureBackendReadiness` over the `artifact:request` RPC (`reload-chat-backend`) — the one
-  thing keeping a hidden-window-less CLI from reloading a model. The window it costs no longer
-  shows a "Reloading chat model…" activity in chat (the old renderer bracket labelled it);
-  the swap is silent until step 8 moves reload fully main-side.
+- **Swap-back reload is in-process.** `reloadLastChatBackend` reloads the last successful chat
+  load without `artifact:request`. It must skip `awaitChatWindow` (the swap-back already holds
+  `swapBackInFlight`; waiting deadlocks until the 5-minute bound). Remaining: `generate()` still
+  IPC-loads from Pinia first; the IPC 6th argument is still inverted (`stopImageServer` sent,
+  `keepModelsLoaded` read) — preserved on that wrapper; `runChatTurn` / reload use explicit
+  `skipGpuAdmission`. Swap-back is silent (no "Reloading chat model…" activity).
 - **`queue-event` is transient, not snapshotted** — a renderer that reloads mid-queue loses the
   parked activities' labels (their own `enqueued`→`started` lifecycles rebuild from the
   activities the tools registered). Harmless for now; snapshot it if a reload ever lands

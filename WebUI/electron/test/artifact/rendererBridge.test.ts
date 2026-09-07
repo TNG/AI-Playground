@@ -66,7 +66,7 @@ describe('renderer request bridge', () => {
   })
 
   it('rejects when the renderer reports an error', async () => {
-    const pending = requestRenderer({ kind: 'reload-chat-backend' })
+    const pending = requestRenderer({ kind: 'artifact-consent', models: [] })
     await vi.waitFor(() => expect(sent).toHaveLength(1))
     handleMediaResponse({ requestId: sent[0].requestId, error: 'renderer failed' })
     await expect(pending).rejects.toThrow('renderer failed')
@@ -74,14 +74,14 @@ describe('renderer request bridge', () => {
 
   it('rejects immediately when no renderer window exists', async () => {
     setKernelEventWindow(null)
-    await expect(requestRenderer({ kind: 'reload-chat-backend' })).rejects.toThrow(
-      'No renderer window',
-    )
+    await expect(
+      requestRenderer({ kind: 'artifact-check-models', requiredModels: [] }),
+    ).rejects.toThrow('No renderer window')
   })
 
   it('rejects every pending request when the window is replaced', async () => {
-    const first = requestRenderer({ kind: 'reload-chat-backend' })
-    const second = requestRenderer({ kind: 'reload-chat-backend' })
+    const first = requestRenderer({ kind: 'artifact-consent', models: [] })
+    const second = requestRenderer({ kind: 'artifact-check-models', requiredModels: [] })
     await vi.waitFor(() => expect(sent).toHaveLength(2))
     rejectAllMediaRequests('The app window was replaced')
     await expect(first).rejects.toThrow('The app window was replaced')

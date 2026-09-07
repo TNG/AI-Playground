@@ -9,6 +9,18 @@ import { useConfirmations } from './confirmations'
 import { useOemBranding } from './oemBranding'
 import { useErrors } from './errors'
 import { unregisterAgentModeIpc } from './agentModeIpc'
+import { demoAwareStorage } from '../demoAwareStorage'
+import { makeForwardPersist } from '@/lib/ipcPersist'
+import { cloneForIpc } from '@/lib/cloneForIpc'
+import {
+  makeFileBackedPreference,
+  type FileBackedPreferencesApi,
+} from '@/lib/fileBackedPreferences'
+import {
+  LegacyAgentSessionStateSchema,
+  type AgentSessionBootstrap,
+  type LegacyAgentSessionState,
+} from '@/types/agentSessionIpc'
 import {
   DEFAULT_CAPABILITY_IDS,
   GAME_STUDIO_QUICK_ID,
@@ -62,6 +74,9 @@ export type { AgentSessionRecord }
  */
 const DEFAULT_CAPABILITIES = [...DEFAULT_CAPABILITY_IDS]
 
+/** The Pinia persistence key this store wrote before session records moved to files. */
+const LEGACY_AGENT_MODE_KEY = 'agentMode'
+
 export const useAgentMode = defineStore(
   'agentMode',
   () => {
@@ -80,11 +95,11 @@ export const useAgentMode = defineStore(
      * selecting a chat preset marked `agentPreset` (Agent, Game Agent), and that
      * preset supplies the extra instructions and the capability set.
      *
-     * Remembered rather than read live, because the active preset is borrowed
-     * mid-turn: a `media` call switches to an image-gen preset for the duration of
-     * the generation. Following that would swap the session's capabilities,
-     * instructions and workspace policy while the agent is working — and the
-     * workspace watcher below would stop the very turn that made the call.
+     * Remembered rather than read live, because the active preset can change
+     * under a running turn — the user clicking another preset mid-turn must
+     * not swap the session's capabilities, instructions and workspace policy
+     * while the agent is working, and the workspace watcher below would stop
+     * the very turn that was interrupted.
      */
     const agentPresetName = ref<string>('')
 
@@ -131,6 +146,36 @@ export const useAgentMode = defineStore(
 
     const sessions = ref<Record<string, AgentSessionRecord>>({})
     const activeSessionId = ref<string>('')
+    /** Set once `init()` has hydrated (or migrated) — gates every write-through. */
+    const sessionsHydrated = ref(false)
+
+    // Step 8 (§6.1): the last-used workspace pointers are app data — their
+    // own kernel-owned file (agent-workspace.json), not the preferences file.
+    // The pinia key keeps the user preferences, so this half only slims its
+    // fields out of it.
+    const workspaceApi: FileBackedPreferencesApi = {
+      read: async () => {
+        const r = await window.electronAPI.agentMode.readWorkspaceState()
+        if (!r.success) return { success: false as const, error: r.error }
+        // An absent file is the "never migrated" state; a failed read
+        // (success false) never is.
+        return r.section === null
+          ? { success: true as const, sections: {} }
+          : { success: true as const, sections: { agentWorkspace: r.section } }
+      },
+      migrate: (_section, payload) => window.electronAPI.agentMode.migrateWorkspaceState(payload),
+      write: (_section, value) => window.electronAPI.agentMode.writeWorkspaceState(value),
+    }
+    const workspacePrefs = makeFileBackedPreference({
+      section: 'agentWorkspace',
+      refs: { workspaceDir, lastWorkspaceByKind },
+      legacyKey: 'agentMode',
+      legacySlim: true,
+      api: workspaceApi,
+      errorScope: 'agent-workspace',
+    })
+    if (import.meta.hot) import.meta.hot.dispose(() => workspacePrefs.dispose())
+    let agentSessionsInitPromise: Promise<void> | null = null
     /** Set while a session is deliberately moved between presets, so the watcher below leaves it. */
     let movingSession = false
 
@@ -199,6 +244,128 @@ export const useAgentMode = defineStore(
       sessions.value = applySessionPresetNames(sessions.value, gameFolders)
     }
 
+    // ── Hydration (step 8, architecture-target §6.1) ─────────────────────────────
+    //
+    // Session records — transcripts included — live as kernel-owned files
+    // (`AI-Playground/agent-sessions/`); this store is the live projection.
+    // `init()` runs once before the app mounts, so the Sessions panel and a
+    // resumed turn never see a half-hydrated map.
+
+    /** The pre-step-8 Pinia-persisted payload, read once for the legacy upload. */
+    function readLegacyAgentSessions(): LegacyAgentSessionState | null {
+      const raw = demoAwareStorage.getItem(LEGACY_AGENT_MODE_KEY)
+      if (!raw) return null
+      try {
+        const parsed = JSON.parse(raw) as Record<string, unknown>
+        return LegacyAgentSessionStateSchema.parse({
+          sessions: parsed.sessions ?? {},
+          activeSessionId:
+            typeof parsed.activeSessionId === 'string' ? parsed.activeSessionId : null,
+        })
+      } catch {
+        return null
+      }
+    }
+
+    /**
+     * Files own the records now, so the legacy copies leave the Pinia key —
+     * including a leftover empty payload, which would otherwise linger (and
+     * keep the multi-megabyte transcripts in localStorage) forever. Kept when
+     * the upload failed, so the next boot can retry it.
+     */
+    function stripLegacyAgentSessions(): void {
+      const raw = demoAwareStorage.getItem(LEGACY_AGENT_MODE_KEY)
+      if (!raw) return
+      try {
+        const parsed = JSON.parse(raw) as Record<string, unknown>
+        delete parsed.sessions
+        delete parsed.activeSessionId
+        demoAwareStorage.setItem(LEGACY_AGENT_MODE_KEY, JSON.stringify(parsed))
+      } catch {
+        // Unreadable leftover: the persist plugin's next write replaces the
+        // key wholesale with only the picked fields, so it heals itself.
+      }
+    }
+
+    async function init(): Promise<void> {
+      if (agentSessionsInitPromise) return agentSessionsInitPromise
+      agentSessionsInitPromise = (async () => {
+        let bootstrap: AgentSessionBootstrap | { status: 'error'; error: string } | null = null
+        let bootstrapError: unknown = null
+        try {
+          bootstrap = await window.electronAPI.agentMode.bootstrapSessions()
+          // One-shot legacy upload (§6.1: "localStorage migrates once"): a
+          // first boot with no index uploads whatever the old persisted state
+          // held, then the key is slimmed so it never runs or dual-writes
+          // again.
+          if (bootstrap.status === 'empty') {
+            const legacy = readLegacyAgentSessions()
+            if (legacy && Object.keys(legacy.sessions).length > 0) {
+              bootstrap = await window.electronAPI.agentMode.migrateSessions(legacy)
+            }
+          }
+          if (
+            bootstrap.status === 'ok' ||
+            (bootstrap.status === 'empty' && demoAwareStorage.getItem(LEGACY_AGENT_MODE_KEY))
+          ) {
+            stripLegacyAgentSessions()
+          }
+        } catch (error) {
+          bootstrap = null
+          bootstrapError = error
+        }
+        if (!bootstrap) {
+          errors.report(bootstrapError ?? new Error('agent session bootstrap IPC failed'), {
+            code: 'agent-sessions/bootstrap-failed',
+            category: 'backend',
+            severity: 'warning',
+            surface: 'silent',
+            technicalMessage:
+              'the session file store did not answer; the session list may be empty this session',
+          })
+        } else if (bootstrap.status === 'error') {
+          errors.report(new Error(bootstrap.error), {
+            code: 'agent-sessions/bootstrap-failed',
+            category: 'backend',
+            severity: 'warning',
+            surface: 'silent',
+            technicalMessage: 'the session file store rejected the boot hydration',
+          })
+          bootstrap = null
+        }
+        if (bootstrap && bootstrap.status === 'ok') {
+          const hydrated: Record<string, AgentSessionRecord> = {}
+          for (const record of bootstrap.sessions) {
+            hydrated[record.id] = { ...record, messages: record.messages as UIMessage[] }
+          }
+          sessions.value = hydrated
+          // Only adopt an id whose record actually hydrated — a corrupt file is
+          // skipped, and pointing the session at it would resume an empty chat.
+          const activeId = bootstrap.activeSessionId
+          if (activeId && hydrated[activeId]) activeSessionId.value = activeId
+          restoreActiveSession()
+          // Ran from the persist plugin's afterHydrate before the records moved
+          // to files; it needs the hydrated records (and the games library).
+          // Renamed records persist with their next snapshot, so legacy
+          // sessions may re-run this once per boot — idempotent and bounded.
+          await migrateSessionPresets()
+        }
+        sessionsHydrated.value = true
+        // The workspace half of the same shared legacy key runs strictly
+        // after the sessions half: interleaved read-modify-write slims can
+        // resurrect what the other removed (§8.2).
+        await workspacePrefs.init()
+        // The agentWorkspaceKind watch can have fired before this hydrate
+        // (preset files load during conversations/media init): a games-kind
+        // flip against an empty workspace no-ops inside
+        // reconcileGamesWorkspace, so the reconciliation the pinia
+        // afterHydrate used to run repeats here against hydrated pointers.
+        await reconcileWorkspaceKind()
+        await refreshCurrentGame()
+      })()
+      return agentSessionsInitPromise
+    }
+
     function migrateMcpServerIds(): void {
       const migrated = migrateMcpServerIdsIntoCapabilities(
         mcpServerIds.value,
@@ -246,6 +413,34 @@ export const useAgentMode = defineStore(
 
     watch(activeSessionId, () => {
       toolImages.value = {}
+    })
+
+    // Write-through (step 8, §6.1): every record mutation reaches the kernel's
+    // files; a failed write reports through the sink but never breaks the turn.
+    const persistSessionMutation = makeForwardPersist({
+      code: 'agent-sessions/persist-failed',
+      technicalMessage: 'saving an agent session file failed',
+    })
+
+    watch(sessions, (next, previous) => {
+      if (!sessionsHydrated.value) return
+      // Records are replaced wholesale (`{ ...sessions.value, [id]: record }`),
+      // so reference identity finds exactly the entries a mutation rewrote.
+      // Deletions are NOT forwarded here: `deleteSession` drives the explicit
+      // `agentMode:deleteSession` IPC, which owns the record file's removal.
+      for (const id of Object.keys(next)) {
+        if (previous[id] !== next[id]) {
+          const record = next[id]
+          persistSessionMutation(() =>
+            window.electronAPI.agentMode.saveSession(cloneForIpc(record)),
+          )
+        }
+      }
+    })
+
+    watch(activeSessionId, (id) => {
+      if (!sessionsHydrated.value) return
+      persistSessionMutation(() => window.electronAPI.agentMode.saveActiveSessionId(id || null))
     })
 
     // A tool can be waiting on a confirmation card when the turn ends, errors or
@@ -415,15 +610,10 @@ export const useAgentMode = defineStore(
     }
 
     async function deleteSession(id: string): Promise<void> {
-      const next = { ...sessions.value }
-      delete next[id]
-      sessions.value = next
-      if (id === activeSessionId.value) {
-        await stop()
-        activeSessionId.value = mintSessionId()
-        sessionCapabilities.value = null
-        chat.messages = []
-      }
+      // Stop first so Pi teardown in the same IPC is not racing a live turn,
+      // then wait for the kernel: dropping the row before that would make a
+      // failed delete vanish from the panel and come back on the next boot.
+      if (id === activeSessionId.value) await stop()
       const result = await window.electronAPI.agentMode.deleteSession(id)
       if (!result.success) {
         errors.report(new Error(result.error ?? 'Failed to delete session.'), {
@@ -432,6 +622,15 @@ export const useAgentMode = defineStore(
           userMessage: result.error ?? 'Failed to delete the agent session.',
           surface: 'silent',
         })
+        return
+      }
+      const next = { ...sessions.value }
+      delete next[id]
+      sessions.value = next
+      if (id === activeSessionId.value) {
+        activeSessionId.value = mintSessionId()
+        sessionCapabilities.value = null
+        chat.messages = []
       }
     }
 
@@ -587,6 +786,8 @@ export const useAgentMode = defineStore(
       resetPresetSettings,
       migrateMcpServerIds,
       migrateSessionPresets,
+      init,
+      sessionsHydrated,
       migratePlanningThinkingOnly,
       planningThinkingOnly,
       unsandboxedWorkspaces,
@@ -623,23 +824,18 @@ export const useAgentMode = defineStore(
   },
   {
     persist: {
+      // Session records, the active id and the last-used workspace pointers
+      // live in the kernel's files (step 8, §6.1); everything here is user
+      // preference.
       pick: [
-        'workspaceDir',
-        'lastWorkspaceByKind',
         'mcpServerIds',
         'defaultCapabilities',
         'unsandboxedWorkspaces',
-        'sessions',
-        'activeSessionId',
         'planningThinkingOnly',
       ],
       afterHydrate: (ctx) => {
         ctx.store.migrateMcpServerIds()
-        void ctx.store.migrateSessionPresets()
         ctx.store.migratePlanningThinkingOnly()
-        ctx.store.restoreActiveSession()
-        void ctx.store.refreshCurrentGame()
-        void ctx.store.reconcileWorkspaceKind()
       },
     },
   },

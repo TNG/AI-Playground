@@ -1,24 +1,25 @@
-import { NoSuchToolError, tool, type LanguageModel, type ModelMessage, type ToolSet } from 'ai'
+import { tool, type ModelMessage, type ToolSet } from 'ai'
 import { z } from 'zod'
-import { comfyUI, getAvailableWorkflows, repairCreateToolInput } from '../tools/comfyUi'
+import { comfyUI, getAvailableWorkflows, createToolRepairData } from '../tools/comfyUi'
 import {
   comfyUiImageEdit,
   executeImageEdit,
   getAvailableEditWorkflows,
-  repairEditToolInput,
+  createEditToolRepairData,
 } from '../tools/comfyUiImageEdit'
 import { useTextInference } from '../store/textInference'
 import { useMediaAgentRuns } from '../store/mediaAgentRuns'
 import type { MediaItem } from '../store/imageGenerationPresets'
 import { imageUrlToDataUri } from '@/lib/utils'
-import { chatTraceContext } from '@/lib/chatModel'
-import { noteChatTraceContext } from '@/lib/laminarTelemetry'
+import { buildChatModelConfig } from '@/lib/chatModel'
+import type { ToolAgentStep } from '@/lib/toolAgent'
 import {
-  createToolAgent,
-  type ToolAgentEvent,
-  type ToolAgentRunOptions,
-  type ToolAgentStep,
-} from './toolAgent'
+  abortChatToolExecutions,
+  activateChatToolSet,
+  deactivateChatToolSet,
+  serializeToolSet,
+} from '@/lib/chatToolRegistry'
+import type { KernelMediaAgentEvent } from '@/types/kernelEvents'
 
 // ── Media agent ───────────────────────────────────────────────────────────────
 //
@@ -71,7 +72,8 @@ export type MediaAgentOptions = {
    * aipg-media:// URL. Used when the run itself has not generated one yet.
    */
   sourceImage?: string
-  model: LanguageModel
+  /** The parent conversation key, when the run serves a chat turn. */
+  conversationKey?: string
   abortSignal?: AbortSignal
   /**
    * Delegating tool call id. When set, the run reports live progress to the
@@ -100,21 +102,14 @@ const MEDIA_AGENT_SYSTEM = [
   '  separately.',
 ].join('\n')
 
-function dataUriMessage(dataUri: string): ModelMessage {
-  const mediaType = /^data:(image\/[a-z+.-]+);/i.exec(dataUri)?.[1] ?? 'image/png'
-  return {
-    role: 'user',
-    content: [{ type: 'file', mediaType, data: dataUri }],
-  }
-}
-
 /**
  * Inner tool set. Reuses the real chat tools under their original names —
  * comfyUiImageEdit's source-image discovery keys off those names in the
- * nested message history. Respects the same user gating as chat
- * (per-tool toggles + per-workflow sub-checkboxes).
+ * nested message history (which main ships with every bridge request, the
+ * parent-provided source image included). Respects the same user gating as
+ * chat (per-tool toggles + per-workflow sub-checkboxes).
  */
-function buildMediaAgentTools(sourceMessage: ModelMessage | null): ToolSet {
+function buildMediaAgentTools(): ToolSet {
   const textInference = useTextInference()
   const tools: ToolSet = {}
   if (textInference.isBuiltinToolEnabled('comfyUI') && getAvailableWorkflows().length > 0) {
@@ -124,36 +119,19 @@ function buildMediaAgentTools(sourceMessage: ModelMessage | null): ToolSet {
     textInference.isBuiltinToolEnabled('comfyUiImageEdit') &&
     getAvailableEditWorkflows().length > 0
   ) {
-    // Same contract as the chat tool, but the source-image search space is the
-    // NESTED history plus the parent-provided source message (prepended, so
-    // media produced later in this run wins the backwards search).
     tools.comfyUiImageEdit = tool({
       description: comfyUiImageEdit.description,
       inputSchema: comfyUiImageEdit.inputSchema,
       outputSchema: comfyUiImageEdit.outputSchema,
       execute: async (args, options) => {
-        const history = (options?.messages ?? []) as ModelMessage[]
-        const messages = sourceMessage ? [sourceMessage, ...history] : history
-        return await executeImageEdit(args as Parameters<typeof executeImageEdit>[0], messages)
+        return await executeImageEdit(
+          args as Parameters<typeof executeImageEdit>[0],
+          (options?.messages ?? []) as ModelMessage[],
+        )
       },
     })
   }
   return tools
-}
-
-const repairToolCall: NonNullable<ToolAgentRunOptions['repairToolCall']> = async ({
-  toolCall,
-  error,
-}) => {
-  if (NoSuchToolError.isInstance(error)) return null
-  const repaired =
-    toolCall.toolName === 'comfyUiImageEdit'
-      ? repairEditToolInput(toolCall.input)
-      : toolCall.toolName === 'comfyUI'
-        ? repairCreateToolInput(toolCall.input)
-        : null
-  if (repaired === null) return null
-  return { ...toolCall, input: repaired }
 }
 
 /** Media entries out of one inner tool output (comfy result shape). */
@@ -183,36 +161,56 @@ function stepDescriptor(input: unknown): { workflow?: string; prompt?: string } 
   }
 }
 
-/** Translates the generic tool agent events into mediaAgentRuns store updates. */
-function progressReporter(runId: string): (event: ToolAgentEvent) => void {
+/** Translates a run's kernel progress events into mediaAgentRuns store updates. */
+function translateProgressEvent(runKey: string, event: KernelMediaAgentEvent['event']): void {
   const mediaRuns = useMediaAgentRuns()
-  return (event) => {
-    switch (event.type) {
-      case 'phase':
-        mediaRuns.setPhase(runId, event.phase)
-        break
-      case 'narration-delta':
-        mediaRuns.appendNarration(runId, event.text)
-        break
-      case 'tool-start':
-        mediaRuns.beginStep(runId, {
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          ...stepDescriptor(event.input),
-          label: 'Starting…',
-        })
-        break
-      case 'tool-finish': {
-        const output = (event.output ?? {}) as { success?: boolean; message?: string }
-        mediaRuns.endStep(runId, {
-          toolCallId: event.toolCallId,
-          media: toMediaItems(mediaOf(event.output)),
-          error: event.error ?? (output.success === false ? output.message : undefined),
-        })
-        break
-      }
+  switch (event.type) {
+    case 'phase':
+      mediaRuns.setPhase(runKey, event.phase)
+      break
+    case 'narration-delta':
+      mediaRuns.appendNarration(runKey, event.text)
+      break
+    case 'tool-start':
+      mediaRuns.beginStep(runKey, {
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        ...stepDescriptor(event.input),
+        label: 'Starting…',
+      })
+      break
+    case 'tool-finish': {
+      const output = (event.output ?? {}) as { success?: boolean; message?: string }
+      mediaRuns.endStep(runKey, {
+        toolCallId: event.toolCallId,
+        media: toMediaItems(mediaOf(event.output)),
+        error: event.error ?? (output.success === false ? output.message : undefined),
+      })
+      break
     }
   }
+}
+
+// The nested loop runs in main (step 6); its live progress reaches the
+// timeline as `media-agent-event` kernel events. One listener serves every
+// run, keyed by runKey — registered on first use so module import alone (and
+// unit tests) never subscribes.
+let mediaKernelUnsubscribe: (() => void) | null = null
+function ensureMediaAgentEventWiring(): void {
+  if (mediaKernelUnsubscribe) return
+  const subscribe = window.electronAPI?.onKernelEvent
+  if (!subscribe) return
+  mediaKernelUnsubscribe = subscribe((event) => {
+    if (event.type !== 'media-agent-event') return
+    translateProgressEvent(event.runKey, event.event)
+  })
+}
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    mediaKernelUnsubscribe?.()
+    mediaKernelUnsubscribe = null
+  })
 }
 
 function describeStep(step: ToolAgentStep): string {
@@ -228,40 +226,48 @@ function describeStep(step: ToolAgentStep): string {
 }
 
 export async function runMediaAgent(options: MediaAgentOptions): Promise<MediaAgentResult> {
-  // Normalize the parent-provided source (aipg-media:// or data URI) into the
-  // data-URI message the inner edit tool understands.
-  const sourceMessage = options.sourceImage
-    ? dataUriMessage(await imageUrlToDataUri(options.sourceImage))
-    : null
+  // The nested LLM loop runs in main (step 6). This side keeps what only the
+  // renderer can do: resolving the inner tool set from live app state, the
+  // registry of inner tool executors, and the result condensing. The inner
+  // tools' `messages` (nested history, source image included) ship with every
+  // bridge request from main.
+  const runKey = options.runId ?? `media-run:${crypto.randomUUID()}`
+  const tools = buildMediaAgentTools()
+  const specs = serializeToolSet(tools)
 
-  const agent = createToolAgent({
-    name: 'mediaAgent',
-    system: () => MEDIA_AGENT_SYSTEM,
-    tools: () => buildMediaAgentTools(sourceMessage),
-    maxSteps: 6,
-  })
+  // Normalize the parent-provided source (aipg-media:// or data URI); main
+  // prepends it as the leading file message of the nested history.
+  const sourceImage = options.sourceImage ? await imageUrlToDataUri(options.sourceImage) : undefined
 
-  const runId = options.runId
   const mediaRuns = useMediaAgentRuns()
-  if (runId) mediaRuns.beginRun(runId, options.request)
+  if (options.runId) mediaRuns.beginRun(options.runId, options.request)
+  ensureMediaAgentEventWiring()
 
-  // This run's model calls are the parent's model calls in every way that
-  // matters to a trace — same backend, same device, same thinking setup — but
-  // the chat store is not the one making them, so they carry no context unless
-  // it is sent here. `delegated` also tells main these spans belong inside the
-  // media tool call the parent turn has open, rather than in a trace of their
-  // own. No-op unless a developer opted into tracing.
-  noteChatTraceContext({ ...chatTraceContext(), delegated: true })
-
-  let result: MediaAgentResult
+  activateChatToolSet(runKey, tools)
+  const abortListener = () => {
+    // Stop the nested run and the renderer-side work its inner tools started.
+    void window.electronAPI?.chat?.cancelMediaAgent?.(runKey)
+    abortChatToolExecutions(runKey)
+  }
+  options.abortSignal?.addEventListener('abort', abortListener, { once: true })
   try {
-    const { text, steps } = await agent.run({
-      model: options.model,
+    const response = await window.electronAPI.chat.runMediaAgent({
+      runKey,
+      ...(options.conversationKey ? { conversationKey: options.conversationKey } : {}),
       request: options.request,
-      abortSignal: options.abortSignal,
-      repairToolCall,
-      onEvent: runId ? progressReporter(runId) : undefined,
+      ...(sourceImage !== undefined ? { sourceImage } : {}),
+      system: MEDIA_AGENT_SYSTEM,
+      toolSpecs: specs,
+      repairData: {
+        ...(tools.comfyUI ? { comfyUI: createToolRepairData() ?? undefined } : {}),
+        ...(tools.comfyUiImageEdit
+          ? { comfyUiImageEdit: createEditToolRepairData() ?? undefined }
+          : {}),
+      },
+      model: buildChatModelConfig(),
     })
+    if (!response.success) throw new Error(response.error)
+    const { text, steps } = response.data
 
     const images = steps.flatMap((step) => mediaOf(step.output))
     const failures = steps
@@ -269,7 +275,7 @@ export async function runMediaAgent(options: MediaAgentOptions): Promise<MediaAg
       .filter((output) => output.success === false)
     const summary = text.trim() || (images.length > 0 ? 'Media generated.' : 'No media generated.')
 
-    result =
+    const result: MediaAgentResult =
       images.length === 0
         ? {
             images: [],
@@ -279,14 +285,17 @@ export async function runMediaAgent(options: MediaAgentOptions): Promise<MediaAg
             message: failures.at(-1)?.message ?? summary,
           }
         : { images, steps: steps.map(describeStep), summary }
+    if (options.runId) mediaRuns.endRun(options.runId, result.success === false ? 'failed' : 'done')
+    return result
   } catch (error) {
     // A throw (or abort) must settle the run too, or the timeline keeps
     // spinning for the rest of the session.
-    if (runId) mediaRuns.endRun(runId, 'failed')
+    if (options.runId) mediaRuns.endRun(options.runId, 'failed')
     throw error
+  } finally {
+    options.abortSignal?.removeEventListener('abort', abortListener)
+    deactivateChatToolSet(runKey)
   }
-  if (runId) mediaRuns.endRun(runId, result.success === false ? 'failed' : 'done')
-  return result
 }
 
 // Re-exported so callers (agent bridge) can pre-flight without running a turn.

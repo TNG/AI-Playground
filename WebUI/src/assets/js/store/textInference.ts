@@ -1,6 +1,10 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { z } from 'zod'
 import { demoAwareStorage } from '../demoAwareStorage'
+import {
+  makeFileBackedPreference,
+  type FileBackedPreferencesApi,
+} from '@/lib/fileBackedPreferences'
 import { useBackendServices, type BackendServiceName } from './backendServices'
 import { useModels } from './models'
 import { Document } from '@langchain/classic/document'
@@ -17,7 +21,7 @@ import {
   resolveSampling,
   toRequestBody,
 } from '@/lib/samplingDefaults'
-import { useDialogStore } from '@/assets/js/store/dialogs.ts'
+import { requestDownload } from '@/assets/js/permissions/permissions'
 import { usePresets, type ChatPreset } from './presets'
 import { useDeveloperSettings } from './developerSettings'
 import { useHomeAgent } from './homeAgent'
@@ -25,10 +29,14 @@ import { useCloudMode, CLOUD_DEFAULT_MODEL } from './cloudMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import * as toast from '@/assets/js/toast.ts'
 import { useActivities } from './activities'
-import { useI18N } from './i18n'
 import { renamePresetKeys } from '@/lib/presetRenames'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { boundMaxOutputTokens } from '@/lib/maxOutputTokens'
+import { formatRagSources } from '@/lib/ragSources'
+import {
+  chatBackendSelectionLoad,
+  skipGpuAdmissionFromKeepModelsLoaded,
+} from '@/lib/chatBackendSelection'
 import {
   isToolEnabled,
   readLegacyToolEnablement,
@@ -174,7 +182,6 @@ export const useTextInference = defineStore(
   'textInference',
   () => {
     const backendServices = useBackendServices()
-    const dialogStore = useDialogStore()
     const models = useModels()
     const presetsStore = usePresets()
     const developerSettings = useDeveloperSettings()
@@ -183,11 +190,32 @@ export const useTextInference = defineStore(
     const conversations = useConversations()
     const activities = useActivities()
     const modelPreferences = useModelPreferences()
-    const i18nState = useI18N().state
     // Tracks the in-flight backend-preparation activity (begin/end are paired with
     // start/completeBackendPreparation).
     let backendPrepActivityId: string | null = null
     const backend = ref<LlmBackend>('llamaCPP')
+    const selectionMemoryPaused = ref(0)
+    function pauseChatBackendSelectionMemory(): () => void {
+      selectionMemoryPaused.value += 1
+      let released = false
+      return () => {
+        if (released) return
+        released = true
+        selectionMemoryPaused.value = Math.max(0, selectionMemoryPaused.value - 1)
+      }
+    }
+    watch(
+      backend,
+      (next) => {
+        if (typeof window === 'undefined') return
+        const arm = window.electronAPI?.setLastChatBackendLoadActive
+        if (!arm) return
+        void arm(next !== 'cloud').catch((error: unknown) => {
+          console.warn('Could not update last-chat-load arming:', error)
+        })
+      },
+      { immediate: true },
+    )
     const ragList = ref<IndexedDocument[]>([])
     const defaultSystemPrompt = `You are a helpful AI assistant embedded in an application called AI Playground, developed by Intel.
       You assist users by answering questions and providing information based on your training data and any additional context provided.`
@@ -840,6 +868,35 @@ export const useTextInference = defineStore(
       return hasCheckedDocuments && presetEnablesRag
     })
 
+    watch(
+      [
+        selectionMemoryPaused,
+        backend,
+        activeModel,
+        activeEmbeddingModel,
+        willUseRag,
+        contextSize,
+        () => activeLlmModel.value?.llamaCppArgs,
+      ],
+      () => {
+        if (typeof window === 'undefined' || selectionMemoryPaused.value > 0) return
+        const selection = chatBackendSelectionLoad({
+          backend: backend.value,
+          llmModelName: activeModel.value,
+          embeddingModelName: activeEmbeddingModel.value,
+          willUseRag: willUseRag.value,
+          contextSize: contextSize.value,
+          llamaCppArgs: activeLlmModel.value?.llamaCppArgs,
+        })
+        if (selection.kind !== 'local') return
+        const remember = window.electronAPI?.rememberChatBackendLoad
+        if (!remember) return
+        void remember(selection.load).catch((error: unknown) => {
+          console.warn('Could not remember chat backend selection:', error)
+        })
+      },
+    )
+
     // Phison KM RAG state (retrieval-mode toggle, availability gating, context-size
     // floor/stash) lives in its own module — see aidaptiv-km-rag-review-scope.md §W1.
     // getActivePreset/isLoadingSettings are passed as thunks rather than direct
@@ -872,30 +929,66 @@ export const useTextInference = defineStore(
     // Per-preset settings persistence
     const settingsPerPreset = ref<Record<string, Record<string, unknown>>>({})
 
-    // Number of inference HTTP requests currently streaming from the chat
-    // backend. Maintained by the chat transport's custom fetch (see
-    // openAiCompatibleChat): incremented when a request starts, decremented when
-    // its response body finishes (completes, is cancelled, or errors). Image
-    // tools consult this via waitForInferenceIdle() so they never tear down the
-    // chat backend while a stream to it is still open (which would reset the
-    // socket mid-stream and surface as a "network error").
-    const activeInferenceStreams = ref(0)
-    function beginInferenceStream() {
-      activeInferenceStreams.value++
+    // Step 8 (§6.1): the per-preset settings are kernel-owned preferences
+    // (preferences.json). The Pinia key still persists the rest of the pick,
+    // so the one-shot upload only slims this field out of it.
+    const settingsPrefs = makeFileBackedPreference({
+      section: 'textInference',
+      refs: { settingsPerPreset },
+      legacyKey: 'textInference',
+      legacySlim: true,
+    })
+    if (import.meta.hot) import.meta.hot.dispose(() => settingsPrefs.dispose())
+
+    // Step 8 (§6.1): the RAG document list is app data — the full split text
+    // of everything the user indexed — so it lives in its own kernel-owned
+    // file (rag/documents.json), not the preferences file. The pinia key
+    // keeps the non-RAG fields, so this half also only slims its field out.
+    // No payload transform: mergedGroups has been boundary-only for a while,
+    // so persisting splitDB alongside it is safe (the old serializer note).
+    const ragApi: FileBackedPreferencesApi = {
+      read: async () => {
+        const r = await window.electronAPI.ragDocuments.read()
+        if (!r.success) return { success: false as const, error: r.error }
+        // An absent file is the "never migrated" state; a failed read
+        // (success false) never is.
+        return r.section === null
+          ? { success: true as const, sections: {} }
+          : { success: true as const, sections: { textInference: r.section } }
+      },
+      migrate: (_section, payload) => window.electronAPI.ragDocuments.migrate(payload),
+      write: (_section, value) => window.electronAPI.ragDocuments.write(value),
     }
-    function endInferenceStream() {
-      if (activeInferenceStreams.value > 0) activeInferenceStreams.value--
-    }
-    // Resolve once no inference stream is open, or after `timeoutMs` as a
-    // safety valve so a wedged/keep-alive socket can't block image generation
-    // indefinitely. In the common case the stream is already drained (the SDK
-    // finishes each step before running a tool), so this returns immediately.
-    async function waitForInferenceIdle(timeoutMs = 3000): Promise<void> {
-      const start = Date.now()
-      while (activeInferenceStreams.value > 0) {
-        if (Date.now() - start >= timeoutMs) break
-        await new Promise((resolve) => setTimeout(resolve, 50))
-      }
+    const ragPrefs = makeFileBackedPreference({
+      section: 'textInference',
+      refs: { ragList },
+      legacyKey: 'textInference',
+      legacySlim: true,
+      api: ragApi,
+      errorScope: 'rag-documents',
+    })
+    if (import.meta.hot) import.meta.hot.dispose(() => ragPrefs.dispose())
+
+    async function init(): Promise<void> {
+      await settingsPrefs.init()
+      // Settings are stored per preset name, which a renamed preset no longer
+      // has — the same fix that used to live in pinia afterHydrate.
+      migrateRenamedPresetSettings()
+      // The old global tool map is not a section field; seed it into the
+      // hydrated per-preset settings from the leftover captured at setup.
+      migrateGlobalToolEnablement(settingsPrefs.legacyRaw)
+      // The catalog-ready watch can fire before this hydrate (preset files
+      // load during conversations/media init) and would otherwise apply
+      // defaults from an empty map, then never reload.
+      loadSettingsForActivePreset()
+      // The rag half of the same shared legacy key runs strictly after the
+      // settings half: interleaved read-modify-write slims can resurrect what
+      // the other removed (§8.2).
+      await ragPrefs.init()
+      // The activeKey→selection watch below ran immediate at store setup,
+      // against the pre-hydration list; re-apply it so the resumed thread's
+      // selection wins over whatever isChecked the file carried.
+      syncRagSelectionForActiveKey()
     }
 
     // Raw URL of the selected local inference backend, without any of the
@@ -1131,134 +1224,6 @@ export const useTextInference = defineStore(
       return response
     }
 
-    // RAG state for UI display
-    const ragRetrievalState = reactive({
-      inProgress: false,
-      lastResults: null as Document[] | null,
-    })
-
-    /**
-     * Prepares RAG context for a prompt and returns enhanced system prompt
-     * @param prompt The user's prompt/question
-     * @returns Object containing enhanced system prompt and RAG results (if any)
-     */
-    async function prepareRagContext(prompt: string): Promise<{
-      systemPrompt: string
-      ragResults: Document[] | null
-      ragSourceText: string | null
-    }> {
-      if (!willUseRag.value) {
-        return {
-          systemPrompt: systemPrompt.value,
-          ragResults: null,
-          ragSourceText: null,
-        }
-      }
-
-      const ragActivityId = activities.begin({
-        category: 'rag',
-        label: i18nState.COM_ACTIVITY_SEARCHING_DOCS,
-        scope: { kind: 'chat', conversationKey: conversations.activeKey },
-      })
-      try {
-        ragRetrievalState.inProgress = true
-
-        // Embeddings always run on a LOCAL embedding server (see embeddingBackend),
-        // even in Cloud Mode. Ensure a model is selected and the server is up
-        // before attempting retrieval, skipping RAG gracefully otherwise.
-        {
-          const serviceName = backendToService[embeddingBackend.value]
-          if (!activeEmbeddingModel.value) {
-            console.warn('No embedding model selected for RAG, skipping RAG retrieval')
-            ragRetrievalState.inProgress = false
-            activities.end(ragActivityId)
-            return {
-              systemPrompt: systemPrompt.value,
-              ragResults: null,
-              ragSourceText: null,
-            }
-          }
-
-          // Verify embedding server is available
-          const embeddingUrlResult = await window.electronAPI.getEmbeddingServerUrl(serviceName)
-          if (!embeddingUrlResult.success || !embeddingUrlResult.url) {
-            console.warn(
-              'Embedding server not ready, skipping RAG retrieval:',
-              embeddingUrlResult.error || 'Unknown error',
-            )
-            ragRetrievalState.inProgress = false
-            activities.end(ragActivityId)
-            return {
-              systemPrompt: systemPrompt.value,
-              ragResults: null,
-              ragSourceText: null,
-            }
-          }
-        }
-
-        // Perform RAG retrieval. No context-size check is needed here: the floor is
-        // enforced continuously rather than validated at query time —
-        // isPhisonKmRag ⇒ phisonKmAvailable ⇒ kmContextFloorReachable ⇒
-        // enforceKmContextFloor, and both the clamp watcher and preset load apply that
-        // floor, so contextSize >= PHISON_KM_CONTEXT_FLOOR holds whenever KM is active.
-        // KM being unavailable (including "this model's context ceiling is too low") is
-        // surfaced in the settings UI up front instead of as a runtime fallback toast.
-        console.log(
-          `[textInference] prepareRagContext: ragMode=${ragMode.value} ` +
-            `phisonKmAvailable=${phisonKmAvailable.value} isPhisonKmRag=${isPhisonKmRag.value} ` +
-            `contextSize=${contextSize.value}`,
-        )
-
-        // Snapshot once: the prompt shaping below must use the same value the retrieval
-        // call did, even if reactive state changes across the await.
-        const useGroupRetrieval = isPhisonKmRag.value
-        const ragResults = await embedInputUsingRag(prompt, useGroupRetrieval)
-        console.log('textInference.ts: prepareRagContext: ragResults', ragResults)
-        ragRetrievalState.lastResults = ragResults
-
-        ragRetrievalState.inProgress = false
-        activities.end(ragActivityId)
-
-        if (ragResults && ragResults.length > 0) {
-          // Build RAG context from retrieved documents
-          const ragContext = ragResults.map((doc) => doc.pageContent).join('\n\n')
-
-          // Approach A: Phison KM mode uses a fixed shared prefix (PHISON_KM_RAG_PREFIX +
-          // Document context) placed FIRST so all presets share the same KV cache prefix,
-          // then appends the preset's own systemPrompt AFTER so its tool instructions /
-          // persona are preserved. Standard RAG keeps the existing behaviour.
-          const enhancedSystemPrompt = useGroupRetrieval
-            ? `${PHISON_KM_RAG_PREFIX}\n\nDocument context:\n\n${ragContext}\n\n---\n\n${systemPrompt.value}`
-            : `${systemPrompt.value}\n\nUse the following context from your knowledge base to answer the question:\n\n${ragContext}`
-
-          // Format RAG sources for display
-          const ragSourceText = formatRagSources(ragResults)
-
-          return {
-            systemPrompt: enhancedSystemPrompt,
-            ragResults,
-            ragSourceText: ragSourceText,
-          }
-        }
-
-        return {
-          systemPrompt: systemPrompt.value,
-          ragResults: null,
-          ragSourceText: null,
-        }
-      } catch (error) {
-        console.error('Error retrieving RAG documents:', error)
-        ragRetrievalState.inProgress = false
-        activities.end(ragActivityId, 'failed')
-        // Return base system prompt on error - generation can continue without RAG
-        return {
-          systemPrompt: systemPrompt.value,
-          ragResults: null,
-          ragSourceText: null,
-        }
-      }
-    }
-
     /**
      * Mirror the active conversation's RAG selection into the shared library's
      * live `isChecked` flags. Called whenever the active conversation changes so
@@ -1311,172 +1276,6 @@ export const useTextInference = defineStore(
       persistActiveRagSelection()
     }
 
-    // Define a type for document location information
-    type DocumentLocation = {
-      pageNumber?: number
-      lines?: {
-        from?: number
-        to?: number
-      }
-    }
-
-    // Format RAG sources for display
-    function formatRagSources(
-      documents: Document[] | { metadata?: { source?: string; loc?: DocumentLocation } }[],
-    ): string {
-      // Group documents by source file
-      const fileGroups = new Map<
-        string,
-        Array<{
-          lines?: { from: number; to: number }
-          page?: number
-        }>
-      >()
-      const unknownSources: string[] = []
-
-      // Process each document
-      documents.forEach((doc) => {
-        const source = doc.metadata?.source
-        const location = doc.metadata?.loc
-
-        // Handle unknown sources
-        if (!source) {
-          unknownSources.push('Unknown Source')
-          return
-        }
-
-        // Get or create array for this file
-        const entries = fileGroups.get(source) || []
-
-        // Create entry with available location information
-        const entry: { lines?: { from: number; to: number }; page?: number } = {}
-
-        // Add line information if available
-        if (location?.lines?.from && location?.lines?.to) {
-          entry.lines = {
-            from: location.lines.from,
-            to: location.lines.to,
-          }
-        }
-
-        // Add page information if available
-        if (location?.pageNumber !== undefined) {
-          entry.page = location.pageNumber
-        }
-
-        // Always register the source file — even without page/line metadata.
-        // Phison KM group retrieval returns a merged document with `source` but no
-        // `loc` (the group spans many chunks), and the Source Docs chip must still
-        // show the filename in that case.
-        entries.push(entry)
-        fileGroups.set(source, entries)
-      })
-
-      // Function to merge overlapping line ranges for the same page
-      const mergeRanges = (
-        entries: Array<{ lines?: { from: number; to: number }; page?: number }>,
-      ): Array<{ lines?: { from: number; to: number }; page?: number }> => {
-        if (entries.length <= 1) return entries
-
-        // Group entries by page number
-        const pageGroups = new Map<
-          number | undefined,
-          Array<{ lines?: { from: number; to: number }; page?: number }>
-        >()
-
-        entries.forEach((entry) => {
-          const pageKey = entry.page
-          const pageEntries = pageGroups.get(pageKey) || []
-          pageEntries.push(entry)
-          pageGroups.set(pageKey, pageEntries)
-        })
-
-        const result: Array<{ lines?: { from: number; to: number }; page?: number }> = []
-
-        // Process each page group
-        pageGroups.forEach((pageEntries, pageNumber) => {
-          // For entries with line information, merge overlapping ranges
-          const entriesWithLines = pageEntries.filter((e) => e.lines)
-
-          if (entriesWithLines.length > 0) {
-            // Sort by starting line
-            const sortedEntries = [...entriesWithLines].sort(
-              (a, b) => (a.lines?.from || 0) - (b.lines?.from || 0),
-            )
-
-            let current = sortedEntries[0]
-
-            // Merge overlapping line ranges
-            for (let i = 1; i < sortedEntries.length; i++) {
-              const next = sortedEntries[i]
-
-              // Check if ranges overlap or are adjacent
-              if ((current.lines?.to || 0) >= (next.lines?.from || 0) - 1) {
-                // Merge ranges
-                current = {
-                  lines: {
-                    from: current.lines?.from || 0,
-                    to: Math.max(current.lines?.to || 0, next.lines?.to || 0),
-                  },
-                  page: pageNumber,
-                }
-              } else {
-                // No overlap, add current to result and move to next
-                result.push(current)
-                current = next
-              }
-            }
-
-            // Add the last range
-            result.push(current)
-          }
-
-          // For entries with only page information (no lines), add a single entry per page
-          if (pageEntries.some((e) => !e.lines)) {
-            // If we haven't already added an entry for this page from the line merging
-            if (!result.some((r) => r.page === pageNumber && !r.lines)) {
-              result.push({ page: pageNumber })
-            }
-          }
-        })
-
-        return result
-      }
-
-      // Format results
-      const formattedResults: string[] = []
-
-      // Process each file group
-      fileGroups.forEach((entries, source) => {
-        const filename = source.split(/[\/\\]/).pop() || source
-        const mergedEntries = mergeRanges(entries)
-
-        // Format each merged entry
-        mergedEntries.forEach((entry) => {
-          let locationInfo = ''
-
-          // Format based on available information
-          if (entry.page !== undefined && entry.lines) {
-            // Both page and line information
-            locationInfo = `Page ${entry.page}, Lines ${entry.lines.from}-${entry.lines.to}`
-          } else if (entry.page !== undefined) {
-            // Only page information
-            locationInfo = `Page ${entry.page}`
-          } else if (entry.lines) {
-            // Only line information
-            locationInfo = `Lines ${entry.lines.from}-${entry.lines.to}`
-          }
-
-          formattedResults.push(locationInfo ? `${filename} (${locationInfo})` : filename)
-        })
-      })
-
-      // Add unknown sources
-      formattedResults.push(...unknownSources)
-
-      return formattedResults.join('\n')
-    }
-
     // Backend preparation methods
     function startBackendPreparation() {
       backendReadinessState.isPreparingBackend = true
@@ -1506,7 +1305,7 @@ export const useTextInference = defineStore(
       backendReadinessState.lastUsedContextSize[currentBackend] = contextSize.value
     }
 
-    async function ensureBackendReadiness(): Promise<void> {
+    async function ensureBackendReadiness(options?: { remember?: boolean }): Promise<void> {
       // Cloud Mode has no local subprocess and no model to (re)load — the
       // remote provider is always "ready".
       if (backend.value === 'cloud') return
@@ -1525,16 +1324,10 @@ export const useTextInference = defineStore(
           throw new Error('No embedding model selected but RAG documents are enabled')
         }
 
-        // Stop OVMS image server to free GPU memory before loading LLM
-        if (!developerSettings.keepModelsLoaded) {
-          try {
-            await window.electronAPI.stopOvmsImageServer()
-          } catch (_e) {
-            // Ignore — server may not be running
-          }
-        }
-
         try {
+          // The GPU-window admission is the orchestrator's (step 7). Keep
+          // Models Loaded skips that wait — the 6th IPC arg is skipGpuAdmission,
+          // not an inverted stopImageServer.
           await backendServices.ensureBackendReadiness(
             serviceName,
             llmModelName,
@@ -1543,6 +1336,8 @@ export const useTextInference = defineStore(
             // Only llama.cpp reads these; OVMS is started from a different
             // command line and ignores them.
             backend.value === 'llamaCPP' ? activeLlmModel.value?.llamaCppArgs : undefined,
+            skipGpuAdmissionFromKeepModelsLoaded(developerSettings.keepModelsLoaded),
+            options,
           )
         } catch (error) {
           // Surface model-load failures (e.g. out of memory for the chosen
@@ -1567,33 +1362,22 @@ export const useTextInference = defineStore(
 
     async function checkModelAvailability() {
       // ToDo: the path for embedding downloads must be corrected and BAAI/bge-large-zh-v1.5 was accidentally downloaded to the wrong place
-      return new Promise<void>(async (resolve, reject) => {
-        const requiredModelDownloads = await getDownloadParamsForCurrentModelIfRequired('llm')
-        if (willUseRag.value) {
-          const requiredEmbeddingModelDownloads =
-            await getDownloadParamsForCurrentModelIfRequired('embedding')
-          requiredModelDownloads.push(...requiredEmbeddingModelDownloads)
-        }
+      const requiredModelDownloads = await getDownloadParamsForCurrentModelIfRequired('llm')
+      if (willUseRag.value) {
+        const requiredEmbeddingModelDownloads =
+          await getDownloadParamsForCurrentModelIfRequired('embedding')
+        requiredModelDownloads.push(...requiredEmbeddingModelDownloads)
+      }
 
-        // Deduplicate download list by repo_id to prevent the same model from appearing multiple times
-        const uniqueDownloads = requiredModelDownloads.filter(
-          (download, index, self) =>
-            index === self.findIndex((d) => d.repo_id === download.repo_id),
-        )
+      // Deduplicate download list by repo_id to prevent the same model from appearing multiple times
+      const uniqueDownloads = requiredModelDownloads.filter(
+        (download, index, self) => index === self.findIndex((d) => d.repo_id === download.repo_id),
+      )
 
-        if (uniqueDownloads.length > 0) {
-          // On a remote Home Agent turn there is nobody at the desktop to act on
-          // the download modal; route the approval + progress to the channel
-          // (mirrored into the desktop window) instead of getting stuck.
-          if (homeAgent.isRemoteTurnActive()) {
-            homeAgent.handleRemoteModelDownload(uniqueDownloads).then(resolve).catch(reject)
-          } else {
-            dialogStore.showDownloadDialog(uniqueDownloads, resolve, reject)
-          }
-        } else {
-          resolve()
-        }
-      })
+      if (uniqueDownloads.length === 0) return
+      // The permissions layer owns the prompt: the download modal, or the
+      // channel when a remote Home Agent turn is active.
+      await requestDownload(uniqueDownloads)
     }
 
     // Cloud Mode RAG: the chat LLM is remote and cannot embed, so bring up a
@@ -1622,7 +1406,7 @@ export const useTextInference = defineStore(
       }
     }
 
-    async function prepareBackendIfNeeded() {
+    async function prepareBackendIfNeeded(options?: { remember?: boolean }) {
       console.log('in prepareBackendIfNeeded')
 
       // Cloud Mode: the chat LLM is remote — nothing to start, load, or
@@ -1638,7 +1422,7 @@ export const useTextInference = defineStore(
       if (backend.value === 'llamaCPP' || backend.value === 'openVINO') {
         startBackendPreparation()
         try {
-          await ensureBackendReadiness()
+          await ensureBackendReadiness(options)
           completeBackendPreparation()
         } catch (error) {
           completeBackendPreparation() // Reset state on error
@@ -1654,14 +1438,14 @@ export const useTextInference = defineStore(
       }
     }
 
-    async function ensureReadyForInference() {
+    async function ensureReadyForInference(options?: { remember?: boolean }) {
       // Cloud Mode has no local backend to prepare, but the loopback proxy URL
       // must be resolved before the first request (it backs currentBackendUrl).
       if (backend.value === 'cloud') {
         await cloudMode.ensureProxyUrl()
       }
       await checkModelAvailability()
-      await prepareBackendIfNeeded()
+      await prepareBackendIfNeeded(options)
     }
 
     // ========================================================================
@@ -2316,6 +2100,8 @@ export const useTextInference = defineStore(
       selectedModels,
       llmModels,
       llmEmbeddingModels,
+      embeddingBackend,
+      activeEmbeddingModel,
       currentBackendUrl,
       localBackendUrl,
       metricsEnabled,
@@ -2375,7 +2161,6 @@ export const useTextInference = defineStore(
       formatRagSources,
       ensureBackendReadiness,
       checkModelAvailability,
-      prepareRagContext,
 
       // NPU support
       runningOnOpenvinoNpu,
@@ -2390,6 +2175,7 @@ export const useTextInference = defineStore(
       stampMetaForConversation,
       ensureGlobalsMatchConversation,
       applyPresetToGlobals,
+      pauseChatBackendSelectionMemory,
 
       // Tool calling support
       modelSupportsToolCalling,
@@ -2427,28 +2213,20 @@ export const useTextInference = defineStore(
 
       // RAG state
       willUseRag,
-      ragRetrievalInProgress: computed(() => ragRetrievalState.inProgress),
-      lastRagResults: computed(() => ragRetrievalState.lastResults),
 
       // Home Agent
       homeAgentUpstreamUrl,
 
       // In-flight inference stream tracking (used by image tools to avoid
       // resetting an open chat-backend socket when freeing the GPU)
-      beginInferenceStream,
-      endInferenceStream,
-      waitForInferenceIdle,
       migrateRenamedPresetSettings,
       migrateGlobalToolEnablement,
+      init,
     }
   },
   {
     persist: {
       storage: demoAwareStorage,
-      // No custom serializer: mergedGroups is now boundary-only ({groupId,
-      // startChunkIdx, endChunkIdx}, ~50 bytes/group) instead of duplicating the
-      // full document text, so it's safe to persist as-is with the default
-      // JSON serializer.
       pick: [
         'backend',
         'selectedModels',
@@ -2456,18 +2234,12 @@ export const useTextInference = defineStore(
         'contextSize',
         'requestedContextSize',
         'temperature',
-        'ragList',
-        'settingsPerPreset',
+        // `settingsPerPreset` and `ragList` are NOT persisted here anymore:
+        // per-preset settings live in the kernel-owned preferences.json and
+        // the RAG document list in rag/documents.json (step 8 §6.1), both
+        // hydrated by init().
         'screenshotWindow',
       ],
-      afterHydrate: (ctx) => {
-        // Settings are stored per preset name, which a renamed preset no longer has.
-        ctx.store.migrateRenamedPresetSettings()
-        // Tool enablement used to be one global map at the root of this state.
-        // It is no longer picked (so it stops being re-persisted from whichever
-        // preset is active), which is why the migration re-reads the raw payload.
-        ctx.store.migrateGlobalToolEnablement(demoAwareStorage.getItem(ctx.store.$id))
-      },
     },
   },
 )

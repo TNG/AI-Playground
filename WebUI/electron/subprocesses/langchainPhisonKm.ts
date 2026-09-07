@@ -315,8 +315,8 @@ function stableChunkKey(doc: Document): string {
  * Approach A: the warmup system message is built as:
  *   {request.ragSystemPrefix}\n\nDocument context:\n\n{group.content}
  *
- * This is the SAME prefix that prepareRagContext in textInference.ts uses for the
- * actual query (PHISON_KM_RAG_PREFIX + "Document context:" + ragContext). Because
+ * This is the SAME prefix that `augmentSystemPrompt` (src/lib/ragSources.ts) uses
+ * for the actual query (PHISON_KM_RAG_PREFIX + "Document context:" + ragContext). Because
  * the prefix is identical, the LLM's KV states for these tokens can be reused on
  * the real request, dramatically reducing TTFT.
  *

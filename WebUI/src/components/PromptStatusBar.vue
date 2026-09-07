@@ -201,9 +201,9 @@ const isAgentMode = computed(() => promptStore.getCurrentMode() === 'agent')
 // Chat, Agent and Audio all run on chat-type presets (Agent Mode is entered by
 // picking an agent preset from the chat list; Audio holds the speech presets), so
 // the preset, backend and device badges read from the same place for all three.
-// Keyed off `userSelectedMode` so a background comfy switch during agentic / Home
-// Agent tool use doesn't flip them to the image-gen indicators.
-const isLlmMode = computed(() => ['chat', 'agent', 'audio'].includes(promptStore.userSelectedMode))
+// Background mode borrowing is gone (media runs no longer switch modes,
+// step 7), so the live mode is the user's context.
+const isLlmMode = computed(() => ['chat', 'agent', 'audio'].includes(promptStore.currentMode))
 
 // Get active chat preset
 const activeChatPreset = computed(() => {
@@ -229,7 +229,7 @@ watch(
 // though there is a persisted last-used preset. Fall back to it (or the first
 // available chat preset) so the indicator isn't blank at launch.
 const fallbackChatPreset = computed<ChatPreset | null>(() => {
-  const inAudioMode = promptStore.userSelectedMode === 'audio'
+  const inAudioMode = promptStore.currentMode === 'audio'
   const candidates = inAudioMode ? presetsStore.audioPresets : presetsStore.chatPresets
   if (candidates.length === 0) return null
   const lastUsed = presetsStore.getLastUsedPreset([inAudioMode ? AUDIO_CATEGORY : 'chat'])

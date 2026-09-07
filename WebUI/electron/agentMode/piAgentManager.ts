@@ -4,15 +4,13 @@ import { setToolBridgeWindow, submitAgentToolResult } from './piCustomTools.ts'
 import { listCapabilities, type CapabilityInfo } from './capabilities/index.ts'
 import type { AgentToolSpec } from '@/types/agentIpc'
 import { piAgentDir } from './piSessionStore.ts'
-import { setMainWin } from './piAgentState.ts'
+import { setMainWin, currentTurn } from './piAgentState.ts'
 import {
   cancelAgentTurn,
   deleteAgentSession,
   resetAgentSession,
   shutdownAgentMode,
   startAgentTurn,
-  type AgentModeStreamChunk,
-  type AgentModeToolProgress,
   type AgentModeTurnResult,
 } from './piTurnRunner.ts'
 
@@ -46,6 +44,11 @@ export function setAgentModeMainWindow(win: BrowserWindow): void {
   setToolBridgeWindow(win)
 }
 
+/** Whether main is mid-agent-turn — input to the hidden-window close policy. */
+export function isAgentTurnActive(): boolean {
+  return currentTurn !== null
+}
+
 /**
  * What the agent could do in a session built right now, for the settings UI.
  * Comes from the same catalog the session build uses, so the checkboxes cannot
@@ -63,6 +66,7 @@ export function listAgentCapabilities(options: {
       workspaceDir: options.workspaceDir ?? '',
       toolSpecs: options.toolSpecs ?? [],
       agentDir: piAgentDir(),
+      keepModelsLoaded: false,
     },
     options.mcpServerIds ?? [],
   )
@@ -78,4 +82,4 @@ export {
 }
 
 export { COMPACTION_TOOL_NAME } from './piStreamTranslate.ts'
-export type { ToolDefinition, AgentModeStreamChunk, AgentModeToolProgress, AgentModeTurnResult }
+export type { ToolDefinition, AgentModeTurnResult }

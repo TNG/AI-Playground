@@ -67,6 +67,12 @@ import { Qwen3TtsBackendService } from './subprocesses/qwen3TtsBackendService'
 import { WhisperBackendService } from './subprocesses/whisperBackendService'
 import { LLAMACPP_DEFAULT_PARAMETERS } from './subprocesses/llamaCppBackendService'
 import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateIntelPresets.ts'
+import {
+  invalidatePresetCatalog,
+  loadPresetFiles,
+  readPresetsFromDir,
+  type PresetLoadConfig,
+} from './artifact/catalog'
 import { probeFreedesktopSecretService, shouldForceBasicPasswordStore } from './linuxPasswordStore'
 import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
 import * as comfyuiTools from './subprocesses/comfyuiTools'
@@ -106,6 +112,7 @@ import {
 import {
   cancelAgentTurn,
   deleteAgentSession,
+  isAgentTurnActive,
   listAgentCapabilities,
   resetAgentSession,
   setAgentModeMainWindow,
@@ -113,9 +120,120 @@ import {
   startAgentTurn,
   submitAgentToolResult,
 } from './agentMode/piAgentManager'
+import { getKernelSnapshot, onKernelEvent, setKernelEventWindow } from './kernel/kernelBus'
+import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecycle'
 import { setVerboseLogging as setVerboseAgentLogging } from './agentMode/piAgentLog.ts'
 import { importAttachment } from './agentMode/workspaceAttachments.ts'
 import { AgentModeTurnConfigSchema } from '@/types/agentIpc'
+import { ArtifactRunRequestSchema } from '@/types/artifactIpc'
+import type { MediaResponsePayload } from '@/types/mediaRequests'
+import type { MediaItem } from '@/types/mediaItem'
+import type { ArtifactMissingModel } from '@/types/mediaRequests'
+import {
+  cancelActiveArtifactRun,
+  setArtifactRunnerDeps,
+  type ArtifactRunPayload,
+  type ArtifactRunResult,
+  type RunnerComfyService,
+} from './artifact/runner'
+import {
+  awaitChatWindow,
+  cancelArtifactRun,
+  setOrchestratorDeps,
+  submitArtifactRun,
+} from './orchestrator/orchestrator'
+import { setMediaCatalogProvider } from './agentMode/capabilities/mediaDirect'
+import { chatInferenceStreamsActive } from './chat/chatModelMain'
+import {
+  ensureChatBackendReady,
+  reloadLastChatBackend,
+  rememberChatBackendLoad,
+  setChatReadinessDeps,
+  setLastChatBackendLoadActive,
+  type ChatReadinessArgs,
+} from './chat/chatReadiness'
+import { piAgentCallsActive } from './agentMode/piCallTiming'
+import { freeMemoryAndUnloadModels } from './artifact/comfyClient'
+import { getPresetCatalog } from './artifact/catalog'
+import {
+  handleMediaResponse,
+  rejectAllMediaRequests,
+  requestRenderer,
+} from './artifact/rendererBridge'
+import {
+  cancelChatTurn,
+  resumeChatTurn,
+  setChatEngineDeps,
+  submitChatTurn,
+} from './chat/turnEngine'
+import { summarizeConversationText } from './chat/chatSummarize'
+import { setChatModelDeps } from './chat/chatModelMain'
+import { handleChatToolResult, rejectAllChatToolRequests } from './chat/toolBridge'
+import { setRagRetrievalDeps } from './chat/ragRetrieval'
+import {
+  activeMediaAgentRunKeys,
+  cancelMediaAgentRun,
+  runMediaAgentInMain,
+} from './chat/mediaAgentRunner'
+import { MediaAgentRunRequestSchema } from '@/types/chatIpc'
+import {
+  bootstrapConversations,
+  deleteConversation,
+  migrateLegacyConversations,
+  saveConversation,
+  saveConversationLastMainKey,
+  setConversationFileDeps,
+  wipeDemoConversations,
+} from './conversations/conversationFiles'
+import {
+  ConversationLegacyStateSchema,
+  ConversationSaveRequestSchema,
+} from '@/types/conversationIpc'
+import {
+  bootstrapAgentSessions,
+  deleteAgentSessionRecord,
+  migrateLegacyAgentSessions,
+  saveAgentSession,
+  saveAgentSessionActiveId,
+  setAgentSessionFileDeps,
+  wipeDemoAgentSessions,
+} from './agentMode/agentSessionFiles'
+import { AgentSessionRecordSchema, LegacyAgentSessionStateSchema } from '@/types/agentSessionIpc'
+import {
+  bootstrapMediaItems,
+  deleteMediaItemRecords,
+  migrateLegacyMediaItems,
+  saveMediaItems,
+  setMediaItemFileDeps,
+  wipeDemoMediaRecords,
+} from './media/mediaItemFiles'
+import {
+  migratePreferenceSection,
+  readAllPreferences,
+  readPreferenceSection,
+  setPreferencesFileDeps,
+  wipeDemoPreferences,
+  writePreferenceSection,
+} from './preferences/preferencesFile'
+
+import {
+  migrateAgentWorkspaceState,
+  readAgentWorkspaceState,
+  setAgentWorkspaceFilesDeps,
+  wipeDemoAgentWorkspace,
+  writeAgentWorkspaceState,
+} from './agentMode/workspaceStateFiles'
+
+import {
+  migrateRagDocumentSection,
+  readRagDocumentSection,
+  setRagDocumentFilesDeps,
+  wipeDemoRagDocuments,
+  writeRagDocumentSection,
+} from './rag/ragDocumentFiles'
+
+import { llmServerBaseUrl } from './llmServerSnapshot'
+import type { ChatToolResult } from '@/types/chatIpc'
 import { getAudioDir, getGamesDir, getMediaDir } from './util.ts'
 import {
   arcadeCatalog,
@@ -149,6 +267,8 @@ import {
   handleChatTelemetryEvent,
   initLaminarTracing,
   laminarConfig,
+  noteLlamaCppChatTimings,
+  noteMainChatTurnContext,
   shutdownLaminarTracing,
 } from './laminar.ts'
 import z from 'zod'
@@ -265,6 +385,16 @@ const appLogger = appLoggerInstance
 
 let win: BrowserWindow | null
 let serviceRegistry: ApiServiceRegistryImpl | null = null
+
+// The renderer's half of the hidden-window close policy: true while it has
+// tracked activities in flight (a chat turn, a generation — see the activities
+// sink). Pushed over `lifecycle:busy` whenever it flips.
+let rendererBusy = false
+
+function isHomeAgentRunning(): boolean {
+  const service = serviceRegistry?.getService('home-agent-backend')
+  return service?.get_info().status === 'running'
+}
 
 // Cloud Mode runs its networking in the main process via a loopback proxy (see
 // cloudProxy.ts), so the renderer never calls remote providers directly. The
@@ -417,6 +547,18 @@ const LocalSettingsSchema = z.object({
   // driver update or enumeration reorder shifts the backend-local id. Empty when
   // the chosen device exposes no UUID (e.g. OpenVINO/llama.cpp devices).
   lastSelectedDeviceUuidPerBackend: z.record(z.string(), z.string()).default({}),
+  // Backend launch configuration (step 8, §6.1), formerly renderer-persisted
+  // Pinia state. The flags a service is launched with and the version a
+  // backend is pinned to — machine-level by nature, edited alongside the
+  // device maps. null flags mean "use the backend's default".
+  versionOverrides: z
+    .record(z.string(), z.object({ releaseTag: z.string().optional(), version: z.string() }))
+    .default({}),
+  comfyUiParameters: z.string().nullable().default(null),
+  llamaCppParameters: z.string().nullable().default(null),
+  llamaCppBuildVariant: z.enum(['standard', 'ssd-offload']).default('standard'),
+  llamaCppOffloadDrive: z.string().nullable().default(null),
+  openvinoKvCacheU4: z.boolean().default(false),
   // Machine-wide preferred inference device, chosen in the setup wizard from the
   // raw pre-install hardware probe. Consulted by each backend's detectDevices()
   // (when it has no per-backend selection yet) to pick a matching device, before
@@ -444,15 +586,6 @@ function resolveProductMode(s: LocalSettings): string {
     : s.productMode === 'nvidia'
       ? 'nvidia'
       : 'studio'
-}
-
-type PresetLoadConfig = {
-  baseDir: string
-  modeDir: string
-  imageFallbackDirs: string[]
-  includePresets?: string[]
-  excludePresets?: string[]
-  excludeVariantBackends?: string[]
 }
 
 /**
@@ -490,88 +623,6 @@ function getPresetLoadConfig(s: LocalSettings): PresetLoadConfig {
 
 function getModeDemoDir(s: LocalSettings): string {
   return path.join(modesDir, resolveProductMode(s), 'demo')
-}
-
-type PresetFile = { content: string; image: string | null }
-
-function findPresetImage(baseName: string, dirs: string[]): string | null {
-  for (const dir of dirs) {
-    for (const ext of ['.png', '.jpg', '.jpeg']) {
-      const imagePath = path.join(dir, `${baseName}${ext}`)
-      if (fs.existsSync(imagePath)) return imagePath
-    }
-  }
-  return null
-}
-
-async function readPresetsFromDir(
-  dir: string,
-  imageFallbackDirs: string[] = [],
-): Promise<Map<string, PresetFile>> {
-  const result = new Map<string, PresetFile>()
-  if (!fs.existsSync(dir)) return result
-
-  await fs.promises.mkdir(dir, { recursive: true })
-  const files = await fs.promises.readdir(dir)
-  const presetFiles = files.filter((f) => f.endsWith('.json') && !f.startsWith('_'))
-
-  await Promise.all(
-    presetFiles.map(async (file) => {
-      const raw = await fs.promises.readFile(path.join(dir, file), { encoding: 'utf-8' })
-      const content = process.platform !== 'win32' ? raw.replaceAll('\\\\', '/') : raw
-
-      const baseName = path.basename(file, '.json')
-      let imageBase64: string | null = null
-      const imagePath = findPresetImage(baseName, [dir, ...imageFallbackDirs])
-      if (imagePath) {
-        try {
-          const imageBuffer = await fs.promises.readFile(imagePath)
-          const ext = path.extname(imagePath).toLowerCase()
-          const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg'
-          imageBase64 = `data:${mimeType};base64,${imageBuffer.toString('base64')}`
-        } catch (error) {
-          appLogger.warn(`Failed to read image file ${imagePath}: ${error}`, 'electron-backend')
-        }
-      }
-
-      result.set(baseName, { content, image: imageBase64 })
-    }),
-  )
-  return result
-}
-
-function applyPresetFilter(
-  presets: Map<string, PresetFile>,
-  config: PresetLoadConfig,
-): Map<string, PresetFile> {
-  if (config.includePresets) {
-    const allowed = new Set(config.includePresets)
-    for (const key of presets.keys()) {
-      if (!allowed.has(key)) presets.delete(key)
-    }
-  } else if (config.excludePresets) {
-    for (const excluded of config.excludePresets) {
-      presets.delete(excluded)
-    }
-  }
-  if (config.excludeVariantBackends?.length) {
-    const excludedBackends = new Set(config.excludeVariantBackends)
-    for (const [key, file] of presets) {
-      try {
-        const parsed = JSON.parse(file.content)
-        if (parsed?.type !== 'comfy' || !Array.isArray(parsed.variants)) continue
-        const filtered = parsed.variants.filter(
-          (v: { backend?: string }) => !(v?.backend && excludedBackends.has(v.backend)),
-        )
-        if (filtered.length === parsed.variants.length) continue
-        parsed.variants = filtered
-        presets.set(key, { ...file, content: JSON.stringify(parsed) })
-      } catch (e) {
-        appLogger.warn(`Failed to filter variants for preset "${key}": ${e}`, 'electron-backend')
-      }
-    }
-  }
-  return presets
 }
 
 let settings = LocalSettingsSchema.parse({})
@@ -738,7 +789,33 @@ async function createWindow() {
   })
   setWebBrowserMainWindow(win)
   setAgentModeMainWindow(win)
-  win.on('close', () => {
+  setKernelEventWindow(win)
+  bindRendererBusyReset(win.webContents, (busy) => {
+    rendererBusy = busy
+  })
+  // The renderer that was asked a media request cannot answer from a new
+  // window; settle its pendings so waiters fail instead of hanging. The same
+  // holds for a chat tool execution the old renderer was told to run.
+  rejectAllMediaRequests('The app window was replaced')
+  rejectAllChatToolRequests('The app window was replaced')
+  for (const runKey of activeMediaAgentRunKeys()) cancelMediaAgentRun(runKey)
+  win.on('close', (event) => {
+    // Main owns the hide/reopen/quit policy (architecture-target §5.1), never
+    // the renderer: closing the window only hides it while headless work a
+    // quit would orphan is in flight — a Home Agent serving channels, an
+    // in-flight agent turn in main, or anything the renderer reported busy
+    // (tracked activities: a chat turn, a generation). A hidden window is
+    // reopened by relaunching (second-instance) or dock activation.
+    const decision = resolveClosePolicy({
+      homeAgentRunning: isHomeAgentRunning(),
+      rendererBusy,
+      agentTurnActive: isAgentTurnActive(),
+    })
+    if (decision === 'hide') {
+      event.preventDefault()
+      win?.hide()
+      return
+    }
     // Tear down the headless web-browser window so the app can quit cleanly.
     destroyWebBrowser()
     // Quit from the main window's own close rather than waiting for
@@ -790,27 +867,20 @@ async function createWindow() {
       )
     }, 100)
 
-    // Check localStorage for developer settings after page loads. `null` means the
-    // renderer never stored a choice, which is what keeps DevTools opening by
-    // default on an unpackaged run.
+    // Check the kernel-owned preferences file after page loads. `undefined`
+    // means no choice was ever stored, which is what keeps DevTools opening
+    // by default on an unpackaged run (step 8 moved this out of localStorage).
     setTimeout(async () => {
       try {
-        const stored: boolean | null = await win!.webContents.executeJavaScript(
-          `(() => {
-            try {
-              const developerSettings = localStorage.getItem('developerSettings');
-              if (developerSettings) {
-                const parsed = JSON.parse(developerSettings);
-                if (typeof parsed.openDevConsoleOnStartup === 'boolean') {
-                  return parsed.openDevConsoleOnStartup;
-                }
-              }
-            } catch (e) {
-              return null;
+        const section = (await readPreferenceSection('developerSettings')) as
+          | {
+              openDevConsoleOnStartup?: unknown
             }
-            return null;
-          })()`,
-        )
+          | undefined
+        const stored: boolean | undefined =
+          section && typeof section.openDevConsoleOnStartup === 'boolean'
+            ? section.openDevConsoleOnStartup
+            : undefined
         if (stored ?? !app.isPackaged) {
           win!.webContents.openDevTools({ mode: 'detach', activate: true })
         }
@@ -1090,6 +1160,14 @@ appShutdown.register({
   },
 })
 appShutdown.register({ name: 'web browser', run: () => destroyWebBrowser() })
+// Demo conversations are session-scoped (§6.1): nothing demo-written may
+// survive the process that wrote it.
+appShutdown.register({ name: 'demo conversations', run: () => wipeDemoConversations() })
+appShutdown.register({ name: 'demo agent sessions', run: () => wipeDemoAgentSessions() })
+appShutdown.register({ name: 'demo agent workspace', run: () => wipeDemoAgentWorkspace() })
+appShutdown.register({ name: 'demo media records', run: () => wipeDemoMediaRecords() })
+appShutdown.register({ name: 'demo preferences', run: () => wipeDemoPreferences() })
+appShutdown.register({ name: 'demo rag documents', run: () => wipeDemoRagDocuments() })
 appShutdown.register({ name: 'cloud proxy', run: () => cloudProxy?.close() })
 // After the agent, so the spans its extensions emit while shutting down are
 // still exported. No-op unless a developer opted into Laminar tracing.
@@ -1152,6 +1230,10 @@ app.on('activate', () => {
   // dock icon is clicked and there are no other windows open.
   if (BrowserWindow.getAllWindows().length === 0) {
     void createWindow().then(loadAppWindow)
+  } else if (win && !win.isDestroyed() && !win.isVisible()) {
+    // Hidden by the close-while-headless policy: dock activation reopens it.
+    win.show()
+    win.focus()
   }
 })
 
@@ -1160,6 +1242,10 @@ app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
     if (win.isMinimized()) {
       win.restore()
     }
+    // A hidden window (closed while headless work was in flight — see the
+    // close handler in createWindow) is reopened here: a relaunch means the
+    // user wants the UI back, not a second copy.
+    if (!win.isVisible()) win.show()
     win.focus()
     return
   }
@@ -1181,7 +1267,302 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   if (homeAgent instanceof HomeAgentBackendService) {
     homeAgent.registerIpcHandlers()
   }
+  wireArtifactRunner(settings)
+  wireConversations(settings)
+  wireAgentSessions(settings)
+  wireAgentWorkspace(settings)
+  wireMediaRecords(settings)
+  wirePreferences(settings)
+  wireRagDocuments(settings)
+  wireChatEngine()
   return serviceRegistry
+}
+
+/**
+ * Conversation persistence (step 8, §6.1): demo mode routes threads to a
+ * session-scoped sibling directory. Wipe it on boot too — a crash can leave a
+ * tail behind, and the app only ever wipes on exit otherwise.
+ */
+function wireConversations(settings: LocalSettings): void {
+  setConversationFileDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoConversations()
+}
+
+/** Same demo discipline for agent-session records (step 8, §6.1). */
+function wireAgentSessions(settings: LocalSettings): void {
+  setAgentSessionFileDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoAgentSessions()
+}
+
+/** Same demo discipline for generated-media gallery records (step 8, §6.1). */
+function wireMediaRecords(settings: LocalSettings): void {
+  setMediaItemFileDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoMediaRecords()
+}
+
+/** Same demo discipline for user preferences (step 8, §6.1). */
+function wirePreferences(settings: LocalSettings): void {
+  setPreferencesFileDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoPreferences()
+}
+
+/** Same demo discipline for the RAG document list (step 8, §6.1). */
+function wireRagDocuments(settings: LocalSettings): void {
+  setRagDocumentFilesDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoRagDocuments()
+}
+
+/** Same demo discipline for the agent workspace state (step 8, §6.1). */
+function wireAgentWorkspace(settings: LocalSettings): void {
+  setAgentWorkspaceFilesDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoAgentWorkspace()
+}
+
+/**
+ * Chat turns run in main (architecture-target §8 step 6): the renderer submits
+ * a typed request over `chat:submitTurn` and consumes kernel `chat-chunk`
+ * events. These deps are the only pieces of that engine that live outside the
+ * chat modules — the service registry, last-load memory, the Home Agent
+ * loopback token, and on-disk aipg-media bytes.
+ */
+function wireChatEngine(): void {
+  setChatReadinessDeps({
+    getService: (name) => serviceRegistry?.getService(name),
+    awaitChatWindow,
+    stopOvmsImageServer: async () => {
+      const ovms = serviceRegistry?.getService('openvino-backend')
+      if (ovms && 'stopImageServer' in ovms && typeof ovms.stopImageServer === 'function') {
+        await ovms.stopImageServer()
+      }
+    },
+    notifyHomeAgentUpstreamReady: (baseUrl) => {
+      const homeAgentSvc = serviceRegistry?.getService('home-agent-backend')
+      if (homeAgentSvc instanceof HomeAgentBackendService) {
+        homeAgentSvc.notifyUpstreamReady(baseUrl)
+      }
+    },
+    resetIdleChatBackend: async (serviceName) => {
+      const service = serviceRegistry?.getService(serviceName)
+      if (!service) return
+      await service.stop()
+      await service.start()
+    },
+  })
+  setChatModelDeps({
+    llmApiBase: (backend) => llmServerBaseUrl(backend),
+    ensureBackendReadiness: (args) => ensureChatBackendReady(args),
+    homeAgentAuthToken: () => {
+      const homeAgentSvc = serviceRegistry?.getService('home-agent-backend')
+      return homeAgentSvc instanceof HomeAgentBackendService
+        ? homeAgentSvc.getLoopbackAuthToken()
+        : ''
+    },
+  })
+  // Reuses the main-side aipg-media reader the agent attachments already use;
+  // the engine contract throws on failure (the ported customFetch behavior).
+  setChatEngineDeps({
+    readMediaAsDataUri: async (url) => {
+      const dataUri = await readAipgMediaAsDataUri(url)
+      if (!dataUri) throw new Error(`Could not read media ${url}`)
+      return dataUri
+    },
+    // Tracing hooks: no-ops in laminar.ts unless a Laminar config is present.
+    noteTimings: (timings) => noteLlamaCppChatTimings(timings),
+    noteTraceContext: (context) => noteMainChatTurnContext(context),
+  })
+  setRagRetrievalDeps({
+    ensureEmbeddingServerReady: async (serviceName, embeddingModel) => {
+      const service = serviceRegistry?.getService(serviceName)
+      if (
+        !service ||
+        !('ensureEmbeddingServerReady' in service) ||
+        typeof service.ensureEmbeddingServerReady !== 'function'
+      ) {
+        throw new Error(`Service ${serviceName} does not support a standalone embedding server`)
+      }
+      await service.ensureEmbeddingServerReady(embeddingModel)
+    },
+    getEmbeddingServerUrl: async (serviceName) => {
+      const service = serviceRegistry?.getService(serviceName)
+      if (!service) return null
+      if (
+        'getEmbeddingServerUrl' in service &&
+        typeof service.getEmbeddingServerUrl === 'function'
+      ) {
+        return service.getEmbeddingServerUrl()
+      }
+      return service.baseUrl ?? null
+    },
+    embed: async (inquiry) => {
+      const docs = await handleUtilityFunction('embedInputUsingRag', langchainChild, inquiry)
+      return Array.isArray(docs) ? docs : []
+    },
+    loadDocuments: async () => {
+      const section = await readRagDocumentSection()
+      return section?.ragList ?? null
+    },
+  })
+}
+
+/**
+ * The artifact runner and GPU occupancy wrap (architecture-target §4.1 step 5)
+ * run in main; everything they need that lives renderer-side — the model
+ * pre-flight and download consent — crosses the `artifact:request` bridge.
+ * Post-swap chat reload is in-process (`reloadLastChatBackend`). Service facts
+ * are read through the registry and the kernel stream.
+ */
+function wireArtifactRunner(settings: LocalSettings): void {
+  const comfyService = (): RunnerComfyService | null =>
+    (serviceRegistry?.getService('comfyui-backend') ?? null) as RunnerComfyService | null
+
+  // The in-process media tools resolve workflows from the same catalog the
+  // runner trusts (bundle + user presets, dummies behind the debug gate).
+  setMediaCatalogProvider(() =>
+    getPresetCatalog(
+      getPresetLoadConfig(settings),
+      !app.isPackaged || settings.showDebugSettingsInUI,
+    ),
+  )
+
+  setArtifactRunnerDeps({
+    getComfyService: comfyService,
+    onServiceStatusChange: (cb) =>
+      onKernelEvent((event) => {
+        if (event.type !== 'service') return
+        const info = event.info as { serviceName?: string; status?: string }
+        if (info?.serviceName === 'comfyui-backend' && info.status) cb(info.status)
+      }),
+    modelsMissing: async (preset) => {
+      const reply = await requestRenderer<{ models: ArtifactMissingModel[] }>({
+        kind: 'artifact-check-models',
+        requiredModels: preset.requiredModels ?? [],
+      })
+      return reply.models ?? []
+    },
+    requestModelConsent: async (models, onProgress) => {
+      try {
+        const approved = await requestRenderer<boolean>(
+          { kind: 'artifact-consent', models },
+          { onProgress },
+        )
+        return approved === true
+      } catch (error) {
+        appLogger.warn(`Model consent request failed: ${String(error)}`, 'electron-backend')
+        return false
+      }
+    },
+    ensureOvmsImageReady: (modelId, keepModelsLoaded, resolution) =>
+      ensureOvmsImageServerReady('openvino-backend', modelId, keepModelsLoaded, resolution),
+    readMediaAsDataUri: readAipgMediaAsDataUri,
+    getPlatform: () => process.platform,
+    devPresetsEnabled: () => !app.isPackaged || settings.showDebugSettingsInUI,
+  })
+
+  // The orchestrator owns GPU policy (step 7): every run — panel, chat tool,
+  // Home Agent or in-process agent tool — is bracketed through these, so the
+  // renderer's stop/return wraps and the occupancy refcount are gone.
+  setOrchestratorDeps({
+    stopChatForMedia: stopChatServicesForMedia,
+    freeComfyMemory: async () => {
+      const service = comfyService()
+      if (!service || service.currentStatus !== 'running') return
+      await freeMemoryAndUnloadModels(service.baseUrl, {
+        getServiceBaseUrl: () => service.baseUrl,
+        getToken: () => comfyService()?.getLoopbackAuthToken() ?? '',
+      })
+    },
+    restartChatBackend: reloadLastChatBackend,
+    chatRequestsOpen: () => chatInferenceStreamsActive() + piAgentCallsActive(),
+  })
+}
+
+/**
+ * Frees GPU memory the chat/LLM models hold before image generation — an
+ * orchestrator dep (step 7): only running backends are touched, and OpenVINO
+ * keeps its speech servers.
+ */
+async function stopChatServicesForMedia(): Promise<void> {
+  if (!serviceRegistry) return
+  for (const serviceName of ['llamacpp-backend', 'openvino-backend'] as const) {
+    const service = serviceRegistry.getService(serviceName)
+    if (!service || service.currentStatus !== 'running') continue
+    try {
+      if (
+        serviceName === 'openvino-backend' &&
+        'stopChatServers' in service &&
+        typeof service.stopChatServers === 'function'
+      ) {
+        await service.stopChatServers()
+      } else {
+        await service.stop()
+      }
+    } catch (error) {
+      appLogger.warn(
+        `Failed to stop ${serviceName} before media: ${String(error)}`,
+        'electron-backend',
+      )
+    }
+  }
+}
+
+async function readAipgMediaAsDataUri(url: string): Promise<string | null> {
+  const localPath = getLocalPathFromAipgMediaUrl(url)
+  if (!localPath) return null
+  try {
+    const data = await fs.promises.readFile(localPath)
+    const ext = path.extname(localPath).toLowerCase()
+    const mime =
+      ext === '.jpg' || ext === '.jpeg'
+        ? 'image/jpeg'
+        : ext === '.webp'
+          ? 'image/webp'
+          : ext === '.gif'
+            ? 'image/gif'
+            : 'image/png'
+    return `data:${mime};base64,${data.toString('base64')}`
+  } catch (error) {
+    appLogger.warn(`Could not read media ${url}: ${String(error)}`, 'electron-backend')
+    return null
+  }
+}
+
+/**
+ * Starts (or confirms) the OVMS image-gen server — shared by the renderer IPC
+ * handler and the artifact runner, which calls it directly.
+ */
+async function ensureOvmsImageServerReady(
+  serviceName: string,
+  modelName: string,
+  keepModelsLoaded?: boolean,
+  resolution?: string,
+): Promise<{ success: boolean; url?: string; error?: string }> {
+  if (!serviceRegistry) {
+    return { success: false, error: 'Service registry not ready' }
+  }
+  const service = serviceRegistry.getService(serviceName)
+  if (!service) {
+    return { success: false, error: `Service ${serviceName} not found` }
+  }
+
+  if ('startImageServer' in service && typeof service.startImageServer === 'function') {
+    try {
+      await service.startImageServer(modelName, keepModelsLoaded, resolution)
+      const url =
+        'getImageServerUrl' in service && typeof service.getImageServerUrl === 'function'
+          ? service.getImageServerUrl()
+          : null
+      if (url) {
+        return { success: true, url }
+      }
+      return { success: false, error: 'Image server started but URL not available' }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      appLogger.error(`Failed to ensure OVMS image readiness: ${errorMessage}`, 'electron-backend')
+      return { success: false, error: errorMessage }
+    }
+  }
+
+  return { success: false, error: 'Image server not supported by this backend' }
 }
 
 function initEventHandle() {
@@ -1214,6 +1595,15 @@ function initEventHandle() {
 
   ipcMain.handle('updateLocalSettings', (_event, updates: Partial<LocalSettings>) => {
     Object.assign(settings, updates)
+    // Any of these can change which preset files the catalog reads or injects.
+    if (
+      'productMode' in updates ||
+      'isDemoModeEnabled' in updates ||
+      'isAgentPresetEnabled' in updates ||
+      'showDebugSettingsInUI' in updates
+    ) {
+      invalidatePresetCatalog()
+    }
     const shouldReloadDemoProfile =
       settings.isDemoModeEnabled && ('productMode' in updates || 'isDemoModeEnabled' in updates)
     if (shouldReloadDemoProfile) {
@@ -1230,6 +1620,72 @@ function initEventHandle() {
       serviceRegistry?.setDisabledBackends(updates.disabledBackends)
     }
     appLogger.info(`Updated local settings: ${JSON.stringify(updates)}`, 'electron-backend')
+    return { success: true }
+  })
+
+  // ── Backend launch settings (step 8, §6.1) ─────────────────────────────
+  // The backendServices store's half of the kernel-owned settings file:
+  // the launch flags and version pins hydrate from settings.json at boot and
+  // write through on change (updateLocalSettings above), replacing the old
+  // renderer-persisted Pinia key. The device map is main-owned all along —
+  // selectDevice below writes it — so it is only ever read here.
+  ipcMain.handle('getBackendLaunchSettings', () => ({
+    versionOverrides: settings.versionOverrides,
+    comfyUiParameters: settings.comfyUiParameters,
+    llamaCppParameters: settings.llamaCppParameters,
+    llamaCppBuildVariant: settings.llamaCppBuildVariant,
+    llamaCppOffloadDrive: settings.llamaCppOffloadDrive,
+    openvinoKvCacheU4: settings.openvinoKvCacheU4,
+    lastSelectedDevicePerBackend: settings.lastSelectedDevicePerBackend,
+  }))
+
+  // One-shot legacy upload from the pre-step-8 Pinia key. Per-field
+  // only-when-default: settings.json may already hold a value a previous
+  // partial migration wrote, and a null flag is a valid user choice that
+  // must not be mistaken for "never set".
+  ipcMain.handle('migrateBackendLaunchSettings', (_event, payload: unknown) => {
+    const parsed = z
+      .object({
+        versionOverrides: z
+          .record(z.string(), z.object({ releaseTag: z.string().optional(), version: z.string() }))
+          .optional(),
+        comfyUiParameters: z.string().nullable().optional(),
+        llamaCppParameters: z.string().nullable().optional(),
+        llamaCppBuildVariant: z.enum(['standard', 'ssd-offload']).optional(),
+        llamaCppOffloadDrive: z.string().nullable().optional(),
+        openvinoKvCacheU4: z.boolean().optional(),
+      })
+      .safeParse(payload)
+    if (!parsed.success) {
+      return { success: false, error: `invalid launch settings payload: ${parsed.error.message}` }
+    }
+    const incoming = parsed.data
+    if (incoming.comfyUiParameters != null && settings.comfyUiParameters === null) {
+      settings.comfyUiParameters = incoming.comfyUiParameters
+    }
+    if (incoming.llamaCppParameters != null && settings.llamaCppParameters === null) {
+      settings.llamaCppParameters = incoming.llamaCppParameters
+    }
+    if (
+      incoming.llamaCppBuildVariant === 'ssd-offload' &&
+      settings.llamaCppBuildVariant === 'standard'
+    ) {
+      settings.llamaCppBuildVariant = incoming.llamaCppBuildVariant
+    }
+    if (incoming.llamaCppOffloadDrive != null && settings.llamaCppOffloadDrive === null) {
+      settings.llamaCppOffloadDrive = incoming.llamaCppOffloadDrive
+    }
+    if (incoming.openvinoKvCacheU4 === true && settings.openvinoKvCacheU4 === false) {
+      settings.openvinoKvCacheU4 = true
+    }
+    if (
+      incoming.versionOverrides &&
+      Object.keys(incoming.versionOverrides).length > 0 &&
+      Object.keys(settings.versionOverrides).length === 0
+    ) {
+      settings.versionOverrides = incoming.versionOverrides
+    }
+    persistLocalSettingsToDisk()
     return { success: true }
   })
 
@@ -1370,6 +1826,17 @@ function initEventHandle() {
       win.minimize()
     }
   })
+
+  // The renderer reports whether it has tracked work in flight; an input to
+  // the main-owned close policy (see createWindow's 'close' handler).
+  ipcMain.on('lifecycle:busy', (_event: IpcMainInvokeEvent, busy: boolean) => {
+    rendererBusy = busy === true
+  })
+
+  // Projection hydration: the renderer subscribes to the kernel event stream
+  // BEFORE requesting this snapshot and applies only events above its
+  // sequence (docs/architecture-target.md §4.6).
+  ipcMain.handle('kernel:getSnapshot', () => getKernelSnapshot())
 
   ipcMain.on('setFullScreen', (_event: IpcMainEvent, enable: boolean) => {
     if (win) {
@@ -2133,11 +2600,9 @@ function initEventHandle() {
       embeddingModelName?: string,
       contextSize?: number,
       modelArgs?: string,
+      skipGpuAdmission?: boolean,
+      options?: { remember?: boolean },
     ) => {
-      appLogger.info(
-        `Ensuring backend readiness for service: ${serviceName}, LLM: ${llmModelName}, Embedding: ${embeddingModelName || 'none'}, Context Size: ${contextSize ?? 'undefined'}, Model args: ${modelArgs || 'none'}`,
-        'electron-backend',
-      )
       if (!serviceRegistry) {
         appLogger.warn(
           'received ensureBackendReadiness too early during aipg startup',
@@ -2145,27 +2610,15 @@ function initEventHandle() {
         )
         return { success: false, error: 'Service registry not ready' }
       }
-      const service = serviceRegistry.getService(serviceName)
-      if (!service) {
-        appLogger.warn(`Service ${serviceName} not found`, 'electron-backend')
-        return { success: false, error: `Service ${serviceName} not found` }
-      }
 
       try {
-        await service.ensureBackendReadiness(
-          llmModelName,
-          embeddingModelName,
-          contextSize,
-          modelArgs,
+        await ensureChatBackendReady(
+          { serviceName, llmModelName, embeddingModelName, contextSize, modelArgs },
+          {
+            skipGpuAdmission: Boolean(skipGpuAdmission),
+            remember: options?.remember,
+          },
         )
-        appLogger.info(
-          `Backend ${serviceName} ready for LLM: ${llmModelName}, Embedding: ${embeddingModelName || 'none'}`,
-          'electron-backend',
-        )
-        const homeAgentSvc = serviceRegistry?.getService('home-agent-backend')
-        if (homeAgentSvc instanceof HomeAgentBackendService) {
-          homeAgentSvc.notifyUpstreamReady(service.baseUrl ?? '')
-        }
         return { success: true }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
@@ -2175,6 +2628,22 @@ function initEventHandle() {
         )
         return { success: false, error: errorMessage }
       }
+    },
+  )
+
+  ipcMain.handle('setLastChatBackendLoadActive', (_event: IpcMainInvokeEvent, active: boolean) => {
+    setLastChatBackendLoadActive(Boolean(active))
+    return { success: true }
+  })
+
+  ipcMain.handle(
+    'rememberChatBackendLoad',
+    (_event: IpcMainInvokeEvent, args: ChatReadinessArgs) => {
+      if (typeof args?.serviceName !== 'string' || typeof args?.llmModelName !== 'string') {
+        return { success: false, error: 'invalid last-load args' }
+      }
+      rememberChatBackendLoad(args)
+      return { success: true }
     },
   )
 
@@ -2205,6 +2674,311 @@ function initEventHandle() {
       const errorMessage = error instanceof Error ? error.message : String(error)
       appLogger.error(`Failed to start ComfyUI backend: ${errorMessage}`, 'electron-backend')
       return { success: false, error: errorMessage, starting: false }
+    }
+  })
+
+  // ── Artifact runner IPC (architecture-target §4.1 step 5) ─────────────────
+  // The renderer ships fully-resolved runs; the runner owns readiness,
+  // submission and the progress stream back over the kernel bus.
+
+  ipcMain.handle(
+    'artifact:run',
+    async (
+      _event: IpcMainInvokeEvent,
+      request: unknown,
+      options?: { queue?: 'fail-fast' | 'queue' },
+    ): Promise<ArtifactRunResult> => {
+      const parsed = ArtifactRunRequestSchema.safeParse(request)
+      if (!parsed.success) {
+        appLogger.warn(
+          `artifact:run rejected a malformed request: ${parsed.error.message}`,
+          'electron-backend',
+        )
+        return { state: 'failed', items: [], error: 'Malformed artifact run request' }
+      }
+      const payload: ArtifactRunPayload = {
+        ...parsed.data,
+        items: parsed.data.items as MediaItem[] | undefined,
+      }
+      return submitArtifactRun(payload, {
+        queue: options?.queue === 'queue' ? 'queue' : 'fail-fast',
+      })
+    },
+  )
+
+  ipcMain.handle('artifact:cancel', (_event: IpcMainInvokeEvent, runId?: string) => {
+    if (typeof runId === 'string' && runId.length > 0) {
+      cancelArtifactRun(runId)
+    } else {
+      cancelActiveArtifactRun()
+    }
+  })
+
+  ipcMain.handle(
+    'artifact:respond',
+    (_event: IpcMainInvokeEvent, payload: MediaResponsePayload) => {
+      handleMediaResponse(payload)
+    },
+  )
+
+  // Chat turns run in main (architecture-target §8 step 6); the renderer
+  // submits/resumes/cancels over IPC and receives the stream as kernel
+  // chat-chunk events plus a chat:executeTool callback for tool bodies.
+  ipcMain.handle('chat:submitTurn', (_event: IpcMainInvokeEvent, request: unknown) => {
+    try {
+      return { success: true as const, turnId: submitChatTurn(request).turnId }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('chat:resumeTurn', (_event: IpcMainInvokeEvent, conversationKey: string) => {
+    const resumed = resumeChatTurn(conversationKey)
+    return resumed
+      ? { success: true as const, active: true, ...resumed }
+      : { success: true as const, active: false as const }
+  })
+
+  ipcMain.handle(
+    'chat:cancelTurn',
+    (_event: IpcMainInvokeEvent, conversationKey: string, turnId: string) => {
+      cancelChatTurn(conversationKey, turnId)
+      return { success: true as const }
+    },
+  )
+
+  ipcMain.handle('chat:toolResult', (_event: IpcMainInvokeEvent, payload: ChatToolResult) => {
+    handleChatToolResult(payload)
+  })
+
+  // One-shot title summarization, model call included (step 6).
+  ipcMain.handle('chat:summarize', async (_event: IpcMainInvokeEvent, request: unknown) => {
+    try {
+      return { success: true as const, data: await summarizeConversationText(request) }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('chat:runMediaAgent', async (_event: IpcMainInvokeEvent, request: unknown) => {
+    try {
+      const parsed = MediaAgentRunRequestSchema.parse(request)
+      return { success: true as const, data: await runMediaAgentInMain(parsed) }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('chat:cancelMediaAgent', (_event: IpcMainInvokeEvent, runKey: unknown) => {
+    if (typeof runKey === 'string') cancelMediaAgentRun(runKey)
+  })
+
+  // Conversation persistence (step 8, architecture-target §6.1): the kernel
+  // is the one writer of the user's threads. Hydration and the one-shot
+  // legacy upload return data; the mutations follow the {success} convention.
+  ipcMain.handle('conversations:bootstrap', async () => {
+    try {
+      return await bootstrapConversations()
+    } catch (e) {
+      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('conversations:migrate', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+    try {
+      return await migrateLegacyConversations(ConversationLegacyStateSchema.parse(payload))
+    } catch (e) {
+      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('conversations:save', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+    try {
+      await saveConversation(ConversationSaveRequestSchema.parse(payload))
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('conversations:delete', async (_event: IpcMainInvokeEvent, id: unknown) => {
+    try {
+      if (typeof id !== 'string') throw new Error('conversation id must be a string')
+      await deleteConversation(id)
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle(
+    'conversations:saveLastMainKey',
+    async (_event: IpcMainInvokeEvent, key: unknown) => {
+      try {
+        if (typeof key !== 'string' && key !== null) {
+          throw new Error('lastMainKey must be a string or null')
+        }
+        await saveConversationLastMainKey(key)
+        return { success: true as const }
+      } catch (e) {
+        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+  )
+
+  // Agent-session records (step 8, §6.1): same one-writer contract as the
+  // conversations above — the record file and its index entry live here, Pi's
+  // own session files stay with Pi. Deletes fold into `agentMode:deleteSession`
+  // below, next to the Pi-side teardown.
+  ipcMain.handle('agentMode:bootstrapSessions', async () => {
+    try {
+      return await bootstrapAgentSessions()
+    } catch (e) {
+      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle(
+    'agentMode:migrateSessions',
+    async (_event: IpcMainInvokeEvent, payload: unknown) => {
+      try {
+        return await migrateLegacyAgentSessions(LegacyAgentSessionStateSchema.parse(payload))
+      } catch (e) {
+        return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+  )
+
+  ipcMain.handle('agentMode:saveSession', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+    try {
+      await saveAgentSession(AgentSessionRecordSchema.parse(payload))
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle(
+    'agentMode:saveActiveSessionId',
+    async (_event: IpcMainInvokeEvent, id: unknown) => {
+      try {
+        if (typeof id !== 'string' && id !== null) {
+          throw new Error('activeSessionId must be a string or null')
+        }
+        await saveAgentSessionActiveId(id)
+        return { success: true as const }
+      } catch (e) {
+        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+  )
+
+  // Generated-media gallery records (step 8, §6.1): same one-writer contract
+  // as the conversations and agent sessions above — one JSON per item plus an
+  // ordered index inside `media/records/`, beside the media files themselves.
+  ipcMain.handle('mediaItems:bootstrap', async () => {
+    try {
+      return await bootstrapMediaItems()
+    } catch (e) {
+      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('mediaItems:migrate', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+    try {
+      if (!Array.isArray(payload)) throw new Error('legacy media items payload must be an array')
+      return await migrateLegacyMediaItems(payload)
+    } catch (e) {
+      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('mediaItems:save', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+    try {
+      if (!Array.isArray(payload)) throw new Error('media items payload must be an array')
+      await saveMediaItems(payload)
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('mediaItems:delete', async (_event: IpcMainInvokeEvent, ids: unknown) => {
+    try {
+      if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) {
+        throw new Error('media item ids payload must be an array of strings')
+      }
+      return await deleteMediaItemRecords(ids)
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  // User preferences (step 8, §6.1): one file, one section per store. The
+  // one-shot migrate writes only when the section is absent, so a retry can
+  // never overwrite what the files already own.
+  ipcMain.handle('preferences:read', async () => {
+    try {
+      return { success: true as const, sections: await readAllPreferences() }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle(
+    'preferences:migrate',
+    async (_event: IpcMainInvokeEvent, section: unknown, payload: unknown) => {
+      try {
+        if (typeof section !== 'string') throw new Error('preference section must be a string')
+        await migratePreferenceSection(section, payload)
+        return { success: true as const }
+      } catch (e) {
+        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'preferences:write',
+    async (_event: IpcMainInvokeEvent, section: unknown, value: unknown) => {
+      try {
+        if (typeof section !== 'string') throw new Error('preference section must be a string')
+        await writePreferenceSection(section, value)
+        return { success: true as const }
+      } catch (e) {
+        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+  )
+
+  // ── RAG documents (step 8, §6.1): the textInference store's indexed
+  // document set, one kernel-owned file — same section-shaped contract as
+  // the preferences channels, over rag/documents.json. read keeps "absent"
+  // (section null) apart from "failed" (success false): only the former may
+  // trigger the one-shot legacy upload.
+  ipcMain.handle('ragDocuments:read', async () => {
+    try {
+      return { success: true as const, section: await readRagDocumentSection() }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('ragDocuments:migrate', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+    try {
+      await migrateRagDocumentSection(payload)
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('ragDocuments:write', async (_event: IpcMainInvokeEvent, value: unknown) => {
+    try {
+      await writeRagDocumentSection(value)
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
     }
   })
 
@@ -2489,62 +3263,8 @@ function initEventHandle() {
       modelName: string,
       keepModelsLoaded?: boolean,
       resolution?: string,
-    ) => {
-      if (!serviceRegistry) {
-        return { success: false, error: 'Service registry not ready' }
-      }
-      const service = serviceRegistry.getService(serviceName)
-      if (!service) {
-        return { success: false, error: `Service ${serviceName} not found` }
-      }
-
-      if ('startImageServer' in service && typeof service.startImageServer === 'function') {
-        try {
-          await service.startImageServer(modelName, keepModelsLoaded, resolution)
-          const url =
-            'getImageServerUrl' in service && typeof service.getImageServerUrl === 'function'
-              ? service.getImageServerUrl()
-              : null
-          if (url) {
-            return { success: true, url }
-          }
-          return { success: false, error: 'Image server started but URL not available' }
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          appLogger.error(
-            `Failed to ensure OVMS image readiness: ${errorMessage}`,
-            'electron-backend',
-          )
-          return { success: false, error: errorMessage }
-        }
-      }
-
-      return { success: false, error: 'Image server not supported by this backend' }
-    },
+    ) => ensureOvmsImageServerReady(serviceName, modelName, keepModelsLoaded, resolution),
   )
-
-  ipcMain.handle('stopOvmsImageServer', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    if ('stopImageServer' in service && typeof service.stopImageServer === 'function') {
-      try {
-        await service.stopImageServer()
-        return { success: true }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        appLogger.error(`Failed to stop OVMS image server: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
-      }
-    }
-
-    return { success: false, error: 'Image server not supported' }
-  })
 
   ipcMain.handle('stopOvmsChatServers', async (_event: IpcMainInvokeEvent) => {
     if (!serviceRegistry) {
@@ -2611,13 +3331,16 @@ function initEventHandle() {
     const mode = resolveProductMode(settings)
     const variant = settings.isDemoModeEnabled ? 'demo' : 'presets'
     const config = getPresetLoadConfig(settings)
-    return updateIntelPresets(
+    const result = updateIntelPresets(
       settings.remoteRepository,
       mode,
       variant,
       config.baseDir,
       config.modeDir,
     )
+    if (result instanceof Promise) result.then(() => invalidatePresetCatalog())
+    else invalidatePresetCatalog()
+    return result
   })
 
   ipcMain.handle('reloadPresets', async () => {
@@ -2627,18 +3350,9 @@ function initEventHandle() {
     } catch (error) {
       appLogger.error(`Failed to filter partner presets: ${error}`, 'electron-backend')
     }
+    invalidatePresetCatalog()
     try {
-      const basePresets = applyPresetFilter(
-        await readPresetsFromDir(config.baseDir, config.imageFallbackDirs),
-        config,
-      )
-      const modePresets = await readPresetsFromDir(config.modeDir, config.imageFallbackDirs)
-
-      for (const [name, preset] of modePresets) {
-        basePresets.set(name, preset)
-      }
-
-      return [...basePresets.values()]
+      return await loadPresetFiles(config)
     } catch (error) {
       appLogger.error(`Failed to load presets: ${error}`, 'electron-backend')
       return []
@@ -2678,6 +3392,7 @@ function initEventHandle() {
 
       await fs.promises.writeFile(filePath, presetContent, { encoding: 'utf-8' })
       appLogger.info(`Saved user preset to ${filePath}`, 'electron-backend')
+      invalidatePresetCatalog()
       return true
     } catch (error) {
       appLogger.error(`Failed to save user preset: ${error}`, 'electron-backend')
@@ -2936,8 +3651,9 @@ function initEventHandle() {
   )
 
   // Agent Mode (Pi coding agent) IPC handlers — see agentMode/piAgentManager.ts.
-  // Stream chunks are pushed main→renderer on 'agentMode:streamChunk', live tool
-  // output on 'agentMode:toolProgress'.
+  // Stream chunks and live tool output cross the kernel event bus
+  // (electron/kernel/kernelBus.ts) as 'agent-chunk' / 'agent-tool-progress' /
+  // 'agent-tool-image' / 'agent-turn-done' events.
   ipcMain.handle(
     'agentMode:startTurn',
     async (_event, turnId: string, prompt: string, config: unknown) => {
@@ -2957,8 +3673,51 @@ function initEventHandle() {
     await resetAgentSession()
   })
 
-  ipcMain.handle('agentMode:deleteSession', async (_event, sessionId: string) => {
-    return await deleteAgentSession(sessionId)
+  // Step 8 (§6.1): the last-used workspace pointers are kernel-owned
+  // (agent-workspace.json); the store becomes a live projection.
+  ipcMain.handle('agentMode:readWorkspaceState', async () => {
+    try {
+      return { success: true as const, section: await readAgentWorkspaceState() }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle(
+    'agentMode:migrateWorkspaceState',
+    async (_event: IpcMainInvokeEvent, payload: unknown) => {
+      try {
+        await migrateAgentWorkspaceState(payload)
+        return { success: true as const }
+      } catch (e) {
+        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'agentMode:writeWorkspaceState',
+    async (_event: IpcMainInvokeEvent, value: unknown) => {
+      try {
+        await writeAgentWorkspaceState(value)
+        return { success: true as const }
+      } catch (e) {
+        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+  )
+
+  ipcMain.handle('agentMode:deleteSession', async (_event, sessionId: unknown) => {
+    // Both halves run even if one fails. Invalid ids return `{success:false}`.
+    try {
+      if (typeof sessionId !== 'string') throw new Error('session id must be a string')
+      const record = await deleteAgentSessionRecord(sessionId)
+      const live = await deleteAgentSession(sessionId)
+      if (!record.success) return record
+      return live
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   // Copy a file the user attached into the agent's workspace, so the agent can

@@ -15,9 +15,9 @@ import { appLoggerInstance } from './logging/logger.ts'
 // spans and a renderer span with no explicit parent nests under the oldest one.
 //
 // Oldest, not newest, because models ask for a whole spritesheet at once and
-// both harnesses dispatch those tool calls in parallel, while the media pipeline
-// runs them one at a time in call order (assets/js/tools/mediaPipeline.ts). The
-// oldest open media TOOL span is therefore the call whose generation is running.
+// both harnesses dispatch those tool calls in parallel, while the orchestrator's
+// queue runs them one at a time in call order (step 7). The oldest open media
+// TOOL span is therefore the call whose generation is running.
 
 const logger = appLoggerInstance
 const LOG_SOURCE = 'laminar'

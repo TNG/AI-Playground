@@ -159,6 +159,10 @@ export async function initLaminarTracing(): Promise<void> {
         ) as unknown as NonNullable<Parameters<typeof Laminar.initialize>[0]>['spanProcessor'],
       })
     }
+    // Chat inference runs in this process (step 6), so its AI SDK calls are
+    // traced by registering the integration against the SDK's global registry
+    // here rather than by replaying renderer events over IPC.
+    await registerMainChatTelemetry()
     logger.info(
       `tracing to ${config.baseUrl}:${config.httpPort} (grpc ${config.grpcPort})`,
       LOG_SOURCE,
@@ -237,17 +241,12 @@ async function chatTelemetry(): Promise<typeof aiSdkTelemetry> {
 }
 
 /**
- * Event names of our own on the same channel, carrying what the AI SDK's
- * telemetry has no field for: the turn's backend/thinking setup, llama.cpp's own
- * timings, and (in laminarSpans.ts) spans for renderer work that is not a model
- * call at all. They share the channel because it keeps them ordered against the
- * SDK's events — the numbers have to be here before the span they belong to is
- * replayed and ended.
+ * Event names of our own on the same channel, carrying spans for renderer work
+ * that is not a model call at all (laminarSpans.ts). They share the channel
+ * with the SDK's events to stay ordered against them.
  */
-const CHAT_CONTEXT_EVENT = 'aipgChatContext'
-const CHAT_TIMINGS_EVENT = 'aipgChatTimings'
 
-/** llama.cpp's `timings` object, as the chat store captures it off a raw chunk. */
+/** llama.cpp's `timings` object, as the turn engine captures it off a raw chunk. */
 type LlamaCppTimings = {
   cache_n?: number
   prompt_ms?: number
@@ -291,19 +290,6 @@ export async function handleChatTelemetryEvent(name: string, payload: string): P
     await handleSpanEvent(name, payload)
     return
   }
-  if (name === CHAT_CONTEXT_EVENT || name === CHAT_TIMINGS_EVENT) {
-    try {
-      const value = JSON.parse(payload) as unknown
-      if (name === CHAT_CONTEXT_EVENT) {
-        const context = value as InferenceTraceContext | null
-        delegatedRun = context?.delegated === true
-        setChatTraceContext(context)
-      } else chatTimings = value as LlamaCppTimings | null
-    } catch (error) {
-      logger.warn(`dropped chat telemetry event '${name}': ${error}`, LOG_SOURCE)
-    }
-    return
-  }
   const telemetry = await chatTelemetry()
   const callback = telemetry?.[name]
   if (!callback) return
@@ -331,6 +317,75 @@ export async function handleChatTelemetryEvent(name: string, payload: string): P
     callback(event)
   } catch (error) {
     logger.warn(`dropped chat telemetry event '${name}': ${error}`, LOG_SOURCE)
+  }
+}
+
+// ── Main-side chat turns (step 6) ─────────────────────────────────────────────
+//
+// Chat inference runs in this process, so the AI SDK's telemetry events fire
+// here and the integration is registered against the SDK's global registry
+// instead of being replayed over IPC. The wrapper repeats what the replay path
+// did: call stats and llama.cpp's timings reach the stamping processor before
+// the call's span ends, and a run marked delegated starts inside the open
+// media tool span.
+
+/** The turn context a main-side run (engine turn, nested media run) stamps spans with. */
+export function noteMainChatTurnContext(context: unknown): void {
+  setChatTraceContext((context ?? null) as InferenceTraceContext | null)
+}
+
+/** llama.cpp's own timings for the call in flight, set by the turn engine. */
+export function noteLlamaCppChatTimings(timings: LlamaCppTimings | null): void {
+  chatTimings = timings
+}
+
+/**
+ * Mark the next AI SDK run as delegated: the media specialist, nested inside a
+ * `media` tool call of the parent turn. Consumed by that run's `onStart`, which
+ * one `streamText` fires exactly once.
+ */
+export function markDelegatedMediaRun(): void {
+  delegatedRun = true
+}
+
+let mainTelemetryRegistered = false
+
+export async function registerMainChatTelemetry(): Promise<void> {
+  if (mainTelemetryRegistered) return
+  const telemetry = await chatTelemetry()
+  if (!telemetry) return
+  try {
+    const { registerTelemetry } = await import('ai')
+    const wrapped: Record<string, (event: unknown) => void> = {}
+    for (const [name, callback] of Object.entries(telemetry)) {
+      if (typeof callback !== 'function') continue
+      const bound = callback.bind(telemetry)
+      wrapped[name] = (event) => {
+        try {
+          // This event ends the LLM span synchronously, inside the callback —
+          // so the call's speeds have to be handed over first for the processor
+          // to stamp.
+          if (name === 'onLanguageModelCallEnd') {
+            recordChatCallStats(
+              chatCallStats((event as { performance?: CallPerformance }).performance),
+            )
+            chatTimings = null
+          }
+          if (name === AI_SDK_CALL_START && delegatedRun) {
+            delegatedRun = false
+            void underMediaToolCall(() => bound(event))
+            return
+          }
+          bound(event)
+        } catch (error) {
+          logger.warn(`chat telemetry event '${name}' failed: ${error}`, LOG_SOURCE)
+        }
+      }
+    }
+    registerTelemetry(wrapped as Parameters<typeof registerTelemetry>[0])
+    mainTelemetryRegistered = true
+  } catch (error) {
+    logger.warn(`main chat telemetry registration failed: ${error}`, LOG_SOURCE)
   }
 }
 

@@ -3,7 +3,7 @@ import { ref, watch } from 'vue'
 import type { MediaItem } from './imageGenerationPresets'
 import { useImageGenerationPresets } from './imageGenerationPresets'
 import { useActivities } from './activities'
-import type { ToolAgentPhase } from '../agents/toolAgent'
+import type { ToolAgentPhase } from '@/lib/toolAgent'
 
 // Live view of nested media specialist runs (agents/mediaAgent.ts), keyed by the
 // delegating tool call id so both surfaces can render the same timeline while

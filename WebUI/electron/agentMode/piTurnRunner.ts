@@ -1,6 +1,12 @@
 import fs from 'node:fs'
 import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent'
 import { appLoggerInstance } from '../logging/logger.ts'
+import {
+  beginAgentTurnSnapshot,
+  emitAgentChunk,
+  emitAgentToolProgress,
+  emitAgentTurnDone,
+} from '../kernel/kernelBus.ts'
 import { closeAllBrowserSessions, closeBrowserSession } from '../subprocesses/agentBrowser.ts'
 import { closeWorkspaceRuntime } from './piWorkspaceRuntime.ts'
 import {
@@ -24,7 +30,6 @@ import {
   active,
   activeAbort,
   lastSessionId,
-  mainWin,
   setActiveAbort,
   setCurrentTurn,
   type ActiveSession,
@@ -35,25 +40,13 @@ import { setAgentRunIdentity } from '../laminarAttributes.ts'
 
 const logger = appLoggerInstance
 
-export type AgentModeStreamChunk = {
-  turnId: string
-  chunk: unknown
-}
-
-export type AgentModeToolProgress = {
-  turnId: string
-  toolCallId: string
-  toolName: string
-  text: string
-}
-
 export type AgentModeTurnResult = {
   success: boolean
   error?: string
 }
 
 function sendChunk(turnId: string, chunk: StreamChunk): void {
-  mainWin?.webContents.send('agentMode:streamChunk', { turnId, chunk } as AgentModeStreamChunk)
+  emitAgentChunk(turnId, chunk)
 }
 
 /**
@@ -325,16 +318,12 @@ export async function startAgentTurn(
   }
   const abortController = new AbortController()
   setActiveAbort(abortController)
+  beginAgentTurnSnapshot(turnId)
   const verbose = verboseLogging()
   const translator = createStreamTranslator({
     emit: (chunk) => sendChunk(turnId, chunk),
     onToolProgress: ({ toolCallId, toolName, text }) => {
-      mainWin?.webContents.send('agentMode:toolProgress', {
-        turnId,
-        toolCallId,
-        toolName,
-        text,
-      } as AgentModeToolProgress)
+      emitAgentToolProgress(turnId, toolCallId, toolName, text)
     },
   })
   try {
@@ -412,7 +401,7 @@ export async function startAgentTurn(
   } finally {
     setCurrentTurn(null)
     setActiveAbort(null)
-    mainWin?.webContents.send('agentMode:turnDone', { turnId })
+    emitAgentTurnDone(turnId)
   }
 }
 

@@ -4,6 +4,7 @@ import * as filesystem from 'fs-extra'
 import fsPromises from 'fs/promises'
 import path from 'node:path'
 import { appLoggerInstance } from '../logging/logger.ts'
+import { emitServiceUpdate } from '../kernel/kernelBus.ts'
 import { packagedResourcesRoot } from '../aipgRoot.ts'
 import { existingFileOrError, spawnProcessAsync, ProcessError } from './osProcessHelper'
 import { fetchInstallArtifact } from './fetchInstallArtifact.ts'
@@ -533,6 +534,12 @@ export abstract class LongLivedPythonApiService implements ApiService {
   // Cached installed version for inclusion in service info updates
   protected cachedInstalledVersion: { version: string; releaseTag?: string } | undefined = undefined
 
+  // False until publishInitialSetupStatus finishes. get_info must not map
+  // uninitializedStatus → notInstalled during that window: isSetUp is still
+  // the constructor default, and a first getServices would open the wizard
+  // on an installed machine while uv sync --check is still running.
+  private initialStatusPublished = false
+
   // Buffer for capturing startup logs
   private startupLogBuffer: { stdout: string[]; stderr: string[] } = { stdout: [], stderr: [] }
   private isCapturingStartupLogs: boolean = false
@@ -641,11 +648,31 @@ export abstract class LongLivedPythonApiService implements ApiService {
   }
 
   updateStatus() {
-    this.win.webContents.send('serviceInfoUpdate', this.get_info())
+    emitServiceUpdate(this.get_info())
+  }
+
+  /**
+   * First kernel-bus publish after the async setup check. A not-installed
+   * backend used to stay silent, so a fresh machine's snapshot had no
+   * `ai-backend` and the renderer poll waited forever on "Verifying backends".
+   */
+  protected async publishInitialSetupStatus(): Promise<void> {
+    try {
+      this.isSetUp = await this.serviceIsSetUp()
+      if (this.isSetUp) {
+        await this.updateCachedVersion()
+      }
+    } catch (error) {
+      this.appLogger.warn(`Initial setup check failed: ${error}`, this.name)
+      this.isSetUp = false
+    }
+    this.initialStatusPublished = true
+    this.setStatus(this.isSetUp ? 'notYetStarted' : 'notInstalled')
+    this.appLogger.info(`Service ${this.name} isSetUp: ${this.isSetUp}`, this.name)
   }
 
   get_info(): ApiServiceInformation {
-    if (this.currentStatus === 'uninitializedStatus') {
+    if (this.currentStatus === 'uninitializedStatus' && this.initialStatusPublished) {
       this.currentStatus = this.isSetUp ? 'notYetStarted' : 'notInstalled'
     }
     this.appLogger.info(`getting info: current status is ${this.currentStatus}`, this.name)
@@ -893,7 +920,7 @@ export abstract class LongLivedPythonApiService implements ApiService {
       )
       this.lastStartupErrorDetails = errorDetails
     } finally {
-      this.win.webContents.send('serviceInfoUpdate', this.get_info())
+      emitServiceUpdate(this.get_info())
     }
     return this.currentStatus
   }

@@ -124,12 +124,14 @@ describe('llamaCppPhison helpers', () => {
     const llm = filesystem.readJsonSync(configPath)
     const embedding = filesystem.readJsonSync(embeddingConfigPath)
 
-    // The llama.cpp side is shared. The embedding config carries none of the
-    // aiDAPTIV+ budget keys at all — an embedding pass has no KV cache worth
-    // parking on the SSD and no experts worth pinning in VRAM, and leaving the
-    // keys out entirely (rather than writing zeros) is what keeps the LLM
-    // server's own reservations untouched.
-    expect(embedding.common).toEqual(llm.common)
+    // The embedding config carries only the aiDAPTIV+ block: no `common` of its
+    // own (the llama.cpp side comes from the shared startup parameters on the
+    // argv), and none of the aiDAPTIV+ budget keys at all — an embedding pass has
+    // no KV cache worth parking on the SSD and no experts worth pinning in VRAM,
+    // and leaving the keys out entirely (rather than writing zeros) is what keeps
+    // the LLM server's own reservations untouched.
+    expect(embedding.common).toBeUndefined()
+    expect(llm.common.gpu_layers).toBe('999')
     expect(embedding.aidaptiv.cache_kv_offload_gb).toBeUndefined()
     expect(embedding.aidaptiv.dram_kv_offload_gb).toBeUndefined()
     expect(embedding.aidaptiv.vram_experts_cached_gb).toBeUndefined()

@@ -11,9 +11,9 @@ inference/download consent through Permissions; main→renderer notifications th
 event stream (`kernel:event`) with a listener-first snapshot handshake; chat turns run in main
 and stream back as kernel `chat-chunk` events; media runs share one main-side queue and GPU
 window. Parked follow-ups from those landings live in
-[§8.2](#82-parked-follow-ups-from-landed-steps) — they do not block the next slice of step 8.
-Everything after the landed slices of step 8 is a map of where we want it, and the order
-in which we could get there.
+[§8.2](#82-parked-follow-ups-from-landed-steps) — they are not the next architecture rows.
+The remaining order that still serves the original goal (logic out of Pinia, one kernel that
+can say what is running) is [§8.3](#83-remaining-order-toward-the-goal).
 It exists to be argued with — see [§10 Decisions](#10-decisions).
 
 ## 0. How to read and edit this
@@ -915,6 +915,8 @@ flowchart TD
   s7 --> s8
 ```
 
+The ladder above is what landed. It is not the finished kernel. Remaining rows, in order, are [§8.3](#83-remaining-order-toward-the-goal).
+
 | Step | Done when | Shippable alone |
 | ---- | --------- | --------------- |
 | 1 | **Done.** Tools and Home Agent `/imgGen` have no preset save/restore and no readiness preflight; the run (`runArtifact` + `comfyUiPresets.generate`) owns backend start, installs and model download; selection stays side-effect-free (`resolvePresetVariant`); callers pass `artifactKindForMedia` / panel-derived kind | yes |
@@ -1063,6 +1065,55 @@ whether FIFO is enough or a chat turn's nested media jumps the queue, whether `d
 per mode or one global, and whether a later cross-library cleanup tool should identify unreferenced
 completed artifacts without deleting them automatically.
 
+### 8.3 Remaining order toward the goal
+
+The goal was never "more kernel-owned JSON files." It was: **stop scattering the run across Pinia
+stores** so one process can say what is in flight, what holds the GPU, what was persisted, and what
+a hidden-window host can do without asking Vue.
+
+Steps 1–8 were the dependency ladder that made that possible. They are not that kernel yet. A chat
+turn still preflights in `textInference`, tools still close over Pinia, the renderer still decides
+when a file is written, and the orchestrator still only queues artifacts. Closing §8.2 leftovers
+does not change any of that.
+
+Do the spine in this order. Do not insert another persist bucket as step 9.
+
+```mermaid
+flowchart TD
+  s9["9. RAG retrieval + embedding ensure in kernel"]
+  s10["10. Chat turns as KernelRequestMap entries"]
+  s11["11. Engine-owned transcript writes"]
+  s12["12. Remaining work tools in-process"]
+  s13["13. Permissions policy in main"]
+  s14["14. Ledger on the bus + live inference profile"]
+  s15["15. Agent/Home Agent on the same gate; hidden-window proof"]
+
+  s9 --> s10 --> s11
+  s10 --> s12 --> s13
+  s10 --> s14
+  s11 --> s15
+  s13 --> s15
+  s14 --> s15
+```
+
+| Step | Done when | Why this next | Needs |
+| ---- | --------- | ------------- | ----- |
+| 9 | RAG retrieval and the embedding-server ensure live in main (langchain is already a main concern). `generate()` does not IPC-load the LLM before `submitTurn`. A `ChatRequest` carries the document ids / query; the kernel retrieves after GPU admit. `ensureReadyForInference` remains only for paths that never submit a chat turn (Agent, Home Agent `/load` summarizer) until step 15. Do not auto-download weights | Largest remaining chat logic in a FE store. The duplicate load is blocked on this; a queued turn with renderer-precomputed RAG would also go stale | 6, 8 (the document *list* is already a file) |
+| 10 | `submit(text)` is an orchestrator request (`KernelRequestMap` in §4.4). Chat occupancy is a queue entry, not a counter beside the artifact FIFO. Nested media stays with that turn. `awaitChatWindow` as a 5-minute side gate goes away | Until text and artifact share one scheduler, the kernel cannot tell you what is running — a stream that opened just before a media run can still die as a network error | 9 (retrieve after admit, not before enqueue) |
+| 11 | The chat engine (then agent-session / media-item writers) persist on turn lifecycle. Pinia is a projection that does not call `saveThread` / `saveSession` to make durability happen | Files without engine-owned *when* still leave "what happened" as a renderer side effect. §4.5: capabilities declare when; Persistence owns where | 10 |
+| 12 | The NL `media` specialist's inner Comfy tools run in-process against the Artifact runner, the way direct `generateImage` / `editImage` already do (`executeToolInRenderer` gone for that path). Screenshot and web-browse stay renderer (§10.1). Headless still needs Chromium for those two | A hidden window that must round-trip Pinia closures is still asking Vue what to do | 5; can overlap 11 |
+| 13 | Permissions *policy* lives in main. The renderer is the dialog adapter. Break `permissions` → `homeAgent` first (that leftover is the blocker, not the step). Download consent works with a hidden window via the channel the user is on, or a pre-grant | Consent is the other thing a headless turn still asks Vue for. Named verbs stay; grant vocabulary (§8.2 Design) is not this row | 3, 12 |
+| 14 | `activity` / `error` / `stored` are kernel-bus events (§4.6). Pinia projects busy / fail / save. The live loaded model (`backend`, `selectedModels`, sampling snapshot) is kernel memory; `textInference` keeps settings UI and `screenshotWindow`, not the occupancy fact `chatReadiness` already almost is | "What's going on" is still a Pinia sink. The mixed `textInference` bag is the original §1 symptom that step 8 only half-split (maps and `ragList` moved; the live profile did not) | 4, 10 |
+| 15 | Agent Mode and Home Agent chat admit through the same orchestrator as Chat (Pi stays a second harness — §10.2). A hidden-window turn can complete text + nested media without the renderer choosing the workflow, loading the LLM, retrieving RAG, or saving the thread. That is the acceptance test for the goal | Agent still calls `ensureReadyForInference` from Pinia. Putting it on the gate before Chat is queued would copy today's occupancy split | 10–14 |
+
+**Not a spine row** (do not schedule these as the next architecture slice):
+
+- **Speech leftovers** (`listVoices`, transcribe language, Artifact `create-speech`) — finish step 2 whenever; they are not what keeps the kernel from tracking a run.
+- **VRAM budget, queue fairness, Laminar GPU-swap spans** — policy on top of step 10, plus the parked §10 questions (FIFO vs nested-media jump).
+- **`defaultPreset: Preset \| "last"`**, grant vocabulary, desktop download remember, `skipMemoryAlert` — design; they do not move a store into the kernel until decided.
+- **Eager hydration / conversation slugs** — index shape after step 11, not before.
+- **§8.2 Remaining cheap leftovers** — bugs and tidy-ups on landed code. Close them when touching that code; they are not the migration.
+
 ---
 
 ## 9. What this buys
@@ -1098,4 +1149,5 @@ completed artifacts without deleting them automatically.
 
 Open questions that were parked when this map was written (grant vocabulary, queueing, `defaultPreset`
 scope, artifact GC) now live with the landed-step leftovers in
-[§8.2](#82-parked-follow-ups-from-landed-steps). They do not block the next migration row.
+[§8.2](#82-parked-follow-ups-from-landed-steps). They are not [§8.3](#83-remaining-order-toward-the-goal)
+spine rows.

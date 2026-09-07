@@ -5,6 +5,7 @@
 draft-time symptom picture (chat `streamText` in the renderer, media as UI mutation). Steps 1–7
 moved Artifact, chat turns, the kernel bus and the orchestrator into main; step 8 moved app data
 onto kernel-owned files. What this document shows is how those pieces actually talk today.
+What is still missing, and in which order, is [`architecture-target.md` §8.3](./architecture-target.md#83-remaining-order-toward-the-goal).
 
 The Mermaid here is the reviewable source. Paste any block into Excalidraw's _Mermaid to Excalidraw_
 if you want it on the canvas.

@@ -962,362 +962,101 @@ slice, not in a cleanup after all three.
 
 ### 8.2 Parked follow-ups from landed steps
 
-None of these blocks the next migration row. They are the review leftovers so a later step (or a
-small fix on this branch) can pick them up instead of rediscovering them.
+None of these blocks a later migration row. Closed leftovers from this branch (inverted
+`ensureBackendReadiness` 6th arg, `awaitChatWindow` abort wait, `transcribeAudio` `aipg-media://`
+reads, persist `cloneForIpc` DTO, last-load following the dropdown without loading, tool-bridge
+timeout, `lifecycle:busy` reset on destroyed renderer, Permissions label/`for`, inference-store
+dialog-import lock) are as-landed in [`architecture-as-landed.md`](./architecture-as-landed.md).
+Slice-by-slice step-8 mechanics (eager vs lazy hydrate, sequential Pinia-key slims,
+`alwaysMigrateLegacy`, leftover snapshot at construction) also live there — they are how the
+files work, not open work.
 
-**Step 3 (Permissions) — do before the kernel move, or sooner if cheap:**
+#### Blocked
 
-- **Break `permissions` → `homeAgent`.** `requestDownload` instantiates the whole Home Agent store
-  so it can ask `isRemoteTurnActive` / `handleRemoteModelDownload`. That is a cycle waiting to
-  happen (`permissions` → `homeAgent` → `speechIO` → TTS stores → `permissions`); it only works
-  because nothing runs at import time. Replace it with a thin remote-turn / channel-download port
-  before Permissions moves into main.
-- **Still not `permissions.request(action)`.** The renderer has three named verbs, which is enough
-  for step 3. Gated-repo license acceptance still lives inside `DownloadDialog`, and preference
-  changes (`SettingsBasic` HuggingFace apply, `SettingsTts` confirmations, Home Agent
-  self-config) still call `requestConfirmation` on the dialog store. Fold those onto the same
-  surface when the grant vocabulary is designed (`download:<model>`, `change-pref:*`, a gated-repo
-  action).
-- **Desktop downloads have no remember / pre-grant.** Only VRAM warnings remember, and only remote
-  Home Agent turns have a pre-grant. Host-side model downloads always prompt. Decide whether that
-  is the product (big weights, always confirm on the machine) or whether desktop should share the
-  prompt / remember / pre-grant story.
-- **`skipMemoryAlert` still bypasses `requestVramWarning`.** Game Agent promotion and history
-  restore pass `skipMemoryAlert: true` and never ask. That is not a silent *grant*, but it is a
-  path that never goes through Permissions. Revisit when session restore / preset promotion is
-  owned by the kernel rather than `presetSwitching`.
+- **`generate()` still IPC-loads before `submitTurn`.** `runChatTurn` admits and loads when
+  `model.readiness` is present, but the renderer still calls `ensureBackendReadiness` first for
+  download consent, the "Loading model…" activity, **local RAG embedding**, and agent/Home Agent
+  paths that never submit a chat turn. Dropping the LLM IPC without splitting embedding ensure
+  would break RAG and `resetLastUsedInferenceBackend`. RAG retrieval is still renderer-side
+  (`prepareRagContext`); moving it into the kernel is what unblocks dropping the duplicate load.
+  Do not auto-download weights on the way.
+- **Chat turns are not queue entries.** A turn submits straight to the engine once readiness is
+  admitted (`awaitChatWindow`, bounded at 5 minutes). Queueing turns themselves is `KernelRequestMap`
+  work (§4.4), not a leftover bug.
+
+#### Design / later architecture (from the original map)
+
+- **`defaultPreset: Preset | "last"`.** Per mode or global (§10), its Settings UI, and the §6 rule
+  that preset clicks stop updating last-used unless the pref is `last`. Until decided, every switch
+  still records last-used.
+- **Grant vocabulary / `permissions.request(action)`.** The renderer has three named verbs. Fold
+  gated-repo license acceptance and preference-change confirmations onto the same surface when the
+  vocabulary is designed (`download:<model>`, `change-pref:*`, a gated-repo action).
+- **Desktop downloads have no remember / pre-grant.** Host-side model downloads always prompt.
+  Decide whether that is the product or whether desktop should share the remote prompt / remember /
+  pre-grant story.
+- **`skipMemoryAlert` still bypasses `requestVramWarning`.** Revisit when session restore / preset
+  promotion is owned by the kernel rather than `presetSwitching`.
+- **RAG retrieval in the kernel** — see Blocked.
+- **VRAM budget, queue fairness, `activity` / `error` / `stored` on the bus, Laminar GPU-swap
+  spans.** The GPU window is a chat↔media swap gate, not an occupancy ledger; `queue-event` is
+  transient; swap spans went with the renderer `chatBackends.ts` wraps.
+- **Speech I/O remaining:** `listVoices()`, `transcribe` language, Artifact `create-speech`.
+- **Eager hydration / conversation slugs.** `conversations:bootstrap` and `mediaItems:bootstrap`
+  read every file at once. Ids stay timestamp strings. Lazy split needs an index-plus-active-thread
+  projection first.
+
+#### Remaining cheap leftovers
+
+**Permissions**
+
+- **Break `permissions` → `homeAgent`.** `requestDownload` instantiates the Home Agent store for
+  `isRemoteTurnActive` / `handleRemoteModelDownload`. Replace with a thin remote-turn port before
+  Permissions moves into main.
 - **Legacy `memoryAlertSuppress_*` vs persist hydrate.** Import runs as the store's initial
-  `grants`. If persisted state is already `{ grants: {} }`, hydrate can overwrite the import.
-  First boot of this store should not have that key; if we want it bulletproof, import after
-  hydrate when the map is empty.
-- **Lock the "no dialog store in inference" rule.** A lint or test so the eight inference/download
-  stores cannot re-import `dialogs`. Stale comment: `models.getMissingQwenTtsModels` still says
-  "hand to `showDownloadDialog`". Settings → Permissions: associate the remote-download `Label`
-  with its checkbox (`for` / wrap).
+  `grants`; persisted `{ grants: {} }` can overwrite. Import after hydrate when the map is empty
+  if we want it bulletproof.
 
-**Step 4 (Projection protocol + hidden-window lifecycle):**
+**Projection / lifecycle**
 
-- **`activity` / `error` / `stored` are not on the bus yet.**
-  `artifact-phase` / `artifact-item` / `artifact-done` landed with step 5; `chat-chunk` /
-  `chat-turn-done` / `media-agent-event` with step 6 (delta coalescing lives at the bus,
-  decision 13); `queue-event` with step 7 (transient — enqueue/start/finish for a parked
-  activity's label, deliberately not snapshotted).
-- **`AgentTurnSnapshot.chunks` accumulates unbounded per turn.** A turn is bounded and the
-  snapshot only exists while one runs, but a very long turn replays a lot at once on reconnect.
-  If that ever matters, cap the accumulated tail and accept that a resumed renderer misses the
-  head of an old message.
-- **A renderer that dies without flipping `lifecycle:busy` leaves it stale `true`.** The next
-  close would hide instead of quitting until a fresh renderer pushes `false` (immediate on
-  reconnect). A `webContents` destroyed hook could clear it; not worth it until a crash loop
-  shows up.
+- **`AgentTurnSnapshot.chunks` accumulates unbounded per turn.** Cap the tail if a reconnect ever
+  replays too much.
 - **Three projections subscribe independently** (backendServices, agentModeIpc,
-  imageGenerationPresets), each with its own snapshot request. Cheap today; when `getSnapshot`
-  grows heavier (conversations in step 8), converge on one shared projection or a scoped
-  snapshot cache. Each of those stores now disposes its projection on Pinia HMR.
-- **`getServices` IPC still exists** as an explicit refresh (`shouldShowInstallationDialog`) and
-  for the setup wizard; only the *subscription* went through the bus. It collapses into the
-  snapshot when the Backends surface (§4.7) lands.
-- **`onToolProgress` is not buffered during `pendingResume`.** Chunks that arrive between snapshot
-  install and `reconnectToStream` are queued on `pendingResume`; progress updates in that gap are
-  dropped (`activeTurn` is still null). Tool images always append. Buffer progress the same way as
-  chunks, or ignore it if the snapshot's last progress is enough.
+  imageGenerationPresets). Converge when `getSnapshot` grows heavier.
+- **`getServices` IPC still exists** as an explicit refresh and for the setup wizard.
+- **`onToolProgress` is not buffered during `pendingResume`.**
 - **Leftover window captures / point-to-point sends.** ComfyUI still does
   `this.win.webContents.send('show-toast', …)`. Also still off-bus: `serviceSetUpProgress`,
-  `debugLog`, `webBrowser:stateChanged`. Same stale-window class of bug the bus fixed for service
-  status — route them through `getKernelEventWindow()` or onto the stream when those notifications
-  move.
+  `debugLog`, `webBrowser:stateChanged`.
 
-**Step 5 (Artifact in main) — do with the kernel request queue (§7), or sooner if cheap:**
+**Artifact**
 
-- **GPU policy is one bracket now** — landed with step 7: the orchestrator's GPU window is the
-  single owner (the two renderer wraps and `withGpuForMedia` are deleted), and it waits for
-  open chat requests before stopping, so the Image Gen panel wraps for the first time.
-- **One queue serializes media now** — landed with step 7: chat-tool runs and in-process tools
-  queue on the orchestrator; panel/Home Agent submissions stay fail-fast by design.
-- **In-process direct tools don't see saved dynamic inputs.** The settings sidebar's per-preset
-  input map (`comfyInputsPerPreset`) is renderer state, so `mediaDirect.ts` resolves workflow
-  inputs from preset defaults. Ship a snapshot of the relevant inputs with the turn (or answer it
-  over the request RPC) when a fidelity mismatch shows up.
-- **Consent pings are a heartbeat, not download progress.** The media-request bridge pings
-  every 30 s while a request is open, which keeps the runner's watchdog re-armed but says nothing
-  about bytes moving. Route the download dialog's real progress through the bridge (or the stream)
-  when downloads need meaningful progress in traces.
-- **No Pi-side tool-call repair.** The renderer's `repairCreateToolInput` (AI SDK
-  `experimental_repairToolCall`) coerces a bad workflow name to the default; Pi tool calls with an
-  unknown workflow fail visibly with "not available". Deliberate for now — loud beats silent —
-  revisit if local models routinely miss the workflow name.
-- **The generate spec's `workflow` is still a plain string.** The edit spec carries an enum of
-  enabled workflows; the generate spec could too, so the model's choices are constrained instead
-  of validated after the fact.
-- **Laminar spans for main-side runs.** The engine's `comfyui.*` spans were renderer-side
-  (`comfyUiPresets`) and went with the engine; the runner streams phases but opens no spans. Wire
-  the span bridge to the projected phases, or move it main-side with the Pi extension.
+- **In-process direct tools don't see saved dynamic inputs** (`comfyInputsPerPreset` is renderer
+  state).
+- **Consent pings are a heartbeat, not download progress.**
+- **No Pi-side tool-call repair** (loud "not available" vs the renderer's workflow-name coerce).
+- **The generate spec's `workflow` is still a plain string** (edit spec already has an enum).
 
-**Step 6 (chat in main) — leftovers, none blocking the next slice of step 8:**
+**Chat / orchestrator**
 
-- **RAG retrieval stayed renderer-side.** The turn request ships the prepared prompt and the UI
-  messages, but `prepareRagContext` remains renderer state. Conversation persistence moved to
-  kernel-owned files with step 8's first slice; the engine still sees only what the request
-  carries, so moving RAG takes it along the same seam.
-- **`generate()` still IPC-loads before `submitTurn`.** `runChatTurn` admits and loads when
-  `model.readiness` is present (`electron/chat/chatReadiness.ts`), but the renderer still calls
-  `ensureBackendReadiness` first for download consent, the "Loading model…" activity, cloud RAG
-  embedding, and agent/Home Agent paths that never submit a chat turn. Dropping that IPC is the
-  next kernel-policy slice; do not auto-download weights on the way.
-- **The tool bridge has no timeout.** `executeToolInRenderer` waits forever for the renderer's
-  reply, the same class of stall as the artifact request RPC. A cancelled turn rejects pending
-  calls; a replaced window settles everything. Add a budget if a wedged tool closure starts
-  hanging turns.
-- **`transcribeAudio` cannot read a v7 file part holding an `aipg-media://` audio attachment**
-  (pre-existing, surfaced by the port): `filePartToBlob` predates the `{type:'url', url}` wrapper.
-  The registry reproduces the old prompt bit-for-bit instead of fixing it, so the failure mode is
-  unchanged, not new.
-- **Media-specialist progress is not snapshotted.** `media-agent-event` kernel events drive the
-  live timeline only; a renderer that reloads mid-run loses the timeline (the tool result still
-  lands with the turn). Snapshot it only if that timeline ever matters across a reload.
-- **Chat trace context is one last-write-wins slot** across concurrent conversations — the same
-  single-context shape the IPC flow it replaced had; scoped only if concurrent-turn traces blur.
+- **Swap-back is silent** (no "Reloading chat model…" activity). Last-load follows the dropdown via
+  `rememberChatBackendLoad`; Home Agent `/load` summarization pauses that watch and passes
+  `remember: false`. Reload still skips `awaitChatWindow` (deadlock otherwise).
+- **Media-specialist progress is not snapshotted.**
+- **Chat trace context is one last-write-wins slot** across concurrent conversations.
 - **`chat:summarize` is coarse** — no cancellation and no per-conversation scoping.
-  `chat:inferenceActive` is gone: step 7 deleted the channel (the renderer wraps that read it
-  are gone too, and the orchestrator counts open chat requests itself, per run).
+- **`queue-event` is transient, not snapshotted.**
 
-**Step 7 (Orchestrator) — leftovers:**
+**Step 8 files**
 
-- **Chat turns are not queue entries.** A turn submits straight to the engine once its
-  readiness has been admitted (`awaitChatWindow`, bounded at 5 minutes then proceeds with a
-  warning). The race the old code had survives: a turn whose stream opened just before a media
-  run stops its backend can still fail with a network error. Queueing turns themselves is
-  step-8+ work (§4.4's `KernelRequestMap`).
-- **Swap-back reload is in-process.** `reloadLastChatBackend` reloads the last successful chat
-  load without `artifact:request`. It must skip `awaitChatWindow` (the swap-back already holds
-  `swapBackInFlight`; waiting deadlocks until the 5-minute bound). Remaining: `generate()` still
-  IPC-loads from Pinia first; the IPC 6th argument is still inverted (`stopImageServer` sent,
-  `keepModelsLoaded` read) — preserved on that wrapper; `runChatTurn` / reload use explicit
-  `skipGpuAdmission`. Swap-back is silent (no "Reloading chat model…" activity).
-- **Last-load is the last successful local load, not the dropdown.** Switching model in settings
-  without a turn still swap-backs the previous load. Cloud is the exception:
-  `setLastChatBackendLoadActive(false)` (renderer watch on `textInference.backend`, and a cloud
-  `runChatTurn`) skips reload without forgetting the snapshot, so switching back to local can
-  still restore it. Home Agent `/load` summarization passes `remember: false` so it cannot
-  overwrite the snapshot. Do not auto-clear on preset switch — a CLI has no Pinia.
-- **`queue-event` is transient, not snapshotted** — a renderer that reloads mid-queue loses the
-  parked activities' labels (their own `enqueued`→`started` lifecycles rebuild from the
-  activities the tools registered). Harmless for now; snapshot it if a reload ever lands
-  mid-spritesheet.
-- **No VRAM budget.** The GPU window is a chat↔media *swap* gate, not an occupancy ledger: the
-  orchestrator knows nothing about how much VRAM a checkpoint needs, and Permissions still
-  gates the heavy presets per-name. The coarse budget of §4.4 remains future work.
-- **The media-request lane has one lane for all media requests** — no fairness between a chat
-  tool's request and a Home Agent turn's beyond FIFO, and no per-conversation scoping of the
-  queue (a busy conversation's spritesheet parks another conversation's edit the same way).
-- **GPU swap spans are gone.** `backend.stop_llm` / `backend.reload_llm` were renderer spans in
-  `chatBackends.ts`; the swap now runs main-side and opens no spans, so a Laminar trace shows
-  the swap only as the gap between the tool span and `comfyui.generate`'s children. Wire swap
-  spans (or attributes on the artifact-phase events) from the orchestrator if that gap needs
-  explaining in traces.
-- **`awaitChatWindow` polls abort every 500ms.** A media request cancelled while waiting for the
-  GPU window (already the head of its lane, not parked) sits until the next poll. Race the
-  delay against `AbortSignal` if that latency shows up.
-
-**Step 8 (split stores) — what the landed slices left behind:**
-
-- **Hydration is eager.** `conversations:bootstrap` reads every thread file at once, which §6.1
-  said not to do. The store's consumers (history list, Chat view, kernel resume) read
-  `conversationList` directly, so lazy per-thread reads need the store to become an
-  index-plus-active-thread projection first. At current thread sizes the whole-directory read is
-  a few MB; do the lazy split together with the snapshot-convergence item in step 4 above when
-  hydration grows heavy.
-- **Conversation ids are still timestamp strings**, not the slugs §6.1 floated — legacy keys
-  move verbatim into filenames (legal everywhere, no collision with `index.json`); re-keying
-  would break Home Agent thread addressability and saved `lastMainKey` references for no gain.
-- **The renderer still decides when to save** (the settle points); main is only the writer. When
-  chat turns move fully main-side (§7's deferred half), the engine should write the turn itself
-  and the store becomes a pure projection.
-- **No periodic checkpoint mid-turn** beyond the settle points: a tool-using chat turn writes per
-  tool result, so a crash loses only the unsettled tail.
-- **Agent sessions: a corrupt record file is skipped, not placeholder-hydrated** (unlike a
-  conversation, whose key the history panel keeps alive) — the row disappears until that id is
-  saved again, which overwrites the file. The rebuilt-after-corruption index honestly does not
-  know `activeSessionId`, so the boot after losing an index opens no session.
-- **Agent-session deletes fold into `agentMode:deleteSession`.** The renderer's sessions watcher
-  does not forward removals; `deleteSession` waits for that IPC (record file + Pi teardown) before
-  dropping the row, so a failed delete cannot vanish from the panel and reappear next boot.
-- **The agentMode legacy key is slimmed, not dropped.** The Pinia key survives for user
-  preferences (`mcpServerIds`, `defaultCapabilities`, `unsandboxedWorkspaces`,
-  `planningThinkingOnly`). Session records slimmed out in the second slice; last-used
-  workspace pointers (`workspaceDir`, `lastWorkspaceByKind`) slim out on the workspace
-  half — they are no longer in the persist pick. Leftover workspace fields stay in the
-  blob until that slim (or until a persist rewrite of the remaining pick) and are ignored
-  on hydrate once `agent-workspace.json` exists. The workspace half of the same key runs
-  strictly after the sessions half, for the same reason the imageGenerationPresets halves
-  do: interleaved read-modify-write slims can resurrect what the other removed.
-- **Generated-media records: a debounced deep watch is the write-through**, because the array is
-  mutated in every shape (`push`, `splice`, reassign, `length = 0`) across ~10 sites including the
-  artifact-event projection — the faithful port of the persist plugin's per-mutation
-  subscription, coalesced into per-item file writes. Deletes ride the same diff (a removed id is
-  re-sent until the file store confirms), and a failed save leaves the item un-flushed so the
-  next flush retries it. `beforeunload` cancels the 300ms timer and flushes immediately so a
-  quit does not drop the last terminal items the conversations/agent-session stores never
-  risked (they write on the mutation, not on a timer).
-- **The legacy media upload merges, it does not refuse a pre-existing index.** A boot whose
-  bootstrap failed can write session items to files while the gallery copy stays stranded in
-  localStorage; the idempotent merge (ids the files hold are skipped) is the rescue path, and it
-  rebuilds the index in `createdAt` order so rescued legacy items do not render as newest.
-- **The imageGenerationPresets Pinia key drops entirely after both halves migrate.** The
-  gallery left it slimmed (settings still lived there); the knobs slice moved those
-  maps too, so there is no persist pick left. An empty leftover after the gallery slim
-  is removed rather than written back as `{}`.
-- **The preferences slice moves whole stores, so their Pinia keys drop entirely** (theme,
-  developerSettings, modelPreferences, textToSpeech, qwen3TextToSpeech) — unlike the slimmed
-  agentMode key and the presets store (active names stay, because
-  `alignModeToActivePreset` reads them synchronously before any async init; last-used
-  names joined the file in the ninth slice). The per-store
-  wiring is ~5 lines each because the shared helper owns the mechanics: hand over the refs
-  the persist plugin used to pick, get hydration + one-shot legacy upload + debounced
-  deep-watch write-through + `beforeunload` flush. The per-preset knobs (textInference /
-  imageGenerationPresets settings maps, presets variant picks) joined that file in the
-  fifth slice; last-used names joined the same `presets` section in the ninth.
-- **The leftover Pinia key is snapshotted at helper construction, not at init.** Store
-  setup runs persist hydrate/`afterHydrate` before `init()`, and Pinia's remaining-pick
-  rewrite replaces the whole key — so a `getItem` at init time can already lack the
-  fields this section must upload. Construction is the last moment the leftover is whole;
-  `toFile` also shapes the migrate payload so a leftover that still holds data URIs
-  does not land them in the file.
-- **A failed preferences read migrates nothing.** With the file unreadable nothing proves the
-  legacy payload is newer than what the file may already hold, so the helper boots defaults,
-  reports, and lets the first user change write the section through (the recovery path); the
-  legacy key survives for the next boot. A refused upload (file answered, write failed) also
-  keeps the key — and a later successful write-through drops it, since the section it guarded
-  is then in the file.
-- **Main reads preferences from its own file now.** The DevTools-on-startup check used to
-  `executeJavaScript` into the renderer's localStorage for `developerSettings`; it reads
-  `preferences.json` via the same file store the IPC serves (demo-routing included), so the
-  decision no longer depends on the renderer having written a Pinia key. The check still
-  waits for `did-finish-load` plus 500 ms — leftover timing from the scrape, not a file-store
-  requirement.
-- **A shared legacy key migrates in sequential halves, never interleaved.** The
-  imageGenerationPresets Pinia key feeds two one-shot uploads (gallery records since the
-  third slice, the settings knobs now): each slim is a read-modify-write of the same key, so
-  running them concurrently can resurrect the other half's removed keys and the key then never
-  runs empty. The store's `init()` awaits the media half before the settings half; both slims
-  are `legacySlim` (remove only your fields, drop the key when it empties) and both uploads are
-  idempotent, so an interrupted boot continues wherever it stopped.
-- **The `toFile` transform is the old pinia serializer, moved with the data.** The helper
-  applies it to the write payload, the migrate payload, *and* the diff base, never to hydration
-  — so a change confined to a scrubbed field (a mask re-drawn while its preset is open) never
-  reaches the file, exactly like the serializer's quota-dodging behavior.
-- **Per-preset-keyed sections re-run their rename migration after file hydration.** The
-  presets store's pinia `afterHydrate` still fixes the persisted active names; last-used
-  names hydrate from the file, so `init()` applies the same `renamePresetKeys` /
-  `currentPresetName` fix to the freshly hydrated section (and textInference also seeds
-  the old global tool map into those settings), so a renamed preset does not strand its
-  tuned settings whichever half lands first.
-- **No §6 buckets remain; the `defaultPreset` semantics stay parked.** The
-  launch-flags / device-dedupe bucket landed with the sixth slice, the RAG document list
-  with the seventh, the agent workspace pointers with the eighth, the last-used preset
-  names with the ninth (row 8). What stays open is not storage but a design question:
-  the `defaultPreset: Preset | "last"` preference — per mode or global (§10's open
-  questions), its Settings UI, and the §6 rule that preset clicks stop updating
-  last-used unless the pref is `last`. Until that is decided, every switch still
-  records last-used, exactly as before.
-- **Adding a ref to an existing preferences section fills leftover-only keys.**
-  `preferences:migrate` is section-absent only, so a `presets` section from the fifth
-  slice would skip `lastUsedPresetName` still in the Pinia key. The helper overlays
-  leftover keys the file does not hold (from the construction snapshot) and
-  write-throughs the merge; keys the file already has stay the file's. Do not use
-  `alwaysMigrateLegacy` for this — that overlay was the launch-flags bug.
-- **IPC write-through JSON-clones the snapshot.** Vue `ref` object values are
-  reactive proxies; Electron's structured clone throws "An object could not be
-  cloned" (the same trap `setupWizard` already `toRaw`s for the preferred
-  device). Pinia persist serialized through JSON, so the file copy is that
-  shape — `snapshot()` goes through JSON before `preferences:write`. A thrown
-  write is reported, not an unhandled rejection.
-- **`settings.json` always answers, so absence can never mean "never migrated".** The
-  launch-flags store's one-shot upload has to run even though the read returns a
-  (default-born) section; the helper grew `alwaysMigrateLegacy` for exactly that, and
-  `migrateBackendLaunchSettings` merges per-field only-when-default because a null flag
-  is a valid user choice, not a gap. Any later store whose file pre-exists with schema
-  defaults reuses the same flag.
-- **A leftover Pinia payload is a merge source, never a hydrate, when the file
-  section is already present.** Overlaying leftover onto a just-hydrated
-  `settings.json` section would show (and the next write-through could persist)
-  Pinia leftovers over OEM / already-migrated flags even though main's
-  only-when-default merge kept the file. After a successful `alwaysMigrateLegacy`
-  upload the helper re-reads so the only-when-default result is what we show and
-  diff against; a demo session still overlays the leftover in memory (and never
-  writes). A write-through of the file section is not proof leftover was merged,
-  so `alwaysMigrateLegacy` drops the key only on migrate success, not on flush.
-- **The RAG document list keeps "file absent" apart from "read failed".** Only absence is
-  the "never migrated" state that triggers the one-shot upload; a failed read boots
-  defaults and keeps the leftover key (the helper's existing rule), so a broken file
-  cannot be mistaken for a fresh install. `ragDocuments:read` therefore returns
-  `{ success, section }` — `section: null` is absence, `success: false` is failure —
-  and the store's api adapter maps both onto the helper's section semantics.
-  Corrupt JSON and a schema-invalid document are failure, not absence: migrate
-  must not write leftover over a file that already exists, and write is the
-  recovery path that replaces it.
-- **A checked-flag-only change still rewrites the whole RAG file.** `isChecked` is
-  mirrored from the active conversation after hydrate, and the helper's deep watch
-  then writes the entire `documents.json` (split text included) when those flags
-  differ. Same cost the pinia serializer paid; a patch/delta write is a later
-  cut if the file gets large enough to feel it.
-- **The resumed thread's RAG selection wins over the file's `isChecked` flags.** The
-  `activeKey` → `syncRagSelectionForActiveKey` watch runs `immediate` at store setup —
-  before any file hydration — and the file's flags are from whichever thread was active
-  at the last write. `init()` re-runs the sync after hydrating the list, so the live
-  selection always reflects the active conversation; a mismatch settles through the
-  debounced write-through as usual.
-- **The games-kind flip can fire before the workspace hydrate.** `agentWorkspaceKind`
-  derives from the preset catalog, which can load during conversations/media init —
-  before `agentMode.init()` hydrates `agent-workspace.json`. A flip against the empty
-  pre-hydration workspace no-ops inside `reconcileGamesWorkspace` (`!workspaceDir` →
-  null), so nothing corrupts, but the reconciliation the pinia `afterHydrate` used to
-  run would be silently skipped — which is why that re-sync (and `refreshCurrentGame`)
-  moved into `init()` behind the hydration, where they run against the hydrated
-  pointers whatever the flip's timing.
-- **The device map is main-owned; the renderer copy is a hydrate-only mirror.**
-  `selectDevice` already persisted `lastSelectedDevicePerBackend` (with `:stt`
-  sub-device keys the mirror never holds) long before the slice; the store's ref now
-  hydrates from it and never writes back (`toFile` strips it), so the pre-step-8
-  duplicate is gone. A legacy payload's stale mirror must not win: `init()` re-applies
-  the map read from main after the one-shot upload.
-- **Demo sessions read real machine config but never write it.** The injected api's
-  migrate/write arms return success without IPC while `__AIPG_DEMO_MODE__` is set — the
-  old sessionStorage scoping on the file-backed seam (a session leftover still hydrates
-  in-memory and clears).
-- **The `versionOverrides → versionState.uiOverride` sync used to be dead in practice** —
-  it ran at store setup, before Pinia's persist plugin hydrated the ref, so a pinned
-  version never actually reached the gear menu after a restart; `init()` now runs it on
-  hydrated data. `init()` also re-runs the Phison guard, because the setup-time probe
-  can land before file hydration (Pinia hydrated synchronously at creation, so the old
-  order was probe-after-hydrate), and the `ssd-offload` reset must not be lost.
-- **`lastMainKey` is persisted (and the empty session draft overwrites it on boot) but no UI reads
-  it.** The store comment intended it for restoring the last Local thread when toggling the history
-  filter; that restore was never wired. Do not treat a missing restore as a regression of this
-  slice — wire it when the filter actually needs it.
-- **`writeChains` is never pruned.** Each conversation, agent-session, or media-record id (plus
-  `index`) keeps the tail of its serialize promise in a Map for the process lifetime; the
-  preferences file uses one `file` chain for the whole document. Harmless at current counts;
-  drop settled entries if a long-lived session accumulates thousands of ids.
-- **Conversations and agent-session migrate still refuse a pre-existing index.** The media
-  gallery merge is the rescue those slices do not have: a boot whose bootstrap failed can write
-  session items to files while the legacy copy stays stranded in localStorage, and a later
-  migrate then no-ops. Do not treat that as a regression of this slice — lift the merge when
-  those writers are next touched.
-- **Generated-media hydration is eager.** `mediaItems:bootstrap` reads every record file at
-  once, same class as conversations. The history strip consumes the array directly, so lazy
-  reads need an index-plus-visible-page projection first.
-- **Save appends new ids in gallery order**; only migrate/rebuild sorts by `createdAt`. In-session
-  new items are already newest-last, so a sort here would only reshuffle an edited `createdAt`.
-
-**Step 2 (Speech I/O) — already noted at the adapter, still ahead:**
-
-- `listVoices()` and the per-engine kernel adapters.
-- `transcribe` does not take `language` yet (the target `SpeechIO` does).
-- Artifact `create-speech`: `synthesizeTextToSpeech` still goes through Speech I/O, not
-  `runArtifact`.
-- `PromptStatusBar` still reads `textToSpeech.selectedEngine` for the backend badge (chrome, not a
-  driver).
+- **The renderer still decides when to save**; main is only the writer. When chat turns write
+  themselves, the store becomes a pure projection.
+- **`lastMainKey` is persisted but no UI reads it.** Wire it when the history filter needs it.
+- **`writeChains` is never pruned.**
+- **Conversations and agent-session migrate still refuse a pre-existing index** (media gallery
+  merge is the rescue those slices do not have).
+- **Agent sessions: a corrupt record file is skipped, not placeholder-hydrated.**
+- **The agentMode legacy Pinia key is slimmed, not dropped** (preferences remain).
 
 **Still open from the original map (§10), not a landed-step leftover:** exact grant vocabulary,
 whether FIFO is enough or a chat turn's nested media jumps the queue, whether `defaultPreset` is

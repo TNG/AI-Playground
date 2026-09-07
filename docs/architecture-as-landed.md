@@ -92,10 +92,12 @@ stream.
 Step 8 made the kernel the one writer. The renderer is a live projection. Writes are
 fire-and-forget IPC; the Pinia maps stay the working copy.
 
-The missing piece is a **DTO at the process boundary**. Pinia `ref` object values are Vue reactive
-proxies. `JSON.stringify` walks them (that is how `pinia-plugin-persistedstate` used to work).
-Electron `ipcRenderer.invoke` uses structured clone, which **rejects** a `Proxy`. Main never sees
-Vue — invoke throws in the renderer.
+Pinia `ref` object values are Vue reactive proxies. `JSON.stringify` walks them (that is how
+`pinia-plugin-persistedstate` used to work). Electron `ipcRenderer.invoke` uses structured clone,
+which **rejects** a `Proxy`. The DTO at the process boundary is `cloneForIpc`
+(`JSON.parse(JSON.stringify)`): persist helpers clone before invoke, preload clones persist and
+chat-submit payloads, and `makeForwardPersist` also catches a synchronous structured-clone throw
+so it cannot bubble into Chat send. Main never sees Vue.
 
 ```mermaid
 flowchart LR
@@ -119,24 +121,24 @@ flowchart LR
 
   ref --> snap
   ref --> save
-  snap -->|"JSON.parse(JSON.stringify) — plain object"| sc
-  save -->|"passes Proxy as-is"| sc
+  snap -->|"cloneForIpc — plain object"| sc
+  save -->|"cloneForIpc — plain object"| sc
   sc -->|"clone ok"| zod
-  sc -->|"DataCloneError — never reaches main"| fail["throw in renderer"]
   zod --> fs
 ```
 
 | Path | Channel | DTO today |
 | --- | --- | --- |
-| Theme, TTS, per-preset knobs, last-used names | `preferences:write` | JSON-cloned in `snapshot()` |
-| Launch flags | `settings.json` via the same helper | JSON-cloned in `snapshot()` |
-| Conversation thread | `conversations:save` | **live Proxy** (`meta`, `messages`, `ragHashes`) |
-| Media gallery item | `mediaItems:save` | **live Proxy** (the `done` `MediaItem`) |
-| Agent session record | `agentMode:saveSession` | **live Proxy** (the session object) |
-| Chat turn | `chat:submitTurn` | `options.messages` from the AI SDK Chat — also a reactive graph |
+| Theme, TTS, per-preset knobs, last-used names | `preferences:write` | `cloneForIpc` in `snapshot()` and preload |
+| Launch flags | `settings.json` via the same helper | `cloneForIpc` in `snapshot()` and preload |
+| Conversation thread | `conversations:save` | `cloneForIpc` at `saveThread` and preload |
+| Media gallery item | `mediaItems:save` | `cloneForIpc` at flush and preload |
+| Agent session record | `agentMode:saveSession` | `cloneForIpc` at the sessions watch and preload |
+| Chat turn | `chat:submitTurn` | `cloneForIpc` in `kernelChatTransport` and preload |
 
-`toRaw` is shallow. Nested message objects stay proxied. That is why the setup wizard's
-`toRaw(pendingPreferredDevice)` is enough for one device object and not enough for a thread.
+`toRaw` is shallow. Nested message objects stay proxied, which is why persist uses JSON clone
+rather than `toRaw`. The setup wizard's `toRaw(pendingPreferredDevice)` is enough for one
+device object.
 
 ---
 
@@ -257,14 +259,7 @@ sequenceDiagram
   Store->>TI: stampMetaForConversation
   TI->>Conv: setThreadMeta(key, preset+variant)
   Conv->>IPC: conversations.save({ meta, messages, … })
-  Note over Conv,IPC: payload is Vue Proxy. structured clone throws here.
-  IPC--xStore: DataCloneError
-  Store--xChat: throw
-  Chat->>Chat: errors.report inference/generate-failed
-  Note over Eng,LLM: submitTurn never runs
-
-  rect rgb(240, 248, 240)
-  Note over Store,LLM: Intended remainder, once save is a DTO
+  Note over Conv,IPC: cloneForIpc DTO — structured clone succeeds
   Store->>TI: ensureReadyForInference
   TI->>IPC: ensureBackendReadiness
   Store->>Store: chat.sendMessage
@@ -277,12 +272,12 @@ sequenceDiagram
   Eng->>Bus: chat-chunk (coalesced)
   Bus->>Store: kernel:event
   Store->>Conv: updateConversation (another save)
-  end
 ```
 
-A tool call in that remainder round-trips to the renderer (`chat:executeTool`): the closures still
-live in Pinia. Direct Agent Mode image tools skip that and call the runner in-process; the NL
-`media` specialist still `executeToolInRenderer`.
+A tool call round-trips to the renderer (`chat:executeTool`): the closures still live in Pinia.
+Direct Agent Mode image tools skip that and call the runner in-process; the NL `media`
+specialist still `executeToolInRenderer`. The tool bridge times out a wedged renderer
+closure after 10 minutes.
 
 ---
 

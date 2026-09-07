@@ -1,0 +1,84 @@
+{
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "a red cube on a table, camera slowly pans, product video",
+      "clip": ["38", 0]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "low quality, blurry, deformed",
+      "clip": ["38", 0]
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["72", 0], "vae": ["44", 2] }
+  },
+  "38": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "comfyanonymous---flux_text_encoders\\t5xxl_fp8_e4m3fn.safetensors",
+      "type": "ltxv",
+      "device": "default"
+    }
+  },
+  "44": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "Lightricks---LTX-Video\\ltxv-2b-0.9.8-distilled-fp8.safetensors"
+    }
+  },
+  "69": {
+    "class_type": "LTXVConditioning",
+    "inputs": { "frame_rate": 25, "positive": ["6", 0], "negative": ["7", 0] }
+  },
+  "70": {
+    "class_type": "EmptyLTXVLatentVideo",
+    "inputs": { "width": 768, "height": 512, "length": 25, "batch_size": 1 }
+  },
+  "71": {
+    "class_type": "LTXVScheduler",
+    "inputs": {
+      "steps": 8,
+      "max_shift": 2.05,
+      "base_shift": 0.95,
+      "stretch": true,
+      "terminal": 0.1,
+      "latent": ["70", 0]
+    }
+  },
+  "72": {
+    "class_type": "SamplerCustom",
+    "inputs": {
+      "add_noise": true,
+      "noise_seed": 1,
+      "cfg": 3,
+      "model": ["44", 0],
+      "positive": ["69", 0],
+      "negative": ["69", 1],
+      "sampler": ["73", 0],
+      "sigmas": ["71", 0],
+      "latent_image": ["70", 0]
+    }
+  },
+  "73": {
+    "class_type": "KSamplerSelect",
+    "inputs": { "sampler_name": "euler" }
+  },
+  "78": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "filename_prefix": "vram_ltx",
+      "format": "auto",
+      "codec": "auto",
+      "video": ["79", 0]
+    }
+  },
+  "79": {
+    "class_type": "CreateVideo",
+    "inputs": { "fps": 25, "images": ["8", 0] }
+  }
+}

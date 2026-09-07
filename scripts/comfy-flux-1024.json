@@ -1,0 +1,69 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "black-forest-labs---FLUX.2-klein-4b-fp8\\flux-2-klein-4b-fp8.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "Comfy-Org---vae-text-encorder-for-flux-klein-4b\\split_files\\text_encoders\\qwen_3_4b_fp4_flux2.safetensors",
+      "type": "flux2",
+      "device": "default"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "Comfy-Org---vae-text-encorder-for-flux-klein-4b\\split_files\\vae\\flux2-vae.safetensors"
+    }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "text": "a red cube on a table, product photo", "clip": ["2", 0] }
+  },
+  "5": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": { "conditioning": ["4", 0] }
+  },
+  "6": {
+    "class_type": "CFGGuider",
+    "inputs": { "cfg": 1.1, "model": ["1", 0], "positive": ["4", 0], "negative": ["5", 0] }
+  },
+  "7": {
+    "class_type": "Flux2Scheduler",
+    "inputs": { "steps": 4, "width": 1024, "height": 1024 }
+  },
+  "8": {
+    "class_type": "EmptyFlux2LatentImage",
+    "inputs": { "width": 1024, "height": 1024, "batch_size": 1 }
+  },
+  "9": {
+    "class_type": "RandomNoise",
+    "inputs": { "noise_seed": 1 }
+  },
+  "10": {
+    "class_type": "KSamplerSelect",
+    "inputs": { "sampler_name": "euler" }
+  },
+  "11": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": ["9", 0],
+      "guider": ["6", 0],
+      "sampler": ["10", 0],
+      "sigmas": ["7", 0],
+      "latent_image": ["8", 0]
+    }
+  },
+  "12": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["11", 0], "vae": ["3", 0] }
+  },
+  "13": {
+    "class_type": "SaveImage",
+    "inputs": { "filename_prefix": "vram_flux", "images": ["12", 0] }
+  }
+}

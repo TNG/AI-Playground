@@ -201,7 +201,8 @@ recomputes the conversation figure from the messages that remain.
 - Per-process GPU memory: PDH `\GPU Process Memory(*)\Shared Usage` (iGPU) /
   `Dedicated Usage` (dGPU). Instance names are PIDs; map `llama-server` /
   Electron / ComfyUI to split the adapter total. Worked without admin on
-  Arc B390; some Intel setups still need `cap_perfmon`.
+  Arc B390; some Intel setups still need `cap_perfmon`. Fit-estimator
+  calibration from those counters: [`vram-fit.md`](vram-fit.md).
 - Re-enable Windows `xpu-smi` only after Intel fixes Level Zero vs Vulkan
   device-lost (`scripts/gpu-metrics-llama-repro/`). Until then there is no
   safe WDDM source for Intel board power/clocks.

@@ -1,8 +1,9 @@
 # Target architecture — capabilities, drivers, state ownership
 
-**Status: steps 1–8 of the migration order (§8) have five slices landed (conversations,
-agent-session files, generated-media records, user preferences, and per-preset settings knobs
-as kernel-owned stores, `userSelectedMode` deleted); remaining §6 buckets are incremental.**
+**Status: steps 1–8 of the migration order (§8) have six slices landed (conversations,
+agent-session files, generated-media records, user preferences, per-preset settings knobs,
+and backend launch flags as kernel-owned stores, `userSelectedMode` deleted); remaining §6
+buckets are incremental.**
 Media generation is owned by the main-process Artifact runner; speech drivers go through `speechIO`;
 inference/download consent through Permissions; main→renderer notifications through one kernel
 event stream (`kernel:event`) with a listener-first snapshot handshake; chat turns run in main
@@ -62,9 +63,10 @@ renderer for that one tool (and for download consent / chat reload).
 **Stores mix state that has different owners and lifetimes.** `textInference` persists `backend`,
 `selectedModels`, `maxTokens`, `contextSize`, `temperature`, `ragList`, `settingsPerPreset` and
 `screenshotWindow` in one bag — a user preference, a hardware-shaped choice, an indexed document set
-and a capture-source pick. `backendServices` persists `lastSelectedDeviceIdPerBackend` while
-`settings.json` separately persists `lastSelectedDevicePerBackend`: the same fact in two stores with
-two owners.
+and a capture-source pick. `backendServices` used to persist `lastSelectedDeviceIdPerBackend`
+while `settings.json` separately persisted `lastSelectedDevicePerBackend` — the same fact in
+two stores with two owners; the sixth slice moved the launch flags to `settings.json` and made
+the device map a hydrate-only mirror of main's copy.
 
 **App data lives in the renderer's localStorage.** Conversations, agent-session records, the
 generated-media gallery and five preference stores (theme, developerSettings, modelPreferences,
@@ -674,7 +676,7 @@ Classify by **who writes it** and **how long it lives**, not by which feature it
 
 | Bucket             | Lives in                              | Examples                                                                                              | Written by                     |
 | ------------------ | ------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------ |
-| Machine config     | `settings.json`                       | product mode, `disabledBackends`, HF endpoint, `preferredDevice`, OEM override, `showDebugSettingsInUI` | setup wizard, dev settings, hand-edit |
+| Machine config     | `settings.json`                       | product mode, `disabledBackends`, HF endpoint, `preferredDevice`, OEM override, `showDebugSettingsInUI`, backend launch flags + version pins | setup wizard, dev settings, hand-edit |
 | Hardware           | detected live; last choice in machine config | device lists + UUIDs, installed backend versions, VRAM gates                                       | backend adapters on probe/select |
 | User preferences   | one prefs file (see §6.1)             | theme, locale, keep-models-loaded, favorites, per-preset knobs, default voice, **default preset (`Preset \| last`)** | settings UI; agents only via Permissions |
 | App / session data | kernel memory + user-data files       | conversations, agent sessions, generated media, RAG index, loaded model, in-flight runs                 | kernel                         |
@@ -688,8 +690,8 @@ Classify by **who writes it** and **how long it lives**, not by which feature it
 | `textInference.temperature`, `maxTokens`, `contextSize`        | user preference    | belongs in `settingsPerPreset`, which already exists                  |
 | `textInference.ragList`                                        | app data           | an indexed document set, not a setting                                |
 | `textInference.screenshotWindow`                               | UI / input pref    | not inference at all                                                  |
-| `backendServices.lastSelectedDeviceIdPerBackend`               | hardware           | duplicate of `settings.json` `lastSelectedDevicePerBackend` — pick one |
-| `backendServices.comfyUiParameters`, `llamaCppParameters`      | machine config     | launch flags; today renderer-persisted                                |
+| `backendServices.lastSelectedDeviceIdPerBackend`               | hardware           | deduped as of step 8: hydrate-only mirror of `settings.json` `lastSelectedDevicePerBackend` |
+| `backendServices.comfyUiParameters`, `llamaCppParameters`      | machine config     | in `settings.json` as of step 8, with `versionOverrides`, build variant, offload drive, KV-cache flag |
 | `backendServices.currentServiceInfo`                           | app data           | live process status, correctly ephemeral                              |
 | `imageGenerationPresets.settingsPerPreset`                     | user preference    | keep                                                                  |
 | `imageGenerationPresets.generatedImages`                       | app data           | kernel-owned files as of step 8 (`media/records/`)                    |
@@ -753,7 +755,8 @@ AI-Playground/
 User preferences that a human would want in a backup live as `AI-Playground/preferences.json`
 (theme, developer toggles, model favorites, TTS voices, per-preset knobs landed; `defaultPreset`
 still waits). Things a restore onto a different PC should not blindly apply (device ids,
-disabled backends) stay in `userData`.
+disabled backends, backend launch flags) stay in `userData` — the launch flags and version
+pins landed there with step 8's sixth slice.
 
 **Performance — the current store is the thing to beat, not SQLite.** Pinia persist rewrites the
 entire `conversationList` into one localStorage key on every message. One file per conversation,
@@ -905,7 +908,7 @@ with step 7 (`queue-event`, not snapshotted) | yes |
 | 5 | **Done.** `capabilities/media.ts` no longer calls `executeToolInRenderer` — direct tools execute in-process against `electron/artifact/runner.ts` (`mediaDirect.ts`), the NL `media` tool lives in `mediaDelegation.ts` — and the UI hydrates readiness/generation progress from main via kernel `artifact-phase`/`artifact-item` events. In-process runs ask the renderer for model checks, download consent and chat reload over `artifact:request` | yes, needs 1–4 |
 | 6 | **Done.** The renderer has no `streamText` — chat turns run in the main-side engine (`electron/chat/turnEngine.ts`) over `chat:submitTurn` and stream back as kernel `chat-chunk` events (adjacent deltas coalesced at the bus, semantic chunks immediate) through the renderer's kernel transport (`src/lib/kernelChatTransport.ts`); a reloaded renderer resumes from the snapshot (`chat:resumeTurn`). Tool executions round-trip to the renderer registry (`src/lib/chatToolRegistry.ts`) over the tool bridge; the nested media specialist runs in main too (`electron/chat/mediaAgentRunner.ts`) with its inner tools on the same bridge, progress as `media-agent-event`; one-shot summarize is `chat:summarize`; Laminar's AI SDK integration is registered in main against the SDK's global telemetry registry. RAG retrieval stayed renderer-side (§8.2; conversation files landed with step 8) | yes, needs 1–5 |
 | 7 | **Done.** One queue and one GPU policy: `electron/orchestrator/orchestrator.ts` owns a FIFO for artifact runs (panel/Home Agent submissions fail-fast as before; chat-tool submissions and in-process Pi tool runs queue) and a request lane for whole `media` requests; every media run brackets the one GPU window (chat backends stopped before, ComfyUI freed and the chat backend restarted after, skipped with Keep Models Loaded or while runs are queued — one spritesheet = one swap); `ensureBackendReadiness` waits for the window, so Text and Artifact no longer start/stop each other's backends blind; the queue is visible as `queue-event` kernel events, which relabel the parked chat tool's activity with its position (`src/lib/queueActivityProjection.ts`). Chat turns are not queue entries (§8.2) | yes, needs 6 |
-| 8 | **Partial (incremental).** Conversations are kernel-owned user-data files per §6.1: `electron/conversations/conversationFiles.ts` writes one JSON per thread plus `index.json` (atomic tmp+rename, one writer, `schemaVersion`) under `AI-Playground/conversations/` (demo mode: `conversations-demo/`, wiped on exit and boot); the store is a live projection hydrated once pre-mount (`init()`) over `conversations:bootstrap/migrate/save/delete/saveLastMainKey` and writes through at the settle points the old persist plugin hooked; the legacy localStorage state uploads once on the first boot that sees no index (`empty` + legacy key → `migrate`) and the key is then dropped — no dual-write. `promptArea.userSelectedMode` is deleted: nothing borrows the mode since step 7, so the status bar and the history filter read `currentMode` (whose only non-foreground writer left is the Home Agent remote-focus). Agent-session records (transcripts included) joined them in the second slice: `electron/agentMode/agentSessionFiles.ts` writes `<id>.json` + `index.json` (which carries `activeSessionId`) under `AI-Playground/agent-sessions/`; the agentMode store drops `sessions`/`activeSessionId` from its persist pick, hydrates pre-mount over `agentMode:bootstrapSessions/migrateSessions/saveSession/saveActiveSessionId`, writes records through on every map rewrite and the active id on change, and the record-file delete folds into the existing `agentMode:deleteSession` (next to Pi's own teardown). The generated-media gallery joined them in the third slice: `electron/media/mediaItemFiles.ts` writes `<id>.json` + an ordered `index.json` inside `media/records/` (demo mode: `records-demo/`, wiped on exit and boot); the imageGenerationPresets store drops `generatedImages` from its persist pick, hydrates pre-mount over `mediaItems:bootstrap/migrate/save/delete`, and writes through via a debounced deep watch over the array — only terminal `done` items are durable and `dynamicSettings` data URIs are scrubbed on write, both inherited from the quota-dodging serializer this replaces; the one-shot legacy upload is an idempotent merge that also rescues a gallery stranded by a failed bootstrap. User preferences joined them in the fourth slice: `electron/preferences/preferencesFile.ts` writes `AI-Playground/preferences.json` (one small file, one section per store, every mutation on one chain; demo mode: `preferences-demo.json`, wiped on exit and boot) over `preferences:read/migrate/write`, with a shared renderer helper (`src/lib/fileBackedPreferences.ts`) that hydrates pre-mount, uploads the legacy Pinia key once, and writes through a debounced deep watch with a `beforeunload` flush; five stores moved (theme, developerSettings, modelPreferences, textToSpeech, qwen3TextToSpeech — their Pinia keys drop entirely), and main's DevTools-on-startup check reads the file instead of scraping the renderer's localStorage. The per-preset knobs joined them in the fifth slice, as three more sections of the same preferences file: `textInference.settingsPerPreset`, the presets store's variant picks (`settingsPerPreset` + `lastQualityVariantPerBackend`, with `activePresetName`/`activeVariantName`/`lastUsedPresetName` deliberately left in the Pinia key — active is UI state and `alignModeToActivePreset` reads it synchronously before any async init), and the imageGenerationPresets settings maps (whose data-URI scrub moved from the old pinia serializer into the helper's `toFile` transform, so the file copy stays lean; that store's Pinia key now drops entirely, since the gallery went in the third slice). The two legacy-key halves of the imageGenerationPresets key run sequentially inside its `init()` — media first, settings second — so their slims never interleave. Remaining §6 buckets — backend launch flags, `ragList`, device-id dedupe, workspace last-used files, the `defaultPreset` preference — are parked in §8.2 | incremental |
+| 8 | **Partial (incremental).** Conversations are kernel-owned user-data files per §6.1: `electron/conversations/conversationFiles.ts` writes one JSON per thread plus `index.json` (atomic tmp+rename, one writer, `schemaVersion`) under `AI-Playground/conversations/` (demo mode: `conversations-demo/`, wiped on exit and boot); the store is a live projection hydrated once pre-mount (`init()`) over `conversations:bootstrap/migrate/save/delete/saveLastMainKey` and writes through at the settle points the old persist plugin hooked; the legacy localStorage state uploads once on the first boot that sees no index (`empty` + legacy key → `migrate`) and the key is then dropped — no dual-write. `promptArea.userSelectedMode` is deleted: nothing borrows the mode since step 7, so the status bar and the history filter read `currentMode` (whose only non-foreground writer left is the Home Agent remote-focus). Agent-session records (transcripts included) joined them in the second slice: `electron/agentMode/agentSessionFiles.ts` writes `<id>.json` + `index.json` (which carries `activeSessionId`) under `AI-Playground/agent-sessions/`; the agentMode store drops `sessions`/`activeSessionId` from its persist pick, hydrates pre-mount over `agentMode:bootstrapSessions/migrateSessions/saveSession/saveActiveSessionId`, writes records through on every map rewrite and the active id on change, and the record-file delete folds into the existing `agentMode:deleteSession` (next to Pi's own teardown). The generated-media gallery joined them in the third slice: `electron/media/mediaItemFiles.ts` writes `<id>.json` + an ordered `index.json` inside `media/records/` (demo mode: `records-demo/`, wiped on exit and boot); the imageGenerationPresets store drops `generatedImages` from its persist pick, hydrates pre-mount over `mediaItems:bootstrap/migrate/save/delete`, and writes through via a debounced deep watch over the array — only terminal `done` items are durable and `dynamicSettings` data URIs are scrubbed on write, both inherited from the quota-dodging serializer this replaces; the one-shot legacy upload is an idempotent merge that also rescues a gallery stranded by a failed bootstrap. User preferences joined them in the fourth slice: `electron/preferences/preferencesFile.ts` writes `AI-Playground/preferences.json` (one small file, one section per store, every mutation on one chain; demo mode: `preferences-demo.json`, wiped on exit and boot) over `preferences:read/migrate/write`, with a shared renderer helper (`src/lib/fileBackedPreferences.ts`) that hydrates pre-mount, uploads the legacy Pinia key once, and writes through a debounced deep watch with a `beforeunload` flush; five stores moved (theme, developerSettings, modelPreferences, textToSpeech, qwen3TextToSpeech — their Pinia keys drop entirely), and main's DevTools-on-startup check reads the file instead of scraping the renderer's localStorage. The per-preset knobs joined them in the fifth slice, as three more sections of the same preferences file: `textInference.settingsPerPreset`, the presets store's variant picks (`settingsPerPreset` + `lastQualityVariantPerBackend`, with `activePresetName`/`activeVariantName`/`lastUsedPresetName` deliberately left in the Pinia key — active is UI state and `alignModeToActivePreset` reads it synchronously before any async init), and the imageGenerationPresets settings maps (whose data-URI scrub moved from the old pinia serializer into the helper's `toFile` transform, so the file copy stays lean; that store's Pinia key now drops entirely, since the gallery went in the third slice). The two legacy-key halves of the imageGenerationPresets key run sequentially inside its `init()` — media first, settings second — so their slims never interleave. The backend launch flags joined them in the sixth slice, in `settings.json` rather than the preferences file — machine config beside the device maps it already holds: the backendServices store's whole persist pick (`versionOverrides`, `comfyUiParameters`, `llamaCppParameters`, `llamaCppBuildVariant`, `llamaCppOffloadDrive`, `openvinoKvCacheU4`) became `LocalSettingsSchema` fields, hydrated pre-mount over `getBackendLaunchSettings` and written through the existing `updateLocalSettings` (the file-backed helper on a new injected-`api` seam, since the preferences channels do not own this file), with the one-shot upload (`migrateBackendLaunchSettings`) merging per-field only-when-default because the file always answers with a default-born section — the helper grew `alwaysMigrateLegacy` for exactly that; `lastSelectedDeviceIdPerBackend` stopped being a second owner and became a hydrate-only mirror of main's `lastSelectedDevicePerBackend` (the dedupe), so the store's Pinia persist is gone entirely, and demo sessions read real config but never write it (the old sessionStorage scoping). Remaining §6 buckets — `ragList`, workspace last-used files, the `defaultPreset` preference — are parked in §8.2 | incremental |
 
 Steps 1–4 are worth doing even if we never move chat: they make the capabilities testable and the
 projection boundary complete. Snapshot hydration and Artifact readiness landed with steps 4–5;
@@ -913,7 +916,8 @@ IPC delta coalescing landed with step 6, the single queue and GPU policy with st
 Conversation files and the `userSelectedMode` deletion landed with step 8's first slice;
 agent-session records landed with the second; generated-media records (`media/records/`)
 landed with the third; user preferences (`preferences.json`) landed with the fourth; the
-per-preset settings knobs (three more sections of that file) landed with the fifth.
+per-preset settings knobs (three more sections of that file) landed with the fifth; the
+backend launch flags and the device-id dedupe (`settings.json`) landed with the sixth.
 
 ### 8.1 Transition cost and per-step obligations
 
@@ -1168,10 +1172,31 @@ small fix on this branch) can pick them up instead of rediscovering them.
   each store's `init()` applies the same `renamePresetKeys` fix to the freshly hydrated
   section (and textInference also seeds the old global tool map into those settings), so
   a renamed preset does not strand its tuned settings whichever half lands first.
-- **Remaining §6 buckets** (for the next slices): backend launch flags
-  (`comfyUiParameters` / `llamaCppParameters`) → `settings.json`, `ragList` → the RAG
-  bucket, `lastSelectedDeviceIdPerBackend` dedupe, workspace last-used files, the
-  `defaultPreset` preference.
+- **Remaining §6 buckets** (for the next slices): `ragList` → the RAG bucket, workspace
+  last-used files, the `defaultPreset` preference. The launch-flags / device-dedupe
+  bucket landed with the sixth slice (row 8).
+- **`settings.json` always answers, so absence can never mean "never migrated".** The
+  launch-flags store's one-shot upload has to run even though the read returns a
+  (default-born) section; the helper grew `alwaysMigrateLegacy` for exactly that, and
+  `migrateBackendLaunchSettings` merges per-field only-when-default because a null flag
+  is a valid user choice, not a gap. Any later store whose file pre-exists with schema
+  defaults reuses the same flag.
+- **The device map is main-owned; the renderer copy is a hydrate-only mirror.**
+  `selectDevice` already persisted `lastSelectedDevicePerBackend` (with `:stt`
+  sub-device keys the mirror never holds) long before the slice; the store's ref now
+  hydrates from it and never writes back (`toFile` strips it), so the pre-step-8
+  duplicate is gone. A legacy payload's stale mirror must not win: `init()` re-applies
+  the map read from main after the one-shot upload.
+- **Demo sessions read real machine config but never write it.** The injected api's
+  migrate/write arms return success without IPC while `__AIPG_DEMO_MODE__` is set — the
+  old sessionStorage scoping on the file-backed seam (a session leftover still hydrates
+  in-memory and clears).
+- **The `versionOverrides → versionState.uiOverride` sync used to be dead in practice** —
+  it ran at store setup, before Pinia's persist plugin hydrated the ref, so a pinned
+  version never actually reached the gear menu after a restart; `init()` now runs it on
+  hydrated data. `init()` also re-runs the Phison guard, because the setup-time probe
+  can land before file hydration (Pinia hydrated synchronously at creation, so the old
+  order was probe-after-hydrate), and the `ssd-offload` reset must not be lost.
 - **`lastMainKey` is persisted (and the empty session draft overwrites it on boot) but no UI reads
   it.** The store comment intended it for restoring the last Local thread when toggling the history
   filter; that restore was never wired. Do not treat a missing restore as a regression of this

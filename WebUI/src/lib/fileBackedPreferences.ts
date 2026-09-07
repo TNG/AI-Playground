@@ -31,6 +31,23 @@ export type FileBackedPreference = {
   legacyRaw: string | null
 }
 
+/** The IPC seam the helper talks through. Defaults to the preferences file
+ * channels; a store whose section lives in another file (e.g. settings.json)
+ * injects an adapter over its own channels with the same shape. */
+export type FileBackedPreferencesApi = {
+  read(): Promise<
+    { success: true; sections: Record<string, unknown> } | { success: false; error: string }
+  >
+  migrate(
+    section: string,
+    payload: unknown,
+  ): Promise<{ success: true } | { success: false; error: string }>
+  write(
+    section: string,
+    value: unknown,
+  ): Promise<{ success: true } | { success: false; error: string }>
+}
+
 const FLUSH_DEBOUNCE_MS = 300
 
 export function makeFileBackedPreference(options: {
@@ -43,12 +60,23 @@ export function makeFileBackedPreference(options: {
    * other fields: remove only this section's keys and drop the key when it
    * runs empty, instead of removing it outright. */
   legacySlim?: boolean
+  /** Run the one-shot legacy upload even though the read answered with a
+   * section. For a file whose section always exists — settings.json fields
+   * are schema-defaulted at boot — absence can never mean "never migrated". */
+  alwaysMigrateLegacy?: boolean
   /** Shape the section for the file — e.g. scrub data URIs the way the old
    * pinia serializer did. Applied to the write payload, the migrate payload
    * and the diff base, never to hydration. */
   toFile?: (section: Record<string, unknown>) => Record<string, unknown>
+  /** Adapter over the IPC channels that own this section's file. Defaults to
+   * the `preferences` channels. */
+  api?: FileBackedPreferencesApi
+  /** Names the error codes and log messages — 'preferences' by default. */
+  errorScope?: string
 }): FileBackedPreference {
   const { section, refs, legacyKey, legacySlim, toFile } = options
+  const errorScope = options.errorScope ?? 'preferences'
+  const resolveApi = (): FileBackedPreferencesApi => options.api ?? window.electronAPI.preferences
   const hydrated = ref(false)
   let initPromise: Promise<void> | null = null
   let flushTimer: ReturnType<typeof setTimeout> | null = null
@@ -146,7 +174,7 @@ export function makeFileBackedPreference(options: {
     flushInFlight = true
     const errorsStore = useErrors()
     try {
-      const result = await window.electronAPI.preferences.write(section, current)
+      const result = await resolveApi().write(section, current)
       if (result.success) {
         lastFlushedJson = json
         // The write-through is also the rescue for a failed one-shot upload:
@@ -155,10 +183,10 @@ export function makeFileBackedPreference(options: {
       } else {
         errorsStore.report(new Error(result.error), {
           category: 'backend',
-          code: 'preferences/write-failed',
+          code: `${errorScope}/write-failed`,
           severity: 'warning',
           surface: 'silent',
-          technicalMessage: `the preferences file store rejected the '${section}' write`,
+          technicalMessage: `the ${errorScope} file store rejected the '${section}' write`,
         })
       }
     } finally {
@@ -172,7 +200,7 @@ export function makeFileBackedPreference(options: {
       const errorsStore = useErrors()
       let sections: Record<string, unknown> | null = null
       try {
-        const read = await window.electronAPI.preferences.read()
+        const read = await resolveApi().read()
         sections = read.success ? read.sections : null
       } catch {
         sections = null
@@ -184,17 +212,18 @@ export function makeFileBackedPreference(options: {
         // the legacy payload is newer than what the file may already hold.
         errorsStore.report(new Error('preferences read failed'), {
           category: 'backend',
-          code: 'preferences/read-failed',
+          code: `${errorScope}/read-failed`,
           severity: 'warning',
           surface: 'silent',
-          technicalMessage:
-            'the preferences file store did not answer; defaults apply this session',
+          technicalMessage: `the ${errorScope} file store did not answer; defaults apply this session`,
         })
       } else {
         const fileSection = sections[section]
-        if (fileSection && typeof fileSection === 'object') {
+        const sectionPresent = !!(fileSection && typeof fileSection === 'object')
+        if (sectionPresent) {
           applySection(fileSection as Record<string, unknown>)
-        } else if (legacyKey) {
+        }
+        if (legacyKey && (!sectionPresent || options.alwaysMigrateLegacy === true)) {
           // One-shot legacy upload (§6.1: "localStorage migrates once").
           let legacySection: Record<string, unknown> | null = null
           if (legacyRaw) {
@@ -210,13 +239,13 @@ export function makeFileBackedPreference(options: {
             applySection(legacySection)
             const payload = toFile ? toFile(legacySection) : legacySection
             try {
-              const migrated = await window.electronAPI.preferences.migrate(section, payload)
+              const migrated = await resolveApi().migrate(section, payload)
               if (migrated.success) dropLegacyKey()
               else {
                 // The file store answered but refused: retry next boot.
                 errorsStore.report(new Error(migrated.error), {
                   category: 'backend',
-                  code: 'preferences/migrate-failed',
+                  code: `${errorScope}/migrate-failed`,
                   severity: 'warning',
                   surface: 'silent',
                   technicalMessage: `the '${section}' legacy upload failed; keeping the key to retry`,
@@ -227,7 +256,7 @@ export function makeFileBackedPreference(options: {
               // must not stay silent — the leftover key is kept to retry.
               errorsStore.report(error, {
                 category: 'backend',
-                code: 'preferences/migrate-failed',
+                code: `${errorScope}/migrate-failed`,
                 severity: 'warning',
                 surface: 'silent',
                 technicalMessage: `the '${section}' legacy upload failed; keeping the key to retry`,

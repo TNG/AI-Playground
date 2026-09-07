@@ -788,7 +788,7 @@ before the kernel move or as a small fix.
 
 **Models**: `loadModels`, `updateModelPaths`, `restorePathsSettings`, `getDownloadedGGUFLLMs`, `getDownloadedOpenVINOLLMModels`, `getDownloadedEmbeddingModels`
 
-**Settings/config**: `getInitSetting`, `updateLocalSettings`, `getLocaleSettings`, `getInitialPage`, `getDemoModeSettings`
+**Settings/config**: `getInitSetting`, `updateLocalSettings`, `getLocaleSettings`, `getInitialPage`, `getDemoModeSettings`, `getBackendLaunchSettings` + `migrateBackendLaunchSettings` (the backendServices store's slice of settings.json, step 8)
 
 **Presets**: `reloadPresets`, `loadUserPresets`, `saveUserPreset`, `updatePresetsFromIntelRepo`, `getUserPresetsPath`
 
@@ -828,7 +828,7 @@ before the kernel move or as a small fix.
 
 **Orchestration stores:**
 
-- `backendServices` — Service lifecycle, device selection, version management. No store deps. Heavy IPC usage.
+- `backendServices` — Service lifecycle, device selection, version management. Launch flags + version pins + the device mirror hydrate from `settings.json` (`init()`; no Pinia persist left). No store deps. Heavy IPC usage.
 - `presetSwitching` — Unified `switchPreset()`, `switchVariant()` across modes. Deps: `presets`, `promptArea`, `backendServices`, `dialogs`, `globalSetup`, `i18n` + lazy `textInference`, `imageGenerationPresets`
 - `globalSetup` — App initialization, loading state machine. Deps: `models`
 - `promptArea` — Current UI mode (`chat`/`audio`/`imageGen`/`imageEdit`/`video`), prompt submit/cancel callbacks. Deps: `presetSwitching`, `presets`
@@ -855,14 +855,17 @@ There are three places a switch can live, and which one it is decides who can fl
 **`settings.json` (`LocalSettingsSchema` in `electron/main.ts`)** is machine-level: hand-edited,
 read by the main process, survives a renderer storage wipe. It keeps the things a deployment
 decides — demo mode + passcode, `languageOverride`, `productMode`, `disabledBackends`, device
-preferences, `huggingfaceEndpoint` — plus **`showDebugSettingsInUI`**, which is the only gate on
-the debug controls below. A build that does not set it looks exactly as it always did.
+preferences, backend launch flags + version pins, `huggingfaceEndpoint` — plus
+**`showDebugSettingsInUI`**, which is the only gate on the debug controls below. A build that
+does not set it looks exactly as it always did.
 
 **Renderer persistence (Pinia)** is per-user and needs no file: Cloud Mode enablement and the
 stores not yet on `preferences.json` (step 8 moved theme, `developerSettings`, model favorites,
 the TTS voice stores, and the per-preset settings knobs — chat settings, ComfyUI inputs, variant
 picks — to the kernel-owned file via `src/lib/fileBackedPreferences.ts`; the active/last-used
-preset names stay Pinia-persisted because boot reads them synchronously).
+preset names stay Pinia-persisted because boot reads them synchronously). The backendServices
+launch flags went one step further, to machine-level `settings.json` — that store has no Pinia
+persistence left.
 
 **Settings → Developer** is the UI. Always visible: keep models loaded, dev console on startup,
 and the **Agent preset** checkbox (writes `isAgentPresetEnabled`, then re-reads presets — no

@@ -274,6 +274,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
         { success: true } | { success: false; error: string }
       >,
   },
+  getBackendLaunchSettings: () =>
+    ipcRenderer.invoke('getBackendLaunchSettings') as Promise<
+      import('../src/types/preferencesIpc').BackendLaunchSettings
+    >,
+  migrateBackendLaunchSettings: (payload: unknown) =>
+    ipcRenderer.invoke('migrateBackendLaunchSettings', payload) as Promise<
+      { success: true } | { success: false; error: string }
+    >,
   startTranscriptionServer: (modelName: string) =>
     ipcRenderer.invoke('startTranscriptionServer', modelName),
   stopTranscriptionServer: () => ipcRenderer.invoke('stopTranscriptionServer'),

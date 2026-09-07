@@ -16,3 +16,25 @@ export const PreferencesFileSchema = z.object({
   sections: z.record(z.string(), z.unknown()),
 })
 export type PreferencesFile = z.infer<typeof PreferencesFileSchema>
+
+/**
+ * The backendServices store's slice of the machine-level settings file
+ * (step 8, §6.1): launch flags and version pins it hydrates from
+ * `settings.json` at boot, plus main's device map (read-only for the
+ * renderer — selectDevice persists it main-side).
+ */
+export const BackendVersionWireSchema = z.object({
+  releaseTag: z.string().optional(),
+  version: z.string(),
+})
+export type BackendVersionWire = z.infer<typeof BackendVersionWireSchema>
+
+export type BackendLaunchSettings = {
+  versionOverrides: Record<string, BackendVersionWire>
+  comfyUiParameters: string | null
+  llamaCppParameters: string | null
+  llamaCppBuildVariant: 'standard' | 'ssd-offload'
+  llamaCppOffloadDrive: string | null
+  openvinoKvCacheU4: boolean
+  lastSelectedDevicePerBackend: Record<string, string>
+}

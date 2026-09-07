@@ -16,6 +16,7 @@ import { useTextToSpeech } from './assets/js/store/textToSpeech'
 import { useQwen3TextToSpeech } from './assets/js/store/qwen3TextToSpeech'
 import { useTextInference } from './assets/js/store/textInference'
 import { usePresets } from './assets/js/store/presets'
+import { useBackendServices } from './assets/js/store/backendServices'
 import { initLaminarTelemetry } from './lib/laminarTelemetry'
 import { initDebugSettings } from './assets/js/store/debugSettings'
 import { startMediaRequestBridge } from './assets/js/artifact/mediaRequestBridge'
@@ -95,7 +96,9 @@ await useImageGenerationPresets().init()
 // and no consumer sees a pre-hydration default. The per-preset settings
 // (textInference, presets variant picks) ride the same file; they init
 // alongside their stores' rename migrations, after the imageGeneration
-// store's own init has consumed its half of the shared legacy key.
+// store's own init has consumed its half of the shared legacy key. The
+// backendServices launch flags hydrate from settings.json the same way, so
+// any service start already sees the machine's flags.
 await Promise.all([
   useTheme().init(),
   useDeveloperSettings().init(),
@@ -104,6 +107,7 @@ await Promise.all([
   useQwen3TextToSpeech().init(),
   useTextInference().init(),
   usePresets().init(),
+  useBackendServices().init(),
 ])
 
 // Relabel a parked chat tool's activity with its queue position (the

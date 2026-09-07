@@ -3,8 +3,12 @@
  * uses sessionStorage so persisted state is session-scoped and never touches
  * localStorage. Otherwise uses localStorage.
  */
+export function isDemoModeActive(): boolean {
+  return window.__AIPG_DEMO_MODE__ ?? false
+}
+
 function getStorage(): Storage {
-  return (window.__AIPG_DEMO_MODE__ ?? false) ? sessionStorage : localStorage
+  return isDemoModeActive() ? sessionStorage : localStorage
 }
 
 export const demoAwareStorage = {

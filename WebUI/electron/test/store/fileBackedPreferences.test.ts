@@ -404,4 +404,73 @@ describe('file-backed preferences', () => {
     expect(mask.value).toEqual(leftover.mask)
     expect(preferencesApi.migrate.mock.calls[0][1]).toEqual({ mask: { keep: 'x' } })
   })
+
+  it('routes through an injected api instead of the preferences channels', async () => {
+    const injected = {
+      read: vi.fn(
+        async (): Promise<
+          { success: true; sections: Record<string, unknown> } | { success: false; error: string }
+        > => ({ success: true, sections: { machine: { flag: true } } }),
+      ),
+      migrate: vi.fn(
+        async (
+          _section: string,
+          _payload: unknown,
+        ): Promise<{ success: true } | { success: false; error: string }> => ({ success: true }),
+      ),
+      write: vi.fn(
+        async (
+          _section: string,
+          _value: unknown,
+        ): Promise<{ success: true } | { success: false; error: string }> => ({ success: true }),
+      ),
+    }
+    const flag = ref(false)
+    const prefs = makeFileBackedPreference({
+      section: 'machine',
+      refs: { flag },
+      api: injected,
+    })
+    await prefs.init()
+    expect(injected.read).toHaveBeenCalledTimes(1)
+    expect(flag.value).toBe(true)
+    expect(preferencesApi.read).not.toHaveBeenCalled()
+    flag.value = false
+    await advanceFlush()
+    expect(injected.write).toHaveBeenCalledWith('machine', { flag: false })
+    expect(preferencesApi.write).not.toHaveBeenCalled()
+  })
+
+  it('scopes the reported error codes to the injected store', async () => {
+    const injected = {
+      read: vi.fn(
+        async (): Promise<
+          { success: true; sections: Record<string, unknown> } | { success: false; error: string }
+        > => ({ success: false, error: 'unreadable' }),
+      ),
+      migrate: vi.fn(
+        async (
+          _section: string,
+          _payload: unknown,
+        ): Promise<{ success: true } | { success: false; error: string }> => ({ success: true }),
+      ),
+      write: vi.fn(
+        async (
+          _section: string,
+          _value: unknown,
+        ): Promise<{ success: true } | { success: false; error: string }> => ({ success: true }),
+      ),
+    }
+    const prefs = makeFileBackedPreference({
+      section: 'machine',
+      refs: { flag: ref(false) },
+      api: injected,
+      errorScope: 'backend-launch-settings',
+    })
+    await prefs.init()
+    expect(errorsReport).toHaveBeenCalledTimes(1)
+    expect(errorsReport.mock.calls[0][1]).toMatchObject({
+      code: 'backend-launch-settings/read-failed',
+    })
+  })
 })

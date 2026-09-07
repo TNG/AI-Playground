@@ -521,6 +521,18 @@ const LocalSettingsSchema = z.object({
   // driver update or enumeration reorder shifts the backend-local id. Empty when
   // the chosen device exposes no UUID (e.g. OpenVINO/llama.cpp devices).
   lastSelectedDeviceUuidPerBackend: z.record(z.string(), z.string()).default({}),
+  // Backend launch configuration (step 8, §6.1), formerly renderer-persisted
+  // Pinia state. The flags a service is launched with and the version a
+  // backend is pinned to — machine-level by nature, edited alongside the
+  // device maps. null flags mean "use the backend's default".
+  versionOverrides: z
+    .record(z.string(), z.object({ releaseTag: z.string().optional(), version: z.string() }))
+    .default({}),
+  comfyUiParameters: z.string().nullable().default(null),
+  llamaCppParameters: z.string().nullable().default(null),
+  llamaCppBuildVariant: z.enum(['standard', 'ssd-offload']).default('standard'),
+  llamaCppOffloadDrive: z.string().nullable().default(null),
+  openvinoKvCacheU4: z.boolean().default(false),
   // Machine-wide preferred inference device, chosen in the setup wizard from the
   // raw pre-install hardware probe. Consulted by each backend's detectDevices()
   // (when it has no per-backend selection yet) to pick a matching device, before
@@ -1524,6 +1536,72 @@ function initEventHandle() {
       serviceRegistry?.setDisabledBackends(updates.disabledBackends)
     }
     appLogger.info(`Updated local settings: ${JSON.stringify(updates)}`, 'electron-backend')
+    return { success: true }
+  })
+
+  // ── Backend launch settings (step 8, §6.1) ─────────────────────────────
+  // The backendServices store's half of the kernel-owned settings file:
+  // the launch flags and version pins hydrate from settings.json at boot and
+  // write through on change (updateLocalSettings above), replacing the old
+  // renderer-persisted Pinia key. The device map is main-owned all along —
+  // selectDevice below writes it — so it is only ever read here.
+  ipcMain.handle('getBackendLaunchSettings', () => ({
+    versionOverrides: settings.versionOverrides,
+    comfyUiParameters: settings.comfyUiParameters,
+    llamaCppParameters: settings.llamaCppParameters,
+    llamaCppBuildVariant: settings.llamaCppBuildVariant,
+    llamaCppOffloadDrive: settings.llamaCppOffloadDrive,
+    openvinoKvCacheU4: settings.openvinoKvCacheU4,
+    lastSelectedDevicePerBackend: settings.lastSelectedDevicePerBackend,
+  }))
+
+  // One-shot legacy upload from the pre-step-8 Pinia key. Per-field
+  // only-when-default: settings.json may already hold a value a previous
+  // partial migration wrote, and a null flag is a valid user choice that
+  // must not be mistaken for "never set".
+  ipcMain.handle('migrateBackendLaunchSettings', (_event, payload: unknown) => {
+    const parsed = z
+      .object({
+        versionOverrides: z
+          .record(z.string(), z.object({ releaseTag: z.string().optional(), version: z.string() }))
+          .optional(),
+        comfyUiParameters: z.string().nullable().optional(),
+        llamaCppParameters: z.string().nullable().optional(),
+        llamaCppBuildVariant: z.enum(['standard', 'ssd-offload']).optional(),
+        llamaCppOffloadDrive: z.string().nullable().optional(),
+        openvinoKvCacheU4: z.boolean().optional(),
+      })
+      .safeParse(payload)
+    if (!parsed.success) {
+      return { success: false, error: `invalid launch settings payload: ${parsed.error.message}` }
+    }
+    const incoming = parsed.data
+    if (incoming.comfyUiParameters != null && settings.comfyUiParameters === null) {
+      settings.comfyUiParameters = incoming.comfyUiParameters
+    }
+    if (incoming.llamaCppParameters != null && settings.llamaCppParameters === null) {
+      settings.llamaCppParameters = incoming.llamaCppParameters
+    }
+    if (
+      incoming.llamaCppBuildVariant === 'ssd-offload' &&
+      settings.llamaCppBuildVariant === 'standard'
+    ) {
+      settings.llamaCppBuildVariant = incoming.llamaCppBuildVariant
+    }
+    if (incoming.llamaCppOffloadDrive != null && settings.llamaCppOffloadDrive === null) {
+      settings.llamaCppOffloadDrive = incoming.llamaCppOffloadDrive
+    }
+    if (incoming.openvinoKvCacheU4 === true && settings.openvinoKvCacheU4 === false) {
+      settings.openvinoKvCacheU4 = true
+    }
+    if (
+      incoming.versionOverrides &&
+      Object.keys(incoming.versionOverrides).length > 0 &&
+      Object.keys(settings.versionOverrides).length === 0
+    ) {
+      settings.versionOverrides = incoming.versionOverrides
+    }
+    persistLocalSettingsToDisk()
     return { success: true }
   })
 

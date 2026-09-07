@@ -88,6 +88,14 @@ type LocalSettings = {
   mcpAutoDetectionDismissed: string[]
   openvinoImageGenDevices: string[]
   preferredDevice: PreferredDevice | null
+  /** Backend launch configuration (settings.json, step 8): version pins and
+   * launch flags, formerly renderer-persisted Pinia state. null = default. */
+  versionOverrides?: Record<string, { releaseTag?: string; version: string }>
+  comfyUiParameters?: string | null
+  llamaCppParameters?: string | null
+  llamaCppBuildVariant?: 'standard' | 'ssd-offload'
+  llamaCppOffloadDrive?: string | null
+  openvinoKvCacheU4?: boolean
   /** Dev unpackaged: set via settings-dev.json / userData overlay. */
   PhisonSSDdetected?: boolean
   /** Linux: user accepted obfuscated-on-disk secrets when no OS keyring is available. */
@@ -512,6 +520,10 @@ type electronAPI = {
       value: unknown,
     ): Promise<{ success: true } | { success: false; error: string }>
   }
+  getBackendLaunchSettings(): Promise<import('./types/preferencesIpc').BackendLaunchSettings>
+  migrateBackendLaunchSettings(
+    payload: unknown,
+  ): Promise<{ success: true } | { success: false; error: string }>
   startTranscriptionServer(modelName: string): Promise<{ success: boolean; error?: string }>
   stopTranscriptionServer(): Promise<{ success: boolean; error?: string }>
   getTranscriptionServerUrl(): Promise<{ success: boolean; url?: string; error?: string }>

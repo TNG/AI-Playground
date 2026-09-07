@@ -228,6 +228,7 @@ export class LlamaCppBackendService implements ApiService {
   readonly baseDir = app.isPackaged ? packagedResourcesRoot() : path.join(__dirname, '../../../')
   readonly serviceDir: string
   readonly llamaCppSsdOffloadConfigPath: string
+  readonly llamaCppSsdOffloadEmbeddingConfigPath: string
   devices: InferenceDevice[] = [{ id: '0', name: 'Auto select device', selected: true }]
   storageTargets: StorageTarget[] = []
 
@@ -326,8 +327,12 @@ export class LlamaCppBackendService implements ApiService {
     // Set up paths (binaries live under getActiveLlamaCppDir() — standard vs Phison use different folders)
     this.serviceDir = path.resolve(path.join(this.baseDir, 'LlamaCPP'))
     this.llamaCppSsdOffloadConfigPath = llamaCppPhison.getSsdOffloadConfigPath(this.serviceDir)
+    this.llamaCppSsdOffloadEmbeddingConfigPath = llamaCppPhison.getSsdOffloadEmbeddingConfigPath(
+      this.serviceDir,
+    )
     this.migrateLegacySsdOffloadConfigFile()
     this.ensureSsdOffloadConfigFileSync()
+    this.ensureSsdOffloadEmbeddingConfigFileSync()
     this.migrateLegacyPhisonIntoSeparateDirectory()
 
     this.syncSetupFlagsFromDisk()
@@ -1057,19 +1062,33 @@ export class LlamaCppBackendService implements ApiService {
     )
   }
 
+  private getRelativeSsdOffloadEmbeddingConfigPath(): string {
+    return llamaCppPhison.getRelativeSsdOffloadConfigPath(
+      this.serviceDir,
+      this.llamaCppBuildVariant,
+      this.llamaCppSsdOffloadEmbeddingConfigPath,
+    )
+  }
+
   private normalizeOffloadDrivePath(offloadDrive?: string | null): string | null {
     return llamaCppPhison.normalizeOffloadDrivePath(offloadDrive)
   }
 
   private async updateSsdOffloadConfig(): Promise<void> {
     await this.ensureSsdOffloadConfigFile()
+    const logger = {
+      info: (message: string) => this.appLogger.info(message, this.name),
+      warn: (message: string) => this.appLogger.warn(message, this.name),
+    }
     await llamaCppPhison.updateSsdOffloadConfig(
       this.llamaCppSsdOffloadConfigPath,
       this.llamaCppOffloadDrive,
-      {
-        info: (message) => this.appLogger.info(message, this.name),
-        warn: (message) => this.appLogger.warn(message, this.name),
-      },
+      logger,
+    )
+    await llamaCppPhison.updateSsdOffloadConfig(
+      this.llamaCppSsdOffloadEmbeddingConfigPath,
+      this.llamaCppOffloadDrive,
+      logger,
     )
   }
 
@@ -1098,11 +1117,26 @@ export class LlamaCppBackendService implements ApiService {
     )
   }
 
+  private async ensureSsdOffloadEmbeddingConfigFile(): Promise<void> {
+    await llamaCppPhison.ensureSsdOffloadEmbeddingConfigFile(
+      this.serviceDir,
+      this.llamaCppSsdOffloadEmbeddingConfigPath,
+    )
+  }
+
+  private ensureSsdOffloadEmbeddingConfigFileSync(): void {
+    llamaCppPhison.ensureSsdOffloadEmbeddingConfigFileSync(
+      this.serviceDir,
+      this.llamaCppSsdOffloadEmbeddingConfigPath,
+    )
+  }
+
   private async ensureSsdOffloadConfigFile(): Promise<void> {
     await llamaCppPhison.ensureSsdOffloadConfigFile(
       this.serviceDir,
       this.llamaCppSsdOffloadConfigPath,
     )
+    await this.ensureSsdOffloadEmbeddingConfigFile()
   }
 
   private async ensureSsdOffloadWindowsService(): Promise<void> {
@@ -1525,6 +1559,7 @@ export class LlamaCppBackendService implements ApiService {
 
   private async startLlamaEmbeddingServer(modelRepoId: string): Promise<LlamaServerProcess> {
     try {
+      await this.ensureSsdOffloadEmbeddingConfigFile()
       const modelPath = this.resolveEmbeddingModelPath(modelRepoId)
       const port = await getPort({ port: portNumbers(39200, 39299) })
 
@@ -1533,9 +1568,22 @@ export class LlamaCppBackendService implements ApiService {
         this.name,
       )
 
-      const userParameters = sanitizeUserLlamaCppParameters(this.llamaCppParametersString, (msg) =>
-        this.appLogger.warn(msg, this.name, true),
+      const sanitizedParameters = sanitizeUserLlamaCppParameters(
+        this.llamaCppParametersString,
+        (msg) => this.appLogger.warn(msg, this.name, true),
       )
+      const isSsdOffload = llamaCppPhison.isSsdOffloadVariant(this.llamaCppBuildVariant)
+      // The startup-parameter string is shared with the LLM server, so in
+      // ssd-offload mode it carries `--config-file <LLM config>`. Swap in the
+      // embedding server's own config: it needs none of the SSD/VRAM offload
+      // budget the LLM config reserves, and reserving it here takes it from
+      // the LLM server for the lifetime of the embedding process.
+      const userParameters = isSsdOffload
+        ? llamaCppPhison.withConfigFileArg(
+            sanitizedParameters,
+            this.getRelativeSsdOffloadEmbeddingConfigPath(),
+          )
+        : sanitizedParameters
       const args = [
         '--embedding',
         '--model',
@@ -1543,6 +1591,12 @@ export class LlamaCppBackendService implements ApiService {
         '--port',
         port.toString(),
         '--log-prefix',
+        // ssd-offload only. The standard build keeps llama-server's own default
+        // window, unchanged — see PHISON_EMBEDDING_CONTEXT_SIZE for why the
+        // Phison build pins one.
+        ...(isSsdOffload
+          ? ['--ctx-size', String(llamaCppPhison.PHISON_EMBEDDING_CONTEXT_SIZE)]
+          : []),
         '-b',
         '1024',
         '-ub',

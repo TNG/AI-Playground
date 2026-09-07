@@ -1115,9 +1115,15 @@ small fix on this branch) can pick them up instead of rediscovering them.
 - **Agent-session deletes fold into `agentMode:deleteSession`.** The renderer's sessions watcher
   does not forward removals; `deleteSession` waits for that IPC (record file + Pi teardown) before
   dropping the row, so a failed delete cannot vanish from the panel and reappear next boot.
-- **The agentMode legacy key is slimmed, not dropped.** The Pinia key survives this slice (it
-  still persists preferences and last-used workspace state), so the one-shot migration strips
-  `sessions` / `activeSessionId` out of the stored payload instead of removing the key.
+- **The agentMode legacy key is slimmed, not dropped.** The Pinia key survives for user
+  preferences (`mcpServerIds`, `defaultCapabilities`, `unsandboxedWorkspaces`,
+  `planningThinkingOnly`). Session records slimmed out in the second slice; last-used
+  workspace pointers (`workspaceDir`, `lastWorkspaceByKind`) slim out on the workspace
+  half — they are no longer in the persist pick. Leftover workspace fields stay in the
+  blob until that slim (or until a persist rewrite of the remaining pick) and are ignored
+  on hydrate once `agent-workspace.json` exists. The workspace half of the same key runs
+  strictly after the sessions half, for the same reason the imageGenerationPresets halves
+  do: interleaved read-modify-write slims can resurrect what the other removed.
 - **Generated-media records: a debounced deep watch is the write-through**, because the array is
   mutated in every shape (`push`, `splice`, reassign, `length = 0`) across ~10 sites including the
   artifact-event projection — the faithful port of the persist plugin's per-mutation

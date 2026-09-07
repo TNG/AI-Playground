@@ -419,4 +419,66 @@ describe('useAgentMode workspace state', () => {
       lastWorkspaceByKind: { pick: '/legacy' },
     })
   })
+
+  it('does not overlay leftover when the workspace file is unreadable', async () => {
+    agentModeApi.bootstrapSessions.mockResolvedValue({ status: 'empty' })
+    agentModeApi.readWorkspaceState.mockResolvedValueOnce({
+      success: false,
+      error: 'agent workspace file unreadable',
+    })
+    storage.set(
+      'agentMode',
+      JSON.stringify({
+        workspaceDir: '/legacy',
+        lastWorkspaceByKind: { pick: '/legacy' },
+        mcpServerIds: ['m'],
+      }),
+    )
+    const store: Store = useAgentMode()
+
+    await store.init()
+
+    expect(store.workspaceDir).toBe('')
+    expect(store.lastWorkspaceByKind).toEqual({})
+    expect(agentModeApi.migrateWorkspaceState).not.toHaveBeenCalled()
+    expect(JSON.parse(storage.get('agentMode') ?? '{}')).toMatchObject({
+      workspaceDir: '/legacy',
+      lastWorkspaceByKind: { pick: '/legacy' },
+      mcpServerIds: ['m'],
+    })
+    expect(errorsReport).toHaveBeenCalled()
+    expect(
+      errorsReport.mock.calls.some((call) => call[1]?.code === 'agent-workspace/read-failed'),
+    ).toBe(true)
+  })
+
+  it('does not overlay leftover onto an existing workspace file', async () => {
+    agentModeApi.bootstrapSessions.mockResolvedValue({ status: 'empty' })
+    agentModeApi.readWorkspaceState.mockResolvedValueOnce({
+      success: true,
+      section: {
+        workspaceDir: '/file',
+        lastWorkspaceByKind: { pick: '/file', games: '/games' },
+      },
+    })
+    storage.set(
+      'agentMode',
+      JSON.stringify({
+        workspaceDir: '/legacy',
+        lastWorkspaceByKind: { pick: '/legacy' },
+        mcpServerIds: ['m'],
+      }),
+    )
+    const store: Store = useAgentMode()
+
+    await store.init()
+
+    expect(store.workspaceDir).toBe('/file')
+    expect(store.lastWorkspaceByKind).toEqual({ pick: '/file', games: '/games' })
+    expect(agentModeApi.migrateWorkspaceState).not.toHaveBeenCalled()
+    expect(JSON.parse(storage.get('agentMode') ?? '{}')).toMatchObject({
+      workspaceDir: '/legacy',
+      mcpServerIds: ['m'],
+    })
+  })
 })

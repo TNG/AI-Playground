@@ -52,14 +52,14 @@ export const usePresets = defineStore(
     // of always snapping to the first variant. Shape: { [presetName]: { [backend]: variantName } }
     const lastQualityVariantPerBackend = ref<Record<string, Record<string, string>>>({})
 
-    // Step 8 (§6.1): the variant picks are kernel-owned preferences
-    // (preferences.json); `activePresetName` / `activeVariantName` /
-    // `lastUsedPresetName` stay in the Pinia key — active is UI state, and
-    // last-used is the `defaultPreset` bucket for a later slice — so the
-    // one-shot upload only slims these two fields out of the key.
+    // Step 8 (§6.1): the variant picks and the last-used preset names are
+    // kernel-owned preferences (preferences.json); `activePresetName` /
+    // `activeVariantName` stay in the Pinia key — active is UI state, read
+    // synchronously by `alignModeToActivePreset` before any async init — so
+    // the one-shot upload only slims the file-half fields out of the key.
     const variantPrefs = makeFileBackedPreference({
       section: 'presets',
-      refs: { settingsPerPreset, lastQualityVariantPerBackend },
+      refs: { settingsPerPreset, lastQualityVariantPerBackend, lastUsedPresetName },
       legacyKey: 'presets',
       legacySlim: true,
     })
@@ -681,12 +681,13 @@ export const usePresets = defineStore(
   {
     persist: {
       storage: demoAwareStorage,
-      // `settingsPerPreset` / `lastQualityVariantPerBackend` are NOT persisted
-      // here anymore: they live in the kernel-owned preferences.json (step 8
-      // §6.1), hydrated by init(). Active/last-used names stay — the active
-      // preset is UI state and `alignModeToActivePreset` reads it
-      // synchronously at boot, before any async init.
-      pick: ['activePresetName', 'activeVariantName', 'lastUsedPresetName'],
+      // `settingsPerPreset` / `lastQualityVariantPerBackend` /
+      // `lastUsedPresetName` are NOT persisted here anymore: they live in
+      // the kernel-owned preferences.json (step 8 §6.1), hydrated by init().
+      // Active names stay — the active preset is UI state and
+      // `alignModeToActivePreset` reads it synchronously at boot, before any
+      // async init.
+      pick: ['activePresetName', 'activeVariantName'],
       afterHydrate: (ctx) => {
         // Selection and per-preset state are keyed by preset name, so a preset
         // that shipped under another one has to be followed to its current name.

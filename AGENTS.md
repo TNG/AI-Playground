@@ -861,11 +861,11 @@ does not set it looks exactly as it always did.
 
 **Renderer persistence (Pinia)** is per-user and needs no file: Cloud Mode enablement and the
 stores not yet on `preferences.json` (step 8 moved theme, `developerSettings`, model favorites,
-the TTS voice stores, and the per-preset settings knobs — chat settings, ComfyUI inputs, variant
-picks — to the kernel-owned file via `src/lib/fileBackedPreferences.ts`; the active/last-used
-preset names stay Pinia-persisted because boot reads them synchronously). The backendServices
-launch flags went one step further, to machine-level `settings.json` — that store has no Pinia
-persistence left.
+the TTS voice stores, the per-preset settings knobs — chat settings, ComfyUI inputs, variant
+picks — and the last-used preset names to the kernel-owned file via
+`src/lib/fileBackedPreferences.ts`; the active preset names stay Pinia-persisted because boot
+reads them synchronously). The backendServices launch flags went one step further, to
+machine-level `settings.json` — that store has no Pinia persistence left.
 
 **Settings → Developer** is the UI. Always visible: keep models loaded, dev console on startup,
 and the **Agent preset** checkbox (writes `isAgentPresetEnabled`, then re-reads presets — no

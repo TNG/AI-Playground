@@ -4,6 +4,8 @@ import {
   emptyCardBudgetBytes,
   fitVram,
   liveBudgetBytes,
+  vramFitLevel,
+  VRAM_EASY_FRACTION,
   VRAM_USABLE_FRACTION,
 } from './fit.ts'
 import { GIB } from './units.ts'
@@ -65,5 +67,21 @@ describe('fitVram', () => {
     }
     expect(bothFit(llm, comfy, tight)).toBe(false)
     expect(bothFit(llm, 4 * GIB, { memTotalBytes: CARD, memUsedBytes: 0 })).toBe(true)
+  })
+})
+
+describe('vramFitLevel', () => {
+  const usable = emptyCardBudgetBytes(CARD)
+  const easy = usable * VRAM_EASY_FRACTION
+
+  it('reports the boundaries as inclusive', () => {
+    expect(vramFitLevel(easy, usable)).toBe('easy')
+    expect(vramFitLevel(easy + 1, usable)).toBe('tight')
+    expect(vramFitLevel(usable, usable)).toBe('tight')
+    expect(vramFitLevel(usable + 1, usable)).toBe('over')
+  })
+
+  it('is over budget when nothing is usable', () => {
+    expect(vramFitLevel(0, 0)).toBe('over')
   })
 })

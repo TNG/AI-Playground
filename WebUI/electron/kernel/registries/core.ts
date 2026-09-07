@@ -55,6 +55,7 @@ import {
   computeMetricsProbeReport,
   latestComputeSnapshot,
 } from '../../computeMetrics'
+import { readLlamaCppVramInputs } from '../../llamaCppVramInputs'
 import type { setVerboseLogging } from '../../agent/piAgentLog.ts'
 import type {
   ChatReadinessArgs,
@@ -598,6 +599,18 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
     getComputeMetrics: async () => latestComputeSnapshot() ?? collectComputeSnapshot(),
 
     getComputeMetricsDiagnostics: () => computeMetricsProbeReport(),
+
+    getLlamaCppVramInputs: (_event, modelName: string) => {
+      try {
+        return readLlamaCppVramInputs(deps.pathsManager.modelPaths.ggufLLM, modelName) ?? null
+      } catch (error) {
+        deps.appLogger.warn(
+          `Could not read VRAM inputs for ${modelName}: ${error}`,
+          'electron-backend',
+        )
+        return null
+      }
+    },
 
     updateModelPaths: (_event, modelPaths: ModelPaths) => {
       deps.pathsManager.updateModelPaths(modelPaths)

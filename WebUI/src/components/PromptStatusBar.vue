@@ -48,6 +48,8 @@
         </template>
       </ModelCapabilities>
       <span v-else-if="presetIndicator.model" class="truncate">{{ presetIndicator.model }}</span>
+      <!-- Whether the model plus its context fits the card (llama.cpp only) -->
+      <ModelVramFit v-if="presetIndicator.model" icon-size="size-3.5" :delay-duration="0" />
       <!-- Capability icons for the active model, only in the Assistant preset -->
       <CapabilityIcons
         v-if="isAssistantPreset && presetIndicator.model && currentModel"
@@ -215,6 +217,7 @@ import { formatMib, formatPct } from '@/lib/computeMetricsFormat'
 import { Context } from '@/components/ui/context'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import ModelCapabilities from '@/components/ModelCapabilities.vue'
+import ModelVramFit from '@/components/ModelVramFit.vue'
 import CapabilityIcons from '@/components/CapabilityIcons.vue'
 import AgentTokenUsage from '@/components/AgentTokenUsage.vue'
 

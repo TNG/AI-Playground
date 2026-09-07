@@ -161,6 +161,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getDownloadedEmbeddingModels: () => invoke('getDownloadedEmbeddingModels'),
   getComfyUIModels: (modelType: string) => invoke('getComfyUIModels', modelType),
   scanModelLibrary: () => invoke('scanModelLibrary'),
+  getLlamaCppVramInputs: (modelName: string) => invoke('getLlamaCppVramInputs', modelName),
   showModelInFolder: (modelPath: string) => invoke('showModelInFolder', modelPath),
   deleteModelPath: (modelPath: string) => invoke('deleteModelPath', modelPath),
   getPlatform: () => invoke('getPlatform'),

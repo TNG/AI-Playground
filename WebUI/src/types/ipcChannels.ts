@@ -18,6 +18,7 @@ import type {
 import type { ChatAnswerPayload, ChatAskPayload } from './chatRequests'
 import type { ComfyUICustomNodeRepoId } from './comfyuiIpc'
 import type { ComputeSnapshot, ProbeReport } from './computeMetrics'
+import type { LlamaCppVramInputs } from '../lib/vram/types'
 import type { ConversationBootstrap, ConversationSaveRequest } from './conversationIpc'
 import type { HomeAgentInboundMessage } from './homeAgentIpc'
 import type { KernelEvent, KernelSnapshot } from './kernelEvents'
@@ -829,6 +830,13 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as const,
     result: null as unknown as ComputeSnapshot | null,
+  },
+  /** GGUF facts the VRAM estimator needs; null when the model is not on disk. */
+  getLlamaCppVramInputs: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as LlamaCppVramInputs | null,
   },
   /** Which GPU probes resolved, and why the last one failed. See docs/compute-resource-metrics.md. */
   getComputeMetricsDiagnostics: {

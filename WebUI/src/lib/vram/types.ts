@@ -80,3 +80,13 @@ export type VramFit = {
   /** Set when the budget included host RAM (iGPU / unified memory). */
   fitsHost?: boolean
 }
+
+/** Traffic light shown next to a model: fits easily / barely / not at all. */
+export type VramFitLevel = 'easy' | 'tight' | 'over'
+
+/** Everything `estimateLlamaCppVram` needs that only the main process can read. */
+export type LlamaCppVramInputs = {
+  arch: GgufArch
+  weightsBytes: number
+  mmprojBytes: number
+}

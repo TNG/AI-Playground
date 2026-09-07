@@ -101,13 +101,27 @@ describe('the kernel rag documents file store', () => {
     expect(section?.ragList).toEqual(DOCUMENTS)
   })
 
-  it('treats a corrupt file as absent, so the next write replaces it', async () => {
+  it('treats a corrupt file as a failed read, not as never-migrated', async () => {
     await fs.mkdir(path.dirname(files.real), { recursive: true })
     await fs.writeFile(files.real, 'not json', 'utf8')
-    expect(await readRagDocumentSection()).toBeNull()
-    expect(await migrateRagDocumentSection({ ragList: DOCUMENTS })).toBe(true)
+    await expect(readRagDocumentSection()).rejects.toThrow(/unreadable/)
+    await expect(migrateRagDocumentSection({ ragList: DOCUMENTS })).rejects.toThrow(/unreadable/)
+    expect(await fs.readFile(files.real, 'utf8')).toBe('not json')
+  })
+
+  it('replaces a corrupt file on the next write', async () => {
+    await fs.mkdir(path.dirname(files.real), { recursive: true })
+    await fs.writeFile(files.real, 'not json', 'utf8')
+    await writeRagDocumentSection({ ragList: DOCUMENTS })
     const section = await readRagDocumentSection()
     expect(section?.ragList).toEqual(DOCUMENTS)
+  })
+
+  it('treats a schema-invalid file as unreadable too', async () => {
+    await fs.mkdir(path.dirname(files.real), { recursive: true })
+    await fs.writeFile(files.real, JSON.stringify({ schemaVersion: 1, documents: 'nope' }), 'utf8')
+    await expect(readRagDocumentSection()).rejects.toThrow(/unreadable/)
+    await expect(migrateRagDocumentSection({ ragList: DOCUMENTS })).rejects.toThrow(/unreadable/)
   })
 
   it('routes writes through the demo file when demo mode is on', async () => {

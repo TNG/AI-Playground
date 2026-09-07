@@ -1199,6 +1199,14 @@ small fix on this branch) can pick them up instead of rediscovering them.
   cannot be mistaken for a fresh install. `ragDocuments:read` therefore returns
   `{ success, section }` — `section: null` is absence, `success: false` is failure —
   and the store's api adapter maps both onto the helper's section semantics.
+  Corrupt JSON and a schema-invalid document are failure, not absence: migrate
+  must not write leftover over a file that already exists, and write is the
+  recovery path that replaces it.
+- **A checked-flag-only change still rewrites the whole RAG file.** `isChecked` is
+  mirrored from the active conversation after hydrate, and the helper's deep watch
+  then writes the entire `documents.json` (split text included) when those flags
+  differ. Same cost the pinia serializer paid; a patch/delta write is a later
+  cut if the file gets large enough to feel it.
 - **The resumed thread's RAG selection wins over the file's `isChecked` flags.** The
   `activeKey` → `syncRagSelectionForActiveKey` watch runs `immediate` at store setup —
   before any file hydration — and the file's flags are from whichever thread was active

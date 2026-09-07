@@ -13,8 +13,9 @@ import { atomicWriteJson, makeWriteChains, readJson } from '../fsJsonStore'
  * — the file is the unit). Items are opaque here; the store owns the
  * `IndexedDocument` interpretation.
  *
- * Best-effort like preferences: a corrupt or missing file reads as empty
- * (defaults apply) and is replaced by the next write.
+ * A missing file is the never-migrated state (section null). A corrupt or
+ * schema-invalid file is a failed read — leftover must not replace it.
+ * Write is the recovery path and replaces either.
  */
 
 const appLogger = appLoggerInstance
@@ -43,15 +44,20 @@ function emptyDoc() {
   return { schemaVersion: 1 as const, documents: [] as unknown[] }
 }
 
-async function readDoc(): Promise<{ schemaVersion: 1; documents: unknown[] } | null> {
+type InspectedDoc =
+  | { status: 'missing' }
+  | { status: 'ok'; doc: { schemaVersion: 1; documents: unknown[] } }
+  | { status: 'unreadable' }
+
+async function inspectDoc(): Promise<InspectedDoc> {
   const read = await readJson(ragFile(), LOG_SCOPE)
-  if (read.status === 'missing') return null
+  if (read.status === 'missing') return { status: 'missing' }
   if (read.status === 'ok') {
     const parsed = RagDocumentsFileSchema.safeParse(read.value)
-    if (parsed.success) return parsed.data
+    if (parsed.success) return { status: 'ok', doc: parsed.data }
   }
-  appLogger.warn('rag documents file failed schema; treated as empty', LOG_SCOPE)
-  return null
+  appLogger.warn('rag documents file unreadable; not treated as absent', LOG_SCOPE)
+  return { status: 'unreadable' }
 }
 
 function parseSection(payload: unknown): unknown[] {
@@ -64,16 +70,19 @@ function parseSection(payload: unknown): unknown[] {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/** The section-shaped list; null when the file is absent (or unreadable). */
+/** The section-shaped list; null when the file is absent. Throws when unreadable. */
 export async function readRagDocumentSection(): Promise<{ ragList: unknown[] } | null> {
-  const doc = await readDoc()
-  return doc ? { ragList: doc.documents } : null
+  const inspected = await inspectDoc()
+  if (inspected.status === 'missing') return null
+  if (inspected.status === 'ok') return { ragList: inspected.doc.documents }
+  throw new Error('rag documents file unreadable')
 }
 
 export async function writeRagDocumentSection(payload: unknown): Promise<void> {
   const ragList = parseSection(payload)
   return serialize(FILE_CHAIN, async () => {
-    const doc = (await readDoc()) ?? emptyDoc()
+    const inspected = await inspectDoc()
+    const doc = inspected.status === 'ok' ? inspected.doc : emptyDoc()
     doc.documents = ragList
     await atomicWriteJson(ragFile(), doc)
   })
@@ -83,12 +92,16 @@ export async function writeRagDocumentSection(payload: unknown): Promise<void> {
  * One-shot legacy upload (§6.1: "localStorage migrates once, do not
  * dual-write"): writes the payload only when the file is absent, so a
  * retried or racing migrate can never overwrite what the file already owns.
+ * An unreadable file is owned, not absent — leftover must not replace it.
  */
 export async function migrateRagDocumentSection(payload: unknown): Promise<boolean> {
   const ragList = parseSection(payload)
   return serialize(FILE_CHAIN, async () => {
-    const doc = await readDoc()
-    if (doc) return false
+    const inspected = await inspectDoc()
+    if (inspected.status === 'ok') return false
+    if (inspected.status === 'unreadable') {
+      throw new Error('rag documents file unreadable')
+    }
     await atomicWriteJson(ragFile(), { schemaVersion: 1, documents: ragList })
     return true
   })

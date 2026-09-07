@@ -12,6 +12,10 @@ import { unregisterAgentModeIpc } from './agentModeIpc'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { makeForwardPersist } from '@/lib/ipcPersist'
 import {
+  makeFileBackedPreference,
+  type FileBackedPreferencesApi,
+} from '@/lib/fileBackedPreferences'
+import {
   LegacyAgentSessionStateSchema,
   type AgentSessionBootstrap,
   type LegacyAgentSessionState,
@@ -143,6 +147,33 @@ export const useAgentMode = defineStore(
     const activeSessionId = ref<string>('')
     /** Set once `init()` has hydrated (or migrated) — gates every write-through. */
     const sessionsHydrated = ref(false)
+
+    // Step 8 (§6.1): the last-used workspace pointers are app data — their
+    // own kernel-owned file (agent-workspace.json), not the preferences file.
+    // The pinia key keeps the user preferences, so this half only slims its
+    // fields out of it.
+    const workspaceApi: FileBackedPreferencesApi = {
+      read: async () => {
+        const r = await window.electronAPI.agentMode.readWorkspaceState()
+        if (!r.success) return { success: false as const, error: r.error }
+        // An absent file is the "never migrated" state; a failed read
+        // (success false) never is.
+        return r.section === null
+          ? { success: true as const, sections: {} }
+          : { success: true as const, sections: { agentWorkspace: r.section } }
+      },
+      migrate: (_section, payload) => window.electronAPI.agentMode.migrateWorkspaceState(payload),
+      write: (_section, value) => window.electronAPI.agentMode.writeWorkspaceState(value),
+    }
+    const workspacePrefs = makeFileBackedPreference({
+      section: 'agentWorkspace',
+      refs: { workspaceDir, lastWorkspaceByKind },
+      legacyKey: 'agentMode',
+      legacySlim: true,
+      api: workspaceApi,
+      errorScope: 'agent-workspace',
+    })
+    if (import.meta.hot) import.meta.hot.dispose(() => workspacePrefs.dispose())
     let agentSessionsInitPromise: Promise<void> | null = null
     /** Set while a session is deliberately moved between presets, so the watcher below leaves it. */
     let movingSession = false
@@ -319,6 +350,17 @@ export const useAgentMode = defineStore(
           await migrateSessionPresets()
         }
         sessionsHydrated.value = true
+        // The workspace half of the same shared legacy key runs strictly
+        // after the sessions half: interleaved read-modify-write slims can
+        // resurrect what the other removed (§8.2).
+        await workspacePrefs.init()
+        // The agentWorkspaceKind watch can have fired before this hydrate
+        // (preset files load during conversations/media init): a games-kind
+        // flip against an empty workspace no-ops inside
+        // reconcileGamesWorkspace, so the reconciliation the pinia
+        // afterHydrate used to run repeats here against hydrated pointers.
+        await reconcileWorkspaceKind()
+        await refreshCurrentGame()
       })()
       return agentSessionsInitPromise
     }
@@ -779,11 +821,10 @@ export const useAgentMode = defineStore(
   },
   {
     persist: {
-      // Session records and the active id live in the kernel's files (step 8,
-      // §6.1); everything here is user preference or last-used workspace state.
+      // Session records, the active id and the last-used workspace pointers
+      // live in the kernel's files (step 8, §6.1); everything here is user
+      // preference.
       pick: [
-        'workspaceDir',
-        'lastWorkspaceByKind',
         'mcpServerIds',
         'defaultCapabilities',
         'unsandboxedWorkspaces',
@@ -792,8 +833,6 @@ export const useAgentMode = defineStore(
       afterHydrate: (ctx) => {
         ctx.store.migrateMcpServerIds()
         ctx.store.migratePlanningThinkingOnly()
-        void ctx.store.reconcileWorkspaceKind()
-        void ctx.store.refreshCurrentGame()
       },
     },
   },

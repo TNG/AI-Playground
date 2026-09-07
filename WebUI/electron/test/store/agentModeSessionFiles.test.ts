@@ -7,7 +7,9 @@ import type { ChatPreset } from '@/assets/js/store/presets'
 // §6.1): the store hydrates from the kernel's files before mount, uploads the
 // legacy Pinia-persisted records once (then strips them from the storage key),
 // and writes records + the active id through as they change — gated until
-// hydration so nothing writes on behalf of an unhydrated map.
+// hydration so nothing writes on behalf of an unhydrated map. The same
+// contract covers the last-used workspace pointers (agent-workspace.json),
+// which share the legacy key and slim out after their own one-shot upload.
 
 const AGENT: ChatPreset = {
   type: 'chat',
@@ -77,6 +79,25 @@ const agentModeApi = {
   })),
   saveActiveSessionId: vi.fn(
     async (_id: string | null): Promise<{ success: boolean; error?: string }> => ({
+      success: true,
+    }),
+  ),
+  readWorkspaceState: vi.fn(
+    async (): Promise<
+      | {
+          success: true
+          section: { workspaceDir: string; lastWorkspaceByKind: Record<string, string> } | null
+        }
+      | { success: false; error: string }
+    > => ({ success: true, section: null }),
+  ),
+  migrateWorkspaceState: vi.fn(
+    async (): Promise<{ success: true } | { success: false; error: string }> => ({
+      success: true,
+    }),
+  ),
+  writeWorkspaceState: vi.fn(
+    async (): Promise<{ success: true } | { success: false; error: string }> => ({
       success: true,
     }),
   ),
@@ -179,6 +200,7 @@ describe('useAgentMode session hydration', () => {
       'agentMode',
       JSON.stringify({
         workspaceDir: '/work',
+        mcpServerIds: ['mcp-1'],
         sessions: { 'aipg-agent-1': wireRecord('aipg-agent-1') },
         activeSessionId: 'aipg-agent-1',
       }),
@@ -192,8 +214,10 @@ describe('useAgentMode session hydration', () => {
     const key = JSON.parse(storage.get('agentMode') ?? '{}') as Record<string, unknown>
     expect(key.sessions).toBeUndefined()
     expect(key.activeSessionId).toBeUndefined()
-    // Other persisted fields the plugin still owns are untouched.
-    expect(key.workspaceDir).toBe('/work')
+    // The workspace half slimmed its fields too; what the pinia pick still
+    // owns is untouched.
+    expect(key.workspaceDir).toBeUndefined()
+    expect(key.mcpServerIds).toEqual(['mcp-1'])
   })
 
   it('keeps the legacy payload when the upload fails, so the next boot retries', async () => {
@@ -237,6 +261,7 @@ describe('useAgentMode session hydration', () => {
       'agentMode',
       JSON.stringify({
         workspaceDir: '/work',
+        mcpServerIds: ['mcp-1'],
         sessions: { stale: wireRecord('stale') },
         activeSessionId: 'stale',
       }),
@@ -255,7 +280,9 @@ describe('useAgentMode session hydration', () => {
     const key = JSON.parse(storage.get('agentMode') ?? '{}') as Record<string, unknown>
     expect(key.sessions).toBeUndefined()
     expect(key.activeSessionId).toBeUndefined()
-    expect(key.workspaceDir).toBe('/work')
+    // the workspace half slimmed its fields too; what the pinia pick still owns stays
+    expect(key.workspaceDir).toBeUndefined()
+    expect(key.mcpServerIds).toEqual(['mcp-1'])
   })
 })
 
@@ -341,5 +368,55 @@ describe('useAgentMode session write-through', () => {
     await store.deleteSession('aipg-agent-1')
 
     expect(store.sessions['aipg-agent-1']).toBeUndefined()
+  })
+})
+
+describe('useAgentMode workspace state', () => {
+  it('hydrates the workspace pointers from the kernel file', async () => {
+    agentModeApi.bootstrapSessions.mockResolvedValue({ status: 'empty' })
+    agentModeApi.readWorkspaceState.mockResolvedValueOnce({
+      success: true,
+      section: {
+        workspaceDir: '/last/pick',
+        lastWorkspaceByKind: { pick: '/last/pick', games: '/games' },
+      },
+    })
+    const store: Store = useAgentMode()
+
+    await store.init()
+
+    expect(store.workspaceDir).toBe('/last/pick')
+    expect(store.lastWorkspaceByKind).toEqual({ pick: '/last/pick', games: '/games' })
+    expect(agentModeApi.migrateWorkspaceState).not.toHaveBeenCalled()
+  })
+
+  it('uploads the legacy workspace fields once, slims them out, then writes through', async () => {
+    agentModeApi.bootstrapSessions.mockResolvedValue({ status: 'empty' })
+    storage.set(
+      'agentMode',
+      JSON.stringify({
+        workspaceDir: '/legacy',
+        lastWorkspaceByKind: { pick: '/legacy' },
+        mcpServerIds: ['m'],
+      }),
+    )
+    const store: Store = useAgentMode()
+
+    await store.init()
+
+    // the leftover hydrated (the file was absent) and the upload happened once
+    expect(store.workspaceDir).toBe('/legacy')
+    expect(agentModeApi.migrateWorkspaceState).toHaveBeenCalledWith({
+      workspaceDir: '/legacy',
+      lastWorkspaceByKind: { pick: '/legacy' },
+    })
+    expect(JSON.parse(storage.get('agentMode') ?? '{}')).toEqual({ mcpServerIds: ['m'] })
+
+    store.workspaceDir = '/next'
+    await vi.waitFor(() => expect(agentModeApi.writeWorkspaceState).toHaveBeenCalled())
+    expect(agentModeApi.writeWorkspaceState).toHaveBeenCalledWith({
+      workspaceDir: '/next',
+      lastWorkspaceByKind: { pick: '/legacy' },
+    })
   })
 })

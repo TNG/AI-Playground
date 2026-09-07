@@ -207,6 +207,14 @@ import {
 } from './preferences/preferencesFile'
 
 import {
+  migrateAgentWorkspaceState,
+  readAgentWorkspaceState,
+  setAgentWorkspaceFilesDeps,
+  wipeDemoAgentWorkspace,
+  writeAgentWorkspaceState,
+} from './agentMode/workspaceStateFiles'
+
+import {
   migrateRagDocumentSection,
   readRagDocumentSection,
   setRagDocumentFilesDeps,
@@ -1143,6 +1151,7 @@ appShutdown.register({ name: 'web browser', run: () => destroyWebBrowser() })
 // survive the process that wrote it.
 appShutdown.register({ name: 'demo conversations', run: () => wipeDemoConversations() })
 appShutdown.register({ name: 'demo agent sessions', run: () => wipeDemoAgentSessions() })
+appShutdown.register({ name: 'demo agent workspace', run: () => wipeDemoAgentWorkspace() })
 appShutdown.register({ name: 'demo media records', run: () => wipeDemoMediaRecords() })
 appShutdown.register({ name: 'demo preferences', run: () => wipeDemoPreferences() })
 appShutdown.register({ name: 'demo rag documents', run: () => wipeDemoRagDocuments() })
@@ -1248,6 +1257,7 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   wireArtifactRunner(settings)
   wireConversations(settings)
   wireAgentSessions(settings)
+  wireAgentWorkspace(settings)
   wireMediaRecords(settings)
   wirePreferences(settings)
   wireRagDocuments(settings)
@@ -1287,6 +1297,12 @@ function wirePreferences(settings: LocalSettings): void {
 function wireRagDocuments(settings: LocalSettings): void {
   setRagDocumentFilesDeps({ isDemoMode: () => settings.isDemoModeEnabled })
   if (settings.isDemoModeEnabled) void wipeDemoRagDocuments()
+}
+
+/** Same demo discipline for the agent workspace state (step 8, §6.1). */
+function wireAgentWorkspace(settings: LocalSettings): void {
+  setAgentWorkspaceFilesDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoAgentWorkspace()
 }
 
 /**
@@ -3630,6 +3646,40 @@ function initEventHandle() {
   ipcMain.handle('agentMode:resetSession', async () => {
     await resetAgentSession()
   })
+
+  // Step 8 (§6.1): the last-used workspace pointers are kernel-owned
+  // (agent-workspace.json); the store becomes a live projection.
+  ipcMain.handle('agentMode:readWorkspaceState', async () => {
+    try {
+      return { success: true as const, section: await readAgentWorkspaceState() }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle(
+    'agentMode:migrateWorkspaceState',
+    async (_event: IpcMainInvokeEvent, payload: unknown) => {
+      try {
+        await migrateAgentWorkspaceState(payload)
+        return { success: true as const }
+      } catch (e) {
+        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'agentMode:writeWorkspaceState',
+    async (_event: IpcMainInvokeEvent, value: unknown) => {
+      try {
+        await writeAgentWorkspaceState(value)
+        return { success: true as const }
+      } catch (e) {
+        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+  )
 
   ipcMain.handle('agentMode:deleteSession', async (_event, sessionId: unknown) => {
     // Both halves run even if one fails. Invalid ids return `{success:false}`.

@@ -142,3 +142,13 @@ export const getRagDocumentsFile = () => path.join(aipgUserDataRoot(), 'rag', 'd
 /** Demo-mode RAG documents, wiped on exit like demo conversations (§6.1). */
 export const getRagDocumentsDemoFile = () =>
   path.join(aipgUserDataRoot(), 'rag-demo', 'documents.json')
+
+/**
+ * The agent workspace state (architecture-target §6.1, step 8): the last-used
+ * workspace pointers — its own file, not a preference.
+ */
+export const getAgentWorkspaceFile = () => path.join(aipgUserDataRoot(), 'agent-workspace.json')
+
+/** Demo-mode agent workspace state, wiped on exit like demo conversations (§6.1). */
+export const getAgentWorkspaceDemoFile = () =>
+  getAgentWorkspaceFile().replace(/\.json$/, '-demo.json')

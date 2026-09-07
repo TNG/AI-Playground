@@ -409,6 +409,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveSession: (record: unknown) => ipcRenderer.invoke('agentMode:saveSession', record),
     saveActiveSessionId: (id: string | null) =>
       ipcRenderer.invoke('agentMode:saveActiveSessionId', id),
+    readWorkspaceState: () =>
+      ipcRenderer.invoke('agentMode:readWorkspaceState') as Promise<
+        | {
+            success: true
+            section: import('../src/types/agentWorkspaceIpc').AgentWorkspaceState | null
+          }
+        | { success: false; error: string }
+      >,
+    migrateWorkspaceState: (payload: unknown) =>
+      ipcRenderer.invoke('agentMode:migrateWorkspaceState', payload) as Promise<
+        { success: true } | { success: false; error: string }
+      >,
+    writeWorkspaceState: (value: unknown) =>
+      ipcRenderer.invoke('agentMode:writeWorkspaceState', value) as Promise<
+        { success: true } | { success: false; error: string }
+      >,
     importAttachment: (workspaceDir: string, name: string, bytes: Uint8Array) =>
       ipcRenderer.invoke('agentMode:importAttachment', workspaceDir, name, bytes),
     listCapabilities: (options: {

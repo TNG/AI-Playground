@@ -802,7 +802,7 @@ before the kernel move or as a small fix.
 
 **Conversations** (step 8): `conversations:bootstrap`, `conversations:migrate` (one-shot legacy upload), `conversations:save`, `conversations:delete`, `conversations:saveLastMainKey` (R→M — the kernel owns the thread files under `AI-Playground/conversations/`)
 
-**Agent sessions** (step 8): `agentMode:bootstrapSessions`, `agentMode:migrateSessions` (one-shot legacy upload from the old Pinia key), `agentMode:saveSession`, `agentMode:saveActiveSessionId` (R→M — session records under `AI-Playground/agent-sessions/`); the record-file delete folds into the existing `agentMode:deleteSession`
+**Agent sessions** (step 8): `agentMode:bootstrapSessions`, `agentMode:migrateSessions` (one-shot legacy upload from the old Pinia key), `agentMode:saveSession`, `agentMode:saveActiveSessionId` (R→M — session records under `AI-Playground/agent-sessions/`); the record-file delete folds into the existing `agentMode:deleteSession`. **Agent workspace state** (step 8): `agentMode:readWorkspaceState`, `agentMode:migrateWorkspaceState`, `agentMode:writeWorkspaceState` (R→M — the last-used workspace pointers under `AI-Playground/agent-workspace.json`)
 
 **Media gallery records** (step 8): `mediaItems:bootstrap`, `mediaItems:migrate` (idempotent legacy merge-upload), `mediaItems:save`, `mediaItems:delete` (R→M — one JSON per gallery item plus an ordered index under `media/records/`, beside the media files)
 

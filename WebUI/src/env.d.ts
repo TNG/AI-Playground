@@ -643,6 +643,16 @@ type electronAPI = {
       record: import('./types/agentSessionIpc').AgentSessionRecordWire,
     ): Promise<{ success: boolean; error?: string }>
     saveActiveSessionId(id: string | null): Promise<{ success: boolean; error?: string }>
+    readWorkspaceState(): Promise<
+      | { success: true; section: import('./types/agentWorkspaceIpc').AgentWorkspaceState | null }
+      | { success: false; error: string }
+    >
+    migrateWorkspaceState(
+      payload: unknown,
+    ): Promise<{ success: true } | { success: false; error: string }>
+    writeWorkspaceState(
+      value: unknown,
+    ): Promise<{ success: true } | { success: false; error: string }>
     /**
      * Copy an attached file into the workspace, so the agent can reach it with
      * its file tools. Resolves with the workspace-relative path it was saved as.

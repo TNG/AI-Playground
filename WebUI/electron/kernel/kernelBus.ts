@@ -359,6 +359,15 @@ export function emitChatChunk(
   emitChatChunkNow(conversationKey, turnId, chunk)
 }
 
+/** RAG source chip for the turn. Not snapshotted — retrieval finishes before streaming. */
+export function emitChatRag(
+  conversationKey: string,
+  turnId: string,
+  sourceText: string | null,
+): void {
+  emit({ type: 'chat-rag', conversationKey, turnId, sourceText }, { kind: 'chat', conversationKey })
+}
+
 /**
  * The turn settled: flush any pending delta (so the streamed text is never
  * lost behind the done event) and stop tracking the turn. Snapshots no longer

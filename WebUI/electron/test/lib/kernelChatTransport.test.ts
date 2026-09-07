@@ -28,6 +28,21 @@ const doneEvent = (seq: number, conversationKey: string, turnId: string): Kernel
     seq,
   }) as KernelEvent
 
+const ragEvent = (
+  seq: number,
+  conversationKey: string,
+  turnId: string,
+  sourceText: string | null,
+): KernelEvent =>
+  ({
+    type: 'chat-rag',
+    conversationKey,
+    turnId,
+    sourceText,
+    scope: { kind: 'chat', conversationKey },
+    seq,
+  }) as KernelEvent
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (error: unknown) => void
@@ -246,6 +261,26 @@ describe('kernel chat transport', () => {
     h.emit(doneEvent(2, 'conv-1', 't1'))
     await collected
     expect(seen).toEqual([{ type: 'text-delta', id: 'txt-0', delta: 'x' }])
+  })
+
+  it('forwards chat-rag through onRag, including events that raced the submit reply', async () => {
+    const h = createHarness()
+    const gate = deferred<{ success: true; turnId: string }>()
+    h.submitTurn.mockReturnValue(gate.promise)
+    const seen: Array<{ key: string; source: string | null }> = []
+    const transport = createKernelChatTransport({
+      ...h,
+      onRag: (key, sourceText) => void seen.push({ key, source: sourceText }),
+    })
+
+    const pending = transport.sendMessages(submitOptions())
+    h.emit(ragEvent(1, 'conv-1', 't1', 'doc.txt'))
+    gate.resolve({ success: true, turnId: 't1' })
+    const stream = await pending
+    const collected = readAll(stream)
+    h.emit(doneEvent(2, 'conv-1', 't1'))
+    await collected
+    expect(seen).toEqual([{ key: 'conv-1', source: 'doc.txt' }])
   })
 
   it('unsubscribes from the kernel stream when the last stream settles', async () => {

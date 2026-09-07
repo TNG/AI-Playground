@@ -169,6 +169,7 @@ import {
 import { summarizeConversationText } from './chat/chatSummarize'
 import { setChatModelDeps } from './chat/chatModelMain'
 import { handleChatToolResult, rejectAllChatToolRequests } from './chat/toolBridge'
+import { setRagRetrievalDeps } from './chat/ragRetrieval'
 import {
   activeMediaAgentRunKeys,
   cancelMediaAgentRun,
@@ -1340,6 +1341,12 @@ function wireChatEngine(): void {
         homeAgentSvc.notifyUpstreamReady(baseUrl)
       }
     },
+    resetIdleChatBackend: async (serviceName) => {
+      const service = serviceRegistry?.getService(serviceName)
+      if (!service) return
+      await service.stop()
+      await service.start()
+    },
   })
   setChatModelDeps({
     llmApiBase: (backend) => llmServerBaseUrl(backend),
@@ -1362,6 +1369,38 @@ function wireChatEngine(): void {
     // Tracing hooks: no-ops in laminar.ts unless a Laminar config is present.
     noteTimings: (timings) => noteLlamaCppChatTimings(timings),
     noteTraceContext: (context) => noteMainChatTurnContext(context),
+  })
+  setRagRetrievalDeps({
+    ensureEmbeddingServerReady: async (serviceName, embeddingModel) => {
+      const service = serviceRegistry?.getService(serviceName)
+      if (
+        !service ||
+        !('ensureEmbeddingServerReady' in service) ||
+        typeof service.ensureEmbeddingServerReady !== 'function'
+      ) {
+        throw new Error(`Service ${serviceName} does not support a standalone embedding server`)
+      }
+      await service.ensureEmbeddingServerReady(embeddingModel)
+    },
+    getEmbeddingServerUrl: async (serviceName) => {
+      const service = serviceRegistry?.getService(serviceName)
+      if (!service) return null
+      if (
+        'getEmbeddingServerUrl' in service &&
+        typeof service.getEmbeddingServerUrl === 'function'
+      ) {
+        return service.getEmbeddingServerUrl()
+      }
+      return service.baseUrl ?? null
+    },
+    embed: async (inquiry) => {
+      const docs = await handleUtilityFunction('embedInputUsingRag', langchainChild, inquiry)
+      return Array.isArray(docs) ? docs : []
+    },
+    loadDocuments: async () => {
+      const section = await readRagDocumentSection()
+      return section?.ragList ?? null
+    },
   })
 }
 

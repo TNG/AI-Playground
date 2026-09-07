@@ -29,10 +29,10 @@ import { useCloudMode, CLOUD_DEFAULT_MODEL } from './cloudMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import * as toast from '@/assets/js/toast.ts'
 import { useActivities } from './activities'
-import { useI18N } from './i18n'
 import { renamePresetKeys } from '@/lib/presetRenames'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { boundMaxOutputTokens } from '@/lib/maxOutputTokens'
+import { formatRagSources } from '@/lib/ragSources'
 import {
   chatBackendSelectionLoad,
   skipGpuAdmissionFromKeepModelsLoaded,
@@ -190,7 +190,6 @@ export const useTextInference = defineStore(
     const conversations = useConversations()
     const activities = useActivities()
     const modelPreferences = useModelPreferences()
-    const i18nState = useI18N().state
     // Tracks the in-flight backend-preparation activity (begin/end are paired with
     // start/completeBackendPreparation).
     let backendPrepActivityId: string | null = null
@@ -1225,134 +1224,6 @@ export const useTextInference = defineStore(
       return response
     }
 
-    // RAG state for UI display
-    const ragRetrievalState = reactive({
-      inProgress: false,
-      lastResults: null as Document[] | null,
-    })
-
-    /**
-     * Prepares RAG context for a prompt and returns enhanced system prompt
-     * @param prompt The user's prompt/question
-     * @returns Object containing enhanced system prompt and RAG results (if any)
-     */
-    async function prepareRagContext(prompt: string): Promise<{
-      systemPrompt: string
-      ragResults: Document[] | null
-      ragSourceText: string | null
-    }> {
-      if (!willUseRag.value) {
-        return {
-          systemPrompt: systemPrompt.value,
-          ragResults: null,
-          ragSourceText: null,
-        }
-      }
-
-      const ragActivityId = activities.begin({
-        category: 'rag',
-        label: i18nState.COM_ACTIVITY_SEARCHING_DOCS,
-        scope: { kind: 'chat', conversationKey: conversations.activeKey },
-      })
-      try {
-        ragRetrievalState.inProgress = true
-
-        // Embeddings always run on a LOCAL embedding server (see embeddingBackend),
-        // even in Cloud Mode. Ensure a model is selected and the server is up
-        // before attempting retrieval, skipping RAG gracefully otherwise.
-        {
-          const serviceName = backendToService[embeddingBackend.value]
-          if (!activeEmbeddingModel.value) {
-            console.warn('No embedding model selected for RAG, skipping RAG retrieval')
-            ragRetrievalState.inProgress = false
-            activities.end(ragActivityId)
-            return {
-              systemPrompt: systemPrompt.value,
-              ragResults: null,
-              ragSourceText: null,
-            }
-          }
-
-          // Verify embedding server is available
-          const embeddingUrlResult = await window.electronAPI.getEmbeddingServerUrl(serviceName)
-          if (!embeddingUrlResult.success || !embeddingUrlResult.url) {
-            console.warn(
-              'Embedding server not ready, skipping RAG retrieval:',
-              embeddingUrlResult.error || 'Unknown error',
-            )
-            ragRetrievalState.inProgress = false
-            activities.end(ragActivityId)
-            return {
-              systemPrompt: systemPrompt.value,
-              ragResults: null,
-              ragSourceText: null,
-            }
-          }
-        }
-
-        // Perform RAG retrieval. No context-size check is needed here: the floor is
-        // enforced continuously rather than validated at query time —
-        // isPhisonKmRag ⇒ phisonKmAvailable ⇒ kmContextFloorReachable ⇒
-        // enforceKmContextFloor, and both the clamp watcher and preset load apply that
-        // floor, so contextSize >= PHISON_KM_CONTEXT_FLOOR holds whenever KM is active.
-        // KM being unavailable (including "this model's context ceiling is too low") is
-        // surfaced in the settings UI up front instead of as a runtime fallback toast.
-        console.log(
-          `[textInference] prepareRagContext: ragMode=${ragMode.value} ` +
-            `phisonKmAvailable=${phisonKmAvailable.value} isPhisonKmRag=${isPhisonKmRag.value} ` +
-            `contextSize=${contextSize.value}`,
-        )
-
-        // Snapshot once: the prompt shaping below must use the same value the retrieval
-        // call did, even if reactive state changes across the await.
-        const useGroupRetrieval = isPhisonKmRag.value
-        const ragResults = await embedInputUsingRag(prompt, useGroupRetrieval)
-        console.log('textInference.ts: prepareRagContext: ragResults', ragResults)
-        ragRetrievalState.lastResults = ragResults
-
-        ragRetrievalState.inProgress = false
-        activities.end(ragActivityId)
-
-        if (ragResults && ragResults.length > 0) {
-          // Build RAG context from retrieved documents
-          const ragContext = ragResults.map((doc) => doc.pageContent).join('\n\n')
-
-          // Approach A: Phison KM mode uses a fixed shared prefix (PHISON_KM_RAG_PREFIX +
-          // Document context) placed FIRST so all presets share the same KV cache prefix,
-          // then appends the preset's own systemPrompt AFTER so its tool instructions /
-          // persona are preserved. Standard RAG keeps the existing behaviour.
-          const enhancedSystemPrompt = useGroupRetrieval
-            ? `${PHISON_KM_RAG_PREFIX}\n\nDocument context:\n\n${ragContext}\n\n---\n\n${systemPrompt.value}`
-            : `${systemPrompt.value}\n\nUse the following context from your knowledge base to answer the question:\n\n${ragContext}`
-
-          // Format RAG sources for display
-          const ragSourceText = formatRagSources(ragResults)
-
-          return {
-            systemPrompt: enhancedSystemPrompt,
-            ragResults,
-            ragSourceText: ragSourceText,
-          }
-        }
-
-        return {
-          systemPrompt: systemPrompt.value,
-          ragResults: null,
-          ragSourceText: null,
-        }
-      } catch (error) {
-        console.error('Error retrieving RAG documents:', error)
-        ragRetrievalState.inProgress = false
-        activities.end(ragActivityId, 'failed')
-        // Return base system prompt on error - generation can continue without RAG
-        return {
-          systemPrompt: systemPrompt.value,
-          ragResults: null,
-          ragSourceText: null,
-        }
-      }
-    }
-
     /**
      * Mirror the active conversation's RAG selection into the shared library's
      * live `isChecked` flags. Called whenever the active conversation changes so
@@ -1403,172 +1274,6 @@ export const useTextInference = defineStore(
     function deleteAllFiles() {
       ragList.value.length = 0
       persistActiveRagSelection()
-    }
-
-    // Define a type for document location information
-    type DocumentLocation = {
-      pageNumber?: number
-      lines?: {
-        from?: number
-        to?: number
-      }
-    }
-
-    // Format RAG sources for display
-    function formatRagSources(
-      documents: Document[] | { metadata?: { source?: string; loc?: DocumentLocation } }[],
-    ): string {
-      // Group documents by source file
-      const fileGroups = new Map<
-        string,
-        Array<{
-          lines?: { from: number; to: number }
-          page?: number
-        }>
-      >()
-      const unknownSources: string[] = []
-
-      // Process each document
-      documents.forEach((doc) => {
-        const source = doc.metadata?.source
-        const location = doc.metadata?.loc
-
-        // Handle unknown sources
-        if (!source) {
-          unknownSources.push('Unknown Source')
-          return
-        }
-
-        // Get or create array for this file
-        const entries = fileGroups.get(source) || []
-
-        // Create entry with available location information
-        const entry: { lines?: { from: number; to: number }; page?: number } = {}
-
-        // Add line information if available
-        if (location?.lines?.from && location?.lines?.to) {
-          entry.lines = {
-            from: location.lines.from,
-            to: location.lines.to,
-          }
-        }
-
-        // Add page information if available
-        if (location?.pageNumber !== undefined) {
-          entry.page = location.pageNumber
-        }
-
-        // Always register the source file — even without page/line metadata.
-        // Phison KM group retrieval returns a merged document with `source` but no
-        // `loc` (the group spans many chunks), and the Source Docs chip must still
-        // show the filename in that case.
-        entries.push(entry)
-        fileGroups.set(source, entries)
-      })
-
-      // Function to merge overlapping line ranges for the same page
-      const mergeRanges = (
-        entries: Array<{ lines?: { from: number; to: number }; page?: number }>,
-      ): Array<{ lines?: { from: number; to: number }; page?: number }> => {
-        if (entries.length <= 1) return entries
-
-        // Group entries by page number
-        const pageGroups = new Map<
-          number | undefined,
-          Array<{ lines?: { from: number; to: number }; page?: number }>
-        >()
-
-        entries.forEach((entry) => {
-          const pageKey = entry.page
-          const pageEntries = pageGroups.get(pageKey) || []
-          pageEntries.push(entry)
-          pageGroups.set(pageKey, pageEntries)
-        })
-
-        const result: Array<{ lines?: { from: number; to: number }; page?: number }> = []
-
-        // Process each page group
-        pageGroups.forEach((pageEntries, pageNumber) => {
-          // For entries with line information, merge overlapping ranges
-          const entriesWithLines = pageEntries.filter((e) => e.lines)
-
-          if (entriesWithLines.length > 0) {
-            // Sort by starting line
-            const sortedEntries = [...entriesWithLines].sort(
-              (a, b) => (a.lines?.from || 0) - (b.lines?.from || 0),
-            )
-
-            let current = sortedEntries[0]
-
-            // Merge overlapping line ranges
-            for (let i = 1; i < sortedEntries.length; i++) {
-              const next = sortedEntries[i]
-
-              // Check if ranges overlap or are adjacent
-              if ((current.lines?.to || 0) >= (next.lines?.from || 0) - 1) {
-                // Merge ranges
-                current = {
-                  lines: {
-                    from: current.lines?.from || 0,
-                    to: Math.max(current.lines?.to || 0, next.lines?.to || 0),
-                  },
-                  page: pageNumber,
-                }
-              } else {
-                // No overlap, add current to result and move to next
-                result.push(current)
-                current = next
-              }
-            }
-
-            // Add the last range
-            result.push(current)
-          }
-
-          // For entries with only page information (no lines), add a single entry per page
-          if (pageEntries.some((e) => !e.lines)) {
-            // If we haven't already added an entry for this page from the line merging
-            if (!result.some((r) => r.page === pageNumber && !r.lines)) {
-              result.push({ page: pageNumber })
-            }
-          }
-        })
-
-        return result
-      }
-
-      // Format results
-      const formattedResults: string[] = []
-
-      // Process each file group
-      fileGroups.forEach((entries, source) => {
-        const filename = source.split(/[\/\\]/).pop() || source
-        const mergedEntries = mergeRanges(entries)
-
-        // Format each merged entry
-        mergedEntries.forEach((entry) => {
-          let locationInfo = ''
-
-          // Format based on available information
-          if (entry.page !== undefined && entry.lines) {
-            // Both page and line information
-            locationInfo = `Page ${entry.page}, Lines ${entry.lines.from}-${entry.lines.to}`
-          } else if (entry.page !== undefined) {
-            // Only page information
-            locationInfo = `Page ${entry.page}`
-          } else if (entry.lines) {
-            // Only line information
-            locationInfo = `Lines ${entry.lines.from}-${entry.lines.to}`
-          }
-
-          formattedResults.push(locationInfo ? `${filename} (${locationInfo})` : filename)
-        })
-      })
-
-      // Add unknown sources
-      formattedResults.push(...unknownSources)
-
-      return formattedResults.join('\n')
     }
 
     // Backend preparation methods
@@ -2395,6 +2100,8 @@ export const useTextInference = defineStore(
       selectedModels,
       llmModels,
       llmEmbeddingModels,
+      embeddingBackend,
+      activeEmbeddingModel,
       currentBackendUrl,
       localBackendUrl,
       metricsEnabled,
@@ -2454,7 +2161,6 @@ export const useTextInference = defineStore(
       formatRagSources,
       ensureBackendReadiness,
       checkModelAvailability,
-      prepareRagContext,
 
       // NPU support
       runningOnOpenvinoNpu,
@@ -2507,8 +2213,6 @@ export const useTextInference = defineStore(
 
       // RAG state
       willUseRag,
-      ragRetrievalInProgress: computed(() => ragRetrievalState.inProgress),
-      lastRagResults: computed(() => ragRetrievalState.lastResults),
 
       // Home Agent
       homeAgentUpstreamUrl,

@@ -12,6 +12,24 @@ import type { UIMessageChunk } from 'ai'
 export const ChatBackendSchema = z.enum(['llamaCPP', 'openVINO', 'cloud'])
 export type ChatBackend = z.infer<typeof ChatBackendSchema>
 
+export const ChatEmbeddingServiceSchema = z.enum(['llamacpp-backend', 'openvino-backend'])
+
+/**
+ * Document ids + query for kernel RAG retrieval after GPU admit (step 9).
+ * The renderer does not precompute context; main reads the kernel-owned
+ * document file, embeds, and augments the system prompt.
+ */
+export const ChatRagRequestSchema = z.object({
+  query: z.string(),
+  documentHashes: z.array(z.string()).min(1),
+  useGroupRetrieval: z.boolean(),
+  embeddingServiceName: ChatEmbeddingServiceSchema,
+  embeddingModel: z.string().min(1),
+  maxResults: z.number().int().positive(),
+  perDocResults: z.number().int().positive(),
+})
+export type ChatRagRequest = z.infer<typeof ChatRagRequestSchema>
+
 /**
  * Everything the main-side model factory needs, resolved by the renderer at
  * submit time. Backend selection, sampling and thinking kwargs are renderer
@@ -95,10 +113,12 @@ export const ChatTurnRequestSchema = z.object({
   /** Regenerate: the message id to redo; submit: absent. */
   messageId: z.string().optional(),
   messages: z.array(ChatMessageSchema),
-  /** Base system prompt (RAG-augmented prompt included when the turn prepared one). */
+  /** Base system prompt. RAG augmentation happens in main when `rag` is set. */
   systemPrompt: z.string().nullable(),
   model: ChatModelConfigSchema,
   tools: z.array(ChatToolSpecSchema),
+  /** Present when the preset has RAG on and documents are checked. */
+  rag: ChatRagRequestSchema.optional(),
   repairData: z
     .object({
       comfyUI: WorkflowRepairDataSchema.optional(),

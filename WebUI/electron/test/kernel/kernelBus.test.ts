@@ -18,6 +18,7 @@ const {
   resetKernelBusForTest,
   beginChatTurnSnapshot,
   emitChatChunk,
+  emitChatRag,
   endChatTurn,
   getChatTurnChunks,
   emitMediaAgentEvent,
@@ -303,6 +304,21 @@ describe('kernel bus chat chunks', () => {
     const events = chatEvents(sent)
     expect(events.map((e) => e.conversationKey)).toEqual(['conv-1', 'conv-2'])
     expect(getKernelSnapshot().state.chatTurns).toEqual([])
+  })
+
+  it('emits chat-rag without recording it on the turn snapshot', () => {
+    const { win, sent } = fakeWindow()
+    setKernelEventWindow(win)
+    beginChatTurnSnapshot('conv-1', 'turn-1')
+    emitChatRag('conv-1', 'turn-1', 'warranty.pdf (Lines 3-5)')
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toMatchObject({
+      type: 'chat-rag',
+      conversationKey: 'conv-1',
+      turnId: 'turn-1',
+      sourceText: 'warranty.pdf (Lines 3-5)',
+    })
+    expect(getKernelSnapshot().state.chatTurns[0]?.chunks).toEqual([])
   })
 })
 

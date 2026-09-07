@@ -11,6 +11,7 @@ import {
   type UIMessageChunk,
 } from 'ai'
 import { buildChatModelConfig } from '@/lib/chatModel'
+import { buildChatRagRequest } from '@/lib/chatRagRequest'
 import { createKernelChatTransport } from '@/lib/kernelChatTransport'
 import {
   abortChatToolExecutions,
@@ -19,6 +20,7 @@ import {
 } from '@/lib/chatToolRegistry'
 import type { ChatTurnRequest } from '@/types/chatIpc'
 import { useTextInference } from './textInference'
+import { useCloudMode } from './cloudMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import { sanitizeBulkyToolOutputs } from '@/lib/toolMessageSanitize'
 import { useErrors } from './errors'
@@ -102,6 +104,7 @@ export const useOpenAiCompatibleChat = defineStore(
   'openAiCompatibleChat',
   () => {
     const textInference = useTextInference()
+    const cloudMode = useCloudMode()
     const conversations = useConversations()
     const errors = useErrors()
     const activities = useActivities()
@@ -368,6 +371,7 @@ export const useOpenAiCompatibleChat = defineStore(
         // no longer waiting; a tool result means it will process that output
         // next. Re-armed with the "results" label from then on.
         if (chunk.type === 'start') {
+          textInference.completeBackendPreparation()
           ensureInferenceActivity()
         } else if (
           chunk.type === 'text-delta' ||
@@ -405,15 +409,16 @@ export const useOpenAiCompatibleChat = defineStore(
       }
     }
 
+    const pendingRagSource: Record<string, string | null> = {}
+    const ragActivityByKey: Record<string, string> = {}
+
     // ── Per-turn request extras (was customFetch's request prep) ───────────
     //
     // Everything the main-side engine needs beyond the messages themselves,
     // assembled at submit time: the model config (backend/sampling/proxy
-    // routing), the composed system prompt (base + this turn's RAG context;
-    // MCP instructions are resolved main-side and appended there), the tool
-    // specs + executors (registry), and the flags. Chat.sendMessage carries it
-    // as the request body through the transport.
-    async function buildTurnExtras(targetKey: string): Promise<ChatTurnExtras> {
+    // routing), the base system prompt (RAG is retrieved in main when `rag`
+    // is set), the tool specs + executors (registry), and the flags.
+    async function buildTurnExtras(targetKey: string, ragQuery?: string): Promise<ChatTurnExtras> {
       const toolSet = await activities.track(
         {
           category: 'tools',
@@ -432,12 +437,13 @@ export const useOpenAiCompatibleChat = defineStore(
           ? { comfyUiImageEdit: createEditToolRepairData() ?? undefined }
           : {}),
       }
-      const perConversationPrompt = temporarySystemPrompts[targetKey]
+      const rag = ragQuery ? buildChatRagRequest(ragQuery) : undefined
       return {
         model: buildChatModelConfig(),
-        systemPrompt: perConversationPrompt || textInference.systemPrompt,
+        systemPrompt: textInference.systemPrompt,
         tools: specs,
         ...(hasTools ? { repairData } : {}),
+        ...(rag ? { rag } : {}),
         includeMcpInstructions: textInference.mcpToolsEnabled,
         homeAgentDiagnostics: textInference.activePreset?.name === HOME_AGENT_CHAT_PRESET_NAME,
       }
@@ -463,6 +469,14 @@ export const useOpenAiCompatibleChat = defineStore(
           cancelTurn: (key, turnId) => window.electronAPI.chat.cancelTurn(key, turnId),
           subscribe: (listener) => window.electronAPI.onKernelEvent(listener),
           onChunk: makeChunkObserver(conversationKey),
+          onRag: (key, sourceText) => {
+            pendingRagSource[key] = sourceText
+            const ragActivityId = ragActivityByKey[key]
+            if (ragActivityId) {
+              activities.end(ragActivityId)
+              delete ragActivityByKey[key]
+            }
+          },
         }),
         messages: conversations.conversationList[conversationKey],
         // Single sink for streaming/transport/tool failures. Surface a toast only
@@ -538,10 +552,6 @@ export const useOpenAiCompatibleChat = defineStore(
 
     const messageInput = ref('')
     const fileInput = ref<FileUIPart[]>([])
-    // Per-conversation temporary system prompts (e.g. RAG-augmented system prompt for the
-    // current turn). Keyed by conversationKey so concurrent generate() calls — desktop
-    // chat and Home Agent side-channel — cannot leak each other's prompt.
-    const temporarySystemPrompts: Record<string, string | null> = {}
 
     function getMessagesForKey(conversationKey: string): AipgUiMessage[] | undefined {
       // Prefer live chat instance state when present; otherwise fall back to the
@@ -899,13 +909,13 @@ export const useOpenAiCompatibleChat = defineStore(
           }
         }
 
-        // 3. Ensure backend/models are ready and prepare RAG context. These run
-        //    before the stream starts, so failures never reach the Chat onError
-        //    hook — report them here (toast for the active desktop conversation).
-        let ragContext: Awaited<ReturnType<typeof textInference.prepareRagContext>>
+        // 3. Download consent stays renderer-side. LLM load and RAG retrieval
+        //    run in main after submit (step 9). Cloud still needs the proxy URL.
         try {
-          await textInference.ensureReadyForInference()
-          ragContext = await textInference.prepareRagContext(question)
+          if (textInference.backend === 'cloud') {
+            await cloudMode.ensureProxyUrl()
+          }
+          await textInference.checkModelAvailability()
         } catch (error) {
           // The user cancelling a required model download is not a failure — abort
           // the turn quietly, keeping their prompt/attachments for a retry.
@@ -918,7 +928,17 @@ export const useOpenAiCompatibleChat = defineStore(
             context: { conversationKey: targetKey },
           })
         }
-        temporarySystemPrompts[targetKey] = ragContext.systemPrompt
+
+        if (textInference.backend === 'llamaCPP' || textInference.backend === 'openVINO') {
+          textInference.startBackendPreparation()
+        }
+        if (buildChatRagRequest(question)) {
+          ragActivityByKey[targetKey] = activities.begin({
+            category: 'rag',
+            label: i18nState.COM_ACTIVITY_SEARCHING_DOCS,
+            scope: { kind: 'chat', conversationKey: targetKey },
+          })
+        }
 
         // 4. Get chat instance and send message. The turn request extras
         //    (model config, prompt, tools + executors) ship as the request
@@ -934,7 +954,7 @@ export const useOpenAiCompatibleChat = defineStore(
             : !sideChannel && fileInput.value.length > 0
               ? fileInput.value
               : undefined
-        const turnExtras = await buildTurnExtras(targetKey)
+        const turnExtras = await buildTurnExtras(targetKey, question)
         try {
           await chat.sendMessage(
             {
@@ -948,8 +968,13 @@ export const useOpenAiCompatibleChat = defineStore(
             { body: turnExtras },
           )
         } finally {
-          temporarySystemPrompts[targetKey] = null
           deactivateChatToolSet(targetKey)
+          textInference.completeBackendPreparation()
+          const ragActivityId = ragActivityByKey[targetKey]
+          if (ragActivityId) {
+            activities.end(ragActivityId)
+            delete ragActivityByKey[targetKey]
+          }
         }
 
         // The Chat onError hook records stream failures. A failed turn should keep
@@ -959,12 +984,13 @@ export const useOpenAiCompatibleChat = defineStore(
         const outgoingMessages = chat.messages
 
         // 5. Store RAG source in message metadata
-        if (ragContext.ragSourceText) {
+        if (pendingRagSource[targetKey]) {
           const latestMessage = outgoingMessages[outgoingMessages.length - 1]
           if (latestMessage && latestMessage.role === 'assistant' && latestMessage.metadata) {
-            latestMessage.metadata.ragSource = ragContext.ragSourceText
+            latestMessage.metadata.ragSource = pendingRagSource[targetKey] ?? undefined
           }
         }
+        delete pendingRagSource[targetKey]
 
         // Strip bulky tool outputs (e.g. base64 WAV from synthesizeTextToSpeech)
         // before persisting so they never bloat the stored history or the LLM
@@ -1004,8 +1030,8 @@ export const useOpenAiCompatibleChat = defineStore(
       textInference.stampMetaForConversation(targetKey)
 
       // TTS preset: re-synthesize the prompt instead of running the LLM. Without
-      // this the regenerate button falls through to `ensureReadyForInference()`
-      // and loads a chat model into a thread that never uses one.
+      // this the regenerate button falls through to `checkModelAvailability()`
+      // and may load a chat model into a thread that never uses one.
       if (textInference.activePreset?.ttsPreset) {
         await regenerateSynthesis(messageId, targetKey)
         return
@@ -1021,7 +1047,10 @@ export const useOpenAiCompatibleChat = defineStore(
       }
 
       try {
-        await textInference.ensureReadyForInference()
+        if (textInference.backend === 'cloud') {
+          await cloudMode.ensureProxyUrl()
+        }
+        await textInference.checkModelAvailability()
       } catch (error) {
         // Cancelling a required model download aborts the regenerate quietly.
         if (isCancellation(error)) return
@@ -1037,8 +1066,6 @@ export const useOpenAiCompatibleChat = defineStore(
       const chat = chats[targetKey]
       if (!chat) return
 
-      // Find the user message that produced the assistant message being regenerated
-      // so RAG retrieval re-runs against the same question.
       const targetIdx = chat.messages.findIndex((m) => m.id === messageId)
       const priorUserMessage =
         targetIdx > 0
@@ -1050,23 +1077,37 @@ export const useOpenAiCompatibleChat = defineStore(
           .map((p) => p.text ?? '')
           .join('\n\n') ?? ''
 
-      const ragContext = await textInference.prepareRagContext(question)
-      temporarySystemPrompts[targetKey] = ragContext.systemPrompt
+      if (textInference.backend === 'llamaCPP' || textInference.backend === 'openVINO') {
+        textInference.startBackendPreparation()
+      }
+      if (buildChatRagRequest(question)) {
+        ragActivityByKey[targetKey] = activities.begin({
+          category: 'rag',
+          label: i18nState.COM_ACTIVITY_SEARCHING_DOCS,
+          scope: { kind: 'chat', conversationKey: targetKey },
+        })
+      }
 
-      const turnExtras = await buildTurnExtras(targetKey)
+      const turnExtras = await buildTurnExtras(targetKey, question)
       try {
         await chat.regenerate({ messageId, body: turnExtras })
       } finally {
-        temporarySystemPrompts[targetKey] = null
         deactivateChatToolSet(targetKey)
-      }
-
-      if (ragContext.ragSourceText) {
-        const latestMessage = messages.value?.[messages.value.length - 1]
-        if (latestMessage && latestMessage.role === 'assistant' && latestMessage.metadata) {
-          latestMessage.metadata.ragSource = ragContext.ragSourceText
+        textInference.completeBackendPreparation()
+        const ragActivityId = ragActivityByKey[targetKey]
+        if (ragActivityId) {
+          activities.end(ragActivityId)
+          delete ragActivityByKey[targetKey]
         }
       }
+
+      if (pendingRagSource[targetKey]) {
+        const latestMessage = messages.value?.[messages.value.length - 1]
+        if (latestMessage && latestMessage.role === 'assistant' && latestMessage.metadata) {
+          latestMessage.metadata.ragSource = pendingRagSource[targetKey] ?? undefined
+        }
+      }
+      delete pendingRagSource[targetKey]
 
       conversations.updateConversation(messages.value, targetKey)
     }

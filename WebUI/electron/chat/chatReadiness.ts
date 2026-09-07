@@ -42,11 +42,15 @@ export type ChatReadinessDeps = {
   awaitChatWindow: (signal?: AbortSignal) => Promise<void>
   stopOvmsImageServer: () => Promise<void>
   notifyHomeAgentUpstreamReady: (baseUrl: string) => void
+  /** Stop+restart the previous local chat backend after a switch (was renderer lastUsed). */
+  resetIdleChatBackend?: (serviceName: string) => Promise<void>
 }
 
 let deps: ChatReadinessDeps | null = null
 let lastLoad: ChatReadinessArgs | null = null
 let lastLoadActive = true
+/** Last service `ensureChatBackendReady` actually loaded (not the dropdown snapshot). */
+let lastEnsuredServiceName: string | null = null
 
 export function setChatReadinessDeps(next: ChatReadinessDeps): void {
   deps = next
@@ -56,6 +60,7 @@ export function resetChatReadinessForTest(): void {
   deps = null
   lastLoad = null
   lastLoadActive = true
+  lastEnsuredServiceName = null
 }
 
 export function lastChatBackendLoadForTest(): ChatReadinessArgs | null {
@@ -120,6 +125,18 @@ export async function ensureChatBackendReady(
   if (options?.remember !== false) {
     lastLoad = { ...args }
     lastLoadActive = true
+    const previousService = lastEnsuredServiceName
+    lastEnsuredServiceName = args.serviceName
+    if (previousService && previousService !== args.serviceName && d.resetIdleChatBackend) {
+      try {
+        await d.resetIdleChatBackend(previousService)
+      } catch (error) {
+        appLogger.warn(
+          `Resetting idle chat backend ${previousService} failed: ${String(error)}`,
+          'electron-backend',
+        )
+      }
+    }
   }
   d.notifyHomeAgentUpstreamReady(service.baseUrl ?? '')
   appLogger.info(

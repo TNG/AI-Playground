@@ -1,10 +1,11 @@
 # Architecture as landed — processes, persistence, common sequences
 
-**This is the implementation after migration steps 1–8**, not the target in
+**This is the implementation after migration steps 1–9**, not the target in
 [`architecture-target.md`](./architecture-target.md). That file's §2 "Today" diagram is the
 draft-time symptom picture (chat `streamText` in the renderer, media as UI mutation). Steps 1–7
 moved Artifact, chat turns, the kernel bus and the orchestrator into main; step 8 moved app data
-onto kernel-owned files. What this document shows is how those pieces actually talk today.
+onto kernel-owned files; step 9 moved RAG retrieval and the embedding-server ensure into the chat
+engine. What this document shows is how those pieces actually talk today.
 What is still missing, and in which order, is [`architecture-target.md` §8.3](./architecture-target.md#83-remaining-order-toward-the-goal).
 
 The Mermaid here is the reviewable source. Paste any block into Excalidraw's _Mermaid to Excalidraw_
@@ -82,9 +83,9 @@ What still lives in the renderer on purpose: message list and Chat instance, too
 `runArtifact` *reads* to build a request (it no longer writes the active preset). Which model to
 load is still a Pinia fact shipped on the turn / IPC; the load itself is main.
 
-What lives in main: `streamText`, last-load memory and swap-back reload, Artifact execution, GPU
-policy, the one writer of conversation / session / media / preference files, the ordered event
-stream.
+What lives in main: `streamText`, RAG retrieval after GPU admit, last-load memory and swap-back
+reload, Artifact execution, GPU policy, the one writer of conversation / session / media /
+preference / rag-document files, the ordered event stream.
 
 ---
 
@@ -237,10 +238,11 @@ conversation mutation uses `saveThread` (not clone-safe).
 
 ## 5. Sequence — send "Hi" in Chat
 
-This is the path behind the clone toast: `stampMetaForConversation` runs **before** backend
-readiness and **before** `chat:submitTurn`. `setThreadMeta` → `saveThread` → `invoke` throws
+This is the path behind the clone toast: `stampMetaForConversation` runs **before** download
+consent and **before** `chat:submitTurn`. `setThreadMeta` → `saveThread` → `invoke` throws
 synchronously. `makeForwardPersist` only `.catch`es a rejected promise, so the throw reaches
-`Chat.vue`'s generate `catch` as `inference/generate-failed`.
+`Chat.vue`'s generate `catch` as `inference/generate-failed`. LLM load and RAG retrieval happen in
+the engine after submit.
 
 ```mermaid
 sequenceDiagram
@@ -261,13 +263,17 @@ sequenceDiagram
   TI->>Conv: setThreadMeta(key, preset+variant)
   Conv->>IPC: conversations.save({ meta, messages, … })
   Note over Conv,IPC: cloneForIpc DTO — structured clone succeeds
-  Store->>TI: ensureReadyForInference
-  TI->>IPC: ensureBackendReadiness
+  Store->>TI: checkModelAvailability
+  Note over Store,TI: download consent only — no LLM IPC
   Store->>Store: chat.sendMessage
   Store->>IPC: chat.submitTurn(request)
   IPC->>Eng: submitChatTurn — Zod parse, begin snapshot
   Eng-->>Store: { turnId }
   Eng->>Eng: ensureChatBackendReady (request.model.readiness)
+  opt rag on the request
+    Eng->>Eng: retrieveRagForTurn after admit
+    Eng->>Bus: chat-rag
+  end
   Eng->>LLM: streamText HTTP
   LLM-->>Eng: tokens
   Eng->>Bus: chat-chunk (coalesced)

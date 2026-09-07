@@ -229,4 +229,45 @@ describe('chatReadiness', () => {
     })
     expect(d.awaitChatWindow).not.toHaveBeenCalled()
   })
+
+  it('resets the previously ensured service after a remembered backend switch', async () => {
+    const resetIdleChatBackend = vi.fn(async () => {})
+    const d = wire({ resetIdleChatBackend })
+    await ensureChatBackendReady(loadArgs)
+    expect(resetIdleChatBackend).not.toHaveBeenCalled()
+
+    await ensureChatBackendReady({
+      serviceName: 'openvino-backend',
+      llmModelName: 'Qwen3-8B',
+    })
+    expect(resetIdleChatBackend).toHaveBeenCalledTimes(1)
+    expect(resetIdleChatBackend).toHaveBeenCalledWith('llamacpp-backend')
+    expect(d.ensureBackendReadiness).toHaveBeenCalledTimes(2)
+  })
+
+  it('still resets the loaded service when the dropdown already remembered the new one', async () => {
+    const resetIdleChatBackend = vi.fn(async () => {})
+    wire({ resetIdleChatBackend })
+    await ensureChatBackendReady(loadArgs)
+    rememberChatBackendLoad({
+      serviceName: 'openvino-backend',
+      llmModelName: 'Qwen3-8B',
+    })
+    await ensureChatBackendReady({
+      serviceName: 'openvino-backend',
+      llmModelName: 'Qwen3-8B',
+    })
+    expect(resetIdleChatBackend).toHaveBeenCalledWith('llamacpp-backend')
+  })
+
+  it('does not reset on remember: false', async () => {
+    const resetIdleChatBackend = vi.fn(async () => {})
+    wire({ resetIdleChatBackend })
+    await ensureChatBackendReady(loadArgs)
+    await ensureChatBackendReady(
+      { serviceName: 'openvino-backend', llmModelName: 'home-agent-model' },
+      { remember: false },
+    )
+    expect(resetIdleChatBackend).not.toHaveBeenCalled()
+  })
 })

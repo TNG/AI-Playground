@@ -29,12 +29,14 @@ import {
 import {
   beginChatTurnSnapshot,
   emitChatChunk,
+  emitChatRag,
   endChatTurn,
   getChatTurnChunks,
 } from '../kernel/kernelBus'
 import { listMcpServers, getMcpServerStatus } from '../subprocesses/mcpManager'
 import { createMainChatModel } from './chatModelMain'
 import { ensureChatBackendReady, setLastChatBackendLoadActive } from './chatReadiness'
+import { retrieveRagForTurn } from './ragRetrieval'
 import { abortTurnToolRequests, executeToolInRenderer } from './toolBridge'
 
 // ── Main-side chat turn engine (docs/architecture-target.md §7, step 6) ──────
@@ -46,12 +48,12 @@ import { abortTurnToolRequests, executeToolInRenderer } from './toolBridge'
 // events, coalesced at the bus. Tool execution round-trips to the renderer,
 // which owns the tool closures and their Pinia reads.
 //
-// What deliberately stayed renderer-side: RAG context, system prompt
-// resolution, download consent, the activities sink (the transport observes
-// chunk types to drive "Processing prompt…" state), message state and
-// persistence (the Chat instance keeps them), and the reasoning-in-progress
-// flag (derived from the same chunk types). Local backend load runs here when
-// `model.readiness` is present.
+// What deliberately stayed renderer-side: download consent, the activities
+// sink (the transport observes chunk types to drive "Processing prompt…"
+// state), message state and persistence (the Chat instance keeps them), and
+// the reasoning-in-progress flag (derived from the same chunk types). Local
+// backend load runs here when `model.readiness` is present. RAG retrieval
+// runs here when `rag` is present (step 9).
 
 const appLogger = appLoggerInstance
 
@@ -62,6 +64,8 @@ export type ChatEngineDeps = {
   noteTimings?: (timings: LlamaCppTimings) => void
   /** The turn's trace context (backend, device, thinking, sampling) to stamp spans with. */
   noteTraceContext?: (context: Record<string, unknown> | null) => void
+  /** Tests inject retrieval; production uses `retrieveRagForTurn`. */
+  prepareRag?: typeof retrieveRagForTurn
 }
 
 let engineDeps: ChatEngineDeps | null = null
@@ -482,9 +486,8 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
       messages = filterNonVisionContent(messages)
     }
 
-    const systemPromptToUse = `${request.systemPrompt ?? ''}${buildMcpInstructions(
-      request.includeMcpInstructions === true,
-    )}`
+    const mcp = buildMcpInstructions(request.includeMcpInstructions === true)
+    let systemPromptToUse = `${request.systemPrompt ?? ''}${mcp}`
     const tools = buildToolSet(request.tools, conversationKey, turnId, request.repairData)
     const hasTools = Object.keys(tools).length > 0
 
@@ -509,6 +512,17 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
       setLastChatBackendLoadActive(false)
     } else if (config.readiness) {
       await ensureChatBackendReady(config.readiness, { abortSignal: turn.controller.signal })
+    }
+
+    if (request.rag) {
+      const prepareRag = engineDeps?.prepareRag ?? retrieveRagForTurn
+      const prepared = await prepareRag(
+        request.rag,
+        request.systemPrompt ?? '',
+        turn.controller.signal,
+      )
+      systemPromptToUse = `${prepared.systemPrompt}${mcp}`
+      emitChatRag(conversationKey, turnId, prepared.sourceText)
     }
 
     const diagTurnStart = Date.now()

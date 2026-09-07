@@ -42,11 +42,20 @@ export type WarmupGroup = {
   content: string
 }
 
+/**
+ * Shared RAG prefix used as the invariant front of every Phison KM system prompt.
+ * Warmup and inference must start with this exact string so the KV cache prefix
+ * can be reused across presets and queries. The preset's own system prompt is
+ * appended after the document context block.
+ */
+export const PHISON_KM_RAG_PREFIX =
+  '/no_think You are a helpful AI assistant. Use the provided document context to answer questions accurately. If the context does not contain relevant information, say so.'
+
 export type WarmupRequest = {
   llmBackendUrl: string
   mergedGroups: WarmupGroup[]
   modelName: string
-  /** The shared RAG prefix string — must match exactly what prepareRagContext uses. */
+  /** Must match `PHISON_KM_RAG_PREFIX` so warmup and inference share a KV prefix. */
   ragSystemPrefix: string
 }
 

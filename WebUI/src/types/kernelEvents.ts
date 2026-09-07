@@ -127,6 +127,14 @@ export type KernelChatTurnDoneEvent = {
   turnId: string
 }
 
+/** RAG sources for the turn, emitted after retrieval and before the first token. */
+export type KernelChatRagEvent = {
+  type: 'chat-rag'
+  conversationKey: string
+  turnId: string
+  sourceText: string | null
+}
+
 /**
  * Live progress of a nested media-specialist run (one per `media` tool call).
  * Transient timeline data — not part of any snapshot; a renderer that reloads
@@ -172,6 +180,7 @@ export type KernelEventPayload =
   | KernelArtifactDoneEvent
   | KernelChatChunkEvent
   | KernelChatTurnDoneEvent
+  | KernelChatRagEvent
   | KernelMediaAgentEvent
   | KernelQueueEvent
 

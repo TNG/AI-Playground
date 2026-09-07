@@ -651,4 +651,67 @@ describe('turn engine', () => {
     cancelChatTurn('conv-1', turnId)
     await waitForTurnDone(turnId)
   })
+
+  it('retrieves RAG after GPU admit, then streams with the augmented prompt', async () => {
+    const ensureBackendReadiness = vi.fn(async () => {})
+    const awaitChatWindow = vi.fn(async () => {})
+    setChatReadinessDeps({
+      getService: () => ({ ensureBackendReadiness, baseUrl: 'http://127.0.0.1:39101' }),
+      awaitChatWindow,
+      stopOvmsImageServer: vi.fn(async () => {}),
+      notifyHomeAgentUpstreamReady: vi.fn(),
+    })
+    const prepareRag = vi.fn(async (_rag, base: string) => ({
+      systemPrompt: `${base}\n\nUse the following context from your knowledge base to answer the question:\n\nchunk`,
+      sourceText: 'doc.txt (Lines 1-2)',
+    }))
+    setChatEngineDeps({ readMediaAsDataUri, prepareRag })
+    queueFetchMock(sse(textChunks('ok')))
+    const base = turnRequest()
+    const { turnId } = submitChatTurn({
+      ...base,
+      rag: {
+        query: 'hi',
+        documentHashes: ['abc'],
+        useGroupRetrieval: false,
+        embeddingServiceName: 'llamacpp-backend',
+        embeddingModel: 'bge',
+        maxResults: 8,
+        perDocResults: 5,
+      },
+      model: {
+        ...base.model,
+        readiness: {
+          serviceName: 'llamacpp-backend',
+          llmModelName: 'test/model.gguf',
+        },
+      },
+    })
+    await waitForTurnDone(turnId)
+
+    expect(awaitChatWindow).toHaveBeenCalledTimes(1)
+    expect(prepareRag).toHaveBeenCalledTimes(1)
+    expect(awaitChatWindow.mock.invocationCallOrder[0]).toBeLessThan(
+      prepareRag.mock.invocationCallOrder[0],
+    )
+    expect(bodyMessages()[0]).toMatchObject({
+      role: 'system',
+      content: expect.stringContaining('Use the following context'),
+    })
+    const ragEvents = events.filter((e) => e.type === 'chat-rag')
+    expect(ragEvents).toHaveLength(1)
+    expect(ragEvents[0]).toMatchObject({
+      conversationKey: 'conv-1',
+      turnId,
+      sourceText: 'doc.txt (Lines 1-2)',
+    })
+  })
+
+  it('does not emit chat-rag when the request has no rag field', async () => {
+    queueFetchMock(sse(textChunks('ok')))
+    const { turnId } = submitChatTurn(turnRequest())
+    await waitForTurnDone(turnId)
+    expect(events.filter((e) => e.type === 'chat-rag')).toEqual([])
+    expect(bodyMessages()[0]).toMatchObject({ role: 'system', content: 'You are helpful.' })
+  })
 })

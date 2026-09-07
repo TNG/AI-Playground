@@ -15,6 +15,8 @@ export type KernelChatTransportDeps = {
   /** Every chunk that reaches a Chat stream, replay included (store-side
    *  activity/reasoning observation rides on this seam). */
   onChunk?: (chunk: UIMessageChunk) => void
+  /** RAG sources after kernel retrieval (step 9). */
+  onRag?: (conversationKey: string, sourceText: string | null) => void
 }
 
 type StreamState = {
@@ -85,13 +87,16 @@ export function createKernelChatTransport(
       }
       if (state.closed) return
       if (
-        (event.type === 'chat-chunk' || event.type === 'chat-turn-done') &&
+        (event.type === 'chat-chunk' ||
+          event.type === 'chat-turn-done' ||
+          event.type === 'chat-rag') &&
         event.conversationKey === state.conversationKey &&
         event.turnId === state.turnId &&
         event.seq > state.minSeq
       ) {
         if (event.type === 'chat-chunk') state.enqueue?.(event.chunk)
-        else state.onDone?.()
+        else if (event.type === 'chat-turn-done') state.onDone?.()
+        else deps.onRag?.(event.conversationKey, event.sourceText)
       }
     }
     streamListeners.add(state.listener)

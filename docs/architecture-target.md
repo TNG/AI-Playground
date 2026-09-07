@@ -1204,6 +1204,12 @@ small fix on this branch) can pick them up instead of rediscovering them.
   leftover keys the file does not hold (from the construction snapshot) and
   write-throughs the merge; keys the file already has stay the file's. Do not use
   `alwaysMigrateLegacy` for this — that overlay was the launch-flags bug.
+- **IPC write-through JSON-clones the snapshot.** Vue `ref` object values are
+  reactive proxies; Electron's structured clone throws "An object could not be
+  cloned" (the same trap `setupWizard` already `toRaw`s for the preferred
+  device). Pinia persist serialized through JSON, so the file copy is that
+  shape — `snapshot()` goes through JSON before `preferences:write`. A thrown
+  write is reported, not an unhandled rejection.
 - **`settings.json` always answers, so absence can never mean "never migrated".** The
   launch-flags store's one-shot upload has to run even though the read returns a
   (default-born) section; the helper grew `alwaysMigrateLegacy` for exactly that, and

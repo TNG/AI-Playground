@@ -103,7 +103,9 @@ export function makeFileBackedPreference(options: {
   function snapshot(): Record<string, unknown> {
     const out: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(refs)) out[key] = value.value
-    return toFile ? toFile(out) : out
+    const shaped = toFile ? toFile(out) : out
+    // Electron IPC structured-clone rejects Vue proxies; pinia persist went through JSON.
+    return JSON.parse(JSON.stringify(shaped)) as Record<string, unknown>
   }
 
   function applySection(sectionValue: Record<string, unknown>): void {
@@ -217,6 +219,14 @@ export function makeFileBackedPreference(options: {
           technicalMessage: `the ${errorScope} file store rejected the '${section}' write`,
         })
       }
+    } catch (error) {
+      errorsStore.report(error, {
+        category: 'backend',
+        code: `${errorScope}/write-failed`,
+        severity: 'warning',
+        surface: 'silent',
+        technicalMessage: `the ${errorScope} file store rejected the '${section}' write`,
+      })
     } finally {
       flushInFlight = false
     }
@@ -269,7 +279,9 @@ export function makeFileBackedPreference(options: {
             // merge source, never an overlay — except a demo session, which
             // overlays in memory after a successful upload and never writes.
             if (!sectionPresent) applySection(legacySection)
-            const payload = toFile ? toFile(legacySection) : legacySection
+            const payload = JSON.parse(
+              JSON.stringify(toFile ? toFile(legacySection) : legacySection),
+            )
             try {
               const migrated = await resolveApi().migrate(section, payload)
               if (migrated.success) {

@@ -207,6 +207,33 @@ describe('file-backed preferences', () => {
     expect(written.config.enabled).toBe(true)
   })
 
+  it('sends a structured-cloneable payload, not the live Vue proxy', async () => {
+    preferencesApi.write.mockImplementation(async (_section, value) => {
+      structuredClone(value)
+      return { success: true as const }
+    })
+    const { prefs, config } = makeHarness()
+    await prefs.init()
+    config.value.enabled = true
+    await advanceFlush()
+    expect(preferencesApi.write).toHaveBeenCalledTimes(1)
+    const written = preferencesApi.write.mock.calls[0][1] as { config: { enabled: boolean } }
+    expect(written.config.enabled).toBe(true)
+    expect(written.config).not.toBe(config.value)
+  })
+
+  it('reports a thrown write instead of leaving an unhandled rejection', async () => {
+    const { prefs, selected } = makeHarness()
+    await prefs.init()
+    preferencesApi.write.mockImplementationOnce(async () => {
+      throw new Error('An object could not be cloned.')
+    })
+    selected.value = 'dark'
+    await advanceFlush()
+    expect(errorsReport).toHaveBeenCalledTimes(1)
+    expect(errorsReport.mock.calls[0][1]).toMatchObject({ code: 'preferences/write-failed' })
+  })
+
   it('retries after a rejected write on the next change', async () => {
     const { prefs, selected } = makeHarness()
     await prefs.init()

@@ -360,6 +360,32 @@ describe('file-backed preferences', () => {
     expect(preferencesApi.write).toHaveBeenCalledTimes(1)
   })
 
+  it('fills leftover keys the file section does not yet hold, without overlaying present keys', async () => {
+    storage.data.set(
+      'theme',
+      JSON.stringify({ selected: 'stale', enabled: true, someoneElsesField: { a: 1 } }),
+    )
+    preferencesApi.read.mockImplementation(async () => ({
+      success: true as const,
+      sections: { theme: { selected: 'file', config: { enabled: true, apiKey: 'k' } } },
+    }))
+    const { prefs, selected, enabled, config } = makeHarness('theme')
+    // Pinia persist of the remaining pick can drop the new field from the blob
+    // before init; the construction snapshot is what we fill from.
+    storage.data.set('theme', JSON.stringify({ someoneElsesField: { a: 1 } }))
+    await prefs.init()
+    expect(selected.value).toBe('file')
+    expect(enabled.value).toBe(true)
+    expect(config.value).toEqual({ enabled: true, apiKey: 'k' })
+    expect(preferencesApi.migrate).not.toHaveBeenCalled()
+    await advanceFlush()
+    expect(preferencesApi.write).toHaveBeenCalledTimes(1)
+    expect(preferencesApi.write.mock.calls[0]).toEqual([
+      'theme',
+      { selected: 'file', enabled: true, config: { enabled: true, apiKey: 'k' } },
+    ])
+  })
+
   it('migrates a leftover captured at construction even if the key is rewritten before init', async () => {
     storage.data.set(
       'theme',

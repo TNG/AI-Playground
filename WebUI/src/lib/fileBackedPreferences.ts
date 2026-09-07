@@ -18,7 +18,10 @@ import { useErrors } from '@/assets/js/store/errors'
  * flush fires immediately on `beforeunload` so a quit does not drop the
  * debounce window. Nothing writes before hydration; on a failed read the
  * defaults boot and the first user change writes them through, which is the
- * recovery path for a store that did not answer.
+ * recovery path for a store that did not answer. A later slice that adds a
+ * ref to a section the file already holds fills leftover-only keys (present
+ * keys stay the file's) and write-throughs the merge — migrate is
+ * section-absent only and would skip them.
  */
 
 export type FileBackedPreferenceRefs = Record<string, Ref>
@@ -122,6 +125,29 @@ export function makeFileBackedPreference(options: {
     return any ? out : null
   }
 
+  /** Leftover keys a later slice added to an already-migrated section. */
+  function fillLeftoverGaps(fileSection: Record<string, unknown>): boolean {
+    if (!legacyRaw) return false
+    let leftover: Record<string, unknown> | null = null
+    try {
+      leftover = legacyPick(JSON.parse(legacyRaw))
+    } catch {
+      return false
+    }
+    if (!leftover) return false
+    const gap: Record<string, unknown> = {}
+    let any = false
+    for (const key of Object.keys(refs)) {
+      if (!(key in fileSection) && key in leftover) {
+        gap[key] = leftover[key]
+        any = true
+      }
+    }
+    if (!any) return false
+    applySection(gap)
+    return true
+  }
+
   function dropLegacyKey(): void {
     if (!legacyKey || legacyKeyDropped) return
     legacyKeyDropped = true
@@ -201,6 +227,7 @@ export function makeFileBackedPreference(options: {
     initPromise = (async () => {
       const errorsStore = useErrors()
       let sections: Record<string, unknown> | null = null
+      let hydratedFileSection: Record<string, unknown> | null = null
       try {
         const read = await resolveApi().read()
         sections = read.success ? read.sections : null
@@ -223,7 +250,8 @@ export function makeFileBackedPreference(options: {
         const fileSection = sections[section]
         const sectionPresent = !!(fileSection && typeof fileSection === 'object')
         if (sectionPresent) {
-          applySection(fileSection as Record<string, unknown>)
+          hydratedFileSection = fileSection as Record<string, unknown>
+          applySection(hydratedFileSection)
         }
         if (legacyKey && (!sectionPresent || options.alwaysMigrateLegacy === true)) {
           // One-shot legacy upload (§6.1: "localStorage migrates once").
@@ -254,7 +282,8 @@ export function makeFileBackedPreference(options: {
                     if (again.success) {
                       const next = again.sections[section]
                       if (next && typeof next === 'object') {
-                        applySection(next as Record<string, unknown>)
+                        hydratedFileSection = next as Record<string, unknown>
+                        applySection(hydratedFileSection)
                       }
                     }
                   } catch {
@@ -289,8 +318,11 @@ export function makeFileBackedPreference(options: {
           }
         }
       }
-      lastFlushedJson = JSON.stringify(snapshot())
+      const preGapJson = JSON.stringify(snapshot())
+      const filledGaps = hydratedFileSection !== null && fillLeftoverGaps(hydratedFileSection)
+      lastFlushedJson = preGapJson
       hydrated.value = true
+      if (filledGaps) scheduleFlush()
     })()
     return initPromise
   }

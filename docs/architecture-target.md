@@ -745,7 +745,7 @@ AI-Playground/
     index.json            # id, title, preset, mtime — cheap to list
     <id>.json             # one thread, schemaVersion inside
   agent-sessions/         # same idea; Pi's own files can stay as they are
-  preferences.json        # theme, dev toggles, favorites, voices, per-preset knobs (step 8)
+  preferences.json        # theme, dev toggles, favorites, voices, per-preset knobs, last-used names (step 8)
   rag/documents.json      # the indexed document set, full split text included (step 8)
   agent-workspace.json    # last-used workspace pointers (step 8)
 ```
@@ -759,8 +759,9 @@ AI-Playground/
 `activeSessionId`; Pi's own session files are untouched.)
 
 User preferences that a human would want in a backup live as `AI-Playground/preferences.json`
-(theme, developer toggles, model favorites, TTS voices, per-preset knobs landed; `defaultPreset`
-still waits). Things a restore onto a different PC should not blindly apply (device ids,
+(theme, developer toggles, model favorites, TTS voices, per-preset knobs and last-used names
+landed; the `defaultPreset: Preset | "last"` choice stays parked in §8.2). Things a restore
+onto a different PC should not blindly apply (device ids,
 disabled backends, backend launch flags) stay in `userData` — the launch flags and version
 pins landed there with step 8's sixth slice.
 
@@ -924,7 +925,9 @@ agent-session records landed with the second; generated-media records (`media/re
 landed with the third; user preferences (`preferences.json`) landed with the fourth; the
 per-preset settings knobs (three more sections of that file) landed with the fifth; the
 backend launch flags and the device-id dedupe (`settings.json`) landed with the sixth; the
-RAG document list (`rag/documents.json`) landed with the seventh.
+RAG document list (`rag/documents.json`) landed with the seventh; agent workspace state
+(`agent-workspace.json`) landed with the eighth; last-used preset names (the `presets`
+section of `preferences.json`) landed with the ninth.
 
 ### 8.1 Transition cost and per-step obligations
 
@@ -1151,7 +1154,7 @@ small fix on this branch) can pick them up instead of rediscovering them.
   the persist plugin used to pick, get hydration + one-shot legacy upload + debounced
   deep-watch write-through + `beforeunload` flush. The per-preset knobs (textInference /
   imageGenerationPresets settings maps, presets variant picks) joined that file in the
-  fifth slice; `defaultPreset` (last-used names) still waits.
+  fifth slice; last-used names joined the same `presets` section in the ninth.
 - **The leftover Pinia key is snapshotted at helper construction, not at init.** Store
   setup runs persist hydrate/`afterHydrate` before `init()`, and Pinia's remaining-pick
   rewrite replaces the whole key — so a `getItem` at init time can already lack the
@@ -1182,10 +1185,11 @@ small fix on this branch) can pick them up instead of rediscovering them.
   — so a change confined to a scrubbed field (a mask re-drawn while its preset is open) never
   reaches the file, exactly like the serializer's quota-dodging behavior.
 - **Per-preset-keyed sections re-run their rename migration after file hydration.** The
-  presets store's pinia `afterHydrate` still fixes the persisted active/last-used names;
-  each store's `init()` applies the same `renamePresetKeys` fix to the freshly hydrated
-  section (and textInference also seeds the old global tool map into those settings), so
-  a renamed preset does not strand its tuned settings whichever half lands first.
+  presets store's pinia `afterHydrate` still fixes the persisted active names; last-used
+  names hydrate from the file, so `init()` applies the same `renamePresetKeys` /
+  `currentPresetName` fix to the freshly hydrated section (and textInference also seeds
+  the old global tool map into those settings), so a renamed preset does not strand its
+  tuned settings whichever half lands first.
 - **No §6 buckets remain; the `defaultPreset` semantics stay parked.** The
   launch-flags / device-dedupe bucket landed with the sixth slice, the RAG document list
   with the seventh, the agent workspace pointers with the eighth, the last-used preset
@@ -1194,6 +1198,12 @@ small fix on this branch) can pick them up instead of rediscovering them.
   questions), its Settings UI, and the §6 rule that preset clicks stop updating
   last-used unless the pref is `last`. Until that is decided, every switch still
   records last-used, exactly as before.
+- **Adding a ref to an existing preferences section fills leftover-only keys.**
+  `preferences:migrate` is section-absent only, so a `presets` section from the fifth
+  slice would skip `lastUsedPresetName` still in the Pinia key. The helper overlays
+  leftover keys the file does not hold (from the construction snapshot) and
+  write-throughs the merge; keys the file already has stay the file's. Do not use
+  `alwaysMigrateLegacy` for this — that overlay was the launch-flags bug.
 - **`settings.json` always answers, so absence can never mean "never migrated".** The
   launch-flags store's one-shot upload has to run even though the read returns a
   (default-born) section; the helper grew `alwaysMigrateLegacy` for exactly that, and

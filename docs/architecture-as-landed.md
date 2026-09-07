@@ -318,7 +318,7 @@ sequenceDiagram
   Bus->>IG: projection updates items
   Art-->>Orch: result
   Orch->>Ready: reloadLastChatBackend (skip GPU admit)
-  Note over Ready: last load from chat/agent; no artifact:request
+  Note over Ready: last successful ensure, not live Pinia selection
   IG->>Media: mediaItems.save(done items)
   Note over IG,Media: same Proxy/structured-clone trap as conversations.save
 ```

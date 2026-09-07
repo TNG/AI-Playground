@@ -745,10 +745,11 @@ modeled as an explicit FSM rather than loose flags.
     **renderer-originated** runs only — in-process agent tools stamp `origin: 'agent'` and stay
     out of the Image Gen overlay/history. The FSM is unchanged, so the activity bridge and
     failed-panel rendering keep working.
-  - What still lives renderer-side on purpose: the model pre-flight (models store + HF token), the
-    download-consent prompt (permissions layer) and the post-swap chat reload — main asks for them
+  - What still lives renderer-side on purpose: the model pre-flight (models store + HF token) and the
+    download-consent prompt (permissions layer) — main asks for them
     over the `artifact:request`/`artifact:respond` RPC (`src/assets/js/artifact/mediaRequestBridge.ts`,
-    wired in `src/main.ts`) and re-arms its watchdog on the bridge's progress pings.
+    wired in `src/main.ts`) and re-arms its watchdog on the bridge's progress pings. Post-swap chat
+    reload is in-process (`electron/chat/chatReadiness.ts`).
 
 **Activity / progress sink (`store/activities.ts`):** the analog of the error sink for "what is the
 app busy with right now". Long-running steps report a typed `Activity`
@@ -796,7 +797,7 @@ before the kernel move or as a small fix.
 
 **ComfyUI tools**: `comfyui:isGitInstalled`, `comfyui:isComfyUIInstalled`, `comfyui:downloadCustomNode`, `comfyui:uninstallCustomNode`, `comfyui:installPypiPackage`, `comfyui:isPackageInstalled`, `comfyui:listInstalledCustomNodes`
 
-**Artifact pipeline** (step 5): `artifact:run`, `artifact:cancel`, `artifact:respond` (R→M), `artifact:request` (M→R — model checks, download consent, chat reload; replies keyed by requestId, `{progress: true}` pings re-arm the runner's watchdog)
+**Artifact pipeline** (step 5): `artifact:run`, `artifact:cancel`, `artifact:respond` (R→M), `artifact:request` (M→R — model checks and download consent; replies keyed by requestId, `{progress: true}` pings re-arm the runner's watchdog)
 
 **Chat turns** (step 6): `chat:submitTurn`, `chat:resumeTurn`, `chat:cancelTurn` (R→M), `chat:executeTool` (M→R) + `chat:toolResult` (R→M — the tool execution bridge), `chat:summarize`, `chat:runMediaAgent` / `chat:cancelMediaAgent` (the nested media specialist, R→M)
 

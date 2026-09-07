@@ -69,8 +69,8 @@ if (initialPage !== null) {
   usePromptStore().alignModeToActivePreset()
 }
 
-// The main-process artifact runner asks the renderer for model checks,
-// download consent and chat reloads over this bridge.
+// The main-process artifact runner asks the renderer for model checks
+// and download consent over this bridge.
 startMediaRequestBridge()
 
 // Hydrate the conversation threads from the kernel's files (step 8) before

@@ -47,7 +47,7 @@ const llamaInfo = computed(() =>
 )
 
 const phisonDisplayName = computed(
-  () => i18nState.PHISON_AIDAPTIV_MENU_LABEL || 'Llama.cpp - Phison aiDAPTIV+ SSD',
+  () => i18nState.PHISON_AIDAPTIV_MENU_LABEL || 'Llama.cpp - Phison aiDAPTIV™ SSD',
 )
 
 const backendStatus = computed(() => llamaInfo.value?.status ?? 'notInstalled')
@@ -108,7 +108,7 @@ async function applySettings(values: Record<string, unknown>) {
   } catch (error) {
     console.error('Llama.cpp (Phison) settings update failed:', error)
     toast.error(
-      `Failed to update Phison aiDAPTIV+ settings: ${error instanceof Error ? error.message : String(error)}`,
+      `Failed to update Phison aiDAPTIV™ settings: ${error instanceof Error ? error.message : String(error)}`,
     )
     // Leave dialogs open so the user can retry without losing context.
     return
@@ -126,7 +126,7 @@ async function handlePhisonReinstall() {
     } catch (e) {
       console.error('Llama.cpp (Phison) settings push failed:', e)
       toast.error(
-        `Failed to push Phison aiDAPTIV+ settings: ${e instanceof Error ? e.message : String(e)}`,
+        `Failed to push Phison aiDAPTIV™ settings: ${e instanceof Error ? e.message : String(e)}`,
       )
       return
     }
@@ -177,7 +177,7 @@ async function handlePhisonReinstall() {
   <SettingsMenu
     v-model:open="menuOpen"
     :label="phisonDisplayName"
-    title="Llama.cpp-Phison aiDAPTIV+ settings"
+    title="Llama.cpp-Phison aiDAPTIV™ settings"
   >
     <DropdownMenuItem v-if="showReinstall" @select="reinstallDialogOpen = true">{{
       i18nState.BACKEND_REINSTALL
@@ -208,7 +208,7 @@ async function handlePhisonReinstall() {
     <DialogContent>
       <DialogHeader>
         <DialogTitle>{{
-          i18nState.PHISON_AIDAPTIV_SETTINGS_TITLE || 'Llama.cpp-Phison aiDAPTIV+ SSD offload'
+          i18nState.PHISON_AIDAPTIV_SETTINGS_TITLE || 'Llama.cpp-Phison aiDAPTIV™ SSD offload'
         }}</DialogTitle>
         <DialogDescription>
           {{

@@ -1,0 +1,15 @@
+{
+  "template": "comfy-ltx-t2v.json",
+  "patch": {
+    "width": ["70", "width"],
+    "height": ["70", "height"],
+    "length": ["70", "length"],
+    "prefix": ["78", "filename_prefix"]
+  },
+  "runs": [
+    { "label": "ltx2b-512x512-f9", "width": 512, "height": 512, "length": 9, "prefix": "vram_ltx2b_512_f9" },
+    { "label": "ltx2b-512x512-f25", "width": 512, "height": 512, "length": 25, "prefix": "vram_ltx2b_512_f25" },
+    { "label": "ltx2b-512x512-f49", "width": 512, "height": 512, "length": 49, "prefix": "vram_ltx2b_512_f49" },
+    { "label": "ltx2b-768x512-f25", "width": 768, "height": 512, "length": 25, "prefix": "vram_ltx2b_768_f25" }
+  ]
+}

@@ -239,7 +239,7 @@
                     <span class="svg-icon i-info w-4 h-4 opacity-50 cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent side="bottom" class="max-w-[300px]">
-                    Skip the hardware probe and report a Phison aiDAPTIV+ SSD as present, so the
+                    Skip the hardware probe and report a Phison aiDAPTIV™ SSD as present, so the
                     SSD-offload option can be exercised on any machine.
                   </TooltipContent>
                 </Tooltip>

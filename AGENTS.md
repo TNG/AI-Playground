@@ -384,7 +384,7 @@ WebUI/                      # Electron + Vue.js frontend (all npm commands here)
     assets/js/activities/   # Unified activity/progress model (Activity type + createActivity helper)
     components/             # Reusable Vue components
     views/                  # Page-level Vue components (Chat, PromptArea, WorkflowResult)
-    lib/vram/               # GGUF VRAM estimator (not wired to UI yet)
+    lib/vram/               # GGUF VRAM estimator (drives the model-size chip)
   external/                 # Presets, workflows, external resources
 docs/vram-fit.md            # Measured VRAM catalog for keep-loaded / swap / recommend
 service/                    # Python Flask backend (model download/management, NOT inference)

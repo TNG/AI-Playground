@@ -80,3 +80,6 @@ export type VramFit = {
   /** Set when the budget included host RAM (iGPU / unified memory). */
   fitsHost?: boolean
 }
+
+/** Traffic light shown next to a model: fits easily / barely / not at all. */
+export type VramFitLevel = 'easy' | 'tight' | 'over'

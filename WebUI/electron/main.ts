@@ -49,6 +49,7 @@ import { promisify } from 'node:util'
 const execAsync = promisify(exec)
 import { randomUUID } from 'node:crypto'
 import { PathsManager } from './pathsManager'
+import { readLlamaCppVramInputs } from './llamaCppVramInputs.ts'
 import { writableConfigFile } from './userConfig.ts'
 import { appLoggerInstance } from './logging/logger.ts'
 import {
@@ -1704,6 +1705,15 @@ function initEventHandle() {
 
   ipcMain.handle('scanModelLibrary', (_event) => {
     return pathsManager.scanModelLibrary()
+  })
+
+  ipcMain.handle('getLlamaCppVramInputs', (_event, modelName: string) => {
+    try {
+      return readLlamaCppVramInputs(pathsManager.modelPaths.ggufLLM, modelName) ?? null
+    } catch (error) {
+      appLogger.warn(`Could not read VRAM inputs for ${modelName}: ${error}`, 'electron-backend')
+      return null
+    }
   })
 
   ipcMain.handle('showModelInFolder', (_event, modelPath: string) => {

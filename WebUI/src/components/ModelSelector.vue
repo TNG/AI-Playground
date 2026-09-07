@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { ChevronDownIcon, MagnifyingGlassIcon, StarIcon } from '@heroicons/vue/24/solid'
 import ModelCapabilities from './ModelCapabilities.vue'
+import ModelVramFit from './ModelVramFit.vue'
 import CapabilityIcons from './CapabilityIcons.vue'
 import { modelHasCapability, type CapabilityKey } from '@/assets/js/capabilities'
 import { sortFavoritesFirst } from '@/assets/js/models/favorites'
@@ -182,6 +183,7 @@ watchEffect(() => {
             {{ selectedItem.label }}
           </span>
           <div class="flex items-center gap-1 shrink-0">
+            <ModelVramFit />
             <ModelCapabilities v-if="currentModel" :model="currentModel" />
             <ChevronDownIcon class="size-4 text-muted-foreground"></ChevronDownIcon>
           </div>

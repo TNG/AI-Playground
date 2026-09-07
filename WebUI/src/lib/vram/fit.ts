@@ -1,7 +1,7 @@
-import type { VramBudget, VramFit } from './types.ts'
+import type { VramBudget, VramFit, VramFitLevel } from './types.ts'
 import { GIB } from './units.ts'
 
-/** Fraction of card size treated as usable. The rest covers Vulkan/driver fragmentation. */
+/** Fraction of card size treated as usable. The rest covers Vulkan/driver fragmentation. See docs/vram-fit.md. */
 export const VRAM_USABLE_FRACTION = 0.9
 
 /** Host RAM to leave for the OS when GPU memory is shared (iGPU). */
@@ -36,6 +36,22 @@ export function fitVram(requiredBytes: number, budget: VramBudget): VramFit {
     fit.fitsHost = requiredBytes <= hostUsable
   }
   return fit
+}
+
+/** Headroom below which a model is called a comfortable fit. First-pass guess, see docs/vram-fit.md. */
+export const VRAM_EASY_FRACTION = 0.7
+
+/**
+ * Traffic-light verdict for the model-size chip: `easy` leaves room for the
+ * sidecars a turn may pull in, `tight` still loads, `over` does not.
+ */
+export function vramFitLevel(
+  requiredBytes: number,
+  usableBytes: number,
+  easyFraction = VRAM_EASY_FRACTION,
+): VramFitLevel {
+  if (usableBytes <= 0 || requiredBytes > usableBytes) return 'over'
+  return requiredBytes <= usableBytes * easyFraction ? 'easy' : 'tight'
 }
 
 /** Whether two resident footprints can share the GPU under the same budget. */

@@ -6,6 +6,7 @@ export type {
   LlamaCppVramEstimate,
   VramBudget,
   VramFit,
+  VramFitLevel,
 } from './types.ts'
 export { archFromMetadata } from './arch.ts'
 export { parseGgufMetadata, parseGgufMetadataBytes, type GgufMetadata } from './gguf.ts'
@@ -18,6 +19,8 @@ export {
   fitVram,
   HOST_RESERVE_BYTES,
   liveBudgetBytes,
+  vramFitLevel,
+  VRAM_EASY_FRACTION,
   VRAM_USABLE_FRACTION,
 } from './fit.ts'
 export { bytesToMiB, GIB, MIB, mibToBytes } from './units.ts'

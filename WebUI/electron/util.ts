@@ -109,19 +109,36 @@ export const getMediaRecordsDir = () => path.join(getMediaDir(), 'records')
 export const getMediaRecordsDemoDir = () => path.join(getMediaDir(), 'records-demo')
 
 /**
+ * The user-visible data root every kernel-owned user-data file lives under
+ * (architecture-target §6.1). Windows keeps it in Documents so a folder copy
+ * carries the library; elsewhere it is directly under the home directory.
+ */
+function aipgUserDataRoot(): string {
+  if (process.env.USERPROFILE) {
+    return path.join(process.env.USERPROFILE, 'Documents', 'AI-Playground')
+  }
+  if (process.env.HOME) {
+    return path.join(process.env.HOME, 'AI-Playground')
+  }
+  return path.join(externalResourcesDir(), 'service', 'static')
+}
+
+/**
  * The user's preferences (architecture-target §6.1, step 8): what a human
  * would want in a backup — theme, dev toggles, model favorites, voices. One
  * small file with one section per store.
  */
-export const getPreferencesFile = () => {
-  if (process.env.USERPROFILE) {
-    return path.join(process.env.USERPROFILE, 'Documents', 'AI-Playground', 'preferences.json')
-  }
-  if (process.env.HOME) {
-    return path.join(process.env.HOME, 'AI-Playground', 'preferences.json')
-  }
-  return path.join(externalResourcesDir(), 'service', 'static', 'preferences.json')
-}
+export const getPreferencesFile = () => path.join(aipgUserDataRoot(), 'preferences.json')
 
 /** Demo-mode preferences, wiped on exit like demo conversations (§6.1). */
 export const getPreferencesDemoFile = () => getPreferencesFile().replace(/\.json$/, '-demo.json')
+
+/**
+ * The RAG document list (architecture-target §6.1, step 8): the indexed
+ * document set, full split text included — its own file, not a preference.
+ */
+export const getRagDocumentsFile = () => path.join(aipgUserDataRoot(), 'rag', 'documents.json')
+
+/** Demo-mode RAG documents, wiped on exit like demo conversations (§6.1). */
+export const getRagDocumentsDemoFile = () =>
+  path.join(aipgUserDataRoot(), 'rag-demo', 'documents.json')

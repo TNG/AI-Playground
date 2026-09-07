@@ -274,6 +274,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
         { success: true } | { success: false; error: string }
       >,
   },
+  ragDocuments: {
+    read: () =>
+      ipcRenderer.invoke('ragDocuments:read') as Promise<
+        | {
+            success: true
+            section: import('../src/types/ragDocumentIpc').RagDocumentSection | null
+          }
+        | { success: false; error: string }
+      >,
+    migrate: (payload: unknown) =>
+      ipcRenderer.invoke('ragDocuments:migrate', payload) as Promise<
+        { success: true } | { success: false; error: string }
+      >,
+    write: (value: unknown) =>
+      ipcRenderer.invoke('ragDocuments:write', value) as Promise<
+        { success: true } | { success: false; error: string }
+      >,
+  },
   getBackendLaunchSettings: () =>
     ipcRenderer.invoke('getBackendLaunchSettings') as Promise<
       import('../src/types/preferencesIpc').BackendLaunchSettings

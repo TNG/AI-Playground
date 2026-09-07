@@ -524,6 +524,14 @@ type electronAPI = {
   migrateBackendLaunchSettings(
     payload: unknown,
   ): Promise<{ success: true } | { success: false; error: string }>
+  ragDocuments: {
+    read(): Promise<
+      | { success: true; section: import('./types/ragDocumentIpc').RagDocumentSection | null }
+      | { success: false; error: string }
+    >
+    migrate(payload: unknown): Promise<{ success: true } | { success: false; error: string }>
+    write(value: unknown): Promise<{ success: true } | { success: false; error: string }>
+  }
   startTranscriptionServer(modelName: string): Promise<{ success: boolean; error?: string }>
   stopTranscriptionServer(): Promise<{ success: boolean; error?: string }>
   getTranscriptionServerUrl(): Promise<{ success: boolean; url?: string; error?: string }>

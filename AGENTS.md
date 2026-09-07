@@ -792,7 +792,7 @@ before the kernel move or as a small fix.
 
 **Presets**: `reloadPresets`, `loadUserPresets`, `saveUserPreset`, `updatePresetsFromIntelRepo`, `getUserPresetsPath`
 
-**RAG**: `addDocumentToRAGList`, `embedInputUsingRag`, `getEmbeddingServerUrl`
+**RAG**: `addDocumentToRAGList`, `embedInputUsingRag`, `getEmbeddingServerUrl`, `ragDocuments:read`/`migrate`/`write` (the kernel-owned `rag/documents.json`, step 8)
 
 **ComfyUI tools**: `comfyui:isGitInstalled`, `comfyui:isComfyUIInstalled`, `comfyui:downloadCustomNode`, `comfyui:uninstallCustomNode`, `comfyui:installPypiPackage`, `comfyui:isPackageInstalled`, `comfyui:listInstalledCustomNodes`
 
@@ -818,7 +818,7 @@ before the kernel move or as a small fix.
 
 **Domain stores** (core business logic):
 
-- `textInference` — LLM backend/model selection, RAG config, system prompt, context size. Per-preset settings live in the kernel-owned preferences file (hydrated by `init()`). Deps: `backendServices`, `models`, `dialogs`, `presets`
+- `textInference` — LLM backend/model selection, RAG config, system prompt, context size. Per-preset settings live in the kernel-owned preferences file and the RAG document list in `rag/documents.json` (both hydrated by `init()`). Deps: `backendServices`, `models`, `dialogs`, `presets`
 - `openAiCompatibleChat` — Vercel AI SDK chat instances, message streaming, tool calling, vision, token tracking. Deps: `textInference`, `conversations`
 - `imageGenerationPresets` — Image/video generation state (prompt, seed, dimensions, batch), ComfyUI dynamic inputs. The generated-media gallery is a live projection of kernel-owned files (`media/records/`, hydrated by `init()` and written through by a debounced flush), and the per-preset settings/inputs live in the kernel-owned preferences file — the store has no Pinia persistence left. Deps: `presets`, `comfyUiPresets`, `backendServices`, `ui`, `dialogs`, `i18n`
 - `comfyUiPresets` — Settings-side ComfyUI store: preset requirement checks, freeing ComfyUI memory (`free`), and the generation-activity bridge. The WebSocket engine moved to main (`electron/artifact/runner.ts`, §8 step 5). Deps: `imageGenerationPresets`, `i18n`, `backendServices`

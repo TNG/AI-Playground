@@ -206,6 +206,14 @@ import {
   writePreferenceSection,
 } from './preferences/preferencesFile'
 
+import {
+  migrateRagDocumentSection,
+  readRagDocumentSection,
+  setRagDocumentFilesDeps,
+  wipeDemoRagDocuments,
+  writeRagDocumentSection,
+} from './rag/ragDocumentFiles'
+
 import { llmServerBaseUrl } from './llmServerSnapshot'
 import type { ChatToolResult } from '@/types/chatIpc'
 import { getAudioDir, getGamesDir, getMediaDir } from './util.ts'
@@ -1137,6 +1145,7 @@ appShutdown.register({ name: 'demo conversations', run: () => wipeDemoConversati
 appShutdown.register({ name: 'demo agent sessions', run: () => wipeDemoAgentSessions() })
 appShutdown.register({ name: 'demo media records', run: () => wipeDemoMediaRecords() })
 appShutdown.register({ name: 'demo preferences', run: () => wipeDemoPreferences() })
+appShutdown.register({ name: 'demo rag documents', run: () => wipeDemoRagDocuments() })
 appShutdown.register({ name: 'cloud proxy', run: () => cloudProxy?.close() })
 // After the agent, so the spans its extensions emit while shutting down are
 // still exported. No-op unless a developer opted into Laminar tracing.
@@ -1241,6 +1250,7 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   wireAgentSessions(settings)
   wireMediaRecords(settings)
   wirePreferences(settings)
+  wireRagDocuments(settings)
   wireChatEngine()
   return serviceRegistry
 }
@@ -1271,6 +1281,12 @@ function wireMediaRecords(settings: LocalSettings): void {
 function wirePreferences(settings: LocalSettings): void {
   setPreferencesFileDeps({ isDemoMode: () => settings.isDemoModeEnabled })
   if (settings.isDemoModeEnabled) void wipeDemoPreferences()
+}
+
+/** Same demo discipline for the RAG document list (step 8, §6.1). */
+function wireRagDocuments(settings: LocalSettings): void {
+  setRagDocumentFilesDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoRagDocuments()
 }
 
 /**
@@ -2892,6 +2908,37 @@ function initEventHandle() {
       }
     },
   )
+
+  // ── RAG documents (step 8, §6.1): the textInference store's indexed
+  // document set, one kernel-owned file — same section-shaped contract as
+  // the preferences channels, over rag/documents.json. read keeps "absent"
+  // (section null) apart from "failed" (success false): only the former may
+  // trigger the one-shot legacy upload.
+  ipcMain.handle('ragDocuments:read', async () => {
+    try {
+      return { success: true as const, section: await readRagDocumentSection() }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('ragDocuments:migrate', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+    try {
+      await migrateRagDocumentSection(payload)
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('ragDocuments:write', async (_event: IpcMainInvokeEvent, value: unknown) => {
+    try {
+      await writeRagDocumentSection(value)
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
 
   ipcMain.handle(
     'getEmbeddingServerUrl',

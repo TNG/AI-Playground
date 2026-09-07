@@ -1,7 +1,10 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { z } from 'zod'
 import { demoAwareStorage } from '../demoAwareStorage'
-import { makeFileBackedPreference } from '@/lib/fileBackedPreferences'
+import {
+  makeFileBackedPreference,
+  type FileBackedPreferencesApi,
+} from '@/lib/fileBackedPreferences'
 import { useBackendServices, type BackendServiceName } from './backendServices'
 import { useModels } from './models'
 import { Document } from '@langchain/classic/document'
@@ -883,6 +886,35 @@ export const useTextInference = defineStore(
     })
     if (import.meta.hot) import.meta.hot.dispose(() => settingsPrefs.dispose())
 
+    // Step 8 (§6.1): the RAG document list is app data — the full split text
+    // of everything the user indexed — so it lives in its own kernel-owned
+    // file (rag/documents.json), not the preferences file. The pinia key
+    // keeps the non-RAG fields, so this half also only slims its field out.
+    // No payload transform: mergedGroups has been boundary-only for a while,
+    // so persisting splitDB alongside it is safe (the old serializer note).
+    const ragApi: FileBackedPreferencesApi = {
+      read: async () => {
+        const r = await window.electronAPI.ragDocuments.read()
+        if (!r.success) return { success: false as const, error: r.error }
+        // An absent file is the "never migrated" state; a failed read
+        // (success false) never is.
+        return r.section === null
+          ? { success: true as const, sections: {} }
+          : { success: true as const, sections: { textInference: r.section } }
+      },
+      migrate: (_section, payload) => window.electronAPI.ragDocuments.migrate(payload),
+      write: (_section, value) => window.electronAPI.ragDocuments.write(value),
+    }
+    const ragPrefs = makeFileBackedPreference({
+      section: 'textInference',
+      refs: { ragList },
+      legacyKey: 'textInference',
+      legacySlim: true,
+      api: ragApi,
+      errorScope: 'rag-documents',
+    })
+    if (import.meta.hot) import.meta.hot.dispose(() => ragPrefs.dispose())
+
     async function init(): Promise<void> {
       await settingsPrefs.init()
       // Settings are stored per preset name, which a renamed preset no longer
@@ -895,6 +927,14 @@ export const useTextInference = defineStore(
       // load during conversations/media init) and would otherwise apply
       // defaults from an empty map, then never reload.
       loadSettingsForActivePreset()
+      // The rag half of the same shared legacy key runs strictly after the
+      // settings half: interleaved read-modify-write slims can resurrect what
+      // the other removed (§8.2).
+      await ragPrefs.init()
+      // The activeKey→selection watch below ran immediate at store setup,
+      // against the pre-hydration list; re-apply it so the resumed thread's
+      // selection wins over whatever isChecked the file carried.
+      syncRagSelectionForActiveKey()
     }
 
     // Raw URL of the selected local inference backend, without any of the
@@ -2426,10 +2466,6 @@ export const useTextInference = defineStore(
   {
     persist: {
       storage: demoAwareStorage,
-      // No custom serializer: mergedGroups is now boundary-only ({groupId,
-      // startChunkIdx, endChunkIdx}, ~50 bytes/group) instead of duplicating the
-      // full document text, so it's safe to persist as-is with the default
-      // JSON serializer.
       pick: [
         'backend',
         'selectedModels',
@@ -2437,9 +2473,10 @@ export const useTextInference = defineStore(
         'contextSize',
         'requestedContextSize',
         'temperature',
-        'ragList',
-        // `settingsPerPreset` is NOT persisted here anymore: it lives in the
-        // kernel-owned preferences.json (step 8 §6.1), hydrated by init().
+        // `settingsPerPreset` and `ragList` are NOT persisted here anymore:
+        // per-preset settings live in the kernel-owned preferences.json and
+        // the RAG document list in rag/documents.json (step 8 §6.1), both
+        // hydrated by init().
         'screenshotWindow',
       ],
     },

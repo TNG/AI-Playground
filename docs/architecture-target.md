@@ -1181,6 +1181,15 @@ small fix on this branch) can pick them up instead of rediscovering them.
   `migrateBackendLaunchSettings` merges per-field only-when-default because a null flag
   is a valid user choice, not a gap. Any later store whose file pre-exists with schema
   defaults reuses the same flag.
+- **A leftover Pinia payload is a merge source, never a hydrate, when the file
+  section is already present.** Overlaying leftover onto a just-hydrated
+  `settings.json` section would show (and the next write-through could persist)
+  Pinia leftovers over OEM / already-migrated flags even though main's
+  only-when-default merge kept the file. After a successful `alwaysMigrateLegacy`
+  upload the helper re-reads so the only-when-default result is what we show and
+  diff against; a demo session still overlays the leftover in memory (and never
+  writes). A write-through of the file section is not proof leftover was merged,
+  so `alwaysMigrateLegacy` drops the key only on migrate success, not on flush.
 - **The device map is main-owned; the renderer copy is a hydrate-only mirror.**
   `selectDevice` already persisted `lastSelectedDevicePerBackend` (with `:stt`
   sub-device keys the mirror never holds) long before the slice; the store's ref now

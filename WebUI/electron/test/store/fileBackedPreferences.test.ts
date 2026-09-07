@@ -75,6 +75,7 @@ beforeEach(() => {
   preferencesApi.write.mockImplementation(async () => ({ success: true as const }))
   windowListeners = {}
   ;(globalThis as Record<string, unknown>).window = {
+    __AIPG_DEMO_MODE__: false,
     electronAPI: { preferences: preferencesApi },
     addEventListener: (event: string, handler: () => void) => {
       ;(windowListeners[event] ??= []).push(handler)
@@ -472,5 +473,158 @@ describe('file-backed preferences', () => {
     expect(errorsReport.mock.calls[0][1]).toMatchObject({
       code: 'backend-launch-settings/read-failed',
     })
+  })
+
+  it('re-reads after a successful alwaysMigrateLegacy upload so leftover cannot overlay the file', async () => {
+    storage.data.set('machine', JSON.stringify({ flag: true }))
+    let fileFlag = false
+    const injected = {
+      read: vi.fn(
+        async (): Promise<
+          { success: true; sections: Record<string, unknown> } | { success: false; error: string }
+        > => ({ success: true, sections: { machine: { flag: fileFlag } } }),
+      ),
+      migrate: vi.fn(
+        async (
+          _section: string,
+          payload: unknown,
+        ): Promise<{ success: true } | { success: false; error: string }> => {
+          fileFlag = (payload as { flag: boolean }).flag
+          return { success: true }
+        },
+      ),
+      write: vi.fn(
+        async (
+          _section: string,
+          _value: unknown,
+        ): Promise<{ success: true } | { success: false; error: string }> => ({ success: true }),
+      ),
+    }
+    const flag = ref(false)
+    const prefs = makeFileBackedPreference({
+      section: 'machine',
+      refs: { flag },
+      legacyKey: 'machine',
+      alwaysMigrateLegacy: true,
+      api: injected,
+    })
+    await prefs.init()
+    expect(injected.migrate).toHaveBeenCalledWith('machine', { flag: true })
+    expect(injected.read).toHaveBeenCalledTimes(2)
+    expect(flag.value).toBe(true)
+    expect(storage.data.has('machine')).toBe(false)
+  })
+
+  it('keeps a present alwaysMigrateLegacy section when leftover differs', async () => {
+    storage.data.set('machine', JSON.stringify({ flag: false }))
+    const injected = {
+      read: vi.fn(
+        async (): Promise<
+          { success: true; sections: Record<string, unknown> } | { success: false; error: string }
+        > => ({ success: true, sections: { machine: { flag: true } } }),
+      ),
+      migrate: vi.fn(
+        async (
+          _section: string,
+          _payload: unknown,
+        ): Promise<{ success: true } | { success: false; error: string }> => ({ success: true }),
+      ),
+      write: vi.fn(
+        async (
+          _section: string,
+          _value: unknown,
+        ): Promise<{ success: true } | { success: false; error: string }> => ({ success: true }),
+      ),
+    }
+    const flag = ref(false)
+    const prefs = makeFileBackedPreference({
+      section: 'machine',
+      refs: { flag },
+      legacyKey: 'machine',
+      alwaysMigrateLegacy: true,
+      api: injected,
+    })
+    await prefs.init()
+    expect(flag.value).toBe(true)
+    expect(injected.migrate).toHaveBeenCalledWith('machine', { flag: false })
+    expect(injected.read).toHaveBeenCalledTimes(2)
+    expect(storage.data.has('machine')).toBe(false)
+  })
+
+  it('does not overlay leftover over a present alwaysMigrateLegacy section when upload is refused', async () => {
+    storage.data.set('machine', JSON.stringify({ flag: true }))
+    const injected = {
+      read: vi.fn(
+        async (): Promise<
+          { success: true; sections: Record<string, unknown> } | { success: false; error: string }
+        > => ({ success: true, sections: { machine: { flag: false } } }),
+      ),
+      migrate: vi.fn(
+        async (
+          _section: string,
+          _payload: unknown,
+        ): Promise<{ success: true } | { success: false; error: string }> => ({
+          success: false,
+          error: 'refused',
+        }),
+      ),
+      write: vi.fn(
+        async (
+          _section: string,
+          _value: unknown,
+        ): Promise<{ success: true } | { success: false; error: string }> => ({ success: true }),
+      ),
+    }
+    const flag = ref(false)
+    const prefs = makeFileBackedPreference({
+      section: 'machine',
+      refs: { flag },
+      legacyKey: 'machine',
+      alwaysMigrateLegacy: true,
+      api: injected,
+    })
+    await prefs.init()
+    expect(flag.value).toBe(false)
+    expect(storage.data.has('machine')).toBe(true)
+    flag.value = true
+    await advanceFlush()
+    expect(injected.write).toHaveBeenCalledTimes(1)
+    expect(storage.data.has('machine')).toBe(true)
+  })
+
+  it('overlays leftover in memory for a demo session after alwaysMigrateLegacy upload', async () => {
+    ;(window as unknown as { __AIPG_DEMO_MODE__: boolean }).__AIPG_DEMO_MODE__ = true
+    storage.data.set('machine', JSON.stringify({ flag: true }))
+    const injected = {
+      read: vi.fn(
+        async (): Promise<
+          { success: true; sections: Record<string, unknown> } | { success: false; error: string }
+        > => ({ success: true, sections: { machine: { flag: false } } }),
+      ),
+      migrate: vi.fn(
+        async (
+          _section: string,
+          _payload: unknown,
+        ): Promise<{ success: true } | { success: false; error: string }> => ({ success: true }),
+      ),
+      write: vi.fn(
+        async (
+          _section: string,
+          _value: unknown,
+        ): Promise<{ success: true } | { success: false; error: string }> => ({ success: true }),
+      ),
+    }
+    const flag = ref(false)
+    const prefs = makeFileBackedPreference({
+      section: 'machine',
+      refs: { flag },
+      legacyKey: 'machine',
+      alwaysMigrateLegacy: true,
+      api: injected,
+    })
+    await prefs.init()
+    expect(flag.value).toBe(true)
+    expect(injected.read).toHaveBeenCalledTimes(1)
+    expect(storage.data.has('machine')).toBe(false)
   })
 })

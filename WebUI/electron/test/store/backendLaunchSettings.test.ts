@@ -98,6 +98,35 @@ const MIGRATED_FIELDS = {
   openvinoKvCacheU4: true,
 }
 
+function applyOnlyWhenDefault(payload: unknown): void {
+  const incoming = payload as Partial<typeof MIGRATED_FIELDS>
+  if (incoming.comfyUiParameters != null && launchSettings.comfyUiParameters === null) {
+    launchSettings.comfyUiParameters = incoming.comfyUiParameters
+  }
+  if (incoming.llamaCppParameters != null && launchSettings.llamaCppParameters === null) {
+    launchSettings.llamaCppParameters = incoming.llamaCppParameters
+  }
+  if (
+    incoming.llamaCppBuildVariant === 'ssd-offload' &&
+    launchSettings.llamaCppBuildVariant === 'standard'
+  ) {
+    launchSettings.llamaCppBuildVariant = incoming.llamaCppBuildVariant
+  }
+  if (incoming.llamaCppOffloadDrive != null && launchSettings.llamaCppOffloadDrive === null) {
+    launchSettings.llamaCppOffloadDrive = incoming.llamaCppOffloadDrive
+  }
+  if (incoming.openvinoKvCacheU4 === true && launchSettings.openvinoKvCacheU4 === false) {
+    launchSettings.openvinoKvCacheU4 = true
+  }
+  if (
+    incoming.versionOverrides &&
+    Object.keys(incoming.versionOverrides).length > 0 &&
+    Object.keys(launchSettings.versionOverrides).length === 0
+  ) {
+    launchSettings.versionOverrides = incoming.versionOverrides
+  }
+}
+
 async function freshStore() {
   const { useBackendServices } = await import('@/assets/js/store/backendServices')
   return useBackendServices()
@@ -122,7 +151,10 @@ beforeEach(() => {
     lastSelectedDevicePerBackend: {},
   })
   getBackendLaunchSettings.mockImplementation(async () => ({ ...launchSettings }))
-  migrateBackendLaunchSettings.mockImplementation(async () => ({ success: true as const }))
+  migrateBackendLaunchSettings.mockImplementation(async (payload) => {
+    applyOnlyWhenDefault(payload)
+    return { success: true as const }
+  })
   updateLocalSettings.mockImplementation(async () => ({ success: true as const }))
   vi.mocked(window.electronAPI.detectPhisonSsd).mockImplementation(async () => ({
     detected: false,
@@ -189,6 +221,26 @@ describe('backend launch settings (settings.json, step 8)', () => {
     expect(updateLocalSettings).not.toHaveBeenCalled()
   })
 
+  it('keeps a non-default settings.json value when leftover differs', async () => {
+    launchSettings.comfyUiParameters = '--oem-comfy'
+    launchSettings.lastSelectedDevicePerBackend = { 'llamacpp-backend': 'GPU.1' }
+    vi.mocked(window.electronAPI.detectPhisonSsd).mockImplementation(async () => ({
+      detected: true,
+    }))
+    storage.data.set('backendServices', JSON.stringify(LEGACY_SECTION_PAYLOAD))
+    const store = await freshStore()
+    await store.init()
+    expect(store.comfyUiParameters).toBe('--oem-comfy')
+    expect(store.llamaCppParameters).toBe('--legacy-llama')
+    expect(store.llamaCppBuildVariant).toBe('ssd-offload')
+    expect(migrateBackendLaunchSettings).toHaveBeenCalledTimes(1)
+    expect(migrateBackendLaunchSettings.mock.calls[0][0]).toEqual(MIGRATED_FIELDS)
+    expect(store.lastSelectedDeviceIdPerBackend['llamacpp-backend']).toBe('GPU.1')
+    expect(storage.data.has('backendServices')).toBe(false)
+    await advanceFlush()
+    expect(updateLocalSettings).not.toHaveBeenCalled()
+  })
+
   it('keeps the legacy key and reports when the upload is refused', async () => {
     storage.data.set('backendServices', JSON.stringify(LEGACY_SECTION_PAYLOAD))
     migrateBackendLaunchSettings.mockImplementation(async () => ({
@@ -197,7 +249,7 @@ describe('backend launch settings (settings.json, step 8)', () => {
     }))
     const store = await freshStore()
     await store.init()
-    expect(store.comfyUiParameters).toBe('--legacy-comfy')
+    expect(store.comfyUiParameters).toBeNull()
     expect(storage.data.has('backendServices')).toBe(true)
     expect(errorsReport).toHaveBeenCalledTimes(1)
     expect(errorsReport.mock.calls[0][1]).toMatchObject({

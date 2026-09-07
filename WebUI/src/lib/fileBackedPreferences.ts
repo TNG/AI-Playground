@@ -62,7 +62,9 @@ export function makeFileBackedPreference(options: {
   legacySlim?: boolean
   /** Run the one-shot legacy upload even though the read answered with a
    * section. For a file whose section always exists — settings.json fields
-   * are schema-defaulted at boot — absence can never mean "never migrated". */
+   * are schema-defaulted at boot — absence can never mean "never migrated".
+   * Leftover is a merge source, not a hydrate: the file section stays until
+   * a successful upload, then a re-read (or a demo-session overlay). */
   alwaysMigrateLegacy?: boolean
   /** Shape the section for the file — e.g. scrub data URIs the way the old
    * pinia serializer did. Applied to the write payload, the migrate payload
@@ -177,9 +179,9 @@ export function makeFileBackedPreference(options: {
       const result = await resolveApi().write(section, current)
       if (result.success) {
         lastFlushedJson = json
-        // The write-through is also the rescue for a failed one-shot upload:
-        // with the section in the file, the legacy key can never matter again.
-        dropLegacyKey()
+        // alwaysMigrateLegacy: a write of the file section is not proof leftover
+        // was merged — drop only on migrate success.
+        if (options.alwaysMigrateLegacy !== true) dropLegacyKey()
       } else {
         errorsStore.report(new Error(result.error), {
           category: 'backend',
@@ -234,14 +236,32 @@ export function makeFileBackedPreference(options: {
             }
           }
           if (legacySection) {
-            // Hydrate from the in-memory payload either way — the value is
-            // right even when the upload has to wait for the next boot.
-            applySection(legacySection)
+            // Leftover hydrates only when the section is absent. A present
+            // section (alwaysMigrateLegacy) is the file's; leftover is a
+            // merge source, never an overlay — except a demo session, which
+            // overlays in memory after a successful upload and never writes.
+            if (!sectionPresent) applySection(legacySection)
             const payload = toFile ? toFile(legacySection) : legacySection
             try {
               const migrated = await resolveApi().migrate(section, payload)
-              if (migrated.success) dropLegacyKey()
-              else {
+              if (migrated.success) {
+                dropLegacyKey()
+                if (typeof window !== 'undefined' && window.__AIPG_DEMO_MODE__ === true) {
+                  applySection(legacySection)
+                } else if (options.alwaysMigrateLegacy === true && sectionPresent) {
+                  try {
+                    const again = await resolveApi().read()
+                    if (again.success) {
+                      const next = again.sections[section]
+                      if (next && typeof next === 'object') {
+                        applySection(next as Record<string, unknown>)
+                      }
+                    }
+                  } catch {
+                    // First hydrate stands; main already merged.
+                  }
+                }
+              } else {
                 // The file store answered but refused: retry next boot.
                 errorsStore.report(new Error(migrated.error), {
                   category: 'backend',

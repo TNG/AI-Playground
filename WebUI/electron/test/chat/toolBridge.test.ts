@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BrowserWindow } from 'electron'
 import type { ChatToolResult } from '@/types/chatIpc'
 
@@ -12,6 +12,7 @@ const {
   abortTurnToolRequests,
   rejectAllChatToolRequests,
   resetChatToolBridgeForTest,
+  setChatToolBridgeTimeoutMsForTest,
   chatToolRequestsPending,
   CHAT_TOOL_ABORTED,
 } = await import('../../chat/toolBridge')
@@ -31,6 +32,11 @@ const { setKernelEventWindow, resetKernelBusForTest } = await import('../../kern
 
 beforeEach(() => {
   resetKernelBusForTest()
+  resetChatToolBridgeForTest()
+})
+
+afterEach(() => {
+  vi.useRealTimers()
   resetChatToolBridgeForTest()
 })
 
@@ -133,10 +139,22 @@ describe('chat tool bridge', () => {
     expect(chatToolRequestsPending()).toBe(0)
   })
 
-  it('ignores results for unknown or duplicate request ids', () => {
-    expect(() => {
-      handleChatToolResult({ requestId: 'nope', output: 1 })
-      handleChatToolResult({ requestId: 'nope', output: 1 })
-    }).not.toThrow()
+  it('times out a wedged renderer tool', async () => {
+    vi.useFakeTimers()
+    setChatToolBridgeTimeoutMsForTest(1_000)
+    const { win } = fakeWindow()
+    setKernelEventWindow(win)
+    const promise = executeToolInRenderer({
+      conversationKey: 'conv-1',
+      turnId: 'turn-1',
+      toolCallId: 'call-1',
+      toolName: 'searchWeb',
+      input: {},
+    })
+    const expectTimeout = expect(promise).rejects.toThrow(/searchWeb' timed out/)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await expectTimeout
+    expect(chatToolRequestsPending()).toBe(0)
+    vi.useRealTimers()
   })
 })

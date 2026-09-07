@@ -5,7 +5,7 @@
       <div class="pl-2 pt-2 flex flex-col gap-4">
         <div class="flex justify-between pr-4 items-center gap-4">
           <div class="flex items-center gap-2">
-            <Label class="whitespace-nowrap">{{
+            <Label for="remote-download-pregrant" class="whitespace-nowrap">{{
               languages.SETTINGS_PERMISSIONS_REMOTE_DOWNLOADS
             }}</Label>
             <TooltipProvider :delay-duration="200">

@@ -1069,7 +1069,9 @@ export const useHomeAgent = defineStore(
      * summarizer uses the bundled Home Agent model. Returns `false` and
      * replies to the active channel with an error if readiness fails.
      * `remember: false` so this transient load cannot become the GPU swap-back
-     * snapshot — Pinia is restored afterwards without reloading the user's model.
+     * snapshot, and the dropdown last-load watch is paused for the whole
+     * apply/load/restore so the Home Agent model cannot overwrite it either.
+     * Pinia is restored afterwards without reloading the user's model.
      */
     async function ensureSummarizerReady(
       adapter: ChannelAdapter,
@@ -1083,6 +1085,7 @@ export const useHomeAgent = defineStore(
       const previousVariant = previousPreset
         ? (presetsStore.activeVariantName[previousPreset] ?? null)
         : null
+      const resumeSelectionMemory = textInference.pauseChatBackendSelectionMemory()
       textInference.applyPresetToGlobals(HOME_AGENT_CHAT_PRESET_NAME, null)
       try {
         await textInference.ensureReadyForInference({ remember: false })
@@ -1103,6 +1106,7 @@ export const useHomeAgent = defineStore(
             console.error('homeAgent: failed to restore previous preset:', e)
           }
         }
+        resumeSelectionMemory()
       }
     }
 

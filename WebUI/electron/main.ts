@@ -121,7 +121,7 @@ import {
   submitAgentToolResult,
 } from './agentMode/piAgentManager'
 import { getKernelSnapshot, onKernelEvent, setKernelEventWindow } from './kernel/kernelBus'
-import { resolveClosePolicy } from './kernel/windowLifecycle'
+import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecycle'
 import { setVerboseLogging as setVerboseAgentLogging } from './agentMode/piAgentLog.ts'
 import { importAttachment } from './agentMode/workspaceAttachments.ts'
 import { AgentModeTurnConfigSchema } from '@/types/agentIpc'
@@ -147,8 +147,10 @@ import { chatInferenceStreamsActive } from './chat/chatModelMain'
 import {
   ensureChatBackendReady,
   reloadLastChatBackend,
+  rememberChatBackendLoad,
   setChatReadinessDeps,
   setLastChatBackendLoadActive,
+  type ChatReadinessArgs,
 } from './chat/chatReadiness'
 import { piAgentCallsActive } from './agentMode/piCallTiming'
 import { freeMemoryAndUnloadModels } from './artifact/comfyClient'
@@ -787,6 +789,9 @@ async function createWindow() {
   setWebBrowserMainWindow(win)
   setAgentModeMainWindow(win)
   setKernelEventWindow(win)
+  bindRendererBusyReset(win.webContents, (busy) => {
+    rendererBusy = busy
+  })
   // The renderer that was asked a media request cannot answer from a new
   // window; settle its pendings so waiters fail instead of hanging. The same
   // holds for a chat tool execution the old renderer was told to run.
@@ -2556,7 +2561,7 @@ function initEventHandle() {
       embeddingModelName?: string,
       contextSize?: number,
       modelArgs?: string,
-      keepModelsLoaded?: boolean,
+      skipGpuAdmission?: boolean,
       options?: { remember?: boolean },
     ) => {
       if (!serviceRegistry) {
@@ -2570,10 +2575,8 @@ function initEventHandle() {
       try {
         await ensureChatBackendReady(
           { serviceName, llmModelName, embeddingModelName, contextSize, modelArgs },
-          // 6th IPC arg is the renderer's stopImageServer, misnamed here.
-          // Preserve the inverted gate: a truthy 6th arg skips GPU admission.
           {
-            skipGpuAdmission: Boolean(keepModelsLoaded),
+            skipGpuAdmission: Boolean(skipGpuAdmission),
             remember: options?.remember,
           },
         )
@@ -2593,6 +2596,17 @@ function initEventHandle() {
     setLastChatBackendLoadActive(Boolean(active))
     return { success: true }
   })
+
+  ipcMain.handle(
+    'rememberChatBackendLoad',
+    (_event: IpcMainInvokeEvent, args: ChatReadinessArgs) => {
+      if (typeof args?.serviceName !== 'string' || typeof args?.llmModelName !== 'string') {
+        return { success: false, error: 'invalid last-load args' }
+      }
+      rememberChatBackendLoad(args)
+      return { success: true }
+    },
+  )
 
   ipcMain.handle('ensureComfyUIBackendRunning', async () => {
     if (!serviceRegistry) {

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'ele
 import pkg from '../package.json'
 import { LocalSettings } from './main'
 import { ModelPaths } from '@/assets/js/store/models'
+import { cloneForIpc } from '@/lib/cloneForIpc'
 import {
   EmbedInquiry,
   IndexedDocument,
@@ -161,7 +162,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     embeddingModelName?: string,
     contextSize?: number,
     modelArgs?: string,
-    stopImageServer?: boolean,
+    skipGpuAdmission?: boolean,
     options?: { remember?: boolean },
   ) =>
     ipcRenderer.invoke(
@@ -171,11 +172,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       embeddingModelName,
       contextSize,
       modelArgs,
-      stopImageServer,
+      skipGpuAdmission,
       options,
     ),
   setLastChatBackendLoadActive: (active: boolean) =>
     ipcRenderer.invoke('setLastChatBackendLoadActive', active),
+  rememberChatBackendLoad: (
+    args: NonNullable<import('../src/types/chatIpc').ChatModelConfig['readiness']>,
+  ) => ipcRenderer.invoke('rememberChatBackendLoad', args),
   ensureComfyUIBackendRunning: () => ipcRenderer.invoke('ensureComfyUIBackendRunning'),
   artifact: {
     run: (
@@ -194,7 +198,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   chat: {
     submitTurn: (request: import('../src/types/chatIpc').ChatTurnRequest) =>
-      ipcRenderer.invoke('chat:submitTurn', request) as Promise<
+      ipcRenderer.invoke('chat:submitTurn', cloneForIpc(request)) as Promise<
         { success: true; turnId: string } | { success: false; error: string }
       >,
     resumeTurn: (conversationKey: string) =>
@@ -229,12 +233,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
         | { status: 'error'; error: string }
       >,
     migrate: (payload: unknown) =>
-      ipcRenderer.invoke('conversations:migrate', payload) as Promise<
+      ipcRenderer.invoke('conversations:migrate', cloneForIpc(payload)) as Promise<
         | import('../src/types/conversationIpc').ConversationBootstrap
         | { status: 'error'; error: string }
       >,
     save: (request: import('../src/types/conversationIpc').ConversationSaveRequest) =>
-      ipcRenderer.invoke('conversations:save', request) as Promise<
+      ipcRenderer.invoke('conversations:save', cloneForIpc(request)) as Promise<
         { success: true } | { success: false; error: string }
       >,
     delete: (id: string) =>
@@ -252,11 +256,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
         import('../src/types/mediaItemIpc').MediaItemsBootstrap | { status: 'error'; error: string }
       >,
     migrate: (items: unknown[]) =>
-      ipcRenderer.invoke('mediaItems:migrate', items) as Promise<
+      ipcRenderer.invoke('mediaItems:migrate', cloneForIpc(items)) as Promise<
         import('../src/types/mediaItemIpc').MediaItemsBootstrap | { status: 'error'; error: string }
       >,
     save: (items: unknown[]) =>
-      ipcRenderer.invoke('mediaItems:save', items) as Promise<
+      ipcRenderer.invoke('mediaItems:save', cloneForIpc(items)) as Promise<
         { success: true } | { success: false; error: string }
       >,
     delete: (ids: string[]) =>
@@ -270,11 +274,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
         { success: true; sections: Record<string, unknown> } | { success: false; error: string }
       >,
     migrate: (section: string, payload: unknown) =>
-      ipcRenderer.invoke('preferences:migrate', section, payload) as Promise<
+      ipcRenderer.invoke('preferences:migrate', section, cloneForIpc(payload)) as Promise<
         { success: true } | { success: false; error: string }
       >,
     write: (section: string, value: unknown) =>
-      ipcRenderer.invoke('preferences:write', section, value) as Promise<
+      ipcRenderer.invoke('preferences:write', section, cloneForIpc(value)) as Promise<
         { success: true } | { success: false; error: string }
       >,
   },
@@ -288,11 +292,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
         | { success: false; error: string }
       >,
     migrate: (payload: unknown) =>
-      ipcRenderer.invoke('ragDocuments:migrate', payload) as Promise<
+      ipcRenderer.invoke('ragDocuments:migrate', cloneForIpc(payload)) as Promise<
         { success: true } | { success: false; error: string }
       >,
     write: (value: unknown) =>
-      ipcRenderer.invoke('ragDocuments:write', value) as Promise<
+      ipcRenderer.invoke('ragDocuments:write', cloneForIpc(value)) as Promise<
         { success: true } | { success: false; error: string }
       >,
   },
@@ -301,7 +305,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       import('../src/types/preferencesIpc').BackendLaunchSettings
     >,
   migrateBackendLaunchSettings: (payload: unknown) =>
-    ipcRenderer.invoke('migrateBackendLaunchSettings', payload) as Promise<
+    ipcRenderer.invoke('migrateBackendLaunchSettings', cloneForIpc(payload)) as Promise<
       { success: true } | { success: false; error: string }
     >,
   startTranscriptionServer: (modelName: string) =>
@@ -404,13 +408,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   agentMode: {
     startTurn: (turnId: string, prompt: string, config: AgentModeTurnConfig) =>
-      ipcRenderer.invoke('agentMode:startTurn', turnId, prompt, config),
+      ipcRenderer.invoke('agentMode:startTurn', turnId, prompt, cloneForIpc(config)),
     cancel: () => ipcRenderer.invoke('agentMode:cancel'),
     resetSession: () => ipcRenderer.invoke('agentMode:resetSession'),
     deleteSession: (sessionId: string) => ipcRenderer.invoke('agentMode:deleteSession', sessionId),
     bootstrapSessions: () => ipcRenderer.invoke('agentMode:bootstrapSessions'),
-    migrateSessions: (legacy: unknown) => ipcRenderer.invoke('agentMode:migrateSessions', legacy),
-    saveSession: (record: unknown) => ipcRenderer.invoke('agentMode:saveSession', record),
+    migrateSessions: (legacy: unknown) =>
+      ipcRenderer.invoke('agentMode:migrateSessions', cloneForIpc(legacy)),
+    saveSession: (record: unknown) =>
+      ipcRenderer.invoke('agentMode:saveSession', cloneForIpc(record)),
     saveActiveSessionId: (id: string | null) =>
       ipcRenderer.invoke('agentMode:saveActiveSessionId', id),
     readWorkspaceState: () =>
@@ -422,11 +428,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
         | { success: false; error: string }
       >,
     migrateWorkspaceState: (payload: unknown) =>
-      ipcRenderer.invoke('agentMode:migrateWorkspaceState', payload) as Promise<
+      ipcRenderer.invoke('agentMode:migrateWorkspaceState', cloneForIpc(payload)) as Promise<
         { success: true } | { success: false; error: string }
       >,
     writeWorkspaceState: (value: unknown) =>
-      ipcRenderer.invoke('agentMode:writeWorkspaceState', value) as Promise<
+      ipcRenderer.invoke('agentMode:writeWorkspaceState', cloneForIpc(value)) as Promise<
         { success: true } | { success: false; error: string }
       >,
     importAttachment: (workspaceDir: string, name: string, bytes: Uint8Array) =>

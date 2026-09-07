@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { skipGpuAdmissionFromKeepModelsLoaded } from '@/lib/chatBackendSelection'
+
 vi.mock('../../logging/logger.ts', () => ({
   appLoggerInstance: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
@@ -9,6 +11,7 @@ const {
   lastChatBackendLoadActiveForTest,
   lastChatBackendLoadForTest,
   reloadLastChatBackend,
+  rememberChatBackendLoad,
   resetChatReadinessForTest,
   setChatReadinessDeps,
   setLastChatBackendLoadActive,
@@ -189,5 +192,41 @@ describe('chatReadiness', () => {
     await reloadLastChatBackend()
     expect(d.awaitChatWindow).not.toHaveBeenCalled()
     expect(d.ensureBackendReadiness).toHaveBeenCalledWith('LFM2.5', 'bge', 8192, '--jinja')
+  })
+
+  it('rememberChatBackendLoad notes the dropdown without loading', async () => {
+    const d = wire()
+    rememberChatBackendLoad({
+      serviceName: 'llamacpp-backend',
+      llmModelName: 'Qwen3-27B',
+      contextSize: 32768,
+    })
+    expect(d.getService).not.toHaveBeenCalled()
+    expect(d.ensureBackendReadiness).not.toHaveBeenCalled()
+    expect(lastChatBackendLoadForTest()?.llmModelName).toBe('Qwen3-27B')
+    expect(lastChatBackendLoadActiveForTest()).toBe(true)
+
+    d.ensureBackendReadiness.mockClear()
+    await reloadLastChatBackend()
+    expect(d.awaitChatWindow).not.toHaveBeenCalled()
+    expect(d.ensureBackendReadiness).toHaveBeenCalledWith('Qwen3-27B', undefined, 32768, undefined)
+  })
+
+  it('rememberChatBackendLoad ignores a non-chat service', () => {
+    rememberChatBackendLoad({ serviceName: 'comfyui-backend', llmModelName: 'unused' })
+    expect(lastChatBackendLoadForTest()).toBeNull()
+  })
+
+  it('keepModelsLoaded false admits the GPU; true skips it', async () => {
+    const d = wire()
+    await ensureChatBackendReady(loadArgs, {
+      skipGpuAdmission: skipGpuAdmissionFromKeepModelsLoaded(false),
+    })
+    expect(d.awaitChatWindow).toHaveBeenCalledTimes(1)
+    d.awaitChatWindow.mockClear()
+    await ensureChatBackendReady(loadArgs, {
+      skipGpuAdmission: skipGpuAdmissionFromKeepModelsLoaded(true),
+    })
+    expect(d.awaitChatWindow).not.toHaveBeenCalled()
   })
 })

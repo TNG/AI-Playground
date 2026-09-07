@@ -717,7 +717,7 @@ export const useBackendServices = defineStore('backendServices', () => {
     embeddingModelName?: string,
     contextSize?: number,
     modelArgs?: string,
-    stopImageServer?: boolean,
+    skipGpuAdmission?: boolean,
     options?: { remember?: boolean },
   ): Promise<void> {
     try {
@@ -727,7 +727,7 @@ export const useBackendServices = defineStore('backendServices', () => {
         embeddingModelName,
         contextSize,
         modelArgs,
-        stopImageServer,
+        skipGpuAdmission,
         options,
       )
       if (!result.success) {

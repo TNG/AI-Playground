@@ -11,6 +11,7 @@ import { useErrors } from './errors'
 import { unregisterAgentModeIpc } from './agentModeIpc'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { makeForwardPersist } from '@/lib/ipcPersist'
+import { cloneForIpc } from '@/lib/cloneForIpc'
 import {
   makeFileBackedPreference,
   type FileBackedPreferencesApi,
@@ -430,7 +431,9 @@ export const useAgentMode = defineStore(
       for (const id of Object.keys(next)) {
         if (previous[id] !== next[id]) {
           const record = next[id]
-          persistSessionMutation(() => window.electronAPI.agentMode.saveSession(record))
+          persistSessionMutation(() =>
+            window.electronAPI.agentMode.saveSession(cloneForIpc(record)),
+          )
         }
       }
     })

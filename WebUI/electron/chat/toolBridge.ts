@@ -26,14 +26,28 @@ function abortError(): Error {
   return error
 }
 
+const DEFAULT_TOOL_BRIDGE_TIMEOUT_MS = 10 * 60 * 1000
+
+let toolBridgeTimeoutMs = DEFAULT_TOOL_BRIDGE_TIMEOUT_MS
+
 type PendingToolRequest = {
   requestId: string
   turnId: string
+  toolName: string
+  timer: ReturnType<typeof setTimeout>
   resolve: (result: unknown) => void
   reject: (error: Error) => void
 }
 
 const pending = new Map<string, PendingToolRequest>()
+
+function dropPending(requestId: string): PendingToolRequest | undefined {
+  const entry = pending.get(requestId)
+  if (!entry) return undefined
+  pending.delete(requestId)
+  clearTimeout(entry.timer)
+  return entry
+}
 
 export function executeToolInRenderer<T>(
   payload: Omit<ChatToolExecution, 'requestId'>,
@@ -44,16 +58,25 @@ export function executeToolInRenderer<T>(
   }
   const requestId = randomUUID()
   return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const timedOut = dropPending(requestId)
+      if (!timedOut) return
+      timedOut.reject(
+        new Error(`Renderer tool '${payload.toolName}' timed out after ${toolBridgeTimeoutMs}ms`),
+      )
+    }, toolBridgeTimeoutMs)
     pending.set(requestId, {
       requestId,
       turnId: payload.turnId,
+      toolName: payload.toolName,
+      timer,
       resolve: resolve as (result: unknown) => void,
       reject,
     })
     try {
       win.webContents.send(TOOL_REQUEST_CHANNEL, { ...payload, requestId })
     } catch (error) {
-      pending.delete(requestId)
+      dropPending(requestId)
       reject(error instanceof Error ? error : new Error(String(error)))
     }
   })
@@ -62,9 +85,8 @@ export function executeToolInRenderer<T>(
 /** Wired to the `chat:toolResult` IPC channel in main. */
 export function handleChatToolResult(payload: ChatToolResult): void {
   if (typeof payload?.requestId !== 'string') return
-  const entry = pending.get(payload.requestId)
+  const entry = dropPending(payload.requestId)
   if (!entry) return
-  pending.delete(payload.requestId)
   if (payload.aborted) {
     entry.reject(abortError())
   } else if (payload.error !== undefined) {
@@ -76,24 +98,30 @@ export function handleChatToolResult(payload: ChatToolResult): void {
 
 /** Reject a cancelled turn's pending calls so the engine can abort its stream. */
 export function abortTurnToolRequests(turnId: string): void {
-  for (const entry of pending.values()) {
+  for (const entry of [...pending.values()]) {
     if (entry.turnId !== turnId) continue
-    pending.delete(entry.requestId)
+    dropPending(entry.requestId)
     entry.reject(abortError())
   }
 }
 
 /** Main calls this when the kernel window changes: the asked renderer is gone. */
 export function rejectAllChatToolRequests(reason: string): void {
-  for (const entry of pending.values()) {
+  for (const entry of [...pending.values()]) {
+    dropPending(entry.requestId)
     entry.reject(new Error(reason))
   }
-  pending.clear()
+}
+
+export function setChatToolBridgeTimeoutMsForTest(ms: number): void {
+  toolBridgeTimeoutMs = ms
 }
 
 // Test seam.
 export function resetChatToolBridgeForTest(): void {
+  for (const entry of pending.values()) clearTimeout(entry.timer)
   pending.clear()
+  toolBridgeTimeoutMs = DEFAULT_TOOL_BRIDGE_TIMEOUT_MS
 }
 
 export function chatToolRequestsPending(): number {

@@ -2,6 +2,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { makeFileBackedPreference } from '@/lib/fileBackedPreferences'
+import { cloneForIpc } from '@/lib/cloneForIpc'
 import { useComfyUiPresets } from './comfyUiPresets'
 import { useDemoMode } from './demoMode'
 import { useI18N } from './i18n'
@@ -539,7 +540,7 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     const errorsStore = useErrors()
     try {
       if (changed.length > 0) {
-        const result = await window.electronAPI.mediaItems.save(changed)
+        const result = await window.electronAPI.mediaItems.save(cloneForIpc(changed))
         if (result.success) {
           for (const item of changed) flushedMediaItems.set(item.id, mediaItemJson(item))
         } else {

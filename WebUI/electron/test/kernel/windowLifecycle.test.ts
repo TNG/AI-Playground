@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { resolveClosePolicy } from '../../kernel/windowLifecycle'
+import { describe, expect, it, vi } from 'vitest'
+import { bindRendererBusyReset, resolveClosePolicy } from '../../kernel/windowLifecycle'
 
 // The hidden-window close policy (architecture-target §5.1). Closing the app
 // window hides it while headless work a quit would orphan; otherwise it is a
@@ -34,5 +34,20 @@ describe('resolveClosePolicy', () => {
     expect(
       resolveClosePolicy({ homeAgentRunning: true, rendererBusy: true, agentTurnActive: true }),
     ).toBe('hide')
+  })
+})
+
+describe('bindRendererBusyReset', () => {
+  it('clears busy when the webContents is destroyed', () => {
+    const listeners = new Map<string, () => void>()
+    const webContents = {
+      once: (event: 'destroyed', listener: () => void) => {
+        listeners.set(event, listener)
+      },
+    }
+    const setBusy = vi.fn()
+    bindRendererBusyReset(webContents, setBusy)
+    listeners.get('destroyed')?.()
+    expect(setBusy).toHaveBeenCalledWith(false)
   })
 })

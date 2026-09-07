@@ -34,6 +34,10 @@ import { renamePresetKeys } from '@/lib/presetRenames'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { boundMaxOutputTokens } from '@/lib/maxOutputTokens'
 import {
+  chatBackendSelectionLoad,
+  skipGpuAdmissionFromKeepModelsLoaded,
+} from '@/lib/chatBackendSelection'
+import {
   isToolEnabled,
   readLegacyToolEnablement,
   seedToolEnablementPerPreset,
@@ -191,6 +195,16 @@ export const useTextInference = defineStore(
     // start/completeBackendPreparation).
     let backendPrepActivityId: string | null = null
     const backend = ref<LlmBackend>('llamaCPP')
+    const selectionMemoryPaused = ref(0)
+    function pauseChatBackendSelectionMemory(): () => void {
+      selectionMemoryPaused.value += 1
+      let released = false
+      return () => {
+        if (released) return
+        released = true
+        selectionMemoryPaused.value = Math.max(0, selectionMemoryPaused.value - 1)
+      }
+    }
     watch(
       backend,
       (next) => {
@@ -854,6 +868,35 @@ export const useTextInference = defineStore(
       const presetEnablesRag = activePreset.value?.enableRAG === true
       return hasCheckedDocuments && presetEnablesRag
     })
+
+    watch(
+      [
+        selectionMemoryPaused,
+        backend,
+        activeModel,
+        activeEmbeddingModel,
+        willUseRag,
+        contextSize,
+        () => activeLlmModel.value?.llamaCppArgs,
+      ],
+      () => {
+        if (typeof window === 'undefined' || selectionMemoryPaused.value > 0) return
+        const selection = chatBackendSelectionLoad({
+          backend: backend.value,
+          llmModelName: activeModel.value,
+          embeddingModelName: activeEmbeddingModel.value,
+          willUseRag: willUseRag.value,
+          contextSize: contextSize.value,
+          llamaCppArgs: activeLlmModel.value?.llamaCppArgs,
+        })
+        if (selection.kind !== 'local') return
+        const remember = window.electronAPI?.rememberChatBackendLoad
+        if (!remember) return
+        void remember(selection.load).catch((error: unknown) => {
+          console.warn('Could not remember chat backend selection:', error)
+        })
+      },
+    )
 
     // Phison KM RAG state (retrieval-mode toggle, availability gating, context-size
     // floor/stash) lives in its own module — see aidaptiv-km-rag-review-scope.md §W1.
@@ -1577,9 +1620,9 @@ export const useTextInference = defineStore(
         }
 
         try {
-          // The image-server stop and GPU-window admission are the
-          // orchestrator's now (main's ensureBackendReadiness handler, step 7)
-          // — the setting rides along so it can apply the same policy.
+          // The GPU-window admission is the orchestrator's (step 7). Keep
+          // Models Loaded skips that wait — the 6th IPC arg is skipGpuAdmission,
+          // not an inverted stopImageServer.
           await backendServices.ensureBackendReadiness(
             serviceName,
             llmModelName,
@@ -1588,7 +1631,7 @@ export const useTextInference = defineStore(
             // Only llama.cpp reads these; OVMS is started from a different
             // command line and ignores them.
             backend.value === 'llamaCPP' ? activeLlmModel.value?.llamaCppArgs : undefined,
-            !developerSettings.keepModelsLoaded,
+            skipGpuAdmissionFromKeepModelsLoaded(developerSettings.keepModelsLoaded),
             options,
           )
         } catch (error) {
@@ -2426,6 +2469,7 @@ export const useTextInference = defineStore(
       stampMetaForConversation,
       ensureGlobalsMatchConversation,
       applyPresetToGlobals,
+      pauseChatBackendSelectionMemory,
 
       // Tool calling support
       modelSupportsToolCalling,

@@ -30,3 +30,11 @@ export function resolveClosePolicy(inputs: ClosePolicyInputs): CloseDecision {
   const headlessWork = inputs.homeAgentRunning || inputs.rendererBusy || inputs.agentTurnActive
   return headlessWork ? 'hide' : 'close'
 }
+
+/** A crashed renderer must not leave `lifecycle:busy` stuck true (next close would hide). */
+export function bindRendererBusyReset(
+  webContents: { once: (event: 'destroyed', listener: () => void) => void },
+  setBusy: (busy: boolean) => void,
+): void {
+  webContents.once('destroyed', () => setBusy(false))
+}

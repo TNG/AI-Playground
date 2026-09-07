@@ -9,23 +9,69 @@ function conversationKeyFor(experimentalContext: unknown): string {
   return ctx?.conversationKey ?? useConversations().activeKey
 }
 
+type FileUrlWrapper = { type: 'url'; url: string }
+
+function isFileUrlWrapper(data: unknown): data is FileUrlWrapper {
+  return (
+    !!data &&
+    typeof data === 'object' &&
+    'type' in data &&
+    (data as FileUrlWrapper).type === 'url' &&
+    'url' in data &&
+    typeof (data as FileUrlWrapper).url === 'string'
+  )
+}
+
+function dataUrlToBlob(dataUrl: string, mediaType?: string): Blob {
+  const comma = dataUrl.indexOf(',')
+  const meta = comma >= 0 ? dataUrl.slice(0, comma) : ''
+  const payload = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl
+  const mimeFromMeta = /^data:([^;,]+)/.exec(meta)?.[1]
+  const bytes = meta.includes(';base64')
+    ? Uint8Array.from(atob(payload), (c) => c.charCodeAt(0))
+    : Uint8Array.from(decodeURIComponent(payload), (c) => c.charCodeAt(0))
+  const type = mediaType || mimeFromMeta
+  return new Blob([bytes], type ? { type } : undefined)
+}
+
+function base64ToBlob(b64: string, mediaType?: string): Blob {
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+  return new Blob([bytes], mediaType ? { type: mediaType } : undefined)
+}
+
 /**
  * Resolve a FilePart's data to a Blob. A FilePart carries either a URL (string
  * data URL / blob: / http, or a URL object) or the raw bytes — the AI SDK hands
  * over `Uint8Array`/`ArrayBuffer` (Buffer being a Uint8Array) whenever the part
  * was built from binary rather than a URL, and those used to be rejected as
  * "unsupported" even though the audio was right there.
+ *
+ * v7 also wraps some attachments as `{ type: 'url', url }`. `aipg-media://`
+ * cannot be `fetch()`ed from the renderer (Chromium blocks the custom scheme),
+ * so those reads go through main like images do.
  */
-async function filePartToBlob(data: FilePart['data'], mediaType?: string): Promise<Blob> {
+export async function filePartToBlob(
+  data: FilePart['data'] | FileUrlWrapper | unknown,
+  mediaType?: string,
+): Promise<Blob> {
   // Copy into a fresh ArrayBuffer-backed view: a Uint8Array may be backed by a
   // SharedArrayBuffer, which Blob does not accept.
   const asBlob = (bytes: Uint8Array<ArrayBuffer>) =>
     new Blob([bytes], mediaType ? { type: mediaType } : undefined)
   if (data instanceof Uint8Array) return asBlob(new Uint8Array(data))
   if (data instanceof ArrayBuffer) return asBlob(new Uint8Array(data))
+  if (isFileUrlWrapper(data)) return filePartToBlob(data.url, mediaType)
   const url = typeof data === 'string' ? data : data instanceof URL ? data.href : null
   if (!url) {
     throw new Error('Unsupported audio data (expected a data URL, URL, or raw bytes).')
+  }
+  if (url.startsWith('data:')) return dataUrlToBlob(url, mediaType)
+  if (url.startsWith('aipg-media://')) {
+    const result = await window.electronAPI.readAipgMediaAsBase64(url)
+    if (!result.success) {
+      throw new Error(`readAipgMediaAsBase64 failed: ${result.error}`)
+    }
+    return base64ToBlob(result.data, mediaType)
   }
   const response = await fetch(url)
   if (!response.ok) {

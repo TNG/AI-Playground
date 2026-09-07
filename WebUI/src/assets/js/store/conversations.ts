@@ -5,6 +5,7 @@ import { AipgUiMessage } from './openAiCompatibleChat'
 import { completeOrphanedToolParts, sanitizeBulkyToolOutputs } from '@/lib/toolMessageSanitize'
 import { currentPresetName } from '@/lib/presetRenames'
 import { makeForwardPersist } from '@/lib/ipcPersist'
+import { cloneForIpc } from '@/lib/cloneForIpc'
 import { useErrors } from './errors'
 import type { ConversationBootstrap, ConversationLegacyState } from '@/types/conversationIpc'
 
@@ -93,13 +94,15 @@ export const useConversations = defineStore('conversations', () => {
 
   function saveThread(conversationKey: string): void {
     forwardPersist(() =>
-      window.electronAPI.conversations.save({
-        id: conversationKey,
-        meta: conversationThreadMeta.value[conversationKey] ?? null,
-        ragHashes: conversationRagSelection.value[conversationKey] ?? [],
-        messages: conversationList.value[conversationKey] ?? [],
-        lastMainKey: lastMainKey.value,
-      }),
+      window.electronAPI.conversations.save(
+        cloneForIpc({
+          id: conversationKey,
+          meta: conversationThreadMeta.value[conversationKey] ?? null,
+          ragHashes: conversationRagSelection.value[conversationKey] ?? [],
+          messages: conversationList.value[conversationKey] ?? [],
+          lastMainKey: lastMainKey.value,
+        }),
+      ),
     )
   }
 

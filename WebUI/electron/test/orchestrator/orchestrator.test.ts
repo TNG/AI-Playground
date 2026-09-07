@@ -266,6 +266,24 @@ describe('the orchestrator', () => {
     expect(settled).toBe(true)
   })
 
+  it('rejects awaitChatWindow as soon as the signal aborts, not on the next poll', async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    const hold = holdNextRun()
+    const active = submitArtifactRun(payload())
+    await vi.waitFor(() => expect(d.stopChatForMedia).toHaveBeenCalled())
+
+    const ac = new AbortController()
+    const waiting = awaitChatWindow(ac.signal)
+    const started = Date.now()
+    ac.abort()
+    await expect(waiting).rejects.toThrow('Cancelled while waiting for the chat GPU window.')
+    expect(Date.now() - started).toBeLessThan(200)
+
+    hold.resolve({ state: 'completed', items: [] })
+    await active
+  })
+
   it('cancels a queued run by id without touching the active one', async () => {
     const d = deps()
     setOrchestratorDeps(d)

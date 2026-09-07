@@ -394,7 +394,7 @@ const CHAT_WINDOW_WAIT_MS = 300_000
 export async function awaitChatWindow(signal?: AbortSignal): Promise<void> {
   const start = Date.now()
   while (gpuWindow === 'media' || swapBackInFlight) {
-    if (signal?.aborted) throw new Error('Cancelled while waiting for the chat GPU window.')
+    if (signal?.aborted) throw cancelledChatWindow()
     if (Date.now() - start >= CHAT_WINDOW_WAIT_MS) {
       appLogger.warn(
         'Chat readiness proceeded while media still held the GPU (5min wait elapsed)',
@@ -402,7 +402,7 @@ export async function awaitChatWindow(signal?: AbortSignal): Promise<void> {
       )
       return
     }
-    await delay(500)
+    await delay(500, signal)
   }
 }
 
@@ -410,6 +410,24 @@ function waitForChatWindow(signal?: AbortSignal): Promise<void> {
   return awaitChatWindow(signal)
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+function cancelledChatWindow(): Error {
+  return new Error('Cancelled while waiting for the chat GPU window.')
+}
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(cancelledChatWindow())
+      return
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(cancelledChatWindow())
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
 }

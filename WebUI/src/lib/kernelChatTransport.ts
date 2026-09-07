@@ -2,6 +2,7 @@ import type { ChatTransport, UIMessageChunk } from 'ai'
 import type { ChatTurnRequest, ChatTurnResumeResult } from '@/types/chatIpc'
 import type { KernelEvent } from '@/types/kernelEvents'
 import type { AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
+import { cloneForIpc } from '@/lib/cloneForIpc'
 
 export type KernelChatTransportDeps = {
   submitTurn: (
@@ -146,12 +147,12 @@ export function createKernelChatTransport(
       ensureSubscribed()
       const state = createStreamState(options.chatId)
       try {
-        const request = {
+        const request = cloneForIpc({
           ...(options.body as Record<string, unknown> | undefined),
           conversationKey: options.chatId,
           trigger: options.trigger,
           messages: options.messages,
-        } as unknown as ChatTurnRequest
+        }) as unknown as ChatTurnRequest
         const result = await deps.submitTurn(request)
         if (!result.success) throw new Error(result.error)
         state.turnId = result.turnId

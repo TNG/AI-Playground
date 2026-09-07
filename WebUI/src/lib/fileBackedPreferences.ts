@@ -1,6 +1,7 @@
 import { ref, watch, type Ref } from 'vue'
 import { demoAwareStorage } from '../assets/js/demoAwareStorage'
 import { useErrors } from '@/assets/js/store/errors'
+import { cloneForIpc } from '@/lib/cloneForIpc'
 
 /**
  * The renderer half of the kernel-owned preferences file
@@ -104,8 +105,7 @@ export function makeFileBackedPreference(options: {
     const out: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(refs)) out[key] = value.value
     const shaped = toFile ? toFile(out) : out
-    // Electron IPC structured-clone rejects Vue proxies; pinia persist went through JSON.
-    return JSON.parse(JSON.stringify(shaped)) as Record<string, unknown>
+    return cloneForIpc(shaped)
   }
 
   function applySection(sectionValue: Record<string, unknown>): void {
@@ -279,9 +279,7 @@ export function makeFileBackedPreference(options: {
             // merge source, never an overlay — except a demo session, which
             // overlays in memory after a successful upload and never writes.
             if (!sectionPresent) applySection(legacySection)
-            const payload = JSON.parse(
-              JSON.stringify(toFile ? toFile(legacySection) : legacySection),
-            )
+            const payload = cloneForIpc(toFile ? toFile(legacySection) : legacySection)
             try {
               const migrated = await resolveApi().migrate(section, payload)
               if (migrated.success) {

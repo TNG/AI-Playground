@@ -70,6 +70,13 @@ export function setLastChatBackendLoadActive(active: boolean): void {
   lastLoadActive = active
 }
 
+/** Note the dropdown selection as last-load without starting a backend. */
+export function rememberChatBackendLoad(args: ChatReadinessArgs): void {
+  if (!isChatInferenceService(args.serviceName) || !args.llmModelName) return
+  lastLoad = { ...args }
+  lastLoadActive = true
+}
+
 function requireDeps(): ChatReadinessDeps {
   if (!deps) throw new Error('Chat readiness deps not wired')
   return deps

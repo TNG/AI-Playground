@@ -439,10 +439,13 @@ type electronAPI = {
     embeddingModelName?: string,
     contextSize?: number,
     modelArgs?: string,
-    stopImageServer?: boolean,
+    skipGpuAdmission?: boolean,
     options?: { remember?: boolean },
   ): Promise<{ success: boolean; error?: string }>
   setLastChatBackendLoadActive(active: boolean): Promise<{ success: boolean }>
+  rememberChatBackendLoad(
+    args: NonNullable<import('./types/chatIpc').ChatModelConfig['readiness']>,
+  ): Promise<{ success: boolean; error?: string }>
   ensureComfyUIBackendRunning(): Promise<{
     success: boolean
     error?: string

@@ -26,6 +26,11 @@ event and persistence fan-in is only in the Mermaid — for whiteboard sessions.
 into shapes with Excalidraw's built-in _Mermaid to Excalidraw_ (the "+" in the toolbar): paste a
 block, drag it around, then fold whatever we decide back into this file.
 
+The as-implemented picture after steps 1–8 — process/component overviews and sequences for boot,
+chat send, Image Gen, and the setup wizard — lives in
+[`docs/architecture-as-landed.md`](./architecture-as-landed.md). §2 below is the draft-time
+symptom diagram; it is not that picture.
+
 A shared canvas alone would drift from the code within a week and is unreviewable in a PR, which is
 why the prose and the decisions live here and the canvas is scratch space.
 
@@ -84,6 +89,9 @@ because a window is alive to host that graph.
 ---
 
 ## 2. Today
+
+Draft-time symptom picture (chat and media still in the renderer). For the tree as it is after
+steps 1–8, see [`architecture-as-landed.md`](./architecture-as-landed.md).
 
 ```mermaid
 flowchart TD

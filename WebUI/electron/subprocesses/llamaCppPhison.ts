@@ -73,13 +73,16 @@ const LLAMACPP_SSD_OFFLOAD_DEFAULT_CONFIG = {
 /**
  * The embedding server's own aiDAPTIV+ config.
  *
- * The llama.cpp `common` block is shared with the LLM config, but every
- * aiDAPTIV+ offload budget is zeroed: an embedding pass has no KV cache worth
- * parking on the SSD and no experts worth pinning in VRAM, so the LLM config's
- * reservations would be withheld from the LLM server for nothing.
+ * Deliberately nothing but the aiDAPTIV+ block. There is no `common` block: the
+ * embedding server is launched from the same startup-parameter string as the LLM,
+ * so the llama.cpp side is already on its argv, and a copy of the LLM config's
+ * `common` here would only be a second place to keep in sync. The aiDAPTIV+
+ * budgets are left out for the reason they were zeroed before — an embedding pass
+ * has no KV cache worth parking on the SSD and no experts worth pinning in VRAM,
+ * so the LLM config's reservations would be withheld from the LLM server for
+ * nothing.
  */
 const LLAMACPP_SSD_OFFLOAD_EMBEDDING_DEFAULT_CONFIG = {
-  common: { ...LLAMACPP_SSD_OFFLOAD_DEFAULT_CONFIG.common },
   aidaptiv: {
     debug_log_path: 'D:\\',
   },

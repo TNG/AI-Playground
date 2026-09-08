@@ -392,9 +392,10 @@ type electronAPI = {
   getDownloadedEmbeddingModels(): Promise<Model[]>
   getComfyUIModels(modelType: string): Promise<string[]>
   scanModelLibrary(): Promise<import('./assets/js/models/types').ModelLibraryScan>
-  /** GGUF facts the VRAM estimator needs; null when the model is not on disk. */
+  /** GGUF facts the VRAM estimator needs, read from disk or from the model's header on HuggingFace. */
   getLlamaCppVramInputs(
     modelName: string,
+    mmprojName?: string,
   ): Promise<import('../electron/llamaCppVramInputs').LlamaCppVramInputs | null>
   showModelInFolder(modelPath: string): Promise<{ success: boolean; error?: string }>
   deleteModelPath(modelPath: string): Promise<{ success: boolean; error?: string }>

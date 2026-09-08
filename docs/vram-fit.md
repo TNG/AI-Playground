@@ -7,9 +7,19 @@ recommendation** (hide / warn / allow).
 
 Machine-readable copy: [`vram-measurements.json`](vram-measurements.json).
 
-The estimator is **not wired into the UI yet**. Product defaults it already
-assumes: `--gpu-layers 999 --no-mmap`, flash-attn on, `nParallel: 1`,
-`VRAM_USABLE_FRACTION = 0.90` (`fit.ts`).
+The estimator drives the model-size chip next to the active model (status bar and
+model picker). Product defaults it assumes: `--gpu-layers 999 --no-mmap`,
+flash-attn on, `nParallel: 1`, `VRAM_USABLE_FRACTION = 0.90` (`fit.ts`).
+
+**The header is read whether or not the model is downloaded.** A GGUF's metadata
+sits at the front of the file, so `electron/remoteGgufMeta.ts` range-requests it
+from HuggingFace for a model that is not on disk — the verdict is worth the most
+before paying for the download. It grows the window (1 → 4 → 16 MiB, appending
+rather than refetching) until the header parses, takes the file's size from the
+`Content-Range` total and the projector's from a HEAD, refuses any response that
+is not a `206` (a server that ignored the range would hand back the whole model),
+and caches the result in `{userData}/gguf-vram-cache.json`. A 250k-token vocab
+costs ~16 MiB and ~6 s, once per model, ever.
 
 ## How these numbers were taken
 

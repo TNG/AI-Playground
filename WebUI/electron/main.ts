@@ -50,6 +50,7 @@ const execAsync = promisify(exec)
 import { randomUUID } from 'node:crypto'
 import { PathsManager } from './pathsManager'
 import { readLlamaCppVramInputs } from './llamaCppVramInputs.ts'
+import { readRemoteLlamaCppVramInputs } from './remoteGgufMeta.ts'
 import { writableConfigFile } from './userConfig.ts'
 import { appLoggerInstance } from './logging/logger.ts'
 import {
@@ -1707,14 +1708,26 @@ function initEventHandle() {
     return pathsManager.scanModelLibrary()
   })
 
-  ipcMain.handle('getLlamaCppVramInputs', (_event, modelName: string) => {
-    try {
-      return readLlamaCppVramInputs(pathsManager.modelPaths.ggufLLM, modelName) ?? null
-    } catch (error) {
-      appLogger.warn(`Could not read VRAM inputs for ${modelName}: ${error}`, 'electron-backend')
-      return null
-    }
-  })
+  ipcMain.handle(
+    'getLlamaCppVramInputs',
+    async (_event, modelName: string, mmprojName?: string) => {
+      try {
+        const local = readLlamaCppVramInputs(pathsManager.modelPaths.ggufLLM, modelName)
+        if (local) return local
+        const remote = await readRemoteLlamaCppVramInputs(
+          { name: modelName, mmproj: mmprojName },
+          {
+            endpoint: settings.huggingfaceEndpoint,
+            cachePath: path.join(app.getPath('userData'), 'gguf-vram-cache.json'),
+          },
+        )
+        return remote ?? null
+      } catch (error) {
+        appLogger.warn(`Could not read VRAM inputs for ${modelName}: ${error}`, 'electron-backend')
+        return null
+      }
+    },
+  )
 
   ipcMain.handle('showModelInFolder', (_event, modelPath: string) => {
     const resolved = pathsManager.resolveModelPath(modelPath)

@@ -132,8 +132,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getDownloadedEmbeddingModels: () => ipcRenderer.invoke('getDownloadedEmbeddingModels'),
   getComfyUIModels: (modelType: string) => ipcRenderer.invoke('getComfyUIModels', modelType),
   scanModelLibrary: () => ipcRenderer.invoke('scanModelLibrary'),
-  getLlamaCppVramInputs: (modelName: string) =>
-    ipcRenderer.invoke('getLlamaCppVramInputs', modelName),
+  getLlamaCppVramInputs: (modelName: string, mmprojName?: string) =>
+    ipcRenderer.invoke('getLlamaCppVramInputs', modelName, mmprojName),
   showModelInFolder: (modelPath: string) => ipcRenderer.invoke('showModelInFolder', modelPath),
   deleteModelPath: (modelPath: string) => ipcRenderer.invoke('deleteModelPath', modelPath),
   getPlatform: () => ipcRenderer.invoke('getPlatform') as Promise<NodeJS.Platform>,

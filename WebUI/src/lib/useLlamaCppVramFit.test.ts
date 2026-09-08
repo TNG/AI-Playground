@@ -97,6 +97,26 @@ describe('useLlamaCppVramFit', () => {
     expect(getLlamaCppVramInputs).toHaveBeenCalledTimes(reads)
   })
 
+  it('judges a model that is not downloaded yet, projector included', async () => {
+    textInference.llmModels = [
+      {
+        name: 'owner/repo/not-here.gguf',
+        mmproj: 'owner/repo/mmproj-BF16.gguf',
+        type: 'llamaCPP',
+        active: true,
+        downloaded: false,
+      },
+    ]
+    const { summary } = useLlamaCppVramFit()
+    await settle()
+
+    expect(getLlamaCppVramInputs).toHaveBeenCalledWith(
+      'owner/repo/not-here.gguf',
+      'owner/repo/mmproj-BF16.gguf',
+    )
+    expect(summary.value?.level).toBe('easy')
+  })
+
   it('turns red once the model no longer fits the card', async () => {
     computeMetrics.primaryGpu = { memTotalMiB: 4 * 1024, memUsedMiB: 512 }
     const { summary } = useLlamaCppVramFit()

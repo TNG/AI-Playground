@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 
-import { archFromMetadata } from '@/lib/vram/arch'
+import { archFromMetadata, archIsSettled } from '@/lib/vram/arch'
 import { bytesReader, parseGgufMetadata } from '@/lib/vram/gguf'
 import type { LlamaCppVramInputs } from './llamaCppVramInputs'
 
@@ -66,20 +66,49 @@ async function fetchRange(
 }
 
 /** Size without the bytes: HF answers a HEAD with the linked LFS object's size. */
-async function remoteFileSize(url: string, options: RemoteLookupOptions): Promise<number> {
+async function remoteFileSize(
+  url: string,
+  options: RemoteLookupOptions,
+): Promise<number | undefined> {
   const request = options.fetchImpl ?? fetch
   const response = await request(url, {
     method: 'HEAD',
     headers: authHeaders(options.token),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   })
-  if (!response.ok) return 0
+  if (!response.ok) return undefined
   const size = response.headers.get('x-linked-size') ?? response.headers.get('content-length')
-  return Number(size) || 0
+  return Number(size) || undefined
 }
 
-const truncated = (error: unknown): boolean =>
-  error instanceof Error && error.message.includes('EOF')
+const SHARD_PATTERN = /^(.*)-(\d{5})-of-(\d{5})\.gguf$/
+
+/**
+ * A split model is loaded whole, so its weights are every shard — the file the
+ * catalog names is only the first. Undefined when a shard cannot be sized: a sum
+ * that silently misses 80 GB would show a 122B model as a comfortable fit.
+ */
+async function shardedWeightsBytes(
+  name: string,
+  knownShardBytes: number,
+  options: RemoteLookupOptions,
+): Promise<number | undefined> {
+  const parts = name.split('/')
+  const shard = SHARD_PATTERN.exec(parts[parts.length - 1])
+  if (!shard) return knownShardBytes
+  const [, stem, index, count] = shard
+
+  let total = knownShardBytes
+  for (let i = 1; i <= Number(count); i++) {
+    if (i === Number(index)) continue
+    const file = `${stem}-${String(i).padStart(5, '0')}-of-${count}.gguf`
+    const url = huggingFaceResolveUrl(options.endpoint, [...parts.slice(0, -1), file].join('/'))
+    const size = url ? await remoteFileSize(url, options) : undefined
+    if (!size) return undefined
+    total += size
+  }
+  return total
+}
 
 type Cache = { version: number; models: Record<string, LlamaCppVramInputs> }
 
@@ -134,18 +163,23 @@ export async function readRemoteLlamaCppVramInputs(
     weightsBytes = chunk.totalBytes
     let arch
     try {
-      arch = archFromMetadata(parseGgufMetadata(bytesReader(prefix)))
-    } catch (error) {
-      if (truncated(error) && length !== PREFIX_LENGTHS[PREFIX_LENGTHS.length - 1]) continue
-      return undefined
+      const metadata = parseGgufMetadata(bytesReader(prefix), { allowTruncated: true })
+      // An unsettled header is worse than none: the missing keys are the ones
+      // that decide which KV path the model takes.
+      if (!archIsSettled(metadata)) continue
+      arch = archFromMetadata(metadata)
+    } catch {
+      return undefined // Not a GGUF.
     }
+    const allShards = await shardedWeightsBytes(model.name, weightsBytes, options)
+    if (!allShards) return undefined
     const mmprojUrl = model.mmproj
       ? huggingFaceResolveUrl(options.endpoint, model.mmproj)
       : undefined
     const inputs: LlamaCppVramInputs = {
       arch,
-      weightsBytes,
-      mmprojBytes: mmprojUrl ? await remoteFileSize(mmprojUrl, options) : 0,
+      weightsBytes: allShards,
+      mmprojBytes: (mmprojUrl ? await remoteFileSize(mmprojUrl, options) : 0) ?? 0,
     }
     writeCache(options.cachePath, model.name, inputs)
     return inputs

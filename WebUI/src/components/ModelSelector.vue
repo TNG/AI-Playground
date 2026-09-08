@@ -136,6 +136,7 @@ const items = computed(() => {
     .map((item) => ({
       label: item.name.split('/').at(-1) ?? item.name,
       value: item.name,
+      model: item,
       active: item.downloaded,
       supportsToolCalling: item.supportsToolCalling,
       supportsVision: item.supportsVision,
@@ -243,7 +244,8 @@ watchEffect(() => {
             ></div>
             <StarIcon v-if="item.favorite" class="size-3 mr-1.5 shrink-0 text-primary" />
             <span class="flex-1 truncate">{{ item.label }}</span>
-            <div class="flex gap-1 ml-2 shrink-0">
+            <div class="flex items-center gap-1 ml-2 shrink-0">
+              <ModelVramFit :model="item.model" icon-size="size-3.5" />
               <CapabilityIcons
                 :model="{
                   supportsVision: item.supportsVision,

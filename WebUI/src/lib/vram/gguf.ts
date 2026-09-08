@@ -6,6 +6,8 @@ export type GgufMetadata = {
   architecture?: string
   vocabSize?: number
   values: Map<string, GgufScalar>
+  /** The bytes ran out mid-header; `values` holds what was read up to there. */
+  truncated?: boolean
 }
 
 export type GgufReader = {
@@ -14,6 +16,13 @@ export type GgufReader = {
 }
 
 const GGUF_MAGIC = 0x46554747
+export const GGUF_EOF_MESSAGE = 'Unexpected EOF in GGUF header'
+
+/** Whether a read failed for want of bytes rather than because the file is wrong. */
+export function isGgufTruncation(error: unknown): boolean {
+  return error instanceof Error && error.message === GGUF_EOF_MESSAGE
+}
+
 const TYPE_SIZE: Record<number, number> = {
   0: 1,
   1: 1,
@@ -49,7 +58,7 @@ export function bytesReader(bytes: Uint8Array): GgufReader {
   return {
     read(n) {
       if (offset + n > bytes.length) {
-        throw new Error('Unexpected EOF in GGUF header')
+        throw new Error(GGUF_EOF_MESSAGE)
       }
       const slice = bytes.subarray(offset, offset + n)
       offset += n
@@ -57,14 +66,22 @@ export function bytesReader(bytes: Uint8Array): GgufReader {
     },
     skip(n) {
       if (offset + n > bytes.length) {
-        throw new Error('Unexpected EOF in GGUF header')
+        throw new Error(GGUF_EOF_MESSAGE)
       }
       offset += n
     },
   }
 }
 
-export function parseGgufMetadata(reader: GgufReader): GgufMetadata {
+/**
+ * `allowTruncated` stops at the byte the reader ran out on and marks the result,
+ * instead of throwing: a header's `<arch>.*` keys precede the tokenizer's, so a
+ * partial read is often already everything the estimator asks for.
+ */
+export function parseGgufMetadata(
+  reader: GgufReader,
+  options?: { allowTruncated?: boolean },
+): GgufMetadata {
   const magic = readU32(reader)
   if (magic !== GGUF_MAGIC) {
     throw new Error('Not a GGUF file')
@@ -79,22 +96,28 @@ export function parseGgufMetadata(reader: GgufReader): GgufMetadata {
   let vocabSize: number | undefined
   let architecture: string | undefined
 
-  for (let i = 0; i < kvCount; i++) {
-    const key = readString(reader)
-    const vtype = readU32(reader)
-    if (key === 'tokenizer.ggml.tokens' && vtype === GgufType.Array) {
-      const atype = readU32(reader)
-      const alen = readU64(reader)
-      vocabSize = alen
-      skipArrayBody(reader, atype, alen)
-      continue
+  let truncated = false
+  try {
+    for (let i = 0; i < kvCount; i++) {
+      const key = readString(reader)
+      const vtype = readU32(reader)
+      if (key === 'tokenizer.ggml.tokens' && vtype === GgufType.Array) {
+        const atype = readU32(reader)
+        const alen = readU64(reader)
+        vocabSize = alen
+        skipArrayBody(reader, atype, alen)
+        continue
+      }
+      const value = readValue(reader, vtype)
+      if (value === undefined) continue
+      values.set(key, value)
+      if (key === 'general.architecture' && typeof value === 'string') {
+        architecture = value
+      }
     }
-    const value = readValue(reader, vtype)
-    if (value === undefined) continue
-    values.set(key, value)
-    if (key === 'general.architecture' && typeof value === 'string') {
-      architecture = value
-    }
+  } catch (error) {
+    if (!options?.allowTruncated || !isGgufTruncation(error)) throw error
+    truncated = true
   }
 
   const vocabFromKey = numberValue(values, architecture ? `${architecture}.vocab_size` : undefined)
@@ -104,6 +127,7 @@ export function parseGgufMetadata(reader: GgufReader): GgufMetadata {
     architecture,
     vocabSize: vocabFromKey ?? vocabSize,
     values,
+    truncated,
   }
 }
 

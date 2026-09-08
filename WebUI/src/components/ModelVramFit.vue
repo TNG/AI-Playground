@@ -3,20 +3,23 @@ import { computed } from 'vue'
 import { PuzzlePieceIcon } from '@heroicons/vue/24/outline'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useI18N } from '@/assets/js/store/i18n'
+import type { LlmModel } from '@/assets/js/store/textInference'
 import { formatBytes } from '@/assets/js/models/library'
 import { useLlamaCppVramFit, type VramFitPoint } from '@/lib/useLlamaCppVramFit'
 import type { VramFitLevel } from '@/lib/vram'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
+    /** Defaults to the active model; pass one to judge a model in a list. */
+    model?: LlmModel
     iconSize?: string
     delayDuration?: number
   }>(),
-  { iconSize: 'size-4', delayDuration: 200 },
+  { model: undefined, iconSize: 'size-4', delayDuration: 200 },
 )
 
 const i18nState = useI18N().state
-const { summary } = useLlamaCppVramFit()
+const { summary } = useLlamaCppVramFit(props.model ? computed(() => props.model) : undefined)
 
 const LEVEL_COLOR: Record<VramFitLevel, string> = {
   easy: 'text-green-500',
@@ -81,13 +84,17 @@ const rows = computed(() => {
   <TooltipProvider v-if="summary">
     <Tooltip :delay-duration="delayDuration">
       <TooltipTrigger as-child>
-        <button
-          type="button"
+        <!-- A row of the picker is itself the control: a nested button would take
+             the menu's focus and swallow the click that selects the model. -->
+        <component
+          :is="model ? 'span' : 'button'"
+          :type="model ? undefined : 'button'"
+          :role="model ? 'img' : undefined"
           class="flex flex-none items-center cursor-help"
           :aria-label="t('VRAM_FIT_ARIA', { level: levelLabel })"
         >
           <PuzzlePieceIcon :class="[iconSize, LEVEL_COLOR[summary.level]]" />
-        </button>
+        </component>
       </TooltipTrigger>
       <TooltipContent
         align="start"

@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { archFromMetadata } from '@/lib/vram/arch'
+import { archFromMetadata, archIsSettled } from '@/lib/vram/arch'
 import type { GgufArch } from '@/lib/vram/types'
 import { normalizeModelKey } from '@/assets/js/models/library'
 import { readGgufMetadataFromFile } from './ggufRead.ts'
@@ -74,13 +74,23 @@ export function mmprojBytesFor(modelPath: string): number {
   return mmproj ? fileSize(path.join(dir, mmproj)) : 0
 }
 
+/** Enough for the `<arch>.*` keys of every model in the catalog; see `archIsSettled`. */
+const ARCH_WINDOW_BYTES = 1 << 20
+
 export function readLlamaCppVramInputs(
   ggufDir: string,
   modelName: string,
 ): LlamaCppVramInputs | undefined {
   const modelPath = resolveGgufPath(ggufDir, modelName)
   if (!modelPath) return undefined
-  const arch = archFromMetadata(readGgufMetadataFromFile(modelPath))
+  // Reading past the tokenizer costs a syscall per token, so stop as soon as the
+  // header has said what the estimator needs.
+  let metadata = readGgufMetadataFromFile(modelPath, {
+    limit: ARCH_WINDOW_BYTES,
+    allowTruncated: true,
+  })
+  if (!archIsSettled(metadata)) metadata = readGgufMetadataFromFile(modelPath)
+  const arch = archFromMetadata(metadata)
   return {
     arch,
     weightsBytes: weightsBytesFor(modelPath),

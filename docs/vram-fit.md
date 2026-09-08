@@ -7,19 +7,39 @@ recommendation** (hide / warn / allow).
 
 Machine-readable copy: [`vram-measurements.json`](vram-measurements.json).
 
-The estimator drives the model-size chip next to the active model (status bar and
-model picker). Product defaults it assumes: `--gpu-layers 999 --no-mmap`,
-flash-attn on, `nParallel: 1`, `VRAM_USABLE_FRACTION = 0.90` (`fit.ts`).
+The estimator drives the model-size chip: next to the active model (status bar and
+the picker's trigger) and on **every row of the picker's list**, so the verdict is
+there while choosing rather than after. Product defaults it assumes:
+`--gpu-layers 999 --no-mmap`, flash-attn on, `nParallel: 1`,
+`VRAM_USABLE_FRACTION = 0.90` (`fit.ts`).
 
 **The header is read whether or not the model is downloaded.** A GGUF's metadata
 sits at the front of the file, so `electron/remoteGgufMeta.ts` range-requests it
 from HuggingFace for a model that is not on disk — the verdict is worth the most
 before paying for the download. It grows the window (1 → 4 → 16 MiB, appending
-rather than refetching) until the header parses, takes the file's size from the
-`Content-Range` total and the projector's from a HEAD, refuses any response that
-is not a `206` (a server that ignored the range would hand back the whole model),
-and caches the result in `{userData}/gguf-vram-cache.json`. A 250k-token vocab
-costs ~16 MiB and ~6 s, once per model, ever.
+rather than refetching), takes the file's size from the `Content-Range` total and
+the projector's from a HEAD, refuses any response that is not a `206` (a server
+that ignored the range would hand back the whole model), and caches the result in
+`{userData}/gguf-vram-cache.json`.
+
+**A megabyte is the whole answer, and the parser is allowed to stop there.**
+Reading a header to its end costs ~16 MiB and ~6 s for a 250k-token vocabulary,
+which a list of 30 models cannot pay. Writers emit every `<arch>.*` key before the
+tokenizer's, and a vocabulary's size is its array length — known before its
+contents — so a parse that reached the tokenizer already holds everything the
+estimator reads. `parseGgufMetadata(reader, { allowTruncated: true })` returns
+what it got, `archIsSettled` decides whether that is enough, and only an unsettled
+header grows the window (or, on disk, re-reads without a limit). Checked against
+the six architectures in the catalog — hybrid, MoE, SWA, dense, gpt-oss, MTP — one
+megabyte gives byte-identical arch and identical estimates to the full header.
+The whole llamaCPP catalog then reads in 40 MiB and ~70 s cold, sequentially; the
+picker reads three at a time and each result is cached for good.
+
+**A split model's weights are all of its shards.** The catalog names shard one, and
+its size alone made a 122B model look like 0.9 GiB and green; `shardedWeightsBytes`
+HEADs the rest and refuses to answer at all if one cannot be sized. A model whose
+file 404s (three in the catalog point at names their repo does not have) gets no
+chip, which is the honest answer — it cannot be downloaded either.
 
 ## How these numbers were taken
 

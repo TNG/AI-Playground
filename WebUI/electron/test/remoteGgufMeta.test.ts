@@ -126,6 +126,34 @@ describe('readRemoteLlamaCppVramInputs', () => {
     expect(cancel).toHaveBeenCalled()
   })
 
+  it('counts every shard of a split model', async () => {
+    const name = 'owner/repo/Q4_K_M/model-00001-of-00003.gguf'
+    const inputs = await readRemoteLlamaCppVramInputs(
+      { name },
+      { endpoint: ENDPOINT, cachePath, fetchImpl: fakeHuggingFace() },
+    )
+
+    expect(inputs?.weightsBytes).toBe(WEIGHTS_BYTES + 2 * MMPROJ_BYTES)
+    expect(requests.filter((r) => r.method === 'HEAD').map((r) => r.url)).toEqual([
+      `${ENDPOINT}/owner/repo/resolve/main/Q4_K_M/model-00002-of-00003.gguf`,
+      `${ENDPOINT}/owner/repo/resolve/main/Q4_K_M/model-00003-of-00003.gguf`,
+    ])
+  })
+
+  it('says nothing at all when a shard cannot be sized', async () => {
+    const missingShard = (async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') return new Response(null, { status: 404 })
+      return fakeHuggingFace()(url, init)
+    }) as unknown as typeof fetch
+
+    const inputs = await readRemoteLlamaCppVramInputs(
+      { name: 'owner/repo/model-00001-of-00002.gguf' },
+      { endpoint: ENDPOINT, cachePath, fetchImpl: missingShard },
+    )
+
+    expect(inputs).toBeUndefined()
+  })
+
   it('remembers a header across app starts, and re-reads nothing', async () => {
     const options = { endpoint: ENDPOINT, cachePath, fetchImpl: fakeHuggingFace() }
     await readRemoteLlamaCppVramInputs(MODEL, options)

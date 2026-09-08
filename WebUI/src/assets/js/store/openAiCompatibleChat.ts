@@ -35,7 +35,7 @@ import z from 'zod'
 import { AipgTools } from '../tools/tools'
 import { JSONSchema7 } from '@ai-sdk/provider'
 import { dynamicTool, jsonSchema, type ToolResultOutput } from '@ai-sdk/provider-utils'
-import { imageUrlToDataUri } from '@/lib/utils'
+import { imageUrlToDataUri, isAipgMediaUrl } from '@/lib/utils'
 import { noteChatTimings, noteChatTraceContext } from '@/lib/laminarTelemetry'
 import { useQwen3TextToSpeech } from './qwen3TextToSpeech'
 import { useTextToSpeech } from './textToSpeech'
@@ -468,9 +468,7 @@ export const useOpenAiCompatibleChat = defineStore(
           Array.isArray(msg.content) &&
           msg.content.some(
             (part) =>
-              part.type === 'file' &&
-              typeof part.data === 'string' &&
-              part.data.startsWith('aipg-media://'),
+              part.type === 'file' && typeof part.data === 'string' && isAipgMediaUrl(part.data),
           ),
       )
       const convertMedia = async () =>
@@ -483,7 +481,7 @@ export const useOpenAiCompatibleChat = defineStore(
                   part.type === 'file' &&
                   part.mediaType?.startsWith('image/') &&
                   typeof part.data === 'string' &&
-                  part.data.startsWith('aipg-media://')
+                  isAipgMediaUrl(part.data)
                 ) {
                   return { ...part, data: await imageUrlToDataUri(part.data) }
                 }

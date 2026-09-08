@@ -3,6 +3,7 @@ import { ref, reactive } from 'vue'
 import { ModelLists } from './models'
 import { useModels } from './models'
 import { useBackendServices } from './backendServices'
+import { toHeadlessSafeBaseUrl } from '@/lib/loopbackAuth'
 
 type GlobalSetupState = 'running' | 'verifyBackend' | 'setupWizard' | 'loading' | 'failed'
 
@@ -47,7 +48,7 @@ export const useGlobalSetup = defineStore('globalSetup', () => {
     state.version = setupData.version
     state.modelFolderReadOnly = setupData.modelFolderReadOnly
     const aiBackendInfo = await waitForAiBackend()
-    defaultBackendBaseUrl.value = aiBackendInfo.baseUrl
+    defaultBackendBaseUrl.value = toHeadlessSafeBaseUrl(aiBackendInfo.baseUrl, 'ai-backend')
   }
 
   return {

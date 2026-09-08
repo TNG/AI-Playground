@@ -63,6 +63,40 @@ export const COMFYUI_DEFAULT_PARAMETERS = '--lowvram --reserve-vram 6.0'
 
 const UPSTREAM_PYPROJECT_BACKUP = 'pyproject.toml.aipg-upstream'
 
+// The bundled pyproject.toml declares `environments`/`required-environments` for
+// win32 + darwin + linux together, so one canonical file can regenerate a single
+// universal uv.lock covering every OS this app ships on. But installBackendWithExtra
+// deletes the bundled uv.lock before `uv sync` (see below — needed to support
+// multiple PyTorch variants), so uv resolves fresh on every install, and per that
+// universal environments list it must validate metadata for *all three* platforms'
+// markers — including e.g. the macOS-only insightface wheel — even though only the
+// host OS's packages will ever actually be installed. On a machine that can't reach
+// that platform's wheel host (e.g. Linux CI/containers without access to every
+// GitHub release asset), the whole sync fails for a package that was never going to
+// be installed anyway. Restrict the in-tree *copy* (never the canonical source, so
+// `uv lock` still regenerates the shared universal lockfile during development) to
+// just the host platform before syncing.
+//
+// Linux-only on purpose. The unreachable-wheel-host problem above was only ever
+// observed on Linux CI/containers, but the rewrite itself is platform-agnostic:
+// left ungated it would also narrow a Windows or macOS user's resolution to their
+// own marker, freeing uv (running here with `index-strategy = "unsafe-best-match"`
+// and `prerelease = "if-necessary-or-explicit"`) to select versions the universal
+// resolution had deliberately ruled out. Changing which dependencies a Windows
+// install resolves to is not something this workaround is entitled to do.
+async function restrictPyprojectToHostPlatform(pyprojectPath: string): Promise<void> {
+  if (process.platform !== 'linux') return
+  const content = await fs.promises.readFile(pyprojectPath, 'utf-8')
+  const hostEnvironment = `"sys_platform == '${process.platform}'"`
+  const patched = content.replace(
+    /^(required-environments|environments)\s*=\s*\[.*\]\s*$/gm,
+    (_match, key: string) => `${key} = [${hostEnvironment}]`,
+  )
+  if (patched !== content) {
+    await fs.promises.writeFile(pyprojectPath, patched, 'utf-8')
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Linux Intel-GPU runtime detection (XPU variant)
 // ---------------------------------------------------------------------------
@@ -1106,6 +1140,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
             this.name,
           )
           await filesystem.copyFile(pyprojectSource, pyprojectTarget)
+          await restrictPyprojectToHostPlatform(pyprojectTarget)
           // Don't copy the bundled uv.lock anymore. We need to support different PyTorch variants
           // (xpu/cuda/cpu) depending on selected productMode, so we let uv resolve the lock in-tree.
           try {

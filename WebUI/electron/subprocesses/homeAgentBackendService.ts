@@ -14,7 +14,19 @@ import { spawnBackend } from './processLifecycle.ts'
 // copy avoids the renderer-side store importing electron types and vice
 // versa; the contract is small enough that drift is easy to spot.
 
-type ChannelKind = 'telegram' | 'slack' | 'discord' | 'local-web'
+export type ChannelKind = 'telegram' | 'slack' | 'discord' | 'local-web'
+
+export type ChannelSendAction =
+  | 'reply'
+  | 'update'
+  | 'photo'
+  | 'video'
+  | 'voice'
+  | 'document'
+  | 'typing'
+  | 'keyboard'
+  | 'editMessage'
+  | 'history'
 
 type EncryptedField = { type: string; data: number[] }
 

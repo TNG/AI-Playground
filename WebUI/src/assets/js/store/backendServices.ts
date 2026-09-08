@@ -431,6 +431,33 @@ export const useBackendServices = defineStore(
       return run
     }
 
+    function sleep(ms: number): Promise<void> {
+      return new Promise((resolve) => setTimeout(resolve, ms))
+    }
+
+    /**
+     * Backstop for a dropped SSE 'serviceSetUpProgress' terminal event — a network
+     * hiccup, backgrounded tab, or EventSource reconnect gap (mainly a headless/
+     * browser-mode risk; Electron's native IPC doesn't have this failure mode) can
+     * otherwise leave setUpService() waiting forever on an install that actually
+     * finished on the backend. After a grace period, poll the backend's real status
+     * via a fresh REST/IPC call (bypassing SSE/push events entirely) until it
+     * leaves the transient 'installing'/'stopping' states.
+     */
+    async function pollServiceStatusUntilSettled(
+      serviceName: BackendServiceName,
+    ): Promise<ApiServiceInformation | undefined> {
+      await sleep(10_000)
+      for (;;) {
+        const services = await window.electronAPI.getServices()
+        const info = services.find((s) => s.serviceName === serviceName)
+        if (info && info.status !== 'installing' && info.status !== 'stopping') {
+          return info
+        }
+        await sleep(3_000)
+      }
+    }
+
     async function runSetUpService(
       serviceName: BackendServiceName,
       versionToInstall?: BackendVersion,
@@ -481,7 +508,25 @@ export const useBackendServices = defineStore(
             error instanceof Error ? error.message : String(error),
           ),
       )
-      const result = await listener.awaitFinalizationAndResetData()
+      const finalization = listener.awaitFinalizationAndResetData()
+      // Headless/browser mode only. Electron's native IPC cannot drop the terminal
+      // event this polls for, and racing it on desktop is actively harmful: the
+      // poll treats any status outside 'installing'/'stopping' as terminal, but
+      // several set_up() implementations pass through 'stopped' mid-install (OVMS
+      // tears down five model servers before setStatus('installing');
+      // qwen3-tts awaits this.stop() after git.ensureInstalled(), well past the
+      // 10 s grace). Sampling that transient reports success on a half-finished
+      // install and throws away the collected setup log with it.
+      const result = window.electronAPI.isHeadlessBridge
+        ? await Promise.race([
+            finalization,
+            pollServiceStatusUntilSettled(serviceName).then((info) => ({
+              success: info?.status !== 'installationFailed' && info?.status !== 'failed',
+              logs: [],
+              errorDetails: info?.errorDetails ?? null,
+            })),
+          ])
+        : await finalization
       if (result.success) {
         await detectDevices(serviceName)
         // Installed version is now automatically updated via serviceInfoUpdate

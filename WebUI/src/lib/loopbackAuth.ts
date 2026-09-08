@@ -8,6 +8,25 @@ import type { BackendServiceName } from '@/assets/js/store/backendServices'
 // The cache is invalidated whenever a fetch fails with 401, in case the
 // backend was restarted under us with a fresh token.
 
+/**
+ * Rewrites a backend's own 127.0.0.1:<port> baseUrl into the headless server's
+ * `/api/proxy/<serviceName>` reverse-proxy path when running as the browser/SSE
+ * polyfill (see electron-api-polyfill.js). That raw address is only reachable
+ * when the browser is on the same host as the container — over an SSH tunnel
+ * that forwards only the headless server's single port, it means the
+ * BROWSER's own machine instead, and every fetch to it fails with a generic
+ * "Failed to fetch". Desktop/Electron mode is untouched (isHeadlessBridge is
+ * false there), so this always returns `rawBaseUrl` unchanged in that case.
+ *
+ * Every direct browser-side call to a local backend's own baseUrl (ai-backend,
+ * llama.cpp, OpenVINO, ComfyUI's HTTP endpoints, ...) needs to go through this
+ * — each one found so far was a separate bug, not a one-off.
+ */
+export function toHeadlessSafeBaseUrl(rawBaseUrl: string, serviceName: BackendServiceName): string {
+  if (!window.electronAPI.isHeadlessBridge) return rawBaseUrl
+  return `${window.location.origin}/api/proxy/${serviceName}`
+}
+
 const tokenCache = new Map<BackendServiceName, string>()
 
 async function loadToken(serviceName: BackendServiceName, forceRefresh = false): Promise<string> {

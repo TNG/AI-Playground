@@ -61,7 +61,12 @@ import {
   COMFYUI_DEFAULT_PARAMETERS,
 } from './subprocesses/comfyUIBackendService'
 import { AiBackendService } from './subprocesses/aiBackendService'
-import { HomeAgentBackendService } from './subprocesses/homeAgentBackendService'
+import {
+  HomeAgentBackendService,
+  type ChannelKind,
+  type ChannelSendAction,
+  type ChannelPrefsFile,
+} from './subprocesses/homeAgentBackendService'
 import { startCloudProxy, type CloudProxy } from './cloudProxy'
 import { Qwen3TtsBackendService } from './subprocesses/qwen3TtsBackendService'
 import { WhisperBackendService } from './subprocesses/whisperBackendService'
@@ -152,6 +157,19 @@ import {
   shutdownLaminarTracing,
 } from './laminar.ts'
 import z from 'zod'
+import {
+  startHeadlessServer,
+  broadcastSSE,
+  registerApiHandler,
+  registerProxyResolver,
+  registerMediaResolver,
+} from './headlessServer.ts'
+
+// ── Headless mode flag ────────────────────────────────────────────────────────
+// Pass --headless to Electron to run without a BrowserWindow: all backends start
+// as normal but the UI is served as a web app on http://localhost:8080 instead
+// of opening a desktop window. Ideal for containers without a display.
+const isHeadless = process.argv.includes('--headless')
 
 const ProductModeUiI18nSchema = z.object({
   titleOne: z.string(),
@@ -265,6 +283,9 @@ const appLogger = appLoggerInstance
 
 let win: BrowserWindow | null
 let serviceRegistry: ApiServiceRegistryImpl | null = null
+// Published by initEventHandle() once its local `pathsManager` is constructed,
+// so the headless API-handler mirror (registerAllApiHandlers) can reach it too.
+let pathsManagerInstance: PathsManager | null = null
 
 // Cloud Mode runs its networking in the main process via a loopback proxy (see
 // cloudProxy.ts), so the renderer never calls remote providers directly. The
@@ -1139,6 +1160,9 @@ for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q — so free the backends here instead of quitting.
 app.on('window-all-closed', async () => {
+  // In headless mode there are no browser windows — do not quit on this event.
+  // The process stays alive serving the HTTP API until explicitly terminated.
+  if (isHeadless) return
   if (process.platform === 'darwin') {
     await appShutdown.shutdown()
     return
@@ -1279,58 +1303,7 @@ function initEventHandle() {
     return (await getCloudProxy()).url
   })
 
-  ipcMain.handle('detectHardwareForModeRecommendation', async () => {
-    let detected: GpuHardwareDevice[] = []
-    let hasNvidia = false
-    let detectSuccess = true
-
-    try {
-      const probe = await detectGpuHardwareDevices()
-      detected = probe.detected
-      hasNvidia = probe.hasNvidia
-      appLogger.info(`Detected GPU devices: ${JSON.stringify(detected)}`, 'electron-backend')
-      appLogger.info(`Has NVIDIA: ${hasNvidia}`, 'electron-backend')
-    } catch (e) {
-      detectSuccess = false
-      appLogger.warn(`GPU detection failed: ${e}`, 'electron-backend')
-    }
-
-    const configs = loadProductModeConfigs()
-
-    const modeCatalog = configs
-      .sort((a, b) => a.displayOrder - b.displayOrder)
-      .map((c) => ({
-        mode: c.mode,
-        experimental: c.experimental,
-        ui: c.ui,
-      }))
-
-    const gpuIds = detected
-      .map((d) => d.gpuDeviceId)
-      .filter((id): id is string => id !== null)
-      .map((id) => id.toLowerCase())
-
-    // Highest priority wins.
-    const eligible = configs
-      .filter((c) => c.mode !== 'nvidia' || hasNvidia)
-      .filter((c) => {
-        if (c.mode === 'nvidia') return c.recommendForNvidia === true
-        if (!c.recommendForIntelDeviceIds.length) return false
-        if (gpuIds.length === 0) return false
-        return gpuIds.some((id) => c.recommendForIntelDeviceIds.includes(id))
-      })
-      .sort((a, b) => b.priority - a.priority)
-
-    const recommendedMode: ProductMode = eligible[0]?.mode ?? 'studio'
-
-    return {
-      success: detectSuccess,
-      recommendedMode,
-      detectedDevices: classifyDetectedDevices(detected),
-      hasNvidiaGpu: hasNvidia,
-      modeCatalog,
-    }
-  })
+  ipcMain.handle('detectHardwareForModeRecommendation', () => resolveHardwareModeRecommendation())
 
   ipcMain.handle('getWinSize', () => {
     return appSize
@@ -1593,13 +1566,7 @@ function initEventHandle() {
    * Returns null when --start-page was not provided so the renderer can leave
    * the persisted mode untouched; returns the validated ModeType (or 'chat' as
    * a safe fallback for an invalid value) when it was. */
-  ipcMain.handle('getInitialPage', (): ModeType | null => {
-    const validModes: ModeType[] = ['chat', 'audio', 'imageGen', 'imageEdit', 'video']
-    const startPageArg = process.argv.find((arg) => arg.startsWith('--start-page='))
-    if (!startPageArg) return null
-    const parsed = startPageArg.split('=')[1]
-    return validModes.includes(parsed as ModeType) ? (parsed as ModeType) : 'chat'
-  })
+  ipcMain.handle('getInitialPage', (): ModeType | null => resolveInitialPage())
 
   /** To check whether demo mode is enabled or not for AIPG */
   ipcMain.handle('getDemoModeSettings', () => {
@@ -1642,6 +1609,7 @@ function initEventHandle() {
       ? writableConfigFile('model_config.json')
       : path.join(externalRes, 'model_config.dev.json'),
   )
+  pathsManagerInstance = pathsManager
 
   ipcMain.handle('getInitSetting', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
@@ -2489,38 +2457,7 @@ function initEventHandle() {
       modelName: string,
       keepModelsLoaded?: boolean,
       resolution?: string,
-    ) => {
-      if (!serviceRegistry) {
-        return { success: false, error: 'Service registry not ready' }
-      }
-      const service = serviceRegistry.getService(serviceName)
-      if (!service) {
-        return { success: false, error: `Service ${serviceName} not found` }
-      }
-
-      if ('startImageServer' in service && typeof service.startImageServer === 'function') {
-        try {
-          await service.startImageServer(modelName, keepModelsLoaded, resolution)
-          const url =
-            'getImageServerUrl' in service && typeof service.getImageServerUrl === 'function'
-              ? service.getImageServerUrl()
-              : null
-          if (url) {
-            return { success: true, url }
-          }
-          return { success: false, error: 'Image server started but URL not available' }
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          appLogger.error(
-            `Failed to ensure OVMS image readiness: ${errorMessage}`,
-            'electron-backend',
-          )
-          return { success: false, error: errorMessage }
-        }
-      }
-
-      return { success: false, error: 'Image server not supported by this backend' }
-    },
+    ) => resolveEnsureOvmsImageReady(serviceName, modelName, keepModelsLoaded, resolution),
   )
 
   ipcMain.handle('stopOvmsImageServer', async (_event: IpcMainInvokeEvent) => {
@@ -2569,25 +2506,9 @@ function initEventHandle() {
     return { success: false, error: 'Chat servers not supported' }
   })
 
-  ipcMain.handle('getOvmsImageServerUrl', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    if ('getImageServerUrl' in service && typeof service.getImageServerUrl === 'function') {
-      const imageUrl = service.getImageServerUrl()
-      if (imageUrl) {
-        return { success: true, url: imageUrl }
-      }
-      return { success: false, error: 'Image server not running' }
-    }
-
-    return { success: false, error: 'Image server not supported' }
-  })
+  ipcMain.handle('getOvmsImageServerUrl', async (_event: IpcMainInvokeEvent) =>
+    resolveGetOvmsImageServerUrl(),
+  )
 
   ipcMain.on('ondragstart', async (event, filePath) => {
     const imagePath = getAssetPathFromUrl(filePath)
@@ -3336,6 +3257,28 @@ function applyLinuxPlaintextStorageOptIn(): void {
 }
 
 app.whenReady().then(async () => {
+  // Headless/containerized Linux typically has no keyring daemon (gnome-keyring/
+  // kwallet) behind libsecret, so safeStorage.encryptString would throw
+  // "Encryption is not available" the first time a channel config (e.g. LAN
+  // chat password) is saved. Fall back to Electron's plaintext-obfuscated store
+  // in that case only.
+  //
+  // Gated on isHeadless as well as the availability probe: on real desktop Linux
+  // isEncryptionAvailable() can also read false transiently, e.g. when the app
+  // autostarts at login before the keyring daemon has finished coming up. Acting
+  // on that would silently and permanently downgrade channel credentials
+  // (Telegram/Slack/Discord tokens, LAN chat passwords) for that profile, with a
+  // log line as the only signal. A desktop session that genuinely has no keyring
+  // should surface the encryption error rather than quietly store secrets weaker
+  // than the user expects.
+  if (isHeadless && process.platform === 'linux' && !safeStorage.isEncryptionAvailable()) {
+    safeStorage.setUsePlainTextEncryption(true)
+    appLogger.warn(
+      'No OS keyring available — safeStorage falling back to plaintext-obfuscated storage',
+      'electron-backend',
+    )
+  }
+
   // Startup diagnostic — helps diagnose installation and configuration issues
   appLogger.info(
     `startup: isPackaged=${app.isPackaged} platform=${process.platform} DIST="${process.env.DIST}" userData="${app.getPath('userData')}"`,
@@ -3398,8 +3341,42 @@ app.whenReady().then(async () => {
         headers,
       })
     })
-    appLogger.info('startup step: creating window', 'electron-backend', true)
-    const window = await createWindow()
+    let window: BrowserWindow
+    if (isHeadless) {
+      appLogger.info('startup step: creating headless window stub', 'electron-backend', true)
+      // Headless mode: no real BrowserWindow.
+      // Create a minimal duck-typed object so service files can call
+      // this.win.webContents.send() unchanged — events route to SSE clients.
+      window = {
+        webContents: {
+          send: (channel: string, ...args: unknown[]) => broadcastSSE(channel, args[0]),
+          isDestroyed: () => false,
+          openDevTools: () => {},
+          on: () => win,
+          session: {
+            setPermissionRequestHandler: () => {},
+            webRequest: { onBeforeSendHeaders: () => {}, onHeadersReceived: () => {} },
+          },
+        },
+        isDestroyed: () => false,
+        minimize: () => {},
+        maximize: () => {},
+        restore: () => {},
+        setFullScreen: () => {},
+        setProgressBar: () => {},
+        setKiosk: () => {},
+        setBounds: () => {},
+        setIgnoreMouseEvents: () => {},
+        on: () => window,
+        close: () => app.quit(),
+        focus: () => {},
+        isMinimized: () => false,
+      } as unknown as BrowserWindow
+      win = window
+    } else {
+      appLogger.info('startup step: creating window', 'electron-backend', true)
+      window = await createWindow()
+    }
     appLogger.info('startup step: initializing service registry', 'electron-backend', true)
     await initServiceRegistry(window, settings)
     // After the registry: the renderer's stores call into it as they are created.
@@ -3407,6 +3384,601 @@ app.whenReady().then(async () => {
     await loadAppWindow(window)
     appLogger.info('startup step: spawning langchain utility process', 'electron-backend', true)
     spawnLangchainUtilityProcess()
+
+    if (isHeadless) {
+      registerAllApiHandlers(settings)
+      // Reuses the same path-traversal-safe lookup as the 'aipg-media://'
+      // protocol handler above, so headless mode's '/api/media/<path>' route
+      // (browsers can't resolve a custom Electron-only scheme) enforces the
+      // identical containment guarantee.
+      registerMediaResolver((relativePath) =>
+        getLocalPathFromAipgMediaUrl(`aipg-media://media/${relativePath}`),
+      )
+      // Serve the built Vue.js dist from the same directory as index.html.
+      // process.env.DIST = dist-electron/../ = the dist/ root.
+      const distPath = path.resolve(process.env.DIST!)
+      const polyfillPath = path.join(distPath, 'electron-api-polyfill.js')
+      startHeadlessServer(distPath, polyfillPath, 8080)
+      appLogger.info('Headless mode active — open http://localhost:8080', 'electron-backend', true)
+    }
     appLogger.info('startup step: ready', 'electron-backend', true)
   }
 })
+
+// Shared by the 'detectHardwareForModeRecommendation' ipcMain handler (desktop)
+// and its registerApiHandler mirror (headless) — one implementation so the two
+// can't drift into different response shapes the way they previously did.
+async function resolveHardwareModeRecommendation(): Promise<{
+  success: boolean
+  recommendedMode: ProductMode
+  detectedDevices: ReturnType<typeof classifyDetectedDevices>
+  hasNvidiaGpu: boolean
+  modeCatalog: { mode: ProductMode; experimental: boolean; ui: unknown }[]
+}> {
+  let detected: GpuHardwareDevice[] = []
+  let hasNvidia = false
+  let detectSuccess = true
+
+  try {
+    const probe = await detectGpuHardwareDevices()
+    detected = probe.detected
+    hasNvidia = probe.hasNvidia
+    appLogger.info(`Detected GPU devices: ${JSON.stringify(detected)}`, 'electron-backend')
+    appLogger.info(`Has NVIDIA: ${hasNvidia}`, 'electron-backend')
+  } catch (e) {
+    detectSuccess = false
+    appLogger.warn(`GPU detection failed: ${e}`, 'electron-backend')
+  }
+
+  const configs = loadProductModeConfigs()
+
+  const modeCatalog = configs
+    .sort((a, b) => a.displayOrder - b.displayOrder)
+    .map((c) => ({
+      mode: c.mode,
+      experimental: c.experimental,
+      ui: c.ui,
+    }))
+
+  const gpuIds = detected
+    .map((d) => d.gpuDeviceId)
+    .filter((id): id is string => id !== null)
+    .map((id) => id.toLowerCase())
+
+  // Highest priority wins.
+  const eligible = configs
+    .filter((c) => c.mode !== 'nvidia' || hasNvidia)
+    .filter((c) => {
+      if (c.mode === 'nvidia') return c.recommendForNvidia === true
+      if (!c.recommendForIntelDeviceIds.length) return false
+      if (gpuIds.length === 0) return false
+      return gpuIds.some((id) => c.recommendForIntelDeviceIds.includes(id))
+    })
+    .sort((a, b) => b.priority - a.priority)
+
+  const recommendedMode: ProductMode = eligible[0]?.mode ?? 'studio'
+
+  return {
+    success: detectSuccess,
+    recommendedMode,
+    detectedDevices: classifyDetectedDevices(detected),
+    hasNvidiaGpu: hasNvidia,
+    modeCatalog,
+  }
+}
+
+// Shared by the 'getInitialPage' ipcMain handler (desktop) and its registerApiHandler
+// mirror (headless) — one implementation so the two can't drift into different
+// response shapes (headless previously returned settings.productMode, a ProductMode
+// like 'studio', instead of a ModeType — promptArea.ts's setCurrentMode() then indexed
+// modeToCategories with an unknown key and crashed with "is not iterable" on startup).
+function resolveInitialPage(): ModeType | null {
+  const validModes: ModeType[] = ['chat', 'audio', 'imageGen', 'imageEdit', 'video']
+  const startPageArg = process.argv.find((arg) => arg.startsWith('--start-page='))
+  if (!startPageArg) return null
+  const parsed = startPageArg.split('=')[1]
+  return validModes.includes(parsed as ModeType) ? (parsed as ModeType) : 'chat'
+}
+
+// Shared by the 'ensureOvmsImageReady' ipcMain handler (desktop) and its
+// registerApiHandler mirror (headless) — headless previously had no mirror at
+// all, so ensureOvmsImageServerIfNeeded() in comfyUiPresets.ts always got a
+// 404 and every OVMS-backed image/edit preset failed before it could start.
+async function resolveEnsureOvmsImageReady(
+  serviceName: string,
+  modelName: string,
+  keepModelsLoaded?: boolean,
+  resolution?: string,
+): Promise<{ success: boolean; url?: string; error?: string }> {
+  if (!serviceRegistry) {
+    return { success: false, error: 'Service registry not ready' }
+  }
+  const service = serviceRegistry.getService(serviceName)
+  if (!service) {
+    return { success: false, error: `Service ${serviceName} not found` }
+  }
+
+  if ('startImageServer' in service && typeof service.startImageServer === 'function') {
+    try {
+      await service.startImageServer(modelName, keepModelsLoaded, resolution)
+      const url =
+        'getImageServerUrl' in service && typeof service.getImageServerUrl === 'function'
+          ? service.getImageServerUrl()
+          : null
+      if (url) {
+        return { success: true, url }
+      }
+      return { success: false, error: 'Image server started but URL not available' }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      appLogger.error(`Failed to ensure OVMS image readiness: ${errorMessage}`, 'electron-backend')
+      return { success: false, error: errorMessage }
+    }
+  }
+
+  return { success: false, error: 'Image server not supported by this backend' }
+}
+
+// Shared by the 'getOvmsImageServerUrl' ipcMain handler (desktop) and its
+// registerApiHandler mirror (headless), same "no drift" reasoning as above.
+async function resolveGetOvmsImageServerUrl(): Promise<{
+  success: boolean
+  url?: string
+  error?: string
+}> {
+  if (!serviceRegistry) {
+    return { success: false, error: 'Service registry not ready' }
+  }
+  const service = serviceRegistry.getService('openvino-backend')
+  if (!service) {
+    return { success: false, error: 'OpenVINO backend service not found' }
+  }
+
+  if ('getImageServerUrl' in service && typeof service.getImageServerUrl === 'function') {
+    const imageUrl = service.getImageServerUrl()
+    if (imageUrl) {
+      return { success: true, url: imageUrl }
+    }
+    return { success: false, error: 'Image server not running' }
+  }
+
+  return { success: false, error: 'Image server not supported' }
+}
+
+// ── REST API handler registration for headless mode ───────────────────────────
+// Each registerApiHandler call mirrors the corresponding ipcMain.handle in
+// initEventHandle(). The body object contains the arguments passed from the
+// polyfill's fetch() call. Desktop-only features return null stubs.
+function registerAllApiHandlers(settings: LocalSettings) {
+  // Lets the reverse proxy (/api/proxy/<serviceName>/...) resolve a service's
+  // CURRENT baseUrl on every request — a backend can relaunch on a new port,
+  // so this must not be captured once and cached.
+  registerProxyResolver((name) => serviceRegistry?.getService(name as BackendServiceName)?.baseUrl)
+
+  // ── Service management ──────────────────────────────────────────────────
+  registerApiHandler('getServices', () => serviceRegistry?.getServiceInformation() ?? [])
+  registerApiHandler('startService', (b) => {
+    const { name } = b as { name: string }
+    return serviceRegistry?.getService(name as BackendServiceName)?.start()
+  })
+  registerApiHandler('stopService', (b) => {
+    const { name } = b as { name: string }
+    return serviceRegistry?.getService(name as BackendServiceName)?.stop()
+  })
+  registerApiHandler('setUpService', (b) => {
+    const { name } = b as { name: string }
+    const svc = serviceRegistry?.getService(name as BackendServiceName)
+    if (svc && 'set_up' in svc) {
+      // Kick off setup and stream progress via SSE
+      ;(async () => {
+        for await (const progress of (
+          svc as { set_up: () => AsyncIterable<SetupProgress> }
+        ).set_up()) {
+          broadcastSSE('serviceSetUpProgress', progress)
+        }
+      })()
+    }
+    return { started: true }
+  })
+  registerApiHandler('uninstall', async (b) => {
+    const { name } = b as { name: string }
+    const svc = serviceRegistry?.getService(name as BackendServiceName)
+    if (svc && 'uninstall' in svc) await (svc as { uninstall: () => Promise<void> }).uninstall()
+    return { success: true }
+  })
+  registerApiHandler('detectDevices', async (b) => {
+    const { name } = b as { name: string }
+    return serviceRegistry?.getService(name as BackendServiceName)?.detectDevices?.()
+  })
+  registerApiHandler('selectDevice', (b) => {
+    const { name, deviceId } = b as { name: string; deviceId: string }
+    return serviceRegistry?.getService(name as BackendServiceName)?.selectDevice?.(deviceId)
+  })
+  registerApiHandler('selectSttDevice', (b) => {
+    const { name, deviceId } = b as { name: string; deviceId: string }
+    const svc = serviceRegistry?.getService(name as BackendServiceName)
+    return (svc as { setSttDevice?: (id: string) => void })?.setSttDevice?.(deviceId)
+  })
+  registerApiHandler('updateServiceSettings', (b) => {
+    const settings = b as ServiceSettings
+    return serviceRegistry?.getService(settings.serviceName)?.updateSettings(settings)
+  })
+  registerApiHandler('getBackendAuthToken', (b) => {
+    const { name } = b as { name: string }
+    const svc = serviceRegistry?.getService(name as BackendServiceName)
+    if (svc instanceof AiBackendService) return svc.getLoopbackAuthToken()
+    if (svc instanceof ComfyUiBackendService) return svc.getLoopbackAuthToken()
+    if (svc instanceof HomeAgentBackendService) return svc.getLoopbackAuthToken()
+    if (svc instanceof Qwen3TtsBackendService) return svc.getLoopbackAuthToken()
+    return ''
+  })
+  registerApiHandler('getComfyUiDefaultParameters', () => COMFYUI_DEFAULT_PARAMETERS)
+  registerApiHandler('getLlamaCppDefaultParameters', () => LLAMACPP_DEFAULT_PARAMETERS)
+  // The single chokepoint that (re)loads the active LLM/embedding model before
+  // every chat send (see textInference.ts:ensureBackendReadiness) — without this
+  // mirror the browser's call 404s and every chat send fails.
+  registerApiHandler('ensureBackendReadiness', async (b) => {
+    const { name, llmModelName, embeddingModelName, contextSize } = b as {
+      name: string
+      llmModelName: string
+      embeddingModelName?: string
+      contextSize?: number
+    }
+    const service = serviceRegistry?.getService(name as BackendServiceName)
+    if (!service) {
+      return { success: false, error: `Service ${name} not found` }
+    }
+    try {
+      await service.ensureBackendReadiness(llmModelName, embeddingModelName, contextSize)
+      const homeAgentSvc = serviceRegistry?.getService('home-agent-backend')
+      if (homeAgentSvc instanceof HomeAgentBackendService) {
+        homeAgentSvc.notifyUpstreamReady(service.baseUrl ?? '')
+      }
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  // ── Settings ────────────────────────────────────────────────────────────
+  registerApiHandler('getLocalSettings', () => LocalSettingsSchema.parse(settings))
+  registerApiHandler('updateLocalSettings', (b) => {
+    Object.assign(settings, b as Partial<LocalSettings>)
+    persistLocalSettingsToDisk()
+    return { success: true }
+  })
+  registerApiHandler('getLocaleSettings', () => ({
+    locale: app.getLocale(),
+    languageOverride: settings.languageOverride,
+  }))
+  registerApiHandler('getInitSetting', () => ({
+    modelLists: pathsManagerInstance?.scanAll(),
+    modelPaths: pathsManagerInstance?.modelPaths,
+    version: app.getVersion(),
+    modelFolderReadOnly: !pathsManagerInstance?.isModelDirWritable(),
+  }))
+  registerApiHandler('getInitialPage', () => resolveInitialPage())
+  registerApiHandler('getDemoModeSettings', () => ({
+    isDemoModeEnabled: settings.isDemoModeEnabled,
+    demoModeResetInSeconds: settings.demoModeResetInSeconds,
+  }))
+  registerApiHandler('getPlatform', () => process.platform)
+  registerApiHandler('getGitHubRepoUrl', () => getGitHubRepoUrl(settings))
+
+  // ── Models ──────────────────────────────────────────────────────────────
+  registerApiHandler('loadModels', () => resolveModels(settings))
+  registerApiHandler('updateModelPaths', (b) => {
+    pathsManagerInstance?.updateModelPaths(b as ModelPaths)
+    return pathsManagerInstance?.scanAll()
+  })
+  registerApiHandler('getDownloadedGGUFLLMs', () => pathsManagerInstance?.scanGGUFLLMModels())
+  registerApiHandler('getDownloadedOpenVINOLLMModels', () =>
+    pathsManagerInstance?.scanOpenVINOModels(),
+  )
+  registerApiHandler('getDownloadedEmbeddingModels', () => pathsManagerInstance?.scanEmbedding())
+  registerApiHandler('getComfyUIModels', (b) => {
+    const { modelType } = b as { modelType: string }
+    return pathsManagerInstance?.scanComfyUIModels(modelType)
+  })
+
+  // ── Backend versions ────────────────────────────────────────────────────
+  registerApiHandler('resolveBackendVersion', async (b) => {
+    const { name } = b as { name: BackendServiceName }
+    return resolveBackendVersion(name, settings)
+  })
+  registerApiHandler('getInstalledBackendVersion', async (b) => {
+    const { name } = b as { name: BackendServiceName }
+    const svc = serviceRegistry?.getService(name)
+    return (svc as { getCachedVersion?: () => string | undefined })?.getCachedVersion?.()
+  })
+
+  // ── Presets ──────────────────────────────────────────────────────────────
+  registerApiHandler('loadUserPresets', async () => {
+    try {
+      const userDataPath = app.getPath('documents')
+      const presetsPath = path.join(userDataPath, 'AI Playground', 'presets')
+      const presets = await readPresetsFromDir(presetsPath)
+      return [...presets.values()]
+    } catch (error) {
+      appLogger.error(`Failed to load user presets: ${error}`, 'electron-backend')
+      return []
+    }
+  })
+  registerApiHandler('saveUserPreset', async (b) => {
+    const { content } = b as { content: string }
+    try {
+      const userDataPath = app.getPath('documents')
+      const presetsPath = path.join(userDataPath, 'AI Playground', 'presets')
+      await fs.promises.mkdir(presetsPath, { recursive: true })
+      const preset = JSON.parse(content)
+      const filename = `${preset.name.replace(/[^a-z0-9]/gi, '_')}.json`
+      const filePath = path.join(presetsPath, filename)
+      await fs.promises.writeFile(filePath, content, { encoding: 'utf-8' })
+      appLogger.info(`Saved user preset to ${filePath}`, 'electron-backend')
+      return true
+    } catch (error) {
+      appLogger.error(`Failed to save user preset: ${error}`, 'electron-backend')
+      return false
+    }
+  })
+  registerApiHandler('updatePresetsFromIntelRepo', () => {
+    const mode = resolveProductMode(settings)
+    const variant = settings.isDemoModeEnabled ? 'demo' : 'presets'
+    const config = getPresetLoadConfig(settings)
+    return updateIntelPresets(
+      settings.remoteRepository,
+      mode,
+      variant,
+      config.baseDir,
+      config.modeDir,
+    )
+  })
+
+  // ── ComfyUI tools ────────────────────────────────────────────────────────
+  registerApiHandler('comfyui:isCustomNodeInstalled', (b) => {
+    const nodeRepoRef = b as comfyuiTools.ComfyUICustomNodeRepoId
+    const svc = serviceRegistry?.getService('comfyui-backend') as ComfyUiBackendService | undefined
+    if (!svc) throw new Error('ComfyUI backend service not found')
+    return comfyuiTools.isCustomNodeInstalled(nodeRepoRef, svc.serviceDir)
+  })
+  registerApiHandler('comfyui:downloadCustomNode', async (b) => {
+    const nodeRepoData = b as comfyuiTools.ComfyUICustomNodeRepoId
+    const svc = serviceRegistry?.getService('comfyui-backend') as ComfyUiBackendService | undefined
+    if (!svc) throw new Error('ComfyUI backend service not found')
+    const envAndWheels: comfyuiTools.ComfyUiInstallOptions = {
+      extraEnv: svc.getTorchBackendEnv(),
+      skipExtraWheels: svc.comfyUiVariantName !== 'xpu',
+    }
+    return comfyuiTools.downloadCustomNode(nodeRepoData, svc.serviceDir, envAndWheels)
+  })
+  registerApiHandler('comfyui:isPackageInstalled', (b) => {
+    const { packageSpecifier } = b as { packageSpecifier: string }
+    return comfyuiTools.isPackageInstalled(packageSpecifier)
+  })
+  registerApiHandler('comfyui:openInBrowser', async () => {
+    const svc = serviceRegistry?.getService('comfyui-backend') as ComfyUiBackendService | undefined
+    if (!svc) return { success: false, error: 'ComfyUI backend service not found' }
+    const baseUrl = svc.baseUrl
+    if (!baseUrl) return { success: false, error: 'ComfyUI backend has no base URL yet' }
+    const token = svc.getLoopbackAuthToken()
+    const url = `${baseUrl}/aipg/launch?launch_token=${encodeURIComponent(token)}`
+    try {
+      await shell.openExternal(url)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // ── MCP ──────────────────────────────────────────────────────────────────
+  registerApiHandler('mcp:listServers', () => listMcpServers())
+  registerApiHandler('mcp:startServer', (b) => startMcpServer((b as { serverId: string }).serverId))
+  registerApiHandler('mcp:stopServer', (b) => stopMcpServer((b as { serverId: string }).serverId))
+  registerApiHandler('mcp:getServerStatus', (b) =>
+    getMcpServerStatus((b as { serverId: string }).serverId),
+  )
+  registerApiHandler('mcp:listServerTools', (b) =>
+    listMcpServerTools((b as { serverId: string }).serverId),
+  )
+  registerApiHandler('mcp:invokeServerTool', (b) => {
+    const {
+      serverId,
+      toolName,
+      args: toolArgs,
+    } = b as { serverId: string; toolName: string; args: Record<string, unknown> }
+    return invokeMcpServerTool(serverId, toolName, toolArgs)
+  })
+  registerApiHandler('mcp:getServerConfig', (b) =>
+    getMcpServerConfig((b as { serverId: string }).serverId),
+  )
+  registerApiHandler('mcp:reloadConfig', async () =>
+    detectAndRegisterAutoMcpServers(settings.mcpAutoDetectionDismissed ?? []),
+  )
+
+  // ── Hardware detection ────────────────────────────────────────────────────
+  registerApiHandler('detectHardwareForModeRecommendation', () =>
+    resolveHardwareModeRecommendation(),
+  )
+  registerApiHandler('detectPhisonSsd', async () => ({ detected: false }))
+
+  // ── ComfyUI / OVMS lifecycle (used by the image-gen tool during agentic chat) ──
+  registerApiHandler('ensureComfyUIBackendRunning', async () => {
+    if (!serviceRegistry)
+      return { success: false, error: 'Service registry not ready', starting: false }
+    const service = serviceRegistry.getService('comfyui-backend')
+    if (!service) return { success: false, error: 'ComfyUI service not found', starting: false }
+    if (service.currentStatus === 'running') return { success: true, starting: false }
+    if (service.currentStatus === 'starting') return { success: true, starting: true }
+    try {
+      const result = await service.start()
+      if (result === 'running') return { success: true, starting: false }
+      if (result === 'starting') return { success: true, starting: true }
+      return { success: false, starting: false, error: `ComfyUI backend status: ${result}` }
+    } catch (error) {
+      return {
+        success: false,
+        starting: false,
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
+  })
+  registerApiHandler('ensureOvmsImageReady', (b) => {
+    const { serviceName, modelName, keepModelsLoaded, resolution } = b as {
+      serviceName: string
+      modelName: string
+      keepModelsLoaded?: boolean
+      resolution?: string
+    }
+    return resolveEnsureOvmsImageReady(serviceName, modelName, keepModelsLoaded, resolution)
+  })
+  registerApiHandler('getOvmsImageServerUrl', () => resolveGetOvmsImageServerUrl())
+  registerApiHandler('stopOvmsImageServer', async () => {
+    const service = serviceRegistry?.getService('openvino-backend')
+    if (!service) return { success: false, error: 'OpenVINO backend service not found' }
+    if (!('stopImageServer' in service) || typeof service.stopImageServer !== 'function') {
+      return { success: false, error: 'Image server not supported' }
+    }
+    try {
+      await service.stopImageServer()
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+  registerApiHandler('stopOvmsChatServers', async () => {
+    const service = serviceRegistry?.getService('openvino-backend')
+    if (!service) return { success: false, error: 'OpenVINO backend service not found' }
+    if (!('stopChatServers' in service) || typeof service.stopChatServers !== 'function') {
+      return { success: false, error: 'Chat servers not supported' }
+    }
+    try {
+      await service.stopChatServers()
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  // ── Desktop-only stubs (UI still works, features degraded) ────────────────
+  registerApiHandler('showOpenDialog', () => ({ canceled: true, filePaths: [] }))
+  registerApiHandler('showSaveDialog', () => ({ canceled: true }))
+  registerApiHandler('getWinSize', () => ({ width: 1440, height: 900 }))
+  registerApiHandler('setWinSize', () => null)
+  registerApiHandler('getEmbeddingServerUrl', () => null)
+  registerApiHandler('addDocumentToRAGList', () => null)
+  registerApiHandler('embedInputUsingRag', () => null)
+
+  // ── Presets (continued) ────────────────────────────────────────────────
+  registerApiHandler('reloadPresets', async () => {
+    const config = getPresetLoadConfig(settings)
+    try {
+      await filterPartnerPresets(config.baseDir)
+    } catch (error) {
+      appLogger.error(`Failed to filter partner presets: ${error}`, 'electron-backend')
+    }
+    try {
+      const basePresets = applyPresetFilter(
+        await readPresetsFromDir(config.baseDir, config.imageFallbackDirs),
+        config,
+      )
+      const modePresets = await readPresetsFromDir(config.modeDir, config.imageFallbackDirs)
+      for (const [name, preset] of modePresets) {
+        basePresets.set(name, preset)
+      }
+      return [...basePresets.values()]
+    } catch (error) {
+      appLogger.error(`Failed to load presets: ${error}`, 'electron-backend')
+      return []
+    }
+  })
+  registerApiHandler('getUserPresetsPath', async () => {
+    const userDataPath = app.getPath('documents')
+    const presetsPath = path.join(userDataPath, 'AI Playground', 'presets')
+    await fs.promises.mkdir(presetsPath, { recursive: true })
+    return presetsPath
+  })
+
+  // ── Home Agent ──────────────────────────────────────────────────────────
+  const getHomeAgentService = (): HomeAgentBackendService | undefined => {
+    const svc = serviceRegistry?.getService('home-agent-backend')
+    return svc instanceof HomeAgentBackendService ? svc : undefined
+  }
+  registerApiHandler('saveHomeAgentDocument', async (b) => {
+    const { filename, base64 } = b as { filename: string; base64: string }
+    const supportedExtensions = ['txt', 'md', 'doc', 'docx', 'pdf']
+    try {
+      if (typeof filename !== 'string' || typeof base64 !== 'string') {
+        return { success: false, error: 'invalid arguments' }
+      }
+      const safeName = path.basename(filename).replace(/[^\w.\-]+/g, '_')
+      const ext = safeName.includes('.') ? safeName.split('.').pop()!.toLowerCase() : ''
+      if (!supportedExtensions.includes(ext)) {
+        return { success: false, error: `unsupported document type (.${ext})` }
+      }
+      const ragDocumentsDir = path.join(mediaDir, 'rag-documents')
+      await fs.promises.mkdir(ragDocumentsDir, { recursive: true })
+      const uniqueName = `${randomUUID()}-${safeName}`
+      const filePath = path.join(ragDocumentsDir, uniqueName)
+      await fs.promises.writeFile(filePath, Buffer.from(base64, 'base64'))
+      return { success: true, filepath: filePath }
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+  registerApiHandler('homeAgent:localWeb:getUrls', (b) => {
+    const { port, allowLan } = b as { port: number; allowLan: boolean }
+    return getHomeAgentService()?.getLocalWebUrls(port, !!allowLan) ?? []
+  })
+  registerApiHandler('channel:saveConfig', (b) => {
+    const { kind, config } = b as { kind: ChannelKind; config: Record<string, string> }
+    return getHomeAgentService()?.saveChannelConfig(kind, config)
+  })
+  registerApiHandler('channel:loadConfig', (b) => {
+    const { kind } = b as { kind: ChannelKind }
+    return getHomeAgentService()?.loadChannelConfig(kind) ?? null
+  })
+  registerApiHandler('channel:clearConfig', (b) => {
+    const { kind } = b as { kind: ChannelKind }
+    return getHomeAgentService()?.clearChannelConfig(kind)
+  })
+  registerApiHandler('channel:savePrefs', (b) => {
+    const { kind, prefs } = b as { kind: ChannelKind; prefs: Partial<ChannelPrefsFile> }
+    return getHomeAgentService()?.saveChannelPrefs(kind, prefs)
+  })
+  registerApiHandler('channel:loadPrefs', (b) => {
+    const { kind } = b as { kind: ChannelKind }
+    return getHomeAgentService()?.loadChannelPrefs(kind) ?? null
+  })
+  registerApiHandler('channel:test', async (b) => {
+    const { kind } = b as { kind: ChannelKind }
+    return getHomeAgentService()?.channelTest(kind)
+  })
+  registerApiHandler('channel:inject', async (b) => {
+    const { kind, config } = b as { kind: ChannelKind; config: Record<string, string | undefined> }
+    return getHomeAgentService()?.channelSetConfig(kind, config)
+  })
+  registerApiHandler('channel:detectIdentity', async (b) => {
+    const { kind, config } = b as { kind: ChannelKind; config: Record<string, string | undefined> }
+    return getHomeAgentService()?.channelDetectIdentity(kind, config)
+  })
+  registerApiHandler('channel:detectIdentityFromSaved', async (b) => {
+    const { kind } = b as { kind: ChannelKind }
+    return getHomeAgentService()?.channelDetectIdentityFromSaved(kind)
+  })
+  registerApiHandler('channel:poll', async (b) => {
+    const { kind } = b as { kind: ChannelKind }
+    return getHomeAgentService()?.channelPoll(kind)
+  })
+  registerApiHandler('channel:flushPending', async (b) => {
+    const { kind } = b as { kind: ChannelKind }
+    return getHomeAgentService()?.channelFlushPending(kind)
+  })
+  registerApiHandler('channel:send', async (b) => {
+    const { kind, action, payload } = b as {
+      kind: ChannelKind
+      action: ChannelSendAction
+      payload: Record<string, unknown>
+    }
+    return getHomeAgentService()?.channelSend(kind, action, payload)
+  })
+}

@@ -85,9 +85,19 @@ const writableUserRoot = (): string => {
  * with UAC file/registry virtualization disabled, so a failed write to
  * `Program Files` surfaces as an error here instead of being silently
  * redirected to a VirtualStore. Probed once and cached.
+ *
+ * This probe is meaningless when the process runs as root (the container
+ * image's default) — root can write into `process.resourcesPath` even though
+ * it lives in the image's ephemeral layer, so the probe reports "writable" and
+ * `packagedResourcesRoot()` would use it directly instead of redirecting to the
+ * `XDG_DATA_HOME`-backed volume, silently losing every install/model/download
+ * on the next container rebuild. `AIPG_CONTAINER` (set by the Dockerfile)
+ * short-circuits this to `false` so the container always uses the persistent,
+ * volume-backed writable root regardless of who owns the install dir.
  */
 let installDirWritable: boolean | undefined
 const isInstallDirWritable = (): boolean => {
+  if (process.env.AIPG_CONTAINER === '1') return false
   if (installDirWritable !== undefined) return installDirWritable
   const probe = path.join(process.resourcesPath, `.aipg-write-probe-${process.pid}`)
   try {

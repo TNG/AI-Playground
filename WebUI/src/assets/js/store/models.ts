@@ -7,7 +7,7 @@ import { debugSettingsVisible } from './debugSettings'
 import { pathKeyForCatalogModel } from '../models/library'
 import { mergeCapabilities } from '../models/overrides'
 import type { ModelCapabilityValues } from '../models/types'
-import { aipgFetch } from '@/lib/loopbackAuth'
+import { aipgFetch, toHeadlessSafeBaseUrl } from '@/lib/loopbackAuth'
 import type { InferenceDefaults } from '@/types/shared'
 
 export type ModelPaths = {
@@ -212,7 +212,7 @@ export const useModels = defineStore(
         (item) => item.serviceName === 'ai-backend',
       )?.baseUrl
       if (!aiBackendUrl) throw new Error('AIPG Backend not running')
-      return aiBackendUrl
+      return toHeadlessSafeBaseUrl(aiBackendUrl, 'ai-backend')
     }
 
     async function checkIfHuggingFaceUrlExists(repo_id: string) {

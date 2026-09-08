@@ -56,6 +56,7 @@ import {
   latestComputeSnapshot,
 } from '../../computeMetrics'
 import { readLlamaCppVramInputs } from '../../llamaCppVramInputs'
+import { readRemoteLlamaCppVramInputs } from '../../remoteGgufMeta'
 import type { setVerboseLogging } from '../../agent/piAgentLog.ts'
 import type {
   ChatReadinessArgs,
@@ -600,9 +601,18 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
 
     getComputeMetricsDiagnostics: () => computeMetricsProbeReport(),
 
-    getLlamaCppVramInputs: (_event, modelName: string) => {
+    getLlamaCppVramInputs: async (_event, modelName: string, mmprojName?: string) => {
       try {
-        return readLlamaCppVramInputs(deps.pathsManager.modelPaths.ggufLLM, modelName) ?? null
+        const local = readLlamaCppVramInputs(deps.pathsManager.modelPaths.ggufLLM, modelName)
+        if (local) return local
+        const remote = await readRemoteLlamaCppVramInputs(
+          { name: modelName, mmproj: mmprojName },
+          {
+            endpoint: deps.settings.huggingfaceEndpoint,
+            cachePath: path.join(app.getPath('userData'), 'gguf-vram-cache.json'),
+          },
+        )
+        return remote ?? null
       } catch (error) {
         deps.appLogger.warn(
           `Could not read VRAM inputs for ${modelName}: ${error}`,

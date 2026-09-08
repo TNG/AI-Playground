@@ -39,16 +39,19 @@ export type VramFitSummary = {
 // and the model picker, and a GGUF header does not change while the app runs.
 const inputsCache = new Map<string, LlamaCppVramInputs | null>()
 
-async function loadInputs(modelName: string): Promise<LlamaCppVramInputs | null> {
+async function loadInputs(
+  modelName: string,
+  mmprojName: string | undefined,
+): Promise<LlamaCppVramInputs | null> {
   const cached = inputsCache.get(modelName)
   if (cached) return cached
   let inputs: LlamaCppVramInputs | null = null
   try {
-    inputs = await window.electronAPI.getLlamaCppVramInputs(modelName)
+    inputs = await window.electronAPI.getLlamaCppVramInputs(modelName, mmprojName)
   } catch {
     inputs = null
   }
-  // A miss is not cached: the same model is readable once its download finishes.
+  // A miss is not cached: an unreachable header is readable once the model is downloaded.
   if (inputs) inputsCache.set(modelName, inputs)
   return inputs
 }
@@ -56,7 +59,7 @@ async function loadInputs(modelName: string): Promise<LlamaCppVramInputs | null>
 /**
  * How the active llama.cpp model sits in the card's memory, at the current, a
  * reference and the model's maximum context. Null whenever the answer would be a
- * guess: another backend, a model that is not on disk, or no GPU sample yet.
+ * guess: another backend, a header that could not be read, or no GPU sample yet.
  */
 export function useLlamaCppVramFit() {
   const textInference = useTextInference()
@@ -69,11 +72,9 @@ export function useLlamaCppVramFit() {
       : undefined,
   )
 
-  // Keyed on the downloaded model, so a model that is still downloading is
-  // re-read once its files are there.
-  const readableModel = computed(() =>
-    model.value?.downloaded === true ? model.value.name : undefined,
-  )
+  // A model that is not on disk is read from its header on HuggingFace, which is
+  // the moment the verdict is worth the most: before paying for the download.
+  const readableModel = computed(() => model.value?.name)
 
   watch(
     readableModel,
@@ -82,7 +83,7 @@ export function useLlamaCppVramFit() {
         inputs.value = null
         return
       }
-      const loaded = await loadInputs(name)
+      const loaded = await loadInputs(name, model.value?.mmproj)
       // The selection may have moved on while the IPC was in flight.
       if (readableModel.value === name) inputs.value = loaded
     },

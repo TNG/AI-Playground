@@ -831,11 +831,11 @@ export const CHANNELS = {
     args: [] as const,
     result: null as unknown as ComputeSnapshot | null,
   },
-  /** GGUF facts the VRAM estimator needs; null when the model is not on disk. */
+  /** GGUF facts the VRAM estimator needs, read from disk or from the model's header on HuggingFace. */
   getLlamaCppVramInputs: {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [string],
+    args: [] as unknown as readonly [string, (string | undefined)?],
     result: null as unknown as LlamaCppVramInputs | null,
   },
   /** Which GPU probes resolved, and why the last one failed. See docs/compute-resource-metrics.md. */

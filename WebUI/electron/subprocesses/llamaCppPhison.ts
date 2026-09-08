@@ -10,7 +10,7 @@ type PhisonLogger = {
 }
 
 export const LLAMACPP_SSD_OFFLOAD_DOWNLOAD_URL_TEMPLATE =
-  'https://phisonbucket.s3.ap-northeast-1.amazonaws.com/aiDAPTIV_vNXWVB_3_05.0.zip'
+  'https://phisonbucket.s3.ap-northeast-1.amazonaws.com/aiDAPTIV_NXWVB306.1_x64.zip'
 export const LLAMACPP_SSD_OFFLOAD_CONFIG_NAME = 'aidaptiv_config.json'
 export const LLAMACPP_SSD_OFFLOAD_LEGACY_CONFIG_NAME = 'aidaptiv(303G0B).json'
 export const LLAMACPP_SSD_OFFLOAD_EMBEDDING_CONFIG_NAME = 'aidaptiv_embedding_config.json'

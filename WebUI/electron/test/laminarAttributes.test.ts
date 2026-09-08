@@ -18,6 +18,8 @@ const {
   recordAgentCallStats,
   recordChatCallStats,
 } = await import('../laminarAttributes.ts')
+const { recordComputeSnapshotForTests, resetComputeMetricsForTests } =
+  await import('../computeMetrics.ts')
 
 const METADATA = 'lmnr.association.properties.metadata.'
 const HOST = `${METADATA}hostname`
@@ -252,5 +254,37 @@ describe('run speeds', () => {
     stampSpanEnd(root)
     expect(root.attributes[LLM_CALLS]).toBe(1)
     expect(root.attributes[GEN_TPS]).toBeUndefined()
+  })
+})
+
+describe('compute resource stamps', () => {
+  afterEach(() => resetComputeMetricsForTests())
+
+  it('stamps GPU peaks on a local LLM span when samples exist', () => {
+    recordComputeSnapshotForTests({
+      ts: Date.now() - 1000,
+      source: 'xpu-smi',
+      host: { memUsedMiB: 8000, memTotalMiB: 32000 },
+      gpus: [
+        {
+          id: '0',
+          name: 'Intel Arc B580',
+          vendor: 'intel',
+          utilPct: 77,
+          memUsedMiB: 9000,
+          memTotalMiB: 16384,
+        },
+      ],
+    })
+    setChatTraceContext({ backend: 'llamaCPP', deviceName: 'Intel Arc B580' })
+    const call = {
+      name: 'ai.llm model.chat:test',
+      attributes: { [SPAN_TYPE]: 'LLM' } as Record<string, unknown>,
+      startTime: Date.now() - 2000,
+    }
+    stampSpanEnd(call)
+    expect(call.attributes['aipg.gpu.util_peak_pct']).toBe(77)
+    expect(call.attributes['aipg.gpu.mem_peak_mib']).toBe(9000)
+    expect(call.attributes['aipg.host.mem_used_mib']).toBe(8000)
   })
 })

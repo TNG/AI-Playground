@@ -1,6 +1,7 @@
 import os from 'node:os'
 import { appLoggerInstance } from './logging/logger.ts'
 import { llmServerSnapshot, type LocalLlmBackend } from './llmServerSnapshot.ts'
+import { computeAttributes, computeMetadata, computeWindowSince } from './computeMetrics.ts'
 
 // ── What a trace has to say about the turn that produced it ──────────────────
 //
@@ -96,6 +97,7 @@ type ProcessedSpan = {
   setAttribute?: (key: string, value: string | number | boolean) => unknown
   updateName?: (name: string) => unknown
   spanContext?: () => { spanId?: string; traceId?: string }
+  startTime?: unknown
 }
 
 /** The name Pi gives an agent run's root span, and the only one we rename. */
@@ -281,7 +283,9 @@ export function stampSpanEnd(ended: unknown): void {
       else agentCallStats = null
       apply(span, { ...requestAttributes(context), ...statsAttributes(stats) })
       noteCallSpeeds(span, stats)
+      stampComputeUsage(span, context ?? undefined)
     }
+    stampComputeUsageOnRoot(span)
     // Every LLM call of the trace has ended by the time its root does, whichever
     // surface made them — a delegated media run's calls included.
     stampRunSpeeds(span)
@@ -398,6 +402,40 @@ function statsAttributes(stats: InferenceCallStats | null | undefined): SpanAttr
     ...optional('aipg.predicted_ms', stats.predictedMs),
     ...optional('aipg.cache_n', stats.cacheTokens),
   }
+}
+
+function spanStartMs(span: ProcessedSpan): number | undefined {
+  const time = span.startTime
+  if (Array.isArray(time) && typeof time[0] === 'number' && typeof time[1] === 'number') {
+    return time[0] * 1000 + time[1] / 1e6
+  }
+  if (typeof time === 'number' && Number.isFinite(time)) {
+    return time > 1e12 ? time : time * 1000
+  }
+  return undefined
+}
+
+function stampComputeUsage(span: ProcessedSpan, context: InferenceTraceContext | undefined): void {
+  const since = spanStartMs(span) ?? Date.now() - 30_000
+  const stats = computeWindowSince(since, context?.deviceName)
+  if (stats.sampleCount === 0) return
+  apply(span, computeAttributes(stats, context?.backend !== 'cloud'))
+}
+
+function stampComputeUsageOnRoot(span: ProcessedSpan): void {
+  if (!isRunRoot(span)) return
+  const context = contextFor(span)
+  const since = spanStartMs(span) ?? Date.now() - 30_000
+  const stats = computeWindowSince(since, context?.deviceName)
+  if (stats.sampleCount === 0) return
+  const includeGpu = context?.backend !== 'cloud'
+  apply(span, computeAttributes(stats, includeGpu))
+  const meta = computeMetadata(stats, includeGpu)
+  apply(span, {
+    ...optional(`${METADATA_PREFIX}gpuUtilPeak`, meta.gpuUtilPeak),
+    ...optional(`${METADATA_PREFIX}gpuMemPeakMib`, meta.gpuMemPeakMib),
+    ...optional(`${METADATA_PREFIX}hostMemPeakMib`, meta.hostMemPeakMib),
+  })
 }
 
 function optional(key: string, value: string | number | boolean | undefined): SpanAttributes {

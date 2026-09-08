@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import fs from 'node:fs'
 
 vi.mock('electron', () => ({
   app: {
@@ -6,7 +7,31 @@ vi.mock('electron', () => ({
   },
 }))
 
-import { parsePowerShellGpuOutput } from '../../subprocesses/hardwareDiscovery'
+import { getXpuSmiExePath, parsePowerShellGpuOutput } from '../../subprocesses/hardwareDiscovery'
+
+// electron-builder installs the binary under `device-service/`, the fetch script
+// leaves it at the resources root. Only checking the second one meant every
+// packaged Windows build reported "no xpu-smi" and fell back to PowerShell.
+describe('getXpuSmiExePath', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('finds the binary at the packaged device-service location', () => {
+    vi.spyOn(fs, 'existsSync').mockImplementation((p) => String(p).includes('device-service'))
+    expect(getXpuSmiExePath()).toContain('device-service')
+  })
+
+  it('falls back to the resources root used in development', () => {
+    vi.spyOn(fs, 'existsSync').mockImplementation((p) => !String(p).includes('device-service'))
+    const resolved = getXpuSmiExePath()
+    expect(resolved).toContain('xpu-smi.exe')
+    expect(resolved).not.toContain('device-service')
+  })
+
+  it('returns null when neither location has it', () => {
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false)
+    expect(getXpuSmiExePath()).toBeNull()
+  })
+})
 
 describe('parsePowerShellGpuOutput', () => {
   it('should extract Intel GPU with PCI device ID from PNPDeviceID', () => {

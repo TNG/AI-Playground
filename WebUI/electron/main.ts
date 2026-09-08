@@ -49,6 +49,8 @@ import { promisify } from 'node:util'
 const execAsync = promisify(exec)
 import { randomUUID } from 'node:crypto'
 import { PathsManager } from './pathsManager'
+import { readLlamaCppVramInputs } from './llamaCppVramInputs.ts'
+import { readRemoteLlamaCppVramInputs } from './remoteGgufMeta.ts'
 import { writableConfigFile } from './userConfig.ts'
 import { appLoggerInstance } from './logging/logger.ts'
 import {
@@ -141,6 +143,7 @@ import { BackendServiceName } from '@/assets/js/store/backendServices.ts'
 import {
   classifyDetectedDevices,
   detectGpuHardwareDevices,
+  getXpuSmiExePath,
   type GpuHardwareDevice,
 } from './subprocesses/hardwareDiscovery.ts'
 import { registerSettingsPersist } from './subprocesses/defaultDeviceSelection.ts'
@@ -151,6 +154,13 @@ import {
   laminarConfig,
   shutdownLaminarTracing,
 } from './laminar.ts'
+import {
+  collectComputeSnapshot,
+  computeMetricsProbeReport,
+  latestComputeSnapshot,
+  setComputeMetricsSink,
+  startComputeMetricsSampler,
+} from './computeMetrics.ts'
 import z from 'zod'
 
 const ProductModeUiI18nSchema = z.object({
@@ -1664,6 +1674,11 @@ function initEventHandle() {
   // browser page); null config means no developer opted in, and the renderer
   // then registers nothing and sends nothing.
   ipcMain.handle('getLaminarConfig', () => laminarConfig())
+  ipcMain.handle('getComputeMetrics', async () => {
+    return latestComputeSnapshot() ?? collectComputeSnapshot()
+  })
+
+  ipcMain.handle('getComputeMetricsDiagnostics', () => computeMetricsProbeReport())
   ipcMain.on('laminarTelemetryEvent', (_event, name: string, payload: string) => {
     void handleChatTelemetryEvent(name, payload)
   })
@@ -1692,6 +1707,27 @@ function initEventHandle() {
   ipcMain.handle('scanModelLibrary', (_event) => {
     return pathsManager.scanModelLibrary()
   })
+
+  ipcMain.handle(
+    'getLlamaCppVramInputs',
+    async (_event, modelName: string, mmprojName?: string) => {
+      try {
+        const local = readLlamaCppVramInputs(pathsManager.modelPaths.ggufLLM, modelName)
+        if (local) return local
+        const remote = await readRemoteLlamaCppVramInputs(
+          { name: modelName, mmproj: mmprojName },
+          {
+            endpoint: settings.huggingfaceEndpoint,
+            cachePath: path.join(app.getPath('userData'), 'gguf-vram-cache.json'),
+          },
+        )
+        return remote ?? null
+      } catch (error) {
+        appLogger.warn(`Could not read VRAM inputs for ${modelName}: ${error}`, 'electron-backend')
+        return null
+      }
+    },
+  )
 
   ipcMain.handle('showModelInFolder', (_event, modelPath: string) => {
     const resolved = pathsManager.resolveModelPath(modelPath)
@@ -3400,6 +3436,10 @@ app.whenReady().then(async () => {
     })
     appLogger.info('startup step: creating window', 'electron-backend', true)
     const window = await createWindow()
+    setComputeMetricsSink((snapshot) => {
+      if (!window.isDestroyed()) window.webContents.send('computeMetricsUpdate', snapshot)
+    })
+    startComputeMetricsSampler({ xpuSmiPath: getXpuSmiExePath() })
     appLogger.info('startup step: initializing service registry', 'electron-backend', true)
     await initServiceRegistry(window, settings)
     // After the registry: the renderer's stores call into it as they are created.

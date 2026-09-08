@@ -384,7 +384,9 @@ WebUI/                      # Electron + Vue.js frontend (all npm commands here)
     assets/js/activities/   # Unified activity/progress model (Activity type + createActivity helper)
     components/             # Reusable Vue components
     views/                  # Page-level Vue components (Chat, PromptArea, WorkflowResult)
+    lib/vram/               # GGUF VRAM estimator (drives the model-size chip)
   external/                 # Presets, workflows, external resources
+docs/vram-fit.md            # Measured VRAM catalog for keep-loaded / swap / recommend
 service/                    # Python Flask backend (model download/management, NOT inference)
 LlamaCPP/                   # LlamaCPP inference backend
 OpenVINO/                   # OpenVINO inference backend
@@ -1234,10 +1236,12 @@ what the Traces page filters on), per-call numbers go on the LLM span. Ours are 
 | trace metadata | `appSession`                                                          | our `aipg-agent-*` session id, agent only                    |
 | trace metadata | `game`, `gameId`                                                      | the game's title as of this turn, and its folder slug        |
 | trace metadata | `genTps`, `prefillTps`, `llmCalls`                                    | the whole run's two speeds, and how many calls made them     |
+| trace metadata | `gpuUtilPeak`, `gpuMemPeakMib`, `hostMemPeakMib`                      | peak GPU util / GPU memory / host RAM (Windows GPU util+memory are WDDM, not xpu-smi) |
 | LLM span       | `aipg.thinking`, `aipg.reasoning_effort`                              | what the turn actually asked the template for                |
 | LLM span       | `gen_ai.request.temperature` / `top_p` / `max_tokens`                 | the sampling that rode the request                           |
 | LLM span       | `aipg.prefill_tokens_per_second`, `aipg.generation_tokens_per_second` | the two speeds, kept apart                                   |
 | LLM span       | `aipg.prompt_ms`, `aipg.predicted_ms`, `aipg.cache_n`                 | what those speeds were computed from                         |
+| LLM span       | `aipg.gpu.*`, `aipg.host.*`                                           | util / vRAM / RAM last+peak over the call (`docs/compute-resource-metrics.md`) |
 
 Both surfaces feed one stamper (`electron/laminarAttributes.ts`), which the span processor
 calls on span start (metadata) and span end (the numbers). The facts reach it differently

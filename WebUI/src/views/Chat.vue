@@ -439,6 +439,39 @@
               <span class="mr-2"
                 >1st Token Time: {{ message.metadata?.timings.prompt_ms.toFixed(2) }}ms</span
               >
+              <template v-if="message.metadata?.compute?.gpuMemPeakMiB != null">
+                <span class="mr-2">⋅</span>
+                <span class="mr-2"
+                  >{{ formatMib(message.metadata.compute.gpuMemPeakMiB) }} vRAM peak</span
+                >
+              </template>
+              <template v-else-if="message.metadata?.compute?.hostMemPeakMiB != null">
+                <span class="mr-2">⋅</span>
+                <span class="mr-2"
+                  >{{ formatMib(message.metadata.compute.hostMemPeakMiB) }} RAM peak</span
+                >
+              </template>
+              <template
+                v-if="CHAT_ENERGY_ESTIMATES_ENABLED && message.metadata?.energy?.wattHours != null"
+              >
+                <span class="mr-2">⋅</span>
+                <span class="mr-2"
+                  >{{ formatEnergyWh(message.metadata.energy.wattHours) }} GPU energy</span
+                >
+              </template>
+              <template
+                v-if="
+                  CHAT_ENERGY_ESTIMATES_ENABLED &&
+                  i + 1 === activeConversation.length &&
+                  conversationEnergy
+                "
+              >
+                <span class="mr-2">⋅</span>
+                <span class="mr-2"
+                  >est. {{ formatUsd(conversationEnergy.costPerMillionOutputTokensUsd) }} / 1M
+                  output tokens @ $0.35/kWh</span
+                >
+              </template>
             </div>
           </div>
         </div>
@@ -492,6 +525,8 @@ import { useComfyUiPresets } from '@/assets/js/store/comfyUiPresets'
 import { DynamicToolUIPart, isToolUIPart, ToolUIPart } from 'ai'
 import { aipgTools, AipgTools } from '@/assets/js/tools/tools'
 import { UserCircleIcon } from '@heroicons/vue/24/outline'
+import { CHAT_ENERGY_ESTIMATES_ENABLED, estimateConversationEnergy } from '@/lib/chatEnergy'
+import { formatEnergyWh, formatMib, formatUsd } from '@/lib/computeMetricsFormat'
 
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const textToSpeech = useTextToSpeech()
@@ -545,6 +580,7 @@ const showScrollButton = ref(false)
 const chatPanel = ref<HTMLElement | null>(null)
 
 const activeConversation = computed(() => openAiCompatibleChat.messages)
+const conversationEnergy = computed(() => estimateConversationEnergy(activeConversation.value))
 const showRagSourcePerMessageId = reactive<Record<string, boolean>>({})
 
 const ragSourcePerMessageId = reactive<Record<string, string>>({})

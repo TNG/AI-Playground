@@ -67,6 +67,32 @@ describe('readLlamaCppVramInputs', () => {
     expect(inputs?.mmprojBytes).toBe(0)
   })
 
+  it('reads past its window when the arch keys sit behind the vocabulary', () => {
+    const dir = makeDir()
+    const file = path.join(dir, 'owner---repo', 'model.gguf')
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    // ~2 MiB of vocabulary first, so the bounded first read cannot settle.
+    fs.writeFileSync(
+      file,
+      encodeGgufMetadata([
+        [
+          'tokenizer.ggml.tokens',
+          { type: 'string[]', value: Array.from({ length: 140_000 }, (_, i) => `token${i}`) },
+        ],
+        ['general.architecture', { type: 'string', value: 'llama' }],
+        ['llama.block_count', { type: 'u32', value: 28 }],
+        ['llama.embedding_length', { type: 'u32', value: 2048 }],
+        ['llama.attention.head_count', { type: 'u32', value: 16 }],
+      ]),
+    )
+
+    expect(readLlamaCppVramInputs(dir, 'owner/repo/model.gguf')?.arch).toMatchObject({
+      architecture: 'llama',
+      blockCount: 28,
+      headCount: 16,
+    })
+  })
+
   it('adds a sibling mmproj and sums the shards of a split model', () => {
     const dir = makeDir()
     const modelDir = path.join(dir, 'owner---repo')

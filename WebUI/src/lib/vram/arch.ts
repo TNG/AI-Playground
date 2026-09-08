@@ -1,4 +1,5 @@
 import type { GgufMetadata, GgufScalar } from './gguf.ts'
+import { canEstimateKv } from './kvCache.ts'
 import type { GgufArch } from './types.ts'
 
 const DEFAULT_SWA_PERIOD: Record<string, number> = {
@@ -56,6 +57,19 @@ export function archFromMetadata(meta: GgufMetadata): GgufArch {
 
   if (arch.vocabSize === undefined) arch.vocabSize = meta.vocabSize
   return arch
+}
+
+/**
+ * Whether a header that was cut short still describes the model. GGUF writers
+ * emit every `<arch>.*` key before the tokenizer's, and the vocabulary's size is
+ * known from the array's length before its (megabytes of) contents — so a parse
+ * that reached the tokenizer holds everything the estimator reads. A parse that
+ * stopped earlier does not, and the caller must fetch more.
+ */
+export function archIsSettled(meta: GgufMetadata): boolean {
+  if (!meta.truncated) return true
+  const reachedTokenizer = [...meta.values.keys()].some((key) => key.startsWith('tokenizer.'))
+  return reachedTokenizer && meta.vocabSize !== undefined && canEstimateKv(archFromMetadata(meta))
 }
 
 function assignArchField(arch: GgufArch, field: keyof GgufArch, raw: GgufScalar): void {

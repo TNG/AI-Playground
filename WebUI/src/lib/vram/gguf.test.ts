@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { encodeGgufMetadata, parseGgufMetadataBytes, type EncodeValue } from './gguf.ts'
-import { archFromMetadata } from './arch.ts'
+import {
+  bytesReader,
+  encodeGgufMetadata,
+  parseGgufMetadata,
+  parseGgufMetadataBytes,
+  type EncodeValue,
+} from './gguf.ts'
+import { archFromMetadata, archIsSettled } from './arch.ts'
 
 function encode(pairs: Record<string, EncodeValue>) {
   return encodeGgufMetadata(Object.entries(pairs))
@@ -23,6 +29,43 @@ describe('parseGgufMetadata', () => {
     expect(meta.vocabSize).toBe(3)
     expect(meta.values.get('qwen35.block_count')).toBe(32)
     expect(meta.values.has('tokenizer.ggml.tokens')).toBe(false)
+  })
+
+  it('keeps what it read when the bytes run out, and says the header is short', () => {
+    const bytes = encode({
+      'general.architecture': { type: 'string', value: 'qwen35' },
+      'qwen35.block_count': { type: 'u32', value: 32 },
+      'qwen35.embedding_length': { type: 'u32', value: 4096 },
+      'qwen35.attention.head_count': { type: 'u32', value: 16 },
+      'tokenizer.ggml.model': { type: 'string', value: 'gpt2' },
+      'tokenizer.ggml.tokens': { type: 'string[]', value: ['a', 'b', 'c', 'd'] },
+      'tokenizer.chat_template': { type: 'string', value: '{{ messages }}' },
+    })
+    // Cut inside the vocabulary, which is where a real fixed-size read lands.
+    const cut = bytes.subarray(0, bytes.length - 30)
+
+    expect(() => parseGgufMetadataBytes(cut)).toThrow(/EOF/)
+    const meta = parseGgufMetadata(bytesReader(cut), { allowTruncated: true })
+    expect(meta.truncated).toBe(true)
+    // The vocabulary's size is its array length, known before its contents.
+    expect(meta.vocabSize).toBe(4)
+    expect(archFromMetadata(meta)).toMatchObject({ blockCount: 32, headCount: 16 })
+    // Everything the estimator reads is in front of the tokenizer, so this counts.
+    expect(archIsSettled(meta)).toBe(true)
+  })
+
+  it('does not settle for a header cut before the tokenizer', () => {
+    const bytes = encode({
+      'general.architecture': { type: 'string', value: 'qwen35' },
+      'qwen35.block_count': { type: 'u32', value: 32 },
+      'qwen35.embedding_length': { type: 'u32', value: 4096 },
+      'qwen35.attention.head_count': { type: 'u32', value: 16 },
+      'tokenizer.ggml.tokens': { type: 'string[]', value: ['a', 'b'] },
+    })
+    const meta = parseGgufMetadata(bytesReader(bytes.subarray(0, 60)), { allowTruncated: true })
+
+    expect(meta.truncated).toBe(true)
+    expect(archIsSettled(meta)).toBe(false)
   })
 
   it('reads a per-layer head_count_kv array', () => {

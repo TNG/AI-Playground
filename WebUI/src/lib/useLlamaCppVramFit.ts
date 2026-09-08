@@ -1,7 +1,7 @@
-import { computed, ref, watch } from 'vue'
+import { computed, reactive, watchEffect, type Ref } from 'vue'
 import type { LlamaCppVramInputs } from '../../electron/llamaCppVramInputs'
 import { useComputeMetrics } from '@/assets/js/store/computeMetrics'
-import { useTextInference } from '@/assets/js/store/textInference'
+import { useTextInference, type LlmModel } from '@/assets/js/store/textInference'
 import {
   emptyCardBudgetBytes,
   estimateLlamaCppVram,
@@ -12,6 +12,10 @@ import {
 
 /** The context size every model is also shown at, so two models compare on one scale. */
 export const REFERENCE_CONTEXT_TOKENS = 8192
+
+// A header for a model that is not downloaded is a range request to HuggingFace,
+// and the picker asks for every model it lists at once.
+const MAX_PARALLEL_READS = 3
 
 export type VramFitPoint = {
   contextTokens: number
@@ -35,60 +39,79 @@ export type VramFitSummary = {
   max: VramFitPoint
 }
 
-// One IPC per model for the whole app: the chip is mounted on both the status bar
-// and the model picker, and a GGUF header does not change while the app runs.
-const inputsCache = new Map<string, LlamaCppVramInputs | null>()
+// One read per model for the whole app: the chip is mounted on the status bar, on
+// the picker's trigger and on every row of its list, and a GGUF header does not
+// change while the app runs. Keyed by where the header came from, so a model that
+// finishes downloading is read again from the file itself.
+const inputsCache = reactive(new Map<string, LlamaCppVramInputs | null>())
+const inFlight = new Set<string>()
+let running = 0
+const waiting: (() => void)[] = []
 
-async function loadInputs(
-  modelName: string,
-  mmprojName: string | undefined,
-): Promise<LlamaCppVramInputs | null> {
-  const cached = inputsCache.get(modelName)
-  if (cached) return cached
-  let inputs: LlamaCppVramInputs | null = null
-  try {
-    inputs = await window.electronAPI.getLlamaCppVramInputs(modelName, mmprojName)
-  } catch {
-    inputs = null
+function acquire(): Promise<void> {
+  if (running < MAX_PARALLEL_READS) {
+    running += 1
+    return Promise.resolve()
   }
-  // A miss is not cached: an unreachable header is readable once the model is downloaded.
-  if (inputs) inputsCache.set(modelName, inputs)
-  return inputs
+  return new Promise((resolve) =>
+    waiting.push(() => {
+      running += 1
+      resolve()
+    }),
+  )
+}
+
+function release(): void {
+  running -= 1
+  waiting.shift()?.()
+}
+
+const cacheKey = (model: LlmModel) => `${model.downloaded ? 'local' : 'remote'}:${model.name}`
+
+function requestInputs(model: LlmModel): void {
+  const key = cacheKey(model)
+  if (inputsCache.has(key) || inFlight.has(key)) return
+  inFlight.add(key)
+  void (async () => {
+    await acquire()
+    try {
+      inputsCache.set(key, await window.electronAPI.getLlamaCppVramInputs(model.name, model.mmproj))
+    } catch {
+      inputsCache.set(key, null)
+    } finally {
+      release()
+      inFlight.delete(key)
+    }
+  })()
 }
 
 /**
- * How the active llama.cpp model sits in the card's memory, at the current, a
- * reference and the model's maximum context. Null whenever the answer would be a
+ * How a llama.cpp model sits in the card's memory, at the current, a reference
+ * and the model's maximum context. Defaults to the active model; pass one to ask
+ * about a model the user is only looking at. Null whenever the answer would be a
  * guess: another backend, a header that could not be read, or no GPU sample yet.
+ *
+ * A model that is not on disk is read from its header on HuggingFace, which is
+ * the moment the verdict is worth the most: before paying for the download.
  */
-export function useLlamaCppVramFit() {
+export function useLlamaCppVramFit(target?: Ref<LlmModel | undefined>) {
   const textInference = useTextInference()
   const computeMetrics = useComputeMetrics()
-  const inputs = ref<LlamaCppVramInputs | null>(null)
 
-  const model = computed(() =>
-    textInference.backend === 'llamaCPP'
-      ? textInference.llmModels.find((m) => m.active && m.type === 'llamaCPP')
-      : undefined,
-  )
+  const model = computed(() => {
+    if (target) return target.value?.type === 'llamaCPP' ? target.value : undefined
+    if (textInference.backend !== 'llamaCPP') return undefined
+    return textInference.llmModels.find((m) => m.active && m.type === 'llamaCPP')
+  })
 
-  // A model that is not on disk is read from its header on HuggingFace, which is
-  // the moment the verdict is worth the most: before paying for the download.
-  const readableModel = computed(() => model.value?.name)
+  watchEffect(() => {
+    if (model.value) requestInputs(model.value)
+  })
 
-  watch(
-    readableModel,
-    async (name) => {
-      if (!name) {
-        inputs.value = null
-        return
-      }
-      const loaded = await loadInputs(name, model.value?.mmproj)
-      // The selection may have moved on while the IPC was in flight.
-      if (readableModel.value === name) inputs.value = loaded
-    },
-    { immediate: true },
-  )
+  const inputs = computed(() => {
+    const current = model.value
+    return current ? (inputsCache.get(cacheKey(current)) ?? null) : null
+  })
 
   const summary = computed<VramFitSummary | null>(() => {
     const gpu = computeMetrics.primaryGpu
@@ -102,6 +125,7 @@ export function useLlamaCppVramFit() {
     // The catalog asks for MTP off the model's own draft head on some models,
     // which costs KV and a slice of the weights on top of everything else.
     const mtp = (model.value?.llamaCppArgs ?? '').includes('draft-mtp')
+    const maxContext = model.value?.maxContextSize
 
     const pointAt = (contextTokens: number): VramFitPoint => {
       const estimate = estimateLlamaCppVram({
@@ -122,7 +146,8 @@ export function useLlamaCppVramFit() {
       }
     }
 
-    const current = pointAt(textInference.contextSize)
+    // A model narrower than the setting never gets the whole window.
+    const current = pointAt(Math.min(textInference.contextSize, maxContext ?? Infinity))
     return {
       level: current.level,
       totalBytes,
@@ -130,7 +155,7 @@ export function useLlamaCppVramFit() {
       usableBytes,
       current,
       reference: pointAt(REFERENCE_CONTEXT_TOKENS),
-      max: pointAt(model.value?.maxContextSize ?? textInference.contextSize),
+      max: pointAt(maxContext ?? textInference.contextSize),
     }
   })
 

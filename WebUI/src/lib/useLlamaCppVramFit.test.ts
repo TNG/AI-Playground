@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { nextTick, reactive } from 'vue'
+import { computed, nextTick, reactive } from 'vue'
 import type { LlamaCppVramInputs } from '../../electron/llamaCppVramInputs'
+import type { LlmModel } from '@/assets/js/store/textInference'
 import { GIB, MIB } from '@/lib/vram'
 
 const textInference = reactive({
@@ -32,7 +33,7 @@ const inputs: LlamaCppVramInputs = {
   mmprojBytes: 0,
 }
 
-const getLlamaCppVramInputs = vi.fn(async () => inputs)
+const getLlamaCppVramInputs = vi.fn(async (_name: string, _mmproj?: string) => inputs)
 
 beforeEach(async () => {
   getLlamaCppVramInputs.mockClear()
@@ -115,6 +116,51 @@ describe('useLlamaCppVramFit', () => {
       'owner/repo/mmproj-BF16.gguf',
     )
     expect(summary.value?.level).toBe('easy')
+  })
+
+  it('judges a listed model rather than the active one, and reads each list model once', async () => {
+    const listed = [
+      { name: 'owner/repo/listed-a.gguf', type: 'llamaCPP', active: false, downloaded: false },
+      { name: 'owner/repo/listed-b.gguf', type: 'llamaCPP', active: false, downloaded: true },
+    ]
+    textInference.llmModels = [
+      { name: 'owner/repo/active.gguf', type: 'llamaCPP', active: true, downloaded: true },
+      ...listed,
+    ]
+    // Two rows of the picker, each mounting its own chip, plus a second pass over
+    // the same rows (the menu reopened).
+    const fits = [...listed, ...listed].map((m) =>
+      useLlamaCppVramFit(computed(() => m as unknown as LlmModel)),
+    )
+    await settle()
+
+    const read = getLlamaCppVramInputs.mock.calls.map(([name]) => name)
+    expect(fits.every((fit) => fit.summary.value?.level === 'easy')).toBe(true)
+    expect(read).toContain('owner/repo/listed-a.gguf')
+    expect(read).toContain('owner/repo/listed-b.gguf')
+    expect(read).toHaveLength(new Set(read).size)
+  })
+
+  it('never has more than three headers in flight', async () => {
+    let inFlight = 0
+    let peak = 0
+    getLlamaCppVramInputs.mockImplementation(async () => {
+      inFlight += 1
+      peak = Math.max(peak, inFlight)
+      await new Promise((resolve) => setTimeout(resolve, 1))
+      inFlight -= 1
+      return inputs
+    })
+    const models = Array.from({ length: 9 }, (_, i) => ({
+      name: `owner/repo/many-${i}.gguf`,
+      type: 'llamaCPP',
+      active: false,
+      downloaded: false,
+    }))
+    models.forEach((m) => useLlamaCppVramFit(computed(() => m as unknown as LlmModel)))
+    await vi.waitFor(() => expect(getLlamaCppVramInputs).toHaveBeenCalledTimes(9))
+
+    expect(peak).toBeLessThanOrEqual(3)
   })
 
   it('turns red once the model no longer fits the card', async () => {

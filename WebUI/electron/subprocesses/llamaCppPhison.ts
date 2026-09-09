@@ -21,7 +21,7 @@ export const LLAMACPP_SSD_OFFLOAD_PROCESS_NAME = 'ada.exe'
 const CONFIG_FILE_FLAG = '--config-file'
 
 /**
- * Context window the aiDAPTIV+ embedding server is started with.
+ * Context window the aiDAPTIV embedding server is started with.
  *
  * Scoped to the ssd-offload build on purpose: the standard llama.cpp build keeps
  * llama-server's own default and is not affected by this value.
@@ -71,12 +71,12 @@ const LLAMACPP_SSD_OFFLOAD_DEFAULT_CONFIG = {
 }
 
 /**
- * The embedding server's own aiDAPTIV+ config.
+ * The embedding server's own aiDAPTIV config.
  *
- * Deliberately nothing but the aiDAPTIV+ block. There is no `common` block: the
+ * Deliberately nothing but the aiDAPTIV block. There is no `common` block: the
  * embedding server is launched from the same startup-parameter string as the LLM,
  * so the llama.cpp side is already on its argv, and a copy of the LLM config's
- * `common` here would only be a second place to keep in sync. The aiDAPTIV+
+ * `common` here would only be a second place to keep in sync. The aiDAPTIV
  * budgets are left out for the reason they were zeroed before — an embedding pass
  * has no KV cache worth parking on the SSD and no experts worth pinning in VRAM,
  * so the LLM config's reservations would be withheld from the LLM server for
@@ -304,7 +304,7 @@ export async function updateSsdOffloadConfig(
     // `offload_path` is deliberately absent. The app no longer manages it: it is
     // not seeded into the default config and never written here, so a value a user
     // adds to the file by hand survives this read-modify-write (as does any other
-    // key the app doesn't know about, via the spreads above). aiDAPTIV+ still
+    // key the app doesn't know about, via the spreads above). aiDAPTIV still
     // honours it — it is simply the user's to set now, not ours.
     const updatedConfig = {
       ...config,

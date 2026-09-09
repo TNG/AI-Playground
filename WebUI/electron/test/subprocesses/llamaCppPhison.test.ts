@@ -111,7 +111,7 @@ describe('llamaCppPhison helpers', () => {
     expect(getModelServerEnvAdditions('ssd-offload')).toEqual({ GGML_VK_DISABLE_F16: '1' })
   })
 
-  it('gives the embedding server its own config with no aiDAPTIV+ budgets of its own', () => {
+  it('gives the embedding server its own config with no aiDAPTIV budgets of its own', () => {
     const serviceDir = createServiceDir()
     const configPath = getSsdOffloadConfigPath(serviceDir)
     const embeddingConfigPath = getSsdOffloadEmbeddingConfigPath(serviceDir)
@@ -124,9 +124,9 @@ describe('llamaCppPhison helpers', () => {
     const llm = filesystem.readJsonSync(configPath)
     const embedding = filesystem.readJsonSync(embeddingConfigPath)
 
-    // The embedding config carries only the aiDAPTIV+ block: no `common` of its
+    // The embedding config carries only the aiDAPTIV block: no `common` of its
     // own (the llama.cpp side comes from the shared startup parameters on the
-    // argv), and none of the aiDAPTIV+ budget keys at all — an embedding pass has
+    // argv), and none of the aiDAPTIV budget keys at all — an embedding pass has
     // no KV cache worth parking on the SSD and no experts worth pinning in VRAM,
     // and leaving the keys out entirely (rather than writing zeros) is what keeps
     // the LLM server's own reservations untouched.

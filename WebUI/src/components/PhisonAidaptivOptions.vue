@@ -47,7 +47,7 @@ const llamaInfo = computed(() =>
 )
 
 const phisonDisplayName = computed(
-  () => i18nState.PHISON_AIDAPTIV_MENU_LABEL || 'Llama.cpp - Phison aiDAPTIV™ SSD',
+  () => i18nState.PHISON_AIDAPTIV_MENU_LABEL || 'Llama.cpp with Phison Pascari aiDAPTIV',
 )
 
 const backendStatus = computed(() => llamaInfo.value?.status ?? 'notInstalled')
@@ -102,7 +102,7 @@ async function applySettings(values: Record<string, unknown>) {
   } catch (error) {
     console.error('Llama.cpp (Phison) settings update failed:', error)
     toast.error(
-      `Failed to update Phison aiDAPTIV™ settings: ${error instanceof Error ? error.message : String(error)}`,
+      `Failed to update Phison Pascari aiDAPTIV settings: ${error instanceof Error ? error.message : String(error)}`,
     )
     // Leave dialogs open so the user can retry without losing context.
     return
@@ -120,7 +120,7 @@ async function handlePhisonReinstall() {
     } catch (e) {
       console.error('Llama.cpp (Phison) settings push failed:', e)
       toast.error(
-        `Failed to push Phison aiDAPTIV™ settings: ${e instanceof Error ? e.message : String(e)}`,
+        `Failed to push Phison Pascari aiDAPTIV settings: ${e instanceof Error ? e.message : String(e)}`,
       )
       return
     }
@@ -171,7 +171,7 @@ async function handlePhisonReinstall() {
   <SettingsMenu
     v-model:open="menuOpen"
     :label="phisonDisplayName"
-    title="Llama.cpp-Phison aiDAPTIV™ settings"
+    title="Llama.cpp with Phison Pascari aiDAPTIV settings"
   >
     <DropdownMenuItem v-if="showReinstall" @select="reinstallDialogOpen = true">{{
       i18nState.BACKEND_REINSTALL
@@ -202,12 +202,12 @@ async function handlePhisonReinstall() {
     <DialogContent>
       <DialogHeader>
         <DialogTitle>{{
-          i18nState.PHISON_AIDAPTIV_SETTINGS_TITLE || 'Llama.cpp-Phison aiDAPTIV™ SSD offload'
+          i18nState.PHISON_AIDAPTIV_SETTINGS_TITLE || 'Llama.cpp with Phison Pascari aiDAPTIV'
         }}</DialogTitle>
         <DialogDescription>
           {{
             i18nState.PHISON_AIDAPTIV_SETTINGS_DESCRIPTION ||
-            'Startup parameters for the Phison aiDAPTIV™ Llama.cpp build. Offload paths are edited directly in aidaptiv_config.json.'
+            'Startup parameters for Llama.cpp with Phison Pascari aiDAPTIV. Offload paths are edited directly in aidaptiv_config.json.'
           }}
         </DialogDescription>
       </DialogHeader>

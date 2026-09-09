@@ -8,14 +8,17 @@ import {
   computePhisonArtifactsReady,
   computeStandardArtifactsReady,
   ensureSsdOffloadConfigFileSync,
+  ensureSsdOffloadEmbeddingConfigFileSync,
   getLlamaCppDirForVariant,
   getModelServerEnvAdditions,
   getRelativeSsdOffloadConfigPath,
   getSsdOffloadConfigPath,
+  getSsdOffloadEmbeddingConfigPath,
   getZipPathForVariant,
   migrateLegacyPhisonIntoSeparateDirectory,
   migrateLegacySsdOffloadConfigFile,
   normalizeOffloadDrivePath,
+  withConfigFileArg,
 } from '../../subprocesses/llamaCppPhison'
 
 const tempDirs: string[] = []
@@ -106,5 +109,95 @@ describe('llamaCppPhison helpers', () => {
     )
     expect(getModelServerEnvAdditions('standard')).toEqual({})
     expect(getModelServerEnvAdditions('ssd-offload')).toEqual({ GGML_VK_DISABLE_F16: '1' })
+  })
+
+  it('gives the embedding server its own config with no aiDAPTIV budgets of its own', () => {
+    const serviceDir = createServiceDir()
+    const configPath = getSsdOffloadConfigPath(serviceDir)
+    const embeddingConfigPath = getSsdOffloadEmbeddingConfigPath(serviceDir)
+
+    expect(embeddingConfigPath).not.toBe(configPath)
+
+    ensureSsdOffloadConfigFileSync(serviceDir, configPath)
+    ensureSsdOffloadEmbeddingConfigFileSync(serviceDir, embeddingConfigPath)
+
+    const llm = filesystem.readJsonSync(configPath)
+    const embedding = filesystem.readJsonSync(embeddingConfigPath)
+
+    // The embedding config carries only the aiDAPTIV block: no `common` of its
+    // own (the llama.cpp side comes from the shared startup parameters on the
+    // argv), and none of the aiDAPTIV budget keys at all — an embedding pass has
+    // no KV cache worth parking on the SSD and no experts worth pinning in VRAM,
+    // and leaving the keys out entirely (rather than writing zeros) is what keeps
+    // the LLM server's own reservations untouched.
+    expect(embedding.common).toBeUndefined()
+    expect(llm.common.gpu_layers).toBe('999')
+    expect(embedding.aidaptiv.cache_kv_offload_gb).toBeUndefined()
+    expect(embedding.aidaptiv.dram_kv_offload_gb).toBeUndefined()
+    expect(embedding.aidaptiv.vram_experts_cached_gb).toBeUndefined()
+    expect(embedding.aidaptiv.kv_cache_resume_policy).toBeUndefined()
+    expect(llm.aidaptiv.cache_kv_offload_gb).toBe(-1)
+
+    expect(getRelativeSsdOffloadConfigPath(serviceDir, 'ssd-offload', embeddingConfigPath)).toBe(
+      path.join('..', 'aidaptiv_embedding_config.json'),
+    )
+  })
+
+  it('does not overwrite an existing embedding config', () => {
+    const serviceDir = createServiceDir()
+    const embeddingConfigPath = getSsdOffloadEmbeddingConfigPath(serviceDir)
+
+    filesystem.ensureDirSync(serviceDir)
+    filesystem.writeJsonSync(embeddingConfigPath, { aidaptiv: { cache_kv_offload_gb: 4 } })
+    ensureSsdOffloadEmbeddingConfigFileSync(serviceDir, embeddingConfigPath)
+
+    expect(filesystem.readJsonSync(embeddingConfigPath)).toEqual({
+      aidaptiv: { cache_kv_offload_gb: 4 },
+    })
+  })
+
+  describe('withConfigFileArg', () => {
+    const target = '..\aidativ_embedding_config.json'
+
+    it('replaces the value of a spaced --config-file, keeping other flags', () => {
+      expect(
+        withConfigFileArg(
+          ['--gpu-layers', '999', '--config-file', '..\aidaptiv_config.json'],
+          target,
+        ),
+      ).toEqual(['--gpu-layers', '999', '--config-file', target])
+    })
+
+    it('replaces the --config-file=value spelling', () => {
+      expect(
+        withConfigFileArg(['--config-file=../aidaptiv_config.json', '-fa', 'on'], target),
+      ).toEqual([`--config-file=${target}`, '-fa', 'on'])
+    })
+
+    it('appends the flag when the user removed it', () => {
+      expect(withConfigFileArg(['--gpu-layers', '999'], target)).toEqual([
+        '--gpu-layers',
+        '999',
+        '--config-file',
+        target,
+      ])
+    })
+
+    it('collapses a repeated --config-file to a single occurrence', () => {
+      expect(
+        withConfigFileArg(
+          ['--config-file', 'a.json', '--jinja', '--config-file', 'b.json'],
+          target,
+        ),
+      ).toEqual(['--config-file', target, '--jinja'])
+    })
+
+    it('does not swallow the next flag after a bare --config-file', () => {
+      expect(withConfigFileArg(['--config-file', '--jinja'], target)).toEqual([
+        '--config-file',
+        target,
+        '--jinja',
+      ])
+    })
   })
 })

@@ -839,7 +839,6 @@ export const useBackendServices = defineStore(
         'comfyUiParameters',
         'llamaCppParameters',
         'llamaCppBuildVariant',
-        'llamaCppOffloadDrive',
         'openvinoKvCacheU4',
       ],
     },

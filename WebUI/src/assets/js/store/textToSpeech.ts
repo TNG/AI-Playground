@@ -434,17 +434,28 @@ export const useTextToSpeech = defineStore(
 
       stopSpeaking()
 
-      // Start the OVMS speech server on demand (no-op if already running or if the
-      // model isn't installed — in which case a configured fallback still serves).
-      await ensureSpeechServerRunning()
-
-      const endpoint = await resolveSpeech()
-      if (!endpoint) {
-        toast.warning('Text To Speech is not available (no OVMS server or fallback configured)')
-        return
-      }
-
       try {
+        if (isKokoroAvailable.value) {
+          try {
+            await ensureKokoroReady()
+          } catch (error) {
+            if (!hasFallback()) {
+              toast.warning(
+                error instanceof Error ? error.message : 'Text To Speech setup was cancelled',
+              )
+              return
+            }
+          }
+        } else {
+          await ensureSpeechServerRunning()
+        }
+
+        const endpoint = await resolveSpeech()
+        if (!endpoint) {
+          toast.warning('Text To Speech is not available (no OVMS server or fallback configured)')
+          return
+        }
+
         isSpeaking.value = true
         speakingMessageId.value = id ?? null
 

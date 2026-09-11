@@ -1810,8 +1810,6 @@ export class OpenVINOBackendService implements ApiService {
         await this.ensureLinuxRuntimeDependenciesForStartup()
       }
 
-      this.appLogger.info(`Starting transcription server for model: ${modelName}`, this.name)
-
       // Check if already running with the same model
       if (this.ovmsTranscriptionProcess?.isReady && this.currentTranscriptionModel === modelName) {
         this.appLogger.info(
@@ -1820,6 +1818,8 @@ export class OpenVINOBackendService implements ApiService {
         )
         return
       }
+
+      this.appLogger.info(`Starting transcription server for model: ${modelName}`, this.name)
 
       // Stop existing server if running different model
       if (this.ovmsTranscriptionProcess) {

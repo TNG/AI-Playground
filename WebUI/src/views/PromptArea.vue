@@ -690,15 +690,17 @@ async function handleSttFileUpload(event: Event) {
   })
 }
 
+audioRecorder.registerRecordingCompleteHandler(async (wavBlob) => {
+  if (!isSttPreset.value) return
+  await openAiCompatibleChat.transcribeDirect(wavBlob, {
+    conversationKey: conversations.activeKey,
+    sourceLabel: '🎤 Recording',
+  })
+})
+
 audioRecorder.registerTranscriptionCallback((text) => {
-  // In the STT preset the transcript is the turn's output — render it as a chat
-  // turn instead of dropping it into the prompt box.
-  if (isSttPreset.value) {
-    openAiCompatibleChat.appendTranscriptTurn(text, conversations.activeKey, '🎤 Recording')
-    return
-  }
+  if (isSttPreset.value) return
   prompt.value = text
-  // Mark this as a voice-originated turn so the reply can be auto-spoken.
   textToSpeech.pendingVoiceTurn = true
 })
 
@@ -1000,7 +1002,6 @@ async function handleRecordingClick() {
       toast.success('Speech To Text model downloaded. Press the microphone to start recording.')
       return
     }
-    speechToText.markMicTranscriptionPrimed()
   } catch (error) {
     errors.report(error, {
       category: 'inference',
@@ -1009,7 +1010,7 @@ async function handleRecordingClick() {
     })
     return
   }
-  await audioRecorder.startRecording()
+  await audioRecorder.startRecording(isSttPreset.value ? { manualStopOnly: true } : undefined)
 }
 
 // Recorder failures are surfaced here rather than at the call site: transcription

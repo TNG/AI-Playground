@@ -8,8 +8,14 @@ import { useDialogStore } from './dialogs'
 import * as toast from '@/assets/js/toast'
 import { useSetupWizard } from './setupWizard'
 import { useProductMode } from './productMode'
-import { synthesizeSpeech, bytesToBlobUrl, bytesToBase64 } from '@/lib/synthesizeSpeech'
+import {
+  synthesizeSpeech,
+  bytesToBlobUrl,
+  bytesToBase64,
+  base64ToBytes,
+} from '@/lib/synthesizeSpeech'
 import { markdownToSpeechText } from '@/lib/markdownToSpeech'
+import { useQwen3TextToSpeech } from './qwen3TextToSpeech'
 
 export const SPEECHT5_MODEL_NAME = 'tngtech/Kokoro-82M-int8-ov'
 
@@ -84,6 +90,7 @@ export const useTextToSpeech = defineStore(
     const dialogStore = useDialogStore()
     const setupWizard = useSetupWizard()
     const productMode = useProductMode()
+    const qwen3TextToSpeech = useQwen3TextToSpeech()
 
     /**
      * App-wide fallback speech endpoint. Shared by the desktop auto-play path
@@ -99,6 +106,8 @@ export const useTextToSpeech = defineStore(
 
     // Playback state for the desktop UI.
     const isSpeaking = ref(false)
+    /** True while `speak()` is spawning the backend or synthesizing before playback. */
+    const preparingSpeech = ref(false)
     const speakingMessageId = ref<string | null>(null)
     // Transient flag: set when a mic transcript arrives, consumed on reply
     // completion so we only auto-speak turns that originated from speech.
@@ -106,6 +115,7 @@ export const useTextToSpeech = defineStore(
 
     let currentAudio: HTMLAudioElement | null = null
     let currentObjectUrl: string | null = null
+    let speakGeneration = 0
 
     /** True when a usable fallback endpoint is configured. */
     function hasFallback(): boolean {
@@ -126,17 +136,18 @@ export const useTextToSpeech = defineStore(
     /** Whether the external (fallback) endpoint engine is configured/usable. */
     const isExternalAvailable = computed(() => hasFallback())
 
+    const isQwen3Available = computed(() => {
+      const info = backendServices.info.find((s) => s.serviceName === 'qwen3-tts-backend')
+      return info?.isSetUp === true
+    })
+
     /**
-     * Whether "speak replies aloud" is usable at all: either Kokoro (OVMS) or a
-     * configured external endpoint. Used by the desktop Speak button / auto-speak and
-     * the Home Agent voice reply now that the old global TTS enable toggle is gone.
-     *
-     * Deliberately excludes the Qwen3 engine: those consumers all go through
-     * `speak()` → `resolveSpeech()`, which only knows the OVMS and external
-     * endpoints. Qwen3 synthesis lives in the qwen3TextToSpeech store, so it must
-     * not be counted here — check the Qwen backend separately if you need it.
+     * Whether the desktop Speak button / auto-speak can run. Qwen3 uses
+     * `qwen3TextToSpeech`; Kokoro and the external endpoint use `resolveSpeech()`.
      */
-    const available = computed(() => isKokoroAvailable.value || isExternalAvailable.value)
+    const available = computed(
+      () => isQwen3Available.value || isKokoroAvailable.value || isExternalAvailable.value,
+    )
 
     /**
      * Resolve which speech endpoint to use. Prefers the OVMS text2speech server
@@ -398,6 +409,8 @@ export const useTextToSpeech = defineStore(
 
     /** Stop any in-progress playback and release the object URL. */
     function stopSpeaking(): void {
+      speakGeneration++
+      preparingSpeech.value = false
       if (currentAudio) {
         currentAudio.pause()
         currentAudio.src = ''
@@ -409,6 +422,18 @@ export const useTextToSpeech = defineStore(
       }
       isSpeaking.value = false
       speakingMessageId.value = null
+    }
+
+    async function playAudioBytes(bytes: Uint8Array, mediaType: string, gen: number): Promise<void> {
+      if (gen !== speakGeneration) return
+      const url = bytesToBlobUrl(bytes, mediaType)
+      currentObjectUrl = url
+      const audio = new Audio(url)
+      currentAudio = audio
+      audio.onended = () => stopSpeaking()
+      audio.onerror = () => stopSpeaking()
+      isSpeaking.value = true
+      await audio.play()
     }
 
     /**
@@ -431,11 +456,28 @@ export const useTextToSpeech = defineStore(
     async function speak(text: string, id?: string): Promise<void> {
       const trimmed = markdownToSpeechText(text ?? '').trim()
       if (!trimmed) return
+      if (preparingSpeech.value) return
 
       stopSpeaking()
+      const gen = speakGeneration
+      preparingSpeech.value = true
+      speakingMessageId.value = id ?? null
 
       try {
-        if (isKokoroAvailable.value) {
+        if (selectedEngine.value === 'qwen3') {
+          const result = await qwen3TextToSpeech.synthesize({ text: trimmed })
+          if (gen !== speakGeneration) return
+          const bytes = base64ToBytes(result.audioBase64)
+          await playAudioBytes(bytes, result.mediaType || 'audio/wav', gen)
+          return
+        }
+
+        if (selectedEngine.value === 'external') {
+          if (!hasFallback()) {
+            toast.warning('Text To Speech is not available (no external endpoint configured)')
+            return
+          }
+        } else {
           try {
             await ensureKokoroReady()
           } catch (error) {
@@ -446,32 +488,41 @@ export const useTextToSpeech = defineStore(
               return
             }
           }
-        } else {
-          await ensureSpeechServerRunning()
         }
 
-        const endpoint = await resolveSpeech()
+        if (gen !== speakGeneration) return
+
+        let endpoint: SpeechEndpoint | null
+        if (selectedEngine.value === 'external') {
+          endpoint = {
+            baseURL: fallback.value.baseUrl.trim(),
+            model: fallback.value.model.trim() || 'tts-1',
+            voice: fallback.value.voice.trim() || selectedKokoroVoice.value,
+            apiKey: fallback.value.apiKey,
+          }
+        } else {
+          endpoint = await resolveSpeech()
+        }
         if (!endpoint) {
           toast.warning('Text To Speech is not available (no OVMS server or fallback configured)')
           return
         }
 
-        isSpeaking.value = true
-        speakingMessageId.value = id ?? null
-
         const { bytes, mediaType } = await synthesizeSpeech(trimmed, endpoint)
-        const url = bytesToBlobUrl(bytes, mediaType)
-        currentObjectUrl = url
-
-        const audio = new Audio(url)
-        currentAudio = audio
-        audio.onended = () => stopSpeaking()
-        audio.onerror = () => stopSpeaking()
-        await audio.play()
+        if (gen !== speakGeneration) return
+        await playAudioBytes(bytes, mediaType, gen)
       } catch (error) {
+        if (gen !== speakGeneration) return
         console.error('Failed to synthesize speech:', error)
         toast.error(`Failed to play speech: ${error instanceof Error ? error.message : error}`)
         stopSpeaking()
+      } finally {
+        if (gen === speakGeneration) {
+          preparingSpeech.value = false
+          if (!isSpeaking.value) {
+            speakingMessageId.value = null
+          }
+        }
       }
     }
 
@@ -485,6 +536,8 @@ export const useTextToSpeech = defineStore(
       available,
       fallback,
       isSpeaking,
+      preparingSpeech,
+      isQwen3Available,
       speakingMessageId,
       pendingVoiceTurn,
       hasFallback,

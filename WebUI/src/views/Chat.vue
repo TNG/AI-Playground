@@ -390,16 +390,41 @@
                 v-if="textToSpeech.available"
                 class="flex items-end"
                 title="Speak"
-                :disabled="openAiCompatibleChat.processing"
-                :class="{ 'opacity-50 cursor-not-allowed': openAiCompatibleChat.processing }"
+                :disabled="
+                  openAiCompatibleChat.processing ||
+                  (textToSpeech.preparingSpeech &&
+                    textToSpeech.speakingMessageId !== message.id)
+                "
+                :class="{
+                  'opacity-50 cursor-not-allowed':
+                    openAiCompatibleChat.processing ||
+                    (textToSpeech.preparingSpeech &&
+                      textToSpeech.speakingMessageId !== message.id),
+                }"
                 @click="toggleSpeak(message)"
               >
                 <span
+                  v-if="
+                    textToSpeech.preparingSpeech &&
+                    textToSpeech.speakingMessageId === message.id &&
+                    !textToSpeech.isSpeaking
+                  "
+                  class="svg-icon i-loading w-4 h-4 animate-spin"
+                  aria-hidden="true"
+                ></span>
+                <span
+                  v-else
                   class="svg-icon w-4 h-4"
                   :class="textToSpeech.speakingMessageId === message.id ? 'i-stop' : 'i-speaker'"
                 ></span>
                 <span class="text-xs ml-1">{{
-                  textToSpeech.speakingMessageId === message.id ? 'Stop' : 'Speak'
+                  textToSpeech.preparingSpeech &&
+                  textToSpeech.speakingMessageId === message.id &&
+                  !textToSpeech.isSpeaking
+                    ? 'Starting…'
+                    : textToSpeech.speakingMessageId === message.id && textToSpeech.isSpeaking
+                      ? 'Stop'
+                      : 'Speak'
                 }}</span>
               </button>
               <button
@@ -718,10 +743,14 @@ function getMessageTextForCopy(message: { parts: { type: string; text?: string }
 }
 
 function toggleSpeak(message: { id: string; parts: { type: string; text?: string }[] }): void {
-  if (textToSpeech.speakingMessageId === message.id) {
+  if (
+    textToSpeech.speakingMessageId === message.id &&
+    (textToSpeech.isSpeaking || textToSpeech.preparingSpeech)
+  ) {
     textToSpeech.stopSpeaking()
     return
   }
+  if (textToSpeech.preparingSpeech) return
   textToSpeech.speak(getMessageTextForCopy(message), message.id)
 }
 

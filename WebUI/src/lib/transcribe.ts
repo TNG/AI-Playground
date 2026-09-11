@@ -38,7 +38,12 @@ export async function transcribeAudioBuffer(
   }
 
   const url = `${cfg.baseURL.replace(/\/$/, '')}/audio/transcriptions`
-  const response = await fetch(url, { method: 'POST', headers, body: form })
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: form,
+    signal: AbortSignal.timeout(300_000),
+  })
   const body = await response.text()
 
   if (!response.ok) {

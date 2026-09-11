@@ -69,6 +69,10 @@ export const useSpeechToText = defineStore(
     const initializing = ref(false)
     /** True while ensureWhisperReady / ensureStandaloneReady runs (model check, download, server start). */
     const preparingStt = ref(false)
+    /** Set when the mic path readied the engine on button press; consumed on first transcribe. */
+    const micTranscriptionPrimed = ref(false)
+    /** OVMS transcription model we last confirmed was serving; cleared when the URL is gone. */
+    let ovmsTranscriptionModelReady: string | null = null
     // Which engine the STT preset (and mic transcription) uses. Edited in SettingsStt.
     const selectedSttEngine = ref<SttEngine>('whisper')
     // Which model the standalone (torch) Whisper engine uses.
@@ -354,11 +358,16 @@ export const useSpeechToText = defineStore(
           }
         }
 
-        // Always ask for the selected model rather than skipping when *some* server
-        // is up: the model is picked per launch, so a server left running with the
-        // previously selected model would otherwise keep serving it. The backend
-        // no-ops when the running model already matches and restarts when it doesn't.
+        if (ovmsTranscriptionModelReady === model) {
+          try {
+            const url = await backendServices.getTranscriptionServerUrl()
+            if (url) return { downloadPrompted }
+          } catch {
+            ovmsTranscriptionModelReady = null
+          }
+        }
         await backendServices.startTranscriptionServer(model)
+        ovmsTranscriptionModelReady = model
         return { downloadPrompted }
       } finally {
         preparingStt.value = false
@@ -406,6 +415,43 @@ export const useSpeechToText = defineStore(
 
       return null
     }
+
+    function markMicTranscriptionPrimed(): void {
+      micTranscriptionPrimed.value = true
+    }
+
+    /**
+     * Ready the selected engine for a transcription request. The mic path primes on
+     * button press — repeating ensure here used to restart OVMS mid-flight and hang.
+     */
+    async function ensureEngineReadyUnlessMicPrimed(): Promise<void> {
+      if (micTranscriptionPrimed.value) {
+        micTranscriptionPrimed.value = false
+        return
+      }
+      if (effectiveSttEngine.value === 'whisper') {
+        await ensureWhisperReady()
+      } else if (effectiveSttEngine.value === 'standalone') {
+        await ensureStandaloneReady()
+      }
+    }
+
+    async function waitForTranscriptionEndpoint(
+      timeoutMs = 120_000,
+    ): Promise<TranscriptionEndpoint> {
+      const deadline = Date.now() + timeoutMs
+      while (Date.now() < deadline) {
+        const endpoint = await resolveTranscription()
+        if (endpoint) return endpoint
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 250)
+        })
+      }
+      throw new Error(
+        'Speech To Text server did not become ready in time. Wait a moment and try again.',
+      )
+    }
+
     /**
      * Ensures the transcription server is running when STT is enabled.
      * This method checks if the server is already running and starts it if needed.
@@ -612,6 +658,9 @@ export const useSpeechToText = defineStore(
       initialize,
       ensureTranscriptionServerRunning,
       ensureWhisperReady,
+      markMicTranscriptionPrimed,
+      ensureEngineReadyUnlessMicPrimed,
+      waitForTranscriptionEndpoint,
     }
   },
   {

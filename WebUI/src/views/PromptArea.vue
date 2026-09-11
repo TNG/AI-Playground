@@ -1000,6 +1000,7 @@ async function handleRecordingClick() {
       toast.success('Speech To Text model downloaded. Press the microphone to start recording.')
       return
     }
+    speechToText.markMicTranscriptionPrimed()
   } catch (error) {
     errors.report(error, {
       category: 'inference',

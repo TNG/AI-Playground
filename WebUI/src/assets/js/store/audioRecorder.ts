@@ -44,6 +44,7 @@ export const useAudioRecorder = defineStore('audioRecorder', () => {
   let analyser: AnalyserNode | null = null
   let meterInterval: number | null = null
   let silenceCheckInterval: number | null = null
+  let recordingStartedAt = 0
 
   const canRecord = computed(() => !isRecording.value && !isTranscribing.value)
 
@@ -109,20 +110,16 @@ export const useAudioRecorder = defineStore('audioRecorder', () => {
       }
 
       mediaRecorder.onstop = async () => {
-        const webmBlob = new Blob(audioChunks, { type: mimeType })
-        // Convert to WAV for better transcription compatibility
-        const wavBlob = await convertToWav(webmBlob)
-        audioBlob.value = wavBlob
-
-        cleanupStream()
-        // This is a MediaRecorder event handler, so a throw here becomes an
-        // unhandled rejection that never reaches the UI — the mic would appear to
-        // simply do nothing. `transcribeAudio` records the reason in `error`,
-        // which consumers watch.
         try {
+          const webmBlob = new Blob(audioChunks, { type: mimeType })
+          const wavBlob = await convertToWav(webmBlob)
+          audioBlob.value = wavBlob
+          cleanupStream()
           await transcribeAudio()
-        } catch {
-          /* surfaced via the `error` ref */
+        } catch (err) {
+          cleanupStream()
+          error.value = err instanceof Error ? err.message : 'Recording processing failed'
+          console.error('Recording onstop failed:', err)
         }
       }
 
@@ -135,6 +132,7 @@ export const useAudioRecorder = defineStore('audioRecorder', () => {
       mediaRecorder.start()
       isRecording.value = true
       recordingTime.value = 0
+      recordingStartedAt = Date.now()
 
       startTimer()
     } catch (err) {
@@ -194,7 +192,7 @@ export const useAudioRecorder = defineStore('audioRecorder', () => {
       if (!analyser) return
       analyser.getByteFrequencyData(dataArray)
       const avg = dataArray.reduce((a, b) => a + b) / bufferLength
-      const dB = 20 * Math.log10(avg / 255)
+      const dB = 20 * Math.log10(Math.max(avg, 1) / 255)
 
       audioLevel.value = Math.max(0, Math.min(100, ((dB + 60) / 60) * 100))
     }, 100)
@@ -221,9 +219,10 @@ export const useAudioRecorder = defineStore('audioRecorder', () => {
 
     silenceCheckInterval = window.setInterval(() => {
       if (!analyser) return
+      if (Date.now() - recordingStartedAt < 1000) return
       analyser.getByteFrequencyData(dataArray)
       const avg = dataArray.reduce((a, b) => a + b) / bufferLength
-      const dB = 20 * Math.log10(avg / 255)
+      const dB = 20 * Math.log10(Math.max(avg, 1) / 255)
 
       if (dB < config.value.silenceThreshold) {
         if (!silenceStart) silenceStart = Date.now()
@@ -254,18 +253,8 @@ export const useAudioRecorder = defineStore('audioRecorder', () => {
 
     try {
       const speechToText = useSpeechToText()
-      if (speechToText.effectiveSttEngine === 'whisper') {
-        await speechToText.ensureWhisperReady()
-      } else if (speechToText.effectiveSttEngine === 'standalone') {
-        await speechToText.ensureStandaloneReady()
-      }
-      const endpoint = await speechToText.resolveTranscription()
-
-      if (!endpoint) {
-        throw new Error(
-          'No transcription endpoint available. Enable Speech To Text (OVMS) or configure a fallback endpoint in settings.',
-        )
-      }
+      await speechToText.ensureEngineReadyUnlessMicPrimed()
+      const endpoint = await speechToText.waitForTranscriptionEndpoint()
 
       // audioBlob is already WAV (see onstop), so transcribe its bytes directly.
       const text = await transcribeAudioBuffer(await audioBlob.value.arrayBuffer(), endpoint)

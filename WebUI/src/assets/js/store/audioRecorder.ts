@@ -254,6 +254,11 @@ export const useAudioRecorder = defineStore('audioRecorder', () => {
 
     try {
       const speechToText = useSpeechToText()
+      if (speechToText.effectiveSttEngine === 'whisper') {
+        await speechToText.ensureWhisperReady()
+      } else if (speechToText.effectiveSttEngine === 'standalone') {
+        await speechToText.ensureStandaloneReady()
+      }
       const endpoint = await speechToText.resolveTranscription()
 
       if (!endpoint) {

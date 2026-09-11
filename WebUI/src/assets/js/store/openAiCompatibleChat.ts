@@ -462,15 +462,27 @@ export const useOpenAiCompatibleChat = defineStore(
 
       // Convert aipg-media image URLs to base64 for the backend (can be slow for
       // large images), so surface it as an activity when there is anything to do.
+      const aipgMediaUrlFromFileData = (data: unknown): string | undefined => {
+        if (typeof data === 'string' && data.startsWith('aipg-media://')) return data
+        if (
+          data &&
+          typeof data === 'object' &&
+          'type' in data &&
+          (data as { type: string }).type === 'url' &&
+          'url' in data &&
+          (data as { url: URL }).url instanceof URL &&
+          (data as { url: URL }).url.protocol === 'aipg-media:'
+        ) {
+          return (data as { url: URL }).url.href
+        }
+        return undefined
+      }
       const hasMediaToConvert = messages.some(
         (msg) =>
           msg.role === 'user' &&
           Array.isArray(msg.content) &&
           msg.content.some(
-            (part) =>
-              part.type === 'file' &&
-              typeof part.data === 'string' &&
-              part.data.startsWith('aipg-media://'),
+            (part) => part.type === 'file' && aipgMediaUrlFromFileData(part.data) !== undefined,
           ),
       )
       const convertMedia = async () =>
@@ -479,13 +491,12 @@ export const useOpenAiCompatibleChat = defineStore(
             if (msg.role !== 'user' || !Array.isArray(msg.content)) return msg
             const content = await Promise.all(
               msg.content.map(async (part) => {
-                if (
-                  part.type === 'file' &&
-                  part.mediaType?.startsWith('image/') &&
-                  typeof part.data === 'string' &&
-                  part.data.startsWith('aipg-media://')
-                ) {
-                  return { ...part, data: await imageUrlToDataUri(part.data) }
+                const aipgUrl =
+                  part.type === 'file' && part.mediaType?.startsWith('image/')
+                    ? aipgMediaUrlFromFileData(part.data)
+                    : undefined
+                if (aipgUrl) {
+                  return { ...part, data: await imageUrlToDataUri(aipgUrl) }
                 }
                 return part
               }),

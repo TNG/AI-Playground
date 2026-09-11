@@ -98,19 +98,27 @@
               <Button
                 id="stt-record-button"
                 class="bg-primary hover:bg-primary/80 text-primary-foreground rounded-lg px-4 py-2"
-                :disabled="audioRecorder.isTranscribing"
+                :disabled="audioRecorder.isTranscribing || speechToText.preparingStt"
                 @click="handleRecordingClick"
               >
                 <i
+                  v-if="!speechToText.preparingStt && !audioRecorder.isTranscribing"
                   class="svg-icon w-5 h-5 mr-2"
                   :class="audioRecorder.isRecording ? 'i-record-active' : 'i-record'"
                 ></i>
+                <span
+                  v-else
+                  class="svg-icon i-loading w-5 h-5 mr-2 animate-spin inline-block"
+                  aria-hidden="true"
+                ></span>
                 {{
-                  audioRecorder.isTranscribing
-                    ? 'Transcribing…'
-                    : audioRecorder.isRecording
-                      ? 'Stop recording'
-                      : 'Record'
+                  speechToText.preparingStt
+                    ? 'Starting speech service…'
+                    : audioRecorder.isTranscribing
+                      ? 'Transcribing…'
+                      : audioRecorder.isRecording
+                        ? 'Stop recording'
+                        : 'Record'
                 }}
               </Button>
               <Label
@@ -306,15 +314,28 @@
               v-if="promptStore.getCurrentMode() === 'chat'"
               @click="handleRecordingClick"
               :disabled="
-                (!sttAvailable && !audioRecorder.isRecording) || audioRecorder.isTranscribing
+                (!sttAvailable && !audioRecorder.isRecording) ||
+                audioRecorder.isTranscribing ||
+                speechToText.preparingStt
               "
-              :title="sttAvailable ? '' : sttUnavailableHint"
+              :title="
+                speechToText.preparingStt
+                  ? 'Starting speech service…'
+                  : sttAvailable
+                    ? ''
+                    : sttUnavailableHint
+              "
             >
               <i
-                v-if="!audioRecorder.isTranscribing"
+                v-if="!audioRecorder.isTranscribing && !speechToText.preparingStt"
                 class="svg-icon w-5 h-5"
                 :class="audioRecorder.isRecording ? 'i-record-active' : 'i-record'"
               ></i>
+              <span
+                v-else
+                class="svg-icon i-loading w-5 h-5 animate-spin inline-block"
+                :aria-label="speechToText.preparingStt ? 'Starting speech service' : 'Transcribing'"
+              ></span>
               <div
                 v-if="audioRecorder.isRecording"
                 class="absolute -top-11 flex gap-1 items-end h-10"

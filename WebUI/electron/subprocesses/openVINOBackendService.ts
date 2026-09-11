@@ -1191,10 +1191,10 @@ export class OpenVINOBackendService implements ApiService {
       this.settings.lastSelectedDevicePerBackend[this.name],
     )
 
-    // STT devices: persisted > priority NPU > CPU > GPU > AUTO
+    // STT devices: persisted choice, otherwise AUTO.
     this.sttDevices = selectByPriority(
       baseDevices.map((d) => ({ ...d })),
-      ['NPU', 'CPU', 'GPU'],
+      [],
       this.settings.lastSelectedDevicePerBackend[`${this.name}:stt`],
     )
 

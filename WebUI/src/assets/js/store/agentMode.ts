@@ -419,9 +419,7 @@ export const useAgentMode = defineStore(
 
     function persistSessionRecord(record: AgentSessionRecord): void {
       if (!sessionsHydrated.value) return
-      persistSessionMutation(() =>
-        window.electronAPI.agentMode.saveSession(cloneForIpc(record)),
-      )
+      persistSessionMutation(() => window.electronAPI.agentMode.saveSession(cloneForIpc(record)))
     }
 
     function rewriteSession(id: string, record: AgentSessionRecord): void {

@@ -343,9 +343,7 @@ describe('useImageGenerationPresets media-record write-through', () => {
     await vi.waitFor(() => expect(mediaItemsApi.delete).toHaveBeenCalledWith(['gone']))
 
     store.deleteAllImagesForMode('video')
-    await vi.waitFor(() =>
-      expect(mediaItemsApi.delete).toHaveBeenCalledWith(['video-gone']),
-    )
+    await vi.waitFor(() => expect(mediaItemsApi.delete).toHaveBeenCalledWith(['video-gone']))
 
     store.deleteAllImages()
     await vi.waitFor(() => expect(mediaItemsApi.delete).toHaveBeenCalledWith(['keep']))

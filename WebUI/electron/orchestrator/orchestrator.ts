@@ -279,10 +279,7 @@ export function cancelArtifactRun(runId: string): void {
  * take the GPU while this occupancy is still live (HTTP is idle in the tool
  * phase). Cloud turns occupy without waiting — they do not hold the local GPU.
  */
-export async function submitTextRequest(
-  request: TextRequest,
-  signal?: AbortSignal,
-): Promise<void> {
+export async function submitTextRequest(request: TextRequest, signal?: AbortSignal): Promise<void> {
   if (textOccupancy.has(request.runId)) {
     throw new Error(`Text request ${request.runId} is already occupying the queue`)
   }

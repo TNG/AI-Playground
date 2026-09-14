@@ -229,6 +229,12 @@ function doneTurnIds(): string[] {
     .map((e) => (e as { turnId: string }).turnId)
 }
 
+function textQueueEvents() {
+  return events
+    .filter((e): e is Extract<KernelEvent, { type: 'queue-event' }> => e.type === 'queue-event')
+    .filter((e) => e.kind === 'text')
+}
+
 async function waitForTurnDone(turnId: string): Promise<void> {
   await vi.waitFor(() => {
     expect(doneTurnIds()).toContain(turnId)
@@ -301,9 +307,7 @@ describe('turn engine', () => {
       undefined,
       undefined,
     )
-    expect(
-      events.filter((e) => e.type === 'queue-event' && e.kind === 'text').map((e) => e.action),
-    ).toEqual(['enqueued', 'started', 'finished'])
+    expect(textQueueEvents().map((e) => e.action)).toEqual(['enqueued', 'started', 'finished'])
   })
 
   it('disarms last-load swap-back on a cloud turn without forgetting the snapshot', async () => {
@@ -705,9 +709,7 @@ describe('turn engine', () => {
 
     expect(awaitChatWindow).not.toHaveBeenCalled()
     expect(prepareRag).toHaveBeenCalledTimes(1)
-    const textStarted = events.findIndex(
-      (e) => e.type === 'queue-event' && e.kind === 'text' && e.action === 'started',
-    )
+    const textStarted = textQueueEvents().findIndex((e) => e.action === 'started')
     const ragIdx = events.findIndex((e) => e.type === 'chat-rag')
     expect(textStarted).toBeGreaterThanOrEqual(0)
     expect(ragIdx).toBeGreaterThan(textStarted)

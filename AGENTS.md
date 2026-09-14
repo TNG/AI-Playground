@@ -734,9 +734,10 @@ modeled as an explicit FSM rather than loose flags.
   - Main (`electron/artifact/runner.ts`): owns readiness (backend start, custom-node/python
     installs), the ComfyUI websocket engine, per-item seeds, the watchdog and cancellation, and
     streams phase + item events on the kernel stream. Admission is the orchestrator's
-    (`electron/orchestrator/orchestrator.ts`, step 7): panel and Home Agent submissions fail
-    fast when a run is active, while chat-tool submissions and in-process Pi tool runs queue
-    (FIFO) behind it, each run bracketing a GPU window — chat backends stopped before, ComfyUI
+    (`electron/orchestrator/orchestrator.ts`, steps 7 + 10): panel and Home Agent submissions fail
+    fast when a run is active or a local chat turn occupies the GPU, while chat-tool submissions
+    and in-process Pi tool runs queue (FIFO) behind it — nested media for a live chat turn stays
+    with that turn. Each run brackets a GPU window — chat backends stopped before, ComfyUI
     freed and the chat backend restarted after, the whole swap skipped with Keep Models
     Loaded or when more runs are still queued (a spritesheet costs one swap, not one per
     sprite).
@@ -907,7 +908,7 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 | `electron/pathsManager.ts`                        | Singleton managing all app/model/service filesystem paths                        |
 | `electron/remoteUpdates.ts`                       | Fetching model lists and preset updates from GitHub                              |
 | `electron/subprocesses/apiServiceRegistry.ts`     | Service registration, port allocation, lifecycle orchestration                   |
-| `electron/orchestrator/orchestrator.ts`           | Typed run queue + GPU window (step 7): artifact-run FIFO, media-request lane     |
+| `electron/orchestrator/orchestrator.ts`           | Typed run queue + GPU window (steps 7 + 10): text occupancy, artifact-run FIFO, media-request lane |
 | `electron/subprocesses/service.ts`                | Base classes: `GenericService`, `ExecutableService`, `LongLivedPythonApiService` |
 | `electron/subprocesses/aiBackendService.ts`       | Python Flask model-management backend                                            |
 | `electron/subprocesses/llamaCppBackendService.ts` | LlamaCPP native server (LLM + embedding sub-servers)                             |
@@ -1190,10 +1191,11 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   runner resolves its workflow without switching.)
 - **Gotcha:** models ask for a game's whole spritesheet in one step, and both Pi and the AI SDK
   dispatch those tool calls in parallel. All media work therefore queues **main-side**, on the
-  orchestrator (`electron/orchestrator/orchestrator.ts`, step 7): one FIFO for artifact runs,
-  one lane for a whole `media` request, nested in that order only (the renderer's
-  `mediaPipeline.ts` / `chatBackends.ts` are deleted). Panel and Home Agent submissions still
-  fail fast ("Another generation is already in progress"); chat-tool submissions and
+  orchestrator (`electron/orchestrator/orchestrator.ts`, steps 7 + 10): one FIFO for artifact runs,
+  one lane for a whole `media` request, and chat-turn occupancy as `text` requests, nested in
+  that order only (the renderer's `mediaPipeline.ts` / `chatBackends.ts` are deleted). Panel and
+  Home Agent submissions still fail fast ("Another generation is already in progress", or
+  "A chat turn is already in progress" when a local turn occupies); chat-tool submissions and
   in-process Pi tool runs queue instead, and the queue batches the GPU swaps: with
   **Keep Models Loaded** off, a run that still sees work queued behind it
   (`artifactRunsQueued()`) skips freeing ComfyUI and reloading the LLM, so a batch of

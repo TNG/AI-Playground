@@ -109,6 +109,8 @@ export async function ensureChatBackendReady(
 
   if (!options?.skipGpuAdmission && isChatInferenceService(args.serviceName)) {
     await d.awaitChatWindow(options?.abortSignal)
+  }
+  if (isChatInferenceService(args.serviceName)) {
     try {
       await d.stopOvmsImageServer()
     } catch (error) {
@@ -149,6 +151,6 @@ export async function ensureChatBackendReady(
 export async function reloadLastChatBackend(): Promise<void> {
   if (!lastLoad || !lastLoadActive) return
   // Swap-back already set gpuWindow to 'chat' and is running inside
-  // swapBackInFlight; awaiting the window here deadlocks until the 5-minute bound.
+  // swapBackInFlight; awaiting the window here deadlocks.
   await ensureChatBackendReady(lastLoad, { skipGpuAdmission: true })
 }

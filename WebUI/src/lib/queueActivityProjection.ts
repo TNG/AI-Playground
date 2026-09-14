@@ -9,8 +9,8 @@ import type { KernelQueueEvent } from '@/types/kernelEvents'
 // a chat tool's own "Generating image…" activity already covers the wait, so
 // while its run is PARKED the activity is relabelled with its queue position
 // and restored when the run starts or is cancelled while queued. Panel runs
-// carry no activity — their waiting state is the generation FSM's `queued`
-// phase, as before.
+// and chat-turn `text` occupancy carry no activityId — panel waiting is the
+// generation FSM's `queued` phase; text occupancy is kernel visibility.
 
 let unsubscribe: (() => void) | null = null
 const stashed = new Map<string, { activityId: string; label: string }>()

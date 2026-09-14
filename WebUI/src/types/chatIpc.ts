@@ -55,9 +55,9 @@ export const ChatModelConfigSchema = z.object({
   /** Home Agent active: route through its Flask proxy with upstream + auth headers. */
   homeAgentUpstreamUrl: z.string().optional(),
   /**
-   * Local backend load facts: `runChatTurn` admits and loads before streaming,
-   * and a failed fetch relaunches from the same args. Absent for cloud / Home
-   * Agent relays, which are never restarted mid-turn.
+   * Local backend load facts: `runChatTurn` admits the turn as a text request,
+   * then loads before streaming. Absent for cloud / Home Agent relays, which
+   * are never restarted mid-turn.
    */
   readiness: z
     .object({

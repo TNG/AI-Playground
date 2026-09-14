@@ -151,14 +151,15 @@ export type KernelMediaAgentEvent = {
 }
 
 /**
- * One queue entry's lifecycle on the orchestrator's typed queue (step 7).
+ * One queue entry's lifecycle on the orchestrator's typed queue (steps 7 + 10).
  * Transient like media progress — a reloaded renderer does not adopt queue
- * positions, the entries either run or were cancelled.
+ * positions, the entries either run or were cancelled. `text` is a chat turn's
+ * occupancy (not an artifact); nested media for that conversation stays `queue`.
  */
 export type KernelQueueEvent = {
   type: 'queue-event'
   runKey: string
-  kind: 'artifact' | 'media-request'
+  kind: 'artifact' | 'media-request' | 'text'
   action: 'enqueued' | 'started' | 'finished'
   /** Entries still waiting after this one. */
   queueDepth: number

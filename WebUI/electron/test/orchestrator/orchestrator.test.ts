@@ -27,11 +27,14 @@ import {
   artifactRunsQueued,
   awaitChatWindow,
   cancelArtifactRun,
+  finishTextRequest,
   mediaRequestsQueued,
   resetOrchestratorForTest,
   runMediaRequest,
   setOrchestratorDeps,
   submitArtifactRun,
+  submitTextRequest,
+  textRequestsOpen,
   type OrchestratorDeps,
 } from '../../orchestrator/orchestrator'
 import type { ArtifactRunPayload } from '../../artifact/runner'
@@ -392,5 +395,116 @@ describe('the orchestrator', () => {
     first.resolve('done')
     expect(await request1).toBe('done')
     expect(ran).toEqual(['one'])
+  })
+
+  it('fail-fast refuses a panel run while a local chat turn occupies the GPU', async () => {
+    setOrchestratorDeps(deps())
+    await submitTextRequest({ runId: 'turn-1', conversationKey: 'c1', needsGpu: true })
+    expect(textRequestsOpen()).toBe(1)
+
+    const refused = await submitArtifactRun(payload({ runId: 'panel-1' }))
+    expect(refused.state).toBe('failed')
+    expect(refused.error).toBe('A chat turn is already in progress')
+    expect(startArtifactRunMock).not.toHaveBeenCalled()
+
+    finishTextRequest('turn-1')
+    expect(textRequestsOpen()).toBe(0)
+    const hold = holdNextRun()
+    const active = submitArtifactRun(payload({ runId: 'panel-2' }))
+    await vi.waitFor(() => expect(activeRunId).toBe('panel-2'))
+    hold.resolve({ state: 'completed', items: [] })
+    expect((await active).state).toBe('completed')
+  })
+
+  it('cloud chat occupancy does not fail-fast a panel run', async () => {
+    setOrchestratorDeps(deps())
+    await submitTextRequest({ runId: 'cloud-1', conversationKey: 'c1', needsGpu: false })
+    const hold = holdNextRun()
+    const active = submitArtifactRun(payload({ runId: 'panel-1' }))
+    await vi.waitFor(() => expect(activeRunId).toBe('panel-1'))
+    hold.resolve({ state: 'completed', items: [] })
+    expect((await active).state).toBe('completed')
+    finishTextRequest('cloud-1')
+  })
+
+  it('nested queued media for the same conversation runs while text occupancy is live', async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    await submitTextRequest({ runId: 'turn-1', conversationKey: 'c1', needsGpu: true })
+    const hold = holdNextRun()
+    const nested = submitArtifactRun(payload({ runId: 'nested-1', conversationKey: 'c1' }), {
+      queue: 'queue',
+    })
+    await vi.waitFor(() => expect(d.stopChatForMedia).toHaveBeenCalledTimes(1))
+    expect(activeRunId).toBe('nested-1')
+    expect(textRequestsOpen()).toBe(1)
+    hold.resolve({ state: 'completed', items: [] })
+    expect((await nested).state).toBe('completed')
+    finishTextRequest('turn-1')
+  })
+
+  it('queued media for another conversation waits until unrelated text occupancy ends', async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    await submitTextRequest({ runId: 'turn-1', conversationKey: 'c1', needsGpu: true })
+    const hold = holdNextRun()
+    const other = submitArtifactRun(payload({ runId: 'other-1', conversationKey: 'c2' }), {
+      queue: 'queue',
+    })
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    expect(d.stopChatForMedia).not.toHaveBeenCalled()
+    expect(activeRunId).toBeNull()
+
+    finishTextRequest('turn-1')
+    await vi.waitFor(() => expect(d.stopChatForMedia).toHaveBeenCalledTimes(1))
+    expect(activeRunId).toBe('other-1')
+    hold.resolve({ state: 'completed', items: [] })
+    expect((await other).state).toBe('completed')
+  })
+
+  it('emits text queue events enqueued → started → finished', async () => {
+    setOrchestratorDeps(deps())
+    const admitted = submitTextRequest({ runId: 'turn-1', conversationKey: 'c1', needsGpu: true })
+    await admitted
+    expect(queueEvents.map((e) => `${e.kind}:${e.runKey}:${e.action}`)).toEqual([
+      'text:turn-1:enqueued',
+      'text:turn-1:started',
+    ])
+    finishTextRequest('turn-1')
+    expect(queueEvents.at(-1)).toMatchObject({
+      kind: 'text',
+      runKey: 'turn-1',
+      action: 'finished',
+      conversationKey: 'c1',
+    })
+    expect(textRequestsOpen()).toBe(0)
+  })
+
+  it('a local text request waits for the GPU window and aborts without proceeding', async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    const hold = holdNextRun()
+    const active = submitArtifactRun(payload())
+    await vi.waitFor(() => expect(d.stopChatForMedia).toHaveBeenCalled())
+
+    const ac = new AbortController()
+    const waiting = submitTextRequest(
+      { runId: 'turn-1', conversationKey: 'c1', needsGpu: true },
+      ac.signal,
+    )
+    await vi.waitFor(() =>
+      expect(queueEvents.some((e) => e.kind === 'text' && e.action === 'enqueued')).toBe(true),
+    )
+    expect(queueEvents.some((e) => e.kind === 'text' && e.action === 'started')).toBe(false)
+    ac.abort()
+    await expect(waiting).rejects.toThrow('Cancelled while waiting for the chat GPU window.')
+    expect(textRequestsOpen()).toBe(0)
+    expect(queueEvents.filter((e) => e.kind === 'text').map((e) => e.action)).toEqual([
+      'enqueued',
+      'finished',
+    ])
+
+    hold.resolve({ state: 'completed', items: [] })
+    await active
   })
 })

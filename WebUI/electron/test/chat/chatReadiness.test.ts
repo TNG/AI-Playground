@@ -103,7 +103,7 @@ describe('chatReadiness', () => {
     await reloadLastChatBackend()
 
     expect(d.awaitChatWindow).not.toHaveBeenCalled()
-    expect(d.stopOvmsImageServer).not.toHaveBeenCalled()
+    expect(d.stopOvmsImageServer).toHaveBeenCalledTimes(1)
     expect(d.ensureBackendReadiness).toHaveBeenCalledWith('Qwen3-9B', 'bge', 8192, '--jinja')
   })
 
@@ -111,7 +111,7 @@ describe('chatReadiness', () => {
     const d = wire()
     await ensureChatBackendReady(loadArgs, { skipGpuAdmission: true })
     expect(d.awaitChatWindow).not.toHaveBeenCalled()
-    expect(d.stopOvmsImageServer).not.toHaveBeenCalled()
+    expect(d.stopOvmsImageServer).toHaveBeenCalledTimes(1)
     expect(d.ensureBackendReadiness).toHaveBeenCalledTimes(1)
   })
 

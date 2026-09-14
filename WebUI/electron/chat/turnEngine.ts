@@ -38,6 +38,7 @@ import { createMainChatModel } from './chatModelMain'
 import { ensureChatBackendReady, setLastChatBackendLoadActive } from './chatReadiness'
 import { retrieveRagForTurn } from './ragRetrieval'
 import { abortTurnToolRequests, executeToolInRenderer } from './toolBridge'
+import { finishTextRequest, submitTextRequest } from '../orchestrator/orchestrator'
 
 // ── Main-side chat turn engine (docs/architecture-target.md §7, step 6) ──────
 //
@@ -52,8 +53,9 @@ import { abortTurnToolRequests, executeToolInRenderer } from './toolBridge'
 // sink (the transport observes chunk types to drive "Processing prompt…"
 // state), message state and persistence (the Chat instance keeps them), and
 // the reasoning-in-progress flag (derived from the same chunk types). Local
-// backend load runs here when `model.readiness` is present. RAG retrieval
-// runs here when `rag` is present (step 9).
+// backend load runs here when `model.readiness` is present, after the turn
+// is admitted as a text request (step 10). RAG retrieval runs here when
+// `rag` is present (step 9).
 
 const appLogger = appLoggerInstance
 
@@ -460,6 +462,14 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
   const haDiag = request.homeAgentDiagnostics === true
   try {
     const config = request.model
+    await submitTextRequest(
+      {
+        runId: turnId,
+        conversationKey,
+        needsGpu: config.backend !== 'cloud' && Boolean(config.readiness),
+      },
+      turn.controller.signal,
+    )
 
     // Self-heal orphaned tool calls (interrupted/stopped turns, HMR) before
     // converting: an assistant tool-call with no matching result would make
@@ -511,7 +521,11 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
     if (config.backend === 'cloud') {
       setLastChatBackendLoadActive(false)
     } else if (config.readiness) {
-      await ensureChatBackendReady(config.readiness, { abortSignal: turn.controller.signal })
+      // GPU admit already happened as the text request.
+      await ensureChatBackendReady(config.readiness, {
+        abortSignal: turn.controller.signal,
+        skipGpuAdmission: true,
+      })
     }
 
     if (request.rag) {
@@ -781,6 +795,7 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
       })
     }
   } finally {
+    finishTextRequest(turnId)
     activeTurns.delete(conversationKey)
     endChatTurn(conversationKey, turnId)
   }

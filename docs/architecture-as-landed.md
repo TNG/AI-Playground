@@ -1,11 +1,12 @@
 # Architecture as landed — processes, persistence, common sequences
 
-**This is the implementation after migration steps 1–9**, not the target in
+**This is the implementation after migration steps 1–10**, not the target in
 [`architecture-target.md`](./architecture-target.md). That file's §2 "Today" diagram is the
 draft-time symptom picture (chat `streamText` in the renderer, media as UI mutation). Steps 1–7
 moved Artifact, chat turns, the kernel bus and the orchestrator into main; step 8 moved app data
 onto kernel-owned files; step 9 moved RAG retrieval and the embedding-server ensure into the chat
-engine. What this document shows is how those pieces actually talk today.
+engine; step 10 put chat turns on the orchestrator as `text` occupancy. What this document shows
+is how those pieces actually talk today.
 What is still missing, and in which order, is [`architecture-target.md` §8.3](./architecture-target.md#83-remaining-order-toward-the-goal).
 
 The Mermaid here is the reviewable source. Paste any block into Excalidraw's _Mermaid to Excalidraw_
@@ -42,7 +43,7 @@ flowchart TB
     ipc["ipcMain.handle"]
     bus["kernelBus: kernel:event + snapshot"]
     chat["chat/turnEngine"]
-    orch["orchestrator: artifact queue + GPU window"]
+    orch["orchestrator: text occupancy + artifact queue + GPU window"]
     art["artifact/runner"]
     files["File writers: conversations, sessions, media/records, preferences, rag, workspace"]
     registry["apiServiceRegistry"]
@@ -84,8 +85,8 @@ What still lives in the renderer on purpose: message list and Chat instance, too
 load is still a Pinia fact shipped on the turn / IPC; the load itself is main.
 
 What lives in main: `streamText`, RAG retrieval after GPU admit, last-load memory and swap-back
-reload, Artifact execution, GPU policy, the one writer of conversation / session / media /
-preference / rag-document files, the ordered event stream.
+reload, Artifact execution, GPU policy including chat-turn occupancy, the one writer of
+conversation / session / media / preference / rag-document files, the ordered event stream.
 
 ---
 
@@ -152,10 +153,11 @@ flowchart TB
 
   subgraph textPath["Text"]
     submit["submitChatTurn"]
-    ready["chatReadiness: last load + GPU admit"]
+    occ["orchestrator.submitTextRequest"]
+    ready["chatReadiness: last load (skip window wait)"]
     engine["runChatTurn: streamText"]
     tools["toolBridge: chat:executeTool round-trip"]
-    submit --> ready --> engine
+    submit --> occ --> ready --> engine
     engine --> tools
   end
 
@@ -186,12 +188,14 @@ flowchart TB
   oq --> bus
 ```
 
-Chat turns do **not** enter the artifact queue. They are concurrent by conversation. Their
-backend load (`chatReadiness`) is admitted through the orchestrator so a load cannot OOM against an
-active ComfyUI run. Swap-back reloads the last successful remembered load in-process (no renderer
-RPC); cloud disarms that reload without forgetting the snapshot. Nested media from a chat/agent
-tool *does* take the GPU window. The GPU idle wait counts AI SDK streams and in-flight Pi agent
-HTTP.
+Chat turns occupy the orchestrator as `text` requests (`queue-event`, not the artifact FIFO).
+They stay concurrent by conversation. Local turns wait for the chat GPU window with no
+proceed-anyway bound; cloud turns occupy without waiting. Nested media from a chat/agent tool
+uses `queue` and may take the GPU while that conversation's occupancy is still live. Panel /
+Home Agent `fail-fast` refuses while a local chat turn occupies. Swap-back reloads the last
+successful remembered load in-process (no renderer RPC); cloud disarms that reload without
+forgetting the snapshot. The GPU idle wait counts AI SDK streams, in-flight Pi agent HTTP, and
+unrelated text occupancy.
 
 ---
 
@@ -253,6 +257,7 @@ sequenceDiagram
   participant Conv as conversations
   participant IPC as ipcRenderer.invoke
   participant Eng as turnEngine
+  participant Orch as orchestrator
   participant LLM as llama-server / OVMS
   participant Bus as kernelBus
 
@@ -269,7 +274,8 @@ sequenceDiagram
   Store->>IPC: chat.submitTurn(request)
   IPC->>Eng: submitChatTurn — Zod parse, begin snapshot
   Eng-->>Store: { turnId }
-  Eng->>Eng: ensureChatBackendReady (request.model.readiness)
+  Eng->>Orch: submitTextRequest (occupancy + GPU wait if local)
+  Eng->>Eng: ensureChatBackendReady (skip window wait; stop OVMS image + load)
   opt rag on the request
     Eng->>Eng: retrieveRagForTurn after admit
     Eng->>Bus: chat-rag
@@ -313,7 +319,7 @@ sequenceDiagram
   RA->>IG: ensureModelsAreAvailableFor
   RA->>IG: track items (in-memory placeholders)
   RA->>Orch: artifact.run (IPC)
-  Note over Orch: fail-fast if another panel run is admitted
+  Note over Orch: fail-fast if another panel run is admitted or a local chat turn occupies
   Orch->>Orch: acquire GPU window — stop chat LLM if needed
   Orch->>Art: startArtifactRun
   Art->>Comfy: /prompt + WS
@@ -328,8 +334,9 @@ sequenceDiagram
 ```
 
 Chat `comfyUI` / `editImage` tools and Home Agent `/imgGen` call the same `runArtifact`. Chat-tool
-and Pi in-process origins **queue** FIFO instead of fail-fast. The GPU skip-when-queued rule means
-a spritesheet pays one LLM⇄ComfyUI swap, not one per sprite.
+and Pi in-process origins **queue** FIFO instead of fail-fast, so nested media can run while its
+parent text occupancy is live. Panel fail-fast refuses while a local chat turn occupies. The GPU
+skip-when-queued rule means a spritesheet pays one LLM⇄ComfyUI swap, not one per sprite.
 
 ---
 

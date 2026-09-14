@@ -1,4 +1,4 @@
-// ── The orchestrator (docs/architecture-target.md §4.4, step 7) ────────────────
+// ── The orchestrator (docs/architecture-target.md §4.4, steps 7 + 10) ─────────
 //
 // One queue and one GPU policy for every GPU-competing caller. Until this
 // module existed the same job was smeared across three places that could not
@@ -8,20 +8,23 @@
 // gpuOccupancy refcount (the same wrap for in-process agent tools only).
 //
 // What it owns now:
-// - the typed queue: artifact runs (any origin — panel, chat tools, Home
-//   Agent, in-process agent tools) and whole media-request brackets. `queue`
-//   submissions park FIFO; `fail-fast` keeps the panel's "one generation at a
-//   time" contract. Queue lifecycle crosses the kernel bus as `queue-event`.
+// - the typed queue (`KernelRequestMap`): text turns (chat occupancy) and
+//   artifact runs, plus a request lane for whole media-request brackets.
+//   Artifact `queue` submissions park FIFO; `fail-fast` keeps the panel's
+//   "one generation at a time" contract and refuses while a local chat turn
+//   occupies the GPU. Nested media for that turn uses `queue`, not fail-fast.
+//   Queue lifecycle crosses the kernel bus as `queue-event`.
 // - the GPU window: which side holds the GPU, the LLM⇄ComfyUI swap, the
 //   skip-when-queued rule (a spritesheet costs one swap, not one per sprite),
-//   and the wait for open chat requests before stopping a backend mid-stream.
-// - chat readiness admission: a chat backend load asks for the window, so it
-//   no longer races (or OOMs against) an active media run.
+//   and the wait for open chat HTTP (and unrelated text occupancy) before
+//   stopping a backend mid-stream — no proceed-anyway bound.
+// - chat readiness admission: Agent / Home Agent `/load` still wait on the
+//   window here (step 15); chat turns admit as text requests first.
 //
 // What deliberately stays out: which model to load is still data from the last
 // successful load (or the turn request); download consent stays renderer-side.
-// Chat turns themselves never queue — they are concurrent by design and only
-// their backend readiness is admitted here.
+// Concurrent chat turns stay concurrent with each other; they serialize only
+// against the media GPU window. VRAM budgets / jump-the-queue are not here.
 
 import { appLoggerInstance } from '../logging/logger'
 import { emitQueueEvent } from '../kernel/kernelBus'
@@ -35,6 +38,26 @@ import {
 } from '../artifact/runner'
 
 const appLogger = appLoggerInstance
+
+export type TextRequest = {
+  runId: string
+  conversationKey: string
+  /** Local LLM turns wait for the chat GPU window. Cloud turns occupy without waiting. */
+  needsGpu: boolean
+}
+
+export type KernelRequestMap = {
+  text: { request: TextRequest; result: void }
+  artifact: { request: ArtifactRunPayload; result: ArtifactRunResult }
+}
+
+export type KernelRequest<K extends keyof KernelRequestMap> = {
+  id: string
+  kind: K
+  payload: KernelRequestMap[K]['request']
+}
+
+type TextOccupancy = TextRequest & { phase: 'waiting' | 'running' }
 
 export type OrchestratorDeps = {
   /** Stop the running chat LLM/embedding servers (OVMS keeps speech servers up). */
@@ -84,6 +107,8 @@ let mediaRequestActive = false
 let gpuWindow: 'chat' | 'media' = 'chat'
 let swapBackInFlight: Promise<void> | null = null
 
+const textOccupancy = new Map<string, TextOccupancy>()
+
 export function setOrchestratorDeps(deps: OrchestratorDeps): void {
   orchestratorDeps = deps
 }
@@ -100,6 +125,7 @@ export function resetOrchestratorForTest(): void {
   mediaRequestActive = false
   gpuWindow = 'chat'
   swapBackInFlight = null
+  textOccupancy.clear()
 }
 
 export function artifactRunsQueued(): number {
@@ -110,17 +136,47 @@ export function mediaRequestsQueued(): number {
   return mediaRequestQueue.length
 }
 
-/** Runs waiting behind the active one (media requests have their own lane). */
+export function textRequestsOpen(): number {
+  return textOccupancy.size
+}
+
+/** Artifact FIFO only — text occupancy must not live here or nested media deadlocks. */
 function queueBusy(): boolean {
   return admittedArtifactRuns > 0 || artifactRunActive() || runQueue.length > 0
+}
+
+function localTextGpuOpen(): boolean {
+  for (const entry of textOccupancy.values()) {
+    if (entry.needsGpu) return true
+  }
+  return false
+}
+
+function textWaitingCount(): number {
+  let count = 0
+  for (const entry of textOccupancy.values()) {
+    if (entry.phase === 'waiting') count += 1
+  }
+  return count
+}
+
+function unrelatedLocalTextOpen(conversationKey?: string): boolean {
+  for (const entry of textOccupancy.values()) {
+    if (!entry.needsGpu) continue
+    if (conversationKey && entry.conversationKey === conversationKey) continue
+    return true
+  }
+  return false
 }
 
 // ── Artifact run queue ────────────────────────────────────────────────────────
 
 /**
  * Submits a resolved run. `queue: 'fail-fast'` (panel / Home Agent) refuses
- * while anything is executing or queued; `'queue'` (chat tool lanes,
- * in-process agent tools) parks FIFO behind the active run.
+ * while anything is executing or queued, and while a local chat turn occupies
+ * the GPU (so a panel click cannot kill an open stream). `'queue'` (chat tool
+ * lanes, in-process agent tools) parks FIFO and may run nested inside its
+ * parent text occupancy.
  */
 export function submitArtifactRun(
   payload: ArtifactRunPayload,
@@ -145,6 +201,13 @@ export function submitArtifactRun(
         conversationKey: payload.conversationKey,
         activityId: payload.activityId,
       })
+    })
+  }
+  if (options.queue === 'fail-fast' && localTextGpuOpen()) {
+    return Promise.resolve({
+      state: 'failed',
+      items: [],
+      error: 'A chat turn is already in progress',
     })
   }
   return executeRun(payload)
@@ -205,6 +268,66 @@ export function cancelArtifactRun(runId: string): void {
     emitArtifactFinished(entry.payload)
     entry.resolve({ state: 'cancelled', items: [], error: 'Generation cancelled.' })
   }
+}
+
+// ── Text occupancy (`KernelRequestMap['text']`, step 10) ───────────────────────
+
+/**
+ * Registers a chat turn as queue occupancy and, for local LLM turns, waits
+ * until the GPU window is chat. Resolves when the turn may load/stream.
+ * Nested media for this conversation uses `queue`, not fail-fast, so it can
+ * take the GPU while this occupancy is still live (HTTP is idle in the tool
+ * phase). Cloud turns occupy without waiting — they do not hold the local GPU.
+ */
+export async function submitTextRequest(
+  request: TextRequest,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (textOccupancy.has(request.runId)) {
+    throw new Error(`Text request ${request.runId} is already occupying the queue`)
+  }
+  textOccupancy.set(request.runId, { ...request, phase: 'waiting' })
+  emitQueueEvent({
+    runKey: request.runId,
+    kind: 'text',
+    action: 'enqueued',
+    queueDepth: Math.max(0, textWaitingCount() - 1),
+    conversationKey: request.conversationKey,
+  })
+  try {
+    if (request.needsGpu) {
+      await awaitChatWindow(signal)
+    } else if (signal?.aborted) {
+      throw cancelledChatWindow()
+    }
+    const entry = textOccupancy.get(request.runId)
+    if (!entry) return
+    entry.phase = 'running'
+    emitQueueEvent({
+      runKey: request.runId,
+      kind: 'text',
+      action: 'started',
+      queueDepth: textWaitingCount(),
+      conversationKey: request.conversationKey,
+    })
+  } catch (error) {
+    finishTextRequest(request.runId)
+    throw error
+  }
+}
+
+/** Drops occupancy. Idempotent — cancel-during-wait already finished it. */
+export function finishTextRequest(runId: string): void {
+  const entry = textOccupancy.get(runId)
+  if (!entry) return
+  textOccupancy.delete(runId)
+  emitQueueEvent({
+    runKey: runId,
+    kind: 'text',
+    action: 'finished',
+    queueDepth: textWaitingCount(),
+    conversationKey: entry.conversationKey,
+  })
 }
 
 // ── Media request lane ─────────────────────────────────────────────────────────
@@ -306,7 +429,7 @@ function drainMediaRequestLane(): void {
  * chat model comes back with the next turn anyway.
  */
 async function withGpuWindow<T>(payload: ArtifactRunPayload, fn: () => Promise<T>): Promise<T> {
-  if (!payload.keepModelsLoaded) await acquireMediaWindow()
+  if (!payload.keepModelsLoaded) await acquireMediaWindow(payload.conversationKey)
   return fn()
 }
 
@@ -315,7 +438,7 @@ function windowIsMedia(): boolean {
   return gpuWindow === 'media'
 }
 
-async function acquireMediaWindow(): Promise<void> {
+async function acquireMediaWindow(conversationKey?: string): Promise<void> {
   if (!orchestratorDeps) return
   if (windowIsMedia()) return
   // A release may still be reloading the chat backend; stopping it mid-reload
@@ -323,27 +446,27 @@ async function acquireMediaWindow(): Promise<void> {
   if (swapBackInFlight) await swapBackInFlight.catch(() => {})
   if (windowIsMedia()) return
   await waitForChatRequestsIdle()
+  // Nested media for this conversation may take the GPU while its parent text
+  // occupancy is still live (tool phase, HTTP idle). An unrelated chat turn
+  // must finish first — no proceed-anyway bound, or that stream dies as a
+  // network error.
+  await waitForUnrelatedTextIdle(conversationKey)
+  if (windowIsMedia()) return
   await orchestratorDeps.stopChatForMedia()
   gpuWindow = 'media'
 }
 
-// Bounded so a wedged stream cannot hang a generation indefinitely (the old
-// renderer wrap capped this at 3s, which also fired on every chat-originated
-// run — a turn in its tool phase counts as active but holds no open request).
-const CHAT_REQUEST_WAIT_MS = 120_000
 const CHAT_REQUEST_POLL_MS = 250
 
 async function waitForChatRequestsIdle(): Promise<void> {
   if (!orchestratorDeps) return
-  const start = Date.now()
   while (orchestratorDeps.chatRequestsOpen() > 0) {
-    if (Date.now() - start >= CHAT_REQUEST_WAIT_MS) {
-      appLogger.warn(
-        'GPU swap proceeded while a chat request was still open (120s wait elapsed)',
-        'electron-backend',
-      )
-      return
-    }
+    await delay(CHAT_REQUEST_POLL_MS)
+  }
+}
+
+async function waitForUnrelatedTextIdle(conversationKey?: string): Promise<void> {
+  while (unrelatedLocalTextOpen(conversationKey)) {
     await delay(CHAT_REQUEST_POLL_MS)
   }
 }
@@ -384,24 +507,13 @@ async function considerRelease(): Promise<void> {
 
 /**
  * Resolves once the GPU window is back on chat and no swap-back is running.
- * Chat backend readiness (the `ensureBackendReadiness` handler) waits on this
- * so loading the LLM no longer races an active media run. Bounded: a long
- * video queue would otherwise hold a chat send hostage — after the bound the
- * load proceeds exactly as it did before the orchestrator existed.
+ * Chat turns wait here via `submitTextRequest`; Agent / Home Agent `/load`
+ * still wait via `ensureChatBackendReady` (step 15). No proceed-anyway bound:
+ * abort the signal (cancel the turn) to give up.
  */
-const CHAT_WINDOW_WAIT_MS = 300_000
-
 export async function awaitChatWindow(signal?: AbortSignal): Promise<void> {
-  const start = Date.now()
   while (gpuWindow === 'media' || swapBackInFlight) {
     if (signal?.aborted) throw cancelledChatWindow()
-    if (Date.now() - start >= CHAT_WINDOW_WAIT_MS) {
-      appLogger.warn(
-        'Chat readiness proceeded while media still held the GPU (5min wait elapsed)',
-        'electron-backend',
-      )
-      return
-    }
     await delay(500, signal)
   }
 }

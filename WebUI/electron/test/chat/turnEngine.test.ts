@@ -12,6 +12,13 @@ vi.mock('../../subprocesses/mcpManager', () => ({
   getMcpServerStatus: vi.fn(),
 }))
 
+vi.mock('../../artifact/runner', () => ({
+  artifactRunActive: () => false,
+  cancelActiveArtifactRun: () => {},
+  activeArtifactRunId: () => null,
+  startArtifactRun: async () => ({ state: 'completed', items: [] }),
+}))
+
 const {
   submitChatTurn,
   cancelChatTurn,
@@ -31,6 +38,7 @@ const { setKernelEventWindow, resetKernelBusForTest, onKernelEvent } =
   await import('../../kernel/kernelBus')
 const { handleChatToolResult, resetChatToolBridgeForTest } = await import('../../chat/toolBridge')
 const { listMcpServers, getMcpServerStatus } = await import('../../subprocesses/mcpManager')
+const { resetOrchestratorForTest } = await import('../../orchestrator/orchestrator')
 
 type SentPayload = Record<string, unknown> & { channel?: string }
 
@@ -189,6 +197,7 @@ beforeEach(() => {
   resetChatModelDepsForTest()
   resetChatEngineDepsForTest()
   resetChatReadinessForTest()
+  resetOrchestratorForTest()
   events = []
   detachTap = onKernelEvent((event) => void events.push(event))
   const window = fakeWindow()
@@ -263,10 +272,11 @@ describe('turn engine', () => {
   it('loads the local backend from the turn request before streaming', async () => {
     const ensureBackendReadiness = vi.fn(async () => {})
     const awaitChatWindow = vi.fn(async () => {})
+    const stopOvmsImageServer = vi.fn(async () => {})
     setChatReadinessDeps({
       getService: () => ({ ensureBackendReadiness, baseUrl: 'http://127.0.0.1:39101' }),
       awaitChatWindow,
-      stopOvmsImageServer: vi.fn(async () => {}),
+      stopOvmsImageServer,
       notifyHomeAgentUpstreamReady: vi.fn(),
     })
     queueFetchMock(sse(textChunks('ok')))
@@ -283,13 +293,17 @@ describe('turn engine', () => {
     })
     await waitForTurnDone(turnId)
 
-    expect(awaitChatWindow).toHaveBeenCalledTimes(1)
+    expect(awaitChatWindow).not.toHaveBeenCalled()
+    expect(stopOvmsImageServer).toHaveBeenCalledTimes(1)
     expect(ensureBackendReadiness).toHaveBeenCalledWith(
       'test/model.gguf',
       undefined,
       undefined,
       undefined,
     )
+    expect(
+      events.filter((e) => e.type === 'queue-event' && e.kind === 'text').map((e) => e.action),
+    ).toEqual(['enqueued', 'started', 'finished'])
   })
 
   it('disarms last-load swap-back on a cloud turn without forgetting the snapshot', async () => {
@@ -689,11 +703,14 @@ describe('turn engine', () => {
     })
     await waitForTurnDone(turnId)
 
-    expect(awaitChatWindow).toHaveBeenCalledTimes(1)
+    expect(awaitChatWindow).not.toHaveBeenCalled()
     expect(prepareRag).toHaveBeenCalledTimes(1)
-    expect(awaitChatWindow.mock.invocationCallOrder[0]).toBeLessThan(
-      prepareRag.mock.invocationCallOrder[0],
+    const textStarted = events.findIndex(
+      (e) => e.type === 'queue-event' && e.kind === 'text' && e.action === 'started',
     )
+    const ragIdx = events.findIndex((e) => e.type === 'chat-rag')
+    expect(textStarted).toBeGreaterThanOrEqual(0)
+    expect(ragIdx).toBeGreaterThan(textStarted)
     expect(bodyMessages()[0]).toMatchObject({
       role: 'system',
       content: expect.stringContaining('Use the following context'),

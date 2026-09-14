@@ -2,11 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 // The renderer half of step 8's generated-media slice (architecture-target
-// §6.1): the store hydrates the gallery from the kernel's record files before
-// mount, uploads the legacy Pinia-persisted gallery once (then slims it out
-// of the leftover key), and writes through through a debounced deep
-// watch — only terminal `done` items are durable, deletes are idempotent
-// diffs, and nothing writes before hydration.
+// §6.1, step 11): the store hydrates the gallery from the kernel's record
+// files before mount, uploads the legacy Pinia-persisted gallery once (then
+// slims it out of the leftover key), and writes user add/delete through
+// explicitly. Completed renderer-origin runs persist from the artifact
+// runner — `updateImage` (kernel projection) does not write.
 
 const { errorsReport } = vi.hoisted(() => ({ errorsReport: vi.fn() }))
 
@@ -298,79 +298,69 @@ describe('useImageGenerationPresets media-record write-through', () => {
     mediaItemsApi.bootstrap.mockResolvedValue({ status: 'empty' })
     const store: Store = useImageGenerationPresets()
 
-    store.updateImage(doneImage('item-1'))
+    store.addGalleryItem(doneImage('item-1'))
     await advanceFlush()
 
     expect(mediaItemsApi.save).not.toHaveBeenCalled()
   })
 
-  it('saves a done item once the array changes, and does not re-save unchanged items', async () => {
+  it('saves a user-added done item and does not persist kernel projection updates', async () => {
     const store = await hydratedStore()
 
     store.updateImage(doneImage('item-1'))
     await advanceFlush()
-    expect(mediaItemsApi.save).toHaveBeenCalledTimes(1)
-    expect(mediaItemsApi.save.mock.calls[0][0]).toHaveLength(1)
+    expect(mediaItemsApi.save).not.toHaveBeenCalled()
 
-    // No further change: the next flush is a no-op. (A fresh object, as the
-    // artifact events always deliver — Vue does not trigger on re-setting
-    // the identical reference.)
-    store.updateImage({ ...store.generatedImages[0] })
-    await advanceFlush()
-    expect(mediaItemsApi.save).toHaveBeenCalledTimes(1)
+    store.addGalleryItem(doneImage('item-2'))
+    await vi.waitFor(() => expect(mediaItemsApi.save).toHaveBeenCalledTimes(1))
+    expect(mediaItemsApi.save.mock.calls[0][0]).toHaveLength(1)
+    expect(mediaItemsApi.save.mock.calls[0][0][0]).toMatchObject({ id: 'item-2' })
   })
 
   it('never persists an item that is not done', async () => {
     const store = await hydratedStore()
 
-    store.updateImage(doneImage('item-1', { state: 'generating' }))
+    store.addGalleryItem(doneImage('item-1', { state: 'generating' }))
     await advanceFlush()
 
     expect(mediaItemsApi.save).not.toHaveBeenCalled()
   })
 
-  it('deletes a removed id and mode-scoped ids through the diff', async () => {
+  it('deletes a removed id and mode-scoped ids through explicit delete IPC', async () => {
     const store = await hydratedStore()
-    store.updateImage(doneImage('keep', { mode: 'imageGen' }))
-    store.updateImage(doneImage('gone', { mode: 'imageGen' }))
-    store.updateImage(
+    store.addGalleryItem(doneImage('keep', { mode: 'imageGen' }))
+    store.addGalleryItem(doneImage('gone', { mode: 'imageGen' }))
+    store.addGalleryItem(
       doneImage('video-gone', {
         mode: 'video',
         type: 'video',
         videoUrl: 'aipg-media://media/v.mp4',
       }),
     )
-    await advanceFlush()
-    expect(mediaItemsApi.save).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(mediaItemsApi.save).toHaveBeenCalledTimes(3))
 
     store.deleteImage('gone')
-    await advanceFlush()
-    expect(mediaItemsApi.delete).toHaveBeenCalledWith(['gone'])
+    await vi.waitFor(() => expect(mediaItemsApi.delete).toHaveBeenCalledWith(['gone']))
 
     store.deleteAllImagesForMode('video')
-    await advanceFlush()
-    expect(mediaItemsApi.delete).toHaveBeenLastCalledWith(['video-gone'])
+    await vi.waitFor(() =>
+      expect(mediaItemsApi.delete).toHaveBeenCalledWith(['video-gone']),
+    )
 
     store.deleteAllImages()
-    await advanceFlush()
-    expect(mediaItemsApi.delete).toHaveBeenLastCalledWith(['keep'])
+    await vi.waitFor(() => expect(mediaItemsApi.delete).toHaveBeenCalledWith(['keep']))
   })
 
-  it('retries a save that the file store rejected', async () => {
+  it('reports a save that the file store rejected without dropping the live copy', async () => {
     const store = await hydratedStore()
     mediaItemsApi.save.mockResolvedValueOnce({ success: false, error: 'locked' })
 
-    store.updateImage(doneImage('item-1'))
-    await advanceFlush()
-    expect(errorsReport).toHaveBeenCalled()
-
-    store.updateImage({ ...store.generatedImages[0] })
-    await advanceFlush()
-    expect(mediaItemsApi.save).toHaveBeenCalledTimes(2)
-    expect(mediaItemsApi.save.mock.calls[1][0]).toHaveLength(1)
+    store.addGalleryItem(doneImage('item-1'))
+    await vi.waitFor(() => expect(errorsReport).toHaveBeenCalled())
+    expect(store.generatedImages.map((item) => (item as { id: string }).id)).toContain('item-1')
   })
 
-  it('flushes immediately on beforeunload so a quit does not drop the debounce window', async () => {
+  it('flushes immediately on beforeunload so a quit does not drop a projection-only item', async () => {
     const store = await hydratedStore()
     const saved = new Promise<void>((resolve) => {
       mediaItemsApi.save.mockImplementation(async () => {

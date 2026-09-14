@@ -60,6 +60,8 @@ import {
   type ComfyClientDeps,
 } from './comfyClient'
 import { buildDummyGlb, DUMMY_3D_PRESET_NAME, VIEW_FIXTURE } from '@/lib/devPresetWorkflows'
+import { saveMediaItems } from '../media/mediaItemFiles'
+import { extractMessage } from '@/assets/js/errors/appError'
 
 const appLogger = appLoggerInstance
 
@@ -288,6 +290,15 @@ function settleItems(run: ActiveRun, state: 'failed' | 'stopped'): void {
   }
 }
 
+function persistRendererGallery(run: ActiveRun): void {
+  if (runOrigin(run.payload) !== 'renderer') return
+  const items = doneItems(run)
+  if (items.length === 0) return
+  void saveMediaItems(items).catch((error) => {
+    appLogger.warn(`Media record persist failed: ${extractMessage(error)}`, 'electron-backend')
+  })
+}
+
 function finish(run: ActiveRun, result: ArtifactRunResult): void {
   if (run.settled) return
   run.settled = true
@@ -297,6 +308,7 @@ function finish(run: ActiveRun, result: ArtifactRunResult): void {
   }
   run.statusWatch?.()
   run.statusWatch = null
+  persistRendererGallery(run)
   emitArtifactPhase(
     run.payload.runId,
     result.state === 'completed'

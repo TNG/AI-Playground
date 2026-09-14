@@ -1110,7 +1110,7 @@ async function handleComfyUIImageUpload(imageFiles: File[]) {
         settings: {},
       }
 
-      imageGeneration.generatedImages.push(imageItem)
+      imageGeneration.addGalleryItem(imageItem)
       imageGeneration.selectedEditedImageId = imageItem.id
 
       // Switch to imageEdit mode if not already

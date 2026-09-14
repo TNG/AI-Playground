@@ -444,6 +444,11 @@ export const useOpenAiCompatibleChat = defineStore(
         tools: specs,
         ...(hasTools ? { repairData } : {}),
         ...(rag ? { rag } : {}),
+        persist: {
+          meta: conversations.getThreadMeta(targetKey) ?? null,
+          ragHashes: conversations.getThreadRagHashes(targetKey),
+          lastMainKey: conversations.lastMainKey,
+        },
         includeMcpInstructions: textInference.mcpToolsEnabled,
         homeAgentDiagnostics: textInference.activePreset?.name === HOME_AGENT_CHAT_PRESET_NAME,
       }
@@ -1000,8 +1005,8 @@ export const useOpenAiCompatibleChat = defineStore(
           chat.messages.splice(0, chat.messages.length, ...sanitizedForStorage)
         }
 
-        // 6. Persist conversation (sanitize base64 image parts to aipg-media)
-        conversations.updateConversation(chat.messages, targetKey)
+        // 6. Live projection only — the engine already wrote the thread file.
+        conversations.applyConversationMessages(chat.messages, targetKey)
 
         // 7. Clear inputs only on a clean turn, so failures/stops are retryable.
         if (clearInputs && !hadError) {
@@ -1109,7 +1114,7 @@ export const useOpenAiCompatibleChat = defineStore(
       }
       delete pendingRagSource[targetKey]
 
-      conversations.updateConversation(messages.value, targetKey)
+      conversations.applyConversationMessages(messages.value, targetKey)
     }
 
     async function removeMessage(messageId: string) {

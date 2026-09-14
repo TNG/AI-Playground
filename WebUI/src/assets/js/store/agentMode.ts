@@ -203,10 +203,7 @@ export const useAgentMode = defineStore(
       else defaultCapabilities.value = next
       const session = sessions.value[activeSessionId.value]
       if (!session) return
-      sessions.value = {
-        ...sessions.value,
-        [activeSessionId.value]: { ...session, capabilities: next },
-      }
+      rewriteSession(activeSessionId.value, { ...session, capabilities: next })
     }
 
     /**
@@ -228,10 +225,7 @@ export const useAgentMode = defineStore(
       // Not `capabilities.value`: that still reads the session's own copy, which
       // is the very override being cleared here.
       const restored = presetCapabilities.value ?? defaultCapabilities.value
-      sessions.value = {
-        ...sessions.value,
-        [activeSessionId.value]: { ...session, capabilities: [...restored] },
-      }
+      rewriteSession(activeSessionId.value, { ...session, capabilities: [...restored] })
     }
 
     async function migrateSessionPresets(): Promise<void> {
@@ -415,28 +409,25 @@ export const useAgentMode = defineStore(
       toolImages.value = {}
     })
 
-    // Write-through (step 8, §6.1): every record mutation reaches the kernel's
-    // files; a failed write reports through the sink but never breaks the turn.
+    // Records persist on turn lifecycle (step 11): a generate/stop snapshot,
+    // capability rewrite, or explicit delete — not a map watch. The Chat
+    // still owns the UIMessage list; main writes the file.
     const persistSessionMutation = makeForwardPersist({
       code: 'agent-sessions/persist-failed',
       technicalMessage: 'saving an agent session file failed',
     })
 
-    watch(sessions, (next, previous) => {
+    function persistSessionRecord(record: AgentSessionRecord): void {
       if (!sessionsHydrated.value) return
-      // Records are replaced wholesale (`{ ...sessions.value, [id]: record }`),
-      // so reference identity finds exactly the entries a mutation rewrote.
-      // Deletions are NOT forwarded here: `deleteSession` drives the explicit
-      // `agentMode:deleteSession` IPC, which owns the record file's removal.
-      for (const id of Object.keys(next)) {
-        if (previous[id] !== next[id]) {
-          const record = next[id]
-          persistSessionMutation(() =>
-            window.electronAPI.agentMode.saveSession(cloneForIpc(record)),
-          )
-        }
-      }
-    })
+      persistSessionMutation(() =>
+        window.electronAPI.agentMode.saveSession(cloneForIpc(record)),
+      )
+    }
+
+    function rewriteSession(id: string, record: AgentSessionRecord): void {
+      sessions.value = { ...sessions.value, [id]: record }
+      persistSessionRecord(record)
+    }
 
     watch(activeSessionId, (id) => {
       if (!sessionsHydrated.value) return
@@ -482,7 +473,7 @@ export const useAgentMode = defineStore(
         presetName,
       })
       if (!record) return
-      sessions.value = { ...sessions.value, [id]: record }
+      rewriteSession(id, record)
     }
 
     function restoreActiveSession(): void {

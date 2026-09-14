@@ -31,6 +31,14 @@ vi.mock('../../artifact/comfyClient', async (importOriginal) => {
   }
 })
 
+const { saveMediaItems } = vi.hoisted(() => ({
+  saveMediaItems: vi.fn(async (_items: unknown[]) => {}),
+}))
+
+vi.mock('../../media/mediaItemFiles.ts', () => ({
+  saveMediaItems,
+}))
+
 import {
   cancelActiveArtifactRun,
   resetArtifactRunnerForTest,
@@ -203,6 +211,7 @@ describe('artifact runner', () => {
     consentApproved = true
     missingModels = []
     socketHandlers = null
+    saveMediaItems.mockClear()
     vi.mocked(getComfySocket).mockImplementation(
       (
         _baseUrl: string,
@@ -272,6 +281,10 @@ describe('artifact runner', () => {
       ]),
     )
     expect(kernelEvents.filter((event) => event.type === 'artifact-item')).toHaveLength(2 + 2)
+    expect(saveMediaItems).toHaveBeenCalledTimes(1)
+    const savedItems = saveMediaItems.mock.calls[0]?.[0] as unknown as MediaItem[]
+    expect(savedItems).toHaveLength(2)
+    expect(savedItems[0]).toMatchObject({ state: 'done' })
   })
 
   it('fail-fast refuses while a run is active, queued submissions wait', async () => {
@@ -355,6 +368,7 @@ describe('artifact runner', () => {
       },
     })
     await run
+    expect(saveMediaItems).not.toHaveBeenCalled()
   })
 
   it('ignores leftover websocket frames from a settled run after a queued run starts', async () => {

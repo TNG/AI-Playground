@@ -1,12 +1,14 @@
 # Architecture as landed — processes, persistence, common sequences
 
-**This is the implementation after migration steps 1–10**, not the target in
+**This is the implementation after migration steps 1–11**, not the target in
 [`architecture-target.md`](./architecture-target.md). That file's §2 "Today" diagram is the
 draft-time symptom picture (chat `streamText` in the renderer, media as UI mutation). Steps 1–7
 moved Artifact, chat turns, the kernel bus and the orchestrator into main; step 8 moved app data
 onto kernel-owned files; step 9 moved RAG retrieval and the embedding-server ensure into the chat
-engine; step 10 put chat turns on the orchestrator as `text` occupancy. What this document shows
-is how those pieces actually talk today.
+engine; step 10 put chat turns on the orchestrator as `text` occupancy; step 11 moved transcript
+*when* onto the engines (chat file on turn start/end, renderer-origin gallery items from the
+artifact runner, agent-session records on turn complete / capability rewrite). What this document
+shows is how those pieces actually talk today.
 What is still missing, and in which order, is [`architecture-target.md` §8.3](./architecture-target.md#83-remaining-order-toward-the-goal).
 
 The Mermaid here is the reviewable source. Paste any block into Excalidraw's _Mermaid to Excalidraw_
@@ -24,7 +26,7 @@ flowchart TB
   subgraph renderer["Renderer — Chromium, Vue, Pinia"]
     views["Views: Chat, AgentMode, WorkflowResult, Setup"]
     pinia["Pinia projections: conversations, agentMode, imageGenerationPresets, textInference, theme, …"]
-    persistH["Persist helpers: saveThread, makeFileBackedPreference, media flush"]
+    persistH["User-mutation persist: saveThread, addGalleryItem, snapshotSession, preferences"]
     transport["kernelChatTransport"]
     runArt["runArtifact (renderer client)"]
     bridge["kernelProjection: subscribe + snapshot handshake"]
@@ -52,9 +54,11 @@ flowchart TB
     ipc --> files
     ipc --> registry
     chat --> bus
+    chat --> files
     orch --> art
     orch --> bus
     art --> bus
+    art --> files
   end
 
   subgraph backends["Child processes"]
@@ -86,14 +90,19 @@ load is still a Pinia fact shipped on the turn / IPC; the load itself is main.
 
 What lives in main: `streamText`, RAG retrieval after GPU admit, last-load memory and swap-back
 reload, Artifact execution, GPU policy including chat-turn occupancy, the one writer of
-conversation / session / media / preference / rag-document files, the ordered event stream.
+conversation / session / media / preference / rag-document files (chat and renderer-origin
+gallery writes happen on turn/run lifecycle; Pinia still forwards user mutations), the ordered
+event stream.
 
 ---
 
 ## 2. Persistence and the IPC boundary
 
-Step 8 made the kernel the one writer. The renderer is a live projection. Writes are
-fire-and-forget IPC; the Pinia maps stay the working copy.
+Step 8 made the kernel the one writer. Step 11 moved *when* for engine-owned transcripts: chat
+turns persist from `turnEngine` (start + end), renderer-origin gallery items from
+`artifact/runner.finish()`, agent sessions from turn-complete / capability rewrite — not a Pinia
+map watch. The renderer is a live projection. User-mutation writes are still fire-and-forget IPC;
+the Pinia maps stay the working copy.
 
 Pinia `ref` object values are Vue reactive proxies. `JSON.stringify` walks them (that is how
 `pinia-plugin-persistedstate` used to work). Electron `ipcRenderer.invoke` uses structured clone,
@@ -108,9 +117,14 @@ flowchart LR
     ref["Pinia ref.value — nested Vue Proxy"]
   end
 
-  subgraph helpers["Write-through"]
+  subgraph helpers["User-mutation write-through"]
     snap["fileBackedPreferences.snapshot"]
-    save["conversations.saveThread / media flush / agentMode.saveSession"]
+    save["conversations.saveThread / addGalleryItem / persistSessionRecord"]
+  end
+
+  subgraph engines["Engine persist — no Pinia save"]
+    chatP["turnEngine.saveConversation"]
+    artP["runner.saveMediaItems (renderer origin)"]
   end
 
   subgraph ipcBound["ipcRenderer.invoke"]
@@ -126,6 +140,8 @@ flowchart LR
   ref --> save
   snap -->|"cloneForIpc — plain object"| sc
   save -->|"cloneForIpc — plain object"| sc
+  chatP --> zod
+  artP --> zod
   sc -->|"clone ok"| zod
   zod --> fs
 ```
@@ -134,9 +150,11 @@ flowchart LR
 | --- | --- | --- |
 | Theme, TTS, per-preset knobs, last-used names | `preferences:write` | `cloneForIpc` in `snapshot()` and preload |
 | Launch flags | `settings.json` via the same helper | `cloneForIpc` in `snapshot()` and preload |
-| Conversation thread | `conversations:save` | `cloneForIpc` at `saveThread` and preload |
-| Media gallery item | `mediaItems:save` | `cloneForIpc` at flush and preload |
-| Agent session record | `agentMode:saveSession` | `cloneForIpc` at the sessions watch and preload |
+| Conversation thread (user mutation) | `conversations:save` | `cloneForIpc` at `saveThread` and preload |
+| Conversation thread (chat turn) | `saveConversation` in `turnEngine` | `cloneForIpc` of messages in main; `persist` rides `chat:submitTurn` |
+| Media gallery (user add/delete) | `mediaItems:save` / `mediaItems:delete` | `cloneForIpc` at `addGalleryItem` / delete and preload |
+| Media gallery (renderer generate) | `saveMediaItems` in `artifact/runner.finish()` | items already plain in the run |
+| Agent session record | `agentMode:saveSession` | `cloneForIpc` at `persistSessionRecord` (turn complete / rewrite), not a map watch |
 | Chat turn | `chat:submitTurn` | `cloneForIpc` in `kernelChatTransport` and preload |
 
 `toRaw` is shallow. Nested message objects stay proxied, which is why persist uses JSON clone
@@ -184,7 +202,9 @@ flowchart TB
   ipc --> oq
   ipc --> persistPath
   engine --> bus
+  engine --> conv
   runner --> bus
+  runner --> mediaF
   oq --> bus
 ```
 
@@ -236,17 +256,17 @@ sequenceDiagram
 
 Setup wizard (`globalSetup.loadingState = setupWizard`) can still be on screen after this hydrate.
 The first preference mutation then flushes `preferences.json` through `snapshot()` (clone-safe). A
-conversation mutation uses `saveThread` (not clone-safe).
+conversation user mutation (rename, TTS) uses `saveThread`. Chat generate does not.
 
 ---
 
 ## 5. Sequence — send "Hi" in Chat
 
-This is the path behind the clone toast: `stampMetaForConversation` runs **before** download
-consent and **before** `chat:submitTurn`. `setThreadMeta` → `saveThread` → `invoke` throws
-synchronously. `makeForwardPersist` only `.catch`es a rejected promise, so the throw reaches
-`Chat.vue`'s generate `catch` as `inference/generate-failed`. LLM load and RAG retrieval happen in
-the engine after submit.
+`stampMetaForConversation` records preset/variant on the live thread. It does **not** write the
+file. Durability rides `ChatTurnRequest.persist`: the engine writes on turn start (user message
+survives a crash mid-stream) and turn end (assembled assistant, `ragSource` stamped). Download
+consent still runs in the renderer **before** `chat:submitTurn`. LLM load and RAG retrieval happen
+in the engine after GPU admit.
 
 ```mermaid
 sequenceDiagram
@@ -257,6 +277,7 @@ sequenceDiagram
   participant Conv as conversations
   participant IPC as ipcRenderer.invoke
   participant Eng as turnEngine
+  participant Files as conversationFiles
   participant Orch as orchestrator
   participant LLM as llama-server / OVMS
   participant Bus as kernelBus
@@ -266,14 +287,14 @@ sequenceDiagram
   Store->>TI: ensureGlobalsMatchConversation
   Store->>TI: stampMetaForConversation
   TI->>Conv: setThreadMeta(key, preset+variant)
-  Conv->>IPC: conversations.save({ meta, messages, … })
-  Note over Conv,IPC: cloneForIpc DTO — structured clone succeeds
+  Note over Conv: live copy only — no save
   Store->>TI: checkModelAvailability
   Note over Store,TI: download consent only — no LLM IPC
   Store->>Store: chat.sendMessage
-  Store->>IPC: chat.submitTurn(request)
+  Store->>IPC: chat.submitTurn(request + persist)
   IPC->>Eng: submitChatTurn — Zod parse, begin snapshot
   Eng-->>Store: { turnId }
+  Eng->>Files: saveConversation(request.messages)
   Eng->>Orch: submitTextRequest (occupancy + GPU wait if local)
   Eng->>Eng: ensureChatBackendReady (skip window wait; stop OVMS image + load)
   opt rag on the request
@@ -284,7 +305,8 @@ sequenceDiagram
   LLM-->>Eng: tokens
   Eng->>Bus: chat-chunk (coalesced)
   Bus->>Store: kernel:event
-  Store->>Conv: updateConversation (another save)
+  Store->>Conv: applyConversationMessages (live copy)
+  Eng->>Files: saveConversation(messages + assistant)
 ```
 
 A tool call round-trips to the renderer (`chat:executeTool`): the closures still live in Pinia.
@@ -326,17 +348,17 @@ sequenceDiagram
   Comfy-->>Art: executing / progress / output
   Art->>Bus: artifact-phase, artifact-item
   Bus->>IG: projection updates items
+  Art->>Media: saveMediaItems(done renderer items)
   Art-->>Orch: result
   Orch->>Ready: reloadLastChatBackend (skip GPU admit)
   Note over Ready: last remembered local load; cloud disarms swap-back
-  IG->>Media: mediaItems.save(done items)
-  Note over IG,Media: same Proxy/structured-clone trap as conversations.save
 ```
 
 Chat `comfyUI` / `editImage` tools and Home Agent `/imgGen` call the same `runArtifact`. Chat-tool
 and Pi in-process origins **queue** FIFO instead of fail-fast, so nested media can run while its
 parent text occupancy is live. Panel fail-fast refuses while a local chat turn occupies. The GPU
-skip-when-queued rule means a spritesheet pays one LLM⇄ComfyUI swap, not one per sprite.
+skip-when-queued rule means a spritesheet pays one LLM⇄ComfyUI swap, not one per sprite. Agent-origin
+runs do not write gallery records. User add/delete still goes through Pinia IPC.
 
 ---
 
@@ -365,7 +387,7 @@ sequenceDiagram
   U->>Wiz: Continue
   Note over Pref,IPC: stores already hydrated in src/main.ts before mount
   Pref->>IPC: preferences.write(JSON-cloned snapshot)
-  Note over Pref,IPC: this path is clone-safe; conversation save is not
+  Note over Pref,IPC: this path is clone-safe; conversation user-mutation save is too
 ```
 
 ---
@@ -378,7 +400,7 @@ sequenceDiagram
 | Where does a Proxy become a problem? | `ipcRenderer.invoke` argument clone, in the renderer. |
 | Who is supposed to emit a DTO? | The persist / submit adapter (preload or the write-through helper), not the file writer. |
 | Why did preferences work after the first fix? | `snapshot()` JSON-clones before `preferences:write`. |
-| Why did Chat still toast? | `stampMeta` → `saveThread` still passes `conversationList.value[key]`. |
+| Why did Chat still toast? | Pre-step-11: `stampMeta` → `saveThread` passed a proxied thread. Chat send no longer saves; the engine writes `cloneForIpc(messages)` in main. User mutations still clone at `saveThread`. |
 
 The architectural fix is one choke point that serializes projection state to plain JSON before
 structured clone — not Vue types in main, and not a `toRaw` in every store.

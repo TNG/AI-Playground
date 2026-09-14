@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { UIMessageChunk } from 'ai'
+import { ConversationThreadMetaSchema } from './conversationIpc'
 
 // The chat-turn IPC contract (docs/architecture-target.md §7, step 6): the
 // renderer's Chat keeps message state and tool cards, but the AI SDK call
@@ -107,6 +108,17 @@ export type WorkflowRepairData = z.infer<typeof WorkflowRepairDataSchema>
 /** UI messages cross as-is; the engine trusts the app's own Chat shapes. */
 export const ChatMessageSchema = z.object({ id: z.string(), role: z.string() }).passthrough()
 
+/**
+ * Thread fields the engine writes with the messages (step 11). The renderer
+ * still holds the live meta; this snapshot is what makes the file durable.
+ */
+export const ChatTurnPersistSchema = z.object({
+  meta: ConversationThreadMetaSchema.nullable(),
+  ragHashes: z.array(z.string()),
+  lastMainKey: z.string().nullable().optional(),
+})
+export type ChatTurnPersist = z.infer<typeof ChatTurnPersistSchema>
+
 export const ChatTurnRequestSchema = z.object({
   conversationKey: z.string().min(1),
   trigger: z.enum(['submit-message', 'regenerate-message']),
@@ -117,6 +129,8 @@ export const ChatTurnRequestSchema = z.object({
   systemPrompt: z.string().nullable(),
   model: ChatModelConfigSchema,
   tools: z.array(ChatToolSpecSchema),
+  /** Engine-owned transcript write (step 11). Absent in tests that do not persist. */
+  persist: ChatTurnPersistSchema.optional(),
   /** Present when the preset has RAG on and documents are checked. */
   rag: ChatRagRequestSchema.optional(),
   repairData: z

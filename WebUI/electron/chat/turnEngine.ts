@@ -5,10 +5,13 @@ import {
   convertToModelMessages,
   isStepCount,
   NoSuchToolError,
+  readUIMessageStream,
   streamText,
   type LanguageModelUsage,
   type ModelMessage,
   type ToolSet,
+  type UIMessage,
+  type UIMessageChunk,
 } from 'ai'
 import { dynamicTool, jsonSchema, type ToolResultOutput } from '@ai-sdk/provider-utils'
 import type { JSONSchema7 } from '@ai-sdk/provider'
@@ -39,6 +42,8 @@ import { ensureChatBackendReady, setLastChatBackendLoadActive } from './chatRead
 import { retrieveRagForTurn } from './ragRetrieval'
 import { abortTurnToolRequests, executeToolInRenderer } from './toolBridge'
 import { finishTextRequest, submitTextRequest } from '../orchestrator/orchestrator'
+import { saveConversation } from '../conversations/conversationFiles'
+import { cloneForIpc } from '@/lib/cloneForIpc'
 
 // ── Main-side chat turn engine (docs/architecture-target.md §7, step 6) ──────
 //
@@ -51,11 +56,13 @@ import { finishTextRequest, submitTextRequest } from '../orchestrator/orchestrat
 //
 // What deliberately stayed renderer-side: download consent, the activities
 // sink (the transport observes chunk types to drive "Processing prompt…"
-// state), message state and persistence (the Chat instance keeps them), and
-// the reasoning-in-progress flag (derived from the same chunk types). Local
-// backend load runs here when `model.readiness` is present, after the turn
-// is admitted as a text request (step 10). RAG retrieval runs here when
-// `rag` is present (step 9).
+// state), the live Chat message list (a projection of the files this engine
+// writes), and the reasoning-in-progress flag (derived from the same chunk
+// types). Local backend load runs here when `model.readiness` is present,
+// after the turn is admitted as a text request (step 10). RAG retrieval runs
+// here when `rag` is present (step 9). Transcript files are written here on
+// turn start and turn end (step 11) — Pinia no longer calls `saveThread` to
+// make a generate/regenerate durable.
 
 const appLogger = appLoggerInstance
 
@@ -79,6 +86,40 @@ export function setChatEngineDeps(deps: ChatEngineDeps): void {
 export function resetChatEngineDepsForTest(): void {
   engineDeps = null
   activeTurns.clear()
+}
+
+async function persistChatTurn(request: ChatTurnRequest, messages: unknown[]): Promise<void> {
+  if (!request.persist) return
+  try {
+    await saveConversation({
+      id: request.conversationKey,
+      meta: request.persist.meta,
+      ragHashes: request.persist.ragHashes,
+      messages: cloneForIpc(messages),
+      lastMainKey: request.persist.lastMainKey,
+    })
+  } catch (error) {
+    appLogger.warn(`Chat transcript persist failed: ${extractMessage(error)}`, 'electron-backend')
+  }
+}
+
+function withRagSource(message: UIMessage, ragSource: string | null): UIMessage {
+  if (!ragSource) return message
+  const metadata =
+    message.metadata && typeof message.metadata === 'object'
+      ? { ...(message.metadata as Record<string, unknown>), ragSource }
+      : { ragSource }
+  return { ...message, metadata }
+}
+
+async function assembleAssistantFromStream(
+  stream: ReadableStream<UIMessageChunk>,
+): Promise<UIMessage | undefined> {
+  let last: UIMessage | undefined
+  for await (const message of readUIMessageStream({ stream })) {
+    last = message
+  }
+  return last
 }
 
 // ── Inference error surfacing (ported from the chat store) ────────────────────
@@ -460,7 +501,12 @@ export function resumeChatTurn(conversationKey: string) {
 async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Promise<void> {
   const { conversationKey, turnId } = turn
   const haDiag = request.homeAgentDiagnostics === true
+  let ragSourceText: string | null = null
   try {
+    // User message (and regenerate truncation) land on disk before GPU wait /
+    // stream, so a crash mid-turn does not lose the prompt.
+    await persistChatTurn(request, request.messages)
+
     const config = request.model
     await submitTextRequest(
       {
@@ -536,6 +582,7 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
         turn.controller.signal,
       )
       systemPromptToUse = `${prepared.systemPrompt}${mcp}`
+      ragSourceText = prepared.sourceText
       emitChatRag(conversationKey, turnId, prepared.sourceText)
     }
 
@@ -780,8 +827,26 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
       },
     })
 
-    for await (const chunk of stream) {
-      emitChatChunk(conversationKey, turnId, chunk)
+    const persistMessages = async (assistant: UIMessage | undefined) => {
+      const messages: unknown[] = [...request.messages]
+      if (assistant) messages.push(withRagSource(assistant, ragSourceText))
+      await persistChatTurn(request, messages)
+    }
+
+    if (request.persist) {
+      const [busStream, persistStream] = stream.tee()
+      const persistTask = assembleAssistantFromStream(persistStream)
+      try {
+        for await (const chunk of busStream) {
+          emitChatChunk(conversationKey, turnId, chunk)
+        }
+      } finally {
+        await persistMessages(await persistTask)
+      }
+    } else {
+      for await (const chunk of stream) {
+        emitChatChunk(conversationKey, turnId, chunk)
+      }
     }
   } catch (error) {
     // A user stop must not surface as an error chunk — the renderer's manual-

@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { makeFileBackedPreference } from '@/lib/fileBackedPreferences'
 import { cloneForIpc } from '@/lib/cloneForIpc'
+import { makeForwardPersist } from '@/lib/ipcPersist'
 import { useComfyUiPresets } from './comfyUiPresets'
 import { useDemoMode } from './demoMode'
 import { useI18N } from './i18n'
@@ -488,14 +489,10 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     )
   }
 
-  // ── Kernel-owned gallery records (step 8, §6.1) ───────────────────────────
-  // `generatedImages` is a live projection of `media/records/` files: one
-  // JSON per item plus an ordered index, written by the main process. The
-  // pinia persist plugin used to rewrite the whole gallery into localStorage
-  // on every mutation; a debounced deep watch over the array is the faithful
-  // port of that subscription across every mutation shape this store uses
-  // (push/splice/reassign/`length = 0`). Only terminal `done` items are
-  // durable — in-flight items never survived a reload before step 8 either.
+  // ── Kernel-owned gallery records (step 8 / step 11, §6.1) ────────────────
+  // `generatedImages` is a live projection of `media/records/` files. Completed
+  // renderer-origin runs persist from the artifact runner; this store writes
+  // only user mutations (add/delete). In-flight items are never durable.
   const MEDIA_LEGACY_KEY = 'imageGenerationPresets'
   /** Set once `init()` has hydrated (or migrated) — gates every write-through. */
   const mediaRecordsHydrated = ref(false)
@@ -505,6 +502,11 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
   let mediaFlushInFlight = false
   /** id → JSON of what the record files hold; the diff base for save/delete. */
   const flushedMediaItems = new Map<string, string>()
+
+  const persistMediaMutation = makeForwardPersist({
+    code: 'media-records/persist-failed',
+    technicalMessage: 'the media record file store rejected the write',
+  })
 
   function mediaItemJson(item: MediaItem): string {
     return JSON.stringify(item)
@@ -571,6 +573,23 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     } finally {
       mediaFlushInFlight = false
     }
+  }
+
+  function addGalleryItem(item: MediaItem): void {
+    generatedImages.value.push(item)
+    if (!mediaRecordsHydrated.value || item.state !== 'done') return
+    persistMediaMutation(() =>
+      window.electronAPI.mediaItems.save(cloneForIpc([item])).then((result) => {
+        if (result.success) flushedMediaItems.set(item.id, mediaItemJson(item))
+        return result
+      }),
+    )
+  }
+
+  function deleteRecordIds(ids: string[]): void {
+    if (!mediaRecordsHydrated.value || ids.length === 0) return
+    for (const id of ids) flushedMediaItems.delete(id)
+    persistMediaMutation(() => window.electronAPI.mediaItems.delete(ids))
   }
 
   function persistMediaRecordsNow(): void {
@@ -700,10 +719,8 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     return mediaRecordsInitPromise
   }
 
-  const stopMediaRecordsWatch = watch(generatedImages, scheduleMediaRecordsFlush, { deep: true })
   if (import.meta.hot) {
     import.meta.hot.dispose(() => {
-      stopMediaRecordsWatch()
       settingsPrefs.dispose()
       if (mediaFlushTimer) clearTimeout(mediaFlushTimer)
       if (typeof window.removeEventListener === 'function') {
@@ -844,7 +861,7 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
       newImage.fromImageGen = true
     }
 
-    generatedImages.value.push(newImage)
+    addGalleryItem(newImage)
     if (mode === 'imageEdit') {
       selectedEditedImageId.value = newImage.id
     } else if (mode === 'video') {
@@ -1146,6 +1163,7 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
 
   function deleteImage(id: string) {
     generatedImages.value = generatedImages.value.filter((image) => image.id !== id)
+    deleteRecordIds([id])
 
     if (selectedGeneratedImageId.value === id) {
       selectedGeneratedImageId.value = null
@@ -1159,11 +1177,15 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
   }
 
   function deleteAllImages() {
+    const ids = generatedImages.value.map((image) => image.id)
     generatedImages.value.length = 0
+    deleteRecordIds(ids)
   }
 
   function deleteAllImagesForMode(mode: WorkflowModeType) {
+    const removed = generatedImages.value.filter((image) => image.mode === mode).map((i) => i.id)
     generatedImages.value = generatedImages.value.filter((image) => image.mode !== mode)
+    deleteRecordIds(removed)
 
     switch (mode) {
       case 'imageGen':
@@ -1250,6 +1272,7 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     requiresUserPrompt,
     loadSettingsForActivePreset,
     copyImageAsInputForMode,
+    addGalleryItem,
     init,
     mediaRecordsHydrated,
   }

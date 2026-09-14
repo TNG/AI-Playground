@@ -162,7 +162,7 @@ function handleImageLoaded(imageUrl: string) {
     settings: {},
   }
 
-  imageGeneration.generatedImages.push(imageItem)
+  imageGeneration.addGalleryItem(imageItem)
   imageGeneration.selectedEditedImageId = imageItem.id
 }
 

@@ -106,12 +106,16 @@ export const useConversations = defineStore('conversations', () => {
     )
   }
 
-  function updateConversation(messages: AipgUiMessage[], conversationKey: string) {
+  function applyConversationMessages(messages: AipgUiMessage[], conversationKey: string) {
     // Never persist an orphaned tool call (interrupted/stopped turn): it would
     // brick the thread on the next generation. See src/lib/toolMessageSanitize.ts.
     conversationList.value[conversationKey] = sanitizeBulkyToolOutputs(
       completeOrphanedToolParts(messages),
     )
+  }
+
+  function updateConversation(messages: AipgUiMessage[], conversationKey: string) {
+    applyConversationMessages(messages, conversationKey)
     saveThread(conversationKey)
   }
 
@@ -150,7 +154,6 @@ export const useConversations = defineStore('conversations', () => {
       ...conversationThreadMeta.value[conversationKey],
       ...meta,
     }
-    saveThread(conversationKey)
   }
 
   function getThreadMeta(conversationKey: string): ConversationThreadMeta | undefined {
@@ -349,6 +352,7 @@ export const useConversations = defineStore('conversations', () => {
     clearConversation,
     isNewConversation,
     updateConversation,
+    applyConversationMessages,
     renameConversationTitle,
     ensureConversationBucket,
     setThreadMeta,

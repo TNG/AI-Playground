@@ -1,10 +1,13 @@
 import { z } from 'zod'
 
 /**
- * Conversation persistence IPC (architecture-target §6.1, step 8): the kernel
- * is the one writer of the user's chat threads — `AI-Playground/conversations/`
- * holds one JSON file per thread plus `index.json`. The renderer keeps its
- * reactive map as the live copy and forwards every durable mutation here.
+ * Conversation persistence IPC (architecture-target §6.1, steps 8 + 11): the
+ * kernel is the one writer of the user's chat threads —
+ * `AI-Playground/conversations/` holds one JSON file per thread plus
+ * `index.json`. Chat-turn transcripts are written by the engine
+ * (`saveConversation` on turn start and end). The renderer keeps its reactive
+ * map as the live copy and forwards user mutations (rename, delete, TTS/STT)
+ * here.
  *
  * Messages are opaque JSON on purpose: they are the AI SDK's `UIMessage`
  * documents, already sanitized by the sender (`completeOrphanedToolParts` +

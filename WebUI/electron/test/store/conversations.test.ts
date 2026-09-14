@@ -207,27 +207,27 @@ describe('useConversations write-through', () => {
     return store
   }
 
-  it('forwards a settled turn to the writer', async () => {
+  it('keeps a generate settle in the live copy without writing the file', async () => {
     const store = await hydratedStore()
     const key = store.addNewConversation()
 
-    store.updateConversation(
+    store.applyConversationMessages(
       [{ id: 'u', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as never,
       key,
     )
 
-    expect(api.save).toHaveBeenCalledTimes(1)
-    expect(api.save.mock.calls[0][0]).toMatchObject({ id: key })
-    expect(api.save.mock.calls[0][0].messages).toHaveLength(1)
+    expect(api.save).not.toHaveBeenCalled()
+    expect(store.conversationList[key]).toHaveLength(1)
   })
 
-  it('forwards delete, clear and rename', async () => {
+  it('forwards TTS/STT-style updateConversation, delete, clear and rename', async () => {
     const store = await hydratedStore()
     const key = store.addNewConversation()
     store.updateConversation(
       [{ id: 'u', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as never,
       key,
     )
+    expect(api.save).toHaveBeenCalledTimes(1)
     api.save.mockClear()
 
     store.renameConversationTitle(key, 'Renamed')
@@ -239,6 +239,14 @@ describe('useConversations write-through', () => {
     store.deleteConversation(key)
     expect(api.delete).toHaveBeenCalledWith(key)
     expect(store.conversationList[key]).toBeUndefined()
+  })
+
+  it('does not persist stamp-style setThreadMeta; the engine snapshot does', async () => {
+    const store = await hydratedStore()
+    const key = store.addNewConversation()
+    store.setThreadMeta(key, { presetName: 'Qwen', kind: 'main' })
+    expect(api.save).not.toHaveBeenCalled()
+    expect(store.getThreadMeta(key)).toMatchObject({ presetName: 'Qwen', kind: 'main' })
   })
 
   it('persists a Home Agent thread on create, before any content', async () => {

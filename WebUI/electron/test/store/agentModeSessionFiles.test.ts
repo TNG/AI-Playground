@@ -307,21 +307,23 @@ describe('useAgentMode session write-through', () => {
     expect(agentModeApi.saveActiveSessionId).not.toHaveBeenCalled()
   })
 
-  it('forwards a rewritten record and the active id after hydration', async () => {
+  it('does not persist a map assignment; a turn-lifecycle rewrite does', async () => {
     const store = await hydratedStore()
     store.sessions = {
-      'aipg-agent-1': { ...wireRecord('aipg-agent-1'), updatedAt: 9 } as never,
+      'aipg-agent-1': { ...wireRecord('aipg-agent-1'), capabilities: ['media'] } as never,
     }
     store.activeSessionId = 'aipg-agent-1'
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(agentModeApi.saveSession).not.toHaveBeenCalled()
 
+    store.setCapabilityEnabled('web-debug', true)
     await vi.waitFor(() => expect(agentModeApi.saveSession).toHaveBeenCalledTimes(1))
-    expect(agentModeApi.saveSession.mock.calls[0][0]).toMatchObject({
-      id: 'aipg-agent-1',
-      updatedAt: 9,
-    })
-    await vi.waitFor(() =>
-      expect(agentModeApi.saveActiveSessionId).toHaveBeenCalledWith('aipg-agent-1'),
-    )
+    const saved = agentModeApi.saveSession.mock.calls[0]?.[0] as {
+      id: string
+      capabilities?: string[]
+    }
+    expect(saved).toMatchObject({ id: 'aipg-agent-1' })
+    expect(saved.capabilities).toContain('web-debug')
   })
 
   it('forwards an empty active id as null (the games preset has no open session)', async () => {
@@ -338,19 +340,21 @@ describe('useAgentMode session write-through', () => {
 
   it('reports a failed persist reply without dropping the live copy', async () => {
     const store = await hydratedStore()
-    agentModeApi.saveSession.mockResolvedValueOnce({ success: false, error: 'disk full' })
     store.sessions = {
-      'aipg-agent-1': { ...wireRecord('aipg-agent-1'), updatedAt: 9 } as never,
+      'aipg-agent-1': { ...wireRecord('aipg-agent-1'), capabilities: ['media'] } as never,
     }
+    store.activeSessionId = 'aipg-agent-1'
+    agentModeApi.saveSession.mockResolvedValueOnce({ success: false, error: 'disk full' })
+    store.setCapabilityEnabled('web-debug', true)
     await vi.waitFor(() => expect(errorsReport).toHaveBeenCalled())
     expect(errorsReport.mock.calls[0][0]).toMatchObject({ message: 'disk full' })
-    expect(store.sessions['aipg-agent-1']).toMatchObject({ id: 'aipg-agent-1', updatedAt: 9 })
+    expect(store.sessions['aipg-agent-1']).toMatchObject({ id: 'aipg-agent-1' })
+    expect(store.sessions['aipg-agent-1'].capabilities).toContain('web-debug')
   })
 
   it('keeps the row when the kernel refuses the delete', async () => {
     const store = await hydratedStore()
     store.sessions = { 'aipg-agent-1': wireRecord('aipg-agent-1') as never }
-    await vi.waitFor(() => expect(agentModeApi.saveSession).toHaveBeenCalled())
     agentModeApi.deleteSession.mockResolvedValueOnce({ success: false, error: 'disk full' })
 
     await store.deleteSession('aipg-agent-1')
@@ -362,7 +366,6 @@ describe('useAgentMode session write-through', () => {
   it('drops the row only after the kernel confirms the delete', async () => {
     const store = await hydratedStore()
     store.sessions = { 'aipg-agent-1': wireRecord('aipg-agent-1') as never }
-    await vi.waitFor(() => expect(agentModeApi.saveSession).toHaveBeenCalled())
     agentModeApi.deleteSession.mockResolvedValueOnce({ success: true })
 
     await store.deleteSession('aipg-agent-1')

@@ -19,6 +19,14 @@ vi.mock('../../artifact/runner', () => ({
   startArtifactRun: async () => ({ state: 'completed', items: [] }),
 }))
 
+const { saveConversation } = vi.hoisted(() => ({
+  saveConversation: vi.fn(async (_request: unknown) => {}),
+}))
+
+vi.mock('../../conversations/conversationFiles.ts', () => ({
+  saveConversation,
+}))
+
 const {
   submitChatTurn,
   cancelChatTurn,
@@ -198,6 +206,7 @@ beforeEach(() => {
   resetChatEngineDepsForTest()
   resetChatReadinessForTest()
   resetOrchestratorForTest()
+  saveConversation.mockClear()
   events = []
   detachTap = onKernelEvent((event) => void events.push(event))
   const window = fakeWindow()
@@ -732,5 +741,71 @@ describe('turn engine', () => {
     await waitForTurnDone(turnId)
     expect(events.filter((e) => e.type === 'chat-rag')).toEqual([])
     expect(bodyMessages()[0]).toMatchObject({ role: 'system', content: 'You are helpful.' })
+  })
+
+  it('writes the thread file on turn start and again with the assembled assistant', async () => {
+    queueFetchMock(sse(textChunks('Hello')))
+    const persist = {
+      meta: { presetName: 'Qwen', kind: 'main' as const },
+      ragHashes: ['doc-a'],
+      lastMainKey: 'conv-1',
+    }
+    const { turnId } = submitChatTurn(turnRequest({ persist }))
+    await waitForTurnDone(turnId)
+
+    expect(saveConversation).toHaveBeenCalledTimes(2)
+    expect(saveConversation.mock.calls[0]?.[0]).toMatchObject({
+      id: 'conv-1',
+      meta: persist.meta,
+      ragHashes: ['doc-a'],
+      lastMainKey: 'conv-1',
+      messages: [{ id: 'm1', role: 'user' }],
+    })
+    const endMessages = (
+      saveConversation.mock.calls[1]?.[0] as unknown as {
+        messages: Array<{ role: string; metadata?: { ragSource?: string } }>
+      }
+    ).messages
+    expect(endMessages[0]).toMatchObject({ role: 'user' })
+    expect(endMessages.some((m) => m.role === 'assistant')).toBe(true)
+  })
+
+  it('stamps ragSource onto the persisted assistant when retrieval ran', async () => {
+    const prepareRag = vi.fn(async () => ({
+      systemPrompt: 'augmented',
+      sourceText: 'doc.txt (Lines 1-2)',
+    }))
+    setChatEngineDeps({ readMediaAsDataUri, prepareRag })
+    queueFetchMock(sse(textChunks('ok')))
+    const { turnId } = submitChatTurn(
+      turnRequest({
+        persist: { meta: null, ragHashes: ['h'] },
+        rag: {
+          query: 'hi',
+          documentHashes: ['h'],
+          useGroupRetrieval: false,
+          embeddingServiceName: 'llamacpp-backend',
+          embeddingModel: 'embed',
+          maxResults: 4,
+          perDocResults: 2,
+        },
+      }),
+    )
+    await waitForTurnDone(turnId)
+
+    const endMessages = (
+      saveConversation.mock.calls[1]?.[0] as unknown as {
+        messages: Array<{ role: string; metadata?: { ragSource?: string } }>
+      }
+    ).messages
+    const assistant = endMessages.find((m) => m.role === 'assistant')
+    expect(assistant?.metadata?.ragSource).toBe('doc.txt (Lines 1-2)')
+  })
+
+  it('does not write a conversation file when persist is omitted', async () => {
+    queueFetchMock(sse(textChunks('ok')))
+    const { turnId } = submitChatTurn(turnRequest())
+    await waitForTurnDone(turnId)
+    expect(saveConversation).not.toHaveBeenCalled()
   })
 })

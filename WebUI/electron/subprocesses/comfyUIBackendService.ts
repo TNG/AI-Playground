@@ -210,15 +210,7 @@ export function sanitizeUserComfyUiParameters(raw: string, warn?: (msg: string) 
 export class ComfyUiBackendService extends LongLivedPythonApiService {
   constructor(name: BackendServiceName, port: number, win: BrowserWindow, settings: LocalSettings) {
     super(name, port, win, settings)
-
-    this.serviceIsSetUp().then(async (setUp) => {
-      this.isSetUp = setUp
-      if (this.isSetUp) {
-        await this.updateCachedVersion()
-        this.setStatus('notYetStarted')
-      }
-      this.appLogger.info(`Service ${this.name} isSetUp: ${this.isSetUp}`, this.name)
-    })
+    void this.publishInitialSetupStatus()
   }
   readonly isRequired = false
   readonly serviceFolder = 'ComfyUI'

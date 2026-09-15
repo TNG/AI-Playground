@@ -83,6 +83,7 @@ function hostWith(overrides: Partial<Host> = {}): Host {
     workspaceDir: path.join(agentDir, 'workspace'),
     agentDir,
     toolSpecs: [MEDIA_TOOL_SPEC] as Host['toolSpecs'],
+    keepModelsLoaded: false,
     ...overrides,
   }
 }
@@ -233,8 +234,8 @@ describe('resolveCapabilities', () => {
       screenshotPath: 'generated/shot.png',
     })
     const send = vi.fn()
-    const { setToolBridgeWindow } = await import('../../agentMode/piCustomTools.ts')
-    setToolBridgeWindow({ webContents: { send } } as never)
+    const { setKernelEventWindow } = await import('../../kernel/kernelBus')
+    setKernelEventWindow({ isDestroyed: () => false, webContents: { send } } as never)
 
     const resolution = await resolveCapabilities(host, ['web-debug'])
     const registry = fakeExtensionApi()
@@ -244,11 +245,15 @@ describe('resolveCapabilities', () => {
     }
     const result = await browser.execute('call-1', { action: 'screenshot' })
 
-    expect(send).toHaveBeenCalledWith('agentMode:toolImage', {
-      toolCallId: 'call-1',
-      dataUri: expect.stringMatching(/^data:image\/png;base64,/),
-      label: 'generated/shot.png',
-    })
+    expect(send).toHaveBeenCalledWith(
+      'kernel:event',
+      expect.objectContaining({
+        type: 'agent-tool-image',
+        toolCallId: 'call-1',
+        dataUri: expect.stringMatching(/^data:image\/png;base64,/),
+        label: 'generated/shot.png',
+      }),
+    )
     expect(result.content[0].text).toBe('Saved screenshot to generated/shot.png')
   })
 

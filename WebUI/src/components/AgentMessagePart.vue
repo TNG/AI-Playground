@@ -21,9 +21,8 @@
     </div>
     <p v-if="compaction.summary" class="whitespace-pre-wrap opacity-80">{{ compaction.summary }}</p>
   </div>
-  <!-- Media delegation tool: the nested media agent runs in the renderer, so its
-       live steps (mediaAgentRuns, keyed by the bridged toolCallId) and the
-       produced media render inline while the bridged call is still pending. -->
+  <!-- Media delegation tool: the nested specialist runs in main; live steps
+       reach mediaAgentRuns via kernel events (keyed by toolCallId). -->
   <div v-else-if="mediaToolNameOf(part)" class="flex flex-col gap-2">
     <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
     <MediaAgentTimeline :tool-call-id="toolPart.toolCallId" :fallback-steps="mediaToolSteps" />
@@ -55,7 +54,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { isToolUIPart, type UIDataTypes, type UIMessagePart, type UITools } from 'ai'
 import type { DynamicToolUIPart, ToolUIPart } from 'ai'
 import { useAgentMode } from '@/assets/js/store/agentMode'
@@ -177,4 +176,13 @@ const mediaToolItems = computed<MediaItem[]>(() => {
       return false
     })
 })
+
+watch(
+  () => [mediaToolNameOf(props.part), toolPart.value.toolCallId, toolPart.value.state] as const,
+  ([isMedia, id, state]) => {
+    if (!isMedia) return
+    if (state === 'output-available') mediaRuns.endRun(id, 'done')
+    if (state === 'output-error') mediaRuns.endRun(id, 'failed')
+  },
+)
 </script>

@@ -47,6 +47,10 @@ class FakeBackendService extends LongLivedPythonApiService {
   async detectDevices(): Promise<void> {}
   async *set_up(): AsyncIterable<SetupProgress> {}
 
+  publishInitial(): Promise<void> {
+    return this.publishInitialSetupStatus()
+  }
+
   async spawnAPIProcess(): Promise<{
     process: ChildProcess
     didProcessExitEarlyTracker: Promise<boolean>
@@ -225,5 +229,42 @@ describe('LongLivedPythonApiService start guard', () => {
     expect(service.spawnCalled).toBe(false)
     expect(status).toBe('failed')
     expect(service.get_info().errorDetails?.stderr).toContain('PyTorch is not installed')
+  })
+})
+
+describe('LongLivedPythonApiService initial kernel publish', () => {
+  beforeEach(async () => {
+    const { resetKernelBusForTest } = await import('../../kernel/kernelBus')
+    resetKernelBusForTest()
+  })
+
+  it('leaves get_info uninitialized until the setup check finishes', () => {
+    const service = makeFakeBackend()
+    expect(service.get_info().status).toBe('uninitializedStatus')
+  })
+
+  it('publishes notInstalled after a failed setup check so the snapshot names the backend', async () => {
+    const { getKernelSnapshot } = await import('../../kernel/kernelBus')
+    const service = makeFakeBackend()
+    service.setUpResult = false
+
+    await service.publishInitial()
+
+    expect(service.get_info().status).toBe('notInstalled')
+    expect(service.get_info().isSetUp).toBe(false)
+    const named = getKernelSnapshot().state.services as Array<{ serviceName?: string }>
+    expect(named.some((s) => s.serviceName === 'ai-backend')).toBe(true)
+  })
+
+  it('publishes notYetStarted after a successful setup check', async () => {
+    const { getKernelSnapshot } = await import('../../kernel/kernelBus')
+    const service = makeFakeBackend()
+
+    await service.publishInitial()
+
+    expect(service.get_info().status).toBe('notYetStarted')
+    expect(service.get_info().isSetUp).toBe(true)
+    const named = getKernelSnapshot().state.services as Array<{ serviceName?: string }>
+    expect(named.some((s) => s.serviceName === 'ai-backend')).toBe(true)
   })
 })

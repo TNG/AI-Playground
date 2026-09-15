@@ -307,7 +307,8 @@ watch(
 async function generateImage(prompt: string) {
   try {
     imageGeneration.prompt = prompt
-    await imageGeneration.ensureModelsAreAvailable()
+    // Readiness (model download dialog included) is the runner's — a cancelled
+    // download throws from generate() and lands in this same catch.
     await imageGeneration.generate(props.mode)
   } catch (error) {
     // Reset state on any error (including download cancellation). A user cancel

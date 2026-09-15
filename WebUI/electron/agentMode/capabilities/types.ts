@@ -2,6 +2,9 @@ import type { ExtensionAPI, ToolDefinition } from '@earendil-works/pi-coding-age
 import type { SkillSource } from '../piCustomTools.ts'
 import type { PlanningEnd } from '../planningPhase.ts'
 import type { AgentToolSpec } from '@/types/agentIpc'
+import type { ChatModelConfig, ChatToolSpec, WorkflowRepairData } from '@/types/chatIpc'
+
+export type { AgentToolSpec }
 
 // ── Agent capabilities ───────────────────────────────────────────────────────
 //
@@ -20,10 +23,26 @@ export type CapabilityHost = {
   workspaceDir: string
   /** Bridged renderer tool contracts shipped with the turn. */
   toolSpecs: AgentToolSpec[]
+  /**
+   * NL `media` specialist catalog (step 12). Present when the turn shipped
+   * the thin media tool; inner Comfy runs in-process from this payload.
+   */
+  mediaAgent?: {
+    system: string
+    toolSpecs: ChatToolSpec[]
+    repairData?: {
+      comfyUI?: WorkflowRepairData
+      comfyUiImageEdit?: WorkflowRepairData
+    }
+  }
+  /** Chat-shaped model config for the nested specialist LLM loop. */
+  chatModel?: ChatModelConfig
   /** Where app-owned agent state lives ({userData}/pi/agent). */
   agentDir: string
   /** The model's context window, for the activation policy. */
   contextWindow?: number
+  /** Developer setting: skip the GPU swap around in-process media calls. */
+  keepModelsLoaded: boolean
 }
 
 /** A slash command a capability offers, runnable as a prompt of its own. */

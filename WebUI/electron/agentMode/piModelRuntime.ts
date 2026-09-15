@@ -3,7 +3,7 @@ import type { ModelRuntime } from '@earendil-works/pi-coding-agent'
 import { loadPi } from './piRuntime.ts'
 import { piAgentDir } from './piSessionStore.ts'
 import { localBaseUrl } from './piLocalEndpoint.ts'
-import { observeAgentModelCalls } from './piCallTiming.ts'
+import { observeAgentModelCalls, trackAgentModelCalls } from './piCallTiming.ts'
 import { cloudReasoningRegistration } from './piCloudReasoning.ts'
 import { laminarConfig } from '../laminar.ts'
 import { type InferenceTraceContext } from '../laminarAttributes.ts'
@@ -69,6 +69,7 @@ export async function registerModel(
     })
     await runtime.setRuntimeApiKey(LOCAL_PROVIDER, 'unused')
     observeModelCallsWhenTracing(() => localBaseUrl(config))
+    trackAgentModelCalls(() => localBaseUrl(config))
     return { provider: LOCAL_PROVIDER, modelId: config.model }
   }
 

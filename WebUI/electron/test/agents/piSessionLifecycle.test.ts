@@ -176,16 +176,29 @@ vi.mock('../../agentMode/piWorkspaceRuntime', () => ({
   buildWorkspaceInstructions: vi.fn(() => 'workspace instructions'),
 }))
 
+const submitTextRequest = vi.hoisted(() => vi.fn(async () => {}))
+const finishTextRequest = vi.hoisted(() => vi.fn())
+vi.mock('../../orchestrator/orchestrator.ts', () => ({
+  submitTextRequest,
+  finishTextRequest,
+}))
+
 vi.mock('../../subprocesses/agentBrowser', () => ({
   closeBrowserSession: vi.fn(),
   closeAllBrowserSessions: vi.fn(),
 }))
 
 type SentMessage = { channel: string; payload: Record<string, unknown> }
+
+/** Kernel events of one payload type, in stream order. */
+function kernelEvents(type: string): SentMessage[] {
+  return sent.filter((message) => message.payload.type === type)
+}
 let sent: SentMessage[]
 
 function fakeWindow() {
   return {
+    isDestroyed: () => false,
     webContents: {
       send: (channel: string, payload: Record<string, unknown>) => sent.push({ channel, payload }),
     },
@@ -212,6 +225,10 @@ type Manager = typeof import('../../agentMode/piAgentManager')
 
 async function loadManager(): Promise<Manager> {
   const manager = await import('../../agentMode/piAgentManager')
+  const { setKernelEventWindow } = await import('../../kernel/kernelBus')
+  // The kernel bus owns the window agent events are pushed to now; it needs
+  // the same fake as the rest of the manager wiring.
+  setKernelEventWindow(fakeWindow() as never)
   manager.setAgentModeMainWindow(fakeWindow() as never)
   return manager
 }
@@ -228,6 +245,8 @@ beforeEach(() => {
   settingsInMemory.mockClear()
   openSession.mockClear()
   createSessionManager.mockClear()
+  submitTextRequest.mockClear()
+  finishTextRequest.mockClear()
   sessionFiles.length = 0
   disposed.length = 0
   resourceLoaderOptions.length = 0
@@ -590,11 +609,10 @@ describe('turn streaming', () => {
     const manager = await loadManager()
     await manager.startAgentTurn('t1', 'hello', configFor())
 
-    const channels = sent.map((message) => message.channel)
-    expect(channels).toContain('agentMode:streamChunk')
-    expect(channels.at(-1)).toBe('agentMode:turnDone')
-    const finish = sent
-      .filter((message) => message.channel === 'agentMode:streamChunk')
+    const types = sent.map((message) => message.payload.type)
+    expect(types).toContain('agent-chunk')
+    expect(types.at(-1)).toBe('agent-turn-done')
+    const finish = kernelEvents('agent-chunk')
       .map((message) => message.payload.chunk as Record<string, unknown>)
       .at(-1)
     expect(finish).toMatchObject({
@@ -624,8 +642,7 @@ describe('turn streaming', () => {
 
     await manager.startAgentTurn('t1', 'hello', configFor())
 
-    const metadata = sent
-      .filter((message) => message.channel === 'agentMode:streamChunk')
+    const metadata = kernelEvents('agent-chunk')
       .map((message) => message.payload.chunk as Record<string, unknown>)
       .filter((chunk) => chunk.type === 'message-metadata')
     expect(metadata.length).toBeGreaterThan(0)
@@ -645,12 +662,12 @@ describe('turn streaming', () => {
       error: 'model unavailable',
     })
 
-    const chunks = sent.filter((message) => message.channel === 'agentMode:streamChunk')
+    const chunks = kernelEvents('agent-chunk')
     expect(chunks.at(-1)?.payload.chunk).toEqual({
       type: 'error',
       errorText: 'model unavailable',
     })
-    expect(sent.at(-1)?.channel).toBe('agentMode:turnDone')
+    expect(sent.at(-1)?.payload.type).toBe('agent-turn-done')
   })
 
   /** A session whose turns end with the given assistant messages, in order. */
@@ -669,16 +686,14 @@ describe('turn streaming', () => {
   const answered = { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] }
 
   function noticeTexts(): string[] {
-    return sent
-      .filter((message) => message.channel === 'agentMode:streamChunk')
+    return kernelEvents('agent-chunk')
       .map((message) => message.payload.chunk as Record<string, unknown>)
       .filter((chunk) => chunk.type === 'text-delta' && String(chunk.id).startsWith('notice-'))
       .map((chunk) => String(chunk.delta))
   }
 
   function errorTexts(): string[] {
-    return sent
-      .filter((message) => message.channel === 'agentMode:streamChunk')
+    return kernelEvents('agent-chunk')
       .map((message) => message.payload.chunk as Record<string, unknown>)
       .filter((chunk) => chunk.type === 'error')
       .map((chunk) => String(chunk.errorText))
@@ -1005,6 +1020,105 @@ describe('turn streaming', () => {
       const model = await registeredModel(configFor())
       expect(model.reasoning).toBe(false)
     })
+  })
+
+  it('occupies a text request for the whole turn and loads when readiness is shipped', async () => {
+    const manager = await loadManager()
+    const { setChatReadinessDeps, resetChatReadinessForTest } =
+      await import('../../chat/chatReadiness')
+    const ensureBackendReadiness = vi.fn(async () => {})
+    setChatReadinessDeps({
+      getService: () => ({
+        ensureBackendReadiness,
+        baseUrl: 'http://127.0.0.1:39000',
+      }),
+      awaitChatWindow: vi.fn(async () => {}),
+      stopOvmsImageServer: vi.fn(async () => {}),
+      notifyHomeAgentUpstreamReady: vi.fn(),
+    })
+    const readiness = { serviceName: 'llamacpp-backend', llmModelName: 'test-model' }
+    expect(await manager.startAgentTurn('t1', 'hello', configFor({ readiness }))).toEqual({
+      success: true,
+    })
+    expect(submitTextRequest).toHaveBeenCalledWith(
+      {
+        runId: 't1',
+        conversationKey: 'aipg-agent-1',
+        needsGpu: true,
+      },
+      expect.any(AbortSignal),
+    )
+    expect(ensureBackendReadiness).toHaveBeenCalledWith(
+      'test-model',
+      undefined,
+      undefined,
+      undefined,
+    )
+    expect(finishTextRequest).toHaveBeenCalledWith('t1')
+    resetChatReadinessForTest()
+  })
+
+  it('occupies without loading when the turn ships no readiness', async () => {
+    const manager = await loadManager()
+    const { setChatReadinessDeps, resetChatReadinessForTest } =
+      await import('../../chat/chatReadiness')
+    const ensureBackendReadiness = vi.fn(async () => {})
+    setChatReadinessDeps({
+      getService: () => ({
+        ensureBackendReadiness,
+        baseUrl: 'http://127.0.0.1:39000',
+      }),
+      awaitChatWindow: vi.fn(async () => {}),
+      stopOvmsImageServer: vi.fn(async () => {}),
+      notifyHomeAgentUpstreamReady: vi.fn(),
+    })
+    expect(await manager.startAgentTurn('t1', 'hello', configFor())).toEqual({ success: true })
+    expect(submitTextRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ needsGpu: false }),
+      expect.any(AbortSignal),
+    )
+    expect(ensureBackendReadiness).not.toHaveBeenCalled()
+    expect(finishTextRequest).toHaveBeenCalledWith('t1')
+    resetChatReadinessForTest()
+  })
+
+  it('occupies a cloud turn without loading a local backend', async () => {
+    const manager = await loadManager()
+    const { setChatReadinessDeps, resetChatReadinessForTest } =
+      await import('../../chat/chatReadiness')
+    const ensureBackendReadiness = vi.fn(async () => {})
+    setChatReadinessDeps({
+      getService: () => ({
+        ensureBackendReadiness,
+        baseUrl: 'http://127.0.0.1:39000',
+      }),
+      awaitChatWindow: vi.fn(async () => {}),
+      stopOvmsImageServer: vi.fn(async () => {}),
+      notifyHomeAgentUpstreamReady: vi.fn(),
+    })
+    expect(
+      await manager.startAgentTurn(
+        't1',
+        'hello',
+        configFor({
+          modelConfig: {
+            source: 'cloud',
+            model: 'gpt-test',
+            proxyBaseUrl: 'http://127.0.0.1:9/v1',
+            upstreamBaseUrl: 'https://api.openai.com',
+            providerId: 'openai',
+            authStyle: 'bearer',
+          },
+        }),
+      ),
+    ).toEqual({ success: true })
+    expect(submitTextRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ needsGpu: false }),
+      expect.any(AbortSignal),
+    )
+    expect(ensureBackendReadiness).not.toHaveBeenCalled()
+    expect(finishTextRequest).toHaveBeenCalledWith('t1')
+    resetChatReadinessForTest()
   })
 
   it('re-asserts the preview URL when the port changed', async () => {

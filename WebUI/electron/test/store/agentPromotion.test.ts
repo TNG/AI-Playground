@@ -105,10 +105,8 @@ globalThis.window = {
       cancel: vi.fn(async () => {}),
       deleteSession: vi.fn(async () => ({ success: true })),
       submitToolResult,
-      onStreamChunk: vi.fn(),
-      onToolProgress: vi.fn(),
-      onToolImage: vi.fn(),
-      onTurnDone: vi.fn(),
+      // Agent notifications ride the kernel stream; only the executeTool
+      // request stays on the agentMode surface.
       // The store registers its handlers once per module, so the dispatch used
       // by every test below is the one captured here.
       onExecuteTool: vi.fn((handler) => {

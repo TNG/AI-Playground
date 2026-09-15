@@ -1,6 +1,12 @@
 import fs from 'node:fs'
 import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent'
 import { appLoggerInstance } from '../logging/logger.ts'
+import {
+  beginAgentTurnSnapshot,
+  emitAgentChunk,
+  emitAgentToolProgress,
+  emitAgentTurnDone,
+} from '../kernel/kernelBus.ts'
 import { closeAllBrowserSessions, closeBrowserSession } from '../subprocesses/agentBrowser.ts'
 import { closeWorkspaceRuntime } from './piWorkspaceRuntime.ts'
 import {
@@ -24,7 +30,6 @@ import {
   active,
   activeAbort,
   lastSessionId,
-  mainWin,
   setActiveAbort,
   setCurrentTurn,
   type ActiveSession,
@@ -32,20 +37,10 @@ import {
 import { endActiveSession, ensureSession } from './piSessionLifecycle.ts'
 import { agentRunIdentity } from './agentRunIdentity.ts'
 import { setAgentRunIdentity } from '../laminarAttributes.ts'
+import { finishTextRequest, submitTextRequest } from '../orchestrator/orchestrator.ts'
+import { ensureChatBackendReady, setLastChatBackendLoadActive } from '../chat/chatReadiness.ts'
 
 const logger = appLoggerInstance
-
-export type AgentModeStreamChunk = {
-  turnId: string
-  chunk: unknown
-}
-
-export type AgentModeToolProgress = {
-  turnId: string
-  toolCallId: string
-  toolName: string
-  text: string
-}
 
 export type AgentModeTurnResult = {
   success: boolean
@@ -53,7 +48,7 @@ export type AgentModeTurnResult = {
 }
 
 function sendChunk(turnId: string, chunk: StreamChunk): void {
-  mainWin?.webContents.send('agentMode:streamChunk', { turnId, chunk } as AgentModeStreamChunk)
+  emitAgentChunk(turnId, chunk)
 }
 
 /**
@@ -325,19 +320,32 @@ export async function startAgentTurn(
   }
   const abortController = new AbortController()
   setActiveAbort(abortController)
+  beginAgentTurnSnapshot(turnId)
   const verbose = verboseLogging()
   const translator = createStreamTranslator({
     emit: (chunk) => sendChunk(turnId, chunk),
     onToolProgress: ({ toolCallId, toolName, text }) => {
-      mainWin?.webContents.send('agentMode:toolProgress', {
-        turnId,
-        toolCallId,
-        toolName,
-        text,
-      } as AgentModeToolProgress)
+      emitAgentToolProgress(turnId, toolCallId, toolName, text)
     },
   })
   try {
+    await submitTextRequest(
+      {
+        runId: turnId,
+        conversationKey: config.sessionId,
+        needsGpu: config.modelConfig.source !== 'cloud' && Boolean(config.readiness),
+      },
+      abortController.signal,
+    )
+    if (config.modelConfig.source === 'cloud') {
+      setLastChatBackendLoadActive(false)
+    } else if (config.readiness) {
+      await ensureChatBackendReady(config.readiness, {
+        abortSignal: abortController.signal,
+        skipGpuAdmission: true,
+        conversationKey: config.sessionId,
+      })
+    }
     const current = await ensureSession(config)
     // Per turn, not per session: a resumed session keeps its trace context but
     // its game may have been named since, and the preset can differ.
@@ -410,9 +418,10 @@ export async function startAgentTurn(
     translator.fail(message)
     return { success: false, error: message }
   } finally {
+    finishTextRequest(turnId)
     setCurrentTurn(null)
     setActiveAbort(null)
-    mainWin?.webContents.send('agentMode:turnDone', { turnId })
+    emitAgentTurnDone(turnId)
   }
 }
 

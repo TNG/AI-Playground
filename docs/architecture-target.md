@@ -989,9 +989,44 @@ Slice-by-slice step-8 mechanics (eager vs lazy hydrate, sequential Pinia-key sli
 `alwaysMigrateLegacy`, leftover snapshot at construction) also live there — they are how the
 files work, not open work.
 
+Cheap leftovers that *were* tidy-ups are closed: `AgentTurnSnapshot.chunks` merge adjacent
+text/reasoning deltas of the same part (live events still stream per token); `onToolProgress`
+buffers onto `pendingResume`; generate `workflow` is `z.enum` (empty catalog falls back to the
+default name, never a free-form string); swap-back emits `Reloading chat model…` as a global
+backend activity and `chatActivity` falls back to that; `writeChains` prune after settle;
+conversations and agent-session migrate merge missing ids like media, and the renderer also
+uploads leftover when bootstrap is `ok` with an empty list; a corrupt agent-session file hydrates
+as a placeholder (empty transcript / workspace — `switchSession` does not adopt the empty folder).
+
+Nothing remaining in this section is a cheap leftover. The bullets below were parked as tidy-ups
+and are recategorized: as-landed dual paths, Design (product/protocol), or later slices (IPC,
+persist, tracing, orchestrator API). Grant vocabulary, FIFO vs nested-media jump, `defaultPreset`
+scope, and artifact GC stay Design / §10 — they were never landed-step leftovers.
+
 #### Blocked
 
 None. Agent Mode and Home Agent `/load` occupy as orchestrator `text` requests (step 15).
+
+#### As-landed (not leftover)
+
+These look like dual paths. They are the landed shape; deleting them is a redesign, not a tidy-up.
+
+- **Three projections subscribe independently.** `backendServices`, `agentModeIpc`, and
+  `imageGenerationPresets` each `connectKernelEventStream` (plus `kernelLedgerProjection`). One
+  handshake per store is the step-4 listener-first pattern. Folding them into one subscriber is
+  only worth it if `getSnapshot` grows heavy enough that three copies hurt — not a leftover.
+- **`getServices` IPC stays.** The setup wizard and `globalSetup` pull it; `backendServices`
+  `hydrateFromMain` uses it when the kernel snapshot is empty (`backendInitRace` pins that).
+  `loadAppWindow` waits until the handler exists so a racing renderer does not get `[]` and
+  "ai-backend service not found". Replacing it is a wizard/boot redesign.
+- **The agentMode Pinia key is slimmed on purpose.** The persist pick is preferences only
+  (`mcpServerIds`, `defaultCapabilities`, `unsandboxedWorkspaces`, `planningThinkingOnly`).
+  Session records and workspace pointers already live in kernel files (step 8). Dropping the key
+  would lose those prefs or need a new persist bucket.
+- **Permissions named verbs stay.** `requestDownload` / `requestVramWarning` / `notify` are the
+  renderer surface; `permissions.request(action)` is Design below. The `permissions` → `homeAgent`
+  import is gone (remote-turn port, step 13). Legacy `memoryAlertSuppress_*` flags migrate once in
+  `permissionGrants.init()`.
 
 #### Design / later architecture (from the original map)
 
@@ -1014,63 +1049,50 @@ None. Agent Mode and Home Agent `/load` occupy as orchestrator `text` requests (
 - **Eager hydration / conversation slugs.** `conversations:bootstrap` and `mediaItems:bootstrap`
   read every file at once. Ids stay timestamp strings. Lazy split needs an index-plus-active-thread
   projection first.
+- **`lastMainKey` restore UI.** Written on a main-thread `activeKey` watch and hydrated from
+  `index.json`; nothing restores from it. Boot always mints an empty main draft
+  (`addNewConversationIfLatestIsNotEmpty`). History `conversationScope` follows the active thread
+  — there is no Local chip. Wiring restore is a history-filter product decision, not a one-line
+  leftover.
+- **Consent pings are a heartbeat, not download progress.** `{ progress: true }` on
+  `MediaResponsePayload` / the permissions adapter re-arms the runner watchdog
+  (`artifact/rendererBridge.ts`). Changing the shape is a protocol/UX decision.
+
+#### Later slices (not cheap)
+
+Each of these is a real follow-up. None is a drive-by tidy-up on the file it lives in.
+
+- **Off-bus IPC.** ComfyUI still `this.win.webContents.send('show-toast', …)`. Also off-bus:
+  `serviceSetUpProgress`, `debugLog`, `webBrowser:stateChanged`. Four consumers (toast, wizard
+  install bar, logger, browse tool). Putting them on `kernel:event` is remaining step-4 event
+  types, not one leftover send.
+- **`comfyInputsPerPreset` is renderer-only.** In-process Comfy tools do not see saved dynamic
+  inputs. Moving that map onto the turn catalog or a kernel file is a persist + IPC slice, like
+  step 8.
+- **No Pi-side tool-call repair.** The renderer coerces workflow names (`repairCreateToolInput` /
+  `repairWorkflowToolInput`); `inProcessComfy` returns loud "not available". Matching that in
+  main either duplicates coerce across harnesses or shares a helper — §10 decided two harnesses
+  stay.
+- **Media-specialist progress is not snapshotted.** Narration deltas coalesce on the bus
+  (`emitMediaAgentEvent`); they are not in `KernelSnapshot`. Snapshotting a nested run is
+  reconnect UX (step-4 handshake), same class as queue-event below.
+- **Chat trace context is one last-write-wins slot.** `laminarAttributes.chatContext` is a single
+  module binding. Concurrent conversations overwrite. Fix is keyed-by-conversation (or span)
+  tracing — Laminar wiring, not a leftover.
+- **`chat:summarize` is coarse.** One occupancy key (`home-agent-summarize`), no `AbortSignal`,
+  no per-conversation scoping. Cancellation plus occupancy identity is an orchestrator API change.
+- **`queue-event` is transient, not snapshotted.** Intentional (`kernelBus.ts`): a reloaded
+  renderer must not adopt queue positions it cannot drive. Changing that revisits §10 #11
+  (listener-first snapshot, no public replay).
+- **User mutations still persist from Pinia.** Rename, clear, delete, HA empty-thread create, RAG
+  hashes, `removeMessage`, TTS/STT, gallery add/delete. Generate/regenerate and completed
+  renderer-origin media persist from the engine (step 11). Agent UIMessage records still assemble
+  in the renderer Chat and write on turn complete — main does not reconstruct them (step 15).
+  Moving those writers is more of step 11, not a leftover.
 
 #### Remaining cheap leftovers
 
-**Permissions**
-
-- **Grant vocabulary is not this leftover.** Named verbs (`requestDownload` /
-  `requestVramWarning` / `notify`) stay; `permissions.request(action)` is Design above.
-  The `permissions` → `homeAgent` import is gone (remote-turn port, step 13). Legacy
-  `memoryAlertSuppress_*` flags migrate once in `permissionGrants.init()`.
-
-**Projection / lifecycle**
-
-- **`AgentTurnSnapshot.chunks` accumulates unbounded per turn.** Cap the tail if a reconnect ever
-  replays too much.
-- **Three projections subscribe independently** (backendServices, agentModeIpc,
-  imageGenerationPresets). Converge when `getSnapshot` grows heavier.
-- **`getServices` IPC still exists** as an explicit refresh and for the setup wizard.
-- **`onToolProgress` is not buffered during `pendingResume`.**
-- **Leftover window captures / point-to-point sends.** ComfyUI still does
-  `this.win.webContents.send('show-toast', …)`. Also still off-bus: `serviceSetUpProgress`,
-  `debugLog`, `webBrowser:stateChanged`.
-
-**Artifact**
-
-- **In-process direct tools don't see saved dynamic inputs** (`comfyInputsPerPreset` is renderer
-  state).
-- **Consent pings are a heartbeat, not download progress.**
-- **No Pi-side tool-call repair** (loud "not available" vs the renderer's workflow-name coerce).
-- **The generate spec's `workflow` is still a plain string** (edit spec already has an enum).
-
-**Chat / orchestrator**
-
-- **Swap-back is silent** (no "Reloading chat model…" activity). Last-load follows the dropdown via
-  `rememberChatBackendLoad`; Home Agent `/load` summarization pauses that watch and passes
-  `remember: false`. Reload still skips `awaitChatWindow` (deadlock otherwise).
-- **Media-specialist progress is not snapshotted.**
-- **Chat trace context is one last-write-wins slot** across concurrent conversations.
-- **`chat:summarize` is coarse** — no cancellation and no per-conversation scoping.
-- **`queue-event` is transient, not snapshotted.**
-
-**Step 8 files**
-
-- **User mutations still persist from Pinia** (rename, clear, delete, HA empty-thread create, RAG
-  hashes, `removeMessage`, TTS/STT, gallery add/delete). Generate/regenerate and completed
-  renderer-origin media persist from the engine (step 11). Agent UIMessage records still assemble
-  in the renderer Chat and write on turn complete — main does not reconstruct them (step 15).
-- **`lastMainKey` is persisted but no UI reads it.** Wire it when the history filter needs it.
-- **`writeChains` is never pruned.**
-- **Conversations and agent-session migrate still refuse a pre-existing index** (media gallery
-  merge is the rescue those slices do not have).
-- **Agent sessions: a corrupt record file is skipped, not placeholder-hydrated.**
-- **The agentMode legacy Pinia key is slimmed, not dropped** (preferences remain).
-
-**Still open from the original map (§10), not a landed-step leftover:** exact grant vocabulary,
-whether FIFO is enough or a chat turn's nested media jumps the queue, whether `defaultPreset` is
-per mode or one global, and whether a later cross-library cleanup tool should identify unreferenced
-completed artifacts without deleting them automatically.
+None.
 
 ### 8.3 Remaining order toward the goal
 
@@ -1120,9 +1142,12 @@ flowchart TD
 
 - **Speech leftovers** (`listVoices`, transcribe language, Artifact `create-speech`) — finish step 2 whenever; they are not what keeps the kernel from tracking a run.
 - **VRAM budget, queue fairness, Laminar GPU-swap spans** — policy on top of step 10, plus the parked §10 questions (FIFO vs nested-media jump).
-- **`defaultPreset: Preset \| "last"`**, grant vocabulary, desktop download remember, `skipMemoryAlert` — design; they do not move a store into the kernel until decided.
+- **`defaultPreset: Preset \| "last"`**, grant vocabulary, desktop download remember,
+  `skipMemoryAlert`, `lastMainKey` restore, consent-ping shape — design; they do not move a
+  store into the kernel until decided.
 - **Eager hydration / conversation slugs** — index shape after step 11, not before.
-- **§8.2 Remaining cheap leftovers** — bugs and tidy-ups on landed code. Close them when touching that code; they are not the migration.
+- **§8.2 as-landed dual paths, Design, and later slices** — none of these is the next spine
+  row. Cheap leftovers from landed steps are closed.
 
 ---
 
@@ -1158,6 +1183,7 @@ flowchart TD
 | 14 | Garbage-collect completed artifacts? | **Deferred.** Run-owned temporary blobs are cleaned up; completed artifacts belong to the user's library and transcripts only reference them. |
 
 Open questions that were parked when this map was written (grant vocabulary, queueing, `defaultPreset`
-scope, artifact GC) now live with the landed-step leftovers in
+scope, artifact GC) live under Design in
 [§8.2](#82-parked-follow-ups-from-landed-steps). They are not [§8.3](#83-remaining-order-toward-the-goal)
-spine rows.
+spine rows. Cheap leftovers from landed steps are closed; remaining parked items are as-landed
+dual paths, Design, or later slices.

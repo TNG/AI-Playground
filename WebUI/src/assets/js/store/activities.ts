@@ -63,8 +63,10 @@ export const useActivities = defineStore('activities', () => {
   // Resolve the single activity to display for a chat turn: the innermost active
   // activity that is chat-scoped for `key`, or a descendant (via parentId) of one
   // (e.g. an image-gen phase started by a tool call in this conversation).
-  // `exclude` lets a consumer skip categories it renders elsewhere (the in-turn
-  // indicator excludes 'generation', which the inline ChatWorkflowResult owns).
+  // Swap-back loads are global (`reloadLastChatBackend`); fall back to those so
+  // the bar is not silent. `exclude` lets a consumer skip categories it renders
+  // elsewhere (the in-turn indicator excludes 'generation', which the inline
+  // ChatWorkflowResult owns).
   function chatActivity(key: string, exclude: ActivityCategory[] = []): Activity | null {
     const active = items.value
     const isChatRoot = (a: Activity) => a.scope.kind === 'chat' && a.scope.conversationKey === key
@@ -84,7 +86,14 @@ export const useActivities = defineStore('activities', () => {
     }
 
     const candidates = active.filter((a) => belongs(a) && !exclude.includes(a.category))
-    if (candidates.length === 0) return null
+    if (candidates.length === 0) {
+      const globalBackend = active.filter(
+        (a) =>
+          a.scope.kind === 'global' && a.category === 'backend' && !exclude.includes(a.category),
+      )
+      if (globalBackend.length === 0) return null
+      return globalBackend.reduce((a, b) => (b.startedAt >= a.startedAt ? b : a))
+    }
     // Innermost ~= most recently started (children begin after their parents).
     return candidates.reduce((a, b) => (b.startedAt >= a.startedAt ? b : a))
   }

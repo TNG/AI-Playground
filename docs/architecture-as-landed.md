@@ -266,6 +266,10 @@ sequenceDiagram
   Bus-->>Vue: events with seq > N
 ```
 
+Stores that project the bus (`backendServices`, `agentModeIpc`, `imageGenerationPresets`,
+`kernelLedgerProjection`) each `connectKernelEventStream` — one handshake per store, not one
+shared subscriber. `getServices` remains the wizard / empty-snapshot refresh beside that stream.
+
 Setup wizard (`globalSetup.loadingState = setupWizard`) can still be on screen after this hydrate.
 The first preference mutation then flushes `preferences.json` through `snapshot()` (clone-safe). A
 conversation user mutation (rename, TTS) uses `saveThread`. Chat generate does not.

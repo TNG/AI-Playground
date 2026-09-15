@@ -292,7 +292,10 @@ export const useAgentMode = defineStore(
           // first boot with no index uploads whatever the old persisted state
           // held, then the key is slimmed so it never runs or dual-writes
           // again.
-          if (bootstrap.status === 'empty') {
+          if (
+            bootstrap.status === 'empty' ||
+            (bootstrap.status === 'ok' && bootstrap.sessions.length === 0)
+          ) {
             const legacy = readLegacyAgentSessions()
             if (legacy && Object.keys(legacy.sessions).length > 0) {
               bootstrap = await window.electronAPI.agentMode.migrateSessions(legacy)
@@ -333,8 +336,8 @@ export const useAgentMode = defineStore(
             hydrated[record.id] = { ...record, messages: record.messages as UIMessage[] }
           }
           sessions.value = hydrated
-          // Only adopt an id whose record actually hydrated — a corrupt file is
-          // skipped, and pointing the session at it would resume an empty chat.
+          // A missing id is not adopted. A corrupt file hydrates as a
+          // placeholder (empty transcript) so the list keeps it.
           const activeId = bootstrap.activeSessionId
           if (activeId && hydrated[activeId]) activeSessionId.value = activeId
           restoreActiveSession()
@@ -499,10 +502,12 @@ export const useAgentMode = defineStore(
         }
         activeSessionId.value = id
         sessionCapabilities.value = null
-        workspaceDir.value = target.workspaceDir
-        lastWorkspaceByKind.value = {
-          ...lastWorkspaceByKind.value,
-          [agentWorkspaceKind.value]: target.workspaceDir,
+        if (target.workspaceDir) {
+          workspaceDir.value = target.workspaceDir
+          lastWorkspaceByKind.value = {
+            ...lastWorkspaceByKind.value,
+            [agentWorkspaceKind.value]: target.workspaceDir,
+          }
         }
         restoreActiveSession()
         await refreshCurrentGame()

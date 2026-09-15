@@ -37,9 +37,9 @@ import {
  * never the reverse. Pi's own session files are untouched — a record points
  * at its workspace, Pi keeps the model-side transcript.
  *
- * A corrupt session file is skipped rather than hydrated: unlike a
- * conversation (whose key the history panel keeps alive) a session record
- * that fails its schema is unusable for resuming, and the next snapshot of
+ * A corrupt session file hydrates as a placeholder (empty transcript, empty
+ * workspace) so the Sessions panel keeps the id, matching conversations.
+ * Resuming one does not adopt the empty workspace. The next snapshot of
  * that id overwrites the file.
  */
 
@@ -152,18 +152,33 @@ async function currentIndex(): Promise<AgentSessionIndexFile> {
   return (await readIndex()) ?? emptyIndex()
 }
 
-async function sessionsFromIndex(index: AgentSessionIndexFile): Promise<AgentSessionRecordWire[]> {
-  const records = await Promise.all(
-    index.sessions
-      .filter((entry) => isSafeFileId(entry.id))
-      .map(async (entry) => recordFromDocOrNull(await readJson(sessionFile(entry.id), LOG_SCOPE))),
-  )
-  return records.filter((record): record is AgentSessionRecordWire => record !== null)
+const UNAVAILABLE_SESSION_TITLE = 'Unavailable session'
+
+function placeholderRecord(entry: AgentSessionIndexEntry): AgentSessionRecordWire {
+  return {
+    id: entry.id,
+    workspaceDir: '',
+    title: UNAVAILABLE_SESSION_TITLE,
+    createdAt: entry.updatedAt,
+    updatedAt: entry.updatedAt,
+    messages: [],
+  }
 }
 
 function recordFromDocOrNull(read: JsonRead): AgentSessionRecordWire | null {
   const doc = parseSessionDoc(read)
   return doc ? recordFromFile(doc) : null
+}
+
+async function sessionsFromIndex(index: AgentSessionIndexFile): Promise<AgentSessionRecordWire[]> {
+  return Promise.all(
+    index.sessions
+      .filter((entry) => isSafeFileId(entry.id))
+      .map(async (entry) => {
+        const record = recordFromDocOrNull(await readJson(sessionFile(entry.id), LOG_SCOPE))
+        return record ?? placeholderRecord(entry)
+      }),
+  )
 }
 
 function bootstrapFromIndex(index: AgentSessionIndexFile): Promise<AgentSessionBootstrap> {
@@ -191,21 +206,27 @@ export async function bootstrapAgentSessions(): Promise<AgentSessionBootstrap> {
 
 /**
  * One-shot legacy upload (§6.1: "localStorage migrates once, do not
- * dual-write"). Records that fail their schema are skipped with a warning —
- * the persisted payload is best-effort input, not a trusted file.
+ * dual-write"), as an idempotent merge: ids the files already hold are
+ * skipped, and a pre-existing index is NOT a reason to refuse — a boot whose
+ * bootstrap failed can have written an empty index while the legacy records
+ * stayed stranded in localStorage. Records that fail their schema are skipped
+ * with a warning — the persisted payload is best-effort input, not a trusted
+ * file.
  */
 export async function migrateLegacyAgentSessions(
   legacy: LegacyAgentSessionState,
 ): Promise<AgentSessionBootstrap> {
   return serialize(INDEX_CHAIN, async () => {
     const existing = await readIndex()
-    if (existing !== null) return bootstrapFromIndex(existing)
-    const entries: AgentSessionIndexEntry[] = []
+    const known = new Set(existing?.sessions.map((entry) => entry.id) ?? [])
+    const entries: AgentSessionIndexEntry[] = existing ? [...existing.sessions] : []
+    let wroteAny = false
     for (const [id, raw] of Object.entries(legacy.sessions)) {
       if (!isSafeFileId(id)) {
         appLogger.warn(`skipping unsafe legacy agent session id: ${id}`, LOG_SCOPE)
         continue
       }
+      if (known.has(id)) continue
       const parsed = AgentSessionRecordSchema.safeParse(raw)
       if (!parsed.success) {
         appLogger.warn(`skipping legacy agent session that failed schema: ${id}`, LOG_SCOPE)
@@ -218,16 +239,18 @@ export async function migrateLegacyAgentSessions(
       }
       await atomicWriteJson(sessionFile(id), doc)
       entries.push({ id, updatedAt: doc.updatedAt })
+      known.add(id)
+      wroteAny = true
     }
     entries.sort((a, b) => a.updatedAt - b.updatedAt)
-    const active =
+    const incomingActive =
       legacy.activeSessionId && isSafeFileId(legacy.activeSessionId) ? legacy.activeSessionId : null
     const index: AgentSessionIndexFile = {
       schemaVersion: 1,
-      activeSessionId: active,
+      activeSessionId: existing?.activeSessionId ?? incomingActive,
       sessions: entries,
     }
-    await writeIndex(index)
+    if (existing === null || wroteAny) await writeIndex(index)
     return bootstrapFromIndex(index)
   })
 }

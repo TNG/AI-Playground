@@ -327,6 +327,13 @@ export function createAgentTurnRuntime(options: {
       }
     },
     onToolProgress: ({ turnId, toolCallId, text }) => {
+      if (pendingResume && pendingResume.turn.turnId === turnId) {
+        pendingResume.turn.toolProgress = {
+          ...pendingResume.turn.toolProgress,
+          [toolCallId]: text,
+        }
+        return
+      }
       if (!activeTurn || activeTurn.turnId !== turnId) return
       toolProgress.value = { ...toolProgress.value, [toolCallId]: text }
     },

@@ -176,6 +176,13 @@ vi.mock('../../agentMode/piWorkspaceRuntime', () => ({
   buildWorkspaceInstructions: vi.fn(() => 'workspace instructions'),
 }))
 
+const submitTextRequest = vi.hoisted(() => vi.fn(async () => {}))
+const finishTextRequest = vi.hoisted(() => vi.fn())
+vi.mock('../../orchestrator/orchestrator.ts', () => ({
+  submitTextRequest,
+  finishTextRequest,
+}))
+
 vi.mock('../../subprocesses/agentBrowser', () => ({
   closeBrowserSession: vi.fn(),
   closeAllBrowserSessions: vi.fn(),
@@ -238,6 +245,8 @@ beforeEach(() => {
   settingsInMemory.mockClear()
   openSession.mockClear()
   createSessionManager.mockClear()
+  submitTextRequest.mockClear()
+  finishTextRequest.mockClear()
   sessionFiles.length = 0
   disposed.length = 0
   resourceLoaderOptions.length = 0
@@ -1011,6 +1020,105 @@ describe('turn streaming', () => {
       const model = await registeredModel(configFor())
       expect(model.reasoning).toBe(false)
     })
+  })
+
+  it('occupies a text request for the whole turn and loads when readiness is shipped', async () => {
+    const manager = await loadManager()
+    const { setChatReadinessDeps, resetChatReadinessForTest } =
+      await import('../../chat/chatReadiness')
+    const ensureBackendReadiness = vi.fn(async () => {})
+    setChatReadinessDeps({
+      getService: () => ({
+        ensureBackendReadiness,
+        baseUrl: 'http://127.0.0.1:39000',
+      }),
+      awaitChatWindow: vi.fn(async () => {}),
+      stopOvmsImageServer: vi.fn(async () => {}),
+      notifyHomeAgentUpstreamReady: vi.fn(),
+    })
+    const readiness = { serviceName: 'llamacpp-backend', llmModelName: 'test-model' }
+    expect(await manager.startAgentTurn('t1', 'hello', configFor({ readiness }))).toEqual({
+      success: true,
+    })
+    expect(submitTextRequest).toHaveBeenCalledWith(
+      {
+        runId: 't1',
+        conversationKey: 'aipg-agent-1',
+        needsGpu: true,
+      },
+      expect.any(AbortSignal),
+    )
+    expect(ensureBackendReadiness).toHaveBeenCalledWith(
+      'test-model',
+      undefined,
+      undefined,
+      undefined,
+    )
+    expect(finishTextRequest).toHaveBeenCalledWith('t1')
+    resetChatReadinessForTest()
+  })
+
+  it('occupies without loading when the turn ships no readiness', async () => {
+    const manager = await loadManager()
+    const { setChatReadinessDeps, resetChatReadinessForTest } =
+      await import('../../chat/chatReadiness')
+    const ensureBackendReadiness = vi.fn(async () => {})
+    setChatReadinessDeps({
+      getService: () => ({
+        ensureBackendReadiness,
+        baseUrl: 'http://127.0.0.1:39000',
+      }),
+      awaitChatWindow: vi.fn(async () => {}),
+      stopOvmsImageServer: vi.fn(async () => {}),
+      notifyHomeAgentUpstreamReady: vi.fn(),
+    })
+    expect(await manager.startAgentTurn('t1', 'hello', configFor())).toEqual({ success: true })
+    expect(submitTextRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ needsGpu: false }),
+      expect.any(AbortSignal),
+    )
+    expect(ensureBackendReadiness).not.toHaveBeenCalled()
+    expect(finishTextRequest).toHaveBeenCalledWith('t1')
+    resetChatReadinessForTest()
+  })
+
+  it('occupies a cloud turn without loading a local backend', async () => {
+    const manager = await loadManager()
+    const { setChatReadinessDeps, resetChatReadinessForTest } =
+      await import('../../chat/chatReadiness')
+    const ensureBackendReadiness = vi.fn(async () => {})
+    setChatReadinessDeps({
+      getService: () => ({
+        ensureBackendReadiness,
+        baseUrl: 'http://127.0.0.1:39000',
+      }),
+      awaitChatWindow: vi.fn(async () => {}),
+      stopOvmsImageServer: vi.fn(async () => {}),
+      notifyHomeAgentUpstreamReady: vi.fn(),
+    })
+    expect(
+      await manager.startAgentTurn(
+        't1',
+        'hello',
+        configFor({
+          modelConfig: {
+            source: 'cloud',
+            model: 'gpt-test',
+            proxyBaseUrl: 'http://127.0.0.1:9/v1',
+            upstreamBaseUrl: 'https://api.openai.com',
+            providerId: 'openai',
+            authStyle: 'bearer',
+          },
+        }),
+      ),
+    ).toEqual({ success: true })
+    expect(submitTextRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ needsGpu: false }),
+      expect.any(AbortSignal),
+    )
+    expect(ensureBackendReadiness).not.toHaveBeenCalled()
+    expect(finishTextRequest).toHaveBeenCalledWith('t1')
+    resetChatReadinessForTest()
   })
 
   it('re-asserts the preview URL when the port changed', async () => {

@@ -37,6 +37,8 @@ import {
 import { endActiveSession, ensureSession } from './piSessionLifecycle.ts'
 import { agentRunIdentity } from './agentRunIdentity.ts'
 import { setAgentRunIdentity } from '../laminarAttributes.ts'
+import { finishTextRequest, submitTextRequest } from '../orchestrator/orchestrator.ts'
+import { ensureChatBackendReady, setLastChatBackendLoadActive } from '../chat/chatReadiness.ts'
 
 const logger = appLoggerInstance
 
@@ -327,6 +329,23 @@ export async function startAgentTurn(
     },
   })
   try {
+    await submitTextRequest(
+      {
+        runId: turnId,
+        conversationKey: config.sessionId,
+        needsGpu: config.modelConfig.source !== 'cloud' && Boolean(config.readiness),
+      },
+      abortController.signal,
+    )
+    if (config.modelConfig.source === 'cloud') {
+      setLastChatBackendLoadActive(false)
+    } else if (config.readiness) {
+      await ensureChatBackendReady(config.readiness, {
+        abortSignal: abortController.signal,
+        skipGpuAdmission: true,
+        conversationKey: config.sessionId,
+      })
+    }
     const current = await ensureSession(config)
     // Per turn, not per session: a resumed session keeps its trace context but
     // its game may have been named since, and the preset can differ.
@@ -399,6 +418,7 @@ export async function startAgentTurn(
     translator.fail(message)
     return { success: false, error: message }
   } finally {
+    finishTextRequest(turnId)
     setCurrentTurn(null)
     setActiveAbort(null)
     emitAgentTurnDone(turnId)

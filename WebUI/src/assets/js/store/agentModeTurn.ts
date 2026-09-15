@@ -34,6 +34,8 @@ type InferenceForTurn = {
   maxContextSizeFromModel?: unknown
   getCurrentDeviceId: () => string | null | undefined
   getCurrentDeviceName: () => string | null | undefined
+  contextSize?: number
+  activeLlmModel?: { llamaCppArgs?: string } | null
 }
 
 type CloudForTurn = {
@@ -116,6 +118,7 @@ export async function buildTurnConfig(options: {
       'No local inference backend is available. Pick a local backend and model in Agent Settings.',
     )
   }
+  const activeModel = textInference.activeModel
   return {
     sessionId: options.sessionId,
     workspaceDir: options.workspaceDir,
@@ -141,6 +144,20 @@ export async function buildTurnConfig(options: {
       textInference.modelSupportsThinkingToggle &&
       textInference.thinkingEnabled &&
       options.planningThinkingOnly,
+    ...(activeModel
+      ? {
+          readiness: {
+            serviceName:
+              textInference.backend === 'openVINO' ? 'openvino-backend' : 'llamacpp-backend',
+            llmModelName: activeModel,
+            contextSize: textInference.contextSize,
+            modelArgs:
+              textInference.backend === 'llamaCPP'
+                ? textInference.activeLlmModel?.llamaCppArgs
+                : undefined,
+          },
+        }
+      : {}),
   }
 }
 

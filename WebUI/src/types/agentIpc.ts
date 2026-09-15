@@ -1,5 +1,5 @@
 import z from 'zod'
-import { ChatToolSpecSchema, WorkflowRepairDataSchema } from './chatIpc'
+import { ChatModelConfigSchema, ChatToolSpecSchema, WorkflowRepairDataSchema } from './chatIpc'
 
 const SamplingParamsSchema = z.record(z.string(), z.unknown())
 
@@ -78,6 +78,11 @@ export const AgentModeTurnConfigSchema = z.object({
   planningThinkingOnly: z.boolean().optional(),
   /** Developer setting: skip the GPU swap around in-process media calls. */
   keepModelsLoaded: z.boolean().optional(),
+  /**
+   * Local backend load facts (step 15). Main occupies as a `text` request then
+   * loads; absent for cloud and for older tests that only exercise the harness.
+   */
+  readiness: ChatModelConfigSchema.shape.readiness,
 })
 
 export type AgentModeModelConfig = z.infer<typeof AgentModeModelConfigSchema>

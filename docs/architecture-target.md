@@ -1,6 +1,6 @@
 # Target architecture — capabilities, drivers, state ownership
 
-**Status: steps 1–12 of the migration order (§8 / §8.3) have landed.** Steps 1–8 were nine
+**Status: steps 1–15 of the migration order (§8 / §8.3) have landed.** Steps 1–8 were nine
 kernel-owned persist slices (conversations, agent-session files, generated-media records, user
 preferences, per-preset settings knobs, backend launch flags, the RAG document list, the agent
 workspace state, and the last-used preset names, `userSelectedMode` deleted); the §6 bucket list is
@@ -8,22 +8,28 @@ empty — the parked `defaultPreset: Preset | "last"` semantics are a design que
 a storage bucket. **Step 9** moved RAG retrieval and the embedding-server ensure into the chat
 engine (`electron/chat/ragRetrieval.ts`): `generate()` does not IPC-load the LLM before
 `submitTurn`; a `ChatRagRequest` (document hashes + query) rides the turn; main retrieves after GPU
-admit and emits `chat-rag`. `ensureReadyForInference` remains for Agent Mode and the Home Agent
-`/load` summarizer until step 15. **Step 10** admits chat turns as orchestrator `text` occupancy.
+admit and emits `chat-rag`. **Step 10** admits chat turns as orchestrator `text` occupancy.
 **Step 11** moved transcript *when*: the chat engine writes the conversation file on turn start and
 turn end; the artifact runner writes completed renderer-origin gallery items; agent-session records
 persist on turn complete / capability rewrite, not a sessions-map watch. **Step 12** moved the NL
 `media` specialist's inner Comfy tools in-process against the Artifact runner (the same path as
 direct `generateImage` / `editImage`); Pi's thin `media` tool no longer `executeToolInRenderer`.
-Screenshot and web-browse stay renderer. Do not auto-download weights.
+**Step 13** moved Permissions *policy* into main (`electron/permissions/`): grant lookup and
+skip-confirmation live with the grants file; the renderer is the dialog / channel adapter behind a
+remote-turn port (Home Agent is never imported from Permissions). **Step 14** put `activity` /
+`error` / `stored` on the kernel bus and made the live loaded model kernel memory
+(`chatReadiness` snapshot, projected onto `textInference.loadedInferenceProfile`). **Step 15**
+admits Agent Mode and Home Agent `/load` summarization through the same orchestrator `text` gate
+as Chat (Pi stays a second harness). Screenshot and web-browse stay renderer. Do not auto-download
+weights.
 Media generation is owned by the main-process Artifact runner; speech drivers go through `speechIO`;
 inference/download consent through Permissions; main→renderer notifications through one kernel
 event stream (`kernel:event`) with a listener-first snapshot handshake; chat turns run in main
 and stream back as kernel `chat-chunk` events; media runs share one main-side queue and GPU
 window. Parked follow-ups from those landings live in
-[§8.2](#82-parked-follow-ups-from-landed-steps) — they are not the next architecture rows.
-The remaining order that still serves the original goal (logic out of Pinia, one kernel that
-can say what is running) is [§8.3](#83-remaining-order-toward-the-goal).
+[§8.2](#82-parked-follow-ups-from-landed-steps) — they are not architecture rows.
+The spine that served the original goal (logic out of Pinia, one kernel that can say what is
+running) is [§8.3](#83-remaining-order-toward-the-goal); it is complete.
 It exists to be argued with — see [§10 Decisions](#10-decisions).
 
 ## 0. How to read and edit this
@@ -36,7 +42,7 @@ event and persistence fan-in is only in the Mermaid — for whiteboard sessions.
 into shapes with Excalidraw's built-in _Mermaid to Excalidraw_ (the "+" in the toolbar): paste a
 block, drag it around, then fold whatever we decide back into this file.
 
-The as-implemented picture after steps 1–12 — process/component overviews and sequences for boot,
+The as-implemented picture after steps 1–15 — process/component overviews and sequences for boot,
 chat send, Image Gen, and the setup wizard — lives in
 [`docs/architecture-as-landed.md`](./architecture-as-landed.md). §2 below is the draft-time
 symptom diagram; it is not that picture.
@@ -985,11 +991,7 @@ files work, not open work.
 
 #### Blocked
 
-- **Agent Mode and Home Agent `/load` still call `ensureReadyForInference`.** Chat `generate()` /
-  `regenerate()` no longer IPC-load the LLM (step 9). Those two paths never submit a `chat:submitTurn`,
-  so they keep the renderer preflight until they share the orchestrator (step 15). They still wait
-  on `awaitChatWindow` (unbounded, abortable) rather than occupying as a `text` request. Do not
-  auto-download weights on the way.
+None. Agent Mode and Home Agent `/load` occupy as orchestrator `text` requests (step 15).
 
 #### Design / later architecture (from the original map)
 
@@ -1004,9 +1006,9 @@ files work, not open work.
   pre-grant story.
 - **`skipMemoryAlert` still bypasses `requestVramWarning`.** Revisit when session restore / preset
   promotion is owned by the kernel rather than `presetSwitching`.
-- **VRAM budget, queue fairness, `activity` / `error` / `stored` on the bus, Laminar GPU-swap
-  spans.** Text occupancy is a queue entry (step 10); VRAM budget and jump-the-queue vs FIFO are
-  still not policy. `queue-event` is transient; swap spans went with the renderer
+- **VRAM budget, queue fairness, Laminar GPU-swap spans.** Text occupancy is a queue entry
+  (step 10); `activity` / `error` / `stored` ride the bus (step 14). VRAM budget and
+  jump-the-queue vs FIFO are still not policy. Swap spans went with the renderer
   `chatBackends.ts` wraps.
 - **Speech I/O remaining:** `listVoices()`, `transcribe` language, Artifact `create-speech`.
 - **Eager hydration / conversation slugs.** `conversations:bootstrap` and `mediaItems:bootstrap`
@@ -1017,12 +1019,10 @@ files work, not open work.
 
 **Permissions**
 
-- **Break `permissions` → `homeAgent`.** `requestDownload` instantiates the Home Agent store for
-  `isRemoteTurnActive` / `handleRemoteModelDownload`. Replace with a thin remote-turn port before
-  Permissions moves into main.
-- **Legacy `memoryAlertSuppress_*` vs persist hydrate.** Import runs as the store's initial
-  `grants`; persisted `{ grants: {} }` can overwrite. Import after hydrate when the map is empty
-  if we want it bulletproof.
+- **Grant vocabulary is not this leftover.** Named verbs (`requestDownload` /
+  `requestVramWarning` / `notify`) stay; `permissions.request(action)` is Design above.
+  The `permissions` → `homeAgent` import is gone (remote-turn port, step 13). Legacy
+  `memoryAlertSuppress_*` flags migrate once in `permissionGrants.init()`.
 
 **Projection / lifecycle**
 
@@ -1078,14 +1078,15 @@ The goal was never "more kernel-owned JSON files." It was: **stop scattering the
 stores** so one process can say what is in flight, what holds the GPU, what was persisted, and what
 a hidden-window host can do without asking Vue.
 
-Steps 1–12 were the dependency ladder that made that possible. They are not that kernel yet. Chat
-`generate()` no longer IPC-loads (step 9); chat turns occupy the orchestrator as `text` requests
-(step 10); chat/media/agent transcripts persist on turn lifecycle (step 11); the NL media
-specialist's inner Comfy tools run in-process (step 12). Agent and the Home
-Agent summarizer still call `ensureReadyForInference`. Screenshot / web-browse and parent-turn
-chat `comfyUI` still close over Pinia. Closing §8.2 leftovers does not change any of that.
+Steps 1–15 were that kernel. Chat `generate()` no longer IPC-loads (step 9); chat turns occupy the
+orchestrator as `text` requests (step 10); chat/media/agent transcripts persist on turn lifecycle
+(step 11); the NL media specialist's inner Comfy tools run in-process (step 12); Permissions policy
+lives in main (step 13); `activity` / `error` / `stored` and the live inference profile ride the
+bus (step 14); Agent Mode and Home Agent `/load` admit through the same `text` gate (step 15).
+Screenshot / web-browse and parent-turn chat `comfyUI` still close over Pinia. Those are not spine
+rows.
 
-Do the spine in this order. Do not insert another persist bucket as a spine row.
+The spine is complete. Do not insert another persist bucket as a spine row.
 
 ```mermaid
 flowchart TD
@@ -1093,9 +1094,9 @@ flowchart TD
   s10["10. Chat turns as KernelRequestMap entries (done)"]
   s11["11. Engine-owned transcript writes (done)"]
   s12["12. Remaining work tools in-process (done)"]
-  s13["13. Permissions policy in main"]
-  s14["14. Ledger on the bus + live inference profile"]
-  s15["15. Agent/Home Agent on the same gate; hidden-window proof"]
+  s13["13. Permissions policy in main (done)"]
+  s14["14. Ledger on the bus + live inference profile (done)"]
+  s15["15. Agent/Home Agent on the same gate; hidden-window proof (done)"]
 
   s9 --> s10 --> s11
   s10 --> s12 --> s13
@@ -1107,13 +1108,13 @@ flowchart TD
 
 | Step | Done when | Why this next | Needs |
 | ---- | --------- | ------------- | ----- |
-| 9 | **Done.** RAG retrieval and the embedding-server ensure live in main (`electron/chat/ragRetrieval.ts`, langchain already a main concern). `generate()` / `regenerate()` do not IPC-load the LLM before `submitTurn` — download consent stays `checkModelAvailability` / `requestDownload`. A `ChatRagRequest` (document hashes + query + embedding service) rides `chat:submitTurn`; the engine retrieves after GPU admit / `ensureChatBackendReady`, augments the system prompt, and emits `chat-rag` (not snapshotted). Failures skip RAG and continue the turn. `ensureReadyForInference` remains only for paths that never submit a chat turn (Agent, Home Agent `/load` summarizer) until step 15. Do not auto-download weights | Largest remaining chat logic in a FE store. The duplicate load was blocked on this; a queued turn with renderer-precomputed RAG would also go stale | 6, 8 (the document *list* is already a file) |
-| 10 | **Done.** `submitChatTurn` admits through `submitTextRequest` (`KernelRequestMap['text']` in `electron/orchestrator/orchestrator.ts`). Occupancy is a `queue-event` (`kind: 'text'`) for the whole turn, including the tool phase. Nested Comfy/media for that `conversationKey` uses `queue` and may take the GPU while the parent occupancy is live (HTTP idle). Panel / Home Agent `fail-fast` refuses while a local (`needsGpu`) chat turn occupies, so a click cannot kill an open stream. Cloud turns occupy without waiting and do not block panel gen. `awaitChatWindow` has no 5-minute proceed-anyway bound; `acquireMediaWindow` waits for unrelated text occupancy and open chat HTTP with no 120s steal. Agent / Home Agent `/load` still wait via `ensureChatBackendReady`, not as text requests (step 15). Do not auto-download weights | Until text and artifact share one scheduler, the kernel cannot tell you what is running — a stream that opened just before a media run can still die as a network error | 9 (retrieve after admit, not before enqueue) |
+| 9 | **Done.** RAG retrieval and the embedding-server ensure live in main (`electron/chat/ragRetrieval.ts`, langchain already a main concern). `generate()` / `regenerate()` do not IPC-load the LLM before `submitTurn` — download consent stays `checkModelAvailability` / `requestDownload`. A `ChatRagRequest` (document hashes + query + embedding service) rides `chat:submitTurn`; the engine retrieves after GPU admit / `ensureChatBackendReady`, augments the system prompt, and emits `chat-rag` (not snapshotted). Failures skip RAG and continue the turn. Agent / Home Agent `/load` left `ensureReadyForInference` until step 15. Do not auto-download weights | Largest remaining chat logic in a FE store. The duplicate load was blocked on this; a queued turn with renderer-precomputed RAG would also go stale | 6, 8 (the document *list* is already a file) |
+| 10 | **Done.** `submitChatTurn` admits through `submitTextRequest` (`KernelRequestMap['text']` in `electron/orchestrator/orchestrator.ts`). Occupancy is a `queue-event` (`kind: 'text'`) for the whole turn, including the tool phase. Nested Comfy/media for that `conversationKey` uses `queue` and may take the GPU while the parent occupancy is live (HTTP idle). Panel / Home Agent `fail-fast` refuses while a local (`needsGpu`) chat turn occupies, so a click cannot kill an open stream. Cloud turns occupy without waiting and do not block panel gen. `awaitChatWindow` has no 5-minute proceed-anyway bound; `acquireMediaWindow` waits for unrelated text occupancy and open chat HTTP with no 120s steal. Agent / Home Agent `/load` occupy as `text` requests as of step 15. Do not auto-download weights | Until text and artifact share one scheduler, the kernel cannot tell you what is running — a stream that opened just before a media run can still die as a network error | 9 (retrieve after admit, not before enqueue) |
 | 11 | **Done.** The chat engine persists the thread on turn start (`request.messages`) and turn end (assembled assistant from `readUIMessageStream`, `ragSource` stamped). `generate()` / `regenerate()` update the live Pinia copy only (`applyConversationMessages`); they do not call `saveThread`. TTS/STT/`removeMessage`/rename/clear/HA create/RAG hashes still persist from the store. Completed renderer-origin gallery items persist from `artifact/runner.finish()`; Pinia writes user add/delete only. Agent session records persist on turn complete / capability rewrite (`snapshotActiveSession` / `rewriteSession`), not a `watch(sessions)` — UIMessage assembly still lives in the renderer Chat | Files without engine-owned *when* still leave "what happened" as a renderer side effect. §4.5: capabilities declare when; Persistence owns where | 10 |
 | 12 | **Done.** The NL `media` specialist's inner `comfyUI` / `comfyUiImageEdit` tools run in-process against the Artifact runner (`electron/artifact/inProcessComfy.ts`), the way direct `generateImage` / `editImage` already do. Pi's thin `media` tool calls `runMediaAgentInMain` with a catalog shipped on the turn (`AgentModeTurnConfig.mediaAgent`); `executeToolInRenderer` is gone for that path. Screenshot and web-browse stay renderer (§10.1). Parent-turn chat `comfyUI` (tool delegation off) still uses the renderer bridge. Headless still needs Chromium for those two | A hidden window that must round-trip Pinia closures is still asking Vue what to do | 5; can overlap 11 |
-| 13 | Permissions *policy* lives in main. The renderer is the dialog adapter. Break `permissions` → `homeAgent` first (that leftover is the blocker, not the step). Download consent works with a hidden window via the channel the user is on, or a pre-grant | Consent is the other thing a headless turn still asks Vue for. Named verbs stay; grant vocabulary (§8.2 Design) is not this row | 3, 12 |
-| 14 | `activity` / `error` / `stored` are kernel-bus events (§4.6). Pinia projects busy / fail / save. The live loaded model (`backend`, `selectedModels`, sampling snapshot) is kernel memory; `textInference` keeps settings UI and `screenshotWindow`, not the occupancy fact `chatReadiness` already almost is | "What's going on" is still a Pinia sink. The mixed `textInference` bag is the original §1 symptom that step 8 only half-split (maps and `ragList` moved; the live profile did not) | 4, 10 |
-| 15 | Agent Mode and Home Agent chat admit through the same orchestrator as Chat (Pi stays a second harness — §10.2). A hidden-window turn can complete text + nested media without the renderer choosing the workflow, loading the LLM, retrieving RAG, or saving the thread. That is the acceptance test for the goal | Agent still calls `ensureReadyForInference` from Pinia. Putting it on the gate before Chat is queued would copy today's occupancy split | 10–14 |
+| 13 | **Done.** Permissions *policy* lives in main (`electron/permissions/permissionsService.ts`, grants in `permission-grants.json`). The renderer is the dialog / channel adapter (`permissionsAdapter.ts`) behind a remote-turn port — Permissions never imports `homeAgent`. Download consent works with a hidden window via the channel the user is on, or a `download:remote-turns` pre-grant. No window → the prompt rejects (no silent auto-allow). Named verbs stay; grant vocabulary (§8.2 Design) is not this row | Consent is the other thing a headless turn still asks Vue for. Named verbs stay; grant vocabulary (§8.2 Design) is not this row | 3, 12 |
+| 14 | **Done.** `activity` / `error` / `stored` are kernel-bus events (§4.6). Pinia projects busy / fail / save (`kernelLedgerProjection.ts`). The live loaded model is kernel memory (`chatReadiness` → `inferenceProfile` snapshot); `textInference` keeps settings UI and `screenshotWindow`, plus a projection of that profile | "What's going on" is still a Pinia sink. The mixed `textInference` bag is the original §1 symptom that step 8 only half-split (maps and `ragList` moved; the live profile did not) | 4, 10 |
+| 15 | **Done.** Agent Mode (`startAgentTurn`) and Home Agent `/load` (`chat:summarize`) admit through `submitTextRequest` like Chat. Pi stays a second harness (§10.2). Local turns ship `readiness` and load after GPU admit (`remember: false` for the summarizer). Unit tests prove occupancy + load happen in main without renderer `ensureReadyForInference`. Screenshot / web-browse and parent-turn chat `comfyUI` still need Chromium. Hidden-window e2e against live backends is not this row | Agent still called `ensureReadyForInference` from Pinia. Putting it on the gate before Chat was queued would copy today's occupancy split | 10–14 |
 
 **Not a spine row** (do not schedule these as the next architecture slice):
 

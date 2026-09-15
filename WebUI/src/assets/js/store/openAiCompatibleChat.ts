@@ -572,26 +572,17 @@ export const useOpenAiCompatibleChat = defineStore(
      * One-shot non-tool generation that turns a snippet of conversation text
      * into a 5-word-or-less summary. The model call runs in main (step 6) off
      * the same model config a turn ships, so cloud/Home-Agent proxy routing is
-     * preserved.
-     *
-     * Caller is responsible for ensuring backend readiness (e.g. via
-     * `textInference.ensureReadyForInference()`).
+     * preserved. Main occupies and loads when `model.readiness` is present.
      */
     async function summarizeMessages(messagesText: string): Promise<string> {
-      try {
-        const result = await window.electronAPI.chat.summarize({
-          messagesText,
-          model: buildChatModelConfig(),
-        })
-        if (!result.success) {
-          console.error('summarizeMessages failed:', result.error)
-          return ''
-        }
-        return result.data
-      } catch (error) {
-        console.error('summarizeMessages failed:', error)
-        return ''
+      const result = await window.electronAPI.chat.summarize({
+        messagesText,
+        model: buildChatModelConfig(),
+      })
+      if (!result.success) {
+        throw new Error(result.error || 'summarize failed')
       }
+      return result.data
     }
 
     /**

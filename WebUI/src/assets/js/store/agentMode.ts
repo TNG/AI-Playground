@@ -739,7 +739,6 @@ export const useAgentMode = defineStore(
         return
       }
       const attached = await importAttachments(workspaceDir.value)
-      await textInference.ensureReadyForInference()
       ensureSessionId(activeSessionId)
       toolProgress.value = {}
       processing.value = true

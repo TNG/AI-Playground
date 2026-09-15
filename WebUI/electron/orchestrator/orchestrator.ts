@@ -18,8 +18,9 @@
 //   skip-when-queued rule (a spritesheet costs one swap, not one per sprite),
 //   and the wait for open chat HTTP (and unrelated text occupancy) before
 //   stopping a backend mid-stream — no proceed-anyway bound.
-// - chat readiness admission: Agent / Home Agent `/load` still wait on the
-//   window here (step 15); chat turns admit as text requests first.
+// - chat readiness admission: Chat, Agent, and Home Agent `/load` occupy as
+//   `text` requests first; `ensureChatBackendReady` then loads with
+//   `skipGpuAdmission` because the window wait already happened.
 //
 // What deliberately stays out: which model to load is still data from the last
 // successful load (or the turn request); download consent stays renderer-side.
@@ -504,9 +505,8 @@ async function considerRelease(): Promise<void> {
 
 /**
  * Resolves once the GPU window is back on chat and no swap-back is running.
- * Chat turns wait here via `submitTextRequest`; Agent / Home Agent `/load`
- * still wait via `ensureChatBackendReady` (step 15). No proceed-anyway bound:
- * abort the signal (cancel the turn) to give up.
+ * Chat, Agent, and Home Agent `/load` wait here via `submitTextRequest`.
+ * No proceed-anyway bound: abort the signal (cancel the turn) to give up.
  */
 export async function awaitChatWindow(signal?: AbortSignal): Promise<void> {
   while (gpuWindow === 'media' || swapBackInFlight) {

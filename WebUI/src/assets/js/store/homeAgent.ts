@@ -57,6 +57,7 @@ import { useErrors } from './errors'
 import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
 import { createLocalWebAdapter } from './channels/localWebAdapter'
+import { registerRemoteTurnPort } from '@/assets/js/permissions/remoteTurnPort'
 
 // ── Channel registry ────────────────────────────────────────────────────────
 // Kinds we manage in this store. Adding a fourth one means appending to this
@@ -682,15 +683,10 @@ export const useHomeAgent = defineStore(
       const transcript = flattenForSummary(msgs)
       if (!transcript) return 'Untitled chat'
 
-      try {
-        const summary = await chatStore.summarizeMessages(transcript)
-        const clean = summary || 'Untitled chat'
-        summaryCache.value[key] = { messageCount: msgs.length, summary: clean }
-        return clean
-      } catch (e) {
-        console.error('homeAgent: summarizeConversation failed:', e)
-        return 'Untitled chat'
-      }
+      const summary = await chatStore.summarizeMessages(transcript)
+      const clean = summary || 'Untitled chat'
+      summaryCache.value[key] = { messageCount: msgs.length, summary: clean }
+      return clean
     }
 
     // ── Channel-dispatch helpers ─────────────────────────────────────────────
@@ -1065,45 +1061,40 @@ export const useHomeAgent = defineStore(
     }
 
     /**
-     * Pin the live preset/backend to Home Agent and prep inference so the
-     * summarizer uses the bundled Home Agent model. Returns `false` and
-     * replies to the active channel with an error if readiness fails.
-     * `remember: false` so this transient load cannot become the GPU swap-back
-     * snapshot, and the dropdown last-load watch is paused for the whole
-     * apply/load/restore so the Home Agent model cannot overwrite it either.
-     * Pinia is restored afterwards without reloading the user's model.
+     * Pin the live preset to Home Agent so `buildChatModelConfig()` ships that
+     * model on `chat:summarize`. Main occupies and loads (remember: false).
+     * Returns a restore callback, or `false` after messaging the channel when
+     * the preset cannot be applied. Callers restore after summaries so the
+     * request and the load name the same model.
      */
     async function ensureSummarizerReady(
       adapter: ChannelAdapter,
       meta?: InboundMeta,
-    ): Promise<boolean> {
+    ): Promise<false | (() => void)> {
       const textInference = useTextInference()
-      // Snapshot the user's currently selected desktop preset/variant so we
-      // can restore them after transiently switching to the Home Agent
-      // preset for summarization.
       const previousPreset = presetsStore.activePresetName
       const previousVariant = previousPreset
         ? (presetsStore.activeVariantName[previousPreset] ?? null)
         : null
       const resumeSelectionMemory = textInference.pauseChatBackendSelectionMemory()
-      textInference.applyPresetToGlobals(HOME_AGENT_CHAT_PRESET_NAME, null)
       try {
-        await textInference.ensureReadyForInference({ remember: false })
-        return true
+        textInference.applyPresetToGlobals(HOME_AGENT_CHAT_PRESET_NAME, null)
       } catch (e) {
-        console.error('homeAgent: ensureReadyForInference for summary failed:', e)
+        resumeSelectionMemory()
+        console.error('homeAgent: apply Home Agent preset for summary failed:', e)
         await reply(
           adapter,
           '⚠️ Could not prepare the model to summarize chats. Try again later.',
           meta,
         )
         return false
-      } finally {
+      }
+      return () => {
         if (previousPreset && previousPreset !== HOME_AGENT_CHAT_PRESET_NAME) {
           try {
             textInference.applyPresetToGlobals(previousPreset, previousVariant)
-          } catch (e) {
-            console.error('homeAgent: failed to restore previous preset:', e)
+          } catch (err) {
+            console.error('homeAgent: failed to restore previous preset:', err)
           }
         }
         resumeSelectionMemory()
@@ -1129,9 +1120,12 @@ export const useHomeAgent = defineStore(
       await reply(adapter, '🤔 Preparing recent chats…', meta)
 
       const stopTyping = typing(adapter, 'typing', meta)
+      const restore = await ensureSummarizerReady(adapter, meta)
+      if (!restore) {
+        stopTyping()
+        return
+      }
       try {
-        if (!(await ensureSummarizerReady(adapter, meta))) return
-
         const items: Array<{ key: string; label: string }> = []
         for (const c of candidates) {
           const summary = await summarizeConversation(c.key)
@@ -1142,7 +1136,15 @@ export const useHomeAgent = defineStore(
         const buttons = items.map((it) => [{ text: it.label, callbackData: `loadConv:${it.key}` }])
 
         await keyboard(adapter, '📂 Pick a chat to resume:', buttons, meta)
+      } catch (e) {
+        console.error('homeAgent: summarizeConversation failed:', e)
+        await reply(
+          adapter,
+          '⚠️ Could not prepare the model to summarize chats. Try again later.',
+          meta,
+        )
       } finally {
+        restore()
         stopTyping()
       }
     }
@@ -1175,10 +1177,18 @@ export const useHomeAgent = defineStore(
       })
 
       const stopTyping = anyNeedsGen ? typing(adapter, 'typing', meta) : () => undefined
+      let restore: () => void = () => undefined
+      if (anyNeedsGen) {
+        const ready = await ensureSummarizerReady(adapter, meta)
+        if (!ready) {
+          stopTyping()
+          return
+        }
+        restore = ready
+      }
       try {
         if (anyNeedsGen) {
           await reply(adapter, '🤔 Preparing chat history…', meta)
-          if (!(await ensureSummarizerReady(adapter, meta))) return
         }
 
         const summaries: Record<string, string> = {}
@@ -1207,7 +1217,15 @@ export const useHomeAgent = defineStore(
             '\n\nResume one with <code>/load &lt;id&gt;</code> or just <code>/load</code> for a tap menu.',
           meta,
         )
+      } catch (e) {
+        console.error('homeAgent: summarizeConversation failed:', e)
+        await reply(
+          adapter,
+          '⚠️ Could not prepare the model to summarize chats. Try again later.',
+          meta,
+        )
       } finally {
+        restore()
         stopTyping()
       }
     }
@@ -2409,6 +2427,11 @@ export const useHomeAgent = defineStore(
     }
 
     void initConfig()
+
+    registerRemoteTurnPort({
+      isActive: () => isRemoteTurnActive(),
+      downloadModels: (models, options) => handleRemoteModelDownload(models, options),
+    })
 
     // ── Read-only convenience getters ───────────────────────────────────────
     // External consumers (setup composables, setup-step components) read these.

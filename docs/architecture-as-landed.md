@@ -1,6 +1,6 @@
 # Architecture as landed — processes, persistence, common sequences
 
-**This is the implementation after migration steps 1–12**, not the target in
+**This is the implementation after migration steps 1–15**, not the target in
 [`architecture-target.md`](./architecture-target.md). That file's §2 "Today" diagram is the
 draft-time symptom picture (chat `streamText` in the renderer, media as UI mutation). Steps 1–7
 moved Artifact, chat turns, the kernel bus and the orchestrator into main; step 8 moved app data
@@ -8,9 +8,12 @@ onto kernel-owned files; step 9 moved RAG retrieval and the embedding-server ens
 engine; step 10 put chat turns on the orchestrator as `text` occupancy; step 11 moved transcript
 *when* onto the engines (chat file on turn start/end, renderer-origin gallery items from the
 artifact runner, agent-session records on turn complete / capability rewrite); step 12 moved the
-NL `media` specialist's inner Comfy tools in-process (Pi `media` no longer `executeToolInRenderer`).
+NL `media` specialist's inner Comfy tools in-process (Pi `media` no longer `executeToolInRenderer`);
+step 13 moved Permissions policy into main (renderer is the dialog adapter); step 14 put
+`activity` / `error` / `stored` and the live inference profile on the kernel bus; step 15 admits
+Agent Mode and Home Agent `/load` through the same `text` gate as Chat. The §8.3 spine is complete.
 What this document shows is how those pieces actually talk today.
-What is still missing, and in which order, is [`architecture-target.md` §8.3](./architecture-target.md#83-remaining-order-toward-the-goal).
+Parked follow-ups live in [`architecture-target.md` §8.2](./architecture-target.md#82-parked-follow-ups-from-landed-steps).
 
 The Mermaid here is the reviewable source. Paste any block into Excalidraw's _Mermaid to Excalidraw_
 if you want it on the canvas.
@@ -27,6 +30,7 @@ flowchart TB
   subgraph renderer["Renderer — Chromium, Vue, Pinia"]
     views["Views: Chat, AgentMode, WorkflowResult, Setup"]
     pinia["Pinia projections: conversations, agentMode, imageGenerationPresets, textInference, theme, …"]
+    permAdapter["permissionsAdapter + remoteTurnPort"]
     persistH["User-mutation persist: saveThread, addGalleryItem, snapshotSession, preferences"]
     transport["kernelChatTransport"]
     runArt["runArtifact (renderer client)"]
@@ -36,6 +40,7 @@ flowchart TB
     pinia --> transport
     pinia --> runArt
     pinia --> bridge
+    pinia --> permAdapter
   end
 
   subgraph preload["Preload — contextBridge"]
@@ -48,18 +53,22 @@ flowchart TB
     chat["chat/turnEngine"]
     orch["orchestrator: text occupancy + artifact queue + GPU window"]
     art["artifact/runner"]
-    files["File writers: conversations, sessions, media/records, preferences, rag, workspace"]
+    perm["permissions policy + grants file"]
+    files["File writers: conversations, sessions, media/records, preferences, rag, workspace, grants"]
     registry["apiServiceRegistry"]
     ipc --> chat
     ipc --> orch
     ipc --> files
     ipc --> registry
+    ipc --> perm
     chat --> bus
     chat --> files
     orch --> art
     orch --> bus
     art --> bus
     art --> files
+    perm --> bus
+    perm --> files
   end
 
   subgraph backends["Child processes"]
@@ -72,6 +81,7 @@ flowchart TB
   persistH -->|"invoke: conversations.save, preferences.write, …"| api
   transport -->|"invoke: chat.submitTurn"| api
   runArt -->|"invoke: artifact.run"| api
+  permAdapter -->|"permissions:respond"| api
   bridge -->|"on kernel:event / getSnapshot"| api
   api --> ipc
   chat -->|"HTTP /v1/chat/completions"| llama
@@ -85,15 +95,16 @@ flowchart TB
 ```
 
 What still lives in the renderer on purpose: message list and Chat instance, tool *closures*
-(they read Pinia), download consent UI, screenshot / web-browse, the Image Gen sidebar fields that
-`runArtifact` *reads* to build a request (it no longer writes the active preset). Which model to
-load is still a Pinia fact shipped on the turn / IPC; the load itself is main.
+(they read Pinia), the Permissions dialog / channel adapter (policy is main), screenshot /
+web-browse, the Image Gen sidebar fields that `runArtifact` *reads* to build a request (it no
+longer writes the active preset). Which model to load is still a Pinia fact shipped on the turn
+/ IPC; the load itself and the live inference profile are main.
 
 What lives in main: `streamText`, RAG retrieval after GPU admit, last-load memory and swap-back
-reload, Artifact execution, GPU policy including chat-turn occupancy, the one writer of
-conversation / session / media / preference / rag-document files (chat and renderer-origin
-gallery writes happen on turn/run lifecycle; Pinia still forwards user mutations), the ordered
-event stream.
+reload, Artifact execution, GPU policy including chat-turn occupancy, Permissions grant policy,
+the one writer of conversation / session / media / preference / rag-document / permission-grants
+files (chat and renderer-origin gallery writes happen on turn/run lifecycle; Pinia still
+forwards user mutations), the ordered event stream (`activity` / `error` / `stored` included).
 
 ---
 

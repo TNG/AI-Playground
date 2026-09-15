@@ -161,6 +161,20 @@ import {
   requestRenderer,
 } from './artifact/rendererBridge'
 import {
+  handlePermissionsPromptResponse,
+  rejectAllPermissionPrompts,
+} from './permissions/promptAdapter'
+import {
+  grant as grantPermission,
+  listGrants,
+  migrateGrants,
+  requestDownloadConsent,
+  requestVramWarningConsent,
+  revoke as revokePermission,
+} from './permissions/permissionsService'
+import { setPermissionGrantsDeps, wipeDemoPermissionGrants } from './permissions/grantsStore'
+import type { PermissionGrant, PermissionsPromptResponse } from '@/types/permissionsIpc'
+import {
   cancelChatTurn,
   resumeChatTurn,
   setChatEngineDeps,
@@ -797,6 +811,7 @@ async function createWindow() {
   // window; settle its pendings so waiters fail instead of hanging. The same
   // holds for a chat tool execution the old renderer was told to run.
   rejectAllMediaRequests('The app window was replaced')
+  rejectAllPermissionPrompts('The app window was replaced')
   rejectAllChatToolRequests('The app window was replaced')
   for (const runKey of activeMediaAgentRunKeys()) cancelMediaAgentRun(runKey)
   win.on('close', (event) => {
@@ -1167,6 +1182,7 @@ appShutdown.register({ name: 'demo agent sessions', run: () => wipeDemoAgentSess
 appShutdown.register({ name: 'demo agent workspace', run: () => wipeDemoAgentWorkspace() })
 appShutdown.register({ name: 'demo media records', run: () => wipeDemoMediaRecords() })
 appShutdown.register({ name: 'demo preferences', run: () => wipeDemoPreferences() })
+appShutdown.register({ name: 'demo permission grants', run: () => wipeDemoPermissionGrants() })
 appShutdown.register({ name: 'demo rag documents', run: () => wipeDemoRagDocuments() })
 appShutdown.register({ name: 'cloud proxy', run: () => cloudProxy?.close() })
 // After the agent, so the spans its extensions emit while shutting down are
@@ -1274,6 +1290,7 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   wireMediaRecords(settings)
   wirePreferences(settings)
   wireRagDocuments(settings)
+  wirePermissionGrants(settings)
   wireChatEngine()
   return serviceRegistry
 }
@@ -1304,6 +1321,12 @@ function wireMediaRecords(settings: LocalSettings): void {
 function wirePreferences(settings: LocalSettings): void {
   setPreferencesFileDeps({ isDemoMode: () => settings.isDemoModeEnabled })
   if (settings.isDemoModeEnabled) void wipeDemoPreferences()
+}
+
+/** Same demo discipline for permission grants (step 13). */
+function wirePermissionGrants(settings: LocalSettings): void {
+  setPermissionGrantsDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoPermissionGrants()
 }
 
 /** Same demo discipline for the RAG document list (step 8, §6.1). */
@@ -1441,11 +1464,8 @@ function wireArtifactRunner(settings: LocalSettings): void {
     },
     requestModelConsent: async (models, onProgress) => {
       try {
-        const approved = await requestRenderer<boolean>(
-          { kind: 'artifact-consent', models },
-          { onProgress },
-        )
-        return approved === true
+        await requestDownloadConsent(models, { onProgress })
+        return true
       } catch (error) {
         appLogger.warn(`Model consent request failed: ${String(error)}`, 'electron-backend')
         return false
@@ -2718,6 +2738,84 @@ function initEventHandle() {
     'artifact:respond',
     (_event: IpcMainInvokeEvent, payload: MediaResponsePayload) => {
       handleMediaResponse(payload)
+    },
+  )
+
+  ipcMain.handle('permissions:requestDownload', async (_event, models: unknown) => {
+    try {
+      if (!Array.isArray(models)) throw new Error('download models must be an array')
+      await requestDownloadConsent(models)
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle(
+    'permissions:requestVramWarning',
+    async (_event, req: { presetName?: unknown; message?: unknown }) => {
+      try {
+        if (typeof req?.presetName !== 'string' || typeof req?.message !== 'string') {
+          throw new Error('vram warning request needs presetName and message')
+        }
+        const confirmed = await requestVramWarningConsent({
+          presetName: req.presetName,
+          message: req.message,
+        })
+        return { success: true as const, confirmed }
+      } catch (e) {
+        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+  )
+
+  ipcMain.handle('permissions:list', async () => {
+    try {
+      return { success: true as const, grants: await listGrants() }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('permissions:grant', async (_event, key: unknown, origin: unknown) => {
+    try {
+      if (typeof key !== 'string') throw new Error('grant key must be a string')
+      if (origin !== 'remember' && origin !== 'pre-grant') {
+        throw new Error('grant origin must be remember or pre-grant')
+      }
+      const grant = await grantPermission(key, origin)
+      return { success: true as const, grant }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('permissions:revoke', async (_event, key: unknown) => {
+    try {
+      if (typeof key !== 'string') throw new Error('grant key must be a string')
+      await revokePermission(key)
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('permissions:migrate', async (_event, incoming: unknown) => {
+    try {
+      if (!incoming || typeof incoming !== 'object') {
+        throw new Error('migrate payload must be an object')
+      }
+      await migrateGrants(incoming as Record<string, PermissionGrant>)
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle(
+    'permissions:respond',
+    (_event: IpcMainInvokeEvent, payload: PermissionsPromptResponse) => {
+      handlePermissionsPromptResponse(payload)
     },
   )
 

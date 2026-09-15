@@ -6,6 +6,8 @@
 
 import type { UIMessageChunk } from 'ai'
 import type { MediaItem } from './mediaItem'
+import type { ActivityCategory, ActivityScope, ActivityState } from '@/assets/js/activities/types'
+import type { SerializedAppError } from '@/assets/js/errors/types'
 
 export type KernelEventScope =
   { kind: 'global' } | { kind: 'chat'; conversationKey: string } | { kind: 'run'; runId: string }
@@ -170,6 +172,51 @@ export type KernelQueueEvent = {
   activityId?: string
 }
 
+// ── Ledger events (docs/architecture-target.md §4.6, step 14) ───────────────
+
+/** One long-running step main is tracking, projected onto the activities sink. */
+export type KernelActivity = {
+  id: string
+  category: ActivityCategory
+  label: string
+  detail?: string
+  progress?: number
+  scope: ActivityScope
+  state: ActivityState
+  parentId?: string
+}
+
+export type KernelActivityEvent = {
+  type: 'activity'
+  action: 'begin' | 'update' | 'end'
+  activity: KernelActivity
+}
+
+export type KernelErrorEvent = {
+  type: 'error'
+  error: SerializedAppError
+}
+
+export type KernelStoredKind = 'conversation' | 'session' | 'media' | 'grants' | 'inference-profile'
+
+export type KernelStoredEvent = {
+  type: 'stored'
+  kind: KernelStoredKind
+  id?: string
+  /** Present when `kind` is `inference-profile`. */
+  inferenceProfile?: KernelInferenceProfile | null
+}
+
+/** Last successful local chat load — kernel memory, not the settings dropdown. */
+export type KernelInferenceProfile = {
+  serviceName: string
+  llmModelName: string
+  embeddingModelName?: string
+  contextSize?: number
+  modelArgs?: string
+  active: boolean
+}
+
 export type KernelEventPayload =
   | KernelServiceEvent
   | KernelAgentChunkEvent
@@ -184,6 +231,9 @@ export type KernelEventPayload =
   | KernelChatRagEvent
   | KernelMediaAgentEvent
   | KernelQueueEvent
+  | KernelActivityEvent
+  | KernelErrorEvent
+  | KernelStoredEvent
 
 export type KernelEvent = KernelEventPayload & KernelEventEnvelope
 
@@ -238,6 +288,10 @@ export type KernelSnapshotState = {
   activeArtifactRun: ArtifactRunSnapshot | null
   /** Chat turns main is running, one per conversation (desktop + side channels). */
   chatTurns: ChatTurnSnapshot[]
+  /** In-flight kernel activities (step 14); ended ones are not snapshotted. */
+  activities: KernelActivity[]
+  /** Live loaded local chat model; null when none has been loaded this session. */
+  inferenceProfile: KernelInferenceProfile | null
 }
 
 export type KernelSnapshot = {

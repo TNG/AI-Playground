@@ -18,6 +18,7 @@ import {
   readJson,
   type JsonRead,
 } from '../fsJsonStore'
+import { emitStored } from '../kernel/kernelBus'
 
 /**
  * The kernel's one-writer store for generated-media gallery records
@@ -236,6 +237,7 @@ export async function saveMediaItems(items: unknown[]): Promise<void> {
     }
     await writeIndex(index)
   })
+  emitStored('media')
 }
 
 export async function deleteMediaItemRecords(

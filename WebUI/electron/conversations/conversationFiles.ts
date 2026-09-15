@@ -12,6 +12,7 @@ import {
   readJson,
   type JsonRead,
 } from '../fsJsonStore'
+import { emitStored } from '../kernel/kernelBus'
 import {
   ConversationIndexFileSchema,
   ConversationThreadFileSchema,
@@ -286,6 +287,8 @@ export async function saveConversation(request: ConversationSaveRequest): Promis
       if (request.lastMainKey !== undefined) index.lastMainKey = request.lastMainKey
       await writeIndex(index)
     })
+  }).then(() => {
+    emitStored('conversation', request.id)
   })
 }
 

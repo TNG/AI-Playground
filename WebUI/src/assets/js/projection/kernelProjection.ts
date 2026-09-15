@@ -103,7 +103,14 @@ export function connectKernelEventStream(
       ready: Promise.resolve({
         scope: { kind: 'global' },
         sequence: 0,
-        state: { services: [], activeTurn: null, activeArtifactRun: null, chatTurns: [] },
+        state: {
+          services: [],
+          activeTurn: null,
+          activeArtifactRun: null,
+          chatTurns: [],
+          activities: [],
+          inferenceProfile: null,
+        },
       }),
       dispose: () => {},
     }

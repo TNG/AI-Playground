@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import { appLoggerInstance } from '../logging/logger'
 import type { ChatModelConfig } from '@/types/chatIpc'
+import { emitActivity, emitFailure, setInferenceProfileSnapshot } from '../kernel/kernelBus'
 
 // ── Last-load memory for chat backends (kernel-owned inference policy) ────────
 //
@@ -25,6 +27,7 @@ export type EnsureChatBackendReadyOptions = {
   skipGpuAdmission?: boolean
   abortSignal?: AbortSignal
   remember?: boolean
+  conversationKey?: string
 }
 
 export type ChatBackendHandle = {
@@ -73,6 +76,7 @@ export function lastChatBackendLoadActiveForTest(): boolean {
 
 export function setLastChatBackendLoadActive(active: boolean): void {
   lastLoadActive = active
+  publishInferenceProfile()
 }
 
 /** Note the dropdown selection as last-load without starting a backend. */
@@ -80,6 +84,15 @@ export function rememberChatBackendLoad(args: ChatReadinessArgs): void {
   if (!isChatInferenceService(args.serviceName) || !args.llmModelName) return
   lastLoad = { ...args }
   lastLoadActive = true
+  publishInferenceProfile()
+}
+
+function publishInferenceProfile(): void {
+  if (!lastLoad) {
+    setInferenceProfileSnapshot(null)
+    return
+  }
+  setInferenceProfileSnapshot({ ...lastLoad, active: lastLoadActive })
 }
 
 function requireDeps(): ChatReadinessDeps {
@@ -99,6 +112,18 @@ export async function ensureChatBackendReady(
   const service = d.getService(args.serviceName)
   if (!service) throw new Error(`Service ${args.serviceName} not found`)
 
+  const activity = {
+    id: `backend-load-${randomUUID()}`,
+    category: 'backend' as const,
+    label: `Loading ${args.llmModelName}…`,
+    scope: options?.conversationKey
+      ? { kind: 'chat' as const, conversationKey: options.conversationKey }
+      : { kind: 'global' as const },
+    state: 'active' as const,
+  }
+  emitActivity('begin', activity)
+  let failed = false
+
   appLogger.info(
     `Ensuring backend readiness for service: ${args.serviceName}, LLM: ${args.llmModelName}, ` +
       `Embedding: ${args.embeddingModelName || 'none'}, Context Size: ${
@@ -107,45 +132,64 @@ export async function ensureChatBackendReady(
     'electron-backend',
   )
 
-  if (!options?.skipGpuAdmission && isChatInferenceService(args.serviceName)) {
-    await d.awaitChatWindow(options?.abortSignal)
-  }
-  if (isChatInferenceService(args.serviceName)) {
-    try {
-      await d.stopOvmsImageServer()
-    } catch (error) {
-      appLogger.warn(`Stopping the OVMS image server failed: ${String(error)}`, 'electron-backend')
+  try {
+    if (!options?.skipGpuAdmission && isChatInferenceService(args.serviceName)) {
+      await d.awaitChatWindow(options?.abortSignal)
     }
-  }
-
-  await service.ensureBackendReadiness(
-    args.llmModelName,
-    args.embeddingModelName,
-    args.contextSize,
-    args.modelArgs,
-  )
-  if (options?.remember !== false) {
-    lastLoad = { ...args }
-    lastLoadActive = true
-    const previousService = lastEnsuredServiceName
-    lastEnsuredServiceName = args.serviceName
-    if (previousService && previousService !== args.serviceName && d.resetIdleChatBackend) {
+    if (isChatInferenceService(args.serviceName)) {
       try {
-        await d.resetIdleChatBackend(previousService)
+        await d.stopOvmsImageServer()
       } catch (error) {
         appLogger.warn(
-          `Resetting idle chat backend ${previousService} failed: ${String(error)}`,
+          `Stopping the OVMS image server failed: ${String(error)}`,
           'electron-backend',
         )
       }
     }
+
+    await service.ensureBackendReadiness(
+      args.llmModelName,
+      args.embeddingModelName,
+      args.contextSize,
+      args.modelArgs,
+    )
+    if (options?.remember !== false) {
+      lastLoad = { ...args }
+      lastLoadActive = true
+      const previousService = lastEnsuredServiceName
+      lastEnsuredServiceName = args.serviceName
+      if (previousService && previousService !== args.serviceName && d.resetIdleChatBackend) {
+        try {
+          await d.resetIdleChatBackend(previousService)
+        } catch (error) {
+          appLogger.warn(
+            `Resetting idle chat backend ${previousService} failed: ${String(error)}`,
+            'electron-backend',
+          )
+        }
+      }
+      publishInferenceProfile()
+    }
+    d.notifyHomeAgentUpstreamReady(service.baseUrl ?? '')
+    appLogger.info(
+      `Backend ${args.serviceName} ready for LLM: ${args.llmModelName}, ` +
+        `Embedding: ${args.embeddingModelName || 'none'}`,
+      'electron-backend',
+    )
+  } catch (error) {
+    failed = true
+    emitFailure({
+      category: 'backend',
+      code: 'backend/not-ready',
+      userMessage: `Could not load ${args.llmModelName}.`,
+      technicalMessage: error instanceof Error ? error.message : String(error),
+      surface: 'silent',
+      context: { serviceName: args.serviceName, conversationKey: options?.conversationKey },
+    })
+    throw error
+  } finally {
+    emitActivity('end', { ...activity, state: failed ? 'failed' : 'done' })
   }
-  d.notifyHomeAgentUpstreamReady(service.baseUrl ?? '')
-  appLogger.info(
-    `Backend ${args.serviceName} ready for LLM: ${args.llmModelName}, ` +
-      `Embedding: ${args.embeddingModelName || 'none'}`,
-    'electron-backend',
-  )
 }
 
 export async function reloadLastChatBackend(): Promise<void> {

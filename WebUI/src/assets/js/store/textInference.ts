@@ -233,6 +233,17 @@ export const useTextInference = defineStore(
       cloud: null,
     })
 
+    /** Live loaded local model (kernel memory, step 14) — not the dropdown. */
+    const loadedInferenceProfile = ref<
+      import('@/types/kernelEvents').KernelInferenceProfile | null
+    >(null)
+
+    function applyInferenceProfile(
+      profile: import('@/types/kernelEvents').KernelInferenceProfile | null,
+    ): void {
+      loadedInferenceProfile.value = profile
+    }
+
     // Backend readiness state tracking
     const backendReadinessState = reactive({
       lastUsedModel: {
@@ -2098,6 +2109,8 @@ export const useTextInference = defineStore(
       backend,
       activeModel,
       selectedModels,
+      loadedInferenceProfile,
+      applyInferenceProfile,
       llmModels,
       llmEmbeddingModels,
       embeddingBackend,

@@ -462,6 +462,34 @@ type electronAPI = {
       callback: (payload: import('./types/mediaRequests').MediaRequestPayload) => void,
     ): () => void
   }
+  permissions: {
+    requestDownload(
+      models: unknown[],
+    ): Promise<{ success: true } | { success: false; error: string }>
+    requestVramWarning(req: {
+      presetName: string
+      message: string
+    }): Promise<{ success: true; confirmed: boolean } | { success: false; error: string }>
+    list(): Promise<
+      | { success: true; grants: import('./types/permissionsIpc').PermissionGrant[] }
+      | { success: false; error: string }
+    >
+    grant(
+      key: string,
+      origin: import('./types/permissionsIpc').PermissionGrantOrigin,
+    ): Promise<
+      | { success: true; grant: import('./types/permissionsIpc').PermissionGrant }
+      | { success: false; error: string }
+    >
+    revoke(key: string): Promise<{ success: true } | { success: false; error: string }>
+    migrate(
+      incoming: Record<string, import('./types/permissionsIpc').PermissionGrant>,
+    ): Promise<{ success: true } | { success: false; error: string }>
+    respond(payload: import('./types/permissionsIpc').PermissionsPromptResponse): Promise<void>
+    onPrompt(
+      callback: (payload: import('./types/permissionsIpc').PermissionsPromptPayload) => void,
+    ): () => void
+  }
   chat: {
     submitTurn(
       request: import('./types/chatIpc').ChatTurnRequest,

@@ -196,6 +196,39 @@ contextBridge.exposeInMainWorld('electronAPI', {
       callback: (payload: import('../src/types/mediaRequests').MediaRequestPayload) => void,
     ) => listen('artifact:request', callback),
   },
+  permissions: {
+    requestDownload: (models: unknown[]) =>
+      ipcRenderer.invoke('permissions:requestDownload', cloneForIpc(models)) as Promise<
+        { success: true } | { success: false; error: string }
+      >,
+    requestVramWarning: (req: { presetName: string; message: string }) =>
+      ipcRenderer.invoke('permissions:requestVramWarning', req) as Promise<
+        { success: true; confirmed: boolean } | { success: false; error: string }
+      >,
+    list: () =>
+      ipcRenderer.invoke('permissions:list') as Promise<
+        | { success: true; grants: import('../src/types/permissionsIpc').PermissionGrant[] }
+        | { success: false; error: string }
+      >,
+    grant: (key: string, origin: import('../src/types/permissionsIpc').PermissionGrantOrigin) =>
+      ipcRenderer.invoke('permissions:grant', key, origin) as Promise<
+        | { success: true; grant: import('../src/types/permissionsIpc').PermissionGrant }
+        | { success: false; error: string }
+      >,
+    revoke: (key: string) =>
+      ipcRenderer.invoke('permissions:revoke', key) as Promise<
+        { success: true } | { success: false; error: string }
+      >,
+    migrate: (incoming: Record<string, import('../src/types/permissionsIpc').PermissionGrant>) =>
+      ipcRenderer.invoke('permissions:migrate', cloneForIpc(incoming)) as Promise<
+        { success: true } | { success: false; error: string }
+      >,
+    respond: (payload: import('../src/types/permissionsIpc').PermissionsPromptResponse) =>
+      ipcRenderer.invoke('permissions:respond', payload),
+    onPrompt: (
+      callback: (payload: import('../src/types/permissionsIpc').PermissionsPromptPayload) => void,
+    ) => listen('permissions:prompt', callback),
+  },
   chat: {
     submitTurn: (request: import('../src/types/chatIpc').ChatTurnRequest) =>
       ipcRenderer.invoke('chat:submitTurn', cloneForIpc(request)) as Promise<

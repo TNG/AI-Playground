@@ -18,7 +18,14 @@ function snapshotAt(sequence: number, services: unknown[] = []): KernelSnapshot 
   return {
     scope: { kind: 'global' },
     sequence,
-    state: { services, activeTurn: null, activeArtifactRun: null, chatTurns: [] },
+    state: {
+      services,
+      activeTurn: null,
+      activeArtifactRun: null,
+      chatTurns: [],
+      activities: [],
+      inferenceProfile: null,
+    },
   }
 }
 

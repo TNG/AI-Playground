@@ -12,6 +12,7 @@ import {
   readJson,
   type JsonRead,
 } from '../fsJsonStore'
+import { emitStored } from '../kernel/kernelBus'
 import {
   AgentSessionFileSchema,
   AgentSessionIndexFileSchema,
@@ -250,6 +251,8 @@ export async function saveAgentSession(record: AgentSessionRecordWire): Promise<
       index.sessions = [...index.sessions.filter((entry) => entry.id !== record.id), entry]
       await writeIndex(index)
     })
+  }).then(() => {
+    emitStored('session', record.id)
   })
 }
 

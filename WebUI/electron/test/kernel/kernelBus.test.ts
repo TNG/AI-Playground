@@ -23,6 +23,10 @@ const {
   getChatTurnChunks,
   emitMediaAgentEvent,
   endMediaAgentRun,
+  emitActivity,
+  emitFailure,
+  emitStored,
+  setInferenceProfileSnapshot,
 } = await import('../../kernel/kernelBus')
 
 function fakeWindow(): { win: BrowserWindow; sent: KernelEvent[] } {
@@ -397,5 +401,73 @@ describe('kernel bus media agent events', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('kernel bus ledger events', () => {
+  it('keeps in-flight activities on the snapshot and drops them when they end', () => {
+    const { win, sent } = fakeWindow()
+    setKernelEventWindow(win)
+    emitActivity('begin', {
+      id: 'backend-load-1',
+      category: 'backend',
+      label: 'Loading Qwen…',
+      scope: { kind: 'global' },
+      state: 'active',
+    })
+    expect(getKernelSnapshot().state.activities).toEqual([
+      expect.objectContaining({ id: 'backend-load-1', state: 'active' }),
+    ])
+    emitActivity('end', {
+      id: 'backend-load-1',
+      category: 'backend',
+      label: 'Loading Qwen…',
+      scope: { kind: 'global' },
+      state: 'done',
+    })
+    expect(getKernelSnapshot().state.activities).toEqual([])
+    expect(sent.map((event) => event.type)).toEqual(['activity', 'activity'])
+    expect((sent[1] as { action: string }).action).toBe('end')
+  })
+
+  it('stamps a failure onto the bus as an error event with surface', () => {
+    const { win, sent } = fakeWindow()
+    setKernelEventWindow(win)
+    emitFailure({
+      category: 'backend',
+      code: 'backend/not-ready',
+      userMessage: 'Could not load Qwen.',
+      surface: 'silent',
+    })
+    expect(sent[0]).toMatchObject({
+      type: 'error',
+      error: {
+        code: 'backend/not-ready',
+        userMessage: 'Could not load Qwen.',
+        surface: 'silent',
+      },
+    })
+  })
+
+  it('publishes the live inference profile as stored + snapshot memory', () => {
+    const { win, sent } = fakeWindow()
+    setKernelEventWindow(win)
+    setInferenceProfileSnapshot({
+      serviceName: 'llamacpp-backend',
+      llmModelName: 'Qwen3-9B',
+      active: true,
+    })
+    expect(getKernelSnapshot().state.inferenceProfile).toEqual({
+      serviceName: 'llamacpp-backend',
+      llmModelName: 'Qwen3-9B',
+      active: true,
+    })
+    expect(sent[0]).toMatchObject({
+      type: 'stored',
+      kind: 'inference-profile',
+      inferenceProfile: { llmModelName: 'Qwen3-9B', active: true },
+    })
+    emitStored('conversation', 'conv-1')
+    expect(sent[1]).toMatchObject({ type: 'stored', kind: 'conversation', id: 'conv-1' })
   })
 })

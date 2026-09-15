@@ -152,3 +152,14 @@ export const getAgentWorkspaceFile = () => path.join(aipgUserDataRoot(), 'agent-
 /** Demo-mode agent workspace state, wiped on exit like demo conversations (§6.1). */
 export const getAgentWorkspaceDemoFile = () =>
   getAgentWorkspaceFile().replace(/\.json$/, '-demo.json')
+
+/**
+ * Remembered / pre-granted consent decisions (architecture-target §4.7, step 13).
+ * Own file, not a preference section: Permissions is request/response, not a
+ * renderer store's settings bag.
+ */
+export const getPermissionGrantsFile = () => path.join(aipgUserDataRoot(), 'permission-grants.json')
+
+/** Demo-mode permission grants, wiped on exit like demo conversations (§6.1). */
+export const getPermissionGrantsDemoFile = () =>
+  getPermissionGrantsFile().replace(/\.json$/, '-demo.json')

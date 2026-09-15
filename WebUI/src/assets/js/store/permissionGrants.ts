@@ -1,37 +1,26 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
+import {
+  REMOTE_DOWNLOAD_GRANT,
+  VRAM_WARNING_GRANT_PREFIX,
+  vramWarningGrantKey,
+  type PermissionGrant,
+  type PermissionGrantOrigin,
+} from '@/types/permissionsIpc'
 
 /**
- * The reviewable grant list behind the Permissions layer (§4.7 of
- * docs/architecture-target.md). Every grant is one remembered or pre-granted
- * consent decision, keyed by the action vocabulary (`vram-warning:<preset>`,
- * `download:remote-turns`). There is no silent auto-allow: an entry here exists
- * only because the user ticked "do not show again" (origin `remember`) or
- * pre-filled it in Settings → Permissions (origin `pre-grant`), and every
- * entry is listed and revocable there.
+ * Renderer projection of the kernel permission-grants file (step 13). Mutations
+ * write through IPC; the file in main is source of truth. Legacy
+ * `memoryAlertSuppress_*` flags and a leftover Pinia persist payload migrate
+ * once on `init()`.
  */
 
-export type PermissionGrantOrigin = 'remember' | 'pre-grant'
+export { REMOTE_DOWNLOAD_GRANT, VRAM_WARNING_GRANT_PREFIX, vramWarningGrantKey }
+export type { PermissionGrant, PermissionGrantOrigin }
 
-export type PermissionGrant = {
-  /** Action key, e.g. `vram-warning:LTX-Video` or `download:remote-turns`. */
-  key: string
-  origin: PermissionGrantOrigin
-  createdAt: number
-}
+const LEGACY_PERSIST_KEY = 'permissionGrants'
 
-/** Remembered "don't warn again" for a gated high-memory / video-VRAM preset. */
-export const VRAM_WARNING_GRANT_PREFIX = 'vram-warning:'
-/** Pre-grant: skip the in-channel download confirmation on remote turns. */
-export const REMOTE_DOWNLOAD_GRANT = 'download:remote-turns'
-
-export function vramWarningGrantKey(presetName: string): string {
-  return VRAM_WARNING_GRANT_PREFIX + presetName
-}
-
-/** One-time import: the presetSwitching memory-alert suppressions kept their
- *  "do not show again" flags in bare localStorage keys; they become grants. */
 function importLegacyMemoryAlerts(): Record<string, PermissionGrant> {
   const imported: Record<string, PermissionGrant> = {}
   try {
@@ -50,7 +39,6 @@ function importLegacyMemoryAlerts(): Record<string, PermissionGrant> {
         createdAt: Date.now(),
       }
     }
-    // Remove even non-'1' leftovers so the migration runs once, not per boot.
     for (const key of stale) localStorage.removeItem(key)
   } catch {
     // localStorage unavailable (tests, hardened contexts): start empty.
@@ -58,38 +46,81 @@ function importLegacyMemoryAlerts(): Record<string, PermissionGrant> {
   return imported
 }
 
-export const usePermissionGrants = defineStore(
-  'permissionGrants',
-  () => {
-    const grants = ref<Record<string, PermissionGrant>>(importLegacyMemoryAlerts())
+function leftoverPiniaGrants(): Record<string, PermissionGrant> {
+  try {
+    const raw = demoAwareStorage.getItem(LEGACY_PERSIST_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as { grants?: Record<string, PermissionGrant> }
+    demoAwareStorage.removeItem(LEGACY_PERSIST_KEY)
+    return parsed.grants && typeof parsed.grants === 'object' ? parsed.grants : {}
+  } catch {
+    return {}
+  }
+}
 
-    const list = computed<PermissionGrant[]>(() =>
-      Object.values(grants.value).sort((a, b) => b.createdAt - a.createdAt),
-    )
+export const usePermissionGrants = defineStore('permissionGrants', () => {
+  const grants = ref<Record<string, PermissionGrant>>({})
 
-    function has(key: string): boolean {
-      return Boolean(grants.value[key])
+  const list = computed<PermissionGrant[]>(() =>
+    Object.values(grants.value).sort((a, b) => b.createdAt - a.createdAt),
+  )
+
+  function has(key: string): boolean {
+    return Boolean(grants.value[key])
+  }
+
+  function setLocal(next: PermissionGrant[]): void {
+    const map: Record<string, PermissionGrant> = {}
+    for (const grant of next) map[grant.key] = grant
+    grants.value = map
+  }
+
+  async function refresh(): Promise<void> {
+    const api = window.electronAPI?.permissions
+    if (!api?.list) return
+    const result = await api.list()
+    if (result.success) setLocal(result.grants)
+  }
+
+  async function init(): Promise<void> {
+    await refresh()
+    const leftover = { ...leftoverPiniaGrants(), ...importLegacyMemoryAlerts() }
+    if (Object.keys(leftover).length === 0) return
+    const api = window.electronAPI?.permissions
+    if (!api?.migrate) {
+      grants.value = { ...leftover, ...grants.value }
+      return
     }
+    await api.migrate(leftover)
+    await refresh()
+  }
 
-    function grant(key: string, origin: PermissionGrantOrigin): void {
-      grants.value[key] = { key, origin, createdAt: Date.now() }
+  function grant(key: string, origin: PermissionGrantOrigin): void {
+    grants.value = {
+      ...grants.value,
+      [key]: { key, origin, createdAt: Date.now() },
     }
+    const api = window.electronAPI?.permissions
+    if (!api?.grant) return
+    void api.grant(key, origin).then((result) => {
+      if (result.success) void refresh()
+    })
+  }
 
-    function revoke(key: string): void {
-      delete grants.value[key]
-    }
+  function revoke(key: string): void {
+    const next = { ...grants.value }
+    delete next[key]
+    grants.value = next
+    const api = window.electronAPI?.permissions
+    if (!api?.revoke) return
+    void api.revoke(key).then((result) => {
+      if (result.success) void refresh()
+    })
+  }
 
-    return { grants, list, has, grant, revoke }
-  },
-  {
-    persist: {
-      storage: demoAwareStorage,
-      pick: ['grants'],
-    },
-  },
-)
+  return { grants, list, has, grant, revoke, init }
+})
 
-// hot reloading
 if (import.meta.hot) {
   import.meta.hot.accept(acceptHMRUpdate(usePermissionGrants, import.meta.hot))
 }

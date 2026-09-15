@@ -20,7 +20,10 @@ import { useBackendServices } from './assets/js/store/backendServices'
 import { initLaminarTelemetry } from './lib/laminarTelemetry'
 import { initDebugSettings } from './assets/js/store/debugSettings'
 import { startMediaRequestBridge } from './assets/js/artifact/mediaRequestBridge'
+import { startPermissionsAdapter } from './assets/js/permissions/permissionsAdapter'
+import { usePermissionGrants } from './assets/js/store/permissionGrants'
 import { startQueueActivityProjection } from './lib/queueActivityProjection'
+import { startKernelLedgerProjection } from './lib/kernelLedgerProjection'
 
 const [settings, initialPage] = await Promise.all([
   window.electronAPI.getDemoModeSettings(),
@@ -70,8 +73,9 @@ if (initialPage !== null) {
 }
 
 // The main-process artifact runner asks the renderer for model checks
-// and download consent over this bridge.
+// over this bridge. Download consent goes through the permissions adapter.
 startMediaRequestBridge()
+startPermissionsAdapter()
 
 // Hydrate the conversation threads from the kernel's files (step 8) before
 // anything mounts, so the history panel and a resumed chat turn never see a
@@ -108,11 +112,14 @@ await Promise.all([
   useTextInference().init(),
   usePresets().init(),
   useBackendServices().init(),
+  usePermissionGrants().init(),
 ])
 
 // Relabel a parked chat tool's activity with its queue position (the
-// orchestrator's queue events, step 7).
+// orchestrator's queue events, step 7). Ledger events (activity / error /
+// stored) project onto the renderer sinks (step 14).
 startQueueActivityProjection()
+startKernelLedgerProjection()
 
 const i18n = useI18N()
 i18n.init().then(() => {

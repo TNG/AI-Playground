@@ -5,16 +5,26 @@ import type {
   ArtifactRunSnapshot,
   ArtifactPhase,
   ChatTurnSnapshot,
+  KernelActivity,
+  KernelActivityEvent,
   KernelAgentToolImageEvent,
+  KernelErrorEvent,
   KernelEvent,
   KernelEventPayload,
   KernelEventScope,
+  KernelInferenceProfile,
   KernelMediaAgentEvent,
   KernelQueueEvent,
   KernelSnapshot,
+  KernelStoredEvent,
 } from '@/types/kernelEvents'
 import type { MediaItem } from '@/types/mediaItem'
 import type { UIMessageChunk } from 'ai'
+import {
+  createAppError,
+  serializeAppError,
+  type CreateAppErrorInput,
+} from '@/assets/js/errors/appError'
 
 const appLogger = appLoggerInstance
 
@@ -257,6 +267,56 @@ export function emitQueueEvent(event: Omit<KernelQueueEvent, 'type'>): void {
   )
 }
 
+// ── Ledger: activity / error / stored (step 14) ───────────────────────────────
+
+const activeActivities = new Map<string, KernelActivity>()
+let inferenceProfile: KernelInferenceProfile | null = null
+
+function activityScope(activity: KernelActivity): KernelEventScope {
+  if (activity.scope.kind === 'chat') {
+    return { kind: 'chat', conversationKey: activity.scope.conversationKey }
+  }
+  return { kind: 'global' }
+}
+
+export function emitActivity(
+  action: KernelActivityEvent['action'],
+  activity: KernelActivity,
+): void {
+  if (action === 'begin' || action === 'update') {
+    activeActivities.set(activity.id, { ...activity, state: activity.state ?? 'active' })
+  } else {
+    activeActivities.delete(activity.id)
+  }
+  emit({ type: 'activity', action, activity }, activityScope(activity))
+}
+
+export function emitError(error: KernelErrorEvent['error']): void {
+  const conversationKey =
+    typeof error.context?.conversationKey === 'string' ? error.context.conversationKey : undefined
+  emit(
+    { type: 'error', error },
+    conversationKey ? { kind: 'chat', conversationKey } : { kind: 'global' },
+  )
+}
+
+export function emitFailure(input: CreateAppErrorInput): void {
+  emitError(serializeAppError(createAppError(input)))
+}
+
+export function emitStored(
+  kind: KernelStoredEvent['kind'],
+  id?: string,
+  inferenceProfile?: KernelInferenceProfile | null,
+): void {
+  emit({ type: 'stored', kind, id, inferenceProfile }, { kind: 'global' })
+}
+
+export function setInferenceProfileSnapshot(profile: KernelInferenceProfile | null): void {
+  inferenceProfile = profile
+  emitStored('inference-profile', undefined, profile)
+}
+
 // ── Chat turn accumulator + delta coalescing (§4.6 "Streaming across IPC") ───
 //
 // The chat turn engine in main streams UIMessageChunks over the bus. Adjacent
@@ -429,6 +489,8 @@ export function getKernelSnapshot(): KernelSnapshot {
       activeTurn: activeTurn ? { ...activeTurn } : null,
       activeArtifactRun: activeArtifactRun ? { ...activeArtifactRun } : null,
       chatTurns: chatTurnSnapshots,
+      activities: [...activeActivities.values()],
+      inferenceProfile,
     },
   }
 }
@@ -449,4 +511,6 @@ export function resetKernelBusForTest(): void {
   }
   mediaRuns.clear()
   taps.clear()
+  activeActivities.clear()
+  inferenceProfile = null
 }

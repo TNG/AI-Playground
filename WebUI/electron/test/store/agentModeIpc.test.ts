@@ -29,7 +29,14 @@ describe('registerAgentModeIpc', () => {
     getKernelSnapshot.mockResolvedValue({
       scope: { kind: 'global' },
       sequence: 0,
-      state: { services: [], activeTurn: null, activeArtifactRun: null, chatTurns: [] },
+      state: {
+        services: [],
+        activeTurn: null,
+        activeArtifactRun: null,
+        chatTurns: [],
+        activities: [],
+        inferenceProfile: null,
+      },
     } satisfies KernelSnapshot)
     globalThis.window = {
       electronAPI: {
@@ -122,7 +129,14 @@ describe('registerAgentModeIpc', () => {
     expect(handlers.onSnapshot).toHaveBeenCalledWith({
       scope: { kind: 'global' },
       sequence: 0,
-      state: { services: [], activeTurn: null, activeArtifactRun: null, chatTurns: [] },
+      state: {
+        services: [],
+        activeTurn: null,
+        activeArtifactRun: null,
+        chatTurns: [],
+        activities: [],
+        inferenceProfile: null,
+      },
     })
   })
 

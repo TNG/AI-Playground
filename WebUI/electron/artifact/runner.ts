@@ -26,6 +26,7 @@ import {
   emitArtifactDone,
   emitArtifactItem,
   emitArtifactPhase,
+  emitFailure,
 } from '../kernel/kernelBus'
 import type { ArtifactPhase } from '@/types/kernelEvents'
 import type { MediaItem } from '@/types/mediaItem'
@@ -332,6 +333,13 @@ function finish(run: ActiveRun, result: ArtifactRunResult): void {
 
 function failRun(run: ActiveRun, message: string, interrupt: boolean): void {
   if (run.settled) return
+  emitFailure({
+    category: 'generation',
+    code: 'generation/failed',
+    userMessage: message,
+    surface: 'silent',
+    context: { runId: run.payload.runId },
+  })
   const baseUrl = clientDeps().getServiceBaseUrl()
   if (interrupt && baseUrl) {
     void interruptExecution(baseUrl, clientDeps()).catch(() => {})

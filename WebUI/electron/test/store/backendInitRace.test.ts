@@ -94,7 +94,14 @@ describe('backend init race', () => {
     resolveSnapshot({
       scope: { kind: 'global' },
       sequence: 0,
-      state: { services: [], activeTurn: null, activeArtifactRun: null, chatTurns: [] },
+      state: {
+        services: [],
+        activeTurn: null,
+        activeArtifactRun: null,
+        chatTurns: [],
+        activities: [],
+        inferenceProfile: null,
+      },
     })
     await vi.waitFor(() => expect(store.info.length).toBeGreaterThan(0))
     expect(store.info.some((s) => s.serviceName === 'ai-backend')).toBe(true)
@@ -108,7 +115,14 @@ describe('backend init race', () => {
     resolveSnapshot({
       scope: { kind: 'global' },
       sequence: 1,
-      state: { services: [AI_BACKEND], activeTurn: null, activeArtifactRun: null, chatTurns: [] },
+      state: {
+        services: [AI_BACKEND],
+        activeTurn: null,
+        activeArtifactRun: null,
+        chatTurns: [],
+        activities: [],
+        inferenceProfile: null,
+      },
     })
     await vi.waitFor(() => expect(store.info.length).toBeGreaterThan(0))
     // Applied exactly once — from the snapshot, not double-upserted.
@@ -125,7 +139,14 @@ describe('backend init race', () => {
     resolveSnapshot({
       scope: { kind: 'global' },
       sequence: 0,
-      state: { services: [], activeTurn: null, activeArtifactRun: null, chatTurns: [] },
+      state: {
+        services: [],
+        activeTurn: null,
+        activeArtifactRun: null,
+        chatTurns: [],
+        activities: [],
+        inferenceProfile: null,
+      },
     })
     await vi.waitFor(() =>
       expect(backendServices.info.some((s) => s.serviceName === 'ai-backend')).toBe(true),
@@ -169,6 +190,8 @@ describe('backend init race', () => {
         activeTurn: null,
         activeArtifactRun: null,
         chatTurns: [],
+        activities: [],
+        inferenceProfile: null,
       },
     })
     await vi.waitFor(() =>

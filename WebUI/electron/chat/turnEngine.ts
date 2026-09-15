@@ -44,6 +44,7 @@ import { abortTurnToolRequests, executeToolInRenderer } from './toolBridge'
 import { finishTextRequest, submitTextRequest } from '../orchestrator/orchestrator'
 import { saveConversation } from '../conversations/conversationFiles'
 import { cloneForIpc } from '@/lib/cloneForIpc'
+import { emitFailure } from '../kernel/kernelBus'
 
 // ── Main-side chat turn engine (docs/architecture-target.md §7, step 6) ──────
 //
@@ -590,6 +591,7 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
       await ensureChatBackendReady(config.readiness, {
         abortSignal: turn.controller.signal,
         skipGpuAdmission: true,
+        conversationKey,
       })
     }
 
@@ -873,6 +875,13 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
     // the move.
     if (!turn.controller.signal.aborted) {
       appLogger.error(`Chat turn crashed: ${describeInferenceError(error)}`, 'electron-backend')
+      emitFailure({
+        category: 'inference',
+        code: 'inference/turn-failed',
+        userMessage: describeInferenceError(error),
+        surface: 'silent',
+        context: { conversationKey },
+      })
       emitChatChunk(conversationKey, turnId, {
         type: 'error',
         errorText: describeInferenceError(error),

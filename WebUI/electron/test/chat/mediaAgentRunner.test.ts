@@ -5,13 +5,12 @@ import { MockLanguageModelV3 } from 'ai/test'
 import type { KernelEvent } from '@/types/kernelEvents'
 import type { ChatToolSpec, MediaAgentRunRequest } from '@/types/chatIpc'
 
-// Main-side media specialist runner (step 6): the nested tool loop runs in
-// main, the inner tools execute over the renderer tool bridge. Driven here
-// with a scripted mock model (the loop itself is covered by
-// toolAgent.test.ts); assertions cover the wiring the move added — the bridge
-// payload carries the nested history (source image included), the shipped
-// repair data coerces a bogus workflow, progress reaches the kernel stream
-// coalesced, and a cancel settles a pending inner call.
+// Main-side media specialist runner (step 12): the nested tool loop runs in
+// main, inner Comfy tools execute in-process against the Artifact runner.
+// Driven here with a scripted mock model; assertions cover the wiring — the
+// in-process payload (source image, origin, keepModelsLoaded), shipped repair
+// data coercing a bogus workflow, progress on the kernel stream, and cancel
+// aborting the in-process run.
 
 vi.mock('../../logging/logger.ts', () => ({
   appLoggerInstance: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -32,18 +31,19 @@ vi.mock('../../laminar', () => ({
   markDelegatedMediaRun: vi.fn(),
 }))
 
-// The request lane and GPU window are the orchestrator's (covered in
-// orchestrator.test.ts); a passthrough keeps this file's import graph free of
-// the real runner (which drags in the uv/electron module tree).
 vi.mock('../../orchestrator/orchestrator', () => ({
   runMediaRequest: async <T>(fn: () => Promise<T>) => fn(),
+}))
+
+const runInProcessComfyToolMock = vi.fn()
+vi.mock('../../artifact/inProcessComfy', () => ({
+  runInProcessComfyTool: (...args: unknown[]) => runInProcessComfyToolMock(...args),
 }))
 
 const { runMediaAgentInMain, cancelMediaAgentRun } = await import('../../chat/mediaAgentRunner')
 const { createMainChatModel } = await import('../../chat/chatModelMain')
 const { setKernelEventWindow, resetKernelBusForTest, onKernelEvent } =
   await import('../../kernel/kernelBus')
-const { handleChatToolResult, resetChatToolBridgeForTest } = await import('../../chat/toolBridge')
 
 type SentPayload = Record<string, unknown>
 
@@ -113,17 +113,17 @@ function runRequest(overrides: Partial<MediaAgentRunRequest> = {}): MediaAgentRu
 
 let events: KernelEvent[]
 let detachTap: () => void
-let sent: SentPayload[]
 
 beforeEach(() => {
   vi.clearAllMocks()
   resetKernelBusForTest()
-  resetChatToolBridgeForTest()
   events = []
   detachTap = onKernelEvent((event) => void events.push(event))
   const window = fakeWindow()
-  sent = window.sent
   setKernelEventWindow(window.win)
+  runInProcessComfyToolMock.mockResolvedValue({
+    images: [{ imageUrl: 'aipg-media://castle.png' }],
+  })
 })
 
 afterEach(() => {
@@ -140,22 +140,8 @@ function mediaEvents() {
     .map((e) => e.event)
 }
 
-/** The tool-bridge requests the fake window received (kernel events excluded). */
-function toolRequests(): SentPayload[] {
-  return sent.filter((p) => p.channel === 'chat:executeTool')
-}
-
-async function settleBridge(output: unknown): Promise<SentPayload> {
-  await vi.waitFor(() => {
-    if (toolRequests().length === 0) throw new Error('bridge request not sent yet')
-  })
-  const payload = toolRequests()[0]
-  handleChatToolResult({ requestId: payload.requestId as string, output })
-  return payload
-}
-
 describe('runMediaAgentInMain', () => {
-  it('runs the nested loop, bridging inner tools with the nested history', async () => {
+  it('runs the nested loop with in-process Comfy and the nested history', async () => {
     let call = 0
     const model = new MockLanguageModelV3({
       doStream: async () => {
@@ -166,21 +152,15 @@ describe('runMediaAgentInMain', () => {
     })
     vi.mocked(createMainChatModel).mockReturnValue(model)
 
-    const run = runMediaAgentInMain(runRequest())
-    const payload = await settleBridge({ images: [{ imageUrl: 'aipg-media://castle.png' }] })
-    const result = await run
+    const result = await runMediaAgentInMain(runRequest())
 
-    // The bridge request routes to the run's registry key and carries the
-    // nested history: prepended source image first, then the delegated request.
-    expect(payload.conversationKey).toBe('media-run:test')
-    expect(payload.toolName).toBe('comfyUI')
-    expect(payload.input).toEqual({ workflow: 'W1' })
-    const messages = payload.messages as Array<Record<string, unknown>>
-    expect(messages[0]).toMatchObject({
-      role: 'user',
-      content: [{ type: 'file', mediaType: 'image/png' }],
+    expect(runInProcessComfyToolMock).toHaveBeenCalledTimes(1)
+    expect(runInProcessComfyToolMock.mock.calls[0][0]).toMatchObject({
+      kind: 'create',
+      args: { workflow: 'W1' },
+      origin: 'agent',
+      keepModelsLoaded: false,
     })
-    expect(messages[1]).toMatchObject({ role: 'user', content: 'a castle image' })
 
     expect(result.text).toBe('Made the castle.')
     expect(result.steps).toHaveLength(1)
@@ -201,6 +181,26 @@ describe('runMediaAgentInMain', () => {
     ).toBe(true)
   })
 
+  it('tags renderer-origin runs with the parent conversation key', async () => {
+    let call = 0
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        call++
+        if (call === 1) return toolCallResponse('comfyUI', { workflow: 'W1' }, 'c1')
+        return textResponse('Done.')
+      },
+    })
+    vi.mocked(createMainChatModel).mockReturnValue(model)
+
+    await runMediaAgentInMain(runRequest({ conversationKey: 'conv-1', keepModelsLoaded: true }))
+
+    expect(runInProcessComfyToolMock.mock.calls[0][0]).toMatchObject({
+      origin: 'renderer',
+      conversationKey: 'conv-1',
+      keepModelsLoaded: true,
+    })
+  })
+
   it('coerces a bogus workflow to the default via the shipped repair data', async () => {
     let call = 0
     const model = new MockLanguageModelV3({
@@ -212,14 +212,14 @@ describe('runMediaAgentInMain', () => {
     })
     vi.mocked(createMainChatModel).mockReturnValue(model)
 
-    const run = runMediaAgentInMain(runRequest())
-    const payload = await settleBridge({ images: [] })
-    await run
+    await runMediaAgentInMain(runRequest())
 
-    expect(payload.input).toEqual({ workflow: 'W1' })
+    expect(runInProcessComfyToolMock.mock.calls[0][0]).toMatchObject({
+      args: { workflow: 'W1' },
+    })
   })
 
-  it('cancel aborts a pending inner call and the run settles as a failure', async () => {
+  it('cancel aborts a pending in-process run and the specialist settles as a failure', async () => {
     let call = 0
     const model = new MockLanguageModelV3({
       doStream: async () => {
@@ -230,17 +230,31 @@ describe('runMediaAgentInMain', () => {
     })
     vi.mocked(createMainChatModel).mockReturnValue(model)
 
+    runInProcessComfyToolMock.mockImplementation(
+      ({ signal }: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          const fail = () => {
+            const error = new Error('aborted')
+            error.name = 'AbortError'
+            reject(error)
+          }
+          if (signal?.aborted) {
+            fail()
+            return
+          }
+          signal?.addEventListener('abort', fail, { once: true })
+        }),
+    )
+
     const run = runMediaAgentInMain(runRequest())
     await vi.waitFor(() => {
-      if (toolRequests().length === 0) throw new Error('bridge request not sent yet')
+      if (runInProcessComfyToolMock.mock.calls.length === 0) {
+        throw new Error('in-process run not started yet')
+      }
     })
     cancelMediaAgentRun('media-run:test')
 
-    // The aborted stream surfaces as a rejection (AbortError) — the same
-    // throw contract callers had before the move; the pending bridge request
-    // was rejected, so a late settle cannot revive it.
     await expect(run).rejects.toThrow()
-    // Cancelling an unknown run key is a logged no-op, not a throw.
     expect(() => cancelMediaAgentRun('media-run:unknown')).not.toThrow()
   })
 })

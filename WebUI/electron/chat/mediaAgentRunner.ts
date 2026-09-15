@@ -2,27 +2,55 @@ import { NoSuchToolError, type ModelMessage } from 'ai'
 import { appLoggerInstance } from '../logging/logger'
 import { createToolAgent, type ToolAgentEvent, type ToolAgentRunOptions } from '@/lib/toolAgent'
 import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
+import { findSourceImage } from '@/lib/findSourceImage'
 import type { MediaAgentRunRequest, MediaAgentRunResult, WorkflowRepairData } from '@/types/chatIpc'
 import { emitMediaAgentEvent, endMediaAgentRun } from '../kernel/kernelBus'
 import { runMediaRequest } from '../orchestrator/orchestrator'
 import { markDelegatedMediaRun, noteMainChatTurnContext } from '../laminar'
 import { createMainChatModel } from './chatModelMain'
 import { buildToolSet } from './turnEngine'
-import { abortTurnToolRequests } from './toolBridge'
+import { abortTurnToolRequests, executeToolInRenderer } from './toolBridge'
+import { runInProcessComfyTool, type InProcessComfyArgs } from '../artifact/inProcessComfy'
 
 // ── Nested media specialist, run in main (docs/architecture-target.md §8) ───
 //
-// The `media` tool (a renderer-side chat tool, or the Pi agent bridge) used to
-// run a nested `streamText` tool loop in the renderer. Step 6 moves every LLM
-// call to main, so the loop runs here: the renderer ships the resolved request
-// (system prompt, inner tool specs + repair data, model config, source image)
-// and keeps only the tool EXECUTIONS — inner comfy tools still drive the
-// renderer's artifact pipeline — plus the result condensing. Live progress
-// reaches the renderer's timeline as `media-agent-event` kernel events.
+// The nested LLM loop runs here. Inner Comfy tools (comfyUI / comfyUiImageEdit)
+// execute in-process against the Artifact runner (step 12), the way direct
+// generateImage / editImage already do. Screenshot and web-browse stay on the
+// renderer tool bridge. Live progress is `media-agent-event` kernel events.
 
 const appLogger = appLoggerInstance
 
+const INNER_COMFY_TOOLS = new Set(['comfyUI', 'comfyUiImageEdit'])
+
 const activeRuns = new Map<string, AbortController>()
+
+async function executeInnerComfy(
+  request: MediaAgentRunRequest,
+  toolName: string,
+  input: unknown,
+  execOptions: { messages?: ModelMessage[]; abortSignal?: AbortSignal },
+  controller: AbortController,
+): Promise<Record<string, unknown>> {
+  const isEdit = toolName === 'comfyUiImageEdit'
+  const source = isEdit ? findSourceImage(execOptions.messages ?? []) : undefined
+  if (isEdit && !source) {
+    return {
+      success: false,
+      message: 'No image found in conversation. Please upload an image or generate one first.',
+      images: [],
+    }
+  }
+  return await runInProcessComfyTool({
+    kind: isEdit ? 'edit' : 'create',
+    args: (input ?? {}) as InProcessComfyArgs,
+    source: source ?? undefined,
+    origin: request.conversationKey ? 'renderer' : 'agent',
+    conversationKey: request.conversationKey,
+    keepModelsLoaded: request.keepModelsLoaded ?? false,
+    signal: execOptions.abortSignal ?? controller.signal,
+  })
+}
 
 /** Parse a data URI into the file message the nested edit tool discovers. */
 function sourceImageMessage(dataUri: string): ModelMessage {
@@ -34,15 +62,22 @@ function sourceImageMessage(dataUri: string): ModelMessage {
 }
 
 /**
- * Runs one delegated media request. The renderer has registered the inner tool
- * executors under `request.runKey` (chatToolRegistry) before submitting; every
- * inner tool call crosses the tool bridge with the nested message history, so
- * the edit tool's source-image discovery sees the run's own chaining.
+ * Runs one delegated media request. Inner Comfy tools execute in-process.
+ * Other tools (none today) still cross the renderer bridge. Edit source-image
+ * discovery reads the nested ModelMessage history in main.
  */
 export async function runMediaAgentInMain(
   request: MediaAgentRunRequest,
+  abortSignal?: AbortSignal,
 ): Promise<MediaAgentRunResult> {
   const controller = new AbortController()
+  const onAbort = () => controller.abort()
+  if (abortSignal?.aborted) {
+    const error = new Error('Media specialist run aborted.')
+    error.name = 'AbortError'
+    throw error
+  }
+  abortSignal?.addEventListener('abort', onAbort, { once: true })
   activeRuns.set(request.runKey, controller)
   try {
     // One media-request bracket at a time, and never while a generation holds
@@ -55,6 +90,7 @@ export async function runMediaAgentInMain(
       abortSignal: controller.signal,
     })
   } finally {
+    abortSignal?.removeEventListener('abort', onAbort)
     endMediaAgentRun(request.runKey)
     activeRuns.delete(request.runKey)
   }
@@ -72,7 +108,22 @@ async function runMediaAgentBracket(
     request.runKey,
     request.runKey,
     request.repairData,
-    { includeMessages: true },
+    {
+      includeMessages: true,
+      execute: async (spec, input, execOptions) => {
+        if (INNER_COMFY_TOOLS.has(spec.name)) {
+          return await executeInnerComfy(request, spec.name, input, execOptions, controller)
+        }
+        return await executeToolInRenderer({
+          conversationKey: request.runKey,
+          turnId: request.runKey,
+          toolCallId: execOptions.toolCallId,
+          toolName: spec.name,
+          input,
+          messages: execOptions.messages,
+        })
+      },
+    },
   )
   const agent = createToolAgent({
     name: 'mediaAgent',

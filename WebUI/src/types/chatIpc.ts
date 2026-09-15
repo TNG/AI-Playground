@@ -218,7 +218,6 @@ export type ChatToolResult = z.infer<typeof ChatToolResultSchema>
 // ── Nested media specialist run (renderer → main, step 6) ────────────────────
 
 export const MediaAgentRunRequestSchema = z.object({
-  /** Registry key the renderer registered the inner tool set under. */
   runKey: z.string().min(1),
   /** Parent conversation key, when the run serves a chat turn. */
   conversationKey: z.string().optional(),
@@ -234,6 +233,8 @@ export const MediaAgentRunRequestSchema = z.object({
       comfyUiImageEdit: WorkflowRepairDataSchema.optional(),
     })
     .optional(),
+  /** Developer setting: skip the GPU swap around in-process media calls. */
+  keepModelsLoaded: z.boolean().optional(),
   model: ChatModelConfigSchema,
 })
 export type MediaAgentRunRequest = z.infer<typeof MediaAgentRunRequestSchema>

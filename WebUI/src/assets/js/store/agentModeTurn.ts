@@ -71,6 +71,9 @@ export async function buildTurnConfig(options: {
   cloudMode: CloudForTurn
 }): Promise<AgentModeTurnConfig> {
   const toolSpecs = getAgentToolSpecs()
+  const mediaAgent = toolSpecs.some((spec) => spec.name === 'media')
+    ? (await import('../agents/mediaAgent')).serializeMediaAgentInner()
+    : undefined
   const { textInference, cloudMode } = options
   if (textInference.backend === 'cloud') {
     const upstreamBaseUrl = cloudMode.activeProviderBaseUrl
@@ -98,6 +101,7 @@ export async function buildTurnConfig(options: {
           : undefined,
       },
       toolSpecs,
+      mediaAgent,
       presetName: options.presetName,
       instructions: options.instructions,
       capabilities: options.capabilities,
@@ -127,6 +131,7 @@ export async function buildTurnConfig(options: {
       samplingParams: buildSamplingParams(textInference),
     },
     toolSpecs,
+    mediaAgent,
     presetName: options.presetName,
     instructions: options.instructions,
     capabilities: options.capabilities,

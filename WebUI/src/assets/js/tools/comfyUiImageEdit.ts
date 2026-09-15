@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
-import { FilePart, ModelMessage, tool } from 'ai'
+import { ModelMessage, tool } from 'ai'
+import { findSourceImage } from '@/lib/findSourceImage'
 import { useImageGenerationPresets } from '../store/imageGenerationPresets'
 import { useActivities } from '../store/activities'
 import { useConversations } from '../store/conversations'
@@ -11,6 +12,8 @@ import { usePromptStore } from '../store/promptArea'
 import { DEV_PRESET_NAMES, dummyWorkflowsOnly } from '../store/devPresets'
 import { artifactKindForMedia, runArtifact } from '../artifact/runArtifact'
 import { isCancellation } from '../errors/appError'
+
+export { findSourceImage }
 
 const ImageEditImageOutputSchema = z.object({
   id: z.string(),
@@ -55,97 +58,6 @@ export const ImageEditToolOutputSchema = z
   .passthrough()
 
 export type ImageEditToolOutput = z.infer<typeof ImageEditToolOutputSchema>
-
-function convertFilePartToDataUrl(data: FilePart['data']): string {
-  if (typeof data === 'string' && data.startsWith('data:image/')) {
-    return data
-  }
-  console.error('[ComfyUIImageEdit Tool] Unsupported file part data format:', data)
-  throw new Error('Only data URL images are supported')
-}
-
-// Helper to extract images from tool result output
-// Handles JSON output structure: { type: "json", value: { images: [...] } }
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractImageGenToolResult(part: any): { type?: string; imageUrl?: string } | null {
-  const result = part.output ?? part.result
-  if (!result) return null
-
-  const images = result.type === 'json' ? result.value?.images : null
-  if (!images) return null
-
-  return (
-    images.find(
-      (img: { type?: string; imageUrl?: string }) => img.type === 'image' && img.imageUrl,
-    ) ?? null
-  )
-}
-
-// Check if the user dragged/attached an image into the current prompt (last user message).
-// This takes priority over any other image in the conversation.
-function findImageInCurrentPrompt(messages: ModelMessage[]): string | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i]
-    if (msg.role !== 'user' || !Array.isArray(msg.content)) continue
-
-    const imagePart = (msg.content as Array<{ type: string; mediaType?: string }>).findLast(
-      (part): part is FilePart =>
-        part.type === 'file' && part.mediaType?.startsWith('image/') === true,
-    )
-    if (imagePart) {
-      console.log('[ComfyUIImageEdit Tool] Found image in current user prompt')
-      return convertFilePartToDataUrl(imagePart.data)
-    }
-    // Found the last user message but it has no image - stop looking
-    break
-  }
-  return null
-}
-
-// Walk backwards through conversation to find the most recent image regardless of source.
-// Checks each message for either a generated image (tool result) or an uploaded image (user file),
-// returning whichever appears latest in the conversation.
-function findLatestImageInConversation(messages: ModelMessage[]): string | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i]
-    if (!Array.isArray(msg.content)) continue
-
-    // Check tool result messages for generated images
-    if (msg.role === 'tool') {
-      for (const part of msg.content) {
-        if (
-          part.type === 'tool-result' &&
-          // 'media' is the thin delegation tool (tools/media.ts): its
-          // model-facing output carries the same slim `images` array, so a
-          // follow-up edit can chain off a delegated generation.
-          (part.toolName === 'comfyUI' ||
-            part.toolName === 'comfyUiImageEdit' ||
-            part.toolName === 'media')
-        ) {
-          const image = extractImageGenToolResult(part)
-          if (image?.imageUrl) return image.imageUrl
-        }
-      }
-    }
-
-    // Check user messages for uploaded images
-    if (msg.role === 'user') {
-      const imagePart = (msg.content as Array<{ type: string; mediaType?: string }>).findLast(
-        (part): part is FilePart =>
-          part.type === 'file' && part.mediaType?.startsWith('image/') === true,
-      )
-      if (imagePart) return convertFilePartToDataUrl(imagePart.data)
-    }
-  }
-  return null
-}
-
-// Image selection priority:
-// 1. Image dragged into the current prompt (explicit user intent)
-// 2. Most recent image in conversation by message position (generated or uploaded)
-export function findSourceImage(messages: ModelMessage[]): string | null {
-  return findImageInCurrentPrompt(messages) ?? findLatestImageInConversation(messages)
-}
 
 export function getAvailableEditWorkflows(): Array<{
   name: string

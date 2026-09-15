@@ -8,10 +8,9 @@ import { buildDirectMediaTools } from './mediaDirect.ts'
 // The AIPG media tools (image/video/3D generation and editing). Which tools
 // exist is decided by the renderer and shipped with the turn as `toolSpecs`:
 // one thin `media` delegation tool when tool delegation is on, else
-// generateImage + editImage. The delegation tool proxies the renderer's media
-// specialist (mediaDelegation.ts); the direct tools execute in-process
-// against the main-side artifact runner (mediaDirect.ts) — step 5 of
-// architecture-target §8 — so this module only routes specs to their executor.
+// generateImage + editImage. Direct tools and the NL specialist's inner Comfy
+// tools both execute in-process against the Artifact runner (steps 5 and 12).
+// Screenshot / web-browse stay on the renderer bridge.
 
 const MEDIA_GENERATION_SKILL = {
   name: 'media-generation',

@@ -1,14 +1,15 @@
 # Architecture as landed — processes, persistence, common sequences
 
-**This is the implementation after migration steps 1–11**, not the target in
+**This is the implementation after migration steps 1–12**, not the target in
 [`architecture-target.md`](./architecture-target.md). That file's §2 "Today" diagram is the
 draft-time symptom picture (chat `streamText` in the renderer, media as UI mutation). Steps 1–7
 moved Artifact, chat turns, the kernel bus and the orchestrator into main; step 8 moved app data
 onto kernel-owned files; step 9 moved RAG retrieval and the embedding-server ensure into the chat
 engine; step 10 put chat turns on the orchestrator as `text` occupancy; step 11 moved transcript
 *when* onto the engines (chat file on turn start/end, renderer-origin gallery items from the
-artifact runner, agent-session records on turn complete / capability rewrite). What this document
-shows is how those pieces actually talk today.
+artifact runner, agent-session records on turn complete / capability rewrite); step 12 moved the
+NL `media` specialist's inner Comfy tools in-process (Pi `media` no longer `executeToolInRenderer`).
+What this document shows is how those pieces actually talk today.
 What is still missing, and in which order, is [`architecture-target.md` §8.3](./architecture-target.md#83-remaining-order-toward-the-goal).
 
 The Mermaid here is the reviewable source. Paste any block into Excalidraw's _Mermaid to Excalidraw_
@@ -309,10 +310,10 @@ sequenceDiagram
   Eng->>Files: saveConversation(messages + assistant)
 ```
 
-A tool call round-trips to the renderer (`chat:executeTool`): the closures still live in Pinia.
-Direct Agent Mode image tools skip that and call the runner in-process; the NL `media`
-specialist still `executeToolInRenderer`. The tool bridge times out a wedged renderer
-closure after 10 minutes.
+A tool call round-trips to the renderer (`chat:executeTool`): parent-turn chat tools still live
+in Pinia. Direct Agent Mode image tools and the NL `media` specialist's inner Comfy tools skip
+that and call the runner in-process. Screenshot and web-browse still `executeToolInRenderer`.
+The tool bridge times out a wedged renderer closure after 10 minutes.
 
 ---
 

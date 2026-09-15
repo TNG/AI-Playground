@@ -392,6 +392,12 @@ function capHistoryImages(messages: ModelMessage[]): {
  * names. Everything else passes through unvalidated, same as today's model
  * args that zod would have caught surface as errors only via the executor.
  */
+type ToolExecuteOptions = {
+  toolCallId: string
+  messages?: ModelMessage[]
+  abortSignal?: AbortSignal
+}
+
 export function buildToolSet(
   specs: ChatToolSpec[],
   conversationKey: string,
@@ -401,10 +407,16 @@ export function buildToolSet(
     /**
      * Ship the live ModelMessage history with each bridge request — needed
      * when the tool set belongs to a nested run whose history the renderer
-     * cannot reconstruct from a conversation (the media specialist's edit
-     * tool discovers its source image in the nested history).
+     * cannot reconstruct from a conversation. Inner Comfy source discovery
+     * now runs in main (step 12); this remains for any still-bridged tool.
      */
     includeMessages?: boolean
+    /** Override the renderer tool bridge (media specialist inner Comfy, step 12). */
+    execute?: (
+      spec: ChatToolSpec,
+      input: unknown,
+      execOptions: ToolExecuteOptions,
+    ) => Promise<unknown>
   },
 ): ToolSet {
   const tools: ToolSet = {}
@@ -433,15 +445,22 @@ export function buildToolSet(
             },
           })
         : jsonSchema(spec.inputSchema as JSONSchema7),
-      execute: async (input, execOptions) =>
-        await executeToolInRenderer({
+      execute: async (input, execOptions) => {
+        const exec: ToolExecuteOptions = {
+          toolCallId: execOptions.toolCallId,
+          messages: execOptions.messages,
+          abortSignal: execOptions.abortSignal,
+        }
+        if (options?.execute) return await options.execute(spec, input, exec)
+        return await executeToolInRenderer({
           conversationKey,
           turnId,
-          toolCallId: execOptions.toolCallId,
+          toolCallId: exec.toolCallId,
           toolName: spec.name,
           input,
-          ...(options?.includeMessages ? { messages: execOptions.messages } : {}),
-        }),
+          ...(options?.includeMessages ? { messages: exec.messages } : {}),
+        })
+      },
     }) as ToolSet[string]
   }
   return tools

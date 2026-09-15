@@ -1,7 +1,7 @@
 import { tool, type ModelMessage } from 'ai'
 import { z } from 'zod'
 import { runMediaAgent, MediaAgentMediaSchema } from '../agents/mediaAgent'
-import { findSourceImage } from './comfyUiImageEdit'
+import { findSourceImage } from '@/lib/findSourceImage'
 import { slimMediaModelOutput } from '@/lib/mediaModelOutput'
 import { useActivities } from '../store/activities'
 import { useConversations } from '../store/conversations'

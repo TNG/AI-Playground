@@ -20,7 +20,9 @@ import {
   clearAgentTraceContext,
   setAgentTraceContext,
 } from '../laminarAttributes.ts'
-import type { AgentModeModelConfig, AgentModeTurnConfig } from '@/types/agentIpc'
+import type { AgentModeTurnConfig } from '@/types/agentIpc'
+import { chatModelFromAgentConfig } from './chatModelFromAgent.ts'
+import { setMediaSpecialistTurn } from './capabilities/mediaDelegation.ts'
 import { piAgentDir, piSessionDir, loadSessionFilePath, savePointer } from './piSessionStore.ts'
 import { compactionSettingsForWindow } from './piCompaction.ts'
 import {
@@ -79,6 +81,7 @@ export async function endActiveSession(): Promise<void> {
   clearAgentTraceContext()
   clearAgentRunIdentity()
   rejectAllPendingToolCalls('Agent session ended.')
+  setMediaSpecialistTurn(null)
   if (!current) return
   current.unsubscribe()
   await shutdownSessionExtensions(current.session)
@@ -148,6 +151,8 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     sessionId,
     workspaceDir,
     toolSpecs: config.toolSpecs ?? [],
+    mediaAgent: config.mediaAgent,
+    chatModel: chatModelFromAgentConfig(config.modelConfig),
     agentDir: piAgentDir(),
     contextWindow: config.modelConfig.contextWindow,
     keepModelsLoaded: config.keepModelsLoaded ?? false,
@@ -412,14 +417,28 @@ function hideDormantTools(session: AgentSession, dormantToolNames: string[]): vo
   session.setActiveToolsByName(session.getActiveToolNames().filter((name) => !dormant.has(name)))
 }
 
+function applyMediaSpecialistTurn(config: AgentModeTurnConfig): void {
+  setMediaSpecialistTurn(
+    config.mediaAgent
+      ? {
+          mediaAgent: config.mediaAgent,
+          chatModel: chatModelFromAgentConfig(config.modelConfig),
+          keepModelsLoaded: config.keepModelsLoaded ?? false,
+        }
+      : null,
+  )
+}
+
 export async function ensureSession(config: AgentModeTurnConfig): Promise<ActiveSession> {
   const configKey = configKeyOf(config)
   if (active && active.configKey === configKey) {
+    applyMediaSpecialistTurn(config)
     await reassertPreviewUrl(active)
     return active
   }
   await endActiveSession()
   const next = await createSession(config)
+  applyMediaSpecialistTurn(config)
   setActive(next)
   return next
 }

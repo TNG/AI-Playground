@@ -1,4 +1,5 @@
 import z from 'zod'
+import { ChatToolSpecSchema, WorkflowRepairDataSchema } from './chatIpc'
 
 const SamplingParamsSchema = z.record(z.string(), z.unknown())
 
@@ -51,6 +52,23 @@ export const AgentModeTurnConfigSchema = z.object({
   workspaceDir: z.string().min(1),
   modelConfig: AgentModeModelConfigSchema,
   toolSpecs: z.array(AgentToolSpecSchema).optional(),
+  /**
+   * Inner specialist catalog, shipped when the turn has the NL `media` tool.
+   * Main runs those Comfy tools in-process (step 12); the renderer only
+   * resolves which workflows are enabled.
+   */
+  mediaAgent: z
+    .object({
+      system: z.string(),
+      toolSpecs: z.array(ChatToolSpecSchema),
+      repairData: z
+        .object({
+          comfyUI: WorkflowRepairDataSchema.optional(),
+          comfyUiImageEdit: WorkflowRepairDataSchema.optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   instructions: z.string().optional(),
   /** The agent preset this turn was held with, for labelling its trace. */
   presetName: z.string().optional(),

@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest'
-import { makeWriteChains } from '../fsJsonStore'
+import { describe, expect, it, vi } from 'vitest'
+
+vi.mock('../logging/logger', () => ({
+  appLoggerInstance: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}))
+
+const { makeWriteChains } = await import('../fsJsonStore')
 
 describe('makeWriteChains', () => {
   it('prunes a settled key so the map does not grow without bound', async () => {
@@ -21,6 +26,16 @@ describe('makeWriteChains', () => {
     release()
     await first
     await second
+    expect(chains.pendingCountForTest()).toBe(0)
+  })
+
+  it('prunes after a rejected run without leaving an unhandled rejection', async () => {
+    const chains = makeWriteChains()
+    await expect(
+      chains.serialize('a', async () => {
+        throw new Error('nope')
+      }),
+    ).rejects.toThrow('nope')
     expect(chains.pendingCountForTest()).toBe(0)
   })
 })

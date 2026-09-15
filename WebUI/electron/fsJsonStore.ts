@@ -78,9 +78,11 @@ export function makeWriteChains(): WriteChains {
       const previous = chains.get(id) ?? Promise.resolve()
       const next = previous.then(run, run)
       chains.set(id, next)
-      void next.finally(() => {
-        if (chains.get(id) === next) chains.delete(id)
-      })
+      void next
+        .finally(() => {
+          if (chains.get(id) === next) chains.delete(id)
+        })
+        .catch(() => {})
       return next
     },
     clear(): void {

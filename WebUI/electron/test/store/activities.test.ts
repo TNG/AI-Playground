@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 const { useActivities } = await import('@/assets/js/store/activities')
@@ -6,6 +6,14 @@ const { useActivities } = await import('@/assets/js/store/activities')
 describe('chatActivity', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    globalThis.window = {
+      electronAPI: { setLifecycleBusy: () => {} },
+    } as unknown as Window & typeof globalThis
+  })
+
+  afterEach(() => {
+    // @ts-expect-error test teardown of the fake window
+    delete globalThis.window
   })
 
   it('falls back to a global backend load when the chat has no scoped activity', () => {

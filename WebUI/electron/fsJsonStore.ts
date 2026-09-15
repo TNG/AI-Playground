@@ -68,6 +68,7 @@ export async function listFileIds(
 export type WriteChains = {
   serialize<T>(id: string, run: () => Promise<T>): Promise<T>
   clear(): void
+  pendingCountForTest(): number
 }
 
 export function makeWriteChains(): WriteChains {
@@ -77,10 +78,16 @@ export function makeWriteChains(): WriteChains {
       const previous = chains.get(id) ?? Promise.resolve()
       const next = previous.then(run, run)
       chains.set(id, next)
+      void next.finally(() => {
+        if (chains.get(id) === next) chains.delete(id)
+      })
       return next
     },
     clear(): void {
       chains.clear()
+    },
+    pendingCountForTest(): number {
+      return chains.size
     },
   }
 }

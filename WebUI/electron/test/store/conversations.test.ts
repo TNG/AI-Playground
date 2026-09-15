@@ -133,6 +133,32 @@ describe('useConversations hydration', () => {
     expect(store.conversationList['100']).toEqual([])
   })
 
+  it('migrates leftover when files own an empty index (stranded-list rescue)', async () => {
+    api.bootstrap.mockResolvedValue(okBootstrap([]))
+    api.migrate.mockImplementation(async (payload: unknown) => {
+      const legacy = payload as { conversationList: Record<string, unknown[]> }
+      const ids = Object.keys(legacy.conversationList)
+      return okBootstrap(
+        ids.map((id) => ({ id, meta: null, ragHashes: [], messages: [] })),
+        null,
+      )
+    })
+    storage.set(
+      'conversations',
+      JSON.stringify({
+        conversationList: { '100': [{ id: 'u', role: 'user', parts: [] }] },
+      }),
+    )
+    const { useConversations } = await import('@/assets/js/store/conversations')
+    const store = useConversations()
+
+    await store.init()
+
+    expect(api.migrate).toHaveBeenCalledTimes(1)
+    expect(store.conversationList['100']).toEqual([])
+    expect(storage.has('conversations')).toBe(false)
+  })
+
   it('skips migration on a fresh install with no legacy key', async () => {
     api.bootstrap.mockResolvedValue({ status: 'empty' })
     const { useConversations } = await import('@/assets/js/store/conversations')

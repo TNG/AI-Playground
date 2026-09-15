@@ -220,6 +220,29 @@ describe('useAgentMode session hydration', () => {
     expect(key.mcpServerIds).toEqual(['mcp-1'])
   })
 
+  it('migrates leftover when files own an empty index (stranded-records rescue)', async () => {
+    agentModeApi.bootstrapSessions.mockResolvedValue({
+      status: 'ok',
+      activeSessionId: null,
+      sessions: [],
+    })
+    agentModeApi.migrateSessions.mockResolvedValue({
+      status: 'ok',
+      activeSessionId: 'aipg-agent-1',
+      sessions: [wireRecord('aipg-agent-1')],
+    })
+    storage.set(
+      'agentMode',
+      JSON.stringify({ sessions: { 'aipg-agent-1': wireRecord('aipg-agent-1') } }),
+    )
+    const store: Store = useAgentMode()
+
+    await store.init()
+
+    expect(agentModeApi.migrateSessions).toHaveBeenCalledTimes(1)
+    expect(store.sessions['aipg-agent-1']).toBeDefined()
+  })
+
   it('keeps the legacy payload when the upload fails, so the next boot retries', async () => {
     agentModeApi.bootstrapSessions.mockResolvedValue({ status: 'empty' })
     agentModeApi.migrateSessions.mockResolvedValue({ status: 'error', error: 'disk full' })

@@ -342,7 +342,7 @@ describe('migrateLegacyConversations', () => {
     expect(again.status).toBe('ok')
   })
 
-  it('does not overwrite an existing index on a second migrate', async () => {
+  it('merges into an existing index instead of refusing (the stranded-threads rescue)', async () => {
     await migrateLegacyConversations({
       conversationList: { '100': [userMessage('first')] },
       conversationThreadMeta: {},
@@ -350,15 +350,33 @@ describe('migrateLegacyConversations', () => {
       lastMainKey: '100',
     })
     const second = await migrateLegacyConversations({
-      conversationList: { '999': [userMessage('attacker')] },
+      conversationList: { '999': [userMessage('rescued')] },
       conversationThreadMeta: {},
       conversationRagSelection: {},
       lastMainKey: '999',
     })
     expect(second).toMatchObject({ status: 'ok', lastMainKey: '100' })
     if (second.status !== 'ok') return
-    expect(second.threads.map((thread) => thread.id)).toEqual(['100'])
-    expect(await listDir(dirs.real)).not.toContain('999.json')
+    expect(second.threads.map((thread) => thread.id).sort()).toEqual(['100', '999'])
+    expect(await listDir(dirs.real)).toEqual(expect.arrayContaining(['100.json', '999.json']))
+  })
+
+  it('is idempotent: an id the files already hold is not written twice', async () => {
+    await migrateLegacyConversations({
+      conversationList: { '100': [userMessage('first')] },
+      conversationThreadMeta: {},
+      conversationRagSelection: {},
+      lastMainKey: '100',
+    })
+    const second = await migrateLegacyConversations({
+      conversationList: { '100': [userMessage('attacker')] },
+      conversationThreadMeta: {},
+      conversationRagSelection: {},
+      lastMainKey: '100',
+    })
+    if (second.status !== 'ok') throw new Error('expected ok')
+    const messages = second.threads[0].messages as { parts: { text?: string }[] }[]
+    expect(messages[0].parts[0].text).toBe('first')
   })
 
   it('migrates the Home Agent singleton id', async () => {

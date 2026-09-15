@@ -468,7 +468,7 @@ function getToolDefinition() {
         'CRITICAL: Do NOT include resolution, aspect ratio, dimensions, or size information in the prompt text itself. These should ONLY be passed as separate parameters (aspectRatio, megapixels, or resolution).',
       inputSchema: z.object({
         workflow: z
-          .string()
+          .enum([defaultWorkflow] as [string, ...string[]])
           .describe(
             `Workflow name to use for generation. Use ${defaultWorkflow} (default, will automatically use "Fast" variant if available, least resource intensive) unless user specifically requests higher quality or different model.`,
           ),
@@ -576,10 +576,12 @@ function getToolDefinition() {
     }
   }
 
-  // Build workflow enum or string description
+  // Build workflow enum. Fail closed when the catalog is empty: the bootstrap
+  // fallback names only the default, never a free-form string.
   const workflowNames = availableWorkflows.map((w) => w.name)
-  const workflowEnum =
-    workflowNames.length > 0 ? z.enum(workflowNames as [string, ...string[]]) : z.string()
+  const workflowEnum = z.enum(
+    (workflowNames.length > 0 ? workflowNames : [defaultWorkflow]) as [string, ...string[]],
+  )
 
   let workflowDescription = `Workflow name to use for generation. Available options: ${workflowOptions}. `
   workflowDescription += `Use ${defaultWorkflow} (will automatically use "Fast" variant if available, equivalent to '${defaultWorkflowWithVariant}') unless user specifically requests higher quality or different model. `

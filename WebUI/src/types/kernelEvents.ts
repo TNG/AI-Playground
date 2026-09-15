@@ -240,7 +240,8 @@ export type KernelEvent = KernelEventPayload & KernelEventEnvelope
 /**
  * The accumulated state of the one agent turn main can be running, for a
  * renderer that (re)connects halfway through. Chunks are stored accumulated —
- * never as individual deltas to replay as events.
+ * adjacent text/reasoning deltas of the same part are merged, never as
+ * individual token events to replay.
  */
 export type AgentTurnSnapshot = {
   turnId: string

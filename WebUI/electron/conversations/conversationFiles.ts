@@ -210,25 +210,27 @@ export async function bootstrapConversations(): Promise<ConversationBootstrap> {
 
 /**
  * One-shot legacy upload (§6.1: "localStorage migrates once, do not
- * dual-write"). Writes every legacy thread as a file plus the index, then the
- * renderer drops its localStorage key. Empty lists are fine — the point is
- * that an index now exists, so this never runs again.
+ * dual-write"), as an idempotent merge: ids the files already hold are
+ * skipped, and a pre-existing index is NOT a reason to refuse — a boot whose
+ * bootstrap failed can have written an empty index while the legacy threads
+ * stayed stranded in localStorage. Empty lists are fine — the point is that
+ * an index now exists, so this never runs again.
  */
 export async function migrateLegacyConversations(
   legacy: ConversationLegacyState,
 ): Promise<ConversationBootstrap> {
   return serialize(INDEX_CHAIN, async () => {
     const existing = await readIndex()
-    if (existing !== null) return bootstrapFromIndex(existing)
     const now = Date.now()
-    const ids = Object.keys(legacy.conversationList)
-    const entries: ConversationIndexEntry[] = []
-    const threads: HydratedThread[] = []
-    for (const id of ids) {
+    const known = new Set(existing?.threads.map((entry) => entry.id) ?? [])
+    const entries: ConversationIndexEntry[] = existing ? [...existing.threads] : []
+    let wroteAny = false
+    for (const id of Object.keys(legacy.conversationList)) {
       if (!isSafeFileId(id)) {
         appLogger.warn(`skipping unsafe legacy conversation id: ${id}`, 'conversations')
         continue
       }
+      if (known.has(id)) continue
       const messages = sanitizeMessages(legacy.conversationList[id])
       const meta = legacy.conversationThreadMeta[id] ?? null
       const doc: ConversationThreadFile = {
@@ -246,15 +248,16 @@ export async function migrateLegacyConversations(
         kind: meta?.kind,
         updatedAt: now,
       })
-      threads.push(hydratedThread(id, doc))
+      known.add(id)
+      wroteAny = true
     }
     const index: ConversationIndexFile = {
       schemaVersion: 1,
-      lastMainKey: legacy.lastMainKey,
+      lastMainKey: existing?.lastMainKey ?? legacy.lastMainKey,
       threads: entries,
     }
-    await writeIndex(index)
-    return { status: 'ok' as const, lastMainKey: index.lastMainKey, threads }
+    if (existing === null || wroteAny) await writeIndex(index)
+    return bootstrapFromIndex(index)
   })
 }
 

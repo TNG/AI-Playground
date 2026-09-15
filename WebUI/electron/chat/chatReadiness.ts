@@ -28,6 +28,7 @@ export type EnsureChatBackendReadyOptions = {
   abortSignal?: AbortSignal
   remember?: boolean
   conversationKey?: string
+  activityLabel?: string
 }
 
 export type ChatBackendHandle = {
@@ -115,7 +116,7 @@ export async function ensureChatBackendReady(
   const activity = {
     id: `backend-load-${randomUUID()}`,
     category: 'backend' as const,
-    label: `Loading ${args.llmModelName}…`,
+    label: options?.activityLabel ?? `Loading ${args.llmModelName}…`,
     scope: options?.conversationKey
       ? { kind: 'chat' as const, conversationKey: options.conversationKey }
       : { kind: 'global' as const },
@@ -196,5 +197,8 @@ export async function reloadLastChatBackend(): Promise<void> {
   if (!lastLoad || !lastLoadActive) return
   // Swap-back already set gpuWindow to 'chat' and is running inside
   // swapBackInFlight; awaiting the window here deadlocks.
-  await ensureChatBackendReady(lastLoad, { skipGpuAdmission: true })
+  await ensureChatBackendReady(lastLoad, {
+    skipGpuAdmission: true,
+    activityLabel: 'Reloading chat model…',
+  })
 }

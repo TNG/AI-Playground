@@ -1017,6 +1017,15 @@ None. Agent Mode and Home Agent `/load` occupy as orchestrator `text` requests (
 
 #### Remaining cheap leftovers
 
+Closed on this pass: `AgentTurnSnapshot.chunks` merge adjacent text/reasoning deltas of the
+same part (live events still stream per token); `onToolProgress` buffers onto `pendingResume`;
+generate `workflow` is `z.enum` (empty catalog falls back to the default name, never a free-form
+string); swap-back emits `Reloading chat model…` as a global backend activity and `chatActivity`
+falls back to that; `writeChains` prune after settle; conversations and agent-session migrate
+merge missing ids like media, and the renderer also uploads leftover when bootstrap is `ok` with
+an empty list; a corrupt agent-session file hydrates as a placeholder (empty transcript /
+workspace — `switchSession` does not adopt the empty folder).
+
 **Permissions**
 
 - **Grant vocabulary is not this leftover.** Named verbs (`requestDownload` /
@@ -1026,12 +1035,9 @@ None. Agent Mode and Home Agent `/load` occupy as orchestrator `text` requests (
 
 **Projection / lifecycle**
 
-- **`AgentTurnSnapshot.chunks` accumulates unbounded per turn.** Cap the tail if a reconnect ever
-  replays too much.
 - **Three projections subscribe independently** (backendServices, agentModeIpc,
   imageGenerationPresets). Converge when `getSnapshot` grows heavier.
 - **`getServices` IPC still exists** as an explicit refresh and for the setup wizard.
-- **`onToolProgress` is not buffered during `pendingResume`.**
 - **Leftover window captures / point-to-point sends.** ComfyUI still does
   `this.win.webContents.send('show-toast', …)`. Also still off-bus: `serviceSetUpProgress`,
   `debugLog`, `webBrowser:stateChanged`.
@@ -1042,13 +1048,9 @@ None. Agent Mode and Home Agent `/load` occupy as orchestrator `text` requests (
   state).
 - **Consent pings are a heartbeat, not download progress.**
 - **No Pi-side tool-call repair** (loud "not available" vs the renderer's workflow-name coerce).
-- **The generate spec's `workflow` is still a plain string** (edit spec already has an enum).
 
 **Chat / orchestrator**
 
-- **Swap-back is silent** (no "Reloading chat model…" activity). Last-load follows the dropdown via
-  `rememberChatBackendLoad`; Home Agent `/load` summarization pauses that watch and passes
-  `remember: false`. Reload still skips `awaitChatWindow` (deadlock otherwise).
 - **Media-specialist progress is not snapshotted.**
 - **Chat trace context is one last-write-wins slot** across concurrent conversations.
 - **`chat:summarize` is coarse** — no cancellation and no per-conversation scoping.
@@ -1061,10 +1063,6 @@ None. Agent Mode and Home Agent `/load` occupy as orchestrator `text` requests (
   renderer-origin media persist from the engine (step 11). Agent UIMessage records still assemble
   in the renderer Chat and write on turn complete — main does not reconstruct them (step 15).
 - **`lastMainKey` is persisted but no UI reads it.** Wire it when the history filter needs it.
-- **`writeChains` is never pruned.**
-- **Conversations and agent-session migrate still refuse a pre-existing index** (media gallery
-  merge is the rescue those slices do not have).
-- **Agent sessions: a corrupt record file is skipped, not placeholder-hydrated.**
 - **The agentMode legacy Pinia key is slimmed, not dropped** (preferences remain).
 
 **Still open from the original map (§10), not a landed-step leftover:** exact grant vocabulary,

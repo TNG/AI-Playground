@@ -115,14 +115,23 @@ describe('bootstrapAgentSessions', () => {
     expect(boot.activeSessionId).toBeNull()
   })
 
-  it('skips a session file that fails its schema instead of hydrating it', async () => {
-    await saveAgentSession(record('aipg-agent-1'))
+  it('hydrates a corrupt session file as a placeholder so the id stays listed', async () => {
+    await saveAgentSession(record('aipg-agent-1', { updatedAt: 9 }))
     const file = path.join(dirs.real, 'aipg-agent-1.json')
     await fs.writeFile(file, JSON.stringify({ schemaVersion: 1, id: 'aipg-agent-1' }), 'utf8')
 
     const boot = await bootstrapAgentSessions()
     if (boot.status !== 'ok') throw new Error('expected ok')
-    expect(boot.sessions).toEqual([])
+    expect(boot.sessions).toEqual([
+      {
+        id: 'aipg-agent-1',
+        workspaceDir: '',
+        title: 'Unavailable session',
+        createdAt: 9,
+        updatedAt: 9,
+        messages: [],
+      },
+    ])
   })
 
   it('rebuilds from session files when index.json is missing but records remain', async () => {
@@ -150,7 +159,7 @@ describe('bootstrapAgentSessions', () => {
 })
 
 describe('migrateLegacyAgentSessions', () => {
-  it('uploads records once and never overwrites an existing index', async () => {
+  it('merges into an existing index instead of refusing (the stranded-records rescue)', async () => {
     const first = await migrateLegacyAgentSessions({
       sessions: { 'aipg-agent-1': record('aipg-agent-1') },
       activeSessionId: 'aipg-agent-1',
@@ -161,9 +170,25 @@ describe('migrateLegacyAgentSessions', () => {
       sessions: { 'aipg-agent-2': record('aipg-agent-2') },
       activeSessionId: 'aipg-agent-2',
     })
-    expect(second).toMatchObject({ status: 'ok' })
+    expect(second).toMatchObject({ status: 'ok', activeSessionId: 'aipg-agent-1' })
     if (second.status !== 'ok') return
-    expect(second.sessions.map((session) => session.id).sort()).toEqual(['aipg-agent-1'])
+    expect(second.sessions.map((session) => session.id).sort()).toEqual([
+      'aipg-agent-1',
+      'aipg-agent-2',
+    ])
+  })
+
+  it('is idempotent: an id the files already hold is not written twice', async () => {
+    await migrateLegacyAgentSessions({
+      sessions: { 'aipg-agent-1': record('aipg-agent-1', { title: 'first' }) },
+      activeSessionId: 'aipg-agent-1',
+    })
+    const boot = await migrateLegacyAgentSessions({
+      sessions: { 'aipg-agent-1': record('aipg-agent-1', { title: 'attacker' }) },
+      activeSessionId: 'aipg-agent-1',
+    })
+    if (boot.status !== 'ok') throw new Error('expected ok')
+    expect(boot.sessions.map((session) => session.title)).toEqual(['first'])
   })
 
   it('skips unsafe ids and records that fail the schema', async () => {

@@ -182,6 +182,29 @@ describe('agentMode sessions', () => {
     expect(store.workspaceDir).toBe('/code/older')
   })
 
+  it('does not adopt an empty workspaceDir when resuming a placeholder session', async () => {
+    const store = useAgentMode()
+    seedSessions(store)
+    store.workspaceDir = '/code/project'
+    store.sessions = {
+      ...store.sessions,
+      missing: {
+        id: 'missing',
+        workspaceDir: '',
+        title: 'Unavailable session',
+        messages: [],
+        createdAt: 9,
+        updatedAt: 9,
+        presetName: 'Agent',
+      },
+    }
+
+    await store.switchSession('missing')
+
+    expect(store.activeSessionId).toBe('missing')
+    expect(store.workspaceDir).toBe('/code/project')
+  })
+
   // Everything archived before sessions recorded a preset would otherwise show
   // up under every preset, forever.
   it('assigns older sessions the preset their folder implies', async () => {

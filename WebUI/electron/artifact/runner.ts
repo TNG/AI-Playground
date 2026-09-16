@@ -259,6 +259,12 @@ function setPhase(
   if (run.settled) return
   run.phase = phase
   emitArtifactPhase(run.payload.runId, phase, progress)
+  if (phase === 'running') {
+    const current = run.items[run.generateIdx]
+    if (current?.state === 'queued') {
+      emitItem(run, { ...current, state: 'generating' } as MediaItem)
+    }
+  }
   armIdleTimeout(run)
 }
 

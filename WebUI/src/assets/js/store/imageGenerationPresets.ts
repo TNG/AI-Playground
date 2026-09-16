@@ -902,27 +902,34 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
   ): void {
     switch (phase) {
       case 'queued':
+        processing.value = true
         break
       case 'preparing-backend':
+        processing.value = true
         currentState.value = 'start_backend'
         stepText.value = ''
         break
       case 'installing-components':
+        processing.value = true
         currentState.value = 'install_workflow_components'
         break
       case 'loading-components':
+        processing.value = true
         currentState.value = 'load_workflow_components'
         break
       case 'loading-model':
+        processing.value = true
         currentState.value = 'load_model'
         break
       case 'running':
+        processing.value = true
         currentState.value = 'generating'
         if (progress) {
           stepText.value = `${i18nState.COM_GENERATING} ${progress.current}/${progress.max}`
         }
         break
       case 'completed':
+        processing.value = false
         currentState.value = 'image_out'
         stepText.value = ''
         untrackArtifactRun(runId)
@@ -1134,26 +1141,33 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     await backendServices.resetLastUsedInferenceBackend(inferenceBackendService)
     await backendServices.updateLastUsedBackend(inferenceBackendService)
 
+    // Overlay and prompt-bar busy flag used to flip on the renderer websocket's
+    // execution_start; the runner is in main now, so raise them here.
+    processing.value = true
+    currentState.value = 'start_backend'
     stepText.value = i18nState.COM_GENERATING
-    currentState.value = 'no_start'
 
     // UI runs are top-level: no parent activity (the runner resets the stale
     // tool-parented value the previous chat run may have left behind).
-    return await runArtifact({
-      kind: MODE_TO_ARTIFACT_KIND[mode],
-      workflow: preset.name,
-      variant: presetsStore.activeVariantName[preset.name] || undefined,
-      mode,
-      prompt: prompt.value,
-      negativePrompt: negativePrompt.value,
-      params: {
-        seed: seed.value,
-        width: width.value,
-        height: height.value,
-        inferenceSteps: inferenceSteps.value,
-        batchSize: batchSize.value,
-      },
-    })
+    try {
+      return await runArtifact({
+        kind: MODE_TO_ARTIFACT_KIND[mode],
+        workflow: preset.name,
+        variant: presetsStore.activeVariantName[preset.name] || undefined,
+        mode,
+        prompt: prompt.value,
+        negativePrompt: negativePrompt.value,
+        params: {
+          seed: seed.value,
+          width: width.value,
+          height: height.value,
+          inferenceSteps: inferenceSteps.value,
+          batchSize: batchSize.value,
+        },
+      })
+    } finally {
+      processing.value = false
+    }
   }
 
   function stopGeneration() {

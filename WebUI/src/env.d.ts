@@ -102,7 +102,7 @@ type LocalSettings = {
   allowPlaintextSecretStorage?: boolean
 }
 
-/** Mirrors electron/laminar LaminarConfigSchema (renderer copy for IPC typing). */
+/** Mirrors electron/observability/laminar LaminarConfigSchema (renderer copy for IPC typing). */
 type LaminarConfig = {
   projectApiKey: string
   /** Scheme and host only — the SDK takes the ports separately. */
@@ -377,7 +377,7 @@ type electronAPI = {
    * Local Laminar tracing settings, or null when tracing is off (the default).
    * Read in main from `external/laminar.dev.json` (then
    * `external/laminar.localhost.json`) so the project API key never lands in
-   * the renderer bundle. Dev-only (see electron/laminar.ts).
+   * the renderer bundle. Dev-only (see electron/observability/laminar.ts).
    */
   getLaminarConfig(): Promise<LaminarConfig | null>
   /**

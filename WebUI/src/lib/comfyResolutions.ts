@@ -3,7 +3,7 @@
  * default aspect ratios and the megapixel/aspect-ratio → WxH mapping.
  *
  * Pure data + math only: main's in-process media tools need the same mapping
- * the renderer's tools use (electron/agentMode/capabilities/mediaDirect.ts),
+ * the renderer's tools use (electron/agent/capabilities/mediaDirect.ts),
  * so this lives in lib/ rather than the store module it came from.
  */
 import type { MegapixelOption, ResolutionConfig } from '@/lib/presetSchemas'

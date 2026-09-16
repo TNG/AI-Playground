@@ -106,7 +106,7 @@ Generation is modeled as an explicit FSM across two stores rather than loose fla
 - **Crash detection**: a watch on the ComfyUI service status fails in-flight items if the backend
   leaves `running` unexpectedly (guarded by `backendRestarting` so intentional restarts for
   custom-node installs don't false-positive). The main-process
-  [`electron/subprocesses/service.ts`](../WebUI/electron/subprocesses/service.ts) also reports
+  [`electron/adapters/backends/service.ts`](../WebUI/electron/adapters/backends/service.ts) also reports
   unexpected child exits.
 - `summarizeComfyExecutionError` converts verbose ComfyUI `execution_error` payloads into a concise
   `userMessage` (size mismatch, OOM, file-not-found, …); full detail goes to `technicalMessage`.

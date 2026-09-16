@@ -54,7 +54,7 @@ export type { AgentSessionRecord }
 // ── Agent Mode: renderer side of the Pi coding-agent integration ─────────────
 //
 // The Pi session runs in the Electron main process
-// (electron/agentMode/piAgentManager.ts). This store owns the UI state
+// (electron/agent/piAgentManager.ts). This store owns the UI state
 // (workspace folder, sandbox consent) and a custom ChatTransport whose
 // sendMessages() triggers `agentMode:startTurn` over IPC and reconstructs the UI
 // message chunk stream from `agentMode:streamChunk` pushes — feeding a standard

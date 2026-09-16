@@ -447,7 +447,7 @@ import { Switch } from '@/components/ui/switch'
 import ErrorDetailsModal from '@/components/ErrorDetailsModal.vue'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
-import type { ErrorDetails } from '../../electron/subprocesses/service'
+import type { ErrorDetails } from '../../electron/adapters/backends/service'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { useErrors } from '@/assets/js/store/errors'
 

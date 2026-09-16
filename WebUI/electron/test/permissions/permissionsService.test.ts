@@ -10,12 +10,12 @@ const prompt = vi.hoisted(() => ({
 }))
 let tmpRoot = ''
 
-vi.mock('../../util.ts', () => ({
+vi.mock('../../persist/userDataPaths.ts', () => ({
   getPermissionGrantsFile: () => files.real,
   getPermissionGrantsDemoFile: () => files.demo,
 }))
 
-vi.mock('../../logging/logger', () => ({
+vi.mock('../../observability/logger', () => ({
   appLoggerInstance: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
@@ -24,7 +24,7 @@ vi.mock('../../permissions/promptAdapter.ts', () => ({
 }))
 
 const { grantPermission, resetPermissionGrantsForTest, setPermissionGrantsDeps } =
-  await import('../../permissions/grantsStore')
+  await import('../../persist/grantsStore')
 const { requestDownloadConsent, requestVramWarningConsent } =
   await import('../../permissions/permissionsService')
 
@@ -106,7 +106,7 @@ describe('permissions policy (main)', () => {
     await expect(
       requestVramWarningConsent({ presetName: 'Wan2.1-VACE', message: 'needs lots of VRAM' }),
     ).resolves.toBe(true)
-    const { hasPermissionGrant } = await import('../../permissions/grantsStore')
+    const { hasPermissionGrant } = await import('../../persist/grantsStore')
     expect(await hasPermissionGrant(vramWarningGrantKey('Wan2.1-VACE'))).toBe(true)
   })
 
@@ -115,7 +115,7 @@ describe('permissions policy (main)', () => {
     await expect(
       requestVramWarningConsent({ presetName: 'LTX-Video', message: 'needs lots of VRAM' }),
     ).resolves.toBe(false)
-    const { hasPermissionGrant } = await import('../../permissions/grantsStore')
+    const { hasPermissionGrant } = await import('../../persist/grantsStore')
     expect(await hasPermissionGrant(vramWarningGrantKey('LTX-Video'))).toBe(false)
   })
 })

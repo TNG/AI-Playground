@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { appLoggerInstance } from '../logging/logger'
+import { appLoggerInstance } from '../observability/logger'
 import type { ChatModelConfig } from '@/types/chatIpc'
 import { emitActivity, emitFailure, setInferenceProfileSnapshot } from '../kernel/kernelBus'
 

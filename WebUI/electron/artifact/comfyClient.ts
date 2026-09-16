@@ -10,7 +10,7 @@
  * set headers either). No run logic lives here — the artifact runner decides
  * what a message means for the active run.
  */
-import { appLoggerInstance } from '../logging/logger'
+import { appLoggerInstance } from '../observability/logger'
 
 const appLogger = appLoggerInstance
 

@@ -48,34 +48,43 @@ import { promisify } from 'node:util'
 
 const execAsync = promisify(exec)
 import { randomUUID } from 'node:crypto'
-import { PathsManager } from './pathsManager'
-import { writableConfigFile } from './userConfig.ts'
-import { appLoggerInstance } from './logging/logger.ts'
+import { PathsManager } from './kernel/pathsManager'
+import {
+  LocalSettingsSchema,
+  resolveProductMode,
+  type LocalSettings,
+  type ProductMode,
+} from './kernel/localSettings.ts'
+import { writableConfigFile } from './kernel/userConfig.ts'
+import { appLoggerInstance } from './observability/logger.ts'
 import {
   aiplaygroundApiServiceRegistry,
   ApiServiceRegistryImpl,
   peekApiServiceRegistry,
-} from './subprocesses/apiServiceRegistry'
+} from './adapters/backends/apiServiceRegistry'
 import {
   ComfyUiBackendService,
   COMFYUI_DEFAULT_PARAMETERS,
-} from './subprocesses/comfyUIBackendService'
-import { AiBackendService } from './subprocesses/aiBackendService'
-import { HomeAgentBackendService } from './subprocesses/homeAgentBackendService'
-import { startCloudProxy, type CloudProxy } from './cloudProxy'
-import { Qwen3TtsBackendService } from './subprocesses/qwen3TtsBackendService'
-import { WhisperBackendService } from './subprocesses/whisperBackendService'
-import { LLAMACPP_DEFAULT_PARAMETERS } from './subprocesses/llamaCppBackendService'
-import { filterPartnerPresets, updateIntelPresets } from './subprocesses/updateIntelPresets.ts'
+} from './adapters/backends/comfyUIBackendService'
+import { AiBackendService } from './adapters/backends/aiBackendService'
+import { HomeAgentBackendService } from './adapters/backends/homeAgentBackendService'
+import { startCloudProxy, type CloudProxy } from './adapters/cloudProxy'
+import { Qwen3TtsBackendService } from './adapters/backends/qwen3TtsBackendService'
+import { WhisperBackendService } from './adapters/backends/whisperBackendService'
+import { LLAMACPP_DEFAULT_PARAMETERS } from './adapters/backends/llamaCppBackendService'
+import { filterPartnerPresets, updateIntelPresets } from './adapters/updateIntelPresets.ts'
 import {
   invalidatePresetCatalog,
   loadPresetFiles,
   readPresetsFromDir,
   type PresetLoadConfig,
 } from './artifact/catalog'
-import { probeFreedesktopSecretService, shouldForceBasicPasswordStore } from './linuxPasswordStore'
-import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './remoteUpdates.ts'
-import * as comfyuiTools from './subprocesses/comfyuiTools'
+import {
+  probeFreedesktopSecretService,
+  shouldForceBasicPasswordStore,
+} from './kernel/linuxPasswordStore'
+import { getGitHubRepoUrl, resolveBackendVersion, resolveModels } from './adapters/remoteUpdates.ts'
+import * as comfyuiTools from './adapters/backends/comfyuiTools'
 import {
   getMcpServerStatus,
   invokeMcpServerTool,
@@ -84,7 +93,7 @@ import {
   startMcpServer,
   stopAllMcpServers,
   stopMcpServer,
-} from './subprocesses/mcpManager'
+} from './adapters/mcp/mcpManager'
 import {
   close as closeWebBrowser,
   destroyWebBrowser,
@@ -98,7 +107,7 @@ import {
   setWebBrowserMainWindow,
   show as showWebBrowser,
   type WebBrowserInteraction,
-} from './subprocesses/webBrowserManager'
+} from './adapters/webBrowserManager'
 import {
   addMcpServer,
   detectAndRegisterAutoMcpServers,
@@ -108,7 +117,7 @@ import {
   updateMcpServer,
   removeMcpServer,
   type McpServerConfig,
-} from './subprocesses/mcpServers'
+} from './adapters/mcp/mcpServers'
 import {
   cancelAgentTurn,
   deleteAgentSession,
@@ -119,11 +128,11 @@ import {
   shutdownAgentMode,
   startAgentTurn,
   submitAgentToolResult,
-} from './agentMode/piAgentManager'
+} from './agent/piAgentManager'
 import { getKernelSnapshot, onKernelEvent, setKernelEventWindow } from './kernel/kernelBus'
 import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecycle'
-import { setVerboseLogging as setVerboseAgentLogging } from './agentMode/piAgentLog.ts'
-import { importAttachment } from './agentMode/workspaceAttachments.ts'
+import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
+import { importAttachment } from './agent/workspaceAttachments.ts'
 import { AgentModeTurnConfigSchema } from '@/types/agentIpc'
 import { ArtifactRunRequestSchema } from '@/types/artifactIpc'
 import type { MediaResponsePayload } from '@/types/mediaRequests'
@@ -143,8 +152,8 @@ import {
   artifactWorkOpen,
   setOrchestratorDeps,
   submitArtifactRun,
-} from './orchestrator/orchestrator'
-import { setMediaCatalogProvider } from './agentMode/capabilities/mediaDirect'
+} from './kernel/orchestrator'
+import { setMediaCatalogProvider } from './agent/capabilities/mediaDirect'
 import { chatInferenceStreamsActive } from './chat/chatModelMain'
 import {
   ensureChatBackendReady,
@@ -154,7 +163,7 @@ import {
   setLastChatBackendLoadActive,
   type ChatReadinessArgs,
 } from './chat/chatReadiness'
-import { piAgentCallsActive } from './agentMode/piCallTiming'
+import { piAgentCallsActive } from './agent/piCallTiming'
 import { freeMemoryAndUnloadModels } from './artifact/comfyClient'
 import { getPresetCatalog } from './artifact/catalog'
 import {
@@ -174,7 +183,7 @@ import {
   requestVramWarningConsent,
   revoke as revokePermission,
 } from './permissions/permissionsService'
-import { setPermissionGrantsDeps, wipeDemoPermissionGrants } from './permissions/grantsStore'
+import { setPermissionGrantsDeps, wipeDemoPermissionGrants } from './persist/grantsStore'
 import type { PermissionGrant, PermissionsPromptResponse } from '@/types/permissionsIpc'
 import {
   anyChatTurnActive,
@@ -201,7 +210,7 @@ import {
   saveConversationLastMainKey,
   setConversationFileDeps,
   wipeDemoConversations,
-} from './conversations/conversationFiles'
+} from './persist/conversationFiles'
 import {
   ConversationLegacyStateSchema,
   ConversationSaveRequestSchema,
@@ -214,7 +223,7 @@ import {
   saveAgentSessionActiveId,
   setAgentSessionFileDeps,
   wipeDemoAgentSessions,
-} from './agentMode/agentSessionFiles'
+} from './persist/agentSessionFiles'
 import { AgentSessionRecordSchema, LegacyAgentSessionStateSchema } from '@/types/agentSessionIpc'
 import {
   bootstrapMediaItems,
@@ -223,7 +232,7 @@ import {
   saveMediaItems,
   setMediaItemFileDeps,
   wipeDemoMediaRecords,
-} from './media/mediaItemFiles'
+} from './persist/mediaItemFiles'
 import {
   migratePreferenceSection,
   readAllPreferences,
@@ -231,7 +240,7 @@ import {
   setPreferencesFileDeps,
   wipeDemoPreferences,
   writePreferenceSection,
-} from './preferences/preferencesFile'
+} from './persist/preferencesFile'
 
 import {
   migrateAgentWorkspaceState,
@@ -239,7 +248,7 @@ import {
   setAgentWorkspaceFilesDeps,
   wipeDemoAgentWorkspace,
   writeAgentWorkspaceState,
-} from './agentMode/workspaceStateFiles'
+} from './persist/workspaceStateFiles'
 
 import {
   migrateRagDocumentSection,
@@ -247,11 +256,11 @@ import {
   setRagDocumentFilesDeps,
   wipeDemoRagDocuments,
   writeRagDocumentSection,
-} from './rag/ragDocumentFiles'
+} from './persist/ragDocumentFiles'
 
-import { llmServerBaseUrl } from './llmServerSnapshot'
+import { llmServerBaseUrl } from './adapters/llmServerSnapshot'
 import type { ChatToolResult } from '@/types/chatIpc'
-import { getAudioDir, getGamesDir, getMediaDir } from './util.ts'
+import { getAudioDir, getGamesDir, getMediaDir } from './persist/userDataPaths.ts'
 import {
   arcadeCatalog,
   createGame,
@@ -261,10 +270,10 @@ import {
   readGame,
   setArcadeShown,
   writeArcade,
-} from './gameLibrary.ts'
-import { detectOem } from './subprocesses/oemDetection.ts'
-import { packagedResourcesRoot, writableConfigRoot } from './aipgRoot.ts'
-import { loadDemoProfile, type DemoProfile } from './demoProfile.ts'
+} from './agent/games/gameLibrary.ts'
+import { detectOem } from './adapters/hardware/oemDetection.ts'
+import { packagedResourcesRoot, writableConfigRoot } from './kernel/aipgRoot.ts'
+import { loadDemoProfile, type DemoProfile } from './persist/demoProfile.ts'
 import type { ModelPaths } from '@/assets/js/store/models.ts'
 import type {
   IndexedDocument,
@@ -277,9 +286,9 @@ import {
   classifyDetectedDevices,
   detectGpuHardwareDevices,
   type GpuHardwareDevice,
-} from './subprocesses/hardwareDiscovery.ts'
-import { registerSettingsPersist } from './subprocesses/defaultDeviceSelection.ts'
-import { appShutdown } from './shutdown.ts'
+} from './adapters/hardware/hardwareDiscovery.ts'
+import { registerSettingsPersist } from './adapters/hardware/defaultDeviceSelection.ts'
+import { appShutdown } from './kernel/shutdown.ts'
 import {
   handleChatTelemetryEvent,
   initLaminarTracing,
@@ -287,7 +296,7 @@ import {
   noteLlamaCppChatTimings,
   noteMainChatTurnContext,
   shutdownLaminarTracing,
-} from './laminar.ts'
+} from './observability/laminar.ts'
 import z from 'zod'
 
 const ProductModeUiI18nSchema = z.object({
@@ -510,101 +519,6 @@ const appSize = {
   height: 128,
   maxChatContentHeight: 0,
 }
-const ProductModeSchema = z.enum(['studio', 'essentials', 'nvidia'])
-// User's preferred GPU, captured in the setup wizard. Identified by name
-// (+ PCI id when known) so it can be matched to each backend's own device
-// enumeration.
-const PreferredDeviceSchema = z.object({
-  name: z.string(),
-  gpuDeviceId: z.string().nullable(),
-  // Stable vendor UUID when the pre-install probe supplied one; preferred over
-  // name/PCI when matching this device onto a backend's own detected list.
-  uuid: z.string().nullable().optional(),
-  // Per-instance probe id (GpuHardwareDevice.device); disambiguates two
-  // identically-named GPUs in the wizard when no UUID is available.
-  instanceId: z.string().optional(),
-})
-export type PreferredDevice = z.infer<typeof PreferredDeviceSchema>
-
-const LocalSettingsSchema = z.object({
-  productMode: ProductModeSchema.optional(),
-  isDemoModeEnabled: z.boolean().default(false),
-  demoModeResetInSeconds: z.number().min(1).nullable().default(null),
-  demoModePasscode: z.string().optional(),
-  // Gates the experimental "Agent" chat preset. Written by the Settings →
-  // Developer checkbox, not a documented hand-edit flag. See docs/agent-preset.md.
-  isAgentPresetEnabled: z.boolean().default(false),
-  // Shows the machine-level debug controls (OEM override, Phison pretend, remote
-  // repository, OpenVINO image-gen devices, verbose agent logging, dummy media
-  // workflows, the title-bar wizard shortcut) in Settings → Developer, and
-  // unlocks the dev-only test model + dummy workflows in a packaged build.
-  showDebugSettingsInUI: z.boolean().default(false),
-  // Components the user switched off in the setup wizard. Persisted because the
-  // toggle used to live only in the renderer's wizard store: an installed
-  // component the user had disabled was auto-started again by the main process on
-  // the next launch (holding its port and GPU memory).
-  disabledBackends: z.array(z.string()).default([]),
-  languageOverride: z.string().nullable().default(null),
-  remoteRepository: z.string().default('intel/ai-playground'),
-  huggingfaceEndpoint: z.string().default('https://huggingface.co'),
-  mcpAutoDetectionDismissed: z.array(z.string()).default([]),
-  // Allowed OpenVINO devices for image-gen dropdowns (in-process upscale +
-  // OVMS image variants). Case-insensitive prefix match against device IDs.
-  // Default excludes NPU because RealESRGAN_x4plus and SDXL exceed current
-  // Intel NPU memory budgets on most shipping hardware. Override per-machine
-  // by editing settings.json, e.g. ["AUTO", "CPU", "GPU", "NPU"] to re-enable.
-  openvinoImageGenDevices: z.array(z.string()).default(['CPU', 'GPU']),
-  // Last inference device chosen per backend, keyed by service name
-  // (e.g. 'llamacpp-backend') or '<serviceName>:stt' for the OpenVINO STT
-  // sub-device. Restored at boot in each service's detectDevices() so the app
-  // does not reset to the default GPU (iGPU) on every restart.
-  lastSelectedDevicePerBackend: z.record(z.string(), z.string()).default({}),
-  // UUID counterpart of lastSelectedDevicePerBackend, same keys. Lets a backend
-  // re-find the chosen device (and re-derive its current selector id) after a
-  // driver update or enumeration reorder shifts the backend-local id. Empty when
-  // the chosen device exposes no UUID (e.g. OpenVINO/llama.cpp devices).
-  lastSelectedDeviceUuidPerBackend: z.record(z.string(), z.string()).default({}),
-  // Backend launch configuration (step 8, §6.1), formerly renderer-persisted
-  // Pinia state. The flags a service is launched with and the version a
-  // backend is pinned to — machine-level by nature, edited alongside the
-  // device maps. null flags mean "use the backend's default".
-  versionOverrides: z
-    .record(z.string(), z.object({ releaseTag: z.string().optional(), version: z.string() }))
-    .default({}),
-  comfyUiParameters: z.string().nullable().default(null),
-  llamaCppParameters: z.string().nullable().default(null),
-  llamaCppBuildVariant: z.enum(['standard', 'ssd-offload']).default('standard'),
-  llamaCppOffloadDrive: z.string().nullable().default(null),
-  openvinoKvCacheU4: z.boolean().default(false),
-  // Machine-wide preferred inference device, chosen in the setup wizard from the
-  // raw pre-install hardware probe. Consulted by each backend's detectDevices()
-  // (when it has no per-backend selection yet) to pick a matching device, before
-  // falling back to the automatic dGPU > iGPU > NPU > CPU ranking. null = no
-  // explicit preference (use the automatic ranking).
-  preferredDevice: PreferredDeviceSchema.nullable().default(null),
-  /** When true, skip hardware probe and treat Phison SSD as detected (optional overlay in userData settings). */
-  PhisonSSDdetected: z.boolean().optional().default(false),
-  /**
-   * Pretend the machine came from this OEM ('acer', …) instead of probing the
-   * firmware, so partner branding can be exercised on any dev box.
-   */
-  oemVendorOverride: z.string().nullable().optional().default(null),
-  // Linux without an OS keyring: the user confirmed the in-app Warning dialog
-  // while saving a LAN chat password. Re-applied at startup so decrypt still
-  // works; first-time opt-in is the renderer WarningDialog, not a native prompt.
-  allowPlaintextSecretStorage: z.boolean().default(false),
-})
-export type LocalSettings = z.infer<typeof LocalSettingsSchema>
-export type ProductMode = z.infer<typeof ProductModeSchema>
-
-function resolveProductMode(s: LocalSettings): string {
-  return s.productMode === 'essentials'
-    ? 'essentials'
-    : s.productMode === 'nvidia'
-      ? 'nvidia'
-      : 'studio'
-}
-
 /**
  * Bundled presets whose feature is switched off on this machine.
  *
@@ -2408,7 +2322,7 @@ function initEventHandle() {
   ipcMain.handle('getComfyUiDefaultParameters', () => COMFYUI_DEFAULT_PARAMETERS)
   ipcMain.handle('getLlamaCppDefaultParameters', () => LLAMACPP_DEFAULT_PARAMETERS)
 
-  // Which OEM's machine this is, for co-branding (see subprocesses/oemDetection.ts).
+  // Which OEM's machine this is, for co-branding (see adapters/hardware/oemDetection.ts).
   ipcMain.handle('detectOem', () => detectOem(settings.oemVendorOverride))
 
   ipcMain.handle('detectPhisonSsd', async () => {
@@ -3758,7 +3672,7 @@ function initEventHandle() {
     },
   )
 
-  // Agent Mode (Pi coding agent) IPC handlers — see agentMode/piAgentManager.ts.
+  // Agent Mode (Pi coding agent) IPC handlers — see agent/piAgentManager.ts.
   // Stream chunks and live tool output cross the kernel event bus
   // (electron/kernel/kernelBus.ts) as 'agent-chunk' / 'agent-tool-progress' /
   // 'agent-tool-image' / 'agent-turn-done' events.
@@ -3829,7 +3743,7 @@ function initEventHandle() {
   })
 
   // Copy a file the user attached into the agent's workspace, so the agent can
-  // reach it with its own file tools (see agentMode/workspaceAttachments.ts).
+  // reach it with its own file tools (see agent/workspaceAttachments.ts).
   ipcMain.handle(
     'agentMode:importAttachment',
     (_event, workspaceDir: string, name: string, bytes: Uint8Array) => {
@@ -3949,7 +3863,7 @@ function initEventHandle() {
   })
 
   // Web browser IPC handlers — drives the headless BrowserWindow that the chat
-  // LLM uses to browse the web (see subprocesses/webBrowserManager.ts).
+  // LLM uses to browse the web (see adapters/webBrowserManager.ts).
   ipcMain.handle('webBrowser:navigate', async (_event, url: string) => {
     return await navigateWebBrowser(url)
   })

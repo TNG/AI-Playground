@@ -1,5 +1,5 @@
 import type { BrowserWindow } from 'electron'
-import { appLoggerInstance } from '../logging/logger'
+import { appLoggerInstance } from '../observability/logger'
 import type {
   AgentTurnSnapshot,
   ArtifactRunSnapshot,

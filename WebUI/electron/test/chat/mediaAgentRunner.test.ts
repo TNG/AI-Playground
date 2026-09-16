@@ -12,7 +12,7 @@ import type { ChatToolSpec, MediaAgentRunRequest } from '@/types/chatIpc'
 // data coercing a bogus workflow, progress on the kernel stream, and cancel
 // aborting the in-process run.
 
-vi.mock('../../logging/logger.ts', () => ({
+vi.mock('../../observability/logger.ts', () => ({
   appLoggerInstance: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
@@ -20,18 +20,18 @@ vi.mock('../../chat/chatModelMain', () => ({
   createMainChatModel: vi.fn(),
 }))
 
-vi.mock('../../subprocesses/mcpManager', () => ({
+vi.mock('../../adapters/mcp/mcpManager', () => ({
   listMcpServers: vi.fn(),
   getMcpServerStatus: vi.fn(),
 }))
 
-vi.mock('../../laminar', () => ({
+vi.mock('../../observability/laminar', () => ({
   noteLlamaCppChatTimings: vi.fn(),
   noteMainChatTurnContext: vi.fn(),
   markDelegatedMediaRun: vi.fn(),
 }))
 
-vi.mock('../../orchestrator/orchestrator', () => ({
+vi.mock('../../kernel/orchestrator', () => ({
   runMediaRequest: async <T>(fn: () => Promise<T>) => fn(),
 }))
 

@@ -15,7 +15,7 @@ import {
 } from 'ai'
 import { dynamicTool, jsonSchema, tool, type ToolResultOutput } from '@ai-sdk/provider-utils'
 import type { JSONSchema7 } from '@ai-sdk/provider'
-import { appLoggerInstance } from '../logging/logger'
+import { appLoggerInstance } from '../observability/logger'
 import { completeOrphanedToolParts, sanitizeBulkyToolOutputs } from '@/lib/toolMessageSanitize'
 import { slimMediaModelOutput, type SlimMediaToolOutput } from '@/lib/mediaModelOutput'
 import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
@@ -36,13 +36,13 @@ import {
   endChatTurn,
   getChatTurnChunks,
 } from '../kernel/kernelBus'
-import { listMcpServers, getMcpServerStatus } from '../subprocesses/mcpManager'
+import { listMcpServers, getMcpServerStatus } from '../adapters/mcp/mcpManager'
 import { createMainChatModel } from './chatModelMain'
 import { ensureChatBackendReady, setLastChatBackendLoadActive } from './chatReadiness'
 import { retrieveRagForTurn } from './ragRetrieval'
 import { abortTurnToolRequests, executeToolInRenderer } from './toolBridge'
-import { finishTextRequest, submitTextRequest } from '../orchestrator/orchestrator'
-import { saveConversation } from '../conversations/conversationFiles'
+import { finishTextRequest, submitTextRequest } from '../kernel/orchestrator'
+import { saveConversation } from '../persist/conversationFiles'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { emitFailure } from '../kernel/kernelBus'
 

@@ -117,7 +117,7 @@ export type CloudModelCapabilities = {
   /**
    * Whether the provider itself declared reasoning, as opposed to being assumed
    * capable because it declared nothing. Asking a model to think is a request
-   * parameter (see agentMode/piCloudReasoning.ts), so it needs the stricter
+   * parameter (see agent/piCloudReasoning.ts), so it needs the stricter
    * signal — `supportsReasoning` is a preset gate and errs towards offering the
    * model.
    */

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { submitArtifactRun, cancelArtifactRun } from '../orchestrator/orchestrator.ts'
+import { submitArtifactRun, cancelArtifactRun } from '../kernel/orchestrator.ts'
 import type { ArtifactRunResult } from './runner.ts'
 import { resolveComfyEntry, type PresetCatalog } from './catalog.ts'
 import type { ComfyInput, ComfyUiPreset, Preset } from '@/lib/presetSchemas'

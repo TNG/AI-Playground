@@ -1,6 +1,6 @@
 import { extractReasoningMiddleware, wrapLanguageModel, type LanguageModel } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
-import { appLoggerInstance } from '../logging/logger'
+import { appLoggerInstance } from '../observability/logger'
 import { openAiApiBase } from '@/lib/inferenceApiBase'
 import type { ChatModelConfig } from '@/types/chatIpc'
 

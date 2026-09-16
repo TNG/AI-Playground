@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../logging/logger.ts', () => ({
+vi.mock('../../observability/logger.ts', () => ({
   appLoggerInstance: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
@@ -10,7 +10,7 @@ vi.mock('electron', () => ({
   },
 }))
 
-vi.mock('../../subprocesses/comfyuiTools.ts', () => ({
+vi.mock('../../adapters/backends/comfyuiTools.ts', () => ({
   isCustomNodeInstalled: vi.fn(() => true),
   isPackageInstalled: vi.fn(async () => true),
   installPypiPackage: vi.fn(async () => {}),
@@ -35,7 +35,7 @@ const { saveMediaItems } = vi.hoisted(() => ({
   saveMediaItems: vi.fn(async (_items: unknown[]) => {}),
 }))
 
-vi.mock('../../media/mediaItemFiles.ts', () => ({
+vi.mock('../../persist/mediaItemFiles.ts', () => ({
   saveMediaItems,
 }))
 
@@ -50,7 +50,7 @@ import {
   cancelArtifactRun,
   resetOrchestratorForTest,
   submitArtifactRun,
-} from '../../orchestrator/orchestrator'
+} from '../../kernel/orchestrator'
 import {
   resetKernelBusForTest,
   setKernelEventWindow,

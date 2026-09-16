@@ -3,11 +3,11 @@ import type { BrowserWindow } from 'electron'
 import type { KernelEvent } from '@/types/kernelEvents'
 import type { UIMessageChunk } from 'ai'
 
-vi.mock('../../logging/logger.ts', () => ({
+vi.mock('../../observability/logger.ts', () => ({
   appLoggerInstance: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
-vi.mock('../../subprocesses/mcpManager', () => ({
+vi.mock('../../adapters/mcp/mcpManager', () => ({
   listMcpServers: vi.fn(),
   getMcpServerStatus: vi.fn(),
 }))
@@ -23,7 +23,7 @@ const { saveConversation } = vi.hoisted(() => ({
   saveConversation: vi.fn(async (_request: unknown) => {}),
 }))
 
-vi.mock('../../conversations/conversationFiles.ts', () => ({
+vi.mock('../../persist/conversationFiles.ts', () => ({
   saveConversation,
 }))
 
@@ -46,8 +46,8 @@ const {
 const { setKernelEventWindow, resetKernelBusForTest, onKernelEvent } =
   await import('../../kernel/kernelBus')
 const { handleChatToolResult, resetChatToolBridgeForTest } = await import('../../chat/toolBridge')
-const { listMcpServers, getMcpServerStatus } = await import('../../subprocesses/mcpManager')
-const { resetOrchestratorForTest } = await import('../../orchestrator/orchestrator')
+const { listMcpServers, getMcpServerStatus } = await import('../../adapters/mcp/mcpManager')
+const { resetOrchestratorForTest } = await import('../../kernel/orchestrator')
 
 type SentPayload = Record<string, unknown> & { channel?: string }
 

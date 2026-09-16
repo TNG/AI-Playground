@@ -3,7 +3,7 @@ import { generateText } from 'ai'
 import { ChatSummarizeRequestSchema, type ChatSummarizeRequest } from '@/types/chatIpc'
 import { createMainChatModel } from './chatModelMain'
 import { ensureChatBackendReady, setLastChatBackendLoadActive } from './chatReadiness'
-import { finishTextRequest, submitTextRequest } from '../orchestrator/orchestrator'
+import { finishTextRequest, submitTextRequest } from '../kernel/orchestrator'
 
 // ── One-shot conversation summarization (step 6: chat inference in main) ────
 //

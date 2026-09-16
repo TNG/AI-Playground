@@ -10,7 +10,7 @@ import {
   listPermissionGrants,
   migratePermissionGrants,
   revokePermissionGrant,
-} from './grantsStore'
+} from '../persist/grantsStore'
 import { requestPermissionsPrompt } from './promptAdapter'
 
 /**

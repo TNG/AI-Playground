@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import pkg from '../package.json'
-import { LocalSettings } from './main'
+import type { LocalSettings } from './kernel/localSettings.ts'
 import { ModelPaths } from '@/assets/js/store/models'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import {

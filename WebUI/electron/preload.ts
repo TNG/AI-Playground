@@ -179,7 +179,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       request: import('../src/types/artifactIpc').ArtifactRunRequest,
       options?: { queue?: 'fail-fast' | 'queue' },
     ) =>
-      ipcRenderer.invoke('artifact:run', request, options) as Promise<
+      ipcRenderer.invoke('artifact:run', cloneForIpc(request), options) as Promise<
         import('./artifact/runner').ArtifactRunResult
       >,
     cancel: (runId?: string) => ipcRenderer.invoke('artifact:cancel', runId),

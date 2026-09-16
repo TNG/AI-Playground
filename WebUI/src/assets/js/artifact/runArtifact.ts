@@ -9,6 +9,7 @@ import {
 import type { MediaItem } from '@/types/mediaItem'
 import { usePresets, type ComfyInput, type ComfyUiPreset, type Preset } from '../store/presets'
 import { imageUrlToDataUri } from '@/lib/utils'
+import { cloneForIpc } from '@/lib/cloneForIpc'
 import { isCancellation } from '../errors/appError'
 import { presetToMode } from '@/lib/presetModes'
 
@@ -330,7 +331,7 @@ export async function runArtifact(
   let result: ArtifactResult
   try {
     result = await window.electronAPI.artifact.run(
-      {
+      cloneForIpc({
         runId,
         mode,
         preset,
@@ -339,7 +340,7 @@ export async function runArtifact(
         items,
         source: request.source,
         variant: variantName,
-        origin: 'renderer',
+        origin: 'renderer' as const,
         modelsConsented: true,
         showPreview: imageGen.showPreview,
         safetyCheck: imageGen.safetyCheck,
@@ -347,7 +348,7 @@ export async function runArtifact(
         conversationKey: ctx.conversationKey,
         // The tool activity's id lets queue events relabel it while parked.
         activityId: typeof ctx.parentActivityId === 'string' ? ctx.parentActivityId : undefined,
-      },
+      }),
       ctx.queueMode ? { queue: ctx.queueMode } : undefined,
     )
   } catch (error) {

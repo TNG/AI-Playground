@@ -52,6 +52,7 @@ import {
   waitForTerminalInstall,
 } from './linuxPackageInstaller.ts'
 import { BrowserWindow, app, dialog } from 'electron'
+import { getKernelEventWindow } from '../kernel/kernelBus.ts'
 import { LocalSettings } from '../main.ts'
 import { downloadCustomNode, configureComfyUiManagerSecurityLevel } from './comfyuiTools.ts'
 import { getBundledComfyUiGitRefSync } from '../remoteUpdates.ts'
@@ -255,6 +256,16 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     return this.loopbackAuthToken
   }
 
+  private liveWindow(): BrowserWindow {
+    return getKernelEventWindow() ?? this.win
+  }
+
+  private sendShowToast(type: string, message: string): void {
+    const win = this.liveWindow()
+    if (!win || win.isDestroyed()) return
+    win.webContents.send('show-toast', { type, message })
+  }
+
   private readonly variantMarkerPath = path.join(this.serviceDir, 'aipg-variant.json')
 
   private readInstalledVariant(): ComfyUiVariant | null {
@@ -331,7 +342,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     )
 
     const packageListText = missingPackages.map((p) => `- ${p}`).join('\n')
-    const { response } = await dialog.showMessageBox(this.win, {
+    const { response } = await dialog.showMessageBox(this.liveWindow(), {
       type: 'warning',
       buttons: ['Install now', 'Cancel setup'],
       defaultId: 0,
@@ -434,7 +445,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     )
 
     const packageListText = missingPackages.map((p) => `- ${p}`).join('\n')
-    const { response } = await dialog.showMessageBox(this.win, {
+    const { response } = await dialog.showMessageBox(this.liveWindow(), {
       type: 'warning',
       buttons: ['Install now', 'Cancel setup'],
       defaultId: 0,
@@ -545,10 +556,10 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
       )
       if (!this.variantMismatchToastSent) {
         this.variantMismatchToastSent = true
-        this.win.webContents.send('show-toast', {
-          type: 'warning',
-          message: `ComfyUI needs reinstallation to switch from ${installedVariant.toUpperCase()} to ${desiredVariant.toUpperCase()} backend.`,
-        })
+        this.sendShowToast(
+          'warning',
+          `ComfyUI needs reinstallation to switch from ${installedVariant.toUpperCase()} to ${desiredVariant.toUpperCase()} backend.`,
+        )
       }
       return false
     }
@@ -897,11 +908,10 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         this.serviceFolder,
         requirementsPath,
         () => {
-          this.win.webContents.send('show-toast', {
-            type: 'warning',
-            message:
-              'UV cache corruption detected while installing ComfyUI requirements. Retrying without cache — this may take longer.',
-          })
+          this.sendShowToast(
+            'warning',
+            'UV cache corruption detected while installing ComfyUI requirements. Retrying without cache — this may take longer.',
+          )
         },
         this.getTorchBackendEnv(),
         reinstallTorch ? ['torch', 'torchvision', 'torchaudio'] : undefined,
@@ -1112,11 +1122,10 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
             this.name,
           )
           await installBackendWithExtra(this.serviceFolder, this.comfyUiVariant, () => {
-            this.win.webContents.send('show-toast', {
-              type: 'warning',
-              message:
-                'UV cache corruption detected. Retrying installation without cache. This may take longer. You can manually clear the cache at %LOCALAPPDATA%/uv/cache',
-            })
+            this.sendShowToast(
+              'warning',
+              'UV cache corruption detected. Retrying installation without cache. This may take longer. You can manually clear the cache at %LOCALAPPDATA%/uv/cache',
+            )
           })
         }
         await this.writeDepsMarker({ mode: 'locked', revision: normRev })
@@ -1136,11 +1145,10 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
         }
 
         if (needsInstall) {
-          this.win.webContents.send('show-toast', {
-            type: 'warning',
-            message:
-              'Installing custom ComfyUI versions may not be compatible with the bundled workflows. If you encounter issues, please clear the version override and reinstall the ComfyUI backend.',
-          })
+          this.sendShowToast(
+            'warning',
+            'Installing custom ComfyUI versions may not be compatible with the bundled workflows. If you encounter issues, please clear the version override and reinstall the ComfyUI backend.',
+          )
           await this.installComfyUiFlexibleDeps(variantChanged)
         }
         await this.writeDepsMarker({ mode: 'flexible', revision: normRev })
@@ -1400,11 +1408,10 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
           `Failed to install ComfyUI Manager: ${error}. Continuing setup.`,
           this.name,
         )
-        this.win.webContents.send('show-toast', {
-          type: 'warning',
-          message:
-            'ComfyUI was installed, but the ComfyUI Manager custom node could not be installed. Custom node management will be unavailable — reinstall ComfyUI to retry.',
-        })
+        this.sendShowToast(
+          'warning',
+          'ComfyUI was installed, but the ComfyUI Manager custom node could not be installed. Custom node management will be unavailable — reinstall ComfyUI to retry.',
+        )
         yield {
           serviceName: this.name,
           step: currentStep,

@@ -83,7 +83,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getDemoModeSettings: () => ipcRenderer.invoke('getDemoModeSettings'),
   showOpenDialog: (options: Electron.OpenDialogOptions) =>
     ipcRenderer.invoke('showOpenDialog', options),
-  reportClientEvent: (eventId: number) => ipcRenderer.send('reportClientEvent', eventId),
   saveImage: (url: string) => ipcRenderer.send('saveImage', url),
   saveImageToMediaInput: (dataUri: string) => ipcRenderer.invoke('saveImageToMediaInput', dataUri),
   saveGeneratedAudio: (audioBase64: string, filename: string, options?: { overwrite?: boolean }) =>
@@ -92,16 +91,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('readLocalAudioAsDataUri', filePath),
   deleteGeneratedAudio: (filePath: string) => ipcRenderer.invoke('deleteGeneratedAudio', filePath),
   readAipgMediaAsBase64: (url: string) => ipcRenderer.invoke('readAipgMediaAsBase64', url),
-  wakeupApiService: () => ipcRenderer.send('wakeupApiService'),
   openImageWin: (url: string, title: string, width: number, height: number) =>
     ipcRenderer.send('openImageWin', url, title, width, height),
   screenChange: (callback: (width: number, height: number) => void) =>
     ipcRenderer.on('display-metrics-changed', (_event, width: number, height: number) =>
       callback(width, height),
-    ),
-  webServiceExit: (callback: (seriveName: string, normalExit: boolean) => void) =>
-    ipcRenderer.on('webServiceExit', (_event, seriveName: string, normalExit: boolean) =>
-      callback(seriveName, normalExit),
     ),
   existsPath: (path: string) => ipcRenderer.invoke('existsPath', path),
   addDocumentToRAGList: (doc: IndexedDocument, phisonKmConfig?: PhisonKmIngestConfig) =>
@@ -140,7 +134,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setFullScreen: (enable: boolean) => ipcRenderer.send('setFullScreen', enable),
   onDebugLog: (callback: (data: { level: string; source: string; message: string }) => void) =>
     ipcRenderer.on('debugLog', (_event, value) => callback(value)),
-  wakeupComfyUIService: () => ipcRenderer.send('wakeupComfyUIService'),
   getComfyUiDefaultParameters: () => ipcRenderer.invoke('getComfyUiDefaultParameters'),
   getLlamaCppDefaultParameters: () => ipcRenderer.invoke('getLlamaCppDefaultParameters'),
   detectPhisonSsd: () => ipcRenderer.invoke('detectPhisonSsd') as Promise<{ detected: boolean }>,

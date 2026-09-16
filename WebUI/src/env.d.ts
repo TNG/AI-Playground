@@ -351,9 +351,7 @@ type electronAPI = {
     url: string,
   ): Promise<{ success: true; data: string } | { success: false; error: string }>
   openImageWin(url: string, title: string, width: number, height: number): void
-  wakeupApiService(): void
   screenChange(callback: (width: number, height: number) => void): void
-  webServiceExit(callback: (serviceName: string, normalExit: string) => void): void
   existsPath(path: string): Promise<boolean>
   addDocumentToRAGList(
     doc: IndexedDocument,
@@ -411,7 +409,6 @@ type electronAPI = {
       message: string
     }) => void,
   ): void
-  wakeupComfyUIService(): void
   getComfyUiDefaultParameters(): Promise<string>
   getLlamaCppDefaultParameters(): Promise<string>
   detectPhisonSsd(): Promise<{ detected: boolean }>

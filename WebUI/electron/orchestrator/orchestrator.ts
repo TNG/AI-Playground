@@ -85,6 +85,7 @@ const runQueue: QueuedRun[] = []
 // so fail-fast has to key off this or two panel submits in the same tick both
 // enter executeRun and the second cancels the first inside the runner.
 let admittedArtifactRuns = 0
+const admittedCancels = new Map<string, AbortController>()
 
 // The media-request lane: one whole `media` bracket (nested specialist + its
 // generations) at a time — four parallel `media` tool calls must not prompt
@@ -118,6 +119,8 @@ export function setOrchestratorDeps(deps: OrchestratorDeps): void {
 export function resetOrchestratorForTest(): void {
   orchestratorDeps = null
   runQueue.splice(0)
+  for (const cancel of admittedCancels.values()) cancel.abort()
+  admittedCancels.clear()
   admittedArtifactRuns = 0
   for (const entry of mediaRequestQueue) {
     entry.reject(new Error('Orchestrator reset for test'))
@@ -131,6 +134,11 @@ export function resetOrchestratorForTest(): void {
 
 export function artifactRunsQueued(): number {
   return runQueue.length
+}
+
+/** Admitted, executing, or queued — close policy and fail-fast both ask. */
+export function artifactWorkOpen(): boolean {
+  return queueBusy()
 }
 
 export function mediaRequestsQueued(): number {
@@ -215,6 +223,8 @@ export function submitArtifactRun(
 }
 
 function executeRun(payload: ArtifactRunPayload): Promise<ArtifactRunResult> {
+  const cancel = new AbortController()
+  admittedCancels.set(payload.runId, cancel)
   admittedArtifactRuns += 1
   emitQueueEvent({
     runKey: payload.runId,
@@ -225,11 +235,14 @@ function executeRun(payload: ArtifactRunPayload): Promise<ArtifactRunResult> {
     conversationKey: payload.conversationKey,
     activityId: payload.activityId,
   })
-  return withGpuWindow(payload, () => startArtifactRun(payload)).finally(async () => {
-    emitArtifactFinished(payload)
-    admittedArtifactRuns -= 1
-    await drainQueue()
-  })
+  return withGpuWindow(payload, () => startArtifactRun(payload), cancel.signal).finally(
+    async () => {
+      admittedCancels.delete(payload.runId)
+      emitArtifactFinished(payload)
+      admittedArtifactRuns -= 1
+      await drainQueue()
+    },
+  )
 }
 
 async function drainQueue(): Promise<void> {
@@ -257,8 +270,9 @@ function emitArtifactFinished(payload: ArtifactRunPayload): void {
   })
 }
 
-/** Cancels one run by id, whether it is active or still waiting in the queue. */
+/** Cancels one run by id, whether it is active, admitted, or still waiting. */
 export function cancelArtifactRun(runId: string): void {
+  admittedCancels.get(runId)?.abort()
   if (activeArtifactRunId() === runId) {
     cancelActiveArtifactRun()
     return
@@ -267,8 +281,26 @@ export function cancelArtifactRun(runId: string): void {
   if (index !== -1) {
     const [entry] = runQueue.splice(index, 1)
     emitArtifactFinished(entry.payload)
-    entry.resolve({ state: 'cancelled', items: [], error: 'Generation cancelled.' })
+    entry.resolve(cancelledRun())
   }
+}
+
+/**
+ * Drops queued runs and aborts admitted/active ones. A destroyed renderer
+ * cannot drive placeholders, and a replacement window must not fail-fast on
+ * an invisible drain.
+ */
+export function cancelAllArtifactRuns(reason = 'Generation cancelled.'): void {
+  for (const entry of runQueue.splice(0)) {
+    emitArtifactFinished(entry.payload)
+    entry.resolve(cancelledRun(reason))
+  }
+  for (const cancel of admittedCancels.values()) cancel.abort()
+  cancelActiveArtifactRun()
+}
+
+function cancelledRun(error = 'Generation cancelled.'): ArtifactRunResult {
+  return { state: 'cancelled', items: [], error }
 }
 
 // ── Text occupancy (`KernelRequestMap['text']`, step 10) ───────────────────────
@@ -426,9 +458,19 @@ function drainMediaRequestLane(): void {
  * — throwing would replace a finished result with a cleanup error, and the
  * chat model comes back with the next turn anyway.
  */
-async function withGpuWindow<T>(payload: ArtifactRunPayload, fn: () => Promise<T>): Promise<T> {
-  if (!payload.keepModelsLoaded) await acquireMediaWindow(payload.conversationKey)
-  return fn()
+async function withGpuWindow<T>(
+  payload: ArtifactRunPayload,
+  fn: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  try {
+    if (!payload.keepModelsLoaded) await acquireMediaWindow(payload.conversationKey, signal)
+    if (signal?.aborted) return cancelledRun() as T
+    return await fn()
+  } catch (error) {
+    if (signal?.aborted) return cancelledRun() as T
+    throw error
+  }
 }
 
 /** Reads the window without flow narrowing — an awaited swap-back can flip it. */
@@ -436,36 +478,51 @@ function windowIsMedia(): boolean {
   return gpuWindow === 'media'
 }
 
-async function acquireMediaWindow(conversationKey?: string): Promise<void> {
+async function acquireMediaWindow(conversationKey?: string, signal?: AbortSignal): Promise<void> {
   if (!orchestratorDeps) return
   if (windowIsMedia()) return
   // A release may still be reloading the chat backend; stopping it mid-reload
   // is the race the old wraps shared, and the queue makes it reachable.
   if (swapBackInFlight) await swapBackInFlight.catch(() => {})
   if (windowIsMedia()) return
-  await waitForChatRequestsIdle()
+  await waitForChatRequestsIdle(signal)
   // Nested media for this conversation may take the GPU while its parent text
   // occupancy is still live (tool phase, HTTP idle). An unrelated chat turn
   // must finish first — no proceed-anyway bound, or that stream dies as a
   // network error.
-  await waitForUnrelatedTextIdle(conversationKey)
+  await waitForUnrelatedTextIdle(conversationKey, signal)
   if (windowIsMedia()) return
-  await orchestratorDeps.stopChatForMedia()
+  if (signal?.aborted) throw cancelledGeneration()
+  // Flip before stopChatForMedia (seconds — two backends). awaitChatWindow is a
+  // one-shot wait on this flag; leaving it on 'chat' until after the stop lets
+  // a turn pass the gate and then die when the in-flight stop kills its backend.
   gpuWindow = 'media'
+  try {
+    await orchestratorDeps.stopChatForMedia()
+  } catch (error) {
+    gpuWindow = 'chat'
+    throw error
+  }
+  if (signal?.aborted) throw cancelledGeneration()
 }
 
 const CHAT_REQUEST_POLL_MS = 250
 
-async function waitForChatRequestsIdle(): Promise<void> {
+async function waitForChatRequestsIdle(signal?: AbortSignal): Promise<void> {
   if (!orchestratorDeps) return
   while (orchestratorDeps.chatRequestsOpen() > 0) {
-    await delay(CHAT_REQUEST_POLL_MS)
+    if (signal?.aborted) throw cancelledGeneration()
+    await delay(CHAT_REQUEST_POLL_MS, signal, cancelledGeneration)
   }
 }
 
-async function waitForUnrelatedTextIdle(conversationKey?: string): Promise<void> {
+async function waitForUnrelatedTextIdle(
+  conversationKey?: string,
+  signal?: AbortSignal,
+): Promise<void> {
   while (unrelatedLocalTextOpen(conversationKey)) {
-    await delay(CHAT_REQUEST_POLL_MS)
+    if (signal?.aborted) throw cancelledGeneration()
+    await delay(CHAT_REQUEST_POLL_MS, signal, cancelledGeneration)
   }
 }
 
@@ -523,10 +580,18 @@ function cancelledChatWindow(): Error {
   return new Error('Cancelled while waiting for the chat GPU window.')
 }
 
-function delay(ms: number, signal?: AbortSignal): Promise<void> {
+function cancelledGeneration(): Error {
+  return new Error('Generation cancelled.')
+}
+
+function delay(
+  ms: number,
+  signal?: AbortSignal,
+  abortedError: () => Error = cancelledChatWindow,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
-      reject(cancelledChatWindow())
+      reject(abortedError())
       return
     }
     const timer = setTimeout(() => {
@@ -535,7 +600,7 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
     }, ms)
     const onAbort = () => {
       clearTimeout(timer)
-      reject(cancelledChatWindow())
+      reject(abortedError())
     }
     signal?.addEventListener('abort', onAbort, { once: true })
   })

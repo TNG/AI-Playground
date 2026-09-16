@@ -25,8 +25,10 @@ vi.mock('../../artifact/runner', () => ({
 
 import {
   artifactRunsQueued,
+  artifactWorkOpen,
   awaitChatWindow,
   cancelArtifactRun,
+  cancelAllArtifactRuns,
   finishTextRequest,
   mediaRequestsQueued,
   resetOrchestratorForTest,
@@ -186,6 +188,70 @@ describe('the orchestrator', () => {
     expect(d.stopChatForMedia).toHaveBeenCalledTimes(1)
     expect(d.freeComfyMemory).toHaveBeenCalledTimes(1)
     expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not admit a GPU chat turn while stopChatForMedia is in flight', async () => {
+    const stop = deferred()
+    const d = deps({ stopChatForMedia: vi.fn(() => stop.promise as Promise<void>) })
+    setOrchestratorDeps(d)
+    const hold = holdNextRun()
+    const media = submitArtifactRun(payload())
+    await vi.waitFor(() => expect(d.stopChatForMedia).toHaveBeenCalled())
+
+    let admitted = false
+    const text = submitTextRequest({
+      runId: 'turn-1',
+      conversationKey: 'c1',
+      needsGpu: true,
+    }).then(() => {
+      admitted = true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(admitted).toBe(false)
+    expect(textRequestsOpen()).toBe(1)
+
+    stop.resolve(undefined)
+    await vi.waitFor(() => expect(activeRunId).toBe('run-1'))
+    expect(admitted).toBe(false)
+
+    hold.resolve({ state: 'completed', items: [] })
+    await media
+    await text
+    expect(admitted).toBe(true)
+  })
+
+  it('returns the GPU after a failed run', async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    const hold = holdNextRun()
+    const active = submitArtifactRun(payload())
+    await vi.waitFor(() => expect(d.stopChatForMedia).toHaveBeenCalled())
+    hold.resolve({ state: 'failed', items: [], error: 'boom' })
+    await active
+    expect(d.freeComfyMemory).toHaveBeenCalledTimes(1)
+    expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
+  })
+
+  it('abandons queued and in-acquire artifact work', async () => {
+    const stop = deferred()
+    const d = deps({ stopChatForMedia: vi.fn(() => stop.promise as Promise<void>) })
+    setOrchestratorDeps(d)
+    holdNextRun()
+    const acquiring = submitArtifactRun(payload())
+    await vi.waitFor(() => expect(d.stopChatForMedia).toHaveBeenCalled())
+    const queued = submitArtifactRun(payload({ runId: 'run-2' }), { queue: 'queue' })
+    expect(artifactWorkOpen()).toBe(true)
+    expect(artifactRunsQueued()).toBe(1)
+
+    cancelAllArtifactRuns('The app window was replaced')
+    expect((await queued).state).toBe('cancelled')
+    expect(artifactRunsQueued()).toBe(0)
+
+    stop.resolve(undefined)
+    expect((await acquiring).state).toBe('cancelled')
+    expect(activeRunId).toBe(null)
+    await vi.waitFor(() => expect(d.restartChatBackend).toHaveBeenCalledTimes(1))
+    expect(artifactWorkOpen()).toBe(false)
   })
 
   it('never swaps when keepModelsLoaded is set', async () => {

@@ -139,6 +139,8 @@ import {
 import {
   awaitChatWindow,
   cancelArtifactRun,
+  cancelAllArtifactRuns,
+  artifactWorkOpen,
   setOrchestratorDeps,
   submitArtifactRun,
 } from './orchestrator/orchestrator'
@@ -175,6 +177,7 @@ import {
 import { setPermissionGrantsDeps, wipeDemoPermissionGrants } from './permissions/grantsStore'
 import type { PermissionGrant, PermissionsPromptResponse } from '@/types/permissionsIpc'
 import {
+  anyChatTurnActive,
   cancelChatTurn,
   resumeChatTurn,
   setChatEngineDeps,
@@ -809,22 +812,29 @@ async function createWindow() {
   })
   // The renderer that was asked a media request cannot answer from a new
   // window; settle its pendings so waiters fail instead of hanging. The same
-  // holds for a chat tool execution the old renderer was told to run.
+  // holds for a chat tool execution the old renderer was told to run. Artifact
+  // work is main-owned: cancel it here and again on destroyed so a crashed
+  // renderer cannot leave an invisible queue draining.
   rejectAllMediaRequests('The app window was replaced')
   rejectAllPermissionPrompts('The app window was replaced')
   rejectAllChatToolRequests('The app window was replaced')
+  cancelAllArtifactRuns('The app window was replaced')
+  win.webContents.once('destroyed', () => {
+    cancelAllArtifactRuns('The app window was replaced')
+  })
   for (const runKey of activeMediaAgentRunKeys()) cancelMediaAgentRun(runKey)
   win.on('close', (event) => {
     // Main owns the hide/reopen/quit policy (architecture-target §5.1), never
     // the renderer: closing the window only hides it while headless work a
-    // quit would orphan is in flight — a Home Agent serving channels, an
-    // in-flight agent turn in main, or anything the renderer reported busy
-    // (tracked activities: a chat turn, a generation). A hidden window is
+    // quit would orphan is in flight — Home Agent, in-flight agent/chat/artifact
+    // work in main, or anything the renderer reported busy. A hidden window is
     // reopened by relaunching (second-instance) or dock activation.
     const decision = resolveClosePolicy({
       homeAgentRunning: isHomeAgentRunning(),
       rendererBusy,
       agentTurnActive: isAgentTurnActive(),
+      chatTurnActive: anyChatTurnActive(),
+      artifactWorkOpen: artifactWorkOpen(),
     })
     if (decision === 'hide') {
       event.preventDefault()

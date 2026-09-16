@@ -684,17 +684,18 @@ The lifecycle policy belongs in main, beside Electron's existing single-instance
 handling. The renderer must never decide whether a process-backed run survives its own window.
 
 **Renderer interim (step 4 done).** The policy is a pure function,
-`resolveClosePolicy({ homeAgentRunning, rendererBusy, agentTurnActive }) → 'hide' | 'close'`
+`resolveClosePolicy({ homeAgentRunning, rendererBusy, agentTurnActive, chatTurnActive, artifactWorkOpen }) → 'hide' | 'close'`
 (`electron/kernel/windowLifecycle.ts`), consulted in the window's `close` handler: `hide` prevents
 the default and hides the window; `close` tears down the browser-backed windows and quits (via
-`app.quit()` off-darwin, backends freed in `window-all-closed` on macOS, as before). Main owns all
-three inputs: the Home Agent service status, `isAgentTurnActive()` from the agent runtime, and a
-`rendererBusy` flag the renderer pushes over `lifecycle:busy` whenever the activities sink flips
-between empty and non-empty. A hidden window is reopened by relaunch (`second-instance`) and dock
-activation (`activate`), and the recreated/relaunched renderer resumes a running agent turn from
-the kernel snapshot (§4.6 interim). Explicit quit still runs the shutdown task — the title-bar X
-and `exitApp` bypass `close` via `app.quit()`, which the `before-quit` handler routes to the
-shutdown sequence, so no isQuitting flag is needed.
+`app.quit()` off-darwin, backends freed in `window-all-closed` on macOS, as before). Main owns
+every input: Home Agent service status, `isAgentTurnActive()`, `anyChatTurnActive()`,
+`artifactWorkOpen()` (admitted / executing / queued), and a `rendererBusy` flag the renderer
+pushes over `lifecycle:busy` whenever the activities sink flips. Chat and artifact occupancy do
+not round-trip through that flag — it clears when the renderer dies. A hidden window is reopened
+by relaunch (`second-instance`) and dock activation (`activate`), and the recreated/relaunched
+renderer resumes a running agent turn from the kernel snapshot (§4.6 interim). Explicit quit
+still runs the shutdown task — the title-bar X and `exitApp` bypass `close` via `app.quit()`,
+which the `before-quit` handler routes to the shutdown sequence, so no isQuitting flag is needed.
 
 ---
 
@@ -938,7 +939,7 @@ The ladder above is what landed. It is not the finished kernel. Remaining rows, 
 | 1 | **Done.** Tools and Home Agent `/imgGen` have no preset save/restore and no readiness preflight; the run (`runArtifact` + `comfyUiPresets.generate`) owns backend start, installs and model download; selection stays side-effect-free (`resolvePresetVariant`); callers pass `artifactKindForMedia` / panel-derived kind | yes |
 | 2 | **Done.** `transcribeAudio` / speak-replies (and every other speech driver — mic, TTS preset, `/imgGen` voice paths) import no TTS/STT store; all of them cross the one speech adapter (`speechIO`), which owns readiness, endpoint resolution and the Qwen3/Kokoro/external engine branch | yes |
 | 3 | **Done.** Inference/download code calls the Permissions layer (`requestDownload` / `requestVramWarning` / `notify` in `src/assets/js/permissions/permissions.ts`); no `useDialogStore()` outside the adapter, the settings-setup flows and the dialog components. "Do not show again" and the remote-download pre-grant are entries in the persisted `permissionGrants` store, reviewed and revoked in Settings → Permissions (legacy `memoryAlertSuppress_*` flags migrate once) | yes |
-| 4 | **Done.** Notifications that were pushed point-to-point (`serviceInfoUpdate`, the four `agentMode:*` push channels) cross the kernel stream (`kernel:event`, one monotonic `seq`; listener-first snapshot handshake with install-before-flush; bus holds the current window so no service pushes to a stale webContents). Main owns hide/reopen/quit via `resolveClosePolicy` (`lifecycle:busy` from the activities sink, Home Agent status, active agent turn); a reconnected renderer resumes a running agent turn from the snapshot (`Chat.resumeStream`). Browser-backed windows were already lazy. Remaining event types (`activity`, `error`, `stored`) ride with steps 7–8 work; `queue` landed
+| 4 | **Done.** Notifications that were pushed point-to-point (`serviceInfoUpdate`, the four `agentMode:*` push channels) cross the kernel stream (`kernel:event`, one monotonic `seq`; listener-first snapshot handshake with install-before-flush; bus holds the current window so no service pushes to a stale webContents). Main owns hide/reopen/quit via `resolveClosePolicy` (`lifecycle:busy` from the activities sink, Home Agent status, `anyChatTurnActive()`, `artifactWorkOpen()`, active agent turn); a reconnected renderer resumes a running agent turn from the snapshot (`Chat.resumeStream`). Browser-backed windows were already lazy. Remaining event types (`activity`, `error`, `stored`) ride with steps 7–8 work; `queue` landed
 with step 7 (`queue-event`, not snapshotted) | yes |
 | 5 | **Done.** `capabilities/media.ts` no longer calls `executeToolInRenderer` — direct tools execute in-process against `electron/artifact/runner.ts` (`mediaDirect.ts`), the NL `media` tool lives in `mediaDelegation.ts` — and the UI hydrates readiness/generation progress from main via kernel `artifact-phase`/`artifact-item` events. In-process runs ask the renderer for model checks and download consent over `artifact:request` | yes, needs 1–4 |
 | 6 | **Done.** The renderer has no `streamText` — chat turns run in the main-side engine (`electron/chat/turnEngine.ts`) over `chat:submitTurn` and stream back as kernel `chat-chunk` events (adjacent deltas coalesced at the bus, semantic chunks immediate) through the renderer's kernel transport (`src/lib/kernelChatTransport.ts`); a reloaded renderer resumes from the snapshot (`chat:resumeTurn`). Tool executions round-trip to the renderer registry (`src/lib/chatToolRegistry.ts`) over the tool bridge; the nested media specialist runs in main too (`electron/chat/mediaAgentRunner.ts`) with inner Comfy in-process (step 12) and progress as `media-agent-event`; one-shot summarize is `chat:summarize`; Laminar's AI SDK integration is registered in main against the SDK's global telemetry registry. RAG retrieval landed with step 9 | yes, needs 1–5 |
@@ -1062,10 +1063,17 @@ These look like dual paths. They are the landed shape; deleting them is a redesi
 
 Each of these is a real follow-up. None is a drive-by tidy-up on the file it lives in.
 
-- **Off-bus IPC.** ComfyUI still `this.win.webContents.send('show-toast', …)`. Also off-bus:
-  `serviceSetUpProgress`, `debugLog`, `webBrowser:stateChanged`. Four consumers (toast, wizard
-  install bar, logger, browse tool). Putting them on `kernel:event` is remaining step-4 event
-  types, not one leftover send.
+- **Off-bus IPC.** ComfyUI toasts still ride `show-toast` (not `kernel:event`) but send to
+  `getKernelEventWindow() ?? this.win`, the same live-window guard as OpenVINO dialogs. Also
+  off-bus: `serviceSetUpProgress`, `debugLog`, `webBrowser:stateChanged`. Putting those on
+  `kernel:event` is remaining step-4 event types, not one leftover send.
+- **Pre-admission silence / stall owner.** The artifact watchdog arms inside `driveRun`; queue
+  wait and `acquireMediaWindow` emit no events and have no timeout. A stuck chat HTTP stream
+  parks an admitted run until the renderer Stop button. Swap-back has a "Reloading chat
+  model…" activity; this wait does not. Emit a phase at submission, and decide whether a stuck
+  chat stream deserves main-side stall detection.
+- **Reload-during-generation e2e.** `applyArtifactPhase` → `GenerateState` has no direct unit
+  test and this work adds no e2e; a spinner regression on reload would pass the suite.
 - **`comfyInputsPerPreset` is renderer-only.** In-process Comfy tools do not see saved dynamic
   inputs. Moving that map onto the turn catalog or a kernel file is a persist + IPC slice, like
   step 8.
@@ -1082,8 +1090,9 @@ Each of these is a real follow-up. None is a drive-by tidy-up on the file it liv
 - **`chat:summarize` is coarse.** One occupancy key (`home-agent-summarize`), no `AbortSignal`,
   no per-conversation scoping. Cancellation plus occupancy identity is an orchestrator API change.
 - **`queue-event` is transient, not snapshotted.** Intentional (`kernelBus.ts`): a reloaded
-  renderer must not adopt queue positions it cannot drive. Changing that revisits §10 #11
-  (listener-first snapshot, no public replay).
+  renderer must not adopt queue positions it cannot drive. Queued and in-acquire runs are
+  cancelled when the renderer dies (`cancelAllArtifactRuns`) so they do not keep executing
+  invisibly. Changing snapshotting revisits §10 #11.
 - **User mutations still persist from Pinia.** Rename, clear, delete, HA empty-thread create, RAG
   hashes, `removeMessage`, TTS/STT, gallery add/delete. Generate/regenerate and completed
   renderer-origin media persist from the engine (step 11). Agent UIMessage records still assemble

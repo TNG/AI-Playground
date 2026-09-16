@@ -34,6 +34,7 @@ const {
   resumeChatTurn,
   setChatEngineDeps,
   resetChatEngineDepsForTest,
+  buildToolSet,
 } = await import('../../chat/turnEngine')
 const { setChatModelDeps, resetChatModelDepsForTest } = await import('../../chat/chatModelMain')
 const {
@@ -427,6 +428,60 @@ describe('turn engine', () => {
     expect(JSON.stringify(toolMessage!.content)).toContain('r1')
     expect(chatChunks().some((c) => c.type === 'tool-input-available')).toBe(true)
     expect(chatChunks().some((c) => c.type === 'finish')).toBe(true)
+    const outputChunk = chatChunks().find((c) => c.type === 'tool-output-available')
+    expect(outputChunk).toMatchObject({
+      type: 'tool-output-available',
+      output: { results: ['r1'] },
+    })
+    expect(outputChunk).not.toHaveProperty('dynamic', true)
+  })
+
+  it('registers built-in tools as static and MCP tools as dynamic', () => {
+    const tools = buildToolSet(
+      [
+        { name: 'media', description: 'Create media', inputSchema: { type: 'object' } },
+        { name: 'mcp__files__read', description: 'Read', inputSchema: { type: 'object' } },
+      ],
+      'conv-1',
+      'turn-1',
+      undefined,
+    )
+    expect((tools.media as { type?: string }).type).not.toBe('dynamic')
+    expect((tools['mcp__files__read'] as { type?: string }).type).toBe('dynamic')
+  })
+
+  it('keeps a media tool result on the UI stream (not null)', async () => {
+    const mediaOutput = {
+      images: [{ id: 'i1', type: 'image', imageUrl: 'aipg-media://cheese.png', mode: 'image' }],
+      steps: ['comfyUI (Draft Image): produced 1 image'],
+      summary: 'Generated cheese.',
+    }
+    queueFetchMock(
+      sse(toolCallChunks('media', '{"request":"an image of cheese"}')),
+      sse(textChunks('here is your cheese')),
+    )
+    submitChatTurn(
+      turnRequest({
+        tools: [{ name: 'media', description: 'Create media', inputSchema: { type: 'object' } }],
+      }),
+    )
+    const execution = await vi.waitFor(() => {
+      const found = sent.find((p) => p.channel === 'chat:executeTool')
+      expect(found).toBeDefined()
+      return found as { requestId: string; toolName: string }
+    })
+    expect(execution.toolName).toBe('media')
+    handleChatToolResult({ requestId: execution.requestId, output: mediaOutput })
+    await vi.waitFor(() => {
+      expect(doneTurnIds().length).toBeGreaterThan(0)
+    })
+    const start = chatChunks().find((c) => c.type === 'tool-input-start')
+    expect(start).toMatchObject({ type: 'tool-input-start', toolName: 'media' })
+    expect(start).not.toHaveProperty('dynamic', true)
+    expect(chatChunks().find((c) => c.type === 'tool-output-available')).toMatchObject({
+      type: 'tool-output-available',
+      output: mediaOutput,
+    })
   })
 
   it('repairs an invalid comfyUI workflow before executing the tool', async () => {

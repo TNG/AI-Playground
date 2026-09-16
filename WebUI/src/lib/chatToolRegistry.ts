@@ -1,6 +1,7 @@
 import { z, type ZodType } from 'zod'
 import { convertToModelMessages, type ModelMessage, type ToolSet } from 'ai'
 import { completeOrphanedToolParts, sanitizeBulkyToolOutputs } from '@/lib/toolMessageSanitize'
+import { cloneForIpc } from '@/lib/cloneForIpc'
 import type { AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
 import type { ChatToolExecution, ChatToolResult, ChatToolSpec } from '@/types/chatIpc'
 
@@ -227,7 +228,10 @@ async function handleExecution(payload: ChatToolExecution): Promise<void> {
       messages,
       context: { conversationKey: payload.conversationKey },
     })
-    await settle({ requestId: payload.requestId, output })
+    await settle({
+      requestId: payload.requestId,
+      output: output === undefined ? null : cloneForIpc(output),
+    })
   } catch (error) {
     await settle({
       requestId: payload.requestId,

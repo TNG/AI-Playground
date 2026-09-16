@@ -13,11 +13,11 @@ import {
   type UIMessage,
   type UIMessageChunk,
 } from 'ai'
-import { dynamicTool, jsonSchema, type ToolResultOutput } from '@ai-sdk/provider-utils'
+import { dynamicTool, jsonSchema, tool, type ToolResultOutput } from '@ai-sdk/provider-utils'
 import type { JSONSchema7 } from '@ai-sdk/provider'
 import { appLoggerInstance } from '../logging/logger'
 import { completeOrphanedToolParts, sanitizeBulkyToolOutputs } from '@/lib/toolMessageSanitize'
-import { slimMediaModelOutput } from '@/lib/mediaModelOutput'
+import { slimMediaModelOutput, type SlimMediaToolOutput } from '@/lib/mediaModelOutput'
 import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
 import { extractMessage } from '@/assets/js/errors/appError'
 import type { AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
@@ -392,6 +392,9 @@ function capHistoryImages(messages: ModelMessage[]): {
  * path exists for exactly that); enforce it here from the shipped repair
  * names. Everything else passes through unvalidated, same as today's model
  * args that zod would have caught surface as errors only via the executor.
+ *
+ * Built-in tools use `tool()` so the UI stream emits `tool-${name}` parts
+ * (Chat.vue cards). MCP tools stay `dynamicTool()` (`dynamic-tool` + `mcp__`).
  */
 type ToolExecuteOptions = {
   toolCallId: string
@@ -428,7 +431,7 @@ export function buildToolSet(
         : spec.name === 'comfyUI'
           ? repairData?.comfyUI
           : undefined
-    tools[spec.name] = dynamicTool({
+    const definition = {
       description: spec.description,
       inputSchema: data
         ? jsonSchema(spec.inputSchema as JSONSchema7, {
@@ -446,7 +449,7 @@ export function buildToolSet(
             },
           })
         : jsonSchema(spec.inputSchema as JSONSchema7),
-      execute: async (input, execOptions) => {
+      execute: async (input: unknown, execOptions: ToolExecuteOptions) => {
         const exec: ToolExecuteOptions = {
           toolCallId: execOptions.toolCallId,
           messages: execOptions.messages,
@@ -462,7 +465,25 @@ export function buildToolSet(
           ...(options?.includeMessages ? { messages: exec.messages } : {}),
         })
       },
-    }) as ToolSet[string]
+      ...(spec.name === 'media'
+        ? {
+            toModelOutput: ({ output }: { output: unknown }) => {
+              if (!output || typeof output !== 'object') {
+                return {
+                  type: 'error-text' as const,
+                  value: 'Media generation returned no result.',
+                }
+              }
+              return slimMediaModelOutput(output as SlimMediaToolOutput)
+            },
+          }
+        : {}),
+    }
+    // MCP tools are not in the app's tool union; static tools must stay
+    // `tool()` so Chat.vue can match `tool-media` / `tool-comfyUI` parts.
+    tools[spec.name] = (
+      spec.name.startsWith('mcp__') ? dynamicTool(definition) : tool(definition)
+    ) as ToolSet[string]
   }
   return tools
 }

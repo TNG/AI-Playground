@@ -234,13 +234,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     cancelTurn: (conversationKey: string, turnId: string) =>
       ipcRenderer.invoke('chat:cancelTurn', conversationKey, turnId),
     toolResult: (payload: import('../src/types/chatIpc').ChatToolResult) =>
-      ipcRenderer.invoke('chat:toolResult', payload),
+      ipcRenderer.invoke('chat:toolResult', cloneForIpc(payload)),
     summarize: (request: import('../src/types/chatIpc').ChatSummarizeRequest) =>
       ipcRenderer.invoke('chat:summarize', request) as Promise<
         { success: true; data: string } | { success: false; error: string }
       >,
     runMediaAgent: (request: import('../src/types/chatIpc').MediaAgentRunRequest) =>
-      ipcRenderer.invoke('chat:runMediaAgent', request) as Promise<
+      ipcRenderer.invoke('chat:runMediaAgent', cloneForIpc(request)) as Promise<
         | { success: true; data: import('../src/types/chatIpc').MediaAgentRunResult }
         | {
             success: false

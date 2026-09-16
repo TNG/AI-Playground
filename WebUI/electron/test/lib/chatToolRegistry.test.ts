@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { jsonSchema, tool, type ToolSet } from 'ai'
+import { reactive } from 'vue'
 import { z } from 'zod'
 import type { ChatToolExecution, ChatToolResult } from '@/types/chatIpc'
 import {
@@ -114,6 +115,25 @@ describe('chat tool registry', () => {
         context: { conversationKey: 'conv-1' },
       }),
     })
+  })
+
+  it('clones Vue-proxy tool output before sending it over IPC', async () => {
+    const h = createExecutionBridge()
+    setChatToolExecutionBridgeForTest(h.bridge)
+    const toolSet: ToolSet = {
+      greet: tool({
+        description: 'Greets',
+        inputSchema: z.object({ name: z.string() }),
+        execute: async () => reactive({ hello: 'Ada', nested: { n: 1 } }),
+      }),
+    }
+    activateChatToolSet('conv-1', toolSet)
+    h.emit(execution())
+
+    await vi.waitFor(() => expect(h.results.length).toBe(1))
+    const output = h.results[0].output
+    expect(output).toEqual({ hello: 'Ada', nested: { n: 1 } })
+    expect(structuredClone(output)).toEqual(output)
   })
 
   it('validates input against the original zod schema before executing', async () => {

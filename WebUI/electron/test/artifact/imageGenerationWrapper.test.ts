@@ -251,4 +251,82 @@ describe('imageGenerationPresets.generate (UI wrapper)', () => {
     expect(store.processing).toBe(true)
     expect(store.currentState).toBe('generating')
   })
+
+  it('adopts renderer-origin in-process runs that never pre-registered stubs', async () => {
+    const store = useImageGenerationPresets()
+    await vi.waitFor(() => expect(kernelListeners.length).toBeGreaterThan(0))
+    const item = {
+      id: 'chat-media-1',
+      type: 'image' as const,
+      state: 'done' as const,
+      mode: 'imageGen' as const,
+      settings: {},
+      imageUrl: 'aipg-media://media/AIPG_Image_00940_.png',
+    }
+    for (const listener of kernelListeners) {
+      listener({
+        type: 'artifact-phase',
+        runId: 'in-process-1',
+        phase: 'queued',
+        origin: 'renderer',
+        seq: 1,
+        scope: { kind: 'run', runId: 'in-process-1' },
+      })
+      listener({
+        type: 'artifact-item',
+        runId: 'in-process-1',
+        origin: 'renderer',
+        item,
+        seq: 2,
+        scope: { kind: 'run', runId: 'in-process-1' },
+      })
+      listener({
+        type: 'artifact-phase',
+        runId: 'in-process-1',
+        phase: 'completed',
+        origin: 'renderer',
+        seq: 3,
+        scope: { kind: 'run', runId: 'in-process-1' },
+      })
+    }
+
+    await vi.waitFor(() =>
+      expect(store.generatedImages.some((img) => img.id === item.id)).toBe(true),
+    )
+    expect(store.processing).toBe(false)
+  })
+
+  it('ignores agent-origin artifact events that were not tracked', async () => {
+    const store = useImageGenerationPresets()
+    await vi.waitFor(() => expect(kernelListeners.length).toBeGreaterThan(0))
+    for (const listener of kernelListeners) {
+      listener({
+        type: 'artifact-phase',
+        runId: 'agent-1',
+        phase: 'running',
+        origin: 'agent',
+        seq: 1,
+        scope: { kind: 'run', runId: 'agent-1' },
+      })
+      listener({
+        type: 'artifact-item',
+        runId: 'agent-1',
+        origin: 'agent',
+        item: {
+          id: 'agent-media-1',
+          type: 'image',
+          state: 'done',
+          mode: 'imageGen',
+          settings: {},
+          imageUrl: 'aipg-media://media/agent.png',
+        },
+        seq: 2,
+        scope: { kind: 'run', runId: 'agent-1' },
+      })
+    }
+
+    await Promise.resolve()
+    expect(store.generatedImages.some((img) => img.id === 'agent-media-1')).toBe(false)
+    expect(store.processing).toBe(false)
+  })
 })

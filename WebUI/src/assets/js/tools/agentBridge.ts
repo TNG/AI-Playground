@@ -1,33 +1,18 @@
-import { asSchema, type ModelMessage } from 'ai'
+import { asSchema } from 'ai'
 import { z } from 'zod'
-import {
-  comfyUI,
-  executeComfyGeneration,
-  getAvailableWorkflows,
-  resolveDefaultImageWorkflow,
-} from './comfyUi'
-import { comfyUiImageEdit, executeImageEdit } from './comfyUiImageEdit'
-import { mediaAgentHasTools, runMediaAgent } from '../agents/mediaAgent'
+import { comfyUI, getAvailableWorkflows, resolveDefaultImageWorkflow } from './comfyUi'
+import { comfyUiImageEdit } from './comfyUiImageEdit'
+import { mediaAgentHasTools } from '../agents/mediaAgent'
 import { useTextInference } from '../store/textInference'
 import type { AgentToolSpec } from '@/types/agentIpc'
 
-// ── Agent Mode tool bridge (renderer side) ───────────────────────────────────
+// ── Agent Mode tool specs (renderer side) ────────────────────────────────────
 //
-// The Pi HarnessAgent runs in the Electron main process, but the AIPG media
-// tool implementations live here in the renderer (they orchestrate the Pinia
-// stores driving ComfyUI). This module is the renderer half of the bridge:
-//
-//  - getAgentToolSpecs() serializes the tool contracts (name, description,
-//    JSON-schema input) into AgentToolSpec[] shipped with each turn config.
-//    The main process builds host-executed proxy tools from them and hands
-//    them to the HarnessAgent, which forwards them to Pi as custom tools.
-//  - executeAgentTool() runs the real implementation when the main process
-//    dispatches an 'agentMode:executeTool' request back to the renderer.
-//
-// Path/file handling stays in the main process: for inputs listed in
-// `workspacePathInputs` (editImage's sourceImagePath) main resolves the
-// workspace-relative path and replaces it with a data URI before dispatching,
-// and generated media in results is saved to <workspace>/generated/ there.
+// Pi runs in the Electron main process. Media / generateImage / editImage
+// execute in-process there. This module only serializes the live catalog
+// (name, description, JSON schema, workspacePathInputs) onto the turn config.
+// Renderer execute for Agent Mode is storeTools in agentModeTurn
+// (offer_game_agent), not this file.
 
 const GENERATED_FILES_NOTE =
   '\n\nFILES: Generated media is automatically saved into the "generated/" folder of your ' +
@@ -114,90 +99,4 @@ export function getAgentToolSpecs(): AgentToolSpec[] {
       workspacePathInputs: ['sourceImagePath'],
     },
   ]
-}
-
-function dataUriMessage(dataUri: string): ModelMessage {
-  const mediaType = /^data:(image\/[a-z+.-]+);/i.exec(dataUri)?.[1] ?? 'image/png'
-  return {
-    role: 'user',
-    content: [{ type: 'file', mediaType, data: dataUri }],
-  }
-}
-
-/**
- * Pi executes tool calls concurrently, and a model illustrating a game asks
- * for all of its art at once — but the media-request bracket (specialist plus
- * its generations) is serialized by the main-side orchestrator's request lane
- * (step 7), and each bracket's generations queue on the same orchestrator
- * queue as every other run, so parallel calls cannot race the one ComfyUI
- * server and the one generation store.
- */
-export function executeAgentTool(
-  toolName: string,
-  input: Record<string, unknown>,
-  toolCallId?: string,
-  abortSignal?: AbortSignal,
-): Promise<unknown> {
-  return runAgentTool(toolName, input, toolCallId, abortSignal)
-}
-
-async function runAgentTool(
-  toolName: string,
-  input: Record<string, unknown>,
-  toolCallId?: string,
-  abortSignal?: AbortSignal,
-): Promise<unknown> {
-  if (toolName === 'media') {
-    const { request, sourceImagePath } = input
-    // The main process already replaced a provided workspace path with a data
-    // URI (see workspacePathInputs); anything else means "no source image".
-    const sourceImage =
-      typeof sourceImagePath === 'string' && sourceImagePath.startsWith('data:image/')
-        ? sourceImagePath
-        : undefined
-    const result = await runMediaAgent({
-      request: String(request ?? ''),
-      sourceImage,
-      abortSignal,
-      // Matches the tool part rendered in Agent Mode, so the timeline can show
-      // this run's progress while the bridged call blocks.
-      runId: toolCallId,
-    })
-    // Slim the media entries before they enter Pi's context: keep the URLs
-    // (the main process resolves them to save files into <workspace>/generated/)
-    // but drop the bulky per-item settings payloads.
-    return {
-      summary: result.summary,
-      steps: result.steps,
-      success: result.success,
-      message: result.message,
-      images: result.images.map((item) => {
-        const slim: Record<string, string> = { id: item.id, type: item.type }
-        if (item.imageUrl) slim.imageUrl = item.imageUrl
-        if (item.videoUrl) slim.videoUrl = item.videoUrl
-        if (item.model3dUrl) slim.model3dUrl = item.model3dUrl
-        return slim
-      }),
-    }
-  }
-  if (toolName === 'generateImage') {
-    return await executeComfyGeneration(input as Parameters<typeof executeComfyGeneration>[0], {
-      abortSignal,
-    })
-  }
-  if (toolName === 'editImage') {
-    const { sourceImagePath, ...args } = input
-    // The main process already replaced the workspace path with a data URI.
-    if (typeof sourceImagePath !== 'string' || !sourceImagePath.startsWith('data:image/')) {
-      throw new Error('editImage requires a sourceImagePath pointing to an image file.')
-    }
-    // executeImageEdit discovers its source image from conversation messages;
-    // synthesize a single user message carrying the inlined image.
-    return await executeImageEdit(
-      args as Parameters<typeof executeImageEdit>[0],
-      [dataUriMessage(sourceImagePath)],
-      { abortSignal },
-    )
-  }
-  throw new Error(`Unknown agent tool: ${toolName}`)
 }

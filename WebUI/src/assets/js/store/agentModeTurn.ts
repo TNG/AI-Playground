@@ -6,7 +6,7 @@ import { openAiApiBase } from '@/lib/inferenceApiBase'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import type { ReasoningEffort } from '@/types/shared'
 import { extractMessage } from '../errors/appError'
-import { executeAgentTool, getAgentToolSpecs } from '../tools/agentBridge'
+import { getAgentToolSpecs } from '../tools/agentBridge'
 import { useDeveloperSettings } from './developerSettings'
 import { registerAgentModeIpc } from './agentModeIpc'
 import { CLOUD_DEFAULT_MODEL } from './cloudMode'
@@ -187,11 +187,8 @@ export function createAgentTurnRuntime(options: {
   errors: { report: (error: unknown, overrides: Record<string, unknown>) => void }
   buildTurnConfig: () => Promise<AgentModeTurnConfig>
   /**
-   * Tools the store implements itself, dispatched by name ahead of the media
-   * bridge. They are how a tool call can reach state the bridge must not import:
-   * `tools/agentBridge` is part of this module's own import graph, so reaching
-   * back into the Agent Mode store from there would close a cycle and drag the
-   * whole store graph into every module the bridge is loaded from.
+   * Tools the store implements itself (e.g. offer_game_agent). Media tools
+   * execute in main; anything else arriving here is unknown.
    */
   storeTools?: Record<string, (input: Record<string, unknown>) => Promise<unknown>>
 }) {
@@ -356,14 +353,13 @@ export function createAgentTurnRuntime(options: {
       }
       activeTurn = null
     },
-    onExecuteTool: async ({ requestId, toolCallId, toolName, input }) => {
+    onExecuteTool: async ({ requestId, toolName, input }) => {
       const abort = new AbortController()
       runningTools.set(requestId, abort)
       try {
         const storeTool = options.storeTools?.[toolName]
-        const result = storeTool
-          ? await storeTool(input)
-          : await executeAgentTool(toolName, input, toolCallId, abort.signal)
+        if (!storeTool) throw new Error(`Unknown agent tool: ${toolName}`)
+        const result = await storeTool(input)
         const plainResult: unknown = JSON.parse(JSON.stringify(result ?? null))
         await window.electronAPI.agentMode.submitToolResult(requestId, plainResult)
       } catch (error) {

@@ -179,6 +179,10 @@ export function beginArtifactRunSnapshot(run: Omit<ArtifactRunSnapshot, 'items'>
   activeArtifactRun = { ...run, items: [] }
 }
 
+function artifactOrigin(runId: string): 'renderer' | 'agent' | undefined {
+  return activeArtifactRun?.runId === runId ? activeArtifactRun.origin : undefined
+}
+
 export function emitArtifactPhase(
   runId: string,
   phase: ArtifactPhase,
@@ -190,7 +194,10 @@ export function emitArtifactPhase(
     activeArtifactRun.progress = progress
     if (error !== undefined) activeArtifactRun.error = error
   }
-  emit({ type: 'artifact-phase', runId, phase, progress, error }, { kind: 'run', runId })
+  emit(
+    { type: 'artifact-phase', runId, phase, progress, error, origin: artifactOrigin(runId) },
+    { kind: 'run', runId },
+  )
 }
 
 export function emitArtifactItem(runId: string, item: MediaItem): void {
@@ -199,7 +206,10 @@ export function emitArtifactItem(runId: string, item: MediaItem): void {
     if (index === -1) activeArtifactRun.items.push(item)
     else activeArtifactRun.items[index] = item
   }
-  emit({ type: 'artifact-item', runId, item }, { kind: 'run', runId })
+  emit(
+    { type: 'artifact-item', runId, item, origin: artifactOrigin(runId) },
+    { kind: 'run', runId },
+  )
 }
 
 export function emitArtifactDone(

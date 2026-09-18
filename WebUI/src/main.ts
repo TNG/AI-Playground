@@ -20,6 +20,7 @@ import { useBackendServices } from './assets/js/store/backendServices'
 import { initLaminarTelemetry } from './lib/laminarTelemetry'
 import { initDebugSettings } from './assets/js/store/debugSettings'
 import { startMediaRequestBridge } from './assets/js/artifact/mediaRequestBridge'
+import { startChatAskBridge } from './assets/js/chat/chatAskBridge'
 import { startPermissionsAdapter } from './assets/js/permissions/permissionsAdapter'
 import { usePermissionGrants } from './assets/js/store/permissionGrants'
 import { startQueueActivityProjection } from './lib/queueActivityProjection'
@@ -75,6 +76,10 @@ if (initialPage !== null) {
 // The main-process artifact runner asks the renderer for model checks
 // over this bridge. Download consent goes through the permissions adapter.
 startMediaRequestBridge()
+// Chat tools run in main and ask this side by name for the few things that are
+// genuinely the window's: the speech engine (and its download prompt),
+// Chromium's audio decoder, and the Home Agent confirmation card.
+startChatAskBridge()
 startPermissionsAdapter()
 
 // Hydrate the conversation threads from the kernel's files (step 8) before

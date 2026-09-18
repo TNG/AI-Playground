@@ -220,10 +220,11 @@
                       />
                     </div>
                   </template>
-                  <!-- Thin media delegation tool: the nested media agent reports its
-                       steps to mediaAgentRuns (keyed by toolCallId), which the
-                       timeline renders live; the shared imageGeneration store still
-                       feeds ChatWorkflowResult through toolProgressMap. -->
+                  <!-- Thin media delegation tool: live progress is media-agent-event
+                       (mediaAgentRuns, keyed by toolCallId); the settled card reads
+                       the condensed tool output. Direct comfyUI / comfyUiImageEdit
+                       parent tools still live-progress from the Image Gen gallery
+                       (renderer-origin in-process runs). -->
                   <template v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'media'">
                     <div>
                       <span
@@ -507,6 +508,8 @@ import {
   type MediaItem,
   type GenerateState,
 } from '@/assets/js/store/imageGenerationPresets'
+import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
+import { ensureMediaAgentEventWiring } from '@/assets/js/agents/mediaAgent'
 import { DynamicToolUIPart, isToolUIPart, ToolUIPart } from 'ai'
 import { aipgTools, AipgTools } from '@/assets/js/tools/tools'
 import { toolPartNameOf } from '@/lib/agentTranscript'
@@ -523,6 +526,7 @@ const speakAvailable = computed(() => speakRepliesAvailable())
 const textInference = useTextInference()
 const promptStore = usePromptStore()
 const imageGeneration = useImageGenerationPresets()
+const mediaAgentRuns = useMediaAgentRuns()
 const conversations = useConversations()
 const activities = useActivities()
 const confirmations = useConfirmations()
@@ -604,6 +608,7 @@ defineExpose({
 const chatLikeModes: ChatLikeModeType[] = ['chat', 'audio']
 
 onMounted(() => {
+  ensureMediaAgentEventWiring()
   for (const mode of chatLikeModes) {
     promptStore.registerSubmitCallback(mode, handlePromptSubmit)
     promptStore.registerCancelCallback(mode, handleCancel)
@@ -771,8 +776,14 @@ watch(
   },
 )
 
-// Helper functions for AIPG tool rendering
-// Media tools share ChatWorkflowResult and toolProgressMap live-progress tracking.
+// Direct parent-turn comfy tools still live-progress through the Image Gen
+// gallery. The NL `media` tool does not — its images are the condensed output
+// and mediaAgentRuns timeline.
+function isDirectComfyToolPart(part: { type: string; toolName?: string }): boolean {
+  const name = toolPartNameOf(part)
+  return name === 'comfyUI' || name === 'comfyUiImageEdit'
+}
+
 function isMediaToolPart(part: { type: string; toolName?: string }): boolean {
   return isChatMediaToolPart(part)
 }
@@ -786,14 +797,32 @@ function toolInputRecord(part: { input?: unknown }): Record<string, unknown> {
 function getToolImages(part: ToolUIPart<AipgTools> | DynamicToolUIPart): MediaItem[] {
   if (!isMediaToolPart(part)) return []
   const toolCallId = part.toolCallId
+
+  if (toolPartNameOf(part) === 'media') {
+    const fromRun = mediaAgentRuns
+      .run(toolCallId)
+      ?.steps.flatMap((step) => step.media)
+      .filter((item) => item.state === 'done')
+    if (fromRun && fromRun.length > 0) return fromRun
+    if (part.state === 'output-available') {
+      const output = part.output as { images?: unknown[] } | undefined
+      if (!output?.images) return []
+      return output.images.map((img) => ({
+        ...(img as MediaItem),
+        state: 'done' as const,
+      }))
+    }
+    return []
+  }
+
   const progress = toolProgressMap[toolCallId]
 
-  // If we have progress tracking with images, use those
+  // Direct comfyUI / edit tools: live images come from the Image Gen gallery
+  // (those tools still pre-register stubs / mutate generatedImages).
   if (progress && progress.images.length > 0) {
     return progress.images
   }
 
-  // Otherwise, use output images if available (e.g. after a reload)
   if (part.state === 'output-available') {
     const output = part.output as { images?: unknown[] } | undefined
     if (!output?.images) return []
@@ -807,6 +836,7 @@ function getToolImages(part: ToolUIPart<AipgTools> | DynamicToolUIPart): MediaIt
 }
 
 function getToolProcessing(part: ToolUIPart<AipgTools> | DynamicToolUIPart): boolean {
+  if (part.state === 'output-available' || part.state === 'output-error') return false
   const toolCallId = part.toolCallId
   const progress = toolProgressMap[toolCallId]
 
@@ -953,7 +983,7 @@ watch(
     // Find tool calls that just started (input-streaming or input-available)
     messages.forEach((msg) => {
       msg.parts.forEach((part) => {
-        if (isMediaToolPart(part) && 'toolCallId' in part) {
+        if (isDirectComfyToolPart(part) && 'toolCallId' in part) {
           const toolCallId = part.toolCallId
           const state = part.state
 
@@ -992,7 +1022,7 @@ watch(
         ?.flatMap((msg) => msg.parts)
         .filter(
           (part) =>
-            isMediaToolPart(part) &&
+            isDirectComfyToolPart(part) &&
             'state' in part &&
             (part.state === 'input-streaming' || part.state === 'input-available'),
         )
@@ -1040,7 +1070,7 @@ watch(
         ?.flatMap((msg) => msg.parts)
         .filter(
           (part) =>
-            isMediaToolPart(part) &&
+            isDirectComfyToolPart(part) &&
             'state' in part &&
             (part.state === 'input-streaming' || part.state === 'input-available'),
         )

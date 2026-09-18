@@ -70,12 +70,7 @@ vi.mock('@/assets/js/store/errors', () => ({
   useErrors: () => ({ report: vi.fn() }),
 }))
 
-// The media bridge must never see this tool: it is a question for the user, and
-// the media lane it would queue on is busy with work waiting on the answer.
-const executeAgentTool = vi.fn()
-
 vi.mock('@/assets/js/tools/agentBridge', () => ({
-  executeAgentTool,
   getAgentToolSpecs: () => [],
 }))
 
@@ -181,7 +176,6 @@ beforeEach(async () => {
   await new Promise((resolve) => setTimeout(resolve, 0))
   switchPreset.mockClear()
   submitToolResult.mockClear()
-  executeAgentTool.mockClear()
   sendMessage.mockClear()
   seedQuickCoderGame()
 })
@@ -213,7 +207,6 @@ describe('offering the switch to Game Agent', () => {
       'req-1',
       expect.objectContaining({ accepted: true }),
     )
-    expect(executeAgentTool).not.toHaveBeenCalled()
   })
 
   // The offering turn is still open when the tool answers, and a second turn

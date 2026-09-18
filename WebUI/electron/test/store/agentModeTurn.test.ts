@@ -26,7 +26,6 @@ const chatResume = vi.hoisted(() => {
 
 vi.mock('@/assets/js/tools/agentBridge', () => ({
   getAgentToolSpecs: () => [],
-  executeAgentTool: vi.fn(),
 }))
 
 vi.mock('@/assets/js/store/developerSettings', () => ({

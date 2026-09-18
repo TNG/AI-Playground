@@ -878,15 +878,22 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     }
   }
 
-  // Renderer-submitted run ids. In-process agent tools also emit artifact
-  // events; adopting those would drive the Image Gen overlay / history from
-  // a run the user is not looking at.
+  // Renderer-submitted run ids, plus in-process chat-specialist runs that stamp
+  // origin: 'renderer' without pre-registering gallery stubs. In-process agent
+  // tools stamp origin: 'agent' and must not drive the Image Gen overlay.
   const trackedArtifactRunIds = new Set<string>()
   function trackArtifactRun(runId: string): void {
     trackedArtifactRunIds.add(runId)
   }
   function untrackArtifactRun(runId: string): void {
     trackedArtifactRunIds.delete(runId)
+  }
+
+  function adoptArtifactRun(runId: string, origin?: 'renderer' | 'agent'): boolean {
+    if (trackedArtifactRunIds.has(runId)) return true
+    if (origin !== 'renderer') return false
+    trackArtifactRun(runId)
+    return true
   }
 
   // ── Artifact run projection (architecture-target §4.1 step 5) ────────────
@@ -948,10 +955,10 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
   const artifactProjection = connectKernelEventStream(
     (event) => {
       if (event.type === 'artifact-phase') {
-        if (!trackedArtifactRunIds.has(event.runId)) return
+        if (!adoptArtifactRun(event.runId, event.origin)) return
         applyArtifactPhase(event.runId, event.phase, event.progress, event.error)
       } else if (event.type === 'artifact-item') {
-        if (!generatedImages.value.some((item) => item.id === event.item.id)) return
+        if (!adoptArtifactRun(event.runId, event.origin)) return
         updateImage(event.item)
       }
     },

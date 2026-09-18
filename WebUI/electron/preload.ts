@@ -233,24 +233,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       >,
     cancelTurn: (conversationKey: string, turnId: string) =>
       ipcRenderer.invoke('chat:cancelTurn', conversationKey, turnId),
-    toolResult: (payload: import('../src/types/chatIpc').ChatToolResult) =>
-      ipcRenderer.invoke('chat:toolResult', cloneForIpc(payload)),
     summarize: (request: import('../src/types/chatIpc').ChatSummarizeRequest) =>
       ipcRenderer.invoke('chat:summarize', request) as Promise<
         { success: true; data: string } | { success: false; error: string }
       >,
-    runMediaAgent: (request: import('../src/types/chatIpc').MediaAgentRunRequest) =>
-      ipcRenderer.invoke('chat:runMediaAgent', cloneForIpc(request)) as Promise<
-        | { success: true; data: import('../src/types/chatIpc').MediaAgentRunResult }
-        | {
-            success: false
-            error: string
-          }
-      >,
-    cancelMediaAgent: (runKey: string) => ipcRenderer.invoke('chat:cancelMediaAgent', runKey),
-    onToolExecution: (
-      callback: (payload: import('../src/types/chatIpc').ChatToolExecution) => void,
-    ) => listen('chat:executeTool', callback),
+    answer: (payload: import('../src/types/chatRequests').ChatAnswerPayload) =>
+      ipcRenderer.invoke('chat:answer', cloneForIpc(payload)),
+    onAsk: (callback: (payload: import('../src/types/chatRequests').ChatAskPayload) => void) =>
+      listen('chat:ask', callback),
   },
   conversations: {
     bootstrap: () =>

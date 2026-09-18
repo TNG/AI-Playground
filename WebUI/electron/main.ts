@@ -21,7 +21,6 @@ if (isAdmin()) {
 import {
   app,
   BrowserWindow,
-  desktopCapturer,
   dialog,
   ipcMain,
   IpcMainEvent,
@@ -36,7 +35,6 @@ import {
   screen,
   session,
   shell,
-  systemPreferences,
   utilityProcess,
   UtilityProcess,
 } from 'electron'
@@ -136,6 +134,8 @@ import { importAttachment } from './agent/workspaceAttachments.ts'
 import { AgentModeTurnConfigSchema } from '@/types/agentIpc'
 import { ArtifactRunRequestSchema } from '@/types/artifactIpc'
 import type { MediaResponsePayload } from '@/types/mediaRequests'
+import type { ChatAnswerPayload } from '@/types/chatRequests'
+import { handleChatAnswer, rejectAllChatAsks } from './chat/chatAsk.ts'
 import type { MediaItem } from '@/types/mediaItem'
 import type { ArtifactMissingModel } from '@/types/mediaRequests'
 import {
@@ -194,14 +194,8 @@ import {
 } from './chat/turnEngine'
 import { summarizeConversationText } from './chat/chatSummarize'
 import { setChatModelDeps } from './chat/chatModelMain'
-import { handleChatToolResult, rejectAllChatToolRequests } from './chat/toolBridge'
 import { setRagRetrievalDeps } from './chat/ragRetrieval'
-import {
-  activeMediaAgentRunKeys,
-  cancelMediaAgentRun,
-  runMediaAgentInMain,
-} from './chat/mediaAgentRunner'
-import { MediaAgentRunRequestSchema } from '@/types/chatIpc'
+import { activeMediaAgentRunKeys, cancelMediaAgentRun } from './chat/mediaAgentRunner'
 import {
   bootstrapConversations,
   deleteConversation,
@@ -259,8 +253,8 @@ import {
 } from './persist/ragDocumentFiles'
 
 import { llmServerBaseUrl } from './adapters/llmServerSnapshot'
-import type { ChatToolResult } from '@/types/chatIpc'
 import { getAudioDir, getGamesDir, getMediaDir } from './persist/userDataPaths.ts'
+import { saveGeneratedAudioFile } from './persist/audioFiles.ts'
 import {
   arcadeCatalog,
   createGame,
@@ -272,6 +266,12 @@ import {
   writeArcade,
 } from './agent/games/gameLibrary.ts'
 import { detectOem } from './adapters/hardware/oemDetection.ts'
+import {
+  captureWindow,
+  getScreenCaptureStatus,
+  listCaptureWindows,
+  openScreenCaptureSettings,
+} from './adapters/hardware/screenCapture.ts'
 import { packagedResourcesRoot, writableConfigRoot } from './kernel/aipgRoot.ts'
 import { loadDemoProfile, type DemoProfile } from './persist/demoProfile.ts'
 import type { ModelPaths } from '@/assets/js/store/models.ts'
@@ -730,8 +730,8 @@ async function createWindow() {
   // work is main-owned: cancel it here and again on destroyed so a crashed
   // renderer cannot leave an invisible queue draining.
   rejectAllMediaRequests('The app window was replaced')
+  rejectAllChatAsks('The app window was replaced')
   rejectAllPermissionPrompts('The app window was replaced')
-  rejectAllChatToolRequests('The app window was replaced')
   cancelAllArtifactRuns('The app window was replaced')
   win.webContents.once('destroyed', () => {
     cancelAllArtifactRuns('The app window was replaced')
@@ -1859,24 +1859,7 @@ function initEventHandle() {
         if (typeof audioBase64 !== 'string' || typeof filename !== 'string') {
           return { success: false, error: 'invalid arguments' }
         }
-        const safeName = path.basename(filename).replace(/[^\w.\-]+/g, '_')
-        let outName = safeName.toLowerCase().endsWith('.wav') ? safeName : `${safeName}.wav`
-        await fs.promises.mkdir(audioDir, { recursive: true })
-        let filePath = path.join(audioDir, outName)
-        // Chat audio keeps every take, so a name collision gets a `_1` suffix. A
-        // caller that owns a single well-known file (a voice's preview) opts out:
-        // suffixing would orphan the previous one on every re-save.
-        if (fs.existsSync(filePath) && options?.overwrite !== true) {
-          const ext = path.extname(outName)
-          const base = outName.slice(0, outName.length - ext.length)
-          let n = 1
-          while (fs.existsSync(filePath)) {
-            outName = `${base}_${n}${ext}`
-            filePath = path.join(audioDir, outName)
-            n++
-          }
-        }
-        await fs.promises.writeFile(filePath, Buffer.from(audioBase64, 'base64'))
+        const filePath = await saveGeneratedAudioFile(audioBase64, filename, options)
         return { success: true, filePath }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
@@ -2745,7 +2728,7 @@ function initEventHandle() {
 
   // Chat turns run in main (architecture-target §8 step 6); the renderer
   // submits/resumes/cancels over IPC and receives the stream as kernel
-  // chat-chunk events plus a chat:executeTool callback for tool bodies.
+  // chat-chunk events, answering `chat:ask` when a tool needs the window.
   ipcMain.handle('chat:submitTurn', (_event: IpcMainInvokeEvent, request: unknown) => {
     try {
       return { success: true as const, turnId: submitChatTurn(request).turnId }
@@ -2769,8 +2752,8 @@ function initEventHandle() {
     },
   )
 
-  ipcMain.handle('chat:toolResult', (_event: IpcMainInvokeEvent, payload: ChatToolResult) => {
-    handleChatToolResult(payload)
+  ipcMain.handle('chat:answer', (_event: IpcMainInvokeEvent, payload: ChatAnswerPayload) => {
+    handleChatAnswer(payload)
   })
 
   // One-shot title summarization, model call included (step 6).
@@ -2780,19 +2763,6 @@ function initEventHandle() {
     } catch (e) {
       return { success: false as const, error: e instanceof Error ? e.message : String(e) }
     }
-  })
-
-  ipcMain.handle('chat:runMediaAgent', async (_event: IpcMainInvokeEvent, request: unknown) => {
-    try {
-      const parsed = MediaAgentRunRequestSchema.parse(request)
-      return { success: true as const, data: await runMediaAgentInMain(parsed) }
-    } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle('chat:cancelMediaAgent', (_event: IpcMainInvokeEvent, runKey: unknown) => {
-    if (typeof runKey === 'string') cancelMediaAgentRun(runKey)
   })
 
   // Conversation persistence (step 8, architecture-target §6.1): the kernel
@@ -3550,98 +3520,21 @@ function initEventHandle() {
 
   // Screenshot capture IPC handlers. `listWindows` is only ever called from the
   // settings UI so the user can bind the screenshot tool to a single window;
-  // it is never exposed to the LLM. `captureWindow` only ever receives the
-  // user-bound window from the renderer (the tool has no window argument).
-
-  // macOS gates window/screen capture behind Screen Recording permission. When it
-  // is missing, `desktopCapturer.getSources` throws an opaque "Failed to get
-  // sources." — and crucially, once granted, the *running* app keeps failing until
-  // it is restarted. Convert both cases into an actionable message.
-  const SCREEN_PERMISSION_MESSAGE =
-    'Screen Recording permission is required to capture windows. On macOS, open System ' +
-    'Settings → Privacy & Security → Screen Recording, enable AI Playground (or Electron in ' +
-    'development), then fully quit and restart the app — newly granted permission does not ' +
-    'apply to the already-running process.'
-
-  function getScreenCaptureStatus():
-    'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown' {
-    if (process.platform !== 'darwin') return 'granted'
-    return systemPreferences.getMediaAccessStatus('screen')
-  }
-
-  async function getWindowSources(thumbnailSize: { width: number; height: number }) {
-    if (getScreenCaptureStatus() !== 'granted') {
-      throw new Error(SCREEN_PERMISSION_MESSAGE)
-    }
-    try {
-      return await desktopCapturer.getSources({
-        types: ['window'],
-        thumbnailSize,
-        fetchWindowIcons: false,
-      })
-    } catch (error) {
-      // On macOS this is almost always the "granted but not yet restarted" case.
-      if (process.platform === 'darwin') {
-        throw new Error(SCREEN_PERMISSION_MESSAGE)
-      }
-      throw error
-    }
-  }
+  // it is never exposed to the LLM. The Chat tool captures in main (it ships
+  // the bound window on the turn); this channel serves the settings picker.
 
   ipcMain.handle('screenshot:getPermissionStatus', () => ({
     platform: process.platform,
     status: getScreenCaptureStatus(),
   }))
 
-  ipcMain.on('screenshot:openPermissionSettings', () => {
-    if (process.platform === 'darwin') {
-      void shell.openExternal(
-        'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
-      )
-    }
-  })
+  ipcMain.on('screenshot:openPermissionSettings', () => openScreenCaptureSettings())
 
-  ipcMain.handle('screenshot:listWindows', async () => {
-    const sources = await getWindowSources({ width: 320, height: 200 })
-    return sources
-      .filter((source) => source.name.trim().length > 0)
-      .map((source) => ({
-        id: source.id,
-        name: source.name,
-        thumbnailDataUrl: source.thumbnail.isEmpty() ? null : source.thumbnail.toDataURL(),
-      }))
-  })
+  ipcMain.handle('screenshot:listWindows', async () => await listCaptureWindows())
 
   ipcMain.handle(
     'screenshot:captureWindow',
-    async (_event, target: { id: string; name: string }) => {
-      if (!target || typeof target.id !== 'string') {
-        throw new Error('screenshot:captureWindow: invalid target window')
-      }
-      // Capture at the primary display's pixel resolution (capped) so the
-      // screenshot is legible to a vision model rather than a tiny thumbnail.
-      const display = screen.getPrimaryDisplay()
-      const thumbnailSize = {
-        width: Math.min(Math.round(display.size.width * display.scaleFactor), 2560),
-        height: Math.min(Math.round(display.size.height * display.scaleFactor), 1600),
-      }
-      const sources = await getWindowSources(thumbnailSize)
-      // Source ids are not stable across app restarts, so fall back to matching
-      // by window title when the exact id is gone.
-      const source =
-        sources.find((s) => s.id === target.id) ?? sources.find((s) => s.name === target.name)
-      if (!source) {
-        throw new Error(
-          `Window "${target.name}" is no longer available. Ask the user to re-select the window to capture.`,
-        )
-      }
-      if (source.thumbnail.isEmpty()) {
-        throw new Error(
-          `Window "${target.name}" could not be captured (it may be minimized or hidden).`,
-        )
-      }
-      return source.thumbnail.toDataURL()
-    },
+    async (_event, target: { id: string; name: string }) => await captureWindow(target),
   )
 
   // MCP server IPC handlers

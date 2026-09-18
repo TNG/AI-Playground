@@ -1,22 +1,17 @@
-import { tool, type ModelMessage } from 'ai'
+import { tool } from 'ai'
 import { z } from 'zod'
-import { runMediaAgent, MediaAgentMediaSchema } from '../agents/mediaAgent'
-import { findSourceImage } from '@/lib/findSourceImage'
+import { MediaAgentMediaSchema } from '../agents/mediaAgent'
 import { slimMediaModelOutput } from '@/lib/mediaModelOutput'
-import { useActivities } from '../store/activities'
-import { useConversations } from '../store/conversations'
-import { useI18N } from '../store/i18n'
 
 // ── Thin media delegation tool ────────────────────────────────────────────────
 //
 // The only media surface the parent chat model sees when tool delegation is
-// enabled (textInference.toolDelegationEnabled): a natural-language request,
-// executed by the nested media agent (agents/mediaAgent.ts) on the same
-// model/endpoint. The heavy workflow catalog and the comfy tool schemas stay
-// entirely inside the nested run.
+// enabled (textInference.toolDelegationEnabled): a natural-language request.
+// Chat parent turns run that specialist in main (`electron/chat/chatMediaTool.ts`);
+// this object is schema-only so the turn request can serialize it.
 //
-// UI vs model payload: `output` keeps the full comfy-shaped `images[]` (the
-// Chat renderer and the Agent Mode workspace saver consume it), while
+// UI vs model payload: `output` keeps the condensed `images[]` (the Chat
+// renderer and the Agent Mode workspace saver consume it), while
 // `toModelOutput` sends only the summary, the step lines and slim image refs —
 // enough for the model to describe results and for a follow-up edit to find
 // the produced image (see findLatestImageInConversation), without re-sending
@@ -54,36 +49,6 @@ export const media = tool({
       ),
   }),
   outputSchema: MediaToolOutputSchema,
-  execute: async (
-    args,
-    { messages, abortSignal, toolCallId, context },
-  ): Promise<MediaToolOutput> => {
-    const conversationKey = (context as { conversationKey?: string } | undefined)?.conversationKey
-    const activities = useActivities()
-    const conversations = useConversations()
-    const i18nState = useI18N().state
-    const sourceImage = findSourceImage((messages ?? []) as ModelMessage[]) ?? undefined
-    return await activities.track(
-      {
-        category: 'tools',
-        label: i18nState.COM_ACTIVITY_CREATING_MEDIA,
-        scope: { kind: 'chat', conversationKey: conversations.activeKey },
-      },
-      // One media-request bracket at a time: a model asking for several images
-      // in one step gets parallel tool calls, and the brackets all share one
-      // ComfyUI, one generation store and one GPU window — the main-side
-      // orchestrator's request lane serializes them (step 7).
-      () =>
-        runMediaAgent({
-          request: args.request,
-          sourceImage,
-          conversationKey,
-          abortSignal,
-          // Keys the live timeline to this tool part (see mediaAgentRuns).
-          runId: toolCallId,
-        }),
-    )
-  },
   toModelOutput: ({ output }) => slimMediaModelOutput(output),
 })
 

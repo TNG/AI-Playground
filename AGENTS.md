@@ -529,8 +529,9 @@ Managed by `electron/adapters/backends/apiServiceRegistry.ts`. Each service spaw
      ships a resolved turn (`chat:submitTurn` — messages, model config, prompt, serialized tool
      specs) and consumes the stream as coalesced kernel `chat-chunk` events through its transport
      (`src/lib/kernelChatTransport.ts`); the engine (`electron/chat/turnEngine.ts`) calls the
-     backend's `/v1/chat/completions` directly. Tool executions round-trip to the renderer
-     (`chat:executeTool` → `src/lib/chatToolRegistry.ts` → `chat:toolResult`).
+     backend's `/v1/chat/completions` directly. Tool bodies run in main too, in a module beside
+     the engine; an unhandled tool name throws rather than falling back to the renderer. A tool
+     that needs this window asks for that one answer over `chat:ask` → `chat:answer`.
 
 3. **Utility process** (main ↔ langchain worker): `electron/adapters/backends/langchain.ts` for RAG document processing via `process.parentPort` messaging.
 
@@ -823,7 +824,7 @@ before the kernel move or as a small fix.
 
 **Artifact pipeline** (step 5): `artifact:run`, `artifact:cancel`, `artifact:respond` (R→M), `artifact:request` (M→R — model checks and download consent; replies keyed by requestId, `{progress: true}` pings re-arm the runner's watchdog)
 
-**Chat turns** (step 6): `chat:submitTurn`, `chat:resumeTurn`, `chat:cancelTurn` (R→M), `chat:executeTool` (M→R) + `chat:toolResult` (R→M — the tool execution bridge), `chat:summarize`, `chat:runMediaAgent` / `chat:cancelMediaAgent` (the nested media specialist, R→M)
+**Chat turns** (step 6): `chat:submitTurn`, `chat:resumeTurn`, `chat:cancelTurn` (R→M), `chat:ask` (M→R) + `chat:answer` (R→M — the question channel a main-side tool uses when it needs the window: the speech engine, Chromium's audio decoder, the Home Agent confirmation card and the store write behind it), `chat:summarize` (the nested media specialist runs in-process in main)
 
 **Conversations** (steps 8 + 11): `conversations:bootstrap`, `conversations:migrate` (one-shot legacy upload), `conversations:save`, `conversations:delete`, `conversations:saveLastMainKey` (R→M — user mutations; chat-turn transcripts are written by `turnEngine` via `saveConversation` on start and end, under `AI-Playground/conversations/`)
 
@@ -908,7 +909,7 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 
 **Chat/LLM**: `views/Chat.vue` → stores: `openAiCompatibleChat`, `textInference`, `conversations`, `presets` → electron: `ensureBackendReadiness` IPC → backend: `llamacpp`/`openvino` via Vercel AI SDK
 
-**Image/Video Generation**: `views/WorkflowResult.vue` and every other renderer driver (chat tools, Home Agent `/imgGen`) → `src/assets/js/artifact/runArtifact.ts` (one resolved `ArtifactRequest` in, one settled `ArtifactResult` out; no preset switch, no UI-state mutation) → IPC `artifact:run` → `electron/artifact/runner.ts` (engine, readiness, watchdog) → backend: `comfyui-backend` via direct HTTP. Both submit through the orchestrator's queue (`electron/kernel/orchestrator.ts`, which owns the GPU window): in-process Pi media tools via `electron/agent/capabilities/mediaDirect.ts` (generateImage/editImage) and the NL `media` specialist (`electron/chat/mediaAgentRunner.ts`, inner Comfy via `electron/artifact/inProcessComfy.ts`). Progress reaches the UI through kernel `artifact-phase`/`artifact-item` events (renderer-originated runs only)
+**Image/Video Generation**: `views/WorkflowResult.vue` and Home Agent `/imgGen` → `src/assets/js/artifact/runArtifact.ts` (one resolved `ArtifactRequest` in, one settled `ArtifactResult` out; no preset switch, no UI-state mutation) → IPC `artifact:run` → `electron/artifact/runner.ts` (engine, readiness, watchdog) → backend: `comfyui-backend` via direct HTTP. Chat and Agent Mode submit in-process through the orchestrator's queue (`electron/kernel/orchestrator.ts`, which owns the GPU window): Pi `generateImage`/`editImage` via `electron/agent/capabilities/mediaDirect.ts`, Chat parent `comfyUI`/`comfyUiImageEdit` via `electron/chat/chatComfyTool.ts`, and the NL `media` specialist (`electron/chat/mediaAgentRunner.ts`) — all inner Comfy through `electron/artifact/inProcessComfy.ts`. Progress reaches the UI through kernel `artifact-phase`/`artifact-item` events (renderer-originated runs only)
 
 **Speech (STT/TTS)**: every driver (mic + STT preset in `views/PromptArea.vue`, speak-replies + Speak button in `views/Chat.vue`, `tools/transcribeAudio`, `tools/synthesizeTextToSpeech`, the direct TTS/STT preset turns in `openAiCompatibleChat`, Home Agent voice paths) → `src/assets/js/speech/speechIO.ts` — the one engine seam: interactive vs dialog-free unattended readiness, endpoint resolution, the Qwen3/Kokoro/external branch, and desktop playback state. Drivers import no TTS/STT store; the stores (`speechToText`, `textToSpeech`, `qwen3TextToSpeech`) keep engine config, persistence and the engine clients, consumed by the adapter (settings panels read them directly)
 
@@ -946,7 +947,7 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 | `electron/artifact/inProcessComfy.ts`                  | Shared in-process Comfy for generateImage/editImage and specialist inner tools                    |
 | `electron/chat/chatModelMain.ts`                       | Chat model factory for main (backend routing, readiness, Home-Agent proxy)                        |
 | `electron/chat/chatSummarize.ts`                       | One-shot conversation title summarization                                                         |
-| `electron/chat/toolBridge.ts`                          | Main→renderer request/response for chat tool execution                                            |
+| `electron/chat/chatAsk.ts`                             | Main→renderer request/response for the one answer a chat tool needs from the window               |
 | `electron/observability/logger.ts`                     | Logging, sends `debugLog` events to renderer                                                      |
 
 ## Cursor Cloud specific instructions

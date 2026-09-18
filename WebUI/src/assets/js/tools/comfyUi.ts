@@ -1,31 +1,10 @@
 import { z } from 'zod'
 import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
-import { useImageGenerationPresets } from '../store/imageGenerationPresets'
-import { useActivities } from '../store/activities'
-import { useConversations } from '../store/conversations'
-import { useI18N } from '../store/i18n'
 import { usePresets, type Preset, type ComfyUiPreset } from '../store/presets'
 import { useTextInference } from '../store/textInference'
-import { usePromptStore } from '../store/promptArea'
 import { DEV_PRESET_NAMES, dummyWorkflowsOnly } from '../store/devPresets'
-import { artifactKindForMedia, runArtifact } from '../artifact/runArtifact'
-import {
-  DEFAULT_RESOLUTION_CONFIG,
-  getResolutionsFromConfig,
-  getResolutionForConfig,
-  findClosestResolutionInConfig,
-} from '../store/imageGenerationUtils'
-import type { ResolutionConfig, MegapixelOption } from '../store/presets'
-import { isCancellation } from '../errors/appError'
+import { DEFAULT_RESOLUTION_CONFIG, getResolutionsFromConfig } from '../store/imageGenerationUtils'
 import { tool } from 'ai'
-
-// Helper function to get a sensible default megapixel tier from resolution config
-function getDefaultMegapixelLabel(config: ResolutionConfig): string {
-  const labels = config.megapixels.map((m: MegapixelOption) => m.label)
-  // Prefer "1.0" if available (HD quality), otherwise pick middle tier
-  if (labels.includes('1.0')) return '1.0'
-  return labels[Math.floor(labels.length / 2)] ?? '0.5'
-}
 
 // Helper function to get available workflows for the tool
 export function getAvailableWorkflows(): Array<{
@@ -154,241 +133,6 @@ function findFastVariant(preset: Preset): string | null {
   return fastVariant ? fastVariant.name : null
 }
 
-type ComfyGenerationArgs = {
-  workflow?: string
-  variant?: string
-  prompt: string
-  negativePrompt?: string
-  aspectRatio?: string
-  megapixels?: string
-  resolution?: string
-  inferenceSteps?: number
-  seed?: number
-  batchSize?: number
-}
-
-/** Options every chat-side comfy tool call carries. */
-export type ComfyToolOptions = {
-  abortSignal?: AbortSignal
-  /** The conversation whose registry turn is executing this tool. */
-  conversationKey?: string
-}
-
-/**
- * Runs one generation for a tool call. ComfyUI serves prompts one at a time
- * and the whole run drives the single global generation store, so concurrent
- * callers queue rather than interleave — the main-side orchestrator's queue
- * (step 7) serializes them, along with the GPU window policy.
- */
-export function executeComfyGeneration(
-  args: ComfyGenerationArgs,
-  options: ComfyToolOptions = {},
-): Promise<ComfyUiToolOutput> {
-  return runComfyGeneration(args, options)
-}
-async function runComfyGeneration(
-  args: ComfyGenerationArgs,
-  options: ComfyToolOptions = {},
-): Promise<ComfyUiToolOutput> {
-  const activities = useActivities()
-  const conversations = useConversations()
-  const i18nState = useI18N().state
-  const imageGeneration = useImageGenerationPresets()
-  const presets = usePresets()
-
-  // Surface the whole tool call as a chat activity ("Generating image…") and let
-  // the runner nest the image-gen FSM phases under it (via parentActivityId)
-  // so the chat status line shows live progress instead of a silent wait.
-  const conversationKey = options.conversationKey ?? conversations.activeKey
-  const toolActivityId = activities.begin({
-    category: 'tools',
-    label: i18nState.COM_ACTIVITY_GENERATING_IMAGE,
-    scope: { kind: 'chat', conversationKey },
-  })
-  let toolActivityEnded = false
-  const finishToolActivity = (state: 'done' | 'failed' = 'done') => {
-    if (toolActivityEnded) return
-    toolActivityEnded = true
-    imageGeneration.generationParentActivityId = null
-    activities.end(toolActivityId, state)
-  }
-
-  // Helper to create error result instead of throwing
-  const createErrorResult = (message: string): ComfyUiToolOutput => {
-    finishToolActivity('failed')
-    return {
-      success: false,
-      message,
-      images: [],
-    }
-  }
-
-  // Resolve the workflow: the tool catalog (enabled presets, dev-only dummy
-  // override) decides what is drivable from a prompt alone.
-  const availableWorkflows = getAvailableWorkflows()
-  const imageWorkflowNames = availableWorkflows
-    .filter((w) => w.mediaType !== 'video')
-    .map((w) => w.name)
-  const requestedWorkflow = args.workflow || resolveDefaultImageWorkflow(imageWorkflowNames)
-
-  const preset = presets.presets.find(
-    (p: Preset) => p.name === requestedWorkflow && p.type === 'comfy' && p.backend === 'comfyui',
-  )
-  if (!preset) {
-    return createErrorResult(`Workflow "${requestedWorkflow}" is not available`)
-  }
-
-  // Variant preference is the driver's call: requested, else Fast, else first.
-  let variant: string | undefined
-  if (preset.variants?.length) {
-    variant =
-      (args.variant && preset.variants.some((v) => v.name === args.variant)
-        ? args.variant
-        : null) ||
-      findFastVariant(preset) ||
-      preset.variants[0].name
-  }
-
-  // Map the model's size vocabulary (aspectRatio/megapixels/resolution) onto a
-  // concrete WxH. When the args carry no size, the runner applies the preset's
-  // default resolution.
-  const comfyPreset = preset as ComfyUiPreset
-  const resolutionConfig = comfyPreset.resolutionConfig ?? DEFAULT_RESOLUTION_CONFIG
-
-  let width: number | undefined
-  let height: number | undefined
-
-  if (args.aspectRatio || args.megapixels) {
-    const ar = args.aspectRatio ?? '1/1'
-    const mp = args.megapixels ?? getDefaultMegapixelLabel(resolutionConfig)
-
-    const exactMatch = getResolutionForConfig(resolutionConfig, mp, ar)
-    if (exactMatch) {
-      width = exactMatch.width
-      height = exactMatch.height
-    } else {
-      const allResolutions = getResolutionsFromConfig(resolutionConfig)
-      const matchingAR = allResolutions.filter((r) => r.aspectRatio === ar)
-
-      if (matchingAR.length > 0) {
-        const targetMP = parseFloat(mp)
-        const closest = matchingAR.reduce((prev, curr) => {
-          const prevDiff = Math.abs(parseFloat(prev.megapixels) - targetMP)
-          const currDiff = Math.abs(parseFloat(curr.megapixels) - targetMP)
-          return currDiff < prevDiff ? curr : prev
-        })
-        width = closest.width
-        height = closest.height
-      }
-      // Aspect ratio not in the config: leave unset — the runner falls back to
-      // the preset's default resolution rather than the UI's live form.
-    }
-  } else if (args.resolution) {
-    const [w, h] = args.resolution.split('x').map(Number)
-    if (w && h) {
-      const closestMatch = findClosestResolutionInConfig(resolutionConfig, w, h)
-      if (closestMatch) {
-        width = closestMatch.width
-        height = closestMatch.height
-      } else {
-        width = w
-        height = h
-      }
-    }
-    // Unparseable resolution: leave unset for the preset default.
-  }
-
-  try {
-    const result = await runArtifact(
-      {
-        kind: artifactKindForMedia(comfyPreset.mediaType, false),
-        workflow: preset.name,
-        variant,
-        // The tool's output schema is imageGen-tagged regardless of media type.
-        mode: 'imageGen',
-        prompt: args.prompt,
-        negativePrompt: args.negativePrompt,
-        params: {
-          seed: args.seed,
-          width,
-          height,
-          inferenceSteps: args.inferenceSteps,
-          batchSize: args.batchSize,
-        },
-      },
-      {
-        parentActivityId: toolActivityId,
-        abortSignal: options.abortSignal,
-        // Chat tool runs queue behind whatever is generating (the panel's
-        // fail-fast contract stays panel-only) and carry their conversation
-        // so queue events can relabel this tool's activity.
-        queueMode: 'queue',
-        conversationKey,
-      },
-    )
-
-    if (result.state === 'cancelled') {
-      finishToolActivity('failed')
-      return { success: false, message: 'Generation cancelled.', images: [] }
-    }
-    if (result.state === 'failed') {
-      return createErrorResult(`ComfyUI generation failed: ${result.error ?? 'unknown error'}`)
-    }
-
-    const images = result.items.map((item) => {
-      const settings = item.settings || {}
-      if (item.type === 'video') {
-        return {
-          id: item.id,
-          type: 'video' as const,
-          videoUrl: item.videoUrl,
-          mode: 'imageGen' as const,
-          settings,
-        }
-      }
-      if (item.type === 'model3d') {
-        return {
-          id: item.id,
-          type: 'model3d' as const,
-          model3dUrl: item.model3dUrl,
-          mode: 'imageGen' as const,
-          settings,
-        }
-      }
-      return {
-        id: item.id,
-        type: 'image' as const,
-        imageUrl: item.imageUrl,
-        mode: 'imageGen' as const,
-        settings,
-      }
-    })
-    return { images }
-  } catch (error) {
-    // Reset prompt state on error (matches the UI submit path's recovery).
-    usePromptStore().promptSubmitted = false
-
-    // A user cancelling a required model download is not a tool failure — report
-    // it back to the model as a benign cancellation (the finally still cleans up).
-    if (isCancellation(error)) {
-      finishToolActivity('failed')
-      return {
-        success: false,
-        message: 'Image generation was cancelled by the user.',
-        images: [],
-      }
-    }
-
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-    return createErrorResult(`ComfyUI generation failed: ${errorMessage}`)
-  } finally {
-    // The post-generation window (freeing image models, reloading the chat
-    // backend) is the orchestrator's now; the run result settles after it,
-    // so this activity has nothing left to wait for.
-    finishToolActivity()
-  }
-}
-
 // Tool definition for AI SDK
 // Generate the tool description and schema dynamically based on available workflows
 // User-selectable defaults, resolved per output media type from the enabled
@@ -416,8 +160,8 @@ export function repairCreateToolInput(rawInput: string): string | null {
  * The repair data the main-side turn engine needs: shipped with the turn
  * request (chatIpc `repairData.comfyUI`) so the engine can validate the
  * model's `workflow` pick and coerce an unknown one to the default before
- * executing the tool renderer-side. Null when no workflow is available (no
- * repair possible — the call fails visibly, same as before the move).
+ * executing in-process. Null when no workflow is available (no repair
+ * possible — the call fails visibly).
  */
 export function createToolRepairData(): import('@/lib/comfyToolRepair').WorkflowRepairData | null {
   const workflows = getAvailableWorkflows()
@@ -649,24 +393,4 @@ export const comfyUI = tool({
     return getToolDefinition().inputSchema
   },
   outputSchema: ComfyUiToolOutputSchema,
-  execute: async (
-    args: {
-      workflow?: string
-      variant?: string
-      prompt: string
-      negativePrompt?: string
-      aspectRatio?: string
-      megapixels?: string
-      resolution?: string
-      inferenceSteps?: number
-      seed?: number
-      batchSize?: number
-    },
-    { abortSignal, context }: { abortSignal?: AbortSignal; context?: unknown },
-  ) => {
-    return await executeComfyGeneration(args, {
-      abortSignal,
-      conversationKey: (context as { conversationKey?: string } | undefined)?.conversationKey,
-    })
-  },
 })

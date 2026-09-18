@@ -53,7 +53,6 @@ vi.mock('@/assets/js/store/errors', () => ({
 }))
 
 vi.mock('@/assets/js/tools/agentBridge', () => ({
-  executeAgentTool: vi.fn(),
   getAgentToolSpecs: () => [],
 }))
 

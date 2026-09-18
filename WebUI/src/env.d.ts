@@ -493,20 +493,11 @@ type electronAPI = {
     ): Promise<{ success: true; turnId: string } | { success: false; error: string }>
     resumeTurn(conversationKey: string): Promise<import('./types/chatIpc').ChatTurnResumeResult>
     cancelTurn(conversationKey: string, turnId: string): Promise<{ success: boolean }>
-    toolResult(payload: import('./types/chatIpc').ChatToolResult): Promise<void>
     summarize(
       request: import('./types/chatIpc').ChatSummarizeRequest,
     ): Promise<{ success: true; data: string } | { success: false; error: string }>
-    runMediaAgent(
-      request: import('./types/chatIpc').MediaAgentRunRequest,
-    ): Promise<
-      | { success: true; data: import('./types/chatIpc').MediaAgentRunResult }
-      | { success: false; error: string }
-    >
-    cancelMediaAgent(runKey: string): Promise<{ success: boolean }>
-    onToolExecution(
-      callback: (payload: import('./types/chatIpc').ChatToolExecution) => void,
-    ): () => void
+    answer(payload: import('./types/chatRequests').ChatAnswerPayload): Promise<void>
+    onAsk(callback: (payload: import('./types/chatRequests').ChatAskPayload) => void): () => void
   }
   conversations: {
     bootstrap(): Promise<

@@ -84,6 +84,8 @@ export type KernelArtifactPhaseEvent = {
   progress?: { current: number; max: number }
   /** Failure text for the `failed` phase. */
   error?: string
+  /** Lets the renderer adopt chat-specialist runs that never pre-registered stubs. */
+  origin?: 'renderer' | 'agent'
 }
 
 /**
@@ -94,6 +96,7 @@ export type KernelArtifactItemEvent = {
   type: 'artifact-item'
   runId: string
   item: MediaItem
+  origin?: 'renderer' | 'agent'
 }
 
 /**

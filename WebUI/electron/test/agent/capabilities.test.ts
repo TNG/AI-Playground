@@ -223,6 +223,34 @@ describe('resolveCapabilities', () => {
     expect(registry.tools.map((tool) => tool.name)).toEqual(['browser', 'media'])
   })
 
+  // Speech is not a workflow the `media` specialist can pick, so the tools only
+  // exist if the capability registers them for the specs the turn shipped.
+  it('registers the speech tools and their skill when the turn ships them', async () => {
+    const host = hostWith({
+      toolSpecs: [
+        MEDIA_TOOL_SPEC,
+        { name: 'synthesizeTextToSpeech', description: 'speak text', inputSchema: {} },
+        { name: 'transcribeAudio', description: 'transcribe audio', inputSchema: {} },
+      ] as Host['toolSpecs'],
+    })
+    const resolution = await resolveCapabilities(host, ['media'])
+
+    const registry = fakeExtensionApi()
+    for (const factory of resolution.extensionFactories) factory(registry.api as never)
+    expect(registry.tools.map((tool) => tool.name)).toEqual([
+      'media',
+      'synthesizeTextToSpeech',
+      'transcribeAudio',
+    ])
+    expect(resolution.announcedSkillNames).toContain('speech-audio')
+
+    // Speech alone is enough to keep the capability available.
+    const speechOnly = listCapabilities(
+      hostWith({ toolSpecs: [host.toolSpecs[1]] as Host['toolSpecs'] }),
+    )
+    expect(speechOnly.find((entry) => entry.id === 'media')?.unavailableReason).toBeUndefined()
+  })
+
   it('shows a browser screenshot to the user without inlining it for the model', async () => {
     const host = hostWith()
     const shot = path.join(host.workspaceDir, 'generated', 'shot.png')

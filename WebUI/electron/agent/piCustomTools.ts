@@ -146,10 +146,10 @@ const DATA_URI_MIME_BY_EXT: Record<string, string> = {
 }
 
 /**
- * Resolve a model-provided workspace-relative path against the (realpathed)
- * workspace dir, rejecting escapes, and inline the file as a data URI.
+ * Resolve a model-provided workspace-relative path against the workspace dir,
+ * rejecting escapes and anything that is not an existing file.
  */
-export function workspaceFileToDataUri(workspaceDir: string, relativePath: string): string {
+export function resolveWorkspaceFile(workspaceDir: string, relativePath: string): string {
   const fullPath = path.resolve(workspaceDir, relativePath)
   const relative = path.relative(workspaceDir, fullPath)
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
@@ -158,6 +158,12 @@ export function workspaceFileToDataUri(workspaceDir: string, relativePath: strin
   if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) {
     throw new Error(`File not found in workspace: ${relativePath}`)
   }
+  return fullPath
+}
+
+/** Inline a workspace image file as a data URI. */
+export function workspaceFileToDataUri(workspaceDir: string, relativePath: string): string {
+  const fullPath = resolveWorkspaceFile(workspaceDir, relativePath)
   const mime = DATA_URI_MIME_BY_EXT[path.extname(fullPath).toLowerCase()]
   if (!mime) {
     throw new Error(`Unsupported image file type: ${relativePath}`)

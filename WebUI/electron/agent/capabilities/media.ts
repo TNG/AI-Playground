@@ -2,15 +2,18 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
 import type { AgentCapability, CapabilityHost } from './types.ts'
 import { buildDelegatedMediaTool } from './mediaDelegation.ts'
 import { buildDirectMediaTools } from './mediaDirect.ts'
+import { buildSpeechTools, SPEECH_TOOL_NAMES } from './mediaSpeech.ts'
 
 // ── media capability ─────────────────────────────────────────────────────────
 //
-// The AIPG media tools (image/video/3D generation and editing). Which tools
-// exist is decided by the renderer and shipped with the turn as `toolSpecs`:
-// one thin `media` delegation tool when tool delegation is on, else
-// generateImage + editImage. Direct tools and the NL specialist's inner Comfy
-// tools both execute in-process against the Artifact runner (steps 5 and 12).
-// Screenshot / web-browse stay on the renderer bridge.
+// The AIPG media tools (image/video/3D generation and editing, plus speech).
+// Which tools exist is decided by the renderer and shipped with the turn as
+// `toolSpecs`: one thin `media` delegation tool when tool delegation is on, else
+// generateImage + editImage, and the speech tools the preset has enabled. Direct
+// tools and the NL specialist's inner Comfy tools both execute in-process
+// against the Artifact runner (steps 5 and 12); speech calls the engine through
+// the window (mediaSpeech.ts). Screenshot / web-browse stay on the renderer
+// bridge.
 
 const MEDIA_GENERATION_SKILL = {
   name: 'media-generation',
@@ -37,16 +40,42 @@ const MEDIA_GENERATION_SKILL = {
   ].join('\n'),
 } as const
 
+// Speech is not a ComfyUI workflow, so the specialist cannot pick it up: the
+// tools are the agent's own, and saying so here is what keeps a model from
+// hunting for espeak/piper on the shell when asked for audio.
+const SPEECH_SKILL = {
+  name: 'speech-audio',
+  description:
+    'Speak text aloud into an audio file with `synthesizeTextToSpeech`, and turn an audio ' +
+    "file into text with `transcribeAudio`, using the app's local speech engines.",
+  body: [
+    'Audio does NOT go through the `media` tool or a ComfyUI workflow, and there is no speech',
+    'binary on the shell. The two speech tools are the only way to produce or read audio.',
+    '',
+    '- `synthesizeTextToSpeech` speaks `text` and writes the clip into "generated/"; its',
+    '  workspace-relative path comes back as "savedFilePath". Pass the whole passage in one',
+    '  call rather than chunking it, and pick a voice with `speaker` (or `instruct` for a',
+    '  described one, or `voiceName` for one the user has saved).',
+    '- `transcribeAudio` needs `sourceAudioPath`, a workspace-relative path (wav, mp3, m4a,',
+    '  ogg, flac, webm).',
+    '',
+    'The first call of a session may load a voice model, which takes a while — call the tool',
+    'once and wait for its result.',
+  ].join('\n'),
+} as const
+
 const DELEGATION_TOOL_NAME = 'media'
 const DIRECT_TOOL_NAMES = new Set(['generateImage', 'editImage'])
 
-/** Routes each shipped spec to its executor: delegation proxy or in-process run. */
+/** Routes each shipped spec to its executor: delegation proxy, in-process run or speech. */
 async function buildMediaTools(host: CapabilityHost): Promise<ToolDefinition[]> {
   const delegationSpecs = host.toolSpecs.filter((spec) => spec.name === DELEGATION_TOOL_NAME)
   const directSpecs = host.toolSpecs.filter((spec) => DIRECT_TOOL_NAMES.has(spec.name))
+  const speechSpecs = host.toolSpecs.filter((spec) => SPEECH_TOOL_NAMES.has(spec.name))
   return [
     ...(await buildDirectMediaTools(host, directSpecs)),
     ...(await Promise.all(delegationSpecs.map((spec) => buildDelegatedMediaTool(host, spec)))),
+    ...(await buildSpeechTools(host, speechSpecs)),
   ]
 }
 
@@ -54,12 +83,15 @@ export const mediaCapability: AgentCapability = {
   id: 'media',
   label: 'Media generation',
   summary:
-    'Generate and transform images, videos and 3D models; results are saved into the workspace.',
+    'Generate and transform images, videos and 3D models, and speak or transcribe audio; ' +
+    'results are saved into the workspace.',
   skills: [MEDIA_GENERATION_SKILL],
+  buildSkills: (host) =>
+    host.toolSpecs.some((spec) => SPEECH_TOOL_NAMES.has(spec.name)) ? [SPEECH_SKILL] : [],
   buildTools: buildMediaTools,
   unavailableReason: (host) =>
     host.toolSpecs.length === 0
-      ? 'No image or video workflows are installed — install a ComfyUI workflow first.'
+      ? 'No media tools are enabled — install or enable a ComfyUI workflow, or switch on a speech tool.'
       : undefined,
   lazyEligible: true,
 }

@@ -2,14 +2,16 @@ import { asSchema } from 'ai'
 import { z } from 'zod'
 import { comfyUI, getAvailableWorkflows, resolveDefaultImageWorkflow } from './comfyUi'
 import { comfyUiImageEdit } from './comfyUiImageEdit'
+import { synthesizeTextToSpeech } from './synthesizeTextToSpeech'
+import { transcribeAudio } from './transcribeAudio'
 import { mediaAgentHasTools } from '../agents/mediaAgent'
 import { useTextInference } from '../store/textInference'
 import type { AgentToolSpec } from '@/types/agentIpc'
 
 // ── Agent Mode tool specs (renderer side) ────────────────────────────────────
 //
-// Pi runs in the Electron main process. Media / generateImage / editImage
-// execute in-process there. This module only serializes the live catalog
+// Pi runs in the Electron main process. Media / generateImage / editImage and
+// the speech tools execute there. This module only serializes the live catalog
 // (name, description, JSON schema, workspacePathInputs) onto the turn config.
 // Renderer execute for Agent Mode is storeTools in agentModeTurn
 // (offer_game_agent), not this file.
@@ -64,7 +66,55 @@ function mediaSpecInputSchema(): z.ZodTypeAny {
   })
 }
 
+const TTS_FILES_NOTE =
+  '\n\nFILES: The clip is written into the "generated/" folder of your workspace; the result ' +
+  'gives its workspace-relative path in "savedFilePath". Reference that path in files you write ' +
+  '(e.g. an <audio src="generated/....wav"> on an HTML page).'
+
+const STT_SOURCE_NOTE =
+  '\n\nAGENT MODE: There is no conversation audio history here. Name the file to transcribe with ' +
+  'the required "sourceAudioPath" parameter — a workspace-relative path (e.g. ' +
+  '"attachments/voice-note.m4a").'
+
+function transcribeInputSchema(): z.ZodTypeAny {
+  return z.object({
+    sourceAudioPath: z
+      .string()
+      .describe(
+        'Workspace-relative path of the audio file to transcribe (e.g. "attachments/note.m4a").',
+      ),
+  })
+}
+
+/** The speech tools, per the same per-preset toggles Chat reads. */
+function speechToolSpecs(): AgentToolSpec[] {
+  const textInference = useTextInference()
+  const specs: AgentToolSpec[] = []
+  if (textInference.isBuiltinToolEnabled('synthesizeTextToSpeech')) {
+    specs.push({
+      name: 'synthesizeTextToSpeech',
+      description: (synthesizeTextToSpeech.description ?? '') + TTS_FILES_NOTE,
+      inputSchema: asSchema(synthesizeTextToSpeech.inputSchema).jsonSchema as Record<
+        string,
+        unknown
+      >,
+    })
+  }
+  if (textInference.isBuiltinToolEnabled('transcribeAudio')) {
+    specs.push({
+      name: 'transcribeAudio',
+      description: (transcribeAudio.description ?? '') + STT_SOURCE_NOTE,
+      inputSchema: asSchema(transcribeInputSchema()).jsonSchema as Record<string, unknown>,
+    })
+  }
+  return specs
+}
+
 export function getAgentToolSpecs(): AgentToolSpec[] {
+  return [...mediaToolSpecs(), ...speechToolSpecs()]
+}
+
+function mediaToolSpecs(): AgentToolSpec[] {
   // With tool delegation on (the default), the agent sees a single thin
   // `media` tool backed by the nested media agent (agents/mediaAgent.ts).
   // NOTE: the tool set is part of the Pi session's configKey, so flipping the

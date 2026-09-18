@@ -91,6 +91,7 @@ export class OpenVINOBackendService implements ApiService {
   private currentLlmServerArgs: string[] | null = null
   private currentEmbeddingModel: string | null = null
   private currentTranscriptionModel: string | null = null
+  private currentTranscriptionDevice: string | null = null
   private currentSpeechModel: string | null = null
   private currentImageModel: string | null = null
   private currentImageResolution: string | null = null
@@ -878,8 +879,13 @@ export class OpenVINOBackendService implements ApiService {
 
   async selectSttDevice(deviceId: string): Promise<void> {
     if (!this.sttDevices.find((d) => d.id === deviceId)) return
+    const previous = this.sttDevices.find((d) => d.selected)?.id
     this.sttDevices = this.sttDevices.map((d) => ({ ...d, selected: d.id === deviceId }))
     this.updateStatus()
+    if (previous === deviceId) return
+    if (this.ovmsTranscriptionProcess?.isReady && this.currentTranscriptionModel) {
+      await this.startTranscriptionServer(this.currentTranscriptionModel)
+    }
   }
 
   async detectDevices() {
@@ -1810,16 +1816,20 @@ export class OpenVINOBackendService implements ApiService {
         await this.ensureLinuxRuntimeDependenciesForStartup()
       }
 
-      this.appLogger.info(`Starting transcription server for model: ${modelName}`, this.name)
-
-      // Check if already running with the same model
-      if (this.ovmsTranscriptionProcess?.isReady && this.currentTranscriptionModel === modelName) {
+      const selectedDevice = this.sttDevices.find((d) => d.selected)?.id || 'AUTO'
+      if (
+        this.ovmsTranscriptionProcess?.isReady &&
+        this.currentTranscriptionModel === modelName &&
+        this.currentTranscriptionDevice === selectedDevice
+      ) {
         this.appLogger.info(
-          `Transcription server already running with model: ${modelName}`,
+          `Transcription server already running with model: ${modelName} on device ${selectedDevice}`,
           this.name,
         )
         return
       }
+
+      this.appLogger.info(`Starting transcription server for model: ${modelName}`, this.name)
 
       // Stop existing server if running different model
       if (this.ovmsTranscriptionProcess) {
@@ -2397,6 +2407,7 @@ export class OpenVINOBackendService implements ApiService {
         if (this.ovmsTranscriptionProcess === ovmsProcess) {
           this.ovmsTranscriptionProcess = null
           this.currentTranscriptionModel = null
+          this.currentTranscriptionDevice = null
         }
       })
 
@@ -2406,6 +2417,7 @@ export class OpenVINOBackendService implements ApiService {
 
       this.ovmsTranscriptionProcess = ovmsProcess
       this.currentTranscriptionModel = modelRepoId
+      this.currentTranscriptionDevice = selectedDevice
 
       this.appLogger.info(`OVMS transcription server ready for model: ${modelRepoId}`, this.name)
       return ovmsProcess
@@ -2428,6 +2440,7 @@ export class OpenVINOBackendService implements ApiService {
 
       this.ovmsTranscriptionProcess = null
       this.currentTranscriptionModel = null
+      this.currentTranscriptionDevice = null
     }
   }
 

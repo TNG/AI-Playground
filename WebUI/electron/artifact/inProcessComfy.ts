@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { submitArtifactRun, cancelArtifactRun } from '../orchestrator/orchestrator.ts'
+import { submitArtifactRun, cancelArtifactRun } from '../kernel/orchestrator.ts'
 import type { ArtifactRunResult } from './runner.ts'
 import { resolveComfyEntry, type PresetCatalog } from './catalog.ts'
 import type { ComfyInput, ComfyUiPreset, Preset } from '@/lib/presetSchemas'
@@ -13,9 +13,9 @@ import {
 import type { ResolutionConfig, MegapixelOption } from '@/lib/presetSchemas'
 
 // Shared in-process Comfy execution (architecture-target §8 step 12):
-// generateImage / editImage and the NL media specialist's inner comfyUI /
-// comfyUiImageEdit tools all resolve a workflow from main's catalog and
-// submit through the orchestrator. Download consent stays artifact:request.
+// generateImage / editImage, Chat parent comfyUI / comfyUiImageEdit, and the
+// NL media specialist's inner Comfy tools all resolve a workflow from main's
+// catalog and submit through the orchestrator. Download consent stays artifact:request.
 
 type CatalogProvider = () => Promise<PresetCatalog>
 let catalogProvider: CatalogProvider | null = null

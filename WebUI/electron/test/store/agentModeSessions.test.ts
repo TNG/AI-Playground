@@ -65,7 +65,6 @@ vi.mock('@/assets/js/store/errors', () => ({
 }))
 
 vi.mock('@/assets/js/tools/agentBridge', () => ({
-  executeAgentTool: vi.fn(),
   getAgentToolSpecs: () => [],
 }))
 
@@ -180,6 +179,29 @@ describe('agentMode sessions', () => {
 
     expect(switchPreset).not.toHaveBeenCalled()
     expect(store.workspaceDir).toBe('/code/older')
+  })
+
+  it('does not adopt an empty workspaceDir when resuming a placeholder session', async () => {
+    const store = useAgentMode()
+    seedSessions(store)
+    store.workspaceDir = '/code/project'
+    store.sessions = {
+      ...store.sessions,
+      missing: {
+        id: 'missing',
+        workspaceDir: '',
+        title: 'Unavailable session',
+        messages: [],
+        createdAt: 9,
+        updatedAt: 9,
+        presetName: 'Agent',
+      },
+    }
+
+    await store.switchSession('missing')
+
+    expect(store.activeSessionId).toBe('missing')
+    expect(store.workspaceDir).toBe('/code/project')
   })
 
   // Everything archived before sessions recorded a preset would otherwise show

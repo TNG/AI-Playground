@@ -19,7 +19,7 @@
 import path from 'node:path'
 import fs from 'fs'
 import { app } from 'electron'
-import { appLoggerInstance } from '../logging/logger'
+import { appLoggerInstance } from '../observability/logger'
 import {
   PresetSchema,
   applyVariant,

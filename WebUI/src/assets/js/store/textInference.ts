@@ -190,6 +190,12 @@ export const useTextInference = defineStore(
     const conversations = useConversations()
     const activities = useActivities()
     const modelPreferences = useModelPreferences()
+    const activePreset = computed(() => {
+      if (!presetsStore.activePresetName) return null
+      const preset = presetsStore.presets.find((p) => p.name === presetsStore.activePresetName)
+      if (preset && preset.type === 'chat') return preset as ChatPreset
+      return null
+    })
     // Tracks the in-flight backend-preparation activity (begin/end are paired with
     // start/completeBackendPreparation).
     let backendPrepActivityId: string | null = null
@@ -911,13 +917,12 @@ export const useTextInference = defineStore(
     // Phison KM RAG state (retrieval-mode toggle, availability gating, context-size
     // floor/stash) lives in its own module — see aidaptiv-km-rag-review-scope.md §W1.
     // getActivePreset/isLoadingSettings are passed as thunks rather than direct
-    // values because this call sits above where `activePreset` (defined later via
-    // usePresets()) and `isLoadingSettings` (a `let` near the persistence watchers)
-    // are declared in this same setup() function — reading them eagerly here would
-    // throw ("used before initialization"). The thunks are only invoked lazily,
-    // inside computed/watch callbacks that run well after setup() has finished, by
-    // which point both are initialized; this mirrors how the rest of this store
-    // already treats `activePreset` similarly inside computed() bodies below.
+    // values because this call sits above where `isLoadingSettings` (a `let`
+    // near the persistence watchers) is declared in this same setup() function —
+    // reading it eagerly here would throw ("used before initialization"). The
+    // thunks are only invoked lazily, inside computed/watch callbacks that run
+    // well after setup() has finished. `activePreset` is declared at the top of
+    // setup so the `willUseRag` watch can evaluate it during store creation.
     const {
       ragMode,
       stashedStandardContextSize,
@@ -1462,13 +1467,6 @@ export const useTextInference = defineStore(
     // ========================================================================
     // Chat Preset Management
     // ========================================================================
-
-    const activePreset = computed(() => {
-      if (!presetsStore.activePresetName) return null
-      const preset = presetsStore.presets.find((p) => p.name === presetsStore.activePresetName)
-      if (preset && preset.type === 'chat') return preset as ChatPreset
-      return null
-    })
 
     // Get setting key for current preset (includes variant if present)
     function getSettingsKey(): string {

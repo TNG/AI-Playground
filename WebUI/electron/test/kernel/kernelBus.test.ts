@@ -83,6 +83,32 @@ describe('kernel bus', () => {
     expect(getKernelSnapshot().state.services).toEqual([])
   })
 
+  it('merges adjacent text deltas of the same part in the turn snapshot', () => {
+    beginAgentTurnSnapshot('turn-1')
+    emitAgentChunk('turn-1', { type: 'text-start', id: 'a' })
+    emitAgentChunk('turn-1', { type: 'text-delta', id: 'a', delta: 'Hel' })
+    emitAgentChunk('turn-1', { type: 'text-delta', id: 'a', delta: 'lo' })
+    emitAgentChunk('turn-1', { type: 'reasoning-delta', id: 'r', delta: 'hmm' })
+    emitAgentChunk('turn-1', { type: 'reasoning-delta', id: 'r', delta: '…' })
+    expect(getKernelSnapshot().state.activeTurn?.chunks).toEqual([
+      { type: 'text-start', id: 'a' },
+      { type: 'text-delta', id: 'a', delta: 'Hello' },
+      { type: 'reasoning-delta', id: 'r', delta: 'hmm…' },
+    ])
+  })
+
+  it('does not merge agent snapshot deltas across parts or types', () => {
+    beginAgentTurnSnapshot('turn-1')
+    emitAgentChunk('turn-1', { type: 'text-delta', id: 'a', delta: 'a' })
+    emitAgentChunk('turn-1', { type: 'text-delta', id: 'b', delta: 'b' })
+    emitAgentChunk('turn-1', { type: 'reasoning-delta', id: 'a', delta: 'c' })
+    expect(getKernelSnapshot().state.activeTurn?.chunks).toEqual([
+      { type: 'text-delta', id: 'a', delta: 'a' },
+      { type: 'text-delta', id: 'b', delta: 'b' },
+      { type: 'reasoning-delta', id: 'a', delta: 'c' },
+    ])
+  })
+
   it('accumulates the active turn and clears it when the turn is done', () => {
     beginAgentTurnSnapshot('turn-1')
     emitAgentChunk('turn-1', { type: 'text-start' })

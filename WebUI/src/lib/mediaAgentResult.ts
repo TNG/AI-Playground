@@ -24,7 +24,14 @@ const MEDIA_TYPES = new Set(['image', 'video', 'model3d'])
 /** Media entries out of one inner tool output (comfy result shape). */
 export function mediaEntriesOf(output: unknown): CondensedMediaEntry[] {
   if (typeof output !== 'object' || output === null) return []
-  const images = (output as { images?: unknown }).images
+  const record = output as Record<string, unknown>
+  if (record.type === 'json' && record.value !== undefined && record.value !== output) {
+    return mediaEntriesOf(record.value)
+  }
+  if (!Array.isArray(record.images) && record.output !== undefined && record.output !== output) {
+    return mediaEntriesOf(record.output)
+  }
+  const images = record.images
   if (!Array.isArray(images)) return []
   return images.filter((item): item is CondensedMediaEntry => {
     if (typeof item !== 'object' || item === null) return false

@@ -52,7 +52,7 @@ npm run verify:pi
 npm run test:watch
 
 # Run a single test file
-npx vitest run electron/test/subprocesses/deviceArch.test.ts
+npx vitest run electron/test/adapters/hardware/deviceArch.test.ts
 
 # Run tests matching a name pattern
 npx vitest run --testNamePattern "getDeviceArch"
@@ -381,8 +381,16 @@ through it — never surface errors ad hoc.
 
 ```
 WebUI/                      # Electron + Vue.js frontend (all npm commands here)
-  electron/                 # Electron main process (IPC, service registry, preload)
-    subprocesses/           # Backend service classes + langchain utility process
+  electron/                 # Electron main process — main.ts/preload.ts are the composition root
+    kernel/                 # Bus, orchestrator (GPU queue), shutdown, install roots, settings schema
+    persist/                # Kernel-owned user-data files: where and how they are written
+    chat/                   # Text capability: turn engine, RAG retrieval, tool bridge, media specialist
+    agent/                  # Agent capability (Pi harness, capabilities/) + games/ library
+    artifact/               # Artifact capability: ComfyUI runner, workflow rewrite, catalog
+    permissions/            # Consent policy + the renderer prompt adapter
+    observability/          # Logger and Laminar tracing
+    adapters/               # I/O: backends/, install/, hardware/, mcp/, cloud, updates, web browser
+    test/                   # Main-process tests mirror the source folders
   src/                      # Vue.js app (components, views, stores, utils)
     assets/js/store/        # Pinia stores (domain + implementation)
     assets/js/errors/       # Unified error model (AppError type + createAppError/normalize helpers)
@@ -394,6 +402,21 @@ service/                    # Python Flask backend (model download/management, N
 LlamaCPP/                   # LlamaCPP inference backend
 OpenVINO/                   # OpenVINO inference backend
 ```
+
+### Where new main-process code goes
+
+The folders above are layers, not just grouping. Put a new module where its job belongs:
+
+- Capability logic → `chat/`, `agent/`, `artifact/`, `permissions/`
+- Anything that writes a user-data file → `persist/`
+- Child processes, HTTP clients, OS probing, git → `adapters/`
+- Bus, GPU queue, install roots, machine-level settings schema → `kernel/`
+- Logger and traces → `observability/`
+- `main.ts` only wires things together; it does not grow new helpers
+
+Dependency direction: domain and kernel may import adapters, **adapters must not import `main.ts`**
+— machine-level settings live in `electron/kernel/localSettings.ts` so a backend can type its
+configuration without reaching into the composition root.
 
 ## IPC Pattern (Three-File Rule)
 
@@ -486,7 +509,7 @@ There is **no Vue Router**. Navigation is state-driven:
 
 ### Backend Services (4 services, dynamic ports)
 
-Managed by `electron/subprocesses/apiServiceRegistry.ts`. Each service spawns a child process and exposes an OpenAI-compatible HTTP API:
+Managed by `electron/adapters/backends/apiServiceRegistry.ts`. Each service spawns a child process and exposes an OpenAI-compatible HTTP API:
 
 | Service            | Ports       | Binary/Entry                        | Health Endpoint    | Purpose                                                          |
 | ------------------ | ----------- | ----------------------------------- | ------------------ | ---------------------------------------------------------------- |
@@ -506,10 +529,11 @@ Managed by `electron/subprocesses/apiServiceRegistry.ts`. Each service spawns a 
      ships a resolved turn (`chat:submitTurn` — messages, model config, prompt, serialized tool
      specs) and consumes the stream as coalesced kernel `chat-chunk` events through its transport
      (`src/lib/kernelChatTransport.ts`); the engine (`electron/chat/turnEngine.ts`) calls the
-     backend's `/v1/chat/completions` directly. Tool executions round-trip to the renderer
-     (`chat:executeTool` → `src/lib/chatToolRegistry.ts` → `chat:toolResult`).
+     backend's `/v1/chat/completions` directly. Tool bodies run in main too, in a module beside
+     the engine; an unhandled tool name throws rather than falling back to the renderer. A tool
+     that needs this window asks for that one answer over `chat:ask` → `chat:answer`.
 
-3. **Utility process** (main ↔ langchain worker): `electron/subprocesses/langchain.ts` for RAG document processing via `process.parentPort` messaging.
+3. **Utility process** (main ↔ langchain worker): `electron/adapters/backends/langchain.ts` for RAG document processing via `process.parentPort` messaging.
 
 ### Chat Inference Flow
 
@@ -611,10 +635,10 @@ every step, which is far more expensive than the tokens it saves.
 a pi-ai field, and pi-coding-agent never reads it (the identifier does not occur in the package), so
 for a long time a local agent turn silently sent none of it: no recommended sampling, no
 temperature, no `chat_template_kwargs` — the thinking toggle looked wired up and changed nothing,
-while the same settings worked in Chat. `electron/agentMode/piSampling.ts` registers a
+while the same settings worked in Chat. `electron/agent/piSampling.ts` registers a
 `before_provider_request` extension (Pi's supported per-request seam; the handler's return value
 replaces the body) that merges the bag into every request. The bag is read through a callback, so a
-change between two steps of one turn reaches the very next request. `electron/test/agents/agentSampling.test.ts`
+change between two steps of one turn reaches the very next request. `electron/test/agent/agentSampling.test.ts`
 pins this against a fake OpenAI server driving a real Pi session — assert on the recorded request
 bodies, because nothing else proves Pi forwarded anything.
 
@@ -626,7 +650,7 @@ builds and reads it off that object per request, so a session kept calling the p
 with: every step after the first image generation failed the instant it was made — no tokens, no
 error text, `gen_ai.response.finish_reasons: ["error"]`, retried 2 s / 4 s / 8 s apart, then the run
 gave up. It reads like a broken model and is only visible in a trace.
-`electron/agentMode/piLocalEndpoint.ts` therefore resolves the endpoint per request off the live
+`electron/agent/piLocalEndpoint.ts` therefore resolves the endpoint per request off the live
 service (`llmServerBaseUrl` in `llmServerSnapshot.ts`) and hands Pi a model whose `baseUrl` is an
 accessor — the same re-rooting the renderer's chat model does, which is why Chat never had the
 problem. Consequences worth knowing: the session key ignores the URL (a moved port is not a
@@ -634,7 +658,7 @@ different model and must not rebuild a live session), the timing observer asks p
 (`piCallTiming.ts`, or steps after a relaunch lose their speeds), and
 `llamaCppBackendService.allocateLlmPort` takes the previous port back when it is free, so the URL
 usually does not move at all. OVMS is unaffected either way — its LLM server runs on the service's
-own port, allocated once. `electron/test/agents/agentEndpoint.test.ts` moves the backend between two
+own port, allocated once. `electron/test/agent/agentEndpoint.test.ts` moves the backend between two
 steps of a real Pi session and asserts which fake server received the second one.
 
 **"Reasoning only during planning" (Agent Mode).** Thinking earns its cost while the agent decides
@@ -642,7 +666,7 @@ what to build and stops earning it once that decision is on disk, so a Game Agen
 switch thinking off for the rest of the run. What counts as "on disk" is the capability's to say
 (`AgentCapability.planningEnd`): `plan-file` for `game-studio`, which then works down the checklist
 in `design.md`, and `first-write` for `game-studio-quick`, whose first write is the finished game.
-`electron/agentMode/planningPhase.ts` owns the switch (spotting that write in
+`electron/agent/planningPhase.ts` owns the switch (spotting that write in
 `tool_execution_start/end`, and a plan already on disk at session start); the settings toggle is
 `agentMode.planningThinkingOnly`, persisted on the Agent Mode store (copied once from chat
 `settingsPerPreset` on upgrade) and passed as `AgentModeTurnConfig.planningThinkingOnly`. It only
@@ -674,7 +698,7 @@ what the turn actually gets. OpenVINO on GPU ignores `contextSize` entirely (dyn
 `contextWindow − reserveTokens`, then keeps `keepRecentTokens` of the tail (Pi defaults 16384 /
 20000). On 32k those cannot fit: keep already exceeds the 16k trigger, so a compact lands at ~20k
 and the next llama.cpp request still overflows `n_ctx`. We pass window-scaled settings
-(`electron/agentMode/piCompaction.ts`: reserve ≤ ¼ window capped at 16k, keep ≤ ⅓ capped at 20k,
+(`electron/agent/piCompaction.ts`: reserve ≤ ¼ window capped at 16k, keep ≤ ⅓ capped at 20k,
 `keep + reserve` under the window) into `SettingsManager.inMemory()`, and `outputTokenBudget` is
 capped so the post-compact tail plus generation still fits. A 32k session that did not auto-compact,
 or compacted a split Game Agent turn to "No prior history.", is this mismatch — not dropped context.
@@ -734,7 +758,7 @@ modeled as an explicit FSM rather than loose flags.
   - Main (`electron/artifact/runner.ts`): owns readiness (backend start, custom-node/python
     installs), the ComfyUI websocket engine, per-item seeds, the watchdog and cancellation, and
     streams phase + item events on the kernel stream. Admission is the orchestrator's
-    (`electron/orchestrator/orchestrator.ts`, steps 7 + 10): panel and Home Agent submissions fail
+    (`electron/kernel/orchestrator.ts`, steps 7 + 10): panel and Home Agent submissions fail
     fast when a run is active or a local chat turn occupies the GPU, while chat-tool submissions
     and in-process Pi tool runs queue (FIFO) behind it — nested media for a live chat turn stays
     with that turn. Each run brackets a GPU window — chat backends stopped before, ComfyUI
@@ -800,7 +824,7 @@ before the kernel move or as a small fix.
 
 **Artifact pipeline** (step 5): `artifact:run`, `artifact:cancel`, `artifact:respond` (R→M), `artifact:request` (M→R — model checks and download consent; replies keyed by requestId, `{progress: true}` pings re-arm the runner's watchdog)
 
-**Chat turns** (step 6): `chat:submitTurn`, `chat:resumeTurn`, `chat:cancelTurn` (R→M), `chat:executeTool` (M→R) + `chat:toolResult` (R→M — the tool execution bridge), `chat:summarize`, `chat:runMediaAgent` / `chat:cancelMediaAgent` (the nested media specialist, R→M)
+**Chat turns** (step 6): `chat:submitTurn`, `chat:resumeTurn`, `chat:cancelTurn` (R→M), `chat:ask` (M→R) + `chat:answer` (R→M — the question channel a main-side tool uses when it needs the window: the speech engine, Chromium's audio decoder, the Home Agent confirmation card and the store write behind it), `chat:summarize` (the nested media specialist runs in-process in main)
 
 **Conversations** (steps 8 + 11): `conversations:bootstrap`, `conversations:migrate` (one-shot legacy upload), `conversations:save`, `conversations:delete`, `conversations:saveLastMainKey` (R→M — user mutations; chat-turn transcripts are written by `turnEngine` via `saveConversation` on start and end, under `AI-Playground/conversations/`)
 
@@ -885,7 +909,7 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 
 **Chat/LLM**: `views/Chat.vue` → stores: `openAiCompatibleChat`, `textInference`, `conversations`, `presets` → electron: `ensureBackendReadiness` IPC → backend: `llamacpp`/`openvino` via Vercel AI SDK
 
-**Image/Video Generation**: `views/WorkflowResult.vue` and every other renderer driver (chat tools, Home Agent `/imgGen`) → `src/assets/js/artifact/runArtifact.ts` (one resolved `ArtifactRequest` in, one settled `ArtifactResult` out; no preset switch, no UI-state mutation) → IPC `artifact:run` → `electron/artifact/runner.ts` (engine, readiness, watchdog) → backend: `comfyui-backend` via direct HTTP. Both submit through the orchestrator's queue (`electron/orchestrator/orchestrator.ts`, which owns the GPU window): in-process Pi media tools via `electron/agentMode/capabilities/mediaDirect.ts` (generateImage/editImage) and the NL `media` specialist (`electron/chat/mediaAgentRunner.ts`, inner Comfy via `electron/artifact/inProcessComfy.ts`). Progress reaches the UI through kernel `artifact-phase`/`artifact-item` events (renderer-originated runs only)
+**Image/Video Generation**: `views/WorkflowResult.vue` and Home Agent `/imgGen` → `src/assets/js/artifact/runArtifact.ts` (one resolved `ArtifactRequest` in, one settled `ArtifactResult` out; no preset switch, no UI-state mutation) → IPC `artifact:run` → `electron/artifact/runner.ts` (engine, readiness, watchdog) → backend: `comfyui-backend` via direct HTTP. Chat and Agent Mode submit in-process through the orchestrator's queue (`electron/kernel/orchestrator.ts`, which owns the GPU window): Pi `generateImage`/`editImage` via `electron/agent/capabilities/mediaDirect.ts`, Chat parent `comfyUI`/`comfyUiImageEdit` via `electron/chat/chatComfyTool.ts`, and the NL `media` specialist (`electron/chat/mediaAgentRunner.ts`) — all inner Comfy through `electron/artifact/inProcessComfy.ts`. Progress reaches the UI through kernel `artifact-phase`/`artifact-item` events (renderer-originated runs only)
 
 **Speech (STT/TTS)**: every driver (mic + STT preset in `views/PromptArea.vue`, speak-replies + Speak button in `views/Chat.vue`, `tools/transcribeAudio`, `tools/synthesizeTextToSpeech`, the direct TTS/STT preset turns in `openAiCompatibleChat`, Home Agent voice paths) → `src/assets/js/speech/speechIO.ts` — the one engine seam: interactive vs dialog-free unattended readiness, endpoint resolution, the Qwen3/Kokoro/external branch, and desktop playback state. Drivers import no TTS/STT store; the stores (`speechToText`, `textToSpeech`, `qwen3TextToSpeech`) keep engine config, persistence and the engine clients, consumed by the adapter (settings panels read them directly)
 
@@ -897,32 +921,34 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 
 **Presets**: `components/PresetSelector.vue`, `components/VariantSelector.vue` → stores: `presets`, `presetSwitching`
 
-**Service Management**: `components/InstallationManagement.vue` → store: `backendServices` → electron: `apiServiceRegistry.ts`, `electron/subprocesses/*.ts`
+**Service Management**: `components/InstallationManagement.vue` → store: `backendServices` → electron: `apiServiceRegistry.ts`, `electron/adapters/backends/*.ts`
 
 ### Electron Main Process Files
 
-| File                                              | Purpose                                                                          |
-| ------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `electron/main.ts`                                | Window creation, all IPC handlers (~68 channels), app lifecycle                  |
-| `electron/preload.ts`                             | `contextBridge` exposing `electronAPI` to renderer                               |
-| `electron/pathsManager.ts`                        | Singleton managing all app/model/service filesystem paths                        |
-| `electron/remoteUpdates.ts`                       | Fetching model lists and preset updates from GitHub                              |
-| `electron/subprocesses/apiServiceRegistry.ts`     | Service registration, port allocation, lifecycle orchestration                   |
-| `electron/orchestrator/orchestrator.ts`           | Typed run queue + GPU window (steps 7 + 10): text occupancy, artifact-run FIFO, media-request lane |
-| `electron/subprocesses/service.ts`                | Base classes: `GenericService`, `ExecutableService`, `LongLivedPythonApiService` |
-| `electron/subprocesses/aiBackendService.ts`       | Python Flask model-management backend                                            |
-| `electron/subprocesses/llamaCppBackendService.ts` | LlamaCPP native server (LLM + embedding sub-servers)                             |
-| `electron/subprocesses/openVINOBackendService.ts` | OpenVINO OVMS (LLM + embedding + transcription sub-servers)                      |
-| `electron/subprocesses/comfyUIBackendService.ts`  | ComfyUI Python server                                                            |
-| `electron/subprocesses/langchain.ts`              | RAG utility process (document splitting, embedding, vector search)               |
-| `electron/chat/turnEngine.ts`                     | Main-side chat turn engine (step 6): streamText, tool bridge, turn lifecycle     |
-| `electron/chat/mediaAgentRunner.ts`               | Nested media specialist (step 12): tool loop in main, inner Comfy in-process     |
-| `electron/artifact/inProcessComfy.ts`             | Shared in-process Comfy for generateImage/editImage and specialist inner tools   |
-| `electron/chat/chatModelMain.ts`                  | Chat model factory for main (backend routing, readiness, Home-Agent proxy)       |
-| `electron/chat/chatSummarize.ts`                  | One-shot conversation title summarization                                        |
-| `electron/chat/toolBridge.ts`                     | Main→renderer request/response for chat tool execution                           |
-| `electron/subprocesses/deviceDetection.ts`        | Intel GPU device detection and env var setup                                     |
-| `electron/logging/logger.ts`                      | Logging, sends `debugLog` events to renderer                                     |
+| File                                                   | Purpose                                                                                           |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `electron/main.ts`                                     | Window creation, all IPC handlers (~68 channels), app lifecycle                                   |
+| `electron/preload.ts`                                  | `contextBridge` exposing `electronAPI` to renderer                                                |
+| `electron/kernel/localSettings.ts`                     | Machine-level `settings.json` schema, shared by main and the backend adapters                     |
+| `electron/kernel/pathsManager.ts`                      | Singleton managing all app/model/service filesystem paths                                         |
+| `electron/kernel/orchestrator.ts`                      | Typed run queue + GPU window (steps 7 + 10): text occupancy, artifact-run FIFO, media-request lane |
+| `electron/persist/userDataPaths.ts`                    | Where every kernel-owned user-data file lives (media, games, conversations, …)                    |
+| `electron/adapters/remoteUpdates.ts`                   | Fetching model lists and preset updates from GitHub                                               |
+| `electron/adapters/backends/apiServiceRegistry.ts`     | Service registration, port allocation, lifecycle orchestration                                    |
+| `electron/adapters/backends/service.ts`                | Base classes: `GenericService`, `ExecutableService`, `LongLivedPythonApiService`                  |
+| `electron/adapters/backends/aiBackendService.ts`       | Python Flask model-management backend                                                             |
+| `electron/adapters/backends/llamaCppBackendService.ts` | LlamaCPP native server (LLM + embedding sub-servers)                                              |
+| `electron/adapters/backends/openVINOBackendService.ts` | OpenVINO OVMS (LLM + embedding + transcription sub-servers)                                       |
+| `electron/adapters/backends/comfyUIBackendService.ts`  | ComfyUI Python server                                                                             |
+| `electron/adapters/backends/langchain.ts`              | RAG utility process (document splitting, embedding, vector search)                                |
+| `electron/adapters/hardware/deviceDetection.ts`        | Intel GPU device detection and env var setup                                                      |
+| `electron/chat/turnEngine.ts`                          | Main-side chat turn engine (step 6): streamText, tool bridge, turn lifecycle                      |
+| `electron/chat/mediaAgentRunner.ts`                    | Nested media specialist (step 12): tool loop in main, inner Comfy in-process                      |
+| `electron/artifact/inProcessComfy.ts`                  | Shared in-process Comfy for generateImage/editImage and specialist inner tools                    |
+| `electron/chat/chatModelMain.ts`                       | Chat model factory for main (backend routing, readiness, Home-Agent proxy)                        |
+| `electron/chat/chatSummarize.ts`                       | One-shot conversation title summarization                                                         |
+| `electron/chat/chatAsk.ts`                             | Main→renderer request/response for the one answer a chat tool needs from the window               |
+| `electron/observability/logger.ts`                     | Logging, sends `debugLog` events to renderer                                                      |
 
 ## Cursor Cloud specific instructions
 
@@ -1058,10 +1084,10 @@ Notes:
 `media`, `web-debug` and `game-studio` capabilities. Its workspace is app-managed
 (`agentWorkspace: 'games'`): the first turn mints `<games>/<slug>/` — `~/Documents/AI-Playground/games`
 on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds its own
-`game.json` (`WebUI/electron/gameLibrary.ts`; no central index, `listGames()` scans for cards).
+`game.json` (`WebUI/electron/agent/games/gameLibrary.ts`; no central index, `listGames()` scans for cards).
 
 - **A new game folder is not empty.** `createGame()` writes a scaffold
-  (`WebUI/electron/gameScaffold.ts`): `index.html` (canvas + a _classic_ `<script src="game.js">`)
+  (`WebUI/electron/agent/games/gameScaffold.ts`): `index.html` (canvas + a _classic_ `<script src="game.js">`)
   and `game.js` — a running dt-based loop, keyboard + pointer input and a `window.__game` hook,
   divided by `// === section ===` markers so `edit` has unique targets. The split is only safe
   because Play opens the entry as a `file://` page, where ES modules and `fetch()` of a sibling
@@ -1069,7 +1095,7 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   The point is that the first agent action is an `edit`, not a whole-game `write` that overruns
   the completion cap.
 - **Play-testing is text, not vision.** The workspace preview server injects
-  `/__aipg-probe.js` into every HTML response (`agentMode/previewProbe.ts`, served ahead of the
+  `/__aipg-probe.js` into every HTML response (`agent/previewProbe.ts`, served ahead of the
   containment check so no workspace file can shadow it; HTML is buffered rather than streamed so
   `Content-Length` stays right). `browser {"action":"probe"}` then reports uncaught errors, frames
   counted over 500 ms, canvas ink ratio, which input events the page listens for, what a
@@ -1091,7 +1117,7 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
 - **The Acer arcade ships with four games in it**, so it is not empty on a machine nobody has built
   one on. They are bundled (`WebUI/external/arcade-samples`, an `extraResources` entry) and
   `writeArcade` copies them into the library root on every Acer arcade write
-  (`electron/arcadeSamples.ts`), behind the user's own games and in `samples.json` order. Two
+  (`electron/agent/games/arcadeSamples.ts`), behind the user's own games and in `samples.json` order. Two
   things are load-bearing about where they land. They go in `_arcade-samples/` rather than
   alongside the user's games because `listGames()` reads `game.json` from the library root's
   immediate children: nested, a sample can never appear in the Game Agent session list or be
@@ -1144,7 +1170,7 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   Arcade** buttons and the gallery is Acer-branded. Setting it back to "No override" is how to
   check the non-Acer experience. It writes `oemVendorOverride`, which can equally be hand-edited
   in `{userData}/ai-playground-local-settings.json` (dev) or the per-user `settings.json`
-  (packaged). Detection itself (`electron/subprocesses/oemDetection.ts`) is Windows-only, so
+  (packaged). Detection itself (`electron/adapters/hardware/oemDetection.ts`) is Windows-only, so
   without the override every machine is `unknown`.
 - **`Quick Coder` is the same library, one step long.** Its only capability is
   `game-studio-quick`, which _owns the session_ (`AgentCapability.ownSession`): the preset's
@@ -1192,7 +1218,7 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   runner resolves its workflow without switching.)
 - **Gotcha:** models ask for a game's whole spritesheet in one step, and both Pi and the AI SDK
   dispatch those tool calls in parallel. All media work therefore queues **main-side**, on the
-  orchestrator (`electron/orchestrator/orchestrator.ts`, steps 7 + 10): one FIFO for artifact runs,
+  orchestrator (`electron/kernel/orchestrator.ts`, steps 7 + 10): one FIFO for artifact runs,
   one lane for a whole `media` request, and chat-turn occupancy as `text` requests, nested in
   that order only (the renderer's `mediaPipeline.ts` / `chatBackends.ts` are deleted). Panel and
   Home Agent submissions still fail fast ("Another generation is already in progress", or
@@ -1223,7 +1249,7 @@ model (and ComfyUI for image gen) — see "Testing inference end-to-end" above t
 model ready first.
 
 Automated coverage: `electron/test/channels/adapters.test.ts` and
-`electron/test/subprocesses/localWebConfig.test.ts` for the units,
+`electron/test/adapters/backends/localWebConfig.test.ts` for the units,
 `e2e/home-agent-local-web.spec.ts` for the whole page in a real browser window.
 
 ### Tracing agent and chat turns (Laminar)
@@ -1304,7 +1330,7 @@ something a user picks per session. One trace per run: `pi agent run` → `LLM c
   changing anything that rewrites prompt history (see "Reasoning is set for the expensive
   case" above for why).
 
-**Chat turns** run in main (step 6), so their traces start there too. `electron/laminar.ts`
+**Chat turns** run in main (step 6), so their traces start there too. `electron/observability/laminar.ts`
 initializes the SDK, registers Laminar's `LaminarAiSdkTelemetry` against the AI SDK's global
 telemetry registry (`registerMainChatTelemetry`), and repeats what the old IPC replay did
 before the engine moved: call stats and llama.cpp timings are handed to the stamping processor
@@ -1341,7 +1367,7 @@ what the Traces page filters on), per-call numbers go on the LLM span. Ours are 
 | LLM span       | `aipg.prefill_tokens_per_second`, `aipg.generation_tokens_per_second` | the two speeds, kept apart                                   |
 | LLM span       | `aipg.prompt_ms`, `aipg.predicted_ms`, `aipg.cache_n`                 | what those speeds were computed from                         |
 
-Both surfaces feed one stamper (`electron/laminarAttributes.ts`), which the span processor
+Both surfaces feed one stamper (`electron/observability/laminarAttributes.ts`), which the span processor
 calls on span start (metadata) and span end (the numbers). The facts reach it differently
 because the two halves of the app know different things:
 
@@ -1354,7 +1380,7 @@ because the two halves of the app know different things:
 - **Hostname** is main's: `os.hostname()`, stamped on every root span so two test boxes
   ingesting into one Laminar stay filterable. Cloud turns get it too.
 - **Version and launch line** stay in main and are never copied into the renderer:
-  `electron/llmServerSnapshot.ts` reads them off the live service (and the selected device's
+  `electron/adapters/llmServerSnapshot.ts` reads them off the live service (and the selected device's
   display name, as a fallback when the renderer did not send `deviceName`). Flags are baked
   into the process at launch, so `llamaCppBackendService` / `openVINOBackendService` remember
   the argv they started their LLM server with.
@@ -1362,13 +1388,13 @@ because the two halves of the app know different things:
   from generation and reports the prompt-cache hit (`cache_n`). Chat already parsed that object
   for the message footer and now forwards it (`aipgChatTimings`); agent turns ask for it
   (`timings_per_token: true`, added only for llama.cpp and only while tracing) and read it off
-  the response stream in `electron/agentMode/piCallTiming.ts`. OVMS and cloud have no such
+  the response stream in `electron/agent/piCallTiming.ts`. OVMS and cloud have no such
   object, so those get prompt tokens over time-to-first-token and completion tokens over the
   rest — the same split, measured from outside.
 
 **An agent run is labelled, or thirty of them are one row repeated.** The Traces list shows a
 trace's root span name plus its metadata column, so every run used to read `pi agent run` and
-differ only by machine. `electron/agentMode/agentRunIdentity.ts` collects what the run is —
+differ only by machine. `electron/agent/agentRunIdentity.ts` collects what the run is —
 preset (carried into main on `AgentModeTurnConfig.presetName`, since main has the instruction
 text but not the name), `agentType` derived from the capability ids, the ids themselves, our
 session id and the game — and `laminarAttributes.ts` stamps those as metadata and renames the
@@ -1430,7 +1456,7 @@ bridge as chat telemetry carries them — two more events on `laminarTelemetryEv
 `{ id, attributes?, output?, error? }` — with the sending half in `src/lib/laminarSpans.ts`
 (`startTraceSpan` for a phase whose end is decided elsewhere, `withTraceSpan` around one
 await; both no-ops unless tracing is configured) and the receiving half in
-`electron/laminarSpans.ts`. An agent cover-image call then reads:
+`electron/observability/laminarSpans.ts`. An agent cover-image call then reads:
 
 ```
 pi agent run

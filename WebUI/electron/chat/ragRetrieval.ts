@@ -1,4 +1,4 @@
-import { appLoggerInstance } from '../logging/logger'
+import { appLoggerInstance } from '../observability/logger'
 import { extractMessage } from '@/assets/js/errors/appError'
 import type { EmbedInquiry, IndexedDocument } from '@/assets/js/store/textInference'
 import { augmentSystemPrompt, formatRagSources, type RagSourceDocument } from '@/lib/ragSources'

@@ -10,4 +10,18 @@ describe('cloneForIpc', () => {
     expect(cloned).not.toBe(value)
     expect(structuredClone(cloned)).toEqual(cloned)
   })
+
+  it('clones a chat tool-result payload that wraps a Vue proxy output', () => {
+    const payload = reactive({
+      requestId: 'req-1',
+      output: { images: [{ id: 'i1', type: 'image' }], summary: 'ok', steps: [] },
+    })
+    const cloned = cloneForIpc(payload)
+    expect(cloned.output).toEqual({
+      images: [{ id: 'i1', type: 'image' }],
+      summary: 'ok',
+      steps: [],
+    })
+    expect(structuredClone(cloned)).toEqual(cloned)
+  })
 })

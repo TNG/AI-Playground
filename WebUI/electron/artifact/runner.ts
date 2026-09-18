@@ -20,7 +20,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { deflateSync } from 'node:zlib'
-import { appLoggerInstance } from '../logging/logger'
+import { appLoggerInstance } from '../observability/logger'
 import {
   beginArtifactRunSnapshot,
   emitArtifactDone,
@@ -45,7 +45,7 @@ import {
   isPackageInstalled,
   installPypiPackage,
   type ComfyUICustomNodeRepoId,
-} from '../subprocesses/comfyuiTools'
+} from '../adapters/backends/comfyuiTools'
 import {
   rewriteWorkflowForRun,
   validateRequiredImageInputs,
@@ -61,7 +61,7 @@ import {
   type ComfyClientDeps,
 } from './comfyClient'
 import { buildDummyGlb, DUMMY_3D_PRESET_NAME, VIEW_FIXTURE } from '@/lib/devPresetWorkflows'
-import { saveMediaItems } from '../media/mediaItemFiles'
+import { saveMediaItems } from '../persist/mediaItemFiles'
 import { extractMessage } from '@/assets/js/errors/appError'
 
 const appLogger = appLoggerInstance
@@ -201,7 +201,7 @@ export function activeArtifactRunId(): string | null {
 
 /**
  * Starts a resolved run. Queueing, GPU windowing and queue events are the
- * orchestrator's (electron/orchestrator/orchestrator.ts, step 7) — it calls
+ * orchestrator's (electron/kernel/orchestrator.ts, step 7) — it calls
  * this once a run reaches the head.
  */
 export function startArtifactRun(payload: ArtifactRunPayload): Promise<ArtifactRunResult> {
@@ -259,6 +259,12 @@ function setPhase(
   if (run.settled) return
   run.phase = phase
   emitArtifactPhase(run.payload.runId, phase, progress)
+  if (phase === 'running') {
+    const current = run.items[run.generateIdx]
+    if (current?.state === 'queued') {
+      emitItem(run, { ...current, state: 'generating' } as MediaItem)
+    }
+  }
   armIdleTimeout(run)
 }
 

@@ -22,7 +22,7 @@ import { selectDefaultInstalls, type SeedCandidate } from '@/lib/wizardInstallDe
 import * as toast from '@/assets/js/toast'
 import { useErrors } from './errors'
 import { extractMessage } from '../errors/appError'
-import type { ErrorDetails } from '../../../../electron/subprocesses/service'
+import type { ErrorDetails } from '../../../../electron/adapters/backends/service'
 
 // Derived from the single source of truth rather than restated: a backend added
 // there but forgotten here would silently never appear in the wizard.

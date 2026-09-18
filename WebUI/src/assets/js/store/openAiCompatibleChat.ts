@@ -13,11 +13,8 @@ import {
 import { buildChatModelConfig } from '@/lib/chatModel'
 import { buildChatRagRequest } from '@/lib/chatRagRequest'
 import { createKernelChatTransport } from '@/lib/kernelChatTransport'
-import {
-  abortChatToolExecutions,
-  activateChatToolSet,
-  deactivateChatToolSet,
-} from '@/lib/chatToolRegistry'
+import { serializeToolSet } from '@/lib/chatToolRegistry'
+import { buildHomeAgentInferenceSnapshot } from '@/lib/homeAgentInferenceSnapshot'
 import type { ChatTurnRequest } from '@/types/chatIpc'
 import { useTextInference } from './textInference'
 import { useCloudMode } from './cloudMode'
@@ -27,6 +24,7 @@ import { useErrors } from './errors'
 import { useActivities } from './activities'
 import { useConfirmations } from './confirmations'
 import { useI18N } from './i18n'
+import { useDeveloperSettings } from './developerSettings'
 import { createAppError, extractMessage, isCancellation } from '../errors/appError'
 import type { AppError } from '../errors/types'
 import { aipgTools, homeAgentTools } from '../tools/tools'
@@ -110,6 +108,7 @@ export const useOpenAiCompatibleChat = defineStore(
     const activities = useActivities()
     const confirmations = useConfirmations()
     const i18nState = useI18N().state
+    const developerSettings = useDeveloperSettings()
     const manuallyStopped = ref(false)
 
     // True while the model is actively emitting reasoning (i.e. the last content
@@ -311,25 +310,17 @@ export const useOpenAiCompatibleChat = defineStore(
         const mcpTools = allMcpTools.filter((t) => isToolEnabled(t.name))
 
         for (const mcpTool of mcpTools) {
-          const aiToolName = `mcp__${server.id}__${mcpTool.name}`
-          resolvedTools[aiToolName] = dynamicTool({
+          // Schema only: the MCP client lives in main, so the turn engine
+          // invokes it there (`electron/chat/chatMcpTool.ts`) rather than
+          // bouncing main → renderer → `mcp:invokeServerTool` → main. The
+          // name carries the routing.
+          resolvedTools[`mcp__${server.id}__${mcpTool.name}`] = dynamicTool({
             description: mcpTool.description || `${server.name} tool: ${mcpTool.name}`,
             inputSchema: jsonSchema({
               ...mcpTool.inputSchema,
               properties: mcpTool.inputSchema.properties ?? {},
               additionalProperties: false,
             } as JSONSchema7),
-            execute: async (input) => {
-              const args = input as Record<string, unknown>
-              return await activities.track(
-                {
-                  category: 'tools',
-                  label: i18nState.COM_ACTIVITY_RUNNING_TOOL.replace('{tool}', mcpTool.name),
-                  scope: { kind: 'chat', conversationKey: conversations.activeKey },
-                },
-                () => window.electronAPI.mcp.invokeServerTool(server.id, mcpTool.name, args),
-              )
-            },
           }) as ToolSet[string]
         }
       }
@@ -428,9 +419,7 @@ export const useOpenAiCompatibleChat = defineStore(
         () => resolveTools(),
       )
       const hasTools = Object.keys(toolSet).length > 0
-      const specs = hasTools
-        ? activateChatToolSet(targetKey, toolSet, () => chats[targetKey]?.messages)
-        : []
+      const specs = hasTools ? serializeToolSet(toolSet) : []
       const repairData = {
         ...(toolSet.comfyUI ? { comfyUI: createToolRepairData() ?? undefined } : {}),
         ...(toolSet.comfyUiImageEdit
@@ -438,18 +427,48 @@ export const useOpenAiCompatibleChat = defineStore(
           : {}),
       }
       const rag = ragQuery ? buildChatRagRequest(ragQuery) : undefined
+      const mediaAgent = specs.some((spec) => spec.name === 'media')
+        ? (await import('../agents/mediaAgent')).serializeMediaAgentInner()
+        : undefined
       return {
         model: buildChatModelConfig(),
         systemPrompt: textInference.systemPrompt,
         tools: specs,
         ...(hasTools ? { repairData } : {}),
         ...(rag ? { rag } : {}),
+        ...(mediaAgent ? { mediaAgent, keepModelsLoaded: developerSettings.keepModelsLoaded } : {}),
         persist: {
           meta: conversations.getThreadMeta(targetKey) ?? null,
           ragHashes: conversations.getThreadRagHashes(targetKey),
           lastMainKey: conversations.lastMainKey,
         },
         includeMcpInstructions: textInference.mcpToolsEnabled,
+        // `captureScreenshot` executes in main and takes no arguments, so the
+        // window the user bound it to travels with the turn.
+        ...(textInference.screenshotWindow
+          ? {
+              screenshotWindow: {
+                id: textInference.screenshotWindow.id,
+                name: textInference.screenshotWindow.name,
+              },
+            }
+          : {}),
+        // The TTS tool names its file after the thread, whose title lives here.
+        ...(specs.some((spec) => spec.name === 'synthesizeTextToSpeech')
+          ? {
+              conversationLabel: conversationLabelForTtsFile({
+                conversationKey: targetKey,
+                messages: conversations.conversationList[targetKey],
+                threadMeta: conversations.getThreadMeta(targetKey),
+              }),
+            }
+          : {}),
+        // The Home Agent's settings tools run in main and read this instead of
+        // the stores; without it they refuse, which is the guard that kept a
+        // stray call from mutating another preset's settings.
+        ...(textInference.activePreset?.name === HOME_AGENT_CHAT_PRESET_NAME
+          ? { homeAgentInference: buildHomeAgentInferenceSnapshot() }
+          : {}),
         homeAgentDiagnostics: textInference.activePreset?.name === HOME_AGENT_CHAT_PRESET_NAME,
       }
     }
@@ -964,7 +983,6 @@ export const useOpenAiCompatibleChat = defineStore(
             { body: turnExtras },
           )
         } finally {
-          deactivateChatToolSet(targetKey)
           textInference.completeBackendPreparation()
           const ragActivityId = ragActivityByKey[targetKey]
           if (ragActivityId) {
@@ -1012,9 +1030,6 @@ export const useOpenAiCompatibleChat = defineStore(
     async function stop() {
       // Set manual stop flag to immediately show as not processing
       manuallyStopped.value = true
-      // Cancel renderer-side tool bodies too (the engine rejects its own
-      // pendings); otherwise a stopped turn's ComfyUI run keeps going.
-      abortChatToolExecutions(conversations.activeKey)
       await chats[conversations.activeKey]?.stop()
     }
 
@@ -1088,7 +1103,6 @@ export const useOpenAiCompatibleChat = defineStore(
       try {
         await chat.regenerate({ messageId, body: turnExtras })
       } finally {
-        deactivateChatToolSet(targetKey)
         textInference.completeBackendPreparation()
         const ragActivityId = ragActivityByKey[targetKey]
         if (ragActivityId) {

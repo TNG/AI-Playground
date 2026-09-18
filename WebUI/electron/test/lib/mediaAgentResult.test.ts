@@ -40,4 +40,47 @@ describe('condenseMediaAgentRun', () => {
       images: [],
     })
   })
+
+  it('unwraps a nested tool-result envelope', () => {
+    const result = condenseMediaAgentRun({
+      text: '',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'Draft Image' },
+          output: {
+            type: 'tool-result',
+            output: {
+              images: [
+                { id: '1', type: 'image', imageUrl: 'aipg-media://a.png', mode: 'imageGen' },
+              ],
+            },
+          },
+        },
+      ],
+    })
+    expect(result.images).toHaveLength(1)
+    expect(result.success).toBeUndefined()
+  })
+
+  it('unwraps a json tool-output envelope', () => {
+    const result = condenseMediaAgentRun({
+      text: '',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'Draft Image' },
+          output: {
+            type: 'json',
+            value: {
+              images: [
+                { id: '1', type: 'image', imageUrl: 'aipg-media://a.png', mode: 'imageGen' },
+              ],
+            },
+          },
+        },
+      ],
+    })
+    expect(result.images).toHaveLength(1)
+  })
 })

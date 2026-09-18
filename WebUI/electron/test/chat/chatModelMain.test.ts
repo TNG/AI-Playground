@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LanguageModelV4 } from '@ai-sdk/provider'
 
-vi.mock('../../logging/logger.ts', () => ({
+vi.mock('../../observability/logger.ts', () => ({
   appLoggerInstance: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 

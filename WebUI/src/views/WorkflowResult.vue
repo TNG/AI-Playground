@@ -105,6 +105,10 @@
             "
             :step-text="imageGeneration.stepText"
           />
+          <ImageGenerationProgress
+            v-else
+            :step-text="imageGeneration.stepText || i18nState.COM_GENERATING"
+          />
         </div>
         <div
           v-show="

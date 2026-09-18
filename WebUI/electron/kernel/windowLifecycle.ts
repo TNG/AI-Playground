@@ -19,15 +19,26 @@ export type ClosePolicyInputs = {
   rendererBusy: boolean
   /** Main itself is running an agent turn (Pi session). */
   agentTurnActive: boolean
+  /** Main itself is running a chat turn (`anyChatTurnActive`). */
+  chatTurnActive: boolean
+  /** An artifact run is admitted, executing, or queued. */
+  artifactWorkOpen: boolean
 }
 
 /**
  * Closing the app window hides it while headless work would be orphaned by a
- * quit — a Home Agent serving channels, an in-flight agent turn, or anything
- * the renderer reported busy. Otherwise the normal close/quit policy applies.
+ * quit — a Home Agent serving channels, an in-flight agent/chat/artifact run,
+ * or anything the renderer reported busy. Otherwise the normal close/quit
+ * policy applies. Chat and artifact occupancy are main-owned: they must not
+ * round-trip through `lifecycle:busy` (that flag clears when the renderer dies).
  */
 export function resolveClosePolicy(inputs: ClosePolicyInputs): CloseDecision {
-  const headlessWork = inputs.homeAgentRunning || inputs.rendererBusy || inputs.agentTurnActive
+  const headlessWork =
+    inputs.homeAgentRunning ||
+    inputs.rendererBusy ||
+    inputs.agentTurnActive ||
+    inputs.chatTurnActive ||
+    inputs.artifactWorkOpen
   return headlessWork ? 'hide' : 'close'
 }
 

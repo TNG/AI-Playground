@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { ref } from 'vue'
+import { reactive, ref } from 'vue'
 import type { MediaItem } from '@/assets/js/store/imageGenerationPresets'
 import type { ComfyInput, Preset, Setting } from '@/assets/js/store/presets'
 import type { ArtifactRequest } from '@/assets/js/artifact/runArtifact'
@@ -213,7 +213,11 @@ describe('runArtifact', () => {
     lastError.value = null
     parentActivityId.value = null
     activeVariantName.value = {}
-    runIpcMock.mockReset().mockImplementation(async () => resolveCompleted())
+    runIpcMock.mockReset().mockImplementation(async (payload) => {
+      // Electron ipcRenderer.invoke structured-clones; a Vue proxy must not survive here.
+      structuredClone(payload)
+      return resolveCompleted()
+    })
     cancelIpcMock.mockReset().mockResolvedValue()
     ensureModelsMock.mockReset().mockResolvedValue()
     failGenerationMock.mockReset().mockImplementation((message: string) => {
@@ -681,6 +685,31 @@ describe('runArtifact', () => {
     expect(comfyInputsPerPreset.value['Edit By Prompt']['LoadImage.image']).toBe(
       'preset-default.png',
     )
+  })
+
+  it('ships a structured-cloneable payload, not the live Vue proxy', async () => {
+    presetsFixture.value = [
+      reactive(
+        comfyPreset({
+          name: 'Draft Image',
+          settings: [standardSetting('inferenceSteps', 6)],
+        }),
+      ),
+    ]
+    comfyInputsPerPreset.value = reactive({
+      'Draft Image': { 'KSampler.seed': 7 },
+    })
+
+    const { result } = await startAndAwaitSubmit({
+      kind: 'create-image',
+      workflow: 'Draft Image',
+      prompt: 'a castle',
+    })
+    expect((await result).state).toBe('completed')
+
+    const payload = runIpcMock.mock.calls[0][0] as RunPayload
+    expect(payload.preset.name).toBe('Draft Image')
+    expect(payload.params.prompt).toBe('a castle')
   })
 
   it('settles the items locally when the IPC itself rejects', async () => {

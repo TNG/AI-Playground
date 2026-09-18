@@ -1,5 +1,5 @@
 import z from 'zod'
-import { ChatModelConfigSchema, ChatToolSpecSchema, WorkflowRepairDataSchema } from './chatIpc'
+import { ChatModelConfigSchema, MediaAgentCatalogSchema } from './chatIpc'
 
 const SamplingParamsSchema = z.record(z.string(), z.unknown())
 
@@ -26,7 +26,7 @@ const CloudModelConfigSchema = z.object({
   supportsVision: z.boolean().optional(),
   /**
    * Whether the provider's own catalog declared this model as reasoning. Decides
-   * whether the turn asks for thinking at all (agentMode/piCloudReasoning.ts); a
+   * whether the turn asks for thinking at all (agent/piCloudReasoning.ts); a
    * provider that advertises nothing is assumed capable elsewhere, which is too
    * loose a signal to put request parameters on.
    */
@@ -57,18 +57,7 @@ export const AgentModeTurnConfigSchema = z.object({
    * Main runs those Comfy tools in-process (step 12); the renderer only
    * resolves which workflows are enabled.
    */
-  mediaAgent: z
-    .object({
-      system: z.string(),
-      toolSpecs: z.array(ChatToolSpecSchema),
-      repairData: z
-        .object({
-          comfyUI: WorkflowRepairDataSchema.optional(),
-          comfyUiImageEdit: WorkflowRepairDataSchema.optional(),
-        })
-        .optional(),
-    })
-    .optional(),
+  mediaAgent: MediaAgentCatalogSchema.optional(),
   instructions: z.string().optional(),
   /** The agent preset this turn was held with, for labelling its trace. */
   presetName: z.string().optional(),

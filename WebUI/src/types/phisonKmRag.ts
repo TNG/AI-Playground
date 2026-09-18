@@ -15,7 +15,7 @@ import { Document } from '@langchain/classic/document'
 // splitDB[startChunkIdx..endChunkIdx].pageContent joined — deriving it on demand
 // (see deriveGroupContent below) keeps mergedGroups tiny (~50 bytes/group) so it can
 // be persisted directly instead of duplicating the full document text a second time.
-// This module holds no Vue/Pinia dependency, so electron/subprocesses/langchainPhisonKm.ts
+// This module holds no Vue/Pinia dependency, so electron/adapters/backends/langchainPhisonKm.ts
 // imports deriveGroupContent from here at runtime rather than duplicating it — there is
 // exactly one implementation of the join, on both sides of the utility-process boundary.
 export type MergedGroup = {
@@ -65,14 +65,14 @@ export type PhisonKmIngestConfig = {
 
 /**
  * Separator used to join a merged group's chunks. Grouping-time token accounting
- * in electron/subprocesses/langchainPhisonKm.ts must charge this same string.
+ * in electron/adapters/backends/langchainPhisonKm.ts must charge this same string.
  */
 export const GROUP_SEPARATOR = '\n\n'
 
 /**
  * Derives a merged group's text on demand from the document's splitDB, using the
  * persisted chunk-index boundaries. Must stay a pure join with no other transform —
- * electron/subprocesses/langchainPhisonKm.ts's ingest-time buildMergedGroups relies
+ * electron/adapters/backends/langchainPhisonKm.ts's ingest-time buildMergedGroups relies
  * on the same chunks[start..end] slice producing identical text at query/warmup time.
  */
 export function deriveGroupContent(splitDB: Document[], group: MergedGroup): string {

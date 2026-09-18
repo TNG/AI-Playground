@@ -1,0 +1,16 @@
+{
+  "template": "comfy-ltx23-t2v.json",
+  "patch": {
+    "width": ["228", "width"],
+    "height": ["228", "height"],
+    "length": ["228", "length"],
+    "frames": ["214", "frames_number"],
+    "prefix": ["75", "filename_prefix"]
+  },
+  "runs": [
+    { "label": "ltx23-512x512-f25", "width": 512, "height": 512, "length": 25, "frames": 25, "prefix": "vram_ltx23_512_f25" },
+    { "label": "ltx23-512x512-f49", "width": 512, "height": 512, "length": 49, "frames": 49, "prefix": "vram_ltx23_512_f49" },
+    { "label": "ltx23-768x512-f25", "width": 768, "height": 512, "length": 25, "frames": 25, "prefix": "vram_ltx23_768_f25" },
+    { "label": "ltx23-512x512-f105", "width": 512, "height": 512, "length": 105, "frames": 105, "prefix": "vram_ltx23_512_f105" }
+  ]
+}

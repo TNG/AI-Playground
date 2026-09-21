@@ -432,10 +432,10 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     } else if (isSsdVariant && !isSetUp) {
       toggleTooltip = 'Toggle on to install Llama.cpp with Phison Pascari aiDAPTIV'
     } else if (!isSsdVariant && phisonArtifactReady) {
-      toggleTooltip =
-        'Phison Pascari aiDAPTIV is installed - toggle on to use it with Llama.cpp'
+      toggleTooltip = 'Phison Pascari aiDAPTIV is installed - toggle on to use it with Llama.cpp'
     } else if (!isSsdVariant && installSelection.value.has('llamacpp-backend')) {
-      toggleTooltip = 'Turn on to switch from standard Llama.cpp GGUF to Llama.cpp with Phison Pascari aiDAPTIV'
+      toggleTooltip =
+        'Turn on to switch from standard Llama.cpp GGUF to Llama.cpp with Phison Pascari aiDAPTIV'
     } else {
       toggleTooltip = 'Toggle on to enable Phison Pascari aiDAPTIV for Llama.cpp'
     }

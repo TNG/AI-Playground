@@ -349,7 +349,8 @@
                     </svg>
                   </span>
                   <span>{{
-                    languages.BACKEND_PHISON_AIDAPTIV_ROW || 'Llama.cpp with Phison Pascari aiDAPTIV'
+                    languages.BACKEND_PHISON_AIDAPTIV_ROW ||
+                    'Llama.cpp with Phison Pascari aiDAPTIV'
                   }}</span>
                 </span>
               </td>

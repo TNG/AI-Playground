@@ -29,6 +29,10 @@ const appLogger = appLoggerInstance
 
 const INNER_COMFY_TOOLS = new Set(['comfyUI', 'comfyUiImageEdit'])
 
+type MediaAgentRunArgs = MediaAgentRunRequest & {
+  readMediaAsDataUri?: (url: string) => Promise<string>
+}
+
 const SLIM_IMAGE_KEYS = ['id', 'type', 'imageUrl', 'videoUrl', 'model3dUrl', 'mode'] as const
 
 const activeRuns = new Map<string, AbortController>()
@@ -132,7 +136,7 @@ function sourceImageMessage(dataUri: string): ModelMessage {
  * source-image discovery reads the nested ModelMessage history in main.
  */
 export async function runMediaAgentInMain(
-  request: MediaAgentRunRequest,
+  request: MediaAgentRunArgs,
   abortSignal?: AbortSignal,
 ): Promise<MediaAgentRunResult> {
   const controller = new AbortController()
@@ -162,7 +166,7 @@ export async function runMediaAgentInMain(
 }
 
 async function runMediaAgentBracket(
-  request: MediaAgentRunRequest,
+  request: MediaAgentRunArgs,
   controller: AbortController,
 ): Promise<MediaAgentRunResult> {
   const priorMessages: ModelMessage[] = request.sourceImage
@@ -197,6 +201,14 @@ async function runMediaAgentBracket(
     model: createMainChatModel(request.model),
     request: request.request,
     priorMessages,
+    ...(request.readMediaAsDataUri
+      ? {
+          presentGeneratedImages: {
+            read: request.readMediaAsDataUri,
+            vision: request.model.supportsVision === true,
+          },
+        }
+      : {}),
     abortSignal: controller.signal,
     repairToolCall: request.repairData ? buildRepair(request) : undefined,
     onEvent,

@@ -20,6 +20,17 @@ function toolResult(toolName: string, output: unknown): ModelMessage {
 }
 
 describe('findSourceImage', () => {
+  it('prefers a generated image that arrived after the prompt image', () => {
+    const messages: ModelMessage[] = [
+      userFile(DATA_URI),
+      toolResult('comfyUiImageEdit', {
+        type: 'json',
+        value: { images: [{ type: 'image', imageUrl: MEDIA_URL }] },
+      }),
+    ]
+    expect(findSourceImage(messages)).toBe(MEDIA_URL)
+  })
+
   it('prefers an image on the current prompt over earlier conversation images', () => {
     const messages: ModelMessage[] = [
       toolResult('comfyUI', { images: [{ type: 'image', imageUrl: MEDIA_URL }] }),

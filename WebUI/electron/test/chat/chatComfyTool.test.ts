@@ -123,6 +123,51 @@ describe('executeChatComfyTool', () => {
     )
   })
 
+  it('edits the generated image when one exists after the upload', async () => {
+    const readMediaAsDataUri = vi.fn(async () => 'data:image/png;base64,red')
+    const messages: ModelMessage[] = [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'file',
+            mediaType: 'image/png',
+            data: { type: 'url', url: new URL('aipg-media://media/input/dino.png') },
+          },
+          { type: 'text', text: 'make the dino red' },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'edit',
+            toolName: 'comfyUiImageEdit',
+            output: {
+              type: 'json',
+              value: {
+                images: [{ type: 'image', imageUrl: 'aipg-media://media/AIPG_Image_00046_.png' }],
+              },
+            },
+          },
+        ],
+      },
+    ]
+    await executeChatComfyTool({
+      toolName: 'comfyUiImageEdit',
+      input: { workflow: 'Upscale', prompt: 'none' },
+      messages,
+      conversationKey: 'conv-1',
+      keepModelsLoaded: false,
+      readMediaAsDataUri,
+    })
+    expect(readMediaAsDataUri).toHaveBeenCalledWith('aipg-media://media/AIPG_Image_00046_.png')
+    expect(runInProcessComfyToolMock).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'data:image/png;base64,red' }),
+    )
+  })
+
   it('stamps agent origin when there is no parent conversation', async () => {
     await executeChatComfyTool({
       toolName: 'comfyUI',

@@ -70,15 +70,6 @@ function fileImageFromContent(content: unknown): string | null {
   return location ? usableImageRef(location) : null
 }
 
-function findImageInCurrentPrompt(messages: ModelMessage[]): string | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i]
-    if (msg.role !== 'user' || !Array.isArray(msg.content)) continue
-    return fileImageFromContent(msg.content)
-  }
-  return null
-}
-
 function findLatestImageInConversation(messages: ModelMessage[]): string | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i]
@@ -97,7 +88,7 @@ function findLatestImageInConversation(messages: ModelMessage[]): string | null 
   return null
 }
 
-/** Current prompt image, else the most recent generated or uploaded image. */
+/** Most recent image in the conversation: a generated result after an upload wins. */
 export function findSourceImage(messages: ModelMessage[]): string | null {
-  return findImageInCurrentPrompt(messages) ?? findLatestImageInConversation(messages)
+  return findLatestImageInConversation(messages)
 }

@@ -50,6 +50,7 @@ export async function executeChatMediaTool(options: {
       repairData: options.catalog.repairData,
       keepModelsLoaded: options.keepModelsLoaded,
       model: options.model,
+      readMediaAsDataUri: options.readMediaAsDataUri,
     },
     options.abortSignal,
   )

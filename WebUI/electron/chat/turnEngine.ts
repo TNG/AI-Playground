@@ -17,6 +17,7 @@ import { dynamicTool, jsonSchema, tool, type ToolResultOutput } from '@ai-sdk/pr
 import type { JSONSchema7 } from '@ai-sdk/provider'
 import { appLoggerInstance } from '../observability/logger'
 import { completeOrphanedToolParts, sanitizeBulkyToolOutputs } from '@/lib/toolMessageSanitize'
+import { attachGeneratedImageFollowUps, comfyToolModelOutput } from '@/lib/generatedImageFollowUp'
 import { slimMediaModelOutput, type SlimMediaToolOutput } from '@/lib/mediaModelOutput'
 import { awaitToolExecute } from '@/lib/awaitToolExecute'
 import { fillToolResultOutput, patchUiToolOutputs } from '@/lib/pendingToolOutput'
@@ -408,6 +409,9 @@ function capHistoryImages(messages: ModelMessage[]): {
  * JSON Schema. Tools executed in main declare theirs here instead.
  */
 function modelOutputFor(toolName: string): ToolSet[string]['toModelOutput'] | undefined {
+  if (toolName === 'comfyUI' || toolName === 'comfyUiImageEdit') {
+    return ({ output }: { output: unknown }) => comfyToolModelOutput(output)
+  }
   if (toolName === 'media') {
     return ({ output }: { output: unknown }) => {
       if (!output || typeof output !== 'object') {
@@ -762,10 +766,22 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
       ),
     )
 
+    const readMediaAsDataUri = async (url: string) => {
+      if (url.startsWith('data:')) return url
+      if (!engineDeps) throw new Error('Chat engine deps not wired')
+      return await engineDeps.readMediaAsDataUri(url)
+    }
+    const supportsVision = config.supportsVision === true
     messages = await convertMediaReferences(messages)
     messages = slimToolResults(messages)
     messages = injectScreenshotImages(messages)
-    if (config.supportsVision) {
+    // Result images are file parts only for a vision model. Every model loses
+    // the settings payload, which is where the placeholder 512×512 lives.
+    messages = await attachGeneratedImageFollowUps(messages, {
+      read: readMediaAsDataUri,
+      vision: supportsVision,
+    })
+    if (supportsVision) {
       const capped = capHistoryImages(messages)
       messages = capped.messages
       if (haDiag && (capped.kept || capped.dropped)) {
@@ -780,11 +796,6 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
 
     const mcp = buildMcpInstructions(request.includeMcpInstructions === true)
     let systemPromptToUse = `${request.systemPrompt ?? ''}${mcp}`
-    const readMediaAsDataUri = async (url: string) => {
-      if (url.startsWith('data:')) return url
-      if (!engineDeps) throw new Error('Chat engine deps not wired')
-      return await engineDeps.readMediaAsDataUri(url)
-    }
     const keepModelsLoaded = request.keepModelsLoaded ?? false
     const pendingToolExecutes = new Map<string, Promise<unknown>>()
     const tools = buildToolSet(request.tools, conversationKey, request.repairData, {
@@ -874,6 +885,17 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
         ? {
             tools,
             stopWhen: isStepCount(20),
+            prepareStep: async ({ messages: stepMessages }) => {
+              const presented = await attachGeneratedImageFollowUps(stepMessages, {
+                read: readMediaAsDataUri,
+                vision: supportsVision,
+              })
+              return {
+                messages: supportsVision
+                  ? capHistoryImages(presented).messages
+                  : filterNonVisionContent(presented),
+              }
+            },
             ...(repairData
               ? {
                   // Repair a comfy image tool call whose `workflow` the model

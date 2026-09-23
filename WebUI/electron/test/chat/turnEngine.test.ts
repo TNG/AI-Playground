@@ -758,6 +758,82 @@ describe('turn engine', () => {
     })
   })
 
+  it('shows a vision model the generated image instead of the placeholder size', async () => {
+    executeChatComfyToolMock.mockResolvedValueOnce({
+      images: [
+        {
+          id: 'i1',
+          type: 'image',
+          imageUrl: 'aipg-media://red.png',
+          mode: 'imageGen',
+          settings: { preset: 'Edit by Prompt 2', width: 512, height: 512, resolution: '512x512' },
+        },
+      ],
+    })
+    queueFetchMock(
+      sse(toolCallChunks('comfyUiImageEdit', '{"workflow":"Edit by Prompt 2","prompt":"red"}')),
+      sse(textChunks('done')),
+    )
+    const { turnId } = submitChatTurn(
+      turnRequest({
+        tools: [{ name: 'comfyUiImageEdit', description: 'Edit', inputSchema: { type: 'object' } }],
+        model: {
+          backend: 'llamaCPP',
+          modelId: 'test/model.gguf',
+          baseUrl: 'http://127.0.0.1:39101',
+          supportsVision: true,
+        },
+      }),
+    )
+    await waitForTurnDone(turnId)
+
+    const followUp = JSON.stringify(requests[1].body.messages)
+    expect(followUp).toContain('data:image/png;base64,')
+    expect(followUp).toContain('attached in the following message')
+    expect(followUp).not.toContain('512')
+    expect(chatChunks().find((c) => c.type === 'tool-output-available')).toMatchObject({
+      output: { images: [{ settings: { width: 512, height: 512 } }] },
+    })
+  })
+
+  it('omits the result image when the model does not support vision', async () => {
+    executeChatComfyToolMock.mockResolvedValueOnce({
+      images: [
+        {
+          id: 'i1',
+          type: 'image',
+          imageUrl: 'aipg-media://red.png',
+          mode: 'imageGen',
+          settings: { preset: 'Edit by Prompt 2', width: 512, height: 512, resolution: '512x512' },
+        },
+      ],
+    })
+    queueFetchMock(
+      sse(toolCallChunks('comfyUiImageEdit', '{"workflow":"Edit by Prompt 2","prompt":"red"}')),
+      sse(textChunks('done')),
+    )
+    const { turnId } = submitChatTurn(
+      turnRequest({
+        tools: [{ name: 'comfyUiImageEdit', description: 'Edit', inputSchema: { type: 'object' } }],
+        model: {
+          backend: 'llamaCPP',
+          modelId: 'test/model.gguf',
+          baseUrl: 'http://127.0.0.1:39101',
+          supportsVision: false,
+        },
+      }),
+    )
+    await waitForTurnDone(turnId)
+
+    const followUp = JSON.stringify(requests[1].body.messages)
+    expect(followUp).toContain('aipg-media://red.png')
+    expect(followUp).toContain('Image generated with Edit by Prompt 2.')
+    expect(followUp).not.toContain('512')
+    expect(followUp).not.toContain('image_url')
+    expect(followUp).not.toContain('data:image')
+    expect(readMediaAsDataUri).not.toHaveBeenCalled()
+  })
+
   it('repairs an invalid comfyUI workflow before executing in-process', async () => {
     queueFetchMock(
       sse(toolCallChunks('comfyUI', '{"prompt":"a castle","workflow":"nope"}')),

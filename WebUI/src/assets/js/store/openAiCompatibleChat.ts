@@ -436,7 +436,9 @@ export const useOpenAiCompatibleChat = defineStore(
         tools: specs,
         ...(hasTools ? { repairData } : {}),
         ...(rag ? { rag } : {}),
-        ...(mediaAgent ? { mediaAgent, keepModelsLoaded: developerSettings.keepModelsLoaded } : {}),
+        // Direct comfy tools stop the LLM unless this rides every turn, not only the media specialist.
+        keepModelsLoaded: developerSettings.keepModelsLoaded,
+        ...(mediaAgent ? { mediaAgent } : {}),
         persist: {
           meta: conversations.getThreadMeta(targetKey) ?? null,
           ragHashes: conversations.getThreadRagHashes(targetKey),

@@ -1,5 +1,9 @@
 import { isStepCount, streamText, type LanguageModel, type ModelMessage, type ToolSet } from 'ai'
 import { awaitToolExecute } from '@/lib/awaitToolExecute'
+import {
+  attachGeneratedImageFollowUps,
+  type GeneratedImageReader,
+} from '@/lib/generatedImageFollowUp'
 import { fillToolResultOutput } from '@/lib/pendingToolOutput'
 
 // ── Tool agent factory ────────────────────────────────────────────────────────
@@ -72,6 +76,11 @@ export type ToolAgentRunOptions = {
   abortSignal?: AbortSignal
   /** Forwarded to streamText's experimental_repairToolCall. */
   repairToolCall?: Parameters<typeof streamText>[0]['experimental_repairToolCall']
+  /**
+   * Rewrites media tool results before each model step. File parts are added
+   * only when `vision` is true.
+   */
+  presentGeneratedImages?: { read: GeneratedImageReader; vision: boolean }
   /** Live progress sink; see ToolAgentEvent. */
   onEvent?: (event: ToolAgentEvent) => void
 }
@@ -116,6 +125,7 @@ export function createToolAgent(config: ToolAgentConfig) {
 
     const finished = new Map<string, unknown>()
     const { tools, pending } = toolsWithAwaitedExecute(config.tools())
+    const presentGeneratedImages = options.presentGeneratedImages
     const result = streamText({
       model: options.model,
       system: config.system(),
@@ -124,6 +134,11 @@ export function createToolAgent(config: ToolAgentConfig) {
       stopWhen: isStepCount(config.maxSteps ?? DEFAULT_MAX_STEPS),
       abortSignal: options.abortSignal,
       experimental_repairToolCall: options.repairToolCall,
+      prepareStep: presentGeneratedImages
+        ? async ({ messages: stepMessages }) => ({
+            messages: await attachGeneratedImageFollowUps(stepMessages, presentGeneratedImages),
+          })
+        : undefined,
       onToolExecutionStart: ({ toolCall }) => {
         emit({ type: 'phase', phase: 'running-tool' })
         emit({

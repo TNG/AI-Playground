@@ -12,10 +12,9 @@ import { slimMediaModelOutput } from '@/lib/mediaModelOutput'
 //
 // UI vs model payload: `output` keeps the condensed `images[]` (the Chat
 // renderer and the Agent Mode workspace saver consume it), while
-// `toModelOutput` sends only the summary, the step lines and slim image refs —
-// enough for the model to describe results and for a follow-up edit to find
-// the produced image (see findLatestImageInConversation), without re-sending
-// bulky settings payloads on every later turn.
+// `toModelOutput` sends only the summary, the step lines and slim image refs.
+// A vision model also receives the image as a following user message; a model
+// without vision does not. Either way the settings payload stays off the wire.
 
 export const MediaToolOutputSchema = z
   .object({

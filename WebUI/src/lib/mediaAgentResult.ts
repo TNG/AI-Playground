@@ -24,7 +24,14 @@ const MEDIA_TYPES = new Set(['image', 'video', 'model3d'])
 /** Media entries out of one inner tool output (comfy result shape). */
 export function mediaEntriesOf(output: unknown): CondensedMediaEntry[] {
   if (typeof output !== 'object' || output === null) return []
-  const images = (output as { images?: unknown }).images
+  const record = output as Record<string, unknown>
+  if (record.type === 'json' && record.value !== undefined && record.value !== output) {
+    return mediaEntriesOf(record.value)
+  }
+  if (!Array.isArray(record.images) && record.output !== undefined && record.output !== output) {
+    return mediaEntriesOf(record.output)
+  }
+  const images = record.images
   if (!Array.isArray(images)) return []
   return images.filter((item): item is CondensedMediaEntry => {
     if (typeof item !== 'object' || item === null) return false
@@ -73,17 +80,18 @@ export function condenseMediaAgentRun(result: MediaAgentRunResult): CondensedMed
 
 /** Drop bulky per-item settings before the result enters the parent model context. */
 export function slimCondensedMedia(result: CondensedMediaAgentResult): Record<string, unknown> {
-  return {
+  const slim: Record<string, unknown> = {
     summary: result.summary,
     steps: result.steps,
-    success: result.success,
-    message: result.message,
     images: result.images.map((item) => {
-      const slim: Record<string, string> = { id: item.id, type: item.type }
-      if (item.imageUrl) slim.imageUrl = item.imageUrl
-      if (item.videoUrl) slim.videoUrl = item.videoUrl
-      if (item.model3dUrl) slim.model3dUrl = item.model3dUrl
-      return slim
+      const entry: Record<string, string> = { id: item.id, type: item.type }
+      if (item.imageUrl) entry.imageUrl = item.imageUrl
+      if (item.videoUrl) entry.videoUrl = item.videoUrl
+      if (item.model3dUrl) entry.model3dUrl = item.model3dUrl
+      return entry
     }),
   }
+  if (result.success !== undefined) slim.success = result.success
+  if (result.message !== undefined) slim.message = result.message
+  return slim
 }

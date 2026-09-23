@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { skipGpuAdmissionFromKeepModelsLoaded } from '@/lib/chatBackendSelection'
 
-vi.mock('../../logging/logger.ts', () => ({
+vi.mock('../../observability/logger.ts', () => ({
   appLoggerInstance: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
@@ -105,6 +105,25 @@ describe('chatReadiness', () => {
     expect(d.awaitChatWindow).not.toHaveBeenCalled()
     expect(d.stopOvmsImageServer).toHaveBeenCalledTimes(1)
     expect(d.ensureBackendReadiness).toHaveBeenCalledWith('Qwen3-9B', 'bge', 8192, '--jinja')
+  })
+
+  it('reload labels the activity Reloading chat model…', async () => {
+    const sent: { type?: string; activity?: { label?: string } }[] = []
+    const { setKernelEventWindow, resetKernelBusForTest } = await import('../../kernel/kernelBus')
+    setKernelEventWindow({
+      isDestroyed: () => false,
+      webContents: { send: (_channel: string, event: unknown) => void sent.push(event as never) },
+    } as never)
+
+    const d = wire()
+    await ensureChatBackendReady(loadArgs)
+    sent.length = 0
+    d.ensureBackendReadiness.mockClear()
+
+    await reloadLastChatBackend()
+
+    expect(sent.some((event) => event.activity?.label === 'Reloading chat model…')).toBe(true)
+    resetKernelBusForTest()
   })
 
   it('skipGpuAdmission skips the wait on an explicit ensure too', async () => {

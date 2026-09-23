@@ -269,7 +269,10 @@ export const useConversations = defineStore('conversations', () => {
         // One-shot legacy migration (§6.1: "localStorage migrates once"): a
         // first boot with no index uploads whatever the old persisted state
         // held, then drops the key so it never runs or dual-writes again.
-        if (bootstrap.status === 'empty') {
+        if (
+          bootstrap.status === 'empty' ||
+          (bootstrap.status === 'ok' && bootstrap.threads.length === 0)
+        ) {
           const legacy = readLegacyState()
           if (legacy && Object.keys(legacy.conversationList).length > 0) {
             bootstrap = await window.electronAPI.conversations.migrate(legacy)

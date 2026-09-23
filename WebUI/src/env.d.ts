@@ -102,7 +102,7 @@ type LocalSettings = {
   allowPlaintextSecretStorage?: boolean
 }
 
-/** Mirrors electron/laminar LaminarConfigSchema (renderer copy for IPC typing). */
+/** Mirrors electron/observability/laminar LaminarConfigSchema (renderer copy for IPC typing). */
 type LaminarConfig = {
   projectApiKey: string
   /** Scheme and host only — the SDK takes the ports separately. */
@@ -351,9 +351,7 @@ type electronAPI = {
     url: string,
   ): Promise<{ success: true; data: string } | { success: false; error: string }>
   openImageWin(url: string, title: string, width: number, height: number): void
-  wakeupApiService(): void
   screenChange(callback: (width: number, height: number) => void): void
-  webServiceExit(callback: (serviceName: string, normalExit: string) => void): void
   existsPath(path: string): Promise<boolean>
   addDocumentToRAGList(
     doc: IndexedDocument,
@@ -379,7 +377,7 @@ type electronAPI = {
    * Local Laminar tracing settings, or null when tracing is off (the default).
    * Read in main from `external/laminar.dev.json` (then
    * `external/laminar.localhost.json`) so the project API key never lands in
-   * the renderer bundle. Dev-only (see electron/laminar.ts).
+   * the renderer bundle. Dev-only (see electron/observability/laminar.ts).
    */
   getLaminarConfig(): Promise<LaminarConfig | null>
   /**
@@ -411,7 +409,6 @@ type electronAPI = {
       message: string
     }) => void,
   ): void
-  wakeupComfyUIService(): void
   getComfyUiDefaultParameters(): Promise<string>
   getLlamaCppDefaultParameters(): Promise<string>
   detectPhisonSsd(): Promise<{ detected: boolean }>
@@ -496,20 +493,11 @@ type electronAPI = {
     ): Promise<{ success: true; turnId: string } | { success: false; error: string }>
     resumeTurn(conversationKey: string): Promise<import('./types/chatIpc').ChatTurnResumeResult>
     cancelTurn(conversationKey: string, turnId: string): Promise<{ success: boolean }>
-    toolResult(payload: import('./types/chatIpc').ChatToolResult): Promise<void>
     summarize(
       request: import('./types/chatIpc').ChatSummarizeRequest,
     ): Promise<{ success: true; data: string } | { success: false; error: string }>
-    runMediaAgent(
-      request: import('./types/chatIpc').MediaAgentRunRequest,
-    ): Promise<
-      | { success: true; data: import('./types/chatIpc').MediaAgentRunResult }
-      | { success: false; error: string }
-    >
-    cancelMediaAgent(runKey: string): Promise<{ success: boolean }>
-    onToolExecution(
-      callback: (payload: import('./types/chatIpc').ChatToolExecution) => void,
-    ): () => void
+    answer(payload: import('./types/chatRequests').ChatAnswerPayload): Promise<void>
+    onAsk(callback: (payload: import('./types/chatRequests').ChatAskPayload) => void): () => void
   }
   conversations: {
     bootstrap(): Promise<

@@ -878,15 +878,22 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     }
   }
 
-  // Renderer-submitted run ids. In-process agent tools also emit artifact
-  // events; adopting those would drive the Image Gen overlay / history from
-  // a run the user is not looking at.
+  // Renderer-submitted run ids, plus in-process chat-specialist runs that stamp
+  // origin: 'renderer' without pre-registering gallery stubs. In-process agent
+  // tools stamp origin: 'agent' and must not drive the Image Gen overlay.
   const trackedArtifactRunIds = new Set<string>()
   function trackArtifactRun(runId: string): void {
     trackedArtifactRunIds.add(runId)
   }
   function untrackArtifactRun(runId: string): void {
     trackedArtifactRunIds.delete(runId)
+  }
+
+  function adoptArtifactRun(runId: string, origin?: 'renderer' | 'agent'): boolean {
+    if (trackedArtifactRunIds.has(runId)) return true
+    if (origin !== 'renderer') return false
+    trackArtifactRun(runId)
+    return true
   }
 
   // ── Artifact run projection (architecture-target §4.1 step 5) ────────────
@@ -902,27 +909,34 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
   ): void {
     switch (phase) {
       case 'queued':
+        processing.value = true
         break
       case 'preparing-backend':
+        processing.value = true
         currentState.value = 'start_backend'
         stepText.value = ''
         break
       case 'installing-components':
+        processing.value = true
         currentState.value = 'install_workflow_components'
         break
       case 'loading-components':
+        processing.value = true
         currentState.value = 'load_workflow_components'
         break
       case 'loading-model':
+        processing.value = true
         currentState.value = 'load_model'
         break
       case 'running':
+        processing.value = true
         currentState.value = 'generating'
         if (progress) {
           stepText.value = `${i18nState.COM_GENERATING} ${progress.current}/${progress.max}`
         }
         break
       case 'completed':
+        processing.value = false
         currentState.value = 'image_out'
         stepText.value = ''
         untrackArtifactRun(runId)
@@ -941,10 +955,10 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
   const artifactProjection = connectKernelEventStream(
     (event) => {
       if (event.type === 'artifact-phase') {
-        if (!trackedArtifactRunIds.has(event.runId)) return
+        if (!adoptArtifactRun(event.runId, event.origin)) return
         applyArtifactPhase(event.runId, event.phase, event.progress, event.error)
       } else if (event.type === 'artifact-item') {
-        if (!generatedImages.value.some((item) => item.id === event.item.id)) return
+        if (!adoptArtifactRun(event.runId, event.origin)) return
         updateImage(event.item)
       }
     },
@@ -1134,26 +1148,33 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     await backendServices.resetLastUsedInferenceBackend(inferenceBackendService)
     await backendServices.updateLastUsedBackend(inferenceBackendService)
 
+    // Overlay and prompt-bar busy flag used to flip on the renderer websocket's
+    // execution_start; the runner is in main now, so raise them here.
+    processing.value = true
+    currentState.value = 'start_backend'
     stepText.value = i18nState.COM_GENERATING
-    currentState.value = 'no_start'
 
     // UI runs are top-level: no parent activity (the runner resets the stale
     // tool-parented value the previous chat run may have left behind).
-    return await runArtifact({
-      kind: MODE_TO_ARTIFACT_KIND[mode],
-      workflow: preset.name,
-      variant: presetsStore.activeVariantName[preset.name] || undefined,
-      mode,
-      prompt: prompt.value,
-      negativePrompt: negativePrompt.value,
-      params: {
-        seed: seed.value,
-        width: width.value,
-        height: height.value,
-        inferenceSteps: inferenceSteps.value,
-        batchSize: batchSize.value,
-      },
-    })
+    try {
+      return await runArtifact({
+        kind: MODE_TO_ARTIFACT_KIND[mode],
+        workflow: preset.name,
+        variant: presetsStore.activeVariantName[preset.name] || undefined,
+        mode,
+        prompt: prompt.value,
+        negativePrompt: negativePrompt.value,
+        params: {
+          seed: seed.value,
+          width: width.value,
+          height: height.value,
+          inferenceSteps: inferenceSteps.value,
+          batchSize: batchSize.value,
+        },
+      })
+    } finally {
+      processing.value = false
+    }
   }
 
   function stopGeneration() {

@@ -84,6 +84,71 @@ describe('createToolAgent', () => {
     })
   })
 
+  it('waits for a slow execute before returning the collected step output', async () => {
+    let call = 0
+    let executeFinished = false
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        call++
+        if (call === 1) return toolCallResponse('makeImage', { prompt: 'slow' }, 'c1')
+        return textResponse('Done.')
+      },
+    })
+    const makeImage = tool({
+      inputSchema: z.object({ prompt: z.string() }),
+      execute: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 80))
+        executeFinished = true
+        return { images: [{ id: 'img1', type: 'image', imageUrl: 'aipg-media://slow.png' }] }
+      },
+    })
+
+    const agent = createToolAgent({
+      name: 'slowAgent',
+      system: () => 'sys',
+      tools: () => ({ makeImage }),
+    })
+    const result = await agent.run({ model, request: 'make it slowly' })
+
+    expect(executeFinished).toBe(true)
+    expect(result.steps).toHaveLength(1)
+    expect(result.steps[0].output).toMatchObject({
+      images: [{ id: 'img1', imageUrl: 'aipg-media://slow.png' }],
+    })
+  })
+
+  it('consumes a streaming execute to its last yield before returning', async () => {
+    let call = 0
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        call++
+        if (call === 1) return toolCallResponse('makeImage', { prompt: 'stream' }, 'c1')
+        return textResponse('Done.')
+      },
+    })
+    const makeImage = tool({
+      inputSchema: z.object({ prompt: z.string() }),
+      execute: async function* () {
+        yield { images: [] as Array<{ id: string; type: string; imageUrl: string }> }
+        await new Promise((resolve) => setTimeout(resolve, 40))
+        yield {
+          images: [{ id: 'img1', type: 'image', imageUrl: 'aipg-media://final.png' }],
+        }
+      },
+    })
+
+    const agent = createToolAgent({
+      name: 'streamAgent',
+      system: () => 'sys',
+      tools: () => ({ makeImage }),
+    })
+    const result = await agent.run({ model, request: 'stream it' })
+
+    expect(result.steps[0].output).toMatchObject({
+      images: [{ id: 'img1', imageUrl: 'aipg-media://final.png' }],
+    })
+  })
+
   it('stops at the configured step cap without throwing', async () => {
     let call = 0
     const model = new MockLanguageModelV3({

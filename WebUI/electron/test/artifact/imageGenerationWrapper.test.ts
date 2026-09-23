@@ -10,7 +10,31 @@ Object.assign(globalThis, { computed, ref })
 // The store's kernel projection reads window.electronAPI at setup time; with
 // an empty stub it no-ops, exactly like a renderer without the artifact IPC.
 const cancelIpcMock = vi.fn<(runId?: string) => Promise<void>>().mockResolvedValue()
-vi.stubGlobal('window', { electronAPI: { artifact: { cancel: cancelIpcMock } } })
+const kernelListeners: Array<(event: unknown) => void> = []
+vi.stubGlobal('window', {
+  electronAPI: {
+    artifact: { cancel: cancelIpcMock },
+    onKernelEvent: (cb: (event: unknown) => void) => {
+      kernelListeners.push(cb)
+      return () => {
+        const index = kernelListeners.indexOf(cb)
+        if (index >= 0) kernelListeners.splice(index, 1)
+      }
+    },
+    getKernelSnapshot: async () => ({
+      scope: { kind: 'global' },
+      sequence: 0,
+      state: {
+        services: [],
+        activeTurn: null,
+        activeArtifactRun: null,
+        chatTurns: [],
+        activities: [],
+        inferenceProfile: null,
+      },
+    }),
+  },
+})
 
 // vi.mock factories are hoisted above every top-level const, so the shared
 // proxy helper must live here.
@@ -108,6 +132,7 @@ const comfyPresetFixture = (overrides: Record<string, unknown> = {}) => ({
 describe('imageGenerationPresets.generate (UI wrapper)', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    kernelListeners.length = 0
     runArtifactMock.mockReset()
     errorsReportMock.mockReset()
     runArtifactMock.mockResolvedValue({ state: 'completed', items: [] })
@@ -191,5 +216,117 @@ describe('imageGenerationPresets.generate (UI wrapper)', () => {
     expect(runArtifactMock).not.toHaveBeenCalled()
     expect(errorsReportMock).toHaveBeenCalledTimes(1)
     expect(result).toBeUndefined()
+  })
+
+  it('raises processing so the overlay can show live step text', async () => {
+    activePresetWithVariant.value = comfyPresetFixture()
+    const store = useImageGenerationPresets()
+    runArtifactMock.mockImplementation(async () => {
+      expect(store.processing).toBe(true)
+      expect(store.currentState).toBe('start_backend')
+      expect(store.stepText).toBe('Generating')
+      return { state: 'completed', items: [] }
+    })
+
+    await store.generate('imageGen')
+
+    expect(store.processing).toBe(false)
+  })
+
+  it('projects running progress onto stepText for a tracked run', async () => {
+    const store = useImageGenerationPresets()
+    store.trackArtifactRun('run-1')
+    const event = {
+      type: 'artifact-phase',
+      runId: 'run-1',
+      phase: 'running',
+      progress: { current: 3, max: 20 },
+      seq: 1,
+      scope: { kind: 'run', runId: 'run-1' },
+    }
+    await vi.waitFor(() => expect(kernelListeners.length).toBeGreaterThan(0))
+    for (const listener of kernelListeners) listener(event)
+
+    await vi.waitFor(() => expect(store.stepText).toBe('Generating 3/20'))
+    expect(store.processing).toBe(true)
+    expect(store.currentState).toBe('generating')
+  })
+
+  it('adopts renderer-origin in-process runs that never pre-registered stubs', async () => {
+    const store = useImageGenerationPresets()
+    await vi.waitFor(() => expect(kernelListeners.length).toBeGreaterThan(0))
+    const item = {
+      id: 'chat-media-1',
+      type: 'image' as const,
+      state: 'done' as const,
+      mode: 'imageGen' as const,
+      settings: {},
+      imageUrl: 'aipg-media://media/AIPG_Image_00940_.png',
+    }
+    for (const listener of kernelListeners) {
+      listener({
+        type: 'artifact-phase',
+        runId: 'in-process-1',
+        phase: 'queued',
+        origin: 'renderer',
+        seq: 1,
+        scope: { kind: 'run', runId: 'in-process-1' },
+      })
+      listener({
+        type: 'artifact-item',
+        runId: 'in-process-1',
+        origin: 'renderer',
+        item,
+        seq: 2,
+        scope: { kind: 'run', runId: 'in-process-1' },
+      })
+      listener({
+        type: 'artifact-phase',
+        runId: 'in-process-1',
+        phase: 'completed',
+        origin: 'renderer',
+        seq: 3,
+        scope: { kind: 'run', runId: 'in-process-1' },
+      })
+    }
+
+    await vi.waitFor(() =>
+      expect(store.generatedImages.some((img) => img.id === item.id)).toBe(true),
+    )
+    expect(store.processing).toBe(false)
+  })
+
+  it('ignores agent-origin artifact events that were not tracked', async () => {
+    const store = useImageGenerationPresets()
+    await vi.waitFor(() => expect(kernelListeners.length).toBeGreaterThan(0))
+    for (const listener of kernelListeners) {
+      listener({
+        type: 'artifact-phase',
+        runId: 'agent-1',
+        phase: 'running',
+        origin: 'agent',
+        seq: 1,
+        scope: { kind: 'run', runId: 'agent-1' },
+      })
+      listener({
+        type: 'artifact-item',
+        runId: 'agent-1',
+        origin: 'agent',
+        item: {
+          id: 'agent-media-1',
+          type: 'image',
+          state: 'done',
+          mode: 'imageGen',
+          settings: {},
+          imageUrl: 'aipg-media://media/agent.png',
+        },
+        seq: 2,
+        scope: { kind: 'run', runId: 'agent-1' },
+      })
+    }
+
+    await Promise.resolve()
+    expect(store.generatedImages.some((img) => img.id === 'agent-media-1')).toBe(false)
+    expect(store.processing).toBe(false)
   })
 })

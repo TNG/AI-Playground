@@ -69,7 +69,6 @@ const report = vi.fn()
 vi.mock('@/assets/js/store/errors', () => ({ useErrors: () => ({ report }) }))
 
 vi.mock('@/assets/js/tools/agentBridge', () => ({
-  executeAgentTool: vi.fn(),
   getAgentToolSpecs: () => [],
 }))
 

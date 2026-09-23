@@ -1,9 +1,31 @@
 import { describe, expect, it, vi } from 'vitest'
-import { buildTurnConfig } from '@/assets/js/store/agentModeTurn'
+import { registerAgentModeIpc } from '@/assets/js/store/agentModeIpc'
+import { buildTurnConfig, createAgentTurnRuntime } from '@/assets/js/store/agentModeTurn'
+import type { AgentTurnSnapshot } from '@/types/kernelEvents'
+
+const chatResume = vi.hoisted(() => {
+  const state: { resolve: (() => void) | null; promise: Promise<void> } = {
+    resolve: null,
+    promise: Promise.resolve(),
+  }
+  return {
+    hold() {
+      state.promise = new Promise<void>((resolve) => {
+        state.resolve = resolve
+      })
+    },
+    release() {
+      state.resolve?.()
+      state.resolve = null
+    },
+    get promise() {
+      return state.promise
+    },
+  }
+})
 
 vi.mock('@/assets/js/tools/agentBridge', () => ({
   getAgentToolSpecs: () => [],
-  executeAgentTool: vi.fn(),
 }))
 
 vi.mock('@/assets/js/store/developerSettings', () => ({
@@ -12,6 +34,19 @@ vi.mock('@/assets/js/store/developerSettings', () => ({
 
 vi.mock('@/assets/js/store/agentModeIpc', () => ({
   registerAgentModeIpc: vi.fn(),
+}))
+
+vi.mock('@ai-sdk/vue', () => ({
+  Chat: class {
+    transport: { reconnectToStream: () => Promise<unknown> }
+    constructor(options: { transport: { reconnectToStream: () => Promise<unknown> } }) {
+      this.transport = options.transport
+    }
+    async resumeStream() {
+      await chatResume.promise
+      return this.transport.reconnectToStream()
+    }
+  },
 }))
 
 function localInference(overrides: Record<string, unknown> = {}) {
@@ -104,5 +139,46 @@ describe('buildTurnConfig readiness (step 15)', () => {
     })
     expect(config.modelConfig.source).toBe('cloud')
     expect(config.readiness).toBeUndefined()
+  })
+})
+
+describe('pendingResume tool progress', () => {
+  it('buffers onToolProgress onto the snapshot until reconnect adopts it', async () => {
+    chatResume.hold()
+    const runtime = createAgentTurnRuntime({
+      errors: { report: vi.fn() },
+      buildTurnConfig: async () => ({}) as never,
+    })
+    const handlers = vi.mocked(registerAgentModeIpc).mock.calls.at(-1)?.[0]
+    if (!handlers) throw new Error('expected registerAgentModeIpc')
+
+    const turn: AgentTurnSnapshot = {
+      turnId: 'turn-1',
+      chunks: [],
+      toolProgress: { 'call-1': 'start' },
+      toolImages: {},
+    }
+    handlers.onSnapshot({
+      scope: { kind: 'global' },
+      sequence: 1,
+      state: {
+        services: [],
+        activeTurn: turn,
+        activeArtifactRun: null,
+        chatTurns: [],
+        activities: [],
+        inferenceProfile: null,
+      },
+    })
+    handlers.onToolProgress({
+      turnId: 'turn-1',
+      toolCallId: 'call-1',
+      toolName: 'browser',
+      text: 'halfway',
+    })
+    expect(runtime.toolProgress.value).toEqual({})
+
+    chatResume.release()
+    await vi.waitFor(() => expect(runtime.toolProgress.value).toEqual({ 'call-1': 'halfway' }))
   })
 })

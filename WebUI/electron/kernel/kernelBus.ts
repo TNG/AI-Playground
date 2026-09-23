@@ -1,5 +1,5 @@
 import type { BrowserWindow } from 'electron'
-import { appLoggerInstance } from '../logging/logger'
+import { appLoggerInstance } from '../observability/logger'
 import type {
   AgentTurnSnapshot,
   ArtifactRunSnapshot,
@@ -44,8 +44,7 @@ const appLogger = appLoggerInstance
 // recreated (macOS close + dock re-activate) their status pushes went to a
 // destroyed webContents and the new renderer never learned anything. Main sets
 // the current window here on every createWindow(). Parked leftovers (remaining
-// event types, leftover send channels, resume-gap progress) are in
-// docs/architecture-target.md §8.2.
+// event types, leftover send channels) are in docs/architecture-target.md §8.2.
 
 const KERNEL_EVENT_CHANNEL = 'kernel:event'
 
@@ -115,8 +114,32 @@ export function beginAgentTurnSnapshot(turnId: string): void {
   activeTurn = { turnId, chunks: [], toolProgress: {}, toolImages: {} }
 }
 
+function isMergeableAgentDelta(
+  chunk: unknown,
+): chunk is { type: 'text-delta' | 'reasoning-delta'; id: string; delta: string } {
+  if (!chunk || typeof chunk !== 'object') return false
+  const value = chunk as { type?: unknown; id?: unknown; delta?: unknown }
+  return (
+    (value.type === 'text-delta' || value.type === 'reasoning-delta') &&
+    typeof value.id === 'string' &&
+    typeof value.delta === 'string'
+  )
+}
+
 export function emitAgentChunk(turnId: string, chunk: unknown): void {
-  if (activeTurn?.turnId === turnId) activeTurn.chunks.push(chunk)
+  if (activeTurn?.turnId === turnId) {
+    const last = activeTurn.chunks.at(-1)
+    if (
+      isMergeableAgentDelta(last) &&
+      isMergeableAgentDelta(chunk) &&
+      last.type === chunk.type &&
+      last.id === chunk.id
+    ) {
+      last.delta += chunk.delta
+    } else {
+      activeTurn.chunks.push(chunk)
+    }
+  }
   emit({ type: 'agent-chunk', turnId, chunk }, { kind: 'run', runId: turnId })
 }
 
@@ -156,6 +179,10 @@ export function beginArtifactRunSnapshot(run: Omit<ArtifactRunSnapshot, 'items'>
   activeArtifactRun = { ...run, items: [] }
 }
 
+function artifactOrigin(runId: string): 'renderer' | 'agent' | undefined {
+  return activeArtifactRun?.runId === runId ? activeArtifactRun.origin : undefined
+}
+
 export function emitArtifactPhase(
   runId: string,
   phase: ArtifactPhase,
@@ -167,7 +194,10 @@ export function emitArtifactPhase(
     activeArtifactRun.progress = progress
     if (error !== undefined) activeArtifactRun.error = error
   }
-  emit({ type: 'artifact-phase', runId, phase, progress, error }, { kind: 'run', runId })
+  emit(
+    { type: 'artifact-phase', runId, phase, progress, error, origin: artifactOrigin(runId) },
+    { kind: 'run', runId },
+  )
 }
 
 export function emitArtifactItem(runId: string, item: MediaItem): void {
@@ -176,7 +206,10 @@ export function emitArtifactItem(runId: string, item: MediaItem): void {
     if (index === -1) activeArtifactRun.items.push(item)
     else activeArtifactRun.items[index] = item
   }
-  emit({ type: 'artifact-item', runId, item }, { kind: 'run', runId })
+  emit(
+    { type: 'artifact-item', runId, item, origin: artifactOrigin(runId) },
+    { kind: 'run', runId },
+  )
 }
 
 export function emitArtifactDone(

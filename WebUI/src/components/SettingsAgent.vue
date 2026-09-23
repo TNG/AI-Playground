@@ -357,10 +357,15 @@ onMounted(async () => {
 })
 
 // Whether the media capability has anything to offer is decided in the main
-// process from the tool specs, so turning its last workflow off (or back on) in
-// the panel below only reaches the checkbox after re-asking.
+// process from the tool specs, so turning its last workflow or speech tool off
+// (or back on) in the panel below only reaches the checkbox after re-asking.
 watch(
-  () => [mediaAgentHasTools(), textInference.toolDelegationEnabled],
+  () => [
+    mediaAgentHasTools(),
+    textInference.toolDelegationEnabled,
+    textInference.isBuiltinToolEnabled('synthesizeTextToSpeech'),
+    textInference.isBuiltinToolEnabled('transcribeAudio'),
+  ],
   () => void refreshCapabilityCatalog(),
 )
 

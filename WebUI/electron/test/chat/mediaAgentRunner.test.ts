@@ -12,7 +12,7 @@ import type { ChatToolSpec, MediaAgentRunRequest } from '@/types/chatIpc'
 // data coercing a bogus workflow, progress on the kernel stream, and cancel
 // aborting the in-process run.
 
-vi.mock('../../logging/logger.ts', () => ({
+vi.mock('../../observability/logger.ts', () => ({
   appLoggerInstance: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
@@ -20,18 +20,18 @@ vi.mock('../../chat/chatModelMain', () => ({
   createMainChatModel: vi.fn(),
 }))
 
-vi.mock('../../subprocesses/mcpManager', () => ({
+vi.mock('../../adapters/mcp/mcpManager', () => ({
   listMcpServers: vi.fn(),
   getMcpServerStatus: vi.fn(),
 }))
 
-vi.mock('../../laminar', () => ({
+vi.mock('../../observability/laminar', () => ({
   noteLlamaCppChatTimings: vi.fn(),
   noteMainChatTurnContext: vi.fn(),
   markDelegatedMediaRun: vi.fn(),
 }))
 
-vi.mock('../../orchestrator/orchestrator', () => ({
+vi.mock('../../kernel/orchestrator', () => ({
   runMediaRequest: async <T>(fn: () => Promise<T>) => fn(),
 }))
 
@@ -122,7 +122,15 @@ beforeEach(() => {
   const window = fakeWindow()
   setKernelEventWindow(window.win)
   runInProcessComfyToolMock.mockResolvedValue({
-    images: [{ imageUrl: 'aipg-media://castle.png' }],
+    images: [
+      {
+        id: 'i1',
+        type: 'image',
+        imageUrl: 'aipg-media://castle.png',
+        mode: 'imageGen',
+        settings: { preset: 'W1', bulky: 'x'.repeat(40) },
+      },
+    ],
   })
 })
 
@@ -165,8 +173,9 @@ describe('runMediaAgentInMain', () => {
     expect(result.text).toBe('Made the castle.')
     expect(result.steps).toHaveLength(1)
     expect(result.steps[0].output).toMatchObject({
-      images: [{ imageUrl: 'aipg-media://castle.png' }],
+      images: [{ id: 'i1', type: 'image', imageUrl: 'aipg-media://castle.png' }],
     })
+    expect(JSON.stringify(result.steps[0].output)).not.toContain('bulky')
 
     const progress = mediaEvents()
     expect(progress.filter((e) => e.type === 'phase')).toEqual([

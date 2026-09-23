@@ -1,8 +1,8 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
 import { computed } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
-import type { ComfyInput, ComfyUiPreset, Preset } from './presets'
-import { useImageGenerationPresets, type MediaItem } from './imageGenerationPresets'
+import type { Preset } from './presets'
+import { useImageGenerationPresets } from './imageGenerationPresets'
 import { useI18N } from './i18n'
 import { useActivities } from './activities'
 import { useBackendServices } from '@/assets/js/store/backendServices.ts'
@@ -34,10 +34,9 @@ async function comfyFetch(input: RequestInfo | URL, init?: RequestInit): Promise
 
 // ── Explicit generation run types ──────────────────────────────────────────────
 //
-// The engine that consumed these moved into the main-process artifact runner
-// (electron/artifact/runner.ts, architecture-target §4.1 step 5); the types
-// stay because runArtifact.ts and the tools still speak them when describing
-// a resolved run before shipping it over IPC.
+// The engine that consumed generation-run types moved into the main-process
+// artifact runner (electron/artifact/runner.ts, architecture-target §4.1 step 5);
+// params stay because runArtifact.ts still speaks them when describing a resolved run.
 
 /** Fully resolved sampling values for one run; the seed is the batch base. */
 export type ComfyGenerationParams = {
@@ -48,18 +47,6 @@ export type ComfyGenerationParams = {
   width: number
   height: number
   batchSize: number
-}
-
-/** A workflow dynamic input with its resolved current value (plain, not store-bound). */
-export type ComfyGenerationInput = ComfyInput & { current: unknown }
-
-export type ComfyGenerationRun = {
-  preset: ComfyUiPreset
-  /** Queued items, one per batch entry; the websocket fills them in place. */
-  items: MediaItem[]
-  params: ComfyGenerationParams
-  inputs: ComfyGenerationInput[]
-  sourceImage?: string
 }
 
 export const useComfyUiPresets = defineStore(

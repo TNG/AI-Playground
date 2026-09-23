@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import pkg from '../package.json'
-import { LocalSettings } from './main'
+import type { LocalSettings } from './kernel/localSettings.ts'
 import { ModelPaths } from '@/assets/js/store/models'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import {
@@ -83,7 +83,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getDemoModeSettings: () => ipcRenderer.invoke('getDemoModeSettings'),
   showOpenDialog: (options: Electron.OpenDialogOptions) =>
     ipcRenderer.invoke('showOpenDialog', options),
-  reportClientEvent: (eventId: number) => ipcRenderer.send('reportClientEvent', eventId),
   saveImage: (url: string) => ipcRenderer.send('saveImage', url),
   saveImageToMediaInput: (dataUri: string) => ipcRenderer.invoke('saveImageToMediaInput', dataUri),
   saveGeneratedAudio: (audioBase64: string, filename: string, options?: { overwrite?: boolean }) =>
@@ -92,16 +91,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('readLocalAudioAsDataUri', filePath),
   deleteGeneratedAudio: (filePath: string) => ipcRenderer.invoke('deleteGeneratedAudio', filePath),
   readAipgMediaAsBase64: (url: string) => ipcRenderer.invoke('readAipgMediaAsBase64', url),
-  wakeupApiService: () => ipcRenderer.send('wakeupApiService'),
   openImageWin: (url: string, title: string, width: number, height: number) =>
     ipcRenderer.send('openImageWin', url, title, width, height),
   screenChange: (callback: (width: number, height: number) => void) =>
     ipcRenderer.on('display-metrics-changed', (_event, width: number, height: number) =>
       callback(width, height),
-    ),
-  webServiceExit: (callback: (seriveName: string, normalExit: boolean) => void) =>
-    ipcRenderer.on('webServiceExit', (_event, seriveName: string, normalExit: boolean) =>
-      callback(seriveName, normalExit),
     ),
   existsPath: (path: string) => ipcRenderer.invoke('existsPath', path),
   addDocumentToRAGList: (doc: IndexedDocument, phisonKmConfig?: PhisonKmIngestConfig) =>
@@ -140,7 +134,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setFullScreen: (enable: boolean) => ipcRenderer.send('setFullScreen', enable),
   onDebugLog: (callback: (data: { level: string; source: string; message: string }) => void) =>
     ipcRenderer.on('debugLog', (_event, value) => callback(value)),
-  wakeupComfyUIService: () => ipcRenderer.send('wakeupComfyUIService'),
   getComfyUiDefaultParameters: () => ipcRenderer.invoke('getComfyUiDefaultParameters'),
   getLlamaCppDefaultParameters: () => ipcRenderer.invoke('getLlamaCppDefaultParameters'),
   detectPhisonSsd: () => ipcRenderer.invoke('detectPhisonSsd') as Promise<{ detected: boolean }>,
@@ -186,7 +179,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       request: import('../src/types/artifactIpc').ArtifactRunRequest,
       options?: { queue?: 'fail-fast' | 'queue' },
     ) =>
-      ipcRenderer.invoke('artifact:run', request, options) as Promise<
+      ipcRenderer.invoke('artifact:run', cloneForIpc(request), options) as Promise<
         import('./artifact/runner').ArtifactRunResult
       >,
     cancel: (runId?: string) => ipcRenderer.invoke('artifact:cancel', runId),
@@ -240,24 +233,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       >,
     cancelTurn: (conversationKey: string, turnId: string) =>
       ipcRenderer.invoke('chat:cancelTurn', conversationKey, turnId),
-    toolResult: (payload: import('../src/types/chatIpc').ChatToolResult) =>
-      ipcRenderer.invoke('chat:toolResult', payload),
     summarize: (request: import('../src/types/chatIpc').ChatSummarizeRequest) =>
       ipcRenderer.invoke('chat:summarize', request) as Promise<
         { success: true; data: string } | { success: false; error: string }
       >,
-    runMediaAgent: (request: import('../src/types/chatIpc').MediaAgentRunRequest) =>
-      ipcRenderer.invoke('chat:runMediaAgent', request) as Promise<
-        | { success: true; data: import('../src/types/chatIpc').MediaAgentRunResult }
-        | {
-            success: false
-            error: string
-          }
-      >,
-    cancelMediaAgent: (runKey: string) => ipcRenderer.invoke('chat:cancelMediaAgent', runKey),
-    onToolExecution: (
-      callback: (payload: import('../src/types/chatIpc').ChatToolExecution) => void,
-    ) => listen('chat:executeTool', callback),
+    answer: (payload: import('../src/types/chatRequests').ChatAnswerPayload) =>
+      ipcRenderer.invoke('chat:answer', cloneForIpc(payload)),
+    onAsk: (callback: (payload: import('../src/types/chatRequests').ChatAskPayload) => void) =>
+      listen('chat:ask', callback),
   },
   conversations: {
     bootstrap: () =>

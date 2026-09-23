@@ -13,20 +13,23 @@ import {
   type UIMessage,
   type UIMessageChunk,
 } from 'ai'
-import { dynamicTool, jsonSchema, type ToolResultOutput } from '@ai-sdk/provider-utils'
+import { dynamicTool, jsonSchema, tool, type ToolResultOutput } from '@ai-sdk/provider-utils'
 import type { JSONSchema7 } from '@ai-sdk/provider'
-import { appLoggerInstance } from '../logging/logger'
+import { appLoggerInstance } from '../observability/logger'
 import { completeOrphanedToolParts, sanitizeBulkyToolOutputs } from '@/lib/toolMessageSanitize'
-import { slimMediaModelOutput } from '@/lib/mediaModelOutput'
+import { slimMediaModelOutput, type SlimMediaToolOutput } from '@/lib/mediaModelOutput'
+import { awaitToolExecute } from '@/lib/awaitToolExecute'
+import { fillToolResultOutput, patchUiToolOutputs } from '@/lib/pendingToolOutput'
 import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
 import { extractMessage } from '@/assets/js/errors/appError'
 import type { AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
 import {
   ChatTurnRequestSchema,
-  type ChatToolExecution,
   type ChatToolSpec,
   type ChatTurnRequest,
   type ChatTurnSubmitResult,
+  type HomeAgentInferenceSnapshot,
+  type MediaAgentCatalog,
   type WorkflowRepairData,
 } from '@/types/chatIpc'
 import {
@@ -36,13 +39,26 @@ import {
   endChatTurn,
   getChatTurnChunks,
 } from '../kernel/kernelBus'
-import { listMcpServers, getMcpServerStatus } from '../subprocesses/mcpManager'
+import { listMcpServers, getMcpServerStatus } from '../adapters/mcp/mcpManager'
 import { createMainChatModel } from './chatModelMain'
 import { ensureChatBackendReady, setLastChatBackendLoadActive } from './chatReadiness'
 import { retrieveRagForTurn } from './ragRetrieval'
-import { abortTurnToolRequests, executeToolInRenderer } from './toolBridge'
-import { finishTextRequest, submitTextRequest } from '../orchestrator/orchestrator'
-import { saveConversation } from '../conversations/conversationFiles'
+import { executeChatComfyTool } from './chatComfyTool'
+import { executeChatMcpTool, isChatMcpTool } from './chatMcpTool'
+import { executeChatMediaTool } from './chatMediaTool'
+import { executeChatScreenshotTool } from './chatScreenshotTool'
+import { CHAT_SPEECH_TOOLS, executeChatSpeechTool } from './chatSpeechTools'
+import { executeChatDetectionsTool } from './chatDetectionsTool'
+import { CHAT_HOME_AGENT_TOOLS, executeChatHomeAgentTool } from './chatHomeAgentTools'
+import {
+  CHAT_WEB_TOOLS,
+  executeChatWebTool,
+  formatSearchResults,
+  formatSnapshot,
+} from './chatWebTools'
+import type { WebPageSnapshot, WebSearchResults } from '../adapters/webBrowserManager'
+import { finishTextRequest, submitTextRequest } from '../kernel/orchestrator'
+import { saveConversation } from '../persist/conversationFiles'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { emitFailure } from '../kernel/kernelBus'
 
@@ -52,8 +68,10 @@ import { emitFailure } from '../kernel/kernelBus'
 // owns the AI SDK call. The turn arrives as resolved data (messages, model
 // config, serialized tool specs); what streamed through
 // `toUIMessageStreamResponse` now crosses the kernel bus as `chat-chunk`
-// events, coalesced at the bus. Tool execution round-trips to the renderer,
-// which owns the tool closures and their Pinia reads.
+// events, coalesced at the bus. Every tool body runs in-process too, in a
+// module beside this one; an unhandled name throws rather than falling back to
+// the renderer. Where a tool genuinely needs this window — the speech engine,
+// a confirmation card — it asks for that one answer over `chat:ask`.
 //
 // What deliberately stayed renderer-side: download consent, the activities
 // sink (the transport observes chunk types to drive "Processing prompt…"
@@ -385,6 +403,75 @@ function capHistoryImages(messages: ModelMessage[]): {
 // ── Tool set from serialized specs ────────────────────────────────────────────
 
 /**
+ * The renderer tool modules are schema + description only, so a formatter
+ * declared there would never reach the model — the tool set crosses to main as
+ * JSON Schema. Tools executed in main declare theirs here instead.
+ */
+function modelOutputFor(toolName: string): ToolSet[string]['toModelOutput'] | undefined {
+  if (toolName === 'media') {
+    return ({ output }: { output: unknown }) => {
+      if (!output || typeof output !== 'object') {
+        return { type: 'error-text' as const, value: 'Media generation returned no result.' }
+      }
+      return slimMediaModelOutput(output as SlimMediaToolOutput)
+    }
+  }
+  if (toolName === 'searchWeb') {
+    return ({ output }: { output: unknown }) => ({
+      type: 'text' as const,
+      value: formatSearchResults(output as WebSearchResults),
+    })
+  }
+  if (toolName === 'browseWeb' || toolName === 'interactWithWebPage') {
+    return ({ output }: { output: unknown }) => ({
+      type: 'text' as const,
+      value: formatSnapshot(output as WebPageSnapshot),
+    })
+  }
+  // The capture is not returned to the model here: the OpenAI-compatible
+  // provider JSON-stringifies tool-result content, so base64 would be sent as
+  // text. `injectScreenshotImages` attaches it as a real vision image instead.
+  if (toolName === 'captureScreenshot' || toolName === 'screenshotWebPage') {
+    return ({ output }: { output: unknown }) => {
+      const value = output as { ok?: boolean; message?: string } | null
+      const message = value?.message ?? 'Screenshot failed.'
+      return value?.ok
+        ? { type: 'text' as const, value: message }
+        : { type: 'error-text' as const, value: message }
+    }
+  }
+  if (toolName === 'synthesizeTextToSpeech') {
+    return ({ output }: { output: unknown }) => {
+      const value = output as { ok?: boolean; message?: string; savedFilePath?: string } | null
+      const message = value?.message ?? 'Speech synthesis failed.'
+      if (!value?.ok) return { type: 'error-text' as const, value: message }
+      return {
+        type: 'text' as const,
+        value: `${message}${value.savedFilePath ? ` File: ${value.savedFilePath}` : ''}`,
+      }
+    }
+  }
+  // The annotated image is for the chat card: the OpenAI-compatible provider
+  // JSON-stringifies tool-result content, so the data URL would be sent as text.
+  if (toolName === 'visualizeObjectDetections') {
+    return () => ({
+      type: 'text' as const,
+      value: 'Object detections visualized on image successfully',
+    })
+  }
+  if (toolName === 'transcribeAudio') {
+    return ({ output }: { output: unknown }) => {
+      const value = output as { ok?: boolean; message?: string; transcript?: string } | null
+      const message = value?.message ?? 'Transcription failed.'
+      return value?.ok
+        ? { type: 'text' as const, value: value.transcript ?? message }
+        : { type: 'error-text' as const, value: message }
+    }
+  }
+  return undefined
+}
+
+/**
  * `jsonSchema()` without a `validate` option accepts anything, so the SDK's
  * tool-input validation — the trigger for the comfy workflow repair — would
  * be gone. The only validation the original zod ToolSet performed that has a
@@ -392,6 +479,9 @@ function capHistoryImages(messages: ModelMessage[]): {
  * path exists for exactly that); enforce it here from the shipped repair
  * names. Everything else passes through unvalidated, same as today's model
  * args that zod would have caught surface as errors only via the executor.
+ *
+ * Built-in tools use `tool()` so the UI stream emits `tool-${name}` parts
+ * (Chat.vue cards). MCP tools stay `dynamicTool()` (`dynamic-tool` + `mcp__`).
  */
 type ToolExecuteOptions = {
   toolCallId: string
@@ -399,26 +489,146 @@ type ToolExecuteOptions = {
   abortSignal?: AbortSignal
 }
 
+type BuildToolSetOptions = {
+  /** Override the in-process executor (media specialist inner Comfy, step 12). */
+  execute?: (
+    spec: ChatToolSpec,
+    input: unknown,
+    execOptions: ToolExecuteOptions,
+  ) => Promise<unknown>
+  /** Parent Chat `media` tool: in-process specialist. Missing catalog fails closed. */
+  parentMedia?: {
+    catalog: MediaAgentCatalog
+    model: ChatTurnRequest['model']
+    keepModelsLoaded: boolean
+    readMediaAsDataUri: (url: string) => Promise<string>
+  }
+  /** In-process Chat Comfy (delegation off). Missing reader fails closed. */
+  keepModelsLoaded?: boolean
+  readMediaAsDataUri?: (url: string) => Promise<string>
+  /** The window `captureScreenshot` is bound to, shipped on the turn. */
+  screenshotWindow?: { id: string; name: string }
+  /** Conversation title for the TTS file name; the thread's own title lives renderer-side. */
+  conversationLabel?: string
+  /** What the Home Agent's settings tools read; absent on any other preset's turn. */
+  homeAgentInference?: HomeAgentInferenceSnapshot
+  /** Track each execute Promise so a null SDK tool result can still wait. */
+  onExecute?: (toolCallId: string, work: Promise<unknown>) => void
+}
+
+async function dispatchChatTool(
+  spec: ChatToolSpec,
+  input: unknown,
+  execOptions: ToolExecuteOptions,
+  ctx: {
+    conversationKey: string
+    defaultWorkflow?: string
+    options?: BuildToolSetOptions
+  },
+): Promise<unknown> {
+  const exec: ToolExecuteOptions = {
+    toolCallId: execOptions.toolCallId,
+    messages: execOptions.messages,
+    abortSignal: execOptions.abortSignal,
+  }
+  const options = ctx.options
+  if (options?.execute) return await options.execute(spec, input, exec)
+  if (spec.name === 'media') {
+    if (!options?.parentMedia) {
+      throw new Error(
+        'media tool is missing its catalog; it runs in main and cannot round-trip to the renderer',
+      )
+    }
+    return await executeChatMediaTool({
+      input,
+      toolCallId: exec.toolCallId,
+      conversationKey: ctx.conversationKey,
+      messages: exec.messages,
+      abortSignal: exec.abortSignal,
+      catalog: options.parentMedia.catalog,
+      model: options.parentMedia.model,
+      keepModelsLoaded: options.parentMedia.keepModelsLoaded,
+      readMediaAsDataUri: options.parentMedia.readMediaAsDataUri,
+    })
+  }
+  if (spec.name === 'comfyUI' || spec.name === 'comfyUiImageEdit') {
+    if (!options?.readMediaAsDataUri) {
+      throw new Error(`${spec.name} runs in main and cannot round-trip to the renderer`)
+    }
+    return await executeChatComfyTool({
+      toolName: spec.name,
+      input,
+      messages: exec.messages,
+      abortSignal: exec.abortSignal,
+      conversationKey: ctx.conversationKey,
+      keepModelsLoaded: options.keepModelsLoaded ?? false,
+      defaultWorkflow: ctx.defaultWorkflow,
+      readMediaAsDataUri: options.readMediaAsDataUri,
+    })
+  }
+  if (isChatMcpTool(spec.name)) {
+    return await executeChatMcpTool({
+      toolName: spec.name,
+      input,
+      conversationKey: ctx.conversationKey,
+    })
+  }
+  if (CHAT_WEB_TOOLS.has(spec.name)) {
+    return await executeChatWebTool({
+      toolName: spec.name,
+      input,
+      conversationKey: ctx.conversationKey,
+    })
+  }
+  if (spec.name === 'captureScreenshot') {
+    return await executeChatScreenshotTool({
+      target: options?.screenshotWindow,
+      conversationKey: ctx.conversationKey,
+    })
+  }
+  if (spec.name === 'visualizeObjectDetections') {
+    if (!options?.readMediaAsDataUri) {
+      throw new Error(`${spec.name} runs in main and cannot round-trip to the renderer`)
+    }
+    return await executeChatDetectionsTool({
+      input,
+      conversationKey: ctx.conversationKey,
+      messages: exec.messages,
+      readMediaAsDataUri: options.readMediaAsDataUri,
+    })
+  }
+  if (CHAT_SPEECH_TOOLS.has(spec.name)) {
+    if (!options?.readMediaAsDataUri) {
+      throw new Error(`${spec.name} runs in main and cannot round-trip to the renderer`)
+    }
+    return await executeChatSpeechTool({
+      toolName: spec.name,
+      input,
+      conversationKey: ctx.conversationKey,
+      conversationLabel: options.conversationLabel,
+      messages: exec.messages,
+      readMediaAsDataUri: options.readMediaAsDataUri,
+      abortSignal: exec.abortSignal,
+    })
+  }
+  if (CHAT_HOME_AGENT_TOOLS.has(spec.name)) {
+    return await executeChatHomeAgentTool({
+      toolName: spec.name,
+      input,
+      conversationKey: ctx.conversationKey,
+      toolCallId: exec.toolCallId,
+      snapshot: options?.homeAgentInference,
+      abortSignal: exec.abortSignal,
+    })
+  }
+  throw new Error(`${spec.name} runs in main and cannot round-trip to the renderer`)
+}
+
 export function buildToolSet(
   specs: ChatToolSpec[],
   conversationKey: string,
-  turnId: string,
   repairData: ChatTurnRequest['repairData'],
-  options?: {
-    /**
-     * Ship the live ModelMessage history with each bridge request — needed
-     * when the tool set belongs to a nested run whose history the renderer
-     * cannot reconstruct from a conversation. Inner Comfy source discovery
-     * now runs in main (step 12); this remains for any still-bridged tool.
-     */
-    includeMessages?: boolean
-    /** Override the renderer tool bridge (media specialist inner Comfy, step 12). */
-    execute?: (
-      spec: ChatToolSpec,
-      input: unknown,
-      execOptions: ToolExecuteOptions,
-    ) => Promise<unknown>
-  },
+  options?: BuildToolSetOptions,
 ): ToolSet {
   const tools: ToolSet = {}
   for (const spec of specs) {
@@ -428,7 +638,7 @@ export function buildToolSet(
         : spec.name === 'comfyUI'
           ? repairData?.comfyUI
           : undefined
-    tools[spec.name] = dynamicTool({
+    const definition = {
       description: spec.description,
       inputSchema: data
         ? jsonSchema(spec.inputSchema as JSONSchema7, {
@@ -446,23 +656,27 @@ export function buildToolSet(
             },
           })
         : jsonSchema(spec.inputSchema as JSONSchema7),
-      execute: async (input, execOptions) => {
-        const exec: ToolExecuteOptions = {
-          toolCallId: execOptions.toolCallId,
-          messages: execOptions.messages,
-          abortSignal: execOptions.abortSignal,
-        }
-        if (options?.execute) return await options.execute(spec, input, exec)
-        return await executeToolInRenderer({
-          conversationKey,
-          turnId,
-          toolCallId: exec.toolCallId,
-          toolName: spec.name,
-          input,
-          ...(options?.includeMessages ? { messages: exec.messages } : {}),
-        })
+      execute: (input: unknown, execOptions: ToolExecuteOptions) => {
+        const work = awaitToolExecute(
+          dispatchChatTool(spec, input, execOptions, {
+            conversationKey,
+            defaultWorkflow: data?.defaultWorkflow,
+            options,
+          }),
+        )
+        options?.onExecute?.(execOptions.toolCallId, work)
+        return work
       },
-    }) as ToolSet[string]
+      ...(() => {
+        const toModelOutput = modelOutputFor(spec.name)
+        return toModelOutput ? { toModelOutput } : {}
+      })(),
+    }
+    // MCP tools are not in the app's tool union; static tools must stay
+    // `tool()` so Chat.vue can match `tool-media` / `tool-comfyUI` parts.
+    tools[spec.name] = (
+      spec.name.startsWith('mcp__') ? dynamicTool(definition) : tool(definition)
+    ) as ToolSet[string]
   }
   return tools
 }
@@ -506,8 +720,10 @@ export function submitChatTurn(request: unknown): ChatTurnSubmitResult {
 export function cancelChatTurn(conversationKey: string, turnId: string): void {
   const turn = activeTurns.get(conversationKey)
   if (!turn || turn.turnId !== turnId) return
+  // Tool bodies run here and take the turn's abort signal directly, so there is
+  // nothing to recall from the renderer — an outstanding `chat:ask` is a
+  // question to a human (or to the speech engine) and settles on its own.
   turn.controller.abort()
-  abortTurnToolRequests(turnId)
 }
 
 export function resumeChatTurn(conversationKey: string) {
@@ -564,7 +780,31 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
 
     const mcp = buildMcpInstructions(request.includeMcpInstructions === true)
     let systemPromptToUse = `${request.systemPrompt ?? ''}${mcp}`
-    const tools = buildToolSet(request.tools, conversationKey, turnId, request.repairData)
+    const readMediaAsDataUri = async (url: string) => {
+      if (url.startsWith('data:')) return url
+      if (!engineDeps) throw new Error('Chat engine deps not wired')
+      return await engineDeps.readMediaAsDataUri(url)
+    }
+    const keepModelsLoaded = request.keepModelsLoaded ?? false
+    const pendingToolExecutes = new Map<string, Promise<unknown>>()
+    const tools = buildToolSet(request.tools, conversationKey, request.repairData, {
+      keepModelsLoaded,
+      readMediaAsDataUri,
+      screenshotWindow: request.screenshotWindow,
+      conversationLabel: request.conversationLabel,
+      homeAgentInference: request.homeAgentInference,
+      onExecute: (toolCallId, work) => {
+        pendingToolExecutes.set(toolCallId, work)
+      },
+      parentMedia: request.mediaAgent
+        ? {
+            catalog: request.mediaAgent,
+            model: request.model,
+            keepModelsLoaded,
+            readMediaAsDataUri,
+          }
+        : undefined,
+    })
     const hasTools = Object.keys(tools).length > 0
 
     if (haDiag) {
@@ -812,41 +1052,48 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
         appLogger.warn(`Chat turn failed: ${describeInferenceError(error)}`, 'electron-backend')
       },
 
+      onToolExecutionEnd: async ({ toolCall, toolOutput }) => {
+        await fillToolResultOutput(pendingToolExecutes, toolCall.toolCallId, toolOutput)
+      },
+
       include: {
         rawChunks: true,
       },
     })
 
-    const stream = result.toUIMessageStream({
-      onError: describeInferenceError,
-      sendReasoning: true,
-      messageMetadata: (options) => {
-        // Returning undefined suppresses the SDK's per-part `message-metadata`
-        // chunk: without this it enqueues one after every delta and raw part,
-        // so no two deltas are ever adjacent and the bus coalescing could
-        // never merge anything.
-        if (
-          options.part.type === 'text-delta' ||
-          options.part.type === 'reasoning-delta' ||
-          options.part.type === 'raw'
-        ) {
-          return undefined
-        }
-        if (options.part.type === 'finish-step') {
-          lastStepUsage = options.part.usage
-        }
-        let effectiveUsage: LanguageModelUsage | undefined = undefined
-        if (options.part.type === 'finish') {
-          effectiveUsage = lastStepUsage ?? options.part.totalUsage
-        }
-        return {
-          model: config.modelId,
-          timestamp: Date.now(),
-          timings,
-          usage: effectiveUsage ?? usage,
-        }
-      },
-    })
+    const stream = patchUiToolOutputs(
+      result.toUIMessageStream({
+        onError: describeInferenceError,
+        sendReasoning: true,
+        messageMetadata: (options) => {
+          // Returning undefined suppresses the SDK's per-part `message-metadata`
+          // chunk: without this it enqueues one after every delta and raw part,
+          // so no two deltas are ever adjacent and the bus coalescing could
+          // never merge anything.
+          if (
+            options.part.type === 'text-delta' ||
+            options.part.type === 'reasoning-delta' ||
+            options.part.type === 'raw'
+          ) {
+            return undefined
+          }
+          if (options.part.type === 'finish-step') {
+            lastStepUsage = options.part.usage
+          }
+          let effectiveUsage: LanguageModelUsage | undefined = undefined
+          if (options.part.type === 'finish') {
+            effectiveUsage = lastStepUsage ?? options.part.totalUsage
+          }
+          return {
+            model: config.modelId,
+            timestamp: Date.now(),
+            timings,
+            usage: effectiveUsage ?? usage,
+          }
+        },
+      }),
+      pendingToolExecutes,
+    )
 
     const persistMessages = async (assistant: UIMessage | undefined) => {
       const messages: unknown[] = [...request.messages]
@@ -893,5 +1140,3 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
     endChatTurn(conversationKey, turnId)
   }
 }
-
-export type { ChatToolExecution }

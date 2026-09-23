@@ -5,7 +5,7 @@
 // management view and the pure helpers in `library.ts` never care which catalog
 // a model came from.
 //
-// Imported by the Electron main process too (`electron/pathsManager.ts` uses
+// Imported by the Electron main process too (`electron/kernel/pathsManager.ts` uses
 // MODEL_SCAN_TARGETS), so this file must stay free of Vue/Pinia imports.
 import type { InferenceDefaults } from '@/types/shared'
 

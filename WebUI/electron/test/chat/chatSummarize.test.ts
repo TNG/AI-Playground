@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../logging/logger.ts', () => ({
+vi.mock('../../observability/logger.ts', () => ({
   appLoggerInstance: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
@@ -19,7 +19,7 @@ vi.mock('../../chat/chatReadiness.ts', () => ({
 
 const submitTextRequest = vi.hoisted(() => vi.fn(async () => {}))
 const finishTextRequest = vi.hoisted(() => vi.fn())
-vi.mock('../../orchestrator/orchestrator.ts', () => ({
+vi.mock('../../kernel/orchestrator.ts', () => ({
   submitTextRequest,
   finishTextRequest,
 }))

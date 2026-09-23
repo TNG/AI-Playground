@@ -84,6 +84,8 @@ export type KernelArtifactPhaseEvent = {
   progress?: { current: number; max: number }
   /** Failure text for the `failed` phase. */
   error?: string
+  /** Lets the renderer adopt chat-specialist runs that never pre-registered stubs. */
+  origin?: 'renderer' | 'agent'
 }
 
 /**
@@ -94,6 +96,7 @@ export type KernelArtifactItemEvent = {
   type: 'artifact-item'
   runId: string
   item: MediaItem
+  origin?: 'renderer' | 'agent'
 }
 
 /**
@@ -240,7 +243,8 @@ export type KernelEvent = KernelEventPayload & KernelEventEnvelope
 /**
  * The accumulated state of the one agent turn main can be running, for a
  * renderer that (re)connects halfway through. Chunks are stored accumulated —
- * never as individual deltas to replay as events.
+ * adjacent text/reasoning deltas of the same part are merged, never as
+ * individual token events to replay.
  */
 export type AgentTurnSnapshot = {
   turnId: string

@@ -87,7 +87,6 @@ async function pushPhisonLlamaSettingsToMain() {
   await backendServices.updateServiceSettings({
     serviceName: 'llamacpp-backend',
     llamaCppBuildVariant: 'ssd-offload',
-    llamaCppOffloadDrive: backendServices.llamaCppOffloadDrive,
     llamaCppParameters: backendServices.effectiveLlamaCppParameters,
   })
 }

@@ -288,6 +288,8 @@ export async function saveSpeechClip(
  * owns it so the drivers (Chat.vue) need no TTS store import.
  */
 export const isSpeaking = ref(false)
+/** True while `speak()` is spawning the backend or synthesizing before playback. */
+export const preparingSpeech = ref(false)
 export const speakingMessageId = ref<string | null>(null)
 /** Set by the mic flow when a turn originated from speech, consumed by the
  *  speak-replies watcher so only voice-originated turns auto-speak. */
@@ -302,6 +304,8 @@ export function speakRepliesAvailable(): boolean {
 
 /** Stop any in-progress playback and release the object URL. */
 export function stopSpeaking(): void {
+  speakGeneration++
+  preparingSpeech.value = false
   if (currentAudio) {
     currentAudio.pause()
     currentAudio.src = ''
@@ -317,6 +321,7 @@ export function stopSpeaking(): void {
 
 let currentAudio: HTMLAudioElement | null = null
 let currentObjectUrl: string | null = null
+let speakGeneration = 0
 
 /**
  * Synthesize `text` and play it back in the desktop app. `messageId` ties the
@@ -325,14 +330,19 @@ let currentObjectUrl: string | null = null
 export async function speak(req: { text: string; messageId?: string }): Promise<void> {
   const trimmed = markdownToSpeechText(req.text ?? '').trim()
   if (!trimmed) return
+  if (preparingSpeech.value) return
 
   stopSpeaking()
+  const gen = speakGeneration
+  preparingSpeech.value = true
+  speakingMessageId.value = req.messageId ?? null
 
   try {
     // Reply playback synthesizes through the shared non-Qwen3 path in its
     // unattended shape: it never prompts (a download popup has nowhere to land
     // mid-reply), degrading to a reported unavailability instead.
     const clip = await kokoroExternalClip({ text: trimmed, interactive: false })
+    if (gen !== speakGeneration) return
     if (!clip) {
       useErrors().report(
         createAppError({
@@ -346,7 +356,6 @@ export async function speak(req: { text: string; messageId?: string }): Promise<
     }
 
     isSpeaking.value = true
-    speakingMessageId.value = req.messageId ?? null
 
     const url = bytesToBlobUrl(base64ToBytes(clip.audioBase64), clip.mediaType)
     currentObjectUrl = url
@@ -357,6 +366,7 @@ export async function speak(req: { text: string; messageId?: string }): Promise<
     audio.onerror = () => stopSpeaking()
     await audio.play()
   } catch (error) {
+    if (gen !== speakGeneration) return
     useErrors().report(error, {
       category: 'inference',
       code: 'inference/tts-failed',
@@ -364,5 +374,10 @@ export async function speak(req: { text: string; messageId?: string }): Promise<
       surface: 'toast',
     })
     stopSpeaking()
+  } finally {
+    if (gen === speakGeneration) {
+      preparingSpeech.value = false
+      if (!isSpeaking.value) speakingMessageId.value = null
+    }
   }
 }

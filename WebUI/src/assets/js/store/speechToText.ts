@@ -67,6 +67,8 @@ export const useSpeechToText = defineStore(
   () => {
     const enabled = ref(false)
     const initializing = ref(false)
+    /** True while the STT model check, download, or server start is in flight. */
+    const preparingStt = ref(false)
     // Which engine the STT preset (and mic transcription) uses. Edited in SettingsStt.
     const selectedSttEngine = ref<SttEngine>('whisper')
     // Which model the standalone (torch) Whisper engine uses.
@@ -218,33 +220,40 @@ export const useSpeechToText = defineStore(
      * `SttReadyResult`.
      */
     async function ensureStandaloneReady(): Promise<SttReadyResult> {
-      const svc = backendServices.info.find((s) => s.serviceName === 'whisper-backend')
-      if (!svc?.isSetUp) {
-        throw new Error(
-          'The standalone Whisper backend is not installed. Install it from ' +
-            'Settings → Installation Management, then try again.',
-        )
-      }
-      let downloadPrompted = false
-      const modelExists = await models.checkTranscriptionModelExists(selectedStandaloneModel.value)
-      if (!modelExists) {
-        const missing = await models.getMissingTranscriptionModel(selectedStandaloneModel.value)
-        if (missing.length > 0) {
-          downloadPrompted = true
-          await requestDownload(missing).catch(() => {
-            throw new Error('Whisper model download was cancelled')
-          })
+      preparingStt.value = true
+      try {
+        const svc = backendServices.info.find((s) => s.serviceName === 'whisper-backend')
+        if (!svc?.isSetUp) {
+          throw new Error(
+            'The standalone Whisper backend is not installed. Install it from ' +
+              'Settings → Installation Management, then try again.',
+          )
         }
+        let downloadPrompted = false
+        const modelExists = await models.checkTranscriptionModelExists(
+          selectedStandaloneModel.value,
+        )
+        if (!modelExists) {
+          const missing = await models.getMissingTranscriptionModel(selectedStandaloneModel.value)
+          if (missing.length > 0) {
+            downloadPrompted = true
+            await requestDownload(missing).catch(() => {
+              throw new Error('Whisper model download was cancelled')
+            })
+          }
+        }
+        // Re-read the service: the download popup above can take minutes, during
+        // which serviceInfoUpdate may have changed the status (or the user may have
+        // stopped/started it), making the captured `svc` snapshot stale.
+        const current = backendServices.info.find((s) => s.serviceName === 'whisper-backend') ?? svc
+        if (current.status !== 'running') {
+          await backendServices.startService('whisper-backend')
+        }
+        standaloneModelPresent.value = true
+        return { downloadPrompted }
+      } finally {
+        preparingStt.value = false
       }
-      // Re-read the service: the download popup above can take minutes, during
-      // which serviceInfoUpdate may have changed the status (or the user may have
-      // stopped/started it), making the captured `svc` snapshot stale.
-      const current = backendServices.info.find((s) => s.serviceName === 'whisper-backend') ?? svc
-      if (current.status !== 'running') {
-        await backendServices.startService('whisper-backend')
-      }
-      standaloneModelPresent.value = true
-      return { downloadPrompted }
     }
 
     /**
@@ -309,35 +318,42 @@ export const useSpeechToText = defineStore(
      * `SttReadyResult`.
      */
     async function ensureWhisperReady(): Promise<SttReadyResult> {
-      const openVinoService = backendServices.info.find((s) => s.serviceName === 'openvino-backend')
-      if (!openVinoService?.isSetUp) {
-        // No OVMS: the fallback endpoint (if any) serves transcription directly.
-        if (hasFallback()) return { downloadPrompted: false }
-        throw new Error(
-          'OpenVINO backend is required for Speech To Text. Install it from ' +
-            'Settings → Installation Management, or configure a fallback endpoint.',
+      preparingStt.value = true
+      try {
+        const openVinoService = backendServices.info.find(
+          (s) => s.serviceName === 'openvino-backend',
         )
-      }
-
-      const model = selectedOvmsModel.value
-      let downloadPrompted = false
-      const modelExists = await models.checkTranscriptionModelExists(model)
-      if (!modelExists) {
-        const missing = await models.getMissingTranscriptionModel(model)
-        if (missing.length > 0) {
-          downloadPrompted = true
-          await requestDownload(missing).catch(() => {
-            throw new Error('Whisper model download was cancelled')
-          })
+        if (!openVinoService?.isSetUp) {
+          // No OVMS: the fallback endpoint (if any) serves transcription directly.
+          if (hasFallback()) return { downloadPrompted: false }
+          throw new Error(
+            'OpenVINO backend is required for Speech To Text. Install it from ' +
+              'Settings → Installation Management, or configure a fallback endpoint.',
+          )
         }
-      }
 
-      // Always ask for the selected model rather than skipping when *some* server
-      // is up: the model is picked per launch, so a server left running with the
-      // previously selected model would otherwise keep serving it. The backend
-      // no-ops when the running model already matches and restarts when it doesn't.
-      await backendServices.startTranscriptionServer(model)
-      return { downloadPrompted }
+        const model = selectedOvmsModel.value
+        let downloadPrompted = false
+        const modelExists = await models.checkTranscriptionModelExists(model)
+        if (!modelExists) {
+          const missing = await models.getMissingTranscriptionModel(model)
+          if (missing.length > 0) {
+            downloadPrompted = true
+            await requestDownload(missing).catch(() => {
+              throw new Error('Whisper model download was cancelled')
+            })
+          }
+        }
+
+        // Always ask for the selected model rather than skipping when *some* server
+        // is up: the model is picked per launch, so a server left running with the
+        // previously selected model would otherwise keep serving it. The backend
+        // no-ops when the running model already matches and restarts when it doesn't.
+        await backendServices.startTranscriptionServer(model)
+        return { downloadPrompted }
+      } finally {
+        preparingStt.value = false
+      }
     }
 
     /**
@@ -561,6 +577,7 @@ export const useSpeechToText = defineStore(
     return {
       enabled,
       initializing,
+      preparingStt,
       fallback,
       selectedSttEngine,
       selectedStandaloneModel,

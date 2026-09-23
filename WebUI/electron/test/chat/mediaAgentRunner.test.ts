@@ -122,7 +122,15 @@ beforeEach(() => {
   const window = fakeWindow()
   setKernelEventWindow(window.win)
   runInProcessComfyToolMock.mockResolvedValue({
-    images: [{ imageUrl: 'aipg-media://castle.png' }],
+    images: [
+      {
+        id: 'i1',
+        type: 'image',
+        imageUrl: 'aipg-media://castle.png',
+        mode: 'imageGen',
+        settings: { preset: 'W1', bulky: 'x'.repeat(40) },
+      },
+    ],
   })
 })
 
@@ -165,8 +173,9 @@ describe('runMediaAgentInMain', () => {
     expect(result.text).toBe('Made the castle.')
     expect(result.steps).toHaveLength(1)
     expect(result.steps[0].output).toMatchObject({
-      images: [{ imageUrl: 'aipg-media://castle.png' }],
+      images: [{ id: 'i1', type: 'image', imageUrl: 'aipg-media://castle.png' }],
     })
+    expect(JSON.stringify(result.steps[0].output)).not.toContain('bulky')
 
     const progress = mediaEvents()
     expect(progress.filter((e) => e.type === 'phase')).toEqual([

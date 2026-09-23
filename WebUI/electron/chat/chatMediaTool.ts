@@ -1,5 +1,6 @@
 import type { ModelMessage } from 'ai'
 import { findSourceImage } from '@/lib/findSourceImage'
+import { cloneForIpc } from '@/lib/cloneForIpc'
 import { condenseMediaAgentRun, slimCondensedMedia } from '@/lib/mediaAgentResult'
 import type { ChatModelConfig, MediaAgentCatalog } from '@/types/chatIpc'
 import { runMediaAgentInMain } from './mediaAgentRunner'
@@ -52,5 +53,9 @@ export async function executeChatMediaTool(options: {
     },
     options.abortSignal,
   )
-  return slimCondensedMedia(condenseMediaAgentRun(raw))
+  const condensed = cloneForIpc(slimCondensedMedia(condenseMediaAgentRun(raw)))
+  console.info(
+    `[media] condensed ${Array.isArray(condensed.images) ? condensed.images.length : 0} image(s)`,
+  )
+  return condensed
 }

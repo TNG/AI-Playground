@@ -181,7 +181,9 @@ watch(
   () => [mediaToolNameOf(props.part), toolPart.value.toolCallId, toolPart.value.state] as const,
   ([isMedia, id, state]) => {
     if (!isMedia) return
-    if (state === 'output-available') mediaRuns.endRun(id, 'done')
+    if (state === 'output-available' && toolPart.value.output != null) {
+      mediaRuns.endRun(id, 'done')
+    }
     if (state === 'output-error') mediaRuns.endRun(id, 'failed')
   },
 )

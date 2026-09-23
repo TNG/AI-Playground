@@ -1,4 +1,6 @@
 import { isStepCount, streamText, type LanguageModel, type ModelMessage, type ToolSet } from 'ai'
+import { awaitToolExecute } from '@/lib/awaitToolExecute'
+import { fillToolResultOutput } from '@/lib/pendingToolOutput'
 
 // ── Tool agent factory ────────────────────────────────────────────────────────
 //
@@ -80,6 +82,30 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function toolsWithAwaitedExecute(tools: ToolSet): {
+  tools: ToolSet
+  pending: Map<string, Promise<unknown>>
+} {
+  const pending = new Map<string, Promise<unknown>>()
+  const wrapped: ToolSet = {}
+  for (const [name, spec] of Object.entries(tools)) {
+    const execute = spec?.execute
+    if (typeof execute !== 'function') {
+      wrapped[name] = spec
+      continue
+    }
+    wrapped[name] = {
+      ...spec,
+      execute: (input: never, execOptions: { toolCallId?: string }) => {
+        const work = awaitToolExecute(execute(input, execOptions as never))
+        pending.set(execOptions.toolCallId ?? `anon-${pending.size}`, work)
+        return work
+      },
+    } as ToolSet[string]
+  }
+  return { tools: wrapped, pending }
+}
+
 export function createToolAgent(config: ToolAgentConfig) {
   async function run(options: ToolAgentRunOptions): Promise<ToolAgentResult> {
     const messages: ModelMessage[] = [
@@ -88,11 +114,13 @@ export function createToolAgent(config: ToolAgentConfig) {
     ]
     const emit = options.onEvent ?? (() => {})
 
+    const finished = new Map<string, unknown>()
+    const { tools, pending } = toolsWithAwaitedExecute(config.tools())
     const result = streamText({
       model: options.model,
       system: config.system(),
       messages,
-      tools: config.tools(),
+      tools,
       stopWhen: isStepCount(config.maxSteps ?? DEFAULT_MAX_STEPS),
       abortSignal: options.abortSignal,
       experimental_repairToolCall: options.repairToolCall,
@@ -105,11 +133,14 @@ export function createToolAgent(config: ToolAgentConfig) {
           input: toolCall.input,
         })
       },
-      onToolExecutionEnd: ({ toolCall, toolOutput }) => {
+      onToolExecutionEnd: async ({ toolCall, toolOutput }) => {
+        await fillToolResultOutput(pending, toolCall.toolCallId, toolOutput)
+        const output = toolOutput.type === 'tool-result' ? toolOutput.output : undefined
+        finished.set(toolCall.toolCallId, output)
         emit({
           type: 'tool-finish',
           toolCallId: toolCall.toolCallId,
-          output: toolOutput.type === 'tool-result' ? toolOutput.output : undefined,
+          output,
           error: toolOutput.type === 'tool-error' ? errorMessage(toolOutput.error) : undefined,
         })
       },
@@ -139,11 +170,18 @@ export function createToolAgent(config: ToolAgentConfig) {
       throw streamError instanceof Error ? streamError : new Error(errorMessage(streamError))
     }
 
+    // fullStream can end while execute is still in flight. Wait so callers
+    // condense the real Comfy result, not an empty placeholder. Rejections
+    // already surface as tool-error parts — do not rethrow them here.
+    await Promise.allSettled(pending.values())
+    await Promise.resolve()
+    await Promise.allSettled(pending.values())
+
     const steps: ToolAgentStep[] = (await result.steps).flatMap((step) =>
       step.toolResults.map((toolResult) => ({
         toolName: toolResult.toolName,
         input: toolResult.input,
-        output: toolResult.output,
+        output: toolResult.output ?? finished.get(toolResult.toolCallId),
       })),
     )
     console.info(`[${config.name}] finished with ${steps.length} tool call(s)`)

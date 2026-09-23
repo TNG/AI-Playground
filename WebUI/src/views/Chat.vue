@@ -647,6 +647,16 @@ watch(
           // Default to collapsed state
           showRagSourcePerMessageId[message.id] = false
         }
+        if (message.role !== 'assistant' || !Array.isArray(message.parts)) return
+        for (const part of message.parts) {
+          if (toolPartNameOf(part) !== 'media') continue
+          const id = (part as { toolCallId?: string }).toolCallId
+          if (!id) continue
+          if (part.state === 'output-available' && (part as { output?: unknown }).output != null) {
+            mediaAgentRuns.endRun(id, 'done')
+          }
+          if (part.state === 'output-error') mediaAgentRuns.endRun(id, 'failed')
+        }
       })
     }
 

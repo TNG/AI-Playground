@@ -60,6 +60,7 @@ describe('executeChatMediaTool', () => {
       summary: 'Made cheese.',
       images: [{ id: 'i1', type: 'image', imageUrl: 'aipg-media://cheese.png' }],
     })
+    expect(result).not.toHaveProperty('success')
   })
 
   it('converts an aipg-media source image before the nested run', async () => {

@@ -18,6 +18,8 @@ import type { JSONSchema7 } from '@ai-sdk/provider'
 import { appLoggerInstance } from '../observability/logger'
 import { completeOrphanedToolParts, sanitizeBulkyToolOutputs } from '@/lib/toolMessageSanitize'
 import { slimMediaModelOutput, type SlimMediaToolOutput } from '@/lib/mediaModelOutput'
+import { awaitToolExecute } from '@/lib/awaitToolExecute'
+import { fillToolResultOutput, patchUiToolOutputs } from '@/lib/pendingToolOutput'
 import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
 import { extractMessage } from '@/assets/js/errors/appError'
 import type { AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
@@ -487,34 +489,146 @@ type ToolExecuteOptions = {
   abortSignal?: AbortSignal
 }
 
+type BuildToolSetOptions = {
+  /** Override the in-process executor (media specialist inner Comfy, step 12). */
+  execute?: (
+    spec: ChatToolSpec,
+    input: unknown,
+    execOptions: ToolExecuteOptions,
+  ) => Promise<unknown>
+  /** Parent Chat `media` tool: in-process specialist. Missing catalog fails closed. */
+  parentMedia?: {
+    catalog: MediaAgentCatalog
+    model: ChatTurnRequest['model']
+    keepModelsLoaded: boolean
+    readMediaAsDataUri: (url: string) => Promise<string>
+  }
+  /** In-process Chat Comfy (delegation off). Missing reader fails closed. */
+  keepModelsLoaded?: boolean
+  readMediaAsDataUri?: (url: string) => Promise<string>
+  /** The window `captureScreenshot` is bound to, shipped on the turn. */
+  screenshotWindow?: { id: string; name: string }
+  /** Conversation title for the TTS file name; the thread's own title lives renderer-side. */
+  conversationLabel?: string
+  /** What the Home Agent's settings tools read; absent on any other preset's turn. */
+  homeAgentInference?: HomeAgentInferenceSnapshot
+  /** Track each execute Promise so a null SDK tool result can still wait. */
+  onExecute?: (toolCallId: string, work: Promise<unknown>) => void
+}
+
+async function dispatchChatTool(
+  spec: ChatToolSpec,
+  input: unknown,
+  execOptions: ToolExecuteOptions,
+  ctx: {
+    conversationKey: string
+    defaultWorkflow?: string
+    options?: BuildToolSetOptions
+  },
+): Promise<unknown> {
+  const exec: ToolExecuteOptions = {
+    toolCallId: execOptions.toolCallId,
+    messages: execOptions.messages,
+    abortSignal: execOptions.abortSignal,
+  }
+  const options = ctx.options
+  if (options?.execute) return await options.execute(spec, input, exec)
+  if (spec.name === 'media') {
+    if (!options?.parentMedia) {
+      throw new Error(
+        'media tool is missing its catalog; it runs in main and cannot round-trip to the renderer',
+      )
+    }
+    return await executeChatMediaTool({
+      input,
+      toolCallId: exec.toolCallId,
+      conversationKey: ctx.conversationKey,
+      messages: exec.messages,
+      abortSignal: exec.abortSignal,
+      catalog: options.parentMedia.catalog,
+      model: options.parentMedia.model,
+      keepModelsLoaded: options.parentMedia.keepModelsLoaded,
+      readMediaAsDataUri: options.parentMedia.readMediaAsDataUri,
+    })
+  }
+  if (spec.name === 'comfyUI' || spec.name === 'comfyUiImageEdit') {
+    if (!options?.readMediaAsDataUri) {
+      throw new Error(`${spec.name} runs in main and cannot round-trip to the renderer`)
+    }
+    return await executeChatComfyTool({
+      toolName: spec.name,
+      input,
+      messages: exec.messages,
+      abortSignal: exec.abortSignal,
+      conversationKey: ctx.conversationKey,
+      keepModelsLoaded: options.keepModelsLoaded ?? false,
+      defaultWorkflow: ctx.defaultWorkflow,
+      readMediaAsDataUri: options.readMediaAsDataUri,
+    })
+  }
+  if (isChatMcpTool(spec.name)) {
+    return await executeChatMcpTool({
+      toolName: spec.name,
+      input,
+      conversationKey: ctx.conversationKey,
+    })
+  }
+  if (CHAT_WEB_TOOLS.has(spec.name)) {
+    return await executeChatWebTool({
+      toolName: spec.name,
+      input,
+      conversationKey: ctx.conversationKey,
+    })
+  }
+  if (spec.name === 'captureScreenshot') {
+    return await executeChatScreenshotTool({
+      target: options?.screenshotWindow,
+      conversationKey: ctx.conversationKey,
+    })
+  }
+  if (spec.name === 'visualizeObjectDetections') {
+    if (!options?.readMediaAsDataUri) {
+      throw new Error(`${spec.name} runs in main and cannot round-trip to the renderer`)
+    }
+    return await executeChatDetectionsTool({
+      input,
+      conversationKey: ctx.conversationKey,
+      messages: exec.messages,
+      readMediaAsDataUri: options.readMediaAsDataUri,
+    })
+  }
+  if (CHAT_SPEECH_TOOLS.has(spec.name)) {
+    if (!options?.readMediaAsDataUri) {
+      throw new Error(`${spec.name} runs in main and cannot round-trip to the renderer`)
+    }
+    return await executeChatSpeechTool({
+      toolName: spec.name,
+      input,
+      conversationKey: ctx.conversationKey,
+      conversationLabel: options.conversationLabel,
+      messages: exec.messages,
+      readMediaAsDataUri: options.readMediaAsDataUri,
+      abortSignal: exec.abortSignal,
+    })
+  }
+  if (CHAT_HOME_AGENT_TOOLS.has(spec.name)) {
+    return await executeChatHomeAgentTool({
+      toolName: spec.name,
+      input,
+      conversationKey: ctx.conversationKey,
+      toolCallId: exec.toolCallId,
+      snapshot: options?.homeAgentInference,
+      abortSignal: exec.abortSignal,
+    })
+  }
+  throw new Error(`${spec.name} runs in main and cannot round-trip to the renderer`)
+}
+
 export function buildToolSet(
   specs: ChatToolSpec[],
   conversationKey: string,
   repairData: ChatTurnRequest['repairData'],
-  options?: {
-    /** Override the in-process executor (media specialist inner Comfy, step 12). */
-    execute?: (
-      spec: ChatToolSpec,
-      input: unknown,
-      execOptions: ToolExecuteOptions,
-    ) => Promise<unknown>
-    /** Parent Chat `media` tool: in-process specialist. Missing catalog fails closed. */
-    parentMedia?: {
-      catalog: MediaAgentCatalog
-      model: ChatTurnRequest['model']
-      keepModelsLoaded: boolean
-      readMediaAsDataUri: (url: string) => Promise<string>
-    }
-    /** In-process Chat Comfy (delegation off). Missing reader fails closed. */
-    keepModelsLoaded?: boolean
-    readMediaAsDataUri?: (url: string) => Promise<string>
-    /** The window `captureScreenshot` is bound to, shipped on the turn. */
-    screenshotWindow?: { id: string; name: string }
-    /** Conversation title for the TTS file name; the thread's own title lives renderer-side. */
-    conversationLabel?: string
-    /** What the Home Agent's settings tools read; absent on any other preset's turn. */
-    homeAgentInference?: HomeAgentInferenceSnapshot
-  },
+  options?: BuildToolSetOptions,
 ): ToolSet {
   const tools: ToolSet = {}
   for (const spec of specs) {
@@ -542,98 +656,16 @@ export function buildToolSet(
             },
           })
         : jsonSchema(spec.inputSchema as JSONSchema7),
-      execute: async (input: unknown, execOptions: ToolExecuteOptions) => {
-        const exec: ToolExecuteOptions = {
-          toolCallId: execOptions.toolCallId,
-          messages: execOptions.messages,
-          abortSignal: execOptions.abortSignal,
-        }
-        if (options?.execute) return await options.execute(spec, input, exec)
-        if (spec.name === 'media') {
-          if (!options?.parentMedia) {
-            throw new Error(
-              'media tool is missing its catalog; it runs in main and cannot round-trip to the renderer',
-            )
-          }
-          return await executeChatMediaTool({
-            input,
-            toolCallId: exec.toolCallId,
+      execute: (input: unknown, execOptions: ToolExecuteOptions) => {
+        const work = awaitToolExecute(
+          dispatchChatTool(spec, input, execOptions, {
             conversationKey,
-            messages: exec.messages,
-            abortSignal: exec.abortSignal,
-            catalog: options.parentMedia.catalog,
-            model: options.parentMedia.model,
-            keepModelsLoaded: options.parentMedia.keepModelsLoaded,
-            readMediaAsDataUri: options.parentMedia.readMediaAsDataUri,
-          })
-        }
-        if (spec.name === 'comfyUI' || spec.name === 'comfyUiImageEdit') {
-          if (!options?.readMediaAsDataUri) {
-            throw new Error(`${spec.name} runs in main and cannot round-trip to the renderer`)
-          }
-          return await executeChatComfyTool({
-            toolName: spec.name,
-            input,
-            messages: exec.messages,
-            abortSignal: exec.abortSignal,
-            conversationKey,
-            keepModelsLoaded: options.keepModelsLoaded ?? false,
             defaultWorkflow: data?.defaultWorkflow,
-            readMediaAsDataUri: options.readMediaAsDataUri,
-          })
-        }
-        if (isChatMcpTool(spec.name)) {
-          return await executeChatMcpTool({
-            toolName: spec.name,
-            input,
-            conversationKey,
-          })
-        }
-        if (CHAT_WEB_TOOLS.has(spec.name)) {
-          return await executeChatWebTool({ toolName: spec.name, input, conversationKey })
-        }
-        if (spec.name === 'captureScreenshot') {
-          return await executeChatScreenshotTool({
-            target: options?.screenshotWindow,
-            conversationKey,
-          })
-        }
-        if (spec.name === 'visualizeObjectDetections') {
-          if (!options?.readMediaAsDataUri) {
-            throw new Error(`${spec.name} runs in main and cannot round-trip to the renderer`)
-          }
-          return await executeChatDetectionsTool({
-            input,
-            conversationKey,
-            messages: exec.messages,
-            readMediaAsDataUri: options.readMediaAsDataUri,
-          })
-        }
-        if (CHAT_SPEECH_TOOLS.has(spec.name)) {
-          if (!options?.readMediaAsDataUri) {
-            throw new Error(`${spec.name} runs in main and cannot round-trip to the renderer`)
-          }
-          return await executeChatSpeechTool({
-            toolName: spec.name,
-            input,
-            conversationKey,
-            conversationLabel: options.conversationLabel,
-            messages: exec.messages,
-            readMediaAsDataUri: options.readMediaAsDataUri,
-            abortSignal: exec.abortSignal,
-          })
-        }
-        if (CHAT_HOME_AGENT_TOOLS.has(spec.name)) {
-          return await executeChatHomeAgentTool({
-            toolName: spec.name,
-            input,
-            conversationKey,
-            toolCallId: exec.toolCallId,
-            snapshot: options?.homeAgentInference,
-            abortSignal: exec.abortSignal,
-          })
-        }
-        throw new Error(`${spec.name} runs in main and cannot round-trip to the renderer`)
+            options,
+          }),
+        )
+        options?.onExecute?.(execOptions.toolCallId, work)
+        return work
       },
       ...(() => {
         const toModelOutput = modelOutputFor(spec.name)
@@ -754,12 +786,16 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
       return await engineDeps.readMediaAsDataUri(url)
     }
     const keepModelsLoaded = request.keepModelsLoaded ?? false
+    const pendingToolExecutes = new Map<string, Promise<unknown>>()
     const tools = buildToolSet(request.tools, conversationKey, request.repairData, {
       keepModelsLoaded,
       readMediaAsDataUri,
       screenshotWindow: request.screenshotWindow,
       conversationLabel: request.conversationLabel,
       homeAgentInference: request.homeAgentInference,
+      onExecute: (toolCallId, work) => {
+        pendingToolExecutes.set(toolCallId, work)
+      },
       parentMedia: request.mediaAgent
         ? {
             catalog: request.mediaAgent,
@@ -1016,41 +1052,48 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
         appLogger.warn(`Chat turn failed: ${describeInferenceError(error)}`, 'electron-backend')
       },
 
+      onToolExecutionEnd: async ({ toolCall, toolOutput }) => {
+        await fillToolResultOutput(pendingToolExecutes, toolCall.toolCallId, toolOutput)
+      },
+
       include: {
         rawChunks: true,
       },
     })
 
-    const stream = result.toUIMessageStream({
-      onError: describeInferenceError,
-      sendReasoning: true,
-      messageMetadata: (options) => {
-        // Returning undefined suppresses the SDK's per-part `message-metadata`
-        // chunk: without this it enqueues one after every delta and raw part,
-        // so no two deltas are ever adjacent and the bus coalescing could
-        // never merge anything.
-        if (
-          options.part.type === 'text-delta' ||
-          options.part.type === 'reasoning-delta' ||
-          options.part.type === 'raw'
-        ) {
-          return undefined
-        }
-        if (options.part.type === 'finish-step') {
-          lastStepUsage = options.part.usage
-        }
-        let effectiveUsage: LanguageModelUsage | undefined = undefined
-        if (options.part.type === 'finish') {
-          effectiveUsage = lastStepUsage ?? options.part.totalUsage
-        }
-        return {
-          model: config.modelId,
-          timestamp: Date.now(),
-          timings,
-          usage: effectiveUsage ?? usage,
-        }
-      },
-    })
+    const stream = patchUiToolOutputs(
+      result.toUIMessageStream({
+        onError: describeInferenceError,
+        sendReasoning: true,
+        messageMetadata: (options) => {
+          // Returning undefined suppresses the SDK's per-part `message-metadata`
+          // chunk: without this it enqueues one after every delta and raw part,
+          // so no two deltas are ever adjacent and the bus coalescing could
+          // never merge anything.
+          if (
+            options.part.type === 'text-delta' ||
+            options.part.type === 'reasoning-delta' ||
+            options.part.type === 'raw'
+          ) {
+            return undefined
+          }
+          if (options.part.type === 'finish-step') {
+            lastStepUsage = options.part.usage
+          }
+          let effectiveUsage: LanguageModelUsage | undefined = undefined
+          if (options.part.type === 'finish') {
+            effectiveUsage = lastStepUsage ?? options.part.totalUsage
+          }
+          return {
+            model: config.modelId,
+            timestamp: Date.now(),
+            timings,
+            usage: effectiveUsage ?? usage,
+          }
+        },
+      }),
+      pendingToolExecutes,
+    )
 
     const persistMessages = async (assistant: UIMessage | undefined) => {
       const messages: unknown[] = [...request.messages]

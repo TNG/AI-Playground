@@ -80,17 +80,18 @@ export function condenseMediaAgentRun(result: MediaAgentRunResult): CondensedMed
 
 /** Drop bulky per-item settings before the result enters the parent model context. */
 export function slimCondensedMedia(result: CondensedMediaAgentResult): Record<string, unknown> {
-  return {
+  const slim: Record<string, unknown> = {
     summary: result.summary,
     steps: result.steps,
-    success: result.success,
-    message: result.message,
     images: result.images.map((item) => {
-      const slim: Record<string, string> = { id: item.id, type: item.type }
-      if (item.imageUrl) slim.imageUrl = item.imageUrl
-      if (item.videoUrl) slim.videoUrl = item.videoUrl
-      if (item.model3dUrl) slim.model3dUrl = item.model3dUrl
-      return slim
+      const entry: Record<string, string> = { id: item.id, type: item.type }
+      if (item.imageUrl) entry.imageUrl = item.imageUrl
+      if (item.videoUrl) entry.videoUrl = item.videoUrl
+      if (item.model3dUrl) entry.model3dUrl = item.model3dUrl
+      return entry
     }),
   }
+  if (result.success !== undefined) slim.success = result.success
+  if (result.message !== undefined) slim.message = result.message
+  return slim
 }

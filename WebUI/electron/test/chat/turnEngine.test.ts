@@ -672,6 +672,53 @@ describe('turn engine', () => {
     })
   })
 
+  it('waits for a slow media execute before the UI stream records the tool output', async () => {
+    const condensed = {
+      text: 'Made cheese.',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'Draft Image' },
+          output: {
+            images: [
+              { id: 'i1', type: 'image', imageUrl: 'aipg-media://cheese.png', mode: 'imageGen' },
+            ],
+          },
+        },
+      ],
+    }
+    runMediaAgentInMainMock.mockImplementationOnce(
+      () => new Promise((resolve) => setTimeout(() => resolve(condensed), 150)),
+    )
+    queueFetchMock(
+      sse(toolCallChunks('media', '{"request":"an image of cheese"}')),
+      sse(textChunks('here is your cheese')),
+    )
+    submitChatTurn(
+      turnRequest({
+        tools: [{ name: 'media', description: 'Create media', inputSchema: { type: 'object' } }],
+        mediaAgent: {
+          system: 'You are the media specialist.',
+          toolSpecs: [{ name: 'comfyUI', description: 'Create images', inputSchema: {} }],
+        },
+        keepModelsLoaded: true,
+      }),
+    )
+    await vi.waitFor(
+      () => {
+        expect(doneTurnIds().length).toBeGreaterThan(0)
+      },
+      { timeout: 5_000 },
+    )
+    expect(chatChunks().find((c) => c.type === 'tool-output-available')).toMatchObject({
+      type: 'tool-output-available',
+      output: {
+        summary: 'Made cheese.',
+        images: [{ id: 'i1', type: 'image', imageUrl: 'aipg-media://cheese.png' }],
+      },
+    })
+  })
+
   it('runs parent comfyUI in-process and does not round-trip to the renderer', async () => {
     executeChatComfyToolMock.mockResolvedValueOnce({
       images: [{ id: 'i1', type: 'image', imageUrl: 'aipg-media://castle.png', mode: 'imageGen' }],

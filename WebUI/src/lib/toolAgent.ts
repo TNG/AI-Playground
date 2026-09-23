@@ -101,7 +101,7 @@ function toolsWithAwaitedExecute(tools: ToolSet): {
         pending.set(execOptions.toolCallId ?? `anon-${pending.size}`, work)
         return work
       },
-    } as ToolSet[string]
+    } as unknown as ToolSet[string]
   }
   return { tools: wrapped, pending }
 }

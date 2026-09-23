@@ -98,11 +98,11 @@
               <Button
                 id="stt-record-button"
                 class="bg-primary hover:bg-primary/80 text-primary-foreground rounded-lg px-4 py-2"
-                :disabled="audioRecorder.isTranscribing || speechToText.preparingStt"
+                :disabled="audioRecorder.isTranscribing || preparingStt"
                 @click="handleRecordingClick"
               >
                 <i
-                  v-if="!speechToText.preparingStt && !audioRecorder.isTranscribing"
+                  v-if="!preparingStt && !audioRecorder.isTranscribing"
                   class="svg-icon w-5 h-5 mr-2"
                   :class="audioRecorder.isRecording ? 'i-record-active' : 'i-record'"
                 ></i>
@@ -112,7 +112,7 @@
                   aria-hidden="true"
                 ></span>
                 {{
-                  speechToText.preparingStt
+                  preparingStt
                     ? 'Starting speech service…'
                     : audioRecorder.isTranscribing
                       ? 'Transcribing…'
@@ -316,25 +316,21 @@
               :disabled="
                 (!sttAvailable && !audioRecorder.isRecording) ||
                 audioRecorder.isTranscribing ||
-                speechToText.preparingStt
+                preparingStt
               "
               :title="
-                speechToText.preparingStt
-                  ? 'Starting speech service…'
-                  : sttAvailable
-                    ? ''
-                    : sttUnavailableHint
+                preparingStt ? 'Starting speech service…' : sttAvailable ? '' : sttUnavailableHint
               "
             >
               <i
-                v-if="!audioRecorder.isTranscribing && !speechToText.preparingStt"
+                v-if="!audioRecorder.isTranscribing && !preparingStt"
                 class="svg-icon w-5 h-5"
                 :class="audioRecorder.isRecording ? 'i-record-active' : 'i-record'"
               ></i>
               <span
                 v-else
                 class="svg-icon i-loading w-5 h-5 animate-spin inline-block"
-                :aria-label="speechToText.preparingStt ? 'Starting speech service' : 'Transcribing'"
+                :aria-label="preparingStt ? 'Starting speech service' : 'Transcribing'"
               ></span>
               <div
                 v-if="audioRecorder.isRecording"
@@ -422,6 +418,7 @@ import {
 import { useAudioRecorder } from '@/assets/js/store/audioRecorder'
 import {
   pendingVoiceTurn,
+  preparingStt,
   readyTranscriptionForInput,
   transcriptionAvailable,
   type SttReadyResult,

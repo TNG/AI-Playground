@@ -671,10 +671,11 @@ watch(
           if (toolPartNameOf(part) !== 'media') continue
           const id = (part as { toolCallId?: string }).toolCallId
           if (!id) continue
-          if (part.state === 'output-available' && (part as { output?: unknown }).output != null) {
+          const state = (part as { state?: string }).state
+          if (state === 'output-available' && (part as { output?: unknown }).output != null) {
             mediaAgentRuns.endRun(id, 'done')
           }
-          if (part.state === 'output-error') mediaAgentRuns.endRun(id, 'failed')
+          if (state === 'output-error') mediaAgentRuns.endRun(id, 'failed')
         }
       })
     }

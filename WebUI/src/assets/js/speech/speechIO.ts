@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useSpeechToText, type SttReadyResult } from '../store/speechToText'
 import { useTextToSpeech } from '../store/textToSpeech'
 import { useQwen3TextToSpeech } from '../store/qwen3TextToSpeech'
@@ -294,6 +294,8 @@ export const speakingMessageId = ref<string | null>(null)
 /** Set by the mic flow when a turn originated from speech, consumed by the
  *  speak-replies watcher so only voice-originated turns auto-speak. */
 export const pendingVoiceTurn = ref(false)
+/** True while the STT store checks a model, downloads it, or starts the server. */
+export const preparingStt = computed(() => useSpeechToText().preparingStt)
 
 /** Whether reply playback is usable at all: Kokoro (OVMS) or a configured
  *  external endpoint. Deliberately excludes Qwen3 — its model load is too

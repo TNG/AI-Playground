@@ -1,8 +1,24 @@
 import type { FilePart, ModelMessage } from 'ai'
 
-function convertFilePartToDataUrl(data: FilePart['data']): string {
-  if (typeof data === 'string' && data.startsWith('data:image/')) return data
-  throw new Error('Only data URL images are supported')
+function hrefOf(value: unknown): string | null {
+  if (typeof value === 'string') return value
+  if (value instanceof URL) return value.href
+  return null
+}
+
+/** String, URL, or the SDK's `{ type: 'url', url }` file-part wrapper. */
+function filePartLocation(data: unknown): string | null {
+  const direct = hrefOf(data)
+  if (direct) return direct
+  if (!data || typeof data !== 'object') return null
+  const record = data as { type?: unknown; url?: unknown }
+  if (record.type !== 'url') return null
+  return hrefOf(record.url)
+}
+
+function usableImageRef(location: string): string | null {
+  if (location.startsWith('data:image/') || location.startsWith('aipg-media://')) return location
+  return null
 }
 
 function imageUrlFromEntry(entry: unknown): string | null {
@@ -50,7 +66,8 @@ function fileImageFromContent(content: unknown): string | null {
       part.type === 'file' && part.mediaType?.startsWith('image/') === true,
   )
   if (!imagePart) return null
-  return convertFilePartToDataUrl(imagePart.data)
+  const location = filePartLocation(imagePart.data)
+  return location ? usableImageRef(location) : null
 }
 
 function findImageInCurrentPrompt(messages: ModelMessage[]): string | null {

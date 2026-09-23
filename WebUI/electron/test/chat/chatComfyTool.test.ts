@@ -91,6 +91,38 @@ describe('executeChatComfyTool', () => {
     )
   })
 
+  it('converts an uploaded aipg-media file part before an edit', async () => {
+    const readMediaAsDataUri = vi.fn(async () => 'data:image/png;base64,abc')
+    const messages: ModelMessage[] = [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'file',
+            mediaType: 'image/png',
+            data: { type: 'url', url: new URL('aipg-media://media/input/dino.png') },
+          },
+        ],
+      },
+      { role: 'user', content: [{ type: 'text', text: 'remove the extra leg' }] },
+    ]
+    await executeChatComfyTool({
+      toolName: 'comfyUiImageEdit',
+      input: { workflow: 'Edit By Prompt', prompt: 'remove the extra leg' },
+      messages,
+      conversationKey: 'conv-1',
+      keepModelsLoaded: false,
+      readMediaAsDataUri,
+    })
+    expect(readMediaAsDataUri).toHaveBeenCalledWith('aipg-media://media/input/dino.png')
+    expect(runInProcessComfyToolMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'edit',
+        source: 'data:image/png;base64,abc',
+      }),
+    )
+  })
+
   it('stamps agent origin when there is no parent conversation', async () => {
     await executeChatComfyTool({
       toolName: 'comfyUI',

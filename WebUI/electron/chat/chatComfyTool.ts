@@ -5,7 +5,9 @@ import { runInProcessComfyTool, type InProcessComfyArgs } from '../artifact/inPr
 // Chat (and the nested specialist) `comfyUI` / `comfyUiImageEdit` execute
 // in-process against the Artifact runner — same cut as Agent Mode's
 // generateImage / editImage. Origin is renderer when a Chat conversation owns
-// the run (gallery overlay), agent otherwise.
+// the run (gallery overlay), agent otherwise. It is stated rather than derived
+// from `conversationKey`: an agent turn supplies that key too, as the GPU
+// window's nesting key.
 
 const NO_SOURCE = 'No image found in conversation. Please upload an image or generate one first.'
 
@@ -14,6 +16,7 @@ export async function executeChatComfyTool(options: {
   input: unknown
   messages?: ModelMessage[]
   abortSignal?: AbortSignal
+  origin?: 'renderer' | 'agent'
   conversationKey?: string
   keepModelsLoaded: boolean
   defaultWorkflow?: string
@@ -34,7 +37,7 @@ export async function executeChatComfyTool(options: {
       ...(options.defaultWorkflow ? { defaultWorkflow: options.defaultWorkflow } : {}),
     },
     source,
-    origin: options.conversationKey ? 'renderer' : 'agent',
+    origin: options.origin ?? (options.conversationKey ? 'renderer' : 'agent'),
     conversationKey: options.conversationKey,
     keepModelsLoaded: options.keepModelsLoaded,
     signal: options.abortSignal,

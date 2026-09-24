@@ -107,6 +107,10 @@ describe('mediaDelegation (in-process media tool)', () => {
         model: CHAT_MODEL,
         toolSpecs: MEDIA_AGENT.toolSpecs,
         keepModelsLoaded: false,
+        origin: 'agent',
+        // The awaiting turn occupies the GPU as text under this key; without it
+        // the nested run waits for its own parent and never starts.
+        conversationKey: 'session-1',
       }),
       controller.signal,
     )

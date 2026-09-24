@@ -261,8 +261,10 @@ export type ChatCancelTurnRequest = z.infer<typeof ChatCancelTurnRequestSchema>
 
 export const MediaAgentRunRequestSchema = z.object({
   runKey: z.string().min(1),
-  /** Parent conversation key, when the run serves a chat turn. */
+  /** Nesting key for the GPU window: the parent chat conversation or agent session. */
   conversationKey: z.string().optional(),
+  /** Who owns the resulting media — a chat turn's gallery, or the agent workspace. */
+  origin: z.enum(['renderer', 'agent']).optional(),
   request: z.string(),
   /** Parent-provided source image, already a data URI. */
   sourceImage: z.string().optional(),

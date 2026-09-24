@@ -253,6 +253,9 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
     expect(lastPayload.keepModelsLoaded).toBe(true)
     expect(lastPayload.variant).toBe('Fast')
     expect(lastPayload.origin).toBe('agent')
+    // The awaiting turn occupies the GPU as text under this key; without it the
+    // run waits for its own parent and never starts.
+    expect(lastPayload.conversationKey).toBe('session-1')
     // In-process runs leave consent to the runner: the flag stays unset.
     expect(lastPayload.modelsConsented).toBeUndefined()
     expect(lastPayload.items).toBeUndefined()

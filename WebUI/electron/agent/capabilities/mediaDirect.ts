@@ -37,6 +37,9 @@ async function runDirectTool(
     args: { ...rawArgs, defaultWorkflow: spec.defaultWorkflow },
     source: isEdit ? (rawArgs.sourceImagePath as string | undefined) : undefined,
     origin: 'agent',
+    // The turn that is awaiting this call occupies the GPU as text; without its
+    // key the nested run waits for that occupancy to clear and deadlocks.
+    conversationKey: host.sessionId,
     keepModelsLoaded: host.keepModelsLoaded,
     signal,
   })

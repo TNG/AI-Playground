@@ -81,6 +81,10 @@ export async function buildDelegatedMediaTool(
       const raw = await runMediaAgentInMain(
         {
           runKey: toolCallId || `media-run:${crypto.randomUUID()}`,
+          // The turn that is awaiting this call occupies the GPU as text; without
+          // its key the nested run waits for that occupancy to clear and deadlocks.
+          conversationKey: host.sessionId,
+          origin: 'agent',
           request,
           sourceImage: sourceImageFromInput(dispatchInput.sourceImagePath),
           system: specialist.mediaAgent.system,

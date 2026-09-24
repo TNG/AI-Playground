@@ -66,6 +66,7 @@ async function executeInnerComfy(
     input,
     messages: execOptions.messages,
     abortSignal: execOptions.abortSignal ?? controller.signal,
+    origin: request.origin,
     conversationKey: request.conversationKey,
     keepModelsLoaded: request.keepModelsLoaded ?? false,
   })

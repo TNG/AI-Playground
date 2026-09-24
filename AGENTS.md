@@ -8,6 +8,20 @@ Electron + Vue.js desktop app for AI inference on Intel GPUs. Multi-process arch
 Electron main process orchestrates Vue.js frontend and multiple Python/native backend services
 (AI Backend, ComfyUI, LlamaCPP, OpenVINO). Frontend code lives in `WebUI/`.
 
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked on GitHub (the origin fork, TNG/AI-Playground) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary; label strings equal the role names. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
 ## Mandatory Rules
 
 - Use **composition over inheritance** — never introduce new class hierarchies.

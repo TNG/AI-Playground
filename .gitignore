@@ -1,6 +1,10 @@
 .DS_Store
 .idea
 .vscode/
+# Agent skills (mattpocock/skills) — untracked until we commit to using them
+.agents/
+skills-lock.json
+.opencode/
 node_modules/
 **/.vite/
 env/

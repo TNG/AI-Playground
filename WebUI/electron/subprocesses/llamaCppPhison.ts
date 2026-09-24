@@ -48,46 +48,27 @@ const LLAMA_CPP_SUBDIR_STANDARD = 'llama-cpp'
 const LLAMA_CPP_SUBDIR_PHISON = 'llama-cpp-phison'
 
 /**
- * Where aiDAPTIV parks the weights and KV cache it spills off the GPU.
+ * The aiDAPTIV offload budgets, in GB, for both the KV cache spilled to the SSD
+ * and the experts held back in VRAM.
  *
- * The aiDAPTIV SSD, which these systems mount at `R:`, and deliberately not a
- * path under the install directory: offloading is the entire reason the
- * ssd-offload build exists. A `largeMoe` model is chosen precisely because it
- * does not fit in VRAM, so sending its spill to the system drive does not merely
- * make it slow — the weights never reach the fast device the runtime is built
- * around, and loading fails with a Vulkan out-of-device-memory abort that reads
- * like the model simply being too big for the GPU.
+ * Positive caps, because the `-1` these shipped as does not mean "let the
+ * runtime decide" — it turns the offload off. That is not a reading of the
+ * documentation, there is none for these keys, but of two runs differing in
+ * nothing else: at `-1` the daemon wrote not one byte to the SSD while
+ * llama.cpp tried to place all of a 35B MoE on an 18 GiB card and died doing
+ * it; at a positive value the same model loaded and ran. Whatever `-1` denotes
+ * to the runtime, shipping it means shipping the ssd-offload build with its
+ * reason for existing disabled, and the failure it produces names neither the
+ * setting nor the SSD — only a Vulkan allocation that came up short. Phison are
+ * being told `-1` does not work; until they say otherwise, a number.
  *
- * `R:\` is Phison's own shipped default and matches what their service scripts
- * (`wService_create.bat`) provision, so it is the right guess on a machine that
- * has the hardware. `debug_log_path` is a different matter and keeps its
- * service-directory default: a log is not offload traffic and has to land
- * somewhere that exists even when the SSD does not.
- *
- * Not repaired away when it is missing — see `reconcileSsdOffloadConfig`.
+ * `10` is the value validation settled on, not one derived here: the units
+ * behind these keys are still undocumented, so scaling them to the installed
+ * GPU or SSD would be arithmetic dressed up as understanding. A constant known
+ * to work is the honest version of what is actually known.
  */
-export const PHISON_DEFAULT_OFFLOAD_PATH = 'R:\\'
-
-/**
- * How much VRAM aiDAPTIV may hold experts in before it spills them to the SSD.
- *
- * A positive cap, because the `-1` this shipped as turns the offload off. That
- * is not a reading of the documentation — there is none for this key — but of
- * two runs differing in nothing else: at `-1` the daemon wrote not one byte to
- * the SSD while llama.cpp tried to place all of a 35B MoE on an 18 GiB card and
- * died doing it; at `4` the same model loaded and ran. Whatever `-1` denotes to
- * the runtime, shipping it means shipping the ssd-offload build with its reason
- * for existing disabled, and the failure it produces names neither the setting
- * nor the SSD — only a Vulkan allocation that came up short.
- *
- * `4` is validated, not derived: one machine, an Arc B390 with 18 GiB and a
- * ~21 GiB model. A value scaled to the GPU would likely serve a range of
- * hardware better, but scaling a number whose units are inferred would be
- * arithmetic dressed up as understanding. A constant known to work is the
- * honest version of what is actually known, until Phison says what the key
- * means and what it should be.
- */
-export const PHISON_DEFAULT_VRAM_EXPERTS_CACHED_GB = 4
+export const PHISON_DEFAULT_CACHE_KV_OFFLOAD_GB = 10
+export const PHISON_DEFAULT_VRAM_EXPERTS_CACHED_GB = 10
 
 /**
  * Default for the aiDAPTIV config's `debug_log_path`.
@@ -101,6 +82,23 @@ export function defaultAidaptivPath(serviceDir: string): string {
   return path.resolve(serviceDir) + path.sep
 }
 
+/**
+ * Deliberately carries no `offload_path`.
+ *
+ * Earlier aiDAPTIV middleware required the key and rejected a config without
+ * it, so the app seeded the drive letter (`R:\`) these systems mounted the SSD
+ * at. From NXWVB306.1 on, the runtime finds the aiDAPTIV device itself on a
+ * machine provisioned without a drive letter — which is now how the hardware is
+ * set up — and a hardcoded letter can only be wrong there: naming a drive the
+ * SSD no longer answers to fails the load with `MDW-EPC-5003`, and naming one
+ * that happens to exist but is not the SSD sends the spill to the system drive,
+ * where the model dies on a Vulkan allocation blaming the GPU. Letting the
+ * middleware detect the device is both correct and the only option that stays
+ * correct when the machine changes.
+ *
+ * `debug_log_path` keeps its service-directory default: a log is not offload
+ * traffic and has to land somewhere that exists on every machine.
+ */
 function ssdOffloadDefaultConfig(serviceDir: string) {
   return {
     common: {
@@ -117,10 +115,9 @@ function ssdOffloadDefaultConfig(serviceDir: string) {
       gpu_layers: '999',
     },
     aidaptiv: {
-      offload_path: PHISON_DEFAULT_OFFLOAD_PATH,
       debug_log_path: defaultAidaptivPath(serviceDir),
       dram_kv_offload_gb: 0,
-      cache_kv_offload_gb: -1,
+      cache_kv_offload_gb: PHISON_DEFAULT_CACHE_KV_OFFLOAD_GB,
       kv_cache_resume_policy: true,
       vram_experts_cached_gb: PHISON_DEFAULT_VRAM_EXPERTS_CACHED_GB,
     },
@@ -137,16 +134,15 @@ function ssdOffloadDefaultConfig(serviceDir: string) {
  * budgets (`cache_kv_offload_gb`, `vram_experts_cached_gb`) are left out too: an
  * embedding pass has no KV cache worth parking on the SSD and no experts worth
  * pinning in VRAM, so inheriting the LLM config's reservations would withhold
- * them from the LLM server for nothing.
+ * them from the LLM server for nothing. No `offload_path` either, for the same
+ * reason the LLM config has none — the middleware detects the device.
  *
- * `offload_path` is not one of those optional budgets: the embedding server is
- * the same aiDAPTIV runtime and rejects the config without it exactly as the
- * LLM server does, so it is seeded here too.
+ * What is left is `debug_log_path`, which is per-config and has to point
+ * somewhere that exists.
  */
 function ssdOffloadEmbeddingDefaultConfig(serviceDir: string) {
   return {
     aidaptiv: {
-      offload_path: PHISON_DEFAULT_OFFLOAD_PATH,
       debug_log_path: defaultAidaptivPath(serviceDir),
     },
   }
@@ -341,18 +337,19 @@ export async function ensureSsdOffloadEmbeddingConfigFile(
  *   the service directory. Configs seeded by older builds name a drive that was
  *   only ever valid on the machine that picked it, and aiDAPTIV cannot log to a
  *   path that is not there;
- * - an `offload_path` that is *absent* is restored to the shipped default, since
- *   aiDAPTIV rejects a config without the key outright. One that is present but
- *   currently unreachable is left exactly as it is, and only warned about.
+ * - `offload_path` is dropped, and the `-1` budgets are raised. Both are
+ *   settings previous builds wrote that the current middleware is better off
+ *   without: it detects the aiDAPTIV device itself, so a drive letter left in
+ *   the file can only send the spill somewhere it does not belong (or nowhere,
+ *   on a machine now provisioned without a letter), and `-1` disables the
+ *   offload outright.
  *
- * That asymmetry is deliberate. A `debug_log_path` can be pointed anywhere that
- * exists, because losing the log costs a log. `offload_path` cannot: redirecting
- * it to whatever directory happens to be available sends spill to the system
- * drive instead of the aiDAPTIV SSD, and the model then fails to load with a
- * Vulkan allocation error that says nothing about the path. An offload path that
- * is merely temporarily missing — an SSD not yet mounted, a drive letter not yet
- * assigned — is worth preserving and reporting, not silently overwriting with a
- * value that will quietly fail to do the one thing it is for.
+ * The repairs reach existing installs deliberately. Changing what is *seeded*
+ * only affects configs written from now on, so without a rewrite every machine
+ * already in the field keeps the old drive letter and the offload switched off
+ * until someone reinstalls the backend or edits JSON by hand — having first
+ * worked out, from an error naming neither the key nor the SSD, that it was the
+ * cause.
  *
  * Anything else the app does not know about survives this read-modify-write via
  * the spreads below.
@@ -385,30 +382,29 @@ export async function reconcileSsdOffloadConfig(
       changes.push(`reset unusable debug_log_path to ${aidaptiv.debug_log_path}`)
     }
 
-    const offloadPath = aidaptiv.offload_path
-    if (typeof offloadPath !== 'string' || offloadPath.trim() === '') {
-      aidaptiv.offload_path = PHISON_DEFAULT_OFFLOAD_PATH
-      changes.push(`restored missing offload_path to ${aidaptiv.offload_path}`)
-    } else if (!filesystem.existsSync(offloadPath)) {
-      // Left in place on purpose: this is the aiDAPTIV SSD, and pointing it
-      // anywhere else would load the model without the offload it exists for.
-      logger?.warn?.(
-        `aiDAPTIV offload_path ${offloadPath} is not reachable — the SSD offload build cannot spill to it, and large models will fail to load with a GPU memory error. Mount the drive or correct offload_path in ${path.basename(configPath)}.`,
-      )
+    // Removed rather than corrected. The drive letter older builds wrote here
+    // was a guess at where the SSD was mounted; the current middleware locates
+    // the device itself, and on a machine provisioned without a letter — the
+    // supported setup now — any value in this key names something that is not
+    // the aiDAPTIV SSD. Keeping the user's is not the kinder option: a stale
+    // letter fails the load with `MDW-EPC-5003`, and a live one that is merely
+    // some other disk spills there and dies on a Vulkan allocation instead.
+    if ('offload_path' in aidaptiv) {
+      delete aidaptiv.offload_path
+      changes.push('removed offload_path (the aiDAPTIV middleware detects the device)')
     }
 
-    // The `-1` that shipped as the default, repaired wherever it is still on
-    // disk. Changing the seeded value only reaches configs written from now on,
-    // so without this every existing install keeps offload switched off until
-    // someone reinstalls the backend or edits the JSON by hand — having first
-    // worked out, from a Vulkan allocation error that mentions neither this key
-    // nor the SSD, that it was the cause. Only the known-bad sentinel is
-    // touched; any other number is a deliberate choice and is left alone.
-    if (aidaptiv.vram_experts_cached_gb === -1) {
-      aidaptiv.vram_experts_cached_gb = PHISON_DEFAULT_VRAM_EXPERTS_CACHED_GB
-      changes.push(
-        `raised vram_experts_cached_gb from -1 (offload disabled) to ${PHISON_DEFAULT_VRAM_EXPERTS_CACHED_GB}`,
-      )
+    // The `-1` sentinels that shipped as defaults, repaired wherever they are
+    // still on disk. Only the known-bad value is touched; any other number is a
+    // deliberate choice and is left alone.
+    for (const [key, replacement] of [
+      ['cache_kv_offload_gb', PHISON_DEFAULT_CACHE_KV_OFFLOAD_GB],
+      ['vram_experts_cached_gb', PHISON_DEFAULT_VRAM_EXPERTS_CACHED_GB],
+    ] as const) {
+      if (aidaptiv[key] === -1) {
+        aidaptiv[key] = replacement
+        changes.push(`raised ${key} from -1 (offload disabled) to ${replacement}`)
+      }
     }
 
     if (changes.length === 0) {

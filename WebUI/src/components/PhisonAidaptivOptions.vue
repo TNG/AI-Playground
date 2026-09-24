@@ -206,7 +206,7 @@ async function handlePhisonReinstall() {
         <DialogDescription>
           {{
             i18nState.PHISON_AIDAPTIV_SETTINGS_DESCRIPTION ||
-            'Startup parameters for Llama.cpp with Phison Pascari aiDAPTIV. Offload paths are edited directly in aidaptiv_config.json.'
+            'Startup parameters for Llama.cpp with Phison Pascari aiDAPTIV. The aiDAPTIV drive is detected automatically; offload budgets are edited directly in aidaptiv_config.json.'
           }}
         </DialogDescription>
       </DialogHeader>

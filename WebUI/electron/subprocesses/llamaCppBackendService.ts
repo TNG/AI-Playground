@@ -348,8 +348,9 @@ export class LlamaCppBackendService implements ApiService {
     this.syncSetupFlagsFromDisk()
     this.appLogger.info(`Service ${this.name} isSetUp: ${this.isSetUp}`, this.name)
 
-    // Repair configs written by older builds — a legacy key name, or a debug log
-    // path naming a drive that only ever existed on the machine that picked it —
+    // Repair configs written by older builds — a legacy key name, a debug log
+    // path naming a drive that only ever existed on the machine that picked it,
+    // or an offload drive letter the current middleware finds on its own —
     // before anything can launch a server against them.
     this.reconcileSsdOffloadConfigs()
       .catch((error) => {
@@ -1404,9 +1405,9 @@ export class LlamaCppBackendService implements ApiService {
         (msg) => this.appLogger.warn(msg, this.name, true),
       )
       // In ssd-offload mode the aiDAPTIV config is not optional: without
-      // `--config-file` the runtime falls back to an empty configuration,
-      // rejects it for having no `offload_path`, and exits 1 before loading the
-      // model. The flag normally arrives inside the startup-parameter string,
+      // `--config-file` the runtime falls back to an empty configuration and
+      // loads the model with none of the offload budgets the build exists to
+      // apply. The flag normally arrives inside the startup-parameter string,
       // which the renderer defaults per build variant — but that string is a
       // single persisted setting shared by both variants, so a value saved
       // while the standard build was selected (or hand-edited) follows the user

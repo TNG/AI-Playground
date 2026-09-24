@@ -8,7 +8,7 @@ import {
   computePhisonArtifactsReady,
   computeStandardArtifactsReady,
   defaultAidaptivPath,
-  PHISON_DEFAULT_OFFLOAD_PATH,
+  PHISON_DEFAULT_CACHE_KV_OFFLOAD_GB,
   PHISON_DEFAULT_VRAM_EXPERTS_CACHED_GB,
   ensureSsdOffloadConfigFileSync,
   ensureSsdOffloadEmbeddingConfigFileSync,
@@ -137,11 +137,12 @@ describe('llamaCppPhison helpers', () => {
     expect(embedding.aidaptiv.dram_kv_offload_gb).toBeUndefined()
     expect(embedding.aidaptiv.vram_experts_cached_gb).toBeUndefined()
     expect(embedding.aidaptiv.kv_cache_resume_policy).toBeUndefined()
-    expect(llm.aidaptiv.cache_kv_offload_gb).toBe(-1)
-    // A positive cap, not the `-1` this shipped as: at `-1` the runtime keeps
+    // Positive caps, not the `-1` these shipped as: at `-1` the runtime keeps
     // every expert in VRAM and never spills, which is the ssd-offload build
     // with its offload switched off.
+    expect(llm.aidaptiv.cache_kv_offload_gb).toBe(PHISON_DEFAULT_CACHE_KV_OFFLOAD_GB)
     expect(llm.aidaptiv.vram_experts_cached_gb).toBe(PHISON_DEFAULT_VRAM_EXPERTS_CACHED_GB)
+    expect(PHISON_DEFAULT_CACHE_KV_OFFLOAD_GB).toBeGreaterThan(0)
     expect(PHISON_DEFAULT_VRAM_EXPERTS_CACHED_GB).toBeGreaterThan(0)
 
     expect(getRelativeSsdOffloadConfigPath(serviceDir, 'ssd-offload', embeddingConfigPath)).toBe(
@@ -162,10 +163,11 @@ describe('llamaCppPhison helpers', () => {
     })
   })
 
-  // aiDAPTIV rejects a config with no `offload_path` at all, so both configs
-  // have to carry one — and it has to name the SSD the build offloads to, not
-  // the install directory, which would load the model with no spill device.
-  it('seeds both configs with the SSD offload path and a usable debug log path', () => {
+  // No `offload_path` in either config: the middleware locates the aiDAPTIV
+  // device itself on a machine provisioned without a drive letter, so any value
+  // seeded here could only name something that is not the SSD. `debug_log_path`
+  // is still ours to pick, and has to exist.
+  it('seeds both configs with a usable debug log path and no offload path', () => {
     const serviceDir = createServiceDir()
     const configPath = getSsdOffloadConfigPath(serviceDir)
     const embeddingConfigPath = getSsdOffloadEmbeddingConfigPath(serviceDir)
@@ -175,7 +177,7 @@ describe('llamaCppPhison helpers', () => {
 
     for (const seeded of [configPath, embeddingConfigPath]) {
       const { offload_path, debug_log_path } = filesystem.readJsonSync(seeded).aidaptiv
-      expect(offload_path).toBe(PHISON_DEFAULT_OFFLOAD_PATH)
+      expect(offload_path).toBeUndefined()
       expect(debug_log_path).toBe(defaultAidaptivPath(serviceDir))
       expect(filesystem.existsSync(debug_log_path)).toBe(true)
     }
@@ -197,8 +199,9 @@ describe('llamaCppPhison helpers', () => {
       const config = filesystem.readJsonSync(configPath)
       expect(config.aidaptiv.cache_kv_offload_gb).toBe(10)
       expect(config.aidaptiv.ssd_kv_offload_gb).toBeUndefined()
-      // Hand-added keys and the whole `common` block survive the rewrite.
-      expect(config.aidaptiv.offload_path).toBe(serviceDir)
+      // Keys the app does not know about, and the whole `common` block, survive
+      // the rewrite.
+      expect(config.aidaptiv.debug_log_path).toBe(serviceDir)
       expect(config.common.gpu_layers).toBe('999')
     })
 
@@ -216,92 +219,69 @@ describe('llamaCppPhison helpers', () => {
       )
     })
 
-    // The state a build that seeded no `offload_path` at all left behind: the
-    // key is absent rather than stale, and aiDAPTIV refuses the config outright.
-    it('adds an offload path that is missing entirely', async () => {
+    // Every config an older build seeded names a drive letter. The middleware
+    // now finds the aiDAPTIV device itself, and on a machine set up without a
+    // letter the one on disk is stale — it fails the load with MDW-EPC-5003,
+    // whether or not the path happens to resolve to some other disk.
+    it('drops an offload path left behind by an older build', async () => {
       const serviceDir = createServiceDir()
       const configPath = getSsdOffloadConfigPath(serviceDir)
+      const reachablePath = path.join(serviceDir, 'fast-ssd')
 
-      filesystem.ensureDirSync(serviceDir)
-      filesystem.writeJsonSync(configPath, { aidaptiv: { debug_log_path: serviceDir } })
+      filesystem.ensureDirSync(reachablePath)
+      for (const stale of ['Q:\\nope', reachablePath]) {
+        filesystem.writeJsonSync(configPath, {
+          aidaptiv: { offload_path: stale, debug_log_path: serviceDir },
+        })
 
-      await reconcileSsdOffloadConfig(configPath, serviceDir)
+        await reconcileSsdOffloadConfig(configPath, serviceDir)
 
-      expect(filesystem.readJsonSync(configPath).aidaptiv.offload_path).toBe(
-        PHISON_DEFAULT_OFFLOAD_PATH,
-      )
+        const aidaptiv = filesystem.readJsonSync(configPath).aidaptiv
+        expect('offload_path' in aidaptiv).toBe(false)
+        expect(aidaptiv.debug_log_path).toBe(serviceDir)
+      }
     })
 
-    // An unmounted SSD or an unassigned drive letter must not be "repaired" into
-    // a path on the system drive: the model would then load with nowhere to
-    // spill and die on a Vulkan allocation instead, blaming the GPU.
-    it('keeps an offload path that is currently unreachable, and warns', async () => {
-      const serviceDir = createServiceDir()
-      const configPath = getSsdOffloadConfigPath(serviceDir)
-      const warnings: string[] = []
-
-      filesystem.ensureDirSync(serviceDir)
-      filesystem.writeJsonSync(configPath, { aidaptiv: { offload_path: 'Q:\\nope' } })
-
-      await reconcileSsdOffloadConfig(configPath, serviceDir, {
-        warn: (message) => warnings.push(message),
-      })
-
-      expect(filesystem.readJsonSync(configPath).aidaptiv.offload_path).toBe('Q:\\nope')
-      expect(warnings.some((w) => w.includes('Q:\\nope'))).toBe(true)
-    })
-
-    // Configs written before the default changed keep offload disabled, and now
-    // survive reinstalls too — so the sentinel has to be repaired in place.
-    it('raises a vram_experts_cached_gb of -1 to a value that offloads', async () => {
+    // Configs written before the defaults changed keep offload disabled, and now
+    // survive reinstalls too — so the sentinels have to be repaired in place.
+    it('raises budgets of -1 to values that offload', async () => {
       const serviceDir = createServiceDir()
       const configPath = getSsdOffloadConfigPath(serviceDir)
 
       filesystem.ensureDirSync(serviceDir)
       filesystem.writeJsonSync(configPath, {
         aidaptiv: {
-          offload_path: serviceDir,
           debug_log_path: serviceDir,
+          cache_kv_offload_gb: -1,
           vram_experts_cached_gb: -1,
         },
       })
 
       await reconcileSsdOffloadConfig(configPath, serviceDir)
 
-      expect(filesystem.readJsonSync(configPath).aidaptiv.vram_experts_cached_gb).toBe(
-        PHISON_DEFAULT_VRAM_EXPERTS_CACHED_GB,
-      )
+      const aidaptiv = filesystem.readJsonSync(configPath).aidaptiv
+      expect(aidaptiv.cache_kv_offload_gb).toBe(PHISON_DEFAULT_CACHE_KV_OFFLOAD_GB)
+      expect(aidaptiv.vram_experts_cached_gb).toBe(PHISON_DEFAULT_VRAM_EXPERTS_CACHED_GB)
     })
 
-    it('leaves a vram_experts_cached_gb the user chose alone', async () => {
+    it('leaves budgets the user chose alone', async () => {
       const serviceDir = createServiceDir()
       const configPath = getSsdOffloadConfigPath(serviceDir)
 
       filesystem.ensureDirSync(serviceDir)
       filesystem.writeJsonSync(configPath, {
         aidaptiv: {
-          offload_path: serviceDir,
           debug_log_path: serviceDir,
+          cache_kv_offload_gb: 6,
           vram_experts_cached_gb: 12,
         },
       })
 
       await reconcileSsdOffloadConfig(configPath, serviceDir)
 
-      expect(filesystem.readJsonSync(configPath).aidaptiv.vram_experts_cached_gb).toBe(12)
-    })
-
-    it('leaves an offload path the user pointed at a real drive alone', async () => {
-      const serviceDir = createServiceDir()
-      const configPath = getSsdOffloadConfigPath(serviceDir)
-      const userPath = path.join(serviceDir, 'fast-ssd')
-
-      filesystem.ensureDirSync(userPath)
-      filesystem.writeJsonSync(configPath, { aidaptiv: { offload_path: userPath } })
-
-      await reconcileSsdOffloadConfig(configPath, serviceDir)
-
-      expect(filesystem.readJsonSync(configPath).aidaptiv.offload_path).toBe(userPath)
+      const aidaptiv = filesystem.readJsonSync(configPath).aidaptiv
+      expect(aidaptiv.cache_kv_offload_gb).toBe(6)
+      expect(aidaptiv.vram_experts_cached_gb).toBe(12)
     })
 
     it('leaves a debug log path that does exist alone', async () => {

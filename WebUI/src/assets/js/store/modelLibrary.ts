@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { useModels } from './models'
 import { useModelPreferences } from './modelPreferences'
 import { usePresets } from './presets'
-import { useDialogStore } from './dialogs'
+import { requestDownload } from '@/assets/js/permissions/permissions'
 import { useGlobalSetup } from './globalSetup'
 import { useTextInference } from './textInference'
 import { useProductMode } from './productMode'
@@ -43,7 +43,6 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
   const models = useModels()
   const modelPreferences = useModelPreferences()
   const presets = usePresets()
-  const dialogs = useDialogStore()
   const globalSetup = useGlobalSetup()
   const textInference = useTextInference()
   const productMode = useProductMode()
@@ -372,18 +371,17 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     return { deleted, failed }
   }
 
-  /** Queue downloads through the existing (already multi-model) download dialog. */
-  function download(entriesToDownload: ModelEntry[]) {
+  /** Queue downloads through the shared permissions download prompt. */
+  async function download(entriesToDownload: ModelEntry[]) {
     const params = entriesToDownloadParams(entriesToDownload, models.getModelPath)
     if (params.length === 0) return
-    dialogs.showDownloadDialog(
-      params,
-      () => {
-        refresh()
-        clearSelection()
-      },
-      () => refresh(),
-    )
+    try {
+      await requestDownload(params)
+      clearSelection()
+    } catch {
+      // Download declined or failed; either way the list may have changed.
+    }
+    refresh()
   }
 
   function downloadOne(id: string) {

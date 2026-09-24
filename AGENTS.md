@@ -432,13 +432,19 @@ Dependency direction: domain and kernel may import adapters, **adapters must not
 — machine-level settings live in `electron/kernel/localSettings.ts` so a backend can type its
 configuration without reaching into the composition root.
 
-## IPC Pattern (Three-File Rule)
+## IPC Pattern (Channel Manifest)
 
-Every new IPC command requires changes to exactly three files:
+Every IPC channel is stated once in the typed manifest (`WebUI/src/types/ipcChannels.ts`):
+name, argument types, result type, direction (`invoke`/`send`/`push`/`ask`), owner, and the
+row's documentation. All three sides derive from it: main registers handlers through
+`typedHandle`/`typedOn` (`electron/kernel/typedIpc.ts`), preload bridge members go through
+typed invoke/send/listener helpers and are `satisfies`-checked against the derived bridge
+type, and the renderer's `electronAPI` type derives via `env.d.ts`. A channel missing on any
+side is a build error, not a runtime bug. The manifest is authoritative — the old
+"three-file rule" is superseded (see docs/adr/0001-channel-manifest.md).
 
-1. `WebUI/electron/main.ts` — add `ipcMain.handle()` or `ipcMain.on()` handler
-2. `WebUI/electron/preload.ts` — expose via `contextBridge.exposeInMainWorld()`
-3. `WebUI/src/env.d.ts` — add TypeScript type definition to `electronAPI`
+Channels migrate onto the manifest by strangler batches; unmigrated channels keep their
+hand-written registration until their batch lands.
 
 ## Home Agent Slash Commands (Five-Place Rule)
 
@@ -941,7 +947,7 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 
 | File                                                   | Purpose                                                                                           |
 | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `electron/main.ts`                                     | Window creation, all IPC handlers (~68 channels), app lifecycle                                   |
+| `electron/main.ts`                                     | Window creation, IPC handler registration (the channel manifest in `src/types/ipcChannels.ts` is authoritative), app lifecycle |
 | `electron/preload.ts`                                  | `contextBridge` exposing `electronAPI` to renderer                                                |
 | `electron/kernel/localSettings.ts`                     | Machine-level `settings.json` schema, shared by main and the backend adapters                     |
 | `electron/kernel/pathsManager.ts`                      | Singleton managing all app/model/service filesystem paths                                         |

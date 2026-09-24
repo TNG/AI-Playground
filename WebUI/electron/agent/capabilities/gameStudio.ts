@@ -275,11 +275,12 @@ export const gameStudioCapability: AgentCapability = {
   requires: ['media', 'web-debug'],
   buildSkills: (host) => [gameStudioSkill(mediaToolNames(host))],
   buildTools: buildGameTool,
-  // The procedure is written around the `media` tool, so without media workflows
-  // it would send the agent after a tool that is not there.
+  // The procedure is written around the media tool, so without one it would send
+  // the agent after a tool that is not there. Speech specs ship separately, so
+  // "any spec at all" is not the question — whether a media tool is among them is.
   unavailableReason: (host) =>
-    host.toolSpecs.length === 0
-      ? 'Needs media generation — install a ComfyUI image workflow first.'
+    mediaToolNames(host).length === 0
+      ? 'Needs media generation — enable an image tool, or install a ComfyUI image workflow.'
       : undefined,
   // Nothing worth deferring: a skill costs one name + description line, and the
   // `game` tool is one small schema the closing step needs anyway.

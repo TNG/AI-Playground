@@ -10,38 +10,142 @@ type PhisonLogger = {
 }
 
 export const LLAMACPP_SSD_OFFLOAD_DOWNLOAD_URL_TEMPLATE =
-  'https://phisonbucket.s3.ap-northeast-1.amazonaws.com/aiDAPTIV_vNXWVB_3_05.0.zip'
+  'https://phisonbucket.s3.ap-northeast-1.amazonaws.com/aiDAPTIV_NXWVB306.1_x64.zip'
 export const LLAMACPP_SSD_OFFLOAD_CONFIG_NAME = 'aidaptiv_config.json'
 export const LLAMACPP_SSD_OFFLOAD_LEGACY_CONFIG_NAME = 'aidaptiv(303G0B).json'
+export const LLAMACPP_SSD_OFFLOAD_EMBEDDING_CONFIG_NAME = 'aidaptiv_embedding_config.json'
 export const LLAMACPP_SSD_OFFLOAD_DELETE_SERVICE_SCRIPT = 'wService_delete.bat'
 export const LLAMACPP_SSD_OFFLOAD_CREATE_SERVICE_SCRIPT = 'wService_create.bat'
 export const LLAMACPP_SSD_OFFLOAD_PROCESS_NAME = 'ada.exe'
 
+const CONFIG_FILE_FLAG = '--config-file'
+
+/**
+ * Context window the aiDAPTIV embedding server is started with.
+ *
+ * Scoped to the ssd-offload build on purpose: the standard llama.cpp build keeps
+ * llama-server's own default and is not affected by this value.
+ *
+ * RAG chunks are 512 *characters* (SPLITTER_PARAMS in langchain.ts), which is not
+ * 512 tokens: CJK text tokenizes at roughly one token per character, so a full
+ * chunk lands around 512 tokens plus the model's two special tokens. 768 gives
+ * that headroom without reserving a window the embedding pass never uses.
+ *
+ * Deliberately one value for every model rather than a per-model table:
+ * llama-server caps `--ctx-size` at the model's own `n_ctx_train` and logs that it
+ * did, so a model trained on a shorter window still gets exactly its maximum.
+ * bge-small-en-v1.5 (n_ctx_train 512) therefore runs at 512, the same window it
+ * already ran at before this flag existed — llama-server capped its previous
+ * default the same way — while nomic-embed (8192) and Qwen3-Embedding (32768)
+ * get 768.
+ *
+ * Must stay <= the embedding server's `-ub`: embedding is non-causal and pooled,
+ * so the whole sequence has to fit in a single physical batch.
+ */
+export const PHISON_EMBEDDING_CONTEXT_SIZE = 768
+
 const LLAMA_CPP_SUBDIR_STANDARD = 'llama-cpp'
 const LLAMA_CPP_SUBDIR_PHISON = 'llama-cpp-phison'
 
-const LLAMACPP_SSD_OFFLOAD_DEFAULT_CONFIG = {
-  common: {
-    seed: '0',
-    flash_attn: 'on',
-    swa_full: true,
-    threads: 10,
-    mmap: false,
-    fit: 'off',
-    context_shift: false,
-    verbose: true,
-    split_mode: 'none',
-    parallel: 1,
-    gpu_layers: '999',
-  },
-  aidaptiv: {
-    offload_path: 'R:\\',
-    debug_log_path: 'R:\\',
-    dram_kv_offload_gb: 0,
-    cache_kv_offload_gb: 10,
-    kv_cache_resume_policy: true,
-    vram_experts_cached_gb: 10,
-  },
+/**
+ * The aiDAPTIV offload budgets, in GB, for both the KV cache spilled to the SSD
+ * and the experts held back in VRAM.
+ *
+ * Positive caps, because the `-1` these shipped as does not mean "let the
+ * runtime decide" — it turns the offload off. That is not a reading of the
+ * documentation, there is none for these keys, but of two runs differing in
+ * nothing else: at `-1` the daemon wrote not one byte to the SSD while
+ * llama.cpp tried to place all of a 35B MoE on an 18 GiB card and died doing
+ * it; at a positive value the same model loaded and ran. Whatever `-1` denotes
+ * to the runtime, shipping it means shipping the ssd-offload build with its
+ * reason for existing disabled, and the failure it produces names neither the
+ * setting nor the SSD — only a Vulkan allocation that came up short. Phison are
+ * being told `-1` does not work; until they say otherwise, a number.
+ *
+ * `10` is the value validation settled on, not one derived here: the units
+ * behind these keys are still undocumented, so scaling them to the installed
+ * GPU or SSD would be arithmetic dressed up as understanding. A constant known
+ * to work is the honest version of what is actually known.
+ */
+export const PHISON_DEFAULT_CACHE_KV_OFFLOAD_GB = 10
+export const PHISON_DEFAULT_VRAM_EXPERTS_CACHED_GB = 10
+
+/**
+ * Default for the aiDAPTIV config's `debug_log_path`.
+ *
+ * The service directory, not a fixed drive letter: the app created it, writes
+ * the config file itself into it, and it exists on every machine. A hardcoded
+ * `D:\` does not. Trailing separator kept: the previous values were drive roots
+ * (`R:\`, `D:\`), so aiDAPTIV is given a path in the shape it already expected.
+ */
+export function defaultAidaptivPath(serviceDir: string): string {
+  return path.resolve(serviceDir) + path.sep
+}
+
+/**
+ * Deliberately carries no `offload_path`.
+ *
+ * Earlier aiDAPTIV middleware required the key and rejected a config without
+ * it, so the app seeded the drive letter (`R:\`) these systems mounted the SSD
+ * at. From NXWVB306.1 on, the runtime finds the aiDAPTIV device itself on a
+ * machine provisioned without a drive letter — which is now how the hardware is
+ * set up — and a hardcoded letter can only be wrong there: naming a drive the
+ * SSD no longer answers to fails the load with `MDW-EPC-5003`, and naming one
+ * that happens to exist but is not the SSD sends the spill to the system drive,
+ * where the model dies on a Vulkan allocation blaming the GPU. Letting the
+ * middleware detect the device is both correct and the only option that stays
+ * correct when the machine changes.
+ *
+ * `debug_log_path` keeps its service-directory default: a log is not offload
+ * traffic and has to land somewhere that exists on every machine.
+ */
+function ssdOffloadDefaultConfig(serviceDir: string) {
+  return {
+    common: {
+      seed: '0',
+      flash_attn: 'on',
+      swa_full: true,
+      threads: 10,
+      mmap: false,
+      fit: 'off',
+      context_shift: false,
+      verbose: true,
+      split_mode: 'none',
+      parallel: 1,
+      gpu_layers: '999',
+    },
+    aidaptiv: {
+      debug_log_path: defaultAidaptivPath(serviceDir),
+      dram_kv_offload_gb: 0,
+      cache_kv_offload_gb: PHISON_DEFAULT_CACHE_KV_OFFLOAD_GB,
+      kv_cache_resume_policy: true,
+      vram_experts_cached_gb: PHISON_DEFAULT_VRAM_EXPERTS_CACHED_GB,
+    },
+  }
+}
+
+/**
+ * The embedding server's own aiDAPTIV config.
+ *
+ * Deliberately nothing but the aiDAPTIV block. There is no `common` block: the
+ * embedding server is launched from the same startup-parameter string as the LLM,
+ * so the llama.cpp side is already on its argv, and a copy of the LLM config's
+ * `common` here would only be a second place to keep in sync. The offload
+ * budgets (`cache_kv_offload_gb`, `vram_experts_cached_gb`) are left out too: an
+ * embedding pass has no KV cache worth parking on the SSD and no experts worth
+ * pinning in VRAM, so inheriting the LLM config's reservations would withhold
+ * them from the LLM server for nothing. No `offload_path` either, for the same
+ * reason the LLM config has none — the middleware detects the device.
+ *
+ * What is left is `debug_log_path`, which is per-config and has to point
+ * somewhere that exists.
+ */
+function ssdOffloadEmbeddingDefaultConfig(serviceDir: string) {
+  return {
+    aidaptiv: {
+      debug_log_path: defaultAidaptivPath(serviceDir),
+    },
+  }
 }
 
 export function isSsdOffloadVariant(variant: LlamaCppBuildVariant): boolean {
@@ -82,6 +186,10 @@ export function getLegacySsdOffloadConfigPath(serviceDir: string): string {
   return path.resolve(path.join(serviceDir, LLAMACPP_SSD_OFFLOAD_LEGACY_CONFIG_NAME))
 }
 
+export function getSsdOffloadEmbeddingConfigPath(serviceDir: string): string {
+  return path.resolve(path.join(serviceDir, LLAMACPP_SSD_OFFLOAD_EMBEDDING_CONFIG_NAME))
+}
+
 export function getRelativeSsdOffloadConfigPath(
   serviceDir: string,
   variant: LlamaCppBuildVariant,
@@ -89,6 +197,48 @@ export function getRelativeSsdOffloadConfigPath(
 ): string {
   const relativePath = path.relative(getLlamaCppDirForVariant(serviceDir, variant), configPath)
   return relativePath || path.basename(configPath)
+}
+
+/**
+ * Point an argv at `configPath` for `--config-file`.
+ *
+ * The startup-parameter string is a single setting shared by the LLM and the
+ * embedding server, so in ssd-offload mode both inherit the `--config-file`
+ * the renderer put there. This rewrites just that flag's value for the
+ * embedding server, keeping every other flag the user typed. Both spellings
+ * llama-server accepts are handled, and the flag is appended when the user
+ * removed it.
+ */
+export function withConfigFileArg(args: string[], configPath: string): string[] {
+  const out: string[] = []
+  let replaced = false
+
+  const emit = (token: string) => {
+    if (replaced) return
+    out.push(token, configPath)
+    replaced = true
+  }
+
+  for (let i = 0; i < args.length; i++) {
+    const token = args[i]
+    if (token === CONFIG_FILE_FLAG) {
+      const value = args[i + 1]
+      if (value !== undefined && !value.startsWith('-')) i++
+      emit(CONFIG_FILE_FLAG)
+      continue
+    }
+    if (token.startsWith(`${CONFIG_FILE_FLAG}=`)) {
+      if (!replaced) {
+        out.push(`${CONFIG_FILE_FLAG}=${configPath}`)
+        replaced = true
+      }
+      continue
+    }
+    out.push(token)
+  }
+
+  if (!replaced) out.push(CONFIG_FILE_FLAG, configPath)
+  return out
 }
 
 export function computeStandardArtifactsReady(serviceDir: string): boolean {
@@ -114,20 +264,6 @@ export function computeVariantArtifactsReady(
     : computeStandardArtifactsReady(serviceDir)
 }
 
-export function normalizeOffloadDrivePath(offloadDrive?: string | null): string | null {
-  if (!offloadDrive) {
-    return null
-  }
-
-  const trimmed = offloadDrive.trim()
-  const driveMatch = trimmed.match(/^([A-Za-z]):/)
-  if (!driveMatch) {
-    return trimmed
-  }
-
-  return `${driveMatch[1].toUpperCase()}:\\`
-}
-
 export function migrateLegacySsdOffloadConfigFile(serviceDir: string, configPath: string): void {
   const legacyConfigPath = getLegacySsdOffloadConfigPath(serviceDir)
   if (filesystem.existsSync(legacyConfigPath) && !filesystem.existsSync(configPath)) {
@@ -142,7 +278,7 @@ export function ensureSsdOffloadConfigFileSync(serviceDir: string, configPath: s
   }
 
   filesystem.ensureDirSync(serviceDir)
-  filesystem.writeJsonSync(configPath, LLAMACPP_SSD_OFFLOAD_DEFAULT_CONFIG, { spaces: 2 })
+  filesystem.writeJsonSync(configPath, ssdOffloadDefaultConfig(serviceDir), { spaces: 2 })
 }
 
 export async function ensureSsdOffloadConfigFile(
@@ -155,43 +291,130 @@ export async function ensureSsdOffloadConfigFile(
   }
 
   await filesystem.ensureDir(serviceDir)
-  await filesystem.writeJson(configPath, LLAMACPP_SSD_OFFLOAD_DEFAULT_CONFIG, { spaces: 2 })
+  await filesystem.writeJson(configPath, ssdOffloadDefaultConfig(serviceDir), { spaces: 2 })
 }
 
-export async function updateSsdOffloadConfig(
+/**
+ * Create the embedding server's config on first use. Unlike the LLM config
+ * there is no legacy filename to migrate from — this file only ever existed
+ * under its current name.
+ */
+export function ensureSsdOffloadEmbeddingConfigFileSync(
+  serviceDir: string,
   configPath: string,
-  offloadDrive: string | null,
+): void {
+  if (filesystem.existsSync(configPath)) {
+    return
+  }
+
+  filesystem.ensureDirSync(serviceDir)
+  filesystem.writeJsonSync(configPath, ssdOffloadEmbeddingDefaultConfig(serviceDir), { spaces: 2 })
+}
+
+export async function ensureSsdOffloadEmbeddingConfigFile(
+  serviceDir: string,
+  configPath: string,
+): Promise<void> {
+  if (await filesystem.pathExists(configPath)) {
+    return
+  }
+
+  await filesystem.ensureDir(serviceDir)
+  await filesystem.writeJson(configPath, ssdOffloadEmbeddingDefaultConfig(serviceDir), {
+    spaces: 2,
+  })
+}
+
+/**
+ * Bring an existing aiDAPTIV config up to date without disturbing the user's
+ * own edits.
+ *
+ * Three repairs, all idempotent:
+ *
+ * - the legacy `ssd_kv_offload_gb` key becomes `cache_kv_offload_gb` (the
+ *   `--ssd-kv-offload-gb` flag was renamed to `--cache-kv-offload-gb`);
+ * - a `debug_log_path` pointing at a directory that no longer exists is reset to
+ *   the service directory. Configs seeded by older builds name a drive that was
+ *   only ever valid on the machine that picked it, and aiDAPTIV cannot log to a
+ *   path that is not there;
+ * - `offload_path` is dropped, and the `-1` budgets are raised. Both are
+ *   settings previous builds wrote that the current middleware is better off
+ *   without: it detects the aiDAPTIV device itself, so a drive letter left in
+ *   the file can only send the spill somewhere it does not belong (or nowhere,
+ *   on a machine now provisioned without a letter), and `-1` disables the
+ *   offload outright.
+ *
+ * The repairs reach existing installs deliberately. Changing what is *seeded*
+ * only affects configs written from now on, so without a rewrite every machine
+ * already in the field keeps the old drive letter and the offload switched off
+ * until someone reinstalls the backend or edits JSON by hand — having first
+ * worked out, from an error naming neither the key nor the SSD, that it was the
+ * cause.
+ *
+ * Anything else the app does not know about survives this read-modify-write via
+ * the spreads below.
+ */
+export async function reconcileSsdOffloadConfig(
+  configPath: string,
+  serviceDir: string,
   logger?: PhisonLogger,
 ): Promise<void> {
-  if (!filesystem.existsSync(configPath) || !offloadDrive) {
+  if (!filesystem.existsSync(configPath)) {
     return
   }
 
   try {
     const config = await filesystem.readJson(configPath)
     const aidaptiv = { ...(config.aidaptiv ?? {}) }
+    const changes: string[] = []
 
-    // Migrate the legacy `ssd_kv_offload_gb` key to `cache_kv_offload_gb`
-    // (the `--ssd-kv-offload-gb` flag was renamed to `--cache-kv-offload-gb`).
     if ('ssd_kv_offload_gb' in aidaptiv) {
       if (!('cache_kv_offload_gb' in aidaptiv)) {
         aidaptiv.cache_kv_offload_gb = aidaptiv.ssd_kv_offload_gb
       }
       delete aidaptiv.ssd_kv_offload_gb
+      changes.push('renamed ssd_kv_offload_gb to cache_kv_offload_gb')
     }
 
-    const updatedConfig = {
-      ...config,
-      aidaptiv: {
-        ...aidaptiv,
-        offload_path: offloadDrive,
-        debug_log_path: offloadDrive,
-      },
+    const debugLogPath = aidaptiv.debug_log_path
+    if (typeof debugLogPath !== 'string' || !filesystem.existsSync(debugLogPath)) {
+      aidaptiv.debug_log_path = defaultAidaptivPath(serviceDir)
+      changes.push(`reset unusable debug_log_path to ${aidaptiv.debug_log_path}`)
     }
-    await filesystem.writeJson(configPath, updatedConfig, { spaces: 2 })
-    logger?.info?.(`Updated SSD offload config paths to ${offloadDrive}`)
+
+    // Removed rather than corrected. The drive letter older builds wrote here
+    // was a guess at where the SSD was mounted; the current middleware locates
+    // the device itself, and on a machine provisioned without a letter — the
+    // supported setup now — any value in this key names something that is not
+    // the aiDAPTIV SSD. Keeping the user's is not the kinder option: a stale
+    // letter fails the load with `MDW-EPC-5003`, and a live one that is merely
+    // some other disk spills there and dies on a Vulkan allocation instead.
+    if ('offload_path' in aidaptiv) {
+      delete aidaptiv.offload_path
+      changes.push('removed offload_path (the aiDAPTIV middleware detects the device)')
+    }
+
+    // The `-1` sentinels that shipped as defaults, repaired wherever they are
+    // still on disk. Only the known-bad value is touched; any other number is a
+    // deliberate choice and is left alone.
+    for (const [key, replacement] of [
+      ['cache_kv_offload_gb', PHISON_DEFAULT_CACHE_KV_OFFLOAD_GB],
+      ['vram_experts_cached_gb', PHISON_DEFAULT_VRAM_EXPERTS_CACHED_GB],
+    ] as const) {
+      if (aidaptiv[key] === -1) {
+        aidaptiv[key] = replacement
+        changes.push(`raised ${key} from -1 (offload disabled) to ${replacement}`)
+      }
+    }
+
+    if (changes.length === 0) {
+      return
+    }
+
+    await filesystem.writeJson(configPath, { ...config, aidaptiv }, { spaces: 2 })
+    logger?.info?.(`Reconciled ${path.basename(configPath)}: ${changes.join('; ')}`)
   } catch (error) {
-    logger?.warn?.(`Failed to update SSD offload config: ${error}`)
+    logger?.warn?.(`Failed to reconcile SSD offload config: ${error}`)
   }
 }
 

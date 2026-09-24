@@ -10,15 +10,14 @@ import type { FilePart, ModelMessage } from 'ai'
  * it is read through the engine's reader rather than fetched.
  */
 
-type FileUrlWrapper = { type: 'url'; url: string }
+// `convertToModelMessages` builds this wrapper around a `URL` instance, never a
+// string, so a string-only check matches nothing it produces.
+type FileUrlWrapper = { type: 'url'; url: string | URL }
 
 function isFileUrlWrapper(data: unknown): data is FileUrlWrapper {
-  return (
-    !!data &&
-    typeof data === 'object' &&
-    (data as FileUrlWrapper).type === 'url' &&
-    typeof (data as FileUrlWrapper).url === 'string'
-  )
+  if (!data || typeof data !== 'object') return false
+  const wrapper = data as { type?: unknown; url?: unknown }
+  return wrapper.type === 'url' && (typeof wrapper.url === 'string' || wrapper.url instanceof URL)
 }
 
 export type MediaReader = (url: string) => Promise<string>

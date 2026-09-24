@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { convertToModelMessages, type FilePart } from 'ai'
 
 vi.mock('../../observability/logger', () => ({
   appLoggerInstance: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -44,6 +45,20 @@ describe('filePartToBase64', () => {
         readMediaAsDataUri,
       ),
     ).toBe('QQ==')
+  })
+
+  // The wrapper the SDK really builds holds a URL instance, not a string, so
+  // this goes through `convertToModelMessages` rather than a hand-written part.
+  it('reads the attachment shape convertToModelMessages produces', async () => {
+    const [message] = await convertToModelMessages([
+      {
+        role: 'user',
+        parts: [{ type: 'file', mediaType: 'audio/wav', url: 'aipg-media://media/input/clip.wav' }],
+      },
+    ])
+    const part = (message.content as FilePart[])[0]
+    expect(await filePartToBase64(part.data, readMediaAsDataUri)).toBe('QQ==')
+    expect(readMediaAsDataUri).toHaveBeenCalledWith('aipg-media://media/input/clip.wav')
   })
 
   it('reads aipg-media:// through the engine reader instead of fetch', async () => {

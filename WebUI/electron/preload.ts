@@ -10,6 +10,13 @@ import {
   PhisonKmIngestConfig,
 } from '@/assets/js/store/textInference'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
+import type { ConversationSaveRequest } from '@/types/conversationIpc'
+import type {
+  ChannelArgs,
+  ChannelResult,
+  InvokeChannelName,
+  NamespaceBridge,
+} from '@/types/ipcChannels'
 
 function listen<T>(channel: string, callback: (data: T) => void): () => void {
   const listener = (_event: IpcRendererEvent, data: T) => callback(data)
@@ -17,6 +24,13 @@ function listen<T>(channel: string, callback: (data: T) => void): () => void {
   return () => {
     ipcRenderer.removeListener(channel, listener)
   }
+}
+
+function invoke<N extends InvokeChannelName>(
+  channel: N,
+  ...args: ChannelArgs<N>
+): Promise<ChannelResult<N>> {
+  return ipcRenderer.invoke(channel, ...args) as unknown as Promise<ChannelResult<N>>
 }
 
 contextBridge.exposeInMainWorld('envVars', {
@@ -244,29 +258,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       listen('chat:ask', callback),
   },
   conversations: {
-    bootstrap: () =>
-      ipcRenderer.invoke('conversations:bootstrap') as Promise<
-        | import('../src/types/conversationIpc').ConversationBootstrap
-        | { status: 'error'; error: string }
-      >,
-    migrate: (payload: unknown) =>
-      ipcRenderer.invoke('conversations:migrate', cloneForIpc(payload)) as Promise<
-        | import('../src/types/conversationIpc').ConversationBootstrap
-        | { status: 'error'; error: string }
-      >,
-    save: (request: import('../src/types/conversationIpc').ConversationSaveRequest) =>
-      ipcRenderer.invoke('conversations:save', cloneForIpc(request)) as Promise<
-        { success: true } | { success: false; error: string }
-      >,
-    delete: (id: string) =>
-      ipcRenderer.invoke('conversations:delete', id) as Promise<
-        { success: true } | { success: false; error: string }
-      >,
-    saveLastMainKey: (key: string | null) =>
-      ipcRenderer.invoke('conversations:saveLastMainKey', key) as Promise<
-        { success: true } | { success: false; error: string }
-      >,
-  },
+    bootstrap: () => invoke('conversations:bootstrap'),
+    migrate: (payload: unknown) => invoke('conversations:migrate', cloneForIpc(payload)),
+    save: (request: ConversationSaveRequest) => invoke('conversations:save', cloneForIpc(request)),
+    delete: (id: string) => invoke('conversations:delete', id),
+    saveLastMainKey: (key: string | null) => invoke('conversations:saveLastMainKey', key),
+  } satisfies NamespaceBridge<'conversations'>,
   mediaItems: {
     bootstrap: () =>
       ipcRenderer.invoke('mediaItems:bootstrap') as Promise<

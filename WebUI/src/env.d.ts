@@ -500,23 +500,7 @@ type electronAPI = {
     answer(payload: import('./types/chatRequests').ChatAnswerPayload): Promise<void>
     onAsk(callback: (payload: import('./types/chatRequests').ChatAskPayload) => void): () => void
   }
-  conversations: {
-    bootstrap(): Promise<
-      import('./types/conversationIpc').ConversationBootstrap | { status: 'error'; error: string }
-    >
-    migrate(
-      payload: unknown,
-    ): Promise<
-      import('./types/conversationIpc').ConversationBootstrap | { status: 'error'; error: string }
-    >
-    save(
-      request: import('./types/conversationIpc').ConversationSaveRequest,
-    ): Promise<{ success: true } | { success: false; error: string }>
-    delete(id: string): Promise<{ success: true } | { success: false; error: string }>
-    saveLastMainKey(
-      key: string | null,
-    ): Promise<{ success: true } | { success: false; error: string }>
-  }
+  conversations: import('./types/ipcChannels').NamespaceBridge<'conversations'>
   mediaItems: {
     bootstrap(): Promise<
       import('./types/mediaItemIpc').MediaItemsBootstrap | { status: 'error'; error: string }

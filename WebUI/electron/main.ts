@@ -128,6 +128,7 @@ import {
   submitAgentToolResult,
 } from './agent/piAgentManager'
 import { getKernelSnapshot, onKernelEvent, setKernelEventWindow } from './kernel/kernelBus'
+import { ipcErrorText, typedHandle } from './kernel/typedIpc'
 import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecycle'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
@@ -2814,55 +2815,52 @@ function initEventHandle() {
   // Conversation persistence (step 8, architecture-target §6.1): the kernel
   // is the one writer of the user's threads. Hydration and the one-shot
   // legacy upload return data; the mutations follow the {success} convention.
-  ipcMain.handle('conversations:bootstrap', async () => {
+  typedHandle('conversations:bootstrap', async () => {
     try {
       return await bootstrapConversations()
     } catch (e) {
-      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+      return { status: 'error' as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle('conversations:migrate', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+  typedHandle('conversations:migrate', async (_event, payload) => {
     try {
       return await migrateLegacyConversations(ConversationLegacyStateSchema.parse(payload))
     } catch (e) {
-      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+      return { status: 'error' as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle('conversations:save', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+  typedHandle('conversations:save', async (_event, payload) => {
     try {
       await saveConversation(ConversationSaveRequestSchema.parse(payload))
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle('conversations:delete', async (_event: IpcMainInvokeEvent, id: unknown) => {
+  typedHandle('conversations:delete', async (_event, id) => {
     try {
       if (typeof id !== 'string') throw new Error('conversation id must be a string')
       await deleteConversation(id)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle(
-    'conversations:saveLastMainKey',
-    async (_event: IpcMainInvokeEvent, key: unknown) => {
-      try {
-        if (typeof key !== 'string' && key !== null) {
-          throw new Error('lastMainKey must be a string or null')
-        }
-        await saveConversationLastMainKey(key)
-        return { success: true as const }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+  typedHandle('conversations:saveLastMainKey', async (_event, key) => {
+    try {
+      if (typeof key !== 'string' && key !== null) {
+        throw new Error('lastMainKey must be a string or null')
       }
-    },
-  )
+      await saveConversationLastMainKey(key)
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: ipcErrorText(e) }
+    }
+  })
 
   // Agent-session records (step 8, §6.1): same one-writer contract as the
   // conversations above — the record file and its index entry live here, Pi's

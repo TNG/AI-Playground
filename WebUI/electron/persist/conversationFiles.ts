@@ -3,6 +3,7 @@ import path from 'node:path'
 import { appLoggerInstance } from '../observability/logger'
 import { getConversationsDemoDir, getConversationsDir } from './userDataPaths.ts'
 import { completeOrphanedToolParts, sanitizeBulkyToolOutputs } from '@/lib/toolMessageSanitize'
+import { restoreMissingHistory } from '@/lib/threadHistoryMerge'
 import {
   assertSafeFileId,
   atomicWriteJson,
@@ -159,6 +160,8 @@ function sanitizeMessages(messages: unknown[]): unknown[] {
   return sanitizeBulkyToolOutputs(completeOrphanedToolParts(messages as never)) as unknown[]
 }
 
+type MessageWithId = { id: string }
+
 type HydratedThread = {
   id: string
   meta: ConversationThreadMeta | null
@@ -261,34 +264,59 @@ export async function migrateLegacyConversations(
   })
 }
 
+async function writeThread(request: ConversationSaveRequest): Promise<void> {
+  const now = Date.now()
+  const doc: ConversationThreadFile = {
+    schemaVersion: 1,
+    meta: request.meta,
+    ragHashes: request.ragHashes,
+    messages: sanitizeMessages(request.messages),
+    updatedAt: now,
+  }
+  await atomicWriteJson(threadFile(request.id), doc)
+
+  // Index updates run on the index chain (thread→index only, never the
+  // reverse, so the chains cannot deadlock).
+  await serialize(INDEX_CHAIN, async () => {
+    const index = await currentIndex()
+    const entry: ConversationIndexEntry = {
+      id: request.id,
+      title: titleFromMessages(doc.messages),
+      presetName: request.meta?.presetName || undefined,
+      kind: request.meta?.kind,
+      updatedAt: now,
+    }
+    index.threads = [...index.threads.filter((thread) => thread.id !== request.id), entry]
+    if (request.lastMainKey !== undefined) index.lastMainKey = request.lastMainKey
+    await writeIndex(index)
+  })
+}
+
 /** Upsert one thread (messages sanitized here) plus its index entry. */
 export async function saveConversation(request: ConversationSaveRequest): Promise<void> {
   assertSafeFileId(request.id, 'conversation')
-  return serialize(request.id, async () => {
-    const now = Date.now()
-    const doc: ConversationThreadFile = {
-      schemaVersion: 1,
-      meta: request.meta,
-      ragHashes: request.ragHashes,
-      messages: sanitizeMessages(request.messages),
-      updatedAt: now,
-    }
-    await atomicWriteJson(threadFile(request.id), doc)
+  return serialize(request.id, () => writeThread(request)).then(() => {
+    emitStored('conversation', request.id)
+  })
+}
 
-    // Index updates run on the index chain (thread→index only, never the
-    // reverse, so the chains cannot deadlock).
-    await serialize(INDEX_CHAIN, async () => {
-      const index = await currentIndex()
-      const entry: ConversationIndexEntry = {
-        id: request.id,
-        title: titleFromMessages(doc.messages),
-        presetName: request.meta?.presetName || undefined,
-        kind: request.meta?.kind,
-        updatedAt: now,
-      }
-      index.threads = [...index.threads.filter((thread) => thread.id !== request.id), entry]
-      if (request.lastMainKey !== undefined) index.lastMainKey = request.lastMainKey
-      await writeIndex(index)
+/**
+ * The chat engine's write. Same upsert, except that a turn can only append to
+ * the thread or truncate it from the end — so a list starting at a message the
+ * file holds in the middle is a renderer that lost its history, and the prefix
+ * it dropped is put back instead of overwriting the thread with it. Read and
+ * write share the thread's chain, so a concurrent save cannot land between.
+ */
+export async function saveChatTurnConversation(request: ConversationSaveRequest): Promise<void> {
+  assertSafeFileId(request.id, 'conversation')
+  return serialize(request.id, async () => {
+    const stored = threadDocFromRead(await readJson(threadFile(request.id), 'conversations'))
+    await writeThread({
+      ...request,
+      messages: restoreMissingHistory(
+        (stored?.messages ?? []) as MessageWithId[],
+        request.messages as MessageWithId[],
+      ),
     })
   }).then(() => {
     emitStored('conversation', request.id)

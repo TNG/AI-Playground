@@ -59,7 +59,7 @@ import {
 } from './chatWebTools'
 import type { WebPageSnapshot, WebSearchResults } from '../adapters/webBrowserManager'
 import { finishTextRequest, submitTextRequest } from '../kernel/orchestrator'
-import { saveConversation } from '../persist/conversationFiles'
+import { saveChatTurnConversation } from '../persist/conversationFiles'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { emitFailure } from '../kernel/kernelBus'
 
@@ -111,7 +111,7 @@ export function resetChatEngineDepsForTest(): void {
 async function persistChatTurn(request: ChatTurnRequest, messages: unknown[]): Promise<void> {
   if (!request.persist) return
   try {
-    await saveConversation({
+    await saveChatTurnConversation({
       id: request.conversationKey,
       meta: request.persist.meta,
       ragHashes: request.persist.ragHashes,
@@ -350,6 +350,34 @@ function injectScreenshotImages(messages: ModelMessage[]): ModelMessage[] {
   })
 }
 
+/**
+ * No chat backend accepts an audio part — llama.cpp rejects the whole request
+ * with "audio input is not supported", before any tool could run. So the clip
+ * is described instead of sent, and `transcribeAudio` reads the real bytes off
+ * the untouched message list.
+ */
+function describeAudioAttachments(messages: ModelMessage[]): ModelMessage[] {
+  return messages.map((msg) => {
+    if (msg.role !== 'user' || !Array.isArray(msg.content)) return msg
+    if (!msg.content.some((part) => part.type === 'file' && part.mediaType?.startsWith('audio/'))) {
+      return msg
+    }
+    return {
+      ...msg,
+      content: msg.content.map((part) =>
+        part.type === 'file' && part.mediaType?.startsWith('audio/')
+          ? {
+              type: 'text' as const,
+              text:
+                `[An audio clip${part.filename ? ` (${part.filename})` : ''} is attached to this ` +
+                'message. Call the transcribeAudio tool to read what it says.]',
+            }
+          : part,
+      ),
+    } as ModelMessage
+  })
+}
+
 function filterNonVisionContent(messages: ModelMessage[]): ModelMessage[] {
   return messages.map((msg) => {
     if (msg.role === 'user' && Array.isArray(msg.content)) {
@@ -516,6 +544,8 @@ type BuildToolSetOptions = {
   conversationLabel?: string
   /** What the Home Agent's settings tools read; absent on any other preset's turn. */
   homeAgentInference?: HomeAgentInferenceSnapshot
+  /** The turn's messages with their attachments intact — what `transcribeAudio` reads. */
+  attachmentMessages?: ModelMessage[]
   /** Track each execute Promise so a null SDK tool result can still wait. */
   onExecute?: (toolCallId: string, work: Promise<unknown>) => void
 }
@@ -610,7 +640,9 @@ async function dispatchChatTool(
       input,
       conversationKey: ctx.conversationKey,
       conversationLabel: options.conversationLabel,
-      messages: exec.messages,
+      // The step's own messages no longer carry the clip (see
+      // `describeAudioAttachments`), so transcription reads the turn's copy.
+      messages: options.attachmentMessages ?? exec.messages,
       readMediaAsDataUri: options.readMediaAsDataUri,
       abortSignal: exec.abortSignal,
     })
@@ -781,6 +813,10 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
       read: readMediaAsDataUri,
       vision: supportsVision,
     })
+    // What `transcribeAudio` reads: the attachments as they arrived, before the
+    // model's own view of them is trimmed below.
+    const messagesWithAttachments = messages
+    messages = describeAudioAttachments(messages)
     if (supportsVision) {
       const capped = capHistoryImages(messages)
       messages = capped.messages
@@ -804,6 +840,7 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
       screenshotWindow: request.screenshotWindow,
       conversationLabel: request.conversationLabel,
       homeAgentInference: request.homeAgentInference,
+      attachmentMessages: messagesWithAttachments,
       onExecute: (toolCallId, work) => {
         pendingToolExecutes.set(toolCallId, work)
       },
@@ -886,10 +923,12 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
             tools,
             stopWhen: isStepCount(20),
             prepareStep: async ({ messages: stepMessages }) => {
-              const presented = await attachGeneratedImageFollowUps(stepMessages, {
-                read: readMediaAsDataUri,
-                vision: supportsVision,
-              })
+              const presented = describeAudioAttachments(
+                await attachGeneratedImageFollowUps(stepMessages, {
+                  read: readMediaAsDataUri,
+                  vision: supportsVision,
+                }),
+              )
               return {
                 messages: supportsVision
                   ? capHistoryImages(presented).messages
@@ -1087,6 +1126,11 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
       result.toUIMessageStream({
         onError: describeInferenceError,
         sendReasoning: true,
+        // The id travels in the `start` chunk, so the assistant message main
+        // persists and the one a resuming renderer builds from the replay are
+        // the same message — which is what lets a later write find where the
+        // submitted list joins the thread on disk.
+        generateMessageId: () => `${turnId}-assistant`,
         messageMetadata: (options) => {
           // Returning undefined suppresses the SDK's per-part `message-metadata`
           // chunk: without this it enqueues one after every delta and raw part,

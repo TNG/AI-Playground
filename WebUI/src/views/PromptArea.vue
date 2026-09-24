@@ -156,6 +156,23 @@
               </button>
             </div>
             <div
+              v-for="clip in audioPreview"
+              :key="clip.id"
+              class="self-center flex items-center gap-1 px-1 py-0.5 text-xs bg-primary/20 border border-primary/30 rounded-md group"
+            >
+              <MusicalNoteIcon class="size-4 flex-none" />
+              <span class="truncate max-w-40" :title="clip.part.filename">{{
+                clip.part.filename
+              }}</span>
+              <button
+                @click="removeImage(clip.id)"
+                class="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                title="Remove attachment"
+              >
+                <XMarkIcon class="size-4" />
+              </button>
+            </div>
+            <div
               v-for="(file, index) in agentMode.attachments"
               :key="`${file.name}-${index}`"
               class="self-center flex items-center gap-1 px-1 py-0.5 text-xs bg-primary/20 border border-primary/30 rounded-md group"
@@ -412,7 +429,9 @@ import type { FileUIPart } from 'ai'
 import {
   mapModeToLabel,
   downscaleImageTo1MP,
+  fileToDataUri,
   imageUrlToDataUri,
+  saveAudioToMediaInput,
   saveImageToMediaInput,
 } from '@/lib/utils.ts'
 import { useAudioRecorder } from '@/assets/js/store/audioRecorder'
@@ -447,7 +466,7 @@ import { usePresets, type ChatPreset, type Preset } from '@/assets/js/store/pres
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { PlusIcon, PaperClipIcon, XMarkIcon } from '@heroicons/vue/24/outline'
+import { PlusIcon, PaperClipIcon, MusicalNoteIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { CameraIcon } from '@heroicons/vue/24/solid'
 import { Label } from '@/components/ui/label'
 import { useDropZone, useEventListener } from '@vueuse/core'
@@ -718,6 +737,12 @@ const canAttachDocuments = computed(() => {
   return activeChatPreset.value?.enableRAG === true
 })
 
+// Audio is an attachment for `transcribeAudio` to read, not something the chat
+// backend can be sent, so the control only offers it when that tool is there.
+const canAttachAudio = computed(
+  () => promptStore.getCurrentMode() === 'chat' && openAiCompatibleChat.canTranscribeAttachments,
+)
+
 // Should show image upload button (conditional for ComfyUI presets)
 const shouldShowImageUploadButton = computed(() => {
   const mode = promptStore.getCurrentMode()
@@ -739,8 +764,8 @@ const shouldShowImageUploadButton = computed(() => {
   // the model, so any file is useful and no vision model is required.
   if (mode === 'agent') return true
 
-  // For chat mode, use existing logic (vision model + RAG documents)
-  return canAttachImages.value || canAttachDocuments.value
+  // For chat mode, use existing logic (vision model + RAG documents + audio)
+  return canAttachImages.value || canAttachDocuments.value || canAttachAudio.value
 })
 
 const modesWithPresets = computed(() => {
@@ -785,8 +810,16 @@ const emits = defineEmits<{
   (e: 'openSettings'): void
 }>()
 
-const imagePreview = computed(() =>
+const attachmentPreview = computed(() =>
   openAiCompatibleChat.fileInput.map((part, id) => ({ id, url: part.url, part })),
+)
+
+const imagePreview = computed(() =>
+  attachmentPreview.value.filter((item) => !item.part.mediaType?.startsWith('audio/')),
+)
+
+const audioPreview = computed(() =>
+  attachmentPreview.value.filter((item) => item.part.mediaType?.startsWith('audio/')),
 )
 
 function removeImage(index: number) {
@@ -1069,6 +1102,13 @@ function isImageFile(file: File): boolean {
   return file.type.startsWith('image/')
 }
 
+const AUDIO_ATTACHMENT_UNAVAILABLE =
+  'Audio attachments need the "Transcribe audio" tool. Enable it for this preset to attach a clip.'
+
+function isAudioFile(file: File): boolean {
+  return file.type.startsWith('audio/')
+}
+
 // Check if a file is a valid document
 function isDocumentFile(file: File): boolean {
   const ext = file.name.split('.').pop()?.toLowerCase()
@@ -1089,6 +1129,7 @@ function getAcceptedFileTypes(): string {
   if (mode === 'chat') {
     const types: string[] = []
     if (canAttachImages.value) types.push('image/*')
+    if (canAttachAudio.value) types.push('audio/*')
     if (canAttachDocuments.value) types.push('.txt,.doc,.docx,.md,.pdf')
 
     return types.join(',') || 'none'
@@ -1172,6 +1213,27 @@ async function handleChatImageUpload(imageFiles: File[]) {
   openAiCompatibleChat.fileInput = parts
 }
 
+// Audio rides along with whatever images are already attached — the clip is for
+// `transcribeAudio`, which reads it off the turn rather than from the prompt.
+async function handleChatAudioUpload(audioFiles: File[]) {
+  const parts: FileUIPart[] = []
+  for (const file of audioFiles) {
+    try {
+      const url = await saveAudioToMediaInput(await fileToDataUri(file))
+      parts.push({ type: 'file', mediaType: file.type, url, filename: file.name })
+    } catch (error) {
+      errors.report(error, {
+        category: 'inference',
+        code: 'inference/audio-attach-failed',
+        userMessage: `Could not attach ${file.name}.`,
+      })
+    }
+  }
+  if (parts.length > 0) {
+    openAiCompatibleChat.fileInput = [...openAiCompatibleChat.fileInput, ...parts]
+  }
+}
+
 // Handle image files: ComfyUI upload vs chat/other → fileInput as aipg-media
 async function handleImageFiles(imageFiles: File[]) {
   if (imageFiles.length === 0) return
@@ -1209,12 +1271,15 @@ async function handleFileInput(event: Event) {
   }
 
   const imageFiles: File[] = []
+  const audioFiles: File[] = []
   const documentFiles: File[] = []
 
-  // Separate images from documents
+  // Separate images from audio from documents
   for (const file of files) {
     if (isImageFile(file)) {
       imageFiles.push(file)
+    } else if (isAudioFile(file) && promptStore.getCurrentMode() === 'chat') {
+      audioFiles.push(file)
     } else if (isDocumentFile(file) && promptStore.getCurrentMode() === 'chat') {
       documentFiles.push(file)
     }
@@ -1228,6 +1293,11 @@ async function handleFileInput(event: Event) {
     imageFiles.length = 0
   }
 
+  if (audioFiles.length > 0 && !canAttachAudio.value) {
+    toast.error(AUDIO_ATTACHMENT_UNAVAILABLE)
+    audioFiles.length = 0
+  }
+
   // Validate document attachments
   if (documentFiles.length > 0 && !canAttachDocuments.value) {
     toast.error(
@@ -1239,6 +1309,10 @@ async function handleFileInput(event: Event) {
   // Handle images
   if (imageFiles.length > 0) {
     await handleImageFiles(imageFiles)
+  }
+
+  if (audioFiles.length > 0) {
+    await handleChatAudioUpload(audioFiles)
   }
 
   // Handle documents (add to RAG)
@@ -1306,12 +1380,15 @@ async function onDrop(files: File[] | null) {
   }
 
   const imageFiles: File[] = []
+  const audioFiles: File[] = []
   const documentFiles: File[] = []
 
-  // Separate images from documents
+  // Separate images from audio from documents
   for (const file of files) {
     if (isImageFile(file)) {
       imageFiles.push(file)
+    } else if (isAudioFile(file) && promptStore.getCurrentMode() === 'chat') {
+      audioFiles.push(file)
     } else if (isDocumentFile(file) && promptStore.getCurrentMode() === 'chat') {
       documentFiles.push(file)
     }
@@ -1339,6 +1416,11 @@ async function onDrop(files: File[] | null) {
     imageFiles.length = 0
   }
 
+  if (audioFiles.length > 0 && !canAttachAudio.value) {
+    toast.error(AUDIO_ATTACHMENT_UNAVAILABLE)
+    audioFiles.length = 0
+  }
+
   // Validate document attachments
   if (documentFiles.length > 0 && !canAttachDocuments.value) {
     toast.error(
@@ -1350,6 +1432,10 @@ async function onDrop(files: File[] | null) {
   // Handle images
   if (imageFiles.length > 0) {
     await handleImageFiles(imageFiles)
+  }
+
+  if (audioFiles.length > 0) {
+    await handleChatAudioUpload(audioFiles)
   }
 
   // Handle documents

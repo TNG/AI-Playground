@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import type { PermissionsPromptPayload } from '@/types/permissionsIpc'
+import { createCancellation } from '@/assets/js/errors/appError'
 
 const isActive = vi.fn(() => false)
 const downloadModels = vi.fn(async () => {})
@@ -92,7 +93,30 @@ describe('permissions prompt adapter', () => {
       skipConfirmation: false,
     })
     await vi.waitFor(() =>
-      expect(respondMock).toHaveBeenCalledWith({ requestId: 'r4', error: 'cancelled' }),
+      expect(respondMock).toHaveBeenCalledWith({
+        requestId: 'r4',
+        error: 'cancelled',
+        cancelled: false,
+      }),
+    )
+  })
+
+  it('reports an AppError by message and marks a cancellation as one', async () => {
+    showDownloadDialog.mockImplementation((_list, _ok, fail) =>
+      fail(createCancellation({ technicalMessage: 'remote model download declined' })),
+    )
+    handler?.({
+      requestId: 'r6',
+      kind: 'download',
+      models: [{ repo_id: 'x' }],
+      skipConfirmation: false,
+    })
+    await vi.waitFor(() =>
+      expect(respondMock).toHaveBeenCalledWith({
+        requestId: 'r6',
+        error: 'remote model download declined',
+        cancelled: true,
+      }),
     )
   })
 

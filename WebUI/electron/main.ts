@@ -1449,20 +1449,44 @@ async function stopChatServicesForMedia(): Promise<void> {
   }
 }
 
+/** The audio a chat attachment may be, and the extension each is stored under. */
+const AUDIO_ATTACHMENT_EXTENSIONS: Record<string, string> = {
+  'audio/wav': '.wav',
+  'audio/x-wav': '.wav',
+  'audio/wave': '.wav',
+  'audio/mpeg': '.mp3',
+  'audio/mp3': '.mp3',
+  'audio/mp4': '.m4a',
+  'audio/x-m4a': '.m4a',
+  'audio/aac': '.m4a',
+  'audio/ogg': '.ogg',
+  'audio/webm': '.webm',
+  'audio/flac': '.flac',
+  'audio/x-flac': '.flac',
+}
+
+/** Images plus the audio above; anything else reads as PNG. */
+const MEDIA_MIME_BY_EXTENSION: Record<string, string> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.png': 'image/png',
+  '.wav': 'audio/wav',
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.ogg': 'audio/ogg',
+  '.webm': 'audio/webm',
+  '.flac': 'audio/flac',
+}
+
 async function readAipgMediaAsDataUri(url: string): Promise<string | null> {
   const localPath = getLocalPathFromAipgMediaUrl(url)
   if (!localPath) return null
   try {
     const data = await fs.promises.readFile(localPath)
     const ext = path.extname(localPath).toLowerCase()
-    const mime =
-      ext === '.jpg' || ext === '.jpeg'
-        ? 'image/jpeg'
-        : ext === '.webp'
-          ? 'image/webp'
-          : ext === '.gif'
-            ? 'image/gif'
-            : 'image/png'
+    const mime = MEDIA_MIME_BY_EXTENSION[ext] ?? 'image/png'
     return `data:${mime};base64,${data.toString('base64')}`
   } catch (error) {
     appLogger.warn(`Could not read media ${url}: ${String(error)}`, 'electron-backend')
@@ -1844,6 +1868,24 @@ function initEventHandle() {
     const filePath = path.join(mediaInputDir, filename)
     const buffer = Buffer.from(base64Data, 'base64')
     await fs.promises.writeFile(filePath, buffer)
+    return `input/${filename}`
+  })
+
+  // An attached clip is kept beside attached images rather than inlined in the
+  // thread: a minute of audio is megabytes of base64 in the conversation file,
+  // and `transcribeAudio` reads it back through the same media reader.
+  ipcMain.handle('saveAudioToMediaInput', async (_event, dataUri: string) => {
+    const match =
+      typeof dataUri === 'string'
+        ? dataUri.match(/^data:(audio\/[a-zA-Z0-9.+-]+);base64,(.+)$/)
+        : null
+    if (!match) {
+      throw new Error('saveAudioToMediaInput: expected a data URI (data:audio/...;base64,...)')
+    }
+    const ext = AUDIO_ATTACHMENT_EXTENSIONS[match[1].toLowerCase()]
+    if (!ext) throw new Error(`saveAudioToMediaInput: unsupported audio type ${match[1]}`)
+    const filename = `${randomUUID()}${ext}`
+    await fs.promises.writeFile(path.join(mediaInputDir, filename), Buffer.from(match[2], 'base64'))
     return `input/${filename}`
   })
 
@@ -2654,7 +2696,11 @@ function initEventHandle() {
       await requestDownloadConsent(models)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return {
+        success: false as const,
+        error: e instanceof Error ? e.message : String(e),
+        cancelled: (e as { cancelled?: boolean })?.cancelled === true,
+      }
     }
   })
 

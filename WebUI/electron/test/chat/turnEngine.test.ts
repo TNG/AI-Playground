@@ -34,12 +34,12 @@ vi.mock('../../artifact/runner', () => ({
   startArtifactRun: async () => ({ state: 'completed', items: [] }),
 }))
 
-const { saveConversation } = vi.hoisted(() => ({
-  saveConversation: vi.fn(async (_request: unknown) => {}),
+const { saveChatTurnConversation } = vi.hoisted(() => ({
+  saveChatTurnConversation: vi.fn(async (_request: unknown) => {}),
 }))
 
 vi.mock('../../persist/conversationFiles.ts', () => ({
-  saveConversation,
+  saveChatTurnConversation,
 }))
 
 const runMediaAgentInMainMock = vi.hoisted(() => vi.fn())
@@ -275,7 +275,7 @@ beforeEach(() => {
   resetChatEngineDepsForTest()
   resetChatReadinessForTest()
   resetOrchestratorForTest()
-  saveConversation.mockClear()
+  saveChatTurnConversation.mockClear()
   events = []
   detachTap = onKernelEvent((event) => void events.push(event))
   const window = fakeWindow()
@@ -1078,6 +1078,58 @@ describe('turn engine', () => {
     expect(JSON.stringify(userMessage!.content)).toContain('describe')
   })
 
+  it('describes an attached clip to the model and hands the tool the real one', async () => {
+    executeChatSpeechToolMock.mockResolvedValueOnce({
+      ok: true,
+      message: 'Transcribed audio.',
+      transcript: 'the recorded words',
+    })
+    queueFetchMock(sse(toolCallChunks('transcribeAudio', '{}')), sse(textChunks('read back')))
+    const { turnId } = submitChatTurn(
+      turnRequest({
+        messages: [
+          {
+            id: 'm1',
+            role: 'user',
+            parts: [
+              { type: 'text', text: 'what does this say' },
+              {
+                type: 'file',
+                mediaType: 'audio/wav',
+                url: 'aipg-media://media/input/clip.wav',
+                filename: 'clip.wav',
+              },
+            ],
+          },
+        ],
+        tools: [
+          { name: 'transcribeAudio', description: 'Transcribe', inputSchema: { type: 'object' } },
+        ],
+        model: {
+          backend: 'llamaCPP',
+          modelId: 'test/model.gguf',
+          baseUrl: 'http://127.0.0.1:39101',
+          supportsVision: true,
+        },
+      }),
+    )
+    await waitForTurnDone(turnId)
+
+    // llama.cpp rejects the whole request over an audio part, so the model is
+    // told about the clip rather than sent it.
+    const sentUser = JSON.stringify(bodyMessages().find((m) => m.role === 'user')!.content)
+    expect(sentUser).toContain('clip.wav')
+    expect(sentUser).toContain('transcribeAudio')
+    expect(sentUser).not.toContain('input_audio')
+    expect(sentUser).not.toContain('aipg-media://media/input/clip.wav')
+
+    const toolMessages = executeChatSpeechToolMock.mock.calls[0][0].messages as Array<{
+      role: string
+      content: unknown
+    }>
+    expect(JSON.stringify(toolMessages)).toContain('aipg-media://media/input/clip.wav')
+  })
+
   it('converts aipg-media references to data URIs for vision models', async () => {
     queueFetchMock(sse(textChunks('ok')))
     const { turnId } = submitChatTurn(
@@ -1336,8 +1388,8 @@ describe('turn engine', () => {
     const { turnId } = submitChatTurn(turnRequest({ persist }))
     await waitForTurnDone(turnId)
 
-    expect(saveConversation).toHaveBeenCalledTimes(2)
-    expect(saveConversation.mock.calls[0]?.[0]).toMatchObject({
+    expect(saveChatTurnConversation).toHaveBeenCalledTimes(2)
+    expect(saveChatTurnConversation.mock.calls[0]?.[0]).toMatchObject({
       id: 'conv-1',
       meta: persist.meta,
       ragHashes: ['doc-a'],
@@ -1345,7 +1397,7 @@ describe('turn engine', () => {
       messages: [{ id: 'm1', role: 'user' }],
     })
     const endMessages = (
-      saveConversation.mock.calls[1]?.[0] as unknown as {
+      saveChatTurnConversation.mock.calls[1]?.[0] as unknown as {
         messages: Array<{ role: string; metadata?: { ragSource?: string } }>
       }
     ).messages
@@ -1377,7 +1429,7 @@ describe('turn engine', () => {
     await waitForTurnDone(turnId)
 
     const endMessages = (
-      saveConversation.mock.calls[1]?.[0] as unknown as {
+      saveChatTurnConversation.mock.calls[1]?.[0] as unknown as {
         messages: Array<{ role: string; metadata?: { ragSource?: string } }>
       }
     ).messages
@@ -1389,6 +1441,6 @@ describe('turn engine', () => {
     queueFetchMock(sse(textChunks('ok')))
     const { turnId } = submitChatTurn(turnRequest())
     await waitForTurnDone(turnId)
-    expect(saveConversation).not.toHaveBeenCalled()
+    expect(saveChatTurnConversation).not.toHaveBeenCalled()
   })
 })

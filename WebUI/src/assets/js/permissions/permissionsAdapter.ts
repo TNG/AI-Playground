@@ -1,5 +1,6 @@
 import { useDialogStore } from '../store/dialogs'
 import { remoteTurnPort } from './remoteTurnPort'
+import { extractMessage, isCancellation } from '../errors/appError'
 
 /**
  * Renderer half of the Permissions prompt adapter (step 13). Main owns grant
@@ -57,9 +58,12 @@ async function handlePrompt(
       }
     }
   } catch (error) {
+    // An AppError is a plain object, so `String(error)` here was the
+    // "[object Object]" a declined in-channel download used to surface as.
     respond({
       requestId: request.requestId,
-      error: error instanceof Error ? error.message : String(error),
+      error: extractMessage(error),
+      cancelled: isCancellation(error),
     })
   } finally {
     clearInterval(pings)

@@ -50,4 +50,7 @@ export type PermissionsPromptPayload = PermissionsPromptBody & { requestId: stri
 export type PermissionsPromptResponse =
   | { requestId: string; progress: true }
   | { requestId: string; result: unknown }
-  | { requestId: string; error: string }
+  // `cancelled` travels with the message because the caller reacts to a
+  // declined download by dropping the turn quietly, and an error string cannot
+  // carry that across two process hops.
+  | { requestId: string; error: string; cancelled?: boolean }

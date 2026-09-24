@@ -20,6 +20,7 @@ import { useTextInference } from './textInference'
 import { useCloudMode } from './cloudMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import { sanitizeBulkyToolOutputs } from '@/lib/toolMessageSanitize'
+import { restoreMissingHistory } from '@/lib/threadHistoryMerge'
 import { useErrors } from './errors'
 import { useActivities } from './activities'
 import { useConfirmations } from './confirmations'
@@ -194,6 +195,16 @@ export const useOpenAiCompatibleChat = defineStore(
           confirmations.cancelForConversation(key, false)
         }
       },
+    )
+
+    // An attached clip is only useful to a turn that can transcribe it — no
+    // chat backend accepts audio itself.
+    const canTranscribeAttachments = computed(
+      () =>
+        textInference.modelSupportsToolCalling &&
+        textInference.aipgToolsEnabled &&
+        textInference.isBuiltinToolEnabled('transcribeAudio') &&
+        transcriptionAvailable(),
     )
 
     function isToolEnabled(toolName: string): boolean {
@@ -542,6 +553,24 @@ export const useOpenAiCompatibleChat = defineStore(
       { immediate: true },
     )
 
+    /**
+     * The resume stream carries the running turn and nothing else, so a Chat
+     * that opened on a thread it could not read yet would show — and then
+     * persist — a conversation starting mid-way. This store is instantiated
+     * before the thread files hydrate (promptArea → setupWizard → homeAgent),
+     * hence the seed rather than trusting the constructor's `messages`.
+     */
+    function seedFromPersistedThread(chat: Chat<AipgUiMessage>, conversationKey: string): void {
+      const stored = conversations.conversationList[conversationKey] ?? []
+      if (stored.length === 0) return
+      if (chat.messages.length === 0) {
+        chat.messages = [...stored]
+        return
+      }
+      const merged = restoreMissingHistory(stored, chat.messages)
+      if (merged !== chat.messages) chat.messages = merged
+    }
+
     // A reloaded renderer re-adopts chat turns that kept streaming in main
     // (step 6): one snapshot read at boot. Turns started later are always this
     // renderer's own (channel traffic drains through the Home Agent store
@@ -549,18 +578,21 @@ export const useOpenAiCompatibleChat = defineStore(
     // subscription would only duplicate the transport's.
     void window.electronAPI
       ?.getKernelSnapshot?.()
-      .then((snapshot) => {
-        for (const turn of snapshot.state.chatTurns ?? []) {
-          void getOrCreateChat(turn.conversationKey)
-            .resumeStream()
-            .catch((error: unknown) => {
-              errors.report(error, {
-                category: 'inference',
-                code: 'inference/chat-resume-failed',
-                userMessage: `Could not resume the interrupted chat turn: ${extractMessage(error)}`,
-                surface: 'silent',
-              })
+      .then(async (snapshot) => {
+        const running = snapshot.state.chatTurns ?? []
+        if (running.length === 0) return
+        await conversations.init()
+        for (const turn of running) {
+          const chat = getOrCreateChat(turn.conversationKey)
+          seedFromPersistedThread(chat, turn.conversationKey)
+          void chat.resumeStream().catch((error: unknown) => {
+            errors.report(error, {
+              category: 'inference',
+              code: 'inference/chat-resume-failed',
+              userMessage: `Could not resume the interrupted chat turn: ${extractMessage(error)}`,
+              surface: 'silent',
             })
+          })
         }
       })
       .catch(() => {})
@@ -877,6 +909,19 @@ export const useOpenAiCompatibleChat = defineStore(
       }
     }
 
+    /**
+     * Whether an image reaches the model on this turn — newly attached or
+     * already in the thread, since history is sent too. It is the only thing
+     * the multimodal projector is needed for.
+     */
+    function turnCarriesImage(conversationKey: string, options?: GenerateOptions): boolean {
+      const files = options?.files?.length ? options.files : fileInput.value
+      if (files.some((part) => part.mediaType?.startsWith('image/'))) return true
+      return (getMessagesForKey(conversationKey) ?? []).some((message) =>
+        message.parts?.some((part) => part.type === 'file' && part.mediaType?.startsWith('image/')),
+      )
+    }
+
     async function generate(question: string, options?: GenerateOptions) {
       const sideChannel = options?.conversationKey !== undefined
       const targetKey = sideChannel ? options.conversationKey! : conversations.activeKey
@@ -932,7 +977,9 @@ export const useOpenAiCompatibleChat = defineStore(
           if (textInference.backend === 'cloud') {
             await cloudMode.ensureProxyUrl()
           }
-          await textInference.checkModelAvailability()
+          await textInference.checkModelAvailability({
+            needsVision: turnCarriesImage(targetKey, options),
+          })
         } catch (error) {
           // The user cancelling a required model download is not a failure — abort
           // the turn quietly, keeping their prompt/attachments for a retry.
@@ -1063,7 +1110,7 @@ export const useOpenAiCompatibleChat = defineStore(
         if (textInference.backend === 'cloud') {
           await cloudMode.ensureProxyUrl()
         }
-        await textInference.checkModelAvailability()
+        await textInference.checkModelAvailability({ needsVision: turnCarriesImage(targetKey) })
       } catch (error) {
         // Cancelling a required model download aborts the regenerate quietly.
         if (isCancellation(error)) return
@@ -1154,6 +1201,7 @@ export const useOpenAiCompatibleChat = defineStore(
       usedTokens,
       messageInput,
       fileInput,
+      canTranscribeAttachments,
       generate,
       transcribeDirect,
       appendTranscriptTurn,

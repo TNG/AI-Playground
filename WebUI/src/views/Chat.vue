@@ -51,6 +51,14 @@
               "
               alt="Generated Image"
             />
+            <audio
+              v-for="(clip, clipIndex) in audioAttachments(message)"
+              :key="clipIndex"
+              controls
+              class="w-full max-w-md"
+              :src="clip.url"
+              :aria-label="clip.filename ?? 'Attached audio'"
+            />
             <MarkdownRenderer
               :class="textInference.fontSizeClass"
               :content="getMessageTextForCopy(message)"
@@ -762,6 +770,15 @@ function copyText(text: string) {
       toast.success(i18nState.COM_COPY_SUCCESS_TIP)
     })
     .catch((e) => console.error('Error while copying text to clipboard', e))
+}
+
+function audioAttachments(message: { parts: unknown[] }): Array<{
+  url: string
+  filename?: string
+}> {
+  return (message.parts as Array<{ type: string; mediaType?: string; url?: string }>)
+    .filter((part) => part.type === 'file' && part.mediaType?.startsWith('audio/') && part.url)
+    .map((part) => part as { url: string; filename?: string })
 }
 
 function getMessageTextForCopy(message: { parts: { type: string; text?: string }[] }): string {

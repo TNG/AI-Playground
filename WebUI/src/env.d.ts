@@ -336,6 +336,7 @@ type electronAPI = {
   getDemoModeSettings(): Promise<DemoModeSettings>
   saveImage(url: string): void
   saveImageToMediaInput(dataUri: string): Promise<string>
+  saveAudioToMediaInput(dataUri: string): Promise<string>
   saveGeneratedAudio(
     audioBase64: string,
     filename: string,
@@ -462,7 +463,7 @@ type electronAPI = {
   permissions: {
     requestDownload(
       models: unknown[],
-    ): Promise<{ success: true } | { success: false; error: string }>
+    ): Promise<{ success: true } | { success: false; error: string; cancelled?: boolean }>
     requestVramWarning(req: {
       presetName: string
       message: string

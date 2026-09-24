@@ -1,5 +1,6 @@
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
 import type { AgentCapability, CapabilityHost } from './types.ts'
+import type { SkillSource } from '../piCustomTools.ts'
 import { buildDelegatedMediaTool } from './mediaDelegation.ts'
 import { buildDirectMediaTools } from './mediaDirect.ts'
 import { buildSpeechTools, SPEECH_TOOL_NAMES } from './mediaSpeech.ts'
@@ -15,30 +16,60 @@ import { buildSpeechTools, SPEECH_TOOL_NAMES } from './mediaSpeech.ts'
 // the window (mediaSpeech.ts). Screenshot / web-browse stay on the renderer
 // bridge.
 
-const MEDIA_GENERATION_SKILL = {
-  name: 'media-generation',
-  description:
-    'Create or transform images, videos and 3D models with the `media` tool; results are ' +
-    'saved into the workspace.',
-  body: [
-    'The `media` tool hands your request to a media specialist that picks the right generation',
-    'workflow and parameters. Use it like this:',
-    '',
-    '1. Describe the desired result in ONE natural-language request: subject, style, aspect',
-    '   ratio / size wishes, and quality level. Terse prompts are expanded automatically.',
-    '2. Multi-step requests belong in a single call — e.g. "generate an image of a castle and',
-    '   turn it into a 3D model" or "animate this photo into a short video". Do not split them',
-    '   into separate calls; the specialist chains the steps itself.',
-    '3. To transform an image that already exists in the workspace, pass its workspace-relative',
-    '   path as sourceImagePath (e.g. "generated/AIPG_00001_.png").',
-    '4. The result lists what was created plus "savedFiles": the workspace-relative paths of the',
-    '   generated media under "generated/". Reference those paths in your reply or in files you',
-    '   write (e.g. an <img src="generated/...png"> in an HTML page).',
-    '',
-    'Media generation takes minutes — call the tool once, then wait for its result. Do not',
-    'retry while a call is running.',
-  ].join('\n'),
-} as const
+// Every path in here is described, never shown: a concrete `generated/<file>`
+// example reads like a result the model already has, and it passes that example
+// on — to `set_icon`, to an <img src> — instead of calling the tool. When the
+// file then turns out not to exist, the shell looks like the way to fix it.
+const PATHS_ARE_REPORTED = [
+  'The generator names the files, so a path under "generated/" exists only once a call has',
+  'reported it. Never guess one, and never produce an image file yourself with `write` or the',
+  'shell — a file you compose by hand is not a picture.',
+  '',
+  'Media generation takes minutes — call the tool once, then wait for its result. Do not',
+  'retry while a call is running.',
+]
+
+const DELEGATED_BODY = [
+  'The `media` tool hands your request to a media specialist that picks the right generation',
+  'workflow and parameters. Use it like this:',
+  '',
+  '1. Describe the desired result in ONE natural-language request: subject, style, aspect',
+  '   ratio / size wishes, and quality level. Terse prompts are expanded automatically.',
+  '2. Multi-step requests belong in a single call — e.g. "generate an image of a castle and',
+  '   turn it into a 3D model" or "animate this photo into a short video". Do not split them',
+  '   into separate calls; the specialist chains the steps itself.',
+  '3. To transform an image that already exists in the workspace, pass its workspace-relative',
+  '   path as sourceImagePath: one an earlier call reported, or a file the user attached',
+  '   under "attachments/".',
+  '4. The result lists what was created plus "savedFiles": the workspace-relative paths of the',
+  '   generated media under "generated/". Reference those paths in your reply or in files you',
+  '   write (e.g. an <img src="generated/...png"> in an HTML page).',
+  '',
+]
+
+const DIRECT_BODY = [
+  '`generateImage` creates an image from a prompt. `editImage` transforms one that already',
+  'exists, named by its workspace-relative `sourceImagePath` — a path an earlier call reported,',
+  'or a file the user attached under "attachments/". Chaining is yours to do: generate first,',
+  'then edit the path that came back.',
+  '',
+  'Describe the desired result in the prompt: subject, style, aspect ratio / size wishes and',
+  'quality level. Each result lists what it produced under "savedFiles", saved into',
+  '"generated/". Reference those paths in your reply or in files you write (e.g. an',
+  '<img src="generated/...png"> in an HTML page).',
+  '',
+]
+
+function mediaGenerationSkill(delegated: boolean): SkillSource {
+  const tools = delegated ? 'the `media` tool' : '`generateImage` / `editImage`'
+  return {
+    name: 'media-generation',
+    description:
+      `Create or transform images, videos and 3D models with ${tools}; results are ` +
+      'saved into the workspace.',
+    body: [...(delegated ? DELEGATED_BODY : DIRECT_BODY), ...PATHS_ARE_REPORTED].join('\n'),
+  }
+}
 
 // Speech is not a ComfyUI workflow, so the specialist cannot pick it up: the
 // tools are the agent's own, and saying so here is what keeps a model from
@@ -67,6 +98,13 @@ const SPEECH_SKILL = {
 const DELEGATION_TOOL_NAME = 'media'
 const DIRECT_TOOL_NAMES = new Set(['generateImage', 'editImage'])
 
+/** How this turn generates media: the delegation tool, the direct pair, or neither. */
+export function mediaToolNames(host: CapabilityHost): string[] {
+  return host.toolSpecs
+    .map((spec) => spec.name)
+    .filter((name) => name === DELEGATION_TOOL_NAME || DIRECT_TOOL_NAMES.has(name))
+}
+
 /** Routes each shipped spec to its executor: delegation proxy, in-process run or speech. */
 async function buildMediaTools(host: CapabilityHost): Promise<ToolDefinition[]> {
   const delegationSpecs = host.toolSpecs.filter((spec) => spec.name === DELEGATION_TOOL_NAME)
@@ -85,9 +123,17 @@ export const mediaCapability: AgentCapability = {
   summary:
     'Generate and transform images, videos and 3D models, and speak or transcribe audio; ' +
     'results are saved into the workspace.',
-  skills: [MEDIA_GENERATION_SKILL],
-  buildSkills: (host) =>
-    host.toolSpecs.some((spec) => SPEECH_TOOL_NAMES.has(spec.name)) ? [SPEECH_SKILL] : [],
+  // Built per turn: the skill has to name the tools this turn registered, which
+  // the tool-delegation setting decides.
+  buildSkills: (host) => {
+    const generation = mediaToolNames(host)
+    return [
+      ...(generation.length > 0
+        ? [mediaGenerationSkill(generation.includes(DELEGATION_TOOL_NAME))]
+        : []),
+      ...(host.toolSpecs.some((spec) => SPEECH_TOOL_NAMES.has(spec.name)) ? [SPEECH_SKILL] : []),
+    ]
+  },
   buildTools: buildMediaTools,
   unavailableReason: (host) =>
     host.toolSpecs.length === 0

@@ -58,6 +58,15 @@ export function requestPermissionsPrompt<T>(
   })
 }
 
+export type CancellableError = Error & { cancelled?: boolean }
+
+/** Keeps "the user declined" distinguishable from "it broke" on the way back. */
+function cancellableError(message: string, cancelled: boolean): CancellableError {
+  const error: CancellableError = new Error(message)
+  if (cancelled) error.cancelled = true
+  return error
+}
+
 export function handlePermissionsPromptResponse(payload: PermissionsPromptResponse): void {
   if (typeof payload?.requestId !== 'string') return
   const entry = pending.get(payload.requestId)
@@ -68,7 +77,7 @@ export function handlePermissionsPromptResponse(payload: PermissionsPromptRespon
   }
   pending.delete(payload.requestId)
   if ('error' in payload) {
-    entry.reject(new Error(payload.error))
+    entry.reject(cancellableError(payload.error, payload.cancelled === true))
   } else {
     entry.resolve(payload.result)
   }

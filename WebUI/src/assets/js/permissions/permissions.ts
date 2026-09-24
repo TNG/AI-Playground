@@ -1,6 +1,7 @@
 import { useDialogStore } from '../store/dialogs'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { REMOTE_DOWNLOAD_GRANT, vramWarningGrantKey } from '@/types/permissionsIpc'
+import { createCancellation } from '../errors/appError'
 
 /**
  * Permissions — the consent layer (§4.7 of docs/architecture-target.md, step 13).
@@ -36,7 +37,11 @@ export async function requestDownload(models: DownloadModelParam[]): Promise<voi
     throw new Error('Permissions policy is unavailable (no electron bridge)')
   }
   const result = await api.requestDownload(cloneForIpc(models))
-  if (!result.success) throw new Error(result.error)
+  if (result.success) return
+  // A decline is a cancellation on the way out and has to still be one here, or
+  // the caller reports "Could not start generation" for a turn the user stopped.
+  if (result.cancelled) throw createCancellation({ technicalMessage: result.error })
+  throw new Error(result.error)
 }
 
 /**

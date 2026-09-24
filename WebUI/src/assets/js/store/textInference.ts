@@ -1035,7 +1035,10 @@ export const useTextInference = defineStore(
       homeAgent.isHomeAgentActive ? localBackendUrl.value : undefined,
     )
 
-    async function getDownloadParamsForCurrentModelIfRequired(type: 'llm' | 'embedding') {
+    async function getDownloadParamsForCurrentModelIfRequired(
+      type: 'llm' | 'embedding',
+      options: { needsVision?: boolean } = {},
+    ) {
       // Cloud Mode chat LLMs are served remotely — nothing to download. Embedding
       // models, however, run on a LOCAL backend even in Cloud Mode (see
       // embeddingBackend), so an embedding download can still be required.
@@ -1069,7 +1072,11 @@ export const useTextInference = defineStore(
       ]
       // The multimodal projector only applies to a vision LLM — never pull it for
       // an embedding-only download (its "active model" lookup is incidental here).
-      if (type === 'llm' && modelMetaData?.mmproj) {
+      // A text turn runs without it (llama.cpp only passes --mmproj when the file
+      // is beside the model), so asking for it would be a gigabyte the turn does
+      // not use — and on a remote Home Agent turn, a download question nobody
+      // expected.
+      if (type === 'llm' && options.needsVision && modelMetaData?.mmproj) {
         checkList.push({
           repo_id: modelMetaData.mmproj,
           type: backendToAipgModelType[localBackend],
@@ -1376,9 +1383,12 @@ export const useTextInference = defineStore(
       }
     }
 
-    async function checkModelAvailability() {
+    async function checkModelAvailability(options: { needsVision?: boolean } = {}) {
       // ToDo: the path for embedding downloads must be corrected and BAAI/bge-large-zh-v1.5 was accidentally downloaded to the wrong place
-      const requiredModelDownloads = await getDownloadParamsForCurrentModelIfRequired('llm')
+      const requiredModelDownloads = await getDownloadParamsForCurrentModelIfRequired(
+        'llm',
+        options,
+      )
       if (willUseRag.value) {
         const requiredEmbeddingModelDownloads =
           await getDownloadParamsForCurrentModelIfRequired('embedding')

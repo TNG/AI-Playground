@@ -5,6 +5,7 @@ import { Type, type TSchema } from 'typebox'
 import type { AgentToolResult } from '@earendil-works/pi-coding-agent'
 import { appLoggerInstance } from '../observability/logger.ts'
 import { emitAgentToolImage } from '../kernel/kernelBus.ts'
+import { noteGeneratedMedia } from './generatedMedia.ts'
 
 // ── Agent Mode tool plumbing ─────────────────────────────────────────────────
 //
@@ -208,6 +209,7 @@ export async function saveGeneratedMediaToWorkspace(
     }
   }
   if (savedFiles.length === 0) return result
+  noteGeneratedMedia(workspaceDir, savedFiles)
   return {
     ...record,
     savedFiles,

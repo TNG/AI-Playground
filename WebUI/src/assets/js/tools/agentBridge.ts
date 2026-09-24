@@ -18,13 +18,14 @@ import type { AgentToolSpec } from '@/types/agentIpc'
 
 const GENERATED_FILES_NOTE =
   '\n\nFILES: Generated media is automatically saved into the "generated/" folder of your ' +
-  'workspace. The tool result lists the workspace-relative paths in "savedFiles".'
+  'workspace. The tool result lists the workspace-relative paths in "savedFiles". The ' +
+  'generator names those files, so a path exists only once a call has reported it — never ' +
+  'guess one, and never create the image file yourself.'
 
 const SOURCE_IMAGE_NOTE =
   '\n\nAGENT MODE: There is no conversation image history here. You MUST pass the image to ' +
-  'edit via the required "sourceImagePath" parameter — a workspace-relative path to an ' +
-  'existing image file (e.g. "generated/AIPG_00001_.png" from a previous generateImage call, ' +
-  'or any image file in the workspace).'
+  'edit via the required "sourceImagePath" parameter — a workspace-relative path an earlier ' +
+  'call reported under "savedFiles", or a file the user attached under "attachments/".'
 
 function editImageInputSchema(): z.ZodTypeAny {
   // The edit tool's zod schema is preset-dependent (workflow enum), so extend
@@ -34,7 +35,8 @@ function editImageInputSchema(): z.ZodTypeAny {
     sourceImagePath: z
       .string()
       .describe(
-        'Workspace-relative path of the source image file to edit (e.g. "generated/AIPG_00001_.png").',
+        'Workspace-relative path of the source image file to edit: one an earlier call ' +
+          'reported under "savedFiles", or a file under "attachments/".',
       ),
   })
 }
@@ -60,8 +62,9 @@ function mediaSpecInputSchema(): z.ZodTypeAny {
       .string()
       .optional()
       .describe(
-        'Workspace-relative path of a source image to transform (e.g. ' +
-          '"generated/AIPG_00001_.png"). Omit for pure text-to-media generation.',
+        'Workspace-relative path of a source image to transform: one an earlier call ' +
+          'reported under "savedFiles", or a file under "attachments/". Omit for pure ' +
+          'text-to-media generation.',
       ),
   })
 }

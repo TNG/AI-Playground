@@ -25,6 +25,7 @@ const {
   deleteConversation,
   migrateLegacyConversations,
   resetConversationFilesForTest,
+  saveChatTurnConversation,
   saveConversation,
   saveConversationLastMainKey,
   setConversationFileDeps,
@@ -307,6 +308,56 @@ describe('saveConversation', () => {
       }),
     ).rejects.toThrow(/invalid conversation id/)
     expect(await listDir(dirs.real)).toEqual([])
+  })
+})
+
+describe('saveChatTurnConversation', () => {
+  const assistantMessage = (id: string) => ({
+    id,
+    role: 'assistant',
+    parts: [{ type: 'text', text: 'ok' }],
+  })
+
+  async function storedMessageIds(id: string): Promise<string[]> {
+    const doc = await readJson(path.join(dirs.real, `${id}.json`))
+    return (doc.messages as { id: string }[]).map((message) => message.id)
+  }
+
+  it('restores the history a resumed renderer dropped', async () => {
+    const turn = { id: '900', meta: null, ragHashes: [] }
+    await saveChatTurnConversation({
+      ...turn,
+      messages: [userMessage('one'), assistantMessage('a-1'), userMessage('two')],
+    })
+    await saveChatTurnConversation({
+      ...turn,
+      messages: [
+        userMessage('one'),
+        assistantMessage('a-1'),
+        userMessage('two'),
+        assistantMessage('a-2'),
+      ],
+    })
+
+    // What a renderer that resumed mid-turn submits next: the turn it adopted,
+    // then the new prompt.
+    await saveChatTurnConversation({
+      ...turn,
+      messages: [assistantMessage('a-2'), userMessage('three')],
+    })
+
+    expect(await storedMessageIds('900')).toEqual(['u-one', 'a-1', 'u-two', 'a-2', 'u-three'])
+  })
+
+  it('still lets a regenerate truncate the thread from the end', async () => {
+    const turn = { id: '901', meta: null, ragHashes: [] }
+    await saveChatTurnConversation({
+      ...turn,
+      messages: [userMessage('one'), assistantMessage('a-1'), userMessage('two')],
+    })
+    await saveChatTurnConversation({ ...turn, messages: [userMessage('one')] })
+
+    expect(await storedMessageIds('901')).toEqual(['u-one'])
   })
 })
 

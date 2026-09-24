@@ -85,6 +85,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('showOpenDialog', options),
   saveImage: (url: string) => ipcRenderer.send('saveImage', url),
   saveImageToMediaInput: (dataUri: string) => ipcRenderer.invoke('saveImageToMediaInput', dataUri),
+  saveAudioToMediaInput: (dataUri: string) => ipcRenderer.invoke('saveAudioToMediaInput', dataUri),
   saveGeneratedAudio: (audioBase64: string, filename: string, options?: { overwrite?: boolean }) =>
     ipcRenderer.invoke('saveGeneratedAudio', audioBase64, filename, options),
   readLocalAudioAsDataUri: (filePath: string) =>
@@ -192,7 +193,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   permissions: {
     requestDownload: (models: unknown[]) =>
       ipcRenderer.invoke('permissions:requestDownload', cloneForIpc(models)) as Promise<
-        { success: true } | { success: false; error: string }
+        { success: true } | { success: false; error: string; cancelled?: boolean }
       >,
     requestVramWarning: (req: { presetName: string; message: string }) =>
       ipcRenderer.invoke('permissions:requestVramWarning', req) as Promise<

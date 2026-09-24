@@ -252,6 +252,24 @@ export async function saveImageToMediaInput(dataUri: string): Promise<string> {
   return mediaUrl(pathSegment)
 }
 
+/** The same for an attached audio clip. @returns aipg-media://media/input/<filename> */
+export async function saveAudioToMediaInput(dataUri: string): Promise<string> {
+  return mediaUrl(await window.electronAPI.saveAudioToMediaInput(dataUri))
+}
+
+/** Reads a picked file as a `data:` URI, whatever its type. */
+export function fileToDataUri(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () =>
+      typeof reader.result === 'string'
+        ? resolve(reader.result)
+        : reject(new Error('Failed to read the file'))
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read the file'))
+    reader.readAsDataURL(file)
+  })
+}
+
 /**
  * Converts a blob URL (or any image URL) to a base64 data URI.
  * If the URL is already a base64 data URI, it returns it unchanged.

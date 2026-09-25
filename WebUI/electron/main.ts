@@ -127,16 +127,13 @@ import { ipcErrorText, ipcFail, typedHandle, typedOn, typedSend } from './kernel
 import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecycle'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
-import { ArtifactRunRequestSchema } from '@/types/artifactIpc'
 import { handleChatAnswer, rejectAllChatAsks } from './chat/chatAsk.ts'
-import type { MediaItem } from '@/types/mediaItem'
 import type { ArtifactMissingModel } from '@/types/mediaRequests'
 import type { SpeechSynthesisRequest } from '@/types/speechIpc'
 import type { IpcMutationResult, IpcOk, IpcOkWith } from '@/types/ipcChannels'
 import {
   cancelActiveArtifactRun,
   setArtifactRunnerDeps,
-  type ArtifactRunPayload,
   type RunnerComfyService,
 } from './artifact/runner'
 import {
@@ -206,6 +203,18 @@ import { buildGamesRegistry } from './kernel/registries/games'
 import { buildMcpRegistry, buildMcpSendRegistry } from './kernel/registries/mcp'
 import { buildPermissionsRegistry } from './kernel/registries/permissions'
 import { buildWebBrowserRegistry } from './kernel/registries/webBrowser'
+import { buildArtifactRegistry } from './kernel/registries/artifact'
+import { buildCloudProviderRegistry } from './kernel/registries/cloudProvider'
+import { buildKernelRegistry } from './kernel/registries/kernel'
+import { buildLifecycleSendRegistry } from './kernel/registries/lifecycle'
+import { buildMediaItemsRegistry } from './kernel/registries/mediaItems'
+import { buildPreferencesRegistry } from './kernel/registries/preferences'
+import { buildRagDocumentsRegistry } from './kernel/registries/ragDocuments'
+import { buildSafeStorageRegistry } from './kernel/registries/safeStorage'
+import {
+  buildScreenshotRegistry,
+  buildScreenshotSendRegistry,
+} from './kernel/registries/screenshot'
 import {
   bootstrapAgentSessions,
   deleteAgentSessionRecord,
@@ -1656,50 +1665,9 @@ function initEventHandle() {
   })
 
   // ── Cloud Mode provider API keys ────────────────────────────────────────
-  // Keys are encrypted at rest via safeStorage and never persisted in the
-  // renderer. Each provider's key lives in its own file keyed by provider id,
-  // mirroring the Home Agent channel-secret layout. Reading/decryption happens in
-  // main only (readCloudProviderKey); the proxy attaches the bearer token so the
-  // plaintext key never reaches the renderer.
-  typedHandle('cloudProvider:saveKey', (_event, providerId: string, key: string) => {
-    try {
-      const raw = (key ?? '').trim()
-      if (!raw) {
-        // Empty key clears any stored secret.
-        try {
-          fs.unlinkSync(cloudProviderKeyPath(providerId))
-        } catch {
-          /* nothing to remove */
-        }
-        return { success: true as const }
-      }
-      const blob = safeStorage.encryptString(raw).toJSON()
-      fs.writeFileSync(cloudProviderKeyPath(providerId), JSON.stringify(blob), 'utf-8')
-      return { success: true as const }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
-  typedHandle('cloudProvider:getKey', (_event, providerId: string): string | null =>
-    readCloudProviderKey(providerId),
+  registerInvokeHandlers(
+    buildCloudProviderRegistry({ cloudProviderKeyPath, readCloudProviderKey, getCloudProxy }),
   )
-
-  typedHandle('cloudProvider:deleteKey', (_event, providerId: string) => {
-    try {
-      fs.unlinkSync(cloudProviderKeyPath(providerId))
-    } catch {
-      /* already gone */
-    }
-    return { success: true as const }
-  })
-
-  // Loopback URL of the Cloud Mode proxy. The renderer points its
-  // OpenAI-compatible client and model-list fetch at this URL and tags each
-  // request with X-Cloud-Upstream / X-Cloud-Provider (see cloudProxy.ts).
-  typedHandle('cloudProvider:getProxyUrl', async (): Promise<string> => {
-    return (await getCloudProxy()).url
-  })
 
   typedHandle('detectHardwareForModeRecommendation', async () => {
     let detected: GpuHardwareDevice[] = []
@@ -1795,14 +1763,18 @@ function initEventHandle() {
 
   // The renderer reports whether it has tracked work in flight; an input to
   // the main-owned close policy (see createWindow's 'close' handler).
-  typedOn('lifecycle:busy', (_event, busy: boolean) => {
-    rendererBusy = busy === true
-  })
+  registerSendHandlers(
+    buildLifecycleSendRegistry({
+      setRendererBusy: (busy) => {
+        rendererBusy = busy
+      },
+    }),
+  )
 
   // Projection hydration: the renderer subscribes to the kernel event stream
   // BEFORE requesting this snapshot and applies only events above its
   // sequence (docs/architecture-target.md §4.6).
-  typedHandle('kernel:getSnapshot', () => getKernelSnapshot())
+  registerInvokeHandlers(buildKernelRegistry({ getKernelSnapshot }))
 
   typedOn('setFullScreen', (_event, enable: boolean) => {
     if (win) {
@@ -2171,34 +2143,9 @@ function initEventHandle() {
 
   typedHandle('getPlatform', () => process.platform)
 
-  typedHandle('safeStorage:isEncryptionAvailable', () => safeStorage.isEncryptionAvailable())
-
-  typedHandle('safeStorage:enablePlainTextEncryption', () => {
-    try {
-      if (!safeStorage.isEncryptionAvailable()) {
-        safeStorage.setUsePlainTextEncryption(true)
-      }
-      if (!safeStorage.isEncryptionAvailable()) {
-        return {
-          success: false as const,
-          error: 'Plaintext secret storage is not available on this system.',
-        }
-      }
-      if (!settings.allowPlaintextSecretStorage) {
-        settings.allowPlaintextSecretStorage = true
-        persistLocalSettingsToDisk()
-      }
-      appLogger.warn(
-        `User opted into plaintext-backed safeStorage (backend=${safeStorage.getSelectedStorageBackend()}); ` +
-          `stored secrets are obfuscated, not encrypted.`,
-        'electron-backend',
-        true,
-      )
-      return { success: true as const }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
+  registerInvokeHandlers(
+    buildSafeStorageRegistry({ settings, persistLocalSettingsToDisk, appLogger }),
+  )
 
   typedHandle(
     'addDocumentToRAGList',
@@ -2577,35 +2524,15 @@ function initEventHandle() {
   // The renderer ships fully-resolved runs; the runner owns readiness,
   // submission and the progress stream back over the kernel bus.
 
-  typedHandle('artifact:run', async (_event, request, options) => {
-    const parsed = ArtifactRunRequestSchema.safeParse(request)
-    if (!parsed.success) {
-      appLogger.warn(
-        `artifact:run rejected a malformed request: ${parsed.error.message}`,
-        'electron-backend',
-      )
-      return { state: 'failed' as const, items: [], error: 'Malformed artifact run request' }
-    }
-    const payload: ArtifactRunPayload = {
-      ...parsed.data,
-      items: parsed.data.items as MediaItem[] | undefined,
-    }
-    return submitArtifactRun(payload, {
-      queue: options?.queue === 'queue' ? 'queue' : 'fail-fast',
-    })
-  })
-
-  typedHandle('artifact:cancel', (_event, runId) => {
-    if (typeof runId === 'string' && runId.length > 0) {
-      cancelArtifactRun(runId)
-    } else {
-      cancelActiveArtifactRun()
-    }
-  })
-
-  typedHandle('artifact:respond', (_event, payload) => {
-    handleMediaResponse(payload)
-  })
+  registerInvokeHandlers(
+    buildArtifactRegistry({
+      appLogger,
+      submitArtifactRun,
+      cancelArtifactRun,
+      cancelActiveArtifactRun,
+      handleMediaResponse,
+    }),
+  )
 
   registerInvokeHandlers(
     buildPermissionsRegistry({
@@ -2662,105 +2589,38 @@ function initEventHandle() {
   // Generated-media gallery records (step 8, §6.1): same one-writer contract
   // as the conversations and agent sessions above — one JSON per item plus an
   // ordered index inside `media/records/`, beside the media files themselves.
-  typedHandle('mediaItems:bootstrap', async () => {
-    try {
-      return await bootstrapMediaItems()
-    } catch (e) {
-      return { status: 'error' as const, error: ipcErrorText(e) }
-    }
-  })
-
-  typedHandle('mediaItems:migrate', async (_event, payload) => {
-    try {
-      if (!Array.isArray(payload)) throw new Error('legacy media items payload must be an array')
-      return await migrateLegacyMediaItems(payload)
-    } catch (e) {
-      return { status: 'error' as const, error: ipcErrorText(e) }
-    }
-  })
-
-  typedHandle('mediaItems:save', async (_event, payload) => {
-    try {
-      if (!Array.isArray(payload)) throw new Error('media items payload must be an array')
-      await saveMediaItems(payload)
-      return { success: true as const }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
-  typedHandle('mediaItems:delete', async (_event, ids) => {
-    try {
-      if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) {
-        throw new Error('media item ids payload must be an array of strings')
-      }
-      return await deleteMediaItemRecords(ids)
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
+  registerInvokeHandlers(
+    buildMediaItemsRegistry({
+      bootstrapMediaItems,
+      migrateLegacyMediaItems,
+      saveMediaItems,
+      deleteMediaItemRecords,
+    }),
+  )
 
   // User preferences (step 8, §6.1): one file, one section per store. The
   // one-shot migrate writes only when the section is absent, so a retry can
   // never overwrite what the files already own.
-  typedHandle('preferences:read', async () => {
-    try {
-      return { success: true as const, sections: await readAllPreferences() }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
-  typedHandle('preferences:migrate', async (_event, section, payload) => {
-    try {
-      if (typeof section !== 'string') throw new Error('preference section must be a string')
-      await migratePreferenceSection(section, payload)
-      return { success: true as const }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
-  typedHandle('preferences:write', async (_event, section, value) => {
-    try {
-      if (typeof section !== 'string') throw new Error('preference section must be a string')
-      await writePreferenceSection(section, value)
-      return { success: true as const }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
+  registerInvokeHandlers(
+    buildPreferencesRegistry({
+      readAllPreferences,
+      migratePreferenceSection,
+      writePreferenceSection,
+    }),
+  )
 
   // ── RAG documents (step 8, §6.1): the textInference store's indexed
   // document set, one kernel-owned file — same section-shaped contract as
   // the preferences channels, over rag/documents.json. read keeps "absent"
   // (section null) apart from "failed" (success false): only the former may
   // trigger the one-shot legacy upload.
-  typedHandle('ragDocuments:read', async () => {
-    try {
-      return { success: true as const, section: await readRagDocumentSection() }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
-  typedHandle('ragDocuments:migrate', async (_event, payload) => {
-    try {
-      await migrateRagDocumentSection(payload)
-      return { success: true as const }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
-  typedHandle('ragDocuments:write', async (_event, value) => {
-    try {
-      await writeRagDocumentSection(value)
-      return { success: true as const }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
+  registerInvokeHandlers(
+    buildRagDocumentsRegistry({
+      readRagDocumentSection,
+      migrateRagDocumentSection,
+      writeRagDocumentSection,
+    }),
+  )
 
   typedHandle(
     'getEmbeddingServerUrl',
@@ -3259,17 +3119,14 @@ function initEventHandle() {
   // settings UI so the user can bind the screenshot tool to a single window;
   // it is never exposed to the LLM. The Chat tool captures in main (it ships
   // the bound window on the turn); this channel serves the settings picker.
-
-  typedHandle('screenshot:getPermissionStatus', () => ({
-    platform: process.platform,
-    status: getScreenCaptureStatus(),
-  }))
-
-  typedOn('screenshot:openPermissionSettings', () => openScreenCaptureSettings())
-
-  typedHandle('screenshot:listWindows', async () => await listCaptureWindows())
-
-  typedHandle('screenshot:captureWindow', async (_event, target) => await captureWindow(target))
+  const screenshotDeps = {
+    getScreenCaptureStatus,
+    openScreenCaptureSettings,
+    listCaptureWindows,
+    captureWindow,
+  }
+  registerInvokeHandlers(buildScreenshotRegistry(screenshotDeps))
+  registerSendHandlers(buildScreenshotSendRegistry(screenshotDeps))
 
   // MCP server IPC handlers
   const mcpDeps = {

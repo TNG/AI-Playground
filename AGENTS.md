@@ -8,20 +8,6 @@ Electron + Vue.js desktop app for AI inference on Intel GPUs. Multi-process arch
 Electron main process orchestrates Vue.js frontend and multiple Python/native backend services
 (AI Backend, ComfyUI, LlamaCPP, OpenVINO). Frontend code lives in `WebUI/`.
 
-## Agent skills
-
-### Issue tracker
-
-Issues are tracked on GitHub (the origin fork, TNG/AI-Playground) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Default five-role vocabulary; label strings equal the role names. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
-
 ## Mandatory Rules
 
 - Use **composition over inheritance** — never introduce new class hierarchies.
@@ -443,8 +429,7 @@ row's documentation. All three sides are enforced through it: main registers han
 types derive from the rows and its hand-written members are audited as one object
 (`satisfies ElectronApi`), and the renderer's `electronAPI` type
 is a one-line derivation in `env.d.ts`. A channel missing on any side is a build error, not
-a runtime bug. The manifest is authoritative — the old "three-file rule" is superseded (see
-docs/adr/0001-channel-manifest.md).
+a runtime bug. The manifest is authoritative — the old "three-file rule" is superseded.
 
 Enforcement is end-to-end:
 

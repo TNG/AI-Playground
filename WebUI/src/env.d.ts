@@ -501,43 +501,13 @@ type electronAPI = {
     onAsk(callback: (payload: import('./types/chatRequests').ChatAskPayload) => void): () => void
   }
   conversations: import('./types/ipcChannels').NamespaceBridge<'conversations'>
-  mediaItems: {
-    bootstrap(): Promise<
-      import('./types/mediaItemIpc').MediaItemsBootstrap | { status: 'error'; error: string }
-    >
-    migrate(
-      items: unknown[],
-    ): Promise<
-      import('./types/mediaItemIpc').MediaItemsBootstrap | { status: 'error'; error: string }
-    >
-    save(items: unknown[]): Promise<{ success: true } | { success: false; error: string }>
-    delete(ids: string[]): Promise<{ success: true } | { success: false; error: string }>
-  }
-  preferences: {
-    read(): Promise<
-      { success: true; sections: Record<string, unknown> } | { success: false; error: string }
-    >
-    migrate(
-      section: string,
-      payload: unknown,
-    ): Promise<{ success: true } | { success: false; error: string }>
-    write(
-      section: string,
-      value: unknown,
-    ): Promise<{ success: true } | { success: false; error: string }>
-  }
+  mediaItems: import('./types/ipcChannels').NamespaceBridge<'mediaItems'>
+  preferences: import('./types/ipcChannels').NamespaceBridge<'preferences'>
   getBackendLaunchSettings(): Promise<import('./types/preferencesIpc').BackendLaunchSettings>
   migrateBackendLaunchSettings(
     payload: unknown,
   ): Promise<{ success: true } | { success: false; error: string }>
-  ragDocuments: {
-    read(): Promise<
-      | { success: true; section: import('./types/ragDocumentIpc').RagDocumentSection | null }
-      | { success: false; error: string }
-    >
-    migrate(payload: unknown): Promise<{ success: true } | { success: false; error: string }>
-    write(value: unknown): Promise<{ success: true } | { success: false; error: string }>
-  }
+  ragDocuments: import('./types/ipcChannels').NamespaceBridge<'ragDocuments'>
   startTranscriptionServer(modelName: string): Promise<{ success: boolean; error?: string }>
   stopTranscriptionServer(): Promise<{ success: boolean; error?: string }>
   getTranscriptionServerUrl(): Promise<{ success: boolean; url?: string; error?: string }>

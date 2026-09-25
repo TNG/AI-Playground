@@ -1,4 +1,6 @@
 import type { ConversationBootstrap, ConversationSaveRequest } from './conversationIpc'
+import type { MediaItemsBootstrap } from './mediaItemIpc'
+import type { RagDocumentSection } from './ragDocumentIpc'
 
 export type IpcOwner = 'main' | 'homeAgent'
 export type IpcKind = 'invoke' | 'send' | 'push' | 'ask'
@@ -80,6 +82,76 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string | null],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Hydrate the media-gallery records once before mount: item files plus the ordered index. */
+  'mediaItems:bootstrap': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as MediaItemsBootstrap | IpcStatusError,
+  },
+  /** One-shot legacy upload of the localStorage gallery; same result shape as bootstrap. */
+  'mediaItems:migrate': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [unknown[]],
+    result: null as unknown as MediaItemsBootstrap | IpcStatusError,
+  },
+  /** Upsert gallery record files plus their index entries (user mutations only). */
+  'mediaItems:save': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [unknown[]],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Delete gallery record files and their index entries by id. */
+  'mediaItems:delete': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string[]],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** All preference sections at once; the file is small, so every store picks its own. */
+  'preferences:read': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as { success: true; sections: Record<string, unknown> } | IpcFail,
+  },
+  /** One-shot legacy upload of one section; writes only when the section is absent. */
+  'preferences:migrate': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, unknown],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Replace one store's section in the kernel-owned preferences file. */
+  'preferences:write': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, unknown],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** The indexed RAG document list; `section: null` means never-migrated, not failed. */
+  'ragDocuments:read': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as { success: true; section: RagDocumentSection | null } | IpcFail,
+  },
+  /** One-shot legacy upload of the document list; writes only when the file is absent. */
+  'ragDocuments:migrate': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [unknown],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Replace the whole indexed document list. */
+  'ragDocuments:write': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [unknown],
     result: null as unknown as IpcMutationResult,
   },
 } satisfies Record<string, IpcRow>

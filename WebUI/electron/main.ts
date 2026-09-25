@@ -2912,109 +2912,103 @@ function initEventHandle() {
   // Generated-media gallery records (step 8, §6.1): same one-writer contract
   // as the conversations and agent sessions above — one JSON per item plus an
   // ordered index inside `media/records/`, beside the media files themselves.
-  ipcMain.handle('mediaItems:bootstrap', async () => {
+  typedHandle('mediaItems:bootstrap', async () => {
     try {
       return await bootstrapMediaItems()
     } catch (e) {
-      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+      return { status: 'error' as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle('mediaItems:migrate', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+  typedHandle('mediaItems:migrate', async (_event, payload) => {
     try {
       if (!Array.isArray(payload)) throw new Error('legacy media items payload must be an array')
       return await migrateLegacyMediaItems(payload)
     } catch (e) {
-      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+      return { status: 'error' as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle('mediaItems:save', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+  typedHandle('mediaItems:save', async (_event, payload) => {
     try {
       if (!Array.isArray(payload)) throw new Error('media items payload must be an array')
       await saveMediaItems(payload)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle('mediaItems:delete', async (_event: IpcMainInvokeEvent, ids: unknown) => {
+  typedHandle('mediaItems:delete', async (_event, ids) => {
     try {
       if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) {
         throw new Error('media item ids payload must be an array of strings')
       }
       return await deleteMediaItemRecords(ids)
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 
   // User preferences (step 8, §6.1): one file, one section per store. The
   // one-shot migrate writes only when the section is absent, so a retry can
   // never overwrite what the files already own.
-  ipcMain.handle('preferences:read', async () => {
+  typedHandle('preferences:read', async () => {
     try {
       return { success: true as const, sections: await readAllPreferences() }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle(
-    'preferences:migrate',
-    async (_event: IpcMainInvokeEvent, section: unknown, payload: unknown) => {
-      try {
-        if (typeof section !== 'string') throw new Error('preference section must be a string')
-        await migratePreferenceSection(section, payload)
-        return { success: true as const }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
-  )
+  typedHandle('preferences:migrate', async (_event, section, payload) => {
+    try {
+      if (typeof section !== 'string') throw new Error('preference section must be a string')
+      await migratePreferenceSection(section, payload)
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: ipcErrorText(e) }
+    }
+  })
 
-  ipcMain.handle(
-    'preferences:write',
-    async (_event: IpcMainInvokeEvent, section: unknown, value: unknown) => {
-      try {
-        if (typeof section !== 'string') throw new Error('preference section must be a string')
-        await writePreferenceSection(section, value)
-        return { success: true as const }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
-  )
+  typedHandle('preferences:write', async (_event, section, value) => {
+    try {
+      if (typeof section !== 'string') throw new Error('preference section must be a string')
+      await writePreferenceSection(section, value)
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: ipcErrorText(e) }
+    }
+  })
 
   // ── RAG documents (step 8, §6.1): the textInference store's indexed
   // document set, one kernel-owned file — same section-shaped contract as
   // the preferences channels, over rag/documents.json. read keeps "absent"
   // (section null) apart from "failed" (success false): only the former may
   // trigger the one-shot legacy upload.
-  ipcMain.handle('ragDocuments:read', async () => {
+  typedHandle('ragDocuments:read', async () => {
     try {
       return { success: true as const, section: await readRagDocumentSection() }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle('ragDocuments:migrate', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+  typedHandle('ragDocuments:migrate', async (_event, payload) => {
     try {
       await migrateRagDocumentSection(payload)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle('ragDocuments:write', async (_event: IpcMainInvokeEvent, value: unknown) => {
+  typedHandle('ragDocuments:write', async (_event, value) => {
     try {
       await writeRagDocumentSection(value)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 

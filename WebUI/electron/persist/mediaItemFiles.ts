@@ -242,7 +242,7 @@ export async function saveMediaItems(items: unknown[]): Promise<void> {
 
 export async function deleteMediaItemRecords(
   ids: string[],
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: true } | { success: false; error: string }> {
   for (const id of ids) assertSafeFileId(id, 'media item')
   try {
     await Promise.all(

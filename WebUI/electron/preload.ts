@@ -265,55 +265,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveLastMainKey: (key: string | null) => invoke('conversations:saveLastMainKey', key),
   } satisfies NamespaceBridge<'conversations'>,
   mediaItems: {
-    bootstrap: () =>
-      ipcRenderer.invoke('mediaItems:bootstrap') as Promise<
-        import('../src/types/mediaItemIpc').MediaItemsBootstrap | { status: 'error'; error: string }
-      >,
-    migrate: (items: unknown[]) =>
-      ipcRenderer.invoke('mediaItems:migrate', cloneForIpc(items)) as Promise<
-        import('../src/types/mediaItemIpc').MediaItemsBootstrap | { status: 'error'; error: string }
-      >,
-    save: (items: unknown[]) =>
-      ipcRenderer.invoke('mediaItems:save', cloneForIpc(items)) as Promise<
-        { success: true } | { success: false; error: string }
-      >,
-    delete: (ids: string[]) =>
-      ipcRenderer.invoke('mediaItems:delete', ids) as Promise<
-        { success: true } | { success: false; error: string }
-      >,
-  },
+    bootstrap: () => invoke('mediaItems:bootstrap'),
+    migrate: (items: unknown[]) => invoke('mediaItems:migrate', cloneForIpc(items)),
+    save: (items: unknown[]) => invoke('mediaItems:save', cloneForIpc(items)),
+    delete: (ids: string[]) => invoke('mediaItems:delete', ids),
+  } satisfies NamespaceBridge<'mediaItems'>,
   preferences: {
-    read: () =>
-      ipcRenderer.invoke('preferences:read') as Promise<
-        { success: true; sections: Record<string, unknown> } | { success: false; error: string }
-      >,
+    read: () => invoke('preferences:read'),
     migrate: (section: string, payload: unknown) =>
-      ipcRenderer.invoke('preferences:migrate', section, cloneForIpc(payload)) as Promise<
-        { success: true } | { success: false; error: string }
-      >,
+      invoke('preferences:migrate', section, cloneForIpc(payload)),
     write: (section: string, value: unknown) =>
-      ipcRenderer.invoke('preferences:write', section, cloneForIpc(value)) as Promise<
-        { success: true } | { success: false; error: string }
-      >,
-  },
+      invoke('preferences:write', section, cloneForIpc(value)),
+  } satisfies NamespaceBridge<'preferences'>,
   ragDocuments: {
-    read: () =>
-      ipcRenderer.invoke('ragDocuments:read') as Promise<
-        | {
-            success: true
-            section: import('../src/types/ragDocumentIpc').RagDocumentSection | null
-          }
-        | { success: false; error: string }
-      >,
-    migrate: (payload: unknown) =>
-      ipcRenderer.invoke('ragDocuments:migrate', cloneForIpc(payload)) as Promise<
-        { success: true } | { success: false; error: string }
-      >,
-    write: (value: unknown) =>
-      ipcRenderer.invoke('ragDocuments:write', cloneForIpc(value)) as Promise<
-        { success: true } | { success: false; error: string }
-      >,
-  },
+    read: () => invoke('ragDocuments:read'),
+    migrate: (payload: unknown) => invoke('ragDocuments:migrate', cloneForIpc(payload)),
+    write: (value: unknown) => invoke('ragDocuments:write', cloneForIpc(value)),
+  } satisfies NamespaceBridge<'ragDocuments'>,
   getBackendLaunchSettings: () =>
     ipcRenderer.invoke('getBackendLaunchSettings') as Promise<
       import('../src/types/preferencesIpc').BackendLaunchSettings

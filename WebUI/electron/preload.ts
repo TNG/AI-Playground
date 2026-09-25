@@ -14,6 +14,7 @@ import type { AgentSessionRecordWire } from '@/types/agentSessionIpc'
 import type { ArtifactRunRequest } from '@/types/artifactIpc'
 import type { ChatSummarizeRequest, ChatTurnRequest } from '@/types/chatIpc'
 import type { ChatAnswerPayload, ChatAskPayload } from '@/types/chatRequests'
+import type { ComfyUICustomNodeRepoId } from '@/types/comfyuiIpc'
 import type { ConversationSaveRequest } from '@/types/conversationIpc'
 import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaRequests'
 import type { SpeechSynthesisRequest } from '@/types/speechIpc'
@@ -157,9 +158,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteModelPath: (modelPath: string) => invoke('deleteModelPath', modelPath),
   getPlatform: () => invoke('getPlatform'),
   safeStorage: {
-    isEncryptionAvailable: () => ipcRenderer.invoke('safeStorage:isEncryptionAvailable'),
-    enablePlainTextEncryption: () => ipcRenderer.invoke('safeStorage:enablePlainTextEncryption'),
-  },
+    isEncryptionAvailable: () => invoke('safeStorage:isEncryptionAvailable'),
+    enablePlainTextEncryption: () => invoke('safeStorage:enablePlainTextEncryption'),
+  } satisfies NamespaceBridge<'safeStorage'>,
   openImageWithSystem: (url: string) => send('openImageWithSystem', url),
   openImageInFolder: (url: string) => send('openImageInFolder', url),
   setFullScreen: (enable: boolean) => send('setFullScreen', enable),
@@ -280,22 +281,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getOvmsImageServerUrl: () => invoke('getOvmsImageServerUrl'),
   // ComfyUI Tools
   comfyui: {
-    isGitInstalled: () => ipcRenderer.invoke('comfyui:isGitInstalled'),
-    isComfyUIInstalled: () => ipcRenderer.invoke('comfyui:isComfyUIInstalled'),
-    getGitRef: (repoDir: string) => ipcRenderer.invoke('comfyui:getGitRef', repoDir),
+    isGitInstalled: () => invoke('comfyui:isGitInstalled'),
+    isComfyUIInstalled: () => invoke('comfyui:isComfyUIInstalled'),
+    getGitRef: (repoDir: string) => invoke('comfyui:getGitRef', repoDir),
     isPackageInstalled: (packageSpecifier: string) =>
-      ipcRenderer.invoke('comfyui:isPackageInstalled', packageSpecifier),
+      invoke('comfyui:isPackageInstalled', packageSpecifier),
     installPypiPackage: (packageSpecifier: string) =>
-      ipcRenderer.invoke('comfyui:installPypiPackage', packageSpecifier),
+      invoke('comfyui:installPypiPackage', packageSpecifier),
     isCustomNodeInstalled: (nodeRepoRef: ComfyUICustomNodeRepoId) =>
-      ipcRenderer.invoke('comfyui:isCustomNodeInstalled', nodeRepoRef),
+      invoke('comfyui:isCustomNodeInstalled', nodeRepoRef),
     downloadCustomNode: (nodeRepoData: ComfyUICustomNodeRepoId) =>
-      ipcRenderer.invoke('comfyui:downloadCustomNode', nodeRepoData),
+      invoke('comfyui:downloadCustomNode', nodeRepoData),
     uninstallCustomNode: (nodeRepoData: ComfyUICustomNodeRepoId) =>
-      ipcRenderer.invoke('comfyui:uninstallCustomNode', nodeRepoData),
-    listInstalledCustomNodes: () => ipcRenderer.invoke('comfyui:listInstalledCustomNodes'),
-    openInBrowser: () => ipcRenderer.invoke('comfyui:openInBrowser'),
-  },
+      invoke('comfyui:uninstallCustomNode', nodeRepoData),
+    listInstalledCustomNodes: () => invoke('comfyui:listInstalledCustomNodes'),
+    openInBrowser: () => invoke('comfyui:openInBrowser'),
+  } satisfies NamespaceBridge<'comfyui'>,
   mcp: {
     listServers: () => ipcRenderer.invoke('mcp:listServers'),
     startServer: (serverId: string) => ipcRenderer.invoke('mcp:startServer', serverId),
@@ -413,12 +414,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ),
   },
   screenshot: {
-    listWindows: () => ipcRenderer.invoke('screenshot:listWindows'),
-    captureWindow: (target: { id: string; name: string }) =>
-      ipcRenderer.invoke('screenshot:captureWindow', target),
-    getPermissionStatus: () => ipcRenderer.invoke('screenshot:getPermissionStatus'),
-    openPermissionSettings: () => ipcRenderer.send('screenshot:openPermissionSettings'),
-  },
+    listWindows: () => invoke('screenshot:listWindows'),
+    captureWindow: (target: ScreenshotWindow) => invoke('screenshot:captureWindow', target),
+    getPermissionStatus: () => invoke('screenshot:getPermissionStatus'),
+    openPermissionSettings: () => send('screenshot:openPermissionSettings'),
+  } satisfies NamespaceBridge<'screenshot'>,
   homeAgent: {
     // Persist an inbound document (base64) to disk for RAG ingestion.
     saveDocument: (filename: string, base64: string) =>
@@ -470,12 +470,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   // Cloud Mode provider secrets, encrypted at rest via safeStorage in main.
   cloudProvider: {
-    saveKey: (providerId: string, key: string): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('cloudProvider:saveKey', providerId, key),
-    getKey: (providerId: string): Promise<string | null> =>
-      ipcRenderer.invoke('cloudProvider:getKey', providerId),
-    deleteKey: (providerId: string): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('cloudProvider:deleteKey', providerId),
-    getProxyUrl: (): Promise<string> => ipcRenderer.invoke('cloudProvider:getProxyUrl'),
-  },
+    saveKey: (providerId: string, key: string) => invoke('cloudProvider:saveKey', providerId, key),
+    getKey: (providerId: string) => invoke('cloudProvider:getKey', providerId),
+    deleteKey: (providerId: string) => invoke('cloudProvider:deleteKey', providerId),
+    getProxyUrl: () => invoke('cloudProvider:getProxyUrl'),
+  } satisfies NamespaceBridge<'cloudProvider'>,
 })

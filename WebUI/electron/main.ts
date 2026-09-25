@@ -1660,7 +1660,7 @@ function initEventHandle() {
   // mirroring the Home Agent channel-secret layout. Reading/decryption happens in
   // main only (readCloudProviderKey); the proxy attaches the bearer token so the
   // plaintext key never reaches the renderer.
-  ipcMain.handle('cloudProvider:saveKey', (_event, providerId: string, key: string) => {
+  typedHandle('cloudProvider:saveKey', (_event, providerId: string, key: string) => {
     try {
       const raw = (key ?? '').trim()
       if (!raw) {
@@ -1670,33 +1670,33 @@ function initEventHandle() {
         } catch {
           /* nothing to remove */
         }
-        return { success: true }
+        return { success: true as const }
       }
       const blob = safeStorage.encryptString(raw).toJSON()
       fs.writeFileSync(cloudProviderKeyPath(providerId), JSON.stringify(blob), 'utf-8')
-      return { success: true }
+      return { success: true as const }
     } catch (e) {
-      return { success: false, error: String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle('cloudProvider:getKey', (_event, providerId: string): string | null =>
+  typedHandle('cloudProvider:getKey', (_event, providerId: string): string | null =>
     readCloudProviderKey(providerId),
   )
 
-  ipcMain.handle('cloudProvider:deleteKey', (_event, providerId: string) => {
+  typedHandle('cloudProvider:deleteKey', (_event, providerId: string) => {
     try {
       fs.unlinkSync(cloudProviderKeyPath(providerId))
     } catch {
       /* already gone */
     }
-    return { success: true }
+    return { success: true as const }
   })
 
   // Loopback URL of the Cloud Mode proxy. The renderer points its
   // OpenAI-compatible client and model-list fetch at this URL and tags each
   // request with X-Cloud-Upstream / X-Cloud-Provider (see cloudProxy.ts).
-  ipcMain.handle('cloudProvider:getProxyUrl', async (): Promise<string> => {
+  typedHandle('cloudProvider:getProxyUrl', async (): Promise<string> => {
     return (await getCloudProxy()).url
   })
 
@@ -2178,16 +2178,16 @@ function initEventHandle() {
 
   typedHandle('getPlatform', () => process.platform)
 
-  ipcMain.handle('safeStorage:isEncryptionAvailable', () => safeStorage.isEncryptionAvailable())
+  typedHandle('safeStorage:isEncryptionAvailable', () => safeStorage.isEncryptionAvailable())
 
-  ipcMain.handle('safeStorage:enablePlainTextEncryption', () => {
+  typedHandle('safeStorage:enablePlainTextEncryption', () => {
     try {
       if (!safeStorage.isEncryptionAvailable()) {
         safeStorage.setUsePlainTextEncryption(true)
       }
       if (!safeStorage.isEncryptionAvailable()) {
         return {
-          success: false,
+          success: false as const,
           error: 'Plaintext secret storage is not available on this system.',
         }
       }
@@ -2201,9 +2201,9 @@ function initEventHandle() {
         'electron-backend',
         true,
       )
-      return { success: true }
+      return { success: true as const }
     } catch (e) {
-      return { success: false, error: String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 
@@ -2276,15 +2276,15 @@ function initEventHandle() {
     return ''
   })
 
-  ipcMain.handle('comfyui:openInBrowser', async () => {
+  typedHandle('comfyui:openInBrowser', async () => {
     const comfyService = serviceRegistry?.getService('comfyui-backend') as
       ComfyUiBackendService | undefined
     if (!comfyService) {
-      return { success: false, error: 'ComfyUI backend service not found' }
+      return { success: false as const, error: 'ComfyUI backend service not found' }
     }
     const baseUrl = comfyService.baseUrl
     if (!baseUrl) {
-      return { success: false, error: 'ComfyUI backend has no base URL yet' }
+      return { success: false as const, error: 'ComfyUI backend has no base URL yet' }
     }
     const token = comfyService.getLoopbackAuthToken()
     // /aipg/launch (provided by the bundled aipg-auth custom_node) validates
@@ -2295,9 +2295,9 @@ function initEventHandle() {
     const url = `${baseUrl}/aipg/launch?launch_token=${encodeURIComponent(token)}`
     try {
       await shell.openExternal(url)
-      return { success: true }
+      return { success: true as const }
     } catch (e) {
-      return { success: false, error: e instanceof Error ? e.message : String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 
@@ -3378,11 +3378,11 @@ function initEventHandle() {
   })
 
   // ComfyUI Tools IPC handlers
-  ipcMain.handle('comfyui:isGitInstalled', async () => {
+  typedHandle('comfyui:isGitInstalled', async () => {
     return await comfyuiTools.isGitInstalled()
   })
 
-  ipcMain.handle('comfyui:isComfyUIInstalled', () => {
+  typedHandle('comfyui:isComfyUIInstalled', () => {
     const comfyService = serviceRegistry?.getService('comfyui-backend') as
       ComfyUiBackendService | undefined
     if (!comfyService) {
@@ -3391,15 +3391,15 @@ function initEventHandle() {
     return comfyuiTools.isComfyUIInstalled(comfyService.serviceDir)
   })
 
-  ipcMain.handle('comfyui:getGitRef', async (_event, repoDir: string) => {
+  typedHandle('comfyui:getGitRef', async (_event, repoDir: string) => {
     return await comfyuiTools.getGitRef(repoDir)
   })
 
-  ipcMain.handle('comfyui:isPackageInstalled', async (_event, packageSpecifier: string) => {
+  typedHandle('comfyui:isPackageInstalled', async (_event, packageSpecifier: string) => {
     return await comfyuiTools.isPackageInstalled(packageSpecifier)
   })
 
-  ipcMain.handle('comfyui:installPypiPackage', async (_event, packageSpecifier: string) => {
+  typedHandle('comfyui:installPypiPackage', async (_event, packageSpecifier: string) => {
     const comfyService = serviceRegistry?.getService('comfyui-backend') as
       ComfyUiBackendService | undefined
     return await comfyuiTools.installPypiPackage(
@@ -3408,51 +3408,42 @@ function initEventHandle() {
     )
   })
 
-  ipcMain.handle(
-    'comfyui:isCustomNodeInstalled',
-    (_event, nodeRepoRef: comfyuiTools.ComfyUICustomNodeRepoId) => {
-      const comfyService = serviceRegistry?.getService('comfyui-backend') as
-        ComfyUiBackendService | undefined
-      if (!comfyService) {
-        throw new Error('ComfyUI backend service not found')
-      }
-      return comfyuiTools.isCustomNodeInstalled(nodeRepoRef, comfyService.serviceDir)
-    },
-  )
+  typedHandle('comfyui:isCustomNodeInstalled', (_event, nodeRepoRef) => {
+    const comfyService = serviceRegistry?.getService('comfyui-backend') as
+      ComfyUiBackendService | undefined
+    if (!comfyService) {
+      throw new Error('ComfyUI backend service not found')
+    }
+    return comfyuiTools.isCustomNodeInstalled(nodeRepoRef, comfyService.serviceDir)
+  })
 
-  ipcMain.handle(
-    'comfyui:downloadCustomNode',
-    async (_event, nodeRepoData: comfyuiTools.ComfyUICustomNodeRepoId) => {
-      const comfyService = serviceRegistry?.getService('comfyui-backend') as
-        ComfyUiBackendService | undefined
-      if (!comfyService) {
-        throw new Error('ComfyUI backend service not found')
-      }
-      const envAndWheels: comfyuiTools.ComfyUiInstallOptions = {
-        extraEnv: comfyService.getTorchBackendEnv(),
-        skipExtraWheels: comfyService.comfyUiVariantName !== 'xpu',
-      }
-      return await comfyuiTools.downloadCustomNode(
-        nodeRepoData,
-        comfyService.serviceDir,
-        envAndWheels,
-      )
-    },
-  )
+  typedHandle('comfyui:downloadCustomNode', async (_event, nodeRepoData) => {
+    const comfyService = serviceRegistry?.getService('comfyui-backend') as
+      ComfyUiBackendService | undefined
+    if (!comfyService) {
+      throw new Error('ComfyUI backend service not found')
+    }
+    const envAndWheels: comfyuiTools.ComfyUiInstallOptions = {
+      extraEnv: comfyService.getTorchBackendEnv(),
+      skipExtraWheels: comfyService.comfyUiVariantName !== 'xpu',
+    }
+    return await comfyuiTools.downloadCustomNode(
+      nodeRepoData,
+      comfyService.serviceDir,
+      envAndWheels,
+    )
+  })
 
-  ipcMain.handle(
-    'comfyui:uninstallCustomNode',
-    async (_event, nodeRepoData: comfyuiTools.ComfyUICustomNodeRepoId) => {
-      const comfyService = serviceRegistry?.getService('comfyui-backend') as
-        ComfyUiBackendService | undefined
-      if (!comfyService) {
-        throw new Error('ComfyUI backend service not found')
-      }
-      return await comfyuiTools.uninstallCustomNode(nodeRepoData, comfyService.serviceDir)
-    },
-  )
+  typedHandle('comfyui:uninstallCustomNode', async (_event, nodeRepoData) => {
+    const comfyService = serviceRegistry?.getService('comfyui-backend') as
+      ComfyUiBackendService | undefined
+    if (!comfyService) {
+      throw new Error('ComfyUI backend service not found')
+    }
+    return await comfyuiTools.uninstallCustomNode(nodeRepoData, comfyService.serviceDir)
+  })
 
-  ipcMain.handle('comfyui:listInstalledCustomNodes', () => {
+  typedHandle('comfyui:listInstalledCustomNodes', () => {
     const comfyService = serviceRegistry?.getService('comfyui-backend') as
       ComfyUiBackendService | undefined
     if (!comfyService) {
@@ -3475,19 +3466,16 @@ function initEventHandle() {
   // it is never exposed to the LLM. The Chat tool captures in main (it ships
   // the bound window on the turn); this channel serves the settings picker.
 
-  ipcMain.handle('screenshot:getPermissionStatus', () => ({
+  typedHandle('screenshot:getPermissionStatus', () => ({
     platform: process.platform,
     status: getScreenCaptureStatus(),
   }))
 
-  ipcMain.on('screenshot:openPermissionSettings', () => openScreenCaptureSettings())
+  typedOn('screenshot:openPermissionSettings', () => openScreenCaptureSettings())
 
-  ipcMain.handle('screenshot:listWindows', async () => await listCaptureWindows())
+  typedHandle('screenshot:listWindows', async () => await listCaptureWindows())
 
-  ipcMain.handle(
-    'screenshot:captureWindow',
-    async (_event, target: { id: string; name: string }) => await captureWindow(target),
-  )
+  typedHandle('screenshot:captureWindow', async (_event, target) => await captureWindow(target))
 
   // MCP server IPC handlers
   ipcMain.handle('mcp:startServer', async (_event, serverId: string) => {

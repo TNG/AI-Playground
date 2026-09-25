@@ -14,6 +14,7 @@ import type {
   ChatTurnResumeResult,
 } from './chatIpc'
 import type { ChatAnswerPayload, ChatAskPayload } from './chatRequests'
+import type { ComfyUICustomNodeRepoId } from './comfyuiIpc'
 import type { ConversationBootstrap, ConversationSaveRequest } from './conversationIpc'
 import type { MediaItemsBootstrap } from './mediaItemIpc'
 import type { MediaRequestPayload, MediaResponsePayload } from './mediaRequests'
@@ -1115,6 +1116,151 @@ export const CHANNELS = {
     payload: null as unknown as { type: string; message: string },
     raw: true as const,
     member: 'onShowToast' as const,
+  },
+
+  // ── ComfyUI tooling, screenshots, safeStorage, cloud-provider keys (batch 9) ──
+
+  /** Whether the bundled git binary (win32) or the system git is available. */
+  'comfyui:isGitInstalled': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as boolean,
+  },
+  /** Whether the ComfyUI install root exists; rejects when the service is unknown. */
+  'comfyui:isComfyUIInstalled': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as boolean,
+  },
+  /** The commit checked out in a repo dir; undefined when git cannot resolve it. */
+  'comfyui:getGitRef': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as string | undefined,
+  },
+  /** Whether a Python package is installed in the ComfyUI venv. */
+  'comfyui:isPackageInstalled': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as boolean,
+  },
+  /** Install a Python package into the ComfyUI venv via uv; rejects on failure. */
+  'comfyui:installPypiPackage': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as void,
+  },
+  /** Whether a custom-node repo is present under custom_nodes/. */
+  'comfyui:isCustomNodeInstalled': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ComfyUICustomNodeRepoId],
+    result: null as unknown as boolean,
+  },
+  /** Clone a custom node, check out its ref, install its requirements; false on failure. */
+  'comfyui:downloadCustomNode': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ComfyUICustomNodeRepoId],
+    result: null as unknown as boolean,
+  },
+  /** Remove a custom node's folder; false when it was never installed. */
+  'comfyui:uninstallCustomNode': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ComfyUICustomNodeRepoId],
+    result: null as unknown as boolean,
+  },
+  /** Names of the folders under custom_nodes/; [] when the directory is absent. */
+  'comfyui:listInstalledCustomNodes': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as string[],
+  },
+  /** Open ComfyUI in the OS browser via the loopback launch token. */
+  'comfyui:openInBrowser': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Capturable desktop windows with thumbnails, for the settings window picker. */
+  'screenshot:listWindows': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as ScreenshotWindowSource[],
+  },
+  /** Capture one window as a PNG data URI; rejects when it is gone or hidden. */
+  'screenshot:captureWindow': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ScreenshotWindow],
+    result: null as unknown as string,
+  },
+  /** OS screen-capture permission state plus the platform that decided it. */
+  'screenshot:getPermissionStatus': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as {
+      platform: NodeJS.Platform
+      status: 'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown'
+    },
+  },
+  /** Open the OS screen-capture privacy settings page (no-op off macOS). */
+  'screenshot:openPermissionSettings': {
+    kind: 'send',
+    owner: 'main',
+    args: [] as const,
+  },
+  /** Whether the OS keyring can encrypt secrets on this machine. */
+  'safeStorage:isEncryptionAvailable': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as boolean,
+  },
+  /** Opt into obfuscated-on-disk secrets where no OS keyring is available. */
+  'safeStorage:enablePlainTextEncryption': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Store one provider's API key encrypted at rest; an empty key clears it. */
+  'cloudProvider:saveKey': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** One provider's decrypted API key, or null when none is stored. */
+  'cloudProvider:getKey': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as string | null,
+  },
+  /** Remove one provider's stored key file. */
+  'cloudProvider:deleteKey': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcOk,
+  },
+  /** Loopback URL of the Cloud Mode proxy the renderer points its client at. */
+  'cloudProvider:getProxyUrl': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as string,
   },
 } satisfies Record<string, IpcRow>
 

@@ -344,10 +344,7 @@ type electronAPI = {
   showModelInFolder: import('./types/ipcChannels').BridgeMemberFor<'showModelInFolder'>
   deleteModelPath: import('./types/ipcChannels').BridgeMemberFor<'deleteModelPath'>
   getPlatform: import('./types/ipcChannels').BridgeMemberFor<'getPlatform'>
-  safeStorage: {
-    isEncryptionAvailable(): Promise<boolean>
-    enablePlainTextEncryption(): Promise<{ success: boolean; error?: string }>
-  }
+  safeStorage: import('./types/ipcChannels').NamespaceBridge<'safeStorage'>
   openImageWithSystem: import('./types/ipcChannels').BridgeMemberFor<'openImageWithSystem'>
   openImageInFolder: import('./types/ipcChannels').BridgeMemberFor<'openImageInFolder'>
   setFullScreen: import('./types/ipcChannels').BridgeMemberFor<'setFullScreen'>
@@ -394,18 +391,7 @@ type electronAPI = {
   stopOvmsChatServers: import('./types/ipcChannels').BridgeMemberFor<'stopOvmsChatServers'>
   getOvmsImageServerUrl: import('./types/ipcChannels').BridgeMemberFor<'getOvmsImageServerUrl'>
   // ComfyUI Tools - uses uv for Python package management
-  comfyui: {
-    isGitInstalled(): Promise<boolean>
-    isComfyUIInstalled(): Promise<boolean>
-    getGitRef(repoDir: string): Promise<string | undefined>
-    isPackageInstalled(packageSpecifier: string): Promise<boolean>
-    installPypiPackage(packageSpecifier: string): Promise<void>
-    isCustomNodeInstalled(nodeRepoRef: ComfyUICustomNodeRepoId): Promise<boolean>
-    downloadCustomNode(nodeRepoData: ComfyUICustomNodeRepoId): Promise<boolean>
-    uninstallCustomNode(nodeRepoData: ComfyUICustomNodeRepoId): Promise<boolean>
-    listInstalledCustomNodes(): Promise<string[]>
-    openInBrowser(): Promise<{ success: boolean; error?: string }>
-  }
+  comfyui: import('./types/ipcChannels').NamespaceBridge<'comfyui'>
   mcp: {
     listServers(): Promise<McpServerInfo[]>
     startServer(serverId: string): Promise<McpStatus>
@@ -504,15 +490,7 @@ type electronAPI = {
     getState(): Promise<WebBrowserState>
     onStateChanged(callback: (state: WebBrowserState) => void): void
   }
-  screenshot: {
-    listWindows(): Promise<ScreenshotWindowSource[]>
-    captureWindow(target: ScreenshotWindow): Promise<string>
-    getPermissionStatus(): Promise<{
-      platform: string
-      status: 'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown'
-    }>
-    openPermissionSettings(): void
-  }
+  screenshot: import('./types/ipcChannels').NamespaceBridge<'screenshot'>
   homeAgent: {
     saveDocument(
       filename: string,
@@ -579,12 +557,8 @@ type electronAPI = {
       }>
     }
   }
-  cloudProvider: {
-    saveKey(providerId: string, key: string): Promise<{ success: boolean; error?: string }>
-    getKey(providerId: string): Promise<string | null>
-    deleteKey(providerId: string): Promise<{ success: boolean; error?: string }>
-    getProxyUrl(): Promise<string>
-  }
+  // Cloud Mode provider secrets, encrypted at rest via safeStorage in main.
+  cloudProvider: import('./types/ipcChannels').NamespaceBridge<'cloudProvider'>
 }
 
 type SetupProgress = {

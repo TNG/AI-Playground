@@ -8,14 +8,21 @@ import {
   BrowserWindow,
   dialog,
   IpcMainInvokeEvent,
+  nativeImage,
   net,
+  screen,
   shell,
   type UtilityProcess,
 } from 'electron'
 import z from 'zod'
 import { LocalSettingsSchema } from '../localSettings'
 import { ipcErrorText, ipcFail, typedSend } from '../typedIpc'
-import type { CoreInvokeName, InvokeHandlerMap } from '../ipcRegistries'
+import type {
+  CoreInvokeName,
+  CoreSendName,
+  InvokeHandlerMap,
+  SendHandlerMap,
+} from '../ipcRegistries'
 import type { PathsManager } from '../pathsManager'
 import type { LocalSettings, ProductMode, resolveProductMode } from '../localSettings'
 import type { appLoggerInstance } from '../../observability/logger'
@@ -41,7 +48,8 @@ import type { detectOem } from '../../adapters/hardware/oemDetection'
 import type { DemoProfile, loadDemoProfile } from '../../persist/demoProfile'
 import type { getAudioDir } from '../../persist/userDataPaths'
 import type { saveGeneratedAudioFile } from '../../persist/audioFiles'
-import type { laminarConfig } from '../../observability/laminar'
+import type { handleChatTelemetryEvent, laminarConfig } from '../../observability/laminar'
+import type { setVerboseLogging } from '../../agent/piAgentLog.ts'
 import type {
   ChatReadinessArgs,
   ensureChatBackendReady,
@@ -1515,9 +1523,186 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
 }
 
 /**
+ * What the flat send listeners close over — the same late-bound accessors
+ * CoreDeps uses for the window and registry, plus the main.ts-only seams that
+ * have no reason to live here (the telemetry and verbose-log entry points and
+ * the packaged-resources root for the drag-thumbnail fallback).
+ */
+export type CoreSendDeps = Pick<
+  CoreDeps,
+  'getWin' | 'getServiceRegistry' | 'appLogger' | 'mediaDir' | 'getLocalPathFromAipgMediaUrl'
+> & {
+  externalRes: string
+  handleChatTelemetryEvent: typeof handleChatTelemetryEvent
+  setVerboseAgentLogging: typeof setVerboseLogging
+}
+
+export function buildCoreSendRegistry(deps: CoreSendDeps) {
+  return {
+    // Start an OS drag of a generated file (history rows, image results).
+    ondragstart: async (event, filePath) => {
+      const imagePath = getAssetPathFromUrl(filePath, deps)
+      if (!imagePath) return
+      let thumbnail: Electron.NativeImage
+      try {
+        thumbnail = await nativeImage.createThumbnailFromPath(imagePath, {
+          height: 128,
+          width: 128,
+        })
+      } catch (_e: unknown) {
+        thumbnail = await nativeImage.createThumbnailFromPath(
+          path.join(deps.externalRes, 'cam.png'),
+          {
+            height: 128,
+            width: 128,
+          },
+        )
+      }
+      event.sender.startDrag({
+        file: imagePath,
+        icon: thumbnail,
+      })
+    },
+
+    // Detach the main window's DevTools window.
+    openDevTools: () => {
+      deps.getWin()?.webContents.openDevTools({ mode: 'detach', activate: true })
+    },
+
+    // Flip the Pi harness's verbose agent log switch.
+    setVerboseAgentLogging: (_event, enabled) => {
+      deps.setVerboseAgentLogging(enabled)
+    },
+
+    // Open an external URL in the OS browser.
+    openUrl: (_event, url) => {
+      return shell.openExternal(url)
+    },
+
+    // Minimize the main window.
+    miniWindow: () => {
+      const win = deps.getWin()
+      if (win) {
+        win.minimize()
+      }
+    },
+
+    // Quit outright instead of closing the window and hoping that cascades into a
+    // quit: `app.quit()` always reaches the gated teardown in `before-quit`.
+    exitApp: async () => {
+      app.quit()
+    },
+
+    // Save a generated image to a file the user picks in a save dialog.
+    saveImage: async (event, url) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win) {
+        return
+      }
+      const options = {
+        title: 'Save Image',
+        defaultPath: path.join(app.getPath('documents'), 'example.png'),
+        filters: [{ name: 'AIGC-Gennerate.png', extensions: ['png'] }],
+      }
+
+      try {
+        const result = await dialog.showSaveDialog(win, options)
+        if (!result.canceled && result.filePath) {
+          if (fs.existsSync(result.filePath)) {
+            fs.rmSync(result.filePath)
+          }
+          try {
+            const response = await fetch(url)
+            const arrayBuffer = await response.arrayBuffer()
+            const buffer = Buffer.from(arrayBuffer)
+            fs.writeFileSync(result.filePath, buffer)
+            deps.appLogger.info(`File downloaded and saved: ${result.filePath}`, 'electron-backend')
+          } catch (error) {
+            deps.appLogger.error(
+              `Download and save error: ${JSON.stringify(error, Object.getOwnPropertyNames, 2)}`,
+              'electron-backend',
+            )
+          }
+        }
+      } catch (error) {
+        deps.appLogger.error(
+          `${JSON.stringify(error, Object.getOwnPropertyNames, 2)}`,
+          'electron-backend',
+        )
+      }
+    },
+
+    // Open a generated image in its own viewer window.
+    openImageWin: (_event, url, title, width, height) => {
+      const display = screen.getPrimaryDisplay()
+      width += 32
+      height += 48
+      if (width > display.workAreaSize.width) {
+        width = display.workAreaSize.width
+      } else if (height > display.workAreaSize.height) {
+        height = display.workAreaSize.height
+      }
+      const imgWin = new BrowserWindow({
+        icon: path.join(process.env.VITE_PUBLIC, 'app-ico.svg'),
+        resizable: true,
+        center: true,
+        frame: true,
+        width: width,
+        height: height,
+        autoHideMenuBar: true,
+        show: false,
+        parent: deps.getWin() || undefined,
+        webPreferences: {
+          devTools: false,
+        },
+      })
+      imgWin.setMenu(null)
+      imgWin.loadURL(url)
+      imgWin.once('ready-to-show', function () {
+        imgWin.show()
+        imgWin.setTitle(title)
+      })
+    },
+
+    // Open a media URL's file with the OS default image viewer.
+    openImageWithSystem: (_event, url) => {
+      const imagePath = getAssetPathFromUrl(url, deps)
+      if (!imagePath) return
+      shell.openPath(imagePath)
+    },
+
+    // Reveal a media URL's file in the OS file manager.
+    openImageInFolder: (_event, url) => {
+      const imagePath = getAssetPathFromUrl(url, deps)
+      if (!imagePath) return
+
+      // Open the image with the default system image viewer
+      if (process.platform === 'win32') {
+        exec(`explorer.exe /select, "${imagePath}"`)
+      } else {
+        shell.showItemInFolder(imagePath)
+      }
+    },
+
+    // Enter or leave full screen on the main window.
+    setFullScreen: (_event, enable) => {
+      const win = deps.getWin()
+      if (win) {
+        win.setFullScreen(enable)
+      }
+    },
+
+    // Forward one serialized Laminar telemetry event to main's tracing half.
+    laminarTelemetryEvent: (_event, name, payload) => {
+      void deps.handleChatTelemetryEvent(name, payload)
+    },
+  } satisfies SendHandlerMap<CoreSendName>
+}
+
+/**
  * Resolve a media URL (aipg-media://, a ComfyUI view URL or a service URL) to
- * a local file path. Serves the core image channels (the drag start and the
- * open-with-system sends still live in main.ts).
+ * a local file path. Serves the core send listeners (drag start,
+ * open-with-system, reveal-in-folder).
  */
 export function getAssetPathFromUrl(
   url: string,

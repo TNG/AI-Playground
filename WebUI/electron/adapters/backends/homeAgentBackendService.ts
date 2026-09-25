@@ -5,7 +5,9 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { app, BrowserWindow, net, safeStorage } from 'electron'
 import type { LocalSettings } from '../../kernel/localSettings.ts'
-import { ipcFail, typedHandle } from '../../kernel/typedIpc'
+import { ipcFail } from '../../kernel/typedIpc'
+import { registerInvokeHandlers } from '../../kernel/ipcRegistries'
+import { buildHomeAgentRegistry } from '../../kernel/registries/homeAgent'
 import type { HomeAgentInboundMessage } from '@/types/homeAgentIpc'
 import type { IpcMutationResult, IpcOkWith } from '@/types/ipcChannels'
 import { GitService, LongLivedPythonApiService, createEnhancedErrorDetails } from './service.ts'
@@ -828,62 +830,6 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
   // ── IPC registration ────────────────────────────────────────────────────
 
   registerIpcHandlers(): void {
-    // Persistence — channel-keyed by first arg.
-    typedHandle('channel:saveConfig', (_event, kind: ChannelKind, config: Record<string, string>) =>
-      this.saveChannelConfig(kind, config),
-    )
-    typedHandle('channel:loadConfig', (_event, kind: ChannelKind) => this.loadChannelConfig(kind))
-    typedHandle('channel:clearConfig', (_event, kind: ChannelKind) => this.clearChannelConfig(kind))
-    typedHandle(
-      'channel:savePrefs',
-      (_event, kind: ChannelKind, prefs: Partial<ChannelPrefsFile>) =>
-        this.saveChannelPrefs(kind, prefs),
-    )
-    typedHandle('channel:loadPrefs', (_event, kind: ChannelKind) => this.loadChannelPrefs(kind))
-
-    // Local web chat: expose the URLs the served page is reachable at.
-    // Pure OS-info lookup — the chat server itself lives in the Python backend.
-    typedHandle('homeAgent:localWeb:getUrls', (_event, port: number, allowLan: boolean) =>
-      this.getLocalWebUrls(port, !!allowLan),
-    )
-
-    // Backend dispatch — channel-keyed by first arg.
-    typedHandle('channel:test', (_event, kind: ChannelKind) => this.channelTest(kind))
-    typedHandle(
-      'channel:inject',
-      (_event, kind: ChannelKind, config: Record<string, string | undefined>) =>
-        this.channelSetConfig(kind, config),
-    )
-    typedHandle(
-      'channel:detectIdentity',
-      (_event, kind: ChannelKind, config: Record<string, string | undefined>) =>
-        this.channelDetectIdentity(kind, config),
-    )
-    typedHandle('channel:detectIdentityFromSaved', (_event, kind: ChannelKind) =>
-      this.channelDetectIdentityFromSaved(kind),
-    )
-    typedHandle('channel:poll', (_event, kind: ChannelKind) => this.channelPoll(kind))
-    typedHandle('channel:flushPending', (_event, kind: ChannelKind) =>
-      this.channelFlushPending(kind),
-    )
-    typedHandle(
-      'channel:send',
-      (
-        _event,
-        kind: ChannelKind,
-        action:
-          | 'reply'
-          | 'update'
-          | 'photo'
-          | 'video'
-          | 'voice'
-          | 'document'
-          | 'typing'
-          | 'keyboard'
-          | 'editMessage'
-          | 'history',
-        payload: ChannelSendPayload,
-      ) => this.channelSend(kind, action, payload),
-    )
+    registerInvokeHandlers(buildHomeAgentRegistry(this))
   }
 }

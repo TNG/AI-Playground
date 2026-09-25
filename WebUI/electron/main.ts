@@ -22,8 +22,6 @@ import {
   app,
   BrowserWindow,
   dialog,
-  IpcMainEvent,
-  nativeImage,
   net,
   protocol,
   safeStorage,
@@ -36,7 +34,6 @@ import {
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import fs from 'fs'
-import { exec } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { PathsManager } from './kernel/pathsManager'
 import {
@@ -118,7 +115,7 @@ import {
 } from './agent/piAgentManager'
 import { getKernelSnapshot, onKernelEvent, setKernelEventWindow } from './kernel/kernelBus'
 import { registerInvokeHandlers, registerSendHandlers } from './kernel/ipcRegistries'
-import { typedOn, typedSend } from './kernel/typedIpc'
+import { typedSend } from './kernel/typedIpc'
 import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecycle'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
@@ -200,7 +197,7 @@ import { buildArtifactRegistry } from './kernel/registries/artifact'
 import { buildCloudProviderRegistry } from './kernel/registries/cloudProvider'
 import {
   buildCoreInvokeRegistry,
-  getAssetPathFromUrl,
+  buildCoreSendRegistry,
   type CoreDeps,
 } from './kernel/registries/core'
 import { buildKernelRegistry } from './kernel/registries/kernel'
@@ -1548,16 +1545,6 @@ function initEventHandle() {
     buildCloudProviderRegistry({ cloudProviderKeyPath, readCloudProviderKey, getCloudProxy }),
   )
 
-  typedOn('openUrl', (_event, url: string) => {
-    return shell.openExternal(url)
-  })
-
-  typedOn('miniWindow', () => {
-    if (win) {
-      win.minimize()
-    }
-  })
-
   // The renderer reports whether it has tracked work in flight; an input to
   // the main-owned close policy (see createWindow's 'close' handler).
   registerSendHandlers(
@@ -1572,53 +1559,6 @@ function initEventHandle() {
   // BEFORE requesting this snapshot and applies only events above its
   // sequence (docs/architecture-target.md §4.6).
   registerInvokeHandlers(buildKernelRegistry({ getKernelSnapshot }))
-
-  typedOn('setFullScreen', (_event, enable: boolean) => {
-    if (win) {
-      win.setFullScreen(enable)
-    }
-  })
-
-  // Quit outright instead of closing the window and hoping that cascades into a
-  // quit: `app.quit()` always reaches the gated teardown in `before-quit`.
-  typedOn('exitApp', async () => {
-    app.quit()
-  })
-
-  typedOn('saveImage', async (event, url: string) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) {
-      return
-    }
-    const options = {
-      title: 'Save Image',
-      defaultPath: path.join(app.getPath('documents'), 'example.png'),
-      filters: [{ name: 'AIGC-Gennerate.png', extensions: ['png'] }],
-    }
-
-    try {
-      const result = await dialog.showSaveDialog(win, options)
-      if (!result.canceled && result.filePath) {
-        if (fs.existsSync(result.filePath)) {
-          fs.rmSync(result.filePath)
-        }
-        try {
-          const response = await fetch(url)
-          const arrayBuffer = await response.arrayBuffer()
-          const buffer = Buffer.from(arrayBuffer)
-          fs.writeFileSync(result.filePath, buffer)
-          appLogger.info(`File downloaded and saved: ${result.filePath}`, 'electron-backend')
-        } catch (error) {
-          appLogger.error(
-            `Download and save error: ${JSON.stringify(error, Object.getOwnPropertyNames, 2)}`,
-            'electron-backend',
-          )
-        }
-      }
-    } catch (error) {
-      appLogger.error(`${JSON.stringify(error, Object.getOwnPropertyNames, 2)}`, 'electron-backend')
-    }
-  })
 
   const pathsManager = new PathsManager(
     // Packaged: the per-user writable copy (seeded from the shared default on
@@ -1685,21 +1625,24 @@ function initEventHandle() {
   // complement of the prefix domains registered below and above.
   registerInvokeHandlers(buildCoreInvokeRegistry(coreDeps))
 
+  // Its sends: the flat renderer→main fire-and-forget channels (window
+  // controls, image opens, drag start, telemetry forwarding).
+  registerSendHandlers(
+    buildCoreSendRegistry({
+      getWin: coreDeps.getWin,
+      getServiceRegistry: coreDeps.getServiceRegistry,
+      appLogger,
+      mediaDir,
+      getLocalPathFromAipgMediaUrl,
+      externalRes,
+      handleChatTelemetryEvent,
+      setVerboseAgentLogging,
+    }),
+  )
+
   registerInvokeHandlers(
     buildSafeStorageRegistry({ settings, persistLocalSettingsToDisk, appLogger }),
   )
-
-  typedOn('laminarTelemetryEvent', (_event, name: string, payload: string) => {
-    void handleChatTelemetryEvent(name, payload)
-  })
-
-  typedOn('openDevTools', () => {
-    win?.webContents.openDevTools({ mode: 'detach', activate: true })
-  })
-
-  typedOn('setVerboseAgentLogging', (_event, enabled: boolean) => {
-    setVerboseAgentLogging(enabled)
-  })
 
   // ── Artifact runner IPC (architecture-target §4.1 step 5) ─────────────────
   // The renderer ships fully-resolved runs; the runner owns readiness,
@@ -1803,24 +1746,6 @@ function initEventHandle() {
     }),
   )
 
-  typedOn('ondragstart', async (event, filePath: string) => {
-    const imagePath = getAssetPathFromUrl(filePath, coreDeps)
-    if (!imagePath) return
-    let thumbnail: Electron.NativeImage
-    try {
-      thumbnail = await nativeImage.createThumbnailFromPath(imagePath, { height: 128, width: 128 })
-    } catch (_e: unknown) {
-      thumbnail = await nativeImage.createThumbnailFromPath(path.join(externalRes, 'cam.png'), {
-        height: 128,
-        width: 128,
-      })
-    }
-    event.sender.startDrag({
-      file: imagePath,
-      icon: thumbnail,
-    })
-  })
-
   // ComfyUI Tools IPC handlers
   registerInvokeHandlers(
     buildComfyuiRegistry({
@@ -1906,59 +1831,7 @@ function initEventHandle() {
       getWebBrowserState,
     }),
   )
-
-  typedOn('openImageWithSystem', (_event, url: string) => {
-    const imagePath = getAssetPathFromUrl(url, coreDeps)
-    if (!imagePath) return
-    shell.openPath(imagePath)
-  })
-
-  typedOn('openImageInFolder', (_event, url: string) => {
-    const imagePath = getAssetPathFromUrl(url, coreDeps)
-    if (!imagePath) return
-
-    // Open the image with the default system image viewer
-    if (process.platform === 'win32') {
-      exec(`explorer.exe /select, "${imagePath}"`)
-    } else {
-      shell.showItemInFolder(imagePath)
-    }
-  })
 }
-
-typedOn(
-  'openImageWin',
-  (_: IpcMainEvent, url: string, title: string, width: number, height: number) => {
-    const display = screen.getPrimaryDisplay()
-    width += 32
-    height += 48
-    if (width > display.workAreaSize.width) {
-      width = display.workAreaSize.width
-    } else if (height > display.workAreaSize.height) {
-      height = display.workAreaSize.height
-    }
-    const imgWin = new BrowserWindow({
-      icon: path.join(process.env.VITE_PUBLIC, 'app-ico.svg'),
-      resizable: true,
-      center: true,
-      frame: true,
-      width: width,
-      height: height,
-      autoHideMenuBar: true,
-      show: false,
-      parent: win || undefined,
-      webPreferences: {
-        devTools: false,
-      },
-    })
-    imgWin.setMenu(null)
-    imgWin.loadURL(url)
-    imgWin.once('ready-to-show', function () {
-      imgWin.show()
-      imgWin.setTitle(title)
-    })
-  },
-)
 
 function isAdmin(): boolean {
   if (process.platform !== 'win32') {

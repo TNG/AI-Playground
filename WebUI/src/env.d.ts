@@ -443,57 +443,9 @@ type electronAPI = {
     error?: string
     starting?: boolean
   }>
-  artifact: {
-    run(
-      request: import('./types/artifactIpc').ArtifactRunRequest,
-      options?: { queue?: 'fail-fast' | 'queue' },
-    ): Promise<import('../electron/artifact/runner').ArtifactRunResult>
-    cancel(runId?: string): Promise<void>
-    respond(payload: import('./types/mediaRequests').MediaResponsePayload): Promise<void>
-    onRequest(
-      callback: (payload: import('./types/mediaRequests').MediaRequestPayload) => void,
-    ): () => void
-  }
-  permissions: {
-    requestDownload(
-      models: unknown[],
-    ): Promise<{ success: true } | { success: false; error: string; cancelled?: boolean }>
-    requestVramWarning(req: {
-      presetName: string
-      message: string
-    }): Promise<{ success: true; confirmed: boolean } | { success: false; error: string }>
-    list(): Promise<
-      | { success: true; grants: import('./types/permissionsIpc').PermissionGrant[] }
-      | { success: false; error: string }
-    >
-    grant(
-      key: string,
-      origin: import('./types/permissionsIpc').PermissionGrantOrigin,
-    ): Promise<
-      | { success: true; grant: import('./types/permissionsIpc').PermissionGrant }
-      | { success: false; error: string }
-    >
-    revoke(key: string): Promise<{ success: true } | { success: false; error: string }>
-    migrate(
-      incoming: Record<string, import('./types/permissionsIpc').PermissionGrant>,
-    ): Promise<{ success: true } | { success: false; error: string }>
-    respond(payload: import('./types/permissionsIpc').PermissionsPromptResponse): Promise<void>
-    onPrompt(
-      callback: (payload: import('./types/permissionsIpc').PermissionsPromptPayload) => void,
-    ): () => void
-  }
-  chat: {
-    submitTurn(
-      request: import('./types/chatIpc').ChatTurnRequest,
-    ): Promise<{ success: true; turnId: string } | { success: false; error: string }>
-    resumeTurn(conversationKey: string): Promise<import('./types/chatIpc').ChatTurnResumeResult>
-    cancelTurn(conversationKey: string, turnId: string): Promise<{ success: boolean }>
-    summarize(
-      request: import('./types/chatIpc').ChatSummarizeRequest,
-    ): Promise<{ success: true; data: string } | { success: false; error: string }>
-    answer(payload: import('./types/chatRequests').ChatAnswerPayload): Promise<void>
-    onAsk(callback: (payload: import('./types/chatRequests').ChatAskPayload) => void): () => void
-  }
+  artifact: import('./types/ipcChannels').NamespaceBridge<'artifact'>
+  permissions: import('./types/ipcChannels').NamespaceBridge<'permissions'>
+  chat: import('./types/ipcChannels').NamespaceBridge<'chat'>
   conversations: import('./types/ipcChannels').NamespaceBridge<'conversations'>
   mediaItems: import('./types/ipcChannels').NamespaceBridge<'mediaItems'>
   preferences: import('./types/ipcChannels').NamespaceBridge<'preferences'>

@@ -11,7 +11,17 @@ import {
 } from '@/assets/js/store/textInference'
 import type { AgentModeTurnConfig, AgentToolExecuteRequest, AgentToolSpec } from '@/types/agentIpc'
 import type { AgentSessionRecordWire } from '@/types/agentSessionIpc'
+import type { ArtifactRunRequest } from '@/types/artifactIpc'
+import type { ChatSummarizeRequest, ChatTurnRequest } from '@/types/chatIpc'
+import type { ChatAnswerPayload, ChatAskPayload } from '@/types/chatRequests'
 import type { ConversationSaveRequest } from '@/types/conversationIpc'
+import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaRequests'
+import type {
+  PermissionGrant,
+  PermissionGrantOrigin,
+  PermissionsPromptPayload,
+  PermissionsPromptResponse,
+} from '@/types/permissionsIpc'
 import type {
   ChannelArgs,
   ChannelResult,
@@ -200,73 +210,36 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ) => ipcRenderer.invoke('rememberChatBackendLoad', args),
   ensureComfyUIBackendRunning: () => ipcRenderer.invoke('ensureComfyUIBackendRunning'),
   artifact: {
-    run: (
-      request: import('../src/types/artifactIpc').ArtifactRunRequest,
-      options?: { queue?: 'fail-fast' | 'queue' },
-    ) =>
-      ipcRenderer.invoke('artifact:run', cloneForIpc(request), options) as Promise<
-        import('./artifact/runner').ArtifactRunResult
-      >,
-    cancel: (runId?: string) => ipcRenderer.invoke('artifact:cancel', runId),
-    respond: (payload: import('../src/types/mediaRequests').MediaResponsePayload) =>
-      ipcRenderer.invoke('artifact:respond', payload),
-    onRequest: (
-      callback: (payload: import('../src/types/mediaRequests').MediaRequestPayload) => void,
-    ) => listen('artifact:request', callback),
-  },
+    run: (request: ArtifactRunRequest, options?: { queue?: 'fail-fast' | 'queue' }) =>
+      invoke('artifact:run', cloneForIpc(request), options),
+    cancel: (runId?: string) => invoke('artifact:cancel', runId),
+    respond: (payload: MediaResponsePayload) => invoke('artifact:respond', payload),
+    onRequest: (callback: (payload: MediaRequestPayload) => void) =>
+      onPush('artifact:request', callback),
+  } satisfies NamespaceBridge<'artifact'>,
   permissions: {
     requestDownload: (models: unknown[]) =>
-      ipcRenderer.invoke('permissions:requestDownload', cloneForIpc(models)) as Promise<
-        { success: true } | { success: false; error: string; cancelled?: boolean }
-      >,
+      invoke('permissions:requestDownload', cloneForIpc(models)),
     requestVramWarning: (req: { presetName: string; message: string }) =>
-      ipcRenderer.invoke('permissions:requestVramWarning', req) as Promise<
-        { success: true; confirmed: boolean } | { success: false; error: string }
-      >,
-    list: () =>
-      ipcRenderer.invoke('permissions:list') as Promise<
-        | { success: true; grants: import('../src/types/permissionsIpc').PermissionGrant[] }
-        | { success: false; error: string }
-      >,
-    grant: (key: string, origin: import('../src/types/permissionsIpc').PermissionGrantOrigin) =>
-      ipcRenderer.invoke('permissions:grant', key, origin) as Promise<
-        | { success: true; grant: import('../src/types/permissionsIpc').PermissionGrant }
-        | { success: false; error: string }
-      >,
-    revoke: (key: string) =>
-      ipcRenderer.invoke('permissions:revoke', key) as Promise<
-        { success: true } | { success: false; error: string }
-      >,
-    migrate: (incoming: Record<string, import('../src/types/permissionsIpc').PermissionGrant>) =>
-      ipcRenderer.invoke('permissions:migrate', cloneForIpc(incoming)) as Promise<
-        { success: true } | { success: false; error: string }
-      >,
-    respond: (payload: import('../src/types/permissionsIpc').PermissionsPromptResponse) =>
-      ipcRenderer.invoke('permissions:respond', payload),
-    onPrompt: (
-      callback: (payload: import('../src/types/permissionsIpc').PermissionsPromptPayload) => void,
-    ) => listen('permissions:prompt', callback),
-  },
+      invoke('permissions:requestVramWarning', req),
+    list: () => invoke('permissions:list'),
+    grant: (key: string, origin: PermissionGrantOrigin) => invoke('permissions:grant', key, origin),
+    revoke: (key: string) => invoke('permissions:revoke', key),
+    migrate: (incoming: Record<string, PermissionGrant>) =>
+      invoke('permissions:migrate', cloneForIpc(incoming)),
+    respond: (payload: PermissionsPromptResponse) => invoke('permissions:respond', payload),
+    onPrompt: (callback: (payload: PermissionsPromptPayload) => void) =>
+      onPush('permissions:prompt', callback),
+  } satisfies NamespaceBridge<'permissions'>,
   chat: {
-    submitTurn: (request: import('../src/types/chatIpc').ChatTurnRequest) =>
-      ipcRenderer.invoke('chat:submitTurn', cloneForIpc(request)) as Promise<
-        { success: true; turnId: string } | { success: false; error: string }
-      >,
-    resumeTurn: (conversationKey: string) =>
-      ipcRenderer.invoke('chat:resumeTurn', conversationKey) as Promise<
-        import('../src/types/chatIpc').ChatTurnResumeResult
-      >,
+    submitTurn: (request: ChatTurnRequest) => invoke('chat:submitTurn', cloneForIpc(request)),
+    resumeTurn: (conversationKey: string) => invoke('chat:resumeTurn', conversationKey),
     cancelTurn: (conversationKey: string, turnId: string) =>
-      ipcRenderer.invoke('chat:cancelTurn', conversationKey, turnId),
-    summarize: (request: import('../src/types/chatIpc').ChatSummarizeRequest) =>
-      ipcRenderer.invoke('chat:summarize', request) as Promise<
-        { success: true; data: string } | { success: false; error: string }
-      >,
-    answer: (payload: import('../src/types/chatRequests').ChatAnswerPayload) =>
-      ipcRenderer.invoke('chat:answer', cloneForIpc(payload)),
-    onAsk: (callback: (payload: import('../src/types/chatRequests').ChatAskPayload) => void) =>
-      listen('chat:ask', callback),
-  },
+      invoke('chat:cancelTurn', conversationKey, turnId),
+    summarize: (request: ChatSummarizeRequest) => invoke('chat:summarize', request),
+    answer: (payload: ChatAnswerPayload) => invoke('chat:answer', cloneForIpc(payload)),
+    onAsk: (callback: (payload: ChatAskPayload) => void) => onPush('chat:ask', callback),
+  } satisfies NamespaceBridge<'chat'>,
   conversations: {
     bootstrap: () => invoke('conversations:bootstrap'),
     migrate: (payload: unknown) => invoke('conversations:migrate', cloneForIpc(payload)),

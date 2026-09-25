@@ -134,8 +134,6 @@ import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.
 import { importAttachment } from './agent/workspaceAttachments.ts'
 import { AgentModeTurnConfigSchema } from '@/types/agentIpc'
 import { ArtifactRunRequestSchema } from '@/types/artifactIpc'
-import type { MediaResponsePayload } from '@/types/mediaRequests'
-import type { ChatAnswerPayload } from '@/types/chatRequests'
 import { handleChatAnswer, rejectAllChatAsks } from './chat/chatAsk.ts'
 import type { MediaItem } from '@/types/mediaItem'
 import type { ArtifactMissingModel } from '@/types/mediaRequests'
@@ -143,7 +141,6 @@ import {
   cancelActiveArtifactRun,
   setArtifactRunnerDeps,
   type ArtifactRunPayload,
-  type ArtifactRunResult,
   type RunnerComfyService,
 } from './artifact/runner'
 import {
@@ -185,7 +182,6 @@ import {
   revoke as revokePermission,
 } from './permissions/permissionsService'
 import { setPermissionGrantsDeps, wipeDemoPermissionGrants } from './persist/grantsStore'
-import type { PermissionGrant, PermissionsPromptResponse } from '@/types/permissionsIpc'
 import {
   anyChatTurnActive,
   cancelChatTurn,
@@ -2651,32 +2647,25 @@ function initEventHandle() {
   // The renderer ships fully-resolved runs; the runner owns readiness,
   // submission and the progress stream back over the kernel bus.
 
-  ipcMain.handle(
-    'artifact:run',
-    async (
-      _event: IpcMainInvokeEvent,
-      request: unknown,
-      options?: { queue?: 'fail-fast' | 'queue' },
-    ): Promise<ArtifactRunResult> => {
-      const parsed = ArtifactRunRequestSchema.safeParse(request)
-      if (!parsed.success) {
-        appLogger.warn(
-          `artifact:run rejected a malformed request: ${parsed.error.message}`,
-          'electron-backend',
-        )
-        return { state: 'failed', items: [], error: 'Malformed artifact run request' }
-      }
-      const payload: ArtifactRunPayload = {
-        ...parsed.data,
-        items: parsed.data.items as MediaItem[] | undefined,
-      }
-      return submitArtifactRun(payload, {
-        queue: options?.queue === 'queue' ? 'queue' : 'fail-fast',
-      })
-    },
-  )
+  typedHandle('artifact:run', async (_event, request, options) => {
+    const parsed = ArtifactRunRequestSchema.safeParse(request)
+    if (!parsed.success) {
+      appLogger.warn(
+        `artifact:run rejected a malformed request: ${parsed.error.message}`,
+        'electron-backend',
+      )
+      return { state: 'failed' as const, items: [], error: 'Malformed artifact run request' }
+    }
+    const payload: ArtifactRunPayload = {
+      ...parsed.data,
+      items: parsed.data.items as MediaItem[] | undefined,
+    }
+    return submitArtifactRun(payload, {
+      queue: options?.queue === 'queue' ? 'queue' : 'fail-fast',
+    })
+  })
 
-  ipcMain.handle('artifact:cancel', (_event: IpcMainInvokeEvent, runId?: string) => {
+  typedHandle('artifact:cancel', (_event, runId) => {
     if (typeof runId === 'string' && runId.length > 0) {
       cancelArtifactRun(runId)
     } else {
@@ -2684,14 +2673,11 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle(
-    'artifact:respond',
-    (_event: IpcMainInvokeEvent, payload: MediaResponsePayload) => {
-      handleMediaResponse(payload)
-    },
-  )
+  typedHandle('artifact:respond', (_event, payload) => {
+    handleMediaResponse(payload)
+  })
 
-  ipcMain.handle('permissions:requestDownload', async (_event, models: unknown) => {
+  typedHandle('permissions:requestDownload', async (_event, models) => {
     try {
       if (!Array.isArray(models)) throw new Error('download models must be an array')
       await requestDownloadConsent(models)
@@ -2699,39 +2685,36 @@ function initEventHandle() {
     } catch (e) {
       return {
         success: false as const,
-        error: e instanceof Error ? e.message : String(e),
+        error: ipcErrorText(e),
         cancelled: (e as { cancelled?: boolean })?.cancelled === true,
       }
     }
   })
 
-  ipcMain.handle(
-    'permissions:requestVramWarning',
-    async (_event, req: { presetName?: unknown; message?: unknown }) => {
-      try {
-        if (typeof req?.presetName !== 'string' || typeof req?.message !== 'string') {
-          throw new Error('vram warning request needs presetName and message')
-        }
-        const confirmed = await requestVramWarningConsent({
-          presetName: req.presetName,
-          message: req.message,
-        })
-        return { success: true as const, confirmed }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
-  )
-
-  ipcMain.handle('permissions:list', async () => {
+  typedHandle('permissions:requestVramWarning', async (_event, req) => {
     try {
-      return { success: true as const, grants: await listGrants() }
+      if (typeof req?.presetName !== 'string' || typeof req?.message !== 'string') {
+        throw new Error('vram warning request needs presetName and message')
+      }
+      const confirmed = await requestVramWarningConsent({
+        presetName: req.presetName,
+        message: req.message,
+      })
+      return { success: true as const, confirmed }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle('permissions:grant', async (_event, key: unknown, origin: unknown) => {
+  typedHandle('permissions:list', async () => {
+    try {
+      return { success: true as const, grants: await listGrants() }
+    } catch (e) {
+      return { success: false as const, error: ipcErrorText(e) }
+    }
+  })
+
+  typedHandle('permissions:grant', async (_event, key, origin) => {
     try {
       if (typeof key !== 'string') throw new Error('grant key must be a string')
       if (origin !== 'remember' && origin !== 'pre-grant') {
@@ -2740,75 +2723,69 @@ function initEventHandle() {
       const grant = await grantPermission(key, origin)
       return { success: true as const, grant }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle('permissions:revoke', async (_event, key: unknown) => {
+  typedHandle('permissions:revoke', async (_event, key) => {
     try {
       if (typeof key !== 'string') throw new Error('grant key must be a string')
       await revokePermission(key)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle('permissions:migrate', async (_event, incoming: unknown) => {
+  typedHandle('permissions:migrate', async (_event, incoming) => {
     try {
       if (!incoming || typeof incoming !== 'object') {
         throw new Error('migrate payload must be an object')
       }
-      await migrateGrants(incoming as Record<string, PermissionGrant>)
+      await migrateGrants(incoming)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle(
-    'permissions:respond',
-    (_event: IpcMainInvokeEvent, payload: PermissionsPromptResponse) => {
-      handlePermissionsPromptResponse(payload)
-    },
-  )
+  typedHandle('permissions:respond', (_event, payload) => {
+    handlePermissionsPromptResponse(payload)
+  })
 
   // Chat turns run in main (architecture-target §8 step 6); the renderer
   // submits/resumes/cancels over IPC and receives the stream as kernel
   // chat-chunk events, answering `chat:ask` when a tool needs the window.
-  ipcMain.handle('chat:submitTurn', (_event: IpcMainInvokeEvent, request: unknown) => {
+  typedHandle('chat:submitTurn', (_event, request) => {
     try {
       return { success: true as const, turnId: submitChatTurn(request).turnId }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle('chat:resumeTurn', (_event: IpcMainInvokeEvent, conversationKey: string) => {
+  typedHandle('chat:resumeTurn', (_event, conversationKey) => {
     const resumed = resumeChatTurn(conversationKey)
     return resumed
       ? { success: true as const, active: true, ...resumed }
       : { success: true as const, active: false as const }
   })
 
-  ipcMain.handle(
-    'chat:cancelTurn',
-    (_event: IpcMainInvokeEvent, conversationKey: string, turnId: string) => {
-      cancelChatTurn(conversationKey, turnId)
-      return { success: true as const }
-    },
-  )
+  typedHandle('chat:cancelTurn', (_event, conversationKey, turnId) => {
+    cancelChatTurn(conversationKey, turnId)
+    return { success: true as const }
+  })
 
-  ipcMain.handle('chat:answer', (_event: IpcMainInvokeEvent, payload: ChatAnswerPayload) => {
+  typedHandle('chat:answer', (_event, payload) => {
     handleChatAnswer(payload)
   })
 
   // One-shot title summarization, model call included (step 6).
-  ipcMain.handle('chat:summarize', async (_event: IpcMainInvokeEvent, request: unknown) => {
+  typedHandle('chat:summarize', async (_event, request) => {
     try {
       return { success: true as const, data: await summarizeConversationText(request) }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 

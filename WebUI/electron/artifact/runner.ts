@@ -30,6 +30,7 @@ import {
 } from '../kernel/kernelBus'
 import type { ArtifactPhase } from '@/types/kernelEvents'
 import type { MediaItem } from '@/types/mediaItem'
+import type { ArtifactRunResult } from '@/types/artifactIpc'
 import {
   findKeysByClassType,
   mediaUrl,
@@ -124,11 +125,9 @@ export type ArtifactRunPayload = {
   activityId?: string
 }
 
-export type ArtifactRunResult = {
-  state: 'completed' | 'failed' | 'cancelled'
-  items: MediaItem[]
-  error?: string
-}
+// Hoisted to `@/types/artifactIpc` (the manifest row states it); re-exported
+// so the electron-side importers keep one canonical path.
+export type { ArtifactRunResult }
 
 /** The subset of `ComfyUiBackendService` the runner needs, so tests can fake it. */
 export type RunnerComfyService = {

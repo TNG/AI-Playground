@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ComfyInputSchema, ComfyUiPresetSchema } from '@/lib/presetSchemas'
+import type { MediaItem } from './mediaItem'
 
 /**
  * The `artifact:run` request as it crosses IPC — the renderer ships a fully
@@ -43,3 +44,10 @@ export const ArtifactRunRequestSchema = z.object({
 })
 
 export type ArtifactRunRequest = z.infer<typeof ArtifactRunRequestSchema>
+
+/** How a submitted run settled — the `artifact:run` invoke's reply. */
+export type ArtifactRunResult = {
+  state: 'completed' | 'failed' | 'cancelled'
+  items: MediaItem[]
+  error?: string
+}

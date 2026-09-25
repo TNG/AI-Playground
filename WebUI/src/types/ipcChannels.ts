@@ -6,12 +6,22 @@ import type {
 } from './agentIpc'
 import type { AgentSessionBootstrap, AgentSessionRecordWire } from './agentSessionIpc'
 import type { AgentWorkspaceState } from './agentWorkspaceIpc'
+import type { ArtifactRunRequest, ArtifactRunResult } from './artifactIpc'
+import type { ChatSummarizeRequest, ChatTurnRequest, ChatTurnResumeResult } from './chatIpc'
+import type { ChatAnswerPayload, ChatAskPayload } from './chatRequests'
 import type { ConversationBootstrap, ConversationSaveRequest } from './conversationIpc'
 import type { MediaItemsBootstrap } from './mediaItemIpc'
+import type { MediaRequestPayload, MediaResponsePayload } from './mediaRequests'
+import type {
+  PermissionGrant,
+  PermissionGrantOrigin,
+  PermissionsPromptPayload,
+  PermissionsPromptResponse,
+} from './permissionsIpc'
 import type { RagDocumentSection } from './ragDocumentIpc'
 
 export type IpcOwner = 'main' | 'homeAgent'
-export type IpcKind = 'invoke' | 'send' | 'push' | 'ask'
+export type IpcKind = 'invoke' | 'send' | 'push'
 
 export type InvokeRow<A extends readonly unknown[] = readonly unknown[], R = unknown> = {
   kind: 'invoke'
@@ -38,17 +48,8 @@ export type PushRow<P = unknown> = {
   member?: string
 }
 
-/** An M→R request paired with an R→M answer channel (e.g. chat:ask / chat:answer). */
-export type AskRow<P = unknown, A = unknown> = {
-  kind: 'ask'
-  owner: IpcOwner
-  payload: P
-  /** The R→M answer channel's argument type. */
-  answer: A
-  member?: string
-}
-
-export type IpcRow = InvokeRow | SendRow | PushRow | AskRow
+/** An M→R ask is two rows — a push for the question, an invoke for the answer (`chat:ask`/`chat:answer`). */
+export type IpcRow = InvokeRow | SendRow | PushRow
 
 export type IpcOk = { success: true }
 export type IpcFail = { success: false; error: string }
@@ -271,6 +272,139 @@ export const CHANNELS = {
     // context would widen it to string, collapsing the bridge's key remap.
     member: 'submitToolResult' as const,
   },
+
+  // ── Chat turns (step 6): the engine runs in main, the stream is kernel events ──
+
+  /** Submit one resolved chat turn; the engine streams chunks on the kernel bus. */
+  'chat:submitTurn': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChatTurnRequest],
+    result: null as unknown as { success: true; turnId: string } | IpcFail,
+  },
+  /** Rehydrate a (re)connecting renderer's live turn from the bus snapshot. */
+  'chat:resumeTurn': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as ChatTurnResumeResult,
+  },
+  /** Abort the running turn for a conversation, if any. */
+  'chat:cancelTurn': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as { success: true },
+  },
+  /** One-shot conversation-title summarization; occupies as `text`, `remember: false`. */
+  'chat:summarize': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChatSummarizeRequest],
+    result: null as unknown as IpcDataResult<string>,
+  },
+  /** The renderer's answer to a `chat:ask` question, keyed by requestId. */
+  'chat:answer': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChatAnswerPayload],
+    result: null as unknown as void,
+  },
+  /** Main asks the window for the one answer a chat tool needs (speech seam, confirm cards). */
+  'chat:ask': {
+    kind: 'push',
+    owner: 'main',
+    payload: null as unknown as ChatAskPayload,
+  },
+
+  // ── Artifact pipeline (step 5): resolved runs in, settled results out ──
+
+  /** Submit one resolved artifact run; the runner owns readiness and settlement. */
+  'artifact:run': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ArtifactRunRequest, { queue?: 'fail-fast' | 'queue' }?],
+    result: null as unknown as ArtifactRunResult,
+  },
+  /** Cancel the active run, or one in-flight run by id. */
+  'artifact:cancel': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string?],
+    result: null as unknown as void,
+  },
+  /** The renderer's answer to an `artifact:request`, keyed by requestId. */
+  'artifact:respond': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [MediaResponsePayload],
+    result: null as unknown as void,
+  },
+  /** Main asks the renderer for the model pre-flight and download consent. */
+  'artifact:request': {
+    kind: 'push',
+    owner: 'main',
+    payload: null as unknown as MediaRequestPayload,
+  },
+
+  // ── Permissions (step 13): policy in main, dialogs in the renderer ──
+
+  /** Desktop download modal / Home Agent in-channel consent for model downloads. */
+  'permissions:requestDownload': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [unknown[]],
+    result: null as unknown as
+      { success: true } | { success: false; error: string; cancelled?: boolean },
+  },
+  /** The high-memory / video-VRAM gate; a confirmed "do not show again" records a grant. */
+  'permissions:requestVramWarning': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [{ presetName: string; message: string }],
+    result: null as unknown as { success: true; confirmed: boolean } | IpcFail,
+  },
+  /** Every recorded consent grant (Settings → Permissions). */
+  'permissions:list': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as { success: true; grants: PermissionGrant[] } | IpcFail,
+  },
+  /** Record a grant (a remember tick or a Settings pre-grant). */
+  'permissions:grant': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, PermissionGrantOrigin],
+    result: null as unknown as { success: true; grant: PermissionGrant } | IpcFail,
+  },
+  /** Remove one grant by key. */
+  'permissions:revoke': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** One-shot upload of the legacy persisted grants. */
+  'permissions:migrate': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [Record<string, PermissionGrant>],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** The renderer's answer to a `permissions:prompt`, keyed by requestId. */
+  'permissions:respond': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [PermissionsPromptResponse],
+    result: null as unknown as void,
+  },
+  /** Main asks the window to show a consent dialog (download modal, VRAM warning). */
+  'permissions:prompt': {
+    kind: 'push',
+    owner: 'main',
+    payload: null as unknown as PermissionsPromptPayload,
+  },
 } satisfies Record<string, IpcRow>
 
 export type ChannelManifest = typeof CHANNELS
@@ -284,9 +418,6 @@ export type SendChannelName = {
 }[ChannelName]
 export type PushChannelName = {
   [K in ChannelName]: ChannelManifest[K]['kind'] extends 'push' ? K : never
-}[ChannelName]
-export type AskChannelName = {
-  [K in ChannelName]: ChannelManifest[K]['kind'] extends 'ask' ? K : never
 }[ChannelName]
 
 export type ChannelArgs<N extends ChannelName> = ChannelManifest[N] extends {
@@ -310,12 +441,7 @@ export type BridgeMemberFor<N extends ChannelName> =
         ? (callback: (payload: P) => void) => void
         : ChannelManifest[N] extends PushRow<infer P>
           ? (callback: (payload: P) => void) => () => void
-          : ChannelManifest[N] extends AskRow<infer P, infer A>
-            ? {
-                listen: (callback: (payload: P) => void) => () => void
-                answer: (payload: A) => void
-              }
-            : never
+          : never
 
 type ChannelLeaf<S extends string> = S extends `${string}:${infer Leaf}` ? ChannelLeaf<Leaf> : S
 
@@ -323,7 +449,7 @@ type BridgeLeafName<N extends ChannelName> = ChannelManifest[N] extends {
   member: infer M extends string
 }
   ? M
-  : ChannelManifest[N] extends PushRow | AskRow
+  : ChannelManifest[N] extends PushRow
     ? `on${Capitalize<ChannelLeaf<N>>}`
     : ChannelLeaf<N>
 

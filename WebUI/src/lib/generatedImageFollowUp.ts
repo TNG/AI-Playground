@@ -1,4 +1,4 @@
-import type { ModelMessage, ToolResultOutput } from 'ai'
+import type { ModelMessage, ToolResultPart } from 'ai'
 
 // The OpenAI-compatible provider JSON.stringifies a tool result, so a result
 // image sent there arrives as text, and edit runs also stamp a placeholder
@@ -60,7 +60,7 @@ function presetOf(images: ImageEntry[]): string | undefined {
 }
 
 /** Model-facing comfy tool output: image refs only, never the settings payload. */
-export function comfyToolModelOutput(output: unknown): ToolResultOutput {
+export function comfyToolModelOutput(output: unknown): ToolResultPart['output'] {
   const value = resultRecord(output) ?? (output as Record<string, unknown> | null)
   if (!value || typeof value !== 'object') {
     return { type: 'error-text', value: 'Image generation returned no result.' }
@@ -106,12 +106,6 @@ function mediaTypeOf(dataUri: string): string {
 async function readImage(url: string, read: GeneratedImageReader): Promise<string> {
   if (url.startsWith('data:')) return url
   return await read(url)
-}
-
-type ToolResultPart = {
-  type: 'tool-result'
-  toolName?: string
-  output: { type?: string; value?: unknown }
 }
 
 function followUpMessage(dataUris: string[]): ModelMessage {

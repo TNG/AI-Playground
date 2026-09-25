@@ -1971,7 +1971,7 @@ function initEventHandle() {
   // Persist an inbound Home Agent document (base64) to disk so the langchain
   // RAG loaders (which require a real filepath) can index it, and so the
   // persisted ragList entry keeps a stable path. Returns the absolute path.
-  ipcMain.handle(
+  typedHandle(
     'saveHomeAgentDocument',
     async (
       _event,
@@ -3655,39 +3655,39 @@ function initEventHandle() {
 
   // Web browser IPC handlers — drives the headless BrowserWindow that the chat
   // LLM uses to browse the web (see adapters/webBrowserManager.ts).
-  ipcMain.handle('webBrowser:navigate', async (_event, url: string) => {
+  typedHandle('webBrowser:navigate', async (_event, url: string) => {
     return await navigateWebBrowser(url)
   })
 
-  ipcMain.handle('webBrowser:readPage', async () => {
+  typedHandle('webBrowser:readPage', async () => {
     return await readWebBrowserPage()
   })
 
-  ipcMain.handle('webBrowser:search', async (_event, query: string, maxResults?: number) => {
+  typedHandle('webBrowser:search', async (_event, query: string, maxResults?: number) => {
     return await searchWebBrowser(query, maxResults)
   })
 
-  ipcMain.handle('webBrowser:interact', async (_event, interaction: WebBrowserInteraction) => {
+  typedHandle('webBrowser:interact', async (_event, interaction: WebBrowserInteraction) => {
     return await interactWebBrowser(interaction)
   })
 
-  ipcMain.handle('webBrowser:screenshot', async () => {
+  typedHandle('webBrowser:screenshot', async () => {
     return await screenshotWebBrowser()
   })
 
-  ipcMain.handle('webBrowser:show', () => {
+  typedHandle('webBrowser:show', () => {
     return showWebBrowser()
   })
 
-  ipcMain.handle('webBrowser:hide', () => {
+  typedHandle('webBrowser:hide', () => {
     return hideWebBrowser()
   })
 
-  ipcMain.handle('webBrowser:close', () => {
+  typedHandle('webBrowser:close', () => {
     return closeWebBrowser()
   })
 
-  ipcMain.handle('webBrowser:getState', () => {
+  typedHandle('webBrowser:getState', () => {
     return getWebBrowserState()
   })
 

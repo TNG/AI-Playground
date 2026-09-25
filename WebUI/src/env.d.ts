@@ -350,85 +350,9 @@ type electronAPI = {
   mcp: import('./types/ipcChannels').NamespaceBridge<'mcp'>
   agentMode: import('./types/ipcChannels').NamespaceBridge<'agentMode'>
   games: import('./types/ipcChannels').NamespaceBridge<'games'>
-  webBrowser: {
-    navigate(url: string): Promise<WebPageSnapshot>
-    readPage(): Promise<WebPageSnapshot>
-    search(query: string, maxResults?: number): Promise<WebSearchResults>
-    interact(interaction: WebBrowserInteraction): Promise<WebPageSnapshot>
-    screenshot(): Promise<string>
-    show(): Promise<WebBrowserState>
-    hide(): Promise<WebBrowserState>
-    close(): Promise<WebBrowserState>
-    getState(): Promise<WebBrowserState>
-    onStateChanged(callback: (state: WebBrowserState) => void): void
-  }
+  webBrowser: import('./types/ipcChannels').NamespaceBridge<'webBrowser'>
   screenshot: import('./types/ipcChannels').NamespaceBridge<'screenshot'>
-  homeAgent: {
-    saveDocument(
-      filename: string,
-      base64: string,
-    ): Promise<{ success: boolean; filepath?: string; error?: string }>
-    localWeb: {
-      getUrls(port: number, allowLan: boolean): Promise<string[]>
-    }
-    channel: {
-      saveConfig(
-        kind: string,
-        config: Record<string, string>,
-      ): Promise<{ success: boolean; error?: string }>
-      loadConfig(kind: string): Promise<Record<string, string> | null>
-      clearConfig(kind: string): Promise<void>
-      savePrefs(
-        kind: string,
-        prefs: { verified?: boolean; enabled?: boolean },
-      ): Promise<{ success: boolean; error?: string }>
-      loadPrefs(kind: string): Promise<{ verified: boolean; enabled: boolean } | null>
-      test(kind: string): Promise<{ success: boolean; error?: string }>
-      inject(
-        kind: string,
-        config: Record<string, string | undefined>,
-      ): Promise<{ status: string; error?: string }>
-      detectIdentity(
-        kind: string,
-        config: Record<string, string | undefined>,
-      ): Promise<{ identity: string } | { error: string }>
-      detectIdentityFromSaved(kind: string): Promise<{ identity: string } | { error: string }>
-      poll(kind: string): Promise<
-        Array<{
-          text?: string
-          chat_id: string
-          channel?: string
-          ts?: string
-          images?: Array<{ mime: string; data_base64: string }>
-          audio?: Array<{ mime: string; data_base64: string }>
-          documents?: Array<{ filename: string; mime: string; data_base64: string }>
-          callback?: string
-        }>
-      >
-      flushPending(kind: string): Promise<void>
-      send(
-        kind: string,
-        action:
-          | 'reply'
-          | 'update'
-          | 'photo'
-          | 'video'
-          | 'voice'
-          | 'document'
-          | 'typing'
-          | 'keyboard'
-          | 'editMessage'
-          | 'history',
-        payload: Record<string, unknown>,
-      ): Promise<{
-        success: boolean
-        ts?: string
-        channel?: string
-        messageId?: number
-        error?: string
-      }>
-    }
-  }
+  homeAgent: import('./types/ipcChannels').NamespaceBridge<'homeAgent'>
   // Cloud Mode provider secrets, encrypted at rest via safeStorage in main.
   cloudProvider: import('./types/ipcChannels').NamespaceBridge<'cloudProvider'>
 }

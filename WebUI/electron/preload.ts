@@ -3,6 +3,7 @@ import pkg from '../package.json'
 import type { LocalSettings } from './kernel/localSettings.ts'
 import { ModelPaths } from '@/assets/js/store/models'
 import { cloneForIpc } from '@/lib/cloneForIpc'
+import type { ChannelKind } from '@/assets/js/store/channels/types'
 import {
   EmbedInquiry,
   IndexedDocument,
@@ -366,22 +367,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
       invoke('games:setArcadeShown', target),
   } satisfies NamespaceBridge<'games'>,
   webBrowser: {
-    navigate: (url: string) => ipcRenderer.invoke('webBrowser:navigate', url),
-    readPage: () => ipcRenderer.invoke('webBrowser:readPage'),
-    search: (query: string, maxResults?: number) =>
-      ipcRenderer.invoke('webBrowser:search', query, maxResults),
-    interact: (interaction: WebBrowserInteraction) =>
-      ipcRenderer.invoke('webBrowser:interact', interaction),
-    screenshot: () => ipcRenderer.invoke('webBrowser:screenshot'),
-    show: () => ipcRenderer.invoke('webBrowser:show'),
-    hide: () => ipcRenderer.invoke('webBrowser:hide'),
-    close: () => ipcRenderer.invoke('webBrowser:close'),
-    getState: () => ipcRenderer.invoke('webBrowser:getState'),
+    navigate: (url: string) => invoke('webBrowser:navigate', url),
+    readPage: () => invoke('webBrowser:readPage'),
+    search: (query: string, maxResults?: number) => invoke('webBrowser:search', query, maxResults),
+    interact: (interaction: WebBrowserInteraction) => invoke('webBrowser:interact', interaction),
+    screenshot: () => invoke('webBrowser:screenshot'),
+    show: () => invoke('webBrowser:show'),
+    hide: () => invoke('webBrowser:hide'),
+    close: () => invoke('webBrowser:close'),
+    getState: () => invoke('webBrowser:getState'),
     onStateChanged: (callback: (state: WebBrowserState) => void) =>
-      ipcRenderer.on('webBrowser:stateChanged', (_event, state: WebBrowserState) =>
-        callback(state),
-      ),
-  },
+      onRaw('webBrowser:stateChanged', callback),
+  } satisfies NamespaceBridge<'webBrowser'>,
   screenshot: {
     listWindows: () => invoke('screenshot:listWindows'),
     captureWindow: (target: ScreenshotWindow) => invoke('screenshot:captureWindow', target),
@@ -391,37 +388,37 @@ contextBridge.exposeInMainWorld('electronAPI', {
   homeAgent: {
     // Persist an inbound document (base64) to disk for RAG ingestion.
     saveDocument: (filename: string, base64: string) =>
-      ipcRenderer.invoke('saveHomeAgentDocument', filename, base64),
+      invoke('saveHomeAgentDocument', filename, base64),
     // Local web chat — URL discovery (the chat server lives in the Python
     // backend; this only enumerates reachable addresses for the setup screen).
     // `allowLan` mirrors the bind: loopback only unless LAN access is on.
     localWeb: {
       getUrls: (port: number, allowLan: boolean): Promise<string[]> =>
-        ipcRenderer.invoke('homeAgent:localWeb:getUrls', port, allowLan),
+        invoke('homeAgent:localWeb:getUrls', port, allowLan),
     },
     // Channel-agnostic dispatcher. Every method is keyed by ChannelKind
     // (`'telegram'` | `'slack'` | `'discord'` | `'local-web'`) so adding a new
     // platform requires zero edits here — only a new entry in the renderer-side
     // channel registry and a Python channel module.
     channel: {
-      saveConfig: (kind: string, config: Record<string, string>) =>
-        ipcRenderer.invoke('channel:saveConfig', kind, config),
-      loadConfig: (kind: string) => ipcRenderer.invoke('channel:loadConfig', kind),
-      clearConfig: (kind: string) => ipcRenderer.invoke('channel:clearConfig', kind),
-      savePrefs: (kind: string, prefs: { verified?: boolean; enabled?: boolean }) =>
-        ipcRenderer.invoke('channel:savePrefs', kind, prefs),
-      loadPrefs: (kind: string) => ipcRenderer.invoke('channel:loadPrefs', kind),
-      test: (kind: string) => ipcRenderer.invoke('channel:test', kind),
-      inject: (kind: string, config: Record<string, string | undefined>) =>
-        ipcRenderer.invoke('channel:inject', kind, config),
-      detectIdentity: (kind: string, config: Record<string, string | undefined>) =>
-        ipcRenderer.invoke('channel:detectIdentity', kind, config),
-      detectIdentityFromSaved: (kind: string) =>
-        ipcRenderer.invoke('channel:detectIdentityFromSaved', kind),
-      poll: (kind: string) => ipcRenderer.invoke('channel:poll', kind),
-      flushPending: (kind: string) => ipcRenderer.invoke('channel:flushPending', kind),
+      saveConfig: (kind: ChannelKind, config: Record<string, string>) =>
+        invoke('channel:saveConfig', kind, config),
+      loadConfig: (kind: ChannelKind) => invoke('channel:loadConfig', kind),
+      clearConfig: (kind: ChannelKind) => invoke('channel:clearConfig', kind),
+      savePrefs: (kind: ChannelKind, prefs: { verified?: boolean; enabled?: boolean }) =>
+        invoke('channel:savePrefs', kind, prefs),
+      loadPrefs: (kind: ChannelKind) => invoke('channel:loadPrefs', kind),
+      test: (kind: ChannelKind) => invoke('channel:test', kind),
+      inject: (kind: ChannelKind, config: Record<string, string | undefined>) =>
+        invoke('channel:inject', kind, config),
+      detectIdentity: (kind: ChannelKind, config: Record<string, string | undefined>) =>
+        invoke('channel:detectIdentity', kind, config),
+      detectIdentityFromSaved: (kind: ChannelKind) =>
+        invoke('channel:detectIdentityFromSaved', kind),
+      poll: (kind: ChannelKind) => invoke('channel:poll', kind),
+      flushPending: (kind: ChannelKind) => invoke('channel:flushPending', kind),
       send: (
-        kind: string,
+        kind: ChannelKind,
         action:
           | 'reply'
           | 'update'
@@ -434,9 +431,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
           | 'editMessage'
           | 'history',
         payload: Record<string, unknown>,
-      ) => ipcRenderer.invoke('channel:send', kind, action, payload),
+      ) => invoke('channel:send', kind, action, payload),
     },
-  },
+  } satisfies NamespaceBridge<'homeAgent'>,
   // Cloud Mode provider secrets, encrypted at rest via safeStorage in main.
   cloudProvider: {
     saveKey: (providerId: string, key: string) => invoke('cloudProvider:saveKey', providerId, key),

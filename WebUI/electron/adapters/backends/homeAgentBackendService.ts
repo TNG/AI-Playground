@@ -3,8 +3,10 @@ import { randomBytes } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
-import { app, BrowserWindow, ipcMain, net, safeStorage } from 'electron'
+import { app, BrowserWindow, net, safeStorage } from 'electron'
 import type { LocalSettings } from '../../kernel/localSettings.ts'
+import { typedHandle } from '../../kernel/typedIpc'
+import type { HomeAgentInboundMessage } from '@/types/homeAgentIpc'
 import { GitService, LongLivedPythonApiService, createEnhancedErrorDetails } from './service.ts'
 import { aipgBaseDir, checkBackend, installBackend } from '../install/uvBasedBackends/uv.ts'
 import { spawnBackend } from '../install/processLifecycle.ts'
@@ -525,31 +527,13 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
     }
   }
 
-  async channelPoll(kind: ChannelKind): Promise<
-    Array<{
-      text?: string
-      chat_id: string
-      channel?: string
-      ts?: string
-      images?: Array<{ mime: string; data_base64: string }>
-      audio?: Array<{ mime: string; data_base64: string }>
-      callback?: string
-    }>
-  > {
+  async channelPoll(kind: ChannelKind): Promise<HomeAgentInboundMessage[]> {
     if (this.currentStatus !== 'running') return []
     try {
       const res = await net.fetch(`${this.baseUrl}/channel/${kind}/poll`, {
         headers: this.authHeaders(),
       })
-      return (await res.json()) as Array<{
-        text?: string
-        chat_id: string
-        channel?: string
-        ts?: string
-        images?: Array<{ mime: string; data_base64: string }>
-        audio?: Array<{ mime: string; data_base64: string }>
-        callback?: string
-      }>
+      return (await res.json()) as HomeAgentInboundMessage[]
     } catch {
       return []
     }
@@ -856,50 +840,44 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
 
   registerIpcHandlers(): void {
     // Persistence — channel-keyed by first arg.
-    ipcMain.handle(
-      'channel:saveConfig',
-      (_event, kind: ChannelKind, config: Record<string, string>) =>
-        this.saveChannelConfig(kind, config),
+    typedHandle('channel:saveConfig', (_event, kind: ChannelKind, config: Record<string, string>) =>
+      this.saveChannelConfig(kind, config),
     )
-    ipcMain.handle('channel:loadConfig', (_event, kind: ChannelKind) =>
-      this.loadChannelConfig(kind),
-    )
-    ipcMain.handle('channel:clearConfig', (_event, kind: ChannelKind) =>
-      this.clearChannelConfig(kind),
-    )
-    ipcMain.handle(
+    typedHandle('channel:loadConfig', (_event, kind: ChannelKind) => this.loadChannelConfig(kind))
+    typedHandle('channel:clearConfig', (_event, kind: ChannelKind) => this.clearChannelConfig(kind))
+    typedHandle(
       'channel:savePrefs',
       (_event, kind: ChannelKind, prefs: Partial<ChannelPrefsFile>) =>
         this.saveChannelPrefs(kind, prefs),
     )
-    ipcMain.handle('channel:loadPrefs', (_event, kind: ChannelKind) => this.loadChannelPrefs(kind))
+    typedHandle('channel:loadPrefs', (_event, kind: ChannelKind) => this.loadChannelPrefs(kind))
 
     // Local web chat: expose the URLs the served page is reachable at.
     // Pure OS-info lookup — the chat server itself lives in the Python backend.
-    ipcMain.handle('homeAgent:localWeb:getUrls', (_event, port: number, allowLan: boolean) =>
+    typedHandle('homeAgent:localWeb:getUrls', (_event, port: number, allowLan: boolean) =>
       this.getLocalWebUrls(port, !!allowLan),
     )
 
     // Backend dispatch — channel-keyed by first arg.
-    ipcMain.handle('channel:test', (_event, kind: ChannelKind) => this.channelTest(kind))
-    ipcMain.handle(
+    typedHandle('channel:test', (_event, kind: ChannelKind) => this.channelTest(kind))
+    typedHandle(
       'channel:inject',
       (_event, kind: ChannelKind, config: Record<string, string | undefined>) =>
         this.channelSetConfig(kind, config),
     )
-    ipcMain.handle(
+    typedHandle(
       'channel:detectIdentity',
       (_event, kind: ChannelKind, config: Record<string, string | undefined>) =>
         this.channelDetectIdentity(kind, config),
     )
-    ipcMain.handle('channel:detectIdentityFromSaved', (_event, kind: ChannelKind) =>
+    typedHandle('channel:detectIdentityFromSaved', (_event, kind: ChannelKind) =>
       this.channelDetectIdentityFromSaved(kind),
     )
-    ipcMain.handle('channel:poll', (_event, kind: ChannelKind) => this.channelPoll(kind))
-    ipcMain.handle('channel:flushPending', (_event, kind: ChannelKind) =>
+    typedHandle('channel:poll', (_event, kind: ChannelKind) => this.channelPoll(kind))
+    typedHandle('channel:flushPending', (_event, kind: ChannelKind) =>
       this.channelFlushPending(kind),
     )
-    ipcMain.handle(
+    typedHandle(
       'channel:send',
       (
         _event,

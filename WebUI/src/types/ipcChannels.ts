@@ -18,6 +18,7 @@ import type {
 import type { ChatAnswerPayload, ChatAskPayload } from './chatRequests'
 import type { ComfyUICustomNodeRepoId } from './comfyuiIpc'
 import type { ConversationBootstrap, ConversationSaveRequest } from './conversationIpc'
+import type { HomeAgentInboundMessage } from './homeAgentIpc'
 import type { MediaItemsBootstrap } from './mediaItemIpc'
 import type { MediaRequestPayload, MediaResponsePayload } from './mediaRequests'
 import type {
@@ -36,6 +37,7 @@ import type {
   McpToolCallResult,
   McpToolInfo,
 } from './mcpIpc'
+import type { ChannelKind } from '@/assets/js/store/channels/types'
 import type { ModelLibraryScan } from '@/assets/js/models/types'
 import type { ModelLists, ModelPaths } from '@/assets/js/store/models'
 import type { EmbedInquiry, IndexedDocument } from '@/assets/js/store/textInference'
@@ -57,6 +59,8 @@ export type SendRow<A extends readonly unknown[] = readonly unknown[]> = {
   kind: 'send'
   owner: IpcOwner
   args: A
+  /** `true` to place a namespaced channel's member at the top level (flat), like `lifecycle:busy`. */
+  flat?: boolean
   member?: string
 }
 
@@ -1090,6 +1094,7 @@ export const CHANNELS = {
     kind: 'send',
     owner: 'main',
     args: [] as unknown as readonly [boolean],
+    flat: true as const,
     member: 'setLifecycleBusy' as const,
   },
   /** The primary display's new work-area size, right after it changed. */
@@ -1429,6 +1434,218 @@ export const CHANNELS = {
     args: [] as unknown as readonly [{ kind: 'user' | 'sample'; id: string; shown: boolean }],
     result: null as unknown as { success: true } | IpcFail,
   },
+
+  // ── Agent web browser (batch 9c): a hidden BrowserWindow the chat LLM drives ──
+
+  /** Navigate to a URL and answer the new page's snapshot; rejects on bad URLs. */
+  'webBrowser:navigate': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as WebPageSnapshot,
+  },
+  /** Re-read the current page's visible text and salient links. */
+  'webBrowser:readPage': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as WebPageSnapshot,
+  },
+  /** DuckDuckGo HTML search; answers the query and its parsed results. */
+  'webBrowser:search': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, number?],
+    result: null as unknown as WebSearchResults,
+  },
+  /** Click / scroll / back; answers the page snapshot after the interaction. */
+  'webBrowser:interact': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [WebBrowserInteraction],
+    result: null as unknown as WebPageSnapshot,
+  },
+  /** Capture the page as a base64 PNG. */
+  'webBrowser:screenshot': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as string,
+  },
+  /** Show the browser window; answers its state. */
+  'webBrowser:show': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as WebBrowserState,
+  },
+  /** Hide the browser window (background browsing continues). */
+  'webBrowser:hide': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as WebBrowserState,
+  },
+  /** Close the browser window; answers its state. */
+  'webBrowser:close': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as WebBrowserState,
+  },
+  /** The browser window's open / visible / url / title state. */
+  'webBrowser:getState': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as WebBrowserState,
+  },
+  /** The raw push of the browser state after every change (no unsubscribe). */
+  'webBrowser:stateChanged': {
+    kind: 'push',
+    owner: 'main',
+    payload: null as unknown as WebBrowserState,
+    raw: true as const,
+  },
+
+  // ── Home Agent documents, LAN chat and channel dispatch (batch 9c) ──
+  // `saveHomeAgentDocument` has no namespace and the `channel:*` channels
+  // pre-date the `ns:` convention, so their dotted `member` overrides place
+  // them inside the homeAgent bridge group. The channel handlers are
+  // registered by the Home Agent backend service (service-gated).
+
+  /** Persist an inbound Home Agent document (base64) for RAG; answers its path. */
+  saveHomeAgentDocument: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as { success: boolean; filepath?: string; error?: string },
+    member: 'homeAgent.saveDocument' as const,
+  },
+  /** Addresses the LAN chat page is reachable at (loopback only unless LAN is on). */
+  'homeAgent:localWeb:getUrls': {
+    kind: 'invoke',
+    owner: 'homeAgent',
+    args: [] as unknown as readonly [number, boolean],
+    result: null as unknown as string[],
+  },
+  /** Save one channel's config blob (secrets encrypted at rest by main). */
+  'channel:saveConfig': {
+    kind: 'invoke',
+    owner: 'homeAgent',
+    args: [] as unknown as readonly [ChannelKind, Record<string, string>],
+    result: null as unknown as { success: boolean; error?: string },
+    member: 'homeAgent.channel.saveConfig' as const,
+  },
+  /** One channel's decrypted config, or null when none is saved. */
+  'channel:loadConfig': {
+    kind: 'invoke',
+    owner: 'homeAgent',
+    args: [] as unknown as readonly [ChannelKind],
+    result: null as unknown as Record<string, string> | null,
+    member: 'homeAgent.channel.loadConfig' as const,
+  },
+  /** Delete one channel's saved config file. */
+  'channel:clearConfig': {
+    kind: 'invoke',
+    owner: 'homeAgent',
+    args: [] as unknown as readonly [ChannelKind],
+    result: null as unknown as void,
+    member: 'homeAgent.channel.clearConfig' as const,
+  },
+  /** Persist the verified/enabled setup flags without touching credentials. */
+  'channel:savePrefs': {
+    kind: 'invoke',
+    owner: 'homeAgent',
+    args: [] as unknown as readonly [ChannelKind, { verified?: boolean; enabled?: boolean }],
+    result: null as unknown as { success: boolean; error?: string },
+    member: 'homeAgent.channel.savePrefs' as const,
+  },
+  /** One channel's persisted setup flags, or null when none saved. */
+  'channel:loadPrefs': {
+    kind: 'invoke',
+    owner: 'homeAgent',
+    args: [] as unknown as readonly [ChannelKind],
+    result: null as unknown as { verified: boolean; enabled: boolean } | null,
+    member: 'homeAgent.channel.loadPrefs' as const,
+  },
+  /** Verify saved credentials with the platform from main (Telegram/Slack/LAN). */
+  'channel:test': {
+    kind: 'invoke',
+    owner: 'homeAgent',
+    args: [] as unknown as readonly [ChannelKind],
+    result: null as unknown as { success: boolean; error?: string },
+    member: 'homeAgent.channel.test' as const,
+  },
+  /** Inject credentials into the running backend so its channel bot starts. */
+  'channel:inject': {
+    kind: 'invoke',
+    owner: 'homeAgent',
+    args: [] as unknown as readonly [ChannelKind, Record<string, string | undefined>],
+    result: null as unknown as { status: string; error?: string },
+    member: 'homeAgent.channel.inject' as const,
+  },
+  /** Detect the chat id from a freshly pasted credential (saved config as fallback). */
+  'channel:detectIdentity': {
+    kind: 'invoke',
+    owner: 'homeAgent',
+    args: [] as unknown as readonly [ChannelKind, Record<string, string | undefined>],
+    result: null as unknown as { identity: string } | { error: string },
+    member: 'homeAgent.channel.detectIdentity' as const,
+  },
+  /** Re-run identity detection from the saved config. */
+  'channel:detectIdentityFromSaved': {
+    kind: 'invoke',
+    owner: 'homeAgent',
+    args: [] as unknown as readonly [ChannelKind],
+    result: null as unknown as { identity: string } | { error: string },
+    member: 'homeAgent.channel.detectIdentityFromSaved' as const,
+  },
+  /** Drain one channel's inbound message queue (empty when not running). */
+  'channel:poll': {
+    kind: 'invoke',
+    owner: 'homeAgent',
+    args: [] as unknown as readonly [ChannelKind],
+    result: null as unknown as HomeAgentInboundMessage[],
+    member: 'homeAgent.channel.poll' as const,
+  },
+  /** Push any pending outbound messages through the backend. */
+  'channel:flushPending': {
+    kind: 'invoke',
+    owner: 'homeAgent',
+    args: [] as unknown as readonly [ChannelKind],
+    result: null as unknown as void,
+    member: 'homeAgent.channel.flushPending' as const,
+  },
+  /** Send one channel-native action to the platform via the Python backend. */
+  'channel:send': {
+    kind: 'invoke',
+    owner: 'homeAgent',
+    args: [] as unknown as readonly [
+      ChannelKind,
+      (
+        | 'reply'
+        | 'update'
+        | 'photo'
+        | 'video'
+        | 'voice'
+        | 'document'
+        | 'typing'
+        | 'keyboard'
+        | 'editMessage'
+        | 'history'
+      ),
+      Record<string, unknown>,
+    ],
+    result: null as unknown as {
+      success: boolean
+      ts?: string
+      channel?: string
+      messageId?: number
+      error?: string
+    },
+    member: 'homeAgent.channel.send' as const,
+  },
 } satisfies Record<string, IpcRow>
 
 export type ChannelManifest = typeof CHANNELS
@@ -1473,40 +1690,88 @@ export type BridgeMemberFor<N extends ChannelName> =
 
 type ChannelLeaf<S extends string> = S extends `${string}:${infer Leaf}` ? ChannelLeaf<Leaf> : S
 
+// A channel's bridge member lives at a path of segments. The natural path is
+// the channel's own namespace segments plus its member name; a row overrides
+// the placement with a dotted `member` ('homeAgent.channel.send' — the whole
+// path) or `flat: true` (a namespaced channel whose member sits at the top
+// level, like `lifecycle:busy`).
+
+/** Split a dotted member path into its segments. */
+type SplitDots<S extends string> = S extends `${infer Head}.${infer Rest}`
+  ? [Head, ...SplitDots<Rest>]
+  : [S]
+
+/** The channel's namespace segments — everything before the last `:`. */
+type ParentSegments<S extends string> = S extends `${infer Head}:${infer Rest}`
+  ? Rest extends `${string}:${string}`
+    ? [Head, ...ParentSegments<Rest>]
+    : [Head]
+  : []
+
+/** Final segment of a member path ('homeAgent.channel.send' → 'send'). */
+type MemberLeaf<M extends string> = M extends `${string}.${infer Last}` ? MemberLeaf<Last> : M
+
 type BridgeLeafName<N extends ChannelName> = ChannelManifest[N] extends {
   member: infer M extends string
 }
-  ? M
+  ? MemberLeaf<M>
   : ChannelManifest[N] extends PushRow
     ? `on${Capitalize<ChannelLeaf<N>>}`
     : ChannelLeaf<N>
 
-export type NamespaceBridge<NS extends string> = {
-  [K in ChannelName as K extends `${NS}:${string}` ? BridgeLeafName<K> : never]: BridgeMemberFor<K>
+/** Where a channel's bridge member lives, as a path of segments. */
+type BridgePath<N extends ChannelName> = ChannelManifest[N] extends {
+  member: infer M extends string
 }
+  ? M extends `${string}.${string}`
+    ? SplitDots<M>
+    : ChannelManifest[N] extends { flat: true }
+      ? [M]
+      : [...ParentSegments<N>, M]
+  : ChannelManifest[N] extends { flat: true }
+    ? [BridgeLeafName<N>]
+    : [...ParentSegments<N>, BridgeLeafName<N>]
 
-type ChannelNamespace<S extends string> = S extends `${infer NS}:${string}` ? NS : never
-
-type AllNamespaces = keyof {
-  [K in ChannelName as K extends `${string}:${string}` ? ChannelNamespace<K> : never]: never
-}
-
-type ChannelGroupLeaves<NS extends string> = {
+/** Members whose bridge path is exactly the prefix plus one segment. */
+type BridgeLeavesAt<Prefix extends readonly string[]> = {
   [
-    K in ChannelName as K extends `${NS}:${infer Rest}`
-      ? Rest extends `${string}:${string}`
-        ? never
-        : BridgeLeafName<K>
+    K in ChannelName as BridgePath<K> extends readonly [...Prefix, infer Leaf extends string]
+      ? Leaf
       : never
   ]: BridgeMemberFor<K>
 }
 
-type SubNamespaces<NS extends string> = keyof {
-  [K in ChannelName as K extends `${NS}:${infer Sub}:${string}` ? Sub : never]: never
+/** Segments that continue a group path below the prefix (a channel lives deeper). */
+type BridgeSubPrefixes<Prefix extends readonly string[]> = keyof {
+  [
+    K in ChannelName as BridgePath<K> extends readonly [
+      ...Prefix,
+      infer Seg extends string,
+      string,
+      ...(readonly string[]),
+    ]
+      ? Seg
+      : never
+  ]: never
 }
 
-type ChannelGroup<NS extends string> = ChannelGroupLeaves<NS> & {
-  [Sub in SubNamespaces<NS>]: ChannelGroup<`${NS}:${Sub}`>
+type BridgeGroupAt<Prefix extends readonly string[]> = BridgeLeavesAt<Prefix> & {
+  [Seg in BridgeSubPrefixes<Prefix>]: BridgeGroupAt<[...Prefix, Seg]>
+}
+
+export type NamespaceBridge<NS extends string> = BridgeGroupAt<[NS]>
+
+/** Top-level groups: first segments of any multi-segment bridge path. */
+type BridgeTopGroups = keyof {
+  [
+    K in ChannelName as BridgePath<K> extends readonly [
+      infer Group extends string,
+      string,
+      ...(readonly string[]),
+    ]
+      ? Group
+      : never
+  ]: never
 }
 
 /** Bridge members that are not IPC channels (webUtils utilities) — the manifest's escape hatch. */
@@ -1516,8 +1781,8 @@ export type IpcExtraBridgeMembers = {
 
 export type ElectronApi = {
   [
-    K in ChannelName as K extends `${string}:${string}` ? never : BridgeLeafName<K>
+    K in ChannelName as BridgePath<K> extends readonly [infer Leaf extends string] ? Leaf : never
   ]: BridgeMemberFor<K>
 } & {
-  [NS in AllNamespaces]: ChannelGroup<NS>
+  [Group in BridgeTopGroups]: BridgeGroupAt<[Group]>
 } & IpcExtraBridgeMembers

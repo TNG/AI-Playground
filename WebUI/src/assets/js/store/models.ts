@@ -455,7 +455,7 @@ export const useModels = defineStore(
      */
     async function restorePathsSettings() {
       await window.electronAPI.restorePathsSettings()
-      const setupData = await window.electronAPI.getInitSetting()
+      const setupData = (await window.electronAPI.getInitSetting())!
       paths.value = setupData.modelPaths
       return setupData.modelLists
     }

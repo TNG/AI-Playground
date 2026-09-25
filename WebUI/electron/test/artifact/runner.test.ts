@@ -118,7 +118,7 @@ function deps(overrides: Partial<Parameters<typeof setArtifactRunnerDeps>[0]> = 
       consentRequests++
       return consentApproved
     }),
-    ensureOvmsImageReady: vi.fn(async () => ({ success: true, url: 'http://ovms' })),
+    ensureOvmsImageReady: vi.fn(async () => ({ success: true as const, url: 'http://ovms' })),
     readMediaAsDataUri: vi.fn(async () => null),
     getPlatform: () => 'darwin' as NodeJS.Platform,
     devPresetsEnabled: () => false,

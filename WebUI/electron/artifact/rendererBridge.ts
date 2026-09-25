@@ -9,9 +9,8 @@
  */
 import { randomUUID } from 'node:crypto'
 import { getKernelEventWindow } from '../kernel/kernelBus'
+import { typedSend } from '../kernel/typedIpc'
 import type { MediaRequestBody, MediaResponsePayload } from '@/types/mediaRequests'
-
-const MEDIA_REQUEST_CHANNEL = 'artifact:request'
 
 type PendingRequest = {
   requestId: string
@@ -49,7 +48,7 @@ export function requestRenderer<T>(
       onProgress: options.onProgress,
     })
     try {
-      win.webContents.send(MEDIA_REQUEST_CHANNEL, { ...payload, requestId })
+      typedSend(win.webContents, 'artifact:request', { ...payload, requestId })
     } catch (error) {
       pending.delete(requestId)
       reject(error instanceof Error ? error : new Error(String(error)))

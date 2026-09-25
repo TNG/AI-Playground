@@ -22,14 +22,10 @@ import {
   app,
   BrowserWindow,
   dialog,
-  ipcMain,
   IpcMainEvent,
   IpcMainInvokeEvent,
-  MessageBoxOptions,
-  MessageBoxSyncOptions,
   nativeImage,
   net,
-  OpenDialogSyncOptions,
   protocol,
   safeStorage,
   screen,
@@ -114,7 +110,6 @@ import {
   isAutoDetectId,
   updateMcpServer,
   removeMcpServer,
-  type McpServerConfig,
 } from './adapters/mcp/mcpServers'
 import {
   cancelAgentTurn,
@@ -128,21 +123,21 @@ import {
   submitAgentToolResult,
 } from './agent/piAgentManager'
 import { getKernelSnapshot, onKernelEvent, setKernelEventWindow } from './kernel/kernelBus'
+import { ipcErrorText, ipcFail, typedHandle, typedOn, typedSend } from './kernel/typedIpc'
 import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecycle'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
 import { AgentModeTurnConfigSchema } from '@/types/agentIpc'
 import { ArtifactRunRequestSchema } from '@/types/artifactIpc'
-import type { MediaResponsePayload } from '@/types/mediaRequests'
-import type { ChatAnswerPayload } from '@/types/chatRequests'
 import { handleChatAnswer, rejectAllChatAsks } from './chat/chatAsk.ts'
 import type { MediaItem } from '@/types/mediaItem'
 import type { ArtifactMissingModel } from '@/types/mediaRequests'
+import type { SpeechSynthesisRequest } from '@/types/speechIpc'
+import type { IpcMutationResult, IpcOk, IpcOkWith } from '@/types/ipcChannels'
 import {
   cancelActiveArtifactRun,
   setArtifactRunnerDeps,
   type ArtifactRunPayload,
-  type ArtifactRunResult,
   type RunnerComfyService,
 } from './artifact/runner'
 import {
@@ -184,7 +179,6 @@ import {
   revoke as revokePermission,
 } from './permissions/permissionsService'
 import { setPermissionGrantsDeps, wipeDemoPermissionGrants } from './persist/grantsStore'
-import type { PermissionGrant, PermissionsPromptResponse } from '@/types/permissionsIpc'
 import {
   anyChatTurnActive,
   cancelChatTurn,
@@ -1503,7 +1497,7 @@ async function ensureOvmsImageServerReady(
   modelName: string,
   keepModelsLoaded?: boolean,
   resolution?: string,
-): Promise<{ success: boolean; url?: string; error?: string }> {
+): Promise<IpcOkWith<{ url: string }>> {
   if (!serviceRegistry) {
     return { success: false, error: 'Service registry not ready' }
   }
@@ -1542,26 +1536,25 @@ function initEventHandle() {
         width: display.workAreaSize.width,
         height: display.workAreaSize.height,
       })
-      win.webContents.send(
-        'display-metrics-changed',
-        display.workAreaSize.width,
-        display.workAreaSize.height,
-      )
+      typedSend(win.webContents, 'display-metrics-changed', {
+        width: display.workAreaSize.width,
+        height: display.workAreaSize.height,
+      })
     }
   })
 
-  ipcMain.handle('getLocaleSettings', async () => {
+  typedHandle('getLocaleSettings', async () => {
     return {
       locale: app.getLocale(),
       languageOverride: settings.languageOverride,
     }
   })
 
-  ipcMain.handle('getLocalSettings', () => {
+  typedHandle('getLocalSettings', () => {
     return LocalSettingsSchema.parse(settings)
   })
 
-  ipcMain.handle('updateLocalSettings', (_event, updates: Partial<LocalSettings>) => {
+  typedHandle('updateLocalSettings', (_event, updates: Partial<LocalSettings>) => {
     Object.assign(settings, updates)
     // Any of these can change which preset files the catalog reads or injects.
     if (
@@ -1588,7 +1581,7 @@ function initEventHandle() {
       serviceRegistry?.setDisabledBackends(updates.disabledBackends)
     }
     appLogger.info(`Updated local settings: ${JSON.stringify(updates)}`, 'electron-backend')
-    return { success: true }
+    return { success: true as const }
   })
 
   // ── Backend launch settings (step 8, §6.1) ─────────────────────────────
@@ -1597,7 +1590,7 @@ function initEventHandle() {
   // write through on change (updateLocalSettings above), replacing the old
   // renderer-persisted Pinia key. The device map is main-owned all along —
   // selectDevice below writes it — so it is only ever read here.
-  ipcMain.handle('getBackendLaunchSettings', () => ({
+  typedHandle('getBackendLaunchSettings', () => ({
     versionOverrides: settings.versionOverrides,
     comfyUiParameters: settings.comfyUiParameters,
     llamaCppParameters: settings.llamaCppParameters,
@@ -1611,7 +1604,7 @@ function initEventHandle() {
   // only-when-default: settings.json may already hold a value a previous
   // partial migration wrote, and a null flag is a valid user choice that
   // must not be mistaken for "never set".
-  ipcMain.handle('migrateBackendLaunchSettings', (_event, payload: unknown) => {
+  typedHandle('migrateBackendLaunchSettings', (_event, payload: unknown) => {
     const parsed = z
       .object({
         versionOverrides: z
@@ -1625,7 +1618,10 @@ function initEventHandle() {
       })
       .safeParse(payload)
     if (!parsed.success) {
-      return { success: false, error: `invalid launch settings payload: ${parsed.error.message}` }
+      return {
+        success: false as const,
+        error: `invalid launch settings payload: ${parsed.error.message}`,
+      }
     }
     const incoming = parsed.data
     if (incoming.comfyUiParameters != null && settings.comfyUiParameters === null) {
@@ -1654,7 +1650,7 @@ function initEventHandle() {
       settings.versionOverrides = incoming.versionOverrides
     }
     persistLocalSettingsToDisk()
-    return { success: true }
+    return { success: true as const }
   })
 
   // ── Cloud Mode provider API keys ────────────────────────────────────────
@@ -1663,7 +1659,7 @@ function initEventHandle() {
   // mirroring the Home Agent channel-secret layout. Reading/decryption happens in
   // main only (readCloudProviderKey); the proxy attaches the bearer token so the
   // plaintext key never reaches the renderer.
-  ipcMain.handle('cloudProvider:saveKey', (_event, providerId: string, key: string) => {
+  typedHandle('cloudProvider:saveKey', (_event, providerId: string, key: string) => {
     try {
       const raw = (key ?? '').trim()
       if (!raw) {
@@ -1673,37 +1669,37 @@ function initEventHandle() {
         } catch {
           /* nothing to remove */
         }
-        return { success: true }
+        return { success: true as const }
       }
       const blob = safeStorage.encryptString(raw).toJSON()
       fs.writeFileSync(cloudProviderKeyPath(providerId), JSON.stringify(blob), 'utf-8')
-      return { success: true }
+      return { success: true as const }
     } catch (e) {
-      return { success: false, error: String(e) }
+      return ipcFail(e)
     }
   })
 
-  ipcMain.handle('cloudProvider:getKey', (_event, providerId: string): string | null =>
+  typedHandle('cloudProvider:getKey', (_event, providerId: string): string | null =>
     readCloudProviderKey(providerId),
   )
 
-  ipcMain.handle('cloudProvider:deleteKey', (_event, providerId: string) => {
+  typedHandle('cloudProvider:deleteKey', (_event, providerId: string) => {
     try {
       fs.unlinkSync(cloudProviderKeyPath(providerId))
     } catch {
       /* already gone */
     }
-    return { success: true }
+    return { success: true as const }
   })
 
   // Loopback URL of the Cloud Mode proxy. The renderer points its
   // OpenAI-compatible client and model-list fetch at this URL and tags each
   // request with X-Cloud-Upstream / X-Cloud-Provider (see cloudProxy.ts).
-  ipcMain.handle('cloudProvider:getProxyUrl', async (): Promise<string> => {
+  typedHandle('cloudProvider:getProxyUrl', async (): Promise<string> => {
     return (await getCloudProxy()).url
   })
 
-  ipcMain.handle('detectHardwareForModeRecommendation', async () => {
+  typedHandle('detectHardwareForModeRecommendation', async () => {
     let detected: GpuHardwareDevice[] = []
     let hasNvidia = false
     let detectSuccess = true
@@ -1756,27 +1752,27 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('getWinSize', () => {
+  typedHandle('getWinSize', () => {
     return appSize
   })
 
-  ipcMain.handle('zoomIn', (event: IpcMainInvokeEvent) => {
+  typedHandle('zoomIn', (event: IpcMainInvokeEvent) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     win.webContents.setZoomLevel(win.webContents.getZoomLevel() + 1)
   })
 
-  ipcMain.handle('zoomOut', (event: IpcMainInvokeEvent) => {
+  typedHandle('zoomOut', (event: IpcMainInvokeEvent) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     win.webContents.setZoomLevel(win.webContents.getZoomLevel() - 1)
   })
 
-  ipcMain.on('openUrl', (_event, url: string) => {
+  typedOn('openUrl', (_event, url: string) => {
     return shell.openExternal(url)
   })
 
-  ipcMain.handle('setWinSize', (event: IpcMainInvokeEvent, width: number, height: number) => {
+  typedHandle('setWinSize', (event: IpcMainInvokeEvent, width: number, height: number) => {
     const win = BrowserWindow.fromWebContents(event.sender)!
     const winRect = win.getBounds()
     if (winRect.width != width || winRect.height != height) {
@@ -1785,11 +1781,11 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('restorePathsSettings', (_event: IpcMainInvokeEvent) => {
+  typedHandle('restorePathsSettings', (_event: IpcMainInvokeEvent) => {
     pathsManager.restoreDefaultModelPaths()
   })
 
-  ipcMain.on('miniWindow', () => {
+  typedOn('miniWindow', () => {
     if (win) {
       win.minimize()
     }
@@ -1797,16 +1793,16 @@ function initEventHandle() {
 
   // The renderer reports whether it has tracked work in flight; an input to
   // the main-owned close policy (see createWindow's 'close' handler).
-  ipcMain.on('lifecycle:busy', (_event: IpcMainInvokeEvent, busy: boolean) => {
+  typedOn('lifecycle:busy', (_event, busy: boolean) => {
     rendererBusy = busy === true
   })
 
   // Projection hydration: the renderer subscribes to the kernel event stream
   // BEFORE requesting this snapshot and applies only events above its
   // sequence (docs/architecture-target.md §4.6).
-  ipcMain.handle('kernel:getSnapshot', () => getKernelSnapshot())
+  typedHandle('kernel:getSnapshot', () => getKernelSnapshot())
 
-  ipcMain.on('setFullScreen', (_event: IpcMainEvent, enable: boolean) => {
+  typedOn('setFullScreen', (_event, enable: boolean) => {
     if (win) {
       win.setFullScreen(enable)
     }
@@ -1814,11 +1810,11 @@ function initEventHandle() {
 
   // Quit outright instead of closing the window and hoping that cascades into a
   // quit: `app.quit()` always reaches the gated teardown in `before-quit`.
-  ipcMain.on('exitApp', async () => {
+  typedOn('exitApp', async () => {
     app.quit()
   })
 
-  ipcMain.on('saveImage', async (event: IpcMainEvent, url: string) => {
+  typedOn('saveImage', async (event, url: string) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) {
       return
@@ -1853,7 +1849,7 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('saveImageToMediaInput', async (_event, dataUri: string) => {
+  typedHandle('saveImageToMediaInput', async (_event, dataUri: string) => {
     if (typeof dataUri !== 'string' || !dataUri.startsWith('data:image/')) {
       throw new Error('saveImageToMediaInput: expected a data URI (data:image/...)')
     }
@@ -1874,7 +1870,7 @@ function initEventHandle() {
   // An attached clip is kept beside attached images rather than inlined in the
   // thread: a minute of audio is megabytes of base64 in the conversation file,
   // and `transcribeAudio` reads it back through the same media reader.
-  ipcMain.handle('saveAudioToMediaInput', async (_event, dataUri: string) => {
+  typedHandle('saveAudioToMediaInput', async (_event, dataUri: string) => {
     const match =
       typeof dataUri === 'string'
         ? dataUri.match(/^data:(audio\/[a-zA-Z0-9.+-]+);base64,(.+)$/)
@@ -1889,14 +1885,14 @@ function initEventHandle() {
     return `input/${filename}`
   })
 
-  ipcMain.handle(
+  typedHandle(
     'saveGeneratedAudio',
     async (
       _event,
       audioBase64: string,
       filename: string,
       options?: { overwrite?: boolean },
-    ): Promise<{ success: boolean; filePath?: string; error?: string }> => {
+    ): Promise<IpcOkWith<{ filePath: string }>> => {
       try {
         if (typeof audioBase64 !== 'string' || typeof filename !== 'string') {
           return { success: false, error: 'invalid arguments' }
@@ -1904,7 +1900,7 @@ function initEventHandle() {
         const filePath = await saveGeneratedAudioFile(audioBase64, filename, options)
         return { success: true, filePath }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorMessage = ipcErrorText(error)
         appLogger.error(`Failed to save generated audio: ${errorMessage}`, 'electron-backend')
         return { success: false, error: errorMessage }
       }
@@ -1917,9 +1913,9 @@ function initEventHandle() {
    * never reach anything else. A path that is already gone counts as success —
    * the caller wants the file absent, not proof that it deleted it.
    */
-  ipcMain.handle(
+  typedHandle(
     'deleteGeneratedAudio',
-    async (_event, filePath: string): Promise<{ success: boolean; error?: string }> => {
+    async (_event, filePath: string): Promise<IpcMutationResult> => {
       try {
         if (typeof filePath !== 'string' || !filePath.trim()) {
           return { success: false, error: 'invalid path' }
@@ -1934,19 +1930,16 @@ function initEventHandle() {
         await fs.promises.rm(full, { force: true })
         return { success: true }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorMessage = ipcErrorText(error)
         appLogger.error(`Failed to delete generated audio: ${errorMessage}`, 'electron-backend')
         return { success: false, error: errorMessage }
       }
     },
   )
 
-  ipcMain.handle(
+  typedHandle(
     'readLocalAudioAsDataUri',
-    async (
-      _event,
-      filePath: string,
-    ): Promise<{ success: boolean; dataUri?: string; error?: string }> => {
+    async (_event, filePath: string): Promise<IpcOkWith<{ dataUri: string }>> => {
       try {
         if (typeof filePath !== 'string' || !filePath.trim()) {
           return { success: false, error: 'invalid path' }
@@ -1966,8 +1959,7 @@ function initEventHandle() {
           dataUri: `data:${mediaType};base64,${buf.toString('base64')}`,
         }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        return { success: false, error: errorMessage }
+        return ipcFail(error)
       }
     },
   )
@@ -1975,13 +1967,9 @@ function initEventHandle() {
   // Persist an inbound Home Agent document (base64) to disk so the langchain
   // RAG loaders (which require a real filepath) can index it, and so the
   // persisted ragList entry keeps a stable path. Returns the absolute path.
-  ipcMain.handle(
+  typedHandle(
     'saveHomeAgentDocument',
-    async (
-      _event,
-      filename: string,
-      base64: string,
-    ): Promise<{ success: boolean; filepath?: string; error?: string }> => {
+    async (_event, filename: string, base64: string): Promise<IpcOkWith<{ filepath: string }>> => {
       const supportedExtensions = ['txt', 'md', 'doc', 'docx', 'pdf']
       try {
         if (typeof filename !== 'string' || typeof base64 !== 'string') {
@@ -1999,12 +1987,12 @@ function initEventHandle() {
         await fs.promises.writeFile(filePath, Buffer.from(base64, 'base64'))
         return { success: true, filepath: filePath }
       } catch (e) {
-        return { success: false, error: e instanceof Error ? e.message : String(e) }
+        return ipcFail(e)
       }
     },
   )
 
-  ipcMain.handle(
+  typedHandle(
     'readAipgMediaAsBase64',
     async (
       _event,
@@ -2020,7 +2008,7 @@ function initEventHandle() {
       try {
         return { success: true, data: fs.readFileSync(filePath).toString('base64') }
       } catch (e) {
-        return { success: false, error: e instanceof Error ? e.message : String(e) }
+        return ipcFail(e)
       }
     },
   )
@@ -2029,7 +2017,7 @@ function initEventHandle() {
    * Returns null when --start-page was not provided so the renderer can leave
    * the persisted mode untouched; returns the validated ModeType (or 'chat' as
    * a safe fallback for an invalid value) when it was. */
-  ipcMain.handle('getInitialPage', (): ModeType | null => {
+  typedHandle('getInitialPage', (): ModeType | null => {
     const validModes: ModeType[] = ['chat', 'audio', 'imageGen', 'imageEdit', 'video']
     const startPageArg = process.argv.find((arg) => arg.startsWith('--start-page='))
     if (!startPageArg) return null
@@ -2038,7 +2026,7 @@ function initEventHandle() {
   })
 
   /** To check whether demo mode is enabled or not for AIPG */
-  ipcMain.handle('getDemoModeSettings', () => {
+  typedHandle('getDemoModeSettings', () => {
     return {
       isDemoModeEnabled: settings.isDemoModeEnabled,
       demoModeResetInSeconds: settings.demoModeResetInSeconds,
@@ -2047,22 +2035,17 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('showOpenDialog', async (event, options: OpenDialogSyncOptions) => {
+  typedHandle('showOpenDialog', async (event, options) => {
     const win = BrowserWindow.fromWebContents(event.sender)!
     return await dialog.showOpenDialog(win, options)
   })
 
-  ipcMain.handle('showMessageBox', async (event, options: MessageBoxOptions) => {
+  typedHandle('showMessageBox', async (event, options) => {
     const win = BrowserWindow.fromWebContents(event.sender)!
     return dialog.showMessageBox(win, options)
   })
 
-  ipcMain.handle('showMessageBoxSync', async (event, options: MessageBoxSyncOptions) => {
-    const win = BrowserWindow.fromWebContents(event.sender)!
-    return dialog.showMessageBoxSync(win, options)
-  })
-
-  ipcMain.handle('existsPath', async (event, path: string) => {
+  typedHandle('existsPath', async (event, path: string) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) {
       return
@@ -2079,7 +2062,7 @@ function initEventHandle() {
       : path.join(externalRes, 'model_config.dev.json'),
   )
 
-  ipcMain.handle('getInitSetting', (event) => {
+  typedHandle('getInitSetting', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) {
       return
@@ -2092,47 +2075,47 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('loadModels', async (_event) => {
+  typedHandle('loadModels', async (_event) => {
     return resolveModels(settings)
   })
 
   // The renderer forwards its AI SDK telemetry here (the SDK cannot run in a
   // browser page); null config means no developer opted in, and the renderer
   // then registers nothing and sends nothing.
-  ipcMain.handle('getLaminarConfig', () => laminarConfig())
-  ipcMain.on('laminarTelemetryEvent', (_event, name: string, payload: string) => {
+  typedHandle('getLaminarConfig', () => laminarConfig())
+  typedOn('laminarTelemetryEvent', (_event, name: string, payload: string) => {
     void handleChatTelemetryEvent(name, payload)
   })
 
-  ipcMain.handle('updateModelPaths', (_event, modelPaths: ModelPaths) => {
+  typedHandle('updateModelPaths', (_event, modelPaths: ModelPaths) => {
     pathsManager.updateModelPaths(modelPaths)
     return pathsManager.scanAll()
   })
 
-  ipcMain.handle('getDownloadedGGUFLLMs', (_event) => {
+  typedHandle('getDownloadedGGUFLLMs', (_event) => {
     return pathsManager.scanGGUFLLMModels()
   })
 
-  ipcMain.handle('getDownloadedOpenVINOLLMModels', (_event) => {
+  typedHandle('getDownloadedOpenVINOLLMModels', (_event) => {
     return pathsManager.scanOpenVINOModels()
   })
 
-  ipcMain.handle('getDownloadedEmbeddingModels', (_event) => {
+  typedHandle('getDownloadedEmbeddingModels', (_event) => {
     return pathsManager.scanEmbedding()
   })
 
-  ipcMain.handle('getComfyUIModels', (_event, modelType: string) => {
+  typedHandle('getComfyUIModels', (_event, modelType: string) => {
     return pathsManager.scanComfyUIModels(modelType)
   })
 
-  ipcMain.handle('scanModelLibrary', (_event) => {
+  typedHandle('scanModelLibrary', (_event) => {
     return pathsManager.scanModelLibrary()
   })
 
-  ipcMain.handle('showModelInFolder', (_event, modelPath: string) => {
+  typedHandle('showModelInFolder', (_event, modelPath: string) => {
     const resolved = pathsManager.resolveModelPath(modelPath)
     if ('error' in resolved) {
-      return { success: false, error: resolved.error }
+      return { success: false as const, error: resolved.error }
     }
     if (process.platform === 'win32') {
       // `execFile`, not `exec`: the path is passed as an argument rather than
@@ -2142,16 +2125,16 @@ function initEventHandle() {
     } else {
       shell.showItemInFolder(resolved.path)
     }
-    return { success: true }
+    return { success: true as const }
   })
 
   // Permanent deletion, deliberately not a move to trash: freeing the disk space
   // immediately is the reason a user deletes a model. Every path is validated
   // against the configured model directories first — see resolveModelPath.
-  ipcMain.handle('deleteModelPath', async (_event, modelPath: string) => {
+  typedHandle('deleteModelPath', async (_event, modelPath: string) => {
     const resolved = pathsManager.resolveModelPath(modelPath)
     if ('error' in resolved) {
-      return { success: false, error: resolved.error }
+      return { success: false as const, error: resolved.error }
     }
     try {
       // Async throughout: a model is tens of gigabytes across thousands of files,
@@ -2161,7 +2144,7 @@ function initEventHandle() {
       await fs.promises.rm(resolved.path, { recursive: true })
       await pathsManager.pruneEmptyModelDirs(resolved.path)
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) }
+      return ipcFail(error)
     }
 
     const comfyService = serviceRegistry?.getService('comfyui-backend') as
@@ -2181,21 +2164,21 @@ function initEventHandle() {
         )
       }
     }
-    return { success: true }
+    return { success: true as const }
   })
 
-  ipcMain.handle('getPlatform', () => process.platform)
+  typedHandle('getPlatform', () => process.platform)
 
-  ipcMain.handle('safeStorage:isEncryptionAvailable', () => safeStorage.isEncryptionAvailable())
+  typedHandle('safeStorage:isEncryptionAvailable', () => safeStorage.isEncryptionAvailable())
 
-  ipcMain.handle('safeStorage:enablePlainTextEncryption', () => {
+  typedHandle('safeStorage:enablePlainTextEncryption', () => {
     try {
       if (!safeStorage.isEncryptionAvailable()) {
         safeStorage.setUsePlainTextEncryption(true)
       }
       if (!safeStorage.isEncryptionAvailable()) {
         return {
-          success: false,
+          success: false as const,
           error: 'Plaintext secret storage is not available on this system.',
         }
       }
@@ -2209,13 +2192,13 @@ function initEventHandle() {
         'electron-backend',
         true,
       )
-      return { success: true }
+      return { success: true as const }
     } catch (e) {
-      return { success: false, error: String(e) }
+      return ipcFail(e)
     }
   })
 
-  ipcMain.handle(
+  typedHandle(
     'addDocumentToRAGList',
     (_event, document: IndexedDocument, phisonKmConfig?: PhisonKmIngestConfig) => {
       return handleUtilityFunction<
@@ -2225,31 +2208,31 @@ function initEventHandle() {
     },
   )
 
-  ipcMain.handle('embedInputUsingRag', (_event, embedInquiry: EmbedInquiry) => {
-    return handleUtilityFunction<EmbedInquiry, KVObject>(
+  typedHandle('embedInputUsingRag', (_event, embedInquiry: EmbedInquiry) => {
+    return handleUtilityFunction<EmbedInquiry, LangchainDocument[]>(
       'embedInputUsingRag',
       langchainChild,
       embedInquiry,
     )
   })
 
-  ipcMain.handle('warmupKVCacheForDocument', (_event, request: WarmupRequest) => {
-    return handleUtilityFunction<WarmupRequest, { success: boolean }>(
+  typedHandle('warmupKVCacheForDocument', (_event, request: WarmupRequest) => {
+    return handleUtilityFunction<WarmupRequest, IpcOk>(
       'warmupKVCacheForDocument',
       langchainChild,
       request,
     )
   })
 
-  ipcMain.on('openDevTools', () => {
+  typedOn('openDevTools', () => {
     win?.webContents.openDevTools({ mode: 'detach', activate: true })
   })
 
-  ipcMain.on('setVerboseAgentLogging', (_event, enabled: boolean) => {
+  typedOn('setVerboseAgentLogging', (_event, enabled: boolean) => {
     setVerboseAgentLogging(enabled)
   })
 
-  ipcMain.handle('getServices', () => {
+  typedHandle('getServices', () => {
     const registry = serviceRegistry ?? peekApiServiceRegistry()
     if (!registry) {
       appLogger.warn(
@@ -2261,7 +2244,7 @@ function initEventHandle() {
     return registry.getServiceInformation()
   })
 
-  ipcMain.handle('getBackendAuthToken', (_event: IpcMainInvokeEvent, serviceName: string) => {
+  typedHandle('getBackendAuthToken', (_event: IpcMainInvokeEvent, serviceName: string) => {
     if (!serviceRegistry) {
       return ''
     }
@@ -2284,15 +2267,15 @@ function initEventHandle() {
     return ''
   })
 
-  ipcMain.handle('comfyui:openInBrowser', async () => {
+  typedHandle('comfyui:openInBrowser', async () => {
     const comfyService = serviceRegistry?.getService('comfyui-backend') as
       ComfyUiBackendService | undefined
     if (!comfyService) {
-      return { success: false, error: 'ComfyUI backend service not found' }
+      return { success: false as const, error: 'ComfyUI backend service not found' }
     }
     const baseUrl = comfyService.baseUrl
     if (!baseUrl) {
-      return { success: false, error: 'ComfyUI backend has no base URL yet' }
+      return { success: false as const, error: 'ComfyUI backend has no base URL yet' }
     }
     const token = comfyService.getLoopbackAuthToken()
     // /aipg/launch (provided by the bundled aipg-auth custom_node) validates
@@ -2303,13 +2286,13 @@ function initEventHandle() {
     const url = `${baseUrl}/aipg/launch?launch_token=${encodeURIComponent(token)}`
     try {
       await shell.openExternal(url)
-      return { success: true }
+      return { success: true as const }
     } catch (e) {
-      return { success: false, error: e instanceof Error ? e.message : String(e) }
+      return ipcFail(e)
     }
   })
 
-  ipcMain.handle('uninstall', (_event: IpcMainInvokeEvent, serviceName: string) => {
+  typedHandle('uninstall', (_event: IpcMainInvokeEvent, serviceName: string) => {
     if (!serviceRegistry) {
       appLogger.warn('received uninstall too early during aipg startup', 'electron-backend')
       return
@@ -2325,7 +2308,7 @@ function initEventHandle() {
     return service.uninstall()
   })
 
-  ipcMain.handle('updateServiceSettings', (_event: IpcMainInvokeEvent, settings) => {
+  typedHandle('updateServiceSettings', (_event: IpcMainInvokeEvent, settings) => {
     if (!serviceRegistry) {
       appLogger.warn(
         'received updateServiceSettings too early during aipg startup',
@@ -2344,13 +2327,13 @@ function initEventHandle() {
     return service.updateSettings(settings)
   })
 
-  ipcMain.handle('getComfyUiDefaultParameters', () => COMFYUI_DEFAULT_PARAMETERS)
-  ipcMain.handle('getLlamaCppDefaultParameters', () => LLAMACPP_DEFAULT_PARAMETERS)
+  typedHandle('getComfyUiDefaultParameters', () => COMFYUI_DEFAULT_PARAMETERS)
+  typedHandle('getLlamaCppDefaultParameters', () => LLAMACPP_DEFAULT_PARAMETERS)
 
   // Which OEM's machine this is, for co-branding (see adapters/hardware/oemDetection.ts).
-  ipcMain.handle('detectOem', () => detectOem(settings.oemVendorOverride))
+  typedHandle('detectOem', () => detectOem(settings.oemVendorOverride))
 
-  ipcMain.handle('detectPhisonSsd', async () => {
+  typedHandle('detectPhisonSsd', async () => {
     if (settings.PhisonSSDdetected) {
       appLoggerInstance.info(
         'detectPhisonSsd: returning true (PhisonSSDdetected in local settings)',
@@ -2384,7 +2367,7 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('detectDevices', (_event: IpcMainInvokeEvent, serviceName: string) => {
+  typedHandle('detectDevices', (_event: IpcMainInvokeEvent, serviceName: string) => {
     if (!serviceRegistry) {
       appLogger.warn('received detectDevices too early during aipg startup', 'electron-backend')
       return
@@ -2400,7 +2383,7 @@ function initEventHandle() {
     return service.detectDevices()
   })
 
-  ipcMain.handle(
+  typedHandle(
     'selectDevice',
     (_event: IpcMainInvokeEvent, serviceName: string, deviceId: string) => {
       appLogger.info('selecting device', 'electron-backend')
@@ -2433,7 +2416,7 @@ function initEventHandle() {
     },
   )
 
-  ipcMain.handle(
+  typedHandle(
     'selectSttDevice',
     (_event: IpcMainInvokeEvent, serviceName: string, deviceId: string) => {
       appLogger.info('selecting STT device', 'electron-backend')
@@ -2466,7 +2449,7 @@ function initEventHandle() {
     },
   )
 
-  ipcMain.handle('startService', (_event: IpcMainInvokeEvent, serviceName: string) => {
+  typedHandle('startService', (_event: IpcMainInvokeEvent, serviceName: string) => {
     if (!serviceRegistry) {
       appLogger.warn('received start signal too early during aipg startup', 'electron-backend')
       return 'failed'
@@ -2478,7 +2461,7 @@ function initEventHandle() {
     }
     return service.start()
   })
-  ipcMain.handle('stopService', (_event: IpcMainInvokeEvent, serviceName: string) => {
+  typedHandle('stopService', (_event: IpcMainInvokeEvent, serviceName: string) => {
     if (!serviceRegistry) {
       appLogger.warn('received stop signal too early during aipg startup', 'electron-backend')
       return 'failed'
@@ -2490,7 +2473,7 @@ function initEventHandle() {
     }
     return service.stop()
   })
-  ipcMain.handle(
+  typedHandle(
     'setUpService',
     async (_event: IpcMainInvokeEvent, serviceName: BackendServiceName) => {
       if (!serviceRegistry || !win) {
@@ -2527,7 +2510,7 @@ function initEventHandle() {
       // forever. Synthesize the terminal failure the generator owes us.
       try {
         for await (const progressUpdate of service.set_up()) {
-          win.webContents.send('serviceSetUpProgress', progressUpdate)
+          typedSend(win.webContents, 'serviceSetUpProgress', progressUpdate)
           if (progressUpdate.status === 'failed' || progressUpdate.status === 'success') {
             appLogger.info(
               `Received terminal progress update for set up request for ${serviceName}`,
@@ -2543,7 +2526,7 @@ function initEventHandle() {
           'electron-backend',
         )
         if (!win.isDestroyed()) {
-          win.webContents.send('serviceSetUpProgress', {
+          typedSend(win.webContents, 'serviceSetUpProgress', {
             serviceName,
             step: 'setup failed',
             status: 'failed',
@@ -2560,7 +2543,7 @@ function initEventHandle() {
     },
   )
 
-  ipcMain.handle(
+  typedHandle(
     'ensureBackendReadiness',
     async (
       _event: IpcMainInvokeEvent,
@@ -2577,7 +2560,7 @@ function initEventHandle() {
           'received ensureBackendReadiness too early during aipg startup',
           'electron-backend',
         )
-        return { success: false, error: 'Service registry not ready' }
+        return { success: false as const, error: 'Service registry not ready' }
       }
 
       try {
@@ -2588,94 +2571,54 @@ function initEventHandle() {
             remember: options?.remember,
           },
         )
-        return { success: true }
+        return { success: true as const }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorMessage = ipcErrorText(error)
         appLogger.error(
           `Failed to ensure backend readiness for ${serviceName}: ${errorMessage}`,
           'electron-backend',
         )
-        return { success: false, error: errorMessage }
+        return { success: false as const, error: errorMessage }
       }
     },
   )
 
-  ipcMain.handle('setLastChatBackendLoadActive', (_event: IpcMainInvokeEvent, active: boolean) => {
+  typedHandle('setLastChatBackendLoadActive', (_event: IpcMainInvokeEvent, active: boolean) => {
     setLastChatBackendLoadActive(Boolean(active))
-    return { success: true }
+    return { success: true as const }
   })
 
-  ipcMain.handle(
-    'rememberChatBackendLoad',
-    (_event: IpcMainInvokeEvent, args: ChatReadinessArgs) => {
-      if (typeof args?.serviceName !== 'string' || typeof args?.llmModelName !== 'string') {
-        return { success: false, error: 'invalid last-load args' }
-      }
-      rememberChatBackendLoad(args)
-      return { success: true }
-    },
-  )
-
-  ipcMain.handle('ensureComfyUIBackendRunning', async () => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready', starting: false }
+  typedHandle('rememberChatBackendLoad', (_event: IpcMainInvokeEvent, args: ChatReadinessArgs) => {
+    if (typeof args?.serviceName !== 'string' || typeof args?.llmModelName !== 'string') {
+      return { success: false as const, error: 'invalid last-load args' }
     }
-    const service = serviceRegistry.getService('comfyui-backend')
-    if (!service) {
-      return { success: false, error: 'ComfyUI service not found', starting: false }
-    }
-    if (service.currentStatus === 'running') {
-      return { success: true, starting: false }
-    }
-    if (service.currentStatus === 'starting') {
-      return { success: true, starting: true }
-    }
-    try {
-      const result = await service.start()
-      if (result === 'running') return { success: true, starting: false }
-      if (result === 'starting') return { success: true, starting: true }
-      return {
-        success: false,
-        starting: false,
-        error: `ComfyUI backend status: ${result}`,
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      appLogger.error(`Failed to start ComfyUI backend: ${errorMessage}`, 'electron-backend')
-      return { success: false, error: errorMessage, starting: false }
-    }
+    rememberChatBackendLoad(args)
+    return { success: true as const }
   })
 
   // ── Artifact runner IPC (architecture-target §4.1 step 5) ─────────────────
   // The renderer ships fully-resolved runs; the runner owns readiness,
   // submission and the progress stream back over the kernel bus.
 
-  ipcMain.handle(
-    'artifact:run',
-    async (
-      _event: IpcMainInvokeEvent,
-      request: unknown,
-      options?: { queue?: 'fail-fast' | 'queue' },
-    ): Promise<ArtifactRunResult> => {
-      const parsed = ArtifactRunRequestSchema.safeParse(request)
-      if (!parsed.success) {
-        appLogger.warn(
-          `artifact:run rejected a malformed request: ${parsed.error.message}`,
-          'electron-backend',
-        )
-        return { state: 'failed', items: [], error: 'Malformed artifact run request' }
-      }
-      const payload: ArtifactRunPayload = {
-        ...parsed.data,
-        items: parsed.data.items as MediaItem[] | undefined,
-      }
-      return submitArtifactRun(payload, {
-        queue: options?.queue === 'queue' ? 'queue' : 'fail-fast',
-      })
-    },
-  )
+  typedHandle('artifact:run', async (_event, request, options) => {
+    const parsed = ArtifactRunRequestSchema.safeParse(request)
+    if (!parsed.success) {
+      appLogger.warn(
+        `artifact:run rejected a malformed request: ${parsed.error.message}`,
+        'electron-backend',
+      )
+      return { state: 'failed' as const, items: [], error: 'Malformed artifact run request' }
+    }
+    const payload: ArtifactRunPayload = {
+      ...parsed.data,
+      items: parsed.data.items as MediaItem[] | undefined,
+    }
+    return submitArtifactRun(payload, {
+      queue: options?.queue === 'queue' ? 'queue' : 'fail-fast',
+    })
+  })
 
-  ipcMain.handle('artifact:cancel', (_event: IpcMainInvokeEvent, runId?: string) => {
+  typedHandle('artifact:cancel', (_event, runId) => {
     if (typeof runId === 'string' && runId.length > 0) {
       cancelArtifactRun(runId)
     } else {
@@ -2683,14 +2626,11 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle(
-    'artifact:respond',
-    (_event: IpcMainInvokeEvent, payload: MediaResponsePayload) => {
-      handleMediaResponse(payload)
-    },
-  )
+  typedHandle('artifact:respond', (_event, payload) => {
+    handleMediaResponse(payload)
+  })
 
-  ipcMain.handle('permissions:requestDownload', async (_event, models: unknown) => {
+  typedHandle('permissions:requestDownload', async (_event, models) => {
     try {
       if (!Array.isArray(models)) throw new Error('download models must be an array')
       await requestDownloadConsent(models)
@@ -2698,39 +2638,36 @@ function initEventHandle() {
     } catch (e) {
       return {
         success: false as const,
-        error: e instanceof Error ? e.message : String(e),
+        error: ipcErrorText(e),
         cancelled: (e as { cancelled?: boolean })?.cancelled === true,
       }
     }
   })
 
-  ipcMain.handle(
-    'permissions:requestVramWarning',
-    async (_event, req: { presetName?: unknown; message?: unknown }) => {
-      try {
-        if (typeof req?.presetName !== 'string' || typeof req?.message !== 'string') {
-          throw new Error('vram warning request needs presetName and message')
-        }
-        const confirmed = await requestVramWarningConsent({
-          presetName: req.presetName,
-          message: req.message,
-        })
-        return { success: true as const, confirmed }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
-  )
-
-  ipcMain.handle('permissions:list', async () => {
+  typedHandle('permissions:requestVramWarning', async (_event, req) => {
     try {
-      return { success: true as const, grants: await listGrants() }
+      if (typeof req?.presetName !== 'string' || typeof req?.message !== 'string') {
+        throw new Error('vram warning request needs presetName and message')
+      }
+      const confirmed = await requestVramWarningConsent({
+        presetName: req.presetName,
+        message: req.message,
+      })
+      return { success: true as const, confirmed }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return ipcFail(e)
     }
   })
 
-  ipcMain.handle('permissions:grant', async (_event, key: unknown, origin: unknown) => {
+  typedHandle('permissions:list', async () => {
+    try {
+      return { success: true as const, grants: await listGrants() }
+    } catch (e) {
+      return ipcFail(e)
+    }
+  })
+
+  typedHandle('permissions:grant', async (_event, key, origin) => {
     try {
       if (typeof key !== 'string') throw new Error('grant key must be a string')
       if (origin !== 'remember' && origin !== 'pre-grant') {
@@ -2739,290 +2676,272 @@ function initEventHandle() {
       const grant = await grantPermission(key, origin)
       return { success: true as const, grant }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return ipcFail(e)
     }
   })
 
-  ipcMain.handle('permissions:revoke', async (_event, key: unknown) => {
+  typedHandle('permissions:revoke', async (_event, key) => {
     try {
       if (typeof key !== 'string') throw new Error('grant key must be a string')
       await revokePermission(key)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return ipcFail(e)
     }
   })
 
-  ipcMain.handle('permissions:migrate', async (_event, incoming: unknown) => {
+  typedHandle('permissions:migrate', async (_event, incoming) => {
     try {
       if (!incoming || typeof incoming !== 'object') {
         throw new Error('migrate payload must be an object')
       }
-      await migrateGrants(incoming as Record<string, PermissionGrant>)
+      await migrateGrants(incoming)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return ipcFail(e)
     }
   })
 
-  ipcMain.handle(
-    'permissions:respond',
-    (_event: IpcMainInvokeEvent, payload: PermissionsPromptResponse) => {
-      handlePermissionsPromptResponse(payload)
-    },
-  )
+  typedHandle('permissions:respond', (_event, payload) => {
+    handlePermissionsPromptResponse(payload)
+  })
 
   // Chat turns run in main (architecture-target §8 step 6); the renderer
   // submits/resumes/cancels over IPC and receives the stream as kernel
   // chat-chunk events, answering `chat:ask` when a tool needs the window.
-  ipcMain.handle('chat:submitTurn', (_event: IpcMainInvokeEvent, request: unknown) => {
+  typedHandle('chat:submitTurn', (_event, request) => {
     try {
       return { success: true as const, turnId: submitChatTurn(request).turnId }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return ipcFail(e)
     }
   })
 
-  ipcMain.handle('chat:resumeTurn', (_event: IpcMainInvokeEvent, conversationKey: string) => {
+  typedHandle('chat:resumeTurn', (_event, conversationKey) => {
     const resumed = resumeChatTurn(conversationKey)
     return resumed
       ? { success: true as const, active: true, ...resumed }
       : { success: true as const, active: false as const }
   })
 
-  ipcMain.handle(
-    'chat:cancelTurn',
-    (_event: IpcMainInvokeEvent, conversationKey: string, turnId: string) => {
-      cancelChatTurn(conversationKey, turnId)
-      return { success: true as const }
-    },
-  )
+  typedHandle('chat:cancelTurn', (_event, conversationKey, turnId) => {
+    cancelChatTurn(conversationKey, turnId)
+    return { success: true as const }
+  })
 
-  ipcMain.handle('chat:answer', (_event: IpcMainInvokeEvent, payload: ChatAnswerPayload) => {
+  typedHandle('chat:answer', (_event, payload) => {
     handleChatAnswer(payload)
   })
 
   // One-shot title summarization, model call included (step 6).
-  ipcMain.handle('chat:summarize', async (_event: IpcMainInvokeEvent, request: unknown) => {
+  typedHandle('chat:summarize', async (_event, request) => {
     try {
       return { success: true as const, data: await summarizeConversationText(request) }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return ipcFail(e)
     }
   })
 
   // Conversation persistence (step 8, architecture-target §6.1): the kernel
   // is the one writer of the user's threads. Hydration and the one-shot
   // legacy upload return data; the mutations follow the {success} convention.
-  ipcMain.handle('conversations:bootstrap', async () => {
+  typedHandle('conversations:bootstrap', async () => {
     try {
       return await bootstrapConversations()
     } catch (e) {
-      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+      return { status: 'error' as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle('conversations:migrate', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+  typedHandle('conversations:migrate', async (_event, payload) => {
     try {
       return await migrateLegacyConversations(ConversationLegacyStateSchema.parse(payload))
     } catch (e) {
-      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+      return { status: 'error' as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle('conversations:save', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+  typedHandle('conversations:save', async (_event, payload) => {
     try {
       await saveConversation(ConversationSaveRequestSchema.parse(payload))
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return ipcFail(e)
     }
   })
 
-  ipcMain.handle('conversations:delete', async (_event: IpcMainInvokeEvent, id: unknown) => {
+  typedHandle('conversations:delete', async (_event, id) => {
     try {
       if (typeof id !== 'string') throw new Error('conversation id must be a string')
       await deleteConversation(id)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return ipcFail(e)
     }
   })
 
-  ipcMain.handle(
-    'conversations:saveLastMainKey',
-    async (_event: IpcMainInvokeEvent, key: unknown) => {
-      try {
-        if (typeof key !== 'string' && key !== null) {
-          throw new Error('lastMainKey must be a string or null')
-        }
-        await saveConversationLastMainKey(key)
-        return { success: true as const }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+  typedHandle('conversations:saveLastMainKey', async (_event, key) => {
+    try {
+      if (typeof key !== 'string' && key !== null) {
+        throw new Error('lastMainKey must be a string or null')
       }
-    },
-  )
+      await saveConversationLastMainKey(key)
+      return { success: true as const }
+    } catch (e) {
+      return ipcFail(e)
+    }
+  })
 
   // Agent-session records (step 8, §6.1): same one-writer contract as the
   // conversations above — the record file and its index entry live here, Pi's
   // own session files stay with Pi. Deletes fold into `agentMode:deleteSession`
   // below, next to the Pi-side teardown.
-  ipcMain.handle('agentMode:bootstrapSessions', async () => {
+  typedHandle('agentMode:bootstrapSessions', async () => {
     try {
       return await bootstrapAgentSessions()
     } catch (e) {
-      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+      return { status: 'error' as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle(
-    'agentMode:migrateSessions',
-    async (_event: IpcMainInvokeEvent, payload: unknown) => {
-      try {
-        return await migrateLegacyAgentSessions(LegacyAgentSessionStateSchema.parse(payload))
-      } catch (e) {
-        return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
-  )
+  typedHandle('agentMode:migrateSessions', async (_event, payload) => {
+    try {
+      return await migrateLegacyAgentSessions(LegacyAgentSessionStateSchema.parse(payload))
+    } catch (e) {
+      return { status: 'error' as const, error: ipcErrorText(e) }
+    }
+  })
 
-  ipcMain.handle('agentMode:saveSession', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+  typedHandle('agentMode:saveSession', async (_event, payload) => {
     try {
       await saveAgentSession(AgentSessionRecordSchema.parse(payload))
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return ipcFail(e)
     }
   })
 
-  ipcMain.handle(
-    'agentMode:saveActiveSessionId',
-    async (_event: IpcMainInvokeEvent, id: unknown) => {
-      try {
-        if (typeof id !== 'string' && id !== null) {
-          throw new Error('activeSessionId must be a string or null')
-        }
-        await saveAgentSessionActiveId(id)
-        return { success: true as const }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+  typedHandle('agentMode:saveActiveSessionId', async (_event, id) => {
+    try {
+      if (typeof id !== 'string' && id !== null) {
+        throw new Error('activeSessionId must be a string or null')
       }
-    },
-  )
+      await saveAgentSessionActiveId(id)
+      return { success: true as const }
+    } catch (e) {
+      return ipcFail(e)
+    }
+  })
 
   // Generated-media gallery records (step 8, §6.1): same one-writer contract
   // as the conversations and agent sessions above — one JSON per item plus an
   // ordered index inside `media/records/`, beside the media files themselves.
-  ipcMain.handle('mediaItems:bootstrap', async () => {
+  typedHandle('mediaItems:bootstrap', async () => {
     try {
       return await bootstrapMediaItems()
     } catch (e) {
-      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+      return { status: 'error' as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle('mediaItems:migrate', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+  typedHandle('mediaItems:migrate', async (_event, payload) => {
     try {
       if (!Array.isArray(payload)) throw new Error('legacy media items payload must be an array')
       return await migrateLegacyMediaItems(payload)
     } catch (e) {
-      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+      return { status: 'error' as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle('mediaItems:save', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+  typedHandle('mediaItems:save', async (_event, payload) => {
     try {
       if (!Array.isArray(payload)) throw new Error('media items payload must be an array')
       await saveMediaItems(payload)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return ipcFail(e)
     }
   })
 
-  ipcMain.handle('mediaItems:delete', async (_event: IpcMainInvokeEvent, ids: unknown) => {
+  typedHandle('mediaItems:delete', async (_event, ids) => {
     try {
       if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) {
         throw new Error('media item ids payload must be an array of strings')
       }
       return await deleteMediaItemRecords(ids)
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return ipcFail(e)
     }
   })
 
   // User preferences (step 8, §6.1): one file, one section per store. The
   // one-shot migrate writes only when the section is absent, so a retry can
   // never overwrite what the files already own.
-  ipcMain.handle('preferences:read', async () => {
+  typedHandle('preferences:read', async () => {
     try {
       return { success: true as const, sections: await readAllPreferences() }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return ipcFail(e)
     }
   })
 
-  ipcMain.handle(
-    'preferences:migrate',
-    async (_event: IpcMainInvokeEvent, section: unknown, payload: unknown) => {
-      try {
-        if (typeof section !== 'string') throw new Error('preference section must be a string')
-        await migratePreferenceSection(section, payload)
-        return { success: true as const }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
-  )
+  typedHandle('preferences:migrate', async (_event, section, payload) => {
+    try {
+      if (typeof section !== 'string') throw new Error('preference section must be a string')
+      await migratePreferenceSection(section, payload)
+      return { success: true as const }
+    } catch (e) {
+      return ipcFail(e)
+    }
+  })
 
-  ipcMain.handle(
-    'preferences:write',
-    async (_event: IpcMainInvokeEvent, section: unknown, value: unknown) => {
-      try {
-        if (typeof section !== 'string') throw new Error('preference section must be a string')
-        await writePreferenceSection(section, value)
-        return { success: true as const }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
-  )
+  typedHandle('preferences:write', async (_event, section, value) => {
+    try {
+      if (typeof section !== 'string') throw new Error('preference section must be a string')
+      await writePreferenceSection(section, value)
+      return { success: true as const }
+    } catch (e) {
+      return ipcFail(e)
+    }
+  })
 
   // ── RAG documents (step 8, §6.1): the textInference store's indexed
   // document set, one kernel-owned file — same section-shaped contract as
   // the preferences channels, over rag/documents.json. read keeps "absent"
   // (section null) apart from "failed" (success false): only the former may
   // trigger the one-shot legacy upload.
-  ipcMain.handle('ragDocuments:read', async () => {
+  typedHandle('ragDocuments:read', async () => {
     try {
       return { success: true as const, section: await readRagDocumentSection() }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return ipcFail(e)
     }
   })
 
-  ipcMain.handle('ragDocuments:migrate', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+  typedHandle('ragDocuments:migrate', async (_event, payload) => {
     try {
       await migrateRagDocumentSection(payload)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return ipcFail(e)
     }
   })
 
-  ipcMain.handle('ragDocuments:write', async (_event: IpcMainInvokeEvent, value: unknown) => {
+  typedHandle('ragDocuments:write', async (_event, value) => {
     try {
       await writeRagDocumentSection(value)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return ipcFail(e)
     }
   })
 
-  ipcMain.handle(
+  typedHandle(
     'getEmbeddingServerUrl',
-    async (_event: IpcMainInvokeEvent, serviceName: string) => {
+    async (
+      _event: IpcMainInvokeEvent,
+      serviceName: string,
+    ): Promise<IpcOkWith<{ url: string }>> => {
       if (!serviceRegistry) {
         return { success: false, error: 'Service registry not ready' }
       }
@@ -3048,9 +2967,13 @@ function initEventHandle() {
     },
   )
 
-  ipcMain.handle(
+  typedHandle(
     'ensureEmbeddingServerReady',
-    async (_event: IpcMainInvokeEvent, serviceName: string, embeddingModelName: string) => {
+    async (
+      _event: IpcMainInvokeEvent,
+      serviceName: string,
+      embeddingModelName: string,
+    ): Promise<IpcMutationResult> => {
       if (!serviceRegistry) {
         return { success: false, error: 'Service registry not ready' }
       }
@@ -3073,7 +2996,7 @@ function initEventHandle() {
           )
           return { success: true }
         } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
+          const errorMessage = ipcErrorText(error)
           appLogger.error(
             `Failed to ensure embedding server ready for ${serviceName}: ${errorMessage}`,
             'electron-backend',
@@ -3089,9 +3012,9 @@ function initEventHandle() {
     },
   )
 
-  ipcMain.handle(
+  typedHandle(
     'startTranscriptionServer',
-    async (_event: IpcMainInvokeEvent, modelName: string) => {
+    async (_event: IpcMainInvokeEvent, modelName: string): Promise<IpcMutationResult> => {
       if (!serviceRegistry) {
         return { success: false, error: 'Service registry not ready' }
       }
@@ -3109,7 +3032,7 @@ function initEventHandle() {
           await service.startTranscriptionServer(modelName)
           return { success: true }
         } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
+          const errorMessage = ipcErrorText(error)
           appLogger.error(
             `Failed to start transcription server: ${errorMessage}`,
             'electron-backend',
@@ -3122,139 +3045,150 @@ function initEventHandle() {
     },
   )
 
-  ipcMain.handle('stopTranscriptionServer', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    // Check if service has stopTranscriptionServer method
-    if (
-      'stopTranscriptionServer' in service &&
-      typeof service.stopTranscriptionServer === 'function'
-    ) {
-      try {
-        await service.stopTranscriptionServer()
-        return { success: true }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        appLogger.error(`Failed to stop transcription server: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
+  typedHandle(
+    'stopTranscriptionServer',
+    async (_event: IpcMainInvokeEvent): Promise<IpcMutationResult> => {
+      if (!serviceRegistry) {
+        return { success: false, error: 'Service registry not ready' }
       }
-    }
-
-    return { success: false, error: 'Transcription server not supported' }
-  })
-
-  ipcMain.handle('getTranscriptionServerUrl', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    // Check if service has getTranscriptionServerUrl method
-    if (
-      'getTranscriptionServerUrl' in service &&
-      typeof service.getTranscriptionServerUrl === 'function'
-    ) {
-      const transcriptionUrl = service.getTranscriptionServerUrl()
-      if (transcriptionUrl) {
-        return { success: true, url: transcriptionUrl }
+      const service = serviceRegistry.getService('openvino-backend')
+      if (!service) {
+        return { success: false, error: 'OpenVINO backend service not found' }
       }
-      return { success: false, error: 'Transcription server not running' }
-    }
 
-    return { success: false, error: 'Transcription server not supported' }
-  })
-
-  ipcMain.handle('startSpeechServer', async (_event: IpcMainInvokeEvent, modelName: string) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    if ('startSpeechServer' in service && typeof service.startSpeechServer === 'function') {
-      try {
-        await service.startSpeechServer(modelName)
-        return { success: true }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        appLogger.error(`Failed to start speech server: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
+      // Check if service has stopTranscriptionServer method
+      if (
+        'stopTranscriptionServer' in service &&
+        typeof service.stopTranscriptionServer === 'function'
+      ) {
+        try {
+          await service.stopTranscriptionServer()
+          return { success: true }
+        } catch (error) {
+          const errorMessage = ipcErrorText(error)
+          appLogger.error(
+            `Failed to stop transcription server: ${errorMessage}`,
+            'electron-backend',
+          )
+          return { success: false, error: errorMessage }
+        }
       }
-    }
 
-    return { success: false, error: 'Speech server not supported' }
-  })
+      return { success: false, error: 'Transcription server not supported' }
+    },
+  )
 
-  ipcMain.handle('stopSpeechServer', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    if ('stopSpeechServer' in service && typeof service.stopSpeechServer === 'function') {
-      try {
-        await service.stopSpeechServer()
-        return { success: true }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        appLogger.error(`Failed to stop speech server: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
+  typedHandle(
+    'getTranscriptionServerUrl',
+    async (_event: IpcMainInvokeEvent): Promise<IpcOkWith<{ url: string }>> => {
+      if (!serviceRegistry) {
+        return { success: false, error: 'Service registry not ready' }
       }
-    }
-
-    return { success: false, error: 'Speech server not supported' }
-  })
-
-  ipcMain.handle('getSpeechServerUrl', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    if ('getSpeechServerUrl' in service && typeof service.getSpeechServerUrl === 'function') {
-      const speechUrl = service.getSpeechServerUrl()
-      if (speechUrl) {
-        return { success: true, url: speechUrl }
+      const service = serviceRegistry.getService('openvino-backend')
+      if (!service) {
+        return { success: false, error: 'OpenVINO backend service not found' }
       }
-      return { success: false, error: 'Speech server not running' }
-    }
 
-    return { success: false, error: 'Speech server not supported' }
-  })
+      // Check if service has getTranscriptionServerUrl method
+      if (
+        'getTranscriptionServerUrl' in service &&
+        typeof service.getTranscriptionServerUrl === 'function'
+      ) {
+        const transcriptionUrl = service.getTranscriptionServerUrl()
+        if (transcriptionUrl) {
+          return { success: true, url: transcriptionUrl }
+        }
+        return { success: false, error: 'Transcription server not running' }
+      }
+
+      return { success: false, error: 'Transcription server not supported' }
+    },
+  )
+
+  typedHandle(
+    'startSpeechServer',
+    async (_event: IpcMainInvokeEvent, modelName: string): Promise<IpcMutationResult> => {
+      if (!serviceRegistry) {
+        return { success: false, error: 'Service registry not ready' }
+      }
+      const service = serviceRegistry.getService('openvino-backend')
+      if (!service) {
+        return { success: false, error: 'OpenVINO backend service not found' }
+      }
+
+      if ('startSpeechServer' in service && typeof service.startSpeechServer === 'function') {
+        try {
+          await service.startSpeechServer(modelName)
+          return { success: true }
+        } catch (error) {
+          const errorMessage = ipcErrorText(error)
+          appLogger.error(`Failed to start speech server: ${errorMessage}`, 'electron-backend')
+          return { success: false, error: errorMessage }
+        }
+      }
+
+      return { success: false, error: 'Speech server not supported' }
+    },
+  )
+
+  typedHandle(
+    'stopSpeechServer',
+    async (_event: IpcMainInvokeEvent): Promise<IpcMutationResult> => {
+      if (!serviceRegistry) {
+        return { success: false, error: 'Service registry not ready' }
+      }
+      const service = serviceRegistry.getService('openvino-backend')
+      if (!service) {
+        return { success: false, error: 'OpenVINO backend service not found' }
+      }
+
+      if ('stopSpeechServer' in service && typeof service.stopSpeechServer === 'function') {
+        try {
+          await service.stopSpeechServer()
+          return { success: true }
+        } catch (error) {
+          const errorMessage = ipcErrorText(error)
+          appLogger.error(`Failed to stop speech server: ${errorMessage}`, 'electron-backend')
+          return { success: false, error: errorMessage }
+        }
+      }
+
+      return { success: false, error: 'Speech server not supported' }
+    },
+  )
+
+  typedHandle(
+    'getSpeechServerUrl',
+    async (_event: IpcMainInvokeEvent): Promise<IpcOkWith<{ url: string }>> => {
+      if (!serviceRegistry) {
+        return { success: false, error: 'Service registry not ready' }
+      }
+      const service = serviceRegistry.getService('openvino-backend')
+      if (!service) {
+        return { success: false, error: 'OpenVINO backend service not found' }
+      }
+
+      if ('getSpeechServerUrl' in service && typeof service.getSpeechServerUrl === 'function') {
+        const speechUrl = service.getSpeechServerUrl()
+        if (speechUrl) {
+          return { success: true, url: speechUrl }
+        }
+        return { success: false, error: 'Speech server not running' }
+      }
+
+      return { success: false, error: 'Speech server not supported' }
+    },
+  )
 
   // Synthesize speech in the main process so it is not subject to the
   // renderer's CORS policy. Many OpenAI-compatible `/audio/speech` servers
   // (e.g. local TTS fallbacks) do not answer the CORS preflight that an
   // `application/json` POST triggers, which blocks a direct renderer fetch.
-  ipcMain.handle(
+  typedHandle(
     'synthesizeSpeech',
     async (
       _event: IpcMainInvokeEvent,
-      options: {
-        baseURL: string
-        model: string
-        input: string
-        voice?: string
-        apiKey?: string
-        format?: string
-      },
+      options: SpeechSynthesisRequest,
     ): Promise<
       { success: true; dataBase64: string; mediaType: string } | { success: false; error: string }
     > => {
@@ -3286,14 +3220,14 @@ function initEventHandle() {
         const dataBase64 = Buffer.from(arrayBuffer).toString('base64')
         return { success: true, dataBase64, mediaType }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorMessage = ipcErrorText(error)
         appLogger.error(`Failed to synthesize speech: ${errorMessage}`, 'electron-backend')
         return { success: false, error: errorMessage }
       }
     },
   )
 
-  ipcMain.handle(
+  typedHandle(
     'ensureOvmsImageReady',
     async (
       _event: IpcMainInvokeEvent,
@@ -3304,50 +3238,56 @@ function initEventHandle() {
     ) => ensureOvmsImageServerReady(serviceName, modelName, keepModelsLoaded, resolution),
   )
 
-  ipcMain.handle('stopOvmsChatServers', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    if ('stopChatServers' in service && typeof service.stopChatServers === 'function') {
-      try {
-        await service.stopChatServers()
-        return { success: true }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        appLogger.error(`Failed to stop OVMS chat servers: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
+  typedHandle(
+    'stopOvmsChatServers',
+    async (_event: IpcMainInvokeEvent): Promise<IpcMutationResult> => {
+      if (!serviceRegistry) {
+        return { success: false, error: 'Service registry not ready' }
       }
-    }
-
-    return { success: false, error: 'Chat servers not supported' }
-  })
-
-  ipcMain.handle('getOvmsImageServerUrl', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    if ('getImageServerUrl' in service && typeof service.getImageServerUrl === 'function') {
-      const imageUrl = service.getImageServerUrl()
-      if (imageUrl) {
-        return { success: true, url: imageUrl }
+      const service = serviceRegistry.getService('openvino-backend')
+      if (!service) {
+        return { success: false, error: 'OpenVINO backend service not found' }
       }
-      return { success: false, error: 'Image server not running' }
-    }
 
-    return { success: false, error: 'Image server not supported' }
-  })
+      if ('stopChatServers' in service && typeof service.stopChatServers === 'function') {
+        try {
+          await service.stopChatServers()
+          return { success: true }
+        } catch (error) {
+          const errorMessage = ipcErrorText(error)
+          appLogger.error(`Failed to stop OVMS chat servers: ${errorMessage}`, 'electron-backend')
+          return { success: false, error: errorMessage }
+        }
+      }
 
-  ipcMain.on('ondragstart', async (event, filePath) => {
+      return { success: false, error: 'Chat servers not supported' }
+    },
+  )
+
+  typedHandle(
+    'getOvmsImageServerUrl',
+    async (_event: IpcMainInvokeEvent): Promise<IpcOkWith<{ url: string }>> => {
+      if (!serviceRegistry) {
+        return { success: false, error: 'Service registry not ready' }
+      }
+      const service = serviceRegistry.getService('openvino-backend')
+      if (!service) {
+        return { success: false, error: 'OpenVINO backend service not found' }
+      }
+
+      if ('getImageServerUrl' in service && typeof service.getImageServerUrl === 'function') {
+        const imageUrl = service.getImageServerUrl()
+        if (imageUrl) {
+          return { success: true, url: imageUrl }
+        }
+        return { success: false, error: 'Image server not running' }
+      }
+
+      return { success: false, error: 'Image server not supported' }
+    },
+  )
+
+  typedOn('ondragstart', async (event, filePath: string) => {
     const imagePath = getAssetPathFromUrl(filePath)
     if (!imagePath) return
     let thumbnail: Electron.NativeImage
@@ -3365,7 +3305,7 @@ function initEventHandle() {
     })
   })
 
-  ipcMain.handle('updatePresetsFromIntelRepo', () => {
+  typedHandle('updatePresetsFromIntelRepo', () => {
     const mode = resolveProductMode(settings)
     const variant = settings.isDemoModeEnabled ? 'demo' : 'presets'
     const config = getPresetLoadConfig(settings)
@@ -3381,7 +3321,7 @@ function initEventHandle() {
     return result
   })
 
-  ipcMain.handle('reloadPresets', async () => {
+  typedHandle('reloadPresets', async () => {
     const config = getPresetLoadConfig(settings)
     try {
       await filterPartnerPresets(config.baseDir)
@@ -3397,7 +3337,7 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('getUserPresetsPath', async () => {
+  typedHandle('getUserPresetsPath', async () => {
     const userDataPath = app.getPath('documents')
     const presetsPath = path.join(userDataPath, 'AI Playground', 'presets')
     // Ensure directory exists
@@ -3405,7 +3345,7 @@ function initEventHandle() {
     return presetsPath
   })
 
-  ipcMain.handle('loadUserPresets', async () => {
+  typedHandle('loadUserPresets', async () => {
     try {
       const userDataPath = app.getPath('documents')
       const presetsPath = path.join(userDataPath, 'AI Playground', 'presets')
@@ -3417,7 +3357,7 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('saveUserPreset', async (_event, presetContent: string) => {
+  typedHandle('saveUserPreset', async (_event, presetContent: string) => {
     try {
       const userDataPath = app.getPath('documents')
       const presetsPath = path.join(userDataPath, 'AI Playground', 'presets')
@@ -3439,15 +3379,15 @@ function initEventHandle() {
   })
 
   // Version management IPC handlers for frontend store integration
-  ipcMain.handle('resolveBackendVersion', async (_event, serviceName: BackendServiceName) => {
+  typedHandle('resolveBackendVersion', async (_event, serviceName: BackendServiceName) => {
     return await resolveBackendVersion(serviceName, settings)
   })
 
-  ipcMain.handle('getGitHubRepoUrl', () => {
+  typedHandle('getGitHubRepoUrl', () => {
     return getGitHubRepoUrl(settings)
   })
 
-  ipcMain.handle('getInstalledBackendVersion', async (_event, serviceName: BackendServiceName) => {
+  typedHandle('getInstalledBackendVersion', async (_event, serviceName: BackendServiceName) => {
     if (!serviceRegistry) {
       appLogger.warn('Service registry not ready', 'electron-backend')
       return undefined
@@ -3472,11 +3412,11 @@ function initEventHandle() {
   })
 
   // ComfyUI Tools IPC handlers
-  ipcMain.handle('comfyui:isGitInstalled', async () => {
+  typedHandle('comfyui:isGitInstalled', async () => {
     return await comfyuiTools.isGitInstalled()
   })
 
-  ipcMain.handle('comfyui:isComfyUIInstalled', () => {
+  typedHandle('comfyui:isComfyUIInstalled', () => {
     const comfyService = serviceRegistry?.getService('comfyui-backend') as
       ComfyUiBackendService | undefined
     if (!comfyService) {
@@ -3485,15 +3425,15 @@ function initEventHandle() {
     return comfyuiTools.isComfyUIInstalled(comfyService.serviceDir)
   })
 
-  ipcMain.handle('comfyui:getGitRef', async (_event, repoDir: string) => {
+  typedHandle('comfyui:getGitRef', async (_event, repoDir: string) => {
     return await comfyuiTools.getGitRef(repoDir)
   })
 
-  ipcMain.handle('comfyui:isPackageInstalled', async (_event, packageSpecifier: string) => {
+  typedHandle('comfyui:isPackageInstalled', async (_event, packageSpecifier: string) => {
     return await comfyuiTools.isPackageInstalled(packageSpecifier)
   })
 
-  ipcMain.handle('comfyui:installPypiPackage', async (_event, packageSpecifier: string) => {
+  typedHandle('comfyui:installPypiPackage', async (_event, packageSpecifier: string) => {
     const comfyService = serviceRegistry?.getService('comfyui-backend') as
       ComfyUiBackendService | undefined
     return await comfyuiTools.installPypiPackage(
@@ -3502,51 +3442,42 @@ function initEventHandle() {
     )
   })
 
-  ipcMain.handle(
-    'comfyui:isCustomNodeInstalled',
-    (_event, nodeRepoRef: comfyuiTools.ComfyUICustomNodeRepoId) => {
-      const comfyService = serviceRegistry?.getService('comfyui-backend') as
-        ComfyUiBackendService | undefined
-      if (!comfyService) {
-        throw new Error('ComfyUI backend service not found')
-      }
-      return comfyuiTools.isCustomNodeInstalled(nodeRepoRef, comfyService.serviceDir)
-    },
-  )
+  typedHandle('comfyui:isCustomNodeInstalled', (_event, nodeRepoRef) => {
+    const comfyService = serviceRegistry?.getService('comfyui-backend') as
+      ComfyUiBackendService | undefined
+    if (!comfyService) {
+      throw new Error('ComfyUI backend service not found')
+    }
+    return comfyuiTools.isCustomNodeInstalled(nodeRepoRef, comfyService.serviceDir)
+  })
 
-  ipcMain.handle(
-    'comfyui:downloadCustomNode',
-    async (_event, nodeRepoData: comfyuiTools.ComfyUICustomNodeRepoId) => {
-      const comfyService = serviceRegistry?.getService('comfyui-backend') as
-        ComfyUiBackendService | undefined
-      if (!comfyService) {
-        throw new Error('ComfyUI backend service not found')
-      }
-      const envAndWheels: comfyuiTools.ComfyUiInstallOptions = {
-        extraEnv: comfyService.getTorchBackendEnv(),
-        skipExtraWheels: comfyService.comfyUiVariantName !== 'xpu',
-      }
-      return await comfyuiTools.downloadCustomNode(
-        nodeRepoData,
-        comfyService.serviceDir,
-        envAndWheels,
-      )
-    },
-  )
+  typedHandle('comfyui:downloadCustomNode', async (_event, nodeRepoData) => {
+    const comfyService = serviceRegistry?.getService('comfyui-backend') as
+      ComfyUiBackendService | undefined
+    if (!comfyService) {
+      throw new Error('ComfyUI backend service not found')
+    }
+    const envAndWheels: comfyuiTools.ComfyUiInstallOptions = {
+      extraEnv: comfyService.getTorchBackendEnv(),
+      skipExtraWheels: comfyService.comfyUiVariantName !== 'xpu',
+    }
+    return await comfyuiTools.downloadCustomNode(
+      nodeRepoData,
+      comfyService.serviceDir,
+      envAndWheels,
+    )
+  })
 
-  ipcMain.handle(
-    'comfyui:uninstallCustomNode',
-    async (_event, nodeRepoData: comfyuiTools.ComfyUICustomNodeRepoId) => {
-      const comfyService = serviceRegistry?.getService('comfyui-backend') as
-        ComfyUiBackendService | undefined
-      if (!comfyService) {
-        throw new Error('ComfyUI backend service not found')
-      }
-      return await comfyuiTools.uninstallCustomNode(nodeRepoData, comfyService.serviceDir)
-    },
-  )
+  typedHandle('comfyui:uninstallCustomNode', async (_event, nodeRepoData) => {
+    const comfyService = serviceRegistry?.getService('comfyui-backend') as
+      ComfyUiBackendService | undefined
+    if (!comfyService) {
+      throw new Error('ComfyUI backend service not found')
+    }
+    return await comfyuiTools.uninstallCustomNode(nodeRepoData, comfyService.serviceDir)
+  })
 
-  ipcMain.handle('comfyui:listInstalledCustomNodes', () => {
+  typedHandle('comfyui:listInstalledCustomNodes', () => {
     const comfyService = serviceRegistry?.getService('comfyui-backend') as
       ComfyUiBackendService | undefined
     if (!comfyService) {
@@ -3569,106 +3500,91 @@ function initEventHandle() {
   // it is never exposed to the LLM. The Chat tool captures in main (it ships
   // the bound window on the turn); this channel serves the settings picker.
 
-  ipcMain.handle('screenshot:getPermissionStatus', () => ({
+  typedHandle('screenshot:getPermissionStatus', () => ({
     platform: process.platform,
     status: getScreenCaptureStatus(),
   }))
 
-  ipcMain.on('screenshot:openPermissionSettings', () => openScreenCaptureSettings())
+  typedOn('screenshot:openPermissionSettings', () => openScreenCaptureSettings())
 
-  ipcMain.handle('screenshot:listWindows', async () => await listCaptureWindows())
+  typedHandle('screenshot:listWindows', async () => await listCaptureWindows())
 
-  ipcMain.handle(
-    'screenshot:captureWindow',
-    async (_event, target: { id: string; name: string }) => await captureWindow(target),
-  )
+  typedHandle('screenshot:captureWindow', async (_event, target) => await captureWindow(target))
 
   // MCP server IPC handlers
-  ipcMain.handle('mcp:startServer', async (_event, serverId: string) => {
+  typedHandle('mcp:startServer', async (_event, serverId) => {
     return await startMcpServer(serverId)
   })
 
-  ipcMain.handle('mcp:listServers', () => {
+  typedHandle('mcp:listServers', () => {
     return listMcpServers()
   })
 
-  ipcMain.handle('mcp:stopServer', async (_event, serverId: string) => {
+  typedHandle('mcp:stopServer', async (_event, serverId) => {
     return await stopMcpServer(serverId)
   })
 
-  ipcMain.handle('mcp:getServerStatus', (_event, serverId: string) => {
+  typedHandle('mcp:getServerStatus', (_event, serverId) => {
     return getMcpServerStatus(serverId)
   })
 
-  ipcMain.handle('mcp:listServerTools', async (_event, serverId: string) => {
+  typedHandle('mcp:listServerTools', async (_event, serverId) => {
     return await listMcpServerTools(serverId)
   })
 
-  ipcMain.handle(
-    'mcp:invokeServerTool',
-    async (_event, serverId: string, toolName: string, args: Record<string, unknown>) => {
-      return await invokeMcpServerTool(serverId, toolName, args)
-    },
-  )
+  typedHandle('mcp:invokeServerTool', async (_event, serverId, toolName, args) => {
+    return await invokeMcpServerTool(serverId, toolName, args)
+  })
 
   // Agent Mode (Pi coding agent) IPC handlers — see agent/piAgentManager.ts.
   // Stream chunks and live tool output cross the kernel event bus
   // (electron/kernel/kernelBus.ts) as 'agent-chunk' / 'agent-tool-progress' /
   // 'agent-tool-image' / 'agent-turn-done' events.
-  ipcMain.handle(
-    'agentMode:startTurn',
-    async (_event, turnId: string, prompt: string, config: unknown) => {
-      const parsed = AgentModeTurnConfigSchema.safeParse(config)
-      if (!parsed.success) {
-        return { success: false, error: parsed.error.message }
-      }
-      return await startAgentTurn(turnId, prompt, parsed.data)
-    },
-  )
+  typedHandle('agentMode:startTurn', async (_event, turnId, prompt, config) => {
+    const parsed = AgentModeTurnConfigSchema.safeParse(config)
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.message }
+    }
+    return await startAgentTurn(turnId, prompt, parsed.data)
+  })
 
-  ipcMain.handle('agentMode:cancel', () => {
+  typedHandle('agentMode:cancel', () => {
     cancelAgentTurn()
   })
 
-  ipcMain.handle('agentMode:resetSession', async () => {
+  typedHandle('agentMode:resetSession', async () => {
     await resetAgentSession()
   })
 
   // Step 8 (§6.1): the last-used workspace pointers are kernel-owned
   // (agent-workspace.json); the store becomes a live projection.
-  ipcMain.handle('agentMode:readWorkspaceState', async () => {
+  typedHandle('agentMode:readWorkspaceState', async () => {
     try {
       return { success: true as const, section: await readAgentWorkspaceState() }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return ipcFail(e)
     }
   })
 
-  ipcMain.handle(
-    'agentMode:migrateWorkspaceState',
-    async (_event: IpcMainInvokeEvent, payload: unknown) => {
-      try {
-        await migrateAgentWorkspaceState(payload)
-        return { success: true as const }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
-  )
+  typedHandle('agentMode:migrateWorkspaceState', async (_event, payload) => {
+    try {
+      await migrateAgentWorkspaceState(payload)
+      return { success: true as const }
+    } catch (e) {
+      return ipcFail(e)
+    }
+  })
 
-  ipcMain.handle(
-    'agentMode:writeWorkspaceState',
-    async (_event: IpcMainInvokeEvent, value: unknown) => {
-      try {
-        await writeAgentWorkspaceState(value)
-        return { success: true as const }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
-  )
+  typedHandle('agentMode:writeWorkspaceState', async (_event, value) => {
+    try {
+      await writeAgentWorkspaceState(value)
+      return { success: true as const }
+    } catch (e) {
+      return ipcFail(e)
+    }
+  })
 
-  ipcMain.handle('agentMode:deleteSession', async (_event, sessionId: unknown) => {
+  typedHandle('agentMode:deleteSession', async (_event, sessionId) => {
     // Both halves run even if one fails. Invalid ids return `{success:false}`.
     try {
       if (typeof sessionId !== 'string') throw new Error('session id must be a string')
@@ -3677,177 +3593,148 @@ function initEventHandle() {
       if (!record.success) return record
       return live
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return ipcFail(e)
     }
   })
 
   // Copy a file the user attached into the agent's workspace, so the agent can
   // reach it with its own file tools (see agent/workspaceAttachments.ts).
-  ipcMain.handle(
-    'agentMode:importAttachment',
-    (_event, workspaceDir: string, name: string, bytes: Uint8Array) => {
-      try {
-        return { success: true, ...importAttachment(workspaceDir, name, bytes) }
-      } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : String(error) }
-      }
-    },
-  )
+  typedHandle('agentMode:importAttachment', (_event, workspaceDir, name, bytes) => {
+    try {
+      return { success: true as const, ...importAttachment(workspaceDir, name, bytes) }
+    } catch (error) {
+      return ipcFail(error)
+    }
+  })
 
   // What the agent can be equipped with, for the Capabilities checkboxes in
   // Agent Settings (availability depends on the turn's tool specs / MCP config).
-  ipcMain.handle(
-    'agentMode:listCapabilities',
-    (
-      _event,
-      options: { workspaceDir?: string; toolSpecs?: AgentToolSpec[]; mcpServerIds?: string[] },
-    ) => {
-      return listAgentCapabilities(options ?? {})
-    },
-  )
+  typedHandle('agentMode:listCapabilities', (_event, options) => {
+    return listAgentCapabilities(options ?? {})
+  })
 
   // Renderer answers a main→renderer 'agentMode:executeTool' dispatch (bridged
   // host tool execution, e.g. image generation) with the tool result or error.
-  ipcMain.handle(
-    'agentMode:toolResult',
-    (_event, requestId: string, result: unknown, error?: string) => {
-      submitAgentToolResult(requestId, result, error)
-    },
-  )
+  typedHandle('agentMode:toolResult', (_event, requestId, result, error) => {
+    return submitAgentToolResult(requestId, result, error)
+  })
 
   // Game library (see gameLibrary.ts): the folders the Game Agent preset writes
   // into, plus the generated gallery page.
-  ipcMain.handle('games:list', () => listGames())
+  typedHandle('games:list', () => listGames())
 
-  ipcMain.handle('games:read', (_event, dir: string) => readGame(dir))
+  typedHandle('games:read', (_event, dir) => readGame(dir))
 
   // `name` is the request that started the game, not a title: shorten it to
   // something that reads as one, until the agent sets a real one. The request
   // itself is kept whole as provenance.
-  ipcMain.handle(
-    'games:create',
-    (
-      _event,
-      name?: string,
-      options?: {
-        scaffold?: boolean
-        backend?: string
-        startingModel?: string
-        initialPrompt?: string
-      },
-    ) =>
-      createGame({
-        name: name ? provisionalName(name) : undefined,
-        ...(options?.scaffold === false ? { scaffold: false } : {}),
-        backend: options?.backend,
-        startingModel: options?.startingModel,
-        initialPrompt: options?.initialPrompt,
-      }),
+  typedHandle('games:create', (_event, name, options) =>
+    createGame({
+      name: name ? provisionalName(name) : undefined,
+      ...(options?.scaffold === false ? { scaffold: false } : {}),
+      backend: options?.backend,
+      startingModel: options?.startingModel,
+      initialPrompt: options?.initialPrompt,
+    }),
   )
 
-  ipcMain.handle(
-    'games:publish',
-    async (_event, dir: string, fields: { name?: string; description?: string }) => {
-      try {
-        const { vendor } = await detectOem(settings.oemVendorOverride)
-        return { success: true, game: publishGame(dir, fields ?? {}, { vendor }) }
-      } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : String(error) }
-      }
-    },
-  )
+  typedHandle('games:publish', async (_event, dir, fields) => {
+    try {
+      const { vendor } = await detectOem(settings.oemVendorOverride)
+      return { success: true as const, game: publishGame(dir, fields ?? {}, { vendor }) }
+    } catch (error) {
+      return ipcFail(error)
+    }
+  })
 
-  ipcMain.handle('games:arcadeCatalog', async () => {
+  typedHandle('games:arcadeCatalog', async () => {
     const { vendor } = await detectOem(settings.oemVendorOverride)
     return arcadeCatalog({ vendor })
   })
 
-  ipcMain.handle(
-    'games:setArcadeShown',
-    async (_event, target: { kind: 'user' | 'sample'; id: string; shown: boolean }) => {
-      try {
-        const { vendor } = await detectOem(settings.oemVendorOverride)
-        setArcadeShown(target, { vendor })
-        return { success: true }
-      } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : String(error) }
-      }
-    },
-  )
+  typedHandle('games:setArcadeShown', async (_event, target) => {
+    try {
+      const { vendor } = await detectOem(settings.oemVendorOverride)
+      setArcadeShown(target, { vendor })
+      return { success: true as const }
+    } catch (error) {
+      return ipcFail(error)
+    }
+  })
 
   // A game's own folder, or the library root when none is given.
-  ipcMain.handle('games:openFolder', (_event, dir?: string) => {
+  typedHandle('games:openFolder', (_event, dir) => {
     const target = dir ?? getGamesDir()
     fs.mkdirSync(target, { recursive: true })
     shell.openPath(target)
   })
 
-  ipcMain.handle('games:play', async (_event, dir: string) => {
+  typedHandle('games:play', async (_event, dir) => {
     const game = readGame(dir)
-    if (!game) return { success: false, error: `Not a game folder: ${dir}` }
+    if (!game) return { success: false as const, error: `Not a game folder: ${dir}` }
     if (!fs.existsSync(game.entryPath)) {
-      return { success: false, error: 'This game has no playable file yet.' }
+      return { success: false as const, error: 'This game has no playable file yet.' }
     }
     // The default browser, not an app window: a game is the user's to keep.
     const error = await shell.openPath(game.entryPath)
-    return error ? { success: false, error } : { success: true }
+    return error ? { success: false as const, error } : { success: true as const }
   })
 
   // Regenerated on open so the gallery reflects the library as it is now.
-  ipcMain.handle('games:openArcade', async () => {
+  typedHandle('games:openArcade', async () => {
     const { vendor } = await detectOem(settings.oemVendorOverride)
     const { arcadePath } = writeArcade({ vendor })
     const error = await shell.openPath(arcadePath)
-    return error ? { success: false, error } : { success: true, path: arcadePath }
+    return error ? { success: false as const, error } : { success: true as const, path: arcadePath }
   })
 
   // Web browser IPC handlers — drives the headless BrowserWindow that the chat
   // LLM uses to browse the web (see adapters/webBrowserManager.ts).
-  ipcMain.handle('webBrowser:navigate', async (_event, url: string) => {
+  typedHandle('webBrowser:navigate', async (_event, url: string) => {
     return await navigateWebBrowser(url)
   })
 
-  ipcMain.handle('webBrowser:readPage', async () => {
+  typedHandle('webBrowser:readPage', async () => {
     return await readWebBrowserPage()
   })
 
-  ipcMain.handle('webBrowser:search', async (_event, query: string, maxResults?: number) => {
+  typedHandle('webBrowser:search', async (_event, query: string, maxResults?: number) => {
     return await searchWebBrowser(query, maxResults)
   })
 
-  ipcMain.handle('webBrowser:interact', async (_event, interaction: WebBrowserInteraction) => {
+  typedHandle('webBrowser:interact', async (_event, interaction: WebBrowserInteraction) => {
     return await interactWebBrowser(interaction)
   })
 
-  ipcMain.handle('webBrowser:screenshot', async () => {
+  typedHandle('webBrowser:screenshot', async () => {
     return await screenshotWebBrowser()
   })
 
-  ipcMain.handle('webBrowser:show', () => {
+  typedHandle('webBrowser:show', () => {
     return showWebBrowser()
   })
 
-  ipcMain.handle('webBrowser:hide', () => {
+  typedHandle('webBrowser:hide', () => {
     return hideWebBrowser()
   })
 
-  ipcMain.handle('webBrowser:close', () => {
+  typedHandle('webBrowser:close', () => {
     return closeWebBrowser()
   })
 
-  ipcMain.handle('webBrowser:getState', () => {
+  typedHandle('webBrowser:getState', () => {
     return getWebBrowserState()
   })
 
   // MCP config file handlers
   // TODO: Consider consolidating with openImageWithSystem/openImageInFolder
   // into generic openFileWithSystem/openFileInFolder that take file paths
-  ipcMain.on('mcp:openConfig', () => {
+  typedOn('mcp:openConfig', () => {
     const configPath = getMcpConfigPath()
     shell.openPath(configPath)
   })
 
-  ipcMain.on('mcp:openConfigInFolder', () => {
+  typedOn('mcp:openConfigInFolder', () => {
     const configPath = getMcpConfigPath()
     if (process.platform === 'win32') {
       exec(`explorer.exe /select, "${configPath}"`)
@@ -3856,34 +3743,25 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('mcp:reloadConfig', async () => {
+  typedHandle('mcp:reloadConfig', async () => {
     await stopAllMcpServers()
     return listMcpServers()
   })
 
-  ipcMain.handle(
-    'mcp:addServer',
-    async (
-      _event,
-      serverId: string,
-      config:
-        | { type?: 'stdio'; command: string; args?: string[]; displayName?: string }
-        | { type: 'http'; url: string; headers?: Record<string, string>; displayName?: string },
-    ) => {
-      return addMcpServer(serverId, config)
-    },
-  )
+  typedHandle('mcp:addServer', async (_event, serverId, config) => {
+    return addMcpServer(serverId, config)
+  })
 
-  ipcMain.handle('mcp:getServerConfig', (_event, serverId: string) => {
+  typedHandle('mcp:getServerConfig', (_event, serverId) => {
     return getMcpServerConfig(serverId)
   })
 
-  ipcMain.handle('mcp:updateServer', async (_event, serverId: string, config: McpServerConfig) => {
+  typedHandle('mcp:updateServer', async (_event, serverId, config) => {
     await stopMcpServer(serverId)
     return updateMcpServer(serverId, config)
   })
 
-  ipcMain.handle('mcp:removeServer', async (_event, serverId: string) => {
+  typedHandle('mcp:removeServer', async (_event, serverId) => {
     await stopMcpServer(serverId)
     const result = removeMcpServer(serverId)
     if (isAutoDetectId(serverId) && !settings.mcpAutoDetectionDismissed.includes(serverId)) {
@@ -3919,13 +3797,13 @@ function initEventHandle() {
     return path.join(mediaDir, imageSubPath)
   }
 
-  ipcMain.on('openImageWithSystem', (_event, url: string) => {
+  typedOn('openImageWithSystem', (_event, url: string) => {
     const imagePath = getAssetPathFromUrl(url)
     if (!imagePath) return
     shell.openPath(imagePath)
   })
 
-  ipcMain.on('openImageInFolder', (_event, url: string) => {
+  typedOn('openImageInFolder', (_event, url: string) => {
     const imagePath = getAssetPathFromUrl(url)
     if (!imagePath) return
 
@@ -3938,7 +3816,7 @@ function initEventHandle() {
   })
 }
 
-ipcMain.on(
+typedOn(
   'openImageWin',
   (_: IpcMainEvent, url: string, title: string, width: number, height: number) => {
     const display = screen.getPrimaryDisplay()
@@ -3972,15 +3850,11 @@ ipcMain.on(
   },
 )
 
-ipcMain.handle('showSaveDialog', async (_event, options: Electron.SaveDialogOptions) => {
-  dialog
-    .showSaveDialog(options)
-    .then((result) => {
-      return result
-    })
-    .catch((error) => {
-      appLogger.error(`${JSON.stringify(error, Object.getOwnPropertyNames, 2)}`, 'electron-backend')
-    })
+typedHandle('showSaveDialog', async (_event, options) => {
+  return dialog.showSaveDialog(options).catch((error) => {
+    appLogger.error(`${JSON.stringify(error, Object.getOwnPropertyNames, 2)}`, 'electron-backend')
+    return undefined
+  })
 })
 
 function isAdmin(): boolean {

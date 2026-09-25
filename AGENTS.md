@@ -365,8 +365,10 @@ through it — never surface errors ad hoc.
 - Global capture is wired in `main.ts` (Vue `errorHandler`, `unhandledrejection`, `window.error`),
   so uncaught failures already reach the sink. De-duplication keys off the `AppError` instance, so
   re-`report`ing the same caught error (e.g. rethrown then caught again) won't double-toast.
-- IPC handlers (main → renderer) still return `{ success: boolean, error?: string }`; the renderer
-  turns a failed result into an `AppError` via the sink.
+- IPC handlers return what their manifest row declares: raw data, or a discriminated envelope
+  (`IpcMutationResult`, `IpcDataResult<T>`, `IpcOkWith<...>` — all `IpcOk | IpcFail`); main builds
+  the failure arm with `ipcFail(e)`/`ipcErrorText(e)`, and the renderer turns a failed result into
+  an `AppError` via the sink.
 - Python backends: return `{"code": 0, "data": ...}` on success, `{"code": -1, "message": ...}` on error.
 
 ## ESLint Rules of Note
@@ -418,13 +420,40 @@ Dependency direction: domain and kernel may import adapters, **adapters must not
 — machine-level settings live in `electron/kernel/localSettings.ts` so a backend can type its
 configuration without reaching into the composition root.
 
-## IPC Pattern (Three-File Rule)
+## IPC Pattern (Channel Manifest)
 
-Every new IPC command requires changes to exactly three files:
+Every IPC channel is stated once in the typed manifest (`WebUI/src/types/ipcChannels.ts`):
+name, argument types, result type, direction (`invoke`/`send`/`push`), owner, and the
+row's documentation. All three sides are enforced through it: main registers handlers through
+`typedHandle`/`typedOn`/`typedSend` (`electron/kernel/typedIpc.ts`), the preload's member
+types derive from the rows and its hand-written members are audited as one object
+(`satisfies ElectronApi`), and the renderer's `electronAPI` type
+is a one-line derivation in `env.d.ts`. A channel missing on any side is a build error, not
+a runtime bug. The manifest is authoritative — the old "three-file rule" is superseded.
 
-1. `WebUI/electron/main.ts` — add `ipcMain.handle()` or `ipcMain.on()` handler
-2. `WebUI/electron/preload.ts` — expose via `contextBridge.exposeInMainWorld()`
-3. `WebUI/src/env.d.ts` — add TypeScript type definition to `electronAPI`
+Enforcement is end-to-end:
+
+- **preload** (`WebUI/electron/preload.ts`) exposes one object annotated
+  `satisfies ElectronApi` — every member's path, argument and result types must match the
+  manifest derivation exactly. The few members with no manifest row (webUtils'
+  `getFilePath`, the `onKernelEvent` listener) are declared in `IpcExtraBridgeMembers`.
+- **env.d.ts** types the renderer side in one line:
+  `type electronAPI = import('./types/ipcChannels').ElectronApi`.
+- **`electron/test/kernel/ipcChannelRegistration.test.ts`** imports the real `CHANNELS`
+  value and scans `WebUI/electron/**/*.ts` source text: every `invoke` row must have a
+  `typedHandle(` site, every `send` row a `typedOn(`, every `push` row a `typedSend(` —
+  enforced per owner (`homeAgent` rows register inside the Home Agent backend service,
+  `main` rows elsewhere) — every push row needs a preload `onPush`/`onRaw` listener, and
+  no raw `ipcMain.handle`/`ipcMain.on`/`webContents.send`/`ipcRenderer.*` registration
+  survives outside the kernel-stream allowlist.
+- **Kernel stream** (the one documented exception): `kernel:event` and its raw preload
+  listener stay hand-wired — the single ordered event stream is infra, deliberately
+  off-manifest; `kernel:getSnapshot` is a normal manifest row (flat, top-level member
+  `getKernelSnapshot`).
+- **Add channels row-first**: write the manifest row, then follow the compile errors —
+  `typedHandle`/`typedOn`/`typedSend` on the main side, the preload member the
+  whole-object `satisfies` demands (it names the missing member and its expected shape),
+  and the renderer type arrives via `env.d.ts` for free.
 
 ## Home Agent Slash Commands (Five-Place Rule)
 
@@ -927,7 +956,7 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 
 | File                                                   | Purpose                                                                                           |
 | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `electron/main.ts`                                     | Window creation, all IPC handlers (~68 channels), app lifecycle                                   |
+| `electron/main.ts`                                     | Window creation, IPC handler registration (the channel manifest in `src/types/ipcChannels.ts` is authoritative), app lifecycle |
 | `electron/preload.ts`                                  | `contextBridge` exposing `electronAPI` to renderer                                                |
 | `electron/kernel/localSettings.ts`                     | Machine-level `settings.json` schema, shared by main and the backend adapters                     |
 | `electron/kernel/pathsManager.ts`                      | Singleton managing all app/model/service filesystem paths                                         |

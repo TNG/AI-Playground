@@ -9,13 +9,8 @@
  */
 import { randomUUID } from 'node:crypto'
 import { getKernelEventWindow } from '../kernel/kernelBus'
-import type {
-  PermissionsPromptBody,
-  PermissionsPromptPayload,
-  PermissionsPromptResponse,
-} from '@/types/permissionsIpc'
-
-const PERMISSIONS_PROMPT_CHANNEL = 'permissions:prompt'
+import { typedSend } from '../kernel/typedIpc'
+import type { PermissionsPromptBody, PermissionsPromptResponse } from '@/types/permissionsIpc'
 
 type PendingRequest = {
   requestId: string
@@ -47,10 +42,7 @@ export function requestPermissionsPrompt<T>(
       onProgress: options.onProgress,
     })
     try {
-      win.webContents.send(PERMISSIONS_PROMPT_CHANNEL, {
-        ...payload,
-        requestId,
-      } satisfies PermissionsPromptPayload)
+      typedSend(win.webContents, 'permissions:prompt', { ...payload, requestId })
     } catch (error) {
       pending.delete(requestId)
       reject(error instanceof Error ? error : new Error(String(error)))

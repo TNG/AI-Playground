@@ -290,7 +290,7 @@ export async function saveAgentSessionActiveId(id: string | null): Promise<void>
 
 export async function deleteAgentSessionRecord(
   id: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: true } | { success: false; error: string }> {
   assertSafeFileId(id, 'agent session')
   try {
     await serialize(id, async () => {

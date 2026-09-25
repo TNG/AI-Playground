@@ -308,8 +308,8 @@ export const useQwen3TextToSpeech = defineStore('qwen3TextToSpeech', () => {
     options?: { overwrite?: boolean },
   ): Promise<string> {
     const result = await window.electronAPI.saveGeneratedAudio(audioBase64, suggestedName, options)
-    if (!result.success || !result.filePath) {
-      throw new Error(result.error ?? 'Failed to save audio file')
+    if (!result.success) {
+      throw new Error(result.error)
     }
     return result.filePath
   }

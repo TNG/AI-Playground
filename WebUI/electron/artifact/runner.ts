@@ -31,6 +31,7 @@ import {
 import type { ArtifactPhase } from '@/types/kernelEvents'
 import type { MediaItem } from '@/types/mediaItem'
 import type { ArtifactRunResult } from '@/types/artifactIpc'
+import type { IpcOkWith } from '@/types/ipcChannels'
 import {
   findKeysByClassType,
   mediaUrl,
@@ -157,7 +158,7 @@ export type ArtifactRunnerDeps = {
     modelId: string,
     keepModelsLoaded: boolean,
     resolution: string,
-  ): Promise<{ success: boolean; url?: string; error?: string }>
+  ): Promise<IpcOkWith<{ url: string }>>
   readMediaAsDataUri(url: string): Promise<string | null>
   getPlatform(): NodeJS.Platform
   /** Dev-only dummy presets are offered (npm run dev / showDebugSettingsInUI). */
@@ -779,8 +780,8 @@ async function driveRun(run: ActiveRun, deps: ArtifactRunnerDeps): Promise<void>
       run.payload.keepModelsLoaded ?? false,
       `${run.payload.params.width}x${run.payload.params.height}`,
     )
-    if (!result.success || !result.url) {
-      failRun(run, `Failed to start OVMS image server: ${result.error ?? 'unknown error'}`, false)
+    if (!result.success) {
+      failRun(run, `Failed to start OVMS image server: ${result.error}`, false)
       return
     }
     ovmsImageUrl = result.url

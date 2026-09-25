@@ -6,9 +6,6 @@ import { appLoggerInstance } from '../../observability/logger'
 import { writableConfigFile } from '../../kernel/userConfig.ts'
 import type { McpServerConfig } from '@/types/mcpIpc'
 
-// Compat re-export: the type moved to the shared IPC manifest module.
-export type { McpServerConfig }
-
 type McpConfigFile = {
   mcpServers: Record<string, McpServerConfig>
 }

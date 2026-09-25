@@ -379,8 +379,10 @@ through it — never surface errors ad hoc.
 - Global capture is wired in `main.ts` (Vue `errorHandler`, `unhandledrejection`, `window.error`),
   so uncaught failures already reach the sink. De-duplication keys off the `AppError` instance, so
   re-`report`ing the same caught error (e.g. rethrown then caught again) won't double-toast.
-- IPC handlers (main → renderer) still return `{ success: boolean, error?: string }`; the renderer
-  turns a failed result into an `AppError` via the sink.
+- IPC handlers return what their manifest row declares: raw data, or a discriminated envelope
+  (`IpcMutationResult`, `IpcDataResult<T>`, `IpcOkWith<...>` — all `IpcOk | IpcFail`); main builds
+  the failure arm with `ipcFail(e)`/`ipcErrorText(e)`, and the renderer turns a failed result into
+  an `AppError` via the sink.
 - Python backends: return `{"code": 0, "data": ...}` on success, `{"code": -1, "message": ...}` on error.
 
 ## ESLint Rules of Note
@@ -436,9 +438,10 @@ configuration without reaching into the composition root.
 
 Every IPC channel is stated once in the typed manifest (`WebUI/src/types/ipcChannels.ts`):
 name, argument types, result type, direction (`invoke`/`send`/`push`), owner, and the
-row's documentation. All three sides derive from it: main registers handlers through
-`typedHandle`/`typedOn`/`typedSend` (`electron/kernel/typedIpc.ts`), preload bridge members
-derive from the rows and are checked as one object, and the renderer's `electronAPI` type
+row's documentation. All three sides are enforced through it: main registers handlers through
+`typedHandle`/`typedOn`/`typedSend` (`electron/kernel/typedIpc.ts`), the preload's member
+types derive from the rows and its hand-written members are audited as one object
+(`satisfies ElectronApi`), and the renderer's `electronAPI` type
 is a one-line derivation in `env.d.ts`. A channel missing on any side is a build error, not
 a runtime bug. The manifest is authoritative — the old "three-file rule" is superseded (see
 docs/adr/0001-channel-manifest.md).

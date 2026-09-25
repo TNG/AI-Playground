@@ -3,6 +3,7 @@ import type {
   ChannelArgs,
   ChannelResult,
   InvokeChannelName,
+  IpcFail,
   PushChannelName,
   PushPayload,
   SendChannelName,
@@ -34,3 +35,5 @@ export function typedSend<N extends PushChannelName>(
 }
 
 export const ipcErrorText = (e: unknown): string => (e instanceof Error ? e.message : String(e))
+
+export const ipcFail = (e: unknown): IpcFail => ({ success: false, error: ipcErrorText(e) })

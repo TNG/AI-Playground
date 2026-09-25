@@ -9,8 +9,10 @@ The renderer↔main IPC seam (~200 channels) had its interface hand-copied acros
 exhaustiveness check, and drift shipped: handlerless channels, a bridge invoking the wrong
 channel, types promising results handlers never return. We decided to state each channel
 once in a typed manifest in `WebUI/src/types/` (name, args, result, direction, envelope,
-owner), from which all three sides derive, so a missing or mismatched channel is a build
-error, not a runtime bug. This supersedes the Three-File Rule in AGENTS.md: a new channel is
+owner), from which the handler, bridge-member and renderer types derive — the preload's
+members themselves stay hand-written, audited as one object via `satisfies ElectronApi` —
+so a missing or mismatched channel is a build error, not a runtime bug. This supersedes
+the Three-File Rule in AGENTS.md: a new channel is
 one manifest row plus its handler in the owning module.
 
 ## Considered options
@@ -64,3 +66,6 @@ Deviations from the staged plan above:
 - **Kernel stream** — `kernel:event` and its preload listener stay hand-wired (one ordered
   event stream, infra, deliberately off-manifest; allowlisted in the scan test and declared
   in `IpcExtraBridgeMembers`); `kernel:getSnapshot` migrated as a normal invoke row.
+- **`showMessageBoxSync` deleted, not fixed** — the legacy bridge member was dead (zero
+  callers) and wrong (it invoked the async `showMessageBox` channel under a sync name);
+  the migration dropped it rather than record its lie as a manifest row.

@@ -3,13 +3,10 @@ import type { ToolSet } from 'ai'
 import { createMCPClient, type MCPClient } from '@ai-sdk/mcp'
 import { Experimental_StdioMCPTransport } from '@ai-sdk/mcp/mcp-stdio'
 import { appLoggerInstance } from '../../observability/logger'
-import { loadMcpServers, type McpServerConfig } from './mcpServers'
+import { loadMcpServers } from './mcpServers'
 import { uvPath } from '../install/uvBasedBackends/uv'
-import type { McpServerInfo, McpStatus, McpToolCallResult, McpToolInfo } from '@/types/mcpIpc'
-
-// Compat re-export: the types moved to the shared IPC manifest module.
-export type {
-  McpConnectionState,
+import type {
+  McpServerConfig,
   McpServerInfo,
   McpStatus,
   McpToolCallResult,

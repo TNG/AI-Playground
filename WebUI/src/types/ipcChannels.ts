@@ -83,6 +83,8 @@ export type IpcOk = { success: true }
 export type IpcFail = { success: false; error: string }
 export type IpcMutationResult = IpcOk | IpcFail
 export type IpcDataResult<T> = { success: true; data: T } | IpcFail
+/** Success carries named fields beyond `success` itself (e.g. `{ url: string }`, `{ filepath: string }`). */
+export type IpcOkWith<Fields> = ({ success: true } & Fields) | IpcFail
 export type IpcStatusError = { status: 'error'; error: string }
 
 // Structural mirrors of the Electron dialog option/result shapes the rows below
@@ -234,7 +236,7 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string, string, AgentModeTurnConfig],
-    result: null as unknown as { success: boolean; error?: string },
+    result: null as unknown as IpcMutationResult,
   },
   /** Abort the running agent turn, if any. */
   'agentMode:cancel': {
@@ -769,14 +771,14 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],
-    result: null as unknown as { success: boolean; error?: string },
+    result: null as unknown as IpcMutationResult,
   },
   /** Permanently delete a model and its mirrored copies (path validated first). */
   deleteModelPath: {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],
-    result: null as unknown as { success: boolean; error?: string },
+    result: null as unknown as IpcMutationResult,
   },
   /** Split and index one document in the langchain utility process. */
   addDocumentToRAGList: {
@@ -797,21 +799,21 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [WarmupRequest],
-    result: null as unknown as { success: boolean },
+    result: null as unknown as IpcOk,
   },
   /** The embedding sub-server URL for a backend, or the service's base URL. */
   getEmbeddingServerUrl: {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],
-    result: null as unknown as { success: boolean; url?: string; error?: string },
+    result: null as unknown as IpcOkWith<{ url: string }>,
   },
   /** Start the embedding sub-server for a model if it is not up yet. */
   ensureEmbeddingServerReady: {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string, string],
-    result: null as unknown as { success: boolean; error?: string },
+    result: null as unknown as IpcMutationResult,
   },
   /** Laminar tracing settings (external/laminar.dev.json), or null when tracing is off. */
   getLaminarConfig: {
@@ -870,21 +872,21 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string, string, { overwrite?: boolean }?],
-    result: null as unknown as { success: boolean; filePath?: string; error?: string },
+    result: null as unknown as IpcOkWith<{ filePath: string }>,
   },
   /** Read an audio file under the app's audio dir back as a data URI (path-confined). */
   readLocalAudioAsDataUri: {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],
-    result: null as unknown as { success: boolean; dataUri?: string; error?: string },
+    result: null as unknown as IpcOkWith<{ dataUri: string }>,
   },
   /** Delete a generated audio file, confined to the app's audio dir. */
   deleteGeneratedAudio: {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],
-    result: null as unknown as { success: boolean; error?: string },
+    result: null as unknown as IpcMutationResult,
   },
   /** Read any `aipg-media://` file back as base64 (path-validated by the scheme root). */
   readAipgMediaAsBase64: {
@@ -901,42 +903,42 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],
-    result: null as unknown as { success: boolean; error?: string },
+    result: null as unknown as IpcMutationResult,
   },
   /** Stop the whisper (STT) sub-server. */
   stopTranscriptionServer: {
     kind: 'invoke',
     owner: 'main',
     args: [] as const,
-    result: null as unknown as { success: boolean; error?: string },
+    result: null as unknown as IpcMutationResult,
   },
   /** The whisper (STT) sub-server's URL, when it is running. */
   getTranscriptionServerUrl: {
     kind: 'invoke',
     owner: 'main',
     args: [] as const,
-    result: null as unknown as { success: boolean; url?: string; error?: string },
+    result: null as unknown as IpcOkWith<{ url: string }>,
   },
   /** Start the OpenVINO speech (TTS) sub-server for a model. */
   startSpeechServer: {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],
-    result: null as unknown as { success: boolean; error?: string },
+    result: null as unknown as IpcMutationResult,
   },
   /** Stop the speech (TTS) sub-server. */
   stopSpeechServer: {
     kind: 'invoke',
     owner: 'main',
     args: [] as const,
-    result: null as unknown as { success: boolean; error?: string },
+    result: null as unknown as IpcMutationResult,
   },
   /** The speech (TTS) sub-server's URL, when it is running. */
   getSpeechServerUrl: {
     kind: 'invoke',
     owner: 'main',
     args: [] as const,
-    result: null as unknown as { success: boolean; url?: string; error?: string },
+    result: null as unknown as IpcOkWith<{ url: string }>,
   },
   /** Proxy one `/audio/speech` POST through main, dodging the renderer's CORS. */
   synthesizeSpeech: {
@@ -951,21 +953,21 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string, string, boolean?, string?],
-    result: null as unknown as { success: boolean; url?: string; error?: string },
+    result: null as unknown as IpcOkWith<{ url: string }>,
   },
   /** Stop the OpenVINO backend's chat sub-servers. */
   stopOvmsChatServers: {
     kind: 'invoke',
     owner: 'main',
     args: [] as const,
-    result: null as unknown as { success: boolean; error?: string },
+    result: null as unknown as IpcMutationResult,
   },
   /** The OVMS image-gen server's URL, when it is running. */
   getOvmsImageServerUrl: {
     kind: 'invoke',
     owner: 'main',
     args: [] as const,
-    result: null as unknown as { success: boolean; url?: string; error?: string },
+    result: null as unknown as IpcOkWith<{ url: string }>,
   },
 
   // ── Window chrome, dialogs, one-way sends and raw pushes (batch 8 flats) ──
@@ -1522,7 +1524,7 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string, string],
-    result: null as unknown as { success: boolean; filepath?: string; error?: string },
+    result: null as unknown as IpcOkWith<{ filepath: string }>,
     member: 'homeAgent.saveDocument' as const,
   },
   /** Addresses the LAN chat page is reachable at (loopback only unless LAN is on). */
@@ -1537,7 +1539,7 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'homeAgent',
     args: [] as unknown as readonly [ChannelKind, Record<string, string>],
-    result: null as unknown as { success: boolean; error?: string },
+    result: null as unknown as IpcMutationResult,
     member: 'homeAgent.channel.saveConfig' as const,
   },
   /** One channel's decrypted config, or null when none is saved. */
@@ -1561,7 +1563,7 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'homeAgent',
     args: [] as unknown as readonly [ChannelKind, { verified?: boolean; enabled?: boolean }],
-    result: null as unknown as { success: boolean; error?: string },
+    result: null as unknown as IpcMutationResult,
     member: 'homeAgent.channel.savePrefs' as const,
   },
   /** One channel's persisted setup flags, or null when none saved. */
@@ -1577,7 +1579,7 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'homeAgent',
     args: [] as unknown as readonly [ChannelKind],
-    result: null as unknown as { success: boolean; error?: string },
+    result: null as unknown as IpcMutationResult,
     member: 'homeAgent.channel.test' as const,
   },
   /** Inject credentials into the running backend so its channel bot starts. */
@@ -1640,13 +1642,11 @@ export const CHANNELS = {
       ),
       Record<string, unknown>,
     ],
-    result: null as unknown as {
-      success: boolean
+    result: null as unknown as IpcOkWith<{
       ts?: string
       channel?: string
       messageId?: number
-      error?: string
-    },
+    }>,
     member: 'homeAgent.channel.send' as const,
   },
 
@@ -1726,16 +1726,9 @@ type ParentSegments<S extends string> = S extends `${infer Head}:${infer Rest}`
     : [Head]
   : []
 
-/** Final segment of a member path ('homeAgent.channel.send' → 'send'). */
-type MemberLeaf<M extends string> = M extends `${string}.${infer Last}` ? MemberLeaf<Last> : M
-
-type BridgeLeafName<N extends ChannelName> = ChannelManifest[N] extends {
-  member: infer M extends string
-}
-  ? MemberLeaf<M>
-  : ChannelManifest[N] extends PushRow
-    ? `on${Capitalize<ChannelLeaf<N>>}`
-    : ChannelLeaf<N>
+type BridgeLeafName<N extends ChannelName> = ChannelManifest[N] extends PushRow
+  ? `on${Capitalize<ChannelLeaf<N>>}`
+  : ChannelLeaf<N>
 
 /** Where a channel's bridge member lives, as a path of segments. */
 type BridgePath<N extends ChannelName> = ChannelManifest[N] extends {

@@ -123,7 +123,7 @@ import {
   submitAgentToolResult,
 } from './agent/piAgentManager'
 import { getKernelSnapshot, onKernelEvent, setKernelEventWindow } from './kernel/kernelBus'
-import { ipcErrorText, typedHandle, typedOn, typedSend } from './kernel/typedIpc'
+import { ipcErrorText, ipcFail, typedHandle, typedOn, typedSend } from './kernel/typedIpc'
 import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecycle'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
@@ -133,6 +133,7 @@ import { handleChatAnswer, rejectAllChatAsks } from './chat/chatAsk.ts'
 import type { MediaItem } from '@/types/mediaItem'
 import type { ArtifactMissingModel } from '@/types/mediaRequests'
 import type { SpeechSynthesisRequest } from '@/types/speechIpc'
+import type { IpcMutationResult, IpcOk, IpcOkWith } from '@/types/ipcChannels'
 import {
   cancelActiveArtifactRun,
   setArtifactRunnerDeps,
@@ -1496,7 +1497,7 @@ async function ensureOvmsImageServerReady(
   modelName: string,
   keepModelsLoaded?: boolean,
   resolution?: string,
-): Promise<{ success: boolean; url?: string; error?: string }> {
+): Promise<IpcOkWith<{ url: string }>> {
   if (!serviceRegistry) {
     return { success: false, error: 'Service registry not ready' }
   }
@@ -1674,7 +1675,7 @@ function initEventHandle() {
       fs.writeFileSync(cloudProviderKeyPath(providerId), JSON.stringify(blob), 'utf-8')
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -1891,7 +1892,7 @@ function initEventHandle() {
       audioBase64: string,
       filename: string,
       options?: { overwrite?: boolean },
-    ): Promise<{ success: boolean; filePath?: string; error?: string }> => {
+    ): Promise<IpcOkWith<{ filePath: string }>> => {
       try {
         if (typeof audioBase64 !== 'string' || typeof filename !== 'string') {
           return { success: false, error: 'invalid arguments' }
@@ -1914,7 +1915,7 @@ function initEventHandle() {
    */
   typedHandle(
     'deleteGeneratedAudio',
-    async (_event, filePath: string): Promise<{ success: boolean; error?: string }> => {
+    async (_event, filePath: string): Promise<IpcMutationResult> => {
       try {
         if (typeof filePath !== 'string' || !filePath.trim()) {
           return { success: false, error: 'invalid path' }
@@ -1938,10 +1939,7 @@ function initEventHandle() {
 
   typedHandle(
     'readLocalAudioAsDataUri',
-    async (
-      _event,
-      filePath: string,
-    ): Promise<{ success: boolean; dataUri?: string; error?: string }> => {
+    async (_event, filePath: string): Promise<IpcOkWith<{ dataUri: string }>> => {
       try {
         if (typeof filePath !== 'string' || !filePath.trim()) {
           return { success: false, error: 'invalid path' }
@@ -1961,8 +1959,7 @@ function initEventHandle() {
           dataUri: `data:${mediaType};base64,${buf.toString('base64')}`,
         }
       } catch (error) {
-        const errorMessage = ipcErrorText(error)
-        return { success: false, error: errorMessage }
+        return ipcFail(error)
       }
     },
   )
@@ -1972,11 +1969,7 @@ function initEventHandle() {
   // persisted ragList entry keeps a stable path. Returns the absolute path.
   typedHandle(
     'saveHomeAgentDocument',
-    async (
-      _event,
-      filename: string,
-      base64: string,
-    ): Promise<{ success: boolean; filepath?: string; error?: string }> => {
+    async (_event, filename: string, base64: string): Promise<IpcOkWith<{ filepath: string }>> => {
       const supportedExtensions = ['txt', 'md', 'doc', 'docx', 'pdf']
       try {
         if (typeof filename !== 'string' || typeof base64 !== 'string') {
@@ -1994,7 +1987,7 @@ function initEventHandle() {
         await fs.promises.writeFile(filePath, Buffer.from(base64, 'base64'))
         return { success: true, filepath: filePath }
       } catch (e) {
-        return { success: false, error: e instanceof Error ? e.message : String(e) }
+        return ipcFail(e)
       }
     },
   )
@@ -2015,7 +2008,7 @@ function initEventHandle() {
       try {
         return { success: true, data: fs.readFileSync(filePath).toString('base64') }
       } catch (e) {
-        return { success: false, error: ipcErrorText(e) }
+        return ipcFail(e)
       }
     },
   )
@@ -2122,7 +2115,7 @@ function initEventHandle() {
   typedHandle('showModelInFolder', (_event, modelPath: string) => {
     const resolved = pathsManager.resolveModelPath(modelPath)
     if ('error' in resolved) {
-      return { success: false, error: resolved.error }
+      return { success: false as const, error: resolved.error }
     }
     if (process.platform === 'win32') {
       // `execFile`, not `exec`: the path is passed as an argument rather than
@@ -2132,7 +2125,7 @@ function initEventHandle() {
     } else {
       shell.showItemInFolder(resolved.path)
     }
-    return { success: true }
+    return { success: true as const }
   })
 
   // Permanent deletion, deliberately not a move to trash: freeing the disk space
@@ -2141,7 +2134,7 @@ function initEventHandle() {
   typedHandle('deleteModelPath', async (_event, modelPath: string) => {
     const resolved = pathsManager.resolveModelPath(modelPath)
     if ('error' in resolved) {
-      return { success: false, error: resolved.error }
+      return { success: false as const, error: resolved.error }
     }
     try {
       // Async throughout: a model is tens of gigabytes across thousands of files,
@@ -2151,7 +2144,7 @@ function initEventHandle() {
       await fs.promises.rm(resolved.path, { recursive: true })
       await pathsManager.pruneEmptyModelDirs(resolved.path)
     } catch (error) {
-      return { success: false, error: ipcErrorText(error) }
+      return ipcFail(error)
     }
 
     const comfyService = serviceRegistry?.getService('comfyui-backend') as
@@ -2171,7 +2164,7 @@ function initEventHandle() {
         )
       }
     }
-    return { success: true }
+    return { success: true as const }
   })
 
   typedHandle('getPlatform', () => process.platform)
@@ -2201,7 +2194,7 @@ function initEventHandle() {
       )
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2224,7 +2217,7 @@ function initEventHandle() {
   })
 
   typedHandle('warmupKVCacheForDocument', (_event, request: WarmupRequest) => {
-    return handleUtilityFunction<WarmupRequest, { success: boolean }>(
+    return handleUtilityFunction<WarmupRequest, IpcOk>(
       'warmupKVCacheForDocument',
       langchainChild,
       request,
@@ -2295,7 +2288,7 @@ function initEventHandle() {
       await shell.openExternal(url)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2662,7 +2655,7 @@ function initEventHandle() {
       })
       return { success: true as const, confirmed }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2670,7 +2663,7 @@ function initEventHandle() {
     try {
       return { success: true as const, grants: await listGrants() }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2683,7 +2676,7 @@ function initEventHandle() {
       const grant = await grantPermission(key, origin)
       return { success: true as const, grant }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2693,7 +2686,7 @@ function initEventHandle() {
       await revokePermission(key)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2705,7 +2698,7 @@ function initEventHandle() {
       await migrateGrants(incoming)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2720,7 +2713,7 @@ function initEventHandle() {
     try {
       return { success: true as const, turnId: submitChatTurn(request).turnId }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2745,7 +2738,7 @@ function initEventHandle() {
     try {
       return { success: true as const, data: await summarizeConversationText(request) }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2773,7 +2766,7 @@ function initEventHandle() {
       await saveConversation(ConversationSaveRequestSchema.parse(payload))
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2783,7 +2776,7 @@ function initEventHandle() {
       await deleteConversation(id)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2795,7 +2788,7 @@ function initEventHandle() {
       await saveConversationLastMainKey(key)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2824,7 +2817,7 @@ function initEventHandle() {
       await saveAgentSession(AgentSessionRecordSchema.parse(payload))
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2836,7 +2829,7 @@ function initEventHandle() {
       await saveAgentSessionActiveId(id)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2866,7 +2859,7 @@ function initEventHandle() {
       await saveMediaItems(payload)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2877,7 +2870,7 @@ function initEventHandle() {
       }
       return await deleteMediaItemRecords(ids)
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2888,7 +2881,7 @@ function initEventHandle() {
     try {
       return { success: true as const, sections: await readAllPreferences() }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2898,7 +2891,7 @@ function initEventHandle() {
       await migratePreferenceSection(section, payload)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2908,7 +2901,7 @@ function initEventHandle() {
       await writePreferenceSection(section, value)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2921,7 +2914,7 @@ function initEventHandle() {
     try {
       return { success: true as const, section: await readRagDocumentSection() }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2930,7 +2923,7 @@ function initEventHandle() {
       await migrateRagDocumentSection(payload)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -2939,35 +2932,48 @@ function initEventHandle() {
       await writeRagDocumentSection(value)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
-  })
-
-  typedHandle('getEmbeddingServerUrl', async (_event: IpcMainInvokeEvent, serviceName: string) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService(serviceName)
-    if (!service) {
-      return { success: false, error: `Service ${serviceName} not found` }
-    }
-
-    // Check if service has getEmbeddingServerUrl method (llamaCPP backend)
-    if ('getEmbeddingServerUrl' in service && typeof service.getEmbeddingServerUrl === 'function') {
-      const embeddingUrl = service.getEmbeddingServerUrl()
-      if (embeddingUrl) {
-        return { success: true, url: embeddingUrl }
-      }
-      return { success: false, error: 'Embedding server not running' }
-    }
-
-    // For other backends, return the base URL (they might use the same server)
-    return { success: true, url: service.baseUrl }
   })
 
   typedHandle(
+    'getEmbeddingServerUrl',
+    async (
+      _event: IpcMainInvokeEvent,
+      serviceName: string,
+    ): Promise<IpcOkWith<{ url: string }>> => {
+      if (!serviceRegistry) {
+        return { success: false, error: 'Service registry not ready' }
+      }
+      const service = serviceRegistry.getService(serviceName)
+      if (!service) {
+        return { success: false, error: `Service ${serviceName} not found` }
+      }
+
+      // Check if service has getEmbeddingServerUrl method (llamaCPP backend)
+      if (
+        'getEmbeddingServerUrl' in service &&
+        typeof service.getEmbeddingServerUrl === 'function'
+      ) {
+        const embeddingUrl = service.getEmbeddingServerUrl()
+        if (embeddingUrl) {
+          return { success: true, url: embeddingUrl }
+        }
+        return { success: false, error: 'Embedding server not running' }
+      }
+
+      // For other backends, return the base URL (they might use the same server)
+      return { success: true, url: service.baseUrl }
+    },
+  )
+
+  typedHandle(
     'ensureEmbeddingServerReady',
-    async (_event: IpcMainInvokeEvent, serviceName: string, embeddingModelName: string) => {
+    async (
+      _event: IpcMainInvokeEvent,
+      serviceName: string,
+      embeddingModelName: string,
+    ): Promise<IpcMutationResult> => {
       if (!serviceRegistry) {
         return { success: false, error: 'Service registry not ready' }
       }
@@ -3006,149 +3012,173 @@ function initEventHandle() {
     },
   )
 
-  typedHandle('startTranscriptionServer', async (_event: IpcMainInvokeEvent, modelName: string) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    // Check if service has startTranscriptionServer method
-    if (
-      'startTranscriptionServer' in service &&
-      typeof service.startTranscriptionServer === 'function'
-    ) {
-      try {
-        await service.startTranscriptionServer(modelName)
-        return { success: true }
-      } catch (error) {
-        const errorMessage = ipcErrorText(error)
-        appLogger.error(`Failed to start transcription server: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
+  typedHandle(
+    'startTranscriptionServer',
+    async (_event: IpcMainInvokeEvent, modelName: string): Promise<IpcMutationResult> => {
+      if (!serviceRegistry) {
+        return { success: false, error: 'Service registry not ready' }
       }
-    }
-
-    return { success: false, error: 'Transcription server not supported' }
-  })
-
-  typedHandle('stopTranscriptionServer', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    // Check if service has stopTranscriptionServer method
-    if (
-      'stopTranscriptionServer' in service &&
-      typeof service.stopTranscriptionServer === 'function'
-    ) {
-      try {
-        await service.stopTranscriptionServer()
-        return { success: true }
-      } catch (error) {
-        const errorMessage = ipcErrorText(error)
-        appLogger.error(`Failed to stop transcription server: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
+      const service = serviceRegistry.getService('openvino-backend')
+      if (!service) {
+        return { success: false, error: 'OpenVINO backend service not found' }
       }
-    }
 
-    return { success: false, error: 'Transcription server not supported' }
-  })
-
-  typedHandle('getTranscriptionServerUrl', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    // Check if service has getTranscriptionServerUrl method
-    if (
-      'getTranscriptionServerUrl' in service &&
-      typeof service.getTranscriptionServerUrl === 'function'
-    ) {
-      const transcriptionUrl = service.getTranscriptionServerUrl()
-      if (transcriptionUrl) {
-        return { success: true, url: transcriptionUrl }
+      // Check if service has startTranscriptionServer method
+      if (
+        'startTranscriptionServer' in service &&
+        typeof service.startTranscriptionServer === 'function'
+      ) {
+        try {
+          await service.startTranscriptionServer(modelName)
+          return { success: true }
+        } catch (error) {
+          const errorMessage = ipcErrorText(error)
+          appLogger.error(
+            `Failed to start transcription server: ${errorMessage}`,
+            'electron-backend',
+          )
+          return { success: false, error: errorMessage }
+        }
       }
-      return { success: false, error: 'Transcription server not running' }
-    }
 
-    return { success: false, error: 'Transcription server not supported' }
-  })
+      return { success: false, error: 'Transcription server not supported' }
+    },
+  )
 
-  typedHandle('startSpeechServer', async (_event: IpcMainInvokeEvent, modelName: string) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    if ('startSpeechServer' in service && typeof service.startSpeechServer === 'function') {
-      try {
-        await service.startSpeechServer(modelName)
-        return { success: true }
-      } catch (error) {
-        const errorMessage = ipcErrorText(error)
-        appLogger.error(`Failed to start speech server: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
+  typedHandle(
+    'stopTranscriptionServer',
+    async (_event: IpcMainInvokeEvent): Promise<IpcMutationResult> => {
+      if (!serviceRegistry) {
+        return { success: false, error: 'Service registry not ready' }
       }
-    }
-
-    return { success: false, error: 'Speech server not supported' }
-  })
-
-  typedHandle('stopSpeechServer', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    if ('stopSpeechServer' in service && typeof service.stopSpeechServer === 'function') {
-      try {
-        await service.stopSpeechServer()
-        return { success: true }
-      } catch (error) {
-        const errorMessage = ipcErrorText(error)
-        appLogger.error(`Failed to stop speech server: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
+      const service = serviceRegistry.getService('openvino-backend')
+      if (!service) {
+        return { success: false, error: 'OpenVINO backend service not found' }
       }
-    }
 
-    return { success: false, error: 'Speech server not supported' }
-  })
-
-  typedHandle('getSpeechServerUrl', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    if ('getSpeechServerUrl' in service && typeof service.getSpeechServerUrl === 'function') {
-      const speechUrl = service.getSpeechServerUrl()
-      if (speechUrl) {
-        return { success: true, url: speechUrl }
+      // Check if service has stopTranscriptionServer method
+      if (
+        'stopTranscriptionServer' in service &&
+        typeof service.stopTranscriptionServer === 'function'
+      ) {
+        try {
+          await service.stopTranscriptionServer()
+          return { success: true }
+        } catch (error) {
+          const errorMessage = ipcErrorText(error)
+          appLogger.error(
+            `Failed to stop transcription server: ${errorMessage}`,
+            'electron-backend',
+          )
+          return { success: false, error: errorMessage }
+        }
       }
-      return { success: false, error: 'Speech server not running' }
-    }
 
-    return { success: false, error: 'Speech server not supported' }
-  })
+      return { success: false, error: 'Transcription server not supported' }
+    },
+  )
+
+  typedHandle(
+    'getTranscriptionServerUrl',
+    async (_event: IpcMainInvokeEvent): Promise<IpcOkWith<{ url: string }>> => {
+      if (!serviceRegistry) {
+        return { success: false, error: 'Service registry not ready' }
+      }
+      const service = serviceRegistry.getService('openvino-backend')
+      if (!service) {
+        return { success: false, error: 'OpenVINO backend service not found' }
+      }
+
+      // Check if service has getTranscriptionServerUrl method
+      if (
+        'getTranscriptionServerUrl' in service &&
+        typeof service.getTranscriptionServerUrl === 'function'
+      ) {
+        const transcriptionUrl = service.getTranscriptionServerUrl()
+        if (transcriptionUrl) {
+          return { success: true, url: transcriptionUrl }
+        }
+        return { success: false, error: 'Transcription server not running' }
+      }
+
+      return { success: false, error: 'Transcription server not supported' }
+    },
+  )
+
+  typedHandle(
+    'startSpeechServer',
+    async (_event: IpcMainInvokeEvent, modelName: string): Promise<IpcMutationResult> => {
+      if (!serviceRegistry) {
+        return { success: false, error: 'Service registry not ready' }
+      }
+      const service = serviceRegistry.getService('openvino-backend')
+      if (!service) {
+        return { success: false, error: 'OpenVINO backend service not found' }
+      }
+
+      if ('startSpeechServer' in service && typeof service.startSpeechServer === 'function') {
+        try {
+          await service.startSpeechServer(modelName)
+          return { success: true }
+        } catch (error) {
+          const errorMessage = ipcErrorText(error)
+          appLogger.error(`Failed to start speech server: ${errorMessage}`, 'electron-backend')
+          return { success: false, error: errorMessage }
+        }
+      }
+
+      return { success: false, error: 'Speech server not supported' }
+    },
+  )
+
+  typedHandle(
+    'stopSpeechServer',
+    async (_event: IpcMainInvokeEvent): Promise<IpcMutationResult> => {
+      if (!serviceRegistry) {
+        return { success: false, error: 'Service registry not ready' }
+      }
+      const service = serviceRegistry.getService('openvino-backend')
+      if (!service) {
+        return { success: false, error: 'OpenVINO backend service not found' }
+      }
+
+      if ('stopSpeechServer' in service && typeof service.stopSpeechServer === 'function') {
+        try {
+          await service.stopSpeechServer()
+          return { success: true }
+        } catch (error) {
+          const errorMessage = ipcErrorText(error)
+          appLogger.error(`Failed to stop speech server: ${errorMessage}`, 'electron-backend')
+          return { success: false, error: errorMessage }
+        }
+      }
+
+      return { success: false, error: 'Speech server not supported' }
+    },
+  )
+
+  typedHandle(
+    'getSpeechServerUrl',
+    async (_event: IpcMainInvokeEvent): Promise<IpcOkWith<{ url: string }>> => {
+      if (!serviceRegistry) {
+        return { success: false, error: 'Service registry not ready' }
+      }
+      const service = serviceRegistry.getService('openvino-backend')
+      if (!service) {
+        return { success: false, error: 'OpenVINO backend service not found' }
+      }
+
+      if ('getSpeechServerUrl' in service && typeof service.getSpeechServerUrl === 'function') {
+        const speechUrl = service.getSpeechServerUrl()
+        if (speechUrl) {
+          return { success: true, url: speechUrl }
+        }
+        return { success: false, error: 'Speech server not running' }
+      }
+
+      return { success: false, error: 'Speech server not supported' }
+    },
+  )
 
   // Synthesize speech in the main process so it is not subject to the
   // renderer's CORS policy. Many OpenAI-compatible `/audio/speech` servers
@@ -3208,48 +3238,54 @@ function initEventHandle() {
     ) => ensureOvmsImageServerReady(serviceName, modelName, keepModelsLoaded, resolution),
   )
 
-  typedHandle('stopOvmsChatServers', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    if ('stopChatServers' in service && typeof service.stopChatServers === 'function') {
-      try {
-        await service.stopChatServers()
-        return { success: true }
-      } catch (error) {
-        const errorMessage = ipcErrorText(error)
-        appLogger.error(`Failed to stop OVMS chat servers: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
+  typedHandle(
+    'stopOvmsChatServers',
+    async (_event: IpcMainInvokeEvent): Promise<IpcMutationResult> => {
+      if (!serviceRegistry) {
+        return { success: false, error: 'Service registry not ready' }
       }
-    }
-
-    return { success: false, error: 'Chat servers not supported' }
-  })
-
-  typedHandle('getOvmsImageServerUrl', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    if ('getImageServerUrl' in service && typeof service.getImageServerUrl === 'function') {
-      const imageUrl = service.getImageServerUrl()
-      if (imageUrl) {
-        return { success: true, url: imageUrl }
+      const service = serviceRegistry.getService('openvino-backend')
+      if (!service) {
+        return { success: false, error: 'OpenVINO backend service not found' }
       }
-      return { success: false, error: 'Image server not running' }
-    }
 
-    return { success: false, error: 'Image server not supported' }
-  })
+      if ('stopChatServers' in service && typeof service.stopChatServers === 'function') {
+        try {
+          await service.stopChatServers()
+          return { success: true }
+        } catch (error) {
+          const errorMessage = ipcErrorText(error)
+          appLogger.error(`Failed to stop OVMS chat servers: ${errorMessage}`, 'electron-backend')
+          return { success: false, error: errorMessage }
+        }
+      }
+
+      return { success: false, error: 'Chat servers not supported' }
+    },
+  )
+
+  typedHandle(
+    'getOvmsImageServerUrl',
+    async (_event: IpcMainInvokeEvent): Promise<IpcOkWith<{ url: string }>> => {
+      if (!serviceRegistry) {
+        return { success: false, error: 'Service registry not ready' }
+      }
+      const service = serviceRegistry.getService('openvino-backend')
+      if (!service) {
+        return { success: false, error: 'OpenVINO backend service not found' }
+      }
+
+      if ('getImageServerUrl' in service && typeof service.getImageServerUrl === 'function') {
+        const imageUrl = service.getImageServerUrl()
+        if (imageUrl) {
+          return { success: true, url: imageUrl }
+        }
+        return { success: false, error: 'Image server not running' }
+      }
+
+      return { success: false, error: 'Image server not supported' }
+    },
+  )
 
   typedOn('ondragstart', async (event, filePath: string) => {
     const imagePath = getAssetPathFromUrl(filePath)
@@ -3526,7 +3562,7 @@ function initEventHandle() {
     try {
       return { success: true as const, section: await readAgentWorkspaceState() }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -3535,7 +3571,7 @@ function initEventHandle() {
       await migrateAgentWorkspaceState(payload)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -3544,7 +3580,7 @@ function initEventHandle() {
       await writeAgentWorkspaceState(value)
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -3557,7 +3593,7 @@ function initEventHandle() {
       if (!record.success) return record
       return live
     } catch (e) {
-      return { success: false as const, error: ipcErrorText(e) }
+      return ipcFail(e)
     }
   })
 
@@ -3567,7 +3603,7 @@ function initEventHandle() {
     try {
       return { success: true as const, ...importAttachment(workspaceDir, name, bytes) }
     } catch (error) {
-      return { success: false as const, error: ipcErrorText(error) }
+      return ipcFail(error)
     }
   })
 
@@ -3607,7 +3643,7 @@ function initEventHandle() {
       const { vendor } = await detectOem(settings.oemVendorOverride)
       return { success: true as const, game: publishGame(dir, fields ?? {}, { vendor }) }
     } catch (error) {
-      return { success: false as const, error: ipcErrorText(error) }
+      return ipcFail(error)
     }
   })
 
@@ -3622,7 +3658,7 @@ function initEventHandle() {
       setArcadeShown(target, { vendor })
       return { success: true as const }
     } catch (error) {
-      return { success: false as const, error: ipcErrorText(error) }
+      return ipcFail(error)
     }
   })
 

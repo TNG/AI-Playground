@@ -772,8 +772,10 @@ describe('turn streaming', () => {
       const result = await manager.startAgentTurn('t1', 'build a sokoban clone', configFor())
 
       expect(session.prompt).toHaveBeenCalledTimes(1)
-      expect(result.success).toBe(false)
-      expect(result.error).toContain("Requested model name 'Qwen/Qwen3.6-35B' is currently not")
+      expect(result).toMatchObject({
+        success: false,
+        error: expect.stringContaining("Requested model name 'Qwen/Qwen3.6-35B' is currently not"),
+      })
       expect(noticeTexts()).toEqual([])
     })
 
@@ -794,7 +796,7 @@ describe('turn streaming', () => {
 
       const result = await manager.startAgentTurn('t1', 'hello', configFor())
 
-      expect(result.error).toBe('upstream closed the connection')
+      expect(result).toMatchObject({ success: false, error: 'upstream closed the connection' })
     })
 
     it('reports a failure that follows the nudge', async () => {

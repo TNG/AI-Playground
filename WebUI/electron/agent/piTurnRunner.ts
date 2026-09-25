@@ -24,6 +24,7 @@ import {
   type TurnSummary,
 } from './piStreamTranslate.ts'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
+import type { IpcMutationResult } from '@/types/ipcChannels'
 import { clearPointer, readSessionStore, savePointer } from './piSessionStore.ts'
 import { briefly, LOG_SOURCE, verboseLogging } from './piAgentLog.ts'
 import {
@@ -41,11 +42,6 @@ import { finishTextRequest, submitTextRequest } from '../kernel/orchestrator.ts'
 import { ensureChatBackendReady, setLastChatBackendLoadActive } from '../chat/chatReadiness.ts'
 
 const logger = appLoggerInstance
-
-export type AgentModeTurnResult = {
-  success: boolean
-  error?: string
-}
 
 function sendChunk(turnId: string, chunk: StreamChunk): void {
   emitAgentChunk(turnId, chunk)
@@ -314,7 +310,7 @@ export async function startAgentTurn(
   turnId: string,
   prompt: string,
   config: AgentModeTurnConfig,
-): Promise<AgentModeTurnResult> {
+): Promise<IpcMutationResult> {
   if (activeAbort) {
     return { success: false, error: 'An agent turn is already running.' }
   }

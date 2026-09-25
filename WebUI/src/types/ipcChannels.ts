@@ -19,6 +19,7 @@ import type { ChatAnswerPayload, ChatAskPayload } from './chatRequests'
 import type { ComfyUICustomNodeRepoId } from './comfyuiIpc'
 import type { ConversationBootstrap, ConversationSaveRequest } from './conversationIpc'
 import type { HomeAgentInboundMessage } from './homeAgentIpc'
+import type { KernelEvent, KernelSnapshot } from './kernelEvents'
 import type { MediaItemsBootstrap } from './mediaItemIpc'
 import type { MediaRequestPayload, MediaResponsePayload } from './mediaRequests'
 import type {
@@ -53,6 +54,8 @@ export type InvokeRow<A extends readonly unknown[] = readonly unknown[], R = unk
   result: R
   /** Optional bridge member-name override when the naming convention does not fit. */
   member?: string
+  /** `true` to place a namespaced channel's member at the top level (like `kernel:getSnapshot`). */
+  flat?: boolean
 }
 
 export type SendRow<A extends readonly unknown[] = readonly unknown[]> = {
@@ -1646,6 +1649,21 @@ export const CHANNELS = {
     },
     member: 'homeAgent.channel.send' as const,
   },
+
+  // ── Kernel stream (infra) — the event push itself stays hand-wired ──
+
+  /** Hydration snapshot for a (re)connecting renderer: services, live turns, activities. */
+  'kernel:getSnapshot': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as KernelSnapshot,
+    // The member stays top-level under its established name — the natural
+    // derivation would be a `getSnapshot` leaf, but every renderer projection
+    // already calls `electronAPI.getKernelSnapshot()`.
+    flat: true as const,
+    member: 'getKernelSnapshot' as const,
+  },
 } satisfies Record<string, IpcRow>
 
 export type ChannelManifest = typeof CHANNELS
@@ -1774,9 +1792,16 @@ type BridgeTopGroups = keyof {
   ]: never
 }
 
-/** Bridge members that are not IPC channels (webUtils utilities) — the manifest's escape hatch. */
+/**
+ * Bridge members with no manifest row — the manifest's escape hatch. `getFilePath`
+ * is a webUtils call, not IPC; `onKernelEvent` is the one documented infra
+ * exception (ADR-0001): the kernel event stream stays hand-wired (raw
+ * `webContents.send` in `kernelBus.ts`, raw `listen` in preload), so it has no
+ * row and no typed registration — see `ipcChannelRegistration.test.ts`'s allowlist.
+ */
 export type IpcExtraBridgeMembers = {
   getFilePath: (file: File) => string
+  onKernelEvent: (callback: (event: KernelEvent) => void) => () => void
 }
 
 export type ElectronApi = {

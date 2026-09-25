@@ -44,3 +44,23 @@ one manifest row plus its handler in the owning module.
   `inferenceStoresNoDialogs.test.ts` pattern).
 - This is not the externally versioned protocol that architecture-target §10#8 rejects:
   the manifest is internal, compile-time, and carries no wire format.
+
+## Implemented
+
+Batches 0–9c (`c94dce43`..`402345b1`) migrated the whole surface by strangler commits,
+each landing green; stage-b enforcement closed it out (whole-object `satisfies ElectronApi`
+in preload, the one-line `env.d.ts` derivation, and
+`electron/test/kernel/ipcChannelRegistration.test.ts` as the registration scan).
+Deviations from the staged plan above:
+
+- **AskRow removed by evidence** — the `ask` direction never survived contact: an M→R ask
+  is naturally two rows (a push for the question, an invoke for the answer,
+  e.g. `chat:ask`/`chat:answer`), so the union is `invoke`/`send`/`push`.
+- **Wrap-in-place registration kept** — handlers register through
+  `typedHandle`/`typedOn`/`typedSend` at their call sites (main.ts / the Home Agent
+  backend service) rather than owner-scoped registries driven by loop; the source-scan
+  test provides the owner-exhaustiveness the registries were meant to buy, without
+  moving handler code.
+- **Kernel stream** — `kernel:event` and its preload listener stay hand-wired (one ordered
+  event stream, infra, deliberately off-manifest; allowlisted in the scan test and declared
+  in `IpcExtraBridgeMembers`); `kernel:getSnapshot` migrated as a normal invoke row.

@@ -29,9 +29,9 @@ import type {
 import type {
   ChannelArgs,
   ChannelResult,
+  ElectronApi,
   InvokeChannelName,
   MessageBoxOptions,
-  NamespaceBridge,
   OpenDialogOptions,
   PushChannelName,
   PushPayload,
@@ -162,7 +162,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   safeStorage: {
     isEncryptionAvailable: () => invoke('safeStorage:isEncryptionAvailable'),
     enablePlainTextEncryption: () => invoke('safeStorage:enablePlainTextEncryption'),
-  } satisfies NamespaceBridge<'safeStorage'>,
+  },
   openImageWithSystem: (url: string) => send('openImageWithSystem', url),
   openImageInFolder: (url: string) => send('openImageInFolder', url),
   setFullScreen: (enable: boolean) => send('setFullScreen', enable),
@@ -177,10 +177,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onRaw('serviceSetUpProgress', callback),
   onKernelEvent: (callback: (event: import('../src/types/kernelEvents').KernelEvent) => void) =>
     listen('kernel:event', callback),
-  getKernelSnapshot: () =>
-    ipcRenderer.invoke('kernel:getSnapshot') as Promise<
-      import('../src/types/kernelEvents').KernelSnapshot
-    >,
+  getKernelSnapshot: () => invoke('kernel:getSnapshot'),
   setLifecycleBusy: (busy: boolean) => send('lifecycle:busy', busy),
   onShowToast: (callback: (data: { type: string; message: string }) => void) =>
     onRaw('show-toast', callback),
@@ -214,7 +211,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     respond: (payload: MediaResponsePayload) => invoke('artifact:respond', payload),
     onRequest: (callback: (payload: MediaRequestPayload) => void) =>
       onPush('artifact:request', callback),
-  } satisfies NamespaceBridge<'artifact'>,
+  },
   permissions: {
     requestDownload: (models: unknown[]) =>
       invoke('permissions:requestDownload', cloneForIpc(models)),
@@ -228,7 +225,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     respond: (payload: PermissionsPromptResponse) => invoke('permissions:respond', payload),
     onPrompt: (callback: (payload: PermissionsPromptPayload) => void) =>
       onPush('permissions:prompt', callback),
-  } satisfies NamespaceBridge<'permissions'>,
+  },
   chat: {
     submitTurn: (request: ChatTurnRequest) => invoke('chat:submitTurn', cloneForIpc(request)),
     resumeTurn: (conversationKey: string) => invoke('chat:resumeTurn', conversationKey),
@@ -237,32 +234,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
     summarize: (request: ChatSummarizeRequest) => invoke('chat:summarize', request),
     answer: (payload: ChatAnswerPayload) => invoke('chat:answer', cloneForIpc(payload)),
     onAsk: (callback: (payload: ChatAskPayload) => void) => onPush('chat:ask', callback),
-  } satisfies NamespaceBridge<'chat'>,
+  },
   conversations: {
     bootstrap: () => invoke('conversations:bootstrap'),
     migrate: (payload: unknown) => invoke('conversations:migrate', cloneForIpc(payload)),
     save: (request: ConversationSaveRequest) => invoke('conversations:save', cloneForIpc(request)),
     delete: (id: string) => invoke('conversations:delete', id),
     saveLastMainKey: (key: string | null) => invoke('conversations:saveLastMainKey', key),
-  } satisfies NamespaceBridge<'conversations'>,
+  },
   mediaItems: {
     bootstrap: () => invoke('mediaItems:bootstrap'),
     migrate: (items: unknown[]) => invoke('mediaItems:migrate', cloneForIpc(items)),
     save: (items: unknown[]) => invoke('mediaItems:save', cloneForIpc(items)),
     delete: (ids: string[]) => invoke('mediaItems:delete', ids),
-  } satisfies NamespaceBridge<'mediaItems'>,
+  },
   preferences: {
     read: () => invoke('preferences:read'),
     migrate: (section: string, payload: unknown) =>
       invoke('preferences:migrate', section, cloneForIpc(payload)),
     write: (section: string, value: unknown) =>
       invoke('preferences:write', section, cloneForIpc(value)),
-  } satisfies NamespaceBridge<'preferences'>,
+  },
   ragDocuments: {
     read: () => invoke('ragDocuments:read'),
     migrate: (payload: unknown) => invoke('ragDocuments:migrate', cloneForIpc(payload)),
     write: (value: unknown) => invoke('ragDocuments:write', cloneForIpc(value)),
-  } satisfies NamespaceBridge<'ragDocuments'>,
+  },
   getBackendLaunchSettings: () => invoke('getBackendLaunchSettings'),
   migrateBackendLaunchSettings: (payload: unknown) =>
     invoke('migrateBackendLaunchSettings', cloneForIpc(payload)),
@@ -298,7 +295,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       invoke('comfyui:uninstallCustomNode', nodeRepoData),
     listInstalledCustomNodes: () => invoke('comfyui:listInstalledCustomNodes'),
     openInBrowser: () => invoke('comfyui:openInBrowser'),
-  } satisfies NamespaceBridge<'comfyui'>,
+  },
   mcp: {
     listServers: () => invoke('mcp:listServers'),
     startServer: (serverId: string) => invoke('mcp:startServer', serverId),
@@ -316,7 +313,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     updateServer: (serverId: string, config: McpServerConfig) =>
       invoke('mcp:updateServer', serverId, config),
     removeServer: (serverId: string) => invoke('mcp:removeServer', serverId),
-  } satisfies NamespaceBridge<'mcp'>,
+  },
   agentMode: {
     startTurn: (turnId: string, prompt: string, config: AgentModeTurnConfig) =>
       invoke('agentMode:startTurn', turnId, prompt, cloneForIpc(config)),
@@ -344,7 +341,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       onPush('agentMode:executeTool', callback),
     submitToolResult: (requestId: string, result: unknown, error?: string) =>
       invoke('agentMode:toolResult', requestId, result, error),
-  } satisfies NamespaceBridge<'agentMode'>,
+  },
   games: {
     list: () => invoke('games:list'),
     read: (dir: string) => invoke('games:read', dir),
@@ -365,7 +362,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     arcadeCatalog: () => invoke('games:arcadeCatalog'),
     setArcadeShown: (target: { kind: 'user' | 'sample'; id: string; shown: boolean }) =>
       invoke('games:setArcadeShown', target),
-  } satisfies NamespaceBridge<'games'>,
+  },
   webBrowser: {
     navigate: (url: string) => invoke('webBrowser:navigate', url),
     readPage: () => invoke('webBrowser:readPage'),
@@ -378,13 +375,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getState: () => invoke('webBrowser:getState'),
     onStateChanged: (callback: (state: WebBrowserState) => void) =>
       onRaw('webBrowser:stateChanged', callback),
-  } satisfies NamespaceBridge<'webBrowser'>,
+  },
   screenshot: {
     listWindows: () => invoke('screenshot:listWindows'),
     captureWindow: (target: ScreenshotWindow) => invoke('screenshot:captureWindow', target),
     getPermissionStatus: () => invoke('screenshot:getPermissionStatus'),
     openPermissionSettings: () => send('screenshot:openPermissionSettings'),
-  } satisfies NamespaceBridge<'screenshot'>,
+  },
   homeAgent: {
     // Persist an inbound document (base64) to disk for RAG ingestion.
     saveDocument: (filename: string, base64: string) =>
@@ -433,12 +430,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
         payload: Record<string, unknown>,
       ) => invoke('channel:send', kind, action, payload),
     },
-  } satisfies NamespaceBridge<'homeAgent'>,
+  },
   // Cloud Mode provider secrets, encrypted at rest via safeStorage in main.
   cloudProvider: {
     saveKey: (providerId: string, key: string) => invoke('cloudProvider:saveKey', providerId, key),
     getKey: (providerId: string) => invoke('cloudProvider:getKey', providerId),
     deleteKey: (providerId: string) => invoke('cloudProvider:deleteKey', providerId),
     getProxyUrl: () => invoke('cloudProvider:getProxyUrl'),
-  } satisfies NamespaceBridge<'cloudProvider'>,
-})
+  },
+  // The one whole-object exhaustiveness check: every member of this object must
+  // match the manifest-derived ElectronApi exactly (path, args, result) — a
+  // channel missing or drifted on any side is a build error here.
+} satisfies ElectronApi)

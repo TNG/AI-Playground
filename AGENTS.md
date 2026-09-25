@@ -435,16 +435,37 @@ configuration without reaching into the composition root.
 ## IPC Pattern (Channel Manifest)
 
 Every IPC channel is stated once in the typed manifest (`WebUI/src/types/ipcChannels.ts`):
-name, argument types, result type, direction (`invoke`/`send`/`push`/`ask`), owner, and the
+name, argument types, result type, direction (`invoke`/`send`/`push`), owner, and the
 row's documentation. All three sides derive from it: main registers handlers through
-`typedHandle`/`typedOn` (`electron/kernel/typedIpc.ts`), preload bridge members go through
-typed invoke/send/listener helpers and are `satisfies`-checked against the derived bridge
-type, and the renderer's `electronAPI` type derives via `env.d.ts`. A channel missing on any
-side is a build error, not a runtime bug. The manifest is authoritative — the old
-"three-file rule" is superseded (see docs/adr/0001-channel-manifest.md).
+`typedHandle`/`typedOn`/`typedSend` (`electron/kernel/typedIpc.ts`), preload bridge members
+derive from the rows and are checked as one object, and the renderer's `electronAPI` type
+is a one-line derivation in `env.d.ts`. A channel missing on any side is a build error, not
+a runtime bug. The manifest is authoritative — the old "three-file rule" is superseded (see
+docs/adr/0001-channel-manifest.md).
 
-Channels migrate onto the manifest by strangler batches; unmigrated channels keep their
-hand-written registration until their batch lands.
+Enforcement is end-to-end:
+
+- **preload** (`WebUI/electron/preload.ts`) exposes one object annotated
+  `satisfies ElectronApi` — every member's path, argument and result types must match the
+  manifest derivation exactly. The few members with no manifest row (webUtils'
+  `getFilePath`, the `onKernelEvent` listener) are declared in `IpcExtraBridgeMembers`.
+- **env.d.ts** types the renderer side in one line:
+  `type electronAPI = import('./types/ipcChannels').ElectronApi`.
+- **`electron/test/kernel/ipcChannelRegistration.test.ts`** imports the real `CHANNELS`
+  value and scans `WebUI/electron/**/*.ts` source text: every `invoke` row must have a
+  `typedHandle(` site, every `send` row a `typedOn(`, every `push` row a `typedSend(` —
+  enforced per owner (`homeAgent` rows register inside the Home Agent backend service,
+  `main` rows elsewhere) — every push row needs a preload `onPush`/`onRaw` listener, and
+  no raw `ipcMain.handle`/`ipcMain.on`/`webContents.send`/`ipcRenderer.*` registration
+  survives outside the kernel-stream allowlist.
+- **Kernel stream** (the one documented exception): `kernel:event` and its raw preload
+  listener stay hand-wired — the single ordered event stream is infra, deliberately
+  off-manifest; `kernel:getSnapshot` is a normal manifest row (flat, top-level member
+  `getKernelSnapshot`).
+- **Add channels row-first**: write the manifest row, then follow the compile errors —
+  `typedHandle`/`typedOn`/`typedSend` on the main side, the preload member the
+  whole-object `satisfies` demands (it names the missing member and its expected shape),
+  and the renderer type arrives via `env.d.ts` for free.
 
 ## Home Agent Slash Commands (Five-Place Rule)
 

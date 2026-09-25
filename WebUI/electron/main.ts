@@ -22,7 +22,6 @@ import {
   app,
   BrowserWindow,
   dialog,
-  ipcMain,
   IpcMainEvent,
   IpcMainInvokeEvent,
   nativeImage,
@@ -1800,7 +1799,7 @@ function initEventHandle() {
   // Projection hydration: the renderer subscribes to the kernel event stream
   // BEFORE requesting this snapshot and applies only events above its
   // sequence (docs/architecture-target.md §4.6).
-  ipcMain.handle('kernel:getSnapshot', () => getKernelSnapshot())
+  typedHandle('kernel:getSnapshot', () => getKernelSnapshot())
 
   typedOn('setFullScreen', (_event, enable: boolean) => {
     if (win) {

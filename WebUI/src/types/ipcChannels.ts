@@ -25,6 +25,10 @@ import type {
 } from './permissionsIpc'
 import type { RagDocumentSection } from './ragDocumentIpc'
 import type { BackendLaunchSettings, BackendVersionWire } from './preferencesIpc'
+import type { ModelLibraryScan } from '@/assets/js/models/types'
+import type { ModelLists, ModelPaths } from '@/assets/js/store/models'
+import type { EmbedInquiry, IndexedDocument } from '@/assets/js/store/textInference'
+import type { PhisonKmIngestConfig, WarmupRequest } from './phisonKmRag'
 
 export type IpcOwner = 'main' | 'homeAgent'
 export type IpcKind = 'invoke' | 'send' | 'push'
@@ -619,6 +623,181 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as const,
     result: null as unknown as { vendor: string; manufacturer: string; overridden: boolean },
+  },
+  /** Pull preset updates from the configured remote repository into the install. */
+  updatePresetsFromIntelRepo: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as UpdatePresetsFromIntelResult,
+  },
+  /** Reload the preset catalog (base + mode files, partner-filtered); [] on read failure. */
+  reloadPresets: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as { content: string; image: string | null }[],
+  },
+  /** The user's presets directory under Documents, created when missing. */
+  getUserPresetsPath: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as string,
+  },
+  /** The user's saved presets with content and cover image; [] on read failure. */
+  loadUserPresets: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as { content: string; image: string | null }[],
+  },
+  /** Write one user preset file (its `name` field names it); false on failure. */
+  saveUserPreset: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as boolean,
+  },
+  /** The resolved model catalog — remote models.json when reachable, local fallback. */
+  loadModels: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as Model[],
+  },
+  /** Point the model directories somewhere new; the fresh scan comes back. */
+  updateModelPaths: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ModelPaths],
+    result: null as unknown as ModelLists,
+  },
+  /** Reset the model directories to the install defaults. */
+  restorePathsSettings: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as void,
+  },
+  /** Downloaded GGUF LLM names, `---`-normalized to `owner/repo` paths. */
+  getDownloadedGGUFLLMs: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as string[],
+  },
+  /** Downloaded OpenVINO LLM model names. */
+  getDownloadedOpenVINOLLMModels: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as string[],
+  },
+  /** Downloaded embedding models across the local backends. */
+  getDownloadedEmbeddingModels: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as Model[],
+  },
+  /** Available ComfyUI weights of one type, as relative paths under its directory. */
+  getComfyUIModels: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as string[],
+  },
+  /** Whole-library scan: every model with absolute path, size and mtime. */
+  scanModelLibrary: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as ModelLibraryScan,
+  },
+  /** Reveal a model file in the OS file manager (path validated first). */
+  showModelInFolder: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as { success: boolean; error?: string },
+  },
+  /** Permanently delete a model and its mirrored copies (path validated first). */
+  deleteModelPath: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as { success: boolean; error?: string },
+  },
+  /** Split and index one document in the langchain utility process. */
+  addDocumentToRAGList: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [IndexedDocument, PhisonKmIngestConfig?],
+    result: null as unknown as IndexedDocument,
+  },
+  /** Embed a prompt against the checked documents for retrieval. */
+  embedInputUsingRag: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [EmbedInquiry],
+    result: null as unknown as LangchainDocument[],
+  },
+  /** Prefill the KV cache with a document's merged groups (Phison KM warmup). */
+  warmupKVCacheForDocument: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [WarmupRequest],
+    result: null as unknown as { success: boolean },
+  },
+  /** The embedding sub-server URL for a backend, or the service's base URL. */
+  getEmbeddingServerUrl: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as { success: boolean; url?: string; error?: string },
+  },
+  /** Start the embedding sub-server for a model if it is not up yet. */
+  ensureEmbeddingServerReady: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as { success: boolean; error?: string },
+  },
+  /** Laminar tracing settings (external/laminar.dev.json), or null when tracing is off. */
+  getLaminarConfig: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as LaminarConfig | null,
+  },
+  /** Default ComfyUI launch flags for the backend-settings box. */
+  getComfyUiDefaultParameters: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as string,
+  },
+  /** Default llama-server launch flags for the backend-settings box. */
+  getLlamaCppDefaultParameters: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as string,
+  },
+  /** The OS platform (`process.platform`). */
+  getPlatform: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as NodeJS.Platform,
+  },
+  /** Whether a path exists; undefined when the caller's window is already gone. */
+  existsPath: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as boolean | undefined,
   },
 } satisfies Record<string, IpcRow>
 

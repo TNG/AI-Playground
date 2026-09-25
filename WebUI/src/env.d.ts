@@ -289,11 +289,11 @@ type AgentToolExecuteRequest = import('./types/agentIpc').AgentToolExecuteReques
 type electronAPI = {
   startDrag: (fileName: string) => void
   getFilePath: (file: File) => string
-  updatePresetsFromIntelRepo(): Promise<UpdatePresetsFromIntelResult>
-  reloadPresets(): Promise<Array<{ content: string; image: string | null }>>
-  getUserPresetsPath(): Promise<string>
-  loadUserPresets(): Promise<Array<{ content: string; image: string | null }>>
-  saveUserPreset(presetContent: string): Promise<boolean>
+  updatePresetsFromIntelRepo: import('./types/ipcChannels').BridgeMemberFor<'updatePresetsFromIntelRepo'>
+  reloadPresets: import('./types/ipcChannels').BridgeMemberFor<'reloadPresets'>
+  getUserPresetsPath: import('./types/ipcChannels').BridgeMemberFor<'getUserPresetsPath'>
+  loadUserPresets: import('./types/ipcChannels').BridgeMemberFor<'loadUserPresets'>
+  saveUserPreset: import('./types/ipcChannels').BridgeMemberFor<'saveUserPreset'>
   resolveBackendVersion: import('./types/ipcChannels').BridgeMemberFor<'resolveBackendVersion'>
   getInstalledBackendVersion: import('./types/ipcChannels').BridgeMemberFor<'getInstalledBackendVersion'>
   getGitHubRepoUrl: import('./types/ipcChannels').BridgeMemberFor<'getGitHubRepoUrl'>
@@ -343,34 +343,17 @@ type electronAPI = {
   ): Promise<{ success: true; data: string } | { success: false; error: string }>
   openImageWin(url: string, title: string, width: number, height: number): void
   screenChange(callback: (width: number, height: number) => void): void
-  existsPath(path: string): Promise<boolean>
-  addDocumentToRAGList(
-    doc: IndexedDocument,
-    phisonKmConfig?: PhisonKmIngestConfig,
-  ): Promise<IndexedDocument>
-  embedInputUsingRag(embedInquiry: EmbedInquiry): Promise<LangchainDocument[]>
-  // mergedGroups here carries `content` (derived from splitDB just before the call) —
-  // this WarmupRequest payload is transient IPC, never persisted, unlike the
-  // boundary-only MergedGroup stored on IndexedDocument.
-  warmupKVCacheForDocument(request: WarmupRequest): Promise<{ success: boolean }>
-  getEmbeddingServerUrl(
-    serviceName: string,
-  ): Promise<{ success: boolean; url?: string; error?: string }>
-  ensureEmbeddingServerReady(
-    serviceName: string,
-    embeddingModelName: string,
-  ): Promise<{ success: boolean; error?: string }>
+  existsPath: import('./types/ipcChannels').BridgeMemberFor<'existsPath'>
+  addDocumentToRAGList: import('./types/ipcChannels').BridgeMemberFor<'addDocumentToRAGList'>
+  embedInputUsingRag: import('./types/ipcChannels').BridgeMemberFor<'embedInputUsingRag'>
+  warmupKVCacheForDocument: import('./types/ipcChannels').BridgeMemberFor<'warmupKVCacheForDocument'>
+  getEmbeddingServerUrl: import('./types/ipcChannels').BridgeMemberFor<'getEmbeddingServerUrl'>
+  ensureEmbeddingServerReady: import('./types/ipcChannels').BridgeMemberFor<'ensureEmbeddingServerReady'>
   getInitSetting: import('./types/ipcChannels').BridgeMemberFor<'getInitSetting'>
-  updateModelPaths(modelPaths: ModelPaths): Promise<ModelLists>
-  restorePathsSettings(): Promise<void>
-  loadModels(): Promise<Model[]>
-  /**
-   * Local Laminar tracing settings, or null when tracing is off (the default).
-   * Read in main from `external/laminar.dev.json` (then
-   * `external/laminar.localhost.json`) so the project API key never lands in
-   * the renderer bundle. Dev-only (see electron/observability/laminar.ts).
-   */
-  getLaminarConfig(): Promise<LaminarConfig | null>
+  updateModelPaths: import('./types/ipcChannels').BridgeMemberFor<'updateModelPaths'>
+  restorePathsSettings: import('./types/ipcChannels').BridgeMemberFor<'restorePathsSettings'>
+  loadModels: import('./types/ipcChannels').BridgeMemberFor<'loadModels'>
+  getLaminarConfig: import('./types/ipcChannels').BridgeMemberFor<'getLaminarConfig'>
   /**
    * Forward one AI SDK telemetry event (already serialized to JSON) to the
    * Laminar integration running in main. Fire-and-forget.
@@ -378,14 +361,14 @@ type electronAPI = {
   laminarTelemetryEvent(name: string, payload: string): void
   zoomIn(): Promise<void>
   zoomOut(): Promise<void>
-  getDownloadedGGUFLLMs(): Promise<string[]>
-  getDownloadedOpenVINOLLMModels(): Promise<string[]>
-  getDownloadedEmbeddingModels(): Promise<Model[]>
-  getComfyUIModels(modelType: string): Promise<string[]>
-  scanModelLibrary(): Promise<import('./assets/js/models/types').ModelLibraryScan>
-  showModelInFolder(modelPath: string): Promise<{ success: boolean; error?: string }>
-  deleteModelPath(modelPath: string): Promise<{ success: boolean; error?: string }>
-  getPlatform(): Promise<NodeJS.Platform>
+  getDownloadedGGUFLLMs: import('./types/ipcChannels').BridgeMemberFor<'getDownloadedGGUFLLMs'>
+  getDownloadedOpenVINOLLMModels: import('./types/ipcChannels').BridgeMemberFor<'getDownloadedOpenVINOLLMModels'>
+  getDownloadedEmbeddingModels: import('./types/ipcChannels').BridgeMemberFor<'getDownloadedEmbeddingModels'>
+  getComfyUIModels: import('./types/ipcChannels').BridgeMemberFor<'getComfyUIModels'>
+  scanModelLibrary: import('./types/ipcChannels').BridgeMemberFor<'scanModelLibrary'>
+  showModelInFolder: import('./types/ipcChannels').BridgeMemberFor<'showModelInFolder'>
+  deleteModelPath: import('./types/ipcChannels').BridgeMemberFor<'deleteModelPath'>
+  getPlatform: import('./types/ipcChannels').BridgeMemberFor<'getPlatform'>
   safeStorage: {
     isEncryptionAvailable(): Promise<boolean>
     enablePlainTextEncryption(): Promise<{ success: boolean; error?: string }>
@@ -400,8 +383,8 @@ type electronAPI = {
       message: string
     }) => void,
   ): void
-  getComfyUiDefaultParameters(): Promise<string>
-  getLlamaCppDefaultParameters(): Promise<string>
+  getComfyUiDefaultParameters: import('./types/ipcChannels').BridgeMemberFor<'getComfyUiDefaultParameters'>
+  getLlamaCppDefaultParameters: import('./types/ipcChannels').BridgeMemberFor<'getLlamaCppDefaultParameters'>
   detectPhisonSsd: import('./types/ipcChannels').BridgeMemberFor<'detectPhisonSsd'>
   detectOem: import('./types/ipcChannels').BridgeMemberFor<'detectOem'>
   getServices: import('./types/ipcChannels').BridgeMemberFor<'getServices'>

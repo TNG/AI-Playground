@@ -1785,7 +1785,7 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('restorePathsSettings', (_event: IpcMainInvokeEvent) => {
+  typedHandle('restorePathsSettings', (_event: IpcMainInvokeEvent) => {
     pathsManager.restoreDefaultModelPaths()
   })
 
@@ -2062,7 +2062,7 @@ function initEventHandle() {
     return dialog.showMessageBoxSync(win, options)
   })
 
-  ipcMain.handle('existsPath', async (event, path: string) => {
+  typedHandle('existsPath', async (event, path: string) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) {
       return
@@ -2092,44 +2092,44 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('loadModels', async (_event) => {
+  typedHandle('loadModels', async (_event) => {
     return resolveModels(settings)
   })
 
   // The renderer forwards its AI SDK telemetry here (the SDK cannot run in a
   // browser page); null config means no developer opted in, and the renderer
   // then registers nothing and sends nothing.
-  ipcMain.handle('getLaminarConfig', () => laminarConfig())
+  typedHandle('getLaminarConfig', () => laminarConfig())
   ipcMain.on('laminarTelemetryEvent', (_event, name: string, payload: string) => {
     void handleChatTelemetryEvent(name, payload)
   })
 
-  ipcMain.handle('updateModelPaths', (_event, modelPaths: ModelPaths) => {
+  typedHandle('updateModelPaths', (_event, modelPaths: ModelPaths) => {
     pathsManager.updateModelPaths(modelPaths)
     return pathsManager.scanAll()
   })
 
-  ipcMain.handle('getDownloadedGGUFLLMs', (_event) => {
+  typedHandle('getDownloadedGGUFLLMs', (_event) => {
     return pathsManager.scanGGUFLLMModels()
   })
 
-  ipcMain.handle('getDownloadedOpenVINOLLMModels', (_event) => {
+  typedHandle('getDownloadedOpenVINOLLMModels', (_event) => {
     return pathsManager.scanOpenVINOModels()
   })
 
-  ipcMain.handle('getDownloadedEmbeddingModels', (_event) => {
+  typedHandle('getDownloadedEmbeddingModels', (_event) => {
     return pathsManager.scanEmbedding()
   })
 
-  ipcMain.handle('getComfyUIModels', (_event, modelType: string) => {
+  typedHandle('getComfyUIModels', (_event, modelType: string) => {
     return pathsManager.scanComfyUIModels(modelType)
   })
 
-  ipcMain.handle('scanModelLibrary', (_event) => {
+  typedHandle('scanModelLibrary', (_event) => {
     return pathsManager.scanModelLibrary()
   })
 
-  ipcMain.handle('showModelInFolder', (_event, modelPath: string) => {
+  typedHandle('showModelInFolder', (_event, modelPath: string) => {
     const resolved = pathsManager.resolveModelPath(modelPath)
     if ('error' in resolved) {
       return { success: false, error: resolved.error }
@@ -2148,7 +2148,7 @@ function initEventHandle() {
   // Permanent deletion, deliberately not a move to trash: freeing the disk space
   // immediately is the reason a user deletes a model. Every path is validated
   // against the configured model directories first — see resolveModelPath.
-  ipcMain.handle('deleteModelPath', async (_event, modelPath: string) => {
+  typedHandle('deleteModelPath', async (_event, modelPath: string) => {
     const resolved = pathsManager.resolveModelPath(modelPath)
     if ('error' in resolved) {
       return { success: false, error: resolved.error }
@@ -2161,7 +2161,7 @@ function initEventHandle() {
       await fs.promises.rm(resolved.path, { recursive: true })
       await pathsManager.pruneEmptyModelDirs(resolved.path)
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) }
+      return { success: false, error: ipcErrorText(error) }
     }
 
     const comfyService = serviceRegistry?.getService('comfyui-backend') as
@@ -2184,7 +2184,7 @@ function initEventHandle() {
     return { success: true }
   })
 
-  ipcMain.handle('getPlatform', () => process.platform)
+  typedHandle('getPlatform', () => process.platform)
 
   ipcMain.handle('safeStorage:isEncryptionAvailable', () => safeStorage.isEncryptionAvailable())
 
@@ -2215,7 +2215,7 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle(
+  typedHandle(
     'addDocumentToRAGList',
     (_event, document: IndexedDocument, phisonKmConfig?: PhisonKmIngestConfig) => {
       return handleUtilityFunction<
@@ -2225,15 +2225,15 @@ function initEventHandle() {
     },
   )
 
-  ipcMain.handle('embedInputUsingRag', (_event, embedInquiry: EmbedInquiry) => {
-    return handleUtilityFunction<EmbedInquiry, KVObject>(
+  typedHandle('embedInputUsingRag', (_event, embedInquiry: EmbedInquiry) => {
+    return handleUtilityFunction<EmbedInquiry, LangchainDocument[]>(
       'embedInputUsingRag',
       langchainChild,
       embedInquiry,
     )
   })
 
-  ipcMain.handle('warmupKVCacheForDocument', (_event, request: WarmupRequest) => {
+  typedHandle('warmupKVCacheForDocument', (_event, request: WarmupRequest) => {
     return handleUtilityFunction<WarmupRequest, { success: boolean }>(
       'warmupKVCacheForDocument',
       langchainChild,
@@ -2344,8 +2344,8 @@ function initEventHandle() {
     return service.updateSettings(settings)
   })
 
-  ipcMain.handle('getComfyUiDefaultParameters', () => COMFYUI_DEFAULT_PARAMETERS)
-  ipcMain.handle('getLlamaCppDefaultParameters', () => LLAMACPP_DEFAULT_PARAMETERS)
+  typedHandle('getComfyUiDefaultParameters', () => COMFYUI_DEFAULT_PARAMETERS)
+  typedHandle('getLlamaCppDefaultParameters', () => LLAMACPP_DEFAULT_PARAMETERS)
 
   // Which OEM's machine this is, for co-branding (see adapters/hardware/oemDetection.ts).
   typedHandle('detectOem', () => detectOem(settings.oemVendorOverride))
@@ -2983,35 +2983,29 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle(
-    'getEmbeddingServerUrl',
-    async (_event: IpcMainInvokeEvent, serviceName: string) => {
-      if (!serviceRegistry) {
-        return { success: false, error: 'Service registry not ready' }
-      }
-      const service = serviceRegistry.getService(serviceName)
-      if (!service) {
-        return { success: false, error: `Service ${serviceName} not found` }
-      }
+  typedHandle('getEmbeddingServerUrl', async (_event: IpcMainInvokeEvent, serviceName: string) => {
+    if (!serviceRegistry) {
+      return { success: false, error: 'Service registry not ready' }
+    }
+    const service = serviceRegistry.getService(serviceName)
+    if (!service) {
+      return { success: false, error: `Service ${serviceName} not found` }
+    }
 
-      // Check if service has getEmbeddingServerUrl method (llamaCPP backend)
-      if (
-        'getEmbeddingServerUrl' in service &&
-        typeof service.getEmbeddingServerUrl === 'function'
-      ) {
-        const embeddingUrl = service.getEmbeddingServerUrl()
-        if (embeddingUrl) {
-          return { success: true, url: embeddingUrl }
-        }
-        return { success: false, error: 'Embedding server not running' }
+    // Check if service has getEmbeddingServerUrl method (llamaCPP backend)
+    if ('getEmbeddingServerUrl' in service && typeof service.getEmbeddingServerUrl === 'function') {
+      const embeddingUrl = service.getEmbeddingServerUrl()
+      if (embeddingUrl) {
+        return { success: true, url: embeddingUrl }
       }
+      return { success: false, error: 'Embedding server not running' }
+    }
 
-      // For other backends, return the base URL (they might use the same server)
-      return { success: true, url: service.baseUrl }
-    },
-  )
+    // For other backends, return the base URL (they might use the same server)
+    return { success: true, url: service.baseUrl }
+  })
 
-  ipcMain.handle(
+  typedHandle(
     'ensureEmbeddingServerReady',
     async (_event: IpcMainInvokeEvent, serviceName: string, embeddingModelName: string) => {
       if (!serviceRegistry) {
@@ -3036,7 +3030,7 @@ function initEventHandle() {
           )
           return { success: true }
         } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
+          const errorMessage = ipcErrorText(error)
           appLogger.error(
             `Failed to ensure embedding server ready for ${serviceName}: ${errorMessage}`,
             'electron-backend',
@@ -3328,7 +3322,7 @@ function initEventHandle() {
     })
   })
 
-  ipcMain.handle('updatePresetsFromIntelRepo', () => {
+  typedHandle('updatePresetsFromIntelRepo', () => {
     const mode = resolveProductMode(settings)
     const variant = settings.isDemoModeEnabled ? 'demo' : 'presets'
     const config = getPresetLoadConfig(settings)
@@ -3344,7 +3338,7 @@ function initEventHandle() {
     return result
   })
 
-  ipcMain.handle('reloadPresets', async () => {
+  typedHandle('reloadPresets', async () => {
     const config = getPresetLoadConfig(settings)
     try {
       await filterPartnerPresets(config.baseDir)
@@ -3360,7 +3354,7 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('getUserPresetsPath', async () => {
+  typedHandle('getUserPresetsPath', async () => {
     const userDataPath = app.getPath('documents')
     const presetsPath = path.join(userDataPath, 'AI Playground', 'presets')
     // Ensure directory exists
@@ -3368,7 +3362,7 @@ function initEventHandle() {
     return presetsPath
   })
 
-  ipcMain.handle('loadUserPresets', async () => {
+  typedHandle('loadUserPresets', async () => {
     try {
       const userDataPath = app.getPath('documents')
       const presetsPath = path.join(userDataPath, 'AI Playground', 'presets')
@@ -3380,7 +3374,7 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('saveUserPreset', async (_event, presetContent: string) => {
+  typedHandle('saveUserPreset', async (_event, presetContent: string) => {
     try {
       const userDataPath = app.getPath('documents')
       const presetsPath = path.join(userDataPath, 'AI Playground', 'presets')

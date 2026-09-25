@@ -100,7 +100,6 @@ import {
   search as searchWebBrowser,
   setWebBrowserMainWindow,
   show as showWebBrowser,
-  type WebBrowserInteraction,
 } from './adapters/webBrowserManager'
 import {
   addMcpServer,
@@ -123,12 +122,11 @@ import {
   submitAgentToolResult,
 } from './agent/piAgentManager'
 import { getKernelSnapshot, onKernelEvent, setKernelEventWindow } from './kernel/kernelBus'
-import { registerInvokeHandlers } from './kernel/ipcRegistries'
+import { registerInvokeHandlers, registerSendHandlers } from './kernel/ipcRegistries'
 import { ipcErrorText, ipcFail, typedHandle, typedOn, typedSend } from './kernel/typedIpc'
 import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecycle'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
-import { AgentModeTurnConfigSchema } from '@/types/agentIpc'
 import { ArtifactRunRequestSchema } from '@/types/artifactIpc'
 import { handleChatAnswer, rejectAllChatAsks } from './chat/chatAsk.ts'
 import type { MediaItem } from '@/types/mediaItem'
@@ -201,6 +199,13 @@ import {
   wipeDemoConversations,
 } from './persist/conversationFiles'
 import { buildConversationsRegistry } from './kernel/registries/conversations'
+import { buildAgentModeRegistry } from './kernel/registries/agentMode'
+import { buildChatRegistry } from './kernel/registries/chat'
+import { buildComfyuiRegistry } from './kernel/registries/comfyui'
+import { buildGamesRegistry } from './kernel/registries/games'
+import { buildMcpRegistry, buildMcpSendRegistry } from './kernel/registries/mcp'
+import { buildPermissionsRegistry } from './kernel/registries/permissions'
+import { buildWebBrowserRegistry } from './kernel/registries/webBrowser'
 import {
   bootstrapAgentSessions,
   deleteAgentSessionRecord,
@@ -210,7 +215,6 @@ import {
   setAgentSessionFileDeps,
   wipeDemoAgentSessions,
 } from './persist/agentSessionFiles'
-import { AgentSessionRecordSchema, LegacyAgentSessionStateSchema } from '@/types/agentSessionIpc'
 import {
   bootstrapMediaItems,
   deleteMediaItemRecords,
@@ -2265,31 +2269,6 @@ function initEventHandle() {
     return ''
   })
 
-  typedHandle('comfyui:openInBrowser', async () => {
-    const comfyService = serviceRegistry?.getService('comfyui-backend') as
-      ComfyUiBackendService | undefined
-    if (!comfyService) {
-      return { success: false as const, error: 'ComfyUI backend service not found' }
-    }
-    const baseUrl = comfyService.baseUrl
-    if (!baseUrl) {
-      return { success: false as const, error: 'ComfyUI backend has no base URL yet' }
-    }
-    const token = comfyService.getLoopbackAuthToken()
-    // /aipg/launch (provided by the bundled aipg-auth custom_node) validates
-    // launch_token against AIPG_LOOPBACK_TOKEN, then issues an HttpOnly,
-    // SameSite=Strict aipg_session cookie and redirects to /. After that
-    // the user's default browser uses the cookie for all subsequent
-    // requests; the launch_token does not need to live in browser history.
-    const url = `${baseUrl}/aipg/launch?launch_token=${encodeURIComponent(token)}`
-    try {
-      await shell.openExternal(url)
-      return { success: true as const }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
   typedHandle('uninstall', (_event: IpcMainInvokeEvent, serviceName: string) => {
     if (!serviceRegistry) {
       appLogger.warn('received uninstall too early during aipg startup', 'electron-backend')
@@ -2628,117 +2607,27 @@ function initEventHandle() {
     handleMediaResponse(payload)
   })
 
-  typedHandle('permissions:requestDownload', async (_event, models) => {
-    try {
-      if (!Array.isArray(models)) throw new Error('download models must be an array')
-      await requestDownloadConsent(models)
-      return { success: true as const }
-    } catch (e) {
-      return {
-        success: false as const,
-        error: ipcErrorText(e),
-        cancelled: (e as { cancelled?: boolean })?.cancelled === true,
-      }
-    }
-  })
+  registerInvokeHandlers(
+    buildPermissionsRegistry({
+      requestDownloadConsent,
+      requestVramWarningConsent,
+      listGrants,
+      grantPermission,
+      revokePermission,
+      migrateGrants,
+      handlePermissionsPromptResponse,
+    }),
+  )
 
-  typedHandle('permissions:requestVramWarning', async (_event, req) => {
-    try {
-      if (typeof req?.presetName !== 'string' || typeof req?.message !== 'string') {
-        throw new Error('vram warning request needs presetName and message')
-      }
-      const confirmed = await requestVramWarningConsent({
-        presetName: req.presetName,
-        message: req.message,
-      })
-      return { success: true as const, confirmed }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
-  typedHandle('permissions:list', async () => {
-    try {
-      return { success: true as const, grants: await listGrants() }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
-  typedHandle('permissions:grant', async (_event, key, origin) => {
-    try {
-      if (typeof key !== 'string') throw new Error('grant key must be a string')
-      if (origin !== 'remember' && origin !== 'pre-grant') {
-        throw new Error('grant origin must be remember or pre-grant')
-      }
-      const grant = await grantPermission(key, origin)
-      return { success: true as const, grant }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
-  typedHandle('permissions:revoke', async (_event, key) => {
-    try {
-      if (typeof key !== 'string') throw new Error('grant key must be a string')
-      await revokePermission(key)
-      return { success: true as const }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
-  typedHandle('permissions:migrate', async (_event, incoming) => {
-    try {
-      if (!incoming || typeof incoming !== 'object') {
-        throw new Error('migrate payload must be an object')
-      }
-      await migrateGrants(incoming)
-      return { success: true as const }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
-  typedHandle('permissions:respond', (_event, payload) => {
-    handlePermissionsPromptResponse(payload)
-  })
-
-  // Chat turns run in main (architecture-target §8 step 6); the renderer
-  // submits/resumes/cancels over IPC and receives the stream as kernel
-  // chat-chunk events, answering `chat:ask` when a tool needs the window.
-  typedHandle('chat:submitTurn', (_event, request) => {
-    try {
-      return { success: true as const, turnId: submitChatTurn(request).turnId }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
-  typedHandle('chat:resumeTurn', (_event, conversationKey) => {
-    const resumed = resumeChatTurn(conversationKey)
-    return resumed
-      ? { success: true as const, active: true, ...resumed }
-      : { success: true as const, active: false as const }
-  })
-
-  typedHandle('chat:cancelTurn', (_event, conversationKey, turnId) => {
-    cancelChatTurn(conversationKey, turnId)
-    return { success: true as const }
-  })
-
-  typedHandle('chat:answer', (_event, payload) => {
-    handleChatAnswer(payload)
-  })
-
-  // One-shot title summarization, model call included (step 6).
-  typedHandle('chat:summarize', async (_event, request) => {
-    try {
-      return { success: true as const, data: await summarizeConversationText(request) }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
+  registerInvokeHandlers(
+    buildChatRegistry({
+      submitChatTurn,
+      resumeChatTurn,
+      cancelChatTurn,
+      handleChatAnswer,
+      summarizeConversationText,
+    }),
+  )
 
   registerInvokeHandlers(
     buildConversationsRegistry({
@@ -2750,46 +2639,25 @@ function initEventHandle() {
     }),
   )
 
-  // Agent-session records (step 8, §6.1): same one-writer contract as the
-  // conversations above — the record file and its index entry live here, Pi's
-  // own session files stay with Pi. Deletes fold into `agentMode:deleteSession`
-  // below, next to the Pi-side teardown.
-  typedHandle('agentMode:bootstrapSessions', async () => {
-    try {
-      return await bootstrapAgentSessions()
-    } catch (e) {
-      return { status: 'error' as const, error: ipcErrorText(e) }
-    }
-  })
-
-  typedHandle('agentMode:migrateSessions', async (_event, payload) => {
-    try {
-      return await migrateLegacyAgentSessions(LegacyAgentSessionStateSchema.parse(payload))
-    } catch (e) {
-      return { status: 'error' as const, error: ipcErrorText(e) }
-    }
-  })
-
-  typedHandle('agentMode:saveSession', async (_event, payload) => {
-    try {
-      await saveAgentSession(AgentSessionRecordSchema.parse(payload))
-      return { success: true as const }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
-  typedHandle('agentMode:saveActiveSessionId', async (_event, id) => {
-    try {
-      if (typeof id !== 'string' && id !== null) {
-        throw new Error('activeSessionId must be a string or null')
-      }
-      await saveAgentSessionActiveId(id)
-      return { success: true as const }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
+  registerInvokeHandlers(
+    buildAgentModeRegistry({
+      startAgentTurn,
+      cancelAgentTurn,
+      resetAgentSession,
+      deleteAgentSession,
+      submitAgentToolResult,
+      listAgentCapabilities,
+      importAttachment,
+      bootstrapAgentSessions,
+      migrateLegacyAgentSessions,
+      saveAgentSession,
+      saveAgentSessionActiveId,
+      deleteAgentSessionRecord,
+      readAgentWorkspaceState,
+      migrateAgentWorkspaceState,
+      writeAgentWorkspaceState,
+    }),
+  )
 
   // Generated-media gallery records (step 8, §6.1): same one-writer contract
   // as the conversations and agent sessions above — one JSON per item plus an
@@ -3370,79 +3238,13 @@ function initEventHandle() {
   })
 
   // ComfyUI Tools IPC handlers
-  typedHandle('comfyui:isGitInstalled', async () => {
-    return await comfyuiTools.isGitInstalled()
-  })
-
-  typedHandle('comfyui:isComfyUIInstalled', () => {
-    const comfyService = serviceRegistry?.getService('comfyui-backend') as
-      ComfyUiBackendService | undefined
-    if (!comfyService) {
-      throw new Error('ComfyUI backend service not found')
-    }
-    return comfyuiTools.isComfyUIInstalled(comfyService.serviceDir)
-  })
-
-  typedHandle('comfyui:getGitRef', async (_event, repoDir: string) => {
-    return await comfyuiTools.getGitRef(repoDir)
-  })
-
-  typedHandle('comfyui:isPackageInstalled', async (_event, packageSpecifier: string) => {
-    return await comfyuiTools.isPackageInstalled(packageSpecifier)
-  })
-
-  typedHandle('comfyui:installPypiPackage', async (_event, packageSpecifier: string) => {
-    const comfyService = serviceRegistry?.getService('comfyui-backend') as
-      ComfyUiBackendService | undefined
-    return await comfyuiTools.installPypiPackage(
-      packageSpecifier,
-      comfyService?.getTorchBackendEnv(),
-    )
-  })
-
-  typedHandle('comfyui:isCustomNodeInstalled', (_event, nodeRepoRef) => {
-    const comfyService = serviceRegistry?.getService('comfyui-backend') as
-      ComfyUiBackendService | undefined
-    if (!comfyService) {
-      throw new Error('ComfyUI backend service not found')
-    }
-    return comfyuiTools.isCustomNodeInstalled(nodeRepoRef, comfyService.serviceDir)
-  })
-
-  typedHandle('comfyui:downloadCustomNode', async (_event, nodeRepoData) => {
-    const comfyService = serviceRegistry?.getService('comfyui-backend') as
-      ComfyUiBackendService | undefined
-    if (!comfyService) {
-      throw new Error('ComfyUI backend service not found')
-    }
-    const envAndWheels: comfyuiTools.ComfyUiInstallOptions = {
-      extraEnv: comfyService.getTorchBackendEnv(),
-      skipExtraWheels: comfyService.comfyUiVariantName !== 'xpu',
-    }
-    return await comfyuiTools.downloadCustomNode(
-      nodeRepoData,
-      comfyService.serviceDir,
-      envAndWheels,
-    )
-  })
-
-  typedHandle('comfyui:uninstallCustomNode', async (_event, nodeRepoData) => {
-    const comfyService = serviceRegistry?.getService('comfyui-backend') as
-      ComfyUiBackendService | undefined
-    if (!comfyService) {
-      throw new Error('ComfyUI backend service not found')
-    }
-    return await comfyuiTools.uninstallCustomNode(nodeRepoData, comfyService.serviceDir)
-  })
-
-  typedHandle('comfyui:listInstalledCustomNodes', () => {
-    const comfyService = serviceRegistry?.getService('comfyui-backend') as
-      ComfyUiBackendService | undefined
-    if (!comfyService) {
-      throw new Error('ComfyUI backend service not found')
-    }
-    return comfyuiTools.listInstalledCustomNodes(comfyService.serviceDir)
-  })
+  registerInvokeHandlers(
+    buildComfyuiRegistry({
+      comfyService: () =>
+        serviceRegistry?.getService('comfyui-backend') as ComfyUiBackendService | undefined,
+      comfyuiTools,
+    }),
+  )
 
   // Auto-detect MCP servers (e.g., Acer MCP service installed via WindowsApps).
   // Runs on every startup so newly installed services are picked up and stale
@@ -3470,264 +3272,59 @@ function initEventHandle() {
   typedHandle('screenshot:captureWindow', async (_event, target) => await captureWindow(target))
 
   // MCP server IPC handlers
-  typedHandle('mcp:startServer', async (_event, serverId) => {
-    return await startMcpServer(serverId)
-  })
-
-  typedHandle('mcp:listServers', () => {
-    return listMcpServers()
-  })
-
-  typedHandle('mcp:stopServer', async (_event, serverId) => {
-    return await stopMcpServer(serverId)
-  })
-
-  typedHandle('mcp:getServerStatus', (_event, serverId) => {
-    return getMcpServerStatus(serverId)
-  })
-
-  typedHandle('mcp:listServerTools', async (_event, serverId) => {
-    return await listMcpServerTools(serverId)
-  })
-
-  typedHandle('mcp:invokeServerTool', async (_event, serverId, toolName, args) => {
-    return await invokeMcpServerTool(serverId, toolName, args)
-  })
-
-  // Agent Mode (Pi coding agent) IPC handlers — see agent/piAgentManager.ts.
-  // Stream chunks and live tool output cross the kernel event bus
-  // (electron/kernel/kernelBus.ts) as 'agent-chunk' / 'agent-tool-progress' /
-  // 'agent-tool-image' / 'agent-turn-done' events.
-  typedHandle('agentMode:startTurn', async (_event, turnId, prompt, config) => {
-    const parsed = AgentModeTurnConfigSchema.safeParse(config)
-    if (!parsed.success) {
-      return { success: false, error: parsed.error.message }
-    }
-    return await startAgentTurn(turnId, prompt, parsed.data)
-  })
-
-  typedHandle('agentMode:cancel', () => {
-    cancelAgentTurn()
-  })
-
-  typedHandle('agentMode:resetSession', async () => {
-    await resetAgentSession()
-  })
-
-  // Step 8 (§6.1): the last-used workspace pointers are kernel-owned
-  // (agent-workspace.json); the store becomes a live projection.
-  typedHandle('agentMode:readWorkspaceState', async () => {
-    try {
-      return { success: true as const, section: await readAgentWorkspaceState() }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
-  typedHandle('agentMode:migrateWorkspaceState', async (_event, payload) => {
-    try {
-      await migrateAgentWorkspaceState(payload)
-      return { success: true as const }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
-  typedHandle('agentMode:writeWorkspaceState', async (_event, value) => {
-    try {
-      await writeAgentWorkspaceState(value)
-      return { success: true as const }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
-  typedHandle('agentMode:deleteSession', async (_event, sessionId) => {
-    // Both halves run even if one fails. Invalid ids return `{success:false}`.
-    try {
-      if (typeof sessionId !== 'string') throw new Error('session id must be a string')
-      const record = await deleteAgentSessionRecord(sessionId)
-      const live = await deleteAgentSession(sessionId)
-      if (!record.success) return record
-      return live
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
-  // Copy a file the user attached into the agent's workspace, so the agent can
-  // reach it with its own file tools (see agent/workspaceAttachments.ts).
-  typedHandle('agentMode:importAttachment', (_event, workspaceDir, name, bytes) => {
-    try {
-      return { success: true as const, ...importAttachment(workspaceDir, name, bytes) }
-    } catch (error) {
-      return ipcFail(error)
-    }
-  })
-
-  // What the agent can be equipped with, for the Capabilities checkboxes in
-  // Agent Settings (availability depends on the turn's tool specs / MCP config).
-  typedHandle('agentMode:listCapabilities', (_event, options) => {
-    return listAgentCapabilities(options ?? {})
-  })
-
-  // Renderer answers a main→renderer 'agentMode:executeTool' dispatch (bridged
-  // host tool execution, e.g. image generation) with the tool result or error.
-  typedHandle('agentMode:toolResult', (_event, requestId, result, error) => {
-    return submitAgentToolResult(requestId, result, error)
-  })
+  const mcpDeps = {
+    settings,
+    persistLocalSettingsToDisk,
+    startMcpServer,
+    stopMcpServer,
+    stopAllMcpServers,
+    getMcpServerStatus,
+    listMcpServers,
+    listMcpServerTools,
+    invokeMcpServerTool,
+    getMcpConfigPath,
+    addMcpServer,
+    getMcpServerConfig,
+    updateMcpServer,
+    removeMcpServer,
+    isAutoDetectId,
+  }
+  registerInvokeHandlers(buildMcpRegistry(mcpDeps))
+  registerSendHandlers(buildMcpSendRegistry(mcpDeps))
 
   // Game library (see gameLibrary.ts): the folders the Game Agent preset writes
   // into, plus the generated gallery page.
-  typedHandle('games:list', () => listGames())
-
-  typedHandle('games:read', (_event, dir) => readGame(dir))
-
-  // `name` is the request that started the game, not a title: shorten it to
-  // something that reads as one, until the agent sets a real one. The request
-  // itself is kept whole as provenance.
-  typedHandle('games:create', (_event, name, options) =>
-    createGame({
-      name: name ? provisionalName(name) : undefined,
-      ...(options?.scaffold === false ? { scaffold: false } : {}),
-      backend: options?.backend,
-      startingModel: options?.startingModel,
-      initialPrompt: options?.initialPrompt,
+  registerInvokeHandlers(
+    buildGamesRegistry({
+      settings,
+      detectOem,
+      getGamesDir,
+      listGames,
+      readGame,
+      provisionalName,
+      createGame,
+      publishGame,
+      arcadeCatalog,
+      setArcadeShown,
+      writeArcade,
     }),
   )
 
-  typedHandle('games:publish', async (_event, dir, fields) => {
-    try {
-      const { vendor } = await detectOem(settings.oemVendorOverride)
-      return { success: true as const, game: publishGame(dir, fields ?? {}, { vendor }) }
-    } catch (error) {
-      return ipcFail(error)
-    }
-  })
-
-  typedHandle('games:arcadeCatalog', async () => {
-    const { vendor } = await detectOem(settings.oemVendorOverride)
-    return arcadeCatalog({ vendor })
-  })
-
-  typedHandle('games:setArcadeShown', async (_event, target) => {
-    try {
-      const { vendor } = await detectOem(settings.oemVendorOverride)
-      setArcadeShown(target, { vendor })
-      return { success: true as const }
-    } catch (error) {
-      return ipcFail(error)
-    }
-  })
-
-  // A game's own folder, or the library root when none is given.
-  typedHandle('games:openFolder', (_event, dir) => {
-    const target = dir ?? getGamesDir()
-    fs.mkdirSync(target, { recursive: true })
-    shell.openPath(target)
-  })
-
-  typedHandle('games:play', async (_event, dir) => {
-    const game = readGame(dir)
-    if (!game) return { success: false as const, error: `Not a game folder: ${dir}` }
-    if (!fs.existsSync(game.entryPath)) {
-      return { success: false as const, error: 'This game has no playable file yet.' }
-    }
-    // The default browser, not an app window: a game is the user's to keep.
-    const error = await shell.openPath(game.entryPath)
-    return error ? { success: false as const, error } : { success: true as const }
-  })
-
-  // Regenerated on open so the gallery reflects the library as it is now.
-  typedHandle('games:openArcade', async () => {
-    const { vendor } = await detectOem(settings.oemVendorOverride)
-    const { arcadePath } = writeArcade({ vendor })
-    const error = await shell.openPath(arcadePath)
-    return error ? { success: false as const, error } : { success: true as const, path: arcadePath }
-  })
-
   // Web browser IPC handlers — drives the headless BrowserWindow that the chat
   // LLM uses to browse the web (see adapters/webBrowserManager.ts).
-  typedHandle('webBrowser:navigate', async (_event, url: string) => {
-    return await navigateWebBrowser(url)
-  })
-
-  typedHandle('webBrowser:readPage', async () => {
-    return await readWebBrowserPage()
-  })
-
-  typedHandle('webBrowser:search', async (_event, query: string, maxResults?: number) => {
-    return await searchWebBrowser(query, maxResults)
-  })
-
-  typedHandle('webBrowser:interact', async (_event, interaction: WebBrowserInteraction) => {
-    return await interactWebBrowser(interaction)
-  })
-
-  typedHandle('webBrowser:screenshot', async () => {
-    return await screenshotWebBrowser()
-  })
-
-  typedHandle('webBrowser:show', () => {
-    return showWebBrowser()
-  })
-
-  typedHandle('webBrowser:hide', () => {
-    return hideWebBrowser()
-  })
-
-  typedHandle('webBrowser:close', () => {
-    return closeWebBrowser()
-  })
-
-  typedHandle('webBrowser:getState', () => {
-    return getWebBrowserState()
-  })
-
-  // MCP config file handlers
-  // TODO: Consider consolidating with openImageWithSystem/openImageInFolder
-  // into generic openFileWithSystem/openFileInFolder that take file paths
-  typedOn('mcp:openConfig', () => {
-    const configPath = getMcpConfigPath()
-    shell.openPath(configPath)
-  })
-
-  typedOn('mcp:openConfigInFolder', () => {
-    const configPath = getMcpConfigPath()
-    if (process.platform === 'win32') {
-      exec(`explorer.exe /select, "${configPath}"`)
-    } else {
-      shell.showItemInFolder(configPath)
-    }
-  })
-
-  typedHandle('mcp:reloadConfig', async () => {
-    await stopAllMcpServers()
-    return listMcpServers()
-  })
-
-  typedHandle('mcp:addServer', async (_event, serverId, config) => {
-    return addMcpServer(serverId, config)
-  })
-
-  typedHandle('mcp:getServerConfig', (_event, serverId) => {
-    return getMcpServerConfig(serverId)
-  })
-
-  typedHandle('mcp:updateServer', async (_event, serverId, config) => {
-    await stopMcpServer(serverId)
-    return updateMcpServer(serverId, config)
-  })
-
-  typedHandle('mcp:removeServer', async (_event, serverId) => {
-    await stopMcpServer(serverId)
-    const result = removeMcpServer(serverId)
-    if (isAutoDetectId(serverId) && !settings.mcpAutoDetectionDismissed.includes(serverId)) {
-      settings.mcpAutoDetectionDismissed = [...settings.mcpAutoDetectionDismissed, serverId]
-      persistLocalSettingsToDisk()
-    }
-    return result
-  })
+  registerInvokeHandlers(
+    buildWebBrowserRegistry({
+      navigateWebBrowser,
+      readWebBrowserPage,
+      searchWebBrowser,
+      interactWebBrowser,
+      screenshotWebBrowser,
+      showWebBrowser,
+      hideWebBrowser,
+      closeWebBrowser,
+      getWebBrowserState,
+    }),
+  )
 
   const getAssetPathFromUrl = (url: string) => {
     // Handle aipg-media:// URLs

@@ -84,6 +84,21 @@ function scan(): { typed: TypedSite[]; raw: RawSite[] } {
 
 const { typed: TYPED_SITES, raw: RAW_SITES } = scan()
 
+// Quoted key literals of the per-owner registry maps (#301): a migrated
+// domain lives as a `satisfies InvokeHandlerMap<...>` literal under
+// electron/kernel/registries/ instead of a direct typed-wrapper call site.
+function scanRegistryKeys(): Set<string> {
+  const keys = new Set<string>()
+  for (const file of walk(ELECTRON_DIR)) {
+    const rel = path.relative(ELECTRON_DIR, file)
+    if (!rel.startsWith(path.join('kernel', 'registries') + path.sep)) continue
+    for (const m of readFileSync(file, 'utf8').matchAll(/'([^']+)'(?=\s*:)/g)) keys.add(m[1])
+  }
+  return keys
+}
+
+const REGISTRY_KEYS = scanRegistryKeys()
+
 const isHomeAgentServiceFile = (file: string) => /homeAgent/i.test(file)
 
 describe('channel manifest registration scan', () => {
@@ -93,15 +108,22 @@ describe('channel manifest registration scan', () => {
     owner: row.owner,
   }))
 
-  it('registers every manifest row through its typed wrapper', () => {
+  // Transitional (batch A of #301): a row registers through a direct typed
+  // call site or as a quoted key of a registry literal under
+  // electron/kernel/registries/. Batch F deletes this whole per-row mechanism
+  // once every direct site has migrated and coverage is structural.
+  it('registers every manifest row through its typed wrapper or a registry literal', () => {
     const missing = rows
       .map((row) => {
         const kind = row.kind === 'invoke' ? 'handle' : row.kind === 'send' ? 'on' : 'send'
         const sites = TYPED_SITES.filter((s) => s.channel === row.name && s.kind === kind)
-        return { row, sites }
+        return { row, hasDirectSite: sites.length > 0, inRegistry: REGISTRY_KEYS.has(row.name) }
       })
-      .filter(({ sites }) => sites.length === 0)
-      .map(({ row }) => `${row.owner} ${row.kind} '${row.name}' has no typed registration`)
+      .filter(({ hasDirectSite, inRegistry }) => !hasDirectSite && !inRegistry)
+      .map(
+        ({ row }) =>
+          `${row.owner} ${row.kind} '${row.name}' has neither a typed registration nor a registry key`,
+      )
     expect(missing).toEqual([])
   })
 

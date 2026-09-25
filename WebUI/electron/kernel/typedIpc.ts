@@ -9,20 +9,24 @@ import type {
   SendChannelName,
 } from '@/types/ipcChannels'
 
+export type InvokeHandler<N extends InvokeChannelName> = (
+  event: IpcMainInvokeEvent,
+  ...args: ChannelArgs<N>
+) => ChannelResult<N> | Promise<ChannelResult<N>>
+
 export function typedHandle<N extends InvokeChannelName>(
   channel: N,
-  handler: (
-    event: IpcMainInvokeEvent,
-    ...args: ChannelArgs<N>
-  ) => ChannelResult<N> | Promise<ChannelResult<N>>,
+  handler: InvokeHandler<N>,
 ): void {
   ipcMain.handle(channel, handler as never)
 }
 
-export function typedOn<N extends SendChannelName>(
-  channel: N,
-  listener: (event: IpcMainEvent, ...args: ChannelArgs<N>) => void,
-): void {
+export type SendHandler<N extends SendChannelName> = (
+  event: IpcMainEvent,
+  ...args: ChannelArgs<N>
+) => void
+
+export function typedOn<N extends SendChannelName>(channel: N, listener: SendHandler<N>): void {
   ipcMain.on(channel, listener as never)
 }
 

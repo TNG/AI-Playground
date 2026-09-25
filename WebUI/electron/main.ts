@@ -123,6 +123,7 @@ import {
   submitAgentToolResult,
 } from './agent/piAgentManager'
 import { getKernelSnapshot, onKernelEvent, setKernelEventWindow } from './kernel/kernelBus'
+import { registerInvokeHandlers } from './kernel/ipcRegistries'
 import { ipcErrorText, ipcFail, typedHandle, typedOn, typedSend } from './kernel/typedIpc'
 import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecycle'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
@@ -199,10 +200,7 @@ import {
   setConversationFileDeps,
   wipeDemoConversations,
 } from './persist/conversationFiles'
-import {
-  ConversationLegacyStateSchema,
-  ConversationSaveRequestSchema,
-} from '@/types/conversationIpc'
+import { buildConversationsRegistry } from './kernel/registries/conversations'
 import {
   bootstrapAgentSessions,
   deleteAgentSessionRecord,
@@ -2742,55 +2740,15 @@ function initEventHandle() {
     }
   })
 
-  // Conversation persistence (step 8, architecture-target §6.1): the kernel
-  // is the one writer of the user's threads. Hydration and the one-shot
-  // legacy upload return data; the mutations follow the {success} convention.
-  typedHandle('conversations:bootstrap', async () => {
-    try {
-      return await bootstrapConversations()
-    } catch (e) {
-      return { status: 'error' as const, error: ipcErrorText(e) }
-    }
-  })
-
-  typedHandle('conversations:migrate', async (_event, payload) => {
-    try {
-      return await migrateLegacyConversations(ConversationLegacyStateSchema.parse(payload))
-    } catch (e) {
-      return { status: 'error' as const, error: ipcErrorText(e) }
-    }
-  })
-
-  typedHandle('conversations:save', async (_event, payload) => {
-    try {
-      await saveConversation(ConversationSaveRequestSchema.parse(payload))
-      return { success: true as const }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
-  typedHandle('conversations:delete', async (_event, id) => {
-    try {
-      if (typeof id !== 'string') throw new Error('conversation id must be a string')
-      await deleteConversation(id)
-      return { success: true as const }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
-
-  typedHandle('conversations:saveLastMainKey', async (_event, key) => {
-    try {
-      if (typeof key !== 'string' && key !== null) {
-        throw new Error('lastMainKey must be a string or null')
-      }
-      await saveConversationLastMainKey(key)
-      return { success: true as const }
-    } catch (e) {
-      return ipcFail(e)
-    }
-  })
+  registerInvokeHandlers(
+    buildConversationsRegistry({
+      bootstrapConversations,
+      deleteConversation,
+      migrateLegacyConversations,
+      saveConversation,
+      saveConversationLastMainKey,
+    }),
+  )
 
   // Agent-session records (step 8, §6.1): same one-writer contract as the
   // conversations above — the record file and its index entry live here, Pi's

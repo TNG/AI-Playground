@@ -1,16 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { UIMessageChunk } from 'ai'
-import {
-  fillToolResultOutput,
-  patchUiToolOutputs,
-  settleToolOutput,
-} from '@/lib/pendingToolOutput'
+import { fillToolResultOutput, patchUiToolOutputs, settleToolOutput } from '@/lib/pendingToolOutput'
 
 describe('settleToolOutput', () => {
   it('returns a present output without waiting', async () => {
-    const pending = new Map<string, Promise<unknown>>([
-      ['c1', Promise.resolve({ images: [1] })],
-    ])
+    const pending = new Map<string, Promise<unknown>>([['c1', Promise.resolve({ images: [1] })]])
     await expect(settleToolOutput(pending, 'c1', { images: [0] })).resolves.toEqual({
       images: [0],
     })

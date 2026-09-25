@@ -287,7 +287,7 @@ type AgentToolImage = {
 type AgentToolExecuteRequest = import('./types/agentIpc').AgentToolExecuteRequest
 
 type electronAPI = {
-  startDrag: (fileName: string) => void
+  startDrag: import('./types/ipcChannels').BridgeMemberFor<'ondragstart'>
   getFilePath: (file: File) => string
   updatePresetsFromIntelRepo: import('./types/ipcChannels').BridgeMemberFor<'updatePresetsFromIntelRepo'>
   reloadPresets: import('./types/ipcChannels').BridgeMemberFor<'reloadPresets'>
@@ -297,42 +297,31 @@ type electronAPI = {
   resolveBackendVersion: import('./types/ipcChannels').BridgeMemberFor<'resolveBackendVersion'>
   getInstalledBackendVersion: import('./types/ipcChannels').BridgeMemberFor<'getInstalledBackendVersion'>
   getGitHubRepoUrl: import('./types/ipcChannels').BridgeMemberFor<'getGitHubRepoUrl'>
-  openDevTools(): void
-  setVerboseAgentLogging(enabled: boolean): void
-  getDeveloperSettings(): Promise<{ openDevConsoleOnStartup: boolean }>
-  openUrl(url: string): void
-  changeWindowMessageFilter(): void
-  getWinSize(): Promise<{
-    width: number
-    height: number
-    maxChatContentHeight: number
-  }>
+  openDevTools: import('./types/ipcChannels').BridgeMemberFor<'openDevTools'>
+  setVerboseAgentLogging: import('./types/ipcChannels').BridgeMemberFor<'setVerboseAgentLogging'>
+  openUrl: import('./types/ipcChannels').BridgeMemberFor<'openUrl'>
+  getWinSize: import('./types/ipcChannels').BridgeMemberFor<'getWinSize'>
   getLocaleSettings: import('./types/ipcChannels').BridgeMemberFor<'getLocaleSettings'>
   updateLocalSettings: import('./types/ipcChannels').BridgeMemberFor<'updateLocalSettings'>
   getLocalSettings: import('./types/ipcChannels').BridgeMemberFor<'getLocalSettings'>
   detectHardwareForModeRecommendation: import('./types/ipcChannels').BridgeMemberFor<'detectHardwareForModeRecommendation'>
-  setWinSize(width: number, height: number): Promise<void>
-  showSaveDialog(options: Electron.SaveDialogOptions): Promise<Electron.SaveDialogReturnValue>
-  showMessageBox(options: Electron.MessageBoxOptions): Promise<number>
-  showMessageBoxSync(options: Electron.MessageBoxSyncOptions): Promise<number>
-  showOpenDialog(options: Electron.OpenDialogOptions): Promise<Electron.OpenDialogReturnValue>
-  dragWinToMoveStart(x: number, y: number): void
-  dragWinToMove(x: number, y: number): void
-  dragWinToMoveStop(): void
-  setIgnoreMouseEvents(ignore: boolean): void
-  miniWindow(): void
-  exitApp(): void
+  setWinSize: import('./types/ipcChannels').BridgeMemberFor<'setWinSize'>
+  showSaveDialog: import('./types/ipcChannels').BridgeMemberFor<'showSaveDialog'>
+  showMessageBox: import('./types/ipcChannels').BridgeMemberFor<'showMessageBox'>
+  showOpenDialog: import('./types/ipcChannels').BridgeMemberFor<'showOpenDialog'>
+  miniWindow: import('./types/ipcChannels').BridgeMemberFor<'miniWindow'>
+  exitApp: import('./types/ipcChannels').BridgeMemberFor<'exitApp'>
   getInitialPage: import('./types/ipcChannels').BridgeMemberFor<'getInitialPage'>
   getDemoModeSettings: import('./types/ipcChannels').BridgeMemberFor<'getDemoModeSettings'>
-  saveImage(url: string): void
+  saveImage: import('./types/ipcChannels').BridgeMemberFor<'saveImage'>
   saveImageToMediaInput: import('./types/ipcChannels').BridgeMemberFor<'saveImageToMediaInput'>
   saveAudioToMediaInput: import('./types/ipcChannels').BridgeMemberFor<'saveAudioToMediaInput'>
   saveGeneratedAudio: import('./types/ipcChannels').BridgeMemberFor<'saveGeneratedAudio'>
   readLocalAudioAsDataUri: import('./types/ipcChannels').BridgeMemberFor<'readLocalAudioAsDataUri'>
   deleteGeneratedAudio: import('./types/ipcChannels').BridgeMemberFor<'deleteGeneratedAudio'>
   readAipgMediaAsBase64: import('./types/ipcChannels').BridgeMemberFor<'readAipgMediaAsBase64'>
-  openImageWin(url: string, title: string, width: number, height: number): void
-  screenChange(callback: (width: number, height: number) => void): void
+  openImageWin: import('./types/ipcChannels').BridgeMemberFor<'openImageWin'>
+  screenChange: import('./types/ipcChannels').BridgeMemberFor<'display-metrics-changed'>
   existsPath: import('./types/ipcChannels').BridgeMemberFor<'existsPath'>
   addDocumentToRAGList: import('./types/ipcChannels').BridgeMemberFor<'addDocumentToRAGList'>
   embedInputUsingRag: import('./types/ipcChannels').BridgeMemberFor<'embedInputUsingRag'>
@@ -344,13 +333,9 @@ type electronAPI = {
   restorePathsSettings: import('./types/ipcChannels').BridgeMemberFor<'restorePathsSettings'>
   loadModels: import('./types/ipcChannels').BridgeMemberFor<'loadModels'>
   getLaminarConfig: import('./types/ipcChannels').BridgeMemberFor<'getLaminarConfig'>
-  /**
-   * Forward one AI SDK telemetry event (already serialized to JSON) to the
-   * Laminar integration running in main. Fire-and-forget.
-   */
-  laminarTelemetryEvent(name: string, payload: string): void
-  zoomIn(): Promise<void>
-  zoomOut(): Promise<void>
+  laminarTelemetryEvent: import('./types/ipcChannels').BridgeMemberFor<'laminarTelemetryEvent'>
+  zoomIn: import('./types/ipcChannels').BridgeMemberFor<'zoomIn'>
+  zoomOut: import('./types/ipcChannels').BridgeMemberFor<'zoomOut'>
   getDownloadedGGUFLLMs: import('./types/ipcChannels').BridgeMemberFor<'getDownloadedGGUFLLMs'>
   getDownloadedOpenVINOLLMModels: import('./types/ipcChannels').BridgeMemberFor<'getDownloadedOpenVINOLLMModels'>
   getDownloadedEmbeddingModels: import('./types/ipcChannels').BridgeMemberFor<'getDownloadedEmbeddingModels'>
@@ -363,16 +348,10 @@ type electronAPI = {
     isEncryptionAvailable(): Promise<boolean>
     enablePlainTextEncryption(): Promise<{ success: boolean; error?: string }>
   }
-  openImageWithSystem(url: string): void
-  openImageInFolder(url: string): void
-  setFullScreen(enable: boolean): void
-  onDebugLog(
-    callback: (data: {
-      level: 'error' | 'warn' | 'info'
-      source: 'ai-backend'
-      message: string
-    }) => void,
-  ): void
+  openImageWithSystem: import('./types/ipcChannels').BridgeMemberFor<'openImageWithSystem'>
+  openImageInFolder: import('./types/ipcChannels').BridgeMemberFor<'openImageInFolder'>
+  setFullScreen: import('./types/ipcChannels').BridgeMemberFor<'setFullScreen'>
+  onDebugLog: import('./types/ipcChannels').BridgeMemberFor<'debugLog'>
   getComfyUiDefaultParameters: import('./types/ipcChannels').BridgeMemberFor<'getComfyUiDefaultParameters'>
   getLlamaCppDefaultParameters: import('./types/ipcChannels').BridgeMemberFor<'getLlamaCppDefaultParameters'>
   detectPhisonSsd: import('./types/ipcChannels').BridgeMemberFor<'detectPhisonSsd'>
@@ -387,15 +366,14 @@ type electronAPI = {
   startService: import('./types/ipcChannels').BridgeMemberFor<'startService'>
   stopService: import('./types/ipcChannels').BridgeMemberFor<'stopService'>
   setUpService: import('./types/ipcChannels').BridgeMemberFor<'setUpService'>
-  onServiceSetUpProgress(callback: (data: SetupProgress) => void): void
+  onServiceSetUpProgress: import('./types/ipcChannels').BridgeMemberFor<'serviceSetUpProgress'>
   onKernelEvent(callback: (event: import('./types/kernelEvents').KernelEvent) => void): () => void
   getKernelSnapshot(): Promise<import('./types/kernelEvents').KernelSnapshot>
-  setLifecycleBusy(busy: boolean): void
-  onShowToast(callback: (data: { type: string; message: string }) => void): void
+  setLifecycleBusy: import('./types/ipcChannels').BridgeMemberFor<'lifecycle:busy'>
+  onShowToast: import('./types/ipcChannels').BridgeMemberFor<'show-toast'>
   ensureBackendReadiness: import('./types/ipcChannels').BridgeMemberFor<'ensureBackendReadiness'>
   setLastChatBackendLoadActive: import('./types/ipcChannels').BridgeMemberFor<'setLastChatBackendLoadActive'>
   rememberChatBackendLoad: import('./types/ipcChannels').BridgeMemberFor<'rememberChatBackendLoad'>
-  ensureComfyUIBackendRunning: import('./types/ipcChannels').BridgeMemberFor<'ensureComfyUIBackendRunning'>
   artifact: import('./types/ipcChannels').NamespaceBridge<'artifact'>
   permissions: import('./types/ipcChannels').NamespaceBridge<'permissions'>
   chat: import('./types/ipcChannels').NamespaceBridge<'chat'>
@@ -670,71 +648,6 @@ type StringKV = {
   [key: string]: string
 }
 
-type WebSettings = {
-  graphics: { name: string; index: number }[]
-  schedulers: string[]
-}
-
-type GraphicsItem = {
-  index: number
-  name: string
-}
-
-type ClientMessageEventArgs = {
-  data: UpdateLanguageSettingsNotify
-  type: 'message'
-}
-
-type UpdateLanguageSettingsNotify = {
-  type: 'updateLanguageSettings'
-  value: LanguageSetting
-}
-
-type LanguageSetting = {
-  langName: string
-  records: Record<string, string>
-}
-
-type DropListItem = {
-  display: string
-  value: string | number
-}
-
-type MetricsData = {
-  num_tokens: number
-  total_time: number
-  first_token_latency: number
-  overall_tokens_per_second: number
-  second_plus_tokens_per_second: number
-}
-
-type ChatItem = {
-  metrics: MetricsData
-  question: string
-  answer: string
-  parsedAnswer: string
-  parsedThinkingText: string
-  title?: string
-  model?: string
-  showThinkingText?: boolean
-  reasoningTime?: number
-  createdAt?: number
-  ragSource?: string | null
-  showRagSource?: boolean
-}
-
-type ChatRequestParams = {
-  context?: Array<Chat>
-}
-
-type RagFileItem = {
-  type: number
-  filename: string
-  md5: string
-  status: number
-  path?: string | null
-}
-
 type LLMOutCallback =
   | LoadModelCallback
   | LoadModelAllComplete
@@ -770,11 +683,6 @@ type LoadModelCallback = {
   event: 'start' | 'finish'
 }
 
-type LoadModelComponentsCallback = {
-  type: 'load_model_components'
-  event: 'start' | 'finish'
-}
-
 type NotEnoughDiskSpaceExceptionCallback = {
   type: 'error'
   err_type: 'not_enough_disk_space'
@@ -799,66 +707,6 @@ type DownloadModelProgressCallback = {
 type DownloadModelCompleted = {
   type: 'download_model_completed'
   repo_id: string
-}
-
-type ShowOpenDialogOptions = {
-  filters: Array<{
-    name: string
-    extensions: Array<string>
-  }>
-  title?: string
-  multiSelected?: boolean
-}
-type ShowOpenDialogResult = {
-  canceled: boolean
-  filePaths: Array<string>
-}
-
-type ShowSaveDialogOptions = {
-  filters: Array<{
-    name: string
-    extensions: Array<string>
-  }>
-  title?: string
-  defaultPath?: string
-}
-
-type ShowSaveDialogResult = {
-  canceled: boolean
-  filePath: string
-}
-
-type RandomNumberSetting = {
-  min: nubmer
-  max: number
-  scale: number
-  default: number
-  value: number
-}
-
-type ResolutionSettings = {
-  width: NumberRange
-  height: NumberRange
-  preset: Size[]
-}
-
-type Size = {
-  width: number
-  height: number
-}
-
-type NumberRange = {
-  min: number
-  max: number
-}
-
-type DownloadFailedParams = {
-  // User cancellation is no longer modeled here; it is rejected as a benign
-  // silent AppError (see createCancellation / CANCELLED_CODE). Only genuine
-  // failures and conflicts flow through this shape.
-  type: 'error' | 'conflict'
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  error?: any
 }
 
 type CheckModelAlreadyLoadedParameters = {

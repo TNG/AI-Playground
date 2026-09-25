@@ -25,11 +25,8 @@ import {
   ipcMain,
   IpcMainEvent,
   IpcMainInvokeEvent,
-  MessageBoxOptions,
-  MessageBoxSyncOptions,
   nativeImage,
   net,
-  OpenDialogSyncOptions,
   protocol,
   safeStorage,
   screen,
@@ -128,7 +125,7 @@ import {
   submitAgentToolResult,
 } from './agent/piAgentManager'
 import { getKernelSnapshot, onKernelEvent, setKernelEventWindow } from './kernel/kernelBus'
-import { ipcErrorText, typedHandle } from './kernel/typedIpc'
+import { ipcErrorText, typedHandle, typedOn, typedSend } from './kernel/typedIpc'
 import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecycle'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
@@ -1540,11 +1537,10 @@ function initEventHandle() {
         width: display.workAreaSize.width,
         height: display.workAreaSize.height,
       })
-      win.webContents.send(
-        'display-metrics-changed',
-        display.workAreaSize.width,
-        display.workAreaSize.height,
-      )
+      typedSend(win.webContents, 'display-metrics-changed', {
+        width: display.workAreaSize.width,
+        height: display.workAreaSize.height,
+      })
     }
   })
 
@@ -1757,27 +1753,27 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('getWinSize', () => {
+  typedHandle('getWinSize', () => {
     return appSize
   })
 
-  ipcMain.handle('zoomIn', (event: IpcMainInvokeEvent) => {
+  typedHandle('zoomIn', (event: IpcMainInvokeEvent) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     win.webContents.setZoomLevel(win.webContents.getZoomLevel() + 1)
   })
 
-  ipcMain.handle('zoomOut', (event: IpcMainInvokeEvent) => {
+  typedHandle('zoomOut', (event: IpcMainInvokeEvent) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     win.webContents.setZoomLevel(win.webContents.getZoomLevel() - 1)
   })
 
-  ipcMain.on('openUrl', (_event, url: string) => {
+  typedOn('openUrl', (_event, url: string) => {
     return shell.openExternal(url)
   })
 
-  ipcMain.handle('setWinSize', (event: IpcMainInvokeEvent, width: number, height: number) => {
+  typedHandle('setWinSize', (event: IpcMainInvokeEvent, width: number, height: number) => {
     const win = BrowserWindow.fromWebContents(event.sender)!
     const winRect = win.getBounds()
     if (winRect.width != width || winRect.height != height) {
@@ -1790,7 +1786,7 @@ function initEventHandle() {
     pathsManager.restoreDefaultModelPaths()
   })
 
-  ipcMain.on('miniWindow', () => {
+  typedOn('miniWindow', () => {
     if (win) {
       win.minimize()
     }
@@ -1798,7 +1794,7 @@ function initEventHandle() {
 
   // The renderer reports whether it has tracked work in flight; an input to
   // the main-owned close policy (see createWindow's 'close' handler).
-  ipcMain.on('lifecycle:busy', (_event: IpcMainInvokeEvent, busy: boolean) => {
+  typedOn('lifecycle:busy', (_event, busy: boolean) => {
     rendererBusy = busy === true
   })
 
@@ -1807,7 +1803,7 @@ function initEventHandle() {
   // sequence (docs/architecture-target.md §4.6).
   ipcMain.handle('kernel:getSnapshot', () => getKernelSnapshot())
 
-  ipcMain.on('setFullScreen', (_event: IpcMainEvent, enable: boolean) => {
+  typedOn('setFullScreen', (_event, enable: boolean) => {
     if (win) {
       win.setFullScreen(enable)
     }
@@ -1815,11 +1811,11 @@ function initEventHandle() {
 
   // Quit outright instead of closing the window and hoping that cascades into a
   // quit: `app.quit()` always reaches the gated teardown in `before-quit`.
-  ipcMain.on('exitApp', async () => {
+  typedOn('exitApp', async () => {
     app.quit()
   })
 
-  ipcMain.on('saveImage', async (event: IpcMainEvent, url: string) => {
+  typedOn('saveImage', async (event, url: string) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) {
       return
@@ -2048,19 +2044,14 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('showOpenDialog', async (event, options: OpenDialogSyncOptions) => {
+  typedHandle('showOpenDialog', async (event, options) => {
     const win = BrowserWindow.fromWebContents(event.sender)!
     return await dialog.showOpenDialog(win, options)
   })
 
-  ipcMain.handle('showMessageBox', async (event, options: MessageBoxOptions) => {
+  typedHandle('showMessageBox', async (event, options) => {
     const win = BrowserWindow.fromWebContents(event.sender)!
     return dialog.showMessageBox(win, options)
-  })
-
-  ipcMain.handle('showMessageBoxSync', async (event, options: MessageBoxSyncOptions) => {
-    const win = BrowserWindow.fromWebContents(event.sender)!
-    return dialog.showMessageBoxSync(win, options)
   })
 
   typedHandle('existsPath', async (event, path: string) => {
@@ -2101,7 +2092,7 @@ function initEventHandle() {
   // browser page); null config means no developer opted in, and the renderer
   // then registers nothing and sends nothing.
   typedHandle('getLaminarConfig', () => laminarConfig())
-  ipcMain.on('laminarTelemetryEvent', (_event, name: string, payload: string) => {
+  typedOn('laminarTelemetryEvent', (_event, name: string, payload: string) => {
     void handleChatTelemetryEvent(name, payload)
   })
 
@@ -2242,11 +2233,11 @@ function initEventHandle() {
     )
   })
 
-  ipcMain.on('openDevTools', () => {
+  typedOn('openDevTools', () => {
     win?.webContents.openDevTools({ mode: 'detach', activate: true })
   })
 
-  ipcMain.on('setVerboseAgentLogging', (_event, enabled: boolean) => {
+  typedOn('setVerboseAgentLogging', (_event, enabled: boolean) => {
     setVerboseAgentLogging(enabled)
   })
 
@@ -2528,7 +2519,7 @@ function initEventHandle() {
       // forever. Synthesize the terminal failure the generator owes us.
       try {
         for await (const progressUpdate of service.set_up()) {
-          win.webContents.send('serviceSetUpProgress', progressUpdate)
+          typedSend(win.webContents, 'serviceSetUpProgress', progressUpdate)
           if (progressUpdate.status === 'failed' || progressUpdate.status === 'success') {
             appLogger.info(
               `Received terminal progress update for set up request for ${serviceName}`,
@@ -2544,7 +2535,7 @@ function initEventHandle() {
           'electron-backend',
         )
         if (!win.isDestroyed()) {
-          win.webContents.send('serviceSetUpProgress', {
+          typedSend(win.webContents, 'serviceSetUpProgress', {
             serviceName,
             step: 'setup failed',
             status: 'failed',
@@ -2612,36 +2603,6 @@ function initEventHandle() {
     }
     rememberChatBackendLoad(args)
     return { success: true as const }
-  })
-
-  typedHandle('ensureComfyUIBackendRunning', async () => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready', starting: false }
-    }
-    const service = serviceRegistry.getService('comfyui-backend')
-    if (!service) {
-      return { success: false, error: 'ComfyUI service not found', starting: false }
-    }
-    if (service.currentStatus === 'running') {
-      return { success: true, starting: false }
-    }
-    if (service.currentStatus === 'starting') {
-      return { success: true, starting: true }
-    }
-    try {
-      const result = await service.start()
-      if (result === 'running') return { success: true, starting: false }
-      if (result === 'starting') return { success: true, starting: true }
-      return {
-        success: false,
-        starting: false,
-        error: `ComfyUI backend status: ${result}`,
-      }
-    } catch (error) {
-      const errorMessage = ipcErrorText(error)
-      appLogger.error(`Failed to start ComfyUI backend: ${errorMessage}`, 'electron-backend')
-      return { success: false, error: errorMessage, starting: false }
-    }
   })
 
   // ── Artifact runner IPC (architecture-target §4.1 step 5) ─────────────────
@@ -3292,7 +3253,7 @@ function initEventHandle() {
     return { success: false, error: 'Image server not supported' }
   })
 
-  ipcMain.on('ondragstart', async (event, filePath) => {
+  typedOn('ondragstart', async (event, filePath: string) => {
     const imagePath = getAssetPathFromUrl(filePath)
     if (!imagePath) return
     let thumbnail: Electron.NativeImage
@@ -3843,13 +3804,13 @@ function initEventHandle() {
     return path.join(mediaDir, imageSubPath)
   }
 
-  ipcMain.on('openImageWithSystem', (_event, url: string) => {
+  typedOn('openImageWithSystem', (_event, url: string) => {
     const imagePath = getAssetPathFromUrl(url)
     if (!imagePath) return
     shell.openPath(imagePath)
   })
 
-  ipcMain.on('openImageInFolder', (_event, url: string) => {
+  typedOn('openImageInFolder', (_event, url: string) => {
     const imagePath = getAssetPathFromUrl(url)
     if (!imagePath) return
 
@@ -3862,7 +3823,7 @@ function initEventHandle() {
   })
 }
 
-ipcMain.on(
+typedOn(
   'openImageWin',
   (_: IpcMainEvent, url: string, title: string, width: number, height: number) => {
     const display = screen.getPrimaryDisplay()
@@ -3896,15 +3857,11 @@ ipcMain.on(
   },
 )
 
-ipcMain.handle('showSaveDialog', async (_event, options: Electron.SaveDialogOptions) => {
-  dialog
-    .showSaveDialog(options)
-    .then((result) => {
-      return result
-    })
-    .catch((error) => {
-      appLogger.error(`${JSON.stringify(error, Object.getOwnPropertyNames, 2)}`, 'electron-backend')
-    })
+typedHandle('showSaveDialog', async (_event, options) => {
+  return dialog.showSaveDialog(options).catch((error) => {
+    appLogger.error(`${JSON.stringify(error, Object.getOwnPropertyNames, 2)}`, 'electron-backend')
+    return undefined
+  })
 })
 
 function isAdmin(): boolean {

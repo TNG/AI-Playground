@@ -3,6 +3,7 @@ import fs from 'fs'
 import path from 'node:path'
 import { app } from 'electron'
 import { writableConfigRoot } from '../kernel/aipgRoot.ts'
+import { typedSend } from '../kernel/typedIpc'
 
 // Telegram bot tokens (`<id>:<token>`) and similar secrets must never appear in
 // console output, log files, or the renderer debug stream. Belt-and-suspenders
@@ -40,7 +41,7 @@ class Logger {
   onWebcontentReady(webContents: WebContents) {
     this.webContents = webContents
     this.startupMessageCache.forEach((logEntry) => {
-      this.webContents!.send('debugLog', logEntry)
+      typedSend(this.webContents!, 'debugLog', logEntry)
     })
     this.startupMessageCache = []
   }
@@ -62,7 +63,7 @@ class Logger {
     console.info(`[${source}]: ${safeMessage}`)
     if (this.webContents) {
       try {
-        this.webContents.send('debugLog', { level: 'info', source, message: safeMessage })
+        typedSend(this.webContents, 'debugLog', { level: 'info', source, message: safeMessage })
       } catch (_error) {
         console.error('Could not send debug log to renderer process')
       }
@@ -79,7 +80,7 @@ class Logger {
     console.warn(`[${source}]: ${safeMessage}`)
     if (this.webContents) {
       try {
-        this.webContents.send('debugLog', { level: 'warn', source, message: safeMessage })
+        typedSend(this.webContents, 'debugLog', { level: 'warn', source, message: safeMessage })
       } catch (_error) {
         console.error('Could not send debug log to renderer process')
       }
@@ -98,7 +99,7 @@ class Logger {
 
     if (this.webContents) {
       try {
-        this.webContents.send('debugLog', { level: 'error', source, message: safeMessage })
+        typedSend(this.webContents, 'debugLog', { level: 'error', source, message: safeMessage })
       } catch (_error) {
         console.error('Could not send debug log to renderer process')
       }

@@ -43,12 +43,7 @@ describe('typed IPC registration', () => {
 
   it('typedOn registers the listener under the exact channel name via ipcMain.on', () => {
     const listener = vi.fn()
-    // No send rows in the manifest yet — the first arrive with a later strangler batch.
-    const untypedOn = typedOn as unknown as (
-      channel: string,
-      listener: (...args: unknown[]) => void,
-    ) => void
-    untypedOn('lifecycle:busy', listener)
+    typedOn('lifecycle:busy', listener)
     expect(on).toHaveBeenCalledTimes(1)
     expect(on.mock.calls[0][0]).toBe('lifecycle:busy')
     expect(on.mock.calls[0][1]).toBe(listener)

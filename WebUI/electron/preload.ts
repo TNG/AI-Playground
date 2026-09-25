@@ -27,9 +27,14 @@ import type {
   ChannelArgs,
   ChannelResult,
   InvokeChannelName,
+  MessageBoxOptions,
   NamespaceBridge,
+  OpenDialogOptions,
   PushChannelName,
   PushPayload,
+  RawPushChannelName,
+  SaveDialogOptions,
+  SendChannelName,
 } from '@/types/ipcChannels'
 
 function listen<T>(channel: string, callback: (data: T) => void): () => void {
@@ -47,11 +52,21 @@ function invoke<N extends InvokeChannelName>(
   return ipcRenderer.invoke(channel, ...args) as unknown as Promise<ChannelResult<N>>
 }
 
+function send<N extends SendChannelName>(channel: N, ...args: ChannelArgs<N>): void {
+  ipcRenderer.send(channel, ...args)
+}
+
 function onPush<N extends PushChannelName>(
   channel: N,
   cb: (data: PushPayload<N>) => void,
 ): () => void {
   return listen(channel, cb)
+}
+
+// Raw pushes keep the legacy member shape: the callback is registered with
+// `ipcRenderer.on` and no unsubscribe is returned.
+function onRaw<N extends RawPushChannelName>(channel: N, cb: (data: PushPayload<N>) => void): void {
+  listen(channel, cb)
 }
 
 contextBridge.exposeInMainWorld('envVars', {
@@ -64,7 +79,7 @@ contextBridge.exposeInMainWorld('envVars', {
   gitTag: import.meta.env.VITE_GIT_TAG ?? '',
 })
 contextBridge.exposeInMainWorld('electronAPI', {
-  startDrag: (fileName: string) => ipcRenderer.send('ondragstart', fileName),
+  startDrag: (fileName: string) => send('ondragstart', fileName),
   getFilePath: (file: File) => webUtils.getPathForFile(file),
   getServices: () => invoke('getServices'),
   getBackendAuthToken: (serviceName: string) => invoke('getBackendAuthToken', serviceName),
@@ -88,33 +103,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getInstalledBackendVersion: (serviceName: BackendServiceName) =>
     invoke('getInstalledBackendVersion', serviceName),
   getGitHubRepoUrl: () => invoke('getGitHubRepoUrl'),
-  openDevTools: () => ipcRenderer.send('openDevTools'),
-  setVerboseAgentLogging: (enabled: boolean) => ipcRenderer.send('setVerboseAgentLogging', enabled),
-  getDeveloperSettings: () => ipcRenderer.invoke('getDeveloperSettings'),
-  openUrl: (url: string) => ipcRenderer.send('openUrl', url),
+  openDevTools: () => send('openDevTools'),
+  setVerboseAgentLogging: (enabled: boolean) => send('setVerboseAgentLogging', enabled),
+  openUrl: (url: string) => send('openUrl', url),
   getLocaleSettings: () => invoke('getLocaleSettings'),
   updateLocalSettings: (updates: Partial<LocalSettings>) => invoke('updateLocalSettings', updates),
   getLocalSettings: () => invoke('getLocalSettings'),
   detectHardwareForModeRecommendation: () => invoke('detectHardwareForModeRecommendation'),
-  getWinSize: () => ipcRenderer.invoke('getWinSize'),
-  setWinSize: (width: number, height: number) => ipcRenderer.invoke('setWinSize', width, height),
-  showSaveDialog: (options: Electron.SaveDialogOptions) =>
-    ipcRenderer.invoke('showSaveDialog', options),
-  showMessageBox: (options: Electron.MessageBoxOptions) =>
-    ipcRenderer.invoke('showMessageBox', options),
-  showMessageBoxSync: (options: Electron.MessageBoxSyncOptions) =>
-    ipcRenderer.invoke('showMessageBox', options),
-  dragWinToMoveStart: (x: number, y: number) => ipcRenderer.send('dragWinToMoveStart', x, y),
-  dragWinToMove: (x: number, y: number) => ipcRenderer.send('dragWinToMove', x, y),
-  dragWinToMoveStop: () => ipcRenderer.send('dragWinToMoveStop'),
-  setIgnoreMouseEvents: (igrnore: boolean) => ipcRenderer.send('setIgnoreMouseEvents', igrnore),
-  miniWindow: () => ipcRenderer.send('miniWindow'),
-  exitApp: () => ipcRenderer.send('exitApp'),
+  getWinSize: () => invoke('getWinSize'),
+  setWinSize: (width: number, height: number) => invoke('setWinSize', width, height),
+  showSaveDialog: (options: SaveDialogOptions) => invoke('showSaveDialog', options),
+  showMessageBox: (options: MessageBoxOptions) => invoke('showMessageBox', options),
+  miniWindow: () => send('miniWindow'),
+  exitApp: () => send('exitApp'),
   getInitialPage: () => invoke('getInitialPage'),
   getDemoModeSettings: () => invoke('getDemoModeSettings'),
-  showOpenDialog: (options: Electron.OpenDialogOptions) =>
-    ipcRenderer.invoke('showOpenDialog', options),
-  saveImage: (url: string) => ipcRenderer.send('saveImage', url),
+  showOpenDialog: (options: OpenDialogOptions) => invoke('showOpenDialog', options),
+  saveImage: (url: string) => send('saveImage', url),
   saveImageToMediaInput: (dataUri: string) => invoke('saveImageToMediaInput', dataUri),
   saveAudioToMediaInput: (dataUri: string) => invoke('saveAudioToMediaInput', dataUri),
   saveGeneratedAudio: (audioBase64: string, filename: string, options?: { overwrite?: boolean }) =>
@@ -123,11 +128,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteGeneratedAudio: (filePath: string) => invoke('deleteGeneratedAudio', filePath),
   readAipgMediaAsBase64: (url: string) => invoke('readAipgMediaAsBase64', url),
   openImageWin: (url: string, title: string, width: number, height: number) =>
-    ipcRenderer.send('openImageWin', url, title, width, height),
-  screenChange: (callback: (width: number, height: number) => void) =>
-    ipcRenderer.on('display-metrics-changed', (_event, width: number, height: number) =>
-      callback(width, height),
-    ),
+    send('openImageWin', url, title, width, height),
+  screenChange: (callback: (metrics: { width: number; height: number }) => void) =>
+    onRaw('display-metrics-changed', callback),
   existsPath: (path: string) => invoke('existsPath', path),
   addDocumentToRAGList: (doc: IndexedDocument, phisonKmConfig?: PhisonKmIngestConfig) =>
     invoke('addDocumentToRAGList', doc, phisonKmConfig),
@@ -142,9 +145,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadModels: () => invoke('loadModels'),
   getLaminarConfig: () => invoke('getLaminarConfig'),
   laminarTelemetryEvent: (name: string, payload: string) =>
-    ipcRenderer.send('laminarTelemetryEvent', name, payload),
-  zoomIn: () => ipcRenderer.invoke('zoomIn'),
-  zoomOut: () => ipcRenderer.invoke('zoomOut'),
+    send('laminarTelemetryEvent', name, payload),
+  zoomIn: () => invoke('zoomIn'),
+  zoomOut: () => invoke('zoomOut'),
   getDownloadedGGUFLLMs: () => invoke('getDownloadedGGUFLLMs'),
   getDownloadedOpenVINOLLMModels: () => invoke('getDownloadedOpenVINOLLMModels'),
   getDownloadedEmbeddingModels: () => invoke('getDownloadedEmbeddingModels'),
@@ -157,26 +160,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
     isEncryptionAvailable: () => ipcRenderer.invoke('safeStorage:isEncryptionAvailable'),
     enablePlainTextEncryption: () => ipcRenderer.invoke('safeStorage:enablePlainTextEncryption'),
   },
-  openImageWithSystem: (url: string) => ipcRenderer.send('openImageWithSystem', url),
-  openImageInFolder: (url: string) => ipcRenderer.send('openImageInFolder', url),
-  setFullScreen: (enable: boolean) => ipcRenderer.send('setFullScreen', enable),
-  onDebugLog: (callback: (data: { level: string; source: string; message: string }) => void) =>
-    ipcRenderer.on('debugLog', (_event, value) => callback(value)),
+  openImageWithSystem: (url: string) => send('openImageWithSystem', url),
+  openImageInFolder: (url: string) => send('openImageInFolder', url),
+  setFullScreen: (enable: boolean) => send('setFullScreen', enable),
+  onDebugLog: (
+    callback: (data: { level: 'error' | 'warn' | 'info'; source: string; message: string }) => void,
+  ) => onRaw('debugLog', callback),
   getComfyUiDefaultParameters: () => invoke('getComfyUiDefaultParameters'),
   getLlamaCppDefaultParameters: () => invoke('getLlamaCppDefaultParameters'),
   detectPhisonSsd: () => invoke('detectPhisonSsd'),
   detectOem: () => invoke('detectOem'),
   onServiceSetUpProgress: (callback: (data: SetupProgress) => void) =>
-    ipcRenderer.on('serviceSetUpProgress', (_event, value) => callback(value)),
+    onRaw('serviceSetUpProgress', callback),
   onKernelEvent: (callback: (event: import('../src/types/kernelEvents').KernelEvent) => void) =>
     listen('kernel:event', callback),
   getKernelSnapshot: () =>
     ipcRenderer.invoke('kernel:getSnapshot') as Promise<
       import('../src/types/kernelEvents').KernelSnapshot
     >,
-  setLifecycleBusy: (busy: boolean) => ipcRenderer.send('lifecycle:busy', busy),
+  setLifecycleBusy: (busy: boolean) => send('lifecycle:busy', busy),
   onShowToast: (callback: (data: { type: string; message: string }) => void) =>
-    ipcRenderer.on('show-toast', (_event, data) => callback(data)),
+    onRaw('show-toast', callback),
   ensureBackendReadiness: (
     serviceName: string,
     llmModelName: string,
@@ -200,7 +204,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   rememberChatBackendLoad: (
     args: NonNullable<import('../src/types/chatIpc').ChatModelConfig['readiness']>,
   ) => invoke('rememberChatBackendLoad', args),
-  ensureComfyUIBackendRunning: () => invoke('ensureComfyUIBackendRunning'),
   artifact: {
     run: (request: ArtifactRunRequest, options?: { queue?: 'fail-fast' | 'queue' }) =>
       invoke('artifact:run', cloneForIpc(request), options),

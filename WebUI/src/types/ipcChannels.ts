@@ -68,6 +68,44 @@ export type IpcMutationResult = IpcOk | IpcFail
 export type IpcDataResult<T> = { success: true; data: T } | IpcFail
 export type IpcStatusError = { status: 'error'; error: string }
 
+// Structural mirrors of the Electron dialog option/result shapes the rows below
+// carry — stated literally so this file never imports from the 'electron' package.
+export type OpenDialogOptions = {
+  title?: string
+  defaultPath?: string
+  buttonLabel?: string
+  filters?: Array<{ name: string; extensions: string[] }>
+  properties?: Array<
+    | 'openFile'
+    | 'openDirectory'
+    | 'multiSelections'
+    | 'showHiddenFiles'
+    | 'createDirectory'
+    | 'promptToCreate'
+    | 'noResolveAliases'
+    | 'treatPackageAsDirectory'
+    | 'dontAddToRecent'
+  >
+}
+export type OpenDialogResult = { canceled: boolean; filePaths: string[] }
+export type SaveDialogOptions = {
+  title?: string
+  defaultPath?: string
+  filters?: Array<{ name: string; extensions: string[] }>
+}
+export type SaveDialogResult = { canceled: boolean; filePath?: string }
+export type MessageBoxOptions = {
+  type?: 'none' | 'info' | 'error' | 'question' | 'warning'
+  buttons?: string[]
+  defaultId?: number
+  title?: string
+  message: string
+  detail?: string
+  checkboxLabel?: string
+  checkboxChecked?: boolean
+}
+export type MessageBoxResult = { response: number; checkboxChecked: boolean }
+
 export const CHANNELS = {
   /** Hydrate the conversation store once before mount: thread files, metadata, last main key. */
   'conversations:bootstrap': {
@@ -541,13 +579,6 @@ export const CHANNELS = {
     args: [] as unknown as readonly [NonNullable<ChatModelConfig['readiness']>],
     result: null as unknown as IpcMutationResult,
   },
-  /** Boot the ComfyUI service if it is not running (idempotent, `starting` while booting). */
-  ensureComfyUIBackendRunning: {
-    kind: 'invoke',
-    owner: 'main',
-    args: [] as const,
-    result: null as unknown as { success: boolean; error?: string; starting?: boolean },
-  },
   /** App locale plus the settings.json language override. */
   getLocaleSettings: {
     kind: 'invoke',
@@ -919,6 +950,172 @@ export const CHANNELS = {
     args: [] as const,
     result: null as unknown as { success: boolean; url?: string; error?: string },
   },
+
+  // ── Window chrome, dialogs, one-way sends and raw pushes (batch 8 flats) ──
+
+  /** The main window's current size plus the chat content height budget. */
+  getWinSize: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as { width: number; height: number; maxChatContentHeight: number },
+  },
+  /** Resize the main window, keeping its bottom edge anchored. */
+  setWinSize: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [number, number],
+    result: null as unknown as void,
+  },
+  /** Bump the main window's zoom level one step in. */
+  zoomIn: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as void,
+  },
+  /** Bump the main window's zoom level one step out. */
+  zoomOut: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as void,
+  },
+  /** The OS open-file/folder dialog over the caller's window. */
+  showOpenDialog: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [OpenDialogOptions],
+    result: null as unknown as OpenDialogResult,
+  },
+  /** The OS save dialog; resolves undefined when the dialog itself errors out. */
+  showSaveDialog: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [SaveDialogOptions],
+    result: null as unknown as SaveDialogResult | undefined,
+  },
+  /** The OS message box over the caller's window; `response` is the button index. */
+  showMessageBox: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [MessageBoxOptions],
+    result: null as unknown as MessageBoxResult,
+  },
+  /** Start an OS drag of a generated file (history rows, image results). */
+  ondragstart: {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    member: 'startDrag' as const,
+  },
+  /** Detach the main window's DevTools window. */
+  openDevTools: {
+    kind: 'send',
+    owner: 'main',
+    args: [] as const,
+  },
+  /** Flip the Pi harness's verbose agent log switch. */
+  setVerboseAgentLogging: {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [boolean],
+  },
+  /** Open an external URL in the OS browser. */
+  openUrl: {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+  },
+  /** Minimize the main window. */
+  miniWindow: {
+    kind: 'send',
+    owner: 'main',
+    args: [] as const,
+  },
+  /** Quit the app outright (reaches the gated teardown in `before-quit`). */
+  exitApp: {
+    kind: 'send',
+    owner: 'main',
+    args: [] as const,
+  },
+  /** Save a generated image to a file the user picks in a save dialog. */
+  saveImage: {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+  },
+  /** Open a generated image in its own viewer window. */
+  openImageWin: {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, number, number],
+  },
+  /** Open a media URL's file with the OS default image viewer. */
+  openImageWithSystem: {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+  },
+  /** Reveal a media URL's file in the OS file manager. */
+  openImageInFolder: {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+  },
+  /** Enter or leave full screen on the main window. */
+  setFullScreen: {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [boolean],
+  },
+  /** Forward one serialized Laminar telemetry event to main's tracing half. */
+  laminarTelemetryEvent: {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+  },
+  /** The renderer's busy flag for the close policy; fire-and-forget. */
+  'lifecycle:busy': {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [boolean],
+    member: 'setLifecycleBusy' as const,
+  },
+  /** The primary display's new work-area size, right after it changed. */
+  'display-metrics-changed': {
+    kind: 'push',
+    owner: 'main',
+    payload: null as unknown as { width: number; height: number },
+    raw: true as const,
+    member: 'screenChange' as const,
+  },
+  /** A mirrored log line for the renderer's debug console. */
+  debugLog: {
+    kind: 'push',
+    owner: 'main',
+    payload: null as unknown as {
+      level: 'error' | 'warn' | 'info'
+      source: string
+      message: string
+    },
+    raw: true as const,
+  },
+  /** Install/update progress for the setup wizard's progress list. */
+  serviceSetUpProgress: {
+    kind: 'push',
+    owner: 'main',
+    payload: null as unknown as SetupProgress,
+    raw: true as const,
+  },
+  /** A toast a backend wants shown (ComfyUI setup errors and friends). */
+  'show-toast': {
+    kind: 'push',
+    owner: 'main',
+    payload: null as unknown as { type: string; message: string },
+    raw: true as const,
+    member: 'onShowToast' as const,
+  },
 } satisfies Record<string, IpcRow>
 
 export type ChannelManifest = typeof CHANNELS
@@ -932,6 +1129,10 @@ export type SendChannelName = {
 }[ChannelName]
 export type PushChannelName = {
   [K in ChannelName]: ChannelManifest[K]['kind'] extends 'push' ? K : never
+}[ChannelName]
+/** Push channels whose renderer listener returns no unsubscribe (raw `ipcRenderer.on`). */
+export type RawPushChannelName = {
+  [K in ChannelName]: ChannelManifest[K] extends PushRow & { raw: true } ? K : never
 }[ChannelName]
 
 export type ChannelArgs<N extends ChannelName> = ChannelManifest[N] extends {

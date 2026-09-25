@@ -284,13 +284,7 @@ type AgentToolImage = {
   label: string
 }
 
-type AgentToolExecuteRequest = {
-  requestId: string
-  /** Model-side tool call id, matching the UI message part (progress keying). */
-  toolCallId: string
-  toolName: string
-  input: Record<string, unknown>
-}
+type AgentToolExecuteRequest = import('./types/agentIpc').AgentToolExecuteRequest
 
 type electronAPI = {
   startDrag: (fileName: string) => void
@@ -598,54 +592,7 @@ type electronAPI = {
     ): Promise<void>
     removeServer(serverId: string): Promise<void>
   }
-  agentMode: {
-    startTurn(
-      turnId: string,
-      prompt: string,
-      config: AgentModeTurnConfig,
-    ): Promise<{ success: boolean; error?: string }>
-    cancel(): Promise<void>
-    resetSession(): Promise<void>
-    deleteSession(sessionId: string): Promise<{ success: boolean; error?: string }>
-    bootstrapSessions(): Promise<
-      import('./types/agentSessionIpc').AgentSessionBootstrap | { status: 'error'; error: string }
-    >
-    migrateSessions(
-      legacy: import('./types/agentSessionIpc').LegacyAgentSessionState,
-    ): Promise<
-      import('./types/agentSessionIpc').AgentSessionBootstrap | { status: 'error'; error: string }
-    >
-    saveSession(
-      record: import('./types/agentSessionIpc').AgentSessionRecordWire,
-    ): Promise<{ success: boolean; error?: string }>
-    saveActiveSessionId(id: string | null): Promise<{ success: boolean; error?: string }>
-    readWorkspaceState(): Promise<
-      | { success: true; section: import('./types/agentWorkspaceIpc').AgentWorkspaceState | null }
-      | { success: false; error: string }
-    >
-    migrateWorkspaceState(
-      payload: unknown,
-    ): Promise<{ success: true } | { success: false; error: string }>
-    writeWorkspaceState(
-      value: unknown,
-    ): Promise<{ success: true } | { success: false; error: string }>
-    /**
-     * Copy an attached file into the workspace, so the agent can reach it with
-     * its file tools. Resolves with the workspace-relative path it was saved as.
-     */
-    importAttachment(
-      workspaceDir: string,
-      name: string,
-      bytes: Uint8Array,
-    ): Promise<{ success: boolean; path?: string; error?: string }>
-    listCapabilities(options: {
-      workspaceDir?: string
-      toolSpecs?: AgentToolSpec[]
-      mcpServerIds?: string[]
-    }): Promise<AgentCapabilityInfo[]>
-    onExecuteTool(callback: (data: AgentToolExecuteRequest) => void): () => void
-    submitToolResult(requestId: string, result: unknown, error?: string): Promise<void>
-  }
+  agentMode: import('./types/ipcChannels').NamespaceBridge<'agentMode'>
   games: {
     list(): Promise<GameLibraryEntry[]>
     read(dir: string): Promise<GameLibraryEntry | null>

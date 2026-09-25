@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { IpcMainInvokeEvent } from 'electron'
+import type { IpcMainInvokeEvent, WebContents } from 'electron'
 import type { ConversationSaveRequest } from '@/types/conversationIpc'
+import type { AgentToolExecuteRequest } from '@/types/agentIpc'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn(), on: vi.fn() },
 }))
 
-const { typedHandle, typedOn, ipcErrorText } = await import('../../kernel/typedIpc')
+const { typedHandle, typedOn, typedSend, ipcErrorText } = await import('../../kernel/typedIpc')
 const { ipcMain } = await import('electron')
 
 const handle = vi.mocked(ipcMain.handle)
@@ -51,6 +52,34 @@ describe('typed IPC registration', () => {
     expect(on).toHaveBeenCalledTimes(1)
     expect(on.mock.calls[0][0]).toBe('lifecycle:busy')
     expect(on.mock.calls[0][1]).toBe(listener)
+  })
+
+  it('typedSend forwards the push payload verbatim under the exact channel name', () => {
+    const send = vi.fn()
+    const sender = { send } as unknown as WebContents
+    const payload: AgentToolExecuteRequest = {
+      requestId: 'tool-req-1',
+      toolCallId: 'call-1',
+      toolName: 'comfyUI',
+      input: { prompt: 'a cat' },
+    }
+    typedSend(sender, 'agentMode:executeTool', payload)
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(send).toHaveBeenCalledWith('agentMode:executeTool', payload)
+  })
+
+  it('typedSend rejects a payload of the wrong shape', () => {
+    const send = vi.fn()
+    const sender = { send } as unknown as WebContents
+    const payload = { requestId: 'tool-req-1', toolCallId: 'call-1', input: {} }
+    typedSend(
+      sender,
+      'agentMode:executeTool',
+      // @ts-expect-error the dispatch always carries toolName; a payload without it is refused
+      payload,
+    )
+    // The refusal is type-level only — the wrapper adds no runtime validation.
+    expect(send).toHaveBeenCalledWith('agentMode:executeTool', payload)
   })
 
   it('ipcErrorText reads Error messages and stringifies anything else', () => {

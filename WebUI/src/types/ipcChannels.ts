@@ -1,3 +1,11 @@
+import type {
+  AgentCapabilityInfo,
+  AgentModeTurnConfig,
+  AgentToolExecuteRequest,
+  AgentToolSpec,
+} from './agentIpc'
+import type { AgentSessionBootstrap, AgentSessionRecordWire } from './agentSessionIpc'
+import type { AgentWorkspaceState } from './agentWorkspaceIpc'
 import type { ConversationBootstrap, ConversationSaveRequest } from './conversationIpc'
 import type { MediaItemsBootstrap } from './mediaItemIpc'
 import type { RagDocumentSection } from './ragDocumentIpc'
@@ -153,6 +161,115 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [unknown],
     result: null as unknown as IpcMutationResult,
+  },
+  /** Run one agent turn on the Pi harness; the stream crosses the kernel bus. */
+  'agentMode:startTurn': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, AgentModeTurnConfig],
+    result: null as unknown as { success: boolean; error?: string },
+  },
+  /** Abort the running agent turn, if any. */
+  'agentMode:cancel': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as void,
+  },
+  /** Hard-reset the live Pi session and its workspace runtime. */
+  'agentMode:resetSession': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as void,
+  },
+  /** Delete one session's record file and main-side Pi state. */
+  'agentMode:deleteSession': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Hydrate the session-panel records once before mount: session files plus the active id. */
+  'agentMode:bootstrapSessions': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as AgentSessionBootstrap | IpcStatusError,
+  },
+  /** One-shot upload of the legacy persisted sessions; same result shape as bootstrap. */
+  'agentMode:migrateSessions': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [unknown],
+    result: null as unknown as AgentSessionBootstrap | IpcStatusError,
+  },
+  /** Upsert one session record file plus its index entry. */
+  'agentMode:saveSession': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [AgentSessionRecordWire],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Persist the active session id (null clears it). */
+  'agentMode:saveActiveSessionId': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string | null],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** The last-used workspace pointers; `section: null` means never-migrated, not failed. */
+  'agentMode:readWorkspaceState': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as { success: true; section: AgentWorkspaceState | null } | IpcFail,
+  },
+  /** One-shot legacy upload of the workspace pointers; writes only when absent. */
+  'agentMode:migrateWorkspaceState': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [unknown],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Replace the whole workspace-pointer section. */
+  'agentMode:writeWorkspaceState': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [unknown],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Copy an attached file into the workspace; the answer carries its relative path. */
+  'agentMode:importAttachment': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, Uint8Array],
+    result: null as unknown as { success: true; path: string } | IpcFail,
+  },
+  /** What the agent could be equipped with, for the Capabilities checkboxes. */
+  'agentMode:listCapabilities': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [
+      { workspaceDir?: string; toolSpecs?: AgentToolSpec[]; mcpServerIds?: string[] },
+    ],
+    result: null as unknown as AgentCapabilityInfo[],
+  },
+  /** Main hands a renderer-implemented tool call to the window to run. */
+  'agentMode:executeTool': {
+    kind: 'push',
+    owner: 'main',
+    payload: null as unknown as AgentToolExecuteRequest,
+  },
+  /** The renderer's answer to an executeTool dispatch, keyed by requestId. */
+  'agentMode:toolResult': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, unknown, string?],
+    result: null as unknown as void,
+    // `as const` keeps the override a literal: the row type's `member?: string`
+    // context would widen it to string, collapsing the bridge's key remap.
+    member: 'submitToolResult' as const,
   },
 } satisfies Record<string, IpcRow>
 

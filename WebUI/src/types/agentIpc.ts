@@ -78,6 +78,18 @@ export type AgentModeModelConfig = z.infer<typeof AgentModeModelConfigSchema>
 export type AgentToolSpec = z.infer<typeof AgentToolSpecSchema>
 export type AgentModeTurnConfig = z.infer<typeof AgentModeTurnConfigSchema>
 
+/**
+ * An `agentMode:executeTool` dispatch: main hands a renderer-implemented tool
+ * call to the window to run, and the renderer answers over `agentMode:toolResult`.
+ */
+export type AgentToolExecuteRequest = {
+  requestId: string
+  /** Model-side tool call id, matching the UI message part (progress keying). */
+  toolCallId: string
+  toolName: string
+  input: Record<string, unknown>
+}
+
 export type AgentCapabilityInfo = {
   id: string
   label: string

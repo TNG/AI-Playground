@@ -9,13 +9,16 @@ import {
   WarmupRequest,
   PhisonKmIngestConfig,
 } from '@/assets/js/store/textInference'
-import type { AgentModeTurnConfig } from '@/types/agentIpc'
+import type { AgentModeTurnConfig, AgentToolExecuteRequest, AgentToolSpec } from '@/types/agentIpc'
+import type { AgentSessionRecordWire } from '@/types/agentSessionIpc'
 import type { ConversationSaveRequest } from '@/types/conversationIpc'
 import type {
   ChannelArgs,
   ChannelResult,
   InvokeChannelName,
   NamespaceBridge,
+  PushChannelName,
+  PushPayload,
 } from '@/types/ipcChannels'
 
 function listen<T>(channel: string, callback: (data: T) => void): () => void {
@@ -31,6 +34,13 @@ function invoke<N extends InvokeChannelName>(
   ...args: ChannelArgs<N>
 ): Promise<ChannelResult<N>> {
   return ipcRenderer.invoke(channel, ...args) as unknown as Promise<ChannelResult<N>>
+}
+
+function onPush<N extends PushChannelName>(
+  channel: N,
+  cb: (data: PushPayload<N>) => void,
+): () => void {
+  return listen(channel, cb)
 }
 
 contextBridge.exposeInMainWorld('envVars', {
@@ -390,51 +400,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   agentMode: {
     startTurn: (turnId: string, prompt: string, config: AgentModeTurnConfig) =>
-      ipcRenderer.invoke('agentMode:startTurn', turnId, prompt, cloneForIpc(config)),
-    cancel: () => ipcRenderer.invoke('agentMode:cancel'),
-    resetSession: () => ipcRenderer.invoke('agentMode:resetSession'),
-    deleteSession: (sessionId: string) => ipcRenderer.invoke('agentMode:deleteSession', sessionId),
-    bootstrapSessions: () => ipcRenderer.invoke('agentMode:bootstrapSessions'),
-    migrateSessions: (legacy: unknown) =>
-      ipcRenderer.invoke('agentMode:migrateSessions', cloneForIpc(legacy)),
-    saveSession: (record: unknown) =>
-      ipcRenderer.invoke('agentMode:saveSession', cloneForIpc(record)),
-    saveActiveSessionId: (id: string | null) =>
-      ipcRenderer.invoke('agentMode:saveActiveSessionId', id),
-    readWorkspaceState: () =>
-      ipcRenderer.invoke('agentMode:readWorkspaceState') as Promise<
-        | {
-            success: true
-            section: import('../src/types/agentWorkspaceIpc').AgentWorkspaceState | null
-          }
-        | { success: false; error: string }
-      >,
+      invoke('agentMode:startTurn', turnId, prompt, cloneForIpc(config)),
+    cancel: () => invoke('agentMode:cancel'),
+    resetSession: () => invoke('agentMode:resetSession'),
+    deleteSession: (sessionId: string) => invoke('agentMode:deleteSession', sessionId),
+    bootstrapSessions: () => invoke('agentMode:bootstrapSessions'),
+    migrateSessions: (legacy: unknown) => invoke('agentMode:migrateSessions', cloneForIpc(legacy)),
+    saveSession: (record: AgentSessionRecordWire) =>
+      invoke('agentMode:saveSession', cloneForIpc(record)),
+    saveActiveSessionId: (id: string | null) => invoke('agentMode:saveActiveSessionId', id),
+    readWorkspaceState: () => invoke('agentMode:readWorkspaceState'),
     migrateWorkspaceState: (payload: unknown) =>
-      ipcRenderer.invoke('agentMode:migrateWorkspaceState', cloneForIpc(payload)) as Promise<
-        { success: true } | { success: false; error: string }
-      >,
+      invoke('agentMode:migrateWorkspaceState', cloneForIpc(payload)),
     writeWorkspaceState: (value: unknown) =>
-      ipcRenderer.invoke('agentMode:writeWorkspaceState', cloneForIpc(value)) as Promise<
-        { success: true } | { success: false; error: string }
-      >,
+      invoke('agentMode:writeWorkspaceState', cloneForIpc(value)),
     importAttachment: (workspaceDir: string, name: string, bytes: Uint8Array) =>
-      ipcRenderer.invoke('agentMode:importAttachment', workspaceDir, name, bytes),
+      invoke('agentMode:importAttachment', workspaceDir, name, bytes),
     listCapabilities: (options: {
       workspaceDir?: string
-      toolSpecs?: unknown[]
+      toolSpecs?: AgentToolSpec[]
       mcpServerIds?: string[]
-    }) => ipcRenderer.invoke('agentMode:listCapabilities', options),
-    onExecuteTool: (
-      callback: (data: {
-        requestId: string
-        toolCallId: string
-        toolName: string
-        input: unknown
-      }) => void,
-    ) => listen('agentMode:executeTool', callback),
+    }) => invoke('agentMode:listCapabilities', options),
+    onExecuteTool: (callback: (data: AgentToolExecuteRequest) => void) =>
+      onPush('agentMode:executeTool', callback),
     submitToolResult: (requestId: string, result: unknown, error?: string) =>
-      ipcRenderer.invoke('agentMode:toolResult', requestId, result, error),
-  },
+      invoke('agentMode:toolResult', requestId, result, error),
+  } satisfies NamespaceBridge<'agentMode'>,
   games: {
     list: () => ipcRenderer.invoke('games:list'),
     read: (dir: string) => ipcRenderer.invoke('games:read', dir),

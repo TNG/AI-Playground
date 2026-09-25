@@ -2866,48 +2866,42 @@ function initEventHandle() {
   // conversations above — the record file and its index entry live here, Pi's
   // own session files stay with Pi. Deletes fold into `agentMode:deleteSession`
   // below, next to the Pi-side teardown.
-  ipcMain.handle('agentMode:bootstrapSessions', async () => {
+  typedHandle('agentMode:bootstrapSessions', async () => {
     try {
       return await bootstrapAgentSessions()
     } catch (e) {
-      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
+      return { status: 'error' as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle(
-    'agentMode:migrateSessions',
-    async (_event: IpcMainInvokeEvent, payload: unknown) => {
-      try {
-        return await migrateLegacyAgentSessions(LegacyAgentSessionStateSchema.parse(payload))
-      } catch (e) {
-        return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
-  )
+  typedHandle('agentMode:migrateSessions', async (_event, payload) => {
+    try {
+      return await migrateLegacyAgentSessions(LegacyAgentSessionStateSchema.parse(payload))
+    } catch (e) {
+      return { status: 'error' as const, error: ipcErrorText(e) }
+    }
+  })
 
-  ipcMain.handle('agentMode:saveSession', async (_event: IpcMainInvokeEvent, payload: unknown) => {
+  typedHandle('agentMode:saveSession', async (_event, payload) => {
     try {
       await saveAgentSession(AgentSessionRecordSchema.parse(payload))
       return { success: true as const }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle(
-    'agentMode:saveActiveSessionId',
-    async (_event: IpcMainInvokeEvent, id: unknown) => {
-      try {
-        if (typeof id !== 'string' && id !== null) {
-          throw new Error('activeSessionId must be a string or null')
-        }
-        await saveAgentSessionActiveId(id)
-        return { success: true as const }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+  typedHandle('agentMode:saveActiveSessionId', async (_event, id) => {
+    try {
+      if (typeof id !== 'string' && id !== null) {
+        throw new Error('activeSessionId must be a string or null')
       }
-    },
-  )
+      await saveAgentSessionActiveId(id)
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: ipcErrorText(e) }
+    }
+  })
 
   // Generated-media gallery records (step 8, §6.1): same one-writer contract
   // as the conversations and agent sessions above — one JSON per item plus an
@@ -3607,60 +3601,51 @@ function initEventHandle() {
   // Stream chunks and live tool output cross the kernel event bus
   // (electron/kernel/kernelBus.ts) as 'agent-chunk' / 'agent-tool-progress' /
   // 'agent-tool-image' / 'agent-turn-done' events.
-  ipcMain.handle(
-    'agentMode:startTurn',
-    async (_event, turnId: string, prompt: string, config: unknown) => {
-      const parsed = AgentModeTurnConfigSchema.safeParse(config)
-      if (!parsed.success) {
-        return { success: false, error: parsed.error.message }
-      }
-      return await startAgentTurn(turnId, prompt, parsed.data)
-    },
-  )
+  typedHandle('agentMode:startTurn', async (_event, turnId, prompt, config) => {
+    const parsed = AgentModeTurnConfigSchema.safeParse(config)
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.message }
+    }
+    return await startAgentTurn(turnId, prompt, parsed.data)
+  })
 
-  ipcMain.handle('agentMode:cancel', () => {
+  typedHandle('agentMode:cancel', () => {
     cancelAgentTurn()
   })
 
-  ipcMain.handle('agentMode:resetSession', async () => {
+  typedHandle('agentMode:resetSession', async () => {
     await resetAgentSession()
   })
 
   // Step 8 (§6.1): the last-used workspace pointers are kernel-owned
   // (agent-workspace.json); the store becomes a live projection.
-  ipcMain.handle('agentMode:readWorkspaceState', async () => {
+  typedHandle('agentMode:readWorkspaceState', async () => {
     try {
       return { success: true as const, section: await readAgentWorkspaceState() }
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 
-  ipcMain.handle(
-    'agentMode:migrateWorkspaceState',
-    async (_event: IpcMainInvokeEvent, payload: unknown) => {
-      try {
-        await migrateAgentWorkspaceState(payload)
-        return { success: true as const }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
-  )
+  typedHandle('agentMode:migrateWorkspaceState', async (_event, payload) => {
+    try {
+      await migrateAgentWorkspaceState(payload)
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: ipcErrorText(e) }
+    }
+  })
 
-  ipcMain.handle(
-    'agentMode:writeWorkspaceState',
-    async (_event: IpcMainInvokeEvent, value: unknown) => {
-      try {
-        await writeAgentWorkspaceState(value)
-        return { success: true as const }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
-  )
+  typedHandle('agentMode:writeWorkspaceState', async (_event, value) => {
+    try {
+      await writeAgentWorkspaceState(value)
+      return { success: true as const }
+    } catch (e) {
+      return { success: false as const, error: ipcErrorText(e) }
+    }
+  })
 
-  ipcMain.handle('agentMode:deleteSession', async (_event, sessionId: unknown) => {
+  typedHandle('agentMode:deleteSession', async (_event, sessionId) => {
     // Both halves run even if one fails. Invalid ids return `{success:false}`.
     try {
       if (typeof sessionId !== 'string') throw new Error('session id must be a string')
@@ -3669,43 +3654,31 @@ function initEventHandle() {
       if (!record.success) return record
       return live
     } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
+      return { success: false as const, error: ipcErrorText(e) }
     }
   })
 
   // Copy a file the user attached into the agent's workspace, so the agent can
   // reach it with its own file tools (see agent/workspaceAttachments.ts).
-  ipcMain.handle(
-    'agentMode:importAttachment',
-    (_event, workspaceDir: string, name: string, bytes: Uint8Array) => {
-      try {
-        return { success: true, ...importAttachment(workspaceDir, name, bytes) }
-      } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : String(error) }
-      }
-    },
-  )
+  typedHandle('agentMode:importAttachment', (_event, workspaceDir, name, bytes) => {
+    try {
+      return { success: true as const, ...importAttachment(workspaceDir, name, bytes) }
+    } catch (error) {
+      return { success: false as const, error: ipcErrorText(error) }
+    }
+  })
 
   // What the agent can be equipped with, for the Capabilities checkboxes in
   // Agent Settings (availability depends on the turn's tool specs / MCP config).
-  ipcMain.handle(
-    'agentMode:listCapabilities',
-    (
-      _event,
-      options: { workspaceDir?: string; toolSpecs?: AgentToolSpec[]; mcpServerIds?: string[] },
-    ) => {
-      return listAgentCapabilities(options ?? {})
-    },
-  )
+  typedHandle('agentMode:listCapabilities', (_event, options) => {
+    return listAgentCapabilities(options ?? {})
+  })
 
   // Renderer answers a main→renderer 'agentMode:executeTool' dispatch (bridged
   // host tool execution, e.g. image generation) with the tool result or error.
-  ipcMain.handle(
-    'agentMode:toolResult',
-    (_event, requestId: string, result: unknown, error?: string) => {
-      submitAgentToolResult(requestId, result, error)
-    },
-  )
+  typedHandle('agentMode:toolResult', (_event, requestId, result, error) => {
+    return submitAgentToolResult(requestId, result, error)
+  })
 
   // Game library (see gameLibrary.ts): the folders the Game Agent preset writes
   // into, plus the generated gallery page.

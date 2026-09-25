@@ -464,7 +464,7 @@ export async function shutdownAgentMode(): Promise<void> {
  */
 export async function deleteAgentSession(
   sessionId: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: true } | { success: false; error: string }> {
   try {
     if (active?.sessionId === sessionId) {
       cancelAgentTurn()

@@ -1,8 +1,10 @@
-import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
+import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import type {
   ChannelArgs,
   ChannelResult,
   InvokeChannelName,
+  PushChannelName,
+  PushPayload,
   SendChannelName,
 } from '@/types/ipcChannels'
 
@@ -21,6 +23,14 @@ export function typedOn<N extends SendChannelName>(
   listener: (event: IpcMainEvent, ...args: ChannelArgs<N>) => void,
 ): void {
   ipcMain.on(channel, listener as never)
+}
+
+export function typedSend<N extends PushChannelName>(
+  sender: WebContents,
+  channel: N,
+  payload: PushPayload<N>,
+): void {
+  sender.send(channel, payload)
 }
 
 export const ipcErrorText = (e: unknown): string => (e instanceof Error ? e.message : String(e))

@@ -23,7 +23,6 @@ import {
   BrowserWindow,
   dialog,
   IpcMainEvent,
-  IpcMainInvokeEvent,
   nativeImage,
   net,
   protocol,
@@ -37,17 +36,13 @@ import {
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import fs from 'fs'
-import { exec, execFile } from 'node:child_process'
-import { promisify } from 'node:util'
-
-const execAsync = promisify(exec)
+import { exec } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { PathsManager } from './kernel/pathsManager'
 import {
   LocalSettingsSchema,
   resolveProductMode,
   type LocalSettings,
-  type ProductMode,
 } from './kernel/localSettings.ts'
 import { writableConfigFile } from './kernel/userConfig.ts'
 import { appLoggerInstance } from './observability/logger.ts'
@@ -123,14 +118,13 @@ import {
 } from './agent/piAgentManager'
 import { getKernelSnapshot, onKernelEvent, setKernelEventWindow } from './kernel/kernelBus'
 import { registerInvokeHandlers, registerSendHandlers } from './kernel/ipcRegistries'
-import { ipcErrorText, ipcFail, typedHandle, typedOn, typedSend } from './kernel/typedIpc'
+import { typedOn, typedSend } from './kernel/typedIpc'
 import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecycle'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
 import { handleChatAnswer, rejectAllChatAsks } from './chat/chatAsk.ts'
 import type { ArtifactMissingModel } from '@/types/mediaRequests'
-import type { SpeechSynthesisRequest } from '@/types/speechIpc'
-import type { IpcMutationResult, IpcOk, IpcOkWith } from '@/types/ipcChannels'
+import type { IpcOkWith } from '@/types/ipcChannels'
 import {
   cancelActiveArtifactRun,
   setArtifactRunnerDeps,
@@ -152,7 +146,6 @@ import {
   rememberChatBackendLoad,
   setChatReadinessDeps,
   setLastChatBackendLoadActive,
-  type ChatReadinessArgs,
 } from './chat/chatReadiness'
 import { piAgentCallsActive } from './agent/piCallTiming'
 import { freeMemoryAndUnloadModels } from './artifact/comfyClient'
@@ -205,6 +198,11 @@ import { buildPermissionsRegistry } from './kernel/registries/permissions'
 import { buildWebBrowserRegistry } from './kernel/registries/webBrowser'
 import { buildArtifactRegistry } from './kernel/registries/artifact'
 import { buildCloudProviderRegistry } from './kernel/registries/cloudProvider'
+import {
+  buildCoreInvokeRegistry,
+  getAssetPathFromUrl,
+  type CoreDeps,
+} from './kernel/registries/core'
 import { buildKernelRegistry } from './kernel/registries/kernel'
 import { buildLifecycleSendRegistry } from './kernel/registries/lifecycle'
 import { buildMediaItemsRegistry } from './kernel/registries/mediaItems'
@@ -279,18 +277,9 @@ import {
 } from './adapters/hardware/screenCapture.ts'
 import { packagedResourcesRoot, writableConfigRoot } from './kernel/aipgRoot.ts'
 import { loadDemoProfile, type DemoProfile } from './persist/demoProfile.ts'
-import type { ModelPaths } from '@/assets/js/store/models.ts'
-import type {
-  IndexedDocument,
-  EmbedInquiry,
-  WarmupRequest,
-  PhisonKmIngestConfig,
-} from '@/assets/js/store/textInference.ts'
-import { BackendServiceName } from '@/assets/js/store/backendServices.ts'
 import {
   classifyDetectedDevices,
   detectGpuHardwareDevices,
-  type GpuHardwareDevice,
 } from './adapters/hardware/hardwareDiscovery.ts'
 import { registerSettingsPersist } from './adapters/hardware/defaultDeviceSelection.ts'
 import { appShutdown } from './kernel/shutdown.ts'
@@ -1554,205 +1543,13 @@ function initEventHandle() {
     }
   })
 
-  typedHandle('getLocaleSettings', async () => {
-    return {
-      locale: app.getLocale(),
-      languageOverride: settings.languageOverride,
-    }
-  })
-
-  typedHandle('getLocalSettings', () => {
-    return LocalSettingsSchema.parse(settings)
-  })
-
-  typedHandle('updateLocalSettings', (_event, updates: Partial<LocalSettings>) => {
-    Object.assign(settings, updates)
-    // Any of these can change which preset files the catalog reads or injects.
-    if (
-      'productMode' in updates ||
-      'isDemoModeEnabled' in updates ||
-      'isAgentPresetEnabled' in updates ||
-      'showDebugSettingsInUI' in updates
-    ) {
-      invalidatePresetCatalog()
-    }
-    const shouldReloadDemoProfile =
-      settings.isDemoModeEnabled && ('productMode' in updates || 'isDemoModeEnabled' in updates)
-    if (shouldReloadDemoProfile) {
-      const modeDemoDir = getModeDemoDir(settings)
-      const baseDemoDir = path.join(modesDir, 'base', 'demo')
-      try {
-        demoProfile = loadDemoProfile(modeDemoDir, baseDemoDir, appLogger)
-      } catch (e) {
-        appLogger.error(`Failed to reload demo profile after settings change: ${e}`, 'demo-profile')
-      }
-    }
-    persistLocalSettingsToDisk()
-    if (updates.disabledBackends) {
-      serviceRegistry?.setDisabledBackends(updates.disabledBackends)
-    }
-    appLogger.info(`Updated local settings: ${JSON.stringify(updates)}`, 'electron-backend')
-    return { success: true as const }
-  })
-
-  // ── Backend launch settings (step 8, §6.1) ─────────────────────────────
-  // The backendServices store's half of the kernel-owned settings file:
-  // the launch flags and version pins hydrate from settings.json at boot and
-  // write through on change (updateLocalSettings above), replacing the old
-  // renderer-persisted Pinia key. The device map is main-owned all along —
-  // selectDevice below writes it — so it is only ever read here.
-  typedHandle('getBackendLaunchSettings', () => ({
-    versionOverrides: settings.versionOverrides,
-    comfyUiParameters: settings.comfyUiParameters,
-    llamaCppParameters: settings.llamaCppParameters,
-    llamaCppBuildVariant: settings.llamaCppBuildVariant,
-    llamaCppOffloadDrive: settings.llamaCppOffloadDrive,
-    openvinoKvCacheU4: settings.openvinoKvCacheU4,
-    lastSelectedDevicePerBackend: settings.lastSelectedDevicePerBackend,
-  }))
-
-  // One-shot legacy upload from the pre-step-8 Pinia key. Per-field
-  // only-when-default: settings.json may already hold a value a previous
-  // partial migration wrote, and a null flag is a valid user choice that
-  // must not be mistaken for "never set".
-  typedHandle('migrateBackendLaunchSettings', (_event, payload: unknown) => {
-    const parsed = z
-      .object({
-        versionOverrides: z
-          .record(z.string(), z.object({ releaseTag: z.string().optional(), version: z.string() }))
-          .optional(),
-        comfyUiParameters: z.string().nullable().optional(),
-        llamaCppParameters: z.string().nullable().optional(),
-        llamaCppBuildVariant: z.enum(['standard', 'ssd-offload']).optional(),
-        llamaCppOffloadDrive: z.string().nullable().optional(),
-        openvinoKvCacheU4: z.boolean().optional(),
-      })
-      .safeParse(payload)
-    if (!parsed.success) {
-      return {
-        success: false as const,
-        error: `invalid launch settings payload: ${parsed.error.message}`,
-      }
-    }
-    const incoming = parsed.data
-    if (incoming.comfyUiParameters != null && settings.comfyUiParameters === null) {
-      settings.comfyUiParameters = incoming.comfyUiParameters
-    }
-    if (incoming.llamaCppParameters != null && settings.llamaCppParameters === null) {
-      settings.llamaCppParameters = incoming.llamaCppParameters
-    }
-    if (
-      incoming.llamaCppBuildVariant === 'ssd-offload' &&
-      settings.llamaCppBuildVariant === 'standard'
-    ) {
-      settings.llamaCppBuildVariant = incoming.llamaCppBuildVariant
-    }
-    if (incoming.llamaCppOffloadDrive != null && settings.llamaCppOffloadDrive === null) {
-      settings.llamaCppOffloadDrive = incoming.llamaCppOffloadDrive
-    }
-    if (incoming.openvinoKvCacheU4 === true && settings.openvinoKvCacheU4 === false) {
-      settings.openvinoKvCacheU4 = true
-    }
-    if (
-      incoming.versionOverrides &&
-      Object.keys(incoming.versionOverrides).length > 0 &&
-      Object.keys(settings.versionOverrides).length === 0
-    ) {
-      settings.versionOverrides = incoming.versionOverrides
-    }
-    persistLocalSettingsToDisk()
-    return { success: true as const }
-  })
-
   // ── Cloud Mode provider API keys ────────────────────────────────────────
   registerInvokeHandlers(
     buildCloudProviderRegistry({ cloudProviderKeyPath, readCloudProviderKey, getCloudProxy }),
   )
 
-  typedHandle('detectHardwareForModeRecommendation', async () => {
-    let detected: GpuHardwareDevice[] = []
-    let hasNvidia = false
-    let detectSuccess = true
-
-    try {
-      const probe = await detectGpuHardwareDevices()
-      detected = probe.detected
-      hasNvidia = probe.hasNvidia
-      appLogger.info(`Detected GPU devices: ${JSON.stringify(detected)}`, 'electron-backend')
-      appLogger.info(`Has NVIDIA: ${hasNvidia}`, 'electron-backend')
-    } catch (e) {
-      detectSuccess = false
-      appLogger.warn(`GPU detection failed: ${e}`, 'electron-backend')
-    }
-
-    const configs = loadProductModeConfigs()
-
-    const modeCatalog = configs
-      .sort((a, b) => a.displayOrder - b.displayOrder)
-      .map((c) => ({
-        mode: c.mode,
-        experimental: c.experimental,
-        ui: c.ui,
-      }))
-
-    const gpuIds = detected
-      .map((d) => d.gpuDeviceId)
-      .filter((id): id is string => id !== null)
-      .map((id) => id.toLowerCase())
-
-    // Highest priority wins.
-    const eligible = configs
-      .filter((c) => c.mode !== 'nvidia' || hasNvidia)
-      .filter((c) => {
-        if (c.mode === 'nvidia') return c.recommendForNvidia === true
-        if (!c.recommendForIntelDeviceIds.length) return false
-        if (gpuIds.length === 0) return false
-        return gpuIds.some((id) => c.recommendForIntelDeviceIds.includes(id))
-      })
-      .sort((a, b) => b.priority - a.priority)
-
-    const recommendedMode: ProductMode = eligible[0]?.mode ?? 'studio'
-
-    return {
-      success: detectSuccess,
-      recommendedMode,
-      detectedDevices: classifyDetectedDevices(detected),
-      hasNvidiaGpu: hasNvidia,
-      modeCatalog,
-    }
-  })
-
-  typedHandle('getWinSize', () => {
-    return appSize
-  })
-
-  typedHandle('zoomIn', (event: IpcMainInvokeEvent) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) return
-    win.webContents.setZoomLevel(win.webContents.getZoomLevel() + 1)
-  })
-
-  typedHandle('zoomOut', (event: IpcMainInvokeEvent) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) return
-    win.webContents.setZoomLevel(win.webContents.getZoomLevel() - 1)
-  })
-
   typedOn('openUrl', (_event, url: string) => {
     return shell.openExternal(url)
-  })
-
-  typedHandle('setWinSize', (event: IpcMainInvokeEvent, width: number, height: number) => {
-    const win = BrowserWindow.fromWebContents(event.sender)!
-    const winRect = win.getBounds()
-    if (winRect.width != width || winRect.height != height) {
-      const y = winRect.y + (winRect.height - height)
-      win.setBounds({ x: winRect.x, y, width, height })
-    }
-  })
-
-  typedHandle('restorePathsSettings', (_event: IpcMainInvokeEvent) => {
-    pathsManager.restoreDefaultModelPaths()
   })
 
   typedOn('miniWindow', () => {
@@ -1823,210 +1620,6 @@ function initEventHandle() {
     }
   })
 
-  typedHandle('saveImageToMediaInput', async (_event, dataUri: string) => {
-    if (typeof dataUri !== 'string' || !dataUri.startsWith('data:image/')) {
-      throw new Error('saveImageToMediaInput: expected a data URI (data:image/...)')
-    }
-    const match = dataUri.match(/^data:image\/(png|jpeg|webp);base64,(.+)$/)
-    if (!match) {
-      throw new Error('saveImageToMediaInput: unsupported image type or malformed data URI')
-    }
-    const mimeSubtype = match[1]
-    const base64Data = match[2]
-    const ext = mimeSubtype === 'jpeg' ? 'jpg' : mimeSubtype
-    const filename = `${randomUUID()}.${ext}`
-    const filePath = path.join(mediaInputDir, filename)
-    const buffer = Buffer.from(base64Data, 'base64')
-    await fs.promises.writeFile(filePath, buffer)
-    return `input/${filename}`
-  })
-
-  // An attached clip is kept beside attached images rather than inlined in the
-  // thread: a minute of audio is megabytes of base64 in the conversation file,
-  // and `transcribeAudio` reads it back through the same media reader.
-  typedHandle('saveAudioToMediaInput', async (_event, dataUri: string) => {
-    const match =
-      typeof dataUri === 'string'
-        ? dataUri.match(/^data:(audio\/[a-zA-Z0-9.+-]+);base64,(.+)$/)
-        : null
-    if (!match) {
-      throw new Error('saveAudioToMediaInput: expected a data URI (data:audio/...;base64,...)')
-    }
-    const ext = AUDIO_ATTACHMENT_EXTENSIONS[match[1].toLowerCase()]
-    if (!ext) throw new Error(`saveAudioToMediaInput: unsupported audio type ${match[1]}`)
-    const filename = `${randomUUID()}${ext}`
-    await fs.promises.writeFile(path.join(mediaInputDir, filename), Buffer.from(match[2], 'base64'))
-    return `input/${filename}`
-  })
-
-  typedHandle(
-    'saveGeneratedAudio',
-    async (
-      _event,
-      audioBase64: string,
-      filename: string,
-      options?: { overwrite?: boolean },
-    ): Promise<IpcOkWith<{ filePath: string }>> => {
-      try {
-        if (typeof audioBase64 !== 'string' || typeof filename !== 'string') {
-          return { success: false, error: 'invalid arguments' }
-        }
-        const filePath = await saveGeneratedAudioFile(audioBase64, filename, options)
-        return { success: true, filePath }
-      } catch (error) {
-        const errorMessage = ipcErrorText(error)
-        appLogger.error(`Failed to save generated audio: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
-      }
-    },
-  )
-
-  /**
-   * Delete a generated audio file. Confined to the app's audio directory by the same
-   * containment check `readLocalAudioAsDataUri` uses, so a renderer-supplied path can
-   * never reach anything else. A path that is already gone counts as success —
-   * the caller wants the file absent, not proof that it deleted it.
-   */
-  typedHandle(
-    'deleteGeneratedAudio',
-    async (_event, filePath: string): Promise<IpcMutationResult> => {
-      try {
-        if (typeof filePath !== 'string' || !filePath.trim()) {
-          return { success: false, error: 'invalid path' }
-        }
-        const audioRoot = path.normalize(getAudioDir())
-        const full = path.normalize(
-          path.isAbsolute(filePath) ? filePath : path.join(audioRoot, filePath),
-        )
-        if (full !== audioRoot && !full.startsWith(audioRoot + path.sep)) {
-          return { success: false, error: 'path outside audio directory' }
-        }
-        await fs.promises.rm(full, { force: true })
-        return { success: true }
-      } catch (error) {
-        const errorMessage = ipcErrorText(error)
-        appLogger.error(`Failed to delete generated audio: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
-      }
-    },
-  )
-
-  typedHandle(
-    'readLocalAudioAsDataUri',
-    async (_event, filePath: string): Promise<IpcOkWith<{ dataUri: string }>> => {
-      try {
-        if (typeof filePath !== 'string' || !filePath.trim()) {
-          return { success: false, error: 'invalid path' }
-        }
-        const audioRoot = path.normalize(getAudioDir())
-        const full = path.normalize(
-          path.isAbsolute(filePath) ? filePath : path.join(audioRoot, filePath),
-        )
-        if (full !== audioRoot && !full.startsWith(audioRoot + path.sep)) {
-          return { success: false, error: 'path outside audio directory' }
-        }
-        const buf = await fs.promises.readFile(full)
-        const ext = path.extname(full).toLowerCase()
-        const mediaType = ext === '.mp3' ? 'audio/mpeg' : 'audio/wav'
-        return {
-          success: true,
-          dataUri: `data:${mediaType};base64,${buf.toString('base64')}`,
-        }
-      } catch (error) {
-        return ipcFail(error)
-      }
-    },
-  )
-
-  // Persist an inbound Home Agent document (base64) to disk so the langchain
-  // RAG loaders (which require a real filepath) can index it, and so the
-  // persisted ragList entry keeps a stable path. Returns the absolute path.
-  typedHandle(
-    'saveHomeAgentDocument',
-    async (_event, filename: string, base64: string): Promise<IpcOkWith<{ filepath: string }>> => {
-      const supportedExtensions = ['txt', 'md', 'doc', 'docx', 'pdf']
-      try {
-        if (typeof filename !== 'string' || typeof base64 !== 'string') {
-          return { success: false, error: 'invalid arguments' }
-        }
-        const safeName = path.basename(filename).replace(/[^\w.\-]+/g, '_')
-        const ext = safeName.includes('.') ? safeName.split('.').pop()!.toLowerCase() : ''
-        if (!supportedExtensions.includes(ext)) {
-          return { success: false, error: `unsupported document type (.${ext})` }
-        }
-        const ragDocumentsDir = path.join(mediaDir, 'rag-documents')
-        await fs.promises.mkdir(ragDocumentsDir, { recursive: true })
-        const uniqueName = `${randomUUID()}-${safeName}`
-        const filePath = path.join(ragDocumentsDir, uniqueName)
-        await fs.promises.writeFile(filePath, Buffer.from(base64, 'base64'))
-        return { success: true, filepath: filePath }
-      } catch (e) {
-        return ipcFail(e)
-      }
-    },
-  )
-
-  typedHandle(
-    'readAipgMediaAsBase64',
-    async (
-      _event,
-      url: string,
-    ): Promise<{ success: true; data: string } | { success: false; error: string }> => {
-      const filePath = getLocalPathFromAipgMediaUrl(url)
-      if (!filePath) {
-        return { success: false, error: 'invalid or unsafe aipg-media URL' }
-      }
-      if (!fs.existsSync(filePath)) {
-        return { success: false, error: `file not found (${path.basename(filePath)})` }
-      }
-      try {
-        return { success: true, data: fs.readFileSync(filePath).toString('base64') }
-      } catch (e) {
-        return ipcFail(e)
-      }
-    },
-  )
-
-  /** Get command line parameters when launched from IPOS to decide the default home page.
-   * Returns null when --start-page was not provided so the renderer can leave
-   * the persisted mode untouched; returns the validated ModeType (or 'chat' as
-   * a safe fallback for an invalid value) when it was. */
-  typedHandle('getInitialPage', (): ModeType | null => {
-    const validModes: ModeType[] = ['chat', 'audio', 'imageGen', 'imageEdit', 'video']
-    const startPageArg = process.argv.find((arg) => arg.startsWith('--start-page='))
-    if (!startPageArg) return null
-    const parsed = startPageArg.split('=')[1]
-    return validModes.includes(parsed as ModeType) ? (parsed as ModeType) : 'chat'
-  })
-
-  /** To check whether demo mode is enabled or not for AIPG */
-  typedHandle('getDemoModeSettings', () => {
-    return {
-      isDemoModeEnabled: settings.isDemoModeEnabled,
-      demoModeResetInSeconds: settings.demoModeResetInSeconds,
-      demoModePasscode: settings.demoModePasscode,
-      profile: demoProfile,
-    }
-  })
-
-  typedHandle('showOpenDialog', async (event, options) => {
-    const win = BrowserWindow.fromWebContents(event.sender)!
-    return await dialog.showOpenDialog(win, options)
-  })
-
-  typedHandle('showMessageBox', async (event, options) => {
-    const win = BrowserWindow.fromWebContents(event.sender)!
-    return dialog.showMessageBox(win, options)
-  })
-
-  typedHandle('existsPath', async (event, path: string) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) {
-      return
-    }
-    return fs.existsSync(path)
-  })
-
   const pathsManager = new PathsManager(
     // Packaged: the per-user writable copy (seeded from the shared default on
     // first use). Its relative model paths still resolve against the shared
@@ -2036,141 +1629,68 @@ function initEventHandle() {
       : path.join(externalRes, 'model_config.dev.json'),
   )
 
-  typedHandle('getInitSetting', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) {
-      return
-    }
-    return {
-      modelLists: pathsManager.scanAll(),
-      modelPaths: pathsManager.modelPaths,
-      version: app.getVersion(),
-      modelFolderReadOnly: !pathsManager.isModelDirWritable(),
-    }
-  })
+  const coreDeps: CoreDeps = {
+    getWin: () => win ?? undefined,
+    getServiceRegistry: () => serviceRegistry,
+    getLangchainChild: () => langchainChild,
+    getDemoProfile: () => demoProfile,
+    setDemoProfile: (profile) => {
+      demoProfile = profile
+    },
+    settings,
+    persistLocalSettingsToDisk,
+    appLogger,
+    appSize,
+    mediaDir,
+    mediaInputDir,
+    modesDir,
+    AUDIO_ATTACHMENT_EXTENSIONS,
+    getLocalPathFromAipgMediaUrl,
+    getModeDemoDir,
+    getPresetLoadConfig,
+    loadProductModeConfigs,
+    handleUtilityFunction,
+    ensureOvmsImageServerReady,
+    pathsManager,
+    peekApiServiceRegistry,
+    invalidatePresetCatalog,
+    loadPresetFiles,
+    readPresetsFromDir,
+    resolveModels,
+    resolveBackendVersion,
+    getGitHubRepoUrl,
+    updateIntelPresets,
+    filterPartnerPresets,
+    detectOem,
+    detectGpuHardwareDevices,
+    classifyDetectedDevices,
+    loadDemoProfile,
+    getAudioDir,
+    saveGeneratedAudioFile,
+    laminarConfig,
+    ensureChatBackendReady,
+    rememberChatBackendLoad,
+    setLastChatBackendLoadActive,
+    resolveProductMode,
+    COMFYUI_DEFAULT_PARAMETERS,
+    LLAMACPP_DEFAULT_PARAMETERS,
+    AiBackendService,
+    ComfyUiBackendService,
+    HomeAgentBackendService,
+    Qwen3TtsBackendService,
+    WhisperBackendService,
+  }
 
-  typedHandle('loadModels', async (_event) => {
-    return resolveModels(settings)
-  })
-
-  // The renderer forwards its AI SDK telemetry here (the SDK cannot run in a
-  // browser page); null config means no developer opted in, and the renderer
-  // then registers nothing and sends nothing.
-  typedHandle('getLaminarConfig', () => laminarConfig())
-  typedOn('laminarTelemetryEvent', (_event, name: string, payload: string) => {
-    void handleChatTelemetryEvent(name, payload)
-  })
-
-  typedHandle('updateModelPaths', (_event, modelPaths: ModelPaths) => {
-    pathsManager.updateModelPaths(modelPaths)
-    return pathsManager.scanAll()
-  })
-
-  typedHandle('getDownloadedGGUFLLMs', (_event) => {
-    return pathsManager.scanGGUFLLMModels()
-  })
-
-  typedHandle('getDownloadedOpenVINOLLMModels', (_event) => {
-    return pathsManager.scanOpenVINOModels()
-  })
-
-  typedHandle('getDownloadedEmbeddingModels', (_event) => {
-    return pathsManager.scanEmbedding()
-  })
-
-  typedHandle('getComfyUIModels', (_event, modelType: string) => {
-    return pathsManager.scanComfyUIModels(modelType)
-  })
-
-  typedHandle('scanModelLibrary', (_event) => {
-    return pathsManager.scanModelLibrary()
-  })
-
-  typedHandle('showModelInFolder', (_event, modelPath: string) => {
-    const resolved = pathsManager.resolveModelPath(modelPath)
-    if ('error' in resolved) {
-      return { success: false as const, error: resolved.error }
-    }
-    if (process.platform === 'win32') {
-      // `execFile`, not `exec`: the path is passed as an argument rather than
-      // spliced into a shell command line, so a model directory containing a
-      // quote or an `&` opens the folder instead of running as a command.
-      execFile('explorer.exe', ['/select,', resolved.path])
-    } else {
-      shell.showItemInFolder(resolved.path)
-    }
-    return { success: true as const }
-  })
-
-  // Permanent deletion, deliberately not a move to trash: freeing the disk space
-  // immediately is the reason a user deletes a model. Every path is validated
-  // against the configured model directories first — see resolveModelPath.
-  typedHandle('deleteModelPath', async (_event, modelPath: string) => {
-    const resolved = pathsManager.resolveModelPath(modelPath)
-    if ('error' in resolved) {
-      return { success: false as const, error: resolved.error }
-    }
-    try {
-      // Async throughout: a model is tens of gigabytes across thousands of files,
-      // and the synchronous form froze the whole UI for the duration of the walk.
-      // No `force`: a path that vanished should be reported, not silently
-      // treated as a successful delete.
-      await fs.promises.rm(resolved.path, { recursive: true })
-      await pathsManager.pruneEmptyModelDirs(resolved.path)
-    } catch (error) {
-      return ipcFail(error)
-    }
-
-    const comfyService = serviceRegistry?.getService('comfyui-backend') as
-      ComfyUiBackendService | undefined
-    const comfyUiModelsRoot = comfyService?.serviceDir
-      ? path.join(comfyService.serviceDir, 'models')
-      : undefined
-    for (const mirror of pathsManager.mirroredModelPaths(resolved.path, comfyUiModelsRoot)) {
-      try {
-        await fs.promises.rm(mirror, { recursive: true, force: true })
-      } catch (error) {
-        // The primary copy is already gone; a failed mirror cleanup is worth a
-        // log but must not report the delete as failed.
-        appLogger.warn(
-          `Could not remove mirrored model copy ${mirror}: ${error}`,
-          'electron-backend',
-        )
-      }
-    }
-    return { success: true as const }
-  })
-
-  typedHandle('getPlatform', () => process.platform)
+  // The core registry (#301): every flat main-owned invoke channel — the
+  // complement of the prefix domains registered below and above.
+  registerInvokeHandlers(buildCoreInvokeRegistry(coreDeps))
 
   registerInvokeHandlers(
     buildSafeStorageRegistry({ settings, persistLocalSettingsToDisk, appLogger }),
   )
 
-  typedHandle(
-    'addDocumentToRAGList',
-    (_event, document: IndexedDocument, phisonKmConfig?: PhisonKmIngestConfig) => {
-      return handleUtilityFunction<
-        { document: IndexedDocument; phisonKmConfig?: PhisonKmIngestConfig },
-        IndexedDocument
-      >('addDocumentToRAGList', langchainChild, { document, phisonKmConfig })
-    },
-  )
-
-  typedHandle('embedInputUsingRag', (_event, embedInquiry: EmbedInquiry) => {
-    return handleUtilityFunction<EmbedInquiry, LangchainDocument[]>(
-      'embedInputUsingRag',
-      langchainChild,
-      embedInquiry,
-    )
-  })
-
-  typedHandle('warmupKVCacheForDocument', (_event, request: WarmupRequest) => {
-    return handleUtilityFunction<WarmupRequest, IpcOk>(
-      'warmupKVCacheForDocument',
-      langchainChild,
-      request,
-    )
+  typedOn('laminarTelemetryEvent', (_event, name: string, payload: string) => {
+    void handleChatTelemetryEvent(name, payload)
   })
 
   typedOn('openDevTools', () => {
@@ -2179,345 +1699,6 @@ function initEventHandle() {
 
   typedOn('setVerboseAgentLogging', (_event, enabled: boolean) => {
     setVerboseAgentLogging(enabled)
-  })
-
-  typedHandle('getServices', () => {
-    const registry = serviceRegistry ?? peekApiServiceRegistry()
-    if (!registry) {
-      appLogger.warn(
-        'frontend tried to getServices too early during aipg startup',
-        'electron-backend',
-      )
-      return []
-    }
-    return registry.getServiceInformation()
-  })
-
-  typedHandle('getBackendAuthToken', (_event: IpcMainInvokeEvent, serviceName: string) => {
-    if (!serviceRegistry) {
-      return ''
-    }
-    const service = serviceRegistry.getService(serviceName)
-    if (service instanceof AiBackendService) {
-      return service.getLoopbackAuthToken()
-    }
-    if (service instanceof ComfyUiBackendService) {
-      return service.getLoopbackAuthToken()
-    }
-    if (service instanceof HomeAgentBackendService) {
-      return service.getLoopbackAuthToken()
-    }
-    if (service instanceof Qwen3TtsBackendService) {
-      return service.getLoopbackAuthToken()
-    }
-    if (service instanceof WhisperBackendService) {
-      return service.getLoopbackAuthToken()
-    }
-    return ''
-  })
-
-  typedHandle('uninstall', (_event: IpcMainInvokeEvent, serviceName: string) => {
-    if (!serviceRegistry) {
-      appLogger.warn('received uninstall too early during aipg startup', 'electron-backend')
-      return
-    }
-    const service = serviceRegistry.getService(serviceName)
-    if (!service) {
-      appLogger.warn(
-        `Tried to uninstall service ${serviceName} which is not known`,
-        'electron-backend',
-      )
-      return
-    }
-    return service.uninstall()
-  })
-
-  typedHandle('updateServiceSettings', (_event: IpcMainInvokeEvent, settings) => {
-    if (!serviceRegistry) {
-      appLogger.warn(
-        'received updateServiceSettings too early during aipg startup',
-        'electron-backend',
-      )
-      return
-    }
-    const service = serviceRegistry.getService(settings.serviceName)
-    if (!service) {
-      appLogger.warn(
-        `Tried to update settings for service ${settings.serviceName} which is not known`,
-        'electron-backend',
-      )
-      return
-    }
-    return service.updateSettings(settings)
-  })
-
-  typedHandle('getComfyUiDefaultParameters', () => COMFYUI_DEFAULT_PARAMETERS)
-  typedHandle('getLlamaCppDefaultParameters', () => LLAMACPP_DEFAULT_PARAMETERS)
-
-  // Which OEM's machine this is, for co-branding (see adapters/hardware/oemDetection.ts).
-  typedHandle('detectOem', () => detectOem(settings.oemVendorOverride))
-
-  typedHandle('detectPhisonSsd', async () => {
-    if (settings.PhisonSSDdetected) {
-      appLoggerInstance.info(
-        'detectPhisonSsd: returning true (PhisonSSDdetected in local settings)',
-        'electron-backend',
-      )
-      return { detected: true }
-    }
-    if (process.platform !== 'win32') {
-      return { detected: false }
-    }
-    try {
-      const { stdout } = await execAsync(
-        'powershell -NoProfile -Command "Get-PhysicalDisk | Select-Object DeviceId,FirmwareVersion | ConvertTo-Json -Compress"',
-        { timeout: 20000, windowsHide: true },
-      )
-      const trimmed = stdout.trim()
-      if (!trimmed) {
-        return { detected: false }
-      }
-      const parsed = JSON.parse(trimmed) as
-        { FirmwareVersion?: string } | Array<{ FirmwareVersion?: string }>
-      const disks = Array.isArray(parsed) ? parsed : [parsed]
-      const detected = disks.some((d) => {
-        const fw = d.FirmwareVersion
-        return typeof fw === 'string' && fw.toUpperCase().startsWith('EVFZ')
-      })
-      return { detected }
-    } catch (e) {
-      appLoggerInstance.warn(`detectPhisonSsd failed: ${e}`, 'electron-backend')
-      return { detected: false }
-    }
-  })
-
-  typedHandle('detectDevices', (_event: IpcMainInvokeEvent, serviceName: string) => {
-    if (!serviceRegistry) {
-      appLogger.warn('received detectDevices too early during aipg startup', 'electron-backend')
-      return
-    }
-    const service = serviceRegistry.getService(serviceName)
-    if (!service) {
-      appLogger.warn(
-        `Tried to detectDevices for service ${serviceName} which is not known`,
-        'electron-backend',
-      )
-      return
-    }
-    return service.detectDevices()
-  })
-
-  typedHandle(
-    'selectDevice',
-    (_event: IpcMainInvokeEvent, serviceName: string, deviceId: string) => {
-      appLogger.info('selecting device', 'electron-backend')
-      if (!serviceRegistry) {
-        appLogger.warn('received selectDevice too early during aipg startup', 'electron-backend')
-        return
-      }
-      const service = serviceRegistry.getService(serviceName)
-      if (!service) {
-        appLogger.warn(
-          `Tried to selectDevice for service ${serviceName} which is not known`,
-          'electron-backend',
-        )
-        return
-      }
-      // Persist so the boot-time auto-start can restore this device instead of
-      // resetting to the default GPU on the next restart. Record the device's
-      // UUID too (when known) so the choice survives a selector-id shift.
-      settings.lastSelectedDevicePerBackend[serviceName] = deviceId
-      const selectedDevice = (service as { devices?: InferenceDevice[] }).devices?.find(
-        (d) => d.id === deviceId,
-      )
-      if (selectedDevice?.uuid) {
-        settings.lastSelectedDeviceUuidPerBackend[serviceName] = selectedDevice.uuid
-      } else {
-        delete settings.lastSelectedDeviceUuidPerBackend[serviceName]
-      }
-      persistLocalSettingsToDisk()
-      return service.selectDevice(deviceId)
-    },
-  )
-
-  typedHandle(
-    'selectSttDevice',
-    (_event: IpcMainInvokeEvent, serviceName: string, deviceId: string) => {
-      appLogger.info('selecting STT device', 'electron-backend')
-      if (!serviceRegistry) {
-        appLogger.warn('received selectSttDevice too early during aipg startup', 'electron-backend')
-        return
-      }
-      const service = serviceRegistry.getService(serviceName)
-      if (!service) {
-        appLogger.warn(
-          `Tried to selectSttDevice for service ${serviceName} which is not known`,
-          'electron-backend',
-        )
-        return
-      }
-      if ('selectSttDevice' in service && typeof service.selectSttDevice === 'function') {
-        settings.lastSelectedDevicePerBackend[`${serviceName}:stt`] = deviceId
-        const selectedStt = (service as { sttDevices?: InferenceDevice[] }).sttDevices?.find(
-          (d) => d.id === deviceId,
-        )
-        if (selectedStt?.uuid) {
-          settings.lastSelectedDeviceUuidPerBackend[`${serviceName}:stt`] = selectedStt.uuid
-        } else {
-          delete settings.lastSelectedDeviceUuidPerBackend[`${serviceName}:stt`]
-        }
-        persistLocalSettingsToDisk()
-        return service.selectSttDevice(deviceId)
-      }
-      appLogger.warn(`Service ${serviceName} does not support selectSttDevice`, 'electron-backend')
-    },
-  )
-
-  typedHandle('startService', (_event: IpcMainInvokeEvent, serviceName: string) => {
-    if (!serviceRegistry) {
-      appLogger.warn('received start signal too early during aipg startup', 'electron-backend')
-      return 'failed'
-    }
-    const service = serviceRegistry.getService(serviceName)
-    if (!service) {
-      appLogger.warn(`Tried to start service ${serviceName} which is not known`, 'electron-backend')
-      return 'failed'
-    }
-    return service.start()
-  })
-  typedHandle('stopService', (_event: IpcMainInvokeEvent, serviceName: string) => {
-    if (!serviceRegistry) {
-      appLogger.warn('received stop signal too early during aipg startup', 'electron-backend')
-      return 'failed'
-    }
-    const service = serviceRegistry.getService(serviceName)
-    if (!service) {
-      appLogger.warn(`Tried to stop service ${serviceName} which is not known`, 'electron-backend')
-      return 'failed'
-    }
-    return service.stop()
-  })
-  typedHandle(
-    'setUpService',
-    async (_event: IpcMainInvokeEvent, serviceName: BackendServiceName) => {
-      if (!serviceRegistry || !win) {
-        appLogger.warn('received setup signal too early during aipg startup', 'electron-backend')
-        return
-      }
-      const service = serviceRegistry.getService(serviceName)
-      if (!service) {
-        appLogger.warn(
-          `Tried to set up service ${serviceName} which is not known`,
-          'electron-backend',
-        )
-        return
-      }
-
-      // Never run two installs for the same service concurrently: they would run
-      // two uv syncs (or two git clones) against the same directory. Bail without
-      // emitting any progress — the shared renderer listener belongs to the
-      // install that is already running, and a terminal update here would resolve
-      // that one with the duplicate's outcome.
-      if (service.setUpInProgress) {
-        appLogger.warn(
-          `Ignoring set up request for ${serviceName}: an installation is already in progress`,
-          'electron-backend',
-        )
-        return
-      }
-      service.setUpInProgress = true
-
-      // The renderer waits for a terminal ('failed'/'success') progress update
-      // before it re-enables its UI. If set_up() throws instead of yielding one
-      // — e.g. ComfyUI's Linux dependency step, which runs before its own
-      // try/catch and throws on cancel — the install would stay "Installing..."
-      // forever. Synthesize the terminal failure the generator owes us.
-      try {
-        for await (const progressUpdate of service.set_up()) {
-          typedSend(win.webContents, 'serviceSetUpProgress', progressUpdate)
-          if (progressUpdate.status === 'failed' || progressUpdate.status === 'success') {
-            appLogger.info(
-              `Received terminal progress update for set up request for ${serviceName}`,
-              'electron-backend',
-            )
-            break
-          }
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        appLogger.error(
-          `Set up for ${serviceName} threw without a terminal progress update: ${message}`,
-          'electron-backend',
-        )
-        if (!win.isDestroyed()) {
-          typedSend(win.webContents, 'serviceSetUpProgress', {
-            serviceName,
-            step: 'setup failed',
-            status: 'failed',
-            debugMessage: `Installation aborted: ${message}`,
-            errorDetails: {
-              stderr: message,
-              timestamp: new Date().toISOString(),
-            },
-          } satisfies SetupProgress)
-        }
-      } finally {
-        service.setUpInProgress = false
-      }
-    },
-  )
-
-  typedHandle(
-    'ensureBackendReadiness',
-    async (
-      _event: IpcMainInvokeEvent,
-      serviceName: string,
-      llmModelName: string,
-      embeddingModelName?: string,
-      contextSize?: number,
-      modelArgs?: string,
-      skipGpuAdmission?: boolean,
-      options?: { remember?: boolean },
-    ) => {
-      if (!serviceRegistry) {
-        appLogger.warn(
-          'received ensureBackendReadiness too early during aipg startup',
-          'electron-backend',
-        )
-        return { success: false as const, error: 'Service registry not ready' }
-      }
-
-      try {
-        await ensureChatBackendReady(
-          { serviceName, llmModelName, embeddingModelName, contextSize, modelArgs },
-          {
-            skipGpuAdmission: Boolean(skipGpuAdmission),
-            remember: options?.remember,
-          },
-        )
-        return { success: true as const }
-      } catch (error) {
-        const errorMessage = ipcErrorText(error)
-        appLogger.error(
-          `Failed to ensure backend readiness for ${serviceName}: ${errorMessage}`,
-          'electron-backend',
-        )
-        return { success: false as const, error: errorMessage }
-      }
-    },
-  )
-
-  typedHandle('setLastChatBackendLoadActive', (_event: IpcMainInvokeEvent, active: boolean) => {
-    setLastChatBackendLoadActive(Boolean(active))
-    return { success: true as const }
-  })
-
-  typedHandle('rememberChatBackendLoad', (_event: IpcMainInvokeEvent, args: ChatReadinessArgs) => {
-    if (typeof args?.serviceName !== 'string' || typeof args?.llmModelName !== 'string') {
-      return { success: false as const, error: 'invalid last-load args' }
-    }
-    rememberChatBackendLoad(args)
-    return { success: true as const }
   })
 
   // ── Artifact runner IPC (architecture-target §4.1 step 5) ─────────────────
@@ -2622,359 +1803,8 @@ function initEventHandle() {
     }),
   )
 
-  typedHandle(
-    'getEmbeddingServerUrl',
-    async (
-      _event: IpcMainInvokeEvent,
-      serviceName: string,
-    ): Promise<IpcOkWith<{ url: string }>> => {
-      if (!serviceRegistry) {
-        return { success: false, error: 'Service registry not ready' }
-      }
-      const service = serviceRegistry.getService(serviceName)
-      if (!service) {
-        return { success: false, error: `Service ${serviceName} not found` }
-      }
-
-      // Check if service has getEmbeddingServerUrl method (llamaCPP backend)
-      if (
-        'getEmbeddingServerUrl' in service &&
-        typeof service.getEmbeddingServerUrl === 'function'
-      ) {
-        const embeddingUrl = service.getEmbeddingServerUrl()
-        if (embeddingUrl) {
-          return { success: true, url: embeddingUrl }
-        }
-        return { success: false, error: 'Embedding server not running' }
-      }
-
-      // For other backends, return the base URL (they might use the same server)
-      return { success: true, url: service.baseUrl }
-    },
-  )
-
-  typedHandle(
-    'ensureEmbeddingServerReady',
-    async (
-      _event: IpcMainInvokeEvent,
-      serviceName: string,
-      embeddingModelName: string,
-    ): Promise<IpcMutationResult> => {
-      if (!serviceRegistry) {
-        return { success: false, error: 'Service registry not ready' }
-      }
-      const service = serviceRegistry.getService(serviceName)
-      if (!service) {
-        return { success: false, error: `Service ${serviceName} not found` }
-      }
-
-      // Only the local LLM backends (llamaCPP / openVINO) can host an embedding
-      // server. Used by Cloud Mode RAG to embed locally while chatting remotely.
-      if (
-        'ensureEmbeddingServerReady' in service &&
-        typeof service.ensureEmbeddingServerReady === 'function'
-      ) {
-        try {
-          await service.ensureEmbeddingServerReady(embeddingModelName)
-          appLogger.info(
-            `Embedding server ready for ${serviceName} with model: ${embeddingModelName}`,
-            'electron-backend',
-          )
-          return { success: true }
-        } catch (error) {
-          const errorMessage = ipcErrorText(error)
-          appLogger.error(
-            `Failed to ensure embedding server ready for ${serviceName}: ${errorMessage}`,
-            'electron-backend',
-          )
-          return { success: false, error: errorMessage }
-        }
-      }
-
-      return {
-        success: false,
-        error: `Service ${serviceName} does not support a standalone embedding server`,
-      }
-    },
-  )
-
-  typedHandle(
-    'startTranscriptionServer',
-    async (_event: IpcMainInvokeEvent, modelName: string): Promise<IpcMutationResult> => {
-      if (!serviceRegistry) {
-        return { success: false, error: 'Service registry not ready' }
-      }
-      const service = serviceRegistry.getService('openvino-backend')
-      if (!service) {
-        return { success: false, error: 'OpenVINO backend service not found' }
-      }
-
-      // Check if service has startTranscriptionServer method
-      if (
-        'startTranscriptionServer' in service &&
-        typeof service.startTranscriptionServer === 'function'
-      ) {
-        try {
-          await service.startTranscriptionServer(modelName)
-          return { success: true }
-        } catch (error) {
-          const errorMessage = ipcErrorText(error)
-          appLogger.error(
-            `Failed to start transcription server: ${errorMessage}`,
-            'electron-backend',
-          )
-          return { success: false, error: errorMessage }
-        }
-      }
-
-      return { success: false, error: 'Transcription server not supported' }
-    },
-  )
-
-  typedHandle(
-    'stopTranscriptionServer',
-    async (_event: IpcMainInvokeEvent): Promise<IpcMutationResult> => {
-      if (!serviceRegistry) {
-        return { success: false, error: 'Service registry not ready' }
-      }
-      const service = serviceRegistry.getService('openvino-backend')
-      if (!service) {
-        return { success: false, error: 'OpenVINO backend service not found' }
-      }
-
-      // Check if service has stopTranscriptionServer method
-      if (
-        'stopTranscriptionServer' in service &&
-        typeof service.stopTranscriptionServer === 'function'
-      ) {
-        try {
-          await service.stopTranscriptionServer()
-          return { success: true }
-        } catch (error) {
-          const errorMessage = ipcErrorText(error)
-          appLogger.error(
-            `Failed to stop transcription server: ${errorMessage}`,
-            'electron-backend',
-          )
-          return { success: false, error: errorMessage }
-        }
-      }
-
-      return { success: false, error: 'Transcription server not supported' }
-    },
-  )
-
-  typedHandle(
-    'getTranscriptionServerUrl',
-    async (_event: IpcMainInvokeEvent): Promise<IpcOkWith<{ url: string }>> => {
-      if (!serviceRegistry) {
-        return { success: false, error: 'Service registry not ready' }
-      }
-      const service = serviceRegistry.getService('openvino-backend')
-      if (!service) {
-        return { success: false, error: 'OpenVINO backend service not found' }
-      }
-
-      // Check if service has getTranscriptionServerUrl method
-      if (
-        'getTranscriptionServerUrl' in service &&
-        typeof service.getTranscriptionServerUrl === 'function'
-      ) {
-        const transcriptionUrl = service.getTranscriptionServerUrl()
-        if (transcriptionUrl) {
-          return { success: true, url: transcriptionUrl }
-        }
-        return { success: false, error: 'Transcription server not running' }
-      }
-
-      return { success: false, error: 'Transcription server not supported' }
-    },
-  )
-
-  typedHandle(
-    'startSpeechServer',
-    async (_event: IpcMainInvokeEvent, modelName: string): Promise<IpcMutationResult> => {
-      if (!serviceRegistry) {
-        return { success: false, error: 'Service registry not ready' }
-      }
-      const service = serviceRegistry.getService('openvino-backend')
-      if (!service) {
-        return { success: false, error: 'OpenVINO backend service not found' }
-      }
-
-      if ('startSpeechServer' in service && typeof service.startSpeechServer === 'function') {
-        try {
-          await service.startSpeechServer(modelName)
-          return { success: true }
-        } catch (error) {
-          const errorMessage = ipcErrorText(error)
-          appLogger.error(`Failed to start speech server: ${errorMessage}`, 'electron-backend')
-          return { success: false, error: errorMessage }
-        }
-      }
-
-      return { success: false, error: 'Speech server not supported' }
-    },
-  )
-
-  typedHandle(
-    'stopSpeechServer',
-    async (_event: IpcMainInvokeEvent): Promise<IpcMutationResult> => {
-      if (!serviceRegistry) {
-        return { success: false, error: 'Service registry not ready' }
-      }
-      const service = serviceRegistry.getService('openvino-backend')
-      if (!service) {
-        return { success: false, error: 'OpenVINO backend service not found' }
-      }
-
-      if ('stopSpeechServer' in service && typeof service.stopSpeechServer === 'function') {
-        try {
-          await service.stopSpeechServer()
-          return { success: true }
-        } catch (error) {
-          const errorMessage = ipcErrorText(error)
-          appLogger.error(`Failed to stop speech server: ${errorMessage}`, 'electron-backend')
-          return { success: false, error: errorMessage }
-        }
-      }
-
-      return { success: false, error: 'Speech server not supported' }
-    },
-  )
-
-  typedHandle(
-    'getSpeechServerUrl',
-    async (_event: IpcMainInvokeEvent): Promise<IpcOkWith<{ url: string }>> => {
-      if (!serviceRegistry) {
-        return { success: false, error: 'Service registry not ready' }
-      }
-      const service = serviceRegistry.getService('openvino-backend')
-      if (!service) {
-        return { success: false, error: 'OpenVINO backend service not found' }
-      }
-
-      if ('getSpeechServerUrl' in service && typeof service.getSpeechServerUrl === 'function') {
-        const speechUrl = service.getSpeechServerUrl()
-        if (speechUrl) {
-          return { success: true, url: speechUrl }
-        }
-        return { success: false, error: 'Speech server not running' }
-      }
-
-      return { success: false, error: 'Speech server not supported' }
-    },
-  )
-
-  // Synthesize speech in the main process so it is not subject to the
-  // renderer's CORS policy. Many OpenAI-compatible `/audio/speech` servers
-  // (e.g. local TTS fallbacks) do not answer the CORS preflight that an
-  // `application/json` POST triggers, which blocks a direct renderer fetch.
-  typedHandle(
-    'synthesizeSpeech',
-    async (
-      _event: IpcMainInvokeEvent,
-      options: SpeechSynthesisRequest,
-    ): Promise<
-      { success: true; dataBase64: string; mediaType: string } | { success: false; error: string }
-    > => {
-      try {
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-        if (options.apiKey) {
-          headers['Authorization'] = `Bearer ${options.apiKey}`
-        }
-        const body: Record<string, unknown> = {
-          model: options.model,
-          input: options.input,
-          response_format: options.format || 'wav',
-        }
-        if (options.voice) {
-          body.voice = options.voice
-        }
-        const url = `${options.baseURL.replace(/\/$/, '')}/audio/speech`
-        const res = await net.fetch(url, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(body),
-        })
-        if (!res.ok) {
-          const detail = await res.text().catch(() => '')
-          return { success: false, error: `Speech synthesis failed (${res.status}): ${detail}` }
-        }
-        const arrayBuffer = await res.arrayBuffer()
-        const mediaType = res.headers.get('content-type')?.split(';')[0]?.trim() || 'audio/wav'
-        const dataBase64 = Buffer.from(arrayBuffer).toString('base64')
-        return { success: true, dataBase64, mediaType }
-      } catch (error) {
-        const errorMessage = ipcErrorText(error)
-        appLogger.error(`Failed to synthesize speech: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
-      }
-    },
-  )
-
-  typedHandle(
-    'ensureOvmsImageReady',
-    async (
-      _event: IpcMainInvokeEvent,
-      serviceName: string,
-      modelName: string,
-      keepModelsLoaded?: boolean,
-      resolution?: string,
-    ) => ensureOvmsImageServerReady(serviceName, modelName, keepModelsLoaded, resolution),
-  )
-
-  typedHandle(
-    'stopOvmsChatServers',
-    async (_event: IpcMainInvokeEvent): Promise<IpcMutationResult> => {
-      if (!serviceRegistry) {
-        return { success: false, error: 'Service registry not ready' }
-      }
-      const service = serviceRegistry.getService('openvino-backend')
-      if (!service) {
-        return { success: false, error: 'OpenVINO backend service not found' }
-      }
-
-      if ('stopChatServers' in service && typeof service.stopChatServers === 'function') {
-        try {
-          await service.stopChatServers()
-          return { success: true }
-        } catch (error) {
-          const errorMessage = ipcErrorText(error)
-          appLogger.error(`Failed to stop OVMS chat servers: ${errorMessage}`, 'electron-backend')
-          return { success: false, error: errorMessage }
-        }
-      }
-
-      return { success: false, error: 'Chat servers not supported' }
-    },
-  )
-
-  typedHandle(
-    'getOvmsImageServerUrl',
-    async (_event: IpcMainInvokeEvent): Promise<IpcOkWith<{ url: string }>> => {
-      if (!serviceRegistry) {
-        return { success: false, error: 'Service registry not ready' }
-      }
-      const service = serviceRegistry.getService('openvino-backend')
-      if (!service) {
-        return { success: false, error: 'OpenVINO backend service not found' }
-      }
-
-      if ('getImageServerUrl' in service && typeof service.getImageServerUrl === 'function') {
-        const imageUrl = service.getImageServerUrl()
-        if (imageUrl) {
-          return { success: true, url: imageUrl }
-        }
-        return { success: false, error: 'Image server not running' }
-      }
-
-      return { success: false, error: 'Image server not supported' }
-    },
-  )
-
   typedOn('ondragstart', async (event, filePath: string) => {
-    const imagePath = getAssetPathFromUrl(filePath)
+    const imagePath = getAssetPathFromUrl(filePath, coreDeps)
     if (!imagePath) return
     let thumbnail: Electron.NativeImage
     try {
@@ -2989,112 +1819,6 @@ function initEventHandle() {
       file: imagePath,
       icon: thumbnail,
     })
-  })
-
-  typedHandle('updatePresetsFromIntelRepo', () => {
-    const mode = resolveProductMode(settings)
-    const variant = settings.isDemoModeEnabled ? 'demo' : 'presets'
-    const config = getPresetLoadConfig(settings)
-    const result = updateIntelPresets(
-      settings.remoteRepository,
-      mode,
-      variant,
-      config.baseDir,
-      config.modeDir,
-    )
-    if (result instanceof Promise) result.then(() => invalidatePresetCatalog())
-    else invalidatePresetCatalog()
-    return result
-  })
-
-  typedHandle('reloadPresets', async () => {
-    const config = getPresetLoadConfig(settings)
-    try {
-      await filterPartnerPresets(config.baseDir)
-    } catch (error) {
-      appLogger.error(`Failed to filter partner presets: ${error}`, 'electron-backend')
-    }
-    invalidatePresetCatalog()
-    try {
-      return await loadPresetFiles(config)
-    } catch (error) {
-      appLogger.error(`Failed to load presets: ${error}`, 'electron-backend')
-      return []
-    }
-  })
-
-  typedHandle('getUserPresetsPath', async () => {
-    const userDataPath = app.getPath('documents')
-    const presetsPath = path.join(userDataPath, 'AI Playground', 'presets')
-    // Ensure directory exists
-    await fs.promises.mkdir(presetsPath, { recursive: true })
-    return presetsPath
-  })
-
-  typedHandle('loadUserPresets', async () => {
-    try {
-      const userDataPath = app.getPath('documents')
-      const presetsPath = path.join(userDataPath, 'AI Playground', 'presets')
-      const presets = await readPresetsFromDir(presetsPath)
-      return [...presets.values()]
-    } catch (error) {
-      appLogger.error(`Failed to load user presets: ${error}`, 'electron-backend')
-      return []
-    }
-  })
-
-  typedHandle('saveUserPreset', async (_event, presetContent: string) => {
-    try {
-      const userDataPath = app.getPath('documents')
-      const presetsPath = path.join(userDataPath, 'AI Playground', 'presets')
-      await fs.promises.mkdir(presetsPath, { recursive: true })
-
-      // Parse to get preset name for filename
-      const preset = JSON.parse(presetContent)
-      const filename = `${preset.name.replace(/[^a-z0-9]/gi, '_')}.json`
-      const filePath = path.join(presetsPath, filename)
-
-      await fs.promises.writeFile(filePath, presetContent, { encoding: 'utf-8' })
-      appLogger.info(`Saved user preset to ${filePath}`, 'electron-backend')
-      invalidatePresetCatalog()
-      return true
-    } catch (error) {
-      appLogger.error(`Failed to save user preset: ${error}`, 'electron-backend')
-      return false
-    }
-  })
-
-  // Version management IPC handlers for frontend store integration
-  typedHandle('resolveBackendVersion', async (_event, serviceName: BackendServiceName) => {
-    return await resolveBackendVersion(serviceName, settings)
-  })
-
-  typedHandle('getGitHubRepoUrl', () => {
-    return getGitHubRepoUrl(settings)
-  })
-
-  typedHandle('getInstalledBackendVersion', async (_event, serviceName: BackendServiceName) => {
-    if (!serviceRegistry) {
-      appLogger.warn('Service registry not ready', 'electron-backend')
-      return undefined
-    }
-    const service = serviceRegistry.getService(serviceName)
-    if (
-      !service ||
-      !('getInstalledVersion' in service) ||
-      typeof service.getInstalledVersion !== 'function'
-    ) {
-      return undefined
-    }
-    try {
-      return await service.getInstalledVersion()
-    } catch (error) {
-      appLogger.error(
-        `Failed to get installed version for ${serviceName}: ${error}`,
-        'electron-backend',
-      )
-      return undefined
-    }
   })
 
   // ComfyUI Tools IPC handlers
@@ -3183,40 +1907,14 @@ function initEventHandle() {
     }),
   )
 
-  const getAssetPathFromUrl = (url: string) => {
-    // Handle aipg-media:// URLs
-    if (url.startsWith('aipg-media://')) {
-      return getLocalPathFromAipgMediaUrl(url)
-    }
-
-    // Existing logic for HTTP URLs
-    const imageUrl = URL.parse(url)
-    if (!imageUrl) {
-      console.error('Could not find image for URL', { url })
-      return
-    }
-
-    const comfyBackendUrl = serviceRegistry?.getService('comfyui-backend')?.baseUrl
-    const backend = comfyBackendUrl && url.includes(comfyBackendUrl) ? 'comfyui' : 'service'
-
-    const imageSubPath =
-      backend === 'comfyui'
-        ? path.join(
-            imageUrl.searchParams.get('subfolder') ?? '',
-            imageUrl.searchParams.get('filename') ?? '',
-          )
-        : imageUrl.pathname
-    return path.join(mediaDir, imageSubPath)
-  }
-
   typedOn('openImageWithSystem', (_event, url: string) => {
-    const imagePath = getAssetPathFromUrl(url)
+    const imagePath = getAssetPathFromUrl(url, coreDeps)
     if (!imagePath) return
     shell.openPath(imagePath)
   })
 
   typedOn('openImageInFolder', (_event, url: string) => {
-    const imagePath = getAssetPathFromUrl(url)
+    const imagePath = getAssetPathFromUrl(url, coreDeps)
     if (!imagePath) return
 
     // Open the image with the default system image viewer
@@ -3261,13 +1959,6 @@ typedOn(
     })
   },
 )
-
-typedHandle('showSaveDialog', async (_event, options) => {
-  return dialog.showSaveDialog(options).catch((error) => {
-    appLogger.error(`${JSON.stringify(error, Object.getOwnPropertyNames, 2)}`, 'electron-backend')
-    return undefined
-  })
-})
 
 function isAdmin(): boolean {
   if (process.platform !== 'win32') {

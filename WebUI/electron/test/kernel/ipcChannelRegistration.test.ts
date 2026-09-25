@@ -87,12 +87,19 @@ const { typed: TYPED_SITES, raw: RAW_SITES } = scan()
 // Quoted key literals of the per-owner registry maps (#301): a migrated
 // domain lives as a `satisfies InvokeHandlerMap<...>` literal under
 // electron/kernel/registries/ instead of a direct typed-wrapper call site.
+// Flat channel names are identifier-safe, so Prettier's as-needed quoteProps
+// unquotes them — bare identifier keys count too. Extra hits (deps-type
+// members, property names inside handler bodies) are harmless: the set is
+// only probed with manifest channel names.
 function scanRegistryKeys(): Set<string> {
   const keys = new Set<string>()
   for (const file of walk(ELECTRON_DIR)) {
     const rel = path.relative(ELECTRON_DIR, file)
     if (!rel.startsWith(path.join('kernel', 'registries') + path.sep)) continue
-    for (const m of readFileSync(file, 'utf8').matchAll(/'([^']+)'(?=\s*:)/g)) keys.add(m[1])
+    for (const m of readFileSync(file, 'utf8').matchAll(
+      /(?:'([^']+)'|([A-Za-z_$][\w$]*))(?=\s*:)/g,
+    ))
+      keys.add(m[1] ?? m[2])
   }
   return keys
 }

@@ -1547,18 +1547,18 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('getLocaleSettings', async () => {
+  typedHandle('getLocaleSettings', async () => {
     return {
       locale: app.getLocale(),
       languageOverride: settings.languageOverride,
     }
   })
 
-  ipcMain.handle('getLocalSettings', () => {
+  typedHandle('getLocalSettings', () => {
     return LocalSettingsSchema.parse(settings)
   })
 
-  ipcMain.handle('updateLocalSettings', (_event, updates: Partial<LocalSettings>) => {
+  typedHandle('updateLocalSettings', (_event, updates: Partial<LocalSettings>) => {
     Object.assign(settings, updates)
     // Any of these can change which preset files the catalog reads or injects.
     if (
@@ -1585,7 +1585,7 @@ function initEventHandle() {
       serviceRegistry?.setDisabledBackends(updates.disabledBackends)
     }
     appLogger.info(`Updated local settings: ${JSON.stringify(updates)}`, 'electron-backend')
-    return { success: true }
+    return { success: true as const }
   })
 
   // ── Backend launch settings (step 8, §6.1) ─────────────────────────────
@@ -1594,7 +1594,7 @@ function initEventHandle() {
   // write through on change (updateLocalSettings above), replacing the old
   // renderer-persisted Pinia key. The device map is main-owned all along —
   // selectDevice below writes it — so it is only ever read here.
-  ipcMain.handle('getBackendLaunchSettings', () => ({
+  typedHandle('getBackendLaunchSettings', () => ({
     versionOverrides: settings.versionOverrides,
     comfyUiParameters: settings.comfyUiParameters,
     llamaCppParameters: settings.llamaCppParameters,
@@ -1608,7 +1608,7 @@ function initEventHandle() {
   // only-when-default: settings.json may already hold a value a previous
   // partial migration wrote, and a null flag is a valid user choice that
   // must not be mistaken for "never set".
-  ipcMain.handle('migrateBackendLaunchSettings', (_event, payload: unknown) => {
+  typedHandle('migrateBackendLaunchSettings', (_event, payload: unknown) => {
     const parsed = z
       .object({
         versionOverrides: z
@@ -1622,7 +1622,10 @@ function initEventHandle() {
       })
       .safeParse(payload)
     if (!parsed.success) {
-      return { success: false, error: `invalid launch settings payload: ${parsed.error.message}` }
+      return {
+        success: false as const,
+        error: `invalid launch settings payload: ${parsed.error.message}`,
+      }
     }
     const incoming = parsed.data
     if (incoming.comfyUiParameters != null && settings.comfyUiParameters === null) {
@@ -1651,7 +1654,7 @@ function initEventHandle() {
       settings.versionOverrides = incoming.versionOverrides
     }
     persistLocalSettingsToDisk()
-    return { success: true }
+    return { success: true as const }
   })
 
   // ── Cloud Mode provider API keys ────────────────────────────────────────
@@ -1700,7 +1703,7 @@ function initEventHandle() {
     return (await getCloudProxy()).url
   })
 
-  ipcMain.handle('detectHardwareForModeRecommendation', async () => {
+  typedHandle('detectHardwareForModeRecommendation', async () => {
     let detected: GpuHardwareDevice[] = []
     let hasNvidia = false
     let detectSuccess = true
@@ -2026,7 +2029,7 @@ function initEventHandle() {
    * Returns null when --start-page was not provided so the renderer can leave
    * the persisted mode untouched; returns the validated ModeType (or 'chat' as
    * a safe fallback for an invalid value) when it was. */
-  ipcMain.handle('getInitialPage', (): ModeType | null => {
+  typedHandle('getInitialPage', (): ModeType | null => {
     const validModes: ModeType[] = ['chat', 'audio', 'imageGen', 'imageEdit', 'video']
     const startPageArg = process.argv.find((arg) => arg.startsWith('--start-page='))
     if (!startPageArg) return null
@@ -2035,7 +2038,7 @@ function initEventHandle() {
   })
 
   /** To check whether demo mode is enabled or not for AIPG */
-  ipcMain.handle('getDemoModeSettings', () => {
+  typedHandle('getDemoModeSettings', () => {
     return {
       isDemoModeEnabled: settings.isDemoModeEnabled,
       demoModeResetInSeconds: settings.demoModeResetInSeconds,
@@ -2076,7 +2079,7 @@ function initEventHandle() {
       : path.join(externalRes, 'model_config.dev.json'),
   )
 
-  ipcMain.handle('getInitSetting', (event) => {
+  typedHandle('getInitSetting', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) {
       return
@@ -2246,7 +2249,7 @@ function initEventHandle() {
     setVerboseAgentLogging(enabled)
   })
 
-  ipcMain.handle('getServices', () => {
+  typedHandle('getServices', () => {
     const registry = serviceRegistry ?? peekApiServiceRegistry()
     if (!registry) {
       appLogger.warn(
@@ -2258,7 +2261,7 @@ function initEventHandle() {
     return registry.getServiceInformation()
   })
 
-  ipcMain.handle('getBackendAuthToken', (_event: IpcMainInvokeEvent, serviceName: string) => {
+  typedHandle('getBackendAuthToken', (_event: IpcMainInvokeEvent, serviceName: string) => {
     if (!serviceRegistry) {
       return ''
     }
@@ -2306,7 +2309,7 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('uninstall', (_event: IpcMainInvokeEvent, serviceName: string) => {
+  typedHandle('uninstall', (_event: IpcMainInvokeEvent, serviceName: string) => {
     if (!serviceRegistry) {
       appLogger.warn('received uninstall too early during aipg startup', 'electron-backend')
       return
@@ -2322,7 +2325,7 @@ function initEventHandle() {
     return service.uninstall()
   })
 
-  ipcMain.handle('updateServiceSettings', (_event: IpcMainInvokeEvent, settings) => {
+  typedHandle('updateServiceSettings', (_event: IpcMainInvokeEvent, settings) => {
     if (!serviceRegistry) {
       appLogger.warn(
         'received updateServiceSettings too early during aipg startup',
@@ -2345,9 +2348,9 @@ function initEventHandle() {
   ipcMain.handle('getLlamaCppDefaultParameters', () => LLAMACPP_DEFAULT_PARAMETERS)
 
   // Which OEM's machine this is, for co-branding (see adapters/hardware/oemDetection.ts).
-  ipcMain.handle('detectOem', () => detectOem(settings.oemVendorOverride))
+  typedHandle('detectOem', () => detectOem(settings.oemVendorOverride))
 
-  ipcMain.handle('detectPhisonSsd', async () => {
+  typedHandle('detectPhisonSsd', async () => {
     if (settings.PhisonSSDdetected) {
       appLoggerInstance.info(
         'detectPhisonSsd: returning true (PhisonSSDdetected in local settings)',
@@ -2381,7 +2384,7 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('detectDevices', (_event: IpcMainInvokeEvent, serviceName: string) => {
+  typedHandle('detectDevices', (_event: IpcMainInvokeEvent, serviceName: string) => {
     if (!serviceRegistry) {
       appLogger.warn('received detectDevices too early during aipg startup', 'electron-backend')
       return
@@ -2397,7 +2400,7 @@ function initEventHandle() {
     return service.detectDevices()
   })
 
-  ipcMain.handle(
+  typedHandle(
     'selectDevice',
     (_event: IpcMainInvokeEvent, serviceName: string, deviceId: string) => {
       appLogger.info('selecting device', 'electron-backend')
@@ -2430,7 +2433,7 @@ function initEventHandle() {
     },
   )
 
-  ipcMain.handle(
+  typedHandle(
     'selectSttDevice',
     (_event: IpcMainInvokeEvent, serviceName: string, deviceId: string) => {
       appLogger.info('selecting STT device', 'electron-backend')
@@ -2463,7 +2466,7 @@ function initEventHandle() {
     },
   )
 
-  ipcMain.handle('startService', (_event: IpcMainInvokeEvent, serviceName: string) => {
+  typedHandle('startService', (_event: IpcMainInvokeEvent, serviceName: string) => {
     if (!serviceRegistry) {
       appLogger.warn('received start signal too early during aipg startup', 'electron-backend')
       return 'failed'
@@ -2475,7 +2478,7 @@ function initEventHandle() {
     }
     return service.start()
   })
-  ipcMain.handle('stopService', (_event: IpcMainInvokeEvent, serviceName: string) => {
+  typedHandle('stopService', (_event: IpcMainInvokeEvent, serviceName: string) => {
     if (!serviceRegistry) {
       appLogger.warn('received stop signal too early during aipg startup', 'electron-backend')
       return 'failed'
@@ -2487,7 +2490,7 @@ function initEventHandle() {
     }
     return service.stop()
   })
-  ipcMain.handle(
+  typedHandle(
     'setUpService',
     async (_event: IpcMainInvokeEvent, serviceName: BackendServiceName) => {
       if (!serviceRegistry || !win) {
@@ -2557,7 +2560,7 @@ function initEventHandle() {
     },
   )
 
-  ipcMain.handle(
+  typedHandle(
     'ensureBackendReadiness',
     async (
       _event: IpcMainInvokeEvent,
@@ -2574,7 +2577,7 @@ function initEventHandle() {
           'received ensureBackendReadiness too early during aipg startup',
           'electron-backend',
         )
-        return { success: false, error: 'Service registry not ready' }
+        return { success: false as const, error: 'Service registry not ready' }
       }
 
       try {
@@ -2585,35 +2588,32 @@ function initEventHandle() {
             remember: options?.remember,
           },
         )
-        return { success: true }
+        return { success: true as const }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorMessage = ipcErrorText(error)
         appLogger.error(
           `Failed to ensure backend readiness for ${serviceName}: ${errorMessage}`,
           'electron-backend',
         )
-        return { success: false, error: errorMessage }
+        return { success: false as const, error: errorMessage }
       }
     },
   )
 
-  ipcMain.handle('setLastChatBackendLoadActive', (_event: IpcMainInvokeEvent, active: boolean) => {
+  typedHandle('setLastChatBackendLoadActive', (_event: IpcMainInvokeEvent, active: boolean) => {
     setLastChatBackendLoadActive(Boolean(active))
-    return { success: true }
+    return { success: true as const }
   })
 
-  ipcMain.handle(
-    'rememberChatBackendLoad',
-    (_event: IpcMainInvokeEvent, args: ChatReadinessArgs) => {
-      if (typeof args?.serviceName !== 'string' || typeof args?.llmModelName !== 'string') {
-        return { success: false, error: 'invalid last-load args' }
-      }
-      rememberChatBackendLoad(args)
-      return { success: true }
-    },
-  )
+  typedHandle('rememberChatBackendLoad', (_event: IpcMainInvokeEvent, args: ChatReadinessArgs) => {
+    if (typeof args?.serviceName !== 'string' || typeof args?.llmModelName !== 'string') {
+      return { success: false as const, error: 'invalid last-load args' }
+    }
+    rememberChatBackendLoad(args)
+    return { success: true as const }
+  })
 
-  ipcMain.handle('ensureComfyUIBackendRunning', async () => {
+  typedHandle('ensureComfyUIBackendRunning', async () => {
     if (!serviceRegistry) {
       return { success: false, error: 'Service registry not ready', starting: false }
     }
@@ -2637,7 +2637,7 @@ function initEventHandle() {
         error: `ComfyUI backend status: ${result}`,
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
+      const errorMessage = ipcErrorText(error)
       appLogger.error(`Failed to start ComfyUI backend: ${errorMessage}`, 'electron-backend')
       return { success: false, error: errorMessage, starting: false }
     }
@@ -3402,15 +3402,15 @@ function initEventHandle() {
   })
 
   // Version management IPC handlers for frontend store integration
-  ipcMain.handle('resolveBackendVersion', async (_event, serviceName: BackendServiceName) => {
+  typedHandle('resolveBackendVersion', async (_event, serviceName: BackendServiceName) => {
     return await resolveBackendVersion(serviceName, settings)
   })
 
-  ipcMain.handle('getGitHubRepoUrl', () => {
+  typedHandle('getGitHubRepoUrl', () => {
     return getGitHubRepoUrl(settings)
   })
 
-  ipcMain.handle('getInstalledBackendVersion', async (_event, serviceName: BackendServiceName) => {
+  typedHandle('getInstalledBackendVersion', async (_event, serviceName: BackendServiceName) => {
     if (!serviceRegistry) {
       appLogger.warn('Service registry not ready', 'electron-backend')
       return undefined

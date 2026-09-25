@@ -7,7 +7,12 @@ import type {
 import type { AgentSessionBootstrap, AgentSessionRecordWire } from './agentSessionIpc'
 import type { AgentWorkspaceState } from './agentWorkspaceIpc'
 import type { ArtifactRunRequest, ArtifactRunResult } from './artifactIpc'
-import type { ChatSummarizeRequest, ChatTurnRequest, ChatTurnResumeResult } from './chatIpc'
+import type {
+  ChatModelConfig,
+  ChatSummarizeRequest,
+  ChatTurnRequest,
+  ChatTurnResumeResult,
+} from './chatIpc'
 import type { ChatAnswerPayload, ChatAskPayload } from './chatRequests'
 import type { ConversationBootstrap, ConversationSaveRequest } from './conversationIpc'
 import type { MediaItemsBootstrap } from './mediaItemIpc'
@@ -19,6 +24,7 @@ import type {
   PermissionsPromptResponse,
 } from './permissionsIpc'
 import type { RagDocumentSection } from './ragDocumentIpc'
+import type { BackendLaunchSettings, BackendVersionWire } from './preferencesIpc'
 
 export type IpcOwner = 'main' | 'homeAgent'
 export type IpcKind = 'invoke' | 'send' | 'push'
@@ -404,6 +410,215 @@ export const CHANNELS = {
     kind: 'push',
     owner: 'main',
     payload: null as unknown as PermissionsPromptPayload,
+  },
+
+  // ── Flat members (no `prefix:` — these sit at the top level of electronAPI) ──
+  // Service lifecycle, machine-level settings and hardware probing. Many return
+  // raw data rather than envelopes; the rows state what each handler really answers.
+
+  /** All registered backend services with status, devices and installed versions. */
+  getServices: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as ApiServiceInformation[],
+  },
+  /** Loopback auth token for a service's HTTP API; '' for services without one. */
+  getBackendAuthToken: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as string,
+  },
+  /** Apply launch flags / version pins to a service; it relaunches on the next start. */
+  updateServiceSettings: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ServiceSettings],
+    result: null as unknown as void,
+  },
+  /** Remove a service's installed files; ignored when the service is unknown. */
+  uninstall: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as void,
+  },
+  /** Persist and apply the selected inference device for a service. */
+  selectDevice: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as void,
+  },
+  /** Persist and apply the selected STT device (the OpenVINO whisper sub-device). */
+  selectSttDevice: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as void,
+  },
+  /** Re-probe a service's available devices. */
+  detectDevices: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as void,
+  },
+  /** Start a service; 'failed' when it is unknown or the registry is not up yet. */
+  startService: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as BackendStatus,
+  },
+  /** Stop a service; 'failed' when it is unknown or the registry is not up yet. */
+  stopService: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as BackendStatus,
+  },
+  /** Install/update a service; progress streams as `serviceSetUpProgress` events. */
+  setUpService: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [BackendServiceName],
+    result: null as unknown as void,
+  },
+  /** The pinned release for a service: remote versions file, local fallback. */
+  resolveBackendVersion: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [BackendServiceName],
+    result: null as unknown as BackendVersionWire | undefined,
+  },
+  /** The version actually installed for a service, if any. */
+  getInstalledBackendVersion: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [BackendServiceName],
+    result: null as unknown as { releaseTag?: string; version?: string } | undefined,
+  },
+  /** The GitHub repository this build was produced from (settings footer link). */
+  getGitHubRepoUrl: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as string,
+  },
+  /** Load the chat backend (LLM + embedding) for a model and admit the GPU window. */
+  ensureBackendReadiness: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [
+      string,
+      string,
+      string?,
+      number?,
+      string?,
+      boolean?,
+      { remember?: boolean }?,
+    ],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Arm/disarm the last-load snapshot (cloud turns disarm it for the duration). */
+  setLastChatBackendLoadActive: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [boolean],
+    result: null as unknown as IpcOk,
+  },
+  /** Persist the last successful chat-backend load for swap-back reloads. */
+  rememberChatBackendLoad: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [NonNullable<ChatModelConfig['readiness']>],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Boot the ComfyUI service if it is not running (idempotent, `starting` while booting). */
+  ensureComfyUIBackendRunning: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as { success: boolean; error?: string; starting?: boolean },
+  },
+  /** App locale plus the settings.json language override. */
+  getLocaleSettings: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as LocaleSettings,
+  },
+  /** Merge updates into the machine-level settings.json and persist it. */
+  updateLocalSettings: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [Partial<LocalSettings>],
+    result: null as unknown as IpcOk,
+  },
+  /** The whole machine-level settings object. */
+  getLocalSettings: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as LocalSettings,
+  },
+  /** The `--start-page=` launch value, or null to leave the persisted mode untouched. */
+  getInitialPage: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as ModeType | null,
+  },
+  /** Demo-mode flags and profile. */
+  getDemoModeSettings: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as DemoModeSettings,
+  },
+  /** Boot handshake: model paths/lists, app version, model-folder writability. */
+  getInitSetting: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as SetupData | undefined,
+  },
+  /** The backendServices store's settings.json slice: launch flags, version pins, device map. */
+  getBackendLaunchSettings: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as BackendLaunchSettings,
+  },
+  /** One-shot upload of the pre-step-8 renderer launch flags; only defaults are written. */
+  migrateBackendLaunchSettings: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [unknown],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Hardware probe plus product-mode recommendation for the setup wizard. */
+  detectHardwareForModeRecommendation: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as HardwareRecommendationResult,
+  },
+  /** Whether a Phison SSD is installed (Windows probe; a settings flag can force it). */
+  detectPhisonSsd: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as { detected: boolean },
+  },
+  /** Which OEM this machine came from, for partner co-branding. */
+  detectOem: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as { vendor: string; manufacturer: string; overridden: boolean },
   },
 } satisfies Record<string, IpcRow>
 

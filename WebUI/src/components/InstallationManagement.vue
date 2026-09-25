@@ -467,7 +467,7 @@ const errors = useErrors()
 // App version for AI Backend display (fetched directly to avoid timing issues with globalSetup.initSetup)
 const appVersion = ref('...')
 window.electronAPI.getInitSetting().then((data) => {
-  appVersion.value = data.version
+  appVersion.value = data!.version
 })
 
 let toBeInstalledQueue: ExtendedApiServiceInformation[] = []

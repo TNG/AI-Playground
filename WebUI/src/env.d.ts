@@ -294,13 +294,9 @@ type electronAPI = {
   getUserPresetsPath(): Promise<string>
   loadUserPresets(): Promise<Array<{ content: string; image: string | null }>>
   saveUserPreset(presetContent: string): Promise<boolean>
-  resolveBackendVersion(
-    serviceName: string,
-  ): Promise<{ releaseTag: string; version: string } | undefined>
-  getInstalledBackendVersion(
-    serviceName: string,
-  ): Promise<{ releaseTag?: string; version?: string } | undefined>
-  getGitHubRepoUrl(): Promise<string>
+  resolveBackendVersion: import('./types/ipcChannels').BridgeMemberFor<'resolveBackendVersion'>
+  getInstalledBackendVersion: import('./types/ipcChannels').BridgeMemberFor<'getInstalledBackendVersion'>
+  getGitHubRepoUrl: import('./types/ipcChannels').BridgeMemberFor<'getGitHubRepoUrl'>
   openDevTools(): void
   setVerboseAgentLogging(enabled: boolean): void
   getDeveloperSettings(): Promise<{ openDevConsoleOnStartup: boolean }>
@@ -311,10 +307,10 @@ type electronAPI = {
     height: number
     maxChatContentHeight: number
   }>
-  getLocaleSettings(): Promise<LocaleSettings>
-  updateLocalSettings(updates: Partial<LocalSettings>): Promise<{ success: boolean }>
-  getLocalSettings(): Promise<LocalSettings>
-  detectHardwareForModeRecommendation(): Promise<HardwareRecommendationResult>
+  getLocaleSettings: import('./types/ipcChannels').BridgeMemberFor<'getLocaleSettings'>
+  updateLocalSettings: import('./types/ipcChannels').BridgeMemberFor<'updateLocalSettings'>
+  getLocalSettings: import('./types/ipcChannels').BridgeMemberFor<'getLocalSettings'>
+  detectHardwareForModeRecommendation: import('./types/ipcChannels').BridgeMemberFor<'detectHardwareForModeRecommendation'>
   setWinSize(width: number, height: number): Promise<void>
   showSaveDialog(options: Electron.SaveDialogOptions): Promise<Electron.SaveDialogReturnValue>
   showMessageBox(options: Electron.MessageBoxOptions): Promise<number>
@@ -326,8 +322,8 @@ type electronAPI = {
   setIgnoreMouseEvents(ignore: boolean): void
   miniWindow(): void
   exitApp(): void
-  getInitialPage(): Promise<ModeType | null>
-  getDemoModeSettings(): Promise<DemoModeSettings>
+  getInitialPage: import('./types/ipcChannels').BridgeMemberFor<'getInitialPage'>
+  getDemoModeSettings: import('./types/ipcChannels').BridgeMemberFor<'getDemoModeSettings'>
   saveImage(url: string): void
   saveImageToMediaInput(dataUri: string): Promise<string>
   saveAudioToMediaInput(dataUri: string): Promise<string>
@@ -364,7 +360,7 @@ type electronAPI = {
     serviceName: string,
     embeddingModelName: string,
   ): Promise<{ success: boolean; error?: string }>
-  getInitSetting(): Promise<SetupData>
+  getInitSetting: import('./types/ipcChannels').BridgeMemberFor<'getInitSetting'>
   updateModelPaths(modelPaths: ModelPaths): Promise<ModelLists>
   restorePathsSettings(): Promise<void>
   loadModels(): Promise<Model[]>
@@ -406,53 +402,35 @@ type electronAPI = {
   ): void
   getComfyUiDefaultParameters(): Promise<string>
   getLlamaCppDefaultParameters(): Promise<string>
-  detectPhisonSsd(): Promise<{ detected: boolean }>
-  /** Which OEM this machine came from, for partner co-branding. */
-  detectOem(): Promise<{ vendor: string; manufacturer: string; overridden: boolean }>
-  getServices(): Promise<ApiServiceInformation[]>
-  getBackendAuthToken(serviceName: string): Promise<string>
-  updateServiceSettings(settings: ServiceSettings): Promise<BackendStatus>
-
-  uninstall(serviceName: string): Promise<void>
-  selectDevice(serviceName: string, deviceId: string): Promise<void>
-  selectSttDevice(serviceName: string, deviceId: string): Promise<void>
-  detectDevices(serviceName: string): Promise<void>
-  startService(serviceName: string): Promise<BackendStatus>
-  stopService(serviceName: string): Promise<BackendStatus>
-  setUpService(serviceName: string): Promise<void>
+  detectPhisonSsd: import('./types/ipcChannels').BridgeMemberFor<'detectPhisonSsd'>
+  detectOem: import('./types/ipcChannels').BridgeMemberFor<'detectOem'>
+  getServices: import('./types/ipcChannels').BridgeMemberFor<'getServices'>
+  getBackendAuthToken: import('./types/ipcChannels').BridgeMemberFor<'getBackendAuthToken'>
+  updateServiceSettings: import('./types/ipcChannels').BridgeMemberFor<'updateServiceSettings'>
+  uninstall: import('./types/ipcChannels').BridgeMemberFor<'uninstall'>
+  selectDevice: import('./types/ipcChannels').BridgeMemberFor<'selectDevice'>
+  selectSttDevice: import('./types/ipcChannels').BridgeMemberFor<'selectSttDevice'>
+  detectDevices: import('./types/ipcChannels').BridgeMemberFor<'detectDevices'>
+  startService: import('./types/ipcChannels').BridgeMemberFor<'startService'>
+  stopService: import('./types/ipcChannels').BridgeMemberFor<'stopService'>
+  setUpService: import('./types/ipcChannels').BridgeMemberFor<'setUpService'>
   onServiceSetUpProgress(callback: (data: SetupProgress) => void): void
   onKernelEvent(callback: (event: import('./types/kernelEvents').KernelEvent) => void): () => void
   getKernelSnapshot(): Promise<import('./types/kernelEvents').KernelSnapshot>
   setLifecycleBusy(busy: boolean): void
   onShowToast(callback: (data: { type: string; message: string }) => void): void
-  ensureBackendReadiness(
-    serviceName: string,
-    llmModelName: string,
-    embeddingModelName?: string,
-    contextSize?: number,
-    modelArgs?: string,
-    skipGpuAdmission?: boolean,
-    options?: { remember?: boolean },
-  ): Promise<{ success: boolean; error?: string }>
-  setLastChatBackendLoadActive(active: boolean): Promise<{ success: boolean }>
-  rememberChatBackendLoad(
-    args: NonNullable<import('./types/chatIpc').ChatModelConfig['readiness']>,
-  ): Promise<{ success: boolean; error?: string }>
-  ensureComfyUIBackendRunning(): Promise<{
-    success: boolean
-    error?: string
-    starting?: boolean
-  }>
+  ensureBackendReadiness: import('./types/ipcChannels').BridgeMemberFor<'ensureBackendReadiness'>
+  setLastChatBackendLoadActive: import('./types/ipcChannels').BridgeMemberFor<'setLastChatBackendLoadActive'>
+  rememberChatBackendLoad: import('./types/ipcChannels').BridgeMemberFor<'rememberChatBackendLoad'>
+  ensureComfyUIBackendRunning: import('./types/ipcChannels').BridgeMemberFor<'ensureComfyUIBackendRunning'>
   artifact: import('./types/ipcChannels').NamespaceBridge<'artifact'>
   permissions: import('./types/ipcChannels').NamespaceBridge<'permissions'>
   chat: import('./types/ipcChannels').NamespaceBridge<'chat'>
   conversations: import('./types/ipcChannels').NamespaceBridge<'conversations'>
   mediaItems: import('./types/ipcChannels').NamespaceBridge<'mediaItems'>
   preferences: import('./types/ipcChannels').NamespaceBridge<'preferences'>
-  getBackendLaunchSettings(): Promise<import('./types/preferencesIpc').BackendLaunchSettings>
-  migrateBackendLaunchSettings(
-    payload: unknown,
-  ): Promise<{ success: true } | { success: false; error: string }>
+  getBackendLaunchSettings: import('./types/ipcChannels').BridgeMemberFor<'getBackendLaunchSettings'>
+  migrateBackendLaunchSettings: import('./types/ipcChannels').BridgeMemberFor<'migrateBackendLaunchSettings'>
   ragDocuments: import('./types/ipcChannels').NamespaceBridge<'ragDocuments'>
   startTranscriptionServer(modelName: string): Promise<{ success: boolean; error?: string }>
   stopTranscriptionServer(): Promise<{ success: boolean; error?: string }>

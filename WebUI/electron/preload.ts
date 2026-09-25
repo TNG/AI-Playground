@@ -65,40 +65,36 @@ contextBridge.exposeInMainWorld('envVars', {
 contextBridge.exposeInMainWorld('electronAPI', {
   startDrag: (fileName: string) => ipcRenderer.send('ondragstart', fileName),
   getFilePath: (file: File) => webUtils.getPathForFile(file),
-  getServices: () => ipcRenderer.invoke('getServices'),
-  getBackendAuthToken: (serviceName: string) =>
-    ipcRenderer.invoke('getBackendAuthToken', serviceName),
-  updateServiceSettings: (settings: ServiceSettings) =>
-    ipcRenderer.invoke('updateServiceSettings', settings),
-  uninstall: (serviceName: string) => ipcRenderer.invoke('uninstall', serviceName),
+  getServices: () => invoke('getServices'),
+  getBackendAuthToken: (serviceName: string) => invoke('getBackendAuthToken', serviceName),
+  updateServiceSettings: (settings: ServiceSettings) => invoke('updateServiceSettings', settings),
+  uninstall: (serviceName: string) => invoke('uninstall', serviceName),
   selectDevice: (serviceName: string, deviceId: string) =>
-    ipcRenderer.invoke('selectDevice', serviceName, deviceId),
+    invoke('selectDevice', serviceName, deviceId),
   selectSttDevice: (serviceName: string, deviceId: string) =>
-    ipcRenderer.invoke('selectSttDevice', serviceName, deviceId),
-  detectDevices: (serviceName: string) => ipcRenderer.invoke('detectDevices', serviceName),
-  startService: (serviceName: string) => ipcRenderer.invoke('startService', serviceName),
-  stopService: (serviceName: string) => ipcRenderer.invoke('stopService', serviceName),
-  setUpService: (serviceName: string) => ipcRenderer.invoke('setUpService', serviceName),
+    invoke('selectSttDevice', serviceName, deviceId),
+  detectDevices: (serviceName: string) => invoke('detectDevices', serviceName),
+  startService: (serviceName: string) => invoke('startService', serviceName),
+  stopService: (serviceName: string) => invoke('stopService', serviceName),
+  setUpService: (serviceName: BackendServiceName) => invoke('setUpService', serviceName),
   updatePresetsFromIntelRepo: () => ipcRenderer.invoke('updatePresetsFromIntelRepo'),
   reloadPresets: () => ipcRenderer.invoke('reloadPresets'),
   getUserPresetsPath: () => ipcRenderer.invoke('getUserPresetsPath'),
   loadUserPresets: () => ipcRenderer.invoke('loadUserPresets'),
   saveUserPreset: (presetContent: string) => ipcRenderer.invoke('saveUserPreset', presetContent),
-  resolveBackendVersion: (serviceName: string) =>
-    ipcRenderer.invoke('resolveBackendVersion', serviceName),
-  getInstalledBackendVersion: (serviceName: string) =>
-    ipcRenderer.invoke('getInstalledBackendVersion', serviceName),
-  getGitHubRepoUrl: () => ipcRenderer.invoke('getGitHubRepoUrl'),
+  resolveBackendVersion: (serviceName: BackendServiceName) =>
+    invoke('resolveBackendVersion', serviceName),
+  getInstalledBackendVersion: (serviceName: BackendServiceName) =>
+    invoke('getInstalledBackendVersion', serviceName),
+  getGitHubRepoUrl: () => invoke('getGitHubRepoUrl'),
   openDevTools: () => ipcRenderer.send('openDevTools'),
   setVerboseAgentLogging: (enabled: boolean) => ipcRenderer.send('setVerboseAgentLogging', enabled),
   getDeveloperSettings: () => ipcRenderer.invoke('getDeveloperSettings'),
   openUrl: (url: string) => ipcRenderer.send('openUrl', url),
-  getLocaleSettings: () => ipcRenderer.invoke('getLocaleSettings'),
-  updateLocalSettings: (updates: Partial<LocalSettings>) =>
-    ipcRenderer.invoke('updateLocalSettings', updates),
-  getLocalSettings: () => ipcRenderer.invoke('getLocalSettings'),
-  detectHardwareForModeRecommendation: () =>
-    ipcRenderer.invoke('detectHardwareForModeRecommendation'),
+  getLocaleSettings: () => invoke('getLocaleSettings'),
+  updateLocalSettings: (updates: Partial<LocalSettings>) => invoke('updateLocalSettings', updates),
+  getLocalSettings: () => invoke('getLocalSettings'),
+  detectHardwareForModeRecommendation: () => invoke('detectHardwareForModeRecommendation'),
   getWinSize: () => ipcRenderer.invoke('getWinSize'),
   setWinSize: (width: number, height: number) => ipcRenderer.invoke('setWinSize', width, height),
   showSaveDialog: (options: Electron.SaveDialogOptions) =>
@@ -113,8 +109,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setIgnoreMouseEvents: (igrnore: boolean) => ipcRenderer.send('setIgnoreMouseEvents', igrnore),
   miniWindow: () => ipcRenderer.send('miniWindow'),
   exitApp: () => ipcRenderer.send('exitApp'),
-  getInitialPage: () => ipcRenderer.invoke('getInitialPage'),
-  getDemoModeSettings: () => ipcRenderer.invoke('getDemoModeSettings'),
+  getInitialPage: () => invoke('getInitialPage'),
+  getDemoModeSettings: () => invoke('getDemoModeSettings'),
   showOpenDialog: (options: Electron.OpenDialogOptions) =>
     ipcRenderer.invoke('showOpenDialog', options),
   saveImage: (url: string) => ipcRenderer.send('saveImage', url),
@@ -143,7 +139,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('getEmbeddingServerUrl', serviceName),
   ensureEmbeddingServerReady: (serviceName: string, embeddingModelName: string) =>
     ipcRenderer.invoke('ensureEmbeddingServerReady', serviceName, embeddingModelName),
-  getInitSetting: () => ipcRenderer.invoke('getInitSetting'),
+  getInitSetting: () => invoke('getInitSetting'),
   updateModelPaths: (modelPaths: ModelPaths) => ipcRenderer.invoke('updateModelPaths', modelPaths),
   restorePathsSettings: () => ipcRenderer.invoke('restorePathsSettings'),
   loadModels: () => ipcRenderer.invoke('loadModels'),
@@ -171,8 +167,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('debugLog', (_event, value) => callback(value)),
   getComfyUiDefaultParameters: () => ipcRenderer.invoke('getComfyUiDefaultParameters'),
   getLlamaCppDefaultParameters: () => ipcRenderer.invoke('getLlamaCppDefaultParameters'),
-  detectPhisonSsd: () => ipcRenderer.invoke('detectPhisonSsd') as Promise<{ detected: boolean }>,
-  detectOem: () => ipcRenderer.invoke('detectOem'),
+  detectPhisonSsd: () => invoke('detectPhisonSsd'),
+  detectOem: () => invoke('detectOem'),
   onServiceSetUpProgress: (callback: (data: SetupProgress) => void) =>
     ipcRenderer.on('serviceSetUpProgress', (_event, value) => callback(value)),
   onKernelEvent: (callback: (event: import('../src/types/kernelEvents').KernelEvent) => void) =>
@@ -193,7 +189,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     skipGpuAdmission?: boolean,
     options?: { remember?: boolean },
   ) =>
-    ipcRenderer.invoke(
+    invoke(
       'ensureBackendReadiness',
       serviceName,
       llmModelName,
@@ -203,12 +199,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       skipGpuAdmission,
       options,
     ),
-  setLastChatBackendLoadActive: (active: boolean) =>
-    ipcRenderer.invoke('setLastChatBackendLoadActive', active),
+  setLastChatBackendLoadActive: (active: boolean) => invoke('setLastChatBackendLoadActive', active),
   rememberChatBackendLoad: (
     args: NonNullable<import('../src/types/chatIpc').ChatModelConfig['readiness']>,
-  ) => ipcRenderer.invoke('rememberChatBackendLoad', args),
-  ensureComfyUIBackendRunning: () => ipcRenderer.invoke('ensureComfyUIBackendRunning'),
+  ) => invoke('rememberChatBackendLoad', args),
+  ensureComfyUIBackendRunning: () => invoke('ensureComfyUIBackendRunning'),
   artifact: {
     run: (request: ArtifactRunRequest, options?: { queue?: 'fail-fast' | 'queue' }) =>
       invoke('artifact:run', cloneForIpc(request), options),
@@ -265,14 +260,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     migrate: (payload: unknown) => invoke('ragDocuments:migrate', cloneForIpc(payload)),
     write: (value: unknown) => invoke('ragDocuments:write', cloneForIpc(value)),
   } satisfies NamespaceBridge<'ragDocuments'>,
-  getBackendLaunchSettings: () =>
-    ipcRenderer.invoke('getBackendLaunchSettings') as Promise<
-      import('../src/types/preferencesIpc').BackendLaunchSettings
-    >,
+  getBackendLaunchSettings: () => invoke('getBackendLaunchSettings'),
   migrateBackendLaunchSettings: (payload: unknown) =>
-    ipcRenderer.invoke('migrateBackendLaunchSettings', cloneForIpc(payload)) as Promise<
-      { success: true } | { success: false; error: string }
-    >,
+    invoke('migrateBackendLaunchSettings', cloneForIpc(payload)),
   startTranscriptionServer: (modelName: string) =>
     ipcRenderer.invoke('startTranscriptionServer', modelName),
   stopTranscriptionServer: () => ipcRenderer.invoke('stopTranscriptionServer'),

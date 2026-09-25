@@ -25,6 +25,7 @@ import type {
 } from './permissionsIpc'
 import type { RagDocumentSection } from './ragDocumentIpc'
 import type { BackendLaunchSettings, BackendVersionWire } from './preferencesIpc'
+import type { SpeechSynthesisRequest } from './speechIpc'
 import type { ModelLibraryScan } from '@/assets/js/models/types'
 import type { ModelLists, ModelPaths } from '@/assets/js/store/models'
 import type { EmbedInquiry, IndexedDocument } from '@/assets/js/store/textInference'
@@ -798,6 +799,125 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [string],
     result: null as unknown as boolean | undefined,
+  },
+
+  // ── Media files: app-owned media dirs, renderer-supplied payloads ──
+
+  /** Persist an attached image into the media input dir; answers `input/<file>`. */
+  saveImageToMediaInput: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as string,
+  },
+  /** Persist an attached audio clip into the media input dir; answers `input/<file>`. */
+  saveAudioToMediaInput: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as string,
+  },
+  /** Write one generated audio clip under the app's audio dir (suffix on name clash). */
+  saveGeneratedAudio: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, { overwrite?: boolean }?],
+    result: null as unknown as { success: boolean; filePath?: string; error?: string },
+  },
+  /** Read an audio file under the app's audio dir back as a data URI (path-confined). */
+  readLocalAudioAsDataUri: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as { success: boolean; dataUri?: string; error?: string },
+  },
+  /** Delete a generated audio file, confined to the app's audio dir. */
+  deleteGeneratedAudio: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as { success: boolean; error?: string },
+  },
+  /** Read any `aipg-media://` file back as base64 (path-validated by the scheme root). */
+  readAipgMediaAsBase64: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as { success: true; data: string } | { success: false; error: string },
+  },
+
+  // ── Speech servers: STT/TTS sub-servers inside the OpenVINO backend ──
+
+  /** Start the OpenVINO whisper (STT) sub-server for a model. */
+  startTranscriptionServer: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as { success: boolean; error?: string },
+  },
+  /** Stop the whisper (STT) sub-server. */
+  stopTranscriptionServer: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as { success: boolean; error?: string },
+  },
+  /** The whisper (STT) sub-server's URL, when it is running. */
+  getTranscriptionServerUrl: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as { success: boolean; url?: string; error?: string },
+  },
+  /** Start the OpenVINO speech (TTS) sub-server for a model. */
+  startSpeechServer: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as { success: boolean; error?: string },
+  },
+  /** Stop the speech (TTS) sub-server. */
+  stopSpeechServer: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as { success: boolean; error?: string },
+  },
+  /** The speech (TTS) sub-server's URL, when it is running. */
+  getSpeechServerUrl: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as { success: boolean; url?: string; error?: string },
+  },
+  /** Proxy one `/audio/speech` POST through main, dodging the renderer's CORS. */
+  synthesizeSpeech: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [SpeechSynthesisRequest],
+    result: null as unknown as
+      { success: true; dataBase64: string; mediaType: string } | { success: false; error: string },
+  },
+  /** Start (or confirm) the OVMS image-gen server and answer its URL. */
+  ensureOvmsImageReady: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, boolean?, string?],
+    result: null as unknown as { success: boolean; url?: string; error?: string },
+  },
+  /** Stop the OpenVINO backend's chat sub-servers. */
+  stopOvmsChatServers: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as { success: boolean; error?: string },
+  },
+  /** The OVMS image-gen server's URL, when it is running. */
+  getOvmsImageServerUrl: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as { success: boolean; url?: string; error?: string },
   },
 } satisfies Record<string, IpcRow>
 

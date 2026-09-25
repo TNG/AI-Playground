@@ -16,6 +16,7 @@ import type { ChatSummarizeRequest, ChatTurnRequest } from '@/types/chatIpc'
 import type { ChatAnswerPayload, ChatAskPayload } from '@/types/chatRequests'
 import type { ConversationSaveRequest } from '@/types/conversationIpc'
 import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaRequests'
+import type { SpeechSynthesisRequest } from '@/types/speechIpc'
 import type {
   PermissionGrant,
   PermissionGrantOrigin,
@@ -114,14 +115,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showOpenDialog: (options: Electron.OpenDialogOptions) =>
     ipcRenderer.invoke('showOpenDialog', options),
   saveImage: (url: string) => ipcRenderer.send('saveImage', url),
-  saveImageToMediaInput: (dataUri: string) => ipcRenderer.invoke('saveImageToMediaInput', dataUri),
-  saveAudioToMediaInput: (dataUri: string) => ipcRenderer.invoke('saveAudioToMediaInput', dataUri),
+  saveImageToMediaInput: (dataUri: string) => invoke('saveImageToMediaInput', dataUri),
+  saveAudioToMediaInput: (dataUri: string) => invoke('saveAudioToMediaInput', dataUri),
   saveGeneratedAudio: (audioBase64: string, filename: string, options?: { overwrite?: boolean }) =>
-    ipcRenderer.invoke('saveGeneratedAudio', audioBase64, filename, options),
-  readLocalAudioAsDataUri: (filePath: string) =>
-    ipcRenderer.invoke('readLocalAudioAsDataUri', filePath),
-  deleteGeneratedAudio: (filePath: string) => ipcRenderer.invoke('deleteGeneratedAudio', filePath),
-  readAipgMediaAsBase64: (url: string) => ipcRenderer.invoke('readAipgMediaAsBase64', url),
+    invoke('saveGeneratedAudio', audioBase64, filename, options),
+  readLocalAudioAsDataUri: (filePath: string) => invoke('readLocalAudioAsDataUri', filePath),
+  deleteGeneratedAudio: (filePath: string) => invoke('deleteGeneratedAudio', filePath),
+  readAipgMediaAsBase64: (url: string) => invoke('readAipgMediaAsBase64', url),
   openImageWin: (url: string, title: string, width: number, height: number) =>
     ipcRenderer.send('openImageWin', url, title, width, height),
   screenChange: (callback: (width: number, height: number) => void) =>
@@ -260,36 +260,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getBackendLaunchSettings: () => invoke('getBackendLaunchSettings'),
   migrateBackendLaunchSettings: (payload: unknown) =>
     invoke('migrateBackendLaunchSettings', cloneForIpc(payload)),
-  startTranscriptionServer: (modelName: string) =>
-    ipcRenderer.invoke('startTranscriptionServer', modelName),
-  stopTranscriptionServer: () => ipcRenderer.invoke('stopTranscriptionServer'),
-  getTranscriptionServerUrl: () => ipcRenderer.invoke('getTranscriptionServerUrl'),
-  startSpeechServer: (modelName: string) => ipcRenderer.invoke('startSpeechServer', modelName),
-  stopSpeechServer: () => ipcRenderer.invoke('stopSpeechServer'),
-  getSpeechServerUrl: () => ipcRenderer.invoke('getSpeechServerUrl'),
-  synthesizeSpeech: (options: {
-    baseURL: string
-    model: string
-    input: string
-    voice?: string
-    apiKey?: string
-    format?: string
-  }) => ipcRenderer.invoke('synthesizeSpeech', options),
+  startTranscriptionServer: (modelName: string) => invoke('startTranscriptionServer', modelName),
+  stopTranscriptionServer: () => invoke('stopTranscriptionServer'),
+  getTranscriptionServerUrl: () => invoke('getTranscriptionServerUrl'),
+  startSpeechServer: (modelName: string) => invoke('startSpeechServer', modelName),
+  stopSpeechServer: () => invoke('stopSpeechServer'),
+  getSpeechServerUrl: () => invoke('getSpeechServerUrl'),
+  synthesizeSpeech: (options: SpeechSynthesisRequest) => invoke('synthesizeSpeech', options),
   ensureOvmsImageReady: (
     serviceName: string,
     modelName: string,
     keepModelsLoaded?: boolean,
     resolution?: string,
-  ) =>
-    ipcRenderer.invoke(
-      'ensureOvmsImageReady',
-      serviceName,
-      modelName,
-      keepModelsLoaded,
-      resolution,
-    ),
-  stopOvmsChatServers: () => ipcRenderer.invoke('stopOvmsChatServers'),
-  getOvmsImageServerUrl: () => ipcRenderer.invoke('getOvmsImageServerUrl'),
+  ) => invoke('ensureOvmsImageReady', serviceName, modelName, keepModelsLoaded, resolution),
+  stopOvmsChatServers: () => invoke('stopOvmsChatServers'),
+  getOvmsImageServerUrl: () => invoke('getOvmsImageServerUrl'),
   // ComfyUI Tools
   comfyui: {
     isGitInstalled: () => ipcRenderer.invoke('comfyui:isGitInstalled'),

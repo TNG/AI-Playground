@@ -137,6 +137,7 @@ import { ArtifactRunRequestSchema } from '@/types/artifactIpc'
 import { handleChatAnswer, rejectAllChatAsks } from './chat/chatAsk.ts'
 import type { MediaItem } from '@/types/mediaItem'
 import type { ArtifactMissingModel } from '@/types/mediaRequests'
+import type { SpeechSynthesisRequest } from '@/types/speechIpc'
 import {
   cancelActiveArtifactRun,
   setArtifactRunnerDeps,
@@ -1853,7 +1854,7 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('saveImageToMediaInput', async (_event, dataUri: string) => {
+  typedHandle('saveImageToMediaInput', async (_event, dataUri: string) => {
     if (typeof dataUri !== 'string' || !dataUri.startsWith('data:image/')) {
       throw new Error('saveImageToMediaInput: expected a data URI (data:image/...)')
     }
@@ -1874,7 +1875,7 @@ function initEventHandle() {
   // An attached clip is kept beside attached images rather than inlined in the
   // thread: a minute of audio is megabytes of base64 in the conversation file,
   // and `transcribeAudio` reads it back through the same media reader.
-  ipcMain.handle('saveAudioToMediaInput', async (_event, dataUri: string) => {
+  typedHandle('saveAudioToMediaInput', async (_event, dataUri: string) => {
     const match =
       typeof dataUri === 'string'
         ? dataUri.match(/^data:(audio\/[a-zA-Z0-9.+-]+);base64,(.+)$/)
@@ -1889,7 +1890,7 @@ function initEventHandle() {
     return `input/${filename}`
   })
 
-  ipcMain.handle(
+  typedHandle(
     'saveGeneratedAudio',
     async (
       _event,
@@ -1904,7 +1905,7 @@ function initEventHandle() {
         const filePath = await saveGeneratedAudioFile(audioBase64, filename, options)
         return { success: true, filePath }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorMessage = ipcErrorText(error)
         appLogger.error(`Failed to save generated audio: ${errorMessage}`, 'electron-backend')
         return { success: false, error: errorMessage }
       }
@@ -1917,7 +1918,7 @@ function initEventHandle() {
    * never reach anything else. A path that is already gone counts as success —
    * the caller wants the file absent, not proof that it deleted it.
    */
-  ipcMain.handle(
+  typedHandle(
     'deleteGeneratedAudio',
     async (_event, filePath: string): Promise<{ success: boolean; error?: string }> => {
       try {
@@ -1934,14 +1935,14 @@ function initEventHandle() {
         await fs.promises.rm(full, { force: true })
         return { success: true }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorMessage = ipcErrorText(error)
         appLogger.error(`Failed to delete generated audio: ${errorMessage}`, 'electron-backend')
         return { success: false, error: errorMessage }
       }
     },
   )
 
-  ipcMain.handle(
+  typedHandle(
     'readLocalAudioAsDataUri',
     async (
       _event,
@@ -1966,7 +1967,7 @@ function initEventHandle() {
           dataUri: `data:${mediaType};base64,${buf.toString('base64')}`,
         }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorMessage = ipcErrorText(error)
         return { success: false, error: errorMessage }
       }
     },
@@ -2004,7 +2005,7 @@ function initEventHandle() {
     },
   )
 
-  ipcMain.handle(
+  typedHandle(
     'readAipgMediaAsBase64',
     async (
       _event,
@@ -2020,7 +2021,7 @@ function initEventHandle() {
       try {
         return { success: true, data: fs.readFileSync(filePath).toString('base64') }
       } catch (e) {
-        return { success: false, error: e instanceof Error ? e.message : String(e) }
+        return { success: false, error: ipcErrorText(e) }
       }
     },
   )
@@ -3046,40 +3047,34 @@ function initEventHandle() {
     },
   )
 
-  ipcMain.handle(
-    'startTranscriptionServer',
-    async (_event: IpcMainInvokeEvent, modelName: string) => {
-      if (!serviceRegistry) {
-        return { success: false, error: 'Service registry not ready' }
-      }
-      const service = serviceRegistry.getService('openvino-backend')
-      if (!service) {
-        return { success: false, error: 'OpenVINO backend service not found' }
-      }
+  typedHandle('startTranscriptionServer', async (_event: IpcMainInvokeEvent, modelName: string) => {
+    if (!serviceRegistry) {
+      return { success: false, error: 'Service registry not ready' }
+    }
+    const service = serviceRegistry.getService('openvino-backend')
+    if (!service) {
+      return { success: false, error: 'OpenVINO backend service not found' }
+    }
 
-      // Check if service has startTranscriptionServer method
-      if (
-        'startTranscriptionServer' in service &&
-        typeof service.startTranscriptionServer === 'function'
-      ) {
-        try {
-          await service.startTranscriptionServer(modelName)
-          return { success: true }
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          appLogger.error(
-            `Failed to start transcription server: ${errorMessage}`,
-            'electron-backend',
-          )
-          return { success: false, error: errorMessage }
-        }
+    // Check if service has startTranscriptionServer method
+    if (
+      'startTranscriptionServer' in service &&
+      typeof service.startTranscriptionServer === 'function'
+    ) {
+      try {
+        await service.startTranscriptionServer(modelName)
+        return { success: true }
+      } catch (error) {
+        const errorMessage = ipcErrorText(error)
+        appLogger.error(`Failed to start transcription server: ${errorMessage}`, 'electron-backend')
+        return { success: false, error: errorMessage }
       }
+    }
 
-      return { success: false, error: 'Transcription server not supported' }
-    },
-  )
+    return { success: false, error: 'Transcription server not supported' }
+  })
 
-  ipcMain.handle('stopTranscriptionServer', async (_event: IpcMainInvokeEvent) => {
+  typedHandle('stopTranscriptionServer', async (_event: IpcMainInvokeEvent) => {
     if (!serviceRegistry) {
       return { success: false, error: 'Service registry not ready' }
     }
@@ -3097,7 +3092,7 @@ function initEventHandle() {
         await service.stopTranscriptionServer()
         return { success: true }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorMessage = ipcErrorText(error)
         appLogger.error(`Failed to stop transcription server: ${errorMessage}`, 'electron-backend')
         return { success: false, error: errorMessage }
       }
@@ -3106,7 +3101,7 @@ function initEventHandle() {
     return { success: false, error: 'Transcription server not supported' }
   })
 
-  ipcMain.handle('getTranscriptionServerUrl', async (_event: IpcMainInvokeEvent) => {
+  typedHandle('getTranscriptionServerUrl', async (_event: IpcMainInvokeEvent) => {
     if (!serviceRegistry) {
       return { success: false, error: 'Service registry not ready' }
     }
@@ -3130,7 +3125,7 @@ function initEventHandle() {
     return { success: false, error: 'Transcription server not supported' }
   })
 
-  ipcMain.handle('startSpeechServer', async (_event: IpcMainInvokeEvent, modelName: string) => {
+  typedHandle('startSpeechServer', async (_event: IpcMainInvokeEvent, modelName: string) => {
     if (!serviceRegistry) {
       return { success: false, error: 'Service registry not ready' }
     }
@@ -3144,7 +3139,7 @@ function initEventHandle() {
         await service.startSpeechServer(modelName)
         return { success: true }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorMessage = ipcErrorText(error)
         appLogger.error(`Failed to start speech server: ${errorMessage}`, 'electron-backend')
         return { success: false, error: errorMessage }
       }
@@ -3153,7 +3148,7 @@ function initEventHandle() {
     return { success: false, error: 'Speech server not supported' }
   })
 
-  ipcMain.handle('stopSpeechServer', async (_event: IpcMainInvokeEvent) => {
+  typedHandle('stopSpeechServer', async (_event: IpcMainInvokeEvent) => {
     if (!serviceRegistry) {
       return { success: false, error: 'Service registry not ready' }
     }
@@ -3167,7 +3162,7 @@ function initEventHandle() {
         await service.stopSpeechServer()
         return { success: true }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorMessage = ipcErrorText(error)
         appLogger.error(`Failed to stop speech server: ${errorMessage}`, 'electron-backend')
         return { success: false, error: errorMessage }
       }
@@ -3176,7 +3171,7 @@ function initEventHandle() {
     return { success: false, error: 'Speech server not supported' }
   })
 
-  ipcMain.handle('getSpeechServerUrl', async (_event: IpcMainInvokeEvent) => {
+  typedHandle('getSpeechServerUrl', async (_event: IpcMainInvokeEvent) => {
     if (!serviceRegistry) {
       return { success: false, error: 'Service registry not ready' }
     }
@@ -3200,18 +3195,11 @@ function initEventHandle() {
   // renderer's CORS policy. Many OpenAI-compatible `/audio/speech` servers
   // (e.g. local TTS fallbacks) do not answer the CORS preflight that an
   // `application/json` POST triggers, which blocks a direct renderer fetch.
-  ipcMain.handle(
+  typedHandle(
     'synthesizeSpeech',
     async (
       _event: IpcMainInvokeEvent,
-      options: {
-        baseURL: string
-        model: string
-        input: string
-        voice?: string
-        apiKey?: string
-        format?: string
-      },
+      options: SpeechSynthesisRequest,
     ): Promise<
       { success: true; dataBase64: string; mediaType: string } | { success: false; error: string }
     > => {
@@ -3243,14 +3231,14 @@ function initEventHandle() {
         const dataBase64 = Buffer.from(arrayBuffer).toString('base64')
         return { success: true, dataBase64, mediaType }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorMessage = ipcErrorText(error)
         appLogger.error(`Failed to synthesize speech: ${errorMessage}`, 'electron-backend')
         return { success: false, error: errorMessage }
       }
     },
   )
 
-  ipcMain.handle(
+  typedHandle(
     'ensureOvmsImageReady',
     async (
       _event: IpcMainInvokeEvent,
@@ -3261,7 +3249,7 @@ function initEventHandle() {
     ) => ensureOvmsImageServerReady(serviceName, modelName, keepModelsLoaded, resolution),
   )
 
-  ipcMain.handle('stopOvmsChatServers', async (_event: IpcMainInvokeEvent) => {
+  typedHandle('stopOvmsChatServers', async (_event: IpcMainInvokeEvent) => {
     if (!serviceRegistry) {
       return { success: false, error: 'Service registry not ready' }
     }
@@ -3275,7 +3263,7 @@ function initEventHandle() {
         await service.stopChatServers()
         return { success: true }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorMessage = ipcErrorText(error)
         appLogger.error(`Failed to stop OVMS chat servers: ${errorMessage}`, 'electron-backend')
         return { success: false, error: errorMessage }
       }
@@ -3284,7 +3272,7 @@ function initEventHandle() {
     return { success: false, error: 'Chat servers not supported' }
   })
 
-  ipcMain.handle('getOvmsImageServerUrl', async (_event: IpcMainInvokeEvent) => {
+  typedHandle('getOvmsImageServerUrl', async (_event: IpcMainInvokeEvent) => {
     if (!serviceRegistry) {
       return { success: false, error: 'Service registry not ready' }
     }

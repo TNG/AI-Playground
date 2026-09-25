@@ -325,22 +325,12 @@ type electronAPI = {
   getInitialPage: import('./types/ipcChannels').BridgeMemberFor<'getInitialPage'>
   getDemoModeSettings: import('./types/ipcChannels').BridgeMemberFor<'getDemoModeSettings'>
   saveImage(url: string): void
-  saveImageToMediaInput(dataUri: string): Promise<string>
-  saveAudioToMediaInput(dataUri: string): Promise<string>
-  saveGeneratedAudio(
-    audioBase64: string,
-    filename: string,
-    /** `overwrite`: replace an existing file of that name instead of suffixing `_1`. */
-    options?: { overwrite?: boolean },
-  ): Promise<{ success: boolean; filePath?: string; error?: string }>
-  readLocalAudioAsDataUri(
-    filePath: string,
-  ): Promise<{ success: boolean; dataUri?: string; error?: string }>
-  /** Delete a generated audio file. Confined to the app's audio directory. */
-  deleteGeneratedAudio(filePath: string): Promise<{ success: boolean; error?: string }>
-  readAipgMediaAsBase64(
-    url: string,
-  ): Promise<{ success: true; data: string } | { success: false; error: string }>
+  saveImageToMediaInput: import('./types/ipcChannels').BridgeMemberFor<'saveImageToMediaInput'>
+  saveAudioToMediaInput: import('./types/ipcChannels').BridgeMemberFor<'saveAudioToMediaInput'>
+  saveGeneratedAudio: import('./types/ipcChannels').BridgeMemberFor<'saveGeneratedAudio'>
+  readLocalAudioAsDataUri: import('./types/ipcChannels').BridgeMemberFor<'readLocalAudioAsDataUri'>
+  deleteGeneratedAudio: import('./types/ipcChannels').BridgeMemberFor<'deleteGeneratedAudio'>
+  readAipgMediaAsBase64: import('./types/ipcChannels').BridgeMemberFor<'readAipgMediaAsBase64'>
   openImageWin(url: string, title: string, width: number, height: number): void
   screenChange(callback: (width: number, height: number) => void): void
   existsPath: import('./types/ipcChannels').BridgeMemberFor<'existsPath'>
@@ -415,30 +405,16 @@ type electronAPI = {
   getBackendLaunchSettings: import('./types/ipcChannels').BridgeMemberFor<'getBackendLaunchSettings'>
   migrateBackendLaunchSettings: import('./types/ipcChannels').BridgeMemberFor<'migrateBackendLaunchSettings'>
   ragDocuments: import('./types/ipcChannels').NamespaceBridge<'ragDocuments'>
-  startTranscriptionServer(modelName: string): Promise<{ success: boolean; error?: string }>
-  stopTranscriptionServer(): Promise<{ success: boolean; error?: string }>
-  getTranscriptionServerUrl(): Promise<{ success: boolean; url?: string; error?: string }>
-  startSpeechServer(modelName: string): Promise<{ success: boolean; error?: string }>
-  stopSpeechServer(): Promise<{ success: boolean; error?: string }>
-  getSpeechServerUrl(): Promise<{ success: boolean; url?: string; error?: string }>
-  synthesizeSpeech(options: {
-    baseURL: string
-    model: string
-    input: string
-    voice?: string
-    apiKey?: string
-    format?: string
-  }): Promise<
-    { success: true; dataBase64: string; mediaType: string } | { success: false; error: string }
-  >
-  ensureOvmsImageReady(
-    serviceName: string,
-    modelName: string,
-    keepModelsLoaded?: boolean,
-    resolution?: string,
-  ): Promise<{ success: boolean; url?: string; error?: string }>
-  stopOvmsChatServers(): Promise<{ success: boolean; error?: string }>
-  getOvmsImageServerUrl(): Promise<{ success: boolean; url?: string; error?: string }>
+  startTranscriptionServer: import('./types/ipcChannels').BridgeMemberFor<'startTranscriptionServer'>
+  stopTranscriptionServer: import('./types/ipcChannels').BridgeMemberFor<'stopTranscriptionServer'>
+  getTranscriptionServerUrl: import('./types/ipcChannels').BridgeMemberFor<'getTranscriptionServerUrl'>
+  startSpeechServer: import('./types/ipcChannels').BridgeMemberFor<'startSpeechServer'>
+  stopSpeechServer: import('./types/ipcChannels').BridgeMemberFor<'stopSpeechServer'>
+  getSpeechServerUrl: import('./types/ipcChannels').BridgeMemberFor<'getSpeechServerUrl'>
+  synthesizeSpeech: import('./types/ipcChannels').BridgeMemberFor<'synthesizeSpeech'>
+  ensureOvmsImageReady: import('./types/ipcChannels').BridgeMemberFor<'ensureOvmsImageReady'>
+  stopOvmsChatServers: import('./types/ipcChannels').BridgeMemberFor<'stopOvmsChatServers'>
+  getOvmsImageServerUrl: import('./types/ipcChannels').BridgeMemberFor<'getOvmsImageServerUrl'>
   // ComfyUI Tools - uses uv for Python package management
   comfyui: {
     isGitInstalled(): Promise<boolean>

@@ -3,6 +3,8 @@ import type {
   AgentModeTurnConfig,
   AgentToolExecuteRequest,
   AgentToolSpec,
+  ArcadeCatalogEntry,
+  GameLibraryEntry,
 } from './agentIpc'
 import type { AgentSessionBootstrap, AgentSessionRecordWire } from './agentSessionIpc'
 import type { AgentWorkspaceState } from './agentWorkspaceIpc'
@@ -27,6 +29,13 @@ import type {
 import type { RagDocumentSection } from './ragDocumentIpc'
 import type { BackendLaunchSettings, BackendVersionWire } from './preferencesIpc'
 import type { SpeechSynthesisRequest } from './speechIpc'
+import type {
+  McpServerConfig,
+  McpServerInfo,
+  McpStatus,
+  McpToolCallResult,
+  McpToolInfo,
+} from './mcpIpc'
 import type { ModelLibraryScan } from '@/assets/js/models/types'
 import type { ModelLists, ModelPaths } from '@/assets/js/store/models'
 import type { EmbedInquiry, IndexedDocument } from '@/assets/js/store/textInference'
@@ -1261,6 +1270,164 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as const,
     result: null as unknown as string,
+  },
+
+  // ── MCP registry and game library (batch 9b) ──
+
+  /** Every configured MCP server, read from the mcp.json config. */
+  'mcp:listServers': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as McpServerInfo[],
+  },
+  /** Start one MCP server; answers its status once the start settles. */
+  'mcp:startServer': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as McpStatus,
+  },
+  /** Stop one MCP server and answer its status. */
+  'mcp:stopServer': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as McpStatus,
+  },
+  /** One MCP server's current connection status. */
+  'mcp:getServerStatus': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as McpStatus,
+  },
+  /** The tools one running MCP server exposes. */
+  'mcp:listServerTools': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as McpToolInfo[],
+  },
+  /** Call one tool on a running MCP server; content comes back verbatim. */
+  'mcp:invokeServerTool': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, Record<string, unknown>],
+    result: null as unknown as McpToolCallResult,
+  },
+  /** Open the mcp.json config file with the OS default editor. */
+  'mcp:openConfig': {
+    kind: 'send',
+    owner: 'main',
+    args: [] as const,
+  },
+  /** Reveal the mcp.json config file in the OS file manager. */
+  'mcp:openConfigInFolder': {
+    kind: 'send',
+    owner: 'main',
+    args: [] as const,
+  },
+  /** Stop every MCP server and re-read mcp.json; answers the fresh server list. */
+  'mcp:reloadConfig': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as McpServerInfo[],
+  },
+  /** Add a server to mcp.json; rejects when the id already exists. */
+  'mcp:addServer': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, McpServerConfig],
+    result: null as unknown as void,
+  },
+  /** One server's mcp.json entry; rejects when the id is unknown. */
+  'mcp:getServerConfig': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as McpServerConfig,
+  },
+  /** Stop a server, then replace its mcp.json entry. */
+  'mcp:updateServer': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, McpServerConfig],
+    result: null as unknown as void,
+  },
+  /** Stop and delete a server; auto-detected ids are dismissed so they stay gone. */
+  'mcp:removeServer': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as void,
+  },
+  /** Every game in the library, most recently worked on first. */
+  'games:list': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as GameLibraryEntry[],
+  },
+  /** The game a folder holds, or null when it is not a game folder. */
+  'games:read': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as GameLibraryEntry | null,
+  },
+  /** Mint a folder for a new game (scaffolded unless told otherwise). */
+  'games:create': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [
+      string?,
+      { scaffold?: boolean; backend?: string; startingModel?: string; initialPrompt?: string }?,
+    ],
+    result: null as unknown as GameLibraryEntry,
+  },
+  /** Flip a game's `published` flag and regenerate the arcade page. */
+  'games:publish': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, { name?: string; description?: string }],
+    result: null as unknown as { success: true; game: GameLibraryEntry } | IpcFail,
+  },
+  /** Open a game's own folder, or the library root when none is given. */
+  'games:openFolder': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string?],
+    result: null as unknown as void,
+  },
+  /** Open a game's entry file in the OS browser; a game is the user's to keep. */
+  'games:play': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as { success: true } | IpcFail,
+  },
+  /** Regenerate the arcade gallery and open it in the OS browser. */
+  'games:openArcade': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as { success: true; path: string } | IpcFail,
+  },
+  /** Everything the arcade page could list; samples only on an Acer machine. */
+  'games:arcadeCatalog': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as ArcadeCatalogEntry[],
+  },
+  /** Show or hide one catalog row on the arcade page. */
+  'games:setArcadeShown': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [{ kind: 'user' | 'sample'; id: string; shown: boolean }],
+    result: null as unknown as { success: true } | IpcFail,
   },
 } satisfies Record<string, IpcRow>
 

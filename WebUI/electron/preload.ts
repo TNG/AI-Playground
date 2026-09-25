@@ -16,6 +16,7 @@ import type { ChatSummarizeRequest, ChatTurnRequest } from '@/types/chatIpc'
 import type { ChatAnswerPayload, ChatAskPayload } from '@/types/chatRequests'
 import type { ComfyUICustomNodeRepoId } from '@/types/comfyuiIpc'
 import type { ConversationSaveRequest } from '@/types/conversationIpc'
+import type { McpServerConfig } from '@/types/mcpIpc'
 import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaRequests'
 import type { SpeechSynthesisRequest } from '@/types/speechIpc'
 import type {
@@ -298,55 +299,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openInBrowser: () => invoke('comfyui:openInBrowser'),
   } satisfies NamespaceBridge<'comfyui'>,
   mcp: {
-    listServers: () => ipcRenderer.invoke('mcp:listServers'),
-    startServer: (serverId: string) => ipcRenderer.invoke('mcp:startServer', serverId),
-    stopServer: (serverId: string) => ipcRenderer.invoke('mcp:stopServer', serverId),
-    getServerStatus: (serverId: string) => ipcRenderer.invoke('mcp:getServerStatus', serverId),
-    listServerTools: (serverId: string) => ipcRenderer.invoke('mcp:listServerTools', serverId),
+    listServers: () => invoke('mcp:listServers'),
+    startServer: (serverId: string) => invoke('mcp:startServer', serverId),
+    stopServer: (serverId: string) => invoke('mcp:stopServer', serverId),
+    getServerStatus: (serverId: string) => invoke('mcp:getServerStatus', serverId),
+    listServerTools: (serverId: string) => invoke('mcp:listServerTools', serverId),
     invokeServerTool: (serverId: string, toolName: string, args: Record<string, unknown>) =>
-      ipcRenderer.invoke('mcp:invokeServerTool', serverId, toolName, args),
-    openConfig: () => ipcRenderer.send('mcp:openConfig'),
-    openConfigInFolder: () => ipcRenderer.send('mcp:openConfigInFolder'),
-    reloadConfig: () => ipcRenderer.invoke('mcp:reloadConfig'),
-    addServer: (
-      serverId: string,
-      config:
-        | {
-            type?: 'stdio'
-            command: string
-            args?: string[]
-            displayName?: string
-            instructions?: string
-          }
-        | {
-            type: 'http'
-            url: string
-            headers?: Record<string, string>
-            displayName?: string
-            instructions?: string
-          },
-    ) => ipcRenderer.invoke('mcp:addServer', serverId, config),
-    getServerConfig: (serverId: string) => ipcRenderer.invoke('mcp:getServerConfig', serverId),
-    updateServer: (
-      serverId: string,
-      config:
-        | {
-            type?: 'stdio'
-            command: string
-            args?: string[]
-            displayName?: string
-            instructions?: string
-          }
-        | {
-            type: 'http'
-            url: string
-            headers?: Record<string, string>
-            displayName?: string
-            instructions?: string
-          },
-    ) => ipcRenderer.invoke('mcp:updateServer', serverId, config),
-    removeServer: (serverId: string) => ipcRenderer.invoke('mcp:removeServer', serverId),
-  },
+      invoke('mcp:invokeServerTool', serverId, toolName, args),
+    openConfig: () => send('mcp:openConfig'),
+    openConfigInFolder: () => send('mcp:openConfigInFolder'),
+    reloadConfig: () => invoke('mcp:reloadConfig'),
+    addServer: (serverId: string, config: McpServerConfig) =>
+      invoke('mcp:addServer', serverId, config),
+    getServerConfig: (serverId: string) => invoke('mcp:getServerConfig', serverId),
+    updateServer: (serverId: string, config: McpServerConfig) =>
+      invoke('mcp:updateServer', serverId, config),
+    removeServer: (serverId: string) => invoke('mcp:removeServer', serverId),
+  } satisfies NamespaceBridge<'mcp'>,
   agentMode: {
     startTurn: (turnId: string, prompt: string, config: AgentModeTurnConfig) =>
       invoke('agentMode:startTurn', turnId, prompt, cloneForIpc(config)),
@@ -376,8 +345,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       invoke('agentMode:toolResult', requestId, result, error),
   } satisfies NamespaceBridge<'agentMode'>,
   games: {
-    list: () => ipcRenderer.invoke('games:list'),
-    read: (dir: string) => ipcRenderer.invoke('games:read', dir),
+    list: () => invoke('games:list'),
+    read: (dir: string) => invoke('games:read', dir),
     create: (
       name?: string,
       options?: {
@@ -386,16 +355,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
         startingModel?: string
         initialPrompt?: string
       },
-    ) => ipcRenderer.invoke('games:create', name, options),
+    ) => invoke('games:create', name, options),
     publish: (dir: string, fields: { name?: string; description?: string }) =>
-      ipcRenderer.invoke('games:publish', dir, fields),
-    openFolder: (dir?: string) => ipcRenderer.invoke('games:openFolder', dir),
-    play: (dir: string) => ipcRenderer.invoke('games:play', dir),
-    openArcade: () => ipcRenderer.invoke('games:openArcade'),
-    arcadeCatalog: () => ipcRenderer.invoke('games:arcadeCatalog'),
+      invoke('games:publish', dir, fields),
+    openFolder: (dir?: string) => invoke('games:openFolder', dir),
+    play: (dir: string) => invoke('games:play', dir),
+    openArcade: () => invoke('games:openArcade'),
+    arcadeCatalog: () => invoke('games:arcadeCatalog'),
     setArcadeShown: (target: { kind: 'user' | 'sample'; id: string; shown: boolean }) =>
-      ipcRenderer.invoke('games:setArcadeShown', target),
-  },
+      invoke('games:setArcadeShown', target),
+  } satisfies NamespaceBridge<'games'>,
   webBrowser: {
     navigate: (url: string) => ipcRenderer.invoke('webBrowser:navigate', url),
     readPage: () => ipcRenderer.invoke('webBrowser:readPage'),

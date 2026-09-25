@@ -111,7 +111,6 @@ import {
   isAutoDetectId,
   updateMcpServer,
   removeMcpServer,
-  type McpServerConfig,
 } from './adapters/mcp/mcpServers'
 import {
   cancelAgentTurn,
@@ -3478,32 +3477,29 @@ function initEventHandle() {
   typedHandle('screenshot:captureWindow', async (_event, target) => await captureWindow(target))
 
   // MCP server IPC handlers
-  ipcMain.handle('mcp:startServer', async (_event, serverId: string) => {
+  typedHandle('mcp:startServer', async (_event, serverId) => {
     return await startMcpServer(serverId)
   })
 
-  ipcMain.handle('mcp:listServers', () => {
+  typedHandle('mcp:listServers', () => {
     return listMcpServers()
   })
 
-  ipcMain.handle('mcp:stopServer', async (_event, serverId: string) => {
+  typedHandle('mcp:stopServer', async (_event, serverId) => {
     return await stopMcpServer(serverId)
   })
 
-  ipcMain.handle('mcp:getServerStatus', (_event, serverId: string) => {
+  typedHandle('mcp:getServerStatus', (_event, serverId) => {
     return getMcpServerStatus(serverId)
   })
 
-  ipcMain.handle('mcp:listServerTools', async (_event, serverId: string) => {
+  typedHandle('mcp:listServerTools', async (_event, serverId) => {
     return await listMcpServerTools(serverId)
   })
 
-  ipcMain.handle(
-    'mcp:invokeServerTool',
-    async (_event, serverId: string, toolName: string, args: Record<string, unknown>) => {
-      return await invokeMcpServerTool(serverId, toolName, args)
-    },
-  )
+  typedHandle('mcp:invokeServerTool', async (_event, serverId, toolName, args) => {
+    return await invokeMcpServerTool(serverId, toolName, args)
+  })
 
   // Agent Mode (Pi coding agent) IPC handlers — see agent/piAgentManager.ts.
   // Stream chunks and live tool output cross the kernel event bus
@@ -3590,88 +3586,71 @@ function initEventHandle() {
 
   // Game library (see gameLibrary.ts): the folders the Game Agent preset writes
   // into, plus the generated gallery page.
-  ipcMain.handle('games:list', () => listGames())
+  typedHandle('games:list', () => listGames())
 
-  ipcMain.handle('games:read', (_event, dir: string) => readGame(dir))
+  typedHandle('games:read', (_event, dir) => readGame(dir))
 
   // `name` is the request that started the game, not a title: shorten it to
   // something that reads as one, until the agent sets a real one. The request
   // itself is kept whole as provenance.
-  ipcMain.handle(
-    'games:create',
-    (
-      _event,
-      name?: string,
-      options?: {
-        scaffold?: boolean
-        backend?: string
-        startingModel?: string
-        initialPrompt?: string
-      },
-    ) =>
-      createGame({
-        name: name ? provisionalName(name) : undefined,
-        ...(options?.scaffold === false ? { scaffold: false } : {}),
-        backend: options?.backend,
-        startingModel: options?.startingModel,
-        initialPrompt: options?.initialPrompt,
-      }),
+  typedHandle('games:create', (_event, name, options) =>
+    createGame({
+      name: name ? provisionalName(name) : undefined,
+      ...(options?.scaffold === false ? { scaffold: false } : {}),
+      backend: options?.backend,
+      startingModel: options?.startingModel,
+      initialPrompt: options?.initialPrompt,
+    }),
   )
 
-  ipcMain.handle(
-    'games:publish',
-    async (_event, dir: string, fields: { name?: string; description?: string }) => {
-      try {
-        const { vendor } = await detectOem(settings.oemVendorOverride)
-        return { success: true, game: publishGame(dir, fields ?? {}, { vendor }) }
-      } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : String(error) }
-      }
-    },
-  )
+  typedHandle('games:publish', async (_event, dir, fields) => {
+    try {
+      const { vendor } = await detectOem(settings.oemVendorOverride)
+      return { success: true as const, game: publishGame(dir, fields ?? {}, { vendor }) }
+    } catch (error) {
+      return { success: false as const, error: ipcErrorText(error) }
+    }
+  })
 
-  ipcMain.handle('games:arcadeCatalog', async () => {
+  typedHandle('games:arcadeCatalog', async () => {
     const { vendor } = await detectOem(settings.oemVendorOverride)
     return arcadeCatalog({ vendor })
   })
 
-  ipcMain.handle(
-    'games:setArcadeShown',
-    async (_event, target: { kind: 'user' | 'sample'; id: string; shown: boolean }) => {
-      try {
-        const { vendor } = await detectOem(settings.oemVendorOverride)
-        setArcadeShown(target, { vendor })
-        return { success: true }
-      } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : String(error) }
-      }
-    },
-  )
+  typedHandle('games:setArcadeShown', async (_event, target) => {
+    try {
+      const { vendor } = await detectOem(settings.oemVendorOverride)
+      setArcadeShown(target, { vendor })
+      return { success: true as const }
+    } catch (error) {
+      return { success: false as const, error: ipcErrorText(error) }
+    }
+  })
 
   // A game's own folder, or the library root when none is given.
-  ipcMain.handle('games:openFolder', (_event, dir?: string) => {
+  typedHandle('games:openFolder', (_event, dir) => {
     const target = dir ?? getGamesDir()
     fs.mkdirSync(target, { recursive: true })
     shell.openPath(target)
   })
 
-  ipcMain.handle('games:play', async (_event, dir: string) => {
+  typedHandle('games:play', async (_event, dir) => {
     const game = readGame(dir)
-    if (!game) return { success: false, error: `Not a game folder: ${dir}` }
+    if (!game) return { success: false as const, error: `Not a game folder: ${dir}` }
     if (!fs.existsSync(game.entryPath)) {
-      return { success: false, error: 'This game has no playable file yet.' }
+      return { success: false as const, error: 'This game has no playable file yet.' }
     }
     // The default browser, not an app window: a game is the user's to keep.
     const error = await shell.openPath(game.entryPath)
-    return error ? { success: false, error } : { success: true }
+    return error ? { success: false as const, error } : { success: true as const }
   })
 
   // Regenerated on open so the gallery reflects the library as it is now.
-  ipcMain.handle('games:openArcade', async () => {
+  typedHandle('games:openArcade', async () => {
     const { vendor } = await detectOem(settings.oemVendorOverride)
     const { arcadePath } = writeArcade({ vendor })
     const error = await shell.openPath(arcadePath)
-    return error ? { success: false, error } : { success: true, path: arcadePath }
+    return error ? { success: false as const, error } : { success: true as const, path: arcadePath }
   })
 
   // Web browser IPC handlers — drives the headless BrowserWindow that the chat
@@ -3715,12 +3694,12 @@ function initEventHandle() {
   // MCP config file handlers
   // TODO: Consider consolidating with openImageWithSystem/openImageInFolder
   // into generic openFileWithSystem/openFileInFolder that take file paths
-  ipcMain.on('mcp:openConfig', () => {
+  typedOn('mcp:openConfig', () => {
     const configPath = getMcpConfigPath()
     shell.openPath(configPath)
   })
 
-  ipcMain.on('mcp:openConfigInFolder', () => {
+  typedOn('mcp:openConfigInFolder', () => {
     const configPath = getMcpConfigPath()
     if (process.platform === 'win32') {
       exec(`explorer.exe /select, "${configPath}"`)
@@ -3729,34 +3708,25 @@ function initEventHandle() {
     }
   })
 
-  ipcMain.handle('mcp:reloadConfig', async () => {
+  typedHandle('mcp:reloadConfig', async () => {
     await stopAllMcpServers()
     return listMcpServers()
   })
 
-  ipcMain.handle(
-    'mcp:addServer',
-    async (
-      _event,
-      serverId: string,
-      config:
-        | { type?: 'stdio'; command: string; args?: string[]; displayName?: string }
-        | { type: 'http'; url: string; headers?: Record<string, string>; displayName?: string },
-    ) => {
-      return addMcpServer(serverId, config)
-    },
-  )
+  typedHandle('mcp:addServer', async (_event, serverId, config) => {
+    return addMcpServer(serverId, config)
+  })
 
-  ipcMain.handle('mcp:getServerConfig', (_event, serverId: string) => {
+  typedHandle('mcp:getServerConfig', (_event, serverId) => {
     return getMcpServerConfig(serverId)
   })
 
-  ipcMain.handle('mcp:updateServer', async (_event, serverId: string, config: McpServerConfig) => {
+  typedHandle('mcp:updateServer', async (_event, serverId, config) => {
     await stopMcpServer(serverId)
     return updateMcpServer(serverId, config)
   })
 
-  ipcMain.handle('mcp:removeServer', async (_event, serverId: string) => {
+  typedHandle('mcp:removeServer', async (_event, serverId) => {
     await stopMcpServer(serverId)
     const result = removeMcpServer(serverId)
     if (isAutoDetectId(serverId) && !settings.mcpAutoDetectionDismissed.includes(serverId)) {

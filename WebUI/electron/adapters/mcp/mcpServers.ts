@@ -4,25 +4,10 @@ import path from 'node:path'
 import { app } from 'electron'
 import { appLoggerInstance } from '../../observability/logger'
 import { writableConfigFile } from '../../kernel/userConfig.ts'
+import type { McpServerConfig } from '@/types/mcpIpc'
 
-export type McpServerConfig =
-  | {
-      type?: 'stdio'
-      command: string
-      args?: string[]
-      env?: Record<string, string>
-      displayName?: string
-      instructions?: string
-      description?: string
-    }
-  | {
-      type: 'http'
-      url: string
-      headers?: Record<string, string>
-      displayName?: string
-      instructions?: string
-      description?: string
-    }
+// Compat re-export: the type moved to the shared IPC manifest module.
+export type { McpServerConfig }
 
 type McpConfigFile = {
   mcpServers: Record<string, McpServerConfig>

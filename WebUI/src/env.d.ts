@@ -172,48 +172,6 @@ type DemoModeSettings = {
   profile?: DemoProfile | null
 }
 
-type McpConnectionState = 'stopped' | 'starting' | 'running' | 'error'
-
-type McpStatus = {
-  state: McpConnectionState
-  lastError?: string
-}
-
-type McpToolInfo = {
-  name: string
-  description?: string
-  inputSchema: Record<string, unknown>
-}
-
-type McpServerInfo = {
-  id: string
-  name: string
-  instructions?: string
-}
-
-type McpServerConfig =
-  | {
-      type?: 'stdio'
-      command: string
-      args?: string[]
-      env?: Record<string, string>
-      displayName?: string
-      instructions?: string
-    }
-  | {
-      type: 'http'
-      url: string
-      headers?: Record<string, string>
-      displayName?: string
-      instructions?: string
-    }
-
-type McpToolCallResult = {
-  isError?: boolean
-  content?: unknown
-  structuredContent?: unknown
-}
-
 type WebPageLink = {
   index: number
   text: string
@@ -271,9 +229,6 @@ type AgentToolProgress = {
   toolName: string
   text: string
 }
-
-type GameLibraryEntry = import('./types/agentIpc').GameLibraryEntry
-type ArcadeCatalogEntry = import('./types/agentIpc').ArcadeCatalogEntry
 
 /** An image a tool produced, shown to the user under that tool's card. */
 type AgentToolImage = {
@@ -392,92 +347,9 @@ type electronAPI = {
   getOvmsImageServerUrl: import('./types/ipcChannels').BridgeMemberFor<'getOvmsImageServerUrl'>
   // ComfyUI Tools - uses uv for Python package management
   comfyui: import('./types/ipcChannels').NamespaceBridge<'comfyui'>
-  mcp: {
-    listServers(): Promise<McpServerInfo[]>
-    startServer(serverId: string): Promise<McpStatus>
-    stopServer(serverId: string): Promise<McpStatus>
-    getServerStatus(serverId: string): Promise<McpStatus>
-    listServerTools(serverId: string): Promise<McpToolInfo[]>
-    invokeServerTool(
-      serverId: string,
-      toolName: string,
-      args: Record<string, unknown>,
-    ): Promise<McpToolCallResult>
-    openConfig(): void
-    openConfigInFolder(): void
-    reloadConfig(): Promise<McpServerInfo[]>
-    addServer(
-      serverId: string,
-      config:
-        | {
-            type?: 'stdio'
-            command: string
-            args?: string[]
-            displayName?: string
-            instructions?: string
-          }
-        | {
-            type: 'http'
-            url: string
-            headers?: Record<string, string>
-            displayName?: string
-            instructions?: string
-          },
-    ): Promise<void>
-    getServerConfig(serverId: string): Promise<McpServerConfig>
-    updateServer(
-      serverId: string,
-      config:
-        | {
-            type?: 'stdio'
-            command: string
-            args?: string[]
-            displayName?: string
-            instructions?: string
-          }
-        | {
-            type: 'http'
-            url: string
-            headers?: Record<string, string>
-            displayName?: string
-            instructions?: string
-          },
-    ): Promise<void>
-    removeServer(serverId: string): Promise<void>
-  }
+  mcp: import('./types/ipcChannels').NamespaceBridge<'mcp'>
   agentMode: import('./types/ipcChannels').NamespaceBridge<'agentMode'>
-  games: {
-    list(): Promise<GameLibraryEntry[]>
-    read(dir: string): Promise<GameLibraryEntry | null>
-    /**
-     * Mints a folder for a new game; `name` is a starting point, not final.
-     * `scaffold: false` leaves it empty for a preset that writes the game whole.
-     * The rest is provenance, recorded once and never patched afterwards.
-     */
-    create(
-      name?: string,
-      options?: {
-        scaffold?: boolean
-        backend?: string
-        startingModel?: string
-        initialPrompt?: string
-      },
-    ): Promise<GameLibraryEntry>
-    publish(
-      dir: string,
-      fields: { name?: string; description?: string },
-    ): Promise<{ success: boolean; error?: string; game?: GameLibraryEntry }>
-    openFolder(dir?: string): Promise<void>
-    play(dir: string): Promise<{ success: boolean; error?: string }>
-    openArcade(): Promise<{ success: boolean; error?: string; path?: string }>
-    /** Everything the arcade page could list; samples only on an Acer machine. */
-    arcadeCatalog(): Promise<ArcadeCatalogEntry[]>
-    setArcadeShown(target: {
-      kind: 'user' | 'sample'
-      id: string
-      shown: boolean
-    }): Promise<{ success: boolean; error?: string }>
-  }
+  games: import('./types/ipcChannels').NamespaceBridge<'games'>
   webBrowser: {
     navigate(url: string): Promise<WebPageSnapshot>
     readPage(): Promise<WebPageSnapshot>

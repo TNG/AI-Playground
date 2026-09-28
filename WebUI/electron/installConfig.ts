@@ -15,8 +15,9 @@ import path from 'node:path'
  * In "shared" mode `aipgRoot.ts` points the resources root at
  * `%PUBLIC%/AI Playground/resources`. Public's default ACL does not let one
  * account modify files another account created, so the installer grants
- * inheritable Modify to BUILTIN\Users. Each user's mutable config is relocated
- * to a private per-user folder. See `aipgRoot.ts` and `userConfig.ts`.
+ * Modify to BUILTIN\Users. Files uv hardlinks in still need that ACE applied
+ * directly; the app does that after install. Each user's mutable config is
+ * relocated to a private per-user folder. See `aipgRoot.ts` and `userConfig.ts`.
  */
 
 export type ModelFolderMode = 'shared' | 'per-user'

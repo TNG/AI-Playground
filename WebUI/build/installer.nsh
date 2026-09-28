@@ -185,14 +185,16 @@
         StrCpy $R2 "$AipgSharedDir"
         CreateDirectory "$R2"
         ; Public's default ACL lets every account create files, but not change
-        ; files another account created. Grant inheritable Modify so a backend
-        ; .venv created by the first user can be repaired by any other user.
+        ; files another account created. (OI)(CI) is inherited by files created
+        ; in place. uv hardlinks wheel files out of its cache (a same-volume
+        ; move keeps that ACL too); the app stamps a direct Modify ACE on those
+        ; files after install. The direct ACE here covers files setup writes.
         ; (OI)(CI) must stay unescaped: $$ would compile to a literal $(OI),
         ; which icacls does not treat as an inheritance flag.
         ; S-1-5-32-545 = BUILTIN\Users (SID avoids locale-specific group names).
         ; Re-applied on every install/upgrade (/T) so an existing tree becomes
         ; writable without deleting each .venv by hand.
-        nsExec::ExecToLog 'icacls "$R2" /grant "*S-1-5-32-545:(OI)(CI)M" /T /C'
+        nsExec::ExecToLog 'icacls "$R2" /grant "*S-1-5-32-545:(OI)(CI)M" /grant "*S-1-5-32-545:M" /T /C'
         Pop $R3
         ${if} $R3 != 0
           DetailPrint "Failed to grant all users write access to $R2 (icacls exit $R3)."

@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { appLoggerInstance } from '../../logging/logger.ts'
-import { packagedResourcesRoot } from '../../aipgRoot.ts'
+import { isSharedAllUsersInstall, packagedResourcesRoot } from '../../aipgRoot.ts'
+import { grantUsersModify } from '../../sharedAcl.ts'
 import path from 'path'
 import fs from 'fs'
 import { spawn } from 'child_process'
@@ -256,9 +257,25 @@ const removeBrokenBackendVenv = async (
 ): Promise<void> => {
   const venvDir = backendVenvDir(backend)
   if (await removeBrokenVenv(venvDir)) {
-    logger.warn(
-      `Removed broken venv at ${venvDir} (python interpreter missing); it will be recreated`,
-    )
+    logger.warn(`Removed broken venv at ${venvDir}; it will be recreated`)
+  }
+}
+
+/** So a venv created here can be repaired by any other account on this machine. */
+const shareInstalledVenv = async (
+  backend: string,
+  logger: ReturnType<typeof loggerFor>,
+): Promise<void> => {
+  if (!isSharedAllUsersInstall()) return
+  const dirs = [backendVenvDir(backend), path.join(aipgBaseDir, 'python-interpreter')]
+  for (const dir of dirs) {
+    if (!fs.existsSync(dir)) continue
+    try {
+      await grantUsersModify(dir)
+      logger.info(`Granted all users modify access on ${dir}`)
+    } catch (error) {
+      logger.warn(`Could not grant all users modify access on ${dir}: ${error}`)
+    }
   }
 }
 
@@ -277,6 +294,7 @@ export const ensureBackendVenv = async (backend: string, extraEnv?: Record<strin
   ]
   logger.info(`Ensuring venv for backend: ${backend} with ${JSON.stringify(uvVenvCommand)}`)
   await uv(uvVenvCommand, logger, extraEnv)
+  await shareInstalledVenv(backend, logger)
 }
 
 /**
@@ -337,6 +355,7 @@ export const installBackend = async (
   )
   try {
     await uv(uvVenvCommand, logger, extraEnv)
+    await shareInstalledVenv(backend, logger)
     return await uv(uvSyncCommand, logger, extraEnv)
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
@@ -345,6 +364,7 @@ export const installBackend = async (
       logger.warn('Hash mismatch detected in UV cache, retrying with --no-cache')
       onCacheCorruptionDetected?.()
       await uv(uvVenvCommand, logger, extraEnv)
+      await shareInstalledVenv(backend, logger)
       const noCacheCommand = [...uvSyncCommand, '--no-cache']
       return await uv(noCacheCommand, logger, extraEnv)
     }
@@ -382,6 +402,7 @@ export const installBackendWithExtra = async (
   )
   try {
     await uv(uvVenvCommand, logger, extraEnv)
+    await shareInstalledVenv(backend, logger)
     return await uv(uvSyncCommand, logger, extraEnv)
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
@@ -390,6 +411,7 @@ export const installBackendWithExtra = async (
       logger.warn('Hash mismatch detected in UV cache during sync-extra, retrying with --no-cache')
       onCacheCorruptionDetected?.()
       await uv(uvVenvCommand, logger, extraEnv)
+      await shareInstalledVenv(backend, logger)
       const noCacheCommand = [...uvSyncCommand, '--no-cache']
       return await uv(noCacheCommand, logger, extraEnv)
     }
@@ -409,8 +431,17 @@ export const checkBackend = async (backend: string, extra?: UvExtra) => {
   // callers of the plain check need the same protection.
   const venvPath = backendVenvDir(backend)
   if (!venvIsUsable(venvPath)) {
-    logger.info(`Venv at ${venvPath} has no interpreter — reporting backend as not installed`)
-    throw new Error(`Python environment for ${backend} is missing its interpreter`)
+    const interpreter = venvInterpreterPath(venvPath)
+    if (!fs.existsSync(interpreter)) {
+      logger.info(`Venv at ${venvPath} has no interpreter — reporting backend as not installed`)
+      throw new Error(`Python environment for ${backend} is missing its interpreter`)
+    }
+    logger.warn(
+      `Venv at ${venvPath} is not usable by this account — reporting backend as not installed`,
+    )
+    throw new Error(
+      `Python environment for ${backend} is not writable by this account, or its base Python is not readable`,
+    )
   }
   const uvCommand = ['sync', '--check', '--directory', aipgBaseDir, '--project', backend]
   // Resolve against the same optional-dependency extra the backend was installed
@@ -452,23 +483,29 @@ export const checkBackendWithDetails = async (
   const venvExists = venvIsUsable(venvPath)
   if (!venvExists) {
     const interpreter = venvInterpreterPath(venvPath)
+    const interpreterExists = fs.existsSync(interpreter)
     const dirExists = fs.existsSync(venvPath)
-    if (dirExists) {
+    if (interpreterExists) {
+      logger.warn(`Venv at ${venvPath} is not usable by this account`)
+    } else if (dirExists) {
       logger.warn(
         `Venv directory exists at ${venvPath} but interpreter is missing at ${interpreter}`,
       )
     } else {
       logger.info(`Venv directory does not exist at ${venvPath}`)
     }
+    const stdout = interpreterExists
+      ? `Virtual environment at ${venvPath} is not writable by this account, or its base Python is not readable.\nThe environment needs to be recreated.`
+      : dirExists
+        ? `Virtual environment directory exists at ${venvPath} but ${interpreter} is missing.\nThe environment needs to be recreated.`
+        : undefined
     return {
       venvExists: false,
       action: 'create',
       needsInstallation: true,
       envMismatch: false,
       exitCode: -1,
-      stdout: dirExists
-        ? `Virtual environment directory exists at ${venvPath} but ${interpreter} is missing.\nThe environment needs to be recreated.`
-        : undefined,
+      stdout,
     }
   }
   logger.info(`Venv interpreter exists at ${venvInterpreterPath(venvPath)}`)

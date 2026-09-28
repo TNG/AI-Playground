@@ -429,7 +429,7 @@ type electronAPI = {
     embeddingModelName?: string,
     contextSize?: number,
     modelArgs?: string,
-  ): Promise<{ success: boolean; error?: string }>
+  ): Promise<{ success: boolean; error?: string; service?: ApiServiceInformation }>
   ensureComfyUIBackendRunning(): Promise<{
     success: boolean
     error?: string
@@ -1006,6 +1006,10 @@ type ApiServiceInformation = {
   llamaCppPhisonArtifactReady?: boolean
   llamaCppStandardInstalledVersion?: { version: string; releaseTag?: string }
   llamaCppPhisonInstalledVersion?: { version: string; releaseTag?: string }
+  /** OpenVINO LLM was launched with `--draft_model_path`. Absent means not armed. */
+  ovmsMtpArmed?: boolean
+  /** OpenVINO repo whose snapshot is missing `openvino_mtp_model.xml`. */
+  ovmsMtpStaleModel?: string
 }
 
 type StorageTarget = {
@@ -1026,6 +1030,8 @@ type Model = {
   backend?: 'openVINO' | 'llamaCPP' | 'cloud' | undefined
   supportsToolCalling?: boolean
   toolParser?: string
+  reasoningParser?: string
+  enableMtp?: boolean
   supportsVision?: boolean
   supportsReasoning?: boolean
   supportsCoding?: boolean

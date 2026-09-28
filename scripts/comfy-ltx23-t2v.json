@@ -1,0 +1,121 @@
+{
+  "236": {
+    "class_type": "UnetLoaderGGUF",
+    "inputs": {
+      "unet_name": "unsloth---LTX-2.3-GGUF\\distilled-1.1\\ltx-2.3-22b-distilled-1.1-Q4_K_S.gguf"
+    }
+  },
+  "243": {
+    "class_type": "DualCLIPLoaderGGUF",
+    "inputs": {
+      "clip_name1": "unsloth---gemma-3-12b-it-GGUF\\gemma-3-12b-it-Q3_K_M.gguf",
+      "clip_name2": "unsloth---LTX-2.3-GGUF\\text_encoders\\ltx-2.3-22b-distilled_embeddings_connectors.safetensors",
+      "type": "ltxv"
+    }
+  },
+  "221": {
+    "class_type": "LTXVAudioVAELoader",
+    "inputs": {
+      "ckpt_name": "unsloth---LTX-2.3-GGUF\\vae\\ltx-2.3-22b-distilled_audio_vae.safetensors"
+    }
+  },
+  "262": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "unsloth---LTX-2.3-GGUF\\vae\\ltx-2.3-22b-distilled_video_vae.safetensors"
+    }
+  },
+  "240": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "a red cube on a table, camera slowly pans, product video",
+      "clip": ["243", 0]
+    }
+  },
+  "247": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "low quality, blurry, deformed",
+      "clip": ["243", 0]
+    }
+  },
+  "239": {
+    "class_type": "LTXVConditioning",
+    "inputs": { "frame_rate": 24, "positive": ["240", 0], "negative": ["247", 0] }
+  },
+  "228": {
+    "class_type": "EmptyLTXVLatentVideo",
+    "inputs": { "width": 512, "height": 512, "length": 25, "batch_size": 1 }
+  },
+  "214": {
+    "class_type": "LTXVEmptyLatentAudio",
+    "inputs": {
+      "frames_number": 25,
+      "frame_rate": 24,
+      "batch_size": 1,
+      "audio_vae": ["221", 0]
+    }
+  },
+  "222": {
+    "class_type": "LTXVConcatAVLatent",
+    "inputs": { "video_latent": ["228", 0], "audio_latent": ["214", 0] }
+  },
+  "231": {
+    "class_type": "CFGGuider",
+    "inputs": { "cfg": 1, "model": ["236", 0], "positive": ["239", 0], "negative": ["239", 1] }
+  },
+  "237": {
+    "class_type": "RandomNoise",
+    "inputs": { "noise_seed": 1 }
+  },
+  "246": {
+    "class_type": "KSamplerSelect",
+    "inputs": { "sampler_name": "euler_ancestral" }
+  },
+  "252": {
+    "class_type": "ManualSigmas",
+    "inputs": { "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0" }
+  },
+  "215": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": ["237", 0],
+      "guider": ["231", 0],
+      "sampler": ["246", 0],
+      "sigmas": ["252", 0],
+      "latent_image": ["222", 0]
+    }
+  },
+  "218": {
+    "class_type": "LTXVSeparateAVLatent",
+    "inputs": { "av_latent": ["215", 0] }
+  },
+  "251": {
+    "class_type": "VAEDecodeTiled",
+    "inputs": {
+      "tile_size": 768,
+      "overlap": 64,
+      "temporal_size": 4096,
+      "temporal_overlap": 4,
+      "samples": ["218", 0],
+      "vae": ["262", 0]
+    }
+  },
+  "220": {
+    "class_type": "LTXVAudioVAEDecode",
+    "inputs": { "samples": ["218", 1], "audio_vae": ["221", 0] }
+  },
+  "242": {
+    "class_type": "CreateVideo",
+    "inputs": { "fps": 24, "images": ["251", 0], "audio": ["220", 0] }
+  },
+  "75": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "filename_prefix": "vram_ltx23",
+      "format": "auto",
+      "codec": "auto",
+      "video": ["242", 0]
+    }
+  }
+}

@@ -374,6 +374,12 @@ type electronAPI = {
    * the renderer bundle. Dev-only (see electron/laminar.ts).
    */
   getLaminarConfig(): Promise<LaminarConfig | null>
+  getComputeMetrics(): Promise<import('./types/computeMetrics').ComputeSnapshot | null>
+  /** Which GPU probes resolved, and why the last one failed. See docs/compute-resource-metrics.md. */
+  getComputeMetricsDiagnostics(): Promise<import('./types/computeMetrics').ProbeReport>
+  onComputeMetricsUpdate(
+    callback: (snapshot: import('./types/computeMetrics').ComputeSnapshot) => void,
+  ): () => void
   /**
    * Forward one AI SDK telemetry event (already serialized to JSON) to the
    * Laminar integration running in main. Fire-and-forget.
@@ -386,6 +392,11 @@ type electronAPI = {
   getDownloadedEmbeddingModels(): Promise<Model[]>
   getComfyUIModels(modelType: string): Promise<string[]>
   scanModelLibrary(): Promise<import('./assets/js/models/types').ModelLibraryScan>
+  /** GGUF facts the VRAM estimator needs, read from disk or from the model's header on HuggingFace. */
+  getLlamaCppVramInputs(
+    modelName: string,
+    mmprojName?: string,
+  ): Promise<import('../electron/llamaCppVramInputs').LlamaCppVramInputs | null>
   showModelInFolder(modelPath: string): Promise<{ success: boolean; error?: string }>
   deleteModelPath(modelPath: string): Promise<{ success: boolean; error?: string }>
   getPlatform(): Promise<NodeJS.Platform>

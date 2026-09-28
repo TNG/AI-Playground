@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { appLoggerInstance } from '../../logging/logger.ts'
 import { isSharedAllUsersInstall, packagedResourcesRoot } from '../../aipgRoot.ts'
-import { grantUsersModify } from '../../sharedAcl.ts'
+import { withSharedUvLinkMode } from './uvLinkMode.ts'
 import path from 'path'
 import fs from 'fs'
 import { spawn } from 'child_process'
@@ -19,14 +19,18 @@ export const buildResources = app.isPackaged
 // The fetch-external-resources script stores the uv binary as `uv.exe` on ALL
 // platforms (including Linux/macOS) for naming consistency — do not use binary().
 export const uvPath = path.join(buildResources, 'uv.exe')
-const uvEnv = (extraEnv: Record<string, string> = {}) => ({
-  ...process.env,
-  UV_NO_ENV_FILE: '1',
-  UV_NO_CONFIG: '1',
-  UV_PYTHON_INSTALL_DIR: path.join(aipgBaseDir, 'python-interpreter'),
-  VIRTUAL_ENV: undefined,
-  ...extraEnv,
-})
+const uvEnv = (extraEnv: Record<string, string> = {}) =>
+  withSharedUvLinkMode(
+    {
+      ...process.env,
+      UV_NO_ENV_FILE: '1',
+      UV_NO_CONFIG: '1',
+      UV_PYTHON_INSTALL_DIR: path.join(aipgBaseDir, 'python-interpreter'),
+      VIRTUAL_ENV: undefined,
+      ...extraEnv,
+    },
+    isSharedAllUsersInstall(),
+  )
 
 const assertUv = async (logger: ReturnType<typeof loggerFor>) => {
   try {
@@ -204,53 +208,13 @@ const uvWithStdout = (
  */
 const backendVenvDir = (backend: string) => path.join(aipgBaseDir, backend, '.venv')
 
-const shareRuntimeDir = async (
-  dir: string,
-  logger: ReturnType<typeof loggerFor>,
-): Promise<void> => {
-  if (!isSharedAllUsersInstall()) return
-  if (!fs.existsSync(dir)) return
-  try {
-    await grantUsersModify(dir)
-    logger.info(`Granted all users modify access on ${dir}`)
-  } catch (error) {
-    logger.warn(`Could not grant all users modify access on ${dir}: ${error}`)
-  }
-}
-
-/** Wheel files are hardlinked or moved in, so they keep the cache ACL until this runs. */
-const shareInstalledVenv = async (
-  backend: string,
-  logger: ReturnType<typeof loggerFor>,
-): Promise<void> => {
-  await shareRuntimeDir(backendVenvDir(backend), logger)
-  await shareRuntimeDir(path.join(aipgBaseDir, 'python-interpreter'), logger)
-}
-
-const uvThenShare = async (
-  backend: string,
-  uvCommand: string[],
-  logger: ReturnType<typeof loggerFor>,
-  extraEnv?: Record<string, string>,
-): Promise<void> => {
-  try {
-    await uv(uvCommand, logger, extraEnv)
-  } finally {
-    await shareInstalledVenv(backend, logger)
-  }
-}
-
 export const ensureManagedPython = async (version: string): Promise<string> => {
   const logger = loggerFor(`uv.python.${version}`)
   await assertUv(logger)
   // Force managed interpreters so we never pick up an incompatible system Python.
   const onlyManagedEnv = { UV_PYTHON_PREFERENCE: 'only-managed' }
   logger.info(`Ensuring managed CPython ${version} is installed`)
-  try {
-    await uv(['python', 'install', version], logger, onlyManagedEnv)
-  } finally {
-    await shareRuntimeDir(path.join(aipgBaseDir, 'python-interpreter'), logger)
-  }
+  await uv(['python', 'install', version], logger, onlyManagedEnv)
   const interpreterPath = (
     await uvWithStdout(['python', 'find', version], logger, onlyManagedEnv)
   ).trim()
@@ -281,11 +245,7 @@ export const uvPipInstallToTarget = async (
   if (pythonInterpreter) {
     args.push('--python', pythonInterpreter)
   }
-  try {
-    await uv(args, logger)
-  } finally {
-    await shareRuntimeDir(targetDir, logger)
-  }
+  await uv(args, logger)
 }
 
 /**
@@ -319,7 +279,7 @@ export const ensureBackendVenv = async (backend: string, extraEnv?: Record<strin
     '--relocatable',
   ]
   logger.info(`Ensuring venv for backend: ${backend} with ${JSON.stringify(uvVenvCommand)}`)
-  await uvThenShare(backend, uvVenvCommand, logger, extraEnv)
+  await uv(uvVenvCommand, logger, extraEnv)
 }
 
 /**
@@ -344,13 +304,13 @@ export const pipInstallRequirementsFromFile = async (
   }
   logger.info(`pip install -r via uv: ${JSON.stringify(uvCommand)}`)
   try {
-    await uvThenShare(backend, uvCommand, logger, extraEnv)
+    await uv(uvCommand, logger, extraEnv)
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     if (isHashMismatchError(errorMessage)) {
       logger.warn('Hash mismatch in UV cache during pip install, retrying with --no-cache')
       onCacheCorruptionDetected?.()
-      await uvThenShare(backend, [...uvCommand, '--no-cache'], logger, extraEnv)
+      await uv([...uvCommand, '--no-cache'], logger, extraEnv)
       return
     }
     throw error
@@ -379,17 +339,17 @@ export const installBackend = async (
     `Installing backend: ${backend} with ${JSON.stringify(uvVenvCommand)} and ${JSON.stringify(uvSyncCommand)}`,
   )
   try {
-    await uvThenShare(backend, uvVenvCommand, logger, extraEnv)
-    return await uvThenShare(backend, uvSyncCommand, logger, extraEnv)
+    await uv(uvVenvCommand, logger, extraEnv)
+    return await uv(uvSyncCommand, logger, extraEnv)
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
 
     if (isHashMismatchError(errorMessage)) {
       logger.warn('Hash mismatch detected in UV cache, retrying with --no-cache')
       onCacheCorruptionDetected?.()
-      await uvThenShare(backend, uvVenvCommand, logger, extraEnv)
+      await uv(uvVenvCommand, logger, extraEnv)
       const noCacheCommand = [...uvSyncCommand, '--no-cache']
-      return await uvThenShare(backend, noCacheCommand, logger, extraEnv)
+      return await uv(noCacheCommand, logger, extraEnv)
     }
 
     throw error
@@ -424,17 +384,17 @@ export const installBackendWithExtra = async (
     `Installing backend w/ extra: ${backend} (${extra}) with ${JSON.stringify(uvVenvCommand)} and ${JSON.stringify(uvSyncCommand)}`,
   )
   try {
-    await uvThenShare(backend, uvVenvCommand, logger, extraEnv)
-    return await uvThenShare(backend, uvSyncCommand, logger, extraEnv)
+    await uv(uvVenvCommand, logger, extraEnv)
+    return await uv(uvSyncCommand, logger, extraEnv)
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
 
     if (isHashMismatchError(errorMessage)) {
       logger.warn('Hash mismatch detected in UV cache during sync-extra, retrying with --no-cache')
       onCacheCorruptionDetected?.()
-      await uvThenShare(backend, uvVenvCommand, logger, extraEnv)
+      await uv(uvVenvCommand, logger, extraEnv)
       const noCacheCommand = [...uvSyncCommand, '--no-cache']
-      return await uvThenShare(backend, noCacheCommand, logger, extraEnv)
+      return await uv(noCacheCommand, logger, extraEnv)
     }
 
     throw error
@@ -717,7 +677,7 @@ export const installPypiPackage = async (
   const uvCommand = ['add', '--directory', path.join(aipgBaseDir, backend), pipSpecifier]
   logger.info(`Installing package ${packageSpecifier}`)
 
-  await uvThenShare(backend, uvCommand, logger, extraEnv)
+  await uv(uvCommand, logger, extraEnv)
 
   // Clean up downloaded .whl file if it was a local download
   if (packageSpecifier.endsWith('.whl') && packageSpecifier.startsWith('http')) {
@@ -757,5 +717,5 @@ export const installRequirementsTxt = async (
   ]
   logger.info(`Installing requirements from ${requirementsTxtPath}`)
 
-  await uvThenShare(backend, uvCommand, logger, extraEnv)
+  await uv(uvCommand, logger, extraEnv)
 }

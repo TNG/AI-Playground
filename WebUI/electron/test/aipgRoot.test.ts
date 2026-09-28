@@ -119,22 +119,6 @@ describe('packagedResourcesRoot', () => {
     expect(fs.existsSync(path.join(root, 'python-interpreter'))).toBe(false)
   })
 
-  it('stamps an existing backend venv when the shared tree is opened', async () => {
-    const grantUsersModifySync = vi.fn((_dir: string, _recursive?: boolean) => true)
-    vi.doMock('../sharedAcl.ts', () => ({ grantUsersModifySync }))
-    const venv = path.join(tmpPublic, 'AI Playground', 'resources', 'service', '.venv')
-    fs.mkdirSync(path.join(venv, 'Lib', 'site-packages'), { recursive: true })
-    fs.writeFileSync(path.join(venv, 'Lib', 'site-packages', 'mod.pyd'), '')
-    fs.writeFileSync(path.join(tmpResources, 'uv.exe'), '')
-    const mod = await loadAipgRoot({ isPackaged: true, mode: 'shared', platform: 'win32' })
-
-    mod.packagedResourcesRoot()
-
-    const stamped = grantUsersModifySync.mock.calls.map((call) => call[0])
-    expect(stamped).toContain(venv)
-    expect(grantUsersModifySync).toHaveBeenCalledWith(venv)
-  })
-
   it('honors an admin-chosen shared resources base dir, appending the resources leaf', async () => {
     const customBase = path.join(tmpBase, 'CustomShared')
     const mod = await loadAipgRoot({

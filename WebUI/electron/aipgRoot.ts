@@ -28,9 +28,9 @@ import { grantUsersModifySync } from './sharedAcl.ts'
  * resources root instead points at the machine-wide
  * `%PUBLIC%/AI Playground/resources` (under `C:\Users\Public`). Public's
  * default ACL lets every account create files, but files one account creates
- * are not writable by the others. The installer grants Modify to BUILTIN\Users.
- * A file created in place inherits that; a file uv hardlinks or moves in does
- * not, so startup re-stamps each existing `.venv`. The heavy artifacts are
+ * are not writable by the others. The installer grants inheritable Modify to
+ * BUILTIN\Users. Shared installs copy uv packages into that tree so new files
+ * inherit the grant. The heavy artifacts are
  * provisioned there once (by whichever user launches first) and maintained by
  * everyone else. Each user's *mutable* config (settings, logs, model_config,
  * mcp, embeddingCache, ComfyUI scratch) is kept private via
@@ -166,45 +166,6 @@ function seedWritableRoot(root: string): void {
   fs.writeFileSync(markerPath, currentVersion, 'utf-8')
 }
 
-// Bump when an existing shared tree must be stamped again. package.json version
-// stays `3.2.0-beta` across test tags, so it cannot be the stamp.
-const sharedAclStamp = 'object-modify'
-
-function shareExistingRuntimeTrees(root: string): void {
-  const markerPath = path.join(root, '.aipg-shared-acl')
-  try {
-    if (fs.readFileSync(markerPath, 'utf-8').trim() === sharedAclStamp) return
-  } catch {
-    // No stamp yet.
-  }
-  let ok = grantUsersModifySync(root, false)
-  let names: string[] = []
-  try {
-    names = fs.readdirSync(root)
-  } catch {
-    return
-  }
-  for (const name of names) {
-    if (name === 'python-interpreter') {
-      ok = grantUsersModifySync(path.join(root, name)) && ok
-      continue
-    }
-    const venv = path.join(root, name, '.venv')
-    try {
-      if (!fs.statSync(venv).isDirectory()) continue
-    } catch {
-      continue
-    }
-    ok = grantUsersModifySync(venv) && ok
-  }
-  if (!ok) return
-  try {
-    fs.writeFileSync(markerPath, sharedAclStamp, 'utf-8')
-  } catch {
-    // Retried on the next launch.
-  }
-}
-
 /**
  * The packaged resources root. When the install directory is writable this is
  * `process.resourcesPath`; otherwise it is a per-user writable directory
@@ -228,7 +189,6 @@ export function packagedResourcesRoot(): string {
     if (!seeded) {
       try {
         seedWritableRoot(root)
-        if (sharedModeActive()) shareExistingRuntimeTrees(root)
       } catch (e) {
         // Logger may not exist this early; fall back to console so the failure is
         // visible without crashing startup.

@@ -4,6 +4,7 @@ import path from 'path'
 import z from 'zod'
 import {
   OVMS_MTP_ASSISTANT_TOKENS,
+  OVMS_MTP_DRAFT_PATH,
   claimOvmsMtpStaleNotice,
   ovmsMtpLaunchArgs,
   ovmsMtpRequestFields,
@@ -11,31 +12,28 @@ import {
 } from '@/lib/ovmsMtp'
 import { ModelSchema } from '@/types/shared'
 
-const modelDir = '/models/LLM/openvino/OpenVINO---Qwen3.5-9B-int4-ov'
-
 describe('resolveOvmsMtpLaunch', () => {
-  it('passes the model directory when the MTP graph is already there', () => {
+  it('passes `.` when the MTP graph is already there', () => {
     expect(
       resolveOvmsMtpLaunch({
         enableMtp: true,
         deviceId: 'GPU.0',
-        modelDir,
         folderExists: true,
         mtpGraphExists: true,
       }),
-    ).toEqual({ draftModelPath: modelDir, stale: false })
+    ).toEqual({ draftModelPath: '.', stale: false })
+    expect(OVMS_MTP_DRAFT_PATH).toBe('.')
   })
 
-  it('passes the model directory on a first download, before the folder exists', () => {
+  it('passes `.` on a first download, before the folder exists', () => {
     expect(
       resolveOvmsMtpLaunch({
         enableMtp: true,
         deviceId: 'GPU',
-        modelDir,
         folderExists: false,
         mtpGraphExists: false,
       }),
-    ).toEqual({ draftModelPath: modelDir, stale: false })
+    ).toEqual({ draftModelPath: '.', stale: false })
   })
 
   it('starts without MTP and asks for a re-download when the snapshot has no graph', () => {
@@ -43,7 +41,6 @@ describe('resolveOvmsMtpLaunch', () => {
       resolveOvmsMtpLaunch({
         enableMtp: true,
         deviceId: 'CPU',
-        modelDir,
         folderExists: true,
         mtpGraphExists: false,
       }),
@@ -55,7 +52,6 @@ describe('resolveOvmsMtpLaunch', () => {
       resolveOvmsMtpLaunch({
         enableMtp: true,
         deviceId: 'NPU',
-        modelDir,
         folderExists: true,
         mtpGraphExists: false,
       }),
@@ -67,7 +63,6 @@ describe('resolveOvmsMtpLaunch', () => {
       resolveOvmsMtpLaunch({
         enableMtp: false,
         deviceId: 'GPU.0',
-        modelDir,
         folderExists: true,
         mtpGraphExists: false,
       }),
@@ -76,8 +71,8 @@ describe('resolveOvmsMtpLaunch', () => {
 })
 
 describe('ovmsMtpLaunchArgs', () => {
-  it('points the draft path at the model directory', () => {
-    expect(ovmsMtpLaunchArgs(modelDir)).toEqual(['--draft_model_path', modelDir])
+  it('passes the demo draft path', () => {
+    expect(ovmsMtpLaunchArgs('.')).toEqual(['--draft_model_path', '.'])
   })
 
   it('adds nothing when MTP is not armed', () => {

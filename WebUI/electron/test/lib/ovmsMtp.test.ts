@@ -76,16 +76,11 @@ describe('resolveOvmsMtpLaunch', () => {
 })
 
 describe('ovmsMtpLaunchArgs', () => {
-  it('points the draft path at the model directory and disables prefix caching', () => {
-    expect(ovmsMtpLaunchArgs(modelDir)).toEqual([
-      '--draft_model_path',
-      modelDir,
-      '--enable_prefix_caching',
-      'false',
-    ])
+  it('points the draft path at the model directory', () => {
+    expect(ovmsMtpLaunchArgs(modelDir)).toEqual(['--draft_model_path', modelDir])
   })
 
-  it('adds nothing when MTP is not armed, so prefix caching stays at the server default', () => {
+  it('adds nothing when MTP is not armed', () => {
     expect(ovmsMtpLaunchArgs(null)).toEqual([])
   })
 })

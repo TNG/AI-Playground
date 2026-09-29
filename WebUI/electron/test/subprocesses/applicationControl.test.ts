@@ -15,8 +15,9 @@ describe('isApplicationControlBlock', () => {
 
   it('matches Python failing to import a blocked extension', () => {
     const text =
-      'ImportError: DLL load failed while importing _sqlite3: An Application Control policy has blocked this file.'
+      'ImportError: DLL load failed while importing _core: An Application Control policy has blocked this file.'
     expect(isApplicationControlBlock({ text })).toBe(true)
+    expect(applicationControlHint({ text })).toBe(APPLICATION_CONTROL_USER_MESSAGE)
   })
 
   it('matches the Win32 name of error 4551', () => {

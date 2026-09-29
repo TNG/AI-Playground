@@ -44,6 +44,16 @@ export function hintFromError(error: unknown, extraText?: string): string | unde
   return applicationControlHint({ ...evidence, text })
 }
 
+export function withApplicationControlHint<
+  T extends { stdout?: string; stderr?: string; hint?: string },
+>(details: T): T {
+  if (details.hint) return details
+  const hint = applicationControlHint({
+    text: `${details.stdout ?? ''}\n${details.stderr ?? ''}`,
+  })
+  return hint ? { ...details, hint } : details
+}
+
 export function createApplicationControlWatch(): {
   noteText: (text: string) => void
   noteError: (error: unknown) => void

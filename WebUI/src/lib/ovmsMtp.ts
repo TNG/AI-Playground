@@ -5,13 +5,16 @@
 
 export const OVMS_MTP_GRAPH_FILE = 'openvino_mtp_model.xml'
 
+/** OVMS joins a relative `--draft_model_path` onto the graph directory, so `.` is the model folder. */
+export const OVMS_MTP_DRAFT_PATH = '.'
+
 /** Same draft length as llama.cpp's Qwen 3.6 `--spec-draft-n-max 2`. */
 export const OVMS_MTP_ASSISTANT_TOKENS = 2
 
 const STALE_NOTICE_PREFIX = 'aipg.ovmsMtpStaleNotice.'
 
 export type OvmsMtpLaunch = {
-  /** Absolute model directory to pass as `--draft_model_path`, or null to leave MTP off. */
+  /** `.` to pass as `--draft_model_path`, or null to leave MTP off. */
   draftModelPath: string | null
   /** The folder is an older snapshot: MTP applies only after a delete and re-download. */
   stale: boolean
@@ -20,7 +23,6 @@ export type OvmsMtpLaunch = {
 export function resolveOvmsMtpLaunch(options: {
   enableMtp: boolean
   deviceId: string
-  modelDir: string
   folderExists: boolean
   mtpGraphExists: boolean
 }): OvmsMtpLaunch {
@@ -31,7 +33,7 @@ export function resolveOvmsMtpLaunch(options: {
   }
   // Missing folder is a first download: OVMS pulls the current repo, graph included.
   if (!options.folderExists || options.mtpGraphExists) {
-    return { draftModelPath: options.modelDir, stale: false }
+    return { draftModelPath: OVMS_MTP_DRAFT_PATH, stale: false }
   }
   return { draftModelPath: null, stale: true }
 }

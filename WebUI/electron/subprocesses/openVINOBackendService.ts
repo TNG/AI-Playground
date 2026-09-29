@@ -2114,7 +2114,6 @@ export class OpenVINOBackendService implements ApiService {
     const decision = resolveOvmsMtpLaunch({
       enableMtp,
       deviceId,
-      modelDir,
       folderExists,
       mtpGraphExists,
     })

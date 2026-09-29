@@ -85,8 +85,9 @@ export const ModelSchema = z.object({
   // Gemma 4 needs `gemma4` — the qwen3 parser mis-reads its traces.
   reasoningParser: z.enum(ovmsReasoningParsers).optional(),
   // This OpenVINO repo ships `openvino_mtp_model.xml`. The server passes
-  // `--draft_model_path .` on CPU/GPU when the snapshot has that file (or has not
-  // been downloaded yet). Draft length is `num_assistant_tokens` on the request.
+  // `--draft_model_path .` and `--enable_prefix_caching false` on CPU/GPU when
+  // the snapshot has that file (or has not been downloaded yet). Draft length
+  // is `num_assistant_tokens` on the request.
   enableMtp: z.boolean().optional(),
   supportsVision: z.boolean().optional(),
   // Good enough at writing code to drive a coding preset (Game Agent). A judgement

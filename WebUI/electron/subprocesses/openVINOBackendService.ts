@@ -33,6 +33,7 @@ import { resolveDefaultDevice } from './defaultDeviceSelection.ts'
 import { npuPromptLen } from '../../src/types/shared.ts'
 import {
   OVMS_MTP_GRAPH_FILE,
+  ovmsMtpLaunchArgs,
   resolveOvmsMtpLaunch,
   type OvmsMtpLaunch,
 } from '../../src/lib/ovmsMtp.ts'
@@ -2174,9 +2175,7 @@ export class OpenVINOBackendService implements ApiService {
         'cache',
       ]
 
-      if (mtp.draftModelPath) {
-        args.push('--draft_model_path', mtp.draftModelPath)
-      }
+      args.push(...ovmsMtpLaunchArgs(mtp.draftModelPath))
 
       if (selectedDevice.startsWith('NPU')) {
         const maxPromptLen = npuPromptLen(contextSize)

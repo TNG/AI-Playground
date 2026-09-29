@@ -36,6 +36,12 @@ export function resolveOvmsMtpLaunch(options: {
   return { draftModelPath: null, stale: true }
 }
 
+/** `--draft_model_path` for an MTP launch, or nothing when MTP stays off. */
+export function ovmsMtpLaunchArgs(draftModelPath: string | null): string[] {
+  if (!draftModelPath) return []
+  return ['--draft_model_path', draftModelPath]
+}
+
 /** Request fields for a launch that did or did not pass `--draft_model_path`. */
 export function ovmsMtpRequestFields(mtpArmed: boolean): Record<string, number> {
   if (!mtpArmed) return {}

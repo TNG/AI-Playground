@@ -5,6 +5,7 @@ import z from 'zod'
 import {
   OVMS_MTP_ASSISTANT_TOKENS,
   claimOvmsMtpStaleNotice,
+  ovmsMtpLaunchArgs,
   ovmsMtpRequestFields,
   resolveOvmsMtpLaunch,
 } from '@/lib/ovmsMtp'
@@ -71,6 +72,16 @@ describe('resolveOvmsMtpLaunch', () => {
         mtpGraphExists: false,
       }),
     ).toEqual({ draftModelPath: null, stale: false })
+  })
+})
+
+describe('ovmsMtpLaunchArgs', () => {
+  it('points the draft path at the model directory', () => {
+    expect(ovmsMtpLaunchArgs(modelDir)).toEqual(['--draft_model_path', modelDir])
+  })
+
+  it('adds nothing when MTP is not armed', () => {
+    expect(ovmsMtpLaunchArgs(null)).toEqual([])
   })
 })
 

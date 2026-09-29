@@ -38,10 +38,13 @@ export function resolveOvmsMtpLaunch(options: {
   return { draftModelPath: null, stale: true }
 }
 
-/** `--draft_model_path` for an MTP launch, or nothing when MTP stays off. */
+/**
+ * MTP launch flags. Prefix caching defaults on and is not supported with MTP,
+ * so an armed launch turns it off. Other launches leave the default.
+ */
 export function ovmsMtpLaunchArgs(draftModelPath: string | null): string[] {
   if (!draftModelPath) return []
-  return ['--draft_model_path', draftModelPath]
+  return ['--draft_model_path', draftModelPath, '--enable_prefix_caching', 'false']
 }
 
 /** Request fields for a launch that did or did not pass `--draft_model_path`. */

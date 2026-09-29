@@ -71,11 +71,16 @@ describe('resolveOvmsMtpLaunch', () => {
 })
 
 describe('ovmsMtpLaunchArgs', () => {
-  it('passes the demo draft path', () => {
-    expect(ovmsMtpLaunchArgs('.')).toEqual(['--draft_model_path', '.'])
+  it('passes the demo draft path and turns prefix caching off', () => {
+    expect(ovmsMtpLaunchArgs('.')).toEqual([
+      '--draft_model_path',
+      '.',
+      '--enable_prefix_caching',
+      'false',
+    ])
   })
 
-  it('adds nothing when MTP is not armed', () => {
+  it('adds nothing when MTP is not armed, so prefix caching stays at the server default', () => {
     expect(ovmsMtpLaunchArgs(null)).toEqual([])
   })
 })

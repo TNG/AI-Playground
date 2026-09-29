@@ -987,6 +987,7 @@ type ErrorDetails = {
   timestamp?: string
   duration?: number
   pipFreezeOutput?: string
+  hint?: string
 }
 
 type ApiServiceInformation = {

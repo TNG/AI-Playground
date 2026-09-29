@@ -5,6 +5,7 @@ import z from 'zod'
 import {
   OVMS_MTP_ASSISTANT_TOKENS,
   claimOvmsMtpStaleNotice,
+  ovmsMtpLaunchArgs,
   ovmsMtpRequestFields,
   resolveOvmsMtpLaunch,
 } from '@/lib/ovmsMtp'
@@ -71,6 +72,21 @@ describe('resolveOvmsMtpLaunch', () => {
         mtpGraphExists: false,
       }),
     ).toEqual({ draftModelPath: null, stale: false })
+  })
+})
+
+describe('ovmsMtpLaunchArgs', () => {
+  it('points the draft path at the model directory and disables prefix caching', () => {
+    expect(ovmsMtpLaunchArgs(modelDir)).toEqual([
+      '--draft_model_path',
+      modelDir,
+      '--enable_prefix_caching',
+      'false',
+    ])
+  })
+
+  it('adds nothing when MTP is not armed, so prefix caching stays at the server default', () => {
+    expect(ovmsMtpLaunchArgs(null)).toEqual([])
   })
 })
 

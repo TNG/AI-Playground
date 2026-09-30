@@ -6,13 +6,7 @@ import path from 'node:path'
 import { appLoggerInstance } from '../logging/logger.ts'
 import { packagedResourcesRoot } from '../aipgRoot.ts'
 import { existingFileOrError, spawnProcessAsync, ProcessError } from './osProcessHelper'
-import {
-  APPLICATION_CONTROL_USER_MESSAGE,
-  applicationControlHint,
-  hintFromError,
-  isApplicationControlBlock,
-  spawnErrorEvidence,
-} from './applicationControl.ts'
+import { applicationControlHint } from './applicationControl.ts'
 import { fetchInstallArtifact } from './fetchInstallArtifact.ts'
 import { terminateProcessTree, type ProcessSignature } from './processLifecycle.ts'
 import { assert } from 'node:console'
@@ -55,26 +49,21 @@ export async function createEnhancedErrorDetails(
   // Capture pip freeze output for installation-related errors
   const pipFreezeOutput: string | undefined = await capturePipFreezeOutput()
 
-  const withHint = (details: ErrorDetails, hint: string | undefined): ErrorDetails =>
-    hint ? { ...details, hint } : details
+  const withHint = (details: ErrorDetails): ErrorDetails => {
+    const hint = applicationControlHint(`${details.stdout ?? ''}\n${details.stderr ?? ''}`)
+    return hint ? { ...details, hint } : details
+  }
 
   if (error instanceof ProcessError) {
-    return withHint(
-      {
-        command: `${error.result.command} ${error.result.args.join(' ')}`,
-        exitCode: error.result.exitCode,
-        stdout: error.result.stdout,
-        stderr: error.result.stderr,
-        timestamp: error.result.timestamp,
-        duration: error.result.duration,
-        pipFreezeOutput,
-      },
-      applicationControlHint({
-        text: `${error.result.stdout}\n${error.result.stderr}`,
-        code: error.result.spawnCode,
-        syscall: error.result.spawnSyscall,
-      }),
-    )
+    return withHint({
+      command: `${error.result.command} ${error.result.args.join(' ')}`,
+      exitCode: error.result.exitCode,
+      stdout: error.result.stdout,
+      stderr: error.result.stderr,
+      timestamp: error.result.timestamp,
+      duration: error.result.duration,
+      pipFreezeOutput,
+    })
   }
 
   if (error instanceof Error) {
@@ -149,19 +138,16 @@ export async function createEnhancedErrorDetails(
       errorDetails.stdout = `Stack trace:\n${stackLines.join('\n')}`
     }
 
-    return withHint(errorDetails, hintFromError(error))
+    return withHint(errorDetails)
   }
 
   // Handle non-Error objects (strings, etc.)
-  return withHint(
-    {
-      command: context || 'Unknown operation',
-      stderr: String(error),
-      timestamp,
-      pipFreezeOutput,
-    },
-    applicationControlHint({ text: String(error) }),
-  )
+  return withHint({
+    command: context || 'Unknown operation',
+    stderr: String(error),
+    timestamp,
+    pipFreezeOutput,
+  })
 }
 
 export const aipgBaseDir = () =>
@@ -556,7 +542,6 @@ export abstract class LongLivedPythonApiService implements ApiService {
 
   // Buffer for capturing startup logs
   private startupLogBuffer: { stdout: string[]; stderr: string[] } = { stdout: [], stderr: [] }
-  private startupBlockedByApplicationControl = false
   private isCapturingStartupLogs: boolean = false
   private startupStartTime: number = 0
 
@@ -830,7 +815,6 @@ export abstract class LongLivedPythonApiService implements ApiService {
 
     // Initialize startup log capture
     this.startupLogBuffer = { stdout: [], stderr: [] }
-    this.startupBlockedByApplicationControl = false
     this.isCapturingStartupLogs = true
     this.startupStartTime = Date.now()
 
@@ -1004,9 +988,7 @@ export abstract class LongLivedPythonApiService implements ApiService {
     const stdout = this.startupLogBuffer.stdout.join('').trim()
     const stderr = this.startupLogBuffer.stderr.join('').trim()
 
-    const hint = this.startupBlockedByApplicationControl
-      ? APPLICATION_CONTROL_USER_MESSAGE
-      : applicationControlHint({ text: `${stdout}\n${stderr}\n${errorMessage}` })
+    const hint = applicationControlHint(`${stdout}\n${stderr}\n${errorMessage}`)
 
     return {
       command: `${this.name} startup`,
@@ -1058,9 +1040,6 @@ export abstract class LongLivedPythonApiService implements ApiService {
       // Buffer startup logs if we're in startup phase
       if (this.isCapturingStartupLogs) {
         this.startupLogBuffer.stdout.push(messageStr)
-        if (isApplicationControlBlock({ text: messageStr })) {
-          this.startupBlockedByApplicationControl = true
-        }
       }
 
       // Continue with normal logging to preserve real-time console output
@@ -1079,9 +1058,6 @@ export abstract class LongLivedPythonApiService implements ApiService {
       // Buffer startup logs if we're in startup phase
       if (this.isCapturingStartupLogs) {
         this.startupLogBuffer.stderr.push(messageStr)
-        if (isApplicationControlBlock({ text: messageStr })) {
-          this.startupBlockedByApplicationControl = true
-        }
       }
 
       // Continue with normal logging to preserve real-time console output
@@ -1090,9 +1066,6 @@ export abstract class LongLivedPythonApiService implements ApiService {
 
     process.on('error', (message) => {
       const messageStr = `backend process ${this.name} exited abruptly due to : ${message}`
-      if (isApplicationControlBlock(spawnErrorEvidence(message))) {
-        this.startupBlockedByApplicationControl = true
-      }
       // Buffer startup logs if we're in startup phase
       if (this.isCapturingStartupLogs) {
         this.startupLogBuffer.stderr.push(messageStr)

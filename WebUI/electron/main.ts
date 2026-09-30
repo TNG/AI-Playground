@@ -51,7 +51,7 @@ import { randomUUID } from 'node:crypto'
 import { PathsManager } from './pathsManager'
 import { writableConfigFile } from './userConfig.ts'
 import { appLoggerInstance } from './logging/logger.ts'
-import { hintFromError } from './subprocesses/applicationControl.ts'
+import { applicationControlHint } from './subprocesses/applicationControl.ts'
 import {
   aiplaygroundApiServiceRegistry,
   ApiServiceRegistryImpl,
@@ -2108,7 +2108,7 @@ function initEventHandle() {
           'electron-backend',
         )
         if (!win.isDestroyed()) {
-          const hint = hintFromError(error, message)
+          const hint = applicationControlHint(message)
           win.webContents.send('serviceSetUpProgress', {
             serviceName,
             step: 'setup failed',

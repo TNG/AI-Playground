@@ -12,7 +12,7 @@ import {
   patchFile,
   createEnhancedErrorDetails,
 } from './service.ts'
-import { withApplicationControlHint } from './applicationControl.ts'
+import { applicationControlHint } from './applicationControl.ts'
 import {
   aipgBaseDir,
   checkBackend,
@@ -616,7 +616,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
           ? `\n\n=== UV Check Details ===\n${checkDetails.stdout}`
           : ''
 
-        this.environmentMismatchError = withApplicationControlHint({
+        this.environmentMismatchError = {
           command: 'ComfyUI environment check',
           exitCode: checkDetails.exitCode,
           stdout:
@@ -629,7 +629,8 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
           stderr: `Environment mismatch detected. The virtual environment at ${this.pythonEnvDir} exists but doesn't match the expected lockfile state.${stderrInfo}`,
           timestamp: new Date().toISOString(),
           duration: 0,
-        })
+          hint: applicationControlHint(`${checkDetails.stdout}\n${checkDetails.stderr}`),
+        }
       } else {
         // Clear environment mismatch error if environment is in sync
         this.environmentMismatchError = null
@@ -937,7 +938,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     if (this.environmentMismatchError) {
       if (baseInfo.errorDetails) {
         // Merge environment mismatch with startup error
-        const mergedError: ErrorDetails = withApplicationControlHint({
+        const mergedError: ErrorDetails = {
           command: baseInfo.errorDetails.command || this.environmentMismatchError.command,
           exitCode: baseInfo.errorDetails.exitCode ?? this.environmentMismatchError.exitCode,
           stdout: [
@@ -959,7 +960,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
           pipFreezeOutput:
             baseInfo.errorDetails.pipFreezeOutput || this.environmentMismatchError.pipFreezeOutput,
           hint: baseInfo.errorDetails.hint ?? this.environmentMismatchError.hint,
-        })
+        }
         return {
           ...baseInfo,
           errorDetails: mergedError,

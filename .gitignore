@@ -1,6 +1,7 @@
 .DS_Store
 .idea
 .vscode/
+.opencode/
 node_modules/
 **/.vite/
 env/

@@ -73,7 +73,6 @@ vi.mock('@/assets/js/store/i18n', () => ({
 }))
 
 vi.mock('@/assets/js/tools/agentBridge', () => ({
-  executeAgentTool: vi.fn(),
   getAgentToolSpecs: () => [],
 }))
 
@@ -108,10 +107,9 @@ globalThis.window = {
       cancel: vi.fn(async () => {}),
       deleteSession: vi.fn(async () => ({ success: true })),
       importAttachment,
-      onStreamChunk: vi.fn(),
-      onToolProgress: vi.fn(),
-      onToolImage: vi.fn(),
-      onTurnDone: vi.fn(),
+      // Agent notifications ride the kernel stream; only the executeTool
+      // request stays on the agentMode surface. No kernel API is stubbed, so
+      // the projection stays inert in these tests.
       onExecuteTool: vi.fn(),
     },
     games: { read: gamesRead, create: gamesCreate, list: vi.fn(async () => []) },

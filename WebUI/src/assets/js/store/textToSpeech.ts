@@ -10,7 +10,7 @@ import { useSetupWizard } from './setupWizard'
 import { useProductMode } from './productMode'
 import { synthesizeSpeech, bytesToBase64 } from '@/lib/synthesizeSpeech'
 
-export const SPEECHT5_MODEL_NAME = 'tngtech/Kokoro-82M-int8-ov'
+export const SPEECHT5_MODEL_NAME = 'OpenVINO/Kokoro-82M-int8-ov'
 
 /** Which engine backs Text To Speech.
  *  - `qwen3`: Qwen3-TTS on its own backend — works in every product mode.
@@ -195,10 +195,9 @@ export const useTextToSpeech = defineStore('textToSpeech', () => {
     if (!modelExists) return
 
     try {
-      const url = await backendServices.getSpeechServerUrl()
-      if (!url) {
-        await backendServices.startSpeechServer(SPEECHT5_MODEL_NAME)
-      }
+      // startSpeechServer no-ops when this model is already up on the selected device,
+      // and relaunches when the device changed.
+      await backendServices.startSpeechServer(SPEECHT5_MODEL_NAME)
     } catch (error) {
       console.error('Failed to ensure speech server is running:', error)
     }
@@ -230,10 +229,9 @@ export const useTextToSpeech = defineStore('textToSpeech', () => {
       }
     }
 
-    const url = await backendServices.getSpeechServerUrl()
-    if (!url) {
-      await backendServices.startSpeechServer(SPEECHT5_MODEL_NAME)
-    }
+    // startSpeechServer no-ops when this model is already up on the selected device,
+    // and relaunches when the device changed.
+    await backendServices.startSpeechServer(SPEECHT5_MODEL_NAME)
   }
 
   /**

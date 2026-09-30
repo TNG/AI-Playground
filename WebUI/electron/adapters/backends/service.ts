@@ -7,6 +7,13 @@ import { appLoggerInstance } from '../../observability/logger.ts'
 import { emitServiceUpdate } from '../../kernel/kernelBus.ts'
 import { packagedResourcesRoot } from '../../kernel/aipgRoot.ts'
 import { existingFileOrError, spawnProcessAsync, ProcessError } from '../install/osProcessHelper'
+import {
+  APPLICATION_CONTROL_USER_MESSAGE,
+  applicationControlHint,
+  hintFromError,
+  isApplicationControlBlock,
+  spawnErrorEvidence,
+} from './applicationControl.ts'
 import { fetchInstallArtifact } from '../install/fetchInstallArtifact.ts'
 import { terminateProcessTree, type ProcessSignature } from '../install/processLifecycle.ts'
 import { assert } from 'node:console'
@@ -18,6 +25,7 @@ import {
   removeBrokenVenv,
   venvInterpreterPath,
   venvIsUsable,
+  removeVenvTree,
 } from '../install/uvBasedBackends/venvState.ts'
 import { Arch, getArchPriority, getDeviceArch } from '../hardware/deviceArch.ts'
 import { z } from 'zod'
@@ -35,6 +43,7 @@ export interface ErrorDetails {
   timestamp?: string
   duration?: number
   pipFreezeOutput?: string
+  hint?: string
 }
 
 // Helper function to capture pip freeze output using service-specific Python environment
@@ -52,16 +61,26 @@ export async function createEnhancedErrorDetails(
   // Capture pip freeze output for installation-related errors
   const pipFreezeOutput: string | undefined = await capturePipFreezeOutput()
 
+  const withHint = (details: ErrorDetails, hint: string | undefined): ErrorDetails =>
+    hint ? { ...details, hint } : details
+
   if (error instanceof ProcessError) {
-    return {
-      command: `${error.result.command} ${error.result.args.join(' ')}`,
-      exitCode: error.result.exitCode,
-      stdout: error.result.stdout,
-      stderr: error.result.stderr,
-      timestamp: error.result.timestamp,
-      duration: error.result.duration,
-      pipFreezeOutput,
-    }
+    return withHint(
+      {
+        command: `${error.result.command} ${error.result.args.join(' ')}`,
+        exitCode: error.result.exitCode,
+        stdout: error.result.stdout,
+        stderr: error.result.stderr,
+        timestamp: error.result.timestamp,
+        duration: error.result.duration,
+        pipFreezeOutput,
+      },
+      applicationControlHint({
+        text: `${error.result.stdout}\n${error.result.stderr}`,
+        code: error.result.spawnCode,
+        syscall: error.result.spawnSyscall,
+      }),
+    )
   }
 
   if (error instanceof Error) {
@@ -136,16 +155,19 @@ export async function createEnhancedErrorDetails(
       errorDetails.stdout = `Stack trace:\n${stackLines.join('\n')}`
     }
 
-    return errorDetails
+    return withHint(errorDetails, hintFromError(error))
   }
 
   // Handle non-Error objects (strings, etc.)
-  return {
-    command: context || 'Unknown operation',
-    stderr: String(error),
-    timestamp,
-    pipFreezeOutput,
-  }
+  return withHint(
+    {
+      command: context || 'Unknown operation',
+      stderr: String(error),
+      timestamp,
+      pipFreezeOutput,
+    },
+    applicationControlHint({ text: String(error) }),
+  )
 }
 
 export const aipgBaseDir = () =>
@@ -546,6 +568,7 @@ export abstract class LongLivedPythonApiService implements ApiService {
 
   // Buffer for capturing startup logs
   private startupLogBuffer: { stdout: string[]; stderr: string[] } = { stdout: [], stderr: [] }
+  private startupBlockedByApplicationControl = false
   private isCapturingStartupLogs: boolean = false
   private startupStartTime: number = 0
 
@@ -752,24 +775,23 @@ export abstract class LongLivedPythonApiService implements ApiService {
     await this.stop()
     this.setStatus('installing')
     this.appLogger.info(`removing existing ${this.name} venv for a clean install`, this.name)
-    await filesystem.remove(this.pythonEnvDir)
+    await removeVenvTree(this.pythonEnvDir)
   }
 
   /**
-   * Remove the venv only if it exists without an interpreter — the empty-husk
-   * state (e.g. the Windows uninstaller's `RMDir /r` cannot delete deeply nested
-   * `site-packages` paths, so it leaves a partial tree behind). Installing into
-   * such a tree yields an environment that can never boot. Unlike
-   * {@link prepareCleanPythonEnv} this preserves a usable venv, which matters for
-   * backends whose venv holds packages that are not in the lockfile (ComfyUI
-   * custom-node dependencies installed at runtime).
+   * Remove the venv when this account cannot use it — no interpreter, not
+   * writable, or `pyvenv.cfg` home pointing at a Python this account cannot
+   * read. Installing into that tree yields an environment that can never boot.
+   * Unlike {@link prepareCleanPythonEnv} this preserves a usable venv, which
+   * matters for backends whose venv holds packages that are not in the lockfile
+   * (ComfyUI custom-node dependencies installed at runtime).
    */
   protected async removeUnusablePythonEnv(): Promise<void> {
     if (!filesystem.existsSync(this.pythonEnvDir) || venvIsUsable(this.pythonEnvDir)) return
     await this.stop()
     this.setStatus('installing')
     this.appLogger.warn(
-      `venv of ${this.name} has no interpreter — removing the partial tree before installing`,
+      `venv of ${this.name} is not usable by this account — removing it before installing`,
       this.name,
     )
     await removeBrokenVenv(this.pythonEnvDir)
@@ -781,7 +803,7 @@ export abstract class LongLivedPythonApiService implements ApiService {
     // removal fails with EPERM.
     await this.stop()
     this.appLogger.info(`removing python env of ${this.name} service`, this.name)
-    await filesystem.remove(this.pythonEnvDir)
+    await removeVenvTree(this.pythonEnvDir)
     this.appLogger.info(`removed python env of ${this.name} service`, this.name)
     // Without this the service keeps reporting isSetUp: true after its
     // environment is gone — the wizard row reads as installed and dismiss()
@@ -839,6 +861,7 @@ export abstract class LongLivedPythonApiService implements ApiService {
 
     // Initialize startup log capture
     this.startupLogBuffer = { stdout: [], stderr: [] }
+    this.startupBlockedByApplicationControl = false
     this.isCapturingStartupLogs = true
     this.startupStartTime = Date.now()
 
@@ -1012,6 +1035,10 @@ export abstract class LongLivedPythonApiService implements ApiService {
     const stdout = this.startupLogBuffer.stdout.join('').trim()
     const stderr = this.startupLogBuffer.stderr.join('').trim()
 
+    const hint = this.startupBlockedByApplicationControl
+      ? APPLICATION_CONTROL_USER_MESSAGE
+      : applicationControlHint({ text: `${stdout}\n${stderr}\n${errorMessage}` })
+
     return {
       command: `${this.name} startup`,
       exitCode: undefined, // Process may not have exited with a specific code
@@ -1020,6 +1047,7 @@ export abstract class LongLivedPythonApiService implements ApiService {
       timestamp,
       duration,
       pipFreezeOutput,
+      ...(hint ? { hint } : {}),
     }
   }
 
@@ -1061,6 +1089,9 @@ export abstract class LongLivedPythonApiService implements ApiService {
       // Buffer startup logs if we're in startup phase
       if (this.isCapturingStartupLogs) {
         this.startupLogBuffer.stdout.push(messageStr)
+        if (isApplicationControlBlock({ text: messageStr })) {
+          this.startupBlockedByApplicationControl = true
+        }
       }
 
       // Continue with normal logging to preserve real-time console output
@@ -1079,6 +1110,9 @@ export abstract class LongLivedPythonApiService implements ApiService {
       // Buffer startup logs if we're in startup phase
       if (this.isCapturingStartupLogs) {
         this.startupLogBuffer.stderr.push(messageStr)
+        if (isApplicationControlBlock({ text: messageStr })) {
+          this.startupBlockedByApplicationControl = true
+        }
       }
 
       // Continue with normal logging to preserve real-time console output
@@ -1087,6 +1121,9 @@ export abstract class LongLivedPythonApiService implements ApiService {
 
     process.on('error', (message) => {
       const messageStr = `backend process ${this.name} exited abruptly due to : ${message}`
+      if (isApplicationControlBlock(spawnErrorEvidence(message))) {
+        this.startupBlockedByApplicationControl = true
+      }
       // Buffer startup logs if we're in startup phase
       if (this.isCapturingStartupLogs) {
         this.startupLogBuffer.stderr.push(messageStr)

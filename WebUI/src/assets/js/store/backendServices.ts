@@ -566,7 +566,6 @@ export const useBackendServices = defineStore('backendServices', () => {
     if (serviceName === 'llamacpp-backend') {
       serviceSettings.llamaCppParameters = effectiveLlamaCppParameters.value
       serviceSettings.llamaCppBuildVariant = llamaCppBuildVariant.value
-      serviceSettings.llamaCppOffloadDrive = llamaCppOffloadDrive.value
     }
     await updateServiceSettings(serviceSettings)
     // Deliberately not awaited before `awaitFinalizationAndResetData` — progress
@@ -614,7 +613,6 @@ export const useBackendServices = defineStore('backendServices', () => {
           serviceName: 'llamacpp-backend',
           llamaCppParameters: effectiveLlamaCppParameters.value,
           llamaCppBuildVariant: llamaCppBuildVariant.value,
-          llamaCppOffloadDrive: llamaCppOffloadDrive.value,
         })
       } catch (e) {
         console.warn('Failed to sync Llama.cpp settings to main process:', e)
@@ -666,7 +664,6 @@ export const useBackendServices = defineStore('backendServices', () => {
         serviceName: 'llamacpp-backend',
         llamaCppParameters: effectiveLlamaCppParameters.value,
         llamaCppBuildVariant: llamaCppBuildVariant.value,
-        llamaCppOffloadDrive: llamaCppOffloadDrive.value,
       })
     }
     if (serviceName === 'openvino-backend') {
@@ -733,6 +730,9 @@ export const useBackendServices = defineStore('backendServices', () => {
       if (!result.success) {
         throw new Error(result.error || 'Failed to ensure backend readiness')
       }
+      // The matching service update arrives a tick later. Fold the snapshot
+      // from this call in now so the next request sees whether MTP was armed.
+      if (result.service) applyServiceUpdate(result.service)
     } catch (error) {
       console.error(`Failed to ensure backend readiness for ${serviceName}:`, error)
       throw error

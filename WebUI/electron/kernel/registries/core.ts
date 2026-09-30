@@ -17,6 +17,7 @@ import {
 import z from 'zod'
 import { LocalSettingsSchema } from '../localSettings'
 import { ipcErrorText, ipcFail, typedSend } from '../typedIpc'
+import { hintFromError } from '../../adapters/backends/applicationControl.ts'
 import type {
   CoreInvokeName,
   CoreSendName,
@@ -998,6 +999,7 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
           'electron-backend',
         )
         if (!win.isDestroyed()) {
+          const hint = hintFromError(error, message)
           typedSend(win.webContents, 'serviceSetUpProgress', {
             serviceName,
             step: 'setup failed',
@@ -1006,6 +1008,7 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
             errorDetails: {
               stderr: message,
               timestamp: new Date().toISOString(),
+              ...(hint ? { hint } : {}),
             },
           } satisfies SetupProgress)
         }
@@ -1041,7 +1044,10 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
             remember: options?.remember,
           },
         )
-        return { success: true as const }
+        return {
+          success: true as const,
+          service: serviceRegistry.getService(serviceName)?.get_info(),
+        }
       } catch (error) {
         const errorMessage = ipcErrorText(error)
         deps.appLogger.error(

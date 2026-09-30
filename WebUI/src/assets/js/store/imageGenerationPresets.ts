@@ -33,6 +33,7 @@ import type { PresetRequirementsData } from './dialogs'
 import { getMissingComfyuiBackendModels } from './imageGenerationUtils'
 import { requestDownload } from '@/assets/js/permissions/permissions'
 import { imageUrlToDataUri, saveImageToMediaInput } from '@/lib/utils'
+import { referenceSlotToFill } from '@/lib/referenceImageFit'
 import { withTraceSpan } from '@/lib/laminarSpans'
 import { runArtifact, type ArtifactKind, type ArtifactResult } from '../artifact/runArtifact'
 import type { Preset } from './presets'
@@ -405,29 +406,37 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
   // Note: Preset/variant changes are now handled by the orchestrator (usePresetSwitching),
   // which calls loadSettingsForActivePreset() explicitly. No watcher needed.
 
-  // Update first image input when selected edited image changes
+  function applyReferenceUrl(imageUrl: string) {
+    const inputs = comfyInputs.value.filter((input) => input.type === 'image')
+    const index = referenceSlotToFill(
+      inputs.map((input) => ({ optional: input.optional, value: input.current.value })),
+      imageUrl,
+    )
+    if (index === null) return
+    inputs[index].current.value = imageUrl
+  }
+
+  // History selection (and a repeat click on the already-selected row) fills the
+  // primary reference slot. An image that is already in a slot was just loaded
+  // there, so it must not be copied onto slot 1.
+  function syncSelectedReferenceImage() {
+    const category = activePreset.value?.category
+    const id =
+      category === 'edit-images'
+        ? selectedEditedImageId.value
+        : category === 'create-videos'
+          ? selectedVideoId.value
+          : null
+    if (!id) return
+    const image = generatedImages.value.find((img) => img.id === id)
+    if (!image || image.type !== 'image' || !image.fromImageGen) return
+    applyReferenceUrl(image.imageUrl)
+  }
+
   watch(
-    () => selectedEditedImageId.value,
-    (newImageId) => {
-      if (!newImageId || !activePreset.value) return
-
-      // Only update for edit-images or create-videos presets that have image inputs
-      const category = activePreset.value.category
-      if (category !== 'edit-images' && category !== 'create-videos') return
-
-      // Find the selected image (only update if it's a reference image, i.e., mode === 'imageEdit')
-      const image = generatedImages.value.find((img) => img.id === newImageId)
-      if (!image || image.type !== 'image' || !image.fromImageGen) return
-
-      // Only auto-populate when the preset has a single reference image input.
-      // Multi-image presets (e.g. Flux2 Klein edit) manage each slot through
-      // its own LoadImage binding; writing the selection into the first slot
-      // here would clobber slot 1 whenever any other slot is loaded.
-      const imageInputs = comfyInputs.value.filter((input) => input.type === 'image')
-      if (imageInputs.length === 1) {
-        imageInputs[0].current.value = image.imageUrl
-        console.log('### updated image input from selected reference image', image.id)
-      }
+    () => [selectedEditedImageId.value, selectedVideoId.value, activePreset.value?.name] as const,
+    () => {
+      syncSelectedReferenceImage()
     },
   )
 
@@ -776,23 +785,7 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     safetyCheck.value = getSavedOrDefault('safetyCheck') ?? generalDefaultSettings.safetyCheck
     showPreview.value = getSavedOrDefault('showPreview') ?? generalDefaultSettings.showPreview
 
-    // Load currently selected edit image into first dynamic image input
-    let image: MediaItem | undefined
-    if (activePreset.value?.category === 'edit-images' && selectedEditedImageId.value) {
-      image = generatedImages.value.find((img) => img.id === selectedEditedImageId.value)
-    } else if (activePreset.value?.category === 'create-videos') {
-      image = generatedImages.value.find(
-        (img) => img.mode === 'video' && img.type === 'image' && img.fromImageGen,
-      )
-    }
-
-    if (image && image.type === 'image') {
-      const currentImageInput = comfyInputs.value.find((input) => input.type === 'image')
-      if (currentImageInput) {
-        currentImageInput.current.value = image.imageUrl
-        console.log('### loaded image into first dynamic image input', image.id)
-      }
-    }
+    syncSelectedReferenceImage()
 
     preloadImageDuringDemo()
   }
@@ -1292,6 +1285,7 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     isModifiable,
     requiresUserPrompt,
     loadSettingsForActivePreset,
+    syncSelectedReferenceImage,
     copyImageAsInputForMode,
     addGalleryItem,
     init,

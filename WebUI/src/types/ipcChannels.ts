@@ -582,7 +582,7 @@ export const CHANNELS = {
       boolean?,
       { remember?: boolean }?,
     ],
-    result: null as unknown as IpcMutationResult,
+    result: null as unknown as IpcMutationResult & { service?: ApiServiceInformation },
   },
   /** Arm/disarm the last-load snapshot (cloud turns disarm it for the duration). */
   setLastChatBackendLoadActive: {

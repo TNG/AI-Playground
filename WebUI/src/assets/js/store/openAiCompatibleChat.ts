@@ -16,6 +16,7 @@ import { createKernelChatTransport } from '@/lib/kernelChatTransport'
 import { serializeToolSet } from '@/lib/chatToolRegistry'
 import { buildHomeAgentInferenceSnapshot } from '@/lib/homeAgentInferenceSnapshot'
 import type { ChatTurnRequest } from '@/types/chatIpc'
+import { withResponseLanguageAtStart } from '@/lib/responseLanguage'
 import { useTextInference } from './textInference'
 import { useCloudMode } from './cloudMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
@@ -108,7 +109,8 @@ export const useOpenAiCompatibleChat = defineStore(
     const errors = useErrors()
     const activities = useActivities()
     const confirmations = useConfirmations()
-    const i18nState = useI18N().state
+    const i18n = useI18N()
+    const i18nState = i18n.state
     const developerSettings = useDeveloperSettings()
     const manuallyStopped = ref(false)
 
@@ -420,7 +422,11 @@ export const useOpenAiCompatibleChat = defineStore(
     // assembled at submit time: the model config (backend/sampling/proxy
     // routing), the base system prompt (RAG is retrieved in main when `rag`
     // is set), the tool specs + executors (registry), and the flags.
-    async function buildTurnExtras(targetKey: string, ragQuery?: string): Promise<ChatTurnExtras> {
+    async function buildTurnExtras(
+      targetKey: string,
+      ragQuery?: string,
+      outgoingUser = false,
+    ): Promise<ChatTurnExtras> {
       const toolSet = await activities.track(
         {
           category: 'tools',
@@ -441,9 +447,15 @@ export const useOpenAiCompatibleChat = defineStore(
       const mediaAgent = specs.some((spec) => spec.name === 'media')
         ? (await import('../agents/mediaAgent')).serializeMediaAgentInner()
         : undefined
+      const existing = chats[targetKey]?.messages ?? []
+      const languageMessages = outgoingUser ? [...existing, { role: 'user' as const }] : existing
       return {
         model: buildChatModelConfig(),
-        systemPrompt: textInference.systemPrompt,
+        systemPrompt: withResponseLanguageAtStart(
+          textInference.systemPrompt,
+          i18n.langName,
+          languageMessages,
+        ),
         tools: specs,
         ...(hasTools ? { repairData } : {}),
         ...(rag ? { rag } : {}),
@@ -1018,7 +1030,7 @@ export const useOpenAiCompatibleChat = defineStore(
             : !sideChannel && fileInput.value.length > 0
               ? fileInput.value
               : undefined
-        const turnExtras = await buildTurnExtras(targetKey, question)
+        const turnExtras = await buildTurnExtras(targetKey, question, true)
         try {
           await chat.sendMessage(
             {

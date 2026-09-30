@@ -430,10 +430,12 @@ import {
   mapModeToLabel,
   downscaleImageTo1MP,
   fileToDataUri,
+  fitReferenceDataUri,
   imageUrlToDataUri,
   saveAudioToMediaInput,
   saveImageToMediaInput,
 } from '@/lib/utils.ts'
+import { referencePixelBudget } from '@/lib/referenceImageFit'
 import { useAudioRecorder } from '@/assets/js/store/audioRecorder'
 import {
   pendingVoiceTurn,
@@ -1153,18 +1155,27 @@ async function handleComfyUIImageUpload(imageFiles: File[]) {
 
   try {
     const dataUri = await imageUrlToDataUri(imageUrl)
-    const aipgMediaUrl = await saveImageToMediaInput(dataUri)
+    const preset = presetsStore.activePresetWithVariant
+    const workflow = preset?.type === 'comfy' ? preset.comfyUiApiWorkflow : undefined
+    const fittedUri = await fitReferenceDataUri(
+      dataUri,
+      workflow,
+      referencePixelBudget(preset?.category, imageGeneration.width, imageGeneration.height),
+    )
+    const aipgMediaUrl = await saveImageToMediaInput(fittedUri)
 
     const firstImageInput = imageGeneration.comfyInputs.find((input) => input.type === 'image')
 
     if (firstImageInput) {
+      const historyMode: WorkflowModeType =
+        promptStore.getCurrentMode() === 'video' ? 'video' : 'imageEdit'
       firstImageInput.current.value = aipgMediaUrl
 
       const imageItem: ImageMediaItem = {
         createdAt: Date.now(),
         id: crypto.randomUUID(),
         type: 'image',
-        mode: 'imageEdit',
+        mode: historyMode,
         state: 'done',
         imageUrl: aipgMediaUrl,
         sourceImageUrl: imageUrl,
@@ -1173,10 +1184,10 @@ async function handleComfyUIImageUpload(imageFiles: File[]) {
       }
 
       imageGeneration.addGalleryItem(imageItem)
-      imageGeneration.selectedEditedImageId = imageItem.id
+      if (historyMode === 'video') imageGeneration.selectedVideoId = imageItem.id
+      else imageGeneration.selectedEditedImageId = imageItem.id
 
-      // Switch to imageEdit mode if not already
-      if (promptStore.getCurrentMode() !== 'imageEdit') {
+      if (historyMode === 'imageEdit' && promptStore.getCurrentMode() !== 'imageEdit') {
         promptStore.setCurrentMode('imageEdit')
       }
     }

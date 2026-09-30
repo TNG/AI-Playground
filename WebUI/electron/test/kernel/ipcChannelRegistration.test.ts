@@ -4,21 +4,25 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CHANNELS } from '@/types/ipcChannels'
 
-// Registration exhaustiveness against the real manifest. Scanned patterns:
-// typed `typedHandle(`/`typedOn(`/`typedSend(` call sites plus raw
-// `ipcMain.handle(`/`ipcMain.on(`/`webContents.send(`/`ipcRenderer.*(`/`listen(`
-// registrations, first argument a string literal or a same-file string `const`.
-// A parameter-backed `sender.send(channel, …)` is invisible to that scan — it is
-// the typedSend wrapper itself (electron/kernel/typedIpc.ts), and every channel
-// through it shows up at its typedSend call site instead.
+// The two textual leftovers of registration enforcement (#301 final form).
+// Handler completeness and owner placement are compile-time now: every
+// manifest row registers through a per-owner registry literal that
+// `satisfies` an owner-scoped mapped type (electron/kernel/ipcRegistries.ts),
+// so a missing handler or an unhandled new row is a build error — pinned by
+// the planted-omission fixture in ipcRegistries.test.ts — and a homeAgent key
+// cannot satisfy a Main* map (or vice versa). What a type cannot see survives
+// here as source-text scans: raw `ipcMain.handle`/`ipcMain.on`/
+// `webContents.send`/`ipcRenderer.*` registrations bypass the typed seam
+// entirely, so the allowlist below stays forever, and every `push` row still
+// needs a preload `onPush`/`onRaw` listener until #303 derives the bridge
+// members from the manifest.
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ELECTRON_DIR = path.resolve(__dirname, '..', '..')
 
-type RegistrationKind = 'handle' | 'on' | 'send'
-type RawKind = RegistrationKind | 'preload-invoke' | 'preload-on' | 'preload-send' | 'listen'
+type RawKind =
+  'handle' | 'on' | 'send' | 'preload-invoke' | 'preload-on' | 'preload-send' | 'listen'
 
-type TypedSite = { file: string; channel: string; kind: RegistrationKind }
 type RawSite = { file: string; channel: string; kind: RawKind }
 
 // The kernel event stream is the one documented raw exception (ADR-0001): the
@@ -44,8 +48,7 @@ function walk(dir: string): string[] {
   return out
 }
 
-function scan(): { typed: TypedSite[]; raw: RawSite[] } {
-  const typed: TypedSite[] = []
+function scanRaw(): RawSite[] {
   const raw: RawSite[] = []
   for (const file of walk(ELECTRON_DIR)) {
     const source = readFileSync(file, 'utf8')
@@ -58,12 +61,6 @@ function scan(): { typed: TypedSite[]; raw: RawSite[] } {
       if (literal) return literal[1]
       return consts.get(token) ?? null
     }
-    for (const m of source.matchAll(/\btypedHandle\(\s*'([^']+)'/gs))
-      typed.push({ file: rel, channel: m[1], kind: 'handle' })
-    for (const m of source.matchAll(/\btypedOn\(\s*'([^']+)'/gs))
-      typed.push({ file: rel, channel: m[1], kind: 'on' })
-    for (const m of source.matchAll(/\btypedSend\(\s*[A-Za-z_$][\w$.]*\s*,\s*'([^']+)'/gs))
-      typed.push({ file: rel, channel: m[1], kind: 'send' })
     for (const [pattern, kind] of [
       [/\bipcMain\.handle\(\s*('([^']+)'|[A-Za-z_$][\w$]*)/gs, 'handle'],
       [/\bipcMain\.on\(\s*('([^']+)'|[A-Za-z_$][\w$]*)/gs, 'on'],
@@ -79,56 +76,16 @@ function scan(): { typed: TypedSite[]; raw: RawSite[] } {
       }
     }
   }
-  return { typed, raw }
+  return raw
 }
 
-const { typed: TYPED_SITES, raw: RAW_SITES } = scan()
-
-const isHomeAgentServiceFile = (file: string) => /homeAgent/i.test(file)
+const RAW_SITES = scanRaw()
 
 describe('channel manifest registration scan', () => {
   const rows = Object.entries(CHANNELS).map(([name, row]) => ({
     name,
     kind: row.kind,
-    owner: row.owner,
   }))
-
-  it('registers every manifest row through its typed wrapper', () => {
-    const missing = rows
-      .map((row) => {
-        const kind = row.kind === 'invoke' ? 'handle' : row.kind === 'send' ? 'on' : 'send'
-        const sites = TYPED_SITES.filter((s) => s.channel === row.name && s.kind === kind)
-        return { row, sites }
-      })
-      .filter(({ sites }) => sites.length === 0)
-      .map(({ row }) => `${row.owner} ${row.kind} '${row.name}' has no typed registration`)
-    expect(missing).toEqual([])
-  })
-
-  it('places every registration on its owner side', () => {
-    const offenders: string[] = []
-    for (const row of rows) {
-      const kind = row.kind === 'invoke' ? 'handle' : row.kind === 'send' ? 'on' : 'send'
-      const sites = TYPED_SITES.filter((s) => s.channel === row.name && s.kind === kind)
-      for (const site of sites) {
-        const inside = isHomeAgentServiceFile(site.file)
-        if (row.owner === 'homeAgent' ? !inside : inside) {
-          offenders.push(
-            `'${row.name}' (owner ${row.owner}) is registered in ${site.file}, owner misplaced`,
-          )
-        }
-      }
-    }
-    expect(offenders).toEqual([])
-  })
-
-  it('registers no channel the manifest does not declare', () => {
-    const known = new Set(rows.map((r) => r.name))
-    const unknown = TYPED_SITES.filter((s) => !known.has(s.channel)).map(
-      (s) => `${s.file} registers '${s.channel}', which has no manifest row`,
-    )
-    expect(unknown).toEqual([])
-  })
 
   it('subscribes every push row through a preload listener', () => {
     const preload = readFileSync(path.join(ELECTRON_DIR, 'preload.ts'), 'utf8')

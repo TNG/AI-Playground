@@ -721,7 +721,7 @@
     "supportsReasoning": false,
     "supportsCoding": true,
     "supportsThinkingToggle": true,
-    "largeMoe": true,
+    "largeMoe": false,
     "maxContextSize": 262144
   },
   {

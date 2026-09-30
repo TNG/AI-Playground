@@ -954,30 +954,30 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 
 ### Electron Main Process Files
 
-| File                                                   | Purpose                                                                                           |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| File                                                   | Purpose                                                                                                                        |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
 | `electron/main.ts`                                     | Window creation, IPC handler registration (the channel manifest in `src/types/ipcChannels.ts` is authoritative), app lifecycle |
-| `electron/preload.ts`                                  | `contextBridge` exposing `electronAPI` to renderer                                                |
-| `electron/kernel/localSettings.ts`                     | Machine-level `settings.json` schema, shared by main and the backend adapters                     |
-| `electron/kernel/pathsManager.ts`                      | Singleton managing all app/model/service filesystem paths                                         |
-| `electron/kernel/orchestrator.ts`                      | Typed run queue + GPU window (steps 7 + 10): text occupancy, artifact-run FIFO, media-request lane |
-| `electron/persist/userDataPaths.ts`                    | Where every kernel-owned user-data file lives (media, games, conversations, …)                    |
-| `electron/adapters/remoteUpdates.ts`                   | Fetching model lists and preset updates from GitHub                                               |
-| `electron/adapters/backends/apiServiceRegistry.ts`     | Service registration, port allocation, lifecycle orchestration                                    |
-| `electron/adapters/backends/service.ts`                | Base classes: `GenericService`, `ExecutableService`, `LongLivedPythonApiService`                  |
-| `electron/adapters/backends/aiBackendService.ts`       | Python Flask model-management backend                                                             |
-| `electron/adapters/backends/llamaCppBackendService.ts` | LlamaCPP native server (LLM + embedding sub-servers)                                              |
-| `electron/adapters/backends/openVINOBackendService.ts` | OpenVINO OVMS (LLM + embedding + transcription sub-servers)                                       |
-| `electron/adapters/backends/comfyUIBackendService.ts`  | ComfyUI Python server                                                                             |
-| `electron/adapters/backends/langchain.ts`              | RAG utility process (document splitting, embedding, vector search)                                |
-| `electron/adapters/hardware/deviceDetection.ts`        | Intel GPU device detection and env var setup                                                      |
-| `electron/chat/turnEngine.ts`                          | Main-side chat turn engine (step 6): streamText, tool bridge, turn lifecycle                      |
-| `electron/chat/mediaAgentRunner.ts`                    | Nested media specialist (step 12): tool loop in main, inner Comfy in-process                      |
-| `electron/artifact/inProcessComfy.ts`                  | Shared in-process Comfy for generateImage/editImage and specialist inner tools                    |
-| `electron/chat/chatModelMain.ts`                       | Chat model factory for main (backend routing, readiness, Home-Agent proxy)                        |
-| `electron/chat/chatSummarize.ts`                       | One-shot conversation title summarization                                                         |
-| `electron/chat/chatAsk.ts`                             | Main→renderer request/response for the one answer a chat tool needs from the window               |
-| `electron/observability/logger.ts`                     | Logging, sends `debugLog` events to renderer                                                      |
+| `electron/preload.ts`                                  | `contextBridge` exposing `electronAPI` to renderer                                                                             |
+| `electron/kernel/localSettings.ts`                     | Machine-level `settings.json` schema, shared by main and the backend adapters                                                  |
+| `electron/kernel/pathsManager.ts`                      | Singleton managing all app/model/service filesystem paths                                                                      |
+| `electron/kernel/orchestrator.ts`                      | Typed run queue + GPU window (steps 7 + 10): text occupancy, artifact-run FIFO, media-request lane                             |
+| `electron/persist/userDataPaths.ts`                    | Where every kernel-owned user-data file lives (media, games, conversations, …)                                                 |
+| `electron/adapters/remoteUpdates.ts`                   | Fetching model lists and preset updates from GitHub                                                                            |
+| `electron/adapters/backends/apiServiceRegistry.ts`     | Service registration, port allocation, lifecycle orchestration                                                                 |
+| `electron/adapters/backends/service.ts`                | Base classes: `GenericService`, `ExecutableService`, `LongLivedPythonApiService`                                               |
+| `electron/adapters/backends/aiBackendService.ts`       | Python Flask model-management backend                                                                                          |
+| `electron/adapters/backends/llamaCppBackendService.ts` | LlamaCPP native server (LLM + embedding sub-servers)                                                                           |
+| `electron/adapters/backends/openVINOBackendService.ts` | OpenVINO OVMS (LLM + embedding + transcription sub-servers)                                                                    |
+| `electron/adapters/backends/comfyUIBackendService.ts`  | ComfyUI Python server                                                                                                          |
+| `electron/adapters/backends/langchain.ts`              | RAG utility process (document splitting, embedding, vector search)                                                             |
+| `electron/adapters/hardware/deviceDetection.ts`        | Intel GPU device detection and env var setup                                                                                   |
+| `electron/chat/turnEngine.ts`                          | Main-side chat turn engine (step 6): streamText, tool bridge, turn lifecycle                                                   |
+| `electron/chat/mediaAgentRunner.ts`                    | Nested media specialist (step 12): tool loop in main, inner Comfy in-process                                                   |
+| `electron/artifact/inProcessComfy.ts`                  | Shared in-process Comfy for generateImage/editImage and specialist inner tools                                                 |
+| `electron/chat/chatModelMain.ts`                       | Chat model factory for main (backend routing, readiness, Home-Agent proxy)                                                     |
+| `electron/chat/chatSummarize.ts`                       | One-shot conversation title summarization                                                                                      |
+| `electron/chat/chatAsk.ts`                             | Main→renderer request/response for the one answer a chat tool needs from the window                                            |
+| `electron/observability/logger.ts`                     | Logging, sends `debugLog` events to renderer                                                                                   |
 
 ## Cursor Cloud specific instructions
 

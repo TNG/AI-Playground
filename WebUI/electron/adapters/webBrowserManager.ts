@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron'
 import { appLoggerInstance } from '../observability/logger'
+import { typedSend } from '../kernel/typedIpc'
 
 const appLogger = appLoggerInstance
 
@@ -98,7 +99,7 @@ export function getState(): WebBrowserState {
 
 function emitState(): void {
   if (mainWin && !mainWin.isDestroyed()) {
-    mainWin.webContents.send('webBrowser:stateChanged', getState())
+    typedSend(mainWin.webContents, 'webBrowser:stateChanged', getState())
   }
 }
 

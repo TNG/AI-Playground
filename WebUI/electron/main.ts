@@ -22,14 +22,7 @@ import {
   app,
   BrowserWindow,
   dialog,
-  ipcMain,
-  IpcMainEvent,
-  IpcMainInvokeEvent,
-  MessageBoxOptions,
-  MessageBoxSyncOptions,
-  nativeImage,
   net,
-  OpenDialogSyncOptions,
   protocol,
   safeStorage,
   screen,
@@ -41,17 +34,12 @@ import {
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import fs from 'fs'
-import { exec, execFile } from 'node:child_process'
-import { promisify } from 'node:util'
-
-const execAsync = promisify(exec)
 import { randomUUID } from 'node:crypto'
 import { PathsManager } from './kernel/pathsManager'
 import {
   LocalSettingsSchema,
   resolveProductMode,
   type LocalSettings,
-  type ProductMode,
 } from './kernel/localSettings.ts'
 import { writableConfigFile } from './kernel/userConfig.ts'
 import { appLoggerInstance } from './observability/logger.ts'
@@ -104,7 +92,6 @@ import {
   search as searchWebBrowser,
   setWebBrowserMainWindow,
   show as showWebBrowser,
-  type WebBrowserInteraction,
 } from './adapters/webBrowserManager'
 import {
   addMcpServer,
@@ -114,7 +101,6 @@ import {
   isAutoDetectId,
   updateMcpServer,
   removeMcpServer,
-  type McpServerConfig,
 } from './adapters/mcp/mcpServers'
 import {
   cancelAgentTurn,
@@ -128,21 +114,17 @@ import {
   submitAgentToolResult,
 } from './agent/piAgentManager'
 import { getKernelSnapshot, onKernelEvent, setKernelEventWindow } from './kernel/kernelBus'
+import { registerInvokeHandlers, registerSendHandlers } from './kernel/ipcRegistries'
+import { typedSend } from './kernel/typedIpc'
 import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecycle'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
-import { AgentModeTurnConfigSchema } from '@/types/agentIpc'
-import { ArtifactRunRequestSchema } from '@/types/artifactIpc'
-import type { MediaResponsePayload } from '@/types/mediaRequests'
-import type { ChatAnswerPayload } from '@/types/chatRequests'
 import { handleChatAnswer, rejectAllChatAsks } from './chat/chatAsk.ts'
-import type { MediaItem } from '@/types/mediaItem'
 import type { ArtifactMissingModel } from '@/types/mediaRequests'
+import type { IpcOkWith } from '@/types/ipcChannels'
 import {
   cancelActiveArtifactRun,
   setArtifactRunnerDeps,
-  type ArtifactRunPayload,
-  type ArtifactRunResult,
   type RunnerComfyService,
 } from './artifact/runner'
 import {
@@ -161,7 +143,6 @@ import {
   rememberChatBackendLoad,
   setChatReadinessDeps,
   setLastChatBackendLoadActive,
-  type ChatReadinessArgs,
 } from './chat/chatReadiness'
 import { piAgentCallsActive } from './agent/piCallTiming'
 import { freeMemoryAndUnloadModels } from './artifact/comfyClient'
@@ -184,7 +165,6 @@ import {
   revoke as revokePermission,
 } from './permissions/permissionsService'
 import { setPermissionGrantsDeps, wipeDemoPermissionGrants } from './persist/grantsStore'
-import type { PermissionGrant, PermissionsPromptResponse } from '@/types/permissionsIpc'
 import {
   anyChatTurnActive,
   cancelChatTurn,
@@ -205,10 +185,31 @@ import {
   setConversationFileDeps,
   wipeDemoConversations,
 } from './persist/conversationFiles'
+import { buildConversationsRegistry } from './kernel/registries/conversations'
+import { buildAgentModeRegistry } from './kernel/registries/agentMode'
+import { buildChatRegistry } from './kernel/registries/chat'
+import { buildComfyuiRegistry } from './kernel/registries/comfyui'
+import { buildGamesRegistry } from './kernel/registries/games'
+import { buildMcpRegistry, buildMcpSendRegistry } from './kernel/registries/mcp'
+import { buildPermissionsRegistry } from './kernel/registries/permissions'
+import { buildWebBrowserRegistry } from './kernel/registries/webBrowser'
+import { buildArtifactRegistry } from './kernel/registries/artifact'
+import { buildCloudProviderRegistry } from './kernel/registries/cloudProvider'
 import {
-  ConversationLegacyStateSchema,
-  ConversationSaveRequestSchema,
-} from '@/types/conversationIpc'
+  buildCoreInvokeRegistry,
+  buildCoreSendRegistry,
+  type CoreDeps,
+} from './kernel/registries/core'
+import { buildKernelRegistry } from './kernel/registries/kernel'
+import { buildLifecycleSendRegistry } from './kernel/registries/lifecycle'
+import { buildMediaItemsRegistry } from './kernel/registries/mediaItems'
+import { buildPreferencesRegistry } from './kernel/registries/preferences'
+import { buildRagDocumentsRegistry } from './kernel/registries/ragDocuments'
+import { buildSafeStorageRegistry } from './kernel/registries/safeStorage'
+import {
+  buildScreenshotRegistry,
+  buildScreenshotSendRegistry,
+} from './kernel/registries/screenshot'
 import {
   bootstrapAgentSessions,
   deleteAgentSessionRecord,
@@ -218,7 +219,6 @@ import {
   setAgentSessionFileDeps,
   wipeDemoAgentSessions,
 } from './persist/agentSessionFiles'
-import { AgentSessionRecordSchema, LegacyAgentSessionStateSchema } from '@/types/agentSessionIpc'
 import {
   bootstrapMediaItems,
   deleteMediaItemRecords,
@@ -274,18 +274,9 @@ import {
 } from './adapters/hardware/screenCapture.ts'
 import { packagedResourcesRoot, writableConfigRoot } from './kernel/aipgRoot.ts'
 import { loadDemoProfile, type DemoProfile } from './persist/demoProfile.ts'
-import type { ModelPaths } from '@/assets/js/store/models.ts'
-import type {
-  IndexedDocument,
-  EmbedInquiry,
-  WarmupRequest,
-  PhisonKmIngestConfig,
-} from '@/assets/js/store/textInference.ts'
-import { BackendServiceName } from '@/assets/js/store/backendServices.ts'
 import {
   classifyDetectedDevices,
   detectGpuHardwareDevices,
-  type GpuHardwareDevice,
 } from './adapters/hardware/hardwareDiscovery.ts'
 import { registerSettingsPersist } from './adapters/hardware/defaultDeviceSelection.ts'
 import { appShutdown } from './kernel/shutdown.ts'
@@ -1503,7 +1494,7 @@ async function ensureOvmsImageServerReady(
   modelName: string,
   keepModelsLoaded?: boolean,
   resolution?: string,
-): Promise<{ success: boolean; url?: string; error?: string }> {
+): Promise<IpcOkWith<{ url: string }>> {
   if (!serviceRegistry) {
     return { success: false, error: 'Service registry not ready' }
   }
@@ -1542,533 +1533,32 @@ function initEventHandle() {
         width: display.workAreaSize.width,
         height: display.workAreaSize.height,
       })
-      win.webContents.send(
-        'display-metrics-changed',
-        display.workAreaSize.width,
-        display.workAreaSize.height,
-      )
-    }
-  })
-
-  ipcMain.handle('getLocaleSettings', async () => {
-    return {
-      locale: app.getLocale(),
-      languageOverride: settings.languageOverride,
-    }
-  })
-
-  ipcMain.handle('getLocalSettings', () => {
-    return LocalSettingsSchema.parse(settings)
-  })
-
-  ipcMain.handle('updateLocalSettings', (_event, updates: Partial<LocalSettings>) => {
-    Object.assign(settings, updates)
-    // Any of these can change which preset files the catalog reads or injects.
-    if (
-      'productMode' in updates ||
-      'isDemoModeEnabled' in updates ||
-      'isAgentPresetEnabled' in updates ||
-      'showDebugSettingsInUI' in updates
-    ) {
-      invalidatePresetCatalog()
-    }
-    const shouldReloadDemoProfile =
-      settings.isDemoModeEnabled && ('productMode' in updates || 'isDemoModeEnabled' in updates)
-    if (shouldReloadDemoProfile) {
-      const modeDemoDir = getModeDemoDir(settings)
-      const baseDemoDir = path.join(modesDir, 'base', 'demo')
-      try {
-        demoProfile = loadDemoProfile(modeDemoDir, baseDemoDir, appLogger)
-      } catch (e) {
-        appLogger.error(`Failed to reload demo profile after settings change: ${e}`, 'demo-profile')
-      }
-    }
-    persistLocalSettingsToDisk()
-    if (updates.disabledBackends) {
-      serviceRegistry?.setDisabledBackends(updates.disabledBackends)
-    }
-    appLogger.info(`Updated local settings: ${JSON.stringify(updates)}`, 'electron-backend')
-    return { success: true }
-  })
-
-  // ── Backend launch settings (step 8, §6.1) ─────────────────────────────
-  // The backendServices store's half of the kernel-owned settings file:
-  // the launch flags and version pins hydrate from settings.json at boot and
-  // write through on change (updateLocalSettings above), replacing the old
-  // renderer-persisted Pinia key. The device map is main-owned all along —
-  // selectDevice below writes it — so it is only ever read here.
-  ipcMain.handle('getBackendLaunchSettings', () => ({
-    versionOverrides: settings.versionOverrides,
-    comfyUiParameters: settings.comfyUiParameters,
-    llamaCppParameters: settings.llamaCppParameters,
-    llamaCppBuildVariant: settings.llamaCppBuildVariant,
-    llamaCppOffloadDrive: settings.llamaCppOffloadDrive,
-    openvinoKvCacheU4: settings.openvinoKvCacheU4,
-    lastSelectedDevicePerBackend: settings.lastSelectedDevicePerBackend,
-  }))
-
-  // One-shot legacy upload from the pre-step-8 Pinia key. Per-field
-  // only-when-default: settings.json may already hold a value a previous
-  // partial migration wrote, and a null flag is a valid user choice that
-  // must not be mistaken for "never set".
-  ipcMain.handle('migrateBackendLaunchSettings', (_event, payload: unknown) => {
-    const parsed = z
-      .object({
-        versionOverrides: z
-          .record(z.string(), z.object({ releaseTag: z.string().optional(), version: z.string() }))
-          .optional(),
-        comfyUiParameters: z.string().nullable().optional(),
-        llamaCppParameters: z.string().nullable().optional(),
-        llamaCppBuildVariant: z.enum(['standard', 'ssd-offload']).optional(),
-        llamaCppOffloadDrive: z.string().nullable().optional(),
-        openvinoKvCacheU4: z.boolean().optional(),
+      typedSend(win.webContents, 'display-metrics-changed', {
+        width: display.workAreaSize.width,
+        height: display.workAreaSize.height,
       })
-      .safeParse(payload)
-    if (!parsed.success) {
-      return { success: false, error: `invalid launch settings payload: ${parsed.error.message}` }
     }
-    const incoming = parsed.data
-    if (incoming.comfyUiParameters != null && settings.comfyUiParameters === null) {
-      settings.comfyUiParameters = incoming.comfyUiParameters
-    }
-    if (incoming.llamaCppParameters != null && settings.llamaCppParameters === null) {
-      settings.llamaCppParameters = incoming.llamaCppParameters
-    }
-    if (
-      incoming.llamaCppBuildVariant === 'ssd-offload' &&
-      settings.llamaCppBuildVariant === 'standard'
-    ) {
-      settings.llamaCppBuildVariant = incoming.llamaCppBuildVariant
-    }
-    if (incoming.llamaCppOffloadDrive != null && settings.llamaCppOffloadDrive === null) {
-      settings.llamaCppOffloadDrive = incoming.llamaCppOffloadDrive
-    }
-    if (incoming.openvinoKvCacheU4 === true && settings.openvinoKvCacheU4 === false) {
-      settings.openvinoKvCacheU4 = true
-    }
-    if (
-      incoming.versionOverrides &&
-      Object.keys(incoming.versionOverrides).length > 0 &&
-      Object.keys(settings.versionOverrides).length === 0
-    ) {
-      settings.versionOverrides = incoming.versionOverrides
-    }
-    persistLocalSettingsToDisk()
-    return { success: true }
   })
 
   // ── Cloud Mode provider API keys ────────────────────────────────────────
-  // Keys are encrypted at rest via safeStorage and never persisted in the
-  // renderer. Each provider's key lives in its own file keyed by provider id,
-  // mirroring the Home Agent channel-secret layout. Reading/decryption happens in
-  // main only (readCloudProviderKey); the proxy attaches the bearer token so the
-  // plaintext key never reaches the renderer.
-  ipcMain.handle('cloudProvider:saveKey', (_event, providerId: string, key: string) => {
-    try {
-      const raw = (key ?? '').trim()
-      if (!raw) {
-        // Empty key clears any stored secret.
-        try {
-          fs.unlinkSync(cloudProviderKeyPath(providerId))
-        } catch {
-          /* nothing to remove */
-        }
-        return { success: true }
-      }
-      const blob = safeStorage.encryptString(raw).toJSON()
-      fs.writeFileSync(cloudProviderKeyPath(providerId), JSON.stringify(blob), 'utf-8')
-      return { success: true }
-    } catch (e) {
-      return { success: false, error: String(e) }
-    }
-  })
-
-  ipcMain.handle('cloudProvider:getKey', (_event, providerId: string): string | null =>
-    readCloudProviderKey(providerId),
+  registerInvokeHandlers(
+    buildCloudProviderRegistry({ cloudProviderKeyPath, readCloudProviderKey, getCloudProxy }),
   )
-
-  ipcMain.handle('cloudProvider:deleteKey', (_event, providerId: string) => {
-    try {
-      fs.unlinkSync(cloudProviderKeyPath(providerId))
-    } catch {
-      /* already gone */
-    }
-    return { success: true }
-  })
-
-  // Loopback URL of the Cloud Mode proxy. The renderer points its
-  // OpenAI-compatible client and model-list fetch at this URL and tags each
-  // request with X-Cloud-Upstream / X-Cloud-Provider (see cloudProxy.ts).
-  ipcMain.handle('cloudProvider:getProxyUrl', async (): Promise<string> => {
-    return (await getCloudProxy()).url
-  })
-
-  ipcMain.handle('detectHardwareForModeRecommendation', async () => {
-    let detected: GpuHardwareDevice[] = []
-    let hasNvidia = false
-    let detectSuccess = true
-
-    try {
-      const probe = await detectGpuHardwareDevices()
-      detected = probe.detected
-      hasNvidia = probe.hasNvidia
-      appLogger.info(`Detected GPU devices: ${JSON.stringify(detected)}`, 'electron-backend')
-      appLogger.info(`Has NVIDIA: ${hasNvidia}`, 'electron-backend')
-    } catch (e) {
-      detectSuccess = false
-      appLogger.warn(`GPU detection failed: ${e}`, 'electron-backend')
-    }
-
-    const configs = loadProductModeConfigs()
-
-    const modeCatalog = configs
-      .sort((a, b) => a.displayOrder - b.displayOrder)
-      .map((c) => ({
-        mode: c.mode,
-        experimental: c.experimental,
-        ui: c.ui,
-      }))
-
-    const gpuIds = detected
-      .map((d) => d.gpuDeviceId)
-      .filter((id): id is string => id !== null)
-      .map((id) => id.toLowerCase())
-
-    // Highest priority wins.
-    const eligible = configs
-      .filter((c) => c.mode !== 'nvidia' || hasNvidia)
-      .filter((c) => {
-        if (c.mode === 'nvidia') return c.recommendForNvidia === true
-        if (!c.recommendForIntelDeviceIds.length) return false
-        if (gpuIds.length === 0) return false
-        return gpuIds.some((id) => c.recommendForIntelDeviceIds.includes(id))
-      })
-      .sort((a, b) => b.priority - a.priority)
-
-    const recommendedMode: ProductMode = eligible[0]?.mode ?? 'studio'
-
-    return {
-      success: detectSuccess,
-      recommendedMode,
-      detectedDevices: classifyDetectedDevices(detected),
-      hasNvidiaGpu: hasNvidia,
-      modeCatalog,
-    }
-  })
-
-  ipcMain.handle('getWinSize', () => {
-    return appSize
-  })
-
-  ipcMain.handle('zoomIn', (event: IpcMainInvokeEvent) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) return
-    win.webContents.setZoomLevel(win.webContents.getZoomLevel() + 1)
-  })
-
-  ipcMain.handle('zoomOut', (event: IpcMainInvokeEvent) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) return
-    win.webContents.setZoomLevel(win.webContents.getZoomLevel() - 1)
-  })
-
-  ipcMain.on('openUrl', (_event, url: string) => {
-    return shell.openExternal(url)
-  })
-
-  ipcMain.handle('setWinSize', (event: IpcMainInvokeEvent, width: number, height: number) => {
-    const win = BrowserWindow.fromWebContents(event.sender)!
-    const winRect = win.getBounds()
-    if (winRect.width != width || winRect.height != height) {
-      const y = winRect.y + (winRect.height - height)
-      win.setBounds({ x: winRect.x, y, width, height })
-    }
-  })
-
-  ipcMain.handle('restorePathsSettings', (_event: IpcMainInvokeEvent) => {
-    pathsManager.restoreDefaultModelPaths()
-  })
-
-  ipcMain.on('miniWindow', () => {
-    if (win) {
-      win.minimize()
-    }
-  })
 
   // The renderer reports whether it has tracked work in flight; an input to
   // the main-owned close policy (see createWindow's 'close' handler).
-  ipcMain.on('lifecycle:busy', (_event: IpcMainInvokeEvent, busy: boolean) => {
-    rendererBusy = busy === true
-  })
+  registerSendHandlers(
+    buildLifecycleSendRegistry({
+      setRendererBusy: (busy) => {
+        rendererBusy = busy
+      },
+    }),
+  )
 
   // Projection hydration: the renderer subscribes to the kernel event stream
   // BEFORE requesting this snapshot and applies only events above its
   // sequence (docs/architecture-target.md §4.6).
-  ipcMain.handle('kernel:getSnapshot', () => getKernelSnapshot())
-
-  ipcMain.on('setFullScreen', (_event: IpcMainEvent, enable: boolean) => {
-    if (win) {
-      win.setFullScreen(enable)
-    }
-  })
-
-  // Quit outright instead of closing the window and hoping that cascades into a
-  // quit: `app.quit()` always reaches the gated teardown in `before-quit`.
-  ipcMain.on('exitApp', async () => {
-    app.quit()
-  })
-
-  ipcMain.on('saveImage', async (event: IpcMainEvent, url: string) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) {
-      return
-    }
-    const options = {
-      title: 'Save Image',
-      defaultPath: path.join(app.getPath('documents'), 'example.png'),
-      filters: [{ name: 'AIGC-Gennerate.png', extensions: ['png'] }],
-    }
-
-    try {
-      const result = await dialog.showSaveDialog(win, options)
-      if (!result.canceled && result.filePath) {
-        if (fs.existsSync(result.filePath)) {
-          fs.rmSync(result.filePath)
-        }
-        try {
-          const response = await fetch(url)
-          const arrayBuffer = await response.arrayBuffer()
-          const buffer = Buffer.from(arrayBuffer)
-          fs.writeFileSync(result.filePath, buffer)
-          appLogger.info(`File downloaded and saved: ${result.filePath}`, 'electron-backend')
-        } catch (error) {
-          appLogger.error(
-            `Download and save error: ${JSON.stringify(error, Object.getOwnPropertyNames, 2)}`,
-            'electron-backend',
-          )
-        }
-      }
-    } catch (error) {
-      appLogger.error(`${JSON.stringify(error, Object.getOwnPropertyNames, 2)}`, 'electron-backend')
-    }
-  })
-
-  ipcMain.handle('saveImageToMediaInput', async (_event, dataUri: string) => {
-    if (typeof dataUri !== 'string' || !dataUri.startsWith('data:image/')) {
-      throw new Error('saveImageToMediaInput: expected a data URI (data:image/...)')
-    }
-    const match = dataUri.match(/^data:image\/(png|jpeg|webp);base64,(.+)$/)
-    if (!match) {
-      throw new Error('saveImageToMediaInput: unsupported image type or malformed data URI')
-    }
-    const mimeSubtype = match[1]
-    const base64Data = match[2]
-    const ext = mimeSubtype === 'jpeg' ? 'jpg' : mimeSubtype
-    const filename = `${randomUUID()}.${ext}`
-    const filePath = path.join(mediaInputDir, filename)
-    const buffer = Buffer.from(base64Data, 'base64')
-    await fs.promises.writeFile(filePath, buffer)
-    return `input/${filename}`
-  })
-
-  // An attached clip is kept beside attached images rather than inlined in the
-  // thread: a minute of audio is megabytes of base64 in the conversation file,
-  // and `transcribeAudio` reads it back through the same media reader.
-  ipcMain.handle('saveAudioToMediaInput', async (_event, dataUri: string) => {
-    const match =
-      typeof dataUri === 'string'
-        ? dataUri.match(/^data:(audio\/[a-zA-Z0-9.+-]+);base64,(.+)$/)
-        : null
-    if (!match) {
-      throw new Error('saveAudioToMediaInput: expected a data URI (data:audio/...;base64,...)')
-    }
-    const ext = AUDIO_ATTACHMENT_EXTENSIONS[match[1].toLowerCase()]
-    if (!ext) throw new Error(`saveAudioToMediaInput: unsupported audio type ${match[1]}`)
-    const filename = `${randomUUID()}${ext}`
-    await fs.promises.writeFile(path.join(mediaInputDir, filename), Buffer.from(match[2], 'base64'))
-    return `input/${filename}`
-  })
-
-  ipcMain.handle(
-    'saveGeneratedAudio',
-    async (
-      _event,
-      audioBase64: string,
-      filename: string,
-      options?: { overwrite?: boolean },
-    ): Promise<{ success: boolean; filePath?: string; error?: string }> => {
-      try {
-        if (typeof audioBase64 !== 'string' || typeof filename !== 'string') {
-          return { success: false, error: 'invalid arguments' }
-        }
-        const filePath = await saveGeneratedAudioFile(audioBase64, filename, options)
-        return { success: true, filePath }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        appLogger.error(`Failed to save generated audio: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
-      }
-    },
-  )
-
-  /**
-   * Delete a generated audio file. Confined to the app's audio directory by the same
-   * containment check `readLocalAudioAsDataUri` uses, so a renderer-supplied path can
-   * never reach anything else. A path that is already gone counts as success —
-   * the caller wants the file absent, not proof that it deleted it.
-   */
-  ipcMain.handle(
-    'deleteGeneratedAudio',
-    async (_event, filePath: string): Promise<{ success: boolean; error?: string }> => {
-      try {
-        if (typeof filePath !== 'string' || !filePath.trim()) {
-          return { success: false, error: 'invalid path' }
-        }
-        const audioRoot = path.normalize(getAudioDir())
-        const full = path.normalize(
-          path.isAbsolute(filePath) ? filePath : path.join(audioRoot, filePath),
-        )
-        if (full !== audioRoot && !full.startsWith(audioRoot + path.sep)) {
-          return { success: false, error: 'path outside audio directory' }
-        }
-        await fs.promises.rm(full, { force: true })
-        return { success: true }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        appLogger.error(`Failed to delete generated audio: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
-      }
-    },
-  )
-
-  ipcMain.handle(
-    'readLocalAudioAsDataUri',
-    async (
-      _event,
-      filePath: string,
-    ): Promise<{ success: boolean; dataUri?: string; error?: string }> => {
-      try {
-        if (typeof filePath !== 'string' || !filePath.trim()) {
-          return { success: false, error: 'invalid path' }
-        }
-        const audioRoot = path.normalize(getAudioDir())
-        const full = path.normalize(
-          path.isAbsolute(filePath) ? filePath : path.join(audioRoot, filePath),
-        )
-        if (full !== audioRoot && !full.startsWith(audioRoot + path.sep)) {
-          return { success: false, error: 'path outside audio directory' }
-        }
-        const buf = await fs.promises.readFile(full)
-        const ext = path.extname(full).toLowerCase()
-        const mediaType = ext === '.mp3' ? 'audio/mpeg' : 'audio/wav'
-        return {
-          success: true,
-          dataUri: `data:${mediaType};base64,${buf.toString('base64')}`,
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        return { success: false, error: errorMessage }
-      }
-    },
-  )
-
-  // Persist an inbound Home Agent document (base64) to disk so the langchain
-  // RAG loaders (which require a real filepath) can index it, and so the
-  // persisted ragList entry keeps a stable path. Returns the absolute path.
-  ipcMain.handle(
-    'saveHomeAgentDocument',
-    async (
-      _event,
-      filename: string,
-      base64: string,
-    ): Promise<{ success: boolean; filepath?: string; error?: string }> => {
-      const supportedExtensions = ['txt', 'md', 'doc', 'docx', 'pdf']
-      try {
-        if (typeof filename !== 'string' || typeof base64 !== 'string') {
-          return { success: false, error: 'invalid arguments' }
-        }
-        const safeName = path.basename(filename).replace(/[^\w.\-]+/g, '_')
-        const ext = safeName.includes('.') ? safeName.split('.').pop()!.toLowerCase() : ''
-        if (!supportedExtensions.includes(ext)) {
-          return { success: false, error: `unsupported document type (.${ext})` }
-        }
-        const ragDocumentsDir = path.join(mediaDir, 'rag-documents')
-        await fs.promises.mkdir(ragDocumentsDir, { recursive: true })
-        const uniqueName = `${randomUUID()}-${safeName}`
-        const filePath = path.join(ragDocumentsDir, uniqueName)
-        await fs.promises.writeFile(filePath, Buffer.from(base64, 'base64'))
-        return { success: true, filepath: filePath }
-      } catch (e) {
-        return { success: false, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
-  )
-
-  ipcMain.handle(
-    'readAipgMediaAsBase64',
-    async (
-      _event,
-      url: string,
-    ): Promise<{ success: true; data: string } | { success: false; error: string }> => {
-      const filePath = getLocalPathFromAipgMediaUrl(url)
-      if (!filePath) {
-        return { success: false, error: 'invalid or unsafe aipg-media URL' }
-      }
-      if (!fs.existsSync(filePath)) {
-        return { success: false, error: `file not found (${path.basename(filePath)})` }
-      }
-      try {
-        return { success: true, data: fs.readFileSync(filePath).toString('base64') }
-      } catch (e) {
-        return { success: false, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
-  )
-
-  /** Get command line parameters when launched from IPOS to decide the default home page.
-   * Returns null when --start-page was not provided so the renderer can leave
-   * the persisted mode untouched; returns the validated ModeType (or 'chat' as
-   * a safe fallback for an invalid value) when it was. */
-  ipcMain.handle('getInitialPage', (): ModeType | null => {
-    const validModes: ModeType[] = ['chat', 'audio', 'imageGen', 'imageEdit', 'video']
-    const startPageArg = process.argv.find((arg) => arg.startsWith('--start-page='))
-    if (!startPageArg) return null
-    const parsed = startPageArg.split('=')[1]
-    return validModes.includes(parsed as ModeType) ? (parsed as ModeType) : 'chat'
-  })
-
-  /** To check whether demo mode is enabled or not for AIPG */
-  ipcMain.handle('getDemoModeSettings', () => {
-    return {
-      isDemoModeEnabled: settings.isDemoModeEnabled,
-      demoModeResetInSeconds: settings.demoModeResetInSeconds,
-      demoModePasscode: settings.demoModePasscode,
-      profile: demoProfile,
-    }
-  })
-
-  ipcMain.handle('showOpenDialog', async (event, options: OpenDialogSyncOptions) => {
-    const win = BrowserWindow.fromWebContents(event.sender)!
-    return await dialog.showOpenDialog(win, options)
-  })
-
-  ipcMain.handle('showMessageBox', async (event, options: MessageBoxOptions) => {
-    const win = BrowserWindow.fromWebContents(event.sender)!
-    return dialog.showMessageBox(win, options)
-  })
-
-  ipcMain.handle('showMessageBoxSync', async (event, options: MessageBoxSyncOptions) => {
-    const win = BrowserWindow.fromWebContents(event.sender)!
-    return dialog.showMessageBoxSync(win, options)
-  })
-
-  ipcMain.handle('existsPath', async (event, path: string) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) {
-      return
-    }
-    return fs.existsSync(path)
-  })
+  registerInvokeHandlers(buildKernelRegistry({ getKernelSnapshot }))
 
   const pathsManager = new PathsManager(
     // Packaged: the per-user writable copy (seeded from the shared default on
@@ -2079,914 +1569,168 @@ function initEventHandle() {
       : path.join(externalRes, 'model_config.dev.json'),
   )
 
-  ipcMain.handle('getInitSetting', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) {
-      return
-    }
-    return {
-      modelLists: pathsManager.scanAll(),
-      modelPaths: pathsManager.modelPaths,
-      version: app.getVersion(),
-      modelFolderReadOnly: !pathsManager.isModelDirWritable(),
-    }
-  })
-
-  ipcMain.handle('loadModels', async (_event) => {
-    return resolveModels(settings)
-  })
-
-  // The renderer forwards its AI SDK telemetry here (the SDK cannot run in a
-  // browser page); null config means no developer opted in, and the renderer
-  // then registers nothing and sends nothing.
-  ipcMain.handle('getLaminarConfig', () => laminarConfig())
-  ipcMain.on('laminarTelemetryEvent', (_event, name: string, payload: string) => {
-    void handleChatTelemetryEvent(name, payload)
-  })
-
-  ipcMain.handle('updateModelPaths', (_event, modelPaths: ModelPaths) => {
-    pathsManager.updateModelPaths(modelPaths)
-    return pathsManager.scanAll()
-  })
-
-  ipcMain.handle('getDownloadedGGUFLLMs', (_event) => {
-    return pathsManager.scanGGUFLLMModels()
-  })
-
-  ipcMain.handle('getDownloadedOpenVINOLLMModels', (_event) => {
-    return pathsManager.scanOpenVINOModels()
-  })
-
-  ipcMain.handle('getDownloadedEmbeddingModels', (_event) => {
-    return pathsManager.scanEmbedding()
-  })
-
-  ipcMain.handle('getComfyUIModels', (_event, modelType: string) => {
-    return pathsManager.scanComfyUIModels(modelType)
-  })
-
-  ipcMain.handle('scanModelLibrary', (_event) => {
-    return pathsManager.scanModelLibrary()
-  })
-
-  ipcMain.handle('showModelInFolder', (_event, modelPath: string) => {
-    const resolved = pathsManager.resolveModelPath(modelPath)
-    if ('error' in resolved) {
-      return { success: false, error: resolved.error }
-    }
-    if (process.platform === 'win32') {
-      // `execFile`, not `exec`: the path is passed as an argument rather than
-      // spliced into a shell command line, so a model directory containing a
-      // quote or an `&` opens the folder instead of running as a command.
-      execFile('explorer.exe', ['/select,', resolved.path])
-    } else {
-      shell.showItemInFolder(resolved.path)
-    }
-    return { success: true }
-  })
-
-  // Permanent deletion, deliberately not a move to trash: freeing the disk space
-  // immediately is the reason a user deletes a model. Every path is validated
-  // against the configured model directories first — see resolveModelPath.
-  ipcMain.handle('deleteModelPath', async (_event, modelPath: string) => {
-    const resolved = pathsManager.resolveModelPath(modelPath)
-    if ('error' in resolved) {
-      return { success: false, error: resolved.error }
-    }
-    try {
-      // Async throughout: a model is tens of gigabytes across thousands of files,
-      // and the synchronous form froze the whole UI for the duration of the walk.
-      // No `force`: a path that vanished should be reported, not silently
-      // treated as a successful delete.
-      await fs.promises.rm(resolved.path, { recursive: true })
-      await pathsManager.pruneEmptyModelDirs(resolved.path)
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) }
-    }
-
-    const comfyService = serviceRegistry?.getService('comfyui-backend') as
-      ComfyUiBackendService | undefined
-    const comfyUiModelsRoot = comfyService?.serviceDir
-      ? path.join(comfyService.serviceDir, 'models')
-      : undefined
-    for (const mirror of pathsManager.mirroredModelPaths(resolved.path, comfyUiModelsRoot)) {
-      try {
-        await fs.promises.rm(mirror, { recursive: true, force: true })
-      } catch (error) {
-        // The primary copy is already gone; a failed mirror cleanup is worth a
-        // log but must not report the delete as failed.
-        appLogger.warn(
-          `Could not remove mirrored model copy ${mirror}: ${error}`,
-          'electron-backend',
-        )
-      }
-    }
-    return { success: true }
-  })
-
-  ipcMain.handle('getPlatform', () => process.platform)
-
-  ipcMain.handle('safeStorage:isEncryptionAvailable', () => safeStorage.isEncryptionAvailable())
-
-  ipcMain.handle('safeStorage:enablePlainTextEncryption', () => {
-    try {
-      if (!safeStorage.isEncryptionAvailable()) {
-        safeStorage.setUsePlainTextEncryption(true)
-      }
-      if (!safeStorage.isEncryptionAvailable()) {
-        return {
-          success: false,
-          error: 'Plaintext secret storage is not available on this system.',
-        }
-      }
-      if (!settings.allowPlaintextSecretStorage) {
-        settings.allowPlaintextSecretStorage = true
-        persistLocalSettingsToDisk()
-      }
-      appLogger.warn(
-        `User opted into plaintext-backed safeStorage (backend=${safeStorage.getSelectedStorageBackend()}); ` +
-          `stored secrets are obfuscated, not encrypted.`,
-        'electron-backend',
-        true,
-      )
-      return { success: true }
-    } catch (e) {
-      return { success: false, error: String(e) }
-    }
-  })
-
-  ipcMain.handle(
-    'addDocumentToRAGList',
-    (_event, document: IndexedDocument, phisonKmConfig?: PhisonKmIngestConfig) => {
-      return handleUtilityFunction<
-        { document: IndexedDocument; phisonKmConfig?: PhisonKmIngestConfig },
-        IndexedDocument
-      >('addDocumentToRAGList', langchainChild, { document, phisonKmConfig })
+  const coreDeps: CoreDeps = {
+    getWin: () => win ?? undefined,
+    getServiceRegistry: () => serviceRegistry,
+    getLangchainChild: () => langchainChild,
+    getDemoProfile: () => demoProfile,
+    setDemoProfile: (profile) => {
+      demoProfile = profile
     },
+    settings,
+    persistLocalSettingsToDisk,
+    appLogger,
+    appSize,
+    mediaDir,
+    mediaInputDir,
+    modesDir,
+    AUDIO_ATTACHMENT_EXTENSIONS,
+    getLocalPathFromAipgMediaUrl,
+    getModeDemoDir,
+    getPresetLoadConfig,
+    loadProductModeConfigs,
+    handleUtilityFunction,
+    ensureOvmsImageServerReady,
+    pathsManager,
+    peekApiServiceRegistry,
+    invalidatePresetCatalog,
+    loadPresetFiles,
+    readPresetsFromDir,
+    resolveModels,
+    resolveBackendVersion,
+    getGitHubRepoUrl,
+    updateIntelPresets,
+    filterPartnerPresets,
+    detectOem,
+    detectGpuHardwareDevices,
+    classifyDetectedDevices,
+    loadDemoProfile,
+    getAudioDir,
+    saveGeneratedAudioFile,
+    laminarConfig,
+    ensureChatBackendReady,
+    rememberChatBackendLoad,
+    setLastChatBackendLoadActive,
+    resolveProductMode,
+    COMFYUI_DEFAULT_PARAMETERS,
+    LLAMACPP_DEFAULT_PARAMETERS,
+    AiBackendService,
+    ComfyUiBackendService,
+    HomeAgentBackendService,
+    Qwen3TtsBackendService,
+    WhisperBackendService,
+  }
+
+  // The core registry (#301): every flat main-owned invoke channel — the
+  // complement of the prefix domains registered below and above.
+  registerInvokeHandlers(buildCoreInvokeRegistry(coreDeps))
+
+  // Its sends: the flat renderer→main fire-and-forget channels (window
+  // controls, image opens, drag start, telemetry forwarding).
+  registerSendHandlers(
+    buildCoreSendRegistry({
+      getWin: coreDeps.getWin,
+      getServiceRegistry: coreDeps.getServiceRegistry,
+      appLogger,
+      mediaDir,
+      getLocalPathFromAipgMediaUrl,
+      externalRes,
+      handleChatTelemetryEvent,
+      setVerboseAgentLogging,
+    }),
   )
 
-  ipcMain.handle('embedInputUsingRag', (_event, embedInquiry: EmbedInquiry) => {
-    return handleUtilityFunction<EmbedInquiry, KVObject>(
-      'embedInputUsingRag',
-      langchainChild,
-      embedInquiry,
-    )
-  })
-
-  ipcMain.handle('warmupKVCacheForDocument', (_event, request: WarmupRequest) => {
-    return handleUtilityFunction<WarmupRequest, { success: boolean }>(
-      'warmupKVCacheForDocument',
-      langchainChild,
-      request,
-    )
-  })
-
-  ipcMain.on('openDevTools', () => {
-    win?.webContents.openDevTools({ mode: 'detach', activate: true })
-  })
-
-  ipcMain.on('setVerboseAgentLogging', (_event, enabled: boolean) => {
-    setVerboseAgentLogging(enabled)
-  })
-
-  ipcMain.handle('getServices', () => {
-    const registry = serviceRegistry ?? peekApiServiceRegistry()
-    if (!registry) {
-      appLogger.warn(
-        'frontend tried to getServices too early during aipg startup',
-        'electron-backend',
-      )
-      return []
-    }
-    return registry.getServiceInformation()
-  })
-
-  ipcMain.handle('getBackendAuthToken', (_event: IpcMainInvokeEvent, serviceName: string) => {
-    if (!serviceRegistry) {
-      return ''
-    }
-    const service = serviceRegistry.getService(serviceName)
-    if (service instanceof AiBackendService) {
-      return service.getLoopbackAuthToken()
-    }
-    if (service instanceof ComfyUiBackendService) {
-      return service.getLoopbackAuthToken()
-    }
-    if (service instanceof HomeAgentBackendService) {
-      return service.getLoopbackAuthToken()
-    }
-    if (service instanceof Qwen3TtsBackendService) {
-      return service.getLoopbackAuthToken()
-    }
-    if (service instanceof WhisperBackendService) {
-      return service.getLoopbackAuthToken()
-    }
-    return ''
-  })
-
-  ipcMain.handle('comfyui:openInBrowser', async () => {
-    const comfyService = serviceRegistry?.getService('comfyui-backend') as
-      ComfyUiBackendService | undefined
-    if (!comfyService) {
-      return { success: false, error: 'ComfyUI backend service not found' }
-    }
-    const baseUrl = comfyService.baseUrl
-    if (!baseUrl) {
-      return { success: false, error: 'ComfyUI backend has no base URL yet' }
-    }
-    const token = comfyService.getLoopbackAuthToken()
-    // /aipg/launch (provided by the bundled aipg-auth custom_node) validates
-    // launch_token against AIPG_LOOPBACK_TOKEN, then issues an HttpOnly,
-    // SameSite=Strict aipg_session cookie and redirects to /. After that
-    // the user's default browser uses the cookie for all subsequent
-    // requests; the launch_token does not need to live in browser history.
-    const url = `${baseUrl}/aipg/launch?launch_token=${encodeURIComponent(token)}`
-    try {
-      await shell.openExternal(url)
-      return { success: true }
-    } catch (e) {
-      return { success: false, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle('uninstall', (_event: IpcMainInvokeEvent, serviceName: string) => {
-    if (!serviceRegistry) {
-      appLogger.warn('received uninstall too early during aipg startup', 'electron-backend')
-      return
-    }
-    const service = serviceRegistry.getService(serviceName)
-    if (!service) {
-      appLogger.warn(
-        `Tried to uninstall service ${serviceName} which is not known`,
-        'electron-backend',
-      )
-      return
-    }
-    return service.uninstall()
-  })
-
-  ipcMain.handle('updateServiceSettings', (_event: IpcMainInvokeEvent, settings) => {
-    if (!serviceRegistry) {
-      appLogger.warn(
-        'received updateServiceSettings too early during aipg startup',
-        'electron-backend',
-      )
-      return
-    }
-    const service = serviceRegistry.getService(settings.serviceName)
-    if (!service) {
-      appLogger.warn(
-        `Tried to update settings for service ${settings.serviceName} which is not known`,
-        'electron-backend',
-      )
-      return
-    }
-    return service.updateSettings(settings)
-  })
-
-  ipcMain.handle('getComfyUiDefaultParameters', () => COMFYUI_DEFAULT_PARAMETERS)
-  ipcMain.handle('getLlamaCppDefaultParameters', () => LLAMACPP_DEFAULT_PARAMETERS)
-
-  // Which OEM's machine this is, for co-branding (see adapters/hardware/oemDetection.ts).
-  ipcMain.handle('detectOem', () => detectOem(settings.oemVendorOverride))
-
-  ipcMain.handle('detectPhisonSsd', async () => {
-    if (settings.PhisonSSDdetected) {
-      appLoggerInstance.info(
-        'detectPhisonSsd: returning true (PhisonSSDdetected in local settings)',
-        'electron-backend',
-      )
-      return { detected: true }
-    }
-    if (process.platform !== 'win32') {
-      return { detected: false }
-    }
-    try {
-      const { stdout } = await execAsync(
-        'powershell -NoProfile -Command "Get-PhysicalDisk | Select-Object DeviceId,FirmwareVersion | ConvertTo-Json -Compress"',
-        { timeout: 20000, windowsHide: true },
-      )
-      const trimmed = stdout.trim()
-      if (!trimmed) {
-        return { detected: false }
-      }
-      const parsed = JSON.parse(trimmed) as
-        { FirmwareVersion?: string } | Array<{ FirmwareVersion?: string }>
-      const disks = Array.isArray(parsed) ? parsed : [parsed]
-      const detected = disks.some((d) => {
-        const fw = d.FirmwareVersion
-        return typeof fw === 'string' && fw.toUpperCase().startsWith('EVFZ')
-      })
-      return { detected }
-    } catch (e) {
-      appLoggerInstance.warn(`detectPhisonSsd failed: ${e}`, 'electron-backend')
-      return { detected: false }
-    }
-  })
-
-  ipcMain.handle('detectDevices', (_event: IpcMainInvokeEvent, serviceName: string) => {
-    if (!serviceRegistry) {
-      appLogger.warn('received detectDevices too early during aipg startup', 'electron-backend')
-      return
-    }
-    const service = serviceRegistry.getService(serviceName)
-    if (!service) {
-      appLogger.warn(
-        `Tried to detectDevices for service ${serviceName} which is not known`,
-        'electron-backend',
-      )
-      return
-    }
-    return service.detectDevices()
-  })
-
-  ipcMain.handle(
-    'selectDevice',
-    (_event: IpcMainInvokeEvent, serviceName: string, deviceId: string) => {
-      appLogger.info('selecting device', 'electron-backend')
-      if (!serviceRegistry) {
-        appLogger.warn('received selectDevice too early during aipg startup', 'electron-backend')
-        return
-      }
-      const service = serviceRegistry.getService(serviceName)
-      if (!service) {
-        appLogger.warn(
-          `Tried to selectDevice for service ${serviceName} which is not known`,
-          'electron-backend',
-        )
-        return
-      }
-      // Persist so the boot-time auto-start can restore this device instead of
-      // resetting to the default GPU on the next restart. Record the device's
-      // UUID too (when known) so the choice survives a selector-id shift.
-      settings.lastSelectedDevicePerBackend[serviceName] = deviceId
-      const selectedDevice = (service as { devices?: InferenceDevice[] }).devices?.find(
-        (d) => d.id === deviceId,
-      )
-      if (selectedDevice?.uuid) {
-        settings.lastSelectedDeviceUuidPerBackend[serviceName] = selectedDevice.uuid
-      } else {
-        delete settings.lastSelectedDeviceUuidPerBackend[serviceName]
-      }
-      persistLocalSettingsToDisk()
-      return service.selectDevice(deviceId)
-    },
+  registerInvokeHandlers(
+    buildSafeStorageRegistry({ settings, persistLocalSettingsToDisk, appLogger }),
   )
-
-  ipcMain.handle(
-    'selectSttDevice',
-    (_event: IpcMainInvokeEvent, serviceName: string, deviceId: string) => {
-      appLogger.info('selecting STT device', 'electron-backend')
-      if (!serviceRegistry) {
-        appLogger.warn('received selectSttDevice too early during aipg startup', 'electron-backend')
-        return
-      }
-      const service = serviceRegistry.getService(serviceName)
-      if (!service) {
-        appLogger.warn(
-          `Tried to selectSttDevice for service ${serviceName} which is not known`,
-          'electron-backend',
-        )
-        return
-      }
-      if ('selectSttDevice' in service && typeof service.selectSttDevice === 'function') {
-        settings.lastSelectedDevicePerBackend[`${serviceName}:stt`] = deviceId
-        const selectedStt = (service as { sttDevices?: InferenceDevice[] }).sttDevices?.find(
-          (d) => d.id === deviceId,
-        )
-        if (selectedStt?.uuid) {
-          settings.lastSelectedDeviceUuidPerBackend[`${serviceName}:stt`] = selectedStt.uuid
-        } else {
-          delete settings.lastSelectedDeviceUuidPerBackend[`${serviceName}:stt`]
-        }
-        persistLocalSettingsToDisk()
-        return service.selectSttDevice(deviceId)
-      }
-      appLogger.warn(`Service ${serviceName} does not support selectSttDevice`, 'electron-backend')
-    },
-  )
-
-  ipcMain.handle('startService', (_event: IpcMainInvokeEvent, serviceName: string) => {
-    if (!serviceRegistry) {
-      appLogger.warn('received start signal too early during aipg startup', 'electron-backend')
-      return 'failed'
-    }
-    const service = serviceRegistry.getService(serviceName)
-    if (!service) {
-      appLogger.warn(`Tried to start service ${serviceName} which is not known`, 'electron-backend')
-      return 'failed'
-    }
-    return service.start()
-  })
-  ipcMain.handle('stopService', (_event: IpcMainInvokeEvent, serviceName: string) => {
-    if (!serviceRegistry) {
-      appLogger.warn('received stop signal too early during aipg startup', 'electron-backend')
-      return 'failed'
-    }
-    const service = serviceRegistry.getService(serviceName)
-    if (!service) {
-      appLogger.warn(`Tried to stop service ${serviceName} which is not known`, 'electron-backend')
-      return 'failed'
-    }
-    return service.stop()
-  })
-  ipcMain.handle(
-    'setUpService',
-    async (_event: IpcMainInvokeEvent, serviceName: BackendServiceName) => {
-      if (!serviceRegistry || !win) {
-        appLogger.warn('received setup signal too early during aipg startup', 'electron-backend')
-        return
-      }
-      const service = serviceRegistry.getService(serviceName)
-      if (!service) {
-        appLogger.warn(
-          `Tried to set up service ${serviceName} which is not known`,
-          'electron-backend',
-        )
-        return
-      }
-
-      // Never run two installs for the same service concurrently: they would run
-      // two uv syncs (or two git clones) against the same directory. Bail without
-      // emitting any progress — the shared renderer listener belongs to the
-      // install that is already running, and a terminal update here would resolve
-      // that one with the duplicate's outcome.
-      if (service.setUpInProgress) {
-        appLogger.warn(
-          `Ignoring set up request for ${serviceName}: an installation is already in progress`,
-          'electron-backend',
-        )
-        return
-      }
-      service.setUpInProgress = true
-
-      // The renderer waits for a terminal ('failed'/'success') progress update
-      // before it re-enables its UI. If set_up() throws instead of yielding one
-      // — e.g. ComfyUI's Linux dependency step, which runs before its own
-      // try/catch and throws on cancel — the install would stay "Installing..."
-      // forever. Synthesize the terminal failure the generator owes us.
-      try {
-        for await (const progressUpdate of service.set_up()) {
-          win.webContents.send('serviceSetUpProgress', progressUpdate)
-          if (progressUpdate.status === 'failed' || progressUpdate.status === 'success') {
-            appLogger.info(
-              `Received terminal progress update for set up request for ${serviceName}`,
-              'electron-backend',
-            )
-            break
-          }
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        appLogger.error(
-          `Set up for ${serviceName} threw without a terminal progress update: ${message}`,
-          'electron-backend',
-        )
-        if (!win.isDestroyed()) {
-          win.webContents.send('serviceSetUpProgress', {
-            serviceName,
-            step: 'setup failed',
-            status: 'failed',
-            debugMessage: `Installation aborted: ${message}`,
-            errorDetails: {
-              stderr: message,
-              timestamp: new Date().toISOString(),
-            },
-          } satisfies SetupProgress)
-        }
-      } finally {
-        service.setUpInProgress = false
-      }
-    },
-  )
-
-  ipcMain.handle(
-    'ensureBackendReadiness',
-    async (
-      _event: IpcMainInvokeEvent,
-      serviceName: string,
-      llmModelName: string,
-      embeddingModelName?: string,
-      contextSize?: number,
-      modelArgs?: string,
-      skipGpuAdmission?: boolean,
-      options?: { remember?: boolean },
-    ) => {
-      if (!serviceRegistry) {
-        appLogger.warn(
-          'received ensureBackendReadiness too early during aipg startup',
-          'electron-backend',
-        )
-        return { success: false, error: 'Service registry not ready' }
-      }
-
-      try {
-        await ensureChatBackendReady(
-          { serviceName, llmModelName, embeddingModelName, contextSize, modelArgs },
-          {
-            skipGpuAdmission: Boolean(skipGpuAdmission),
-            remember: options?.remember,
-          },
-        )
-        return { success: true }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        appLogger.error(
-          `Failed to ensure backend readiness for ${serviceName}: ${errorMessage}`,
-          'electron-backend',
-        )
-        return { success: false, error: errorMessage }
-      }
-    },
-  )
-
-  ipcMain.handle('setLastChatBackendLoadActive', (_event: IpcMainInvokeEvent, active: boolean) => {
-    setLastChatBackendLoadActive(Boolean(active))
-    return { success: true }
-  })
-
-  ipcMain.handle(
-    'rememberChatBackendLoad',
-    (_event: IpcMainInvokeEvent, args: ChatReadinessArgs) => {
-      if (typeof args?.serviceName !== 'string' || typeof args?.llmModelName !== 'string') {
-        return { success: false, error: 'invalid last-load args' }
-      }
-      rememberChatBackendLoad(args)
-      return { success: true }
-    },
-  )
-
-  ipcMain.handle('ensureComfyUIBackendRunning', async () => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready', starting: false }
-    }
-    const service = serviceRegistry.getService('comfyui-backend')
-    if (!service) {
-      return { success: false, error: 'ComfyUI service not found', starting: false }
-    }
-    if (service.currentStatus === 'running') {
-      return { success: true, starting: false }
-    }
-    if (service.currentStatus === 'starting') {
-      return { success: true, starting: true }
-    }
-    try {
-      const result = await service.start()
-      if (result === 'running') return { success: true, starting: false }
-      if (result === 'starting') return { success: true, starting: true }
-      return {
-        success: false,
-        starting: false,
-        error: `ComfyUI backend status: ${result}`,
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      appLogger.error(`Failed to start ComfyUI backend: ${errorMessage}`, 'electron-backend')
-      return { success: false, error: errorMessage, starting: false }
-    }
-  })
 
   // ── Artifact runner IPC (architecture-target §4.1 step 5) ─────────────────
   // The renderer ships fully-resolved runs; the runner owns readiness,
   // submission and the progress stream back over the kernel bus.
 
-  ipcMain.handle(
-    'artifact:run',
-    async (
-      _event: IpcMainInvokeEvent,
-      request: unknown,
-      options?: { queue?: 'fail-fast' | 'queue' },
-    ): Promise<ArtifactRunResult> => {
-      const parsed = ArtifactRunRequestSchema.safeParse(request)
-      if (!parsed.success) {
-        appLogger.warn(
-          `artifact:run rejected a malformed request: ${parsed.error.message}`,
-          'electron-backend',
-        )
-        return { state: 'failed', items: [], error: 'Malformed artifact run request' }
-      }
-      const payload: ArtifactRunPayload = {
-        ...parsed.data,
-        items: parsed.data.items as MediaItem[] | undefined,
-      }
-      return submitArtifactRun(payload, {
-        queue: options?.queue === 'queue' ? 'queue' : 'fail-fast',
-      })
-    },
+  registerInvokeHandlers(
+    buildArtifactRegistry({
+      appLogger,
+      submitArtifactRun,
+      cancelArtifactRun,
+      cancelActiveArtifactRun,
+      handleMediaResponse,
+    }),
   )
 
-  ipcMain.handle('artifact:cancel', (_event: IpcMainInvokeEvent, runId?: string) => {
-    if (typeof runId === 'string' && runId.length > 0) {
-      cancelArtifactRun(runId)
-    } else {
-      cancelActiveArtifactRun()
-    }
-  })
-
-  ipcMain.handle(
-    'artifact:respond',
-    (_event: IpcMainInvokeEvent, payload: MediaResponsePayload) => {
-      handleMediaResponse(payload)
-    },
+  registerInvokeHandlers(
+    buildPermissionsRegistry({
+      requestDownloadConsent,
+      requestVramWarningConsent,
+      listGrants,
+      grantPermission,
+      revokePermission,
+      migrateGrants,
+      handlePermissionsPromptResponse,
+    }),
   )
 
-  ipcMain.handle('permissions:requestDownload', async (_event, models: unknown) => {
-    try {
-      if (!Array.isArray(models)) throw new Error('download models must be an array')
-      await requestDownloadConsent(models)
-      return { success: true as const }
-    } catch (e) {
-      return {
-        success: false as const,
-        error: e instanceof Error ? e.message : String(e),
-        cancelled: (e as { cancelled?: boolean })?.cancelled === true,
-      }
-    }
-  })
-
-  ipcMain.handle(
-    'permissions:requestVramWarning',
-    async (_event, req: { presetName?: unknown; message?: unknown }) => {
-      try {
-        if (typeof req?.presetName !== 'string' || typeof req?.message !== 'string') {
-          throw new Error('vram warning request needs presetName and message')
-        }
-        const confirmed = await requestVramWarningConsent({
-          presetName: req.presetName,
-          message: req.message,
-        })
-        return { success: true as const, confirmed }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
+  registerInvokeHandlers(
+    buildChatRegistry({
+      submitChatTurn,
+      resumeChatTurn,
+      cancelChatTurn,
+      handleChatAnswer,
+      summarizeConversationText,
+    }),
   )
 
-  ipcMain.handle('permissions:list', async () => {
-    try {
-      return { success: true as const, grants: await listGrants() }
-    } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle('permissions:grant', async (_event, key: unknown, origin: unknown) => {
-    try {
-      if (typeof key !== 'string') throw new Error('grant key must be a string')
-      if (origin !== 'remember' && origin !== 'pre-grant') {
-        throw new Error('grant origin must be remember or pre-grant')
-      }
-      const grant = await grantPermission(key, origin)
-      return { success: true as const, grant }
-    } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle('permissions:revoke', async (_event, key: unknown) => {
-    try {
-      if (typeof key !== 'string') throw new Error('grant key must be a string')
-      await revokePermission(key)
-      return { success: true as const }
-    } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle('permissions:migrate', async (_event, incoming: unknown) => {
-    try {
-      if (!incoming || typeof incoming !== 'object') {
-        throw new Error('migrate payload must be an object')
-      }
-      await migrateGrants(incoming as Record<string, PermissionGrant>)
-      return { success: true as const }
-    } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle(
-    'permissions:respond',
-    (_event: IpcMainInvokeEvent, payload: PermissionsPromptResponse) => {
-      handlePermissionsPromptResponse(payload)
-    },
+  registerInvokeHandlers(
+    buildConversationsRegistry({
+      bootstrapConversations,
+      deleteConversation,
+      migrateLegacyConversations,
+      saveConversation,
+      saveConversationLastMainKey,
+    }),
   )
 
-  // Chat turns run in main (architecture-target §8 step 6); the renderer
-  // submits/resumes/cancels over IPC and receives the stream as kernel
-  // chat-chunk events, answering `chat:ask` when a tool needs the window.
-  ipcMain.handle('chat:submitTurn', (_event: IpcMainInvokeEvent, request: unknown) => {
-    try {
-      return { success: true as const, turnId: submitChatTurn(request).turnId }
-    } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle('chat:resumeTurn', (_event: IpcMainInvokeEvent, conversationKey: string) => {
-    const resumed = resumeChatTurn(conversationKey)
-    return resumed
-      ? { success: true as const, active: true, ...resumed }
-      : { success: true as const, active: false as const }
-  })
-
-  ipcMain.handle(
-    'chat:cancelTurn',
-    (_event: IpcMainInvokeEvent, conversationKey: string, turnId: string) => {
-      cancelChatTurn(conversationKey, turnId)
-      return { success: true as const }
-    },
-  )
-
-  ipcMain.handle('chat:answer', (_event: IpcMainInvokeEvent, payload: ChatAnswerPayload) => {
-    handleChatAnswer(payload)
-  })
-
-  // One-shot title summarization, model call included (step 6).
-  ipcMain.handle('chat:summarize', async (_event: IpcMainInvokeEvent, request: unknown) => {
-    try {
-      return { success: true as const, data: await summarizeConversationText(request) }
-    } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  // Conversation persistence (step 8, architecture-target §6.1): the kernel
-  // is the one writer of the user's threads. Hydration and the one-shot
-  // legacy upload return data; the mutations follow the {success} convention.
-  ipcMain.handle('conversations:bootstrap', async () => {
-    try {
-      return await bootstrapConversations()
-    } catch (e) {
-      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle('conversations:migrate', async (_event: IpcMainInvokeEvent, payload: unknown) => {
-    try {
-      return await migrateLegacyConversations(ConversationLegacyStateSchema.parse(payload))
-    } catch (e) {
-      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle('conversations:save', async (_event: IpcMainInvokeEvent, payload: unknown) => {
-    try {
-      await saveConversation(ConversationSaveRequestSchema.parse(payload))
-      return { success: true as const }
-    } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle('conversations:delete', async (_event: IpcMainInvokeEvent, id: unknown) => {
-    try {
-      if (typeof id !== 'string') throw new Error('conversation id must be a string')
-      await deleteConversation(id)
-      return { success: true as const }
-    } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle(
-    'conversations:saveLastMainKey',
-    async (_event: IpcMainInvokeEvent, key: unknown) => {
-      try {
-        if (typeof key !== 'string' && key !== null) {
-          throw new Error('lastMainKey must be a string or null')
-        }
-        await saveConversationLastMainKey(key)
-        return { success: true as const }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
-  )
-
-  // Agent-session records (step 8, §6.1): same one-writer contract as the
-  // conversations above — the record file and its index entry live here, Pi's
-  // own session files stay with Pi. Deletes fold into `agentMode:deleteSession`
-  // below, next to the Pi-side teardown.
-  ipcMain.handle('agentMode:bootstrapSessions', async () => {
-    try {
-      return await bootstrapAgentSessions()
-    } catch (e) {
-      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle(
-    'agentMode:migrateSessions',
-    async (_event: IpcMainInvokeEvent, payload: unknown) => {
-      try {
-        return await migrateLegacyAgentSessions(LegacyAgentSessionStateSchema.parse(payload))
-      } catch (e) {
-        return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
-  )
-
-  ipcMain.handle('agentMode:saveSession', async (_event: IpcMainInvokeEvent, payload: unknown) => {
-    try {
-      await saveAgentSession(AgentSessionRecordSchema.parse(payload))
-      return { success: true as const }
-    } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle(
-    'agentMode:saveActiveSessionId',
-    async (_event: IpcMainInvokeEvent, id: unknown) => {
-      try {
-        if (typeof id !== 'string' && id !== null) {
-          throw new Error('activeSessionId must be a string or null')
-        }
-        await saveAgentSessionActiveId(id)
-        return { success: true as const }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
+  registerInvokeHandlers(
+    buildAgentModeRegistry({
+      startAgentTurn,
+      cancelAgentTurn,
+      resetAgentSession,
+      deleteAgentSession,
+      submitAgentToolResult,
+      listAgentCapabilities,
+      importAttachment,
+      bootstrapAgentSessions,
+      migrateLegacyAgentSessions,
+      saveAgentSession,
+      saveAgentSessionActiveId,
+      deleteAgentSessionRecord,
+      readAgentWorkspaceState,
+      migrateAgentWorkspaceState,
+      writeAgentWorkspaceState,
+    }),
   )
 
   // Generated-media gallery records (step 8, §6.1): same one-writer contract
   // as the conversations and agent sessions above — one JSON per item plus an
   // ordered index inside `media/records/`, beside the media files themselves.
-  ipcMain.handle('mediaItems:bootstrap', async () => {
-    try {
-      return await bootstrapMediaItems()
-    } catch (e) {
-      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle('mediaItems:migrate', async (_event: IpcMainInvokeEvent, payload: unknown) => {
-    try {
-      if (!Array.isArray(payload)) throw new Error('legacy media items payload must be an array')
-      return await migrateLegacyMediaItems(payload)
-    } catch (e) {
-      return { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle('mediaItems:save', async (_event: IpcMainInvokeEvent, payload: unknown) => {
-    try {
-      if (!Array.isArray(payload)) throw new Error('media items payload must be an array')
-      await saveMediaItems(payload)
-      return { success: true as const }
-    } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle('mediaItems:delete', async (_event: IpcMainInvokeEvent, ids: unknown) => {
-    try {
-      if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) {
-        throw new Error('media item ids payload must be an array of strings')
-      }
-      return await deleteMediaItemRecords(ids)
-    } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
+  registerInvokeHandlers(
+    buildMediaItemsRegistry({
+      bootstrapMediaItems,
+      migrateLegacyMediaItems,
+      saveMediaItems,
+      deleteMediaItemRecords,
+    }),
+  )
 
   // User preferences (step 8, §6.1): one file, one section per store. The
   // one-shot migrate writes only when the section is absent, so a retry can
   // never overwrite what the files already own.
-  ipcMain.handle('preferences:read', async () => {
-    try {
-      return { success: true as const, sections: await readAllPreferences() }
-    } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle(
-    'preferences:migrate',
-    async (_event: IpcMainInvokeEvent, section: unknown, payload: unknown) => {
-      try {
-        if (typeof section !== 'string') throw new Error('preference section must be a string')
-        await migratePreferenceSection(section, payload)
-        return { success: true as const }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
-  )
-
-  ipcMain.handle(
-    'preferences:write',
-    async (_event: IpcMainInvokeEvent, section: unknown, value: unknown) => {
-      try {
-        if (typeof section !== 'string') throw new Error('preference section must be a string')
-        await writePreferenceSection(section, value)
-        return { success: true as const }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
+  registerInvokeHandlers(
+    buildPreferencesRegistry({
+      readAllPreferences,
+      migratePreferenceSection,
+      writePreferenceSection,
+    }),
   )
 
   // ── RAG documents (step 8, §6.1): the textInference store's indexed
@@ -2994,566 +1738,22 @@ function initEventHandle() {
   // the preferences channels, over rag/documents.json. read keeps "absent"
   // (section null) apart from "failed" (success false): only the former may
   // trigger the one-shot legacy upload.
-  ipcMain.handle('ragDocuments:read', async () => {
-    try {
-      return { success: true as const, section: await readRagDocumentSection() }
-    } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle('ragDocuments:migrate', async (_event: IpcMainInvokeEvent, payload: unknown) => {
-    try {
-      await migrateRagDocumentSection(payload)
-      return { success: true as const }
-    } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle('ragDocuments:write', async (_event: IpcMainInvokeEvent, value: unknown) => {
-    try {
-      await writeRagDocumentSection(value)
-      return { success: true as const }
-    } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle(
-    'getEmbeddingServerUrl',
-    async (_event: IpcMainInvokeEvent, serviceName: string) => {
-      if (!serviceRegistry) {
-        return { success: false, error: 'Service registry not ready' }
-      }
-      const service = serviceRegistry.getService(serviceName)
-      if (!service) {
-        return { success: false, error: `Service ${serviceName} not found` }
-      }
-
-      // Check if service has getEmbeddingServerUrl method (llamaCPP backend)
-      if (
-        'getEmbeddingServerUrl' in service &&
-        typeof service.getEmbeddingServerUrl === 'function'
-      ) {
-        const embeddingUrl = service.getEmbeddingServerUrl()
-        if (embeddingUrl) {
-          return { success: true, url: embeddingUrl }
-        }
-        return { success: false, error: 'Embedding server not running' }
-      }
-
-      // For other backends, return the base URL (they might use the same server)
-      return { success: true, url: service.baseUrl }
-    },
+  registerInvokeHandlers(
+    buildRagDocumentsRegistry({
+      readRagDocumentSection,
+      migrateRagDocumentSection,
+      writeRagDocumentSection,
+    }),
   )
-
-  ipcMain.handle(
-    'ensureEmbeddingServerReady',
-    async (_event: IpcMainInvokeEvent, serviceName: string, embeddingModelName: string) => {
-      if (!serviceRegistry) {
-        return { success: false, error: 'Service registry not ready' }
-      }
-      const service = serviceRegistry.getService(serviceName)
-      if (!service) {
-        return { success: false, error: `Service ${serviceName} not found` }
-      }
-
-      // Only the local LLM backends (llamaCPP / openVINO) can host an embedding
-      // server. Used by Cloud Mode RAG to embed locally while chatting remotely.
-      if (
-        'ensureEmbeddingServerReady' in service &&
-        typeof service.ensureEmbeddingServerReady === 'function'
-      ) {
-        try {
-          await service.ensureEmbeddingServerReady(embeddingModelName)
-          appLogger.info(
-            `Embedding server ready for ${serviceName} with model: ${embeddingModelName}`,
-            'electron-backend',
-          )
-          return { success: true }
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          appLogger.error(
-            `Failed to ensure embedding server ready for ${serviceName}: ${errorMessage}`,
-            'electron-backend',
-          )
-          return { success: false, error: errorMessage }
-        }
-      }
-
-      return {
-        success: false,
-        error: `Service ${serviceName} does not support a standalone embedding server`,
-      }
-    },
-  )
-
-  ipcMain.handle(
-    'startTranscriptionServer',
-    async (_event: IpcMainInvokeEvent, modelName: string) => {
-      if (!serviceRegistry) {
-        return { success: false, error: 'Service registry not ready' }
-      }
-      const service = serviceRegistry.getService('openvino-backend')
-      if (!service) {
-        return { success: false, error: 'OpenVINO backend service not found' }
-      }
-
-      // Check if service has startTranscriptionServer method
-      if (
-        'startTranscriptionServer' in service &&
-        typeof service.startTranscriptionServer === 'function'
-      ) {
-        try {
-          await service.startTranscriptionServer(modelName)
-          return { success: true }
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          appLogger.error(
-            `Failed to start transcription server: ${errorMessage}`,
-            'electron-backend',
-          )
-          return { success: false, error: errorMessage }
-        }
-      }
-
-      return { success: false, error: 'Transcription server not supported' }
-    },
-  )
-
-  ipcMain.handle('stopTranscriptionServer', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    // Check if service has stopTranscriptionServer method
-    if (
-      'stopTranscriptionServer' in service &&
-      typeof service.stopTranscriptionServer === 'function'
-    ) {
-      try {
-        await service.stopTranscriptionServer()
-        return { success: true }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        appLogger.error(`Failed to stop transcription server: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
-      }
-    }
-
-    return { success: false, error: 'Transcription server not supported' }
-  })
-
-  ipcMain.handle('getTranscriptionServerUrl', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    // Check if service has getTranscriptionServerUrl method
-    if (
-      'getTranscriptionServerUrl' in service &&
-      typeof service.getTranscriptionServerUrl === 'function'
-    ) {
-      const transcriptionUrl = service.getTranscriptionServerUrl()
-      if (transcriptionUrl) {
-        return { success: true, url: transcriptionUrl }
-      }
-      return { success: false, error: 'Transcription server not running' }
-    }
-
-    return { success: false, error: 'Transcription server not supported' }
-  })
-
-  ipcMain.handle('startSpeechServer', async (_event: IpcMainInvokeEvent, modelName: string) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    if ('startSpeechServer' in service && typeof service.startSpeechServer === 'function') {
-      try {
-        await service.startSpeechServer(modelName)
-        return { success: true }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        appLogger.error(`Failed to start speech server: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
-      }
-    }
-
-    return { success: false, error: 'Speech server not supported' }
-  })
-
-  ipcMain.handle('stopSpeechServer', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    if ('stopSpeechServer' in service && typeof service.stopSpeechServer === 'function') {
-      try {
-        await service.stopSpeechServer()
-        return { success: true }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        appLogger.error(`Failed to stop speech server: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
-      }
-    }
-
-    return { success: false, error: 'Speech server not supported' }
-  })
-
-  ipcMain.handle('getSpeechServerUrl', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    if ('getSpeechServerUrl' in service && typeof service.getSpeechServerUrl === 'function') {
-      const speechUrl = service.getSpeechServerUrl()
-      if (speechUrl) {
-        return { success: true, url: speechUrl }
-      }
-      return { success: false, error: 'Speech server not running' }
-    }
-
-    return { success: false, error: 'Speech server not supported' }
-  })
-
-  // Synthesize speech in the main process so it is not subject to the
-  // renderer's CORS policy. Many OpenAI-compatible `/audio/speech` servers
-  // (e.g. local TTS fallbacks) do not answer the CORS preflight that an
-  // `application/json` POST triggers, which blocks a direct renderer fetch.
-  ipcMain.handle(
-    'synthesizeSpeech',
-    async (
-      _event: IpcMainInvokeEvent,
-      options: {
-        baseURL: string
-        model: string
-        input: string
-        voice?: string
-        apiKey?: string
-        format?: string
-      },
-    ): Promise<
-      { success: true; dataBase64: string; mediaType: string } | { success: false; error: string }
-    > => {
-      try {
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-        if (options.apiKey) {
-          headers['Authorization'] = `Bearer ${options.apiKey}`
-        }
-        const body: Record<string, unknown> = {
-          model: options.model,
-          input: options.input,
-          response_format: options.format || 'wav',
-        }
-        if (options.voice) {
-          body.voice = options.voice
-        }
-        const url = `${options.baseURL.replace(/\/$/, '')}/audio/speech`
-        const res = await net.fetch(url, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(body),
-        })
-        if (!res.ok) {
-          const detail = await res.text().catch(() => '')
-          return { success: false, error: `Speech synthesis failed (${res.status}): ${detail}` }
-        }
-        const arrayBuffer = await res.arrayBuffer()
-        const mediaType = res.headers.get('content-type')?.split(';')[0]?.trim() || 'audio/wav'
-        const dataBase64 = Buffer.from(arrayBuffer).toString('base64')
-        return { success: true, dataBase64, mediaType }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        appLogger.error(`Failed to synthesize speech: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
-      }
-    },
-  )
-
-  ipcMain.handle(
-    'ensureOvmsImageReady',
-    async (
-      _event: IpcMainInvokeEvent,
-      serviceName: string,
-      modelName: string,
-      keepModelsLoaded?: boolean,
-      resolution?: string,
-    ) => ensureOvmsImageServerReady(serviceName, modelName, keepModelsLoaded, resolution),
-  )
-
-  ipcMain.handle('stopOvmsChatServers', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    if ('stopChatServers' in service && typeof service.stopChatServers === 'function') {
-      try {
-        await service.stopChatServers()
-        return { success: true }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        appLogger.error(`Failed to stop OVMS chat servers: ${errorMessage}`, 'electron-backend')
-        return { success: false, error: errorMessage }
-      }
-    }
-
-    return { success: false, error: 'Chat servers not supported' }
-  })
-
-  ipcMain.handle('getOvmsImageServerUrl', async (_event: IpcMainInvokeEvent) => {
-    if (!serviceRegistry) {
-      return { success: false, error: 'Service registry not ready' }
-    }
-    const service = serviceRegistry.getService('openvino-backend')
-    if (!service) {
-      return { success: false, error: 'OpenVINO backend service not found' }
-    }
-
-    if ('getImageServerUrl' in service && typeof service.getImageServerUrl === 'function') {
-      const imageUrl = service.getImageServerUrl()
-      if (imageUrl) {
-        return { success: true, url: imageUrl }
-      }
-      return { success: false, error: 'Image server not running' }
-    }
-
-    return { success: false, error: 'Image server not supported' }
-  })
-
-  ipcMain.on('ondragstart', async (event, filePath) => {
-    const imagePath = getAssetPathFromUrl(filePath)
-    if (!imagePath) return
-    let thumbnail: Electron.NativeImage
-    try {
-      thumbnail = await nativeImage.createThumbnailFromPath(imagePath, { height: 128, width: 128 })
-    } catch (_e: unknown) {
-      thumbnail = await nativeImage.createThumbnailFromPath(path.join(externalRes, 'cam.png'), {
-        height: 128,
-        width: 128,
-      })
-    }
-    event.sender.startDrag({
-      file: imagePath,
-      icon: thumbnail,
-    })
-  })
-
-  ipcMain.handle('updatePresetsFromIntelRepo', () => {
-    const mode = resolveProductMode(settings)
-    const variant = settings.isDemoModeEnabled ? 'demo' : 'presets'
-    const config = getPresetLoadConfig(settings)
-    const result = updateIntelPresets(
-      settings.remoteRepository,
-      mode,
-      variant,
-      config.baseDir,
-      config.modeDir,
-    )
-    if (result instanceof Promise) result.then(() => invalidatePresetCatalog())
-    else invalidatePresetCatalog()
-    return result
-  })
-
-  ipcMain.handle('reloadPresets', async () => {
-    const config = getPresetLoadConfig(settings)
-    try {
-      await filterPartnerPresets(config.baseDir)
-    } catch (error) {
-      appLogger.error(`Failed to filter partner presets: ${error}`, 'electron-backend')
-    }
-    invalidatePresetCatalog()
-    try {
-      return await loadPresetFiles(config)
-    } catch (error) {
-      appLogger.error(`Failed to load presets: ${error}`, 'electron-backend')
-      return []
-    }
-  })
-
-  ipcMain.handle('getUserPresetsPath', async () => {
-    const userDataPath = app.getPath('documents')
-    const presetsPath = path.join(userDataPath, 'AI Playground', 'presets')
-    // Ensure directory exists
-    await fs.promises.mkdir(presetsPath, { recursive: true })
-    return presetsPath
-  })
-
-  ipcMain.handle('loadUserPresets', async () => {
-    try {
-      const userDataPath = app.getPath('documents')
-      const presetsPath = path.join(userDataPath, 'AI Playground', 'presets')
-      const presets = await readPresetsFromDir(presetsPath)
-      return [...presets.values()]
-    } catch (error) {
-      appLogger.error(`Failed to load user presets: ${error}`, 'electron-backend')
-      return []
-    }
-  })
-
-  ipcMain.handle('saveUserPreset', async (_event, presetContent: string) => {
-    try {
-      const userDataPath = app.getPath('documents')
-      const presetsPath = path.join(userDataPath, 'AI Playground', 'presets')
-      await fs.promises.mkdir(presetsPath, { recursive: true })
-
-      // Parse to get preset name for filename
-      const preset = JSON.parse(presetContent)
-      const filename = `${preset.name.replace(/[^a-z0-9]/gi, '_')}.json`
-      const filePath = path.join(presetsPath, filename)
-
-      await fs.promises.writeFile(filePath, presetContent, { encoding: 'utf-8' })
-      appLogger.info(`Saved user preset to ${filePath}`, 'electron-backend')
-      invalidatePresetCatalog()
-      return true
-    } catch (error) {
-      appLogger.error(`Failed to save user preset: ${error}`, 'electron-backend')
-      return false
-    }
-  })
-
-  // Version management IPC handlers for frontend store integration
-  ipcMain.handle('resolveBackendVersion', async (_event, serviceName: BackendServiceName) => {
-    return await resolveBackendVersion(serviceName, settings)
-  })
-
-  ipcMain.handle('getGitHubRepoUrl', () => {
-    return getGitHubRepoUrl(settings)
-  })
-
-  ipcMain.handle('getInstalledBackendVersion', async (_event, serviceName: BackendServiceName) => {
-    if (!serviceRegistry) {
-      appLogger.warn('Service registry not ready', 'electron-backend')
-      return undefined
-    }
-    const service = serviceRegistry.getService(serviceName)
-    if (
-      !service ||
-      !('getInstalledVersion' in service) ||
-      typeof service.getInstalledVersion !== 'function'
-    ) {
-      return undefined
-    }
-    try {
-      return await service.getInstalledVersion()
-    } catch (error) {
-      appLogger.error(
-        `Failed to get installed version for ${serviceName}: ${error}`,
-        'electron-backend',
-      )
-      return undefined
-    }
-  })
 
   // ComfyUI Tools IPC handlers
-  ipcMain.handle('comfyui:isGitInstalled', async () => {
-    return await comfyuiTools.isGitInstalled()
-  })
-
-  ipcMain.handle('comfyui:isComfyUIInstalled', () => {
-    const comfyService = serviceRegistry?.getService('comfyui-backend') as
-      ComfyUiBackendService | undefined
-    if (!comfyService) {
-      throw new Error('ComfyUI backend service not found')
-    }
-    return comfyuiTools.isComfyUIInstalled(comfyService.serviceDir)
-  })
-
-  ipcMain.handle('comfyui:getGitRef', async (_event, repoDir: string) => {
-    return await comfyuiTools.getGitRef(repoDir)
-  })
-
-  ipcMain.handle('comfyui:isPackageInstalled', async (_event, packageSpecifier: string) => {
-    return await comfyuiTools.isPackageInstalled(packageSpecifier)
-  })
-
-  ipcMain.handle('comfyui:installPypiPackage', async (_event, packageSpecifier: string) => {
-    const comfyService = serviceRegistry?.getService('comfyui-backend') as
-      ComfyUiBackendService | undefined
-    return await comfyuiTools.installPypiPackage(
-      packageSpecifier,
-      comfyService?.getTorchBackendEnv(),
-    )
-  })
-
-  ipcMain.handle(
-    'comfyui:isCustomNodeInstalled',
-    (_event, nodeRepoRef: comfyuiTools.ComfyUICustomNodeRepoId) => {
-      const comfyService = serviceRegistry?.getService('comfyui-backend') as
-        ComfyUiBackendService | undefined
-      if (!comfyService) {
-        throw new Error('ComfyUI backend service not found')
-      }
-      return comfyuiTools.isCustomNodeInstalled(nodeRepoRef, comfyService.serviceDir)
-    },
+  registerInvokeHandlers(
+    buildComfyuiRegistry({
+      comfyService: () =>
+        serviceRegistry?.getService('comfyui-backend') as ComfyUiBackendService | undefined,
+      comfyuiTools,
+    }),
   )
-
-  ipcMain.handle(
-    'comfyui:downloadCustomNode',
-    async (_event, nodeRepoData: comfyuiTools.ComfyUICustomNodeRepoId) => {
-      const comfyService = serviceRegistry?.getService('comfyui-backend') as
-        ComfyUiBackendService | undefined
-      if (!comfyService) {
-        throw new Error('ComfyUI backend service not found')
-      }
-      const envAndWheels: comfyuiTools.ComfyUiInstallOptions = {
-        extraEnv: comfyService.getTorchBackendEnv(),
-        skipExtraWheels: comfyService.comfyUiVariantName !== 'xpu',
-      }
-      return await comfyuiTools.downloadCustomNode(
-        nodeRepoData,
-        comfyService.serviceDir,
-        envAndWheels,
-      )
-    },
-  )
-
-  ipcMain.handle(
-    'comfyui:uninstallCustomNode',
-    async (_event, nodeRepoData: comfyuiTools.ComfyUICustomNodeRepoId) => {
-      const comfyService = serviceRegistry?.getService('comfyui-backend') as
-        ComfyUiBackendService | undefined
-      if (!comfyService) {
-        throw new Error('ComfyUI backend service not found')
-      }
-      return await comfyuiTools.uninstallCustomNode(nodeRepoData, comfyService.serviceDir)
-    },
-  )
-
-  ipcMain.handle('comfyui:listInstalledCustomNodes', () => {
-    const comfyService = serviceRegistry?.getService('comfyui-backend') as
-      ComfyUiBackendService | undefined
-    if (!comfyService) {
-      throw new Error('ComfyUI backend service not found')
-    }
-    return comfyuiTools.listInstalledCustomNodes(comfyService.serviceDir)
-  })
 
   // Auto-detect MCP servers (e.g., Acer MCP service installed via WindowsApps).
   // Runs on every startup so newly installed services are picked up and stale
@@ -3568,420 +1768,70 @@ function initEventHandle() {
   // settings UI so the user can bind the screenshot tool to a single window;
   // it is never exposed to the LLM. The Chat tool captures in main (it ships
   // the bound window on the turn); this channel serves the settings picker.
-
-  ipcMain.handle('screenshot:getPermissionStatus', () => ({
-    platform: process.platform,
-    status: getScreenCaptureStatus(),
-  }))
-
-  ipcMain.on('screenshot:openPermissionSettings', () => openScreenCaptureSettings())
-
-  ipcMain.handle('screenshot:listWindows', async () => await listCaptureWindows())
-
-  ipcMain.handle(
-    'screenshot:captureWindow',
-    async (_event, target: { id: string; name: string }) => await captureWindow(target),
-  )
+  const screenshotDeps = {
+    getScreenCaptureStatus,
+    openScreenCaptureSettings,
+    listCaptureWindows,
+    captureWindow,
+  }
+  registerInvokeHandlers(buildScreenshotRegistry(screenshotDeps))
+  registerSendHandlers(buildScreenshotSendRegistry(screenshotDeps))
 
   // MCP server IPC handlers
-  ipcMain.handle('mcp:startServer', async (_event, serverId: string) => {
-    return await startMcpServer(serverId)
-  })
-
-  ipcMain.handle('mcp:listServers', () => {
-    return listMcpServers()
-  })
-
-  ipcMain.handle('mcp:stopServer', async (_event, serverId: string) => {
-    return await stopMcpServer(serverId)
-  })
-
-  ipcMain.handle('mcp:getServerStatus', (_event, serverId: string) => {
-    return getMcpServerStatus(serverId)
-  })
-
-  ipcMain.handle('mcp:listServerTools', async (_event, serverId: string) => {
-    return await listMcpServerTools(serverId)
-  })
-
-  ipcMain.handle(
-    'mcp:invokeServerTool',
-    async (_event, serverId: string, toolName: string, args: Record<string, unknown>) => {
-      return await invokeMcpServerTool(serverId, toolName, args)
-    },
-  )
-
-  // Agent Mode (Pi coding agent) IPC handlers — see agent/piAgentManager.ts.
-  // Stream chunks and live tool output cross the kernel event bus
-  // (electron/kernel/kernelBus.ts) as 'agent-chunk' / 'agent-tool-progress' /
-  // 'agent-tool-image' / 'agent-turn-done' events.
-  ipcMain.handle(
-    'agentMode:startTurn',
-    async (_event, turnId: string, prompt: string, config: unknown) => {
-      const parsed = AgentModeTurnConfigSchema.safeParse(config)
-      if (!parsed.success) {
-        return { success: false, error: parsed.error.message }
-      }
-      return await startAgentTurn(turnId, prompt, parsed.data)
-    },
-  )
-
-  ipcMain.handle('agentMode:cancel', () => {
-    cancelAgentTurn()
-  })
-
-  ipcMain.handle('agentMode:resetSession', async () => {
-    await resetAgentSession()
-  })
-
-  // Step 8 (§6.1): the last-used workspace pointers are kernel-owned
-  // (agent-workspace.json); the store becomes a live projection.
-  ipcMain.handle('agentMode:readWorkspaceState', async () => {
-    try {
-      return { success: true as const, section: await readAgentWorkspaceState() }
-    } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle(
-    'agentMode:migrateWorkspaceState',
-    async (_event: IpcMainInvokeEvent, payload: unknown) => {
-      try {
-        await migrateAgentWorkspaceState(payload)
-        return { success: true as const }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
-  )
-
-  ipcMain.handle(
-    'agentMode:writeWorkspaceState',
-    async (_event: IpcMainInvokeEvent, value: unknown) => {
-      try {
-        await writeAgentWorkspaceState(value)
-        return { success: true as const }
-      } catch (e) {
-        return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
-  )
-
-  ipcMain.handle('agentMode:deleteSession', async (_event, sessionId: unknown) => {
-    // Both halves run even if one fails. Invalid ids return `{success:false}`.
-    try {
-      if (typeof sessionId !== 'string') throw new Error('session id must be a string')
-      const record = await deleteAgentSessionRecord(sessionId)
-      const live = await deleteAgentSession(sessionId)
-      if (!record.success) return record
-      return live
-    } catch (e) {
-      return { success: false as const, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  // Copy a file the user attached into the agent's workspace, so the agent can
-  // reach it with its own file tools (see agent/workspaceAttachments.ts).
-  ipcMain.handle(
-    'agentMode:importAttachment',
-    (_event, workspaceDir: string, name: string, bytes: Uint8Array) => {
-      try {
-        return { success: true, ...importAttachment(workspaceDir, name, bytes) }
-      } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : String(error) }
-      }
-    },
-  )
-
-  // What the agent can be equipped with, for the Capabilities checkboxes in
-  // Agent Settings (availability depends on the turn's tool specs / MCP config).
-  ipcMain.handle(
-    'agentMode:listCapabilities',
-    (
-      _event,
-      options: { workspaceDir?: string; toolSpecs?: AgentToolSpec[]; mcpServerIds?: string[] },
-    ) => {
-      return listAgentCapabilities(options ?? {})
-    },
-  )
-
-  // Renderer answers a main→renderer 'agentMode:executeTool' dispatch (bridged
-  // host tool execution, e.g. image generation) with the tool result or error.
-  ipcMain.handle(
-    'agentMode:toolResult',
-    (_event, requestId: string, result: unknown, error?: string) => {
-      submitAgentToolResult(requestId, result, error)
-    },
-  )
+  const mcpDeps = {
+    settings,
+    persistLocalSettingsToDisk,
+    startMcpServer,
+    stopMcpServer,
+    stopAllMcpServers,
+    getMcpServerStatus,
+    listMcpServers,
+    listMcpServerTools,
+    invokeMcpServerTool,
+    getMcpConfigPath,
+    addMcpServer,
+    getMcpServerConfig,
+    updateMcpServer,
+    removeMcpServer,
+    isAutoDetectId,
+  }
+  registerInvokeHandlers(buildMcpRegistry(mcpDeps))
+  registerSendHandlers(buildMcpSendRegistry(mcpDeps))
 
   // Game library (see gameLibrary.ts): the folders the Game Agent preset writes
   // into, plus the generated gallery page.
-  ipcMain.handle('games:list', () => listGames())
-
-  ipcMain.handle('games:read', (_event, dir: string) => readGame(dir))
-
-  // `name` is the request that started the game, not a title: shorten it to
-  // something that reads as one, until the agent sets a real one. The request
-  // itself is kept whole as provenance.
-  ipcMain.handle(
-    'games:create',
-    (
-      _event,
-      name?: string,
-      options?: {
-        scaffold?: boolean
-        backend?: string
-        startingModel?: string
-        initialPrompt?: string
-      },
-    ) =>
-      createGame({
-        name: name ? provisionalName(name) : undefined,
-        ...(options?.scaffold === false ? { scaffold: false } : {}),
-        backend: options?.backend,
-        startingModel: options?.startingModel,
-        initialPrompt: options?.initialPrompt,
-      }),
+  registerInvokeHandlers(
+    buildGamesRegistry({
+      settings,
+      detectOem,
+      getGamesDir,
+      listGames,
+      readGame,
+      provisionalName,
+      createGame,
+      publishGame,
+      arcadeCatalog,
+      setArcadeShown,
+      writeArcade,
+    }),
   )
-
-  ipcMain.handle(
-    'games:publish',
-    async (_event, dir: string, fields: { name?: string; description?: string }) => {
-      try {
-        const { vendor } = await detectOem(settings.oemVendorOverride)
-        return { success: true, game: publishGame(dir, fields ?? {}, { vendor }) }
-      } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : String(error) }
-      }
-    },
-  )
-
-  ipcMain.handle('games:arcadeCatalog', async () => {
-    const { vendor } = await detectOem(settings.oemVendorOverride)
-    return arcadeCatalog({ vendor })
-  })
-
-  ipcMain.handle(
-    'games:setArcadeShown',
-    async (_event, target: { kind: 'user' | 'sample'; id: string; shown: boolean }) => {
-      try {
-        const { vendor } = await detectOem(settings.oemVendorOverride)
-        setArcadeShown(target, { vendor })
-        return { success: true }
-      } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : String(error) }
-      }
-    },
-  )
-
-  // A game's own folder, or the library root when none is given.
-  ipcMain.handle('games:openFolder', (_event, dir?: string) => {
-    const target = dir ?? getGamesDir()
-    fs.mkdirSync(target, { recursive: true })
-    shell.openPath(target)
-  })
-
-  ipcMain.handle('games:play', async (_event, dir: string) => {
-    const game = readGame(dir)
-    if (!game) return { success: false, error: `Not a game folder: ${dir}` }
-    if (!fs.existsSync(game.entryPath)) {
-      return { success: false, error: 'This game has no playable file yet.' }
-    }
-    // The default browser, not an app window: a game is the user's to keep.
-    const error = await shell.openPath(game.entryPath)
-    return error ? { success: false, error } : { success: true }
-  })
-
-  // Regenerated on open so the gallery reflects the library as it is now.
-  ipcMain.handle('games:openArcade', async () => {
-    const { vendor } = await detectOem(settings.oemVendorOverride)
-    const { arcadePath } = writeArcade({ vendor })
-    const error = await shell.openPath(arcadePath)
-    return error ? { success: false, error } : { success: true, path: arcadePath }
-  })
 
   // Web browser IPC handlers — drives the headless BrowserWindow that the chat
   // LLM uses to browse the web (see adapters/webBrowserManager.ts).
-  ipcMain.handle('webBrowser:navigate', async (_event, url: string) => {
-    return await navigateWebBrowser(url)
-  })
-
-  ipcMain.handle('webBrowser:readPage', async () => {
-    return await readWebBrowserPage()
-  })
-
-  ipcMain.handle('webBrowser:search', async (_event, query: string, maxResults?: number) => {
-    return await searchWebBrowser(query, maxResults)
-  })
-
-  ipcMain.handle('webBrowser:interact', async (_event, interaction: WebBrowserInteraction) => {
-    return await interactWebBrowser(interaction)
-  })
-
-  ipcMain.handle('webBrowser:screenshot', async () => {
-    return await screenshotWebBrowser()
-  })
-
-  ipcMain.handle('webBrowser:show', () => {
-    return showWebBrowser()
-  })
-
-  ipcMain.handle('webBrowser:hide', () => {
-    return hideWebBrowser()
-  })
-
-  ipcMain.handle('webBrowser:close', () => {
-    return closeWebBrowser()
-  })
-
-  ipcMain.handle('webBrowser:getState', () => {
-    return getWebBrowserState()
-  })
-
-  // MCP config file handlers
-  // TODO: Consider consolidating with openImageWithSystem/openImageInFolder
-  // into generic openFileWithSystem/openFileInFolder that take file paths
-  ipcMain.on('mcp:openConfig', () => {
-    const configPath = getMcpConfigPath()
-    shell.openPath(configPath)
-  })
-
-  ipcMain.on('mcp:openConfigInFolder', () => {
-    const configPath = getMcpConfigPath()
-    if (process.platform === 'win32') {
-      exec(`explorer.exe /select, "${configPath}"`)
-    } else {
-      shell.showItemInFolder(configPath)
-    }
-  })
-
-  ipcMain.handle('mcp:reloadConfig', async () => {
-    await stopAllMcpServers()
-    return listMcpServers()
-  })
-
-  ipcMain.handle(
-    'mcp:addServer',
-    async (
-      _event,
-      serverId: string,
-      config:
-        | { type?: 'stdio'; command: string; args?: string[]; displayName?: string }
-        | { type: 'http'; url: string; headers?: Record<string, string>; displayName?: string },
-    ) => {
-      return addMcpServer(serverId, config)
-    },
+  registerInvokeHandlers(
+    buildWebBrowserRegistry({
+      navigateWebBrowser,
+      readWebBrowserPage,
+      searchWebBrowser,
+      interactWebBrowser,
+      screenshotWebBrowser,
+      showWebBrowser,
+      hideWebBrowser,
+      closeWebBrowser,
+      getWebBrowserState,
+    }),
   )
-
-  ipcMain.handle('mcp:getServerConfig', (_event, serverId: string) => {
-    return getMcpServerConfig(serverId)
-  })
-
-  ipcMain.handle('mcp:updateServer', async (_event, serverId: string, config: McpServerConfig) => {
-    await stopMcpServer(serverId)
-    return updateMcpServer(serverId, config)
-  })
-
-  ipcMain.handle('mcp:removeServer', async (_event, serverId: string) => {
-    await stopMcpServer(serverId)
-    const result = removeMcpServer(serverId)
-    if (isAutoDetectId(serverId) && !settings.mcpAutoDetectionDismissed.includes(serverId)) {
-      settings.mcpAutoDetectionDismissed = [...settings.mcpAutoDetectionDismissed, serverId]
-      persistLocalSettingsToDisk()
-    }
-    return result
-  })
-
-  const getAssetPathFromUrl = (url: string) => {
-    // Handle aipg-media:// URLs
-    if (url.startsWith('aipg-media://')) {
-      return getLocalPathFromAipgMediaUrl(url)
-    }
-
-    // Existing logic for HTTP URLs
-    const imageUrl = URL.parse(url)
-    if (!imageUrl) {
-      console.error('Could not find image for URL', { url })
-      return
-    }
-
-    const comfyBackendUrl = serviceRegistry?.getService('comfyui-backend')?.baseUrl
-    const backend = comfyBackendUrl && url.includes(comfyBackendUrl) ? 'comfyui' : 'service'
-
-    const imageSubPath =
-      backend === 'comfyui'
-        ? path.join(
-            imageUrl.searchParams.get('subfolder') ?? '',
-            imageUrl.searchParams.get('filename') ?? '',
-          )
-        : imageUrl.pathname
-    return path.join(mediaDir, imageSubPath)
-  }
-
-  ipcMain.on('openImageWithSystem', (_event, url: string) => {
-    const imagePath = getAssetPathFromUrl(url)
-    if (!imagePath) return
-    shell.openPath(imagePath)
-  })
-
-  ipcMain.on('openImageInFolder', (_event, url: string) => {
-    const imagePath = getAssetPathFromUrl(url)
-    if (!imagePath) return
-
-    // Open the image with the default system image viewer
-    if (process.platform === 'win32') {
-      exec(`explorer.exe /select, "${imagePath}"`)
-    } else {
-      shell.showItemInFolder(imagePath)
-    }
-  })
 }
-
-ipcMain.on(
-  'openImageWin',
-  (_: IpcMainEvent, url: string, title: string, width: number, height: number) => {
-    const display = screen.getPrimaryDisplay()
-    width += 32
-    height += 48
-    if (width > display.workAreaSize.width) {
-      width = display.workAreaSize.width
-    } else if (height > display.workAreaSize.height) {
-      height = display.workAreaSize.height
-    }
-    const imgWin = new BrowserWindow({
-      icon: path.join(process.env.VITE_PUBLIC, 'app-ico.svg'),
-      resizable: true,
-      center: true,
-      frame: true,
-      width: width,
-      height: height,
-      autoHideMenuBar: true,
-      show: false,
-      parent: win || undefined,
-      webPreferences: {
-        devTools: false,
-      },
-    })
-    imgWin.setMenu(null)
-    imgWin.loadURL(url)
-    imgWin.once('ready-to-show', function () {
-      imgWin.show()
-      imgWin.setTitle(title)
-    })
-  },
-)
-
-ipcMain.handle('showSaveDialog', async (_event, options: Electron.SaveDialogOptions) => {
-  dialog
-    .showSaveDialog(options)
-    .then((result) => {
-      return result
-    })
-    .catch((error) => {
-      appLogger.error(`${JSON.stringify(error, Object.getOwnPropertyNames, 2)}`, 'electron-backend')
-    })
-})
 
 function isAdmin(): boolean {
   if (process.platform !== 'win32') {

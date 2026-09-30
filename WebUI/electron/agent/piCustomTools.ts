@@ -5,6 +5,7 @@ import { Type, type TSchema } from 'typebox'
 import type { AgentToolResult } from '@earendil-works/pi-coding-agent'
 import { appLoggerInstance } from '../observability/logger.ts'
 import { emitAgentToolImage } from '../kernel/kernelBus.ts'
+import { typedSend } from '../kernel/typedIpc.ts'
 import { noteGeneratedMedia } from './generatedMedia.ts'
 
 // ── Agent Mode tool plumbing ─────────────────────────────────────────────────
@@ -118,12 +119,14 @@ export function executeToolInRenderer(
     // `requestId` correlates the IPC reply; `toolCallId` is the model-side id
     // the renderer's UI parts carry, so renderer-side progress (e.g. the media
     // timeline) can be attached to the right tool call while this blocks.
-    mainWin?.webContents.send('agentMode:executeTool', {
-      requestId,
-      toolCallId,
-      toolName,
-      input,
-    })
+    if (mainWin) {
+      typedSend(mainWin.webContents, 'agentMode:executeTool', {
+        requestId,
+        toolCallId,
+        toolName,
+        input,
+      })
+    }
   })
 }
 

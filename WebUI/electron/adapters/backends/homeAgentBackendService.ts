@@ -3,8 +3,13 @@ import { randomBytes } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
-import { app, BrowserWindow, ipcMain, net, safeStorage } from 'electron'
+import { app, BrowserWindow, net, safeStorage } from 'electron'
 import type { LocalSettings } from '../../kernel/localSettings.ts'
+import { ipcFail } from '../../kernel/typedIpc'
+import { registerInvokeHandlers } from '../../kernel/ipcRegistries'
+import { buildHomeAgentRegistry } from '../../kernel/registries/homeAgent'
+import type { HomeAgentInboundMessage } from '@/types/homeAgentIpc'
+import type { IpcMutationResult, IpcOkWith } from '@/types/ipcChannels'
 import { GitService, LongLivedPythonApiService, createEnhancedErrorDetails } from './service.ts'
 import { aipgBaseDir, checkBackend, installBackend } from '../install/uvBasedBackends/uv.ts'
 import { spawnBackend } from '../install/processLifecycle.ts'
@@ -385,10 +390,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
   /** Save a channel config blob. `config` is a flat object with both secret
    *  and public fields; this method partitions them according to
    *  `SECRET_FIELDS[kind]` / `PUBLIC_FIELDS[kind]` and encrypts the secrets. */
-  saveChannelConfig(
-    kind: ChannelKind,
-    config: Record<string, string>,
-  ): { success: boolean; error?: string } {
+  saveChannelConfig(kind: ChannelKind, config: Record<string, string>): IpcMutationResult {
     try {
       const data = buildChannelConfigFile(
         kind,
@@ -399,7 +401,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       fs.writeFileSync(this.channelConfigPath(kind), JSON.stringify(data), 'utf-8')
       return { success: true }
     } catch (e) {
-      return { success: false, error: String(e) }
+      return ipcFail(e)
     }
   }
 
@@ -417,10 +419,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
   /** Persist the non-secret setup flags (verified / enabled) without touching
    *  the stored credentials. Read-modify-write so the secret/public fields are
    *  preserved. Creates a minimal file if none exists yet. */
-  saveChannelPrefs(
-    kind: ChannelKind,
-    prefs: Partial<ChannelPrefsFile>,
-  ): { success: boolean; error?: string } {
+  saveChannelPrefs(kind: ChannelKind, prefs: Partial<ChannelPrefsFile>): IpcMutationResult {
     try {
       const existing = this.readChannelConfigFile(kind)
       const data: ChannelConfigFile = existing ?? {
@@ -436,7 +435,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       fs.writeFileSync(this.channelConfigPath(kind), JSON.stringify(data), 'utf-8')
       return { success: true }
     } catch (e) {
-      return { success: false, error: String(e) }
+      return ipcFail(e)
     }
   }
 
@@ -525,31 +524,13 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
     }
   }
 
-  async channelPoll(kind: ChannelKind): Promise<
-    Array<{
-      text?: string
-      chat_id: string
-      channel?: string
-      ts?: string
-      images?: Array<{ mime: string; data_base64: string }>
-      audio?: Array<{ mime: string; data_base64: string }>
-      callback?: string
-    }>
-  > {
+  async channelPoll(kind: ChannelKind): Promise<HomeAgentInboundMessage[]> {
     if (this.currentStatus !== 'running') return []
     try {
       const res = await net.fetch(`${this.baseUrl}/channel/${kind}/poll`, {
         headers: this.authHeaders(),
       })
-      return (await res.json()) as Array<{
-        text?: string
-        chat_id: string
-        channel?: string
-        ts?: string
-        images?: Array<{ mime: string; data_base64: string }>
-        audio?: Array<{ mime: string; data_base64: string }>
-        callback?: string
-      }>
+      return (await res.json()) as HomeAgentInboundMessage[]
     } catch {
       return []
     }
@@ -586,13 +567,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       | 'editMessage'
       | 'history',
     payload: ChannelSendPayload,
-  ): Promise<{
-    success: boolean
-    ts?: string
-    channel?: string
-    messageId?: number
-    error?: string
-  }> {
+  ): Promise<IpcOkWith<{ ts?: string; channel?: string; messageId?: number }>> {
     if (this.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }
     try {
       const url = `${this.baseUrl}/channel/${kind}/send/${action}`
@@ -621,7 +596,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
         messageId: parsed.message_id,
       }
     } catch (e) {
-      return { success: false, error: String(e) }
+      return ipcFail(e)
     }
   }
 
@@ -631,7 +606,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
   // can verify credentials before saving them locally. These remain channel-
   // specific because each platform has its own auth shape.
 
-  async testTelegram(): Promise<{ success: boolean; error?: string }> {
+  async testTelegram(): Promise<IpcMutationResult> {
     try {
       const config = this.loadChannelConfig('telegram')
       if (!config) return { success: false, error: 'No config saved' }
@@ -652,11 +627,11 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       if (res.ok) return { success: true }
       return { success: false, error: await res.text() }
     } catch (e) {
-      return { success: false, error: String(e) }
+      return ipcFail(e)
     }
   }
 
-  async testSlack(): Promise<{ success: boolean; error?: string }> {
+  async testSlack(): Promise<IpcMutationResult> {
     try {
       const config = this.loadChannelConfig('slack')
       if (!config) return { success: false, error: 'No Slack config saved' }
@@ -702,12 +677,12 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       }
       return { success: true }
     } catch (e) {
-      return { success: false, error: String(e) }
+      return ipcFail(e)
     }
   }
 
   /** Channel verification dispatcher — picks the right `test*` method for `kind`. */
-  async channelTest(kind: ChannelKind): Promise<{ success: boolean; error?: string }> {
+  async channelTest(kind: ChannelKind): Promise<IpcMutationResult> {
     if (kind === 'telegram') return this.testTelegram()
     if (kind === 'slack') return this.testSlack()
     if (kind === 'local-web') return this.testLocalWeb()
@@ -717,7 +692,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
   /** Verify the local web channel by actually (re)starting its HTTP server in
    *  the backend with the saved config. Unlike Telegram/Slack there is no cloud
    *  API to ping — a successful bind IS the verification. */
-  private async testLocalWeb(): Promise<{ success: boolean; error?: string }> {
+  private async testLocalWeb(): Promise<IpcMutationResult> {
     if (this.currentStatus !== 'running') {
       return { success: false, error: 'Home Agent backend is not running yet.' }
     }
@@ -855,68 +830,6 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
   // ── IPC registration ────────────────────────────────────────────────────
 
   registerIpcHandlers(): void {
-    // Persistence — channel-keyed by first arg.
-    ipcMain.handle(
-      'channel:saveConfig',
-      (_event, kind: ChannelKind, config: Record<string, string>) =>
-        this.saveChannelConfig(kind, config),
-    )
-    ipcMain.handle('channel:loadConfig', (_event, kind: ChannelKind) =>
-      this.loadChannelConfig(kind),
-    )
-    ipcMain.handle('channel:clearConfig', (_event, kind: ChannelKind) =>
-      this.clearChannelConfig(kind),
-    )
-    ipcMain.handle(
-      'channel:savePrefs',
-      (_event, kind: ChannelKind, prefs: Partial<ChannelPrefsFile>) =>
-        this.saveChannelPrefs(kind, prefs),
-    )
-    ipcMain.handle('channel:loadPrefs', (_event, kind: ChannelKind) => this.loadChannelPrefs(kind))
-
-    // Local web chat: expose the URLs the served page is reachable at.
-    // Pure OS-info lookup — the chat server itself lives in the Python backend.
-    ipcMain.handle('homeAgent:localWeb:getUrls', (_event, port: number, allowLan: boolean) =>
-      this.getLocalWebUrls(port, !!allowLan),
-    )
-
-    // Backend dispatch — channel-keyed by first arg.
-    ipcMain.handle('channel:test', (_event, kind: ChannelKind) => this.channelTest(kind))
-    ipcMain.handle(
-      'channel:inject',
-      (_event, kind: ChannelKind, config: Record<string, string | undefined>) =>
-        this.channelSetConfig(kind, config),
-    )
-    ipcMain.handle(
-      'channel:detectIdentity',
-      (_event, kind: ChannelKind, config: Record<string, string | undefined>) =>
-        this.channelDetectIdentity(kind, config),
-    )
-    ipcMain.handle('channel:detectIdentityFromSaved', (_event, kind: ChannelKind) =>
-      this.channelDetectIdentityFromSaved(kind),
-    )
-    ipcMain.handle('channel:poll', (_event, kind: ChannelKind) => this.channelPoll(kind))
-    ipcMain.handle('channel:flushPending', (_event, kind: ChannelKind) =>
-      this.channelFlushPending(kind),
-    )
-    ipcMain.handle(
-      'channel:send',
-      (
-        _event,
-        kind: ChannelKind,
-        action:
-          | 'reply'
-          | 'update'
-          | 'photo'
-          | 'video'
-          | 'voice'
-          | 'document'
-          | 'typing'
-          | 'keyboard'
-          | 'editMessage'
-          | 'history',
-        payload: ChannelSendPayload,
-      ) => this.channelSend(kind, action, payload),
-    )
+    registerInvokeHandlers(buildHomeAgentRegistry(this))
   }
 }

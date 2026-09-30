@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentTurnSnapshot, KernelEvent, KernelSnapshot } from '@/types/kernelEvents'
+import type { IpcMutationResult } from '@/types/ipcChannels'
 
 // The renderer half of the hidden-window lifecycle: a window that (re)connects
 // while main is mid-turn adopts that turn from the kernel snapshot — the
@@ -34,7 +35,7 @@ function kernelEventOf(payload: Record<string, unknown>, seq: number): KernelEve
 }
 
 const startTurn = vi.fn(
-  async (_turnId: string, _prompt: string, _config: unknown): Promise<{ success: boolean }> => ({
+  async (_turnId: string, _prompt: string, _config: unknown): Promise<IpcMutationResult> => ({
     success: true,
   }),
 )

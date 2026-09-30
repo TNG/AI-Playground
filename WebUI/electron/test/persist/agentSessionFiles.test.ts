@@ -290,6 +290,6 @@ describe('deleteAgentSessionRecord', () => {
     await fs.mkdir(path.join(dirs.real, 'aipg-agent-1.json'), { recursive: true })
     const result = await deleteAgentSessionRecord('aipg-agent-1')
     expect(result.success).toBe(false)
-    expect(result.error).toBeTruthy()
+    expect('error' in result && result.error).toBeTruthy()
   })
 })

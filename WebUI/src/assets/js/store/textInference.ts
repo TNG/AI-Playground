@@ -1224,11 +1224,8 @@ export const useTextInference = defineStore(
       // server's URL from the embedding backend rather than the chat backend.
       const serviceName = backendToService[embeddingBackend.value]
       const embeddingUrlResult = await window.electronAPI.getEmbeddingServerUrl(serviceName)
-      if (!embeddingUrlResult.success || !embeddingUrlResult.url) {
-        throw new Error(
-          embeddingUrlResult.error ||
-            'Embedding server not available. Please ensure the embedding model is loaded.',
-        )
+      if (!embeddingUrlResult.success) {
+        throw new Error(embeddingUrlResult.error)
       }
       const backendBaseUrl = embeddingUrlResult.url
 

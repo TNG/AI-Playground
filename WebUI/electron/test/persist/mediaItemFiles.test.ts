@@ -254,7 +254,7 @@ describe('deleteMediaItemRecords', () => {
     await fs.mkdir(path.join(dirs.real, 'item-1.json'), { recursive: true })
     const result = await deleteMediaItemRecords(['item-1'])
     expect(result.success).toBe(false)
-    expect(result.error).toBeTruthy()
+    expect('error' in result && result.error).toBeTruthy()
   })
 
   it('rejects an unsafe id without touching the index', async () => {

@@ -14,6 +14,7 @@ import { useGlobalSetup } from './globalSetup'
 import { useModels } from './models'
 import { parseConfirmationReply } from './confirmationReply'
 import { fetchModelMeta, runModelDownload } from '@/lib/modelDownloader'
+import type { IpcMutationResult } from '@/types/ipcChannels'
 import { extractToolMedia } from '@/assets/js/tools/toolMedia'
 // Lazy-instantiated inside helpers to avoid a setup-time cycle with textInference,
 // which already instantiates useHomeAgent() at the top of its own setup.
@@ -1369,8 +1370,8 @@ export const useHomeAgent = defineStore(
               filename,
               doc.data_base64,
             )
-            if (!result.success || !result.filepath) {
-              throw new Error(result.error || 'failed to persist document')
+            if (!result.success) {
+              throw new Error(result.error)
             }
             const stub: IndexedDocument = {
               filename,
@@ -2289,7 +2290,7 @@ export const useHomeAgent = defineStore(
     async function saveChannelConfig(
       kind: ChannelKind,
       config: Partial<ChannelConfig>,
-    ): Promise<{ success: boolean; error?: string }> {
+    ): Promise<IpcMutationResult> {
       try {
         // safeStorage save (electron main process). Pass the flat config blob;
         // the main side partitions secret vs public fields.
@@ -2318,7 +2319,7 @@ export const useHomeAgent = defineStore(
         return result
       } catch (e) {
         console.error(`homeAgent.saveChannelConfig(${kind}) failed:`, e)
-        return { success: false, error: String(e) }
+        return { success: false as const, error: String(e) }
       }
     }
 

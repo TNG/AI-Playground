@@ -601,7 +601,7 @@ export const useBackendServices = defineStore('backendServices', () => {
     return listener?.getLastErrorDetails() ?? null
   }
 
-  async function updateServiceSettings(settings: ServiceSettings): Promise<BackendStatus> {
+  async function updateServiceSettings(settings: ServiceSettings): Promise<void> {
     return window.electronAPI.updateServiceSettings(settings)
   }
 

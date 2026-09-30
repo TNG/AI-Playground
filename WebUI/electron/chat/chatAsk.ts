@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { getKernelEventWindow } from '../kernel/kernelBus'
+import { typedSend } from '../kernel/typedIpc'
 import type { ChatAnswerPayload, ChatAskBody, ChatAskPhase } from '@/types/chatRequests'
 
 /**
@@ -9,8 +10,6 @@ import type { ChatAnswerPayload, ChatAskBody, ChatAskPhase } from '@/types/chatR
  *
  * See `@/types/chatRequests` for what main asks the renderer and why.
  */
-
-const ASK_CHANNEL = 'chat:ask'
 
 type PendingRequest = {
   resolve: (result: unknown) => void
@@ -52,7 +51,7 @@ export function askRenderer<T>(
       onPhase: options.onPhase,
     })
     try {
-      win.webContents.send(ASK_CHANNEL, { ...body, requestId })
+      typedSend(win.webContents, 'chat:ask', { ...body, requestId })
     } catch (error) {
       pending.delete(requestId)
       reject(error instanceof Error ? error : new Error(String(error)))

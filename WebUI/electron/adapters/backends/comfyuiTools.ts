@@ -10,17 +10,16 @@ import {
   installExtraWheels,
   aipgBaseDir,
 } from '../install/uvBasedBackends/uv'
+import type { ComfyUICustomNodeRepoId } from '@/types/comfyuiIpc'
+
+// Compat re-export: the type moved to src/types/comfyuiIpc.ts (channel manifest);
+// main-side consumers keep importing it from here.
+export type { ComfyUICustomNodeRepoId }
 
 const execAsync = promisify(exec)
 
 // Backend name for ComfyUI
 const COMFYUI_BACKEND = 'ComfyUI'
-
-export interface ComfyUICustomNodeRepoId {
-  username: string
-  repoName: string
-  gitRef?: string
-}
 
 const REACTOR_SFW_PATCH = `from transformers import pipeline
 from PIL import Image

@@ -365,8 +365,10 @@ through it — never surface errors ad hoc.
 - Global capture is wired in `main.ts` (Vue `errorHandler`, `unhandledrejection`, `window.error`),
   so uncaught failures already reach the sink. De-duplication keys off the `AppError` instance, so
   re-`report`ing the same caught error (e.g. rethrown then caught again) won't double-toast.
-- IPC handlers (main → renderer) still return `{ success: boolean, error?: string }`; the renderer
-  turns a failed result into an `AppError` via the sink.
+- IPC handlers return what their manifest row declares: raw data, or a discriminated envelope
+  (`IpcMutationResult`, `IpcDataResult<T>`, `IpcOkWith<...>` — all `IpcOk | IpcFail`); main builds
+  the failure arm with `ipcFail(e)`/`ipcErrorText(e)`, and the renderer turns a failed result into
+  an `AppError` via the sink.
 - Python backends: return `{"code": 0, "data": ...}` on success, `{"code": -1, "message": ...}` on error.
 
 ## ESLint Rules of Note
@@ -418,13 +420,46 @@ Dependency direction: domain and kernel may import adapters, **adapters must not
 — machine-level settings live in `electron/kernel/localSettings.ts` so a backend can type its
 configuration without reaching into the composition root.
 
-## IPC Pattern (Three-File Rule)
+## IPC Pattern (Channel Manifest)
 
-Every new IPC command requires changes to exactly three files:
+Every IPC channel is stated once in the typed manifest (`WebUI/src/types/ipcChannels.ts`):
+name, argument types, result type, direction (`invoke`/`send`/`push`), owner, and the
+row's documentation. All three sides are enforced through it: main registers per-owner
+registries (`electron/kernel/registries/*.ts`, each a handler-map builder whose literal is
+`satisfies`-exhaustive against the owner-scoped mapped types in `electron/kernel/ipcRegistries.ts`,
+wired up by `registerInvokeHandlers`/`registerSendHandlers` — the Home Agent backend service
+registers its own registry, and only when the service exists), the preload's member types derive
+from the rows and its hand-written members are audited as one object (`satisfies ElectronApi`), and
+the renderer's `electronAPI` type is a one-line derivation in `env.d.ts`. A channel missing on any
+side is a build error, not a runtime bug — a missing handler or an unhandled new row fails the
+owning registry's `satisfies`. `typedHandle`/`typedOn`/`typedSend` (`electron/kernel/typedIpc.ts`)
+remain the kernel seam underneath but are no longer called per-row in `main.ts`. The manifest is
+authoritative — the old "three-file rule" is superseded.
 
-1. `WebUI/electron/main.ts` — add `ipcMain.handle()` or `ipcMain.on()` handler
-2. `WebUI/electron/preload.ts` — expose via `contextBridge.exposeInMainWorld()`
-3. `WebUI/src/env.d.ts` — add TypeScript type definition to `electronAPI`
+Enforcement is end-to-end:
+
+- **preload** (`WebUI/electron/preload.ts`) exposes one object annotated
+  `satisfies ElectronApi` — every member's path, argument and result types must match the
+  manifest derivation exactly. The few members with no manifest row (webUtils'
+  `getFilePath`, the `onKernelEvent` listener) are declared in `IpcExtraBridgeMembers`.
+- **env.d.ts** types the renderer side in one line:
+  `type electronAPI = import('./types/ipcChannels').ElectronApi`.
+- **`electron/test/kernel/ipcChannelRegistration.test.ts`** scans `WebUI/electron/**/*.ts`
+  source text for what a type cannot see: no raw
+  `ipcMain.handle`/`ipcMain.on`/`webContents.send`/`ipcRenderer.*` registration survives outside
+  the kernel-stream allowlist, and every `push` row needs a preload `onPush`/`onRaw` listener
+  (hand-audited until #303 derives the bridge members). Registration completeness and owner
+  placement need no scan — they are compile-time via the per-owner registries' `satisfies` maps,
+  pinned by the planted-omission fixture in `ipcRegistries.test.ts`.
+- **Kernel stream** (the one documented exception): `kernel:event` and its raw preload
+  listener stay hand-wired — the single ordered event stream is infra, deliberately
+  off-manifest; `kernel:getSnapshot` is a normal manifest row (flat, top-level member
+  `getKernelSnapshot`).
+- **Add channels row-first**: write the manifest row, then follow the compile errors — the
+  owning registry's `satisfies` map names the missing handler (a new prefix gets its own domain
+  type + registry; otherwise the row lands in the core complement in `kernel/registries/core.ts`),
+  the preload member the whole-object `satisfies` demands (it names the missing member and its
+  expected shape), and the renderer type arrives via `env.d.ts` for free.
 
 ## Home Agent Slash Commands (Five-Place Rule)
 
@@ -925,30 +960,32 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 
 ### Electron Main Process Files
 
-| File                                                   | Purpose                                                                                           |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `electron/main.ts`                                     | Window creation, all IPC handlers (~68 channels), app lifecycle                                   |
-| `electron/preload.ts`                                  | `contextBridge` exposing `electronAPI` to renderer                                                |
-| `electron/kernel/localSettings.ts`                     | Machine-level `settings.json` schema, shared by main and the backend adapters                     |
-| `electron/kernel/pathsManager.ts`                      | Singleton managing all app/model/service filesystem paths                                         |
-| `electron/kernel/orchestrator.ts`                      | Typed run queue + GPU window (steps 7 + 10): text occupancy, artifact-run FIFO, media-request lane |
-| `electron/persist/userDataPaths.ts`                    | Where every kernel-owned user-data file lives (media, games, conversations, …)                    |
-| `electron/adapters/remoteUpdates.ts`                   | Fetching model lists and preset updates from GitHub                                               |
-| `electron/adapters/backends/apiServiceRegistry.ts`     | Service registration, port allocation, lifecycle orchestration                                    |
-| `electron/adapters/backends/service.ts`                | Base classes: `GenericService`, `ExecutableService`, `LongLivedPythonApiService`                  |
-| `electron/adapters/backends/aiBackendService.ts`       | Python Flask model-management backend                                                             |
-| `electron/adapters/backends/llamaCppBackendService.ts` | LlamaCPP native server (LLM + embedding sub-servers)                                              |
-| `electron/adapters/backends/openVINOBackendService.ts` | OpenVINO OVMS (LLM + embedding + transcription sub-servers)                                       |
-| `electron/adapters/backends/comfyUIBackendService.ts`  | ComfyUI Python server                                                                             |
-| `electron/adapters/backends/langchain.ts`              | RAG utility process (document splitting, embedding, vector search)                                |
-| `electron/adapters/hardware/deviceDetection.ts`        | Intel GPU device detection and env var setup                                                      |
-| `electron/chat/turnEngine.ts`                          | Main-side chat turn engine (step 6): streamText, tool bridge, turn lifecycle                      |
-| `electron/chat/mediaAgentRunner.ts`                    | Nested media specialist (step 12): tool loop in main, inner Comfy in-process                      |
-| `electron/artifact/inProcessComfy.ts`                  | Shared in-process Comfy for generateImage/editImage and specialist inner tools                    |
-| `electron/chat/chatModelMain.ts`                       | Chat model factory for main (backend routing, readiness, Home-Agent proxy)                        |
-| `electron/chat/chatSummarize.ts`                       | One-shot conversation title summarization                                                         |
-| `electron/chat/chatAsk.ts`                             | Main→renderer request/response for the one answer a chat tool needs from the window               |
-| `electron/observability/logger.ts`                     | Logging, sends `debugLog` events to renderer                                                      |
+| File                                                   | Purpose                                                                                                                                                      |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `electron/main.ts`                                     | Window creation, dep-gathering + wiring of the per-owner IPC registries (the channel manifest in `src/types/ipcChannels.ts` is authoritative), app lifecycle |
+| `electron/preload.ts`                                  | `contextBridge` exposing `electronAPI` to renderer                                                                                                           |
+| `electron/kernel/localSettings.ts`                     | Machine-level `settings.json` schema, shared by main and the backend adapters                                                                                |
+| `electron/kernel/pathsManager.ts`                      | Singleton managing all app/model/service filesystem paths                                                                                                    |
+| `electron/kernel/orchestrator.ts`                      | Typed run queue + GPU window (steps 7 + 10): text occupancy, artifact-run FIFO, media-request lane                                                           |
+| `electron/kernel/ipcRegistries.ts`                     | Owner-scoped IPC channel-name types + `registerInvokeHandlers`/`registerSendHandlers` (the #301 registry seam)                                               |
+| `electron/kernel/registries/`                          | Per-owner handler-map builders, each `satisfies`-exhaustive for its owner-scoped names; `core.ts` holds the flat-channel complement                          |
+| `electron/persist/userDataPaths.ts`                    | Where every kernel-owned user-data file lives (media, games, conversations, …)                                                                               |
+| `electron/adapters/remoteUpdates.ts`                   | Fetching model lists and preset updates from GitHub                                                                                                          |
+| `electron/adapters/backends/apiServiceRegistry.ts`     | Service registration, port allocation, lifecycle orchestration                                                                                               |
+| `electron/adapters/backends/service.ts`                | Base classes: `GenericService`, `ExecutableService`, `LongLivedPythonApiService`                                                                             |
+| `electron/adapters/backends/aiBackendService.ts`       | Python Flask model-management backend                                                                                                                        |
+| `electron/adapters/backends/llamaCppBackendService.ts` | LlamaCPP native server (LLM + embedding sub-servers)                                                                                                         |
+| `electron/adapters/backends/openVINOBackendService.ts` | OpenVINO OVMS (LLM + embedding + transcription sub-servers)                                                                                                  |
+| `electron/adapters/backends/comfyUIBackendService.ts`  | ComfyUI Python server                                                                                                                                        |
+| `electron/adapters/backends/langchain.ts`              | RAG utility process (document splitting, embedding, vector search)                                                                                           |
+| `electron/adapters/hardware/deviceDetection.ts`        | Intel GPU device detection and env var setup                                                                                                                 |
+| `electron/chat/turnEngine.ts`                          | Main-side chat turn engine (step 6): streamText, tool bridge, turn lifecycle                                                                                 |
+| `electron/chat/mediaAgentRunner.ts`                    | Nested media specialist (step 12): tool loop in main, inner Comfy in-process                                                                                 |
+| `electron/artifact/inProcessComfy.ts`                  | Shared in-process Comfy for generateImage/editImage and specialist inner tools                                                                               |
+| `electron/chat/chatModelMain.ts`                       | Chat model factory for main (backend routing, readiness, Home-Agent proxy)                                                                                   |
+| `electron/chat/chatSummarize.ts`                       | One-shot conversation title summarization                                                                                                                    |
+| `electron/chat/chatAsk.ts`                             | Main→renderer request/response for the one answer a chat tool needs from the window                                                                          |
+| `electron/observability/logger.ts`                     | Logging, sends `debugLog` events to renderer                                                                                                                 |
 
 ## Cursor Cloud specific instructions
 

@@ -3,41 +3,20 @@ import type { ToolSet } from 'ai'
 import { createMCPClient, type MCPClient } from '@ai-sdk/mcp'
 import { Experimental_StdioMCPTransport } from '@ai-sdk/mcp/mcp-stdio'
 import { appLoggerInstance } from '../../observability/logger'
-import { loadMcpServers, type McpServerConfig } from './mcpServers'
+import { loadMcpServers } from './mcpServers'
 import { uvPath } from '../install/uvBasedBackends/uv'
+import type {
+  McpServerConfig,
+  McpServerInfo,
+  McpStatus,
+  McpToolCallResult,
+  McpToolInfo,
+} from '@/types/mcpIpc'
 
 type HttpTransportConfig = {
   type: 'http'
   url: string
   headers?: Record<string, string>
-}
-
-export type McpConnectionState = 'stopped' | 'starting' | 'running' | 'error'
-
-export type McpStatus = {
-  state: McpConnectionState
-  lastError?: string
-}
-
-export type McpToolInfo = {
-  name: string
-  description?: string
-  inputSchema: Record<string, unknown>
-}
-
-export type McpServerInfo = {
-  id: string
-  name: string
-  instructions?: string
-  /** UI-facing help text (what the server is for / how to use it), shown as an info
-   *  tooltip in settings. Distinct from `instructions`, which is fed to the model. */
-  description?: string
-}
-
-export type McpToolCallResult = {
-  isError?: boolean
-  content?: unknown
-  structuredContent?: unknown
 }
 
 const UV_COMMANDS = new Set(['uv', 'uv.exe'])

@@ -11,7 +11,6 @@ import {
   resetAgentSession,
   shutdownAgentMode,
   startAgentTurn,
-  type AgentModeTurnResult,
 } from './piTurnRunner.ts'
 
 // ── Agent Mode: Pi coding agent in the Electron main process ─────────────────
@@ -82,4 +81,4 @@ export {
 }
 
 export { COMPACTION_TOOL_NAME } from './piStreamTranslate.ts'
-export type { ToolDefinition, AgentModeTurnResult }
+export type { ToolDefinition }

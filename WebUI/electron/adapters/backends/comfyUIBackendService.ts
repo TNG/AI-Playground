@@ -32,6 +32,7 @@ import { ProcessError } from '../install/osProcessHelper.ts'
 import { killStaleProcesses, spawnBackend } from '../install/processLifecycle.ts'
 import { getMediaDir } from '../../persist/userDataPaths.ts'
 import { packagedResourcesRoot, writableConfigRoot } from '../../kernel/aipgRoot.ts'
+import { typedSend } from '../../kernel/typedIpc'
 import {
   clearLevelZeroRuntimeCache,
   cudaVisibleDevicesEnv,
@@ -263,7 +264,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   private sendShowToast(type: string, message: string): void {
     const win = this.liveWindow()
     if (!win || win.isDestroyed()) return
-    win.webContents.send('show-toast', { type, message })
+    typedSend(win.webContents, 'show-toast', { type, message })
   }
 
   private readonly variantMarkerPath = path.join(this.serviceDir, 'aipg-variant.json')

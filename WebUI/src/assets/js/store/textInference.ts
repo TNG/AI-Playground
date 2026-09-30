@@ -21,9 +21,8 @@ import {
   resolveSampling,
   toRequestBody,
 } from '@/lib/samplingDefaults'
-import { requestDownload } from '@/assets/js/permissions/permissions'
+import { notify, requestDownload } from '@/assets/js/permissions/permissions'
 import { claimOvmsMtpStaleNotice, ovmsMtpRequestFields } from '@/lib/ovmsMtp'
-import { useDialogStore } from './dialogs'
 import { usePresets, type ChatPreset } from './presets'
 import { useDeveloperSettings } from './developerSettings'
 import { useHomeAgent } from './homeAgent'
@@ -190,7 +189,6 @@ export const useTextInference = defineStore(
     })
     const i18nState = useI18N().state
     const uiStore = useUIStore()
-    const dialogStore = useDialogStore()
     // Tracks the in-flight backend-preparation activity (begin/end are paired with
     // start/completeBackendPreparation).
     let backendPrepActivityId: string | null = null
@@ -1344,7 +1342,7 @@ export const useTextInference = defineStore(
       )?.ovmsMtpStaleModel
       if (!claimOvmsMtpStaleNotice(modelRepoId, localStorage)) return
       const message = (i18nState.OVMS_MTP_STALE_MODEL ?? '').replace('{model}', modelRepoId ?? '')
-      dialogStore.showWarningDialog(message, () => {
+      notify(message, () => {
         uiStore.openModelManager()
       })
     }

@@ -116,6 +116,7 @@ function fakeWindow(): void {
   globalThis.window = {
     electronAPI: {
       agentMode: agentModeApi,
+      getLocaleSettings: vi.fn(async () => ({ languageOverride: null })),
       games: {
         read: vi.fn(async () => null),
         list: vi.fn(async () => []),

@@ -22,7 +22,7 @@ import { selectDefaultInstalls, type SeedCandidate } from '@/lib/wizardInstallDe
 import * as toast from '@/assets/js/toast'
 import { useErrors } from './errors'
 import { extractMessage } from '../errors/appError'
-import type { ErrorDetails } from '../../../../electron/subprocesses/service'
+import { errorSummary } from '@/lib/errorSummary'
 
 // Derived from the single source of truth rather than restated: a backend added
 // there but forgotten here would silently never appear in the wizard.
@@ -997,9 +997,11 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     if (result.success) {
       await restartBackend(name)
     } else {
-      const msg =
-        result.errorDetails?.hint ??
-        (result.errorDetails ? 'Setup failed — see error log for details' : 'Setup failed')
+      const msg = errorSummary(
+        result.errorDetails,
+        'Setup failed — see error log for details',
+        'Setup failed',
+      )
       toast.error(msg)
     }
   }
@@ -1047,20 +1049,20 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       const startStatus = await backendServices.startService(name)
       if (startStatus !== 'running') {
         const errorDetails = backendServices.getServiceErrorDetails(name)
-        const msg =
-          errorDetails?.hint ??
-          (errorDetails
-            ? 'Service failed to start — see error log for details'
-            : 'Service failed to start')
+        const msg = errorSummary(
+          errorDetails,
+          'Service failed to start — see error log for details',
+          'Service failed to start',
+        )
         toast.error(msg)
       }
     } catch (error) {
       const errorDetails = backendServices.getServiceErrorDetails(name)
-      const msg =
-        errorDetails?.hint ??
-        (errorDetails
-          ? 'Service startup failed — see error log for details'
-          : `Service startup failed: ${error instanceof Error ? error.message : String(error)}`)
+      const msg = errorSummary(
+        errorDetails,
+        'Service startup failed — see error log for details',
+        `Service startup failed: ${error instanceof Error ? error.message : String(error)}`,
+      )
       toast.error(msg)
     } finally {
       wizardActivity.value.delete(name)

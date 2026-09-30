@@ -447,9 +447,9 @@ import { Switch } from '@/components/ui/switch'
 import ErrorDetailsModal from '@/components/ErrorDetailsModal.vue'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
-import type { ErrorDetails } from '../../electron/subprocesses/service'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { useErrors } from '@/assets/js/store/errors'
+import { errorSummary } from '@/lib/errorSummary'
 
 const emits = defineEmits<{
   (e: 'close'): void
@@ -730,11 +730,11 @@ async function installBackend(name: BackendServiceName) {
     errors.report('Backend setup failed', {
       category: 'setup',
       code: 'setup/backend-setup-failed',
-      userMessage:
-        setupProgress.errorDetails?.hint ??
-        (setupProgress.errorDetails
-          ? 'Setup failed - Click the info icon for details'
-          : 'Setup failed'),
+      userMessage: errorSummary(
+        setupProgress.errorDetails,
+        'Setup failed - Click the info icon for details',
+        'Setup failed',
+      ),
       context: { serviceName: name },
     })
     loadingComponents.value.delete(name)
@@ -778,11 +778,11 @@ async function restartBackend(name: BackendServiceName) {
       errors.report('Service failed to start', {
         category: 'backend',
         code: 'backend/start-failed',
-        userMessage:
-          errorDetails?.hint ??
-          (errorDetails
-            ? 'Service failed to start - Click the info icon for details'
-            : 'Service failed to start'),
+        userMessage: errorSummary(
+          errorDetails,
+          'Service failed to start - Click the info icon for details',
+          'Service failed to start',
+        ),
         context: { serviceName: name },
       })
       loadingComponents.value.delete(name)
@@ -794,11 +794,11 @@ async function restartBackend(name: BackendServiceName) {
     errors.report(error, {
       category: 'backend',
       code: 'backend/start-failed',
-      userMessage:
-        errorDetails?.hint ??
-        (errorDetails
-          ? 'Service startup failed - Click the info icon for details'
-          : `Service startup failed: ${error instanceof Error ? error.message : String(error)}`),
+      userMessage: errorSummary(
+        errorDetails,
+        'Service startup failed - Click the info icon for details',
+        `Service startup failed: ${error instanceof Error ? error.message : String(error)}`,
+      ),
       context: { serviceName: name },
     })
     loadingComponents.value.delete(name)

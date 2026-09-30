@@ -28,16 +28,7 @@ declare interface SetupProgress {
   step: string
   status: 'executing' | 'success' | 'failed'
   debugMessage: string
-  errorDetails?: {
-    command?: string
-    exitCode?: number
-    stdout?: string
-    stderr?: string
-    timestamp?: string
-    duration?: number
-    pipFreezeOutput?: string
-    hint?: string
-  }
+  errorDetails?: ErrorDetails
 }
 
 declare interface InferenceDevice {

@@ -22,18 +22,6 @@ import { LocalSettings } from '../main.ts'
 const exec = promisify(childProcess.exec)
 const execFileAsync = promisify(childProcess.execFile)
 
-// Type for error details that matches SetupProgress.errorDetails
-export interface ErrorDetails {
-  command?: string
-  exitCode?: number
-  stdout?: string
-  stderr?: string
-  timestamp?: string
-  duration?: number
-  pipFreezeOutput?: string
-  hint?: string
-}
-
 // Helper function to capture pip freeze output using service-specific Python environment
 export async function capturePipFreezeOutput(): Promise<string | undefined> {
   // pip freeze functionality removed - uv handles Python environments

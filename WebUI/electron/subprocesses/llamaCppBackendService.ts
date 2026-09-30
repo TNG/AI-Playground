@@ -9,7 +9,8 @@ import * as filesystem from 'fs-extra'
 import { app, type BrowserWindow } from 'electron'
 import { appLoggerInstance } from '../logging/logger.ts'
 import { packagedResourcesRoot } from '../aipgRoot.ts'
-import { createEnhancedErrorDetails, type ApiService, type ErrorDetails } from './service.ts'
+import { applicationControlHint } from './applicationControl.ts'
+import { createEnhancedErrorDetails, type ApiService } from './service.ts'
 import { fetchInstallArtifact } from './fetchInstallArtifact.ts'
 import {
   spawnBackend,
@@ -1435,6 +1436,7 @@ export class LlamaCppBackendService implements ApiService {
       let memoryFailureDetected = false
       let processExited = false
       let exitCode: number | null = null
+      let spawnBlockedHint: string | undefined
 
       const memoryFailureMarkers = [
         'failed to allocate',
@@ -1468,6 +1470,7 @@ export class LlamaCppBackendService implements ApiService {
       // Returns an actionable error message if the server has failed to start,
       // otherwise null. Consumed by waitForServerReady to abort the wait early.
       const getStartupError = (): string | null => {
+        if (spawnBlockedHint) return spawnBlockedHint
         if (memoryFailureDetected) {
           return `Model failed to load: not enough memory to run "${modelRepoId}" with a context size of ${ctxSize}. Try reducing the context size and load the model again.`
         }
@@ -1483,6 +1486,7 @@ export class LlamaCppBackendService implements ApiService {
       childProcess.stderr!.on('data', handleServerOutput)
 
       childProcess.on('error', (error: Error) => {
+        spawnBlockedHint = applicationControlHint(error.message)
         this.appLogger.error(`LLM server process error: ${error}`, this.name)
       })
 

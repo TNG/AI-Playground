@@ -133,17 +133,6 @@
 <script setup lang="ts">
 import * as toast from '@/assets/js/toast.ts'
 
-interface ErrorDetails {
-  command?: string
-  exitCode?: number
-  stdout?: string
-  stderr?: string
-  timestamp?: string
-  duration?: number
-  pipFreezeOutput?: string
-  hint?: string
-}
-
 interface Props {
   isOpen: boolean
   serviceName: string

@@ -11,7 +11,7 @@ import { useErrors } from './errors'
 import { createAppError } from '../errors/appError'
 import { useBackendServices } from './backendServices'
 import { connectKernelEventStream } from '@/assets/js/projection/kernelProjection'
-import type { ArtifactPhase } from '@/types/kernelEvents'
+import type { ArtifactPhase, ArtifactRunOwner } from '@/types/kernelEvents'
 import { usePresets, presetRequiresUserPrompt, type ComfyInput } from './presets'
 
 // ComfyUI model-name/path helpers and the optional-model sentinel live in
@@ -871,9 +871,8 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     }
   }
 
-  // Renderer-submitted run ids, plus in-process chat-specialist runs that stamp
-  // origin: 'renderer' without pre-registering gallery stubs. In-process agent
-  // tools stamp origin: 'agent' and must not drive the Image Gen overlay.
+  // Only panel-owned runs drive the Image Gen overlay; tool-owned runs render
+  // on their own tool card (artifactRuns store).
   const trackedArtifactRunIds = new Set<string>()
   function trackArtifactRun(runId: string): void {
     trackedArtifactRunIds.add(runId)
@@ -882,9 +881,9 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     trackedArtifactRunIds.delete(runId)
   }
 
-  function adoptArtifactRun(runId: string, origin?: 'renderer' | 'agent'): boolean {
+  function adoptArtifactRun(runId: string, owner?: ArtifactRunOwner): boolean {
     if (trackedArtifactRunIds.has(runId)) return true
-    if (origin !== 'renderer') return false
+    if (owner?.kind !== 'panel') return false
     trackArtifactRun(runId)
     return true
   }
@@ -948,21 +947,25 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
   const artifactProjection = connectKernelEventStream(
     (event) => {
       if (event.type === 'artifact-phase') {
-        if (!adoptArtifactRun(event.runId, event.origin)) return
+        if (!adoptArtifactRun(event.runId, event.owner)) return
         applyArtifactPhase(event.runId, event.phase, event.progress, event.error)
       } else if (event.type === 'artifact-item') {
-        if (!adoptArtifactRun(event.runId, event.origin)) return
-        updateImage(event.item)
+        if (adoptArtifactRun(event.runId, event.owner)) {
+          updateImage(event.item)
+        } else if (event.origin === 'renderer' && event.item.state === 'done') {
+          // Chat tool output joins the gallery as main persists it, without the overlay.
+          updateImage(event.item)
+        }
       }
     },
     (snapshot) => {
-      // A reconnected renderer resumes a renderer-originated run. In-process
-      // agent runs share this snapshot slot but must not paint the panel.
+      // A reconnected renderer resumes a panel run. Tool runs share this
+      // snapshot slot but must not paint the panel.
       const run = snapshot.state.activeArtifactRun
       if (!run) return
       const known = new Set(generatedImages.value.map((item) => item.id))
       const hasTrackedItems = run.items.some((item) => known.has(item.id))
-      if (!hasTrackedItems && run.origin === 'agent') return
+      if (!hasTrackedItems && run.owner?.kind !== 'panel') return
       trackArtifactRun(run.runId)
       applyArtifactPhase(run.runId, run.phase, run.progress, run.error ?? undefined)
       for (const item of run.items) {

@@ -75,37 +75,48 @@ export type ArtifactPhase =
   | 'failed'
   | 'cancelled'
 
-/** Run-level phase transition for the artifact run main is executing. */
-export type KernelArtifactPhaseEvent = {
-  type: 'artifact-phase'
+/**
+ * Who a run's progress belongs to. `panel` is the Image Gen / Edit / Video
+ * panel (and Home Agent `/imgGen`); `tool` is the tool call that submitted it,
+ * with `parentToolCallId` naming the delegating `media` call for specialist runs.
+ */
+export type ArtifactRunOwner =
+  { kind: 'panel' } | { kind: 'tool'; toolCallId: string; parentToolCallId?: string }
+
+/** Stamped on every artifact event by the runner, straight from the run's payload. */
+export type ArtifactRunTag = {
   runId: string
+  /** Decides gallery persistence: renderer-origin runs are saved as media records. */
+  origin?: 'renderer' | 'agent'
+  /** Decides which surface renders the run's progress. */
+  owner?: ArtifactRunOwner
+}
+
+/** Run-level phase transition for an artifact run (queued, executing or settled). */
+export type KernelArtifactPhaseEvent = ArtifactRunTag & {
+  type: 'artifact-phase'
   phase: ArtifactPhase
   /** Execution progress for the `running` phase ("step 3 of 20"). */
   progress?: { current: number; max: number }
   /** Failure text for the `failed` phase. */
   error?: string
-  /** Lets the renderer adopt chat-specialist runs that never pre-registered stubs. */
-  origin?: 'renderer' | 'agent'
 }
 
 /**
  * One tracked media item of the active run: registration, a state/output
  * change or a terminal settle. `item` is the full `MediaItem` at its new state.
  */
-export type KernelArtifactItemEvent = {
+export type KernelArtifactItemEvent = ArtifactRunTag & {
   type: 'artifact-item'
-  runId: string
   item: MediaItem
-  origin?: 'renderer' | 'agent'
 }
 
 /**
  * The run settled. Items already streamed via `artifact-item` (and are on the
  * snapshot), so this carries only the outcome and the failure text.
  */
-export type KernelArtifactDoneEvent = {
+export type KernelArtifactDoneEvent = ArtifactRunTag & {
   type: 'artifact-done'
-  runId: string
   state: 'completed' | 'failed' | 'cancelled'
   error?: string
 }
@@ -268,6 +279,7 @@ export type ArtifactRunSnapshot = {
    * not. A reconnected renderer only hydrates the panel from `renderer` runs.
    */
   origin?: 'renderer' | 'agent'
+  owner?: ArtifactRunOwner
   phase: ArtifactPhase
   progress?: { current: number; max: number }
   error?: string | null

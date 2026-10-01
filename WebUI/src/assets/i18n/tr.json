@@ -18,6 +18,7 @@
   "COM_GENERATE": "Oluştur",
   "COM_GENERATE_FAILED": "Oluşturma başarısız",
   "COM_GENERATING": "Oluşturuluyor",
+  "COM_GENERATION_QUEUED": "Önceki oluşturmanın bitmesi bekleniyor",
   "COM_HISTORY": "Geçmiş",
   "COM_SHOW_HISTORY": "Geçmişi Göster",
   "COM_SESSIONS": "Oturumlar",

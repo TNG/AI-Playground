@@ -371,6 +371,55 @@ describe('artifact runner', () => {
     expect(saveMediaItems).not.toHaveBeenCalled()
   })
 
+  it('stamps the owner on every event of a queued tool run, before it starts too', async () => {
+    setArtifactRunnerDeps(deps())
+    const first = payload({ params: { ...payload().params, batchSize: 1 } })
+    const active = submitArtifactRun({ ...first, items: itemsFor(first) })
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(1))
+
+    const owner = { kind: 'tool' as const, toolCallId: 'inner-1', parentToolCallId: 'media-1' }
+    const queued = submitArtifactRun(
+      payload({
+        runId: 'run-2',
+        origin: 'renderer',
+        owner,
+        items: undefined,
+        params: { ...payload().params, batchSize: 1 },
+      }),
+      { queue: 'queue' },
+    )
+    const ownRun = () => kernelEvents.filter((event) => event.runId === 'run-2')
+    expect(ownRun()).toEqual([
+      expect.objectContaining({ type: 'artifact-phase', phase: 'queued', owner }),
+    ])
+
+    socketHandlers!.onJson({
+      type: 'executed',
+      data: {
+        node: '2',
+        output: { images: [{ filename: 'a.png', subfolder: '', type: 'output' }] },
+      },
+    })
+    await active
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(2))
+    socketHandlers!.onJson({
+      type: 'executed',
+      data: {
+        node: '2',
+        output: { images: [{ filename: 'b.png', subfolder: '', type: 'output' }] },
+      },
+    })
+    expect((await queued).state).toBe('completed')
+
+    const events = ownRun()
+    expect(events.map((event) => event.type)).toEqual(
+      expect.arrayContaining(['artifact-phase', 'artifact-item', 'artifact-done']),
+    )
+    for (const event of events) {
+      expect(event).toMatchObject({ owner, origin: 'renderer' })
+    }
+  })
+
   it('ignores leftover websocket frames from a settled run after a queued run starts', async () => {
     setArtifactRunnerDeps(deps())
     const first = payload({ params: { ...payload().params, batchSize: 1 } })

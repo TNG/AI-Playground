@@ -33,6 +33,12 @@ type MediaAgentRunArgs = MediaAgentRunRequest & {
   readMediaAsDataUri?: (url: string) => Promise<string>
 }
 
+type InnerExecOptions = {
+  toolCallId?: string
+  messages?: ModelMessage[]
+  abortSignal?: AbortSignal
+}
+
 const SLIM_IMAGE_KEYS = ['id', 'type', 'imageUrl', 'videoUrl', 'model3dUrl', 'mode'] as const
 
 const activeRuns = new Map<string, AbortController>()
@@ -58,7 +64,7 @@ async function executeInnerComfy(
   request: MediaAgentRunRequest,
   toolName: string,
   input: unknown,
-  execOptions: { messages?: ModelMessage[]; abortSignal?: AbortSignal },
+  execOptions: InnerExecOptions,
   controller: AbortController,
 ): Promise<Record<string, unknown>> {
   const raw = await executeChatComfyTool({
@@ -67,6 +73,11 @@ async function executeInnerComfy(
     messages: execOptions.messages,
     abortSignal: execOptions.abortSignal ?? controller.signal,
     origin: request.origin,
+    owner: {
+      kind: 'tool',
+      toolCallId: execOptions.toolCallId ?? request.runKey,
+      parentToolCallId: request.runKey,
+    },
     conversationKey: request.conversationKey,
     keepModelsLoaded: request.keepModelsLoaded ?? false,
   })
@@ -80,11 +91,7 @@ async function executeInnerComfy(
 function innerComfyTools(
   specs: ChatToolSpec[],
   repairData: MediaAgentRunRequest['repairData'],
-  execute: (
-    spec: ChatToolSpec,
-    input: unknown,
-    execOptions: { messages?: ModelMessage[]; abortSignal?: AbortSignal },
-  ) => Promise<unknown>,
+  execute: (spec: ChatToolSpec, input: unknown, execOptions: InnerExecOptions) => Promise<unknown>,
 ): ToolSet {
   const tools: ToolSet = {}
   for (const spec of specs) {
@@ -114,10 +121,7 @@ function innerComfyTools(
             },
           })
         : jsonSchema(spec.inputSchema as JSONSchema7),
-      execute: (
-        input: unknown,
-        execOptions: { messages?: ModelMessage[]; abortSignal?: AbortSignal },
-      ) => execute(spec, input, execOptions),
+      execute: (input: unknown, execOptions: InnerExecOptions) => execute(spec, input, execOptions),
     }) as ToolSet[string]
   }
   return tools

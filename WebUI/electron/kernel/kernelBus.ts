@@ -3,6 +3,7 @@ import { appLoggerInstance } from '../observability/logger'
 import type {
   AgentTurnSnapshot,
   ArtifactRunSnapshot,
+  ArtifactRunTag,
   ArtifactPhase,
   ChatTurnSnapshot,
   KernelActivity,
@@ -179,46 +180,43 @@ export function beginArtifactRunSnapshot(run: Omit<ArtifactRunSnapshot, 'items'>
   activeArtifactRun = { ...run, items: [] }
 }
 
-function artifactOrigin(runId: string): 'renderer' | 'agent' | undefined {
-  return activeArtifactRun?.runId === runId ? activeArtifactRun.origin : undefined
+function runTag(tag: ArtifactRunTag): ArtifactRunTag {
+  return { runId: tag.runId, origin: tag.origin, owner: tag.owner }
 }
 
 export function emitArtifactPhase(
-  runId: string,
+  tag: ArtifactRunTag,
   phase: ArtifactPhase,
   progress?: { current: number; max: number },
   error?: string,
 ): void {
-  if (activeArtifactRun?.runId === runId) {
+  if (activeArtifactRun?.runId === tag.runId) {
     activeArtifactRun.phase = phase
     activeArtifactRun.progress = progress
     if (error !== undefined) activeArtifactRun.error = error
   }
   emit(
-    { type: 'artifact-phase', runId, phase, progress, error, origin: artifactOrigin(runId) },
-    { kind: 'run', runId },
+    { type: 'artifact-phase', ...runTag(tag), phase, progress, error },
+    { kind: 'run', runId: tag.runId },
   )
 }
 
-export function emitArtifactItem(runId: string, item: MediaItem): void {
-  if (activeArtifactRun?.runId === runId) {
+export function emitArtifactItem(tag: ArtifactRunTag, item: MediaItem): void {
+  if (activeArtifactRun?.runId === tag.runId) {
     const index = activeArtifactRun.items.findIndex((existing) => existing.id === item.id)
     if (index === -1) activeArtifactRun.items.push(item)
     else activeArtifactRun.items[index] = item
   }
-  emit(
-    { type: 'artifact-item', runId, item, origin: artifactOrigin(runId) },
-    { kind: 'run', runId },
-  )
+  emit({ type: 'artifact-item', ...runTag(tag), item }, { kind: 'run', runId: tag.runId })
 }
 
 export function emitArtifactDone(
-  runId: string,
+  tag: ArtifactRunTag,
   state: 'completed' | 'failed' | 'cancelled',
   error?: string,
 ): void {
-  emit({ type: 'artifact-done', runId, state, error }, { kind: 'run', runId })
-  if (activeArtifactRun?.runId === runId) activeArtifactRun = null
+  emit({ type: 'artifact-done', ...runTag(tag), state, error }, { kind: 'run', runId: tag.runId })
+  if (activeArtifactRun?.runId === tag.runId) activeArtifactRun = null
 }
 
 /** The run main is executing right now, if any — the GPU occupancy primitive asks. */

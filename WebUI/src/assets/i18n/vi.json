@@ -18,6 +18,7 @@
   "COM_GENERATE": "Tạo",
   "COM_GENERATE_FAILED": "Tạo thất bại",
   "COM_GENERATING": "Đang tạo",
+  "COM_GENERATION_QUEUED": "Đang chờ lần tạo trước hoàn tất",
   "COM_HISTORY": "Lịch sử",
   "COM_SHOW_HISTORY": "Hiện lịch sử",
   "COM_SESSIONS": "Phiên",

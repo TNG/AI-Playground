@@ -18,6 +18,7 @@
   "COM_GENERATE": "สร้าง",
   "COM_GENERATE_FAILED": "สร้างไม่สำเร็จ",
   "COM_GENERATING": "กำลังสร้าง",
+  "COM_GENERATION_QUEUED": "กำลังรอให้การสร้างก่อนหน้าเสร็จสิ้น",
   "COM_HISTORY": "ประวัติ",
   "COM_SHOW_HISTORY": "แสดงประวัติ",
   "COM_SESSIONS": "เซสชัน",

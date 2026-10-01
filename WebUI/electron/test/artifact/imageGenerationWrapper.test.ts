@@ -252,9 +252,10 @@ describe('imageGenerationPresets.generate (UI wrapper)', () => {
     expect(store.currentState).toBe('generating')
   })
 
-  it('adopts renderer-origin in-process runs that never pre-registered stubs', async () => {
+  it('adds a chat tool run’s finished media to the gallery without driving the overlay', async () => {
     const store = useImageGenerationPresets()
     await vi.waitFor(() => expect(kernelListeners.length).toBeGreaterThan(0))
+    const owner = { kind: 'tool', toolCallId: 'call-1' }
     const item = {
       id: 'chat-media-1',
       type: 'image' as const,
@@ -263,37 +264,48 @@ describe('imageGenerationPresets.generate (UI wrapper)', () => {
       settings: {},
       imageUrl: 'aipg-media://media/AIPG_Image_00940_.png',
     }
+    const tag = { runId: 'in-process-1', origin: 'renderer', owner }
+    const scope = { kind: 'run', runId: 'in-process-1' }
     for (const listener of kernelListeners) {
-      listener({
-        type: 'artifact-phase',
-        runId: 'in-process-1',
-        phase: 'queued',
-        origin: 'renderer',
-        seq: 1,
-        scope: { kind: 'run', runId: 'in-process-1' },
-      })
+      listener({ type: 'artifact-phase', ...tag, phase: 'running', seq: 1, scope })
       listener({
         type: 'artifact-item',
-        runId: 'in-process-1',
-        origin: 'renderer',
-        item,
+        ...tag,
+        item: { ...item, state: 'generating' },
         seq: 2,
-        scope: { kind: 'run', runId: 'in-process-1' },
-      })
-      listener({
-        type: 'artifact-phase',
-        runId: 'in-process-1',
-        phase: 'completed',
-        origin: 'renderer',
-        seq: 3,
-        scope: { kind: 'run', runId: 'in-process-1' },
+        scope,
       })
     }
+    await Promise.resolve()
+    expect(store.processing).toBe(false)
+    expect(store.generatedImages.some((img) => img.id === item.id)).toBe(false)
 
+    for (const listener of kernelListeners) {
+      listener({ type: 'artifact-item', ...tag, item, seq: 3, scope })
+    }
     await vi.waitFor(() =>
       expect(store.generatedImages.some((img) => img.id === item.id)).toBe(true),
     )
     expect(store.processing).toBe(false)
+  })
+
+  it('adopts panel-owned runs it did not submit itself (Home Agent /imgGen)', async () => {
+    const store = useImageGenerationPresets()
+    await vi.waitFor(() => expect(kernelListeners.length).toBeGreaterThan(0))
+    for (const listener of kernelListeners) {
+      listener({
+        type: 'artifact-phase',
+        runId: 'panel-1',
+        origin: 'renderer',
+        owner: { kind: 'panel' },
+        phase: 'running',
+        progress: { current: 2, max: 8 },
+        seq: 1,
+        scope: { kind: 'run', runId: 'panel-1' },
+      })
+    }
+    await vi.waitFor(() => expect(store.stepText).toBe('Generating 2/8'))
+    expect(store.processing).toBe(true)
   })
 
   it('ignores agent-origin artifact events that were not tracked', async () => {

@@ -11,6 +11,7 @@ import {
   getResolutionsFromConfig,
 } from '@/lib/comfyResolutions'
 import type { ResolutionConfig, MegapixelOption } from '@/lib/presetSchemas'
+import type { ArtifactRunOwner } from '@/types/kernelEvents'
 
 // Shared in-process Comfy execution (architecture-target §8 step 12):
 // generateImage / editImage, Chat parent comfyUI / comfyUiImageEdit, and the
@@ -163,6 +164,7 @@ export type InProcessComfyRequest = {
   args: InProcessComfyArgs
   source?: string
   origin: 'renderer' | 'agent'
+  owner?: ArtifactRunOwner
   conversationKey?: string
   keepModelsLoaded: boolean
   signal?: AbortSignal
@@ -229,6 +231,7 @@ export async function runInProcessComfyTool(
     keepModelsLoaded: request.keepModelsLoaded,
     variant,
     origin: request.origin,
+    owner: request.owner,
     conversationKey: request.conversationKey,
   }
 

@@ -28,7 +28,7 @@ import {
   emitArtifactPhase,
   emitFailure,
 } from '../kernel/kernelBus'
-import type { ArtifactPhase } from '@/types/kernelEvents'
+import type { ArtifactPhase, ArtifactRunOwner, ArtifactRunTag } from '@/types/kernelEvents'
 import type { MediaItem } from '@/types/mediaItem'
 import type { ArtifactRunResult } from '@/types/artifactIpc'
 import type { IpcOkWith } from '@/types/ipcChannels'
@@ -110,6 +110,8 @@ export type ArtifactRunPayload = {
    * agent tools do not, and the Image Gen store must not adopt their events.
    */
   origin?: 'renderer' | 'agent'
+  /** Which surface renders this run's progress; stamped on every artifact event. */
+  owner?: ArtifactRunOwner
   /**
    * Whether required models were already consented AND downloaded by the
    * driver (the renderer's pre-flight). In-process tool runs leave this false
@@ -221,6 +223,10 @@ function runOrigin(payload: ArtifactRunPayload): 'renderer' | 'agent' {
   return payload.origin ?? (payload.items ? 'renderer' : 'agent')
 }
 
+export function artifactRunTag(payload: ArtifactRunPayload): ArtifactRunTag {
+  return { runId: payload.runId, origin: runOrigin(payload), owner: payload.owner }
+}
+
 // Test seam.
 export function resetArtifactRunnerForTest(): void {
   if (activeRun?.idleTimer) {
@@ -248,7 +254,7 @@ function emitItem(run: ActiveRun, item: MediaItem): void {
   const index = run.items.findIndex((existing) => existing.id === item.id)
   if (index === -1) run.items.push(item)
   else run.items[index] = item
-  emitArtifactItem(run.payload.runId, item)
+  emitArtifactItem(artifactRunTag(run.payload), item)
 }
 
 function setPhase(
@@ -258,7 +264,7 @@ function setPhase(
 ): void {
   if (run.settled) return
   run.phase = phase
-  emitArtifactPhase(run.payload.runId, phase, progress)
+  emitArtifactPhase(artifactRunTag(run.payload), phase, progress)
   if (phase === 'running') {
     const current = run.items[run.generateIdx]
     if (current?.state === 'queued') {
@@ -317,7 +323,7 @@ function finish(run: ActiveRun, result: ArtifactRunResult): void {
   run.statusWatch = null
   persistRendererGallery(run)
   emitArtifactPhase(
-    run.payload.runId,
+    artifactRunTag(run.payload),
     result.state === 'completed'
       ? 'completed'
       : result.state === 'cancelled'
@@ -326,7 +332,7 @@ function finish(run: ActiveRun, result: ArtifactRunResult): void {
     undefined,
     result.error,
   )
-  emitArtifactDone(run.payload.runId, result.state, result.error)
+  emitArtifactDone(artifactRunTag(run.payload), result.state, result.error)
   if (activeRun === run) {
     activeRun = null
     // Drop this run's websocket before a queued run binds new handlers —
@@ -447,10 +453,11 @@ function startRun(payload: ArtifactRunPayload): Promise<ArtifactRunResult> {
     workflow: payload.preset.name,
     variant: resolvedVariantName(payload),
     origin: runOrigin(payload),
+    owner: payload.owner,
     phase: 'queued',
   })
   for (const item of items) emitItem(run, item)
-  emitArtifactPhase(payload.runId, 'queued')
+  emitArtifactPhase(artifactRunTag(payload), 'queued')
 
   driveRun(run, deps).then(
     () => {},

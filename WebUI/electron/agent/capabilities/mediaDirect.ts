@@ -29,6 +29,7 @@ async function runDirectTool(
   host: CapabilityHost,
   spec: AgentToolSpec,
   rawArgs: DirectArgs,
+  toolCallId: string,
   signal?: AbortSignal,
 ): Promise<unknown> {
   const isEdit = spec.name === 'editImage'
@@ -37,6 +38,7 @@ async function runDirectTool(
     args: { ...rawArgs, defaultWorkflow: spec.defaultWorkflow },
     source: isEdit ? (rawArgs.sourceImagePath as string | undefined) : undefined,
     origin: 'agent',
+    ...(toolCallId ? { owner: { kind: 'tool' as const, toolCallId } } : {}),
     // The turn that is awaiting this call occupies the GPU as text; without its
     // key the nested run waits for that occupancy to clear and deadlocks.
     conversationKey: host.sessionId,
@@ -60,7 +62,7 @@ export async function buildDirectMediaTools(
           label: spec.name,
           description: spec.description,
           parameters: jsonSchemaParameters(spec.inputSchema),
-          execute: async (_toolCallId, params, signal) => {
+          execute: async (toolCallId, params, signal) => {
             const args = { ...(params as DirectArgs) }
             for (const key of spec.workspacePathInputs ?? []) {
               const value = args[key as keyof DirectArgs]
@@ -71,7 +73,7 @@ export async function buildDirectMediaTools(
                 )
               }
             }
-            const result = await runDirectTool(host, spec, args, signal ?? undefined)
+            const result = await runDirectTool(host, spec, args, toolCallId, signal ?? undefined)
             return jsonResult(await saveGeneratedMediaToWorkspace(result, workspaceDir))
           },
         }) as ToolDefinition,

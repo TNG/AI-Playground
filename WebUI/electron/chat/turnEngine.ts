@@ -594,6 +594,7 @@ async function dispatchChatTool(
       input,
       messages: exec.messages,
       abortSignal: exec.abortSignal,
+      owner: { kind: 'tool', toolCallId: exec.toolCallId },
       conversationKey: ctx.conversationKey,
       keepModelsLoaded: options.keepModelsLoaded ?? false,
       defaultWorkflow: ctx.defaultWorkflow,

@@ -1,6 +1,6 @@
 import { toolPartNameOf } from './agentTranscript'
 
-/** Chat media tools that share ChatWorkflowResult / toolProgressMap. */
+/** Chat media tools whose card shows the artifact runs they own (ChatWorkflowResult). */
 const MEDIA_TOOL_NAMES = new Set(['comfyUI', 'comfyUiImageEdit', 'media'])
 
 const WEB_BROWSE_TOOL_NAMES = new Set(['searchWeb', 'browseWeb', 'interactWithWebPage'])

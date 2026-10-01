@@ -749,7 +749,14 @@ describe('turn engine', () => {
       input: { prompt: 'a castle', workflow: 'Draft Image' },
       conversationKey: 'conv-1',
       keepModelsLoaded: true,
+      owner: { kind: 'tool', toolCallId: expect.any(String) },
     })
+    const toolCallId = (
+      chatChunks().find((c) => c.type === 'tool-output-available') as {
+        toolCallId?: string
+      }
+    )?.toolCallId
+    expect(executeChatComfyToolMock.mock.calls[0][0].owner.toolCallId).toBe(toolCallId)
     expect(chatChunks().find((c) => c.type === 'tool-output-available')).toMatchObject({
       type: 'tool-output-available',
       output: {

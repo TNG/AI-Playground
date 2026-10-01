@@ -168,6 +168,8 @@ describe('runMediaAgentInMain', () => {
       args: { workflow: 'W1' },
       origin: 'agent',
       keepModelsLoaded: false,
+      // The inner call owns the run; the delegating media call collects it.
+      owner: { kind: 'tool', toolCallId: 'c1', parentToolCallId: runRequest().runKey },
     })
 
     expect(result.text).toBe('Made the castle.')

@@ -18,6 +18,7 @@
   "COM_GENERATE": "Erzeugen",
   "COM_GENERATE_FAILED": "Erzeugung fehlgeschlagen",
   "COM_GENERATING": "Erzeuge",
+  "COM_GENERATION_QUEUED": "Warte auf die vorherige Generierung",
   "COM_HISTORY": "Verlauf",
   "COM_SHOW_HISTORY": "Verlauf anzeigen",
   "COM_SESSIONS": "Sitzungen",

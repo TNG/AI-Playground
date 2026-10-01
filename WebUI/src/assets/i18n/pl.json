@@ -18,6 +18,7 @@
   "COM_GENERATE": "Generuj",
   "COM_GENERATE_FAILED": "Generowanie nie powiodło się",
   "COM_GENERATING": "Generowanie",
+  "COM_GENERATION_QUEUED": "Oczekiwanie na zakończenie poprzedniego generowania",
   "COM_HISTORY": "Historia",
   "COM_SHOW_HISTORY": "Pokaż historię",
   "COM_SESSIONS": "Sesje",

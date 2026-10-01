@@ -32,6 +32,7 @@ export function buildArtifactRegistry(deps: ArtifactDeps) {
       const payload: ArtifactRunPayload = {
         ...parsed.data,
         items: parsed.data.items as MediaItem[] | undefined,
+        owner: { kind: 'panel' },
       }
       return deps.submitArtifactRun(payload, {
         queue: options?.queue === 'queue' ? 'queue' : 'fail-fast',

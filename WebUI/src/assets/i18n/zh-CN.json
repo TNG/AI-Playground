@@ -18,6 +18,7 @@
   "COM_GENERATE": "生成",
   "COM_GENERATE_FAILED": "生成失败",
   "COM_GENERATING": "生成中",
+  "COM_GENERATION_QUEUED": "正在等待上一个生成完成",
   "COM_HISTORY": "历史记录",
   "COM_SHOW_HISTORY": "显示历史记录",
   "COM_SESSIONS": "会话",

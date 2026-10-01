@@ -28,8 +28,8 @@
     <MediaAgentTimeline :tool-call-id="toolPart.toolCallId" :fallback-steps="mediaToolSteps" />
     <ChatWorkflowResult
       :images="mediaToolImages"
-      :processing="mediaToolProcessing"
-      :stepText="mediaToolStepText"
+      :phase="mediaToolPhase"
+      :progress="mediaLive.progress"
     />
   </div>
   <div v-else-if="isToolUIPart(part)" class="flex flex-col gap-1">
@@ -59,6 +59,7 @@ import { isToolUIPart, type UIDataTypes, type UIMessagePart, type UITools } from
 import type { DynamicToolUIPart, ToolUIPart } from 'ai'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
+import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
 import type { AipgTools } from '@/assets/js/tools/tools'
 import type { MediaItem } from '@/assets/js/store/imageGenerationPresets'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
@@ -78,6 +79,7 @@ const props = defineProps<{ part: UIMessagePart<UIDataTypes, UITools> }>()
 
 const agentMode = useAgentMode()
 const mediaRuns = useMediaAgentRuns()
+const artifactRuns = useArtifactRuns()
 
 // Pi's tool parts (tool-bash, tool-read, …) are not part of AipgTools, but the
 // generic ChatToolDisplay only reads name/state/input/output — cast for reuse.
@@ -137,17 +139,20 @@ const mediaToolSteps = computed<string[] | undefined>(() => {
   return Array.isArray(steps) ? (steps as string[]) : undefined
 })
 
-const mediaRun = computed(() => mediaRuns.run(toolPart.value.toolCallId))
+const mediaLive = computed(() => artifactRuns.viewFor(toolPart.value.toolCallId))
 
-/** Finished media from the tool output, or what the live run has so far. */
+/** Finished media from the tool output, or what the owned runs have so far. */
 const mediaToolImages = computed<MediaItem[]>(() => {
   if (mediaToolItems.value.length) return mediaToolItems.value
-  return mediaRun.value?.steps.flatMap((step) => step.media) ?? []
+  return mediaLive.value.items
 })
 
-const mediaToolProcessing = computed(() => mediaRun.value?.state === 'running')
-
-const mediaToolStepText = computed(() => mediaRuns.activeStepLabel(toolPart.value.toolCallId))
+const mediaToolPhase = computed(() => {
+  const state = toolPart.value.state
+  return state === 'output-available' || state === 'output-error'
+    ? undefined
+    : mediaLive.value.phase
+})
 
 /**
  * Completed tool parts whose output carries a comfy-shaped `images` array,

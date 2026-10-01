@@ -5,9 +5,13 @@ vi.mock('../../observability/logger.ts', () => ({
 }))
 
 const queueEvents: Array<Record<string, unknown>> = []
+const phaseEvents: Array<{ tag: Record<string, unknown>; phase: string }> = []
 vi.mock('../../kernel/kernelBus', () => ({
   emitQueueEvent: (event: Record<string, unknown>) => {
     queueEvents.push(event)
+  },
+  emitArtifactPhase: (tag: Record<string, unknown>, phase: string) => {
+    phaseEvents.push({ tag, phase })
   },
 }))
 
@@ -20,6 +24,10 @@ vi.mock('../../artifact/runner', () => ({
   artifactRunActive: () => activeRunId !== null,
   cancelActiveArtifactRun: () => cancelActiveMock(),
   activeArtifactRunId: () => activeRunId,
+  artifactRunTag: (payload: { runId: string; owner?: unknown }) => ({
+    runId: payload.runId,
+    owner: payload.owner,
+  }),
   startArtifactRun: (payload: { runId: string }) => startArtifactRunMock(payload),
 }))
 
@@ -103,8 +111,27 @@ describe('the orchestrator', () => {
     // a hold it can never resolve.
     vi.resetAllMocks()
     queueEvents.length = 0
+    phaseEvents.length = 0
     activeRunId = null
     resetOrchestratorForTest()
+  })
+
+  it('announces a parked run as queued to its owner, and as cancelled when dropped', async () => {
+    setOrchestratorDeps(deps())
+    const hold = holdNextRun()
+    const active = submitArtifactRun(payload())
+    await vi.waitFor(() => expect(activeRunId).toBe('run-1'))
+
+    const owner = { kind: 'tool' as const, toolCallId: 'call-2' }
+    const queued = submitArtifactRun(payload({ runId: 'run-2', owner }), { queue: 'queue' })
+    expect(phaseEvents).toEqual([{ tag: { runId: 'run-2', owner }, phase: 'queued' }])
+
+    cancelArtifactRun('run-2')
+    expect((await queued).state).toBe('cancelled')
+    expect(phaseEvents.at(-1)).toEqual({ tag: { runId: 'run-2', owner }, phase: 'cancelled' })
+
+    hold.resolve({ state: 'completed', items: [] })
+    await active
   })
 
   it('fail-fast refuses while anything is executing or queued; queue submissions park FIFO', async () => {

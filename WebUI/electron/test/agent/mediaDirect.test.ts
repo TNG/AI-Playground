@@ -253,6 +253,7 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
     expect(lastPayload.keepModelsLoaded).toBe(true)
     expect(lastPayload.variant).toBe('Fast')
     expect(lastPayload.origin).toBe('agent')
+    expect(lastPayload.owner).toEqual({ kind: 'tool', toolCallId: 'call-1' })
     // The awaiting turn occupies the GPU as text under this key; without it the
     // run waits for its own parent and never starts.
     expect(lastPayload.conversationKey).toBe('session-1')

@@ -1,11 +1,12 @@
 import type { ModelMessage } from 'ai'
 import { findSourceImage } from '@/lib/findSourceImage'
+import type { ArtifactRunOwner } from '@/types/kernelEvents'
 import { runInProcessComfyTool, type InProcessComfyArgs } from '../artifact/inProcessComfy'
 
 // Chat (and the nested specialist) `comfyUI` / `comfyUiImageEdit` execute
 // in-process against the Artifact runner — same cut as Agent Mode's
 // generateImage / editImage. Origin is renderer when a Chat conversation owns
-// the run (gallery overlay), agent otherwise. It is stated rather than derived
+// the run (gallery persistence), agent otherwise. It is stated rather than derived
 // from `conversationKey`: an agent turn supplies that key too, as the GPU
 // window's nesting key.
 
@@ -17,6 +18,7 @@ export async function executeChatComfyTool(options: {
   messages?: ModelMessage[]
   abortSignal?: AbortSignal
   origin?: 'renderer' | 'agent'
+  owner?: ArtifactRunOwner
   conversationKey?: string
   keepModelsLoaded: boolean
   defaultWorkflow?: string
@@ -38,6 +40,7 @@ export async function executeChatComfyTool(options: {
     },
     source,
     origin: options.origin ?? (options.conversationKey ? 'renderer' : 'agent'),
+    owner: options.owner,
     conversationKey: options.conversationKey,
     keepModelsLoaded: options.keepModelsLoaded,
     signal: options.abortSignal,

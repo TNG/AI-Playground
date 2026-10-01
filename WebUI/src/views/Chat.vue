@@ -193,13 +193,7 @@
                       <span
                         ><em>{{ toolInputRecord(part).prompt ?? '' }}</em></span
                       >
-                      <ChatWorkflowResult
-                        :images="getToolImages(part)"
-                        :processing="getToolProcessing(part)"
-                        :currentState="getToolCurrentState(part)"
-                        :stepText="getToolStepText(part)"
-                        :toolCallId="(part as any).toolCallId"
-                      />
+                      <ChatWorkflowResult v-bind="toolMediaCard(part)" />
                     </div>
                   </template>
                   <template
@@ -219,20 +213,9 @@
                       <span
                         ><em>{{ toolInputRecord(part).prompt ?? '' }}</em></span
                       >
-                      <ChatWorkflowResult
-                        :images="getToolImages(part)"
-                        :processing="getToolProcessing(part)"
-                        :currentState="getToolCurrentState(part)"
-                        :stepText="getToolStepText(part)"
-                        :toolCallId="(part as any).toolCallId"
-                      />
+                      <ChatWorkflowResult v-bind="toolMediaCard(part)" />
                     </div>
                   </template>
-                  <!-- Thin media delegation tool: live progress is media-agent-event
-                       (mediaAgentRuns, keyed by toolCallId); the settled card reads
-                       the condensed tool output. Direct comfyUI / comfyUiImageEdit
-                       parent tools still live-progress from the Image Gen gallery
-                       (renderer-origin in-process runs). -->
                   <template v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'media'">
                     <div>
                       <span
@@ -257,13 +240,7 @@
                       >
                         {{ (part as any).output?.message ?? 'Media generation failed.' }}
                       </div>
-                      <ChatWorkflowResult
-                        :images="getToolImages(part)"
-                        :processing="getToolProcessing(part)"
-                        :currentState="getToolCurrentState(part)"
-                        :stepText="getToolStepText(part)"
-                        :toolCallId="(part as any).toolCallId"
-                      />
+                      <ChatWorkflowResult v-bind="toolMediaCard(part)" />
                     </div>
                   </template>
                   <template
@@ -383,7 +360,7 @@
                 v-if="
                   i === activeConversation.length - 1 &&
                   hasActiveChatActivity &&
-                  !imageGeneration.processing
+                  !messageHasLiveMedia(message)
                 "
                 :conversation-key="conversations.activeKey"
               />
@@ -530,12 +507,10 @@ import ChatTtsToolResult from '@/components/ChatTtsToolResult.vue'
 import { useConversations } from '@/assets/js/store/conversations'
 import { useActivities } from '@/assets/js/store/activities'
 import { useConfirmations } from '@/assets/js/store/confirmations'
-import {
-  useImageGenerationPresets,
-  type MediaItem,
-  type GenerateState,
-} from '@/assets/js/store/imageGenerationPresets'
+import { type MediaItem } from '@/assets/js/store/imageGenerationPresets'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
+import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
+import type { ArtifactPhase } from '@/types/kernelEvents'
 import { ensureMediaAgentEventWiring } from '@/assets/js/agents/mediaAgent'
 import { DynamicToolUIPart, isToolUIPart, ToolUIPart } from 'ai'
 import { aipgTools, AipgTools } from '@/assets/js/tools/tools'
@@ -552,8 +527,8 @@ const openAiCompatibleChat = useOpenAiCompatibleChat()
 const speakAvailable = computed(() => speakRepliesAvailable())
 const textInference = useTextInference()
 const promptStore = usePromptStore()
-const imageGeneration = useImageGenerationPresets()
 const mediaAgentRuns = useMediaAgentRuns()
+const artifactRuns = useArtifactRuns()
 const conversations = useConversations()
 const activities = useActivities()
 const confirmations = useConfirmations()
@@ -611,20 +586,6 @@ const AIPG_IMAGE_MD_RE_DISPLAY = /!\[[^\]]*]\(aipg-media:\/\/[^)]+\)/g
 function stripAipgMediaImages(text: string): string {
   return text.replace(AIPG_IMAGE_MD_RE_DISPLAY, '').trim()
 }
-
-// Track progress for active tool calls
-const toolProgressMap = reactive<
-  Record<
-    string,
-    {
-      processing: boolean
-      currentState?: GenerateState
-      stepText?: string
-      images: MediaItem[]
-      initialImageIds: Set<string> // Track which image IDs existed when tool call started
-    }
-  >
->({})
 
 defineExpose({
   scrollToBottom,
@@ -824,101 +785,40 @@ watch(
   },
 )
 
-// Direct parent-turn comfy tools still live-progress through the Image Gen
-// gallery. The NL `media` tool does not — its images are the condensed output
-// and mediaAgentRuns timeline.
-function isDirectComfyToolPart(part: { type: string; toolName?: string }): boolean {
-  const name = toolPartNameOf(part)
-  return name === 'comfyUI' || name === 'comfyUiImageEdit'
-}
-
-function isMediaToolPart(part: { type: string; toolName?: string }): boolean {
-  return isChatMediaToolPart(part)
-}
-
 function toolInputRecord(part: { input?: unknown }): Record<string, unknown> {
   return part.input && typeof part.input === 'object' && !Array.isArray(part.input)
     ? (part.input as Record<string, unknown>)
     : {}
 }
 
-function getToolImages(part: ToolUIPart<AipgTools> | DynamicToolUIPart): MediaItem[] {
-  if (!isMediaToolPart(part)) return []
-  const toolCallId = part.toolCallId
-
-  if (toolPartNameOf(part) === 'media') {
-    const fromRun = mediaAgentRuns
-      .run(toolCallId)
-      ?.steps.flatMap((step) => step.media)
-      .filter((item) => item.state === 'done')
-    if (fromRun && fromRun.length > 0) return fromRun
-    if (part.state === 'output-available') {
-      const output = part.output as { images?: unknown[] } | undefined
-      if (!output?.images) return []
-      return output.images.map((img) => ({
-        ...(img as MediaItem),
-        state: 'done' as const,
-      }))
-    }
-    return []
-  }
-
-  const progress = toolProgressMap[toolCallId]
-
-  // Direct comfyUI / edit tools: live images come from the Image Gen gallery
-  // (those tools still pre-register stubs / mutate generatedImages).
-  if (progress && progress.images.length > 0) {
-    return progress.images
-  }
-
-  if (part.state === 'output-available') {
-    const output = part.output as { images?: unknown[] } | undefined
-    if (!output?.images) return []
-    return output.images.map((img) => ({
-      ...(img as MediaItem),
-      state: 'done' as const,
-    }))
-  }
-
-  return []
+type ToolMediaCard = {
+  images: MediaItem[]
+  phase?: ArtifactPhase
+  progress?: { current: number; max: number }
 }
 
-function getToolProcessing(part: ToolUIPart<AipgTools> | DynamicToolUIPart): boolean {
-  if (part.state === 'output-available' || part.state === 'output-error') return false
-  const toolCallId = part.toolCallId
-  const progress = toolProgressMap[toolCallId]
-
-  // If we have progress tracking, use that
-  if (progress) {
-    return progress.processing
-  }
-
-  // Otherwise, check part state
-  return part.state === 'input-streaming' || part.state === 'input-available'
+// Live runs the tool call owns (directly, or through the media specialist),
+// falling back to the settled tool output once the runs have aged out or the
+// page was reloaded.
+function toolMediaCard(part: ToolUIPart<AipgTools> | DynamicToolUIPart): ToolMediaCard {
+  if (!isChatMediaToolPart(part)) return { images: [] }
+  const live = artifactRuns.viewFor(part.toolCallId)
+  const settled = part.state === 'output-available' || part.state === 'output-error'
+  const phase = settled ? undefined : live.phase
+  if (live.items.length > 0) return { images: live.items, phase, progress: live.progress }
+  const output = part.state === 'output-available' ? (part.output as { images?: unknown[] }) : null
+  const images = (output?.images ?? []).map((img) => ({
+    ...(img as MediaItem),
+    state: 'done' as const,
+  }))
+  return { images, phase, progress: live.progress }
 }
 
-function getToolCurrentState(
-  part: ToolUIPart<AipgTools> | DynamicToolUIPart,
-): GenerateState | undefined {
-  const toolCallId = part.toolCallId
-  const progress = toolProgressMap[toolCallId]
-
-  if (progress && progress.currentState) {
-    return progress.currentState as GenerateState
-  }
-
-  return undefined
-}
-
-function getToolStepText(part: ToolUIPart<AipgTools> | DynamicToolUIPart): string | undefined {
-  const toolCallId = part.toolCallId
-  const progress = toolProgressMap[toolCallId]
-
-  if (progress && progress.stepText) {
-    return progress.stepText
-  }
-
-  return undefined
+function messageHasLiveMedia(message: { parts?: unknown[] }): boolean {
+  return (message.parts ?? []).some((part) => {
+    const toolPart = part as ToolUIPart<AipgTools> | DynamicToolUIPart
+    return isChatMediaToolPart(toolPart) && artifactRuns.viewFor(toolPart.toolCallId).processing
+  })
 }
 
 function isAipgTool(part: ToolUIPart<AipgTools> | DynamicToolUIPart): boolean {
@@ -1021,142 +921,6 @@ function webBrowseEntriesFor(message: ChatMessage): WebBrowseEntry[] {
     }
   })
 }
-
-// Watch for new tool calls starting to initialize their image tracking
-watch(
-  () => activeConversation.value,
-  (messages) => {
-    if (!messages) return
-
-    // Find tool calls that just started (input-streaming or input-available)
-    messages.forEach((msg) => {
-      msg.parts.forEach((part) => {
-        if (isDirectComfyToolPart(part) && 'toolCallId' in part) {
-          const toolCallId = part.toolCallId
-          const state = part.state
-
-          // If this tool call just started and we haven't initialized it yet
-          if (
-            (state === 'input-streaming' || state === 'input-available') &&
-            !toolProgressMap[toolCallId]
-          ) {
-            // Record the current set of image IDs to exclude them from this tool call's images
-            const currentImageIds = new Set(imageGeneration.generatedImages.map((img) => img.id))
-            toolProgressMap[toolCallId] = {
-              processing: true,
-              images: [],
-              initialImageIds: currentImageIds,
-            }
-          }
-        }
-      })
-    })
-  },
-  { deep: true },
-)
-
-// Watch imageGeneration store to track progress for active tool calls
-watch(
-  () => [
-    imageGeneration.generatedImages,
-    imageGeneration.processing,
-    imageGeneration.currentState,
-    imageGeneration.stepText,
-  ],
-  () => {
-    // Find active tool calls that are processing
-    const activeToolParts =
-      activeConversation.value
-        ?.flatMap((msg) => msg.parts)
-        .filter(
-          (part) =>
-            isDirectComfyToolPart(part) &&
-            'state' in part &&
-            (part.state === 'input-streaming' || part.state === 'input-available'),
-        )
-        .map((part) => ({
-          toolCallId: (part as { toolCallId: string }).toolCallId,
-          part,
-        })) || []
-
-    // Update progress for each active tool call
-    activeToolParts.forEach(({ toolCallId }) => {
-      const progress = toolProgressMap[toolCallId]
-      if (!progress) return
-
-      // Only get images that were created for this tool call (not in initial set)
-      const toolCallImages = imageGeneration.generatedImages
-        .filter((img) => !progress.initialImageIds.has(img.id))
-        .filter(
-          (img) => img.state === 'queued' || img.state === 'generating' || img.state === 'done',
-        )
-        // Filter out items without valid URL based on type
-        .filter((img) => {
-          if (img.type === 'image') return img.imageUrl && img.imageUrl.trim() !== ''
-          if (img.type === 'video') return img.videoUrl && img.videoUrl.trim() !== ''
-          if (img.type === 'model3d') return img.model3dUrl && img.model3dUrl.trim() !== ''
-          return false
-        })
-        .map((img) => ({ ...img }))
-
-      progress.images = toolCallImages
-      progress.processing = imageGeneration.processing
-      progress.currentState = imageGeneration.currentState
-      progress.stepText = imageGeneration.stepText
-    })
-  },
-  { deep: true },
-)
-
-// Also watch processing state
-watch(
-  () => imageGeneration.processing,
-  (processing) => {
-    // Get the set of currently active tool call IDs (input-streaming or input-available)
-    const activeToolCallIds = new Set(
-      activeConversation.value
-        ?.flatMap((msg) => msg.parts)
-        .filter(
-          (part) =>
-            isDirectComfyToolPart(part) &&
-            'state' in part &&
-            (part.state === 'input-streaming' || part.state === 'input-available'),
-        )
-        .map((part) => (part as { toolCallId: string }).toolCallId) || [],
-    )
-
-    Object.keys(toolProgressMap).forEach((toolCallId) => {
-      const progress = toolProgressMap[toolCallId]
-      if (!progress) return
-
-      if (processing) {
-        // When processing starts, only set processing=true for active tool calls
-        // This prevents completed tool calls from showing the progress indicator again
-        if (activeToolCallIds.has(toolCallId)) {
-          progress.processing = true
-        }
-      } else {
-        // When processing stops, update any tool call that was processing
-        // (it may no longer be "active" since its state changed to output-available)
-        if (progress.processing) {
-          progress.processing = false
-          // Mark images as done and filter out any without valid URL
-          progress.images = progress.images
-            .filter((img) => {
-              if (img.type === 'image') return img.imageUrl && img.imageUrl.trim() !== ''
-              if (img.type === 'video') return img.videoUrl && img.videoUrl.trim() !== ''
-              if (img.type === 'model3d') return img.model3dUrl && img.model3dUrl.trim() !== ''
-              return false
-            })
-            .map((img) => ({
-              ...img,
-              state: 'done' as const,
-            }))
-        }
-      }
-    })
-  },
-)
 </script>
 
 <style>

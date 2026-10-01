@@ -18,6 +18,7 @@
   "COM_GENERATE": "Genera",
   "COM_GENERATE_FAILED": "Generazione non riuscita",
   "COM_GENERATING": "Generazione in corso",
+  "COM_GENERATION_QUEUED": "In attesa della generazione precedente",
   "COM_HISTORY": "Cronologia",
   "COM_SHOW_HISTORY": "Mostra cronologia",
   "COM_SESSIONS": "Sessioni",

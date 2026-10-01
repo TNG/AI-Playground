@@ -18,6 +18,7 @@
   "COM_GENERATE": "Buat",
   "COM_GENERATE_FAILED": "Pembuatan gagal",
   "COM_GENERATING": "Membuat",
+  "COM_GENERATION_QUEUED": "Menunggu pembuatan sebelumnya",
   "COM_HISTORY": "Riwayat",
   "COM_SHOW_HISTORY": "Tampilkan Riwayat",
   "COM_SESSIONS": "Sesi",

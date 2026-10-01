@@ -18,6 +18,7 @@
   "COM_GENERATE": "생성",
   "COM_GENERATE_FAILED": "생성 실패",
   "COM_GENERATING": "생성 중",
+  "COM_GENERATION_QUEUED": "이전 생성이 끝나기를 기다리는 중",
   "COM_HISTORY": "기록",
   "COM_SHOW_HISTORY": "기록 보기",
   "COM_SESSIONS": "세션",

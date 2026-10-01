@@ -28,9 +28,10 @@
 // against the media GPU window. VRAM budgets / jump-the-queue are not here.
 
 import { appLoggerInstance } from '../observability/logger'
-import { emitQueueEvent } from './kernelBus'
+import { emitArtifactPhase, emitQueueEvent } from './kernelBus'
 import {
   artifactRunActive,
+  artifactRunTag,
   activeArtifactRunId,
   cancelActiveArtifactRun,
   startArtifactRun,
@@ -201,6 +202,7 @@ export function submitArtifactRun(
     }
     return new Promise<ArtifactRunResult>((resolve) => {
       runQueue.push({ payload, resolve })
+      emitArtifactPhase(artifactRunTag(payload), 'queued')
       emitQueueEvent({
         runKey: payload.runId,
         kind: 'artifact',
@@ -280,9 +282,15 @@ export function cancelArtifactRun(runId: string): void {
   const index = runQueue.findIndex((entry) => entry.payload.runId === runId)
   if (index !== -1) {
     const [entry] = runQueue.splice(index, 1)
-    emitArtifactFinished(entry.payload)
-    entry.resolve(cancelledRun())
+    dropQueuedRun(entry)
   }
+}
+
+function dropQueuedRun(entry: (typeof runQueue)[number], reason?: string): void {
+  const result = cancelledRun(reason)
+  emitArtifactPhase(artifactRunTag(entry.payload), 'cancelled', undefined, result.error)
+  emitArtifactFinished(entry.payload)
+  entry.resolve(result)
 }
 
 /**
@@ -291,10 +299,7 @@ export function cancelArtifactRun(runId: string): void {
  * an invisible drain.
  */
 export function cancelAllArtifactRuns(reason = 'Generation cancelled.'): void {
-  for (const entry of runQueue.splice(0)) {
-    emitArtifactFinished(entry.payload)
-    entry.resolve(cancelledRun(reason))
-  }
+  for (const entry of runQueue.splice(0)) dropQueuedRun(entry, reason)
   for (const cancel of admittedCancels.values()) cancel.abort()
   cancelActiveArtifactRun()
 }

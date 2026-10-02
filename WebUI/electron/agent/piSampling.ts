@@ -2,10 +2,10 @@ import type { ExtensionFactory } from '@earendil-works/pi-coding-agent'
 
 // ── Sampling on an agent request ─────────────────────────────────────────────
 //
-// `Model.samplingParams` is a pi-ai field, and pi-ai's own `simple` helpers
-// merge it into the request body — but the coding agent builds its requests
-// through a different path that never reads it (the string `samplingParams`
-// does not appear anywhere in pi-coding-agent). So everything the app sends
+// `Model.samplingParams` is a pi-ai field. pi-ai merges it into an
+// openai-completions body, and Pi 1.0 copies it onto a model at registration,
+// but a session does not read a bag kept beside the model. Models here are
+// registered without it, so everything the app sends
 // alongside a local agent turn — the publisher's recommended sampling from
 // models.json, the temperature the user set, and `chat_template_kwargs` with
 // the thinking switch — was silently dropped, and only chat turns honoured it.

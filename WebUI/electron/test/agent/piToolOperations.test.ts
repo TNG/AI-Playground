@@ -278,10 +278,12 @@ describe('sandboxed access', () => {
     expect(resultText(inside)).toContain('from the workspace')
 
     // The emulated shell has no host filesystem behind it, so this cannot leak
-    // the file even though the process running the test can read it.
-    await expect(invoke(toolOf(access, 'bash'), { command: `cat ${outsideFile}` })).rejects.toThrow(
-      /No such file or directory/,
-    )
+    // the file even though the process running the test can read it. Pi 1.0
+    // reports a non-zero command as an error result rather than a rejection.
+    const outside = await invoke(toolOf(access, 'bash'), { command: `cat ${outsideFile}` })
+    expect(resultText(outside)).toMatch(/No such file or directory/)
+    expect(resultText(outside)).not.toContain('top secret')
+    expect(outside).toMatchObject({ isError: true })
   })
 
   // just-bash cannot mount the virtual filesystem into its Python runtime on

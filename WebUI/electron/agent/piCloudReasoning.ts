@@ -1,5 +1,3 @@
-import type { ProviderModelConfig } from '@earendil-works/pi-coding-agent'
-
 // ── Reasoning on a cloud agent turn ──────────────────────────────────────────
 //
 // Pi asks a provider to split its chain of thought off into `reasoning_content`,
@@ -37,8 +35,13 @@ type CloudReasoningCompat = {
   requiresReasoningContentOnAssistantMessages?: boolean
 }
 
-/** What a cloud model contributes to its Pi registration on the reasoning front. */
-export type CloudReasoningRegistration = Pick<ProviderModelConfig, 'reasoning'> & {
+/**
+ * What a cloud model contributes to its Pi registration on the reasoning front.
+ * `reasoning` is spelled out: on Pi 1.0 it exists only on the chat member of
+ * `ProviderModelConfig`, so `Pick` of the union no longer includes it.
+ */
+export type CloudReasoningRegistration = {
+  reasoning: boolean
   compat?: CloudReasoningCompat
 }
 

@@ -30,14 +30,21 @@ const RAG_TOOL_DESCRIPTION =
   "Use it to answer questions about a document too large to read into context in full; returns the k best-matching passages with page or line numbers. Prefer 'read' for small files. " +
   'The first call on a file indexes it and can take a while; later calls are fast.'
 
+// Mirrors piToolOperations.SANDBOX_WORKDIR — the path Pi's sandbox mounts the
+// workspace at, so the model (which lives there) addresses files as
+// /workspace/<name>. Defined here rather than imported so the capability module
+// stays free of the Electron/service imports piToolOperations pulls in.
+const SANDBOX_WORKDIR = '/workspace'
+
 const RAG_SKILL: SkillSource = {
   name: 'document-search',
   description:
     'Find answers inside large workspace documents (PDF, Word, Markdown, text) with the `rag` tool instead of reading them whole.',
   body: [
     '`read` loads a whole file into context — fine for code, wrong for a 300-page PDF.',
-    'For questions about a big document, call `rag` with the file path (workspace-relative)',
-    'and the question; it returns the best-matching passages with page/line numbers.',
+    'For questions about a big document, call `rag` with the file path',
+    '(workspace-relative like "report.pdf", or the "/workspace/report.pdf" form',
+    'other tools show) and the question; it returns the best-matching passages',
     '',
     '- The first call on a file indexes it (slow on big PDFs); later calls return fast.',
     '  Do not re-call with the same query to "check" the result.',
@@ -53,7 +60,8 @@ const RAG_INPUT_SCHEMA: Record<string, unknown> = {
   properties: {
     file: {
       type: 'string',
-      description: 'Workspace-relative path of the document to search, e.g. "report.pdf".',
+      description:
+        'Path of the document to search — workspace-relative ("report.pdf") or the /workspace/report.pdf form other tools show.',
     },
     query: {
       type: 'string',
@@ -87,20 +95,31 @@ type IndexedCacheEntry = {
 }
 
 /**
- * Resolve a model-provided workspace-relative path against the (realpathed)
- * workspace dir, rejecting escapes — including via symlinks: the resolved
- * target is realpathed and re-checked, so a workspace link pointing outside
- * stays outside. Returns null when the path is not a workspace file.
+ * Resolve a model-provided path against the (realpathed) workspace dir.
+ *
+ * The agent lives in Pi's sandbox, where the workspace is mounted at
+ * /workspace: bash's cwd is /workspace and every built-in tool (read, ls, find)
+ * reports /workspace/<name> paths. `ls`/`find`/`grep` return relative names, but
+ * the model usually reconstructs the absolute form on a first attempt, so
+ * accept that prefix and treat the rest as workspace-relative. In host-shell
+ * mode the same happens with the real workspace dir. Either way the unchanged
+ * realpath containment check below is the sole authority for what is inside:
+ * symlinks pointing out, `..` traversals and absolute outside paths all stay
+ * rejected. Returns null when the path is not a workspace file.
  */
-function resolveWorkspaceFile(workspaceDir: string, relativePath: string): string | null {
-  if (!relativePath || path.isAbsolute(relativePath)) return null
+function resolveWorkspaceFile(workspaceDir: string, inputPath: string): string | null {
+  if (!inputPath) return null
+  let candidate = inputPath
+  if (candidate.startsWith(SANDBOX_WORKDIR + '/')) {
+    candidate = candidate.slice(SANDBOX_WORKDIR.length + 1)
+  }
   let root: string
   try {
     root = fs.realpathSync(workspaceDir)
   } catch {
     return null
   }
-  const resolved = path.resolve(root, relativePath)
+  const resolved = path.isAbsolute(candidate) ? candidate : path.resolve(root, candidate)
   let real: string
   try {
     real = fs.realpathSync(resolved)
@@ -125,7 +144,7 @@ function chunkLocation(metadata: Document['metadata']): string | undefined {
   return where || undefined
 }
 
-function formatChunks(chunks: Document[], workspaceRelativeFile: string, k: number): string {
+function formatChunks(chunks: Document[], fileLabel: string, k: number): string {
   const blocks: string[] = []
   let used = 0
   let shown = 0
@@ -141,7 +160,7 @@ function formatChunks(chunks: Document[], workspaceRelativeFile: string, k: numb
   }
   const truncated =
     shown < chunks.length ? '\n\n(more passages matched but were left out to fit the context)' : ''
-  return `${shown} passage(s) from ${workspaceRelativeFile} (k=${k}):\n\n${blocks.join('\n\n')}${truncated}`
+  return `${shown} passage(s) from ${fileLabel} (k=${k}):\n\n${blocks.join('\n\n')}${truncated}`
 }
 
 async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
@@ -161,15 +180,15 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
       parameters: jsonSchemaParameters(RAG_INPUT_SCHEMA),
       execute: async (toolCallId, params, signal) => {
         const { file, query, k: rawK } = (params ?? {}) as RagToolParams
-        const workspaceRelativeFile = typeof file === 'string' ? file.trim() : ''
+        const filePath = typeof file === 'string' ? file.trim() : ''
         const question = typeof query === 'string' ? query.trim() : ''
         const parsedK = Math.trunc(Number(rawK ?? DEFAULT_K))
         const k = Math.min(MAX_K, Math.max(1, Number.isNaN(parsedK) ? DEFAULT_K : parsedK))
         const embeddingModel = host.embeddingModel
         const embeddingBackend = host.embeddingBackend ?? 'llamaCPP'
 
-        if (!workspaceRelativeFile || !question) {
-          return textResult('Provide both a workspace-relative "file" and a "query".')
+        if (!filePath || !question) {
+          return textResult('Provide both a "file" path and a "query".')
         }
         if (!embeddingModel) {
           return textResult(
@@ -178,16 +197,16 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
           )
         }
 
-        const realPath = resolveWorkspaceFile(workspaceDir, workspaceRelativeFile)
+        const realPath = resolveWorkspaceFile(workspaceDir, filePath)
         if (!realPath) {
           return textResult(
-            `Not a file in the workspace folder: "${workspaceRelativeFile}". Pass a workspace-relative path.`,
+            `Not a file in the workspace folder: "${filePath}". Pass a workspace path, e.g. "report.pdf" or "/workspace/report.pdf".`,
           )
         }
         const extension = path.extname(realPath).slice(1).toLowerCase()
         if (!SUPPORTED_EXTENSIONS.includes(extension as (typeof SUPPORTED_EXTENSIONS)[number])) {
           return textResult(
-            `"${workspaceRelativeFile}" is not an indexable document (pdf, docx, doc, md, txt). ` +
+            `"${filePath}" is not an indexable document (pdf, docx, doc, md, txt). ` +
               "Read it with 'read' instead.",
           )
         }
@@ -197,7 +216,7 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
           try {
             mtimeMs = fs.statSync(realPath).mtimeMs
           } catch {
-            return textResult(`Could not read the file: "${workspaceRelativeFile}".`)
+            return textResult(`Could not read the file: "${filePath}".`)
           }
 
           const serverKey = `${embeddingBackend}/${embeddingModel}`
@@ -251,7 +270,7 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
           const indexed = (indexedFiles.get(realPath) as IndexedCacheEntry).doc
           if (!indexed.splitDB || indexed.splitDB.length === 0) {
             return textResult(
-              `"${workspaceRelativeFile}" has no indexable text content (it may be empty or scanned images).`,
+              `"${filePath}" has no indexable text content (it may be empty or scanned images).`,
             )
           }
 
@@ -266,10 +285,10 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
           const chunks = await ragAccess().retrieve(inquiry)
           if (chunks.length === 0) {
             return textResult(
-              `No passage in "${workspaceRelativeFile}" matched the query. Rephrase the question, or read the file directly.`,
+              `No passage in "${filePath}" matched the query. Rephrase the question, or read the file directly.`,
             )
           }
-          return textResult(formatChunks(chunks, workspaceRelativeFile, k))
+          return textResult(formatChunks(chunks, filePath, k))
         } catch (error) {
           return textResult(
             `Document search failed: ${error instanceof Error ? error.message : String(error)}`,

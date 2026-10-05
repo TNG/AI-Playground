@@ -247,6 +247,28 @@ describe('the rag tool', () => {
     expect(calls.retrieve).toBe(0)
   })
 
+  it('accepts the /workspace/<name> form the sandbox advertises', async () => {
+    const host = hostWith()
+    workspaceFile(host, 'report.pdf')
+    const { calls, inquiry } = fakeAccess()
+    const tool = await buildRagTool(host)
+
+    const text = await resultOf(tool, { file: '/workspace/report.pdf', query: 'budget' })
+    expect(calls.ingest).toBe(1)
+    expect(inquiry()).toMatchObject({ prompt: 'budget' })
+    expect(text).toContain('report.pdf')
+  })
+
+  it('accepts the real absolute workspace path host-shell mode uses', async () => {
+    const host = hostWith()
+    const file = workspaceFile(host, 'report.pdf')
+    const { calls } = fakeAccess()
+    const tool = await buildRagTool(host)
+
+    await resultOf(tool, { file, query: 'budget' })
+    expect(calls.ingest).toBe(1)
+  })
+
   it('refuses file types the indexer cannot read and points at read', async () => {
     const host = hostWith()
     workspaceFile(host, 'index.html')
@@ -380,11 +402,29 @@ describe('formatChunks', () => {
 })
 
 describe('resolveWorkspaceFile', () => {
-  it('rejects empty, absolute and escaping paths', () => {
+  it('rejects empty, absolute-escaping and relative-escaping paths', () => {
     const workspaceDir = hostWith().workspaceDir
     expect(resolveWorkspaceFile(workspaceDir, '')).toBeNull()
     expect(resolveWorkspaceFile(workspaceDir, '/etc/passwd')).toBeNull()
     expect(resolveWorkspaceFile(workspaceDir, '../escape.pdf')).toBeNull()
     expect(resolveWorkspaceFile(workspaceDir, '.')).toBeNull()
+  })
+
+  it('strips the /workspace sandbox prefix and resolves the rest', () => {
+    const host = hostWith()
+    const file = workspaceFile(host, 'report.pdf')
+    const realFile = fs.realpathSync(file)
+    expect(resolveWorkspaceFile(host.workspaceDir, '/workspace/report.pdf')).toBe(realFile)
+    // The prefix strip must not open an escape: /workspace/../outside stays outside.
+    const outside = path.join(agentDir, 'outside.pdf')
+    fs.writeFileSync(outside, 'secret')
+    expect(resolveWorkspaceFile(host.workspaceDir, '/workspace/../outside.pdf')).toBeNull()
+  })
+
+  it('accepts a real absolute path inside the workspace', () => {
+    const host = hostWith()
+    const file = workspaceFile(host, 'report.pdf')
+    const realFile = fs.realpathSync(file)
+    expect(resolveWorkspaceFile(host.workspaceDir, file)).toBe(realFile)
   })
 })

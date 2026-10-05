@@ -336,6 +336,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       workspaceDir?: string
       toolSpecs?: AgentToolSpec[]
       mcpServerIds?: string[]
+      embeddingModel?: string
     }) => invoke('agentMode:listCapabilities', options),
     onExecuteTool: (callback: (data: AgentToolExecuteRequest) => void) =>
       onPush('agentMode:executeTool', callback),

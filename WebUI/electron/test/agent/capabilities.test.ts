@@ -131,8 +131,8 @@ describe('the capability catalog', () => {
     expect(ids.indexOf('mcp:filesystem')).toBeLessThan(ids.indexOf('media'))
   })
 
-  it('defaults to media and web debugging, with memory opt-in', () => {
-    expect([...DEFAULT_CAPABILITY_IDS]).toEqual(['media', 'web-debug'])
+  it('defaults to media, web debugging and document search, with memory opt-in', () => {
+    expect([...DEFAULT_CAPABILITY_IDS]).toEqual(['media', 'web-debug', 'rag'])
   })
 
   it('reports availability and commands for the settings UI', () => {
@@ -154,6 +154,18 @@ describe('the capability catalog', () => {
     const listed = listCapabilities(hostWith()).map(({ id }) => id)
     expect(listed).not.toContain('game-studio')
     expect(listed).not.toContain('game-studio-quick')
+  })
+
+  it('offers document search only when an embedding model is available', async () => {
+    const withoutModel = listCapabilities(hostWith()).find((entry) => entry.id === 'rag')
+    expect(withoutModel?.unavailableReason).toMatch(/embedding model/i)
+    const withModel = listCapabilities(hostWith({ embeddingModel: 'bge-small' })).find(
+      (entry) => entry.id === 'rag',
+    )
+    expect(withModel?.unavailableReason).toBeUndefined()
+    // The capability is skipped at session build for the same reason.
+    const resolution = await resolveCapabilities(hostWith(), ['rag'])
+    expect(resolution.resolved.map(({ capability }) => capability.id)).toEqual([])
   })
 })
 

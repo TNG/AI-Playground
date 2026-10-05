@@ -2,6 +2,8 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import type { UIMessage } from 'ai'
 import { useTextInference } from './textInference'
+import { useModels } from './models'
+import { useDialogStore } from './dialogs'
 import { useCloudMode } from './cloudMode'
 import { usePresets, type ChatPreset } from './presets'
 import { usePresetSwitching } from './presetSwitching'
@@ -27,6 +29,7 @@ import {
   DEFAULT_CAPABILITY_IDS,
   GAME_STUDIO_QUICK_ID,
   OFFER_GAME_AGENT_TOOL,
+  RAG_PREPARE_EMBEDDING_MODEL,
 } from '@/types/agentCapabilities'
 import type { GameLibraryEntry } from '@/types/agentIpc'
 import {
@@ -83,6 +86,8 @@ export const useAgentMode = defineStore(
   'agentMode',
   () => {
     const textInference = useTextInference()
+    const models = useModels()
+    const dialogStore = useDialogStore()
     const cloudMode = useCloudMode()
     const presetsStore = usePresets()
     const presetSwitching = usePresetSwitching()
@@ -402,9 +407,38 @@ export const useAgentMode = defineStore(
       return pendingResponseLocales[sessionId]
     }
 
+    // The rag capability (main process) asks for this before its first index:
+    // the session-frozen embedding model may not be on disk yet, and the
+    // renderer owns the download policy (shared dialog) plus the models store.
+    const RAG_AIPG_BACKEND_NAME = {
+      llamaCPP: 'llama_cpp',
+      openVINO: 'openvino',
+    } as const
+
+    async function prepareRagEmbeddingModel(input: Record<string, unknown>): Promise<unknown> {
+      const model = typeof input.model === 'string' ? input.model : ''
+      const backend = input.backend === 'openVINO' ? 'openVINO' : 'llamaCPP'
+      if (!model) return { status: 'ready' }
+      const checked = await models.checkModelAlreadyLoaded([
+        { repo_id: model, type: 'embedding', backend: RAG_AIPG_BACKEND_NAME[backend] },
+      ])
+      const missing = checked.filter((m) => !m.already_loaded)
+      if (missing.length === 0) return { status: 'ready' }
+      return new Promise((resolve) => {
+        dialogStore.showDownloadDialog(
+          missing,
+          () => resolve({ status: 'ready' }),
+          () => resolve({ status: 'declined' }),
+        )
+      })
+    }
+
     const turn = createAgentTurnRuntime({
       errors,
-      storeTools: { [OFFER_GAME_AGENT_TOOL]: (input) => offerGameAgent(input) },
+      storeTools: {
+        [OFFER_GAME_AGENT_TOOL]: (input) => offerGameAgent(input),
+        [RAG_PREPARE_EMBEDDING_MODEL]: (input) => prepareRagEmbeddingModel(input),
+      },
       buildTurnConfig: () => {
         const sessionId = ensureSessionId(activeSessionId)
         return buildTurnConfig({

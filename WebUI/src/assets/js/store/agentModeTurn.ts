@@ -36,6 +36,9 @@ type InferenceForTurn = {
   getCurrentDeviceName: () => string | null | undefined
   contextSize?: number
   activeLlmModel?: { llamaCppArgs?: string } | null
+  /** Downloaded embedding model + the local backend that serves it (rag capability). */
+  embeddingBackend: 'llamaCPP' | 'openVINO'
+  activeEmbeddingModel?: string | null
 }
 
 type CloudForTurn = {
@@ -59,6 +62,13 @@ export function buildSamplingParams(textInference: InferenceForTurn): Record<str
   })
   if (Object.keys(kwargs).length > 0) params.chat_template_kwargs = kwargs
   return params
+}
+
+function embeddingConfigOf(textInference: InferenceForTurn) {
+  const embeddingModel = textInference.activeEmbeddingModel ?? undefined
+  // Only meaningful with a model; in Cloud Mode `embeddingBackend` already
+  // resolves to a local backend that can serve embeddings.
+  return embeddingModel ? { embeddingModel, embeddingBackend: textInference.embeddingBackend } : {}
 }
 
 export async function buildTurnConfig(options: {
@@ -109,6 +119,7 @@ export async function buildTurnConfig(options: {
       capabilities: options.capabilities,
       unsandboxed: options.unsandboxed,
       keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
+      ...embeddingConfigOf(textInference),
     }
   }
   const servedModelId = textInference.activeModel?.split('/').join('---') ?? ''
@@ -144,6 +155,7 @@ export async function buildTurnConfig(options: {
       textInference.modelSupportsThinkingToggle &&
       textInference.thinkingEnabled &&
       options.planningThinkingOnly,
+    ...embeddingConfigOf(textInference),
     ...(activeModel
       ? {
           readiness: {

@@ -147,6 +147,9 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
 
   // Everything optional the agent can do is a capability the user enabled for
   // this session (capabilities/index.ts): its tools, skills and Pi extensions.
+  // The embedding fields are deliberately not part of configKeyOf: like the
+  // instructions, they are frozen at session build and picked up on the next
+  // rebuild (capability toggle, model switch).
   const capabilityHost: CapabilityHost = {
     sessionId,
     workspaceDir,
@@ -156,6 +159,12 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     agentDir: piAgentDir(),
     contextWindow: config.modelConfig.contextWindow,
     keepModelsLoaded: config.keepModelsLoaded ?? false,
+    ...(config.embeddingModel
+      ? {
+          embeddingModel: config.embeddingModel,
+          embeddingBackend: config.embeddingBackend ?? 'llamaCPP',
+        }
+      : {}),
   }
   const capabilities = await resolveCapabilities(capabilityHost, enabledCapabilityIds(config))
   logger.info(

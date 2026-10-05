@@ -320,7 +320,12 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [
-      { workspaceDir?: string; toolSpecs?: AgentToolSpec[]; mcpServerIds?: string[] },
+      {
+        workspaceDir?: string
+        toolSpecs?: AgentToolSpec[]
+        mcpServerIds?: string[]
+        embeddingModel?: string
+      },
     ],
     result: null as unknown as AgentCapabilityInfo[],
   },

@@ -118,7 +118,10 @@ import { registerInvokeHandlers, registerSendHandlers } from './kernel/ipcRegist
 import { typedSend } from './kernel/typedIpc'
 import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecycle'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
+import { setRagAccess } from './agent/ragAccess.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
+import type { Document as LangchainDocument } from '@langchain/classic/document'
+import type { EmbedInquiry, IndexedDocument } from '@/assets/js/store/textInference.ts'
 import { handleChatAnswer, rejectAllChatAsks } from './chat/chatAsk.ts'
 import type { ArtifactMissingModel } from '@/types/mediaRequests'
 import type { IpcOkWith } from '@/types/ipcChannels'
@@ -1075,6 +1078,49 @@ function handleUtilityFunction<T, R>(
     child.postMessage({ type: eventType, args: args })
   })
 }
+
+// ── RAG plumbing for the agent's `rag` tool ──────────────────────────────────
+//
+// The tool lives in the agent module graph (capabilities/rag.ts), which must
+// not import the service registry or this file — so main hands over the three
+// operations it needs as thunks (same pattern as setLlmServiceLookup). They are
+// read live: the langchain worker respawns, the embedding server is started on
+// demand, and the registry fills in during app init.
+
+const RAG_EMBEDDING_SERVICE: Record<'llamaCPP' | 'openVINO', string> = {
+  llamaCPP: 'llamacpp-backend',
+  openVINO: 'openvino-backend',
+}
+
+setRagAccess({
+  ingest: (document: IndexedDocument) =>
+    handleUtilityFunction<{ document: IndexedDocument }, IndexedDocument>(
+      'addDocumentToRAGList',
+      langchainChild,
+      { document },
+    ),
+  retrieve: (inquiry: EmbedInquiry) =>
+    handleUtilityFunction<EmbedInquiry, LangchainDocument[]>(
+      'embedInputUsingRag',
+      langchainChild,
+      inquiry,
+    ),
+  ensureEmbeddingServer: async (backend, model) => {
+    const service = serviceRegistry?.getService(RAG_EMBEDDING_SERVICE[backend]) as
+      | {
+          ensureEmbeddingServerReady(modelName: string): Promise<void>
+          getEmbeddingServerUrl(): string | null
+        }
+      | undefined
+    if (!service || typeof service.ensureEmbeddingServerReady !== 'function') {
+      throw new Error(`The embedding backend for '${backend}' is not installed.`)
+    }
+    await service.ensureEmbeddingServerReady(model)
+    const url = service.getEmbeddingServerUrl?.()
+    if (!url) throw new Error('The embedding server did not come up.')
+    return url
+  },
+})
 
 // Everything the app spawns, torn down in dependency order: the agent first,
 // because its extensions flush state on shutdown (persistent memory writes what

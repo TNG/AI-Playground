@@ -191,6 +191,11 @@ describe('sampler', () => {
       runCommand: async () => {
         throw new Error('missing')
       },
+      // The WDDM probe does not go through `runCommand` — it is DXGI/PDH in
+      // process. Without stubbing it too, this case only held on a box with no
+      // adapter; on a real Windows machine the live probe answered and the
+      // source came back 'wddm'.
+      collectWddm: () => [],
     })
     await new Promise((resolve) => setTimeout(resolve, 50))
     stopComputeMetricsSampler()
@@ -308,6 +313,10 @@ describe('intel probe commands', () => {
       intervalMs: 60_000,
       xpuSmiPath: 'C:\\app\\resources\\device-service\\xpu-smi.exe',
       runCommand: linuxRunner(calls),
+      // DXGI/PDH is in-process, not a `runCommand` spawn, so the live probe
+      // would answer here and the "xpu-smi contributed nothing" assertion
+      // below would read whatever card the test box has.
+      collectWddm: () => [],
     })
     await new Promise((resolve) => setTimeout(resolve, 60))
     stopComputeMetricsSampler()
@@ -327,6 +336,7 @@ describe('intel probe commands', () => {
       intervalMs: 60_000,
       xpuSmiPath: null,
       runCommand: linuxRunner(calls),
+      collectWddm: () => [],
     })
     await new Promise((resolve) => setTimeout(resolve, 60))
     stopComputeMetricsSampler()
@@ -341,6 +351,7 @@ describe('intel probe commands', () => {
     const calls: string[][] = []
     startComputeMetricsSampler({
       intervalMs: 60_000,
+      collectWddm: () => [],
       runCommand: linuxRunner(calls),
     })
     await new Promise((resolve) => setTimeout(resolve, 60))
@@ -366,6 +377,7 @@ describe('intel probe commands', () => {
     const calls: string[][] = []
     startComputeMetricsSampler({
       intervalMs: 60_000,
+      collectWddm: () => [],
       runCommand: async (command, args) => {
         calls.push([command, ...args])
         if (args[0] === '--help') return QUERY_HELP
@@ -402,6 +414,7 @@ describe('intel probe commands', () => {
     const tried: string[] = []
     startComputeMetricsSampler({
       intervalMs: 60_000,
+      collectWddm: () => [],
       runCommand: async (_command, args) => {
         if (args[0] === '--help') return QUERY_HELP
         if (args[0] === 'discovery') return DISCOVERY_CSV
@@ -428,6 +441,7 @@ describe('intel probe commands', () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('linux')
     startComputeMetricsSampler({
       intervalMs: 60_000,
+      collectWddm: () => [],
       runCommand: async () => {
         throw new Error('spawn ENOENT')
       },

@@ -29,7 +29,7 @@ import {
   stopComputeMetricsSampler,
   summarizeWindow,
   XPU_SMI_WINDOWS_DISABLED,
-} from '../computeMetrics.ts'
+} from '../../../adapters/hardware/computeMetrics.ts'
 import type { ComputeSnapshot } from '@/types/computeMetrics.ts'
 
 describe('parseNvidiaSmiCsv', () => {

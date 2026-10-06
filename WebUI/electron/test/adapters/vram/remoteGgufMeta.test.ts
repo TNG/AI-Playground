@@ -8,7 +8,7 @@ import {
   clearRemoteGgufCache,
   huggingFaceResolveUrl,
   readRemoteLlamaCppVramInputs,
-} from '../remoteGgufMeta.ts'
+} from '../../../adapters/vram/remoteGgufMeta.ts'
 
 const MODEL = { name: 'owner/repo/model.gguf', mmproj: 'owner/repo/mmproj-BF16.gguf' }
 const ENDPOINT = 'https://huggingface.co'

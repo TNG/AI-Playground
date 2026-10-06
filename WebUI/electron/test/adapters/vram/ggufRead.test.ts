@@ -4,7 +4,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { encodeGgufMetadata } from '@/lib/vram/gguf'
 import { archFromMetadata } from '@/lib/vram/arch'
-import { readGgufMetadataFromFile } from '../ggufRead.ts'
+import { readGgufMetadataFromFile } from '../../../adapters/vram/ggufRead.ts'
 
 const tempFiles: string[] = []
 

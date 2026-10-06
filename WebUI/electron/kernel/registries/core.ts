@@ -54,9 +54,9 @@ import {
   collectComputeSnapshot,
   computeMetricsProbeReport,
   latestComputeSnapshot,
-} from '../../computeMetrics'
-import { readLlamaCppVramInputs } from '../../llamaCppVramInputs'
-import { readRemoteLlamaCppVramInputs } from '../../remoteGgufMeta'
+} from '../../adapters/hardware/computeMetrics'
+import { readLlamaCppVramInputs } from '../../adapters/vram/llamaCppVramInputs'
+import { readRemoteLlamaCppVramInputs } from '../../adapters/vram/remoteGgufMeta'
 import type { setVerboseLogging } from '../../agent/piAgentLog.ts'
 import type {
   ChatReadinessArgs,

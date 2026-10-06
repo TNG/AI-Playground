@@ -16,7 +16,7 @@ import {
 import { dynamicTool, jsonSchema, tool, type ToolResultOutput } from '@ai-sdk/provider-utils'
 import type { JSONSchema7 } from '@ai-sdk/provider'
 import { appLoggerInstance } from '../observability/logger'
-import { computeEnergyWhSince, computeWindowSince } from '../computeMetrics'
+import { computeEnergyWhSince, computeWindowSince } from '../adapters/hardware/computeMetrics'
 import { CHAT_ENERGY_ESTIMATES_ENABLED } from '@/lib/chatEnergy'
 import { completeOrphanedToolParts, sanitizeBulkyToolOutputs } from '@/lib/toolMessageSanitize'
 import { attachGeneratedImageFollowUps, comfyToolModelOutput } from '@/lib/generatedImageFollowUp'

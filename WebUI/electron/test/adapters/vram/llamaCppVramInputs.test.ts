@@ -3,7 +3,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { encodeGgufMetadata } from '@/lib/vram/gguf'
-import { readLlamaCppVramInputs, resolveGgufPath } from '../llamaCppVramInputs.ts'
+import {
+  readLlamaCppVramInputs,
+  resolveGgufPath,
+} from '../../../adapters/vram/llamaCppVramInputs.ts'
 
 const tempDirs: string[] = []
 

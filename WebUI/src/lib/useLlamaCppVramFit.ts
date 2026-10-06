@@ -1,5 +1,5 @@
 import { computed, reactive, watchEffect, type Ref } from 'vue'
-import type { LlamaCppVramInputs } from '../../electron/llamaCppVramInputs'
+import type { LlamaCppVramInputs } from '@/lib/vram/types'
 import { useComputeMetrics } from '@/assets/js/store/computeMetrics'
 import { useTextInference, type LlmModel } from '@/assets/js/store/textInference'
 import {

@@ -1,7 +1,7 @@
 import os from 'node:os'
 import path from 'node:path'
-import { spawnProcessAsync, type ProcessResult } from './adapters/install/osProcessHelper.ts'
-import { appLoggerInstance } from './observability/logger.ts'
+import { spawnProcessAsync, type ProcessResult } from '../install/osProcessHelper.ts'
+import { appLoggerInstance } from '../../observability/logger.ts'
 import type {
   ComputeSnapshot,
   ComputeWindowStats,

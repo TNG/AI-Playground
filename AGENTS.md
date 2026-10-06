@@ -391,7 +391,7 @@ WebUI/                      # Electron + Vue.js frontend (all npm commands here)
     artifact/               # Artifact capability: ComfyUI runner, workflow rewrite, catalog
     permissions/            # Consent policy + the renderer prompt adapter
     observability/          # Logger and Laminar tracing
-    adapters/               # I/O: backends/, install/, hardware/, mcp/, cloud, updates, web browser
+    adapters/               # I/O: backends/, install/, hardware/, vram/, mcp/, cloud, updates, web browser
     test/                   # Main-process tests mirror the source folders
   src/                      # Vue.js app (components, views, stores, utils)
     assets/js/store/        # Pinia stores (domain + implementation)

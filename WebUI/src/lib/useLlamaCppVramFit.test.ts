@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed, nextTick, reactive } from 'vue'
-import type { LlamaCppVramInputs } from '../../electron/llamaCppVramInputs'
+import type { LlamaCppVramInputs } from '@/lib/vram/types'
 import type { LlmModel } from '@/assets/js/store/textInference'
 import { GIB, MIB } from '@/lib/vram'
 

@@ -1,7 +1,11 @@
 import os from 'node:os'
 import { appLoggerInstance } from './logger.ts'
 import { llmServerSnapshot, type LocalLlmBackend } from '../adapters/llmServerSnapshot.ts'
-import { computeAttributes, computeMetadata, computeWindowSince } from '../computeMetrics.ts'
+import {
+  computeAttributes,
+  computeMetadata,
+  computeWindowSince,
+} from '../adapters/hardware/computeMetrics.ts'
 
 // ── What a trace has to say about the turn that produced it ──────────────────
 //

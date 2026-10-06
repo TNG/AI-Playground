@@ -19,7 +19,7 @@ const {
   recordChatCallStats,
 } = await import('../../observability/laminarAttributes.ts')
 const { recordComputeSnapshotForTests, resetComputeMetricsForTests } =
-  await import('../../computeMetrics.ts')
+  await import('../../adapters/hardware/computeMetrics.ts')
 
 const METADATA = 'lmnr.association.properties.metadata.'
 const HOST = `${METADATA}hostname`

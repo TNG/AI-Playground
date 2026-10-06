@@ -1,5 +1,5 @@
 import koffi, { type TypeObject } from 'koffi'
-import { appLoggerInstance } from './observability/logger.ts'
+import { appLoggerInstance } from '../../observability/logger.ts'
 import type { GpuSample } from '@/types/computeMetrics.ts'
 import {
   aggregatePdhEngineUtil,

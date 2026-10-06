@@ -12,6 +12,7 @@ import type {
 } from '@/types/computeMetrics.ts'
 import { omitSmiUtilization, overlaySmiOntoWddm } from '@/lib/wddmGpuMetrics.ts'
 import { pickPrimaryGpu, summarizeWindow } from '@/lib/computeMetricsWindow.ts'
+import { integrateGpuEnergyWh } from '@/lib/chatEnergy.ts'
 import { collectWddmGpus, resetWddmMetricsForTests, wddmLastError } from './windowsWddmMetrics.ts'
 
 export type { ComputeSnapshot, ComputeWindowStats, GpuSample, GpuVendor, ProbeReport, XpuDialect }
@@ -330,6 +331,15 @@ export function computeWindowSince(sinceMs: number, hint?: string): ComputeWindo
     samples.filter((sample) => sample.ts >= sinceMs),
     hint,
   )
+}
+
+/**
+ * GPU energy drawn since `sinceMs`, integrated over the sampled power readings.
+ * Undefined when no sample in the window carried a power figure — the chat turn
+ * then ships no energy metadata rather than a zero that looks measured.
+ */
+export function computeEnergyWhSince(sinceMs: number, hint?: string): number | undefined {
+  return integrateGpuEnergyWh(samples, sinceMs, Date.now(), hint)
 }
 
 let report: ProbeReport = freshReport()

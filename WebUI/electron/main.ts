@@ -289,13 +289,7 @@ import {
   noteMainChatTurnContext,
   shutdownLaminarTracing,
 } from './observability/laminar.ts'
-import {
-  collectComputeSnapshot,
-  computeMetricsProbeReport,
-  latestComputeSnapshot,
-  setComputeMetricsSink,
-  startComputeMetricsSampler,
-} from './computeMetrics.ts'
+import { setComputeMetricsSink, startComputeMetricsSampler } from './computeMetrics.ts'
 import z from 'zod'
 
 const ProductModeUiI18nSchema = z.object({

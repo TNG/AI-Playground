@@ -66,9 +66,32 @@ function release(): void {
   waiting.shift()?.()
 }
 
-const cacheKey = (model: LlmModel) => `${model.downloaded ? 'local' : 'remote'}:${model.name}`
+/**
+ * The least a caller has to know about a model to get a verdict on it. The chat
+ * picker passes an `LlmModel`; the model manager builds one of these from a
+ * library entry, which carries no projector or context ceiling of its own.
+ */
+export type VramFitTarget = {
+  name: string
+  downloaded: boolean
+  mmproj?: string
+  llamaCppArgs?: string
+  maxContextSize?: number
+}
 
-function requestInputs(model: LlmModel): void {
+/**
+ * A picker entry reduced to a target, or undefined when the estimator has nothing
+ * to say about it. The guard is the caller's job rather than the composable's: a
+ * model that is not a GGUF would otherwise cost a HuggingFace range request per
+ * row to learn that, which is what the whole picker does on an OpenVINO preset.
+ */
+export function llamaCppFitTarget(model: LlmModel | undefined): VramFitTarget | undefined {
+  return model?.type === 'llamaCPP' ? model : undefined
+}
+
+const cacheKey = (model: VramFitTarget) => `${model.downloaded ? 'local' : 'remote'}:${model.name}`
+
+function requestInputs(model: VramFitTarget): void {
   const key = cacheKey(model)
   if (inputsCache.has(key) || inFlight.has(key)) return
   inFlight.add(key)
@@ -85,6 +108,87 @@ function requestInputs(model: LlmModel): void {
   })()
 }
 
+/** The card as the estimator sees it: total size and the budget to judge against. */
+type CardBudget = { totalBytes: number; availableBytes: number; usableBytes: number }
+
+function cardBudget(gpu: { memTotalMiB?: number; memUsedMiB?: number } | undefined) {
+  if (!gpu?.memTotalMiB) return null
+  const totalBytes = mibToBytes(gpu.memTotalMiB)
+  return {
+    totalBytes,
+    usableBytes: emptyCardBudgetBytes(totalBytes),
+    availableBytes:
+      gpu.memUsedMiB != null ? Math.max(0, totalBytes - mibToBytes(gpu.memUsedMiB)) : totalBytes,
+  }
+}
+
+function summarize(
+  model: VramFitTarget,
+  source: LlamaCppVramInputs,
+  card: CardBudget,
+  contextSize: number,
+): VramFitSummary {
+  // The catalog asks for MTP off the model's own draft head on some models,
+  // which costs KV and a slice of the weights on top of everything else.
+  const mtp = (model.llamaCppArgs ?? '').includes('draft-mtp')
+  const maxContext = model.maxContextSize
+
+  const pointAt = (contextTokens: number): VramFitPoint => {
+    const estimate = estimateLlamaCppVram({
+      arch: source.arch,
+      weightsBytes: source.weightsBytes,
+      mmprojBytes: source.mmprojBytes,
+      contextSize: contextTokens,
+      flashAttention: true,
+      nParallel: 1,
+      mtp,
+    })
+    return {
+      contextTokens,
+      baseBytes: estimate.weightsBytes,
+      contextBytes: estimate.totalBytes - estimate.weightsBytes,
+      totalBytes: estimate.totalBytes,
+      level: vramFitLevel(estimate.totalBytes, card.usableBytes),
+    }
+  }
+
+  // A model narrower than the setting never gets the whole window.
+  const current = pointAt(Math.min(contextSize, maxContext ?? Infinity))
+  return {
+    level: current.level,
+    ...card,
+    current,
+    reference: pointAt(REFERENCE_CONTEXT_TOKENS),
+    max: pointAt(maxContext ?? contextSize),
+  }
+}
+
+/**
+ * The verdict for any number of models, for code that filters a list rather than
+ * rendering one chip. `levelOf` is a plain function so it can be called from a
+ * `computed` over a whole list; reading it registers the model for a header read
+ * and re-runs the computed once that lands.
+ *
+ * Null means "no answer", never "does not fit" — a header still in flight, one
+ * that could not be read, or no GPU sample. Callers filtering on this must keep
+ * the nulls, or a list would empty itself while it loads.
+ */
+export function useVramFitLevels() {
+  const textInference = useTextInference()
+  const computeMetrics = useComputeMetrics()
+
+  function levelOf(model: VramFitTarget | undefined): VramFitLevel | null {
+    if (!model) return null
+    requestInputs(model)
+    const card = cardBudget(computeMetrics.primaryGpu)
+    const source = inputsCache.get(cacheKey(model))
+    if (!card || !source) return null
+    return summarize(model, source, card, textInference.contextSize).level
+  }
+
+  return { levelOf }
+}
+
 /**
  * How a llama.cpp model sits in the card's memory, at the current, a reference
  * and the model's maximum context. Defaults to the active model; pass one to ask
@@ -94,12 +198,12 @@ function requestInputs(model: LlmModel): void {
  * A model that is not on disk is read from its header on HuggingFace, which is
  * the moment the verdict is worth the most: before paying for the download.
  */
-export function useLlamaCppVramFit(target?: Ref<LlmModel | undefined>) {
+export function useLlamaCppVramFit(target?: Ref<VramFitTarget | undefined>) {
   const textInference = useTextInference()
   const computeMetrics = useComputeMetrics()
 
   const model = computed(() => {
-    if (target) return target.value?.type === 'llamaCPP' ? target.value : undefined
+    if (target) return target.value
     if (textInference.backend !== 'llamaCPP') return undefined
     return textInference.llmModels.find((m) => m.active && m.type === 'llamaCPP')
   })
@@ -114,49 +218,11 @@ export function useLlamaCppVramFit(target?: Ref<LlmModel | undefined>) {
   })
 
   const summary = computed<VramFitSummary | null>(() => {
-    const gpu = computeMetrics.primaryGpu
+    const card = cardBudget(computeMetrics.primaryGpu)
     const source = inputs.value
-    if (!source || !gpu?.memTotalMiB) return null
-
-    const totalBytes = mibToBytes(gpu.memTotalMiB)
-    const usableBytes = emptyCardBudgetBytes(totalBytes)
-    const availableBytes =
-      gpu.memUsedMiB != null ? Math.max(0, totalBytes - mibToBytes(gpu.memUsedMiB)) : totalBytes
-    // The catalog asks for MTP off the model's own draft head on some models,
-    // which costs KV and a slice of the weights on top of everything else.
-    const mtp = (model.value?.llamaCppArgs ?? '').includes('draft-mtp')
-    const maxContext = model.value?.maxContextSize
-
-    const pointAt = (contextTokens: number): VramFitPoint => {
-      const estimate = estimateLlamaCppVram({
-        arch: source.arch,
-        weightsBytes: source.weightsBytes,
-        mmprojBytes: source.mmprojBytes,
-        contextSize: contextTokens,
-        flashAttention: true,
-        nParallel: 1,
-        mtp,
-      })
-      return {
-        contextTokens,
-        baseBytes: estimate.weightsBytes,
-        contextBytes: estimate.totalBytes - estimate.weightsBytes,
-        totalBytes: estimate.totalBytes,
-        level: vramFitLevel(estimate.totalBytes, usableBytes),
-      }
-    }
-
-    // A model narrower than the setting never gets the whole window.
-    const current = pointAt(Math.min(textInference.contextSize, maxContext ?? Infinity))
-    return {
-      level: current.level,
-      totalBytes,
-      availableBytes,
-      usableBytes,
-      current,
-      reference: pointAt(REFERENCE_CONTEXT_TOKENS),
-      max: pointAt(maxContext ?? textInference.contextSize),
-    }
+    const current = model.value
+    if (!source || !card || !current) return null
+    return summarize(current, source, card, textInference.contextSize)
   })
 
   return { summary }

@@ -374,6 +374,7 @@
   "VRAM_FIT_LEVEL_EASY": "Passt problemlos",
   "VRAM_FIT_LEVEL_TIGHT": "Passt knapp",
   "VRAM_FIT_LEVEL_OVER": "Passt nicht",
+  "VRAM_FIT_FILTER": "Nur Modelle, die passen",
   "VRAM_FIT_ARIA": "Modellgröße: {level}",
   "VRAM_FIT_BUDGET": "{available} frei von {max} vRAM",
   "VRAM_FIT_AT_CURRENT": "Aktueller Kontext ({tokens} Token)",

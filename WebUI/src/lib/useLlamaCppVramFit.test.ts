@@ -17,7 +17,8 @@ const computeMetrics = reactive({
 vi.mock('@/assets/js/store/textInference', () => ({ useTextInference: () => textInference }))
 vi.mock('@/assets/js/store/computeMetrics', () => ({ useComputeMetrics: () => computeMetrics }))
 
-const { useLlamaCppVramFit } = await import('./useLlamaCppVramFit.ts')
+const { useLlamaCppVramFit, useVramFitLevels, llamaCppFitTarget } =
+  await import('./useLlamaCppVramFit.ts')
 
 // A 7B-ish dense model: 32 layers, 4096 wide, 8 KV heads.
 const inputs: LlamaCppVramInputs = {
@@ -183,5 +184,67 @@ describe('useLlamaCppVramFit', () => {
     textInference.backend = 'openVINO'
     await settle()
     expect(summary.value).toBeNull()
+  })
+})
+
+describe('useVramFitLevels', () => {
+  const target = (name: string) => ({ name, downloaded: true })
+
+  // The in-flight-cap test above leaves a deliberately slow implementation
+  // behind, and the shared `beforeEach` only clears calls, not behaviour.
+  beforeEach(() => getLlamaCppVramInputs.mockImplementation(async () => inputs))
+
+  it('judges each model in a list, reading every header once', async () => {
+    const { levelOf } = useVramFitLevels()
+    const models = [target('owner/repo/a.gguf'), target('owner/repo/b.gguf')]
+    // A filter re-runs on every keystroke; the reads must not.
+    models.forEach((m) => levelOf(m))
+    models.forEach((m) => levelOf(m))
+    await settle()
+
+    expect(models.map((m) => levelOf(m))).toEqual(['easy', 'easy'])
+    expect(getLlamaCppVramInputs).toHaveBeenCalledTimes(2)
+  })
+
+  it('says nothing before the header lands, and nothing without a GPU sample', async () => {
+    const { levelOf } = useVramFitLevels()
+    // First call only starts the read — the answer cannot be there yet.
+    expect(levelOf(target('owner/repo/slow.gguf'))).toBeNull()
+    await settle()
+    expect(levelOf(target('owner/repo/slow.gguf'))).toBe('easy')
+
+    computeMetrics.primaryGpu = undefined
+    expect(levelOf(target('owner/repo/slow.gguf'))).toBeNull()
+  })
+
+  it('shares its cache with the chip, so a listed model is read once for both', async () => {
+    const model = { name: 'owner/repo/shared.gguf', downloaded: true }
+    useLlamaCppVramFit(computed(() => model))
+    await settle()
+    getLlamaCppVramInputs.mockClear()
+
+    const { levelOf } = useVramFitLevels()
+    expect(levelOf(model)).toBe('easy')
+    expect(getLlamaCppVramInputs).not.toHaveBeenCalled()
+  })
+
+  it('turns a model away only when it is over the card', async () => {
+    computeMetrics.primaryGpu = { memTotalMiB: 4 * 1024, memUsedMiB: 512 }
+    const { levelOf } = useVramFitLevels()
+    levelOf(target('owner/repo/big.gguf'))
+    await settle()
+    expect(levelOf(target('owner/repo/big.gguf'))).toBe('over')
+  })
+})
+
+describe('llamaCppFitTarget', () => {
+  it('passes a llama.cpp model through and drops every other backend', () => {
+    const gguf = { name: 'owner/repo/a.gguf', type: 'llamaCPP', downloaded: true }
+    expect(llamaCppFitTarget(gguf as unknown as LlmModel)).toBe(gguf)
+    // An OpenVINO row would otherwise cost a HuggingFace range request to learn
+    // there is no GGUF header to read.
+    const ov = { name: 'owner/repo/ov', type: 'openVINO', downloaded: true }
+    expect(llamaCppFitTarget(ov as unknown as LlmModel)).toBeUndefined()
+    expect(llamaCppFitTarget(undefined)).toBeUndefined()
   })
 })

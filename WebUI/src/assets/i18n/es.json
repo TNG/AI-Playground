@@ -374,6 +374,7 @@
   "VRAM_FIT_LEVEL_EASY": "Cabe holgadamente",
   "VRAM_FIT_LEVEL_TIGHT": "Cabe por poco",
   "VRAM_FIT_LEVEL_OVER": "No cabe",
+  "VRAM_FIT_FILTER": "Solo modelos que caben",
   "VRAM_FIT_ARIA": "Tamaño del modelo: {level}",
   "VRAM_FIT_BUDGET": "{available} libres de {max} de vRAM",
   "VRAM_FIT_AT_CURRENT": "Contexto actual ({tokens} tokens)",

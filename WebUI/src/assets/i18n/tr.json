@@ -374,6 +374,7 @@
   "VRAM_FIT_LEVEL_EASY": "Rahatça sığıyor",
   "VRAM_FIT_LEVEL_TIGHT": "Zar zor sığıyor",
   "VRAM_FIT_LEVEL_OVER": "Sığmıyor",
+  "VRAM_FIT_FILTER": "Yalnızca sığan modeller",
   "VRAM_FIT_ARIA": "Model boyutu: {level}",
   "VRAM_FIT_BUDGET": "{max} vRAM içinde {available} boş",
   "VRAM_FIT_AT_CURRENT": "Geçerli bağlam ({tokens} token)",

@@ -4,6 +4,7 @@
 import { type CapabilityKey, modelHasCapability } from '../capabilities'
 import { hasCapabilityOverrides, mergeCapabilities } from './overrides'
 import type { InferenceDefaults, SamplingProfile } from '@/types/shared'
+import type { VramFitLevel } from '@/lib/vram/types'
 import {
   type ModelCapabilityValues,
   type ModelEntry,
@@ -331,6 +332,8 @@ export type ModelLibraryFilters = {
   backend: ModelServiceBackend | 'all'
   capabilities: CapabilityKey[]
   downloadState: ModelDownloadState
+  /** Hide models the VRAM estimator says will not fit the card. */
+  fitsOnly: boolean
 }
 
 export const DEFAULT_FILTERS: ModelLibraryFilters = {
@@ -339,6 +342,7 @@ export const DEFAULT_FILTERS: ModelLibraryFilters = {
   backend: 'all',
   capabilities: [],
   downloadState: 'all',
+  fitsOnly: false,
 }
 
 /**
@@ -354,10 +358,22 @@ export function matchesSearch(entry: ModelEntry, search: string): boolean {
 export function filterEntries(
   entries: ModelEntry[],
   filters: ModelLibraryFilters,
-  options: { alwaysInclude?: ReadonlySet<string> } = {},
+  options: {
+    alwaysInclude?: ReadonlySet<string>
+    /**
+     * The VRAM verdict for an entry, or null when there is none — a model the
+     * estimator cannot speak for (anything but a llama.cpp LLM), a header still
+     * being read, or no GPU sample yet. Injected rather than computed here so
+     * this stays a pure function over the entry list.
+     */
+    vramLevel?: (entry: ModelEntry) => VramFitLevel | null
+  } = {},
 ): ModelEntry[] {
   return entries.filter((entry) => {
     if (options.alwaysInclude?.has(entry.id)) return true
+    // Only a confirmed "will not fit" hides a row. No verdict is not a verdict:
+    // an embedding model, or one whose header is still in flight, stays.
+    if (filters.fitsOnly && options.vramLevel?.(entry) === 'over') return false
     if (filters.useCase === 'favorites' && !entry.favorite) return false
     if (
       filters.useCase !== 'all' &&

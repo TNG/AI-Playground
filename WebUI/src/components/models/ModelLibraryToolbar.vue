@@ -6,6 +6,7 @@ import {
   PlusIcon,
   TrashIcon,
 } from '@heroicons/vue/24/solid'
+import { PuzzlePieceIcon } from '@heroicons/vue/24/outline'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import CapabilityIcons from '@/components/CapabilityIcons.vue'
@@ -209,6 +210,23 @@ const statusValue = computed(() =>
       icon-size="size-4"
       @toggle="toggleCapability"
     />
+    <!-- The same puzzle piece the row chips carry, toggled on to drop the models
+         whose estimate is over the card. Only what the estimator calls too big
+         goes: a row it cannot judge is not a row it judged badly. -->
+    <button
+      v-if="library.fitFilterAvailable"
+      type="button"
+      :aria-pressed="library.filters.fitsOnly"
+      :title="i18nState.VRAM_FIT_FILTER"
+      :aria-label="i18nState.VRAM_FIT_FILTER"
+      class="flex size-8 shrink-0 items-center justify-center rounded-md border border-border hover:bg-muted"
+      @click="library.setFilters({ fitsOnly: !library.filters.fitsOnly })"
+    >
+      <PuzzlePieceIcon
+        class="size-4"
+        :class="library.filters.fitsOnly ? 'text-primary' : 'text-muted-foreground'"
+      />
+    </button>
     <!-- Grouped and named so the dropdown, whose trigger is a label-only button,
          is addressable by what it filters. -->
     <div

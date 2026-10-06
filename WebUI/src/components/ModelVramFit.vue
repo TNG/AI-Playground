@@ -3,15 +3,18 @@ import { computed } from 'vue'
 import { PuzzlePieceIcon } from '@heroicons/vue/24/outline'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useI18N } from '@/assets/js/store/i18n'
-import type { LlmModel } from '@/assets/js/store/textInference'
 import { formatBytes } from '@/assets/js/models/library'
-import { useLlamaCppVramFit, type VramFitPoint } from '@/lib/useLlamaCppVramFit'
+import { useLlamaCppVramFit, type VramFitPoint, type VramFitTarget } from '@/lib/useLlamaCppVramFit'
 import type { VramFitLevel } from '@/lib/vram'
 
 const props = withDefaults(
   defineProps<{
-    /** Defaults to the active model; pass one to judge a model in a list. */
-    model?: LlmModel
+    /**
+     * Defaults to the active model; pass one to judge a model in a list. Already
+     * narrowed to llama.cpp by the caller (`llamaCppFitTarget`), since only the
+     * caller knows which backend the row it is rendering belongs to.
+     */
+    model?: VramFitTarget
     iconSize?: string
     delayDuration?: number
   }>(),

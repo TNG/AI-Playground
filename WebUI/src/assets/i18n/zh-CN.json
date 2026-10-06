@@ -374,6 +374,7 @@
   "VRAM_FIT_LEVEL_EASY": "空间充裕",
   "VRAM_FIT_LEVEL_TIGHT": "勉强够用",
   "VRAM_FIT_LEVEL_OVER": "放不下",
+  "VRAM_FIT_FILTER": "仅显示放得下的模型",
   "VRAM_FIT_ARIA": "模型大小：{level}",
   "VRAM_FIT_BUDGET": "{max} vRAM 中剩余 {available}",
   "VRAM_FIT_AT_CURRENT": "当前上下文（{tokens} 个 token）",

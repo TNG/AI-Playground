@@ -374,6 +374,7 @@
   "VRAM_FIT_LEVEL_EASY": "Mieści się swobodnie",
   "VRAM_FIT_LEVEL_TIGHT": "Mieści się ledwo",
   "VRAM_FIT_LEVEL_OVER": "Nie mieści się",
+  "VRAM_FIT_FILTER": "Tylko modele, które się mieszczą",
   "VRAM_FIT_ARIA": "Rozmiar modelu: {level}",
   "VRAM_FIT_BUDGET": "{available} wolne z {max} vRAM",
   "VRAM_FIT_AT_CURRENT": "Bieżący kontekst ({tokens} tokenów)",

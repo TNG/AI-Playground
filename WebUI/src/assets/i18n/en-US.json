@@ -374,6 +374,7 @@
   "VRAM_FIT_LEVEL_EASY": "Fits comfortably",
   "VRAM_FIT_LEVEL_TIGHT": "Barely fits",
   "VRAM_FIT_LEVEL_OVER": "Does not fit",
+  "VRAM_FIT_FILTER": "Only models that fit",
   "VRAM_FIT_ARIA": "Model size: {level}",
   "VRAM_FIT_BUDGET": "{available} free of {max} vRAM",
   "VRAM_FIT_AT_CURRENT": "Current context ({tokens} tokens)",

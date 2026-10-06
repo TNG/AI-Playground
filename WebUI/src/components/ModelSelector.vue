@@ -11,11 +11,14 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ChevronDownIcon, MagnifyingGlassIcon, StarIcon } from '@heroicons/vue/24/solid'
+import { PuzzlePieceIcon } from '@heroicons/vue/24/outline'
 import ModelCapabilities from './ModelCapabilities.vue'
 import ModelVramFit from './ModelVramFit.vue'
 import CapabilityIcons from './CapabilityIcons.vue'
 import { modelHasCapability, type CapabilityKey } from '@/assets/js/capabilities'
 import { sortFavoritesFirst } from '@/assets/js/models/favorites'
+import { llamaCppFitTarget, useVramFitLevels } from '@/lib/useLlamaCppVramFit'
+import { useI18N } from '@/assets/js/store/i18n'
 
 const textInference = useTextInference()
 const presetsStore = usePresets()
@@ -38,7 +41,15 @@ const currentModel = computed(() => {
 const open = ref(false)
 const search = ref('')
 const activeFilters = ref<Set<CapabilityKey>>(new Set())
+const fitsOnly = ref(false)
 const searchInput = ref<HTMLInputElement | null>(null)
+
+const i18nState = useI18N().state
+const { levelOf } = useVramFitLevels()
+
+// Only llama.cpp models get a verdict, so on any other backend the toggle would
+// be a control that cannot change the list.
+const fitFilterAvailable = computed(() => textInference.backend === 'llamaCPP')
 
 function toggleFilter(key: CapabilityKey) {
   const next = new Set(activeFilters.value)
@@ -109,6 +120,11 @@ const items = computed(() => {
       for (const key of activeFilters.value) {
         if (!modelHasCapability(m, key)) return false
       }
+      // Size filter: drop only what the estimator says will not fit — green and
+      // yellow both stay. A model still being read, or one whose header could not
+      // be read at all, has no verdict and is kept: hiding it would empty the
+      // list while the headers load and call that an answer.
+      if (fitsOnly.value && levelOf(llamaCppFitTarget(m)) === 'over') return false
       // Only show predefined models unless advancedMode is enabled OR
       // custom model explicitly matches the preset's requirements
       if (!requirements.advancedMode && !m.isPredefined) {
@@ -135,7 +151,7 @@ const items = computed(() => {
     .map((item) => ({
       label: item.name.split('/').at(-1) ?? item.name,
       value: item.name,
-      model: item,
+      fitTarget: llamaCppFitTarget(item),
       active: item.downloaded,
       supportsToolCalling: item.supportsToolCalling,
       supportsVision: item.supportsVision,
@@ -216,13 +232,30 @@ watchEffect(() => {
             @keydown.stop
           />
         </div>
-        <div class="shrink-0">
+        <div class="shrink-0 flex items-center gap-1">
           <CapabilityIcons
             mode="filter"
             :active-keys="activeFilters"
             icon-size="size-4"
             @toggle="toggleFilter"
           />
+          <!-- Same puzzle piece the chip uses, so the control and the thing it
+               filters on read as one idea. Tinted when on, like the capability
+               icons beside it. -->
+          <button
+            v-if="fitFilterAvailable"
+            type="button"
+            :aria-pressed="fitsOnly"
+            :title="i18nState.VRAM_FIT_FILTER"
+            :aria-label="i18nState.VRAM_FIT_FILTER"
+            class="flex size-6 items-center justify-center rounded hover:bg-muted"
+            @click="fitsOnly = !fitsOnly"
+          >
+            <PuzzlePieceIcon
+              class="size-4"
+              :class="fitsOnly ? 'text-primary' : 'text-muted-foreground'"
+            />
+          </button>
         </div>
       </div>
       <DropdownMenuSeparator class="bg-border" />
@@ -244,7 +277,7 @@ watchEffect(() => {
             <StarIcon v-if="item.favorite" class="size-3 mr-1.5 shrink-0 text-primary" />
             <span class="flex-1 truncate">{{ item.label }}</span>
             <div class="flex items-center gap-1 ml-2 shrink-0">
-              <ModelVramFit :model="item.model" icon-size="size-3.5" />
+              <ModelVramFit :model="item.fitTarget" icon-size="size-3.5" />
               <CapabilityIcons
                 :model="{
                   supportsVision: item.supportsVision,

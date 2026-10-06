@@ -107,7 +107,14 @@ function fakeAccess(
       calls.retrieve += 1
       lastInquiry = inquiry as unknown as Record<string, unknown>
       if (options.failRetrieve) throw options.failRetrieve
-      return chunks
+      // Stamp the source path onto returned chunks the way the real ingest does,
+      // so formatChunks can label each passage with its file.
+      const source = inquiry.ragList[0]?.filepath
+      return chunks.map((c) =>
+        source && !(c.metadata as Record<string, unknown>).source
+          ? new Document({ pageContent: c.pageContent, metadata: { ...c.metadata, source } })
+          : c,
+      )
     },
     ensureEmbeddingServer: async () => {
       calls.ensure += 1
@@ -159,9 +166,9 @@ afterAll(() => {
 })
 
 describe('the rag tool', () => {
-  it('asks for a file and a query', async () => {
+  it('asks for files and a query', async () => {
     const tool = await buildRagTool(hostWith())
-    expect(tool.parameters?.required).toEqual(['file', 'query'])
+    expect(tool.parameters?.required).toEqual(['files', 'query'])
   })
 
   it('indexes, retrieves and returns passages with page metadata', async () => {
@@ -170,7 +177,7 @@ describe('the rag tool', () => {
     const { calls, inquiry } = fakeAccess()
     const tool = await buildRagTool(host)
 
-    const text = await resultOf(tool, { file: 'report.pdf', query: 'the budget' })
+    const text = await resultOf(tool, { files: ['report.pdf'], query: 'the budget' })
 
     expect(calls.ingest).toBe(1)
     expect(calls.ensure).toBe(1)
@@ -181,6 +188,7 @@ describe('the rag tool', () => {
       maxResults: DEFAULT_K,
       useGroupRetrieval: false,
     })
+    expect(inquiry().ragList).toHaveLength(1)
     expect(text).toContain('report.pdf')
     expect(text).toContain('page 7')
     expect(text).toContain('The budget is $42.')
@@ -192,8 +200,8 @@ describe('the rag tool', () => {
     const { calls } = fakeAccess()
     const tool = await buildRagTool(host)
 
-    await resultOf(tool, { file: 'report.pdf', query: 'first question' })
-    await resultOf(tool, { file: 'report.pdf', query: 'second question' })
+    await resultOf(tool, { files: ['report.pdf'], query: 'first question' })
+    await resultOf(tool, { files: ['report.pdf'], query: 'second question' })
 
     expect(calls.ingest).toBe(1)
     expect(calls.ensure).toBe(1)
@@ -202,7 +210,7 @@ describe('the rag tool', () => {
     // A changed file re-indexes; the embedding server handshake is kept.
     const changed = workspaceFile(host, 'report.pdf', 'rewritten content')
     fs.utimesSync(changed, new Date(), new Date(Date.now() + 10_000))
-    await resultOf(tool, { file: 'report.pdf', query: 'third question' })
+    await resultOf(tool, { files: ['report.pdf'], query: 'third question' })
     expect(calls.ingest).toBe(2)
     expect(calls.ensure).toBe(1)
   })
@@ -213,11 +221,11 @@ describe('the rag tool', () => {
     const { inquiry } = fakeAccess()
     const tool = await buildRagTool(host)
 
-    await resultOf(tool, { file: 'report.pdf', query: 'q', k: 99 })
+    await resultOf(tool, { files: ['report.pdf'], query: 'q', k: 99 })
     expect(inquiry().maxResults).toBe(MAX_K)
-    await resultOf(tool, { file: 'report.pdf', query: 'q', k: 0 })
+    await resultOf(tool, { files: ['report.pdf'], query: 'q', k: 0 })
     expect(inquiry().maxResults).toBe(1)
-    await resultOf(tool, { file: 'report.pdf', query: 'q' })
+    await resultOf(tool, { files: ['report.pdf'], query: 'q' })
     expect(inquiry().maxResults).toBe(DEFAULT_K)
   })
 
@@ -231,17 +239,17 @@ describe('the rag tool', () => {
     const { calls } = fakeAccess()
     const tool = await buildRagTool(host)
 
-    expect(await resultOf(tool, { file: outside, query: 'q' })).toMatch(
-      /Not a file in the workspace/,
+    expect(await resultOf(tool, { files: [outside], query: 'q' })).toMatch(
+      /not a file in the workspace/,
     )
-    expect(await resultOf(tool, { file: '../outside.pdf', query: 'q' })).toMatch(
-      /Not a file in the workspace/,
+    expect(await resultOf(tool, { files: ['../outside.pdf'], query: 'q' })).toMatch(
+      /not a file in the workspace/,
     )
-    expect(await resultOf(tool, { file: 'link.pdf', query: 'q' })).toMatch(
-      /Not a file in the workspace/,
+    expect(await resultOf(tool, { files: ['link.pdf'], query: 'q' })).toMatch(
+      /not a file in the workspace/,
     )
-    expect(await resultOf(tool, { file: 'missing.pdf', query: 'q' })).toMatch(
-      /Not a file in the workspace/,
+    expect(await resultOf(tool, { files: ['missing.pdf'], query: 'q' })).toMatch(
+      /not a file in the workspace/,
     )
     expect(calls.ingest).toBe(0)
     expect(calls.retrieve).toBe(0)
@@ -253,7 +261,7 @@ describe('the rag tool', () => {
     const { calls, inquiry } = fakeAccess()
     const tool = await buildRagTool(host)
 
-    const text = await resultOf(tool, { file: '/workspace/report.pdf', query: 'budget' })
+    const text = await resultOf(tool, { files: ['/workspace/report.pdf'], query: 'budget' })
     expect(calls.ingest).toBe(1)
     expect(inquiry()).toMatchObject({ prompt: 'budget' })
     expect(text).toContain('report.pdf')
@@ -265,8 +273,91 @@ describe('the rag tool', () => {
     const { calls } = fakeAccess()
     const tool = await buildRagTool(host)
 
-    await resultOf(tool, { file, query: 'budget' })
+    await resultOf(tool, { files: [file], query: 'budget' })
     expect(calls.ingest).toBe(1)
+  })
+
+  it('searches multiple files as a merged set and labels each passage with its file', async () => {
+    const host = hostWith()
+    workspaceFile(host, 'report.pdf')
+    workspaceFile(host, 'notes.md')
+    const { calls, inquiry } = fakeAccess()
+    const tool = await buildRagTool(host)
+
+    const text = await resultOf(tool, { files: ['report.pdf', 'notes.md'], query: 'budget' })
+
+    expect(calls.ingest).toBe(2)
+    expect(calls.retrieve).toBe(1)
+    expect(inquiry().ragList).toHaveLength(2)
+    expect(text).toContain('2 documents')
+  })
+
+  it('skips invalid files and searches the rest', async () => {
+    const host = hostWith()
+    workspaceFile(host, 'report.pdf')
+    workspaceFile(host, 'index.html') // unsupported extension
+    const { calls, inquiry } = fakeAccess()
+    const tool = await buildRagTool(host)
+
+    const text = await resultOf(tool, { files: ['report.pdf', 'index.html'], query: 'budget' })
+
+    // Only the valid file is ingested and retrieved.
+    expect(calls.ingest).toBe(1)
+    expect(inquiry().ragList).toHaveLength(1)
+    // The result still returns passages from the valid file...
+    expect(text).toContain('The budget is $42.')
+    // ...and notes the skipped file.
+    expect(text).toContain('Skipped:')
+    expect(text).toContain('index.html')
+  })
+
+  it('returns a skip summary without prompting when every file is invalid', async () => {
+    const host = hostWith()
+    workspaceFile(host, 'index.html')
+    const { calls } = fakeAccess()
+    const tool = await buildRagTool(host)
+
+    const text = await resultOf(tool, { files: ['index.html', 'missing.pdf'], query: 'q' })
+
+    expect(text).toContain('No documents could be searched')
+    expect(text).toContain('index.html')
+    expect(text).toContain('missing.pdf')
+    // No download prompt, no ingest, no retrieve.
+    expect(calls.ingest).toBe(0)
+    expect(calls.retrieve).toBe(0)
+    expect(calls.ensure).toBe(0)
+  })
+
+  it('accepts a single string as files for defensive coercion', async () => {
+    const host = hostWith()
+    workspaceFile(host, 'report.pdf')
+    const { calls } = fakeAccess()
+    const tool = await buildRagTool(host)
+
+    // A model might send a bare string instead of an array.
+    await resultOf(tool, { files: 'report.pdf', query: 'budget' } as Record<string, unknown>)
+    expect(calls.ingest).toBe(1)
+  })
+
+  it('caches the index per file across calls in the same session', async () => {
+    const host = hostWith()
+    workspaceFile(host, 'a.pdf')
+    workspaceFile(host, 'b.pdf')
+    const { calls } = fakeAccess()
+    const tool = await buildRagTool(host)
+
+    await resultOf(tool, { files: ['a.pdf', 'b.pdf'], query: 'first' })
+    expect(calls.ingest).toBe(2)
+
+    // Second call with both files: cached, no re-ingest.
+    await resultOf(tool, { files: ['a.pdf', 'b.pdf'], query: 'second' })
+    expect(calls.ingest).toBe(2)
+    expect(calls.retrieve).toBe(2)
+
+    // Adding a new file ingests only the new one.
+    workspaceFile(host, 'c.pdf')
+    await resultOf(tool, { files: ['a.pdf', 'b.pdf', 'c.pdf'], query: 'third' })
+    expect(calls.ingest).toBe(3)
   })
 
   it('refuses file types the indexer cannot read and points at read', async () => {
@@ -275,7 +366,7 @@ describe('the rag tool', () => {
     const { calls } = fakeAccess()
     const tool = await buildRagTool(host)
 
-    expect(await resultOf(tool, { file: 'index.html', query: 'q' })).toMatch(/'read' instead/)
+    expect(await resultOf(tool, { files: ['index.html'], query: 'q' })).toMatch(/'read' instead/)
     expect(calls.ingest).toBe(0)
   })
 
@@ -285,7 +376,7 @@ describe('the rag tool', () => {
     fakeAccess({ emptySplit: true })
     const tool = await buildRagTool(host)
 
-    expect(await resultOf(tool, { file: 'scanned.pdf', query: 'q' })).toMatch(
+    expect(await resultOf(tool, { files: ['scanned.pdf'], query: 'q' })).toMatch(
       /no indexable text content/,
     )
   })
@@ -296,7 +387,7 @@ describe('the rag tool', () => {
     fakeAccess({ chunks: [] })
     const tool = await buildRagTool(host)
 
-    expect(await resultOf(tool, { file: 'report.pdf', query: 'q' })).toMatch(/No passage/)
+    expect(await resultOf(tool, { files: ['report.pdf'], query: 'q' })).toMatch(/No passage/)
   })
 
   it('returns failures as tool text instead of throwing', async () => {
@@ -305,7 +396,7 @@ describe('the rag tool', () => {
     fakeAccess({ failRetrieve: new Error('embedding server exploded') })
     const tool = await buildRagTool(host)
 
-    expect(await resultOf(tool, { file: 'report.pdf', query: 'q' })).toMatch(
+    expect(await resultOf(tool, { files: ['report.pdf'], query: 'q' })).toMatch(
       /Document search failed: embedding server exploded/,
     )
   })
@@ -317,8 +408,8 @@ describe('the rag tool', () => {
     const { calls } = fakeAccess()
     const tool = await buildRagTool(host)
 
-    await resultOf(tool, { file: 'report.pdf', query: 'q' })
-    await resultOf(tool, { file: 'report.pdf', query: 'other question' })
+    await resultOf(tool, { files: ['report.pdf'], query: 'q' })
+    await resultOf(tool, { files: ['report.pdf'], query: 'other question' })
 
     // One prompt per session, with the session-frozen model and backend.
     expect(dispatches).toEqual([
@@ -334,10 +425,10 @@ describe('the rag tool', () => {
     const { calls } = fakeAccess()
     const tool = await buildRagTool(host)
 
-    expect(await resultOf(tool, { file: 'report.pdf', query: 'q' })).toMatch(
+    expect(await resultOf(tool, { files: ['report.pdf'], query: 'q' })).toMatch(
       /declined the embedding model download/,
     )
-    expect(await resultOf(tool, { file: 'report.pdf', query: 'q' })).toMatch(/'read' instead/)
+    expect(await resultOf(tool, { files: ['report.pdf'], query: 'q' })).toMatch(/'read' instead/)
     expect(calls.ingest).toBe(0)
     expect(calls.ensure).toBe(0)
     expect(calls.retrieve).toBe(0)
@@ -357,10 +448,10 @@ describe('the rag tool', () => {
     setRagAccess(access)
     const tool = await buildRagTool(host)
 
-    expect(await resultOf(tool, { file: 'report.pdf', query: 'q' })).toMatch(
+    expect(await resultOf(tool, { files: ['report.pdf'], query: 'q' })).toMatch(
       /not usable on this machine \(model file missing\)/,
     )
-    expect(await resultOf(tool, { file: 'report.pdf', query: 'q' })).toMatch(/'read' instead/)
+    expect(await resultOf(tool, { files: ['report.pdf'], query: 'q' })).toMatch(/'read' instead/)
   })
 
   it('is not offered to a session without an embedding model', async () => {
@@ -374,28 +465,49 @@ describe('the rag tool', () => {
 })
 
 describe('formatChunks', () => {
-  it('labels each passage with whatever location metadata exists', () => {
+  it('labels each passage with its file and location metadata', () => {
+    const labels = new Map([
+      ['/ws/report.pdf', 'report.pdf'],
+      ['/ws/notes.md', 'notes.md'],
+    ])
     const text = formatChunks(
       [
-        makeChunk('first', { loc: { pageNumber: 3 } }),
-        makeChunk('second', { loc: { lines: { from: 10, to: 20 } } }),
-        makeChunk('third', {}),
+        makeChunk('first', { source: '/ws/report.pdf', loc: { pageNumber: 3 } }),
+        makeChunk('second', { source: '/ws/notes.md', loc: { lines: { from: 10, to: 20 } } }),
+        makeChunk('third', { source: '/ws/report.pdf' }),
       ],
-      'doc.pdf',
+      labels,
       5,
+      2,
     )
-    expect(text).toContain('3 passage(s) from doc.pdf (k=5)')
-    expect(text).toContain('passage 1 (page 3)')
-    expect(text).toContain('passage 2 (lines 10-20)')
-    expect(text).toContain('passage 3')
+    expect(text).toContain('3 passage(s) from 2 documents (k=5)')
+    expect(text).toContain('passage 1 — report.pdf (page 3)')
+    expect(text).toContain('passage 2 — notes.md (lines 10-20)')
+    expect(text).toContain('passage 3 — report.pdf')
     expect(text).not.toContain('left out')
+  })
+
+  it('falls back to basename when a chunk source is not in the label map', () => {
+    const text = formatChunks(
+      [makeChunk('x', { source: '/ws/unknown.pdf', loc: { pageNumber: 1 } })],
+      new Map(),
+      5,
+      1,
+    )
+    expect(text).toContain('unknown.pdf (page 1)')
+  })
+
+  it('omits the file label when a chunk has no source metadata', () => {
+    const text = formatChunks([makeChunk('x', { loc: { pageNumber: 1 } })], new Map(), 5, 1)
+    expect(text).toContain('passage 1 (page 1)')
+    expect(text).not.toContain(' — ')
   })
 
   it('stops before the result eats the context', () => {
     const chunks = Array.from({ length: 20 }, (_, i) =>
       makeChunk(`${i} `.repeat(2000), { loc: { pageNumber: i + 1 } }),
     )
-    const text = formatChunks(chunks, 'big.pdf', 20)
+    const text = formatChunks(chunks, new Map(), 20, 1)
     expect(text.length).toBeLessThanOrEqual(MAX_RESULT_CHARS + 400)
     expect(text).toContain('left out')
   })

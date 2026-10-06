@@ -26,8 +26,8 @@ import type { AgentCapability, CapabilityHost } from './types.ts'
 // disk-cached by the langchain worker, namespaced per embedding model.
 
 const RAG_TOOL_DESCRIPTION =
-  'Semantic search over one large document in the workspace (pdf, docx, doc, md, txt). ' +
-  "Use it to answer questions about a document too large to read into context in full; returns the k best-matching passages with page or line numbers. Prefer 'read' for small files. " +
+  'Semantic search over one or more large documents in the workspace (pdf, docx, doc, md, txt). ' +
+  "Pass a list of file paths and a question; it returns the k best-matching passages across the merged documents, each labelled with its source file and page or line numbers. Use it to answer questions about documents too large to read into context in full. Prefer 'read' for small files. " +
   'The first call on a file indexes it and can take a while; later calls are fast.'
 
 // Mirrors piToolOperations.SANDBOX_WORKDIR — the path Pi's sandbox mounts the
@@ -42,15 +42,19 @@ const RAG_SKILL: SkillSource = {
     'Find answers inside large workspace documents (PDF, Word, Markdown, text) with the `rag` tool instead of reading them whole.',
   body: [
     '`read` loads a whole file into context — fine for code, wrong for a 300-page PDF.',
-    'For questions about a big document, call `rag` with the file path',
+    'For questions about big documents, call `rag` with a list of file paths',
     '(workspace-relative like "report.pdf", or the "/workspace/report.pdf" form',
-    'other tools show) and the question; it returns the best-matching passages',
+    'other tools show) and the question; it returns the best-matching passages,',
+    'each labelled with the file it came from.',
     '',
+    '- Pass multiple files to search across them at once; the top-k passages are',
+    '  ranked over the merged document set.',
     '- The first call on a file indexes it (slow on big PDFs); later calls return fast.',
     '  Do not re-call with the same query to "check" the result.',
-    '- Raise `k` (default 5, max 20) when you need broader coverage of the document.',
+    '- Raise `k` (default 5, max 20) when you need broader coverage of the documents.',
     '- Passages carry page numbers for PDFs and line ranges for text — cite them.',
     '- Unsupported file types (code, images, …) are not indexable; use `read` instead.',
+    '- Invalid files are skipped with a note; the rest are still searched.',
   ].join('\n'),
 }
 
@@ -58,10 +62,11 @@ const RAG_INPUT_SCHEMA: Record<string, unknown> = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    file: {
-      type: 'string',
+    files: {
+      type: 'array',
+      items: { type: 'string' },
       description:
-        'Path of the document to search — workspace-relative ("report.pdf") or the /workspace/report.pdf form other tools show.',
+        'Paths of the documents to search — workspace-relative ("report.pdf") or the /workspace/report.pdf form other tools show. Pass one or more; they are searched as a merged set.',
     },
     query: {
       type: 'string',
@@ -69,10 +74,10 @@ const RAG_INPUT_SCHEMA: Record<string, unknown> = {
     },
     k: {
       type: 'integer',
-      description: 'How many passages to return (default 5, max 20).',
+      description: 'How many passages to return across all documents (default 5, max 20).',
     },
   },
-  required: ['file', 'query'],
+  required: ['files', 'query'],
 }
 
 /** Exactly what the langchain worker's loadDocument can index. */
@@ -84,7 +89,7 @@ const MAX_K = 20
 const MAX_RESULT_CHARS = 20_000
 
 type RagToolParams = {
-  file?: unknown
+  files?: unknown
   query?: unknown
   k?: unknown
 }
@@ -144,7 +149,25 @@ function chunkLocation(metadata: Document['metadata']): string | undefined {
   return where || undefined
 }
 
-function formatChunks(chunks: Document[], fileLabel: string, k: number): string {
+function userFileLabel(input: string): string {
+  if (input.startsWith(SANDBOX_WORKDIR + '/')) return input.slice(SANDBOX_WORKDIR.length + 1)
+  return input
+}
+
+function coerceFileList(raw: unknown): string[] {
+  if (typeof raw === 'string') return raw.trim() ? [raw.trim()] : []
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter((s) => s.length > 0)
+}
+
+function formatChunks(
+  chunks: Document[],
+  labelForSource: Map<string, string>,
+  k: number,
+  documentCount: number,
+): string {
   const blocks: string[] = []
   let used = 0
   let shown = 0
@@ -155,12 +178,21 @@ function formatChunks(chunks: Document[], fileLabel: string, k: number): string 
     used += content.length
     shown += 1
     const where = chunkLocation(chunk.metadata)
-    const header = `── passage ${shown}${where ? ` (${where})` : ''} ──`
+    const source = (chunk.metadata as Record<string, unknown> | undefined)?.source
+    const fileLabel =
+      typeof source === 'string' ? (labelForSource.get(source) ?? path.basename(source)) : undefined
+    let detail: string
+    if (fileLabel && where) detail = ` — ${fileLabel} (${where})`
+    else if (fileLabel) detail = ` — ${fileLabel}`
+    else if (where) detail = ` (${where})`
+    else detail = ''
+    const header = `── passage ${shown}${detail} ──`
     blocks.push(`${header}\n${content}`)
   }
   const truncated =
     shown < chunks.length ? '\n\n(more passages matched but were left out to fit the context)' : ''
-  return `${shown} passage(s) from ${fileLabel} (k=${k}):\n\n${blocks.join('\n\n')}${truncated}`
+  const docWord = documentCount === 1 ? 'document' : 'documents'
+  return `${shown} passage(s) from ${documentCount} ${docWord} (k=${k}):\n\n${blocks.join('\n\n')}${truncated}`
 }
 
 async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
@@ -179,16 +211,16 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
       description: RAG_TOOL_DESCRIPTION,
       parameters: jsonSchemaParameters(RAG_INPUT_SCHEMA),
       execute: async (toolCallId, params, signal) => {
-        const { file, query, k: rawK } = (params ?? {}) as RagToolParams
-        const filePath = typeof file === 'string' ? file.trim() : ''
+        const { files, query, k: rawK } = (params ?? {}) as RagToolParams
         const question = typeof query === 'string' ? query.trim() : ''
         const parsedK = Math.trunc(Number(rawK ?? DEFAULT_K))
         const k = Math.min(MAX_K, Math.max(1, Number.isNaN(parsedK) ? DEFAULT_K : parsedK))
         const embeddingModel = host.embeddingModel
         const embeddingBackend = host.embeddingBackend ?? 'llamaCPP'
 
-        if (!filePath || !question) {
-          return textResult('Provide both a "file" path and a "query".')
+        const fileList = coerceFileList(files)
+        if (fileList.length === 0 || !question) {
+          return textResult('Provide a non-empty "files" list and a "query".')
         }
         if (!embeddingModel) {
           return textResult(
@@ -197,62 +229,97 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
           )
         }
 
-        const realPath = resolveWorkspaceFile(workspaceDir, filePath)
-        if (!realPath) {
-          return textResult(
-            `Not a file in the workspace folder: "${filePath}". Pass a workspace path, e.g. "report.pdf" or "/workspace/report.pdf".`,
-          )
-        }
-        const extension = path.extname(realPath).slice(1).toLowerCase()
-        if (!SUPPORTED_EXTENSIONS.includes(extension as (typeof SUPPORTED_EXTENSIONS)[number])) {
-          return textResult(
-            `"${filePath}" is not an indexable document (pdf, docx, doc, md, txt). ` +
-              "Read it with 'read' instead.",
-          )
-        }
-
-        try {
+        // Resolve + validate every file before prompting for the embedding model,
+        // so a batch of invalid paths never triggers a download dialog.
+        const skipped: string[] = []
+        const valid: { input: string; realPath: string; extension: string; mtimeMs: number }[] = []
+        for (const input of fileList) {
+          const realPath = resolveWorkspaceFile(workspaceDir, input)
+          if (!realPath) {
+            skipped.push(`"${input}" — not a file in the workspace folder`)
+            continue
+          }
+          const extension = path.extname(realPath).slice(1).toLowerCase()
+          if (!SUPPORTED_EXTENSIONS.includes(extension as (typeof SUPPORTED_EXTENSIONS)[number])) {
+            skipped.push(`"${input}" — not an indexable document (pdf, docx, doc, md, txt)`)
+            continue
+          }
           let mtimeMs = 0
           try {
             mtimeMs = fs.statSync(realPath).mtimeMs
           } catch {
-            return textResult(`Could not read the file: "${filePath}".`)
+            skipped.push(`"${input}" — could not read the file`)
+            continue
           }
+          valid.push({ input, realPath, extension, mtimeMs })
+        }
 
-          const serverKey = `${embeddingBackend}/${embeddingModel}`
-          if (!preparedDownloads.has(serverKey)) {
-            // The renderer owns the download policy (shared dialog), so a
-            // missing embedding model is prompted for on first actual use —
-            // the same UX as chat and media. Once per session.
-            const prep = (await executeToolInRenderer(
-              RAG_PREPARE_EMBEDDING_MODEL,
-              { model: embeddingModel, backend: embeddingBackend },
-              toolCallId,
-              signal ?? undefined,
-            )) as { status?: unknown } | null
-            if (prep?.status !== 'ready') {
-              return textResult(
-                'The user declined the embedding model download, so documents cannot be indexed. ' +
-                  "Read the document with 'read' instead.",
-              )
-            }
-            preparedDownloads.add(serverKey)
+        if (valid.length === 0) {
+          return textResult(
+            `No documents could be searched. Skipped:\n${skipped.map((s) => `  - ${s}`).join('\n')}\n\nRead the files with 'read' instead.`,
+          )
+        }
+
+        const serverKey = `${embeddingBackend}/${embeddingModel}`
+        if (!preparedDownloads.has(serverKey)) {
+          // The renderer owns the download policy (shared dialog), so a
+          // missing embedding model is prompted for on first actual use —
+          // the same UX as chat and media. Once per session.
+          const prep = (await executeToolInRenderer(
+            RAG_PREPARE_EMBEDDING_MODEL,
+            { model: embeddingModel, backend: embeddingBackend },
+            toolCallId,
+            signal ?? undefined,
+          )) as { status?: unknown } | null
+          if (prep?.status !== 'ready') {
+            return textResult(
+              'The user declined the embedding model download, so documents cannot be indexed. ' +
+                "Read the documents with 'read' instead.",
+            )
           }
+          preparedDownloads.add(serverKey)
+        }
 
+        const ragList: IndexedDocument[] = []
+        const labelForSource = new Map<string, string>()
+        for (const { input, realPath, extension, mtimeMs } of valid) {
           const cached = indexedFiles.get(realPath)
           if (!cached || cached.mtimeMs !== mtimeMs) {
-            const stub: IndexedDocument = {
-              filename: path.basename(realPath),
-              filepath: realPath,
-              type: extension as IndexedDocument['type'],
-              splitDB: [],
-              hash: '',
-              isChecked: true,
+            try {
+              const stub: IndexedDocument = {
+                filename: path.basename(realPath),
+                filepath: realPath,
+                type: extension as IndexedDocument['type'],
+                splitDB: [],
+                hash: '',
+                isChecked: true,
+              }
+              const doc = await ragAccess().ingest(stub)
+              indexedFiles.set(realPath, { mtimeMs, doc })
+            } catch (error) {
+              skipped.push(
+                `"${input}" — ingest failed: ${error instanceof Error ? error.message : String(error)}`,
+              )
+              continue
             }
-            const doc = await ragAccess().ingest(stub)
-            indexedFiles.set(realPath, { mtimeMs, doc })
           }
 
+          const indexed = indexedFiles.get(realPath) as IndexedCacheEntry
+          if (!indexed.doc.splitDB || indexed.doc.splitDB.length === 0) {
+            skipped.push(`"${input}" — no indexable text content`)
+            continue
+          }
+          ragList.push({ ...indexed.doc, isChecked: true })
+          labelForSource.set(realPath, userFileLabel(input))
+        }
+
+        if (ragList.length === 0) {
+          return textResult(
+            `No documents could be indexed for this query. Skipped:\n${skipped.map((s) => `  - ${s}`).join('\n')}`,
+          )
+        }
+
+        try {
           let baseUrl = ensuredServers.get(serverKey)
           if (!baseUrl) {
             try {
@@ -261,22 +328,15 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
               return textResult(
                 `The embedding model "${embeddingModel}" is not usable on this machine ` +
                   `(${error instanceof Error ? error.message : String(error)}). ` +
-                  "Download it in Settings, or read the document with 'read' instead.",
+                  "Download it in Settings, or read the documents with 'read' instead.",
               )
             }
             ensuredServers.set(serverKey, baseUrl)
           }
 
-          const indexed = (indexedFiles.get(realPath) as IndexedCacheEntry).doc
-          if (!indexed.splitDB || indexed.splitDB.length === 0) {
-            return textResult(
-              `"${filePath}" has no indexable text content (it may be empty or scanned images).`,
-            )
-          }
-
           const inquiry: EmbedInquiry = {
             prompt: question,
-            ragList: [{ ...indexed, isChecked: true }],
+            ragList,
             backendBaseUrl: baseUrl,
             embeddingModel,
             maxResults: k,
@@ -284,11 +344,14 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
           }
           const chunks = await ragAccess().retrieve(inquiry)
           if (chunks.length === 0) {
-            return textResult(
-              `No passage in "${filePath}" matched the query. Rephrase the question, or read the file directly.`,
-            )
+            const tail =
+              skipped.length > 0 ? `\n\nSkipped:\n${skipped.map((s) => `  - ${s}`).join('\n')}` : ''
+            return textResult(`No passage matched the query.${tail}`)
           }
-          return textResult(formatChunks(chunks, filePath, k))
+          const body = formatChunks(chunks, labelForSource, k, ragList.length)
+          const tail =
+            skipped.length > 0 ? `\n\nSkipped:\n${skipped.map((s) => `  - ${s}`).join('\n')}` : ''
+          return textResult(`${body}${tail}`)
         } catch (error) {
           return textResult(
             `Document search failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -303,7 +366,7 @@ export const ragCapability: AgentCapability = {
   id: 'rag',
   label: 'Document search',
   summary:
-    'Answer questions about large workspace documents (PDF, Word, Markdown, text) by searching them semantically instead of reading them whole.',
+    'Answer questions about large workspace documents (PDF, Word, Markdown, text) by searching them semantically instead of reading them whole. Pass one or more files to search across them as a merged set.',
   skills: [RAG_SKILL],
   buildTools: buildRagTool,
   unavailableReason: (host) =>
@@ -319,6 +382,8 @@ export const testables = {
   MAX_RESULT_CHARS,
   SUPPORTED_EXTENSIONS,
   resolveWorkspaceFile,
+  coerceFileList,
+  userFileLabel,
   formatChunks,
   chunkLocation,
 }

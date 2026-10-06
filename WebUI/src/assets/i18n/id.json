@@ -375,6 +375,8 @@
   "VRAM_FIT_LEVEL_TIGHT": "Nyaris muat",
   "VRAM_FIT_LEVEL_OVER": "Tidak muat",
   "VRAM_FIT_FILTER": "Hanya model yang muat",
+  "VRAM_FIT_FILTER_ON": "Menyembunyikan model yang tidak muat",
+  "VRAM_FIT_FILTER_OFF": "Sembunyikan model yang tidak muat",
   "VRAM_FIT_ARIA": "Ukuran model: {level}",
   "VRAM_FIT_BUDGET": "{available} tersisa dari {max} vRAM",
   "VRAM_FIT_AT_CURRENT": "Konteks saat ini ({tokens} token)",

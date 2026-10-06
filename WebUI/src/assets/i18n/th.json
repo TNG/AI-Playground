@@ -375,6 +375,8 @@
   "VRAM_FIT_LEVEL_TIGHT": "พอดีแบบเฉียดฉิว",
   "VRAM_FIT_LEVEL_OVER": "ไม่พอดี",
   "VRAM_FIT_FILTER": "เฉพาะโมเดลที่พอดี",
+  "VRAM_FIT_FILTER_ON": "กำลังซ่อนโมเดลที่ไม่พอดี",
+  "VRAM_FIT_FILTER_OFF": "ซ่อนโมเดลที่ไม่พอดี",
   "VRAM_FIT_ARIA": "ขนาดโมเดล: {level}",
   "VRAM_FIT_BUDGET": "เหลือ {available} จาก vRAM {max}",
   "VRAM_FIT_AT_CURRENT": "บริบทปัจจุบัน ({tokens} โทเค็น)",

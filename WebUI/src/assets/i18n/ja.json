@@ -375,6 +375,8 @@
   "VRAM_FIT_LEVEL_TIGHT": "ぎりぎり収まります",
   "VRAM_FIT_LEVEL_OVER": "収まりません",
   "VRAM_FIT_FILTER": "収まるモデルのみ",
+  "VRAM_FIT_FILTER_ON": "収まらないモデルを非表示にしています",
+  "VRAM_FIT_FILTER_OFF": "収まらないモデルを非表示にする",
   "VRAM_FIT_ARIA": "モデルサイズ: {level}",
   "VRAM_FIT_BUDGET": "vRAM {max} 中 {available} 空き",
   "VRAM_FIT_AT_CURRENT": "現在のコンテキスト ({tokens} トークン)",

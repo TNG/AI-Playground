@@ -11,10 +11,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ChevronDownIcon, MagnifyingGlassIcon, StarIcon } from '@heroicons/vue/24/solid'
-import { PuzzlePieceIcon } from '@heroicons/vue/24/outline'
+import { Puzzle } from 'lucide-vue-next'
 import ModelCapabilities from './ModelCapabilities.vue'
 import ModelVramFit from './ModelVramFit.vue'
-import CapabilityIcons from './CapabilityIcons.vue'
+import CapabilityIcons, { type ExtraFilter } from './CapabilityIcons.vue'
 import { modelHasCapability, type CapabilityKey } from '@/assets/js/capabilities'
 import { sortFavoritesFirst } from '@/assets/js/models/favorites'
 import { llamaCppFitTarget, useVramFitLevels } from '@/lib/useLlamaCppVramFit'
@@ -50,6 +50,20 @@ const { levelOf } = useVramFitLevels()
 // Only llama.cpp models get a verdict, so on any other backend the toggle would
 // be a control that cannot change the list.
 const fitFilterAvailable = computed(() => textInference.backend === 'llamaCPP')
+
+const fitFilters = computed<ExtraFilter[]>(() =>
+  fitFilterAvailable.value
+    ? [
+        {
+          key: 'fits',
+          label: i18nState.VRAM_FIT_FILTER,
+          icon: Puzzle,
+          active: fitsOnly.value,
+          hint: fitsOnly.value ? i18nState.VRAM_FIT_FILTER_ON : i18nState.VRAM_FIT_FILTER_OFF,
+        },
+      ]
+    : [],
+)
 
 function toggleFilter(key: CapabilityKey) {
   const next = new Set(activeFilters.value)
@@ -232,30 +246,15 @@ watchEffect(() => {
             @keydown.stop
           />
         </div>
-        <div class="shrink-0 flex items-center gap-1">
+        <div class="shrink-0">
           <CapabilityIcons
             mode="filter"
             :active-keys="activeFilters"
+            :extras="fitFilters"
             icon-size="size-4"
             @toggle="toggleFilter"
+            @toggle-extra="fitsOnly = !fitsOnly"
           />
-          <!-- Same puzzle piece the chip uses, so the control and the thing it
-               filters on read as one idea. Tinted when on, like the capability
-               icons beside it. -->
-          <button
-            v-if="fitFilterAvailable"
-            type="button"
-            :aria-pressed="fitsOnly"
-            :title="i18nState.VRAM_FIT_FILTER"
-            :aria-label="i18nState.VRAM_FIT_FILTER"
-            class="flex size-6 items-center justify-center rounded hover:bg-muted"
-            @click="fitsOnly = !fitsOnly"
-          >
-            <PuzzlePieceIcon
-              class="size-4"
-              :class="fitsOnly ? 'text-primary' : 'text-muted-foreground'"
-            />
-          </button>
         </div>
       </div>
       <DropdownMenuSeparator class="bg-border" />

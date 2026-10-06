@@ -29,15 +29,7 @@ export type GgufArch = {
 }
 
 export type KvCacheType =
-  | 'f32'
-  | 'f16'
-  | 'bf16'
-  | 'q8_0'
-  | 'q5_1'
-  | 'q5_0'
-  | 'q4_1'
-  | 'q4_0'
-  | 'iq4_nl'
+  'f32' | 'f16' | 'bf16' | 'q8_0' | 'q5_1' | 'q5_0' | 'q4_1' | 'q4_0' | 'iq4_nl'
 
 export type KvPath = 'mla' | 'hybrid' | 'swa' | 'gqa' | 'legacy' | 'none'
 
@@ -83,6 +75,15 @@ export type VramFit = {
 
 /** Traffic light shown next to a model: fits easily / barely / not at all. */
 export type VramFitLevel = 'easy' | 'tight' | 'over'
+
+/**
+ * What the chip can say about a model, the traffic light plus the fourth case:
+ * a model the estimator should be able to judge but cannot, because its GGUF
+ * header could not be read. Distinct from having no chip at all, which is what
+ * a model outside the estimator's reach (another backend, an embedding model)
+ * gets — there is nothing to not know about it.
+ */
+export type VramFitVerdict = VramFitLevel | 'unknown'
 
 /** Everything `estimateLlamaCppVram` needs that only the main process can read. */
 export type LlamaCppVramInputs = {

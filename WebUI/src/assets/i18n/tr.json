@@ -377,6 +377,8 @@
   "VRAM_FIT_FILTER": "Yalnızca sığan modeller",
   "VRAM_FIT_FILTER_ON": "Sığmayan modeller gizleniyor",
   "VRAM_FIT_FILTER_OFF": "Sığmayan modelleri gizle",
+  "VRAM_FIT_LEVEL_UNKNOWN": "Boyut bilinmiyor",
+  "VRAM_FIT_UNKNOWN_EXPLANATION": "Modelin GGUF başlığı okunamadı, bu nedenle bellek kullanımı tahmin edilemiyor.",
   "VRAM_FIT_ARIA": "Model boyutu: {level}",
   "VRAM_FIT_BUDGET": "{max} vRAM içinde {available} boş",
   "VRAM_FIT_AT_CURRENT": "Geçerli bağlam ({tokens} token)",

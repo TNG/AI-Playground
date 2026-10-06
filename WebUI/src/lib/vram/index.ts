@@ -7,6 +7,7 @@ export type {
   VramBudget,
   VramFit,
   VramFitLevel,
+  VramFitVerdict,
 } from './types.ts'
 export { archFromMetadata } from './arch.ts'
 export { parseGgufMetadata, parseGgufMetadataBytes, type GgufMetadata } from './gguf.ts'

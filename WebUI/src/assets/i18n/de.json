@@ -377,6 +377,8 @@
   "VRAM_FIT_FILTER": "Nur Modelle, die passen",
   "VRAM_FIT_FILTER_ON": "Modelle, die nicht passen, werden ausgeblendet",
   "VRAM_FIT_FILTER_OFF": "Modelle ausblenden, die nicht passen",
+  "VRAM_FIT_LEVEL_UNKNOWN": "Größe unbekannt",
+  "VRAM_FIT_UNKNOWN_EXPLANATION": "Der GGUF-Header des Modells konnte nicht gelesen werden, daher lässt sich der Speicherbedarf nicht schätzen.",
   "VRAM_FIT_ARIA": "Modellgröße: {level}",
   "VRAM_FIT_BUDGET": "{available} frei von {max} vRAM",
   "VRAM_FIT_AT_CURRENT": "Aktueller Kontext ({tokens} Token)",

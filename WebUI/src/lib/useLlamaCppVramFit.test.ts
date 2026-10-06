@@ -217,6 +217,19 @@ describe('useVramFitLevels', () => {
     expect(levelOf(target('owner/repo/slow.gguf'))).toBeNull()
   })
 
+  // The difference that decides whether a model is filtered away: a header that
+  // came back empty is an answer ("we cannot size this"), a header still in
+  // flight is not one yet. Null is what the main process returns for a model it
+  // could not read — it catches the 404 and the unparseable header itself — so
+  // this one case covers every way the estimate can come back missing.
+  it('calls a model unknown once its header comes back empty, not while it is in flight', async () => {
+    getLlamaCppVramInputs.mockImplementation(async () => null as unknown as LlamaCppVramInputs)
+    const { levelOf } = useVramFitLevels()
+    expect(levelOf(target('owner/repo/headerless.gguf'))).toBeNull()
+    await settle()
+    expect(levelOf(target('owner/repo/headerless.gguf'))).toBe('unknown')
+  })
+
   it('shares its cache with the chip, so a listed model is read once for both', async () => {
     const model = { name: 'owner/repo/shared.gguf', downloaded: true }
     useLlamaCppVramFit(computed(() => model))

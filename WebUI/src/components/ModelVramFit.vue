@@ -5,7 +5,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useI18N } from '@/assets/js/store/i18n'
 import { formatBytes } from '@/assets/js/models/library'
 import { useLlamaCppVramFit, type VramFitPoint, type VramFitTarget } from '@/lib/useLlamaCppVramFit'
-import type { VramFitLevel } from '@/lib/vram'
+import type { VramFitLevel, VramFitVerdict } from '@/lib/vram'
 
 const props = withDefaults(
   defineProps<{
@@ -22,18 +22,24 @@ const props = withDefaults(
 )
 
 const i18nState = useI18N().state
-const { summary } = useLlamaCppVramFit(props.model ? computed(() => props.model) : undefined)
+const { summary, verdict } = useLlamaCppVramFit(
+  props.model ? computed(() => props.model) : undefined,
+)
 
-const LEVEL_COLOR: Record<VramFitLevel, string> = {
+// Orange, not red: the model may well fit. What is wrong is that we cannot say,
+// which is its own state and reads as one next to the three that are an answer.
+const LEVEL_COLOR: Record<VramFitVerdict, string> = {
   easy: 'text-green-500',
   tight: 'text-yellow-500',
   over: 'text-destructive',
+  unknown: 'text-orange-500',
 }
 
-const LEVEL_KEY: Record<VramFitLevel, string> = {
+const LEVEL_KEY: Record<VramFitVerdict, string> = {
   easy: 'VRAM_FIT_LEVEL_EASY',
   tight: 'VRAM_FIT_LEVEL_TIGHT',
   over: 'VRAM_FIT_LEVEL_OVER',
+  unknown: 'VRAM_FIT_LEVEL_UNKNOWN',
 }
 
 function t(key: string, vars: Record<string, string> = {}): string {
@@ -45,7 +51,7 @@ function t(key: string, vars: Record<string, string> = {}): string {
 
 const tokens = (count: number) => new Intl.NumberFormat().format(count)
 
-const levelLabel = computed(() => (summary.value ? t(LEVEL_KEY[summary.value.level]) : ''))
+const levelLabel = computed(() => (verdict.value ? t(LEVEL_KEY[verdict.value]) : ''))
 
 const budgetLine = computed(() =>
   summary.value
@@ -84,7 +90,7 @@ const rows = computed(() => {
 </script>
 
 <template>
-  <TooltipProvider v-if="summary">
+  <TooltipProvider v-if="verdict">
     <Tooltip :delay-duration="delayDuration">
       <TooltipTrigger as-child>
         <!-- A row of the picker is itself the control: a nested button would take
@@ -96,7 +102,7 @@ const rows = computed(() => {
           class="flex flex-none items-center cursor-help"
           :aria-label="t('VRAM_FIT_ARIA', { level: levelLabel })"
         >
-          <PuzzlePieceIcon :class="[iconSize, LEVEL_COLOR[summary.level]]" />
+          <PuzzlePieceIcon :class="[iconSize, LEVEL_COLOR[verdict]]" />
         </component>
       </TooltipTrigger>
       <TooltipContent
@@ -104,15 +110,22 @@ const rows = computed(() => {
         class="w-64 bg-card border border-border text-foreground p-3 z-[200]"
       >
         <p class="text-sm font-semibold">{{ t('VRAM_FIT_TITLE') }}</p>
-        <p class="text-xs" :class="LEVEL_COLOR[summary.level]">{{ levelLabel }}</p>
-        <p class="mt-1 text-xs text-muted-foreground">{{ budgetLine }}</p>
-        <div class="mt-2 space-y-1">
-          <div v-for="row in rows" :key="row.label">
-            <p class="text-xs" :class="LEVEL_COLOR[row.level]">{{ row.label }}</p>
-            <p class="text-xs text-muted-foreground">{{ row.breakdown }}</p>
+        <p class="text-xs" :class="LEVEL_COLOR[verdict]">{{ levelLabel }}</p>
+        <!-- Nothing was measured, so there is no budget line and no breakdown to
+             show — only why the estimate is missing. -->
+        <p v-if="!summary" class="mt-1 text-xs text-muted-foreground">
+          {{ t('VRAM_FIT_UNKNOWN_EXPLANATION') }}
+        </p>
+        <template v-else>
+          <p class="mt-1 text-xs text-muted-foreground">{{ budgetLine }}</p>
+          <div class="mt-2 space-y-1">
+            <div v-for="row in rows" :key="row.label">
+              <p class="text-xs" :class="LEVEL_COLOR[row.level]">{{ row.label }}</p>
+              <p class="text-xs text-muted-foreground">{{ row.breakdown }}</p>
+            </div>
           </div>
-        </div>
-        <p class="mt-2 text-xs text-muted-foreground">{{ t('VRAM_FIT_EXPLANATION') }}</p>
+          <p class="mt-2 text-xs text-muted-foreground">{{ t('VRAM_FIT_EXPLANATION') }}</p>
+        </template>
       </TooltipContent>
     </Tooltip>
   </TooltipProvider>

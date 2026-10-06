@@ -377,6 +377,8 @@
   "VRAM_FIT_FILTER": "Only models that fit",
   "VRAM_FIT_FILTER_ON": "Filtering out models that do not fit",
   "VRAM_FIT_FILTER_OFF": "Hide models that do not fit",
+  "VRAM_FIT_LEVEL_UNKNOWN": "Size unknown",
+  "VRAM_FIT_UNKNOWN_EXPLANATION": "The model's GGUF header could not be read, so its memory use cannot be estimated.",
   "VRAM_FIT_ARIA": "Model size: {level}",
   "VRAM_FIT_BUDGET": "{available} free of {max} vRAM",
   "VRAM_FIT_AT_CURRENT": "Current context ({tokens} tokens)",

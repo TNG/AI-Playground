@@ -377,6 +377,8 @@
   "VRAM_FIT_FILTER": "Chỉ các mô hình vừa đủ",
   "VRAM_FIT_FILTER_ON": "Đang ẩn các mô hình không vừa",
   "VRAM_FIT_FILTER_OFF": "Ẩn các mô hình không vừa",
+  "VRAM_FIT_LEVEL_UNKNOWN": "Không rõ kích thước",
+  "VRAM_FIT_UNKNOWN_EXPLANATION": "Không đọc được phần đầu GGUF của mô hình nên không thể ước tính mức dùng bộ nhớ.",
   "VRAM_FIT_ARIA": "Kích thước mô hình: {level}",
   "VRAM_FIT_BUDGET": "Còn trống {available} trên {max} vRAM",
   "VRAM_FIT_AT_CURRENT": "Ngữ cảnh hiện tại ({tokens} token)",

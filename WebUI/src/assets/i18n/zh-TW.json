@@ -377,6 +377,8 @@
   "VRAM_FIT_FILTER": "僅顯示放得下的模型",
   "VRAM_FIT_FILTER_ON": "已隱藏放不下的模型",
   "VRAM_FIT_FILTER_OFF": "隱藏放不下的模型",
+  "VRAM_FIT_LEVEL_UNKNOWN": "大小未知",
+  "VRAM_FIT_UNKNOWN_EXPLANATION": "無法讀取該模型的 GGUF 標頭，因此無法估算其顯存佔用。",
   "VRAM_FIT_ARIA": "模型大小：{level}",
   "VRAM_FIT_BUDGET": "{max} vRAM 中剩餘 {available}",
   "VRAM_FIT_AT_CURRENT": "目前上下文（{tokens} 個 token）",

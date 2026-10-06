@@ -591,16 +591,17 @@ describe('matchesSearch / filterEntries', () => {
   // The whole point of keeping the nulls: the verdicts arrive one GGUF header at
   // a time, so a filter that treated "no answer yet" as "does not fit" would
   // blank the table on open and fill it back in.
-  it('drops only what the estimator calls too big, and keeps what it cannot judge', () => {
-    const levels = { '1': 'easy', '2': 'tight', '5': 'over' } as const
+  it('drops what is too big and what it could not size, keeping green and yellow', () => {
+    const levels = { '1': 'easy', '2': 'tight', '4': 'unknown', '5': 'over' } as const
     const vramLevel = (e: ModelEntry) => levels[e.id as keyof typeof levels] ?? null
 
     expect(
       filterEntries(entries, { ...DEFAULT_FILTERS, fitsOnly: true }, { vramLevel }).map(
         (e) => e.id,
       ),
-      // 3 and 4 are an embedding and a media model: no verdict, so they stay.
-    ).toEqual(['1', '2', '3', '4'])
+      // 3 has no verdict at all — an embedding model is not a model the
+      // estimator failed on, so it is not a model the filter removes.
+    ).toEqual(['1', '2', '3'])
   })
 
   it('leaves the list alone while the size filter is off', () => {

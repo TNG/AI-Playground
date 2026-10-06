@@ -11,9 +11,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ChevronDownIcon, MagnifyingGlassIcon, StarIcon } from '@heroicons/vue/24/solid'
-import { Puzzle } from 'lucide-vue-next'
+import { PuzzlePieceIcon } from '@heroicons/vue/24/outline'
 import ModelCapabilities from './ModelCapabilities.vue'
 import ModelVramFit from './ModelVramFit.vue'
+import VramFitGradient from './VramFitGradient.vue'
 import CapabilityIcons, { type ExtraFilter } from './CapabilityIcons.vue'
 import { modelHasCapability, type CapabilityKey } from '@/assets/js/capabilities'
 import { sortFavoritesFirst } from '@/assets/js/models/favorites'
@@ -57,9 +58,10 @@ const fitFilters = computed<ExtraFilter[]>(() =>
         {
           key: 'fits',
           label: i18nState.VRAM_FIT_FILTER,
-          icon: Puzzle,
+          icon: PuzzlePieceIcon,
           active: fitsOnly.value,
           hint: fitsOnly.value ? i18nState.VRAM_FIT_FILTER_ON : i18nState.VRAM_FIT_FILTER_OFF,
+          activeIconClass: '[stroke:url(#vram-fit-filter-gradient)]',
         },
       ]
     : [],
@@ -134,11 +136,14 @@ const items = computed(() => {
       for (const key of activeFilters.value) {
         if (!modelHasCapability(m, key)) return false
       }
-      // Size filter: drop only what the estimator says will not fit — green and
-      // yellow both stay. A model still being read, or one whose header could not
-      // be read at all, has no verdict and is kept: hiding it would empty the
-      // list while the headers load and call that an answer.
-      if (fitsOnly.value && levelOf(llamaCppFitTarget(m)) === 'over') return false
+      // Size filter: green and yellow stay; red goes, and so does a model whose
+      // header came back empty — an unknown size is not a model to offer. A
+      // header still in flight has no verdict at all and is left alone, or the
+      // list would empty itself while it loads.
+      if (fitsOnly.value) {
+        const level = levelOf(llamaCppFitTarget(m))
+        if (level === 'over' || level === 'unknown') return false
+      }
       // Only show predefined models unless advancedMode is enabled OR
       // custom model explicitly matches the preset's requirements
       if (!requirements.advancedMode && !m.isPredefined) {
@@ -247,6 +252,7 @@ watchEffect(() => {
           />
         </div>
         <div class="shrink-0">
+          <VramFitGradient v-if="fitFilterAvailable" />
           <CapabilityIcons
             mode="filter"
             :active-keys="activeFilters"

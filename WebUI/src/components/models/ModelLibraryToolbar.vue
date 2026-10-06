@@ -6,10 +6,11 @@ import {
   PlusIcon,
   TrashIcon,
 } from '@heroicons/vue/24/solid'
-import { Puzzle } from 'lucide-vue-next'
+import { PuzzlePieceIcon } from '@heroicons/vue/24/outline'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import CapabilityIcons, { type ExtraFilter } from '@/components/CapabilityIcons.vue'
+import VramFitGradient from '@/components/VramFitGradient.vue'
 import DropDownNew from '@/components/DropDownNew.vue'
 import { useModelLibrary } from '@/assets/js/store/modelLibrary'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -46,11 +47,12 @@ const fitFilters = computed<ExtraFilter[]>(() =>
         {
           key: 'fits',
           label: i18nState.VRAM_FIT_FILTER,
-          icon: Puzzle,
+          icon: PuzzlePieceIcon,
           active: library.filters.fitsOnly,
           hint: library.filters.fitsOnly
             ? i18nState.VRAM_FIT_FILTER_ON
             : i18nState.VRAM_FIT_FILTER_OFF,
+          activeIconClass: '[stroke:url(#vram-fit-filter-gradient)]',
         },
       ]
     : [],
@@ -223,6 +225,7 @@ const statusValue = computed(() =>
         @input="library.setFilters({ search: ($event.target as HTMLInputElement).value })"
       />
     </div>
+    <VramFitGradient v-if="library.fitFilterAvailable" />
     <CapabilityIcons
       mode="filter"
       :active-keys="activeCapabilities"

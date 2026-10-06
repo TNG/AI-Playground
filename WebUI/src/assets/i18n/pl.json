@@ -377,6 +377,8 @@
   "VRAM_FIT_FILTER": "Tylko modele, które się mieszczą",
   "VRAM_FIT_FILTER_ON": "Modele, które się nie mieszczą, są ukryte",
   "VRAM_FIT_FILTER_OFF": "Ukryj modele, które się nie mieszczą",
+  "VRAM_FIT_LEVEL_UNKNOWN": "Nieznany rozmiar",
+  "VRAM_FIT_UNKNOWN_EXPLANATION": "Nie udało się odczytać nagłówka GGUF modelu, więc nie można oszacować zużycia pamięci.",
   "VRAM_FIT_ARIA": "Rozmiar modelu: {level}",
   "VRAM_FIT_BUDGET": "{available} wolne z {max} vRAM",
   "VRAM_FIT_AT_CURRENT": "Bieżący kontekst ({tokens} tokenów)",

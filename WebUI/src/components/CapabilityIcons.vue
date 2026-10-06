@@ -16,6 +16,12 @@ export type ExtraFilter = {
   active: boolean
   /** Second tooltip line, already phrased for the current state. */
   hint: string
+  /**
+   * Classes for the icon itself while the toggle is on, for a filter whose "on"
+   * colour carries meaning the theme's accent cannot. Goes on the SVG rather
+   * than the button because a stroke paint-server (`url(#gradient)`) has to.
+   */
+  activeIconClass?: string
 }
 
 const props = withDefaults(
@@ -72,6 +78,7 @@ const toggles = computed(() => [
     hint: isActive(cap.key)
       ? 'Filtering to models with this capability'
       : 'Show only models with this capability',
+    activeIconClass: undefined as string | undefined,
     extra: false,
   })),
   ...props.extras.map((extra) => ({ ...extra, extra: true })),
@@ -102,7 +109,10 @@ const toggles = computed(() => [
                 : emit('toggle', toggle.key as CapabilityKey)
             "
           >
-            <component :is="toggle.icon" :class="iconSize" />
+            <component
+              :is="toggle.icon"
+              :class="[iconSize, toggle.active ? toggle.activeIconClass : undefined]"
+            />
           </button>
         </TooltipTrigger>
         <TooltipContent class="w-56 bg-card border border-border text-foreground p-2 z-[200]">

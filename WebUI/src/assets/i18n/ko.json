@@ -377,6 +377,8 @@
   "VRAM_FIT_FILTER": "맞는 모델만 표시",
   "VRAM_FIT_FILTER_ON": "맞지 않는 모델을 숨기는 중",
   "VRAM_FIT_FILTER_OFF": "맞지 않는 모델 숨기기",
+  "VRAM_FIT_LEVEL_UNKNOWN": "크기 알 수 없음",
+  "VRAM_FIT_UNKNOWN_EXPLANATION": "모델의 GGUF 헤더를 읽을 수 없어 메모리 사용량을 추정할 수 없습니다.",
   "VRAM_FIT_ARIA": "모델 크기: {level}",
   "VRAM_FIT_BUDGET": "vRAM {max} 중 {available} 사용 가능",
   "VRAM_FIT_AT_CURRENT": "현재 컨텍스트({tokens} 토큰)",

@@ -8,6 +8,7 @@ import {
   mibToBytes,
   vramFitLevel,
   type VramFitLevel,
+  type VramFitVerdict,
 } from '@/lib/vram'
 
 /** The context size every model is also shown at, so two models compare on one scale. */
@@ -169,20 +170,28 @@ function summarize(
  * `computed` over a whole list; reading it registers the model for a header read
  * and re-runs the computed once that lands.
  *
- * Null means "no answer", never "does not fit" — a header still in flight, one
- * that could not be read, or no GPU sample. Callers filtering on this must keep
- * the nulls, or a list would empty itself while it loads.
+ * Three outcomes, and the difference between the last two is the whole point:
+ * - a level, when the header was read and the estimate ran;
+ * - `'unknown'`, when the read came back with nothing usable — a real answer
+ *   about a model that should have had one, and a reason to keep it out;
+ * - `null`, when there is nothing to say yet: no target, no GPU sample, or a
+ *   header still in flight. Filtering on `null` would empty a list while it
+ *   loads, so callers must leave those alone.
  */
 export function useVramFitLevels() {
   const textInference = useTextInference()
   const computeMetrics = useComputeMetrics()
 
-  function levelOf(model: VramFitTarget | undefined): VramFitLevel | null {
+  function levelOf(model: VramFitTarget | undefined): VramFitVerdict | null {
     if (!model) return null
     requestInputs(model)
     const card = cardBudget(computeMetrics.primaryGpu)
-    const source = inputsCache.get(cacheKey(model))
-    if (!card || !source) return null
+    if (!card) return null
+    const key = cacheKey(model)
+    // `undefined` is "not read yet"; `null` is "read, and there was nothing".
+    if (!inputsCache.has(key)) return null
+    const source = inputsCache.get(key)
+    if (!source) return 'unknown'
     return summarize(model, source, card, textInference.contextSize).level
   }
 
@@ -225,5 +234,17 @@ export function useLlamaCppVramFit(target?: Ref<VramFitTarget | undefined>) {
     return summarize(current, source, card, textInference.contextSize)
   })
 
-  return { summary }
+  /**
+   * What the chip should show. `'unknown'` is the orange case: a model in the
+   * estimator's reach whose header came back empty. Null keeps the chip off the
+   * row entirely — nothing asked for, or nothing answered yet.
+   */
+  const verdict = computed<VramFitVerdict | null>(() => {
+    if (summary.value) return summary.value.level
+    const current = model.value
+    if (!current || !cardBudget(computeMetrics.primaryGpu)) return null
+    return inputsCache.has(cacheKey(current)) ? 'unknown' : null
+  })
+
+  return { summary, verdict }
 }

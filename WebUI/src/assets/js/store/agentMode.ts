@@ -3,7 +3,6 @@ import { computed, ref, watch } from 'vue'
 import type { UIMessage } from 'ai'
 import { useTextInference } from './textInference'
 import { useModels } from './models'
-import { useDialogStore } from './dialogs'
 import { useCloudMode } from './cloudMode'
 import { usePresets, type ChatPreset } from './presets'
 import { usePresetSwitching } from './presetSwitching'
@@ -25,6 +24,8 @@ import {
   type LegacyAgentSessionState,
 } from '@/types/agentSessionIpc'
 import { withResponseLanguage } from '@/lib/responseLanguage'
+import { isCancellation } from '@/assets/js/errors/appError'
+import { requestDownload } from '@/assets/js/permissions/permissions'
 import {
   DEFAULT_CAPABILITY_IDS,
   GAME_STUDIO_QUICK_ID,
@@ -87,7 +88,6 @@ export const useAgentMode = defineStore(
   () => {
     const textInference = useTextInference()
     const models = useModels()
-    const dialogStore = useDialogStore()
     const cloudMode = useCloudMode()
     const presetsStore = usePresets()
     const presetSwitching = usePresetSwitching()
@@ -424,13 +424,16 @@ export const useAgentMode = defineStore(
       ])
       const missing = checked.filter((m) => !m.already_loaded)
       if (missing.length === 0) return { status: 'ready' }
-      return new Promise((resolve) => {
-        dialogStore.showDownloadDialog(
-          missing,
-          () => resolve({ status: 'ready' }),
-          () => resolve({ status: 'declined' }),
-        )
-      })
+      // The permissions layer owns the prompt (the shared download modal, or
+      // the in-channel question on a remote Home Agent turn), so the agent
+      // store does not touch the dialog store directly — the same seam chat
+      // and media use (AGENTS.md: "Report through the sink, not directly").
+      try {
+        await requestDownload(missing)
+        return { status: 'ready' }
+      } catch (error) {
+        return isCancellation(error) ? { status: 'declined' } : { status: 'ready' }
+      }
     }
 
     const turn = createAgentTurnRuntime({

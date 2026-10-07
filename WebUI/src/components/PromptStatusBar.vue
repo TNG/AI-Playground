@@ -408,7 +408,13 @@ const deviceBadge = computed(() => {
 const computeChip = computed(() => {
   const snapshot = computeMetrics.latest
   if (!snapshot) return null
-  const gpu = textInference.backend === 'cloud' ? undefined : computeMetrics.primaryGpu
+  // Report the card the active mode's backend was pointed at. Only a GPU selection
+  // names one; on CPU / NPU the lookup falls back to the primary card.
+  const badge = deviceBadge.value
+  const gpu =
+    textInference.backend === 'cloud'
+      ? undefined
+      : computeMetrics.gpuFor(badge?.category === 'gpu' ? badge.name : undefined)
   const detail: string[] = []
   if (gpu?.memUsedMiB != null) {
     const total = gpu.memTotalMiB != null ? ` / ${formatMib(gpu.memTotalMiB)}` : ''

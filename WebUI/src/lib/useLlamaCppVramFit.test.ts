@@ -2,16 +2,28 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed, nextTick, reactive } from 'vue'
 import type { LlamaCppVramInputs } from '@/lib/vram/types'
 import type { LlmModel } from '@/assets/js/store/textInference'
+import type { GpuSample } from '@/types/computeMetrics'
+import { pickPrimaryGpu } from '@/lib/computeMetricsWindow'
 import { GIB, MIB } from '@/lib/vram'
 
 const textInference = reactive({
   backend: 'llamaCPP' as string,
   contextSize: 8192,
   llmModels: [] as Record<string, unknown>[],
+  selectedDeviceName: null as string | null,
+  getDeviceNameForBackend: (_backend: string) => textInference.selectedDeviceName,
 })
 
+type TestGpu = { memTotalMiB?: number; memUsedMiB?: number }
+
 const computeMetrics = reactive({
-  primaryGpu: undefined as { memTotalMiB?: number; memUsedMiB?: number } | undefined,
+  primaryGpu: undefined as TestGpu | undefined,
+  /** Set to exercise the device-aware lookup; otherwise `gpuFor` is `primaryGpu`. */
+  gpus: undefined as GpuSample[] | undefined,
+  gpuFor(hint?: string | null): TestGpu | undefined {
+    if (!computeMetrics.gpus) return computeMetrics.primaryGpu
+    return pickPrimaryGpu(computeMetrics.gpus as GpuSample[], hint ?? undefined)
+  },
 })
 
 vi.mock('@/assets/js/store/textInference', () => ({ useTextInference: () => textInference }))
@@ -48,6 +60,8 @@ beforeEach(async () => {
     { name: 'owner/repo/model.gguf', type: 'llamaCPP', active: true, downloaded: true },
   ]
   computeMetrics.primaryGpu = { memTotalMiB: 16 * 1024, memUsedMiB: 2 * 1024 }
+  computeMetrics.gpus = undefined
+  textInference.selectedDeviceName = null
 })
 
 async function settle() {
@@ -169,6 +183,47 @@ describe('useLlamaCppVramFit', () => {
     const { summary } = useLlamaCppVramFit()
     await settle()
     expect(summary.value?.level).toBe('over')
+  })
+
+  // A hybrid laptop: a 2 GiB iGPU whose "memory" is mostly host RAM, and an 8 GiB
+  // discrete card. The verdict has to follow what llama.cpp was pointed at.
+  const hybrid: GpuSample[] = [
+    {
+      id: '0',
+      name: 'AMD Radeon 780M Graphics',
+      vendor: 'unknown',
+      dedicatedTotalMiB: 2048,
+      sharedTotalMiB: 16384,
+      memUsedMiB: 1749,
+      memTotalMiB: 18432,
+    },
+    {
+      id: '1',
+      name: 'NVIDIA GeForce RTX 4060 Laptop GPU',
+      vendor: 'nvidia',
+      dedicatedTotalMiB: 8188,
+      memUsedMiB: 1278,
+      memTotalMiB: 8188,
+    },
+  ]
+
+  it('judges against the device the backend is set to', async () => {
+    computeMetrics.gpus = hybrid
+    textInference.selectedDeviceName = 'AMD Radeon 780M Graphics'
+    const { summary } = useLlamaCppVramFit()
+    await settle()
+    expect(summary.value?.totalBytes).toBe(18432 * MIB)
+
+    textInference.selectedDeviceName = 'NVIDIA GeForce RTX 4060 Laptop GPU'
+    await nextTick()
+    expect(summary.value?.totalBytes).toBe(8188 * MIB)
+  })
+
+  it('judges against the discrete card when no device is selected', async () => {
+    computeMetrics.gpus = hybrid
+    const { summary } = useLlamaCppVramFit()
+    await settle()
+    expect(summary.value?.totalBytes).toBe(8188 * MIB)
   })
 
   it('says nothing without a GPU sample or on another backend', async () => {

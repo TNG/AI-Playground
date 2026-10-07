@@ -109,6 +109,21 @@ function requestInputs(model: VramFitTarget): void {
   })()
 }
 
+/**
+ * The card the verdict is about: the one llama.cpp is set to run on, not whichever
+ * adapter the machine happens to call primary. On a hybrid laptop those differ, and
+ * an iGPU's "memory" is mostly host RAM — a budget no GGUF actually gets.
+ *
+ * A CPU or NPU selection names no GPU, so the lookup falls back to the primary card
+ * and the chip keeps answering "would this fit the card", which is what it is for.
+ */
+function fitGpu(
+  textInference: ReturnType<typeof useTextInference>,
+  computeMetrics: ReturnType<typeof useComputeMetrics>,
+) {
+  return computeMetrics.gpuFor(textInference.getDeviceNameForBackend('llamaCPP'))
+}
+
 /** The card as the estimator sees it: total size and the budget to judge against. */
 type CardBudget = { totalBytes: number; availableBytes: number; usableBytes: number }
 
@@ -185,7 +200,7 @@ export function useVramFitLevels() {
   function levelOf(model: VramFitTarget | undefined): VramFitVerdict | null {
     if (!model) return null
     requestInputs(model)
-    const card = cardBudget(computeMetrics.primaryGpu)
+    const card = cardBudget(fitGpu(textInference, computeMetrics))
     if (!card) return null
     const key = cacheKey(model)
     // `undefined` is "not read yet"; `null` is "read, and there was nothing".
@@ -227,7 +242,7 @@ export function useLlamaCppVramFit(target?: Ref<VramFitTarget | undefined>) {
   })
 
   const summary = computed<VramFitSummary | null>(() => {
-    const card = cardBudget(computeMetrics.primaryGpu)
+    const card = cardBudget(fitGpu(textInference, computeMetrics))
     const source = inputs.value
     const current = model.value
     if (!source || !card || !current) return null
@@ -242,7 +257,7 @@ export function useLlamaCppVramFit(target?: Ref<VramFitTarget | undefined>) {
   const verdict = computed<VramFitVerdict | null>(() => {
     if (summary.value) return summary.value.level
     const current = model.value
-    if (!current || !cardBudget(computeMetrics.primaryGpu)) return null
+    if (!current || !cardBudget(fitGpu(textInference, computeMetrics))) return null
     return inputsCache.has(cacheKey(current)) ? 'unknown' : null
   })
 

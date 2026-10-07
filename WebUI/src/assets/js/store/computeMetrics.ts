@@ -41,6 +41,17 @@ export const useComputeMetrics = defineStore('computeMetrics', () => {
 
   const primaryGpu = computed(() => (latest.value ? pickPrimaryGpu(latest.value.gpus) : undefined))
 
+  /**
+   * The sampled GPU a named inference device resolves to — the one a backend was
+   * actually pointed at, rather than the card we would have guessed. Falls back to
+   * `primaryGpu` when the name matches nothing sampled, or when the selection is a
+   * CPU / NPU and so names no GPU at all.
+   */
+  function gpuFor(deviceName?: string | null) {
+    if (!latest.value) return undefined
+    return pickPrimaryGpu(latest.value.gpus, deviceName ?? undefined)
+  }
+
   void window.electronAPI.getComputeMetrics().then((snapshot) => {
     if (snapshot) applySnapshot(snapshot)
   })
@@ -49,6 +60,7 @@ export const useComputeMetrics = defineStore('computeMetrics', () => {
   return {
     latest,
     primaryGpu,
+    gpuFor,
     applySnapshot,
     beginTurn,
     endTurn,

@@ -1,4 +1,9 @@
 import type { ComputeSnapshot, ComputeWindowStats, GpuSample } from '@/types/computeMetrics'
+import { DISCRETE_DEDICATED_MIB } from '@/lib/wddmGpuMetrics'
+
+function isDiscrete(gpu: GpuSample): boolean {
+  return (gpu.dedicatedTotalMiB ?? 0) >= DISCRETE_DEDICATED_MIB
+}
 
 export function pickPrimaryGpu(gpus: GpuSample[], hint?: string): GpuSample | undefined {
   if (gpus.length === 0) return undefined
@@ -8,6 +13,13 @@ export function pickPrimaryGpu(gpus: GpuSample[], hint?: string): GpuSample | un
       (gpu) => gpu.name.toLowerCase().includes(needle) || needle.includes(gpu.name.toLowerCase()),
     )
     if (named) return named
+  }
+  // A discrete card is the one we run on, however idle it looks. Busy-ness can't
+  // rank it against an iGPU, whose usage counts shared system RAM and the iGPU's
+  // total would then show host RAM as vRAM.
+  const discrete = gpus.filter(isDiscrete)
+  if (discrete.length > 0) {
+    return [...discrete].sort((a, b) => (b.dedicatedTotalMiB ?? 0) - (a.dedicatedTotalMiB ?? 0))[0]
   }
   return [...gpus].sort((a, b) => (b.memUsedMiB ?? 0) - (a.memUsedMiB ?? 0))[0]
 }

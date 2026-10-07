@@ -4,8 +4,8 @@ import { PuzzlePieceIcon } from '@heroicons/vue/24/outline'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useI18N } from '@/assets/js/store/i18n'
 import { formatBytes } from '@/assets/js/models/library'
-import { useLlamaCppVramFit, type VramFitPoint, type VramFitTarget } from '@/lib/useLlamaCppVramFit'
-import type { VramFitLevel, VramFitVerdict } from '@/lib/vram'
+import { useLlamaCppVramFit, type VramFitTarget } from '@/lib/useLlamaCppVramFit'
+import type { VramFitVerdict } from '@/lib/vram'
 
 const props = withDefaults(
   defineProps<{
@@ -53,40 +53,27 @@ const tokens = (count: number) => new Intl.NumberFormat().format(count)
 
 const levelLabel = computed(() => (verdict.value ? t(LEVEL_KEY[verdict.value]) : ''))
 
-const budgetLine = computed(() =>
+// Two lines and no more: what the model costs at the context it will actually run
+// at, and that cost against the card. Everything else the estimate knows is detail
+// the verdict already answers for.
+const breakdownLine = computed(() =>
   summary.value
-    ? t('VRAM_FIT_BUDGET', {
-        available: formatBytes(summary.value.availableBytes),
-        max: formatBytes(summary.value.totalBytes),
+    ? t('VRAM_FIT_BREAKDOWN', {
+        base: formatBytes(summary.value.current.baseBytes),
+        context: formatBytes(summary.value.current.contextBytes),
+        tokens: tokens(summary.value.current.contextTokens),
       })
     : '',
 )
 
-// Current, the shared 8k reference and the model's ceiling — skipping any that
-// would repeat a context size already listed.
-const rows = computed(() => {
-  const fit = summary.value
-  if (!fit) return []
-  const listed = new Set<number>()
-  const entries: { label: string; breakdown: string; level: VramFitLevel }[] = []
-  const add = (labelKey: string, point: VramFitPoint) => {
-    if (listed.has(point.contextTokens)) return
-    listed.add(point.contextTokens)
-    entries.push({
-      label: t(labelKey, { tokens: tokens(point.contextTokens) }),
-      breakdown: t('VRAM_FIT_BREAKDOWN', {
-        base: formatBytes(point.baseBytes),
-        context: formatBytes(point.contextBytes),
-        total: formatBytes(point.totalBytes),
-      }),
-      level: point.level,
-    })
-  }
-  add('VRAM_FIT_AT_CURRENT', fit.current)
-  add('VRAM_FIT_AT_REFERENCE', fit.reference)
-  add('VRAM_FIT_AT_MAX', fit.max)
-  return entries
-})
+const budgetLine = computed(() =>
+  summary.value
+    ? t('VRAM_FIT_BUDGET', {
+        total: formatBytes(summary.value.current.totalBytes),
+        max: formatBytes(summary.value.totalBytes),
+      })
+    : '',
+)
 </script>
 
 <template>
@@ -107,24 +94,18 @@ const rows = computed(() => {
       </TooltipTrigger>
       <TooltipContent
         align="start"
-        class="w-64 bg-card border border-border text-foreground p-3 z-[200]"
+        class="max-w-xs bg-card border border-border text-foreground px-3 py-2 z-[200]"
       >
-        <p class="text-sm font-semibold">{{ t('VRAM_FIT_TITLE') }}</p>
-        <p class="text-xs" :class="LEVEL_COLOR[verdict]">{{ levelLabel }}</p>
-        <!-- Nothing was measured, so there is no budget line and no breakdown to
-             show — only why the estimate is missing. -->
-        <p v-if="!summary" class="mt-1 text-xs text-muted-foreground">
+        <p class="text-sm font-semibold" :class="LEVEL_COLOR[verdict]">{{ levelLabel }}</p>
+        <!-- Nothing was measured, so there is no breakdown to show — only why the
+             estimate is missing. -->
+        <p v-if="!summary" class="text-xs text-muted-foreground">
           {{ t('VRAM_FIT_UNKNOWN_EXPLANATION') }}
         </p>
         <template v-else>
-          <p class="mt-1 text-xs text-muted-foreground">{{ budgetLine }}</p>
-          <div class="mt-2 space-y-1">
-            <div v-for="row in rows" :key="row.label">
-              <p class="text-xs" :class="LEVEL_COLOR[row.level]">{{ row.label }}</p>
-              <p class="text-xs text-muted-foreground">{{ row.breakdown }}</p>
-            </div>
-          </div>
-          <p class="mt-2 text-xs text-muted-foreground">{{ t('VRAM_FIT_EXPLANATION') }}</p>
+          <p class="text-xs text-muted-foreground">{{ breakdownLine }}</p>
+          <!-- The totals are the verdict restated in numbers, so they carry its color. -->
+          <p class="text-xs" :class="LEVEL_COLOR[verdict]">{{ budgetLine }}</p>
         </template>
       </TooltipContent>
     </Tooltip>

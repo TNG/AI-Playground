@@ -514,6 +514,8 @@
   "MODEL_MANAGER_CAP_THINKING": "思考開關",
   "MODEL_MANAGER_CAP_CODING": "程式設計預設集",
   "MODEL_MANAGER_CAP_CODING_HINT": "在 Game Agent 與 Quick Coder 中顯示此模型。這些預設集只會顯示標記為程式設計用途的模型。",
+  "MODEL_MANAGER_CAP_AGENTIC": "代理",
+  "MODEL_MANAGER_CAP_AGENTIC_HINT": "能可靠地完成多步驟工具呼叫，例如代理模式與 MCP 伺服器。會顯示為一項能力，並可在模型清單中作為篩選條件。",
   "MODEL_MANAGER_CAP_NPU": "支援 NPU",
   "MODEL_MANAGER_CAP_LARGE_MOE": "大型 MoE（SSD 卸載）",
   "MODEL_MANAGER_CAP_LARGE_MOE_HINT": "vRAM 裝不下的 Mixture-of-Experts 模型。只能透過 Phison Pascari aiDAPTIV 載入，在沒有該硬體的機器上會從所有選擇器中隱藏。",

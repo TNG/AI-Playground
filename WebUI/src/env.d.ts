@@ -457,6 +457,7 @@ type Model = {
   supportsVision?: boolean
   supportsReasoning?: boolean
   supportsCoding?: boolean
+  supportsAgentic?: boolean
   supportsThinkingToggle?: boolean
   maxContextSize?: number
   inferenceDefaults?: import('@/types/shared').InferenceDefaults

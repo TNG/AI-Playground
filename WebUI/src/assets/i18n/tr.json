@@ -514,6 +514,8 @@
   "MODEL_MANAGER_CAP_THINKING": "Düşünme anahtarı",
   "MODEL_MANAGER_CAP_CODING": "Kodlama hazır ayarları",
   "MODEL_MANAGER_CAP_CODING_HINT": "Bu modeli Game Agent ve Quick Coder içinde gösterir. Bu hazır ayarlarda yalnızca kodlama için işaretlenmiş modeller görünür.",
+  "MODEL_MANAGER_CAP_AGENTIC": "Ajan",
+  "MODEL_MANAGER_CAP_AGENTIC_HINT": "Ajan modu ve MCP sunucuları gibi çok adımlı araç kullanımında güvenilirdir. Bir yetenek olarak gösterilir ve model listelerinde filtre olarak kullanılabilir.",
   "MODEL_MANAGER_CAP_NPU": "NPU desteği",
   "MODEL_MANAGER_CAP_LARGE_MOE": "Büyük MoE (SSD boşaltma)",
   "MODEL_MANAGER_CAP_LARGE_MOE_HINT": "vRAM için fazla büyük bir Mixture-of-Experts modeli. Yalnızca Phison Pascari aiDAPTIV ile yüklenir ve bu donanıma sahip olmayan makinelerde tüm seçicilerde gizlenir.",

@@ -514,6 +514,8 @@
   "MODEL_MANAGER_CAP_THINKING": "Interruptor de pensamiento",
   "MODEL_MANAGER_CAP_CODING": "Presets de programación",
   "MODEL_MANAGER_CAP_CODING_HINT": "Incluye este modelo en Game Agent y Quick Coder. En esos presets solo aparecen los modelos marcados para programación.",
+  "MODEL_MANAGER_CAP_AGENTIC": "Agéntico",
+  "MODEL_MANAGER_CAP_AGENTIC_HINT": "Fiable en el uso de herramientas en varios pasos, como el modo agente y los servidores MCP. Se muestra como capacidad y puede usarse como filtro en las listas de modelos.",
   "MODEL_MANAGER_CAP_NPU": "Compatibilidad con NPU",
   "MODEL_MANAGER_CAP_LARGE_MOE": "MoE grande (descarga a SSD)",
   "MODEL_MANAGER_CAP_LARGE_MOE_HINT": "Modelo Mixture-of-Experts demasiado grande para la vRAM. Solo se carga mediante Phison Pascari aiDAPTIV y se oculta de todos los selectores en equipos sin ese hardware.",

@@ -514,6 +514,8 @@
   "MODEL_MANAGER_CAP_THINKING": "思考モードの切り替え",
   "MODEL_MANAGER_CAP_CODING": "コーディング用プリセット",
   "MODEL_MANAGER_CAP_CODING_HINT": "このモデルを Game Agent と Quick Coder に表示します。これらのプリセットには、コーディング用として指定されたモデルのみが表示されます。",
+  "MODEL_MANAGER_CAP_AGENTIC": "エージェント",
+  "MODEL_MANAGER_CAP_AGENTIC_HINT": "エージェントモードや MCP サーバーなど、複数ステップのツール利用を安定してこなせます。機能として表示され、モデル一覧のフィルターとしても使えます。",
   "MODEL_MANAGER_CAP_NPU": "NPU 対応",
   "MODEL_MANAGER_CAP_LARGE_MOE": "大規模 MoE（SSD オフロード）",
   "MODEL_MANAGER_CAP_LARGE_MOE_HINT": "vRAM に収まらない Mixture-of-Experts モデルです。Phison Pascari aiDAPTIV でしか読み込めず、その環境がないマシンではすべての選択から非表示になります。",

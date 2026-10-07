@@ -78,6 +78,7 @@ export type LlmModel = {
   supportsVision?: boolean
   supportsReasoning?: boolean
   supportsCoding?: boolean
+  supportsAgentic?: boolean
   supportsThinkingToggle?: boolean
   maxContextSize?: number
   inferenceDefaults?: InferenceDefaults
@@ -306,6 +307,7 @@ export const useTextInference = defineStore(
             supportsVision: m.supportsVision,
             supportsReasoning: m.supportsReasoning,
             supportsCoding: m.supportsCoding,
+            supportsAgentic: m.supportsAgentic,
             supportsThinkingToggle: m.supportsThinkingToggle,
             maxContextSize: m.maxContextSize,
             inferenceDefaults: m.inferenceDefaults,
@@ -354,6 +356,7 @@ export const useTextInference = defineStore(
             // Remote providers say nothing about coding fitness; the picker does
             // not filter cloud models on capability anyway.
             supportsCoding: undefined,
+            supportsAgentic: undefined,
             supportsThinkingToggle: false,
             // From the provider's `context_length`; undefined when it stays
             // silent, in which case consumers fall back to their own defaults.

@@ -93,6 +93,9 @@ export const ModelSchema = z.object({
   // Good enough at writing code to drive a coding preset (Game Agent). A judgement
   // about the model's training rather than a hard capability like vision.
   supportsCoding: z.boolean().optional(),
+  // Good enough at multi-turn tool use to drive agent mode and MCP tools — a judgement,
+  // derived from benchmark scores by scripts/fetch-agentic-scores.mjs.
+  supportsAgentic: z.boolean().optional(),
   maxContextSize: z.number().optional(),
   // Sampling/reasoning settings the model publisher recommends. Applied as
   // defaults the preset or the user can still override.

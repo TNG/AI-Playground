@@ -50,6 +50,12 @@ export type ModelCapabilityValues = {
    */
   supportsCoding?: boolean
   /**
+   * Reliable at multi-turn tool use (agent mode, MCP), as opposed to merely able
+   * to emit a tool call. A judgement like `supportsCoding`; see
+   * docs/agentic-capability-flag.md for how the catalog values are derived.
+   */
+  supportsAgentic?: boolean
+  /**
    * Large Mixture-of-Experts model. Puts it on the aiDAPTIV preset list.
    * Hiding it everywhere else is `requiresPhison`, not this flag.
    */
@@ -70,6 +76,7 @@ export const CAPABILITY_KEYS = [
   'maxContextSize',
   'npuSupport',
   'supportsCoding',
+  'supportsAgentic',
   'largeMoe',
 ] as const satisfies readonly (keyof ModelCapabilityValues)[]
 
@@ -80,6 +87,7 @@ export const EDITABLE_CAPABILITY_KEYS = [
   'supportsReasoning',
   'supportsThinkingToggle',
   'supportsCoding',
+  'supportsAgentic',
   'npuSupport',
   'largeMoe',
 ] as const satisfies readonly (keyof ModelCapabilityValues)[]

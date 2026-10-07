@@ -175,6 +175,7 @@ const items = computed(() => {
       supportsToolCalling: item.supportsToolCalling,
       supportsVision: item.supportsVision,
       supportsReasoning: item.supportsReasoning,
+      supportsAgentic: item.supportsAgentic,
       maxContextSize: item.maxContextSize,
       npuSupport: item.npuSupport,
       favorite: item.favorite === true,
@@ -288,6 +289,7 @@ watchEffect(() => {
                   supportsVision: item.supportsVision,
                   supportsToolCalling: item.supportsToolCalling,
                   supportsReasoning: item.supportsReasoning,
+                  supportsAgentic: item.supportsAgentic,
                 }"
                 icon-size="size-3.5"
               />

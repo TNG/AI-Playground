@@ -2,15 +2,16 @@
 // the icon row next to the selected model, the filter row in the model picker,
 // and the prompt-area banner. Keep this list in sync with the model capability
 // flags in `store/models.ts` / `store/textInference.ts`.
-import { Eye, Brain, Wrench, type LucideIcon } from 'lucide-vue-next'
+import { Eye, Brain, Wrench, Bot, type LucideIcon } from 'lucide-vue-next'
 
-export type CapabilityKey = 'vision' | 'reasoning' | 'tools'
+export type CapabilityKey = 'vision' | 'reasoning' | 'tools' | 'agentic'
 
 /** The subset of a model's flags that the capability UI reads. */
 export type CapabilityFlags = {
   supportsVision?: boolean
   supportsReasoning?: boolean
   supportsToolCalling?: boolean
+  supportsAgentic?: boolean
 }
 
 export type CapabilityDescriptor = {
@@ -44,6 +45,13 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
     label: 'Tool calling',
     tooltip: 'Can call built-in and MCP tools / functions.',
     icon: Wrench,
+  },
+  {
+    key: 'agentic',
+    flag: 'supportsAgentic',
+    label: 'Agentic',
+    tooltip: 'Reliable at multi-step tool use: agent mode and MCP servers.',
+    icon: Bot,
   },
 ]
 

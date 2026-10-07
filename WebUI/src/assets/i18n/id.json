@@ -514,6 +514,8 @@
   "MODEL_MANAGER_CAP_THINKING": "Sakelar berpikir",
   "MODEL_MANAGER_CAP_CODING": "Preset pemrograman",
   "MODEL_MANAGER_CAP_CODING_HINT": "Sertakan model ini di Game Agent dan Quick Coder. Hanya model yang ditandai untuk pemrograman yang muncul di preset tersebut.",
+  "MODEL_MANAGER_CAP_AGENTIC": "Agentik",
+  "MODEL_MANAGER_CAP_AGENTIC_HINT": "Andal dalam penggunaan alat multi-langkah, seperti mode agen dan server MCP. Ditampilkan sebagai kemampuan dan dapat dipakai sebagai filter di daftar model.",
   "MODEL_MANAGER_CAP_NPU": "Dukungan NPU",
   "MODEL_MANAGER_CAP_LARGE_MOE": "MoE besar (offload SSD)",
   "MODEL_MANAGER_CAP_LARGE_MOE_HINT": "Model Mixture-of-Experts yang terlalu besar untuk vRAM. Model ini hanya dapat dimuat melalui Phison Pascari aiDAPTIV, dan disembunyikan dari semua pemilih di komputer tanpa perangkat tersebut.",

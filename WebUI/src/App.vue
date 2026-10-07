@@ -181,7 +181,7 @@
       <div class="fixed top-18 left-4 z-5 flex flex-col gap-2">
         <button
           id="show-history-button"
-          v-show="!uiStore.showHistory"
+          v-show="!uiStore.showHistory && promptStore.getCurrentMode() !== 'agentMaker'"
           @click="openHistory"
           class="text-foreground px-3 py-1.5 bg-card border border-border shadow-sm hover:bg-muted rounded-lg text-sm"
         >
@@ -238,7 +238,10 @@
         @auto-hide-footer="handleAutoHideFooter"
         @open-settings="openSpecificSettings"
       />
-      <div v-if="!footerExpanded" class="fixed bottom-4 right-4 z-5 flex items-center gap-3">
+      <div
+        v-if="!footerExpanded && promptStore.getCurrentMode() !== 'agentMaker'"
+        class="fixed bottom-4 right-4 z-5 flex items-center gap-3"
+      >
         <button
           @click="footerExpanded = !footerExpanded"
           class="text-foreground/30 hover:text-foreground/80 text-xs uppercase tracking-wider transition-colors"

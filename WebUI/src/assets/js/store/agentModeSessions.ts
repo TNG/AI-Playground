@@ -30,6 +30,16 @@ export type AgentSessionRecord = {
    * response-language clause (Pi rebuilds if instructions change).
    */
   responseLocale?: string
+  /** Set when this session is an Agent Maker task run, not a normal session. */
+  origin?: 'agentMaker'
+  /** The task this run belongs to (only when origin is 'agentMaker'). */
+  taskId?: string
+  /** Run lifecycle status (only when origin is 'agentMaker'). */
+  taskRunStatus?: 'running' | 'completed' | 'failed'
+  /** Error text when a run failed (only when taskRunStatus is 'failed'). */
+  taskRunError?: string
+  /** Current step index (0-based) for reconnect resume. */
+  taskRunStepIndex?: number
 }
 
 /**
@@ -187,6 +197,11 @@ export function snapshotSession(options: {
     capabilities: options.existing?.capabilities ?? [...options.capabilities],
     presetName: options.existing?.presetName ?? options.presetName,
     responseLocale: existing?.responseLocale ?? options.responseLocale,
+    origin: existing?.origin,
+    taskId: existing?.taskId,
+    taskRunStatus: existing?.taskRunStatus,
+    taskRunError: existing?.taskRunError,
+    taskRunStepIndex: existing?.taskRunStepIndex,
   }
 }
 

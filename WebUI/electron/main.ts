@@ -196,6 +196,7 @@ import {
 } from './persist/conversationFiles'
 import { buildConversationsRegistry } from './kernel/registries/conversations'
 import { buildAgentModeRegistry } from './kernel/registries/agentMode'
+import { buildAgentMakerRegistry } from './kernel/registries/agentMaker'
 import { buildChatRegistry } from './kernel/registries/chat'
 import { buildComfyuiRegistry } from './kernel/registries/comfyui'
 import { buildGamesRegistry } from './kernel/registries/games'
@@ -228,6 +229,14 @@ import {
   setAgentSessionFileDeps,
   wipeDemoAgentSessions,
 } from './persist/agentSessionFiles'
+import {
+  bootstrapAgentMaker,
+  deleteAgentTask,
+  mintRunWorkspace,
+  saveAgentTask,
+  setAgentMakerFileDeps,
+  wipeDemoAgentMaker,
+} from './persist/agentMakerFiles'
 import {
   bootstrapMediaItems,
   deleteMediaItemRecords,
@@ -1131,6 +1140,7 @@ appShutdown.register({ name: 'web browser', run: () => destroyWebBrowser() })
 // survive the process that wrote it.
 appShutdown.register({ name: 'demo conversations', run: () => wipeDemoConversations() })
 appShutdown.register({ name: 'demo agent sessions', run: () => wipeDemoAgentSessions() })
+appShutdown.register({ name: 'demo agent maker', run: () => wipeDemoAgentMaker() })
 appShutdown.register({ name: 'demo agent workspace', run: () => wipeDemoAgentWorkspace() })
 appShutdown.register({ name: 'demo media records', run: () => wipeDemoMediaRecords() })
 appShutdown.register({ name: 'demo preferences', run: () => wipeDemoPreferences() })
@@ -1238,6 +1248,7 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   wireArtifactRunner(settings)
   wireConversations(settings)
   wireAgentSessions(settings)
+  wireAgentMaker(settings)
   wireAgentWorkspace(settings)
   wireMediaRecords(settings)
   wirePreferences(settings)
@@ -1261,6 +1272,12 @@ function wireConversations(settings: LocalSettings): void {
 function wireAgentSessions(settings: LocalSettings): void {
   setAgentSessionFileDeps({ isDemoMode: () => settings.isDemoModeEnabled })
   if (settings.isDemoModeEnabled) void wipeDemoAgentSessions()
+}
+
+/** Same demo discipline for Agent Maker task definitions. */
+function wireAgentMaker(settings: LocalSettings): void {
+  setAgentMakerFileDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoAgentMaker()
 }
 
 /** Same demo discipline for generated-media gallery records (step 8, §6.1). */
@@ -1734,6 +1751,16 @@ function initEventHandle() {
       readAgentWorkspaceState,
       migrateAgentWorkspaceState,
       writeAgentWorkspaceState,
+    }),
+  )
+
+  registerInvokeHandlers(
+    buildAgentMakerRegistry({
+      bootstrapAgentMaker,
+      saveAgentTask,
+      deleteAgentTask,
+      mintRunWorkspace,
+      saveAgentSession,
     }),
   )
 

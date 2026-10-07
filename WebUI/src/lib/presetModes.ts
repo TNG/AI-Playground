@@ -18,6 +18,7 @@ import { currentPresetName } from '@/lib/presetRenames'
  */
 export function presetToMode(preset: Preset): ModeType {
   if (preset.type === 'chat') {
+    if ((preset as ChatPreset).agentMaker) return 'agentMaker'
     if ((preset as ChatPreset).agentPreset) return 'agent'
     return preset.category === AUDIO_CATEGORY ? 'audio' : 'chat'
   }
@@ -43,6 +44,7 @@ export function presetToMode(preset: Preset): ModeType {
 export const MODE_TO_CATEGORIES: Record<ModeType, string[]> = {
   chat: ['chat'],
   agent: ['chat'],
+  agentMaker: ['chat'],
   audio: [AUDIO_CATEGORY],
   imageGen: ['create-images'],
   imageEdit: ['edit-images'],
@@ -52,6 +54,7 @@ export const MODE_TO_CATEGORIES: Record<ModeType, string[]> = {
 export const MODE_TO_PRESET_TYPE: Record<ModeType, 'chat' | 'comfy'> = {
   chat: 'chat',
   agent: 'chat',
+  agentMaker: 'chat',
   audio: 'chat',
   imageGen: 'comfy',
   imageEdit: 'comfy',
@@ -63,7 +66,7 @@ export const MODE_TO_PRESET_TYPE: Record<ModeType, 'chat' | 'comfy'> = {
  * — it is entered by picking an agent preset from the chat button's list.
  */
 export function buttonModeFor(mode: ModeType): ModeType {
-  return mode === 'agent' ? 'chat' : mode
+  return mode === 'agent' || mode === 'agentMaker' ? 'chat' : mode
 }
 
 /**

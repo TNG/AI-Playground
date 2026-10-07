@@ -103,21 +103,23 @@ export const useHistorySessions = defineStore('historySessions', () => {
   )
 
   const agentEntries = computed<AgentEntry[]>(() =>
-    Object.values(agentMode.sessions).map((session) => ({
-      kind: 'agent',
-      id: session.id,
-      title: sessionDisplayTitle({
-        title: session.title,
-        gameName: gameNames.value[session.workspaceDir],
-      }).name,
-      presetName: session.presetName,
-      mode: 'agent',
-      workspaceDir: session.workspaceDir,
-      capabilities: session.capabilities,
-      messages: session.messages,
-      createdAt: session.createdAt,
-      updatedAt: session.updatedAt,
-    })),
+    Object.values(agentMode.sessions)
+      .filter((session) => session.origin !== 'agentMaker')
+      .map((session) => ({
+        kind: 'agent',
+        id: session.id,
+        title: sessionDisplayTitle({
+          title: session.title,
+          gameName: gameNames.value[session.workspaceDir],
+        }).name,
+        presetName: session.presetName,
+        mode: 'agent',
+        workspaceDir: session.workspaceDir,
+        capabilities: session.capabilities,
+        messages: session.messages,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+      })),
   )
 
   const mediaEntries = computed<MediaEntry[]>(() => {

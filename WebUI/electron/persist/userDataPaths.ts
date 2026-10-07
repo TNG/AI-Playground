@@ -95,6 +95,33 @@ export const getAgentSessionsDemoDir = () => {
 }
 
 /**
+ * Agent Maker task definitions and run workspaces: one folder per task
+ * (`<slug>/task.json` + `<slug>/runs/<run-id>/`), plus an `index.json` at the
+ * collection root. Sibling to `agent-sessions/` so a folder copy takes the
+ * task library with it.
+ */
+export const getAgentMakerDir = () => {
+  if (process.env.USERPROFILE) {
+    return path.join(process.env.USERPROFILE, 'Documents', 'AI-Playground', 'agent-maker')
+  }
+  if (process.env.HOME) {
+    return path.join(process.env.HOME, 'AI-Playground', 'agent-maker')
+  }
+  return path.join(externalResourcesDir(), 'service', 'static', 'agent-maker')
+}
+
+/** Demo-mode Agent Maker tasks, wiped on exit like demo conversations (§6.1). */
+export const getAgentMakerDemoDir = () => {
+  if (process.env.USERPROFILE) {
+    return path.join(process.env.USERPROFILE, 'Documents', 'AI-Playground', 'agent-maker-demo')
+  }
+  if (process.env.HOME) {
+    return path.join(process.env.HOME, 'AI-Playground', 'agent-maker-demo')
+  }
+  return path.join(externalResourcesDir(), 'service', 'static', 'agent-maker-demo')
+}
+
+/**
  * Gallery records for generated media (architecture-target §6.1, step 8): one
  * JSON per item plus `index.json`, inside `media/` so a folder copy carries
  * the history beside the files it references.

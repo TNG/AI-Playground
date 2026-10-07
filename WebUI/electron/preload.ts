@@ -8,6 +8,7 @@ import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
 import type { PhisonKmIngestConfig, WarmupRequest } from '@/types/phisonKmRag'
 import type { AgentModeTurnConfig, AgentToolExecuteRequest, AgentToolSpec } from '@/types/agentIpc'
 import type { AgentSessionRecordWire } from '@/types/agentSessionIpc'
+import type { AgentTask } from '@/types/agentMakerIpc'
 import type { ArtifactRunRequest } from '@/types/artifactIpc'
 import type { ChatSummarizeRequest, ChatTurnRequest } from '@/types/chatIpc'
 import type { ChatAnswerPayload, ChatAskPayload } from '@/types/chatRequests'
@@ -345,6 +346,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       onPush('agentMode:executeTool', callback),
     submitToolResult: (requestId: string, result: unknown, error?: string) =>
       invoke('agentMode:toolResult', requestId, result, error),
+  },
+  agentMaker: {
+    bootstrap: () => invoke('agentMaker:bootstrap'),
+    save: (task: AgentTask) => invoke('agentMaker:save', cloneForIpc(task)),
+    delete: (taskId: string) => invoke('agentMaker:delete', taskId),
+    startRun: (taskId: string) => invoke('agentMaker:startRun', taskId),
   },
   games: {
     list: () => invoke('games:list'),

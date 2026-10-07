@@ -7,6 +7,7 @@ import type {
   GameLibraryEntry,
 } from './agentIpc'
 import type { AgentSessionBootstrap, AgentSessionRecordWire } from './agentSessionIpc'
+import type { AgentMakerBootstrap, AgentRunStartResult, AgentTask } from './agentMakerIpc'
 import type { AgentWorkspaceState } from './agentWorkspaceIpc'
 import type { ArtifactRunRequest, ArtifactRunResult } from './artifactIpc'
 import type {
@@ -346,6 +347,37 @@ export const CHANNELS = {
     // `as const` keeps the override a literal: the row type's `member?: string`
     // context would widen it to string, collapsing the bridge's key remap.
     member: 'submitToolResult' as const,
+  },
+
+  // ── Agent Maker (task definitions + run minting) ──
+
+  /** Hydrate task definitions once before mount. */
+  'agentMaker:bootstrap': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as AgentMakerBootstrap | IpcStatusError,
+  },
+  /** Create or edit a task definition. */
+  'agentMaker:save': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [AgentTask],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Delete a task and cascade-delete its runs (session records + workspace folders). */
+  'agentMaker:delete': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Mint a run session + fresh workspace; the renderer drives the step loop. */
+  'agentMaker:startRun': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as AgentRunStartResult | IpcFail,
   },
 
   // ── Chat turns (step 6): the engine runs in main, the stream is kernel events ──

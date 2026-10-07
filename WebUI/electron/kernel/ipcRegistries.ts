@@ -41,6 +41,8 @@ export type ChatInvokeName = Extract<MainInvokeChannelName, `chat:${string}`>
 export type ChatSendName = Extract<MainSendChannelName, `chat:${string}`>
 export type AgentModeInvokeName = Extract<MainInvokeChannelName, `agentMode:${string}`>
 export type AgentModeSendName = Extract<MainSendChannelName, `agentMode:${string}`>
+export type AgentMakerInvokeName = Extract<MainInvokeChannelName, `agentMaker:${string}`>
+export type AgentMakerSendName = Extract<MainSendChannelName, `agentMaker:${string}`>
 export type McpInvokeName = Extract<MainInvokeChannelName, `mcp:${string}`>
 export type McpSendName = Extract<MainSendChannelName, `mcp:${string}`>
 export type ComfyuiInvokeName = Extract<MainInvokeChannelName, `comfyui:${string}`>
@@ -76,6 +78,7 @@ export type CoreInvokeName = Exclude<
   | ConversationsInvokeName
   | ChatInvokeName
   | AgentModeInvokeName
+  | AgentMakerInvokeName
   | McpInvokeName
   | ComfyuiInvokeName
   | WebBrowserInvokeName
@@ -97,6 +100,7 @@ export type CoreSendName = Exclude<
   | ConversationsSendName
   | ChatSendName
   | AgentModeSendName
+  | AgentMakerSendName
   | McpSendName
   | ComfyuiSendName
   | WebBrowserSendName

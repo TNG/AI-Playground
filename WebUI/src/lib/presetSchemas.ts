@@ -247,6 +247,11 @@ export const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).e
   // presets that drive a specific feature (e.g. Home Agent / Telegram) and should not be
   // selectable from the normal Chat Settings picker.
   excludeFromChatPresetPicker: z.boolean().optional(),
+  // When true, selecting this preset opens the Agent Maker manager view (mode
+  // 'agentMaker') instead of running inference. The preset itself carries no
+  // model or backends — tasks defined within the manager carry their own frozen
+  // model config. See presetToMode() and the agentMaker store.
+  agentMaker: z.boolean().optional(),
 })
 
 // Discriminated Union for all Preset types

@@ -211,7 +211,8 @@ export type KernelErrorEvent = {
   error: SerializedAppError
 }
 
-export type KernelStoredKind = 'conversation' | 'session' | 'media' | 'grants' | 'inference-profile'
+export type KernelStoredKind =
+  'conversation' | 'session' | 'media' | 'grants' | 'inference-profile' | 'agentMaker'
 
 export type KernelStoredEvent = {
   type: 'stored'

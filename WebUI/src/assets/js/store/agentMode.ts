@@ -47,7 +47,12 @@ import {
   toggleCapabilityIds,
   type AgentSessionRecord,
 } from './agentModeSessions'
-import { buildTurnConfig, createAgentTurnRuntime, latestTurnMetadata } from './agentModeTurn'
+import {
+  buildTurnConfig,
+  buildTaskTurnConfig,
+  createAgentTurnRuntime,
+  latestTurnMetadata,
+} from './agentModeTurn'
 import {
   createUnsandboxedWorkspaces,
   createWorkspaceAttachments,
@@ -156,6 +161,14 @@ export const useAgentMode = defineStore(
     const activeSessionId = ref<string>('')
     /** Set once `init()` has hydrated (or migrated) — gates every write-through. */
     const sessionsHydrated = ref(false)
+
+    /**
+     * When an Agent Maker task run is active, this holds the frozen task config
+     * so the turn engine builds each step's turn from it rather than the live
+     * textInference store. Set by the agentMaker store before driving the step
+     * loop; cleared when the run ends or the session switches away from a task run.
+     */
+    let activeTaskConfig: import('@/types/agentMakerIpc').AgentTask | null = null
 
     // Step 8 (§6.1): the last-used workspace pointers are app data — their
     // own kernel-owned file (agent-workspace.json), not the preferences file.
@@ -439,6 +452,13 @@ export const useAgentMode = defineStore(
       },
       buildTurnConfig: () => {
         const sessionId = ensureSessionId(activeSessionId)
+        if (activeTaskConfig) {
+          return buildTaskTurnConfig({
+            sessionId,
+            workspaceDir: workspaceDir.value,
+            task: activeTaskConfig,
+          })
+        }
         return buildTurnConfig({
           sessionId,
           workspaceDir: workspaceDir.value,
@@ -533,10 +553,21 @@ export const useAgentMode = defineStore(
       chat.messages = (sessions.value[activeSessionId.value]?.messages ?? []) as UIMessage[]
     }
 
+    /**
+     * Set or clear the frozen task config for the active run. When set, the
+     * turn engine builds each step from it instead of the live textInference
+     * store. The agentMaker store calls this before driving the step loop and
+     * clears it when the run ends or the session switches away.
+     */
+    function setTaskRunConfig(task: import('@/types/agentMakerIpc').AgentTask | null): void {
+      activeTaskConfig = task
+    }
+
     async function newSession(): Promise<void> {
       await stop()
       activeSessionId.value = mintSessionId()
       sessionCapabilities.value = null
+      activeTaskConfig = null
       chat.messages = []
     }
 
@@ -554,6 +585,7 @@ export const useAgentMode = defineStore(
         }
         activeSessionId.value = id
         sessionCapabilities.value = null
+        activeTaskConfig = null
         if (target.workspaceDir) {
           workspaceDir.value = target.workspaceDir
           lastWorkspaceByKind.value = {
@@ -865,6 +897,7 @@ export const useAgentMode = defineStore(
       switchSession,
       deleteSession,
       restoreActiveSession,
+      setTaskRunConfig,
     }
   },
   {

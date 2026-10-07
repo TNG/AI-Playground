@@ -1,0 +1,10 @@
+{
+  "type": "chat",
+  "category": "chat",
+  "name": "Agent Maker",
+  "description": "Define rerunnable agent tasks with a sequence of steps. Run them on demand and review the results.",
+  "displayPriority": 40,
+  "tags": ["Agent", "Tasks"],
+  "backends": ["llamaCPP", "openVINO"],
+  "agentMaker": true
+}

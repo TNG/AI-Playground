@@ -213,7 +213,7 @@ type WorkflowModeType = 'imageGen' | 'imageEdit' | 'video'
 // it runs on chat-type presets and renders its turns in the Chat view, but it has
 // its own preset category, picker and settings panel.
 type ChatLikeModeType = 'chat' | 'audio'
-type ModeType = ChatLikeModeType | 'agent' | WorkflowModeType
+type ModeType = ChatLikeModeType | 'agent' | 'agentMaker' | WorkflowModeType
 
 // Agent Mode (Pi coding agent) — see src/types/agentIpc.ts.
 type AgentModeModelConfig = import('./types/agentIpc').AgentModeModelConfig

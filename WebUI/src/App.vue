@@ -221,6 +221,7 @@
         ref="chatRef"
       />
       <AgentMode v-if="promptStore.getCurrentMode() === 'agent'" />
+      <AgentMakerView v-if="promptStore.getCurrentMode() === 'agentMaker'" />
       <WorkflowResult
         v-if="promptStore.getCurrentMode() === 'imageGen'"
         ref="imageGenRef"
@@ -232,7 +233,11 @@
         mode="imageEdit"
       />
       <WorkflowResult v-if="promptStore.getCurrentMode() === 'video'" ref="videoRef" mode="video" />
-      <PromptArea @auto-hide-footer="handleAutoHideFooter" @open-settings="openSpecificSettings" />
+      <PromptArea
+        v-if="promptStore.getCurrentMode() !== 'agentMaker'"
+        @auto-hide-footer="handleAutoHideFooter"
+        @open-settings="openSpecificSettings"
+      />
       <div v-if="!footerExpanded" class="fixed bottom-4 right-4 z-5 flex items-center gap-3">
         <button
           @click="footerExpanded = !footerExpanded"
@@ -362,6 +367,7 @@ import { debugSettingsVisible } from './assets/js/store/debugSettings.ts'
 import WorkflowResult from '@/views/WorkflowResult.vue'
 import Chat from '@/views/Chat.vue'
 import AgentMode from '@/views/AgentMode.vue'
+import AgentMakerView from '@/views/AgentMakerView.vue'
 import { computed, ref, watch } from 'vue'
 import SideModalHistory from '@/components/SideModalHistory.vue'
 import SideModalAppSettings from '@/components/SideModalAppSettings.vue'

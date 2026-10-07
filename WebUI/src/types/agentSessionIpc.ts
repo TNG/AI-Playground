@@ -18,6 +18,11 @@ export const AgentSessionFileSchema = z.object({
   capabilities: z.array(z.string()).optional(),
   presetName: z.string().optional(),
   messages: z.array(z.unknown()),
+  origin: z.literal('agentMaker').optional(),
+  taskId: z.string().optional(),
+  taskRunStatus: z.enum(['running', 'completed', 'failed']).optional(),
+  taskRunError: z.string().optional(),
+  taskRunStepIndex: z.number().optional(),
 })
 export type AgentSessionFile = z.infer<typeof AgentSessionFileSchema>
 

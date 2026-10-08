@@ -17,6 +17,8 @@ import type {
 } from './chatIpc'
 import type { ChatAnswerPayload, ChatAskPayload } from './chatRequests'
 import type { ComfyUICustomNodeRepoId } from './comfyuiIpc'
+import type { ComputeSnapshot, ProbeReport } from './computeMetrics'
+import type { LlamaCppVramInputs } from '../lib/vram/types'
 import type { ConversationBootstrap, ConversationSaveRequest } from './conversationIpc'
 import type { HomeAgentInboundMessage } from './homeAgentIpc'
 import type { KernelEvent, KernelSnapshot } from './kernelEvents'
@@ -827,6 +829,27 @@ export const CHANNELS = {
     args: [] as const,
     result: null as unknown as LaminarConfig | null,
   },
+  /** The newest GPU/host memory sample, collected on demand if the sampler has none yet. */
+  getComputeMetrics: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as ComputeSnapshot | null,
+  },
+  /** GGUF facts the VRAM estimator needs, read from disk or from the model's header on HuggingFace. */
+  getLlamaCppVramInputs: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, (string | undefined)?],
+    result: null as unknown as LlamaCppVramInputs | null,
+  },
+  /** Which GPU probes resolved, and why the last one failed. See docs/compute-resource-metrics.md. */
+  getComputeMetricsDiagnostics: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as ProbeReport,
+  },
   /** Default ComfyUI launch flags for the backend-settings box. */
   getComfyUiDefaultParameters: {
     kind: 'invoke',
@@ -1132,6 +1155,14 @@ export const CHANNELS = {
     owner: 'main',
     payload: null as unknown as SetupProgress,
     raw: true as const,
+  },
+  /** One GPU/host memory sample, pushed on the sampler's tick. */
+  computeMetricsUpdate: {
+    kind: 'push',
+    owner: 'main',
+    payload: null as unknown as ComputeSnapshot,
+    raw: true as const,
+    member: 'onComputeMetricsUpdate' as const,
   },
   /** A toast a backend wants shown (ComfyUI setup errors and friends). */
   'show-toast': {

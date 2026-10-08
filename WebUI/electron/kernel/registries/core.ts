@@ -50,6 +50,13 @@ import type { DemoProfile, loadDemoProfile } from '../../persist/demoProfile'
 import type { getAudioDir } from '../../persist/userDataPaths'
 import type { saveGeneratedAudioFile } from '../../persist/audioFiles'
 import type { handleChatTelemetryEvent, laminarConfig } from '../../observability/laminar'
+import {
+  collectComputeSnapshot,
+  computeMetricsProbeReport,
+  latestComputeSnapshot,
+} from '../../adapters/hardware/computeMetrics'
+import { readLlamaCppVramInputs } from '../../adapters/vram/llamaCppVramInputs'
+import { readRemoteLlamaCppVramInputs } from '../../adapters/vram/remoteGgufMeta'
 import type { setVerboseLogging } from '../../agent/piAgentLog.ts'
 import type {
   ChatReadinessArgs,
@@ -592,6 +599,31 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
     // browser page); null config means no developer opted in, and the renderer
     // then registers nothing and sends nothing.
     getLaminarConfig: () => deps.laminarConfig(),
+
+    getComputeMetrics: async () => latestComputeSnapshot() ?? collectComputeSnapshot(),
+
+    getComputeMetricsDiagnostics: () => computeMetricsProbeReport(),
+
+    getLlamaCppVramInputs: async (_event, modelName: string, mmprojName?: string) => {
+      try {
+        const local = readLlamaCppVramInputs(deps.pathsManager.modelPaths.ggufLLM, modelName)
+        if (local) return local
+        const remote = await readRemoteLlamaCppVramInputs(
+          { name: modelName, mmproj: mmprojName },
+          {
+            endpoint: deps.settings.huggingfaceEndpoint,
+            cachePath: path.join(app.getPath('userData'), 'gguf-vram-cache.json'),
+          },
+        )
+        return remote ?? null
+      } catch (error) {
+        deps.appLogger.warn(
+          `Could not read VRAM inputs for ${modelName}: ${error}`,
+          'electron-backend',
+        )
+        return null
+      }
+    },
 
     updateModelPaths: (_event, modelPaths: ModelPaths) => {
       deps.pathsManager.updateModelPaths(modelPaths)

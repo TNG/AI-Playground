@@ -27,6 +27,8 @@ import { useActivities } from './activities'
 import { useConfirmations } from './confirmations'
 import { useI18N } from './i18n'
 import { useDeveloperSettings } from './developerSettings'
+import { useComputeMetrics } from './computeMetrics'
+import type { ChatTurnEnergy } from '@/lib/chatEnergy'
 import { createAppError, extractMessage, isCancellation } from '../errors/appError'
 import type { AppError } from '../errors/types'
 import { aipgTools, homeAgentTools } from '../tools/tools'
@@ -85,6 +87,8 @@ export type AipgMetadata = {
   timestamp?: number
   conversationTitle?: string
   timings?: z.infer<typeof LlamaCppRawValueTimingsSchema>
+  compute?: import('@/types/computeMetrics').ComputeWindowStats
+  energy?: ChatTurnEnergy
   ragSource?: string
   usage?: LanguageModelUsage
 }
@@ -112,6 +116,7 @@ export const useOpenAiCompatibleChat = defineStore(
     const i18n = useI18N()
     const i18nState = i18n.state
     const developerSettings = useDeveloperSettings()
+    const computeMetrics = useComputeMetrics()
     const manuallyStopped = ref(false)
 
     // True while the model is actively emitting reasoning (i.e. the last content
@@ -943,6 +948,7 @@ export const useOpenAiCompatibleChat = defineStore(
       // so `processing` stays true until the turn genuinely finishes. Cleared in
       // `finally` so a thrown/aborted turn can never leave the UI stuck busy.
       markGenerating(targetKey)
+      computeMetrics.beginTurn()
       try {
         // 1a. Reactivate the target thread's preset (if any) so the stream uses
         //     the right model/tools/system-prompt for THIS conversation, not
@@ -1084,6 +1090,7 @@ export const useOpenAiCompatibleChat = defineStore(
           fileInput.value = []
         }
       } finally {
+        computeMetrics.endTurn()
         unmarkGenerating(targetKey)
       }
     }
@@ -1162,8 +1169,10 @@ export const useOpenAiCompatibleChat = defineStore(
 
       const turnExtras = await buildTurnExtras(targetKey, question)
       try {
+        computeMetrics.beginTurn()
         await chat.regenerate({ messageId, body: turnExtras })
       } finally {
+        computeMetrics.endTurn()
         textInference.completeBackendPreparation()
         const ragActivityId = ragActivityByKey[targetKey]
         if (ragActivityId) {

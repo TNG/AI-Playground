@@ -515,7 +515,7 @@
   "MODEL_MANAGER_CAP_CODING": "พรีเซ็ตการเขียนโค้ด",
   "MODEL_MANAGER_CAP_CODING_HINT": "แสดงโมเดลนี้ใน Game Agent และ Quick Coder โดยพรีเซ็ตเหล่านั้นจะแสดงเฉพาะโมเดลที่ทำเครื่องหมายสำหรับการเขียนโค้ดเท่านั้น",
   "MODEL_MANAGER_CAP_AGENTIC": "เอเจนต์",
-  "MODEL_MANAGER_CAP_AGENTIC_HINT": "ใช้เครื่องมือหลายขั้นตอนได้อย่างเชื่อถือได้ เช่น โหมดเอเจนต์และเซิร์ฟเวอร์ MCP แสดงเป็นความสามารถและใช้เป็นตัวกรองในรายการโมเดลได้",
+  "MODEL_MANAGER_CAP_AGENTIC_HINT": "รวมโมเดลนี้ใน Agent, Game Agent และ Quick Coder เฉพาะโมเดลที่ทำเครื่องหมายว่าใช้เครื่องมือหลายขั้นตอนเท่านั้นที่จะปรากฏในพรีเซ็ตเหล่านั้น",
   "MODEL_MANAGER_CAP_NPU": "รองรับ NPU",
   "MODEL_MANAGER_CAP_LARGE_MOE": "MoE ขนาดใหญ่ (ออฟโหลดไปยัง SSD)",
   "MODEL_MANAGER_CAP_LARGE_MOE_HINT": "โมเดล Mixture-of-Experts ที่ใหญ่เกิน vRAM โหลดได้ผ่าน Phison Pascari aiDAPTIV เท่านั้น และจะถูกซ่อนจากตัวเลือกทั้งหมดบนเครื่องที่ไม่มีฮาร์ดแวร์นี้",

@@ -50,9 +50,9 @@ export type ModelCapabilityValues = {
    */
   supportsCoding?: boolean
   /**
-   * Reliable at multi-turn tool use (agent mode, MCP), as opposed to merely able
-   * to emit a tool call. A judgement like `supportsCoding`; see
-   * docs/agentic-capability-flag.md for how the catalog values are derived.
+   * Reliable at multi-turn tool use, as opposed to merely able to emit a tool
+   * call. A judgement like `supportsCoding`: presets with `requiresAgentic` only
+   * list models marked true.
    */
   supportsAgentic?: boolean
   /**

@@ -515,7 +515,7 @@
   "MODEL_MANAGER_CAP_CODING": "코딩 프리셋",
   "MODEL_MANAGER_CAP_CODING_HINT": "이 모델을 Game Agent와 Quick Coder에 표시합니다. 해당 프리셋에는 코딩용으로 표시된 모델만 나타납니다.",
   "MODEL_MANAGER_CAP_AGENTIC": "에이전트",
-  "MODEL_MANAGER_CAP_AGENTIC_HINT": "에이전트 모드와 MCP 서버처럼 여러 단계에 걸친 도구 사용을 안정적으로 수행합니다. 기능으로 표시되며 모델 목록에서 필터로 사용할 수 있습니다.",
+  "MODEL_MANAGER_CAP_AGENTIC_HINT": "이 모델을 Agent, Game Agent, Quick Coder에 포함합니다. 해당 프리셋에는 여러 단계의 도구 사용으로 표시된 모델만 나타납니다.",
   "MODEL_MANAGER_CAP_NPU": "NPU 지원",
   "MODEL_MANAGER_CAP_LARGE_MOE": "대형 MoE(SSD 오프로드)",
   "MODEL_MANAGER_CAP_LARGE_MOE_HINT": "vRAM에 담기에 너무 큰 Mixture-of-Experts 모델입니다. Phison Pascari aiDAPTIV로만 로드되며, 해당 하드웨어가 없는 컴퓨터에서는 모든 선택기에서 숨겨집니다.",

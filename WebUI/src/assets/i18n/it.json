@@ -515,7 +515,7 @@
   "MODEL_MANAGER_CAP_CODING": "Preset di programmazione",
   "MODEL_MANAGER_CAP_CODING_HINT": "Includi questo modello in Game Agent e Quick Coder. In quei preset compaiono solo i modelli contrassegnati per la programmazione.",
   "MODEL_MANAGER_CAP_AGENTIC": "Agentico",
-  "MODEL_MANAGER_CAP_AGENTIC_HINT": "Affidabile nell'uso di strumenti in più passaggi, come la modalità agente e i server MCP. Viene mostrato come capacità ed è disponibile come filtro negli elenchi dei modelli.",
+  "MODEL_MANAGER_CAP_AGENTIC_HINT": "Includi questo modello in Agent, Game Agent e Quick Coder. In questi preset compaiono solo i modelli contrassegnati per l'uso di strumenti in più passaggi.",
   "MODEL_MANAGER_CAP_NPU": "Supporto NPU",
   "MODEL_MANAGER_CAP_LARGE_MOE": "MoE di grandi dimensioni (offload su SSD)",
   "MODEL_MANAGER_CAP_LARGE_MOE_HINT": "Modello Mixture-of-Experts troppo grande per la vRAM. Si carica solo tramite Phison Pascari aiDAPTIV ed è nascosto da ogni selettore sulle macchine senza quell’hardware.",

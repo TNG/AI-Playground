@@ -87,43 +87,7 @@
           </Tooltip>
         </TooltipProvider>
       </template>
-      <!-- Live GPU / RAM, gated on the same Metrics checkbox as the chat footer. -->
-      <template v-if="textInference.metricsEnabled && computeChip">
-        ·
-        <TooltipProvider>
-          <Tooltip :delay-duration="0">
-            <TooltipTrigger as-child>
-              <button
-                type="button"
-                class="flex flex-none items-center gap-1 cursor-help"
-                :aria-label="computeChip.ariaLabel"
-              >
-                <CpuChipIcon class="size-3.5 flex-none" />
-                <span class="tabular-nums">{{ computeChip.label }}</span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent
-              align="start"
-              class="w-72 bg-card border border-border text-foreground p-3 z-[200]"
-            >
-              <p class="text-sm font-semibold">{{ languages.COMPUTE_METRICS_LABEL }}</p>
-              <section
-                v-for="section in computeChip.sections"
-                :key="section.title"
-                class="mt-2 first-of-type:mt-1.5"
-              >
-                <p class="text-xs font-medium text-foreground">{{ section.title }}</p>
-                <dl class="mt-0.5 grid grid-cols-[auto_1fr] gap-x-4 text-xs">
-                  <template v-for="row in section.rows" :key="row.label">
-                    <dt class="text-muted-foreground">{{ row.label }}</dt>
-                    <dd class="text-right tabular-nums text-foreground">{{ row.value }}</dd>
-                  </template>
-                </dl>
-              </section>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </template>
+      <template v-if="deviceBadge || (textInference.metricsEnabled && computeChip)">·</template>
       <!-- Selected inference device (GPU / NPU / CPU) as a text badge -->
       <template v-if="deviceBadge">
         <TooltipProvider>
@@ -147,6 +111,41 @@
             >
               <p class="text-sm font-semibold">{{ deviceBadge.name }}</p>
               <p class="mt-1 text-xs text-muted-foreground">{{ deviceBadge.categoryLabel }}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </template>
+      <!-- Live GPU / RAM, gated on the same Metrics checkbox as the chat footer. -->
+      <template v-if="textInference.metricsEnabled && computeChip">
+        <TooltipProvider>
+          <Tooltip :delay-duration="0">
+            <TooltipTrigger as-child>
+              <button
+                type="button"
+                class="flex flex-none items-center cursor-help"
+                :aria-label="computeChip.ariaLabel"
+              >
+                <span class="tabular-nums">{{ computeChip.label }}</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              align="start"
+              class="w-72 bg-card border border-border text-foreground p-3 z-[200]"
+            >
+              <p class="text-sm font-semibold">{{ languages.COMPUTE_METRICS_LABEL }}</p>
+              <section
+                v-for="section in computeChip.sections"
+                :key="section.title"
+                class="mt-2 first-of-type:mt-1.5"
+              >
+                <p class="text-xs font-medium text-foreground">{{ section.title }}</p>
+                <dl class="mt-0.5 grid grid-cols-[auto_1fr] gap-x-4 text-xs">
+                  <template v-for="row in section.rows" :key="row.label">
+                    <dt class="text-muted-foreground">{{ row.label }}</dt>
+                    <dd class="text-right tabular-nums text-foreground">{{ row.value }}</dd>
+                  </template>
+                </dl>
+              </section>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -192,11 +191,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import {
-  MagnifyingGlassPlusIcon,
-  MagnifyingGlassMinusIcon,
-  CpuChipIcon,
-} from '@heroicons/vue/24/outline'
+import { MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon } from '@heroicons/vue/24/outline'
 import { CloudIcon } from '@heroicons/vue/24/solid'
 import llamaCppLogoDark from '@/assets/image/llamacpp-dark.svg'
 import llamaCppLogoLight from '@/assets/image/llamacpp-light.svg'

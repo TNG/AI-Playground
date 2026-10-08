@@ -11,12 +11,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ChevronDownIcon, MagnifyingGlassIcon, StarIcon } from '@heroicons/vue/24/solid'
-import { PuzzlePieceIcon } from '@heroicons/vue/24/outline'
 import ModelCapabilities from './ModelCapabilities.vue'
 import ModelVramFit from './ModelVramFit.vue'
-import VramFitGradient from './VramFitGradient.vue'
+import VramChipIcon from './VramChipIcon.vue'
 import CapabilityIcons, { type ExtraFilter } from './CapabilityIcons.vue'
-import { modelHasCapability, type CapabilityKey } from '@/assets/js/capabilities'
+import { modelPassesCapabilityFilters, type CapabilityKey } from '@/assets/js/capabilities'
+import { modelMeetsPresetRequirements } from '@/lib/presetModelFilter'
 import { sortFavoritesFirst } from '@/assets/js/models/favorites'
 import { llamaCppFitTarget, useVramFitLevels } from '@/lib/useLlamaCppVramFit'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -58,10 +58,9 @@ const fitFilters = computed<ExtraFilter[]>(() =>
         {
           key: 'fits',
           label: i18nState.VRAM_FIT_FILTER,
-          icon: PuzzlePieceIcon,
+          icon: VramChipIcon,
           active: fitsOnly.value,
           hint: fitsOnly.value ? i18nState.VRAM_FIT_FILTER_ON : i18nState.VRAM_FIT_FILTER_OFF,
-          activeIconClass: '[stroke:url(#vram-fit-filter-gradient)]',
         },
       ]
     : [],
@@ -88,6 +87,7 @@ const items = computed(() => {
     toolCalling: activePreset?.type === 'chat' && activePreset.requiresToolCalling === true,
     reasoning: activePreset?.type === 'chat' && activePreset.requiresReasoning === true,
     coding: activePreset?.type === 'chat' && activePreset.requiresCoding === true,
+    agentic: activePreset?.type === 'chat' && activePreset.requiresAgentic === true,
     npuSupport: activePreset?.type === 'chat' && activePreset.requiresNpuSupport === true,
     txt2TxtOnly: activePreset?.type === 'chat' && activePreset.filterTxt2TxtOnly === true,
     largeMoeOnly: activePreset?.type === 'chat' && activePreset.filterLargeMoeOnly === true,
@@ -116,26 +116,28 @@ const items = computed(() => {
       if (m.requiresPhison && !backendServices.phisonSsdDetected) return false
       // Restrict to large Mixture-of-Experts models only (e.g. the Phison aiDAPTIV+ preset)
       if (requirements.largeMoeOnly && !m.largeMoe) return false
-      // Filter by preset requirements
-      if (requirements.vision && !m.supportsVision) return false
-      if (requirements.toolCalling && !m.supportsToolCalling) return false
-      if (requirements.reasoning && !m.supportsReasoning) return false
-      // Game Agent asks the model to write a whole game in one file; the small
-      // general-purpose models in the list cannot, so they are hidden rather than
-      // left to disappoint.
-      if (requirements.coding && !m.supportsCoding) return false
-      if (requirements.npuSupport && !m.npuSupport) return false
+      // Preset gates are AND. Coding keeps models that can write a whole game;
+      // agentic keeps models that can sustain a multi-step tool turn.
+      if (
+        !modelMeetsPresetRequirements(m, {
+          vision: requirements.vision,
+          toolCalling: requirements.toolCalling,
+          reasoning: requirements.reasoning,
+          coding: requirements.coding,
+          agentic: requirements.agentic,
+          npuSupport: requirements.npuSupport,
+        })
+      ) {
+        return false
+      }
       if (textInference.backend === 'openVINO') {
         if (textInference.runningOnOpenvinoNpu && !m.npuSupport) return false
         if (!textInference.runningOnOpenvinoNpu && m.npuSupport) return false
       }
       // Filter out vision and reasoning models for txt2txt only presets
       if (requirements.txt2TxtOnly && (m.supportsVision || m.supportsReasoning)) return false
-      // User-selected capability filters (AND): only show models with every
-      // selected capability. Deselected capabilities don't filter.
-      for (const key of activeFilters.value) {
-        if (!modelHasCapability(m, key)) return false
-      }
+      // User-selected capability filters (AND). Deselected capabilities don't filter.
+      if (!modelPassesCapabilityFilters(m, activeFilters.value)) return false
       // Size filter: green and yellow stay; red goes, and so does a model whose
       // header came back empty — an unknown size is not a model to offer. A
       // header still in flight has no verdict at all and is left alone, or the
@@ -153,6 +155,7 @@ const items = computed(() => {
           (requirements.toolCalling && m.supportsToolCalling) ||
           (requirements.reasoning && m.supportsReasoning) ||
           (requirements.coding && m.supportsCoding) ||
+          (requirements.agentic && m.supportsAgentic) ||
           (requirements.npuSupport && m.npuSupport)
 
         // Show basic models in txt2txt presets only if they don't have vision/reasoning
@@ -253,7 +256,6 @@ watchEffect(() => {
           />
         </div>
         <div class="shrink-0">
-          <VramFitGradient v-if="fitFilterAvailable" />
           <CapabilityIcons
             mode="filter"
             :active-keys="activeFilters"
@@ -283,7 +285,7 @@ watchEffect(() => {
             <StarIcon v-if="item.favorite" class="size-3 mr-1.5 shrink-0 text-primary" />
             <span class="flex-1 truncate">{{ item.label }}</span>
             <div class="flex items-center gap-1 ml-2 shrink-0">
-              <ModelVramFit :model="item.fitTarget" icon-size="size-3.5" />
+              <ModelVramFit :model="item.fitTarget" />
               <CapabilityIcons
                 :model="{
                   supportsVision: item.supportsVision,

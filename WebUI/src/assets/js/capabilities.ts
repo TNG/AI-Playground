@@ -20,6 +20,11 @@ export type CapabilityDescriptor = {
   flag: keyof CapabilityFlags
   label: string
   tooltip: string
+  /**
+   * Shown when the model lacks the capability. The default sentence is built from
+   * `label`, which only reads well when that label is a noun phrase.
+   */
+  lacksTooltip?: string
   /** Lucide icon. */
   icon: LucideIcon
 }
@@ -51,6 +56,7 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
     flag: 'supportsAgentic',
     label: 'Agentic',
     tooltip: 'Reliable at multi-step tool use: agent mode and MCP servers.',
+    lacksTooltip: 'This model is not reliable at multi-step tool use.',
     icon: Bot,
   },
 ]
@@ -62,4 +68,15 @@ export function modelHasCapability(
   if (!model) return false
   const descriptor = CAPABILITIES.find((c) => c.key === key)
   return !!descriptor && model[descriptor.flag] === true
+}
+
+/** User-toggled picker filters are AND: every selected capability must be present. */
+export function modelPassesCapabilityFilters(
+  model: CapabilityFlags | null | undefined,
+  keys: Iterable<CapabilityKey>,
+): boolean {
+  for (const key of keys) {
+    if (!modelHasCapability(model, key)) return false
+  }
+  return true
 }

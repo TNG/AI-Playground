@@ -49,7 +49,7 @@
       </ModelCapabilities>
       <span v-else-if="presetIndicator.model" class="truncate">{{ presetIndicator.model }}</span>
       <!-- Whether the model plus its context fits the card (llama.cpp only) -->
-      <ModelVramFit v-if="presetIndicator.model" icon-size="size-3.5" :delay-duration="0" />
+      <ModelVramFit v-if="presetIndicator.model" :delay-duration="0" />
       <!-- Capability icons for the active model, only in the Assistant preset -->
       <CapabilityIcons
         v-if="isAssistantPreset && presetIndicator.model && currentModel"
@@ -87,37 +87,7 @@
           </Tooltip>
         </TooltipProvider>
       </template>
-      <!-- Live GPU / RAM, gated on the same Metrics checkbox as the chat footer. -->
-      <template v-if="textInference.metricsEnabled && computeChip">
-        ·
-        <TooltipProvider>
-          <Tooltip :delay-duration="0">
-            <TooltipTrigger as-child>
-              <button
-                type="button"
-                class="flex flex-none items-center gap-1 cursor-help"
-                :aria-label="computeChip.ariaLabel"
-              >
-                <CpuChipIcon class="size-3.5 flex-none" />
-                <span class="tabular-nums">{{ computeChip.label }}</span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent
-              align="start"
-              class="w-64 bg-card border border-border text-foreground p-3 z-[200]"
-            >
-              <p class="text-sm font-semibold">{{ languages.COMPUTE_METRICS_LABEL }}</p>
-              <p
-                v-for="line in computeChip.detail"
-                :key="line"
-                class="mt-1 text-xs text-muted-foreground"
-              >
-                {{ line }}
-              </p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </template>
+      <template v-if="deviceBadge || (textInference.metricsEnabled && computeChip)">·</template>
       <!-- Selected inference device (GPU / NPU / CPU) as a text badge -->
       <template v-if="deviceBadge">
         <TooltipProvider>
@@ -141,6 +111,41 @@
             >
               <p class="text-sm font-semibold">{{ deviceBadge.name }}</p>
               <p class="mt-1 text-xs text-muted-foreground">{{ deviceBadge.categoryLabel }}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </template>
+      <!-- Live GPU / RAM, gated on the same Metrics checkbox as the chat footer. -->
+      <template v-if="textInference.metricsEnabled && computeChip">
+        <TooltipProvider>
+          <Tooltip :delay-duration="0">
+            <TooltipTrigger as-child>
+              <button
+                type="button"
+                class="flex flex-none items-center cursor-help"
+                :aria-label="computeChip.ariaLabel"
+              >
+                <span class="tabular-nums">{{ computeChip.label }}</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              align="start"
+              class="w-72 bg-card border border-border text-foreground p-3 z-[200]"
+            >
+              <p class="text-sm font-semibold">{{ languages.COMPUTE_METRICS_LABEL }}</p>
+              <section
+                v-for="section in computeChip.sections"
+                :key="section.title"
+                class="mt-2 first-of-type:mt-1.5"
+              >
+                <p class="text-xs font-medium text-foreground">{{ section.title }}</p>
+                <dl class="mt-0.5 grid grid-cols-[auto_1fr] gap-x-4 text-xs">
+                  <template v-for="row in section.rows" :key="row.label">
+                    <dt class="text-muted-foreground">{{ row.label }}</dt>
+                    <dd class="text-right tabular-nums text-foreground">{{ row.value }}</dd>
+                  </template>
+                </dl>
+              </section>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -186,11 +191,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import {
-  MagnifyingGlassPlusIcon,
-  MagnifyingGlassMinusIcon,
-  CpuChipIcon,
-} from '@heroicons/vue/24/outline'
+import { MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon } from '@heroicons/vue/24/outline'
 import { CloudIcon } from '@heroicons/vue/24/solid'
 import llamaCppLogoDark from '@/assets/image/llamacpp-dark.svg'
 import llamaCppLogoLight from '@/assets/image/llamacpp-light.svg'
@@ -213,7 +214,7 @@ import { useTheme } from '@/assets/js/store/theme'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useComputeMetrics } from '@/assets/js/store/computeMetrics'
-import { formatMib, formatPct } from '@/lib/computeMetricsFormat'
+import { computeDetailSections, formatMib } from '@/lib/computeMetricsFormat'
 import { Context } from '@/components/ui/context'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import ModelCapabilities from '@/components/ModelCapabilities.vue'
@@ -415,38 +416,13 @@ const computeChip = computed(() => {
     textInference.backend === 'cloud'
       ? undefined
       : computeMetrics.gpuFor(badge?.category === 'gpu' ? badge.name : undefined)
-  const detail: string[] = []
-  if (gpu?.memUsedMiB != null) {
-    const total = gpu.memTotalMiB != null ? ` / ${formatMib(gpu.memTotalMiB)}` : ''
-    const name = gpu.name ? ` · ${gpu.name}` : ''
-    const hasWddm = gpu.dedicatedTotalMiB != null || gpu.sharedTotalMiB != null
-    detail.push(`${formatMib(gpu.memUsedMiB)}${total} GPU memory${name}`)
-    if (hasWddm) {
-      if (gpu.dedicatedUsedMiB != null || gpu.dedicatedTotalMiB != null) {
-        detail.push(
-          `${formatMib(gpu.dedicatedUsedMiB ?? 0)}${gpu.dedicatedTotalMiB != null ? ` / ${formatMib(gpu.dedicatedTotalMiB)}` : ''} dedicated`,
-        )
-      }
-      if (gpu.sharedUsedMiB != null || gpu.sharedTotalMiB != null) {
-        detail.push(
-          `${formatMib(gpu.sharedUsedMiB ?? 0)}${gpu.sharedTotalMiB != null ? ` / ${formatMib(gpu.sharedTotalMiB)}` : ''} shared`,
-        )
-      }
-    }
-  }
-  if (gpu?.utilPct != null) detail.push(`${formatPct(gpu.utilPct)} GPU`)
-  if (gpu?.freqMHz != null) detail.push(`${Math.round(gpu.freqMHz)} MHz`)
-  if (gpu?.powerW != null) detail.push(`${gpu.powerW.toFixed(1)} W`)
-  detail.push(
-    `${formatMib(snapshot.host.memUsedMiB)} / ${formatMib(snapshot.host.memTotalMiB)} RAM`,
-  )
   const label =
     gpu?.memUsedMiB != null
       ? `${formatMib(gpu.memUsedMiB)}${gpu.memTotalMiB != null ? ` / ${formatMib(gpu.memTotalMiB)}` : ''}`
       : `${formatMib(snapshot.host.memUsedMiB)} / ${formatMib(snapshot.host.memTotalMiB)}`
   return {
     label,
-    detail,
+    sections: computeDetailSections(gpu, snapshot.host),
     ariaLabel: languages.COMPUTE_METRICS_LABEL || 'Compute resources',
   }
 })

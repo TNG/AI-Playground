@@ -515,7 +515,7 @@
   "MODEL_MANAGER_CAP_CODING": "Preset lập trình",
   "MODEL_MANAGER_CAP_CODING_HINT": "Đưa mô hình này vào Game Agent và Quick Coder. Chỉ những mô hình được đánh dấu cho lập trình mới xuất hiện trong các preset đó.",
   "MODEL_MANAGER_CAP_AGENTIC": "Tác tử",
-  "MODEL_MANAGER_CAP_AGENTIC_HINT": "Sử dụng công cụ nhiều bước một cách đáng tin cậy, như chế độ tác tử và máy chủ MCP. Hiển thị như một khả năng và có thể dùng làm bộ lọc trong danh sách mô hình.",
+  "MODEL_MANAGER_CAP_AGENTIC_HINT": "Đưa mô hình này vào Agent, Game Agent và Quick Coder. Chỉ những mô hình được đánh dấu cho việc dùng công cụ nhiều bước mới xuất hiện trong các preset đó.",
   "MODEL_MANAGER_CAP_NPU": "Hỗ trợ NPU",
   "MODEL_MANAGER_CAP_LARGE_MOE": "MoE lớn (offload SSD)",
   "MODEL_MANAGER_CAP_LARGE_MOE_HINT": "Mô hình Mixture-of-Experts quá lớn so với vRAM. Nó chỉ tải được qua Phison Pascari aiDAPTIV và bị ẩn khỏi mọi bộ chọn trên máy không có phần cứng đó.",

@@ -4,6 +4,7 @@ import {
   emptyCardBudgetBytes,
   fitVram,
   liveBudgetBytes,
+  vramFitBars,
   vramFitLevel,
   VRAM_EASY_FRACTION,
   VRAM_USABLE_FRACTION,
@@ -83,5 +84,18 @@ describe('vramFitLevel', () => {
 
   it('is over budget when nothing is usable', () => {
     expect(vramFitLevel(0, 0)).toBe('over')
+  })
+})
+
+describe('vramFitBars', () => {
+  const usable = emptyCardBudgetBytes(CARD)
+  const easy = usable * VRAM_EASY_FRACTION
+
+  it('splits an easy fit at half its threshold and fills the gauge when tight', () => {
+    expect(vramFitBars(easy / 2, usable)).toBe(1)
+    expect(vramFitBars(easy / 2 + 1, usable)).toBe(2)
+    expect(vramFitBars(easy, usable)).toBe(2)
+    expect(vramFitBars(easy + 1, usable)).toBe(3)
+    expect(vramFitBars(usable, usable)).toBe(3)
   })
 })

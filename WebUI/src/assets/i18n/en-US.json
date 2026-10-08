@@ -515,7 +515,7 @@
   "MODEL_MANAGER_CAP_CODING": "Coding presets",
   "MODEL_MANAGER_CAP_CODING_HINT": "Include this model in Game Agent and Quick Coder. Only models marked for coding appear in those presets.",
   "MODEL_MANAGER_CAP_AGENTIC": "Agentic",
-  "MODEL_MANAGER_CAP_AGENTIC_HINT": "Reliable at multi-step tool use, such as agent mode and MCP servers. Shown as a capability and available as a filter in the model lists.",
+  "MODEL_MANAGER_CAP_AGENTIC_HINT": "Include this model in Agent, Game Agent and Quick Coder. Only models marked for multi-step tool use appear in those presets.",
   "MODEL_MANAGER_CAP_NPU": "NPU support",
   "MODEL_MANAGER_CAP_LARGE_MOE": "Large MoE (SSD offload)",
   "MODEL_MANAGER_CAP_LARGE_MOE_HINT": "Mixture-of-Experts model too large for vRAM. It loads only via Phison Pascari aiDAPTIV and is hidden from every picker on machines without that hardware.",

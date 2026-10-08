@@ -43,6 +43,7 @@
     "supportsToolCalling": true,
     "supportsVision": true,
     "supportsReasoning": false,
+    "supportsCoding": true,
     "supportsAgentic": false,
     "maxContextSize": 256000
   },
@@ -53,6 +54,7 @@
     "supportsToolCalling": true,
     "supportsVision": true,
     "supportsReasoning": false,
+    "supportsCoding": true,
     "supportsAgentic": false,
     "supportsThinkingToggle": true,
     "maxContextSize": 131072
@@ -255,6 +257,7 @@
     "supportsToolCalling": true,
     "supportsVision": true,
     "supportsReasoning": false,
+    "supportsCoding": true,
     "supportsAgentic": false,
     "largeMoe": true,
     "maxContextSize": 256000
@@ -354,6 +357,7 @@
     "toolParser": "qwen3coder",
     "supportsVision": true,
     "supportsReasoning": false,
+    "supportsCoding": true,
     "supportsAgentic": false,
     "maxContextSize": 262144
   },
@@ -388,6 +392,7 @@
     "reasoningParser": "gemma4",
     "supportsVision": true,
     "supportsReasoning": false,
+    "supportsCoding": true,
     "supportsAgentic": false,
     "supportsThinkingToggle": true,
     "maxContextSize": 131072

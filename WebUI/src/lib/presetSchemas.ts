@@ -228,6 +228,8 @@ export const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).e
   // app provision a folder per game under the games library (no folder picker).
   agentWorkspace: z.enum(['pick', 'games']).optional(),
   requiresCoding: z.boolean().optional(), // Filter models to ones fit for writing code
+  // Filter models to ones reliable at multi-step tool use (Agent, Game Agent, Quick Coder).
+  requiresAgentic: z.boolean().optional(),
   // When true, this "chat" preset is a direct Speech-to-Text transcriber rather than an
   // LLM chat: selecting it turns the prompt box into a record/upload surface
   // (recorded or uploaded audio -> Whisper transcript, no LLM loaded). Like `ttsPreset`,

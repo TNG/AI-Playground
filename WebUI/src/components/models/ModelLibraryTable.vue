@@ -128,7 +128,7 @@ function usedBySummary(entry: ModelEntry): string {
               <span class="truncate" :title="entry.name">{{ entry.label }}</span>
               <!-- Same chip as the chat picker, and absent on the same terms:
                    anything but a llama.cpp LLM has no estimate to show. -->
-              <ModelVramFit :model="library.fitTargetFor(entry)" icon-size="size-3.5" />
+              <ModelVramFit :model="library.fitTargetFor(entry)" />
               <CapabilityIcons
                 v-if="entry.useCase === 'llm'"
                 :model="entry.capabilities"

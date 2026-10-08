@@ -136,10 +136,10 @@ const toolParserItems = computed(() => [
     </div>
 
     <!-- Coding, agentic and large MoE are the boxes whose label cannot carry their
-         meaning: two are judgements that decide where the model is offered, the
-         last is a hardware gate that can hide it everywhere. So they sit outside the grid,
-         each with its hint always on screen — a hint shown only once the box is
-         ticked comes too late to inform the decision. -->
+         meaning: coding and agentic decide which presets offer the model, and large
+         MoE is a hardware gate that can hide it everywhere. So they sit outside the
+         grid, each with its hint always on screen — a hint shown only once the box
+         is ticked comes too late to inform the decision. -->
     <div class="flex flex-col gap-1">
       <div class="flex items-center gap-2">
         <Checkbox

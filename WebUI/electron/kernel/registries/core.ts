@@ -77,6 +77,13 @@ import type {
   PhisonKmIngestConfig,
   WarmupRequest,
 } from '@/assets/js/store/textInference'
+import {
+  embeddingServerUrl,
+  hostsEmbeddingServer,
+  readsDedicatedEmbeddingUrl,
+  startEmbeddingServer,
+} from '../../rag/embeddingServer'
+import { ingestDocument, retrieveChunks } from '../../rag/langchainCalls'
 import type { IpcMutationResult, IpcOk, IpcOkWith } from '@/types/ipcChannels'
 import type { SpeechSynthesisRequest } from '@/types/speechIpc'
 
@@ -676,20 +683,16 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
       _event,
       document: IndexedDocument,
       phisonKmConfig?: PhisonKmIngestConfig,
-    ) => {
-      return deps.handleUtilityFunction<
-        { document: IndexedDocument; phisonKmConfig?: PhisonKmIngestConfig },
-        IndexedDocument
-      >('addDocumentToRAGList', deps.getLangchainChild(), { document, phisonKmConfig })
-    },
-
-    embedInputUsingRag: (_event, embedInquiry: EmbedInquiry) => {
-      return deps.handleUtilityFunction<EmbedInquiry, LangchainDocument[]>(
-        'embedInputUsingRag',
+    ) =>
+      ingestDocument(
+        deps.handleUtilityFunction,
         deps.getLangchainChild(),
-        embedInquiry,
-      )
-    },
+        document,
+        phisonKmConfig,
+      ),
+
+    embedInputUsingRag: (_event, embedInquiry: EmbedInquiry) =>
+      retrieveChunks(deps.handleUtilityFunction, deps.getLangchainChild(), embedInquiry),
 
     warmupKVCacheForDocument: (_event, request: WarmupRequest) => {
       return deps.handleUtilityFunction<WarmupRequest, IpcOk>(
@@ -1084,12 +1087,8 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
         return { success: false, error: `Service ${serviceName} not found` }
       }
 
-      // Check if service has getEmbeddingServerUrl method (llamaCPP backend)
-      if (
-        'getEmbeddingServerUrl' in service &&
-        typeof service.getEmbeddingServerUrl === 'function'
-      ) {
-        const embeddingUrl = service.getEmbeddingServerUrl()
+      if (readsDedicatedEmbeddingUrl(service)) {
+        const embeddingUrl = embeddingServerUrl(service)
         if (embeddingUrl) {
           return { success: true, url: embeddingUrl }
         }
@@ -1116,12 +1115,9 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
 
       // Only the local LLM backends (llamaCPP / openVINO) can host an embedding
       // server. Used by Cloud Mode RAG to embed locally while chatting remotely.
-      if (
-        'ensureEmbeddingServerReady' in service &&
-        typeof service.ensureEmbeddingServerReady === 'function'
-      ) {
+      if (hostsEmbeddingServer(service)) {
         try {
-          await service.ensureEmbeddingServerReady(embeddingModelName)
+          await startEmbeddingServer(service, embeddingModelName)
           deps.appLogger.info(
             `Embedding server ready for ${serviceName} with model: ${embeddingModelName}`,
             'electron-backend',

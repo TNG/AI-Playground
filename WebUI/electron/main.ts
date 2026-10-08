@@ -120,8 +120,14 @@ import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecy
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { setRagAccess } from './agent/ragAccess.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
-import type { Document as LangchainDocument } from '@langchain/classic/document'
-import type { EmbedInquiry, IndexedDocument } from '@/assets/js/store/textInference.ts'
+import {
+  dedicatedEmbeddingServerUrl,
+  EMBEDDING_SERVICE_BY_BACKEND,
+  embeddingServerUrl,
+  hostsEmbeddingServer,
+  startEmbeddingServer,
+} from './rag/embeddingServer.ts'
+import { ingestDocument, retrieveChunks } from './rag/langchainCalls.ts'
 import { handleChatAnswer, rejectAllChatAsks } from './chat/chatAsk.ts'
 import type { ArtifactMissingModel } from '@/types/mediaRequests'
 import type { IpcOkWith } from '@/types/ipcChannels'
@@ -1087,36 +1093,16 @@ function handleUtilityFunction<T, R>(
 // read live: the langchain worker respawns, the embedding server is started on
 // demand, and the registry fills in during app init.
 
-const RAG_EMBEDDING_SERVICE: Record<'llamaCPP' | 'openVINO', string> = {
-  llamaCPP: 'llamacpp-backend',
-  openVINO: 'openvino-backend',
-}
-
 setRagAccess({
-  ingest: (document: IndexedDocument) =>
-    handleUtilityFunction<{ document: IndexedDocument }, IndexedDocument>(
-      'addDocumentToRAGList',
-      langchainChild,
-      { document },
-    ),
-  retrieve: (inquiry: EmbedInquiry) =>
-    handleUtilityFunction<EmbedInquiry, LangchainDocument[]>(
-      'embedInputUsingRag',
-      langchainChild,
-      inquiry,
-    ),
+  ingest: (document) => ingestDocument(handleUtilityFunction, langchainChild, document),
+  retrieve: (inquiry) => retrieveChunks(handleUtilityFunction, langchainChild, inquiry),
   ensureEmbeddingServer: async (backend, model) => {
-    const service = serviceRegistry?.getService(RAG_EMBEDDING_SERVICE[backend]) as
-      | {
-          ensureEmbeddingServerReady(modelName: string): Promise<void>
-          getEmbeddingServerUrl(): string | null
-        }
-      | undefined
-    if (!service || typeof service.ensureEmbeddingServerReady !== 'function') {
+    const service = serviceRegistry?.getService(EMBEDDING_SERVICE_BY_BACKEND[backend])
+    if (!hostsEmbeddingServer(service)) {
       throw new Error(`The embedding backend for '${backend}' is not installed.`)
     }
-    await service.ensureEmbeddingServerReady(model)
-    const url = service.getEmbeddingServerUrl?.()
+    await startEmbeddingServer(service, model)
+    const url = dedicatedEmbeddingServerUrl(service)
     if (!url) throw new Error('The embedding server did not come up.')
     return url
   },
@@ -1357,28 +1343,18 @@ function wireChatEngine(): void {
   setRagRetrievalDeps({
     ensureEmbeddingServerReady: async (serviceName, embeddingModel) => {
       const service = serviceRegistry?.getService(serviceName)
-      if (
-        !service ||
-        !('ensureEmbeddingServerReady' in service) ||
-        typeof service.ensureEmbeddingServerReady !== 'function'
-      ) {
+      if (!hostsEmbeddingServer(service)) {
         throw new Error(`Service ${serviceName} does not support a standalone embedding server`)
       }
-      await service.ensureEmbeddingServerReady(embeddingModel)
+      await startEmbeddingServer(service, embeddingModel)
     },
     getEmbeddingServerUrl: async (serviceName) => {
       const service = serviceRegistry?.getService(serviceName)
       if (!service) return null
-      if (
-        'getEmbeddingServerUrl' in service &&
-        typeof service.getEmbeddingServerUrl === 'function'
-      ) {
-        return service.getEmbeddingServerUrl()
-      }
-      return service.baseUrl ?? null
+      return embeddingServerUrl(service)
     },
     embed: async (inquiry) => {
-      const docs = await handleUtilityFunction('embedInputUsingRag', langchainChild, inquiry)
+      const docs = await retrieveChunks(handleUtilityFunction, langchainChild, inquiry)
       return Array.isArray(docs) ? docs : []
     },
     loadDocuments: async () => {

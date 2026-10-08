@@ -36,6 +36,25 @@ type InferenceForTurn = {
   getCurrentDeviceName: () => string | null | undefined
   contextSize?: number
   activeLlmModel?: { llamaCppArgs?: string } | null
+  /** Downloaded embedding model + the local backend that serves it (rag capability). */
+  embeddingBackend: 'llamaCPP' | 'openVINO'
+  activeEmbeddingModel?: string | null
+  llmEmbeddingModels?: readonly { name: string; type: string; downloaded: boolean }[]
+}
+
+/** Start with the LLM only once the file is on disk, so a missing model still opens the download dialog. */
+function readinessEmbeddingModel(
+  textInference: InferenceForTurn,
+  capabilities: readonly string[],
+): string | undefined {
+  if (!capabilities.includes('rag')) return undefined
+  const name = textInference.activeEmbeddingModel
+  if (!name) return undefined
+  const downloaded = textInference.llmEmbeddingModels?.some(
+    (model) =>
+      model.name === name && model.type === textInference.embeddingBackend && model.downloaded,
+  )
+  return downloaded ? name : undefined
 }
 
 type CloudForTurn = {
@@ -59,6 +78,13 @@ export function buildSamplingParams(textInference: InferenceForTurn): Record<str
   })
   if (Object.keys(kwargs).length > 0) params.chat_template_kwargs = kwargs
   return params
+}
+
+function embeddingConfigOf(textInference: InferenceForTurn) {
+  const embeddingModel = textInference.activeEmbeddingModel ?? undefined
+  // Only meaningful with a model; in Cloud Mode `embeddingBackend` already
+  // resolves to a local backend that can serve embeddings.
+  return embeddingModel ? { embeddingModel, embeddingBackend: textInference.embeddingBackend } : {}
 }
 
 export async function buildTurnConfig(options: {
@@ -109,6 +135,7 @@ export async function buildTurnConfig(options: {
       capabilities: options.capabilities,
       unsandboxed: options.unsandboxed,
       keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
+      ...embeddingConfigOf(textInference),
     }
   }
   const servedModelId = textInference.activeModel?.split('/').join('---') ?? ''
@@ -119,6 +146,7 @@ export async function buildTurnConfig(options: {
     )
   }
   const activeModel = textInference.activeModel
+  const embeddingModelName = readinessEmbeddingModel(textInference, options.capabilities)
   return {
     sessionId: options.sessionId,
     workspaceDir: options.workspaceDir,
@@ -144,6 +172,7 @@ export async function buildTurnConfig(options: {
       textInference.modelSupportsThinkingToggle &&
       textInference.thinkingEnabled &&
       options.planningThinkingOnly,
+    ...embeddingConfigOf(textInference),
     ...(activeModel
       ? {
           readiness: {
@@ -155,6 +184,7 @@ export async function buildTurnConfig(options: {
               textInference.backend === 'llamaCPP'
                 ? textInference.activeLlmModel?.llamaCppArgs
                 : undefined,
+            ...(embeddingModelName ? { embeddingModelName } : {}),
           },
         }
       : {}),

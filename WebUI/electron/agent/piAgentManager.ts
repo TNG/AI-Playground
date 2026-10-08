@@ -58,6 +58,7 @@ export function listAgentCapabilities(options: {
   workspaceDir?: string
   toolSpecs?: AgentToolSpec[]
   mcpServerIds?: string[]
+  embeddingModel?: string
 }): CapabilityInfo[] {
   return listCapabilities(
     {
@@ -66,6 +67,7 @@ export function listAgentCapabilities(options: {
       toolSpecs: options.toolSpecs ?? [],
       agentDir: piAgentDir(),
       keepModelsLoaded: false,
+      ...(options.embeddingModel ? { embeddingModel: options.embeddingModel } : {}),
     },
     options.mcpServerIds ?? [],
   )

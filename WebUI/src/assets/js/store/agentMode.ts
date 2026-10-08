@@ -1,7 +1,8 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import type { UIMessage } from 'ai'
-import { useTextInference } from './textInference'
+import { backendToAipgBackendName, useTextInference } from './textInference'
+import { useModels } from './models'
 import { useCloudMode } from './cloudMode'
 import { usePresets, type ChatPreset } from './presets'
 import { usePresetSwitching } from './presetSwitching'
@@ -23,10 +24,13 @@ import {
   type LegacyAgentSessionState,
 } from '@/types/agentSessionIpc'
 import { withResponseLanguage } from '@/lib/responseLanguage'
+import { ragEmbeddingPrepFailure } from '@/lib/ragEmbeddingPrep'
+import { requestDownload } from '@/assets/js/permissions/permissions'
 import {
   DEFAULT_CAPABILITY_IDS,
   GAME_STUDIO_QUICK_ID,
   OFFER_GAME_AGENT_TOOL,
+  RAG_PREPARE_EMBEDDING_MODEL,
 } from '@/types/agentCapabilities'
 import type { GameLibraryEntry } from '@/types/agentIpc'
 import {
@@ -83,6 +87,7 @@ export const useAgentMode = defineStore(
   'agentMode',
   () => {
     const textInference = useTextInference()
+    const models = useModels()
     const cloudMode = useCloudMode()
     const presetsStore = usePresets()
     const presetSwitching = usePresetSwitching()
@@ -402,9 +407,36 @@ export const useAgentMode = defineStore(
       return pendingResponseLocales[sessionId]
     }
 
+    // The rag capability (main process) asks for this before its first index:
+    // the session-frozen embedding model may not be on disk yet, and the
+    // renderer owns the download policy (shared dialog) plus the models store.
+    async function prepareRagEmbeddingModel(input: Record<string, unknown>): Promise<unknown> {
+      const model = typeof input.model === 'string' ? input.model : ''
+      const backend = input.backend === 'openVINO' ? 'openVINO' : 'llamaCPP'
+      if (!model) return { status: 'ready' }
+      const checked = await models.checkModelAlreadyLoaded([
+        { repo_id: model, type: 'embedding', backend: backendToAipgBackendName[backend] },
+      ])
+      const missing = checked.filter((m) => !m.already_loaded)
+      if (missing.length === 0) return { status: 'ready' }
+      // The permissions layer owns the prompt (the shared download modal, or
+      // the in-channel question on a remote Home Agent turn), so the agent
+      // store does not touch the dialog store directly — the same seam chat
+      // and media use (AGENTS.md: "Report through the sink, not directly").
+      try {
+        await requestDownload(missing)
+        return { status: 'ready' }
+      } catch (error) {
+        return ragEmbeddingPrepFailure(error)
+      }
+    }
+
     const turn = createAgentTurnRuntime({
       errors,
-      storeTools: { [OFFER_GAME_AGENT_TOOL]: (input) => offerGameAgent(input) },
+      storeTools: {
+        [OFFER_GAME_AGENT_TOOL]: (input) => offerGameAgent(input),
+        [RAG_PREPARE_EMBEDDING_MODEL]: (input) => prepareRagEmbeddingModel(input),
+      },
       buildTurnConfig: () => {
         const sessionId = ensureSessionId(activeSessionId)
         return buildTurnConfig({

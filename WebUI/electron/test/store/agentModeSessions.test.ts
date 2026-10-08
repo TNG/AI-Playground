@@ -55,6 +55,10 @@ vi.mock('@/assets/js/store/textInference', () => ({
   useTextInference: () => ({ backend: 'llamaCPP', ensureReadyForInference: vi.fn() }),
 }))
 
+vi.mock('@/assets/js/store/models', () => ({
+  useModels: () => ({ checkModelAlreadyLoaded: vi.fn().mockResolvedValue([]) }),
+}))
+
 vi.mock('@/assets/js/store/cloudMode', () => ({
   useCloudMode: () => ({}),
   CLOUD_DEFAULT_MODEL: 'test-model',

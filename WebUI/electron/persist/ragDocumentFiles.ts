@@ -10,8 +10,8 @@ import { atomicWriteJson, makeWriteChains, readJson } from './fsJsonStore'
  * textInference store projects, full split text included. The same
  * correctness contract as the other user-data stores (atomic tmp+rename
  * writes, schema validation on read, every mutation serialized on one chain
- * — the file is the unit). Items are opaque here; the store owns the
- * `IndexedDocument` interpretation.
+ * — the file is the unit). Items are opaque here; `IndexedDocument` in
+ * `src/types/rag.ts` is the domain shape.
  *
  * A missing file is the never-migrated state (section null). A corrupt or
  * schema-invalid file is a failed read — leftover must not replace it.

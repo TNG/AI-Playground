@@ -65,6 +65,9 @@ export const AgentModeTurnConfigSchema = z.object({
   mcpServerIds: z.array(z.string()).optional(),
   unsandboxed: z.boolean().optional(),
   planningThinkingOnly: z.boolean().optional(),
+  /** Downloaded embedding model for the `rag` capability; absent disables it. */
+  embeddingModel: z.string().optional(),
+  embeddingBackend: z.enum(['llamaCPP', 'openVINO']).optional(),
   /** Developer setting: skip the GPU swap around in-process media calls. */
   keepModelsLoaded: z.boolean().optional(),
   /**

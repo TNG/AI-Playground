@@ -12,7 +12,8 @@ import {
   type SplitterParams,
 } from '../../../adapters/backends/langchainPhisonKm'
 import { deriveGroupContent, GROUP_SEPARATOR } from '@/types/phisonKmRag'
-import type { IndexedDocument, WarmupRequest } from '@/assets/js/store/textInference'
+import type { IndexedDocument } from '@/types/rag'
+import type { WarmupRequest } from '@/types/phisonKmRag'
 
 /**
  * The value MAX_TOKENS_PER_GROUP is expected to have. It isn't exported, so the group

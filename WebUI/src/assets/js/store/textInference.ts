@@ -7,7 +7,12 @@ import {
 } from '@/lib/fileBackedPreferences'
 import { useBackendServices, type BackendServiceName } from './backendServices'
 import { useModels } from './models'
-import { Document } from '@langchain/classic/document'
+import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
+import {
+  deriveGroupContent,
+  type PhisonKmIngestConfig,
+  type WarmupRequest,
+} from '@/types/phisonKmRag'
 import {
   llmBackendTypes,
   npuPromptLen,
@@ -102,48 +107,6 @@ export type LlmModel = {
  * should still work, so their preferences are keyed under this synthetic path key.
  */
 export const CLOUD_MODEL_PATH_KEY = 'cloud'
-
-export type ValidFileExtension = 'txt' | 'doc' | 'docx' | 'md' | 'pdf'
-
-// Phison KM (Knowledge Manager) RAG types — MergedGroup, MergedGroupsMeta,
-// WarmupRequest, PhisonKmIngestConfig — live in a dedicated module rather than
-// here, so this store doesn't own Phison-specific shapes it otherwise has no
-// reason to know about (see aidaptiv-km-rag-review-scope.md §W1). Re-exported
-// below for backward compatibility: langchain.ts, main.ts, and preload.ts still
-// import them via this path; only the canonical definitions moved.
-import type {
-  MergedGroup,
-  MergedGroupsMeta,
-  WarmupGroup,
-  WarmupRequest,
-  PhisonKmIngestConfig,
-} from '@/types/phisonKmRag'
-import { deriveGroupContent } from '@/types/phisonKmRag'
-
-export type { MergedGroup, MergedGroupsMeta, WarmupGroup, WarmupRequest, PhisonKmIngestConfig }
-export { deriveGroupContent }
-
-export type IndexedDocument = {
-  filename: string
-  filepath: string
-  type: ValidFileExtension
-  splitDB: Document[]
-  hash: string
-  isChecked: boolean
-  mergedGroups?: MergedGroup[]
-  mergedGroupsMeta?: MergedGroupsMeta
-}
-
-export type EmbedInquiry = {
-  prompt: string
-  ragList: IndexedDocument[]
-  backendBaseUrl: string
-  embeddingModel: string
-  maxResults?: number
-  useGroupRetrieval: boolean
-  /** Number of top chunks to retrieve per document (prevents cross-doc competition). */
-  perDocResults?: number
-}
 
 // Thinking model markers for different models
 export const thinkingModels: Record<string, string> = {

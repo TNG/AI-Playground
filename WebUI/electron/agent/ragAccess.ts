@@ -1,5 +1,5 @@
 import type { Document } from '@langchain/classic/document'
-import type { EmbedInquiry, IndexedDocument } from '@/assets/js/store/textInference.ts'
+import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
 
 // ── Main-process RAG plumbing for the agent's `rag` tool ─────────────────────
 //

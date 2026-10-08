@@ -14,12 +14,8 @@
 import { Document } from '@langchain/classic/document'
 import { createHash } from 'crypto'
 
-import type {
-  IndexedDocument,
-  MergedGroup,
-  MergedGroupsMeta,
-  WarmupRequest,
-} from '@/assets/js/store/textInference.ts'
+import type { IndexedDocument } from '@/types/rag'
+import type { MergedGroup, MergedGroupsMeta, WarmupRequest } from '@/types/phisonKmRag'
 import { deriveGroupContent, GROUP_SEPARATOR } from '@/types/phisonKmRag'
 
 /**

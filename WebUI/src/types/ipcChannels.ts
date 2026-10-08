@@ -41,7 +41,7 @@ import type {
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import type { ModelLibraryScan } from '@/assets/js/models/types'
 import type { ModelLists, ModelPaths } from '@/assets/js/store/models'
-import type { EmbedInquiry, IndexedDocument } from '@/assets/js/store/textInference'
+import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
 import type { PhisonKmIngestConfig, WarmupRequest } from './phisonKmRag'
 
 export type IpcOwner = 'main' | 'homeAgent'

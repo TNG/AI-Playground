@@ -71,12 +71,8 @@ import type {
 } from '../../adapters/remoteUpdates'
 import type { ModelPaths } from '@/assets/js/store/models'
 import type { BackendServiceName } from '@/assets/js/store/backendServices'
-import type {
-  EmbedInquiry,
-  IndexedDocument,
-  PhisonKmIngestConfig,
-  WarmupRequest,
-} from '@/assets/js/store/textInference'
+import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
+import type { PhisonKmIngestConfig, WarmupRequest } from '@/types/phisonKmRag'
 import {
   embeddingServerUrl,
   hostsEmbeddingServer,

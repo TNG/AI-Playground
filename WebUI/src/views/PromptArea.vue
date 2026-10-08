@@ -458,11 +458,8 @@ import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useActivities } from '@/assets/js/store/activities'
 import { useErrors } from '@/assets/js/store/errors'
-import {
-  useTextInference,
-  type ValidFileExtension,
-  type IndexedDocument,
-} from '@/assets/js/store/textInference'
+import { useTextInference } from '@/assets/js/store/textInference'
+import type { IndexedDocument, ValidFileExtension } from '@/types/rag'
 import { useI18N } from '@/assets/js/store/i18n'
 import { usePresets, type ChatPreset, type Preset } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'

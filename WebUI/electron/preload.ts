@@ -4,12 +4,8 @@ import type { LocalSettings } from './kernel/localSettings.ts'
 import { ModelPaths } from '@/assets/js/store/models'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
-import {
-  EmbedInquiry,
-  IndexedDocument,
-  WarmupRequest,
-  PhisonKmIngestConfig,
-} from '@/assets/js/store/textInference'
+import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
+import type { PhisonKmIngestConfig, WarmupRequest } from '@/types/phisonKmRag'
 import type { AgentModeTurnConfig, AgentToolExecuteRequest, AgentToolSpec } from '@/types/agentIpc'
 import type { AgentSessionRecordWire } from '@/types/agentSessionIpc'
 import type { ArtifactRunRequest } from '@/types/artifactIpc'

@@ -2,11 +2,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import type { Document } from '@langchain/classic/document'
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
-import type {
-  EmbedInquiry,
-  IndexedDocument,
-  ValidFileExtension,
-} from '@/assets/js/store/textInference.ts'
+import type { EmbedInquiry, IndexedDocument, ValidFileExtension } from '@/types/rag'
 import { RAG_PREPARE_EMBEDDING_MODEL } from '@/types/agentCapabilities'
 import {
   executeToolInRenderer,

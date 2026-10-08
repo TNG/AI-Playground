@@ -1,9 +1,6 @@
 import type { Document } from '@langchain/classic/document'
-import type {
-  EmbedInquiry,
-  IndexedDocument,
-  PhisonKmIngestConfig,
-} from '@/assets/js/store/textInference.ts'
+import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
+import type { PhisonKmIngestConfig } from '@/types/phisonKmRag'
 
 export function ingestDocument<Child>(
   post: <T, R>(eventType: string, child: Child, args: T) => Promise<R>,

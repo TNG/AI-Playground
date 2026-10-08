@@ -5,8 +5,8 @@ import { z } from 'zod'
  * (architecture-target §6.1, step 8): `AI-Playground/rag/documents.json`
  * holds the indexed document set — full split text included, which is why
  * it is a file of its own rather than a section of the (small)
- * preferences file. One writer chain; items stay opaque here, the
- * textInference store owns the interpretation (`IndexedDocument`).
+ * preferences file. One writer chain; items stay opaque here.
+ * `IndexedDocument` in `rag.ts` is the domain shape.
  */
 
 export const RagDocumentsFileSchema = z.object({

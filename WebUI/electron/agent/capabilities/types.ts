@@ -41,6 +41,10 @@ export type CapabilityHost = {
   agentDir: string
   /** The model's context window, for the activation policy. */
   contextWindow?: number
+  /** Downloaded embedding model for the `rag` capability; absent disables it. */
+  embeddingModel?: string
+  /** The local backend that serves the embedding model. */
+  embeddingBackend?: 'llamaCPP' | 'openVINO'
   /** Developer setting: skip the GPU swap around in-process media calls. */
   keepModelsLoaded: boolean
 }

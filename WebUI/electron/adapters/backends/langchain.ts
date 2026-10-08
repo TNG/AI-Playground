@@ -15,14 +15,13 @@ import { extractText } from 'unpdf'
 
 import { RecursiveCharacterTextSplitter } from '@langchain/classic/text_splitter'
 
+import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
 import type {
-  IndexedDocument,
-  EmbedInquiry,
   MergedGroup,
   MergedGroupsMeta,
-  WarmupRequest,
   PhisonKmIngestConfig,
-} from '@/assets/js/store/textInference.ts'
+  WarmupRequest,
+} from '@/types/phisonKmRag'
 import {
   buildMergedGroups,
   stampGroupIds,

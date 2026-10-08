@@ -140,6 +140,78 @@ describe('buildTurnConfig readiness (step 15)', () => {
     expect(config.modelConfig.source).toBe('cloud')
     expect(config.readiness).toBeUndefined()
   })
+
+  it('starts the embedding server with the LLM when rag is on and the model is downloaded', async () => {
+    const config = await buildTurnConfig({
+      sessionId: 'aipg-agent-1',
+      workspaceDir: '/tmp/ws',
+      presetName: 'Agent',
+      instructions: '',
+      capabilities: ['rag'],
+      unsandboxed: false,
+      planningThinkingOnly: false,
+      textInference: localInference({
+        embeddingBackend: 'llamaCPP',
+        activeEmbeddingModel: 'bge-small',
+        llmEmbeddingModels: [{ name: 'bge-small', type: 'llamaCPP', downloaded: true }],
+      }) as never,
+      cloudMode: {
+        ensureProxyUrl: async () => 'http://proxy',
+        selectedProviderId: 'openai',
+        activeProviderAuthStyle: 'bearer',
+        capabilitiesFor: () => ({ reasoningAdvertised: false }),
+      },
+    })
+    expect(config.readiness?.embeddingModelName).toBe('bge-small')
+  })
+
+  it('leaves the embedding server for the tool when the model is not on disk', async () => {
+    const config = await buildTurnConfig({
+      sessionId: 'aipg-agent-1',
+      workspaceDir: '/tmp/ws',
+      presetName: 'Agent',
+      instructions: '',
+      capabilities: ['rag'],
+      unsandboxed: false,
+      planningThinkingOnly: false,
+      textInference: localInference({
+        embeddingBackend: 'llamaCPP',
+        activeEmbeddingModel: 'bge-small',
+        llmEmbeddingModels: [{ name: 'bge-small', type: 'llamaCPP', downloaded: false }],
+      }) as never,
+      cloudMode: {
+        ensureProxyUrl: async () => 'http://proxy',
+        selectedProviderId: 'openai',
+        activeProviderAuthStyle: 'bearer',
+        capabilitiesFor: () => ({ reasoningAdvertised: false }),
+      },
+    })
+    expect(config.readiness?.embeddingModelName).toBeUndefined()
+  })
+
+  it('does not start an embedding server when rag is off', async () => {
+    const config = await buildTurnConfig({
+      sessionId: 'aipg-agent-1',
+      workspaceDir: '/tmp/ws',
+      presetName: 'Agent',
+      instructions: '',
+      capabilities: ['media'],
+      unsandboxed: false,
+      planningThinkingOnly: false,
+      textInference: localInference({
+        embeddingBackend: 'llamaCPP',
+        activeEmbeddingModel: 'bge-small',
+        llmEmbeddingModels: [{ name: 'bge-small', type: 'llamaCPP', downloaded: true }],
+      }) as never,
+      cloudMode: {
+        ensureProxyUrl: async () => 'http://proxy',
+        selectedProviderId: 'openai',
+        activeProviderAuthStyle: 'bearer',
+        capabilitiesFor: () => ({ reasoningAdvertised: false }),
+      },
+    })
+    expect(config.readiness?.embeddingModelName).toBeUndefined()
+  })
 })
 
 describe('pendingResume tool progress', () => {

@@ -280,6 +280,11 @@ describe('session reuse', () => {
     ['capabilities change', { capabilities: ['media', 'web-debug', 'mcp:filesystem'] }],
     ['the shell mode changes', { unsandboxed: true }],
     ['the conversation changes', { sessionId: 'aipg-agent-2' }],
+    [
+      'the embedding model changes',
+      { embeddingModel: 'bge-small', embeddingBackend: 'llamaCPP' as const },
+    ],
+    ['the embedding backend changes', { embeddingBackend: 'openVINO' as const }],
   ] as [string, Partial<AgentModeTurnConfig>][])('rebuilds when %s', async (label, overrides) => {
     const manager = await loadManager()
     await manager.startAgentTurn('t1', 'first', configFor())

@@ -16,6 +16,8 @@ import {
 import { dynamicTool, jsonSchema, tool, type ToolResultOutput } from '@ai-sdk/provider-utils'
 import type { JSONSchema7 } from '@ai-sdk/provider'
 import { appLoggerInstance } from '../observability/logger'
+import { computeEnergyWhSince, computeWindowSince } from '../adapters/hardware/computeMetrics'
+import { CHAT_ENERGY_ESTIMATES_ENABLED } from '@/lib/chatEnergy'
 import { completeOrphanedToolParts, sanitizeBulkyToolOutputs } from '@/lib/toolMessageSanitize'
 import { attachGeneratedImageFollowUps, comfyToolModelOutput } from '@/lib/generatedImageFollowUp'
 import { slimMediaModelOutput, type SlimMediaToolOutput } from '@/lib/mediaModelOutput'
@@ -905,6 +907,13 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
     let usage: LanguageModelUsage | undefined = undefined
     let usageFromRawChunk: LanguageModelUsage | undefined = undefined
     let lastStepUsage: LanguageModelUsage | undefined = undefined
+    // The window the compute chip and the per-message vRAM/energy figures are
+    // read over. Cloud turns run on someone else's card, so they get neither.
+    const computeTurnStartedAt = Date.now()
+    const computeDeviceHint =
+      config.backend === 'cloud'
+        ? undefined
+        : ((config.trace as Record<string, unknown> | undefined)?.deviceName as string | undefined)
     const reasoningTimings = new Map<string, { started: number; finished: number }>()
     // A reasoning block is a contiguous run of reasoning deltas; any
     // non-reasoning content ends it and the next delta opens a fresh block.
@@ -1151,10 +1160,27 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
           if (options.part.type === 'finish') {
             effectiveUsage = lastStepUsage ?? options.part.totalUsage
           }
+          const compute =
+            config.backend === 'cloud'
+              ? undefined
+              : computeWindowSince(computeTurnStartedAt, computeDeviceHint)
+          const energyOutputTokens =
+            options.part.type === 'finish' ? options.part.totalUsage.outputTokens : undefined
+          const wattHours =
+            CHAT_ENERGY_ESTIMATES_ENABLED && config.backend !== 'cloud' && energyOutputTokens
+              ? computeEnergyWhSince(computeTurnStartedAt, computeDeviceHint)
+              : undefined
+          const energy =
+            wattHours !== undefined && energyOutputTokens !== undefined && energyOutputTokens > 0
+              ? { wattHours, outputTokens: energyOutputTokens }
+              : undefined
+
           return {
             model: config.modelId,
             timestamp: Date.now(),
             timings,
+            compute,
+            energy,
             usage: effectiveUsage ?? usage,
           }
         },

@@ -88,6 +88,7 @@ export type LlmModel = {
   supportsVision?: boolean
   supportsReasoning?: boolean
   supportsCoding?: boolean
+  supportsAgentic?: boolean
   supportsThinkingToggle?: boolean
   maxContextSize?: number
   inferenceDefaults?: InferenceDefaults
@@ -274,6 +275,7 @@ export const useTextInference = defineStore(
             supportsVision: m.supportsVision,
             supportsReasoning: m.supportsReasoning,
             supportsCoding: m.supportsCoding,
+            supportsAgentic: m.supportsAgentic,
             supportsThinkingToggle: m.supportsThinkingToggle,
             maxContextSize: m.maxContextSize,
             inferenceDefaults: m.inferenceDefaults,
@@ -322,6 +324,7 @@ export const useTextInference = defineStore(
             // Remote providers say nothing about coding fitness; the picker does
             // not filter cloud models on capability anyway.
             supportsCoding: undefined,
+            supportsAgentic: undefined,
             supportsThinkingToggle: false,
             // From the provider's `context_length`; undefined when it stays
             // silent, in which case consumers fall back to their own defaults.
@@ -420,16 +423,23 @@ export const useTextInference = defineStore(
       }
     }
 
-    // Get the currently selected device for the active backend
-    const selectedDevice = (): InferenceDevice | undefined => {
-      const serviceName = backendToService[backend.value] as BackendServiceName
+    // Get the selected device for a backend, defaulting to the active one. The
+    // vRAM estimator asks about `llamaCPP` whatever is active, because it only
+    // ever judges GGUF models.
+    const selectedDeviceFor = (which: LlmBackend = backend.value): InferenceDevice | undefined => {
+      const serviceName = backendToService[which] as BackendServiceName
       const serviceInfo = backendServices.info.find((s) => s.serviceName === serviceName)
       return serviceInfo?.devices.find((d) => d.selected)
     }
 
+    const selectedDevice = (): InferenceDevice | undefined => selectedDeviceFor()
+
     const getCurrentDeviceId = (): string | null => selectedDevice()?.id ?? null
 
     const getCurrentDeviceName = (): string | null => selectedDevice()?.name ?? null
+
+    const getDeviceNameForBackend = (which: LlmBackend): string | null =>
+      selectedDeviceFor(which)?.name ?? null
 
     // Stable UUID of the currently selected device, when the backend exposes one.
     // Persisted alongside the id so a preset re-binds to the same physical device
@@ -2204,6 +2214,7 @@ export const useTextInference = defineStore(
       // Device the active backend is set to
       getCurrentDeviceId,
       getCurrentDeviceName,
+      getDeviceNameForBackend,
 
       // Thinking toggle support
       thinkingEnabled,

@@ -118,7 +118,16 @@ import { registerInvokeHandlers, registerSendHandlers } from './kernel/ipcRegist
 import { typedSend } from './kernel/typedIpc'
 import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecycle'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
+import { setRagAccess } from './agent/ragAccess.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
+import {
+  dedicatedEmbeddingServerUrl,
+  EMBEDDING_SERVICE_BY_BACKEND,
+  embeddingServerUrl,
+  hostsEmbeddingServer,
+  startEmbeddingServer,
+} from './rag/embeddingServer.ts'
+import { ingestDocument, retrieveChunks } from './rag/langchainCalls.ts'
 import { handleChatAnswer, rejectAllChatAsks } from './chat/chatAsk.ts'
 import type { ArtifactMissingModel } from '@/types/mediaRequests'
 import type { IpcOkWith } from '@/types/ipcChannels'
@@ -1076,6 +1085,29 @@ function handleUtilityFunction<T, R>(
   })
 }
 
+// ── RAG plumbing for the agent's `rag` tool ──────────────────────────────────
+//
+// The tool lives in the agent module graph (capabilities/rag.ts), which must
+// not import the service registry or this file — so main hands over the three
+// operations it needs as thunks (same pattern as setLlmServiceLookup). They are
+// read live: the langchain worker respawns, the embedding server is started on
+// demand, and the registry fills in during app init.
+
+setRagAccess({
+  ingest: (document) => ingestDocument(handleUtilityFunction, langchainChild, document),
+  retrieve: (inquiry) => retrieveChunks(handleUtilityFunction, langchainChild, inquiry),
+  ensureEmbeddingServer: async (backend, model) => {
+    const service = serviceRegistry?.getService(EMBEDDING_SERVICE_BY_BACKEND[backend])
+    if (!hostsEmbeddingServer(service)) {
+      throw new Error(`The embedding backend for '${backend}' is not installed.`)
+    }
+    await startEmbeddingServer(service, model)
+    const url = dedicatedEmbeddingServerUrl(service)
+    if (!url) throw new Error('The embedding server did not come up.')
+    return url
+  },
+})
+
 // Everything the app spawns, torn down in dependency order: the agent first,
 // because its extensions flush state on shutdown (persistent memory writes what
 // it learned) and may still call into MCP, the services and the browser.
@@ -1311,28 +1343,18 @@ function wireChatEngine(): void {
   setRagRetrievalDeps({
     ensureEmbeddingServerReady: async (serviceName, embeddingModel) => {
       const service = serviceRegistry?.getService(serviceName)
-      if (
-        !service ||
-        !('ensureEmbeddingServerReady' in service) ||
-        typeof service.ensureEmbeddingServerReady !== 'function'
-      ) {
+      if (!hostsEmbeddingServer(service)) {
         throw new Error(`Service ${serviceName} does not support a standalone embedding server`)
       }
-      await service.ensureEmbeddingServerReady(embeddingModel)
+      await startEmbeddingServer(service, embeddingModel)
     },
     getEmbeddingServerUrl: async (serviceName) => {
       const service = serviceRegistry?.getService(serviceName)
       if (!service) return null
-      if (
-        'getEmbeddingServerUrl' in service &&
-        typeof service.getEmbeddingServerUrl === 'function'
-      ) {
-        return service.getEmbeddingServerUrl()
-      }
-      return service.baseUrl ?? null
+      return embeddingServerUrl(service)
     },
     embed: async (inquiry) => {
-      const docs = await handleUtilityFunction('embedInputUsingRag', langchainChild, inquiry)
+      const docs = await retrieveChunks(handleUtilityFunction, langchainChild, inquiry)
       return Array.isArray(docs) ? docs : []
     },
     loadDocuments: async () => {

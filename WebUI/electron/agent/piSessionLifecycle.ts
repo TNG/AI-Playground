@@ -60,6 +60,10 @@ function configKeyOf(config: AgentModeTurnConfig): string {
     enabledCapabilityIds(config),
     config.unsandboxed ?? false,
     config.planningThinkingOnly ?? false,
+    // The rag tool is frozen on the host at session build, so a different
+    // embedding model or backend has to rebuild.
+    config.embeddingModel ?? '',
+    config.embeddingBackend ?? '',
   ])
 }
 
@@ -147,6 +151,8 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
 
   // Everything optional the agent can do is a capability the user enabled for
   // this session (capabilities/index.ts): its tools, skills and Pi extensions.
+  // embeddingModel and embeddingBackend are in configKeyOf, so changing them
+  // rebuilds and resolveCapabilities can start or stop offering rag.
   const capabilityHost: CapabilityHost = {
     sessionId,
     workspaceDir,
@@ -156,6 +162,12 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     agentDir: piAgentDir(),
     contextWindow: config.modelConfig.contextWindow,
     keepModelsLoaded: config.keepModelsLoaded ?? false,
+    ...(config.embeddingModel
+      ? {
+          embeddingModel: config.embeddingModel,
+          embeddingBackend: config.embeddingBackend ?? 'llamaCPP',
+        }
+      : {}),
   }
   const capabilities = await resolveCapabilities(capabilityHost, enabledCapabilityIds(config))
   logger.info(

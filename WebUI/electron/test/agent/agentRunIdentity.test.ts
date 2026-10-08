@@ -56,7 +56,7 @@ describe('agentRunIdentity', () => {
   it('is a plain agent without a game capability, and falls back to the default list', () => {
     const identity = agentRunIdentity(config({ presetName: 'Agent' }))()
     expect(identity.type).toBe('agent')
-    expect(identity.capabilities).toBe('media, web-debug')
+    expect(identity.capabilities).toBe('media, rag, web-debug')
   })
 
   it('has no game for a workspace that is not one', () => {

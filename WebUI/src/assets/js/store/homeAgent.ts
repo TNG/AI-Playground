@@ -19,7 +19,7 @@ import { extractToolMedia } from '@/assets/js/tools/toolMedia'
 // Lazy-instantiated inside helpers to avoid a setup-time cycle with textInference,
 // which already instantiates useHomeAgent() at the top of its own setup.
 import { useTextInference } from './textInference'
-import type { IndexedDocument, ValidFileExtension } from './textInference'
+import type { IndexedDocument, ValidFileExtension } from '@/types/rag'
 import {
   NO_TRANSCRIPTION_ENDPOINT,
   readyTranscriptionUnattended,

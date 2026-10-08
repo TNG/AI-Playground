@@ -11,10 +11,11 @@ export { MCP_CAPABILITY_PREFIX, mcpCapabilityId, mcpServerIdOf } from '@/types/a
 
 // ── MCP capabilities ─────────────────────────────────────────────────────────
 //
-// One capability per configured MCP server (`mcp:<serverId>`), since Pi has no
-// MCP client of its own and the app already has one. Servers are started on
-// demand by mcpManager, which also owns their lifetime (shared with the app's
-// MCP UI, stopped on app quit), so nothing is closed on session teardown.
+// One capability per configured MCP server (`mcp:<serverId>`). Pi 1.0 ships its
+// own MCP client; this stays on mcpManager so Chat and the settings UI share it.
+// Servers are started on demand by mcpManager, which also owns their lifetime
+// (shared with the app's MCP UI, stopped on app quit), so nothing is closed on
+// session teardown.
 
 const logger = appLoggerInstance
 const LOG_SOURCE = 'capabilities/mcp'

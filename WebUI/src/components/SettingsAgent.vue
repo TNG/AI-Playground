@@ -334,7 +334,7 @@ import SettingsBuiltinTools from '@/components/SettingsBuiltinTools.vue'
 import { usePresets } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useContextSizeField } from '@/assets/js/contextSizeField'
-import { sortFavoritesFirst } from '@/assets/js/models/favorites'
+import { useEmbeddingModelPicker } from '@/assets/js/embeddingModelPicker'
 import * as toast from '@/assets/js/toast'
 
 const agentMode = useAgentMode()
@@ -369,24 +369,11 @@ const ragEnabled = computed(
     agentMode.isCapabilityEnabled('rag'),
 )
 
-const activeEmbeddingModelName = computed(
-  () =>
-    textInference.llmEmbeddingModels
-      .filter((m) => m.type === textInference.embeddingBackend)
-      .find((m) => m.active)?.name ?? '',
-)
-
-// Same treatment as the chat embedding picker: favorites float to the top and
-// the checkmark marks what is already on disk.
-const embeddingModelItems = computed(() =>
-  sortFavoritesFirst(
-    textInference.llmEmbeddingModels.filter((m) => m.type === textInference.embeddingBackend),
-  ).map((item) => ({
-    label: item.name.split('/').at(-1) ?? item.name,
-    value: item.name,
-    active: item.downloaded,
-  })),
-)
+const { activeName: activeEmbeddingModelName, items: embeddingModelItems } =
+  useEmbeddingModelPicker(
+    () => textInference.llmEmbeddingModels,
+    () => textInference.embeddingBackend,
+  )
 
 // Only the enabled capabilities' commands: an extension that is not part of the
 // session cannot answer them.

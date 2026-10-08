@@ -135,7 +135,11 @@ const toggles = computed(() => [
         <TooltipContent class="w-56 bg-card border border-border text-foreground p-2 z-[200]">
           <p class="text-xs font-semibold">{{ cap.label }}</p>
           <p class="text-xs text-muted-foreground">
-            {{ has(cap) ? cap.tooltip : `This model does not support ${cap.label.toLowerCase()}.` }}
+            {{
+              has(cap)
+                ? cap.tooltip
+                : (cap.lacksTooltip ?? `This model does not support ${cap.label.toLowerCase()}.`)
+            }}
           </p>
         </TooltipContent>
       </Tooltip>

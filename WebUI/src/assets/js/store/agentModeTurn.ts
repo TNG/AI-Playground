@@ -39,6 +39,22 @@ type InferenceForTurn = {
   /** Downloaded embedding model + the local backend that serves it (rag capability). */
   embeddingBackend: 'llamaCPP' | 'openVINO'
   activeEmbeddingModel?: string | null
+  llmEmbeddingModels?: readonly { name: string; type: string; downloaded: boolean }[]
+}
+
+/** Start with the LLM only once the file is on disk, so a missing model still opens the download dialog. */
+function readinessEmbeddingModel(
+  textInference: InferenceForTurn,
+  capabilities: readonly string[],
+): string | undefined {
+  if (!capabilities.includes('rag')) return undefined
+  const name = textInference.activeEmbeddingModel
+  if (!name) return undefined
+  const downloaded = textInference.llmEmbeddingModels?.some(
+    (model) =>
+      model.name === name && model.type === textInference.embeddingBackend && model.downloaded,
+  )
+  return downloaded ? name : undefined
 }
 
 type CloudForTurn = {
@@ -130,6 +146,7 @@ export async function buildTurnConfig(options: {
     )
   }
   const activeModel = textInference.activeModel
+  const embeddingModelName = readinessEmbeddingModel(textInference, options.capabilities)
   return {
     sessionId: options.sessionId,
     workspaceDir: options.workspaceDir,
@@ -167,6 +184,7 @@ export async function buildTurnConfig(options: {
               textInference.backend === 'llamaCPP'
                 ? textInference.activeLlmModel?.llamaCppArgs
                 : undefined,
+            ...(embeddingModelName ? { embeddingModelName } : {}),
           },
         }
       : {}),

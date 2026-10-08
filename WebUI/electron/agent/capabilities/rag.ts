@@ -2,7 +2,11 @@ import path from 'node:path'
 import fs from 'node:fs'
 import type { Document } from '@langchain/classic/document'
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
-import type { EmbedInquiry, IndexedDocument } from '@/assets/js/store/textInference.ts'
+import type {
+  EmbedInquiry,
+  IndexedDocument,
+  ValidFileExtension,
+} from '@/assets/js/store/textInference.ts'
 import { RAG_PREPARE_EMBEDDING_MODEL } from '@/types/agentCapabilities'
 import {
   executeToolInRenderer,
@@ -16,9 +20,9 @@ import type { AgentCapability, CapabilityHost } from './types.ts'
 
 // ── rag capability ───────────────────────────────────────────────────────────
 //
-// Semantic search over one large document in the workspace: split + embed the
-// file on first use (langchain worker), then return the k best-matching
-// passages as the tool result. The agent's alternative — `read` — pulls the
+// Semantic search over workspace documents: split + embed each file on first
+// use (langchain worker), then return the k best-matching passages as the tool
+// result. The agent's alternative — `read` — pulls the
 // whole file into context, which is exactly what this avoids. Chunks are never
 // injected into the system prompt (that is the chat pipeline's shape) and the
 // index is session-scoped: it lives in the buildTools closure, so it dies with
@@ -81,7 +85,16 @@ const RAG_INPUT_SCHEMA: Record<string, unknown> = {
 }
 
 /** Exactly what the langchain worker's loadDocument can index. */
-const SUPPORTED_EXTENSIONS = ['txt', 'md', 'doc', 'docx', 'pdf'] as const
+const SUPPORTED_EXTENSIONS = [
+  'txt',
+  'md',
+  'doc',
+  'docx',
+  'pdf',
+] as const satisfies readonly ValidFileExtension[]
+type _RagExtensionsCovered =
+  Exclude<ValidFileExtension, (typeof SUPPORTED_EXTENSIONS)[number]> extends never ? true : never
+const _ragExtensionsCovered: _RagExtensionsCovered = true
 
 const DEFAULT_K = 5
 const MAX_K = 20
@@ -154,6 +167,51 @@ function userFileLabel(input: string): string {
   return input
 }
 
+function isSupportedExtension(extension: string): extension is ValidFileExtension {
+  return (SUPPORTED_EXTENSIONS as readonly string[]).includes(extension)
+}
+
+const DECLINED_TEXT =
+  'The user declined the embedding model download, so documents cannot be indexed. ' +
+  "Read the documents with 'read' instead."
+
+const CANCELLED_TEXT = 'Document search was cancelled.'
+
+function abortError(): Error {
+  const error = new Error(CANCELLED_TEXT)
+  error.name = 'AbortError'
+  return error
+}
+
+function isAbort(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  if ((error as { name?: string }).name === 'AbortError') return true
+  return error instanceof Error && error.message === 'Tool execution aborted.'
+}
+
+/** Settle on abort. The langchain worker has no cancel, so a split may still finish. */
+async function untilAbort<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return work
+  if (signal.aborted) {
+    void work.catch(() => {})
+    throw abortError()
+  }
+  return await new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(abortError())
+    signal.addEventListener('abort', onAbort, { once: true })
+    work.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(error)
+      },
+    )
+  })
+}
+
 function coerceFileList(raw: unknown): string[] {
   if (typeof raw === 'string') return raw.trim() ? [raw.trim()] : []
   if (!Array.isArray(raw)) return []
@@ -201,8 +259,8 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
 
   // Session-scoped: built once per session, dies with its tools.
   const indexedFiles = new Map<string, IndexedCacheEntry>()
-  const ensuredServers = new Map<string, string>()
   const preparedDownloads = new Set<string>()
+  const declinedDownloads = new Set<string>()
 
   return [
     pi.defineTool({
@@ -232,15 +290,23 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
         // Resolve + validate every file before prompting for the embedding model,
         // so a batch of invalid paths never triggers a download dialog.
         const skipped: string[] = []
-        const valid: { input: string; realPath: string; extension: string; mtimeMs: number }[] = []
+        const valid: {
+          input: string
+          realPath: string
+          extension: ValidFileExtension
+          mtimeMs: number
+        }[] = []
+        const seenPaths = new Set<string>()
         for (const input of fileList) {
           const realPath = resolveWorkspaceFile(workspaceDir, input)
           if (!realPath) {
             skipped.push(`"${input}" — not a file in the workspace folder`)
             continue
           }
+          if (seenPaths.has(realPath)) continue
+          seenPaths.add(realPath)
           const extension = path.extname(realPath).slice(1).toLowerCase()
-          if (!SUPPORTED_EXTENSIONS.includes(extension as (typeof SUPPORTED_EXTENSIONS)[number])) {
+          if (!isSupportedExtension(extension)) {
             skipped.push(`"${input}" — not an indexable document (pdf, docx, doc, md, txt)`)
             continue
           }
@@ -260,78 +326,93 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
           )
         }
 
-        const serverKey = `${embeddingBackend}/${embeddingModel}`
-        if (!preparedDownloads.has(serverKey)) {
-          // The renderer owns the download policy (shared dialog), so a
-          // missing embedding model is prompted for on first actual use —
-          // the same UX as chat and media. Once per session.
-          const prep = (await executeToolInRenderer(
-            RAG_PREPARE_EMBEDDING_MODEL,
-            { model: embeddingModel, backend: embeddingBackend },
-            toolCallId,
-            signal ?? undefined,
-          )) as { status?: unknown } | null
-          if (prep?.status !== 'ready') {
-            return textResult(
-              'The user declined the embedding model download, so documents cannot be indexed. ' +
-                "Read the documents with 'read' instead.",
-            )
-          }
-          preparedDownloads.add(serverKey)
-        }
-
-        const ragList: IndexedDocument[] = []
-        const labelForSource = new Map<string, string>()
-        for (const { input, realPath, extension, mtimeMs } of valid) {
-          const cached = indexedFiles.get(realPath)
-          if (!cached || cached.mtimeMs !== mtimeMs) {
-            try {
-              const stub: IndexedDocument = {
-                filename: path.basename(realPath),
-                filepath: realPath,
-                type: extension as IndexedDocument['type'],
-                splitDB: [],
-                hash: '',
-                isChecked: true,
-              }
-              const doc = await ragAccess().ingest(stub)
-              indexedFiles.set(realPath, { mtimeMs, doc })
-            } catch (error) {
-              skipped.push(
-                `"${input}" — ingest failed: ${error instanceof Error ? error.message : String(error)}`,
+        try {
+          const serverKey = `${embeddingBackend}/${embeddingModel}`
+          if (declinedDownloads.has(serverKey)) return textResult(DECLINED_TEXT)
+          if (!preparedDownloads.has(serverKey)) {
+            // The renderer owns the download policy (shared dialog), so a
+            // missing embedding model is prompted for on first actual use —
+            // the same UX as chat and media. A decline is remembered for the
+            // session; a failed download can be retried on the next call.
+            const prep = (await untilAbort(
+              executeToolInRenderer(
+                RAG_PREPARE_EMBEDDING_MODEL,
+                { model: embeddingModel, backend: embeddingBackend },
+                toolCallId,
+                signal ?? undefined,
+              ),
+              signal,
+            )) as { status?: unknown; error?: unknown } | null
+            if (prep?.status === 'declined') {
+              declinedDownloads.add(serverKey)
+              return textResult(DECLINED_TEXT)
+            }
+            if (prep?.status !== 'ready') {
+              const reason =
+                typeof prep?.error === 'string' && prep.error ? prep.error : 'download failed'
+              return textResult(
+                `The embedding model "${embeddingModel}" could not be downloaded (${reason}). ` +
+                  "Read the documents with 'read' instead.",
               )
+            }
+            preparedDownloads.add(serverKey)
+          }
+
+          const ragList: IndexedDocument[] = []
+          const labelForSource = new Map<string, string>()
+          for (const { input, realPath, extension, mtimeMs } of valid) {
+            const cached = indexedFiles.get(realPath)
+            if (!cached || cached.mtimeMs !== mtimeMs) {
+              try {
+                const stub: IndexedDocument = {
+                  filename: path.basename(realPath),
+                  filepath: realPath,
+                  type: extension,
+                  splitDB: [],
+                  hash: '',
+                  isChecked: true,
+                }
+                const doc = await untilAbort(ragAccess().ingest(stub), signal)
+                indexedFiles.set(realPath, { mtimeMs, doc })
+              } catch (error) {
+                if (isAbort(error)) throw error
+                skipped.push(
+                  `"${input}" — ingest failed: ${error instanceof Error ? error.message : String(error)}`,
+                )
+                continue
+              }
+            }
+
+            const indexed = indexedFiles.get(realPath) as IndexedCacheEntry
+            if (!indexed.doc.splitDB || indexed.doc.splitDB.length === 0) {
+              skipped.push(`"${input}" — no indexable text content`)
               continue
             }
+            ragList.push({ ...indexed.doc, isChecked: true })
+            labelForSource.set(realPath, userFileLabel(input))
           }
 
-          const indexed = indexedFiles.get(realPath) as IndexedCacheEntry
-          if (!indexed.doc.splitDB || indexed.doc.splitDB.length === 0) {
-            skipped.push(`"${input}" — no indexable text content`)
-            continue
+          if (ragList.length === 0) {
+            return textResult(
+              `No documents could be indexed for this query. Skipped:\n${skipped.map((s) => `  - ${s}`).join('\n')}`,
+            )
           }
-          ragList.push({ ...indexed.doc, isChecked: true })
-          labelForSource.set(realPath, userFileLabel(input))
-        }
 
-        if (ragList.length === 0) {
-          return textResult(
-            `No documents could be indexed for this query. Skipped:\n${skipped.map((s) => `  - ${s}`).join('\n')}`,
-          )
-        }
-
-        try {
-          let baseUrl = ensuredServers.get(serverKey)
-          if (!baseUrl) {
-            try {
-              baseUrl = await ragAccess().ensureEmbeddingServer(embeddingBackend, embeddingModel)
-            } catch (error) {
-              return textResult(
-                `The embedding model "${embeddingModel}" is not usable on this machine ` +
-                  `(${error instanceof Error ? error.message : String(error)}). ` +
-                  "Download it in Settings, or read the documents with 'read' instead.",
-              )
-            }
-            ensuredServers.set(serverKey, baseUrl)
+          let baseUrl: string
+          try {
+            // Every retrieval: a media call stops this server, and the next
+            // start comes back on a different port.
+            baseUrl = await untilAbort(
+              ragAccess().ensureEmbeddingServer(embeddingBackend, embeddingModel),
+              signal,
+            )
+          } catch (error) {
+            if (isAbort(error)) throw error
+            return textResult(
+              `Could not start the embedding model "${embeddingModel}" ` +
+                `(${error instanceof Error ? error.message : String(error)}). ` +
+                "Read the documents with 'read' instead.",
+            )
           }
 
           const inquiry: EmbedInquiry = {
@@ -342,7 +423,7 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
             maxResults: k,
             useGroupRetrieval: false,
           }
-          const chunks = await ragAccess().retrieve(inquiry)
+          const chunks = await untilAbort(ragAccess().retrieve(inquiry), signal)
           if (chunks.length === 0) {
             const tail =
               skipped.length > 0 ? `\n\nSkipped:\n${skipped.map((s) => `  - ${s}`).join('\n')}` : ''
@@ -353,6 +434,7 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
             skipped.length > 0 ? `\n\nSkipped:\n${skipped.map((s) => `  - ${s}`).join('\n')}` : ''
           return textResult(`${body}${tail}`)
         } catch (error) {
+          if (isAbort(error)) return textResult(CANCELLED_TEXT)
           return textResult(
             `Document search failed: ${error instanceof Error ? error.message : String(error)}`,
           )

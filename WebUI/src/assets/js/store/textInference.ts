@@ -68,6 +68,11 @@ export const backendToService = {
   cloud: null,
 } as const
 
+export const backendToAipgBackendName = {
+  openVINO: 'openvino',
+  llamaCPP: 'llama_cpp',
+} as const
+
 export type LlmModel = {
   name: string
   mmproj?: string
@@ -471,11 +476,6 @@ export const useTextInference = defineStore(
       const serviceInfo = backendServices.info.find((s) => s.serviceName === serviceName)
       return serviceInfo?.devices.find((d) => d.selected)?.uuid ?? null
     }
-
-    const backendToAipgBackendName = {
-      openVINO: 'openvino',
-      llamaCPP: 'llama_cpp',
-    } as const
 
     const backendToAipgModelType = {
       openVINO: 'openvinoLLM',

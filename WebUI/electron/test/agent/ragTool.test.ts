@@ -62,6 +62,7 @@ type RagTool = {
   execute: (
     id: string,
     params: Record<string, unknown>,
+    signal?: AbortSignal,
   ) => Promise<{ content: { type: string; text: string }[] }>
 }
 
@@ -140,7 +141,7 @@ async function resultOf(tool: RagTool, params: Record<string, unknown>): Promise
 // The tool asks the renderer (before first use) whether the session's embedding
 // model is on disk; the renderer owns the download prompt. Fake the bridge: the
 // window captures the dispatch and answers through submitAgentToolResult.
-function fakeRendererPrep(status: 'ready' | 'declined') {
+function fakeRendererPrep(status: 'ready' | 'declined' | 'failed', error = 'disk full') {
   const dispatches: { toolName: string; input: Record<string, unknown> }[] = []
   const send = (
     _channel: string,
@@ -148,7 +149,7 @@ function fakeRendererPrep(status: 'ready' | 'declined') {
   ) => {
     dispatches.push({ toolName: payload.toolName, input: payload.input as Record<string, unknown> })
     if (payload.toolName === 'ragPrepareEmbeddingModel') {
-      submitAgentToolResult(payload.requestId, { status })
+      submitAgentToolResult(payload.requestId, status === 'failed' ? { status, error } : { status })
     }
   }
   setToolBridgeWindow({ webContents: { send } } as never)
@@ -194,7 +195,7 @@ describe('the rag tool', () => {
     expect(text).toContain('The budget is $42.')
   })
 
-  it('keeps the index and the server handshake for the session', async () => {
+  it('keeps the index for the session and rechecks the embedding server', async () => {
     const host = hostWith()
     workspaceFile(host, 'report.pdf')
     const { calls } = fakeAccess()
@@ -204,15 +205,16 @@ describe('the rag tool', () => {
     await resultOf(tool, { files: ['report.pdf'], query: 'second question' })
 
     expect(calls.ingest).toBe(1)
-    expect(calls.ensure).toBe(1)
+    expect(calls.ensure).toBe(2)
     expect(calls.retrieve).toBe(2)
 
-    // A changed file re-indexes; the embedding server handshake is kept.
+    // A changed file re-indexes. The server is asked again: a media call may
+    // have stopped it and brought it back on a different port.
     const changed = workspaceFile(host, 'report.pdf', 'rewritten content')
     fs.utimesSync(changed, new Date(), new Date(Date.now() + 10_000))
     await resultOf(tool, { files: ['report.pdf'], query: 'third question' })
     expect(calls.ingest).toBe(2)
-    expect(calls.ensure).toBe(1)
+    expect(calls.ensure).toBe(3)
   })
 
   it('clamps k into range', async () => {
@@ -421,7 +423,7 @@ describe('the rag tool', () => {
   it('falls back to read when the user declines the download', async () => {
     const host = hostWith()
     workspaceFile(host, 'report.pdf')
-    fakeRendererPrep('declined')
+    const { dispatches } = fakeRendererPrep('declined')
     const { calls } = fakeAccess()
     const tool = await buildRagTool(host)
 
@@ -429,9 +431,72 @@ describe('the rag tool', () => {
       /declined the embedding model download/,
     )
     expect(await resultOf(tool, { files: ['report.pdf'], query: 'q' })).toMatch(/'read' instead/)
+    expect(dispatches).toHaveLength(1)
     expect(calls.ingest).toBe(0)
     expect(calls.ensure).toBe(0)
     expect(calls.retrieve).toBe(0)
+  })
+
+  it('reports a failed download and does not search', async () => {
+    const host = hostWith()
+    workspaceFile(host, 'report.pdf')
+    const { dispatches } = fakeRendererPrep('failed', 'disk full')
+    const { calls } = fakeAccess()
+    const tool = await buildRagTool(host)
+
+    const text = await resultOf(tool, { files: ['report.pdf'], query: 'q' })
+    expect(text).toMatch(/could not be downloaded \(disk full\)/)
+    expect(text).toMatch(/'read' instead/)
+    expect(calls.ingest).toBe(0)
+    expect(calls.ensure).toBe(0)
+    await resultOf(tool, { files: ['report.pdf'], query: 'q' })
+    expect(dispatches).toHaveLength(2)
+  })
+
+  it('searches a file once when it is named twice', async () => {
+    const host = hostWith()
+    workspaceFile(host, 'report.pdf')
+    const { calls, inquiry } = fakeAccess()
+    const tool = await buildRagTool(host)
+
+    await resultOf(tool, {
+      files: ['report.pdf', '/workspace/report.pdf'],
+      query: 'budget',
+    })
+    expect(calls.ingest).toBe(1)
+    expect(inquiry().ragList).toHaveLength(1)
+  })
+
+  it('settles when the turn is aborted during ingest', async () => {
+    const host = hostWith()
+    workspaceFile(host, 'report.pdf')
+    let releaseIngest: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      releaseIngest = resolve
+    })
+    let started!: () => void
+    const entered = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const access: RagAccess = {
+      ingest: async (document) => {
+        started()
+        await gate
+        return { ...document, hash: 'h', splitDB: [makeChunk('c')] }
+      },
+      retrieve: async () => [],
+      ensureEmbeddingServer: async () => 'http://127.0.0.1:1',
+    }
+    setRagAccess(access)
+    const tool = await buildRagTool(host)
+    const controller = new AbortController()
+    const pending = tool.execute('call-1', { files: ['report.pdf'], query: 'q' }, controller.signal)
+    await entered
+    controller.abort()
+    await expect(pending).resolves.toMatchObject({
+      content: [{ text: expect.stringMatching(/cancelled/) }],
+    })
+    releaseIngest()
   })
 
   it('says how to fix it when the embedding server cannot be brought up', async () => {
@@ -449,7 +514,7 @@ describe('the rag tool', () => {
     const tool = await buildRagTool(host)
 
     expect(await resultOf(tool, { files: ['report.pdf'], query: 'q' })).toMatch(
-      /not usable on this machine \(model file missing\)/,
+      /Could not start the embedding model "emb-model" \(model file missing\)/,
     )
     expect(await resultOf(tool, { files: ['report.pdf'], query: 'q' })).toMatch(/'read' instead/)
   })

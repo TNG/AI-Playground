@@ -1,7 +1,7 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import type { UIMessage } from 'ai'
-import { useTextInference } from './textInference'
+import { backendToAipgBackendName, useTextInference } from './textInference'
 import { useModels } from './models'
 import { useCloudMode } from './cloudMode'
 import { usePresets, type ChatPreset } from './presets'
@@ -24,7 +24,7 @@ import {
   type LegacyAgentSessionState,
 } from '@/types/agentSessionIpc'
 import { withResponseLanguage } from '@/lib/responseLanguage'
-import { isCancellation } from '@/assets/js/errors/appError'
+import { ragEmbeddingPrepFailure } from '@/lib/ragEmbeddingPrep'
 import { requestDownload } from '@/assets/js/permissions/permissions'
 import {
   DEFAULT_CAPABILITY_IDS,
@@ -410,17 +410,12 @@ export const useAgentMode = defineStore(
     // The rag capability (main process) asks for this before its first index:
     // the session-frozen embedding model may not be on disk yet, and the
     // renderer owns the download policy (shared dialog) plus the models store.
-    const RAG_AIPG_BACKEND_NAME = {
-      llamaCPP: 'llama_cpp',
-      openVINO: 'openvino',
-    } as const
-
     async function prepareRagEmbeddingModel(input: Record<string, unknown>): Promise<unknown> {
       const model = typeof input.model === 'string' ? input.model : ''
       const backend = input.backend === 'openVINO' ? 'openVINO' : 'llamaCPP'
       if (!model) return { status: 'ready' }
       const checked = await models.checkModelAlreadyLoaded([
-        { repo_id: model, type: 'embedding', backend: RAG_AIPG_BACKEND_NAME[backend] },
+        { repo_id: model, type: 'embedding', backend: backendToAipgBackendName[backend] },
       ])
       const missing = checked.filter((m) => !m.already_loaded)
       if (missing.length === 0) return { status: 'ready' }
@@ -432,7 +427,7 @@ export const useAgentMode = defineStore(
         await requestDownload(missing)
         return { status: 'ready' }
       } catch (error) {
-        return isCancellation(error) ? { status: 'declined' } : { status: 'ready' }
+        return ragEmbeddingPrepFailure(error)
       }
     }
 

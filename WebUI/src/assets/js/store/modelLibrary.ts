@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { useModels } from './models'
 import { useModelPreferences } from './modelPreferences'
 import { usePresets } from './presets'
-import { useDialogStore } from './dialogs'
+import { requestDownload } from '@/assets/js/permissions/permissions'
 import { useGlobalSetup } from './globalSetup'
 import { useTextInference } from './textInference'
 import { useProductMode } from './productMode'
@@ -12,6 +12,7 @@ import { WHISPER_OVMS_MODELS, WHISPER_STANDALONE_MODELS } from '../whisperConsta
 import { SPEECHT5_MODEL_NAME } from './textToSpeech'
 import { QWEN3_TTS_MODEL_REPOS } from '../qwen3TtsConstants'
 import { createAppError } from '../errors/appError'
+import type { IpcMutationResult } from '@/types/ipcChannels'
 import { entriesToDownloadParams } from '../models/downloadParams'
 import {
   DEFAULT_FILTERS,
@@ -43,7 +44,6 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
   const models = useModels()
   const modelPreferences = useModelPreferences()
   const presets = usePresets()
-  const dialogs = useDialogStore()
   const globalSetup = useGlobalSetup()
   const textInference = useTextInference()
   const productMode = useProductMode()
@@ -293,11 +293,14 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     // The IPC call can reject outright (the handler throwing, the channel gone),
     // not only resolve with `success: false` — an unhandled rejection here would
     // leave the user with a menu item that silently did nothing.
-    const reveal = async () => {
+    const reveal = async (): Promise<IpcMutationResult> => {
       try {
         return await window.electronAPI.showModelInFolder(entry.absolutePath!)
       } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : String(error) }
+        return {
+          success: false as const,
+          error: error instanceof Error ? error.message : String(error),
+        }
       }
     }
     const result = await reveal()
@@ -338,11 +341,14 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
         if (!entry?.absolutePath) continue
         // A rejected call counts as a failed path like any other, so one bad
         // entry cannot abandon the rest of a batch delete half-done.
-        let result: { success: boolean; error?: string }
+        let result: IpcMutationResult
         try {
           result = await window.electronAPI.deleteModelPath(entry.absolutePath)
         } catch (error) {
-          result = { success: false, error: error instanceof Error ? error.message : String(error) }
+          result = {
+            success: false as const,
+            error: error instanceof Error ? error.message : String(error),
+          }
         }
         if (result.success) {
           deleted += 1
@@ -372,18 +378,17 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     return { deleted, failed }
   }
 
-  /** Queue downloads through the existing (already multi-model) download dialog. */
-  function download(entriesToDownload: ModelEntry[]) {
+  /** Queue downloads through the shared permissions download prompt. */
+  async function download(entriesToDownload: ModelEntry[]) {
     const params = entriesToDownloadParams(entriesToDownload, models.getModelPath)
     if (params.length === 0) return
-    dialogs.showDownloadDialog(
-      params,
-      () => {
-        refresh()
-        clearSelection()
-      },
-      () => refresh(),
-    )
+    try {
+      await requestDownload(params)
+      clearSelection()
+    } catch {
+      // Download declined or failed; either way the list may have changed.
+    }
+    refresh()
   }
 
   function downloadOne(id: string) {

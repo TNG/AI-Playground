@@ -23,6 +23,7 @@ import {
   countByUseCase,
   entriesForProductMode,
   filterEntries,
+  normalizeModelKey,
   sortEntries,
   type ModelLibraryFilters,
   type ModelSort,
@@ -31,6 +32,7 @@ import {
   type SpeechModelInput,
 } from '../models/library'
 import type { ModelCapabilityValues, ModelEntry, ScannedModel } from '../models/types'
+import { useVramFitLevels, type VramFitTarget } from '@/lib/useLlamaCppVramFit'
 
 /**
  * The model management view's state: the unified entry list, its filters and
@@ -156,8 +158,50 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
   const backendOptions = computed(() => availableBackends(categoryEntries.value))
   const downloadStateOptions = computed(() => availableDownloadStates(categoryEntries.value))
 
+  /**
+   * Same rule as those two: a category with no llama.cpp LLM in it has nothing
+   * the size filter could act on, so the toolbar does not offer the control.
+   */
+  const fitFilterAvailable = computed(() =>
+    categoryEntries.value.some(
+      (entry) => entry.useCase === 'llm' && entry.serviceBackend === 'llama_cpp',
+    ),
+  )
+
+  /**
+   * A library entry as the VRAM estimator wants it. The entry knows the file;
+   * the catalog's `LlmModel` knows the projector and the context ceiling, which
+   * the estimate needs and the scan does not carry — so the two are matched on
+   * the normalized name. Matching also means both this table and the chat
+   * picker key the same model to the same cached GGUF header, and the header is
+   * read once for the app rather than once per surface.
+   */
+  const llamaCppCatalog = computed(
+    () =>
+      new Map(
+        textInference.llmModels
+          .filter((model) => model.type === 'llamaCPP')
+          .map((model) => [normalizeModelKey(model.name), model]),
+      ),
+  )
+
+  function fitTargetFor(entry: ModelEntry): VramFitTarget | undefined {
+    if (entry.useCase !== 'llm' || entry.serviceBackend !== 'llama_cpp') return undefined
+    const known = llamaCppCatalog.value.get(normalizeModelKey(entry.name))
+    return {
+      name: known?.name ?? entry.name,
+      downloaded: entry.downloaded,
+      mmproj: known?.mmproj,
+      llamaCppArgs: known?.llamaCppArgs ?? entry.llamaCppArgs,
+      maxContextSize: known?.maxContextSize,
+    }
+  }
+
+  const { levelOf } = useVramFitLevels()
+  const vramLevel = (entry: ModelEntry) => levelOf(fitTargetFor(entry))
+
   const visibleEntries = computed(() =>
-    sortEntries(filterEntries(entries.value, filters.value), sort.value),
+    sortEntries(filterEntries(entries.value, filters.value, { vramLevel }), sort.value),
   )
 
   const selectedEntries = computed(() =>
@@ -230,6 +274,10 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
       ) {
         next.downloadState = 'all'
       }
+      // Likewise the size filter: a category with nothing to judge hides the
+      // toggle, and a filter left on behind a control the user can no longer
+      // see would come back the next time they open an LLM category.
+      if (next.fitsOnly && !fitFilterAvailable.value) next.fitsOnly = false
       filters.value = next
     }
     // Selecting a row and then filtering it away would hide what a batch action
@@ -406,6 +454,8 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     useCaseCounts,
     backendOptions,
     downloadStateOptions,
+    fitTargetFor,
+    fitFilterAvailable,
     filters,
     sort,
     selection,

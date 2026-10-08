@@ -667,8 +667,9 @@ mid-prompt (dropping reasoning, re-summarizing, renumbering tool ids) forfeits t
 every step, which is far more expensive than the tokens it saves.
 
 **Agent turns get their sampling from an extension, not from the model.** `Model.samplingParams` is
-a pi-ai field, and pi-coding-agent never reads it (the identifier does not occur in the package), so
-for a long time a local agent turn silently sent none of it: no recommended sampling, no
+a pi-ai field. pi-ai merges it into an openai-completions body, and Pi 1.0 copies it onto a model
+at registration, but a session does not read a bag kept beside the model. Models are registered
+without it, so for a long time a local agent turn silently sent none of it: no recommended sampling, no
 temperature, no `chat_template_kwargs` — the thinking toggle looked wired up and changed nothing,
 while the same settings worked in Chat. `electron/agent/piSampling.ts` registers a
 `before_provider_request` extension (Pi's supported per-request seam; the handler's return value

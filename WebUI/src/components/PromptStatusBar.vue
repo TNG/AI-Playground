@@ -104,16 +104,22 @@
             </TooltipTrigger>
             <TooltipContent
               align="start"
-              class="w-64 bg-card border border-border text-foreground p-3 z-[200]"
+              class="w-72 bg-card border border-border text-foreground p-3 z-[200]"
             >
               <p class="text-sm font-semibold">{{ languages.COMPUTE_METRICS_LABEL }}</p>
-              <p
-                v-for="line in computeChip.detail"
-                :key="line"
-                class="mt-1 text-xs text-muted-foreground"
+              <section
+                v-for="section in computeChip.sections"
+                :key="section.title"
+                class="mt-2 first-of-type:mt-1.5"
               >
-                {{ line }}
-              </p>
+                <p class="text-xs font-medium text-foreground">{{ section.title }}</p>
+                <dl class="mt-0.5 grid grid-cols-[auto_1fr] gap-x-4 text-xs">
+                  <template v-for="row in section.rows" :key="row.label">
+                    <dt class="text-muted-foreground">{{ row.label }}</dt>
+                    <dd class="text-right tabular-nums text-foreground">{{ row.value }}</dd>
+                  </template>
+                </dl>
+              </section>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -213,7 +219,7 @@ import { useTheme } from '@/assets/js/store/theme'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useComputeMetrics } from '@/assets/js/store/computeMetrics'
-import { formatMib, formatPct } from '@/lib/computeMetricsFormat'
+import { computeDetailSections, formatMib } from '@/lib/computeMetricsFormat'
 import { Context } from '@/components/ui/context'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import ModelCapabilities from '@/components/ModelCapabilities.vue'
@@ -415,38 +421,13 @@ const computeChip = computed(() => {
     textInference.backend === 'cloud'
       ? undefined
       : computeMetrics.gpuFor(badge?.category === 'gpu' ? badge.name : undefined)
-  const detail: string[] = []
-  if (gpu?.memUsedMiB != null) {
-    const total = gpu.memTotalMiB != null ? ` / ${formatMib(gpu.memTotalMiB)}` : ''
-    const name = gpu.name ? ` · ${gpu.name}` : ''
-    const hasWddm = gpu.dedicatedTotalMiB != null || gpu.sharedTotalMiB != null
-    detail.push(`${formatMib(gpu.memUsedMiB)}${total} GPU memory${name}`)
-    if (hasWddm) {
-      if (gpu.dedicatedUsedMiB != null || gpu.dedicatedTotalMiB != null) {
-        detail.push(
-          `${formatMib(gpu.dedicatedUsedMiB ?? 0)}${gpu.dedicatedTotalMiB != null ? ` / ${formatMib(gpu.dedicatedTotalMiB)}` : ''} dedicated`,
-        )
-      }
-      if (gpu.sharedUsedMiB != null || gpu.sharedTotalMiB != null) {
-        detail.push(
-          `${formatMib(gpu.sharedUsedMiB ?? 0)}${gpu.sharedTotalMiB != null ? ` / ${formatMib(gpu.sharedTotalMiB)}` : ''} shared`,
-        )
-      }
-    }
-  }
-  if (gpu?.utilPct != null) detail.push(`${formatPct(gpu.utilPct)} GPU`)
-  if (gpu?.freqMHz != null) detail.push(`${Math.round(gpu.freqMHz)} MHz`)
-  if (gpu?.powerW != null) detail.push(`${gpu.powerW.toFixed(1)} W`)
-  detail.push(
-    `${formatMib(snapshot.host.memUsedMiB)} / ${formatMib(snapshot.host.memTotalMiB)} RAM`,
-  )
   const label =
     gpu?.memUsedMiB != null
       ? `${formatMib(gpu.memUsedMiB)}${gpu.memTotalMiB != null ? ` / ${formatMib(gpu.memTotalMiB)}` : ''}`
       : `${formatMib(snapshot.host.memUsedMiB)} / ${formatMib(snapshot.host.memTotalMiB)}`
   return {
     label,
-    detail,
+    sections: computeDetailSections(gpu, snapshot.host),
     ariaLabel: languages.COMPUTE_METRICS_LABEL || 'Compute resources',
   }
 })

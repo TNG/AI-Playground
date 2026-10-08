@@ -11,10 +11,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ChevronDownIcon, MagnifyingGlassIcon, StarIcon } from '@heroicons/vue/24/solid'
-import { PuzzlePieceIcon } from '@heroicons/vue/24/outline'
 import ModelCapabilities from './ModelCapabilities.vue'
 import ModelVramFit from './ModelVramFit.vue'
-import VramFitGradient from './VramFitGradient.vue'
+import VramChipIcon from './VramChipIcon.vue'
 import CapabilityIcons, { type ExtraFilter } from './CapabilityIcons.vue'
 import { modelPassesCapabilityFilters, type CapabilityKey } from '@/assets/js/capabilities'
 import { modelMeetsPresetRequirements } from '@/lib/presetModelFilter'
@@ -59,10 +58,9 @@ const fitFilters = computed<ExtraFilter[]>(() =>
         {
           key: 'fits',
           label: i18nState.VRAM_FIT_FILTER,
-          icon: PuzzlePieceIcon,
+          icon: VramChipIcon,
           active: fitsOnly.value,
           hint: fitsOnly.value ? i18nState.VRAM_FIT_FILTER_ON : i18nState.VRAM_FIT_FILTER_OFF,
-          activeIconClass: '[stroke:url(#vram-fit-filter-gradient)]',
         },
       ]
     : [],
@@ -258,7 +256,6 @@ watchEffect(() => {
           />
         </div>
         <div class="shrink-0">
-          <VramFitGradient v-if="fitFilterAvailable" />
           <CapabilityIcons
             mode="filter"
             :active-keys="activeFilters"
@@ -288,7 +285,7 @@ watchEffect(() => {
             <StarIcon v-if="item.favorite" class="size-3 mr-1.5 shrink-0 text-primary" />
             <span class="flex-1 truncate">{{ item.label }}</span>
             <div class="flex items-center gap-1 ml-2 shrink-0">
-              <ModelVramFit :model="item.fitTarget" icon-size="size-3.5" />
+              <ModelVramFit :model="item.fitTarget" />
               <CapabilityIcons
                 :model="{
                   supportsVision: item.supportsVision,

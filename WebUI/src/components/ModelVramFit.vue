@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { PuzzlePieceIcon } from '@heroicons/vue/24/outline'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useI18N } from '@/assets/js/store/i18n'
 import { formatBytes } from '@/assets/js/models/library'
+import VramChipIcon from '@/components/VramChipIcon.vue'
 import { useLlamaCppVramFit, type VramFitTarget } from '@/lib/useLlamaCppVramFit'
-import type { VramFitVerdict } from '@/lib/vram'
+import { vramFitBars, type VramFitBars, type VramFitVerdict } from '@/lib/vram'
 
 const props = withDefaults(
   defineProps<{
@@ -26,14 +26,9 @@ const { summary, verdict } = useLlamaCppVramFit(
   props.model ? computed(() => props.model) : undefined,
 )
 
-// Orange, not red: the model may well fit. What is wrong is that we cannot say,
-// which is its own state and reads as one next to the three that are an answer.
-const LEVEL_COLOR: Record<VramFitVerdict, string> = {
-  easy: 'text-green-500',
-  tight: 'text-yellow-500',
-  over: 'text-destructive',
-  unknown: 'text-orange-500',
-}
+const bars = computed<VramFitBars>(() =>
+  summary.value ? vramFitBars(summary.value.current.totalBytes, summary.value.usableBytes) : 1,
+)
 
 const LEVEL_KEY: Record<VramFitVerdict, string> = {
   easy: 'VRAM_FIT_LEVEL_EASY',
@@ -89,14 +84,14 @@ const budgetLine = computed(() =>
           class="flex flex-none items-center cursor-help"
           :aria-label="t('VRAM_FIT_ARIA', { level: levelLabel })"
         >
-          <PuzzlePieceIcon :class="[iconSize, LEVEL_COLOR[verdict]]" />
+          <VramChipIcon :verdict="verdict" :bars="bars" :class="iconSize" />
         </component>
       </TooltipTrigger>
       <TooltipContent
         align="start"
         class="max-w-xs bg-card border border-border text-foreground px-3 py-2 z-[200]"
       >
-        <p class="text-sm font-semibold" :class="LEVEL_COLOR[verdict]">{{ levelLabel }}</p>
+        <p class="text-sm font-semibold">{{ levelLabel }}</p>
         <!-- Nothing was measured, so there is no breakdown to show — only why the
              estimate is missing. -->
         <p v-if="!summary" class="text-xs text-muted-foreground">
@@ -104,8 +99,7 @@ const budgetLine = computed(() =>
         </p>
         <template v-else>
           <p class="text-xs text-muted-foreground">{{ breakdownLine }}</p>
-          <!-- The totals are the verdict restated in numbers, so they carry its color. -->
-          <p class="text-xs" :class="LEVEL_COLOR[verdict]">{{ budgetLine }}</p>
+          <p class="text-xs">{{ budgetLine }}</p>
         </template>
       </TooltipContent>
     </Tooltip>

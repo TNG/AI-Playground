@@ -250,7 +250,7 @@ export function useLlamaCppVramFit(target?: Ref<VramFitTarget | undefined>) {
   })
 
   /**
-   * What the chip should show. `'unknown'` is the orange case: a model in the
+   * What the chip should show. `'unknown'` is the "?" chip: a model in the
    * estimator's reach whose header came back empty. Null keeps the chip off the
    * row entirely — nothing asked for, or nothing answered yet.
    */

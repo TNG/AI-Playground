@@ -6,6 +6,7 @@ export type {
   LlamaCppVramEstimate,
   VramBudget,
   VramFit,
+  VramFitBars,
   VramFitLevel,
   VramFitVerdict,
 } from './types.ts'
@@ -20,6 +21,7 @@ export {
   fitVram,
   HOST_RESERVE_BYTES,
   liveBudgetBytes,
+  vramFitBars,
   vramFitLevel,
   VRAM_EASY_FRACTION,
   VRAM_USABLE_FRACTION,

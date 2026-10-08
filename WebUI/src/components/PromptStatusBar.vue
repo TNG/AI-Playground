@@ -49,7 +49,7 @@
       </ModelCapabilities>
       <span v-else-if="presetIndicator.model" class="truncate">{{ presetIndicator.model }}</span>
       <!-- Whether the model plus its context fits the card (llama.cpp only) -->
-      <ModelVramFit v-if="presetIndicator.model" icon-size="size-3.5" :delay-duration="0" />
+      <ModelVramFit v-if="presetIndicator.model" :delay-duration="0" />
       <!-- Capability icons for the active model, only in the Assistant preset -->
       <CapabilityIcons
         v-if="isAssistantPreset && presetIndicator.model && currentModel"

@@ -1,4 +1,4 @@
-import type { VramBudget, VramFit, VramFitLevel } from './types.ts'
+import type { VramBudget, VramFit, VramFitBars, VramFitLevel } from './types.ts'
 import { GIB } from './units.ts'
 
 /** Fraction of card size treated as usable. The rest covers Vulkan/driver fragmentation. See docs/vram-fit.md. */
@@ -42,7 +42,7 @@ export function fitVram(requiredBytes: number, budget: VramBudget): VramFit {
 export const VRAM_EASY_FRACTION = 0.7
 
 /**
- * Traffic-light verdict for the model-size chip: `easy` leaves room for the
+ * Verdict for the model-size chip: `easy` leaves room for the
  * sidecars a turn may pull in, `tight` still loads, `over` does not.
  */
 export function vramFitLevel(
@@ -52,6 +52,20 @@ export function vramFitLevel(
 ): VramFitLevel {
   if (usableBytes <= 0 || requiredBytes > usableBytes) return 'over'
   return requiredBytes <= usableBytes * easyFraction ? 'easy' : 'tight'
+}
+
+/**
+ * How full the chip icon's gauge is: tight fills it, and an easy fit splits at half
+ * its threshold so a small model reads as roomier than one that is merely easy.
+ */
+export function vramFitBars(
+  requiredBytes: number,
+  usableBytes: number,
+  easyFraction = VRAM_EASY_FRACTION,
+): VramFitBars {
+  const level = vramFitLevel(requiredBytes, usableBytes, easyFraction)
+  if (level !== 'easy') return 3
+  return requiredBytes <= (usableBytes * easyFraction) / 2 ? 1 : 2
 }
 
 /** Whether two resident footprints can share the GPU under the same budget. */

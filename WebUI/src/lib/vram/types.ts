@@ -73,17 +73,19 @@ export type VramFit = {
   fitsHost?: boolean
 }
 
-/** Traffic light shown next to a model: fits easily / barely / not at all. */
+/** Verdict shown next to a model: fits easily / barely / not at all. */
 export type VramFitLevel = 'easy' | 'tight' | 'over'
 
 /**
- * What the chip can say about a model, the traffic light plus the fourth case:
+ * What the chip can say about a model, the three levels plus a fourth case:
  * a model the estimator should be able to judge but cannot, because its GGUF
  * header could not be read. Distinct from having no chip at all, which is what
  * a model outside the estimator's reach (another backend, an embedding model)
  * gets — there is nothing to not know about it.
  */
 export type VramFitVerdict = VramFitLevel | 'unknown'
+
+export type VramFitBars = 1 | 2 | 3
 
 /** Everything `estimateLlamaCppVram` needs that only the main process can read. */
 export type LlamaCppVramInputs = {

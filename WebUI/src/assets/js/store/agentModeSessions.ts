@@ -35,7 +35,7 @@ export type AgentSessionRecord = {
   /** The task this run belongs to (only when origin is 'agentMaker'). */
   taskId?: string
   /** Run lifecycle status (only when origin is 'agentMaker'). */
-  taskRunStatus?: 'running' | 'completed' | 'failed'
+  taskRunStatus?: 'running' | 'completed' | 'failed' | 'stopped'
   /** Error text when a run failed (only when taskRunStatus is 'failed'). */
   taskRunError?: string
   /** Current step index (0-based) for reconnect resume. */

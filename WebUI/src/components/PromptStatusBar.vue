@@ -215,6 +215,7 @@ import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useComputeMetrics } from '@/assets/js/store/computeMetrics'
 import { computeDetailSections, formatMib } from '@/lib/computeMetricsFormat'
+import { useAgentMaker } from '@/assets/js/store/agentMaker'
 import { Context } from '@/components/ui/context'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import ModelCapabilities from '@/components/ModelCapabilities.vue'
@@ -234,6 +235,7 @@ const theme = useTheme()
 const oemBranding = useOemBranding()
 const languages = useI18N().state
 const computeMetrics = useComputeMetrics()
+const agentMaker = useAgentMaker()
 
 // The backend badge logos ship as light/dark variants; only the `light` theme
 // needs the dark-fill icon, all other themes are dark-background.
@@ -248,6 +250,15 @@ const isAgentMode = computed(() => promptStore.getCurrentMode() === 'agent')
 // Background mode borrowing is gone (media runs no longer switch modes,
 // step 7), so the live mode is the user's context.
 const isLlmMode = computed(() => ['chat', 'agent', 'audio'].includes(promptStore.currentMode))
+
+// An Agent Maker run session runs on its task's model, not the shared selection.
+const runTaskModel = computed(() =>
+  isAgentMode.value ? (agentMaker.activeSessionTask?.model ?? null) : null,
+)
+const llmBackend = computed(() => runTaskModel.value?.backend ?? textInference.backend)
+const llmModelName = computed(() =>
+  runTaskModel.value ? runTaskModel.value.model : textInference.activeModel,
+)
 
 // Get active chat preset
 const activeChatPreset = computed(() => {
@@ -301,7 +312,7 @@ const presetIndicator = computed(() => {
     // Match the ModelSelector label: display only the last path segment, and
     // drop the model-file extension (the backend badge now conveys the format).
     // TTS / STT have no LLM model, so leave it blank.
-    const model = isTtsPreset.value || isSttPreset.value ? undefined : textInference.activeModel
+    const model = isTtsPreset.value || isSttPreset.value ? undefined : llmModelName.value
     const lastSegment = model?.split('/').at(-1) ?? model
     return {
       image: preset.image,
@@ -329,9 +340,11 @@ const chatBackendBadge = computed(() => {
   if (!isLlmMode.value) return null
   // TTS / STT don't run on the chat engine, so no engine badge for them.
   if (isTtsPreset.value || isSttPreset.value) return null
-  const backend = textInference.backend
+  const backend = llmBackend.value
   if (backend === 'cloud') {
-    const provider = cloudMode.selectedProvider?.name
+    const provider = runTaskModel.value
+      ? cloudMode.providers.find((p) => p.id === runTaskModel.value?.providerId)?.name
+      : cloudMode.selectedProvider?.name
     return {
       name: provider
         ? `${textInferenceBackendDisplayName.cloud} · ${provider}`
@@ -397,7 +410,7 @@ const deviceBadge = computed(() => {
         textToSpeech.selectedEngine === 'kokoro' ? 'openvino-backend' : 'qwen3-tts-backend',
       )
     }
-    const backend = textInference.backend
+    const backend = llmBackend.value
     if (backend === 'cloud') return null
     const serviceName = backendToService[backend]
     return serviceName ? selectedDeviceBadgeFor(serviceName) : null
@@ -437,7 +450,11 @@ function basePresetDescription(name: string): string | undefined {
 // Active model object (capabilities, max context) — same source as ModelSelector.
 // Undefined for models without metadata (e.g. cloud models), which hides the tooltip.
 const currentModel = computed(() =>
-  textInference.llmModels.find((m) => m.active && m.type === textInference.backend),
+  runTaskModel.value
+    ? textInference.llmModels.find(
+        (m) => m.type === runTaskModel.value?.backend && m.name === runTaskModel.value?.model,
+      )
+    : textInference.llmModels.find((m) => m.active && m.type === textInference.backend),
 )
 
 // The merged Assistant preset shows per-capability icons in the banner; other

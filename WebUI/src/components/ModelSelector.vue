@@ -1,6 +1,12 @@
 <script lang="ts" setup>
 import { nextTick, ref } from 'vue'
-import { useTextInference } from '@/assets/js/store/textInference'
+import {
+  backendToService,
+  useTextInference,
+  type LlmBackend,
+  type LlmModel,
+} from '@/assets/js/store/textInference'
+import { CLOUD_DEFAULT_MODEL, useCloudMode } from '@/assets/js/store/cloudMode'
 import { usePresets } from '@/assets/js/store/presets'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import {
@@ -21,20 +27,80 @@ import { sortFavoritesFirst } from '@/assets/js/models/favorites'
 import { llamaCppFitTarget, useVramFitLevels } from '@/lib/useLlamaCppVramFit'
 import { useI18N } from '@/assets/js/store/i18n'
 
+type Requirements = {
+  vision: boolean
+  toolCalling: boolean
+  reasoning: boolean
+  coding: boolean
+  agentic: boolean
+  npuSupport: boolean
+  txt2TxtOnly: boolean
+  largeMoeOnly: boolean
+  advancedMode: boolean
+}
+
+// Without props the picker edits the shared selection under the active preset's
+// requirements; with `modelValue` it is a controlled picker for its own backend
+// (an Agent Maker task) and never touches the shared selection.
+const props = defineProps<{
+  backend?: LlmBackend
+  modelValue?: string
+  /** Cloud provider to list models of, instead of the shared selected provider. */
+  providerId?: string
+  requirements?: Partial<Requirements>
+}>()
+const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+
 const textInference = useTextInference()
 const presetsStore = usePresets()
 const backendServices = useBackendServices()
+const cloudMode = useCloudMode()
 
-const value = computed(
-  () =>
-    textInference.llmModels.filter((m) => m.type === textInference.backend).find((m) => m.active)
-      ?.name ?? '',
+const controlled = computed(() => props.modelValue !== undefined)
+const backend = computed<LlmBackend>(() => props.backend ?? textInference.backend)
+
+const backendModels = computed<LlmModel[]>(() => {
+  if (backend.value !== 'cloud' || !props.providerId) {
+    return textInference.llmModels.filter((m) => m.type === backend.value)
+  }
+  const provider = cloudMode.providers.find((p) => p.id === props.providerId)
+  const ids = provider?.models.length ? provider.models : [CLOUD_DEFAULT_MODEL]
+  return ids.map((name) => {
+    const caps = provider?.modelCapabilities?.[name]
+    return {
+      name,
+      type: 'cloud',
+      active: false,
+      downloaded: true,
+      supportsToolCalling: caps?.supportsToolCalling,
+      supportsVision: caps?.supportsVision,
+      supportsReasoning: caps?.supportsReasoning,
+      maxContextSize: caps?.contextLength,
+    }
+  })
+})
+
+const value = computed(() =>
+  controlled.value
+    ? (props.modelValue ?? '')
+    : (backendModels.value.find((m) => m.active)?.name ?? ''),
 )
 
+function select(name: string) {
+  if (controlled.value) emit('update:modelValue', name)
+  else textInference.selectModel(backend.value, name)
+}
+
 // Get current model's capabilities
-const currentModel = computed(() => {
-  return textInference.llmModels.find((m) => m.active && m.type === textInference.backend)
-})
+const currentModel = computed(() => backendModels.value.find((m) => m.name === value.value))
+
+const runningOnOpenvinoNpu = computed(
+  () =>
+    !!backendServices.info
+      .find((s) => s.serviceName === backendToService[backend.value])
+      ?.devices.find((d) => d.selected)
+      ?.id.includes('NPU'),
+)
 
 // User-driven picker controls: a case-insensitive substring search and a set of
 // capability filters toggled from the icon row. These narrow the list on top of
@@ -50,7 +116,7 @@ const { levelOf } = useVramFitLevels()
 
 // Only llama.cpp models get a verdict, so on any other backend the toggle would
 // be a control that cannot change the list.
-const fitFilterAvailable = computed(() => textInference.backend === 'llamaCPP')
+const fitFilterAvailable = computed(() => backend.value === 'llamaCPP')
 
 const fitFilters = computed<ExtraFilter[]>(() =>
   fitFilterAvailable.value
@@ -82,7 +148,7 @@ function onOpenAutoFocus(e: Event) {
 
 const items = computed(() => {
   const activePreset = presetsStore.activePresetWithVariant
-  const requirements = {
+  const fromPreset: Requirements = {
     vision: activePreset?.type === 'chat' && activePreset.requiresVision === true,
     toolCalling: activePreset?.type === 'chat' && activePreset.requiresToolCalling === true,
     reasoning: activePreset?.type === 'chat' && activePreset.requiresReasoning === true,
@@ -93,9 +159,23 @@ const items = computed(() => {
     largeMoeOnly: activePreset?.type === 'chat' && activePreset.filterLargeMoeOnly === true,
     advancedMode: activePreset?.type === 'chat' && activePreset.advancedMode === true,
   }
+  const requirements: Requirements = props.requirements
+    ? {
+        vision: false,
+        toolCalling: false,
+        reasoning: false,
+        coding: false,
+        agentic: false,
+        npuSupport: false,
+        txt2TxtOnly: false,
+        largeMoeOnly: false,
+        advancedMode: false,
+        ...props.requirements,
+      }
+    : fromPreset
   const searchLc = search.value.trim().toLowerCase()
 
-  return sortFavoritesFirst(textInference.llmModels.filter((m) => m.type === textInference.backend))
+  return sortFavoritesFirst(backendModels.value)
     .filter((m) => {
       // Case-insensitive substring search on the visible label (last path segment).
       // Applied to every backend, including cloud.
@@ -109,7 +189,7 @@ const items = computed(() => {
       // hence false). The preset-requirement and custom-model filters below would
       // therefore drop every cloud model, leaving the picker empty. Remote models
       // can't be filtered on unknown capabilities, so always surface them.
-      if (textInference.backend === 'cloud') return true
+      if (backend.value === 'cloud') return true
       // Models too big for a normal GPU stay off every other preset until a Phison
       // SSD is detected. `largeMoe` is a separate list: the aiDAPTIV preset below
       // still includes the medium MoE models, which a normal preset may show.
@@ -130,9 +210,9 @@ const items = computed(() => {
       ) {
         return false
       }
-      if (textInference.backend === 'openVINO') {
-        if (textInference.runningOnOpenvinoNpu && !m.npuSupport) return false
-        if (!textInference.runningOnOpenvinoNpu && m.npuSupport) return false
+      if (backend.value === 'openVINO') {
+        if (runningOnOpenvinoNpu.value && !m.npuSupport) return false
+        if (!runningOnOpenvinoNpu.value && m.npuSupport) return false
       }
       // Filter out vision and reasoning models for txt2txt only presets
       if (requirements.txt2TxtOnly && (m.supportsVision || m.supportsReasoning)) return false
@@ -202,7 +282,7 @@ watchEffect(() => {
 
   // If current selection is not in the filtered list, select the first available
   if (availableItems.length > 0 && !availableItems.some((item) => item.value === currentValue)) {
-    textInference.selectModel(textInference.backend, availableItems[0].value)
+    select(availableItems[0].value)
   }
 })
 </script>
@@ -222,7 +302,11 @@ watchEffect(() => {
             {{ selectedItem.label }}
           </span>
           <div class="flex items-center gap-1 shrink-0">
-            <ModelVramFit />
+            <ModelVramFit v-if="!controlled" />
+            <ModelVramFit
+              v-else-if="currentModel && backend === 'llamaCPP'"
+              :model="llamaCppFitTarget(currentModel)"
+            />
             <ModelCapabilities v-if="currentModel" :model="currentModel" />
             <ChevronDownIcon class="size-4 text-muted-foreground"></ChevronDownIcon>
           </div>
@@ -274,7 +358,7 @@ watchEffect(() => {
         <DropdownMenuItem
           v-for="item in items"
           :key="item.value"
-          @click="() => textInference.selectModel(textInference.backend, item.value)"
+          @click="() => select(item.value)"
           class="text-sm px-4 py-1 flex items-center text-left hover:bg-muted text-foreground group"
         >
           <div class="flex items-center flex-1 min-w-0">

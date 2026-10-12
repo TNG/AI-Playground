@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { appLoggerInstance } from '../observability/logger'
-import { getAgentMakerDemoDir, getAgentMakerDir, getAgentSessionsDir } from './userDataPaths'
+import { getAgentMakerDemoDir, getAgentMakerDir } from './userDataPaths'
 import {
   assertSafeFileId,
   atomicWriteJson,
@@ -14,11 +14,11 @@ import { emitStored } from '../kernel/kernelBus'
 import {
   AgentMakerIndexFileSchema,
   AgentTaskSchema,
+  migrateAgentTaskDoc,
   type AgentMakerBootstrap,
   type AgentMakerIndexFile,
   type AgentTask,
 } from '@/types/agentMakerIpc'
-import { AgentSessionIndexFileSchema } from '@/types/agentSessionIpc'
 
 /**
  * The kernel's one-writer Agent Maker store: task definitions live as
@@ -89,7 +89,7 @@ async function writeIndex(index: AgentMakerIndexFile): Promise<void> {
 
 function parseTaskDoc(read: JsonRead): AgentTask | null {
   if (read.status !== 'ok') return null
-  const parsed = AgentTaskSchema.safeParse(read.value)
+  const parsed = AgentTaskSchema.safeParse(migrateAgentTaskDoc(read.value))
   if (parsed.success) return parsed.data
   appLogger.warn('agent maker task file failed schema; treated as missing', LOG_SCOPE)
   return null
@@ -244,76 +244,26 @@ export async function mintRunWorkspace(taskSlug: string, runId: string): Promise
 }
 
 /**
- * Cascade-delete a task: remove its runs' session records (from the
- * agent-sessions collection) and their workspace folders, then remove the
- * task folder and its index entry. Returns the list of run session ids
- * deleted so the caller can tear down Pi state for each.
+ * Remove a task's folder (task.json and every run workspace under `runs/`) and
+ * its index entry. The run session records live in the agent-sessions
+ * collection and are deleted by the renderer through `agentMode:deleteSession`,
+ * which also tears down their Pi state.
  */
-export async function deleteAgentTask(taskId: string): Promise<{ deletedRunIds: string[] }> {
+export async function deleteAgentTask(taskId: string): Promise<void> {
   const index = await currentIndex()
   const entry = index.tasks.find((t) => t.id === taskId)
-  if (!entry) return { deletedRunIds: [] }
+  if (!entry) return
   const slug = entry.slug
   assertSafeFileId(slug, 'agent maker task slug')
-
-  // Find run sessions by scanning the agent-sessions index for taskId matches.
-  const deletedRunIds: string[] = []
-  try {
-    const sessionsIndexRaw = await readJson(
-      path.join(getAgentSessionsDir(), 'index.json'),
-      LOG_SCOPE,
-    )
-    if (sessionsIndexRaw.status === 'ok') {
-      const parsed = AgentSessionIndexFileSchema.safeParse(sessionsIndexRaw.value)
-      if (parsed.success) {
-        for (const sessionEntry of parsed.data.sessions) {
-          if (!isSafeFileId(sessionEntry.id)) continue
-          const sessionRead = await readJson(
-            path.join(getAgentSessionsDir(), `${sessionEntry.id}.json`),
-            LOG_SCOPE,
-          )
-          if (sessionRead.status !== 'ok') continue
-          const sessionDoc = sessionRead.value as Record<string, unknown>
-          if (sessionDoc.taskId === taskId) {
-            deletedRunIds.push(sessionEntry.id)
-          }
-        }
-      }
-    }
-  } catch (error) {
-    appLogger.warn(
-      `agent maker: error scanning sessions for task ${taskId}: ${String(error)}`,
-      LOG_SCOPE,
-    )
-  }
-
-  // Delete each run's workspace folder. Session record files are deleted by
-  // the caller via the existing agentMode:deleteSession path.
-  for (const runId of deletedRunIds) {
-    try {
-      await fs.rm(runWorkspaceDir(slug, runId), { recursive: true, force: true })
-    } catch (error) {
-      appLogger.warn(
-        `agent maker: error removing run workspace ${runId}: ${String(error)}`,
-        LOG_SCOPE,
-      )
-    }
-  }
-
-  // Remove the task folder (task.json + runs/).
-  return serialize(slug, async () => {
-    try {
-      await fs.rm(taskDir(slug), { recursive: true, force: true })
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
+  await serialize(slug, async () => {
+    await fs.rm(taskDir(slug), { recursive: true, force: true })
     await serialize(INDEX_CHAIN, async () => {
       const idx = await currentIndex()
       idx.tasks = idx.tasks.filter((t) => t.id !== taskId)
       await writeIndex(idx)
     })
-    return { deletedRunIds }
   })
+  emitStored('agentMaker', taskId)
 }
 
 /** §6.1: demo tasks are session-scoped; wipe on exit (and on boot, for a crash tail). */

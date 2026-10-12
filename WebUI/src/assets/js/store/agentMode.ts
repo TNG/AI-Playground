@@ -32,7 +32,7 @@ import {
   OFFER_GAME_AGENT_TOOL,
   RAG_PREPARE_EMBEDDING_MODEL,
 } from '@/types/agentCapabilities'
-import type { GameLibraryEntry } from '@/types/agentIpc'
+import type { AgentModeTurnConfig, GameLibraryEntry } from '@/types/agentIpc'
 import {
   AGENT_PRESET,
   applySessionPresetNames,
@@ -47,12 +47,7 @@ import {
   toggleCapabilityIds,
   type AgentSessionRecord,
 } from './agentModeSessions'
-import {
-  buildTurnConfig,
-  buildTaskTurnConfig,
-  createAgentTurnRuntime,
-  latestTurnMetadata,
-} from './agentModeTurn'
+import { buildTurnConfig, createAgentTurnRuntime, latestTurnMetadata } from './agentModeTurn'
 import {
   createUnsandboxedWorkspaces,
   createWorkspaceAttachments,
@@ -61,6 +56,16 @@ import {
 } from './agentModeWorkspace'
 
 export type { AgentSessionRecord }
+
+/** Builds the turn of an Agent Maker run session from its task (registered by the agentMaker store). */
+export type TaskRunTurnConfigBuilder = (input: {
+  taskId: string
+  sessionId: string
+  workspaceDir: string
+}) => Promise<AgentModeTurnConfig>
+
+/** How a `generate()` call ended, for callers that chain turns (Agent Maker runs). */
+export type AgentTurnOutcome = 'done' | 'error' | 'stopped'
 
 // ── Agent Mode: renderer side of the Pi coding-agent integration ─────────────
 //
@@ -162,13 +167,15 @@ export const useAgentMode = defineStore(
     /** Set once `init()` has hydrated (or migrated) — gates every write-through. */
     const sessionsHydrated = ref(false)
 
-    /**
-     * When an Agent Maker task run is active, this holds the frozen task config
-     * so the turn engine builds each step's turn from it rather than the live
-     * textInference store. Set by the agentMaker store before driving the step
-     * loop; cleared when the run ends or the session switches away from a task run.
-     */
-    let activeTaskConfig: import('@/types/agentMakerIpc').AgentTask | null = null
+    let taskRunTurnConfig: TaskRunTurnConfigBuilder | null = null
+    /** Set by `stop()` so a `generate()` in flight can report that it was stopped. */
+    let turnStopped = false
+
+    /** The active session is an Agent Maker run: its task, not Agent Settings, configures it. */
+    const activeTaskRunId = computed<string | null>(() => {
+      const session = sessions.value[activeSessionId.value]
+      return session?.origin === 'agentMaker' ? (session.taskId ?? null) : null
+    })
 
     // Step 8 (§6.1): the last-used workspace pointers are app data — their
     // own kernel-owned file (agent-workspace.json), not the preferences file.
@@ -450,14 +457,23 @@ export const useAgentMode = defineStore(
         [OFFER_GAME_AGENT_TOOL]: (input) => offerGameAgent(input),
         [RAG_PREPARE_EMBEDDING_MODEL]: (input) => prepareRagEmbeddingModel(input),
       },
-      buildTurnConfig: () => {
+      buildTurnConfig: async () => {
         const sessionId = ensureSessionId(activeSessionId)
-        if (activeTaskConfig) {
-          return buildTaskTurnConfig({
+        const taskId = activeTaskRunId.value
+        if (taskId) {
+          if (!taskRunTurnConfig) throw new Error('Agent Maker is not ready yet.')
+          const config = await taskRunTurnConfig({
+            taskId,
             sessionId,
             workspaceDir: workspaceDir.value,
-            task: activeTaskConfig,
           })
+          return {
+            ...config,
+            instructions: withResponseLanguage(
+              config.instructions ?? '',
+              sessionResponseLocale(sessionId),
+            ),
+          }
         }
         return buildTurnConfig({
           sessionId,
@@ -553,25 +569,38 @@ export const useAgentMode = defineStore(
       chat.messages = (sessions.value[activeSessionId.value]?.messages ?? []) as UIMessage[]
     }
 
-    /**
-     * Set or clear the frozen task config for the active run. When set, the
-     * turn engine builds each step from it instead of the live textInference
-     * store. The agentMaker store calls this before driving the step loop and
-     * clears it when the run ends or the session switches away.
-     */
-    function setTaskRunConfig(task: import('@/types/agentMakerIpc').AgentTask | null): void {
-      activeTaskConfig = task
+    function setTaskRunTurnConfigBuilder(builder: TaskRunTurnConfigBuilder | null): void {
+      taskRunTurnConfig = builder
+    }
+
+    /** Merge fields into a stored session record and persist it. */
+    function patchSessionRecord(id: string, patch: Partial<AgentSessionRecord>): void {
+      const existing = sessions.value[id]
+      if (!existing) return
+      rewriteSession(id, { ...existing, ...patch })
+    }
+
+    /** Adopt a record main already wrote (e.g. a freshly minted Agent Maker run). */
+    function adoptSessionRecord(record: AgentSessionRecord): void {
+      sessions.value = { ...sessions.value, [record.id]: record }
     }
 
     async function newSession(): Promise<void> {
       await stop()
       activeSessionId.value = mintSessionId()
       sessionCapabilities.value = null
-      activeTaskConfig = null
       chat.messages = []
     }
 
-    async function switchSession(id: string): Promise<void> {
+    /**
+     * `keepPreset` adopts the session's agent preset without making it the
+     * active preset, so the visible mode stays put (Agent Maker drives a run
+     * from its own view).
+     */
+    async function switchSession(
+      id: string,
+      options: { keepPreset?: boolean } = {},
+    ): Promise<void> {
       if (id === activeSessionId.value) return
       const target = sessions.value[id]
       if (!target) return
@@ -581,13 +610,16 @@ export const useAgentMode = defineStore(
       movingSession = true
       try {
         if (target.presetName && target.presetName !== agentPresetName.value) {
-          await presetSwitching.switchPreset(target.presetName)
+          if (options.keepPreset) agentPresetName.value = target.presetName
+          else await presetSwitching.switchPreset(target.presetName)
         }
         activeSessionId.value = id
         sessionCapabilities.value = null
-        activeTaskConfig = null
         if (target.workspaceDir) {
           workspaceDir.value = target.workspaceDir
+        }
+        // A run's minted folder is not a workspace the user picked.
+        if (target.workspaceDir && target.origin !== 'agentMaker') {
           lastWorkspaceByKind.value = {
             ...lastWorkspaceByKind.value,
             [agentWorkspaceKind.value]: target.workspaceDir,
@@ -753,6 +785,15 @@ export const useAgentMode = defineStore(
     }
 
     async function startNew(): Promise<void> {
+      if (activeTaskRunId.value) {
+        await stop()
+        activeSessionId.value = mintSessionId()
+        sessionCapabilities.value = null
+        chat.messages = []
+        workspaceDir.value = lastWorkspaceByKind.value[agentWorkspaceKind.value] ?? ''
+        await refreshCurrentGame()
+        return
+      }
       if (agentWorkspaceKind.value === 'games') await newGame()
       else await newSession()
     }
@@ -790,10 +831,13 @@ export const useAgentMode = defineStore(
      */
     watch(agentPresetName, async (name, previous) => {
       if (!previous || name === previous || movingSession) return
+      const leavingTaskRun = !!activeTaskRunId.value
       snapshotActiveSession(previous)
-      lastWorkspaceByKind.value = {
-        ...lastWorkspaceByKind.value,
-        [workspaceKindOf(previous)]: workspaceDir.value,
+      if (!leavingTaskRun) {
+        lastWorkspaceByKind.value = {
+          ...lastWorkspaceByKind.value,
+          [workspaceKindOf(previous)]: workspaceDir.value,
+        }
       }
       if (agentWorkspaceKind.value === 'games') {
         await newGame()
@@ -805,7 +849,7 @@ export const useAgentMode = defineStore(
       await refreshCurrentGame()
     })
 
-    async function generate(prompt: string): Promise<void> {
+    async function generate(prompt: string): Promise<AgentTurnOutcome> {
       // Game Agent never asks for a folder: the first turn of a game mints one.
       if (agentWorkspaceKind.value === 'games' && !(await isGameFolder(workspaceDir.value))) {
         const game = await window.electronAPI.games.create(prompt, {
@@ -825,12 +869,13 @@ export const useAgentMode = defineStore(
           userMessage: 'Select a workspace folder before starting the agent.',
           surface: 'toast',
         })
-        return
+        return 'error'
       }
       const attached = await importAttachments(workspaceDir.value)
       ensureSessionId(activeSessionId)
       toolProgress.value = {}
       processing.value = true
+      turnStopped = false
       try {
         await chat.sendMessage({ text: `${prompt}${attached}` })
       } finally {
@@ -838,9 +883,12 @@ export const useAgentMode = defineStore(
         snapshotActiveSession()
         await refreshCurrentGame()
       }
+      if (turnStopped) return 'stopped'
+      return chat.error ? 'error' : 'done'
     }
 
     async function stop(): Promise<void> {
+      turnStopped = true
       await window.electronAPI.agentMode.cancel()
       abortRunningTools()
       await chat.stop()
@@ -897,7 +945,10 @@ export const useAgentMode = defineStore(
       switchSession,
       deleteSession,
       restoreActiveSession,
-      setTaskRunConfig,
+      activeTaskRunId,
+      setTaskRunTurnConfigBuilder,
+      patchSessionRecord,
+      adoptSessionRecord,
     }
   },
   {

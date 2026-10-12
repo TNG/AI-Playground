@@ -60,7 +60,6 @@ export function buildAgentMakerRegistry(deps: AgentMakerDeps) {
     'agentMaker:startRun': async (_event, taskId) => {
       try {
         if (typeof taskId !== 'string') throw new Error('task id must be a string')
-        // The task definition is needed to resolve the slug and model config.
         const bootstrap = await deps.bootstrapAgentMaker()
         if (bootstrap.status !== 'ok') throw new Error('Agent Maker not hydrated')
         const task = bootstrap.tasks.find((t) => t.id === taskId)

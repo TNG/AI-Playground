@@ -20,7 +20,7 @@ export const AgentSessionFileSchema = z.object({
   messages: z.array(z.unknown()),
   origin: z.literal('agentMaker').optional(),
   taskId: z.string().optional(),
-  taskRunStatus: z.enum(['running', 'completed', 'failed']).optional(),
+  taskRunStatus: z.enum(['running', 'completed', 'failed', 'stopped']).optional(),
   taskRunError: z.string().optional(),
   taskRunStepIndex: z.number().optional(),
 })

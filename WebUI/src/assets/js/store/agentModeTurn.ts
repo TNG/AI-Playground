@@ -12,6 +12,7 @@ import { registerAgentModeIpc } from './agentModeIpc'
 import { CLOUD_DEFAULT_MODEL } from './cloudMode'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
 import type { AgentTask } from '@/types/agentMakerIpc'
+import type { ResolvedTaskModel } from '@/lib/agentTaskModel'
 import type { AgentTurnSnapshot } from '@/types/kernelEvents'
 
 type ActiveTurn = {
@@ -20,7 +21,7 @@ type ActiveTurn = {
   closed: boolean
 }
 
-export type InferenceForTurn = {
+type InferenceForTurn = {
   samplingRequestBody: Record<string, unknown>
   temperature: number
   modelSupportsThinkingToggle: boolean
@@ -193,49 +194,36 @@ export async function buildTurnConfig(options: {
 }
 
 /**
- * Build a turn config from a frozen Agent Maker task definition rather than
- * the live textInference store. The task carries its own model config
- * (local or cloud), capabilities, instructions, and context size — everything
- * the step turns need, so a run is reproducible regardless of what the user
- * has currently selected. `readiness` (the live backend load facts) is built
- * from the frozen local model config so main can load the model.
+ * A turn of an Agent Maker run: everything comes from the task (its resolved
+ * model, capabilities, instructions, sandbox choice), nothing from the Agent
+ * preset's settings, so a run behaves the same whatever Agent Settings say.
  */
 export async function buildTaskTurnConfig(options: {
   sessionId: string
   workspaceDir: string
   task: AgentTask
+  resolved: ResolvedTaskModel
+  presetName: string
 }): Promise<AgentModeTurnConfig> {
   const toolSpecs = getAgentToolSpecs()
   const mediaAgent = toolSpecs.some((spec) => spec.name === 'media')
     ? (await import('../agents/mediaAgent')).serializeMediaAgentInner()
     : undefined
-  const { task } = options
-  // Strip Vue reactivity — the task was stored in a Pinia ref and IPC's
-  // structuredClone rejects proxies that survive JSON round-trip edge cases.
-  const rawTask = JSON.parse(JSON.stringify(task)) as typeof task
-  const modelConfig = rawTask.modelConfig
-
-  const config: AgentModeTurnConfig = {
+  const { task, resolved } = options
+  return {
     sessionId: options.sessionId,
     workspaceDir: options.workspaceDir,
-    modelConfig,
+    modelConfig: resolved.modelConfig,
     toolSpecs,
     mediaAgent,
-    instructions: rawTask.instructions ?? '',
-    presetName: rawTask.presetName,
-    capabilities: [...rawTask.capabilities],
-    unsandboxed: rawTask.unsandboxed ?? false,
+    instructions: task.instructions ?? '',
+    presetName: options.presetName,
+    capabilities: [...task.capabilities],
+    unsandboxed: task.unsandboxed ?? false,
     keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
+    planningThinkingOnly: resolved.planningThinkingOnly,
+    ...(resolved.readiness ? { readiness: resolved.readiness } : {}),
   }
-  if (modelConfig.source === 'local') {
-    config.readiness = {
-      serviceName: modelConfig.backend === 'openVINO' ? 'openvino-backend' : 'llamacpp-backend',
-      llmModelName: rawTask.modelRepoId ?? modelConfig.model,
-      contextSize: rawTask.contextSize ?? modelConfig.contextWindow,
-      modelArgs: rawTask.llamaCppArgs,
-    }
-  }
-  return config
 }
 
 export type TurnMetadata = {

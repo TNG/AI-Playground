@@ -5,6 +5,7 @@ import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
 import { useI18N } from '@/assets/js/store/i18n'
 import AgentTaskForm from '@/components/AgentTaskForm.vue'
+import ModeNavigation from '@/components/ModeNavigation.vue'
 import { busyLabelOf } from '@/lib/agentTranscript'
 import type { AgentTask } from '@/types/agentMakerIpc'
 
@@ -20,6 +21,10 @@ const selectedTaskId = ref<string | null>(null)
 
 onMounted(() => {
   void agentMaker.init()
+  if (agentMaker.focusTaskId) {
+    viewRuns(agentMaker.focusTaskId)
+    agentMaker.focusTaskId = null
+  }
 })
 
 const tasks = computed(() => [...agentMaker.tasks].sort((a, b) => b.updatedAt - a.updatedAt))
@@ -99,7 +104,7 @@ async function deleteTask(taskId: string): Promise<void> {
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden">
+  <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
     <div class="flex items-center justify-between border-b border-border px-6 py-4">
       <h2 class="text-lg font-semibold">{{ i18nState.AGENT_MAKER_TITLE }}</h2>
       <div class="flex gap-2">
@@ -261,6 +266,11 @@ async function deleteTask(taskId: string): Promise<void> {
           </li>
         </ul>
       </div>
+    </div>
+
+    <!-- Agent Maker has no prompt bar, so the mode navigation sits in its own footer. -->
+    <div class="relative flex h-16 shrink-0 items-center border-t border-border px-3">
+      <ModeNavigation />
     </div>
   </div>
 </template>

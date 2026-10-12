@@ -2,7 +2,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { useErrors } from './errors'
 import { useAgentMode } from './agentMode'
-import { usePresets } from './presets'
+import { usePresets, type ChatPreset } from './presets'
 import { usePresetSwitching } from './presetSwitching'
 import { useTextInference } from './textInference'
 import { useCloudMode } from './cloudMode'
@@ -44,6 +44,8 @@ export const useAgentMaker = defineStore('agentMaker', () => {
   const tasks = ref<AgentTask[]>([])
   const hydrated = ref(false)
   const activeRun = ref<ActiveAgentRun | null>(null)
+  /** Task whose run history the Agent Maker view opens on (set by "Back to Agent Maker"). */
+  const focusTaskId = ref<string | null>(null)
   let stopRequested = false
 
   async function init(): Promise<void> {
@@ -265,8 +267,20 @@ export const useAgentMaker = defineStore('agentMaker', () => {
     }
   }
 
+  /** Leave the Agent view for Agent Maker, on the history of the open run's task. */
+  async function backToAgentMaker(): Promise<void> {
+    const preset = presets.presets.find(
+      (p) => p.type === 'chat' && (p as ChatPreset).agentMaker === true,
+    )
+    if (!preset) return
+    focusTaskId.value = agentMode.activeTaskRunId
+    await presetSwitching.switchPreset(preset.name)
+  }
+
   return {
     tasks,
+    focusTaskId,
+    backToAgentMaker,
     hydrated,
     activeRun,
     activeSessionTask,

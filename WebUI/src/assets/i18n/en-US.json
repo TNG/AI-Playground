@@ -161,6 +161,7 @@
   "MODE_VIDEO": "Video",
   "AGENT_MAKER_TITLE": "Agent Maker",
   "AGENT_MAKER_BACK": "Back",
+  "AGENT_MAKER_BACK_TO": "Back to Agent Maker · {task}",
   "AGENT_MAKER_NEW_TASK": "New Task",
   "AGENT_MAKER_EMPTY": "No tasks yet. Create one to get started.",
   "AGENT_MAKER_RUN": "Run",

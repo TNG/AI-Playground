@@ -28,6 +28,7 @@ import { ragEmbeddingPrepFailure } from '@/lib/ragEmbeddingPrep'
 import { requestDownload } from '@/assets/js/permissions/permissions'
 import {
   DEFAULT_CAPABILITY_IDS,
+  WEB_CAPABILITY_ID,
   GAME_STUDIO_QUICK_ID,
   OFFER_GAME_AGENT_TOOL,
   RAG_PREPARE_EMBEDDING_MODEL,
@@ -158,6 +159,8 @@ export const useAgentMode = defineStore(
     const lastWorkspaceByKind = ref<Record<string, string>>({})
     const defaultCapabilities = ref<string[]>([...DEFAULT_CAPABILITIES])
     const mcpServerIds = ref<string[]>([])
+    /** Set once `web` has been added to a default list saved before it existed. */
+    const webCapabilityAdopted = ref(false)
 
     const { unsandboxedWorkspaces, unsandboxed, setUnsandboxed } =
       createUnsandboxedWorkspaces(workspaceDir)
@@ -389,6 +392,14 @@ export const useAgentMode = defineStore(
         await refreshCurrentGame()
       })()
       return agentSessionsInitPromise
+    }
+
+    function adoptWebCapability(): void {
+      if (webCapabilityAdopted.value) return
+      webCapabilityAdopted.value = true
+      if (!defaultCapabilities.value.includes(WEB_CAPABILITY_ID)) {
+        defaultCapabilities.value = [...defaultCapabilities.value, WEB_CAPABILITY_ID]
+      }
     }
 
     function migrateMcpServerIds(): void {
@@ -910,6 +921,8 @@ export const useAgentMode = defineStore(
       setCapabilityEnabled,
       resetPresetSettings,
       migrateMcpServerIds,
+      adoptWebCapability,
+      webCapabilityAdopted,
       migrateSessionPresets,
       init,
       sessionsHydrated,
@@ -958,12 +971,14 @@ export const useAgentMode = defineStore(
       // preference.
       pick: [
         'mcpServerIds',
+        'webCapabilityAdopted',
         'defaultCapabilities',
         'unsandboxedWorkspaces',
         'planningThinkingOnly',
       ],
       afterHydrate: (ctx) => {
         ctx.store.migrateMcpServerIds()
+        ctx.store.adoptWebCapability()
         ctx.store.migratePlanningThinkingOnly()
       },
     },

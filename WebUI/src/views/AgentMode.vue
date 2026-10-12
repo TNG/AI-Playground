@@ -10,18 +10,6 @@
         <GameBar />
       </div>
 
-      <!-- A run of an Agent Maker task leads back to that task's history. -->
-      <div v-if="runTask" class="sticky top-0 z-5 flex justify-end pl-32 pr-32">
-        <Button
-          variant="secondary"
-          class="gap-1 rounded-lg px-3 py-1.5 text-sm shadow-sm"
-          @click="agentMaker.backToAgentMaker()"
-        >
-          <ArrowLeftIcon class="size-4" />
-          {{ i18nState.AGENT_MAKER_BACK_TO.replace('{task}', runTask.name) }}
-        </Button>
-      </div>
-
       <!-- Empty state: configuration lives in Agent Settings, model/context in
            the prompt status bar — so an empty transcript just needs a hint. -->
       <div
@@ -133,17 +121,11 @@ import {
 import { agentEmptyStateKind } from '@/lib/presetModes'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
 import { ensureMediaAgentEventWiring } from '@/assets/js/agents/mediaAgent'
-import { ArrowLeftIcon, UserCircleIcon } from '@heroicons/vue/24/outline'
-import { useAgentMaker } from '@/assets/js/store/agentMaker'
-import { useI18N } from '@/assets/js/store/i18n'
+import { UserCircleIcon } from '@heroicons/vue/24/outline'
 
 const agentMode = useAgentMode()
 const promptStore = usePromptStore()
 const mediaRuns = useMediaAgentRuns()
-const agentMaker = useAgentMaker()
-const i18nState = useI18N().state
-
-const runTask = computed(() => agentMaker.activeSessionTask)
 
 const panel = ref<HTMLElement | null>(null)
 

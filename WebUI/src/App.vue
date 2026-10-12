@@ -181,7 +181,7 @@
       <div class="fixed top-18 left-4 z-5 flex flex-col gap-2">
         <button
           id="show-history-button"
-          v-show="!uiStore.showHistory && promptStore.getCurrentMode() !== 'agentMaker'"
+          v-show="!uiStore.showHistory && promptStore.getCurrentMode() !== 'agentMaker' && !runTask"
           @click="openHistory"
           class="text-foreground px-3 py-1.5 bg-card border border-border shadow-sm hover:bg-muted rounded-lg text-sm"
         >
@@ -190,6 +190,15 @@
               ? languages.COM_SHOW_SESSIONS
               : languages.COM_SHOW_HISTORY
           }}
+        </button>
+        <!-- A run of an Agent Maker task has no history of its own; it leads back to its task. -->
+        <button
+          v-if="runTask && promptStore.getCurrentMode() === 'agent'"
+          @click="agentMaker.backToAgentMaker()"
+          class="flex items-center gap-1 text-foreground px-3 py-1.5 bg-card border border-border shadow-sm hover:bg-muted rounded-lg text-sm"
+        >
+          <ArrowLeftIcon class="size-4" />
+          {{ languages.AGENT_MAKER_BACK_TO.replace('{task}', runTask.name) }}
         </button>
       </div>
       <div
@@ -363,6 +372,8 @@ import InstallationProgressDialog from '@/components/InstallationProgressDialog.
 import MaskEditorDialog from '@/components/MaskEditorDialog.vue'
 import DemoModeIndicator from '@/components/DemoModeIndicator.vue'
 import { CircleStackIcon, ServerStackIcon } from '@heroicons/vue/24/solid'
+import { ArrowLeftIcon } from '@heroicons/vue/24/outline'
+import { useAgentMaker } from '@/assets/js/store/agentMaker'
 import ModelManager from '@/views/ModelManager.vue'
 import { useColorMode } from '@vueuse/core'
 import { useDemoMode } from './assets/js/store/demoMode.ts'
@@ -398,6 +409,12 @@ const contextualHelp = useContextualHelp()
 const dialogStore = useDialogStore()
 const promptStore = usePromptStore()
 const uiStore = useUIStore()
+const agentMaker = useAgentMaker()
+const runTask = computed(() => agentMaker.activeSessionTask)
+// The global history has no place in a task run; close it if it was open.
+watch(runTask, (task) => {
+  if (task && uiStore.showHistory) uiStore.closeHistory()
+})
 const setupWizardStore = useSetupWizard()
 const presetSwitching = usePresetSwitching()
 const oemBranding = useOemBranding()

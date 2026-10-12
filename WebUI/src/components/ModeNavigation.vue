@@ -222,101 +222,106 @@ function handleModeClick(mode: ModeType) {
 </script>
 
 <template>
-  <div id="mode-buttons" class="flex gap-2" @pointerleave="schedulePickerClose">
-    <Popover
-      v-for="mode in modesWithPresets"
-      :key="mode"
-      :open="openPickerMode === mode"
-      @update:open="(val: boolean) => onPickerOpenChange(mode, val)"
-    >
-      <!-- Shared anchor pinned to the left edge of the button row, so every
-         mode's picker opens from the same point (using the full width) -->
-      <PopoverAnchor as-child>
-        <span aria-hidden="true" class="pointer-events-none absolute left-0 top-0 bottom-0 w-0" />
-      </PopoverAnchor>
-      <PopoverTrigger as-child>
-        <Button
-          :variant="buttonModeFor(promptStore.getCurrentMode()) === mode ? 'default' : 'secondary'"
-          :id="'mode-button-' + mode"
-          @pointerenter="(e: PointerEvent) => onPickerPointerEnter(mode, e)"
-          @pointerdown="onPickerPointerDown"
-          @focus="(e: FocusEvent) => onPickerFocus(mode, e)"
-          @blur="schedulePickerClose()"
-          @click="handleModeClick(mode)"
-        >
-          {{ mapModeToLabel(mode) }}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        side="top"
-        align="start"
-        :side-offset="8"
-        class="z-[40010] w-auto max-w-[80vw] rounded-lg border border-border bg-card p-2 shadow-xl"
-        @open-auto-focus.prevent
-        @close-auto-focus.prevent
+  <!-- `relative`: the pickers anchor to this row, wherever the caller places it. -->
+  <div id="mode-buttons" @pointerleave="schedulePickerClose">
+    <div class="relative flex gap-2">
+      <Popover
+        v-for="mode in modesWithPresets"
+        :key="mode"
+        :open="openPickerMode === mode"
+        @update:open="(val: boolean) => onPickerOpenChange(mode, val)"
       >
-        <!-- Hover handlers live on this inner div rather than <PopoverContent>:
-           that wrapper's root is a Teleport (PopoverPortal), which drops attrs. -->
-        <div
-          data-aipg-help="preset-selector"
-          class="flex gap-2 overflow-x-auto max-w-[76vw] pb-1"
-          @pointerenter="cancelPickerClose"
-          @pointerleave="schedulePickerClose"
-        >
-          <TooltipProvider :delay-duration="200">
-            <Tooltip v-for="preset in presetsForMode(mode)" :key="preset.name">
-              <TooltipTrigger as-child>
-                <button
-                  type="button"
-                  :aria-label="oemBranding.presetLabel(preset.name)"
-                  :aria-pressed="presetsStore.activePresetName === preset.name"
-                  :aria-disabled="!presetGate(preset).enabled"
-                  :data-aipg-preset-name="preset.name"
-                  class="relative flex-none w-16 h-16 rounded-md overflow-hidden border-2 transition-all duration-150"
-                  :class="[
-                    presetsStore.activePresetName === preset.name
-                      ? 'border-primary ring-2 ring-primary'
-                      : 'border-transparent',
-                    presetGate(preset).enabled
-                      ? 'hover:border-primary'
-                      : 'opacity-40 grayscale cursor-not-allowed',
-                  ]"
-                  @click="selectPresetFromPicker(mode, preset)"
-                >
-                  <img
-                    v-if="preset.image"
-                    :src="preset.image"
-                    :alt="oemBranding.presetLabel(preset.name)"
-                    class="absolute inset-0 w-full h-full object-cover"
-                  />
-                  <div class="absolute bottom-0 w-full bg-background/70 px-0.5 py-0.5">
-                    <span
-                      class="block text-foreground text-[9px] leading-tight font-medium text-center truncate"
-                    >
-                      {{ oemBranding.presetLabel(preset.name) }}
-                    </span>
-                  </div>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top" class="z-[40011] max-w-[260px]">
-                <p class="font-semibold">{{ oemBranding.presetLabel(preset.name) }}</p>
-                <p v-if="preset.description" class="mt-1 text-primary-foreground/80">
-                  {{ preset.description }}
-                </p>
-                <p v-if="!presetGate(preset).enabled" class="mt-1 text-amber-400 text-xs">
-                  {{ presetGate(preset).reason }}
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <p
-            v-if="presetsForMode(mode).length === 0"
-            class="text-xs text-muted-foreground px-2 py-4 whitespace-nowrap"
+        <!-- Shared anchor pinned to the left edge of the button row, so every
+         mode's picker opens from the same point (using the full width) -->
+        <PopoverAnchor as-child>
+          <span aria-hidden="true" class="pointer-events-none absolute left-0 top-0 bottom-0 w-0" />
+        </PopoverAnchor>
+        <PopoverTrigger as-child>
+          <Button
+            :variant="
+              buttonModeFor(promptStore.getCurrentMode()) === mode ? 'default' : 'secondary'
+            "
+            :id="'mode-button-' + mode"
+            @pointerenter="(e: PointerEvent) => onPickerPointerEnter(mode, e)"
+            @pointerdown="onPickerPointerDown"
+            @focus="(e: FocusEvent) => onPickerFocus(mode, e)"
+            @blur="schedulePickerClose()"
+            @click="handleModeClick(mode)"
           >
-            No presets available
-          </p>
-        </div>
-      </PopoverContent>
-    </Popover>
+            {{ mapModeToLabel(mode) }}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          side="top"
+          align="start"
+          :side-offset="8"
+          class="z-[40010] w-auto max-w-[80vw] rounded-lg border border-border bg-card p-2 shadow-xl"
+          @open-auto-focus.prevent
+          @close-auto-focus.prevent
+        >
+          <!-- Hover handlers live on this inner div rather than <PopoverContent>:
+           that wrapper's root is a Teleport (PopoverPortal), which drops attrs. -->
+          <div
+            data-aipg-help="preset-selector"
+            class="flex gap-2 overflow-x-auto max-w-[76vw] pb-1"
+            @pointerenter="cancelPickerClose"
+            @pointerleave="schedulePickerClose"
+          >
+            <TooltipProvider :delay-duration="200">
+              <Tooltip v-for="preset in presetsForMode(mode)" :key="preset.name">
+                <TooltipTrigger as-child>
+                  <button
+                    type="button"
+                    :aria-label="oemBranding.presetLabel(preset.name)"
+                    :aria-pressed="presetsStore.activePresetName === preset.name"
+                    :aria-disabled="!presetGate(preset).enabled"
+                    :data-aipg-preset-name="preset.name"
+                    class="relative flex-none w-16 h-16 rounded-md overflow-hidden border-2 transition-all duration-150"
+                    :class="[
+                      presetsStore.activePresetName === preset.name
+                        ? 'border-primary ring-2 ring-primary'
+                        : 'border-transparent',
+                      presetGate(preset).enabled
+                        ? 'hover:border-primary'
+                        : 'opacity-40 grayscale cursor-not-allowed',
+                    ]"
+                    @click="selectPresetFromPicker(mode, preset)"
+                  >
+                    <img
+                      v-if="preset.image"
+                      :src="preset.image"
+                      :alt="oemBranding.presetLabel(preset.name)"
+                      class="absolute inset-0 w-full h-full object-cover"
+                    />
+                    <div class="absolute bottom-0 w-full bg-background/70 px-0.5 py-0.5">
+                      <span
+                        class="block text-foreground text-[9px] leading-tight font-medium text-center truncate"
+                      >
+                        {{ oemBranding.presetLabel(preset.name) }}
+                      </span>
+                    </div>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" class="z-[40011] max-w-[260px]">
+                  <p class="font-semibold">{{ oemBranding.presetLabel(preset.name) }}</p>
+                  <p v-if="preset.description" class="mt-1 text-primary-foreground/80">
+                    {{ preset.description }}
+                  </p>
+                  <p v-if="!presetGate(preset).enabled" class="mt-1 text-amber-400 text-xs">
+                    {{ presetGate(preset).reason }}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <p
+              v-if="presetsForMode(mode).length === 0"
+              class="text-xs text-muted-foreground px-2 py-4 whitespace-nowrap"
+            >
+              No presets available
+            </p>
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
   </div>
 </template>

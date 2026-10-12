@@ -105,7 +105,9 @@ async function deleteTask(taskId: string): Promise<void> {
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-    <div class="flex items-center justify-between border-b border-border px-6 py-4">
+    <div
+      class="mx-auto flex w-full max-w-4xl shrink-0 items-center justify-between border-b border-border px-6 py-4"
+    >
       <h2 class="text-lg font-semibold">{{ i18nState.AGENT_MAKER_TITLE }}</h2>
       <div class="flex gap-2">
         <button
@@ -125,152 +127,163 @@ async function deleteTask(taskId: string): Promise<void> {
       </div>
     </div>
 
-    <!-- Task list -->
-    <div v-if="view === 'list'" class="flex-1 overflow-y-auto px-6 py-4">
-      <p v-if="tasks.length === 0" class="text-sm text-muted-foreground">
-        {{ i18nState.AGENT_MAKER_EMPTY }}
-      </p>
-      <ul v-else class="flex flex-col gap-2">
-        <li
-          v-for="task in tasks"
-          :key="task.id"
-          :aria-label="task.name"
-          class="flex flex-col gap-3 rounded-lg border border-border p-4"
-        >
-          <div class="flex items-center justify-between gap-4">
-            <div class="min-w-0 flex-1">
-              <div class="font-medium">{{ task.name }}</div>
-              <div class="text-xs text-muted-foreground">
-                {{ i18nState.AGENT_MAKER_STEP_COUNT.replace('{count}', String(task.steps.length)) }}
-                · {{ modelLabel(task) }}
+    <!-- Centered like the other modes, so nothing runs under the fixed corner controls. -->
+    <div class="min-h-0 flex-1 overflow-y-auto">
+      <div class="mx-auto w-full max-w-4xl px-6 pt-4 pb-16">
+        <!-- Task list -->
+        <div v-if="view === 'list'">
+          <p v-if="tasks.length === 0" class="text-sm text-muted-foreground">
+            {{ i18nState.AGENT_MAKER_EMPTY }}
+          </p>
+          <ul v-else class="flex flex-col gap-2">
+            <li
+              v-for="task in tasks"
+              :key="task.id"
+              :aria-label="task.name"
+              class="flex flex-col gap-3 rounded-lg border border-border p-4"
+            >
+              <div class="flex items-center justify-between gap-4">
+                <div class="min-w-0 flex-1">
+                  <div class="font-medium">{{ task.name }}</div>
+                  <div class="text-xs text-muted-foreground">
+                    {{
+                      i18nState.AGENT_MAKER_STEP_COUNT.replace('{count}', String(task.steps.length))
+                    }}
+                    · {{ modelLabel(task) }}
+                  </div>
+                </div>
+                <div class="flex shrink-0 gap-2">
+                  <button
+                    v-if="!isRunning(task.id)"
+                    class="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                    :disabled="!agentMaker.canStartRun"
+                    @click="agentMaker.startRun(task.id)"
+                  >
+                    {{ i18nState.AGENT_MAKER_RUN }}
+                  </button>
+                  <button
+                    class="rounded-md px-3 py-1.5 text-sm hover:bg-muted"
+                    @click="viewRuns(task.id)"
+                  >
+                    {{ i18nState.AGENT_MAKER_HISTORY }}
+                  </button>
+                  <button
+                    class="rounded-md px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50"
+                    :disabled="isRunning(task.id)"
+                    @click="openForm(task)"
+                  >
+                    {{ i18nState.AGENT_MAKER_EDIT }}
+                  </button>
+                  <button
+                    class="rounded-md px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                    :disabled="isRunning(task.id)"
+                    @click="deleteTask(task.id)"
+                  >
+                    {{ i18nState.AGENT_MAKER_DELETE }}
+                  </button>
+                </div>
               </div>
-            </div>
-            <div class="flex shrink-0 gap-2">
-              <button
-                v-if="!isRunning(task.id)"
-                class="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                :disabled="!agentMaker.canStartRun"
-                @click="agentMaker.startRun(task.id)"
+
+              <!-- Live progress of this task's run -->
+              <div
+                v-if="isRunning(task.id) && activeRun"
+                role="status"
+                class="flex items-center justify-between gap-4 rounded-md bg-muted px-3 py-2"
               >
-                {{ i18nState.AGENT_MAKER_RUN }}
-              </button>
-              <button
-                class="rounded-md px-3 py-1.5 text-sm hover:bg-muted"
-                @click="viewRuns(task.id)"
-              >
-                {{ i18nState.AGENT_MAKER_HISTORY }}
-              </button>
-              <button
-                class="rounded-md px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50"
-                :disabled="isRunning(task.id)"
-                @click="openForm(task)"
-              >
-                {{ i18nState.AGENT_MAKER_EDIT }}
-              </button>
-              <button
-                class="rounded-md px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
-                :disabled="isRunning(task.id)"
-                @click="deleteTask(task.id)"
-              >
-                {{ i18nState.AGENT_MAKER_DELETE }}
-              </button>
-            </div>
+                <div class="flex min-w-0 items-center gap-2 text-sm">
+                  <span
+                    class="inline-block size-2 shrink-0 animate-pulse rounded-full bg-primary"
+                  />
+                  <span class="font-medium">{{ stepProgress() }}</span>
+                  <span class="truncate text-muted-foreground">
+                    {{ task.steps[activeRun.stepIndex] }}
+                  </span>
+                  <span v-if="runBusyLabel" class="shrink-0 text-xs text-muted-foreground">
+                    · {{ runBusyLabel }}
+                  </span>
+                </div>
+                <div class="flex shrink-0 gap-2">
+                  <button
+                    class="rounded-md px-3 py-1.5 text-sm hover:bg-background"
+                    @click="agentMaker.openRun(activeRun.sessionId)"
+                  >
+                    {{ i18nState.AGENT_MAKER_OPEN_IN_AGENT }}
+                  </button>
+                  <button
+                    class="rounded-md px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10"
+                    @click="agentMaker.stopRun()"
+                  >
+                    {{ i18nState.AGENT_MAKER_STOP }}
+                  </button>
+                </div>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Create / edit form -->
+        <div v-else-if="view === 'form'">
+          <AgentTaskForm :task="editingTask" @saved="backToList" @cancel="backToList" />
+        </div>
+
+        <!-- Run history -->
+        <div v-else-if="view === 'runs'">
+          <div v-if="!selectedTask" class="text-sm text-muted-foreground">
+            {{ i18nState.AGENT_MAKER_TASK_NOT_FOUND }}
           </div>
-
-          <!-- Live progress of this task's run -->
-          <div
-            v-if="isRunning(task.id) && activeRun"
-            role="status"
-            class="flex items-center justify-between gap-4 rounded-md bg-muted px-3 py-2"
-          >
-            <div class="flex min-w-0 items-center gap-2 text-sm">
-              <span class="inline-block size-2 shrink-0 animate-pulse rounded-full bg-primary" />
-              <span class="font-medium">{{ stepProgress() }}</span>
-              <span class="truncate text-muted-foreground">
-                {{ task.steps[activeRun.stepIndex] }}
-              </span>
-              <span v-if="runBusyLabel" class="shrink-0 text-xs text-muted-foreground">
-                · {{ runBusyLabel }}
-              </span>
-            </div>
-            <div class="flex shrink-0 gap-2">
-              <button
-                class="rounded-md px-3 py-1.5 text-sm hover:bg-background"
-                @click="agentMaker.openRun(activeRun.sessionId)"
+          <div v-else>
+            <h3 class="mb-3 text-base font-medium">{{ selectedTask.name }}</h3>
+            <p v-if="selectedTaskRuns.length === 0" class="text-sm text-muted-foreground">
+              {{ i18nState.AGENT_MAKER_NO_RUNS }}
+            </p>
+            <ul v-else class="flex flex-col gap-2">
+              <li
+                v-for="run in selectedTaskRuns"
+                :key="run.id"
+                class="flex items-center justify-between rounded-lg border border-border p-3"
               >
-                {{ i18nState.AGENT_MAKER_OPEN_IN_AGENT }}
-              </button>
-              <button
-                class="rounded-md px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10"
-                @click="agentMaker.stopRun()"
-              >
-                {{ i18nState.AGENT_MAKER_STOP }}
-              </button>
-            </div>
+                <div class="min-w-0 flex-1">
+                  <div class="text-sm font-medium">
+                    <span :class="STATUS_CLASSES[agentMaker.runStatus(run)]">
+                      {{ statusLabel(agentMaker.runStatus(run)) }}
+                    </span>
+                    · {{ new Date(run.createdAt).toLocaleString() }}
+                    <span v-if="activeRun?.sessionId === run.id" class="text-muted-foreground">
+                      · {{ stepProgress() }}
+                    </span>
+                  </div>
+                  <div v-if="run.taskRunError" class="text-xs text-muted-foreground">
+                    {{ run.taskRunError }}
+                  </div>
+                </div>
+                <div class="flex shrink-0 gap-2">
+                  <button
+                    v-if="activeRun?.sessionId === run.id"
+                    class="rounded-md px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10"
+                    @click="agentMaker.stopRun()"
+                  >
+                    {{ i18nState.AGENT_MAKER_STOP }}
+                  </button>
+                  <button
+                    class="rounded-md px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50"
+                    :disabled="!!activeRun && activeRun.sessionId !== run.id"
+                    @click="agentMaker.openRun(run.id)"
+                  >
+                    {{ i18nState.AGENT_MAKER_OPEN_IN_AGENT }}
+                  </button>
+                </div>
+              </li>
+            </ul>
           </div>
-        </li>
-      </ul>
-    </div>
-
-    <!-- Create / edit form -->
-    <div v-else-if="view === 'form'" class="flex-1 overflow-y-auto px-6 py-4">
-      <AgentTaskForm :task="editingTask" @saved="backToList" @cancel="backToList" />
-    </div>
-
-    <!-- Run history -->
-    <div v-else-if="view === 'runs'" class="flex-1 overflow-y-auto px-6 py-4">
-      <div v-if="!selectedTask" class="text-sm text-muted-foreground">
-        {{ i18nState.AGENT_MAKER_TASK_NOT_FOUND }}
-      </div>
-      <div v-else>
-        <h3 class="mb-3 text-base font-medium">{{ selectedTask.name }}</h3>
-        <p v-if="selectedTaskRuns.length === 0" class="text-sm text-muted-foreground">
-          {{ i18nState.AGENT_MAKER_NO_RUNS }}
-        </p>
-        <ul v-else class="flex flex-col gap-2">
-          <li
-            v-for="run in selectedTaskRuns"
-            :key="run.id"
-            class="flex items-center justify-between rounded-lg border border-border p-3"
-          >
-            <div class="min-w-0 flex-1">
-              <div class="text-sm font-medium">
-                <span :class="STATUS_CLASSES[agentMaker.runStatus(run)]">
-                  {{ statusLabel(agentMaker.runStatus(run)) }}
-                </span>
-                · {{ new Date(run.createdAt).toLocaleString() }}
-                <span v-if="activeRun?.sessionId === run.id" class="text-muted-foreground">
-                  · {{ stepProgress() }}
-                </span>
-              </div>
-              <div v-if="run.taskRunError" class="text-xs text-muted-foreground">
-                {{ run.taskRunError }}
-              </div>
-            </div>
-            <div class="flex shrink-0 gap-2">
-              <button
-                v-if="activeRun?.sessionId === run.id"
-                class="rounded-md px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10"
-                @click="agentMaker.stopRun()"
-              >
-                {{ i18nState.AGENT_MAKER_STOP }}
-              </button>
-              <button
-                class="rounded-md px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50"
-                :disabled="!!activeRun && activeRun.sessionId !== run.id"
-                @click="agentMaker.openRun(run.id)"
-              >
-                {{ i18nState.AGENT_MAKER_OPEN_IN_AGENT }}
-              </button>
-            </div>
-          </li>
-        </ul>
+        </div>
       </div>
     </div>
 
     <!-- Agent Maker has no prompt bar, so the mode navigation sits in its own footer. -->
-    <div class="relative flex h-16 shrink-0 items-center border-t border-border px-3">
-      <ModeNavigation />
+    <div class="shrink-0">
+      <div class="mx-auto flex w-full max-w-3xl items-center px-4 pt-2 pb-4">
+        <ModeNavigation />
+      </div>
     </div>
   </div>
 </template>

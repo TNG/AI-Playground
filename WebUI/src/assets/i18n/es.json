@@ -193,6 +193,7 @@
   "AGENT_MAKER_UNSANDBOXED": "Usar la shell real del sistema en la carpeta de ejecución",
   "AGENT_MAKER_UNSANDBOXED_WARNING": "Los comandos se ejecutan en tu equipo con los permisos de tu usuario y pueden acceder a la red.",
   "AGENT_MAKER_MCP_SERVERS": "Servidores MCP",
+  "AGENT_MAKER_EMBEDDINGS": "Embeddings",
   "AGENT_MAKER_REMOVE_STEP": "Eliminar paso {index}",
   "AGENT_MAKER_STEP_COUNT": "Pasos: {count}",
   "AGENT_MAKER_STEP_PROGRESS": "Paso {current} de {total}",

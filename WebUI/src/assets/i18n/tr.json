@@ -193,6 +193,7 @@
   "AGENT_MAKER_UNSANDBOXED": "Çalıştırma klasöründe gerçek sistem kabuğunu kullan",
   "AGENT_MAKER_UNSANDBOXED_WARNING": "Komutlar bilgisayarınızda kullanıcı izinlerinizle çalışır ve ağa erişebilir.",
   "AGENT_MAKER_MCP_SERVERS": "MCP sunucuları",
+  "AGENT_MAKER_EMBEDDINGS": "Gömme modeli",
   "AGENT_MAKER_REMOVE_STEP": "{index}. adımı kaldır",
   "AGENT_MAKER_STEP_COUNT": "Adımlar: {count}",
   "AGENT_MAKER_STEP_PROGRESS": "Adım {current} / {total}",

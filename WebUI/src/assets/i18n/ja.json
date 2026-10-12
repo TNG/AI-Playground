@@ -193,6 +193,7 @@
   "AGENT_MAKER_UNSANDBOXED": "実行フォルダーで実際のシステムシェルを使用する",
   "AGENT_MAKER_UNSANDBOXED_WARNING": "コマンドはユーザーの権限でこのコンピューター上で実行され、ネットワークにアクセスできます。",
   "AGENT_MAKER_MCP_SERVERS": "MCP サーバー",
+  "AGENT_MAKER_EMBEDDINGS": "埋め込み",
   "AGENT_MAKER_REMOVE_STEP": "ステップ {index} を削除",
   "AGENT_MAKER_STEP_COUNT": "ステップ数: {count}",
   "AGENT_MAKER_STEP_PROGRESS": "ステップ {current} / {total}",

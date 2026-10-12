@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  resolveTaskEmbedding,
   resolveTaskModel,
   taskModelSupportsThinkingToggle,
   type TaskModelEnvironment,
@@ -125,6 +126,64 @@ describe('resolveTaskModel', () => {
         env().catalog,
       ),
     ).toBe(false)
+  })
+})
+
+describe('resolveTaskEmbedding', () => {
+  const embeddingModels = [
+    { name: 'BAAI/bge-m3', type: 'llamaCPP', downloaded: true },
+    { name: 'OpenVINO/bge-ov', type: 'openVINO', downloaded: false },
+  ]
+
+  it('is empty unless the task has rag and an embedding model', () => {
+    const model = { backend: 'llamaCPP' as const, model: QWEN, embeddingModel: 'BAAI/bge-m3' }
+    expect(resolveTaskEmbedding(model, ['media'], { embeddingModels })).toEqual({})
+    expect(
+      resolveTaskEmbedding({ backend: 'llamaCPP', model: QWEN }, ['rag'], { embeddingModels }),
+    ).toEqual({})
+  })
+
+  it('loads a downloaded embedding model with the LLM on the same backend', () => {
+    const resolved = resolveTaskEmbedding(
+      {
+        backend: 'llamaCPP',
+        model: QWEN,
+        embeddingModel: 'BAAI/bge-m3',
+        embeddingBackend: 'llamaCPP',
+      },
+      ['rag'],
+      { embeddingModels },
+    )
+    expect(resolved).toEqual({
+      embeddingModel: 'BAAI/bge-m3',
+      embeddingBackend: 'llamaCPP',
+      readinessEmbeddingModel: 'BAAI/bge-m3',
+    })
+  })
+
+  it('leaves a missing or other-backend model to the first rag call', () => {
+    const missing = resolveTaskEmbedding(
+      {
+        backend: 'openVINO',
+        model: 'x',
+        embeddingModel: 'OpenVINO/bge-ov',
+        embeddingBackend: 'openVINO',
+      },
+      ['rag'],
+      { embeddingModels },
+    )
+    expect(missing.readinessEmbeddingModel).toBeUndefined()
+    const cloud = resolveTaskEmbedding(
+      {
+        backend: 'cloud',
+        model: 'gpt-x',
+        embeddingModel: 'BAAI/bge-m3',
+        embeddingBackend: 'llamaCPP',
+      },
+      ['rag'],
+      { embeddingModels },
+    )
+    expect(cloud).toEqual({ embeddingModel: 'BAAI/bge-m3', embeddingBackend: 'llamaCPP' })
   })
 })
 

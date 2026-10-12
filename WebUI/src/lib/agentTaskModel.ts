@@ -48,8 +48,11 @@ export type TaskCloudProvider = {
   >
 }
 
+export type TaskEmbeddingModel = { name: string; type: string; downloaded: boolean }
+
 export type TaskModelEnvironment = {
   catalog: TaskCatalogModel[]
+  embeddingModels?: TaskEmbeddingModel[]
   services: TaskServiceInfo[]
   cloudProviders: TaskCloudProvider[]
   cloudProxyUrl?: string
@@ -92,6 +95,34 @@ export function taskContextSize(model: AgentTaskModel, entry?: TaskCatalogModel)
 
 export function normalizeCloudBaseUrl(url: string): string {
   return url.trim().replace(/\/+$/, '').replace(/\/v1$/, '')
+}
+
+export type ResolvedTaskEmbedding = {
+  embeddingModel?: string
+  embeddingBackend?: 'llamaCPP' | 'openVINO'
+  /** Set only once the file is on disk, so a missing model still prompts on first use. */
+  readinessEmbeddingModel?: string
+}
+
+/** The embedding model a task's `rag` capability runs on; empty when rag is off or unset. */
+export function resolveTaskEmbedding(
+  model: AgentTaskModel,
+  capabilities: readonly string[],
+  env: Pick<TaskModelEnvironment, 'embeddingModels'>,
+): ResolvedTaskEmbedding {
+  if (!capabilities.includes('rag') || !model.embeddingModel) return {}
+  const embeddingBackend = model.embeddingBackend ?? 'llamaCPP'
+  const downloaded = env.embeddingModels?.some(
+    (entry) =>
+      entry.name === model.embeddingModel && entry.type === embeddingBackend && entry.downloaded,
+  )
+  // The embedding server rides the LLM's readiness only when both share a backend.
+  const sameBackend = model.backend === embeddingBackend
+  return {
+    embeddingModel: model.embeddingModel,
+    embeddingBackend,
+    ...(downloaded && sameBackend ? { readinessEmbeddingModel: model.embeddingModel } : {}),
+  }
 }
 
 export function resolveTaskModel(

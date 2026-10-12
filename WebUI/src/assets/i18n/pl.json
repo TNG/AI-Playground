@@ -193,6 +193,7 @@
   "AGENT_MAKER_UNSANDBOXED": "Używaj prawdziwej powłoki systemowej w folderze uruchomienia",
   "AGENT_MAKER_UNSANDBOXED_WARNING": "Polecenia są wykonywane na Twoim komputerze z uprawnieniami Twojego użytkownika i mają dostęp do sieci.",
   "AGENT_MAKER_MCP_SERVERS": "Serwery MCP",
+  "AGENT_MAKER_EMBEDDINGS": "Embeddingi",
   "AGENT_MAKER_REMOVE_STEP": "Usuń krok {index}",
   "AGENT_MAKER_STEP_COUNT": "Kroki: {count}",
   "AGENT_MAKER_STEP_PROGRESS": "Krok {current} z {total}",

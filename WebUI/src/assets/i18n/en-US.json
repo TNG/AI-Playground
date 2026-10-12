@@ -193,6 +193,7 @@
   "AGENT_MAKER_UNSANDBOXED": "Use the real system shell in the run folder",
   "AGENT_MAKER_UNSANDBOXED_WARNING": "Commands run on your machine with your user's permissions and can reach the network.",
   "AGENT_MAKER_MCP_SERVERS": "MCP servers",
+  "AGENT_MAKER_EMBEDDINGS": "Embeddings",
   "AGENT_MAKER_REMOVE_STEP": "Remove step {index}",
   "AGENT_MAKER_STEP_COUNT": "Steps: {count}",
   "AGENT_MAKER_STEP_PROGRESS": "Step {current} of {total}",

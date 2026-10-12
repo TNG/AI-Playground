@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useAgentMaker } from '@/assets/js/store/agentMaker'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import {
@@ -16,6 +16,7 @@ import { useI18N } from '@/assets/js/store/i18n'
 import { useErrors } from '@/assets/js/store/errors'
 import { getAgentToolSpecs } from '@/assets/js/tools/agentBridge'
 import { useContextSizeField } from '@/assets/js/contextSizeField'
+import { useEmbeddingModelPicker } from '@/assets/js/embeddingModelPicker'
 import DropDownNew from '@/components/DropDownNew.vue'
 import DeviceSelector from '@/components/DeviceSelector.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
@@ -56,6 +57,8 @@ function initialModel(): AgentTaskModel {
     contextSize: textInference.contextSize,
     thinkingEnabled: textInference.thinkingEnabled,
     planningThinkingOnly: agentMode.planningThinkingOnly,
+    embeddingModel: textInference.activeEmbeddingModel ?? undefined,
+    embeddingBackend: textInference.embeddingBackend,
   }
 }
 
@@ -74,12 +77,52 @@ const builtInCapabilities = computed(() =>
   capabilityCatalog.value.filter((capability) => !capability.id.startsWith('mcp:')),
 )
 
-onMounted(async () => {
-  void mcp.refreshAvailableServers()
+// Embeddings run locally: on the task's own backend, or a local one for a cloud task.
+const embeddingBackend = computed<'llamaCPP' | 'openVINO'>(() =>
+  model.value.backend === 'cloud' ? textInference.embeddingBackend : model.value.backend,
+)
+const { items: embeddingModelItems } = useEmbeddingModelPicker(
+  () => textInference.llmEmbeddingModels,
+  embeddingBackend,
+)
+const ragAvailable = computed(() => capabilityCatalog.value.some((c) => c.id === 'rag'))
+const ragEnabled = computed(() => ragAvailable.value && capabilities.value.includes('rag'))
+
+// Keep the embedding model valid for the backend, without replacing a still-valid choice.
+watch(
+  [embeddingBackend, embeddingModelItems],
+  ([backend, items]) => {
+    const valid = items.some((item) => item.value === model.value.embeddingModel)
+    if (valid && model.value.embeddingBackend === backend) return
+    model.value = {
+      ...model.value,
+      embeddingBackend: backend,
+      embeddingModel: valid ? model.value.embeddingModel : items[0]?.value,
+    }
+  },
+  { immediate: true },
+)
+
+function setEmbeddingModel(value: string): void {
+  model.value = { ...model.value, embeddingModel: value }
+}
+
+async function refreshCapabilityCatalog(): Promise<void> {
   capabilityCatalog.value = await window.electronAPI.agentMode.listCapabilities({
     toolSpecs: getAgentToolSpecs(),
+    embeddingModel: model.value.embeddingModel,
   })
+}
+
+onMounted(async () => {
+  void mcp.refreshAvailableServers()
+  await refreshCapabilityCatalog()
 })
+
+watch(
+  () => model.value.embeddingModel,
+  () => void refreshCapabilityCatalog(),
+)
 
 function capabilityLabels(ids: string[]): string {
   return ids
@@ -211,6 +254,8 @@ async function save(): Promise<void> {
       contextSize: cloud ? undefined : contextSize.value,
       thinkingEnabled: showsThinking.value ? thinkingEnabled.value : undefined,
       planningThinkingOnly: showsThinking.value ? planningThinkingOnly.value : undefined,
+      embeddingModel: model.value.embeddingModel,
+      embeddingBackend: model.value.embeddingModel ? embeddingBackend.value : undefined,
     },
     capabilities: [...capabilities.value],
     instructions: instructions.value.trim() || undefined,
@@ -408,6 +453,18 @@ async function save(): Promise<void> {
             </span>
           </span>
         </label>
+      </div>
+
+      <!-- Same picker as Agent Settings, bound to the task. The model downloads on
+           first actual document search, not from here. -->
+      <div v-if="ragEnabled" class="grid grid-cols-[120px_1fr] items-center gap-4">
+        <Label class="whitespace-nowrap">{{ languages.AGENT_MAKER_EMBEDDINGS }}</Label>
+        <DropDownNew
+          :title="languages.RAG_DOCUMENT_EMBEDDING_MODEL"
+          :value="model.embeddingModel ?? ''"
+          :items="embeddingModelItems"
+          @change="setEmbeddingModel"
+        />
       </div>
 
       <Label class="whitespace-nowrap mt-2">{{ languages.AGENT_MAKER_MCP_SERVERS }}</Label>

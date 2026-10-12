@@ -193,6 +193,7 @@
   "AGENT_MAKER_UNSANDBOXED": "Usa la vera shell di sistema nella cartella di esecuzione",
   "AGENT_MAKER_UNSANDBOXED_WARNING": "I comandi vengono eseguiti sul tuo computer con i permessi del tuo utente e possono accedere alla rete.",
   "AGENT_MAKER_MCP_SERVERS": "Server MCP",
+  "AGENT_MAKER_EMBEDDINGS": "Embedding",
   "AGENT_MAKER_REMOVE_STEP": "Rimuovi passaggio {index}",
   "AGENT_MAKER_STEP_COUNT": "Passaggi: {count}",
   "AGENT_MAKER_STEP_PROGRESS": "Passaggio {current} di {total}",

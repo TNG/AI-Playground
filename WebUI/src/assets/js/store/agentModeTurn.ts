@@ -12,7 +12,7 @@ import { registerAgentModeIpc } from './agentModeIpc'
 import { CLOUD_DEFAULT_MODEL } from './cloudMode'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
 import type { AgentTask } from '@/types/agentMakerIpc'
-import type { ResolvedTaskModel } from '@/lib/agentTaskModel'
+import type { ResolvedTaskEmbedding, ResolvedTaskModel } from '@/lib/agentTaskModel'
 import type { AgentTurnSnapshot } from '@/types/kernelEvents'
 
 type ActiveTurn = {
@@ -203,13 +203,22 @@ export async function buildTaskTurnConfig(options: {
   workspaceDir: string
   task: AgentTask
   resolved: ResolvedTaskModel
+  embedding: ResolvedTaskEmbedding
   presetName: string
 }): Promise<AgentModeTurnConfig> {
   const toolSpecs = getAgentToolSpecs()
   const mediaAgent = toolSpecs.some((spec) => spec.name === 'media')
     ? (await import('../agents/mediaAgent')).serializeMediaAgentInner()
     : undefined
-  const { task, resolved } = options
+  const { task, resolved, embedding } = options
+  const readiness = resolved.readiness
+    ? {
+        ...resolved.readiness,
+        ...(embedding.readinessEmbeddingModel
+          ? { embeddingModelName: embedding.readinessEmbeddingModel }
+          : {}),
+      }
+    : undefined
   return {
     sessionId: options.sessionId,
     workspaceDir: options.workspaceDir,
@@ -222,7 +231,10 @@ export async function buildTaskTurnConfig(options: {
     unsandboxed: task.unsandboxed ?? false,
     keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
     planningThinkingOnly: resolved.planningThinkingOnly,
-    ...(resolved.readiness ? { readiness: resolved.readiness } : {}),
+    ...(embedding.embeddingModel
+      ? { embeddingModel: embedding.embeddingModel, embeddingBackend: embedding.embeddingBackend }
+      : {}),
+    ...(readiness ? { readiness } : {}),
   }
 }
 

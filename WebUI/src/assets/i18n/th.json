@@ -193,6 +193,7 @@
   "AGENT_MAKER_UNSANDBOXED": "ใช้เชลล์ระบบจริงในโฟลเดอร์ของการรัน",
   "AGENT_MAKER_UNSANDBOXED_WARNING": "คำสั่งจะทำงานบนเครื่องของคุณด้วยสิทธิ์ของผู้ใช้และเข้าถึงเครือข่ายได้",
   "AGENT_MAKER_MCP_SERVERS": "เซิร์ฟเวอร์ MCP",
+  "AGENT_MAKER_EMBEDDINGS": "เอ็มเบดดิง",
   "AGENT_MAKER_REMOVE_STEP": "ลบขั้นตอนที่ {index}",
   "AGENT_MAKER_STEP_COUNT": "ขั้นตอน: {count}",
   "AGENT_MAKER_STEP_PROGRESS": "ขั้นตอนที่ {current} จาก {total}",

@@ -193,6 +193,7 @@
   "AGENT_MAKER_UNSANDBOXED": "Dùng shell hệ thống thật trong thư mục chạy",
   "AGENT_MAKER_UNSANDBOXED_WARNING": "Lệnh chạy trên máy của bạn với quyền người dùng của bạn và có thể truy cập mạng.",
   "AGENT_MAKER_MCP_SERVERS": "Máy chủ MCP",
+  "AGENT_MAKER_EMBEDDINGS": "Embedding",
   "AGENT_MAKER_REMOVE_STEP": "Xóa bước {index}",
   "AGENT_MAKER_STEP_COUNT": "Số bước: {count}",
   "AGENT_MAKER_STEP_PROGRESS": "Bước {current}/{total}",

@@ -193,6 +193,7 @@
   "AGENT_MAKER_UNSANDBOXED": "在运行文件夹中使用真实的系统 Shell",
   "AGENT_MAKER_UNSANDBOXED_WARNING": "命令将以你的用户权限在本机运行，并可访问网络。",
   "AGENT_MAKER_MCP_SERVERS": "MCP 服务器",
+  "AGENT_MAKER_EMBEDDINGS": "嵌入模型",
   "AGENT_MAKER_REMOVE_STEP": "删除第 {index} 步",
   "AGENT_MAKER_STEP_COUNT": "步骤：{count}",
   "AGENT_MAKER_STEP_PROGRESS": "第 {current} 步，共 {total} 步",

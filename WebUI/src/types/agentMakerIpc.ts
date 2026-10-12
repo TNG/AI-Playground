@@ -27,6 +27,9 @@ export const AgentTaskModelSchema = z.object({
   contextSize: z.number().int().positive().optional(),
   thinkingEnabled: z.boolean().optional(),
   planningThinkingOnly: z.boolean().optional(),
+  /** Embedding model for the `rag` capability, served by a local backend. */
+  embeddingModel: z.string().optional(),
+  embeddingBackend: z.enum(['llamaCPP', 'openVINO']).optional(),
 })
 export type AgentTaskModel = z.infer<typeof AgentTaskModelSchema>
 

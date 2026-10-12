@@ -193,6 +193,7 @@
   "AGENT_MAKER_UNSANDBOXED": "Gunakan shell sistem asli di folder eksekusi",
   "AGENT_MAKER_UNSANDBOXED_WARNING": "Perintah berjalan di komputer Anda dengan izin pengguna Anda dan dapat mengakses jaringan.",
   "AGENT_MAKER_MCP_SERVERS": "Server MCP",
+  "AGENT_MAKER_EMBEDDINGS": "Embedding",
   "AGENT_MAKER_REMOVE_STEP": "Hapus langkah {index}",
   "AGENT_MAKER_STEP_COUNT": "Langkah: {count}",
   "AGENT_MAKER_STEP_PROGRESS": "Langkah {current} dari {total}",

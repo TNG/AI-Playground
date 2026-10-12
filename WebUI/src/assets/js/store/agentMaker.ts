@@ -12,7 +12,11 @@ import { AGENT_PRESET, type AgentSessionRecord } from './agentModeSessions'
 import { buildTaskTurnConfig } from './agentModeTurn'
 import { requestDownload } from '@/assets/js/permissions/permissions'
 import { isCancellation } from '@/assets/js/errors/appError'
-import { resolveTaskModel, type TaskModelEnvironment } from '@/lib/agentTaskModel'
+import {
+  resolveTaskEmbedding,
+  resolveTaskModel,
+  type TaskModelEnvironment,
+} from '@/lib/agentTaskModel'
 import type { AgentTask } from '@/types/agentMakerIpc'
 
 export type AgentRunStatus = 'running' | 'completed' | 'failed' | 'stopped' | 'interrupted'
@@ -78,6 +82,7 @@ export const useAgentMaker = defineStore('agentMaker', () => {
   async function taskEnvironment(task: AgentTask): Promise<TaskModelEnvironment> {
     return {
       catalog: textInference.llmModels.filter((m) => m.type !== 'cloud'),
+      embeddingModels: textInference.llmEmbeddingModels,
       services: backendServices.info,
       cloudProviders: cloudMode.providers,
       cloudProxyUrl: task.model.backend === 'cloud' ? await cloudMode.ensureProxyUrl() : undefined,
@@ -87,11 +92,13 @@ export const useAgentMaker = defineStore('agentMaker', () => {
   agentMode.setTaskRunTurnConfigBuilder(async ({ taskId, sessionId, workspaceDir }) => {
     const task = findTask(taskId)
     if (!task) throw new Error('The task this run belongs to no longer exists.')
+    const env = await taskEnvironment(task)
     return buildTaskTurnConfig({
       sessionId,
       workspaceDir,
       task,
-      resolved: resolveTaskModel(task.model, await taskEnvironment(task)),
+      resolved: resolveTaskModel(task.model, env),
+      embedding: resolveTaskEmbedding(task.model, task.capabilities, env),
       presetName: AGENT_PRESET,
     })
   })

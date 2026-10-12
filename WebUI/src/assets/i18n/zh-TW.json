@@ -193,6 +193,7 @@
   "AGENT_MAKER_UNSANDBOXED": "在執行資料夾中使用真正的系統 Shell",
   "AGENT_MAKER_UNSANDBOXED_WARNING": "指令會以你的使用者權限在本機執行，並可存取網路。",
   "AGENT_MAKER_MCP_SERVERS": "MCP 伺服器",
+  "AGENT_MAKER_EMBEDDINGS": "嵌入模型",
   "AGENT_MAKER_REMOVE_STEP": "刪除第 {index} 步",
   "AGENT_MAKER_STEP_COUNT": "步驟：{count}",
   "AGENT_MAKER_STEP_PROGRESS": "第 {current} 步，共 {total} 步",

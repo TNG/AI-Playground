@@ -40,6 +40,8 @@ export type AgentSessionRecord = {
   taskRunError?: string
   /** Current step index (0-based) for reconnect resume. */
   taskRunStepIndex?: number
+  /** Whether the run was started by hand or by the task's schedule. */
+  taskRunTrigger?: 'manual' | 'schedule'
 }
 
 /**
@@ -202,6 +204,7 @@ export function snapshotSession(options: {
     taskRunStatus: existing?.taskRunStatus,
     taskRunError: existing?.taskRunError,
     taskRunStepIndex: existing?.taskRunStepIndex,
+    taskRunTrigger: existing?.taskRunTrigger,
   }
 }
 

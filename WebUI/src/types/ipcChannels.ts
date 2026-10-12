@@ -372,6 +372,13 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string],
     result: null as unknown as IpcMutationResult,
   },
+  /** Remove one run's workspace folder (the run's session record goes via agentMode:deleteSession). */
+  'agentMaker:deleteRunWorkspace': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcMutationResult,
+  },
   /** Mint a run session + fresh workspace; the renderer drives the step loop. */
   'agentMaker:startRun': {
     kind: 'invoke',

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useAgentMaker, type AgentRunStatus } from '@/assets/js/store/agentMaker'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
@@ -7,12 +7,20 @@ import { useI18N } from '@/assets/js/store/i18n'
 import AgentTaskForm from '@/components/AgentTaskForm.vue'
 import ModeNavigation from '@/components/ModeNavigation.vue'
 import { busyLabelOf } from '@/lib/agentTranscript'
+import { describeSchedule, formatRunTime } from '@/lib/agentTaskSchedule'
+import { ClockIcon } from '@heroicons/vue/24/outline'
 import type { AgentTask } from '@/types/agentMakerIpc'
 
 const agentMaker = useAgentMaker()
 const agentMode = useAgentMode()
 const mediaRuns = useMediaAgentRuns()
-const { state: i18nState } = useI18N()
+const i18n = useI18N()
+const { state: i18nState } = i18n
+
+// Re-renders "next run" times as the clock moves on.
+const now = ref(Date.now())
+const clock = setInterval(() => (now.value = Date.now()), 30_000)
+onUnmounted(() => clearInterval(clock))
 
 type View = 'list' | 'form' | 'runs'
 const view = ref<View>('list')
@@ -66,6 +74,32 @@ function viewRuns(taskId: string): void {
 
 function modelLabel(task: AgentTask): string {
   return task.model.model.split('/').at(-1) ?? task.model.model
+}
+
+function scheduleLine(task: AgentTask): string {
+  if (!task.schedule) return ''
+  const summary = describeSchedule(
+    task.schedule,
+    {
+      everyMinutes: i18nState.AGENT_MAKER_SCHEDULE_EVERY_MINUTES,
+      everyHours: i18nState.AGENT_MAKER_SCHEDULE_EVERY_HOURS,
+      dailyAt: i18nState.AGENT_MAKER_SCHEDULE_DAILY_AT,
+      weeklyAt: i18nState.AGENT_MAKER_SCHEDULE_WEEKLY_AT,
+    },
+    i18n.langName,
+  )
+  void now.value
+  const next = agentMaker.nextScheduledRun(task)
+  return next
+    ? `${summary} · ${i18nState.AGENT_MAKER_SCHEDULE_NEXT.replace('{time}', formatRunTime(next, i18n.langName))}`
+    : summary
+}
+
+function skipLabel(taskId: string): string {
+  const reason = agentMaker.scheduleSkips[taskId]
+  if (reason === 'busy') return i18nState.AGENT_MAKER_SKIPPED_BUSY
+  if (reason === 'agent-in-use') return i18nState.AGENT_MAKER_SKIPPED_AGENT
+  return ''
 }
 
 function stepProgress(): string {
@@ -150,6 +184,16 @@ async function deleteTask(taskId: string): Promise<void> {
                       i18nState.AGENT_MAKER_STEP_COUNT.replace('{count}', String(task.steps.length))
                     }}
                     · {{ modelLabel(task) }}
+                  </div>
+                  <div
+                    v-if="task.schedule"
+                    class="mt-1 flex items-center gap-2 text-xs text-muted-foreground"
+                  >
+                    <ClockIcon class="size-3.5 shrink-0" />
+                    <span>{{ scheduleLine(task) }}</span>
+                  </div>
+                  <div v-if="skipLabel(task.id)" class="mt-1 text-xs text-amber-500">
+                    {{ skipLabel(task.id) }}
                   </div>
                 </div>
                 <div class="flex shrink-0 gap-2">
@@ -248,6 +292,12 @@ async function deleteTask(taskId: string): Promise<void> {
                       {{ statusLabel(agentMaker.runStatus(run)) }}
                     </span>
                     · {{ new Date(run.createdAt).toLocaleString() }}
+                    <span
+                      v-if="run.taskRunTrigger === 'schedule'"
+                      class="ml-1 rounded border border-border px-1 text-[10px] text-muted-foreground"
+                    >
+                      {{ i18nState.AGENT_MAKER_SCHEDULED }}
+                    </span>
                     <span v-if="activeRun?.sessionId === run.id" class="text-muted-foreground">
                       · {{ stepProgress() }}
                     </span>

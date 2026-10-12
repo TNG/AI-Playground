@@ -232,6 +232,7 @@ import {
 import {
   bootstrapAgentMaker,
   deleteAgentTask,
+  deleteRunWorkspace,
   mintRunWorkspace,
   saveAgentTask,
   setAgentMakerFileDeps,
@@ -1759,6 +1760,7 @@ function initEventHandle() {
       bootstrapAgentMaker,
       saveAgentTask,
       deleteAgentTask,
+      deleteRunWorkspace,
       mintRunWorkspace,
       saveAgentSession,
     }),

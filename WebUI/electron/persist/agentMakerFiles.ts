@@ -243,6 +243,13 @@ export async function mintRunWorkspace(taskSlug: string, runId: string): Promise
   return dir
 }
 
+/** Remove one run's workspace folder (retention keeps a task's newest runs). */
+export async function deleteRunWorkspace(taskId: string, runId: string): Promise<void> {
+  const entry = (await currentIndex()).tasks.find((t) => t.id === taskId)
+  if (!entry) return
+  await fs.rm(runWorkspaceDir(entry.slug, runId), { recursive: true, force: true })
+}
+
 /**
  * Remove a task's folder (task.json and every run workspace under `runs/`) and
  * its index entry. The run session records live in the agent-sessions

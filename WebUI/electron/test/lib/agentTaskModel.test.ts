@@ -210,12 +210,19 @@ describe('migrateAgentTaskDoc', () => {
       updatedAt: 2,
     }
     const parsed = AgentTaskSchema.parse(migrateAgentTaskDoc(v1))
-    expect(parsed.schemaVersion).toBe(2)
+    expect(parsed.schemaVersion).toBe(3)
     expect(parsed.model).toEqual({ backend: 'llamaCPP', model: QWEN, contextSize: 32768 })
   })
 
-  it('leaves a v2 document untouched', () => {
-    const doc = { schemaVersion: 2, id: 'x' }
+  it('raises a v2 document to v3 without touching its fields', () => {
+    expect(migrateAgentTaskDoc({ schemaVersion: 2, id: 'x' })).toEqual({
+      schemaVersion: 3,
+      id: 'x',
+    })
+  })
+
+  it('leaves a v3 document untouched', () => {
+    const doc = { schemaVersion: 3, id: 'x' }
     expect(migrateAgentTaskDoc(doc)).toBe(doc)
   })
 })

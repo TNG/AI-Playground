@@ -23,6 +23,7 @@ export const AgentSessionFileSchema = z.object({
   taskRunStatus: z.enum(['running', 'completed', 'failed', 'stopped']).optional(),
   taskRunError: z.string().optional(),
   taskRunStepIndex: z.number().optional(),
+  taskRunTrigger: z.enum(['manual', 'schedule']).optional(),
 })
 export type AgentSessionFile = z.infer<typeof AgentSessionFileSchema>
 

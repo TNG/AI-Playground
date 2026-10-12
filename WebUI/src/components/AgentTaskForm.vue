@@ -31,7 +31,13 @@ import {
   taskModelSupportsThinkingToggle,
 } from '@/lib/agentTaskModel'
 import { DEFAULT_CAPABILITY_IDS, mcpCapabilityId } from '@/types/agentCapabilities'
-import type { AgentTask, AgentTaskModel } from '@/types/agentMakerIpc'
+import {
+  MIN_SCHEDULE_INTERVAL_MINUTES,
+  type AgentTask,
+  type AgentTaskModel,
+  type AgentTaskSchedule,
+} from '@/types/agentMakerIpc'
+import { describeSchedule, formatRunTime, nextRunAt, weekdayNames } from '@/lib/agentTaskSchedule'
 import type { AgentCapabilityInfo } from '@/types/agentIpc'
 
 const props = defineProps<{ task: AgentTask | null }>()
@@ -45,7 +51,8 @@ const backendServices = useBackendServices()
 const productMode = useProductMode()
 const mcp = useMcp()
 const errors = useErrors()
-const { state: languages } = useI18N()
+const i18n = useI18N()
+const { state: languages } = i18n
 
 // A new task starts from the current Agent settings; from then on it is its own copy.
 function initialModel(): AgentTaskModel {
@@ -69,6 +76,80 @@ const capabilities = ref<string[]>(
   props.task ? [...props.task.capabilities] : [...DEFAULT_CAPABILITY_IDS],
 )
 const unsandboxed = ref(props.task?.unsandboxed ?? false)
+
+// ── Schedule ──
+type ScheduleKind = 'manual' | AgentTaskSchedule['kind']
+const initialSchedule = props.task?.schedule
+const scheduleKind = ref<ScheduleKind>(initialSchedule?.kind ?? 'manual')
+const intervalMinutes = initialSchedule?.kind === 'interval' ? initialSchedule.everyMinutes : 60
+const intervalUnit = ref<'minutes' | 'hours'>(intervalMinutes % 60 === 0 ? 'hours' : 'minutes')
+const intervalValue = ref(intervalMinutes % 60 === 0 ? intervalMinutes / 60 : intervalMinutes)
+const scheduleTime = ref(
+  initialSchedule && initialSchedule.kind !== 'interval' ? initialSchedule.time : '08:00',
+)
+const scheduleDays = ref<number[]>(
+  initialSchedule?.kind === 'weekly' ? [...initialSchedule.days] : [1, 2, 3, 4, 5],
+)
+
+const scheduleKindItems = computed(() => [
+  { label: languages.AGENT_MAKER_SCHEDULE_MANUAL, value: 'manual', active: true },
+  { label: languages.AGENT_MAKER_SCHEDULE_INTERVAL, value: 'interval', active: true },
+  { label: languages.AGENT_MAKER_SCHEDULE_DAILY, value: 'daily', active: true },
+  { label: languages.AGENT_MAKER_SCHEDULE_WEEKLY, value: 'weekly', active: true },
+])
+const intervalUnitItems = computed(() => [
+  { label: languages.AGENT_MAKER_SCHEDULE_MINUTES, value: 'minutes', active: true },
+  { label: languages.AGENT_MAKER_SCHEDULE_HOURS, value: 'hours', active: true },
+])
+// Monday first, matching how the summary lists the days.
+const weekdayChips = computed(() => {
+  const names = weekdayNames(i18n.langName)
+  return [1, 2, 3, 4, 5, 6, 0].map((day) => ({ day, label: names[day] }))
+})
+
+function toggleScheduleDay(day: number): void {
+  scheduleDays.value = scheduleDays.value.includes(day)
+    ? scheduleDays.value.filter((d) => d !== day)
+    : [...scheduleDays.value, day]
+}
+
+const intervalEveryMinutes = computed(() =>
+  Math.round(Number(intervalValue.value) * (intervalUnit.value === 'hours' ? 60 : 1)),
+)
+
+/** The schedule as entered, or null for "manual only" / an incomplete entry. */
+const schedule = computed<AgentTaskSchedule | null>(() => {
+  switch (scheduleKind.value) {
+    case 'interval':
+      return intervalEveryMinutes.value >= MIN_SCHEDULE_INTERVAL_MINUTES
+        ? { kind: 'interval', everyMinutes: intervalEveryMinutes.value }
+        : null
+    case 'daily':
+      return scheduleTime.value ? { kind: 'daily', time: scheduleTime.value } : null
+    case 'weekly':
+      return scheduleTime.value && scheduleDays.value.length > 0
+        ? { kind: 'weekly', days: [...scheduleDays.value].sort(), time: scheduleTime.value }
+        : null
+    default:
+      return null
+  }
+})
+
+const schedulePreview = computed(() => {
+  if (!schedule.value) return ''
+  const summary = describeSchedule(
+    schedule.value,
+    {
+      everyMinutes: languages.AGENT_MAKER_SCHEDULE_EVERY_MINUTES,
+      everyHours: languages.AGENT_MAKER_SCHEDULE_EVERY_HOURS,
+      dailyAt: languages.AGENT_MAKER_SCHEDULE_DAILY_AT,
+      weeklyAt: languages.AGENT_MAKER_SCHEDULE_WEEKLY_AT,
+    },
+    i18n.langName,
+  )
+  const next = formatRunTime(nextRunAt(schedule.value, Date.now()), i18n.langName)
+  return `${summary} · ${languages.AGENT_MAKER_SCHEDULE_NEXT.replace('{time}', next)}`
+})
 const model = ref<AgentTaskModel>(initialModel())
 const saving = ref(false)
 
@@ -235,6 +316,12 @@ async function save(): Promise<void> {
   if (!trimmedName) return invalid('Task name is required.', 'empty-name')
   if (trimmedSteps.length === 0) return invalid('At least one step is required.', 'empty-steps')
   if (!model.value.model) return invalid('Select a model for the task.', 'no-model')
+  if (scheduleKind.value !== 'manual' && !schedule.value) {
+    return invalid(
+      `Complete the schedule: an interval of at least ${MIN_SCHEDULE_INTERVAL_MINUTES} minutes, a time, and for weekly at least one day.`,
+      'invalid-schedule',
+    )
+  }
   const cloud = model.value.backend === 'cloud'
   if (cloud && !model.value.providerId) {
     return invalid('Select a cloud provider for the task.', 'no-provider')
@@ -242,7 +329,7 @@ async function save(): Promise<void> {
 
   const now = Date.now()
   const task: AgentTask = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     id: props.task?.id ?? `aipg-task-${crypto.randomUUID()}`,
     name: trimmedName,
     slug: props.task?.slug ?? '',
@@ -260,6 +347,8 @@ async function save(): Promise<void> {
     capabilities: [...capabilities.value],
     instructions: instructions.value.trim() || undefined,
     unsandboxed: unsandboxed.value || undefined,
+    schedule: schedule.value ?? undefined,
+    lastScheduledAt: props.task?.lastScheduledAt,
     createdAt: props.task?.createdAt ?? now,
     updatedAt: now,
   }
@@ -424,6 +513,85 @@ async function save(): Promise<void> {
         class="min-h-[4rem] w-full resize-y rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground"
         :placeholder="languages.AGENT_MAKER_INSTRUCTIONS_PLACEHOLDER"
       />
+    </div>
+
+    <!-- Schedule: a few presets instead of cron syntax. -->
+    <div class="border-t border-border pt-4 flex flex-col gap-3">
+      <Label class="whitespace-nowrap">{{ languages.AGENT_MAKER_SCHEDULE }}</Label>
+      <div class="grid grid-cols-[120px_1fr] items-center gap-4">
+        <Label class="whitespace-nowrap">{{ languages.AGENT_MAKER_SCHEDULE_RUN }}</Label>
+        <DropDownNew
+          :title="languages.AGENT_MAKER_SCHEDULE"
+          :value="scheduleKind"
+          :items="scheduleKindItems"
+          @change="(value) => (scheduleKind = value as ScheduleKind)"
+        />
+      </div>
+      <div v-if="scheduleKind === 'interval'" class="grid grid-cols-[120px_1fr] items-center gap-4">
+        <Label for="agent-task-interval" class="whitespace-nowrap">
+          {{ languages.AGENT_MAKER_SCHEDULE_INTERVAL }}
+        </Label>
+        <div class="flex items-center gap-2">
+          <input
+            id="agent-task-interval"
+            v-model.number="intervalValue"
+            type="number"
+            min="1"
+            class="h-7 w-20 rounded-sm border border-border bg-transparent px-2 text-center text-sm text-foreground"
+          />
+          <div class="w-32">
+            <DropDownNew
+              :title="languages.AGENT_MAKER_SCHEDULE_INTERVAL"
+              :value="intervalUnit"
+              :items="intervalUnitItems"
+              @change="(value) => (intervalUnit = value as 'minutes' | 'hours')"
+            />
+          </div>
+        </div>
+      </div>
+      <div
+        v-if="scheduleKind === 'weekly'"
+        role="group"
+        :aria-label="languages.AGENT_MAKER_SCHEDULE_DAYS"
+        class="grid grid-cols-[120px_1fr] items-center gap-4"
+      >
+        <Label class="whitespace-nowrap">{{ languages.AGENT_MAKER_SCHEDULE_DAYS }}</Label>
+        <div class="flex flex-wrap gap-1">
+          <button
+            v-for="chip in weekdayChips"
+            :key="chip.day"
+            type="button"
+            :aria-pressed="scheduleDays.includes(chip.day)"
+            class="rounded-md border px-2.5 py-1 text-xs"
+            :class="
+              scheduleDays.includes(chip.day)
+                ? 'border-primary bg-primary text-primary-foreground'
+                : 'border-border text-foreground hover:bg-muted'
+            "
+            @click="toggleScheduleDay(chip.day)"
+          >
+            {{ chip.label }}
+          </button>
+        </div>
+      </div>
+      <div
+        v-if="scheduleKind === 'daily' || scheduleKind === 'weekly'"
+        class="grid grid-cols-[120px_1fr] items-center gap-4"
+      >
+        <Label for="agent-task-time" class="whitespace-nowrap">
+          {{ languages.AGENT_MAKER_SCHEDULE_TIME }}
+        </Label>
+        <input
+          id="agent-task-time"
+          v-model="scheduleTime"
+          type="time"
+          class="h-7 w-32 rounded-sm border border-border bg-transparent px-2 text-sm text-foreground"
+        />
+      </div>
+      <p v-if="schedulePreview" class="text-xs text-foreground">{{ schedulePreview }}</p>
+      <p v-if="scheduleKind !== 'manual'" class="text-xs text-muted-foreground">
+        {{ languages.AGENT_MAKER_SCHEDULE_HINT }}
+      </p>
     </div>
 
     <!-- Capabilities: same list and wording as Agent Settings. -->

@@ -8,18 +8,31 @@ import { useTextInference } from './textInference'
 import { useCloudMode } from './cloudMode'
 import { useBackendServices } from './backendServices'
 import { useModels } from './models'
+import { usePromptStore } from './promptArea'
+import { useDemoMode } from './demoMode'
 import { AGENT_PRESET, type AgentSessionRecord } from './agentModeSessions'
 import { buildTaskTurnConfig } from './agentModeTurn'
 import { requestDownload } from '@/assets/js/permissions/permissions'
 import { isCancellation } from '@/assets/js/errors/appError'
+import { cloneForIpc } from '@/lib/cloneForIpc'
 import {
   resolveTaskEmbedding,
   resolveTaskModel,
   type TaskModelEnvironment,
 } from '@/lib/agentTaskModel'
+import { decideScheduledRun, isTaskDue, runsToPrune, taskNextRunAt } from '@/lib/agentTaskSchedule'
 import type { AgentTask } from '@/types/agentMakerIpc'
 
 export type AgentRunStatus = 'running' | 'completed' | 'failed' | 'stopped' | 'interrupted'
+
+export type RunTrigger = 'manual' | 'schedule'
+
+export type ScheduleSkipReason = 'busy' | 'agent-in-use'
+
+const SCHEDULER_TICK_MS = 30_000
+let schedulerTimer: ReturnType<typeof setInterval> | null = null
+
+const MODEL_NOT_DOWNLOADED = 'Model not downloaded. Run the task manually once to download it.'
 
 export type ActiveAgentRun = {
   taskId: string
@@ -44,6 +57,8 @@ export const useAgentMaker = defineStore('agentMaker', () => {
   const cloudMode = useCloudMode()
   const backendServices = useBackendServices()
   const models = useModels()
+  const promptStore = usePromptStore()
+  const demoMode = useDemoMode()
 
   const tasks = ref<AgentTask[]>([])
   const hydrated = ref(false)
@@ -51,6 +66,13 @@ export const useAgentMaker = defineStore('agentMaker', () => {
   /** Task whose run history the Agent Maker view opens on (set by "Back to Agent Maker"). */
   const focusTaskId = ref<string | null>(null)
   let stopRequested = false
+  /** Covers the awaits before `activeRun` is set, so two starts cannot overlap. */
+  const starting = ref(false)
+  /** When the scheduler started watching each task's schedule; earlier times are not caught up. */
+  const armedAt: Record<string, number> = {}
+  /** Why a task's last scheduled time did not run (in memory only). */
+  const scheduleSkips = ref<Record<string, ScheduleSkipReason>>({})
+  let ticking = false
 
   async function init(): Promise<void> {
     if (hydrated.value) return
@@ -67,6 +89,7 @@ export const useAgentMaker = defineStore('agentMaker', () => {
       })
     }
     hydrated.value = true
+    startScheduler()
   }
 
   function findTask(id: string): AgentTask | undefined {
@@ -104,7 +127,8 @@ export const useAgentMaker = defineStore('agentMaker', () => {
   })
 
   async function saveTask(task: AgentTask): Promise<boolean> {
-    const result = await window.electronAPI.agentMaker.save(task)
+    const previous = findTask(task.id)
+    const result = await window.electronAPI.agentMaker.save(cloneForIpc(task))
     if (!result.success) {
       errors.report(new Error(result.error), {
         category: 'unknown',
@@ -121,7 +145,37 @@ export const useAgentMaker = defineStore('agentMaker', () => {
     tasks.value = tasks.value.some((t) => t.id === task.id)
       ? tasks.value.map((t) => (t.id === task.id ? next : t))
       : [...tasks.value, next]
+    if (!previous || JSON.stringify(previous.schedule) !== JSON.stringify(next.schedule)) {
+      rearm(next.id)
+    }
     return true
+  }
+
+  /** Write fields that are not an edit of the task, so `updatedAt` (list order) stays. */
+  async function patchTask(id: string, patch: Partial<AgentTask>): Promise<void> {
+    const task = findTask(id)
+    if (!task) return
+    const next = { ...task, ...patch }
+    tasks.value = tasks.value.map((t) => (t.id === id ? next : t))
+    const result = await window.electronAPI.agentMaker.save(cloneForIpc(next))
+    if (!result.success) {
+      errors.report(new Error(result.error), {
+        category: 'unknown',
+        code: 'agent-maker/save-failed',
+        userMessage: `Could not save the task: ${result.error}`,
+        surface: 'silent',
+      })
+    }
+  }
+
+  function rearm(taskId: string): void {
+    armedAt[taskId] = Date.now()
+    const { [taskId]: _dropped, ...rest } = scheduleSkips.value
+    scheduleSkips.value = rest
+  }
+
+  function nextScheduledRun(task: AgentTask): number | null {
+    return taskNextRunAt(task, armedAt[task.id] ?? Date.now())
   }
 
   async function deleteTask(id: string): Promise<void> {
@@ -154,7 +208,7 @@ export const useAgentMaker = defineStore('agentMaker', () => {
     return status
   }
 
-  const canStartRun = computed(() => !activeRun.value && !agentMode.processing)
+  const canStartRun = computed(() => !activeRun.value && !starting.value && !agentMode.processing)
 
   function reportRunFailure(error: unknown, userMessage: string): void {
     errors.report(error, {
@@ -165,48 +219,35 @@ export const useAgentMaker = defineStore('agentMaker', () => {
     })
   }
 
-  async function ensureModelDownloaded(task: AgentTask): Promise<void> {
-    if (task.model.backend === 'cloud') return
-    const openVINO = task.model.backend === 'openVINO'
-    const checked = await models.checkModelAlreadyLoaded([
-      {
+  /** The task's chat model, plus its embedding model when it searches documents. */
+  async function missingModels(task: AgentTask) {
+    const wanted: Parameters<typeof models.checkModelAlreadyLoaded>[0] = []
+    if (task.model.backend !== 'cloud') {
+      const openVINO = task.model.backend === 'openVINO'
+      wanted.push({
         repo_id: task.model.model,
         type: openVINO ? 'openvinoLLM' : 'ggufLLM',
         backend: openVINO ? 'openvino' : 'llama_cpp',
-      },
-    ])
-    const missing = checked.filter((m) => !m.already_loaded)
-    if (missing.length > 0) await requestDownload(missing)
+      })
+    }
+    if (task.capabilities.includes('rag') && task.model.embeddingModel) {
+      wanted.push({
+        repo_id: task.model.embeddingModel,
+        type: 'embedding',
+        backend: task.model.embeddingBackend === 'openVINO' ? 'openvino' : 'llama_cpp',
+      })
+    }
+    if (wanted.length === 0) return []
+    return (await models.checkModelAlreadyLoaded(wanted)).filter((m) => !m.already_loaded)
   }
 
-  /**
-   * Start a run and drive its steps as consecutive turns of one session. The
-   * run executes in the background of the Agent Maker view; `openRun` shows it
-   * in Agent Mode. Afterwards the session stays open, still on the task's model.
-   */
-  async function startRun(taskId: string): Promise<void> {
-    const task = findTask(taskId)
-    if (!task || !canStartRun.value) return
-
-    try {
-      resolveTaskModel(task.model, await taskEnvironment(task))
-      await ensureModelDownloaded(task)
-    } catch (error) {
-      if (isCancellation(error)) return
-      reportRunFailure(error, `Could not start the run: ${(error as Error).message ?? error}`)
-      return
-    }
-
-    const result = await window.electronAPI.agentMaker.startRun(taskId)
-    if (!result.success) {
-      reportRunFailure(new Error(result.error), `Could not start the run: ${result.error}`)
-      return
-    }
-    const { sessionId, workspaceDir } = result
+  async function mintRun(task: AgentTask, trigger: RunTrigger) {
+    const result = await window.electronAPI.agentMaker.startRun(task.id)
+    if (!result.success) throw new Error(result.error)
     const now = Date.now()
     agentMode.adoptSessionRecord({
-      id: sessionId,
-      workspaceDir,
+      id: result.sessionId,
+      workspaceDir: result.workspaceDir,
       title: task.name,
       messages: [],
       createdAt: now,
@@ -217,11 +258,87 @@ export const useAgentMaker = defineStore('agentMaker', () => {
       taskId: task.id,
       taskRunStatus: 'running',
       taskRunStepIndex: 0,
+      taskRunTrigger: trigger,
     })
+    return result
+  }
 
-    stopRequested = false
-    activeRun.value = { taskId, sessionId, stepIndex: 0, stepCount: task.steps.length }
+  /** A scheduled run that could not start still leaves an entry in the run history. */
+  async function recordFailedRun(task: AgentTask, reason: string): Promise<void> {
     try {
+      const { sessionId } = await mintRun(task, 'schedule')
+      agentMode.patchSessionRecord(sessionId, { taskRunStatus: 'failed', taskRunError: reason })
+      await pruneRuns(task.id, [sessionId])
+    } catch (error) {
+      errors.report(error, {
+        category: 'inference',
+        code: 'agent-maker/schedule-failed',
+        userMessage: `Scheduled run of "${task.name}" failed: ${reason}`,
+        surface: 'silent',
+      })
+    }
+  }
+
+  async function pruneRuns(taskId: string, keepIds: string[]): Promise<void> {
+    const doomed = runsToPrune(taskRuns(taskId), [...keepIds, agentMode.activeSessionId])
+    for (const id of doomed) {
+      await agentMode.deleteSession(id)
+      await window.electronAPI.agentMaker.deleteRunWorkspace(taskId, id)
+    }
+  }
+
+  /** Put back the agent session the user had before a run took over the Agent view. */
+  async function restoreSession(runSessionId: string, previousId: string): Promise<void> {
+    if (agentMode.activeSessionId !== runSessionId) return
+    if (promptStore.getCurrentMode() === 'agent') return
+    if (previousId && agentMode.sessions[previousId]) {
+      await agentMode.switchSession(previousId, { keepPreset: true })
+    } else {
+      await agentMode.startNew()
+    }
+  }
+
+  /**
+   * Start a run and drive its steps as consecutive turns of one session. The
+   * run executes in the background of the Agent Maker view; `openRun` shows it
+   * in Agent Mode. A manual run may ask to download its models; a scheduled one
+   * has been checked by the scheduler and never prompts.
+   */
+  async function startRun(taskId: string, options: { trigger?: RunTrigger } = {}): Promise<void> {
+    const trigger = options.trigger ?? 'manual'
+    const task = findTask(taskId)
+    if (!task || !canStartRun.value) return
+    starting.value = true
+    let sessionId: string
+    const previousSessionId = agentMode.activeSessionId
+    try {
+      try {
+        resolveTaskModel(task.model, await taskEnvironment(task))
+        if (trigger === 'manual') {
+          const missing = await missingModels(task)
+          if (missing.length > 0) await requestDownload(missing)
+        }
+      } catch (error) {
+        if (isCancellation(error)) return
+        const message = (error as Error).message ?? String(error)
+        if (trigger === 'schedule') await recordFailedRun(task, message)
+        else reportRunFailure(error, `Could not start the run: ${message}`)
+        return
+      }
+      try {
+        sessionId = (await mintRun(task, trigger)).sessionId
+      } catch (error) {
+        reportRunFailure(error, `Could not start the run: ${(error as Error).message}`)
+        return
+      }
+      stopRequested = false
+      activeRun.value = { taskId, sessionId, stepIndex: 0, stepCount: task.steps.length }
+    } finally {
+      starting.value = false
+    }
+
+    try {
+      await pruneRuns(taskId, [sessionId])
       await agentMode.switchSession(sessionId, { keepPreset: true })
       for (let i = 0; i < task.steps.length; i++) {
         if (stopRequested || agentMode.activeSessionId !== sessionId) {
@@ -254,7 +371,73 @@ export const useAgentMaker = defineStore('agentMaker', () => {
     } finally {
       activeRun.value = null
       stopRequested = false
+      await restoreSession(sessionId, previousSessionId)
     }
+  }
+
+  // ── Scheduler ──────────────────────────────────────────────────────────────
+
+  async function handleDueTask(task: AgentTask, runStarted: boolean): Promise<boolean> {
+    await patchTask(task.id, { lastScheduledAt: Date.now() })
+    let missing: Awaited<ReturnType<typeof missingModels>> = []
+    let checkError: string | null = null
+    try {
+      missing = await missingModels(task)
+    } catch (error) {
+      checkError = (error as Error).message ?? String(error)
+    }
+    const decision = decideScheduledRun({
+      runActive: runStarted || !!activeRun.value || starting.value,
+      agentModeVisible: promptStore.getCurrentMode() === 'agent',
+      agentTurnRunning: agentMode.processing,
+      modelMissing: missing.length > 0,
+    })
+    if (decision.action === 'skip') {
+      scheduleSkips.value = { ...scheduleSkips.value, [task.id]: decision.reason }
+      return false
+    }
+    const { [task.id]: _cleared, ...rest } = scheduleSkips.value
+    scheduleSkips.value = rest
+    if (decision.action === 'fail') {
+      await recordFailedRun(task, MODEL_NOT_DOWNLOADED)
+      return false
+    }
+    if (checkError) {
+      await recordFailedRun(task, checkError)
+      return false
+    }
+    void startRun(task.id, { trigger: 'schedule' })
+    return true
+  }
+
+  async function tick(): Promise<void> {
+    if (ticking || demoMode.enabled) return
+    ticking = true
+    try {
+      const now = Date.now()
+      let runStarted = false
+      for (const task of [...tasks.value]) {
+        armedAt[task.id] ??= now
+        if (!isTaskDue(task, armedAt[task.id], now)) continue
+        if (await handleDueTask(task, runStarted)) runStarted = true
+      }
+    } catch (error) {
+      errors.report(error, {
+        category: 'unknown',
+        code: 'agent-maker/scheduler-failed',
+        userMessage: 'The task scheduler failed.',
+        surface: 'silent',
+      })
+    } finally {
+      ticking = false
+    }
+  }
+
+  function startScheduler(): void {
+    if (schedulerTimer) clearInterval(schedulerTimer)
+    const now = Date.now()
+    for (const task of tasks.value) armedAt[task.id] = now
+    schedulerTimer = setInterval(() => void tick(), SCHEDULER_TICK_MS)
   }
 
   async function stopRun(): Promise<void> {
@@ -287,6 +470,8 @@ export const useAgentMaker = defineStore('agentMaker', () => {
   return {
     tasks,
     focusTaskId,
+    scheduleSkips,
+    nextScheduledRun,
     backToAgentMaker,
     hydrated,
     activeRun,
@@ -305,5 +490,9 @@ export const useAgentMaker = defineStore('agentMaker', () => {
 })
 
 if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    if (schedulerTimer) clearInterval(schedulerTimer)
+    schedulerTimer = null
+  })
   import.meta.hot.accept(acceptHMRUpdate(useAgentMaker, import.meta.hot))
 }

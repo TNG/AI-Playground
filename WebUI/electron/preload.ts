@@ -351,6 +351,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     bootstrap: () => invoke('agentMaker:bootstrap'),
     save: (task: AgentTask) => invoke('agentMaker:save', cloneForIpc(task)),
     delete: (taskId: string) => invoke('agentMaker:delete', taskId),
+    deleteRunWorkspace: (taskId: string, runId: string) =>
+      invoke('agentMaker:deleteRunWorkspace', taskId, runId),
     startRun: (taskId: string) => invoke('agentMaker:startRun', taskId),
   },
   games: {

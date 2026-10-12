@@ -4,6 +4,7 @@ import { AgentTaskSchema } from '@/types/agentMakerIpc'
 import type {
   bootstrapAgentMaker,
   deleteAgentTask,
+  deleteRunWorkspace,
   mintRunWorkspace,
   saveAgentTask,
 } from '../../persist/agentMakerFiles'
@@ -22,6 +23,7 @@ export type AgentMakerDeps = {
   bootstrapAgentMaker: typeof bootstrapAgentMaker
   saveAgentTask: typeof saveAgentTask
   deleteAgentTask: typeof deleteAgentTask
+  deleteRunWorkspace: typeof deleteRunWorkspace
   mintRunWorkspace: typeof mintRunWorkspace
   saveAgentSession: typeof saveAgentSession
 }
@@ -52,6 +54,17 @@ export function buildAgentMakerRegistry(deps: AgentMakerDeps) {
       try {
         if (typeof taskId !== 'string') throw new Error('task id must be a string')
         await deps.deleteAgentTask(taskId)
+        return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'agentMaker:deleteRunWorkspace': async (_event, taskId, runId) => {
+      try {
+        if (typeof taskId !== 'string' || typeof runId !== 'string') {
+          throw new Error('task and run ids must be strings')
+        }
+        await deps.deleteRunWorkspace(taskId, runId)
         return { success: true as const }
       } catch (e) {
         return ipcFail(e)

@@ -8,8 +8,20 @@ export type SettingsBag = Record<string, unknown>
 export function usesSessionSettings(
   preset: { name: string; agentPreset?: boolean } | null | undefined,
 ): boolean {
-  return preset?.agentPreset === true && preset.name === 'Agent'
+  return preset?.agentPreset === true && presetNameUsesSessionSettings(preset.name)
 }
+
+/** The same gate by name, for session records read before the preset catalog has loaded. */
+export function presetNameUsesSessionSettings(name: string | undefined): boolean {
+  return name === 'Agent'
+}
+
+/**
+ * Bag keys holding the capability and planning parts of the Default Settings. Not
+ * `planningThinkingOnly`: that key is a legacy chat-bag field the agent store strips.
+ */
+export const DEFAULT_CAPABILITIES_KEY = 'agentCapabilities'
+export const DEFAULT_PLANNING_THINKING_ONLY_KEY = 'agentPlanningThinkingOnly'
 
 /** Bag keys whose values belong to the session rather than to the Default Settings. */
 const SESSION_OWNED_KEYS = [

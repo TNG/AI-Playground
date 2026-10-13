@@ -352,10 +352,11 @@ describe('useAgentMode session write-through', () => {
     await vi.waitFor(() => expect(agentModeApi.saveSession).toHaveBeenCalledTimes(1))
     const saved = agentModeApi.saveSession.mock.calls[0]?.[0] as {
       id: string
-      capabilities?: string[]
+      settings?: { capabilities?: string[] }
     }
     expect(saved).toMatchObject({ id: 'aipg-agent-1' })
-    expect(saved.capabilities).toContain('web-debug')
+    // The Agent preset keeps capabilities in the session's own settings.
+    expect(saved.settings?.capabilities).toContain('web-debug')
   })
 
   it('forwards an empty active id as null (the games preset has no open session)', async () => {
@@ -381,7 +382,7 @@ describe('useAgentMode session write-through', () => {
     await vi.waitFor(() => expect(errorsReport).toHaveBeenCalled())
     expect(errorsReport.mock.calls[0][0]).toMatchObject({ message: 'disk full' })
     expect(store.sessions['aipg-agent-1']).toMatchObject({ id: 'aipg-agent-1' })
-    expect(store.sessions['aipg-agent-1'].capabilities).toContain('web-debug')
+    expect(store.sessions['aipg-agent-1'].settings?.capabilities).toContain('web-debug')
   })
 
   it('keeps the row when the kernel refuses the delete', async () => {

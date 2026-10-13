@@ -93,8 +93,9 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
       }
       return await deps.startAgentTurn(turnId, prompt, parsed.data)
     },
-    'agentMode:cancel': () => {
-      deps.cancelAgentTurn()
+    'agentMode:cancel': (_event, sessionId, turnId) => {
+      if (typeof sessionId !== 'string') return
+      deps.cancelAgentTurn(sessionId, typeof turnId === 'string' ? turnId : undefined)
     },
     'agentMode:resetSession': async () => {
       await deps.resetAgentSession()

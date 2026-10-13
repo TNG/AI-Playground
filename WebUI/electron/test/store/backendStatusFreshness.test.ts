@@ -28,7 +28,7 @@ vi.stubGlobal('window', {
     getKernelSnapshot: vi.fn(async () => ({
       scope: { kind: 'global' },
       sequence: 0,
-      state: { services: [NOT_STARTED], activeTurn: null },
+      state: { services: [NOT_STARTED], agentTurns: [] },
     })),
     onServiceSetUpProgress: vi.fn(),
     getComfyUiDefaultParameters: vi.fn(async () => ''),

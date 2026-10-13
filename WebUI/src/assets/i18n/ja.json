@@ -579,5 +579,15 @@
   "AGENT_SETTING_MCP_SERVER": "MCP サーバー",
   "AGENT_SETTING_EMBEDDING_MODEL": "埋め込みモデル",
   "AGENT_TURN_QUEUED": "待機中",
-  "AGENT_TURN_QUEUED_DETAIL": "実行中のターンが終わるのを待っています…"
+  "AGENT_TURN_QUEUED_DETAIL": "実行中のターンが終わるのを待っています…",
+  "HISTORY_STATUS_RUNNING": "実行中",
+  "HISTORY_STATUS_QUEUED": "待機中",
+  "HISTORY_STATUS_QUEUED_AT": "待機中、{position}番目",
+  "HISTORY_STATUS_PAUSED": "入力が必要です",
+  "HISTORY_STATUS_UNSEEN": "新しい結果",
+  "HISTORY_STATUS_UNSEEN_FAILED": "ターンが失敗しました",
+  "HISTORY_QUEUE_ORDINAL_ONE": "{n}番目",
+  "HISTORY_QUEUE_ORDINAL_TWO": "{n}番目",
+  "HISTORY_QUEUE_ORDINAL_FEW": "{n}番目",
+  "HISTORY_QUEUE_ORDINAL_OTHER": "{n}番目"
 }

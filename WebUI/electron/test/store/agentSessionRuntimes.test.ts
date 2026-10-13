@@ -436,5 +436,83 @@ describe('games presets keep stop-on-switch', () => {
 
     expect(cancel).toHaveBeenCalledWith('game-1', turnId)
     expect(store.anyTurnOpen).toBe(false)
+    // A turn the user stopped by leaving it is not a new result.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(store.unseenTurns).toEqual({})
+  })
+})
+
+describe('history status of Agent Sessions', () => {
+  it('shows a running session, then marks its result unseen until it is opened', async () => {
+    const store = await storeWithBackgroundTurn()
+    expect(store.sessionTurns).toEqual({ 'session-b': { state: 'running', queuePosition: null } })
+
+    pushEvent({ type: 'agent-turn-done', sessionId: 'session-b', turnId: 'turn-b' })
+    await vi.waitFor(() => expect(store.unseenTurns).toEqual({ 'session-b': 'done' }))
+    expect(store.sessionTurns).toEqual({})
+
+    await store.switchSession('session-b')
+    expect(store.unseenTurns).toEqual({})
+  })
+
+  it('marks a turn that failed out of sight as failed', async () => {
+    const store = await storeWithBackgroundTurn()
+    pushEvent({
+      type: 'agent-chunk',
+      sessionId: 'session-b',
+      turnId: 'turn-b',
+      chunk: { type: 'error', errorText: 'model refused' },
+    })
+    pushEvent({ type: 'agent-turn-done', sessionId: 'session-b', turnId: 'turn-b' })
+    await vi.waitFor(() => expect(store.unseenTurns).toEqual({ 'session-b': 'failed' }))
+  })
+
+  it('does not mark a turn that ended in the Open Session', async () => {
+    const store = await storeWithBackgroundTurn()
+    await store.switchSession('session-b')
+    pushEvent({ type: 'agent-turn-done', sessionId: 'session-b', turnId: 'turn-b' })
+    await vi.waitFor(() => expect(store.anyTurnOpen).toBe(false))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(store.unseenTurns).toEqual({})
+  })
+
+  it('follows a queued turn’s position as the turns ahead of it leave', async () => {
+    const store = useAgentMode()
+    await store.init()
+    resolveSnapshot(snapshotWith([]))
+    store.workspaceDir = '/work/session-a'
+    const sent = store.generate('wait your turn')
+    await vi.waitFor(() => expect(startTurn).toHaveBeenCalled())
+    const turnId = startTurn.mock.calls[0][0]
+    const queueEvent = (action: string, position?: number) =>
+      pushEvent({
+        type: 'queue-event',
+        kind: 'text',
+        action,
+        runKey: turnId,
+        conversationKey: 'session-a',
+        queueDepth: 0,
+        position,
+      })
+
+    queueEvent('enqueued', 2)
+    expect(store.sessionTurns['session-a']).toEqual({ state: 'queued', queuePosition: 2 })
+    queueEvent('moved', 1)
+    expect(store.sessionTurns['session-a']).toEqual({ state: 'queued', queuePosition: 1 })
+    queueEvent('started')
+    pushEvent({ type: 'agent-turn-state', sessionId: 'session-a', turnId, state: 'running' })
+    expect(store.sessionTurns['session-a']).toEqual({ state: 'running', queuePosition: null })
+
+    await store.stop()
+    await sent
+  })
+
+  it('takes a queued turn’s position from the snapshot after a reload', async () => {
+    const store = useAgentMode()
+    await store.init()
+    resolveSnapshot(snapshotWith([{ ...RUNNING_B, state: 'queued', queuePosition: 3, chunks: [] }]))
+    await vi.waitFor(() =>
+      expect(store.sessionTurns['session-b']).toEqual({ state: 'queued', queuePosition: 3 }),
+    )
   })
 })

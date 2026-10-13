@@ -579,5 +579,15 @@
   "AGENT_SETTING_MCP_SERVER": "MCP server",
   "AGENT_SETTING_EMBEDDING_MODEL": "Embedding model",
   "AGENT_TURN_QUEUED": "Queued",
-  "AGENT_TURN_QUEUED_DETAIL": "Waiting for the running turn to finish…"
+  "AGENT_TURN_QUEUED_DETAIL": "Waiting for the running turn to finish…",
+  "HISTORY_STATUS_RUNNING": "Running",
+  "HISTORY_STATUS_QUEUED": "Queued",
+  "HISTORY_STATUS_QUEUED_AT": "Queued, position {position}",
+  "HISTORY_STATUS_PAUSED": "Needs your input",
+  "HISTORY_STATUS_UNSEEN": "New result",
+  "HISTORY_STATUS_UNSEEN_FAILED": "Turn failed",
+  "HISTORY_QUEUE_ORDINAL_ONE": "{n}st",
+  "HISTORY_QUEUE_ORDINAL_TWO": "{n}nd",
+  "HISTORY_QUEUE_ORDINAL_FEW": "{n}rd",
+  "HISTORY_QUEUE_ORDINAL_OTHER": "{n}th"
 }

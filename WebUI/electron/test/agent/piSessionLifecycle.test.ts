@@ -733,7 +733,7 @@ describe('turn streaming', () => {
       const session = await sessionEndingWith(silent)
       const manager = await loadManager()
       session.prompt.mockImplementationOnce(async () => {
-        manager.cancelAgentTurn()
+        manager.cancelAgentTurn(configFor().sessionId)
         session.messages = [...session.messages, silent]
       })
 
@@ -819,7 +819,7 @@ describe('turn streaming', () => {
       const session = await sessionEndingWith()
       const manager = await loadManager()
       session.prompt.mockImplementationOnce(async () => {
-        manager.cancelAgentTurn()
+        manager.cancelAgentTurn(configFor().sessionId)
         session.messages = [...session.messages, refused('aborted by the user')]
       })
 

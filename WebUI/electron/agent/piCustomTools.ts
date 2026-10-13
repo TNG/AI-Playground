@@ -7,6 +7,7 @@ import { appLoggerInstance } from '../observability/logger.ts'
 import { emitAgentToolImage } from '../kernel/kernelBus.ts'
 import { typedSend } from '../kernel/typedIpc.ts'
 import { noteGeneratedMedia } from './generatedMedia.ts'
+import { agentTurns } from './piAgentState.ts'
 
 // ── Agent Mode tool plumbing ─────────────────────────────────────────────────
 //
@@ -136,9 +137,17 @@ export function executeToolInRenderer(
  * Tool results are model context, so an image can only be put in front of the
  * USER over a side channel: the renderer merges these by tool call id and draws
  * them under the tool card, the same way it does with streamed tool output.
+ * The image belongs to the open turn of the session whose tool produced it.
  */
-export function sendToolImage(toolCallId: string, dataUri: string, label: string): void {
-  emitAgentToolImage(toolCallId, dataUri, label)
+export function sendToolImage(
+  sessionId: string,
+  toolCallId: string,
+  dataUri: string,
+  label: string,
+): void {
+  const turn = agentTurns.get(sessionId)
+  if (!turn) return
+  emitAgentToolImage(sessionId, turn.turnId, toolCallId, dataUri, label)
 }
 
 const DATA_URI_MIME_BY_EXT: Record<string, string> = {

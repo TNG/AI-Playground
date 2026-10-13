@@ -102,6 +102,7 @@ async function buildBrowserTool(host: CapabilityHost): Promise<ToolDefinition[]>
         if (result.screenshotPath) {
           try {
             sendToolImage(
+              host.sessionId,
               toolCallId,
               workspaceFileToDataUri(host.workspaceDir, result.screenshotPath),
               result.screenshotPath,

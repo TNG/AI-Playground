@@ -565,5 +565,9 @@
   "ARCADE_MANAGE_SHOW_GAME": "{arcade}에 {game} 표시",
   "ARCADE_MANAGE_DONE": "완료",
   "ARCADE_MANAGE_FAILED": "{arcade}를 업데이트할 수 없습니다.",
-  "HOME_AGENT_LAN_INSECURE_STORAGE": "OS 키링을 사용할 수 없습니다. LAN chat 비밀번호는 암호화되지 않고 **디스크에서 난독화**됩니다.\n\n암호화된 저장을 위해 키링 데몬(GNOME Keyring 또는 KWallet)을 설치하고 실행하세요.\n\n이 비밀번호가 보호되지 않는다는 점을 이해한 경우에만 계속하세요."
+  "HOME_AGENT_LAN_INSECURE_STORAGE": "OS 키링을 사용할 수 없습니다. LAN chat 비밀번호는 암호화되지 않고 **디스크에서 난독화**됩니다.\n\n암호화된 저장을 위해 키링 데몬(GNOME Keyring 또는 KWallet)을 설치하고 실행하세요.\n\n이 비밀번호가 보호되지 않는다는 점을 이해한 경우에만 계속하세요.",
+  "AGENT_SAVE_AS_DEFAULT": "기본값으로 저장",
+  "AGENT_RESET_TO_DEFAULT": "기본값으로 재설정",
+  "AGENT_SAVED_AS_DEFAULT": "새 Agent 세션의 기본값으로 저장했습니다",
+  "AGENT_RESET_TO_DEFAULT_DONE": "이 세션을 기본 설정으로 재설정했습니다"
 }

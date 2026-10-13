@@ -39,6 +39,11 @@ import { useI18N } from './i18n'
 import { useUIStore } from './ui'
 import { renamePresetKeys } from '@/lib/presetRenames'
 import { repairChatSettings } from '@/lib/chatSettingsRepair'
+import {
+  usesSessionSettings,
+  withoutSessionOwnedKeys,
+  type SettingsBag,
+} from '@/lib/agentSessionSettings'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { boundMaxOutputTokens } from '@/lib/maxOutputTokens'
 import { formatRagSources } from '@/lib/ragSources'
@@ -1504,7 +1509,10 @@ export const useTextInference = defineStore(
       // Set flag to prevent watcher from interfering
       isLoadingSettings = true
 
-      const savedSettings = settingsPerPreset.value[settingsKey] || {}
+      const defaultSettings = settingsPerPreset.value[settingsKey] || {}
+      const binding = usesSessionSettings(activePreset.value) ? sessionSettingsBinding : null
+      const sessionSettings = binding?.load(defaultSettings) ?? null
+      const savedSettings = sessionSettings ?? defaultSettings
       console.log('Loading settings for preset', settingsKey, savedSettings)
       const preset = activePreset.value
 
@@ -1751,6 +1759,9 @@ export const useTextInference = defineStore(
       // itself did not change here, so the watcher would not fire.
       applyModelInferenceDefaults()
 
+      // A session with no settings of its own (a Draft Session) takes the repaired defaults.
+      if (binding && !sessionSettings) binding.save(currentSettingsBag())
+
       // Defer clearing the flag so the persistence watcher (default flush:
       // 'pre') sees `isLoadingSettings === true` when it runs for the writes
       // above. Otherwise it would re-save the freshly-loaded values and
@@ -1868,6 +1879,54 @@ export const useTextInference = defineStore(
     // Track if we're currently loading settings to prevent watcher from saving during load
     let isLoadingSettings = false
 
+    /** The live settings in the shape `settingsPerPreset` stores them. */
+    function currentSettingsBag(): SettingsBag {
+      return {
+        backend: backend.value,
+        selectedModels: { ...selectedModels.value },
+        selectedEmbeddingModels: { ...selectedEmbeddingModels.value },
+        selectedDeviceId: getCurrentDeviceId(),
+        selectedDeviceUuid: getCurrentDeviceUuid(),
+        maxTokens: maxTokens.value,
+        contextSize: contextSize.value,
+        requestedContextSize: requestedContextSize.value,
+        contextSizeEdited: contextSizeEdited.value,
+        temperature: temperature.value,
+        temperatureFromModel: temperatureFromModel.value,
+        reasoningEffort: reasoningEffort.value,
+        reasoningEffortFromModel: reasoningEffortFromModel.value,
+        systemPrompt: systemPrompt.value,
+        metricsEnabled: metricsEnabled.value,
+        aipgToolsEnabled: aipgToolsEnabled.value,
+        mcpToolsEnabled: mcpToolsEnabled.value,
+        toolDelegationEnabled: toolDelegationEnabled.value,
+        builtinToolEnablement: { ...builtinToolEnablement.value },
+        speakReplies: speakReplies.value,
+        builtinToolPresetEnablement: { ...builtinToolPresetEnablement.value },
+        builtinToolDefaultPresets: { ...builtinToolDefaultPresets.value },
+        thinkingEnabled: thinkingEnabled.value,
+        ragMode: ragMode.value,
+        // Persisted so switching back to standard RAG still restores the pre-KM
+        // value after an app restart (see stashedStandardContextSize declaration).
+        stashedStandardContextSize: stashedStandardContextSize.value,
+      }
+    }
+
+    /**
+     * Where the Agent preset's live settings come from and go to: the active Agent Session
+     * (registered by the agent store) instead of the preset's bag, which holds the defaults.
+     */
+    type SessionSettingsBinding = {
+      /** The session's settings laid over the defaults, or null when it has none yet. */
+      load: (defaults: SettingsBag) => SettingsBag | null
+      save: (bag: SettingsBag) => void
+    }
+    let sessionSettingsBinding: SessionSettingsBinding | null = null
+
+    function bindSessionSettings(binding: SessionSettingsBinding | null): void {
+      sessionSettingsBinding = binding
+    }
+
     // Watch for setting changes and save them to settingsPerPreset
     // Note: Preset/variant changes are now handled by the orchestrator, not by watchers
     watch(
@@ -1902,37 +1961,18 @@ export const useTextInference = defineStore(
         // Allow saving when settingsKey exists (preset name is available)
         if (!settingsKey) return
 
-        // Save settings to per-preset storage
-        settingsPerPreset.value[settingsKey] = {
-          ...settingsPerPreset.value[settingsKey],
-          backend: backend.value,
-          selectedModels: { ...selectedModels.value },
-          selectedEmbeddingModels: { ...selectedEmbeddingModels.value },
-          selectedDeviceId: getCurrentDeviceId(),
-          selectedDeviceUuid: getCurrentDeviceUuid(),
-          maxTokens: maxTokens.value,
-          contextSize: contextSize.value,
-          requestedContextSize: requestedContextSize.value,
-          contextSizeEdited: contextSizeEdited.value,
-          temperature: temperature.value,
-          temperatureFromModel: temperatureFromModel.value,
-          reasoningEffort: reasoningEffort.value,
-          reasoningEffortFromModel: reasoningEffortFromModel.value,
-          systemPrompt: systemPrompt.value,
-          metricsEnabled: metricsEnabled.value,
-          aipgToolsEnabled: aipgToolsEnabled.value,
-          mcpToolsEnabled: mcpToolsEnabled.value,
-          toolDelegationEnabled: toolDelegationEnabled.value,
-          builtinToolEnablement: { ...builtinToolEnablement.value },
-          speakReplies: speakReplies.value,
-          builtinToolPresetEnablement: { ...builtinToolPresetEnablement.value },
-          builtinToolDefaultPresets: { ...builtinToolDefaultPresets.value },
-          thinkingEnabled: thinkingEnabled.value,
-          ragMode: ragMode.value,
-          // Persisted so switching back to standard RAG still restores the pre-KM
-          // value after an app restart (see stashedStandardContextSize declaration).
-          stashedStandardContextSize: stashedStandardContextSize.value,
+        const bag = currentSettingsBag()
+        const binding = usesSessionSettings(activePreset.value) ? sessionSettingsBinding : null
+        if (binding) {
+          // The preset's bag holds the Default Settings; session-owned values go to the session.
+          binding.save(bag)
+          settingsPerPreset.value[settingsKey] = {
+            ...settingsPerPreset.value[settingsKey],
+            ...withoutSessionOwnedKeys(bag),
+          }
+          return
         }
+        settingsPerPreset.value[settingsKey] = { ...settingsPerPreset.value[settingsKey], ...bag }
       },
       { deep: true },
     )
@@ -2062,6 +2102,7 @@ export const useTextInference = defineStore(
     )
 
     return {
+      bindSessionSettings,
       backend,
       activeModel,
       selectedModels,

@@ -332,6 +332,7 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
             // session; a failed download can be retried on the next call.
             const prep = (await untilAbort(
               executeToolInRenderer(
+                host.sessionId,
                 RAG_PREPARE_EMBEDDING_MODEL,
                 { model: embeddingModel, backend: embeddingBackend },
                 toolCallId,

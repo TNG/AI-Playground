@@ -175,7 +175,7 @@ describe('useAgentMode session hydration', () => {
     await store.init()
 
     expect(store.sessions['aipg-agent-1']).toMatchObject({ id: 'aipg-agent-1', title: 'a session' })
-    expect(store.activeSessionId).toBe('aipg-agent-1')
+    expect(store.openSessionId).toBe('aipg-agent-1')
     // restoreActiveSession put the record's transcript into the live chat.
     expect(store.chat.messages).toHaveLength(1)
     expect(agentModeApi.migrateSessions).not.toHaveBeenCalled()
@@ -194,7 +194,7 @@ describe('useAgentMode session hydration', () => {
 
     await store.init()
 
-    expect(store.activeSessionId).toBe('')
+    expect(store.openSessionId).toBe('')
     expect(store.chat.messages).toEqual([])
   })
 
@@ -332,7 +332,7 @@ describe('useAgentMode session write-through', () => {
     agentModeApi.bootstrapSessions.mockResolvedValue({ status: 'empty' })
     const store: Store = useAgentMode()
     store.sessions = { 'aipg-agent-1': wireRecord('aipg-agent-1') as never }
-    store.activeSessionId = 'aipg-agent-1'
+    store.openSessionId = 'aipg-agent-1'
 
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(agentModeApi.saveSession).not.toHaveBeenCalled()
@@ -344,7 +344,7 @@ describe('useAgentMode session write-through', () => {
     store.sessions = {
       'aipg-agent-1': { ...wireRecord('aipg-agent-1'), capabilities: ['media'] } as never,
     }
-    store.activeSessionId = 'aipg-agent-1'
+    store.openSessionId = 'aipg-agent-1'
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(agentModeApi.saveSession).not.toHaveBeenCalled()
 
@@ -361,13 +361,13 @@ describe('useAgentMode session write-through', () => {
 
   it('forwards an empty active id as null (the games preset has no open session)', async () => {
     const store = await hydratedStore()
-    store.activeSessionId = 'aipg-agent-1'
+    store.openSessionId = 'aipg-agent-1'
     await vi.waitFor(() =>
       expect(agentModeApi.saveActiveSessionId).toHaveBeenCalledWith('aipg-agent-1'),
     )
     agentModeApi.saveActiveSessionId.mockClear()
 
-    store.activeSessionId = ''
+    store.openSessionId = ''
     await vi.waitFor(() => expect(agentModeApi.saveActiveSessionId).toHaveBeenCalledWith(null))
   })
 
@@ -376,7 +376,7 @@ describe('useAgentMode session write-through', () => {
     store.sessions = {
       'aipg-agent-1': { ...wireRecord('aipg-agent-1'), capabilities: ['media'] } as never,
     }
-    store.activeSessionId = 'aipg-agent-1'
+    store.openSessionId = 'aipg-agent-1'
     agentModeApi.saveSession.mockResolvedValueOnce({ success: false, error: 'disk full' })
     store.setCapabilityEnabled('web-debug', true)
     await vi.waitFor(() => expect(errorsReport).toHaveBeenCalled())

@@ -90,6 +90,7 @@ export function rejectAllPendingToolCalls(reason: string): void {
 }
 
 export function executeToolInRenderer(
+  sessionId: string,
   toolName: string,
   input: Record<string, unknown>,
   toolCallId: string,
@@ -123,6 +124,7 @@ export function executeToolInRenderer(
     if (mainWin) {
       typedSend(mainWin.webContents, 'agentMode:executeTool', {
         requestId,
+        sessionId,
         toolCallId,
         toolName,
         input,

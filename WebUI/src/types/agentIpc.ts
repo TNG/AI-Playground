@@ -86,6 +86,8 @@ export type AgentModeTurnConfig = z.infer<typeof AgentModeTurnConfigSchema>
  */
 export type AgentToolExecuteRequest = {
   requestId: string
+  /** The Agent Session whose turn called the tool. */
+  sessionId: string
   /** Model-side tool call id, matching the UI message part (progress keying). */
   toolCallId: string
   toolName: string

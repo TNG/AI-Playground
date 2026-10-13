@@ -1022,15 +1022,18 @@ export const useOpenAiCompatibleChat = defineStore(
         //    body; the engine in main runs the stream from there.
         const chat = getOrCreateChat(targetKey)
 
-        if (!sideChannel) {
-          messageInput.value = question
-        }
         const effectiveFiles =
           options?.files && options.files.length > 0
             ? options.files
             : !sideChannel && fileInput.value.length > 0
               ? fileInput.value
               : undefined
+        // The field clears on Send: the message (and its attachments) is in the
+        // transcript from here on, queued or running, and can be regenerated there.
+        if (clearInputs) {
+          messageInput.value = ''
+          fileInput.value = []
+        }
         const turnExtras = await buildTurnExtras(targetKey, question, true)
         try {
           await chat.sendMessage(
@@ -1053,10 +1056,6 @@ export const useOpenAiCompatibleChat = defineStore(
           }
         }
 
-        // The Chat onError hook records stream failures. A failed turn should keep
-        // the user's prompt/attachments for retry instead of clearing them.
-        const hadError = !!chat.error && !manuallyStopped.value
-
         const outgoingMessages = chat.messages
 
         // 5. Store RAG source in message metadata
@@ -1078,12 +1077,6 @@ export const useOpenAiCompatibleChat = defineStore(
 
         // 6. Live projection only — the engine already wrote the thread file.
         conversations.applyConversationMessages(chat.messages, targetKey)
-
-        // 7. Clear inputs only on a clean turn, so failures/stops are retryable.
-        if (clearInputs && !hadError) {
-          messageInput.value = ''
-          fileInput.value = []
-        }
       } finally {
         computeMetrics.endTurn()
         unmarkGenerating(targetKey)

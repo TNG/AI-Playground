@@ -1,6 +1,7 @@
 import { useActivities } from '@/assets/js/store/activities'
 import { useI18N } from '@/assets/js/store/i18n'
-import type { KernelQueueEvent } from '@/types/kernelEvents'
+import { queueOrdinal } from '@/assets/js/store/historyEntries'
+import type { KernelQueueEvent, TurnWork } from '@/types/kernelEvents'
 
 // ── Queue-event projection (architecture-target §4.4, step 7) ──────────────────
 //
@@ -9,21 +10,33 @@ import type { KernelQueueEvent } from '@/types/kernelEvents'
 // a chat tool's own "Generating image…" activity already covers the wait, so
 // while its run is PARKED the activity is relabelled with its queue position
 // and restored when the run starts or is cancelled while queued. Panel runs
-// and chat-turn `text` occupancy carry no activityId — panel waiting is the
-// generation FSM's `queued` phase; text occupancy is kernel visibility.
+// carry no activityId — panel waiting is the generation FSM's `queued` phase.
+// A Chat / Home Agent turn waiting in the Turn Queue gets its own chat-scoped
+// activity ("Queued (2nd), waiting for …") until it takes the place; agent
+// turns show their wait on the session instead.
+
+type I18nState = ReturnType<typeof useI18N>['state']
 
 let unsubscribe: (() => void) | null = null
 const stashed = new Map<string, { activityId: string; label: string }>()
+const queuedTurns = new Map<string, string>()
+
+const WAITING_FOR_KEYS: Record<TurnWork, string> = {
+  agent: 'COM_ACTIVITY_TURN_QUEUED_FOR_AGENT',
+  chat: 'COM_ACTIVITY_TURN_QUEUED_FOR_CHAT',
+  summary: 'COM_ACTIVITY_TURN_QUEUED_FOR_SUMMARY',
+}
 
 export function startQueueActivityProjection(): void {
   if (unsubscribe) return
   const subscribe = window.electronAPI?.onKernelEvent
   if (!subscribe) return
   const activities = useActivities()
-  const i18nState = useI18N().state
+  const i18n = useI18N()
   unsubscribe = subscribe((event) => {
     if (event.type !== 'queue-event') return
-    applyQueueEvent(activities, i18nState, event)
+    if (event.kind === 'text') applyTurnQueueEvent(activities, i18n, event)
+    else applyQueueEvent(activities, i18n.state, event)
   })
 }
 
@@ -31,6 +44,45 @@ export function stopQueueActivityProjection(): void {
   unsubscribe?.()
   unsubscribe = null
   stashed.clear()
+  queuedTurns.clear()
+}
+
+function applyTurnQueueEvent(
+  activities: ReturnType<typeof useActivities>,
+  i18n: ReturnType<typeof useI18N>,
+  event: KernelQueueEvent,
+): void {
+  if (event.work !== 'chat' || !event.conversationKey) return
+  const activityId = queuedTurns.get(event.runKey)
+  if (event.position === undefined) {
+    if (!activityId) return
+    queuedTurns.delete(event.runKey)
+    activities.end(activityId)
+    return
+  }
+  const label = turnQueuedLabel(i18n.state, i18n.langName, event.position, event.holder)
+  if (activityId) {
+    activities.update(activityId, { label })
+    return
+  }
+  queuedTurns.set(
+    event.runKey,
+    activities.begin({
+      category: 'backend',
+      label,
+      scope: { kind: 'chat', conversationKey: event.conversationKey },
+    }),
+  )
+}
+
+function turnQueuedLabel(
+  i18nState: I18nState,
+  locale: string,
+  position: number,
+  holder: TurnWork | undefined,
+): string {
+  const pattern = i18nState[holder ? WAITING_FOR_KEYS[holder] : 'COM_ACTIVITY_TURN_QUEUED']
+  return (pattern ?? '').replace('{position}', queueOrdinal(position, locale, i18nState))
 }
 
 function applyQueueEvent(

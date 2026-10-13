@@ -1051,6 +1051,7 @@ describe('turn streaming', () => {
         conversationKey: 'aipg-agent-1',
         needsGpu: true,
         joinsTurnQueue: true,
+        work: 'agent',
       },
       expect.any(AbortSignal),
     )

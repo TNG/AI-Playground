@@ -25,6 +25,9 @@ import {
   type LegacyAgentSessionState,
 } from '@/types/agentSessionIpc'
 import {
+  DEFAULT_CAPABILITIES_KEY,
+  DEFAULT_PLANNING_THINKING_ONLY_KEY,
+  presetNameUsesSessionSettings,
   sessionSettingsToBag,
   updateSessionSettingsFromBag,
   usesSessionSettings,
@@ -204,14 +207,55 @@ export const useAgentMode = defineStore(
      */
     const activeSettings = ref<AgentSessionSettings | null>(null)
 
+    const sessionScoped = computed(() => usesSessionSettings(activeAgentPreset.value))
+
+    type AgentDefaults = { capabilities: string[]; planningThinkingOnly: boolean }
+
+    /**
+     * The capability and planning half of the Agent preset's Default Settings. Until the
+     * preset's bag holds them, the former global values stand in (`migrate` copies them in).
+     */
+    function readAgentDefaults(): AgentDefaults {
+      const bag = textInference.settingsPerPreset?.[AGENT_PRESET] ?? {}
+      const capabilities = bag[DEFAULT_CAPABILITIES_KEY]
+      const planning = bag[DEFAULT_PLANNING_THINKING_ONLY_KEY]
+      return {
+        capabilities: Array.isArray(capabilities)
+          ? [...(capabilities as string[])]
+          : [...defaultCapabilities.value],
+        planningThinkingOnly: typeof planning === 'boolean' ? planning : planningThinkingOnly.value,
+      }
+    }
+
+    /** Copy the former global defaults into the Agent preset's Default Settings once. */
+    function migrateAgentDefaults(): AgentDefaults {
+      const defaults = readAgentDefaults()
+      const bags = textInference.settingsPerPreset
+      if (!bags) return defaults
+      const bag = bags[AGENT_PRESET] ?? {}
+      if (DEFAULT_CAPABILITIES_KEY in bag && DEFAULT_PLANNING_THINKING_ONLY_KEY in bag) {
+        return defaults
+      }
+      textInference.settingsPerPreset = {
+        ...bags,
+        [AGENT_PRESET]: {
+          ...bag,
+          [DEFAULT_CAPABILITIES_KEY]: defaults.capabilities,
+          [DEFAULT_PLANNING_THINKING_ONLY_KEY]: defaults.planningThinkingOnly,
+        },
+      }
+      return defaults
+    }
+
     textInference.bindSessionSettings({
       load: (defaults, embeddingBackend) =>
         activeSettings.value
           ? sessionSettingsToBag(activeSettings.value, defaults, embeddingBackend)
           : null,
       save: (bag, embeddingBackend) => {
+        // A Draft Session's first save also takes the capability and planning defaults.
         activeSettings.value = updateSessionSettingsFromBag(
-          activeSettings.value,
+          activeSettings.value ?? migrateAgentDefaults(),
           bag,
           embeddingBackend,
         )
@@ -238,20 +282,36 @@ export const useAgentMode = defineStore(
     /** An accepted `offer_game_agent`, waiting for the turn that offered it to end. */
     const pendingHandoff = ref<{ summary: string; request: string } | null>(null)
 
-    const capabilities = computed<string[]>(
-      () =>
+    const capabilities = computed<string[]>(() => {
+      if (sessionScoped.value) {
+        return activeSettings.value?.capabilities ?? readAgentDefaults().capabilities
+      }
+      return (
         sessions.value[activeSessionId.value]?.capabilities ??
         sessionCapabilities.value ??
         presetCapabilities.value ??
-        defaultCapabilities.value,
-    )
+        defaultCapabilities.value
+      )
+    })
 
     function isCapabilityEnabled(id: string): boolean {
       return capabilities.value.includes(id)
     }
 
+    /** Change the active session's own settings and keep its record (if any) in step. */
+    function updateActiveSettings(change: AgentSessionSettings): void {
+      activeSettings.value = { ...activeSettings.value, ...change }
+      const session = sessions.value[activeSessionId.value]
+      if (!session) return
+      rewriteSession(activeSessionId.value, { ...session, settings: { ...activeSettings.value } })
+    }
+
     function setCapabilityEnabled(id: string, enabled: boolean): void {
       const next = toggleCapabilityIds(capabilities.value, id, enabled)
+      if (sessionScoped.value) {
+        updateActiveSettings({ capabilities: next })
+        return
+      }
       if (presetCapabilities.value) sessionCapabilities.value = next
       else defaultCapabilities.value = next
       const session = sessions.value[activeSessionId.value]
@@ -273,12 +333,30 @@ export const useAgentMode = defineStore(
       planningThinkingOnly.value = true
       sessionCapabilities.value = null
       defaultCapabilities.value = [...DEFAULT_CAPABILITIES]
+      if (sessionScoped.value) {
+        updateActiveSettings(migrateAgentDefaults())
+        return
+      }
       const session = sessions.value[activeSessionId.value]
       if (!session) return
       // Not `capabilities.value`: that still reads the session's own copy, which
       // is the very override being cleared here.
       const restored = presetCapabilities.value ?? defaultCapabilities.value
       rewriteSession(activeSessionId.value, { ...session, capabilities: [...restored] })
+    }
+
+    /** An Agent session saved before Session Settings keeps its capabilities at the top level. */
+    function adoptLegacySessionCapabilities(): void {
+      const next = { ...sessions.value }
+      let changed = false
+      for (const [id, record] of Object.entries(next)) {
+        if (!presetNameUsesSessionSettings(record.presetName)) continue
+        if (!record.capabilities || record.settings?.capabilities) continue
+        const { capabilities: legacy, ...rest } = record
+        next[id] = { ...rest, settings: { ...record.settings, capabilities: legacy } }
+        changed = true
+      }
+      if (changed) sessions.value = next
     }
 
     async function migrateSessionPresets(): Promise<void> {
@@ -399,6 +477,9 @@ export const useAgentMode = defineStore(
           // Renamed records persist with their next snapshot, so legacy
           // sessions may re-run this once per boot — idempotent and bounded.
           await migrateSessionPresets()
+          adoptLegacySessionCapabilities()
+          // Re-apply: the active record's settings may only now carry its capabilities.
+          activateSessionSettings(sessions.value[activeSessionId.value]?.settings)
         }
         sessionsHydrated.value = true
         // The workspace half of the same shared legacy key runs strictly
@@ -437,6 +518,17 @@ export const useAgentMode = defineStore(
     // persisted inside chat `settingsPerPreset`; copied from there on first
     // hydrate if this store has not stored it yet.
     const planningThinkingOnly = ref(true)
+
+    const effectivePlanningThinkingOnly = computed<boolean>(() =>
+      sessionScoped.value
+        ? (activeSettings.value?.planningThinkingOnly ?? readAgentDefaults().planningThinkingOnly)
+        : planningThinkingOnly.value,
+    )
+
+    function setPlanningThinkingOnly(value: boolean): void {
+      if (sessionScoped.value) updateActiveSettings({ planningThinkingOnly: value })
+      else planningThinkingOnly.value = value
+    }
 
     function migratePlanningThinkingOnly(): void {
       const bags = textInference.settingsPerPreset
@@ -504,7 +596,7 @@ export const useAgentMode = defineStore(
           ),
           capabilities: [...capabilities.value],
           unsandboxed: unsandboxed.value,
-          planningThinkingOnly: planningThinkingOnly.value,
+          planningThinkingOnly: effectivePlanningThinkingOnly.value,
           textInference,
           cloudMode,
         })
@@ -583,6 +675,7 @@ export const useAgentMode = defineStore(
             : undefined,
       })
       if (!record) return
+      if (record.settings) delete record.capabilities
       rewriteSession(id, record)
     }
 
@@ -899,6 +992,9 @@ export const useAgentMode = defineStore(
       sessionsHydrated,
       migratePlanningThinkingOnly,
       planningThinkingOnly,
+      effectivePlanningThinkingOnly,
+      setPlanningThinkingOnly,
+      migrateAgentDefaults,
       unsandboxedWorkspaces,
       unsandboxed,
       setUnsandboxed,

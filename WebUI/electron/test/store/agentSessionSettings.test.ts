@@ -78,6 +78,9 @@ const chat = vi.hoisted(() => {
       get settingsPerPreset() {
         return state.settingsPerPreset
       },
+      set settingsPerPreset(next: Record<string, Bag>) {
+        state.settingsPerPreset = next
+      },
       ensureReadyForInference: async () => {},
       bindSessionSettings: (binding: Binding | null) => {
         state.binding = binding
@@ -126,6 +129,26 @@ vi.mock('@/assets/js/store/errors', () => ({
   useErrors: () => ({ report: vi.fn() }),
 }))
 
+const turnConfig = vi.hoisted(() => ({
+  build: null as (() => unknown) | null,
+  lastInput: null as { planningThinkingOnly?: boolean } | null,
+}))
+
+vi.mock('@/assets/js/store/agentModeTurn', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/assets/js/store/agentModeTurn')>()
+  return {
+    ...actual,
+    buildTurnConfig: (input: { capabilities: string[]; planningThinkingOnly: boolean }) => {
+      turnConfig.lastInput = input
+      return { capabilities: input.capabilities }
+    },
+    createAgentTurnRuntime: (options: { buildTurnConfig: () => unknown }) => {
+      turnConfig.build = options.buildTurnConfig
+      return actual.createAgentTurnRuntime(options as never)
+    },
+  }
+})
+
 vi.mock('@/assets/js/tools/agentBridge', () => ({
   getAgentToolSpecs: () => [],
 }))
@@ -150,6 +173,8 @@ const saveSession = vi.fn(async (_record: { id: string; settings?: AgentSessionS
 
 const ok = async () => ({ success: true as const })
 
+let bootstrap: unknown = { status: 'empty' }
+
 function fakeWindow(): void {
   const storage = new Map<string, string>()
   const shim = {
@@ -164,7 +189,7 @@ function fakeWindow(): void {
       agentMode: {
         cancel: vi.fn(async () => {}),
         onExecuteTool: vi.fn(),
-        bootstrapSessions: vi.fn(async () => ({ status: 'empty' })),
+        bootstrapSessions: vi.fn(async () => bootstrap),
         migrateSessions: vi.fn(),
         saveSession,
         saveActiveSessionId: vi.fn(ok),
@@ -194,6 +219,7 @@ beforeEach(() => {
     chat.store.loadSettingsForActivePreset()
     return { success: true }
   })
+  bootstrap = { status: 'empty' }
   chat.state.binding = null
   chat.state.presetName = () => activePreset.value.name
   chat.state.live = { backend: 'llamaCPP' }
@@ -232,7 +258,7 @@ describe('Agent Session Settings', () => {
     chat.edit({ model: 'Picked-27B' })
     await store.generate('build it')
 
-    expect(savedSettings(store.activeSessionId)).toEqual({
+    expect(savedSettings(store.activeSessionId)).toMatchObject({
       backend: 'llamaCPP',
       model: 'Picked-27B',
     })
@@ -256,9 +282,9 @@ describe('Agent Session Settings', () => {
     await store.generate('second')
     const second = store.activeSessionId
 
-    expect(savedSettings(first)).toEqual({ backend: 'llamaCPP', model: 'Default-9B' })
-    expect(savedSettings(second)).toEqual({ backend: 'openVINO', model: 'Phi-4' })
-    expect(chat.state.settingsPerPreset.Agent).toEqual({
+    expect(savedSettings(first)).toMatchObject({ backend: 'llamaCPP', model: 'Default-9B' })
+    expect(savedSettings(second)).toMatchObject({ backend: 'openVINO', model: 'Phi-4' })
+    expect(chat.state.settingsPerPreset.Agent).toMatchObject({
       backend: 'llamaCPP',
       selectedModels: { llamaCPP: 'Default-9B' },
     })
@@ -284,7 +310,10 @@ describe('Agent Session Settings', () => {
     await store.newSession()
     chat.edit({ model: 'Other-4B' })
 
-    expect(store.sessions[first].settings).toEqual({ backend: 'llamaCPP', model: 'Default-9B' })
+    expect(store.sessions[first].settings).toMatchObject({
+      backend: 'llamaCPP',
+      model: 'Default-9B',
+    })
   })
 
   it('leaves Game Agent on its shared per-preset settings', async () => {
@@ -353,5 +382,99 @@ describe('Agent Session Settings', () => {
       device: { id: 'NPU' },
       thinkingEnabled: false,
     })
+  })
+
+  it('starts a Draft Session with the default capabilities and planning flag', async () => {
+    chat.state.settingsPerPreset.Agent = {
+      ...chat.state.settingsPerPreset.Agent,
+      agentCapabilities: ['web', 'mcp:blender'],
+      agentPlanningThinkingOnly: false,
+    }
+    const store = await startedStore()
+
+    expect(store.capabilities).toEqual(['web', 'mcp:blender'])
+    expect(store.effectivePlanningThinkingOnly).toBe(false)
+  })
+
+  it('keeps a capability or planning change in its own session', async () => {
+    const store = await startedStore()
+    store.setCapabilityEnabled('mcp:blender', true)
+    store.setPlanningThinkingOnly(false)
+    await store.generate('first')
+    const first = store.activeSessionId
+
+    await store.newSession()
+    expect(store.isCapabilityEnabled('mcp:blender')).toBe(false)
+    expect(store.effectivePlanningThinkingOnly).toBe(true)
+
+    await store.switchSession(first)
+    expect(store.isCapabilityEnabled('mcp:blender')).toBe(true)
+    expect(store.effectivePlanningThinkingOnly).toBe(false)
+    expect(savedSettings(first)).toMatchObject({ planningThinkingOnly: false })
+    expect(savedSettings(first)?.capabilities).toContain('mcp:blender')
+  })
+
+  it('sends the session capabilities and planning flag with a turn', async () => {
+    const store = await startedStore()
+    store.setCapabilityEnabled('mcp:blender', true)
+    store.setPlanningThinkingOnly(false)
+
+    const config = turnConfig.build?.() as unknown as { capabilities: string[] }
+    expect(config.capabilities).toContain('mcp:blender')
+    expect(turnConfig.lastInput?.planningThinkingOnly).toBe(false)
+  })
+
+  it('moves the global defaults into the Default Settings once', async () => {
+    const store = useAgentMode()
+    store.defaultCapabilities = ['web', 'mcp:old']
+    store.planningThinkingOnly = false
+    await store.init()
+    await store.newSession()
+
+    expect(chat.state.settingsPerPreset.Agent).toMatchObject({
+      agentCapabilities: ['web', 'mcp:old'],
+      agentPlanningThinkingOnly: false,
+    })
+
+    store.defaultCapabilities = ['media']
+    store.planningThinkingOnly = true
+    await store.newSession()
+    expect(chat.state.settingsPerPreset.Agent).toMatchObject({
+      agentCapabilities: ['web', 'mcp:old'],
+      agentPlanningThinkingOnly: false,
+    })
+  })
+
+  it("reads an old record's top-level capabilities as its Session Settings", async () => {
+    bootstrap = {
+      status: 'ok',
+      activeSessionId: 'aipg-agent-old',
+      sessions: [
+        {
+          id: 'aipg-agent-old',
+          workspaceDir: '/work',
+          title: 'old',
+          createdAt: 1,
+          updatedAt: 2,
+          presetName: 'Agent',
+          capabilities: ['web', 'mcp:legacy'],
+          messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
+        },
+      ],
+    }
+    const store = useAgentMode()
+    await store.init()
+
+    expect(store.capabilities).toEqual(['web', 'mcp:legacy'])
+    await store.generate('again')
+    const saved = saveSession.mock.calls.at(-1)?.[0] as Record<string, unknown>
+    expect(saved.capabilities).toBeUndefined()
+    expect(saved.settings).toMatchObject({ capabilities: ['web', 'mcp:legacy'] })
+  })
+
+  it('keeps Game Agent capabilities frozen on the record as before', async () => {
+    const store = await startedStore()
+    await presetSwitchingMock.switchPreset('Game Agent')
+    expect(store.capabilities).toEqual(['game-studio'])
   })
 })

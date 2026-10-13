@@ -53,6 +53,14 @@ export type KernelAgentToolImageEvent = {
 }
 
 /** The turn settled (success, error or abort); its stream can close. */
+/** The turn moved within the Turn Queue (queued → running when it takes the place). */
+export type KernelAgentTurnStateEvent = {
+  type: 'agent-turn-state'
+  sessionId: string
+  turnId: string
+  state: AgentTurnState
+}
+
 export type KernelAgentTurnDoneEvent = {
   type: 'agent-turn-done'
   sessionId: string
@@ -241,6 +249,7 @@ export type KernelEventPayload =
   | KernelAgentChunkEvent
   | KernelAgentToolProgressEvent
   | KernelAgentToolImageEvent
+  | KernelAgentTurnStateEvent
   | KernelAgentTurnDoneEvent
   | KernelArtifactPhaseEvent
   | KernelArtifactItemEvent

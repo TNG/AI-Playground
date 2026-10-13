@@ -20,7 +20,7 @@ import { useDeveloperSettings } from './developerSettings'
 import { registerAgentModeIpc } from './agentModeIpc'
 import { CLOUD_DEFAULT_MODEL } from './cloudMode'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
-import type { AgentTurnSnapshot } from '@/types/kernelEvents'
+import type { AgentTurnSnapshot, AgentTurnState } from '@/types/kernelEvents'
 
 type ActiveTurn = {
   sessionId: string
@@ -229,6 +229,8 @@ export type AgentSessionRuntime = {
   sessionId: string
   chat: Chat<UIMessage>
   processing: Ref<boolean>
+  /** Where the session's turn stands in the Turn Queue; null while it has none. */
+  turnState: Ref<AgentTurnState | null>
   toolProgress: Ref<Record<string, string>>
   toolImages: Ref<Record<string, AgentToolImage[]>>
   /** A turn streams into this runtime, or waits to be adopted from the kernel snapshot. */
@@ -241,6 +243,7 @@ type SessionRuntime = AgentSessionRuntime & {
   onChunk: (turnId: string, chunk: unknown) => void
   onToolProgress: (turnId: string, toolCallId: string, text: string) => void
   onToolImage: (image: AgentToolImage) => void
+  onTurnState: (turnId: string, state: AgentTurnState) => void
   onTurnDone: (turnId: string) => void
   resume: (turn: AgentTurnSnapshot) => void
   dispose: () => void
@@ -252,12 +255,14 @@ function createSessionRuntime(options: {
   initialMessages: UIMessage[]
   finishedTurns: Set<string>
   buildTurnConfig: (sessionId: string) => Promise<AgentModeTurnConfig>
+  onTurnSubmitted?: (sessionId: string) => void
   onTurnSettled?: (sessionId: string) => void
   onAdoptedTurnDone?: (sessionId: string) => void
 }): SessionRuntime {
   const { sessionId, finishedTurns } = options
   const scope = effectScope()
   const processing = ref(false)
+  const turnState = ref<AgentTurnState | null>(null)
   const toolProgress = ref<Record<string, string>>({})
   const toolImages = ref<Record<string, AgentToolImage[]>>({})
   let activeTurn: ActiveTurn | null = null
@@ -281,6 +286,7 @@ function createSessionRuntime(options: {
           .join('\n\n') ?? ''
 
       const turnId = crypto.randomUUID()
+      // Frozen here: settings edited after Send apply to the next turn.
       const config = await options.buildTurnConfig(sessionId)
 
       return new ReadableStream<UIMessageChunk>({
@@ -294,6 +300,8 @@ function createSessionRuntime(options: {
           abortSignal?.addEventListener('abort', () => {
             window.electronAPI.agentMode.cancel(sessionId, turnId)
           })
+          turnState.value = 'queued'
+          options.onTurnSubmitted?.(sessionId)
           window.electronAPI.agentMode.startTurn(turnId, prompt, config).catch((error) => {
             if (activeTurn?.turnId === turnId && !activeTurn.closed) {
               activeTurn.closed = true
@@ -329,6 +337,7 @@ function createSessionRuntime(options: {
       const { turn } = pending
       processing.value = true
       adoptedTurnId = turn.turnId
+      turnState.value = turn.state
       toolProgress.value = { ...turn.toolProgress }
       const restoredImages: Record<string, AgentToolImage[]> = {}
       for (const [toolCallId, images] of Object.entries(turn.toolImages)) {
@@ -375,7 +384,9 @@ function createSessionRuntime(options: {
 
   scope.run(() => {
     watch(processing, (isProcessing, wasProcessing) => {
-      if (wasProcessing && !isProcessing) options.onTurnSettled?.(sessionId)
+      if (isProcessing) return
+      turnState.value = null
+      if (wasProcessing) options.onTurnSettled?.(sessionId)
     })
   })
 
@@ -413,6 +424,15 @@ function createSessionRuntime(options: {
     if (!activeTurn || activeTurn.turnId !== image.turnId) return
     const shown = toolImages.value[image.toolCallId] ?? []
     toolImages.value = { ...toolImages.value, [image.toolCallId]: [...shown, image] }
+  }
+
+  function onTurnState(turnId: string, state: AgentTurnState): void {
+    if (pendingResume && pendingResume.turn.turnId === turnId) {
+      pendingResume.turn = { ...pendingResume.turn, state }
+      return
+    }
+    if (!activeTurn || activeTurn.turnId !== turnId) return
+    turnState.value = state
   }
 
   function onTurnDone(turnId: string): void {
@@ -471,6 +491,7 @@ function createSessionRuntime(options: {
     sessionId,
     chat,
     processing,
+    turnState,
     toolProgress,
     toolImages,
     hasTurn: () => processing.value || activeTurn !== null || pendingResume !== null,
@@ -478,6 +499,7 @@ function createSessionRuntime(options: {
     onChunk,
     onToolProgress,
     onToolImage,
+    onTurnState,
     onTurnDone,
     resume,
     dispose: () => scope.stop(),
@@ -494,6 +516,8 @@ export function createAgentTurnRuntimes(options: {
   buildTurnConfig: (sessionId: string) => Promise<AgentModeTurnConfig>
   /** Tools the store implements itself (e.g. offer_game_agent); media tools execute in main. */
   storeTools?: Record<string, StoreTool>
+  /** A turn was handed to main; its user message is in the runtime's transcript. */
+  onTurnSubmitted?: (sessionId: string) => void
   /** The transcript a newly created runtime starts from (the session record's). */
   initialMessages?: (sessionId: string) => UIMessage[]
   /** A session's turn has ended — completed, failed, stopped or adopted-and-done. */
@@ -521,6 +545,7 @@ export function createAgentTurnRuntimes(options: {
         initialMessages: options.initialMessages?.(sessionId) ?? [],
         finishedTurns,
         buildTurnConfig: options.buildTurnConfig,
+        onTurnSubmitted: options.onTurnSubmitted,
         onTurnSettled: options.onTurnSettled,
         onAdoptedTurnDone: options.onAdoptedTurnDone,
       })
@@ -560,6 +585,9 @@ export function createAgentTurnRuntimes(options: {
     },
     onToolImage: (image) => {
       runtimes.value[image.sessionId]?.onToolImage(image)
+    },
+    onTurnState: ({ sessionId, turnId, state }) => {
+      runtimes.value[sessionId]?.onTurnState(turnId, state)
     },
     onTurnDone: ({ sessionId, turnId }) => {
       finishedTurns.add(turnId)

@@ -183,23 +183,101 @@ describe('agent turns, told apart by Agent Session', () => {
     expect(bus.getKernelSnapshot().state.agentTurns).toEqual([])
   }, 30000)
 
-  it('still refuses a turn for another session while one is open', async () => {
+  it("queues another session's turn and sends its first request only after the first turn ends", async () => {
+    autoRelease = false
+    const first = crypto.randomUUID()
+    const requested = nextRequest()
+    const turnA = manager.startAgentTurn(first, 'hello', configFor('aipg-agent-a'))
+    await requested
+
+    const second = crypto.randomUUID()
+    const turnB = manager.startAgentTurn(second, 'and you', configFor('aipg-agent-b'))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(pending).toHaveLength(1)
+    expect(bus.getKernelSnapshot().state.agentTurns).toEqual([
+      expect.objectContaining({ sessionId: 'aipg-agent-a', turnId: first, state: 'running' }),
+      expect.objectContaining({ sessionId: 'aipg-agent-b', turnId: second, state: 'queued' }),
+    ])
+
+    const requestedB = nextRequest()
+    pending[0].release()
+    expect(await turnA).toEqual({ success: true })
+    const doneA = events.findIndex(
+      (event) => event.type === 'agent-turn-done' && event.turnId === first,
+    )
+    await requestedB
+    expect(pending).toHaveLength(2)
+    const runningB = events.findIndex(
+      (event) =>
+        event.type === 'agent-turn-state' && event.turnId === second && event.state === 'running',
+    )
+    expect(runningB).toBeGreaterThan(doneA)
+
+    pending[1].release()
+    expect(await turnB).toEqual({ success: true })
+    for (const event of agentEvents()) {
+      const sessionId =
+        (event as { turnId?: string }).turnId === first ? 'aipg-agent-a' : 'aipg-agent-b'
+      expect(event).toMatchObject({ sessionId })
+    }
+  }, 30000)
+
+  it('refuses a second turn for the same session while one is in flight', async () => {
     autoRelease = false
     const first = crypto.randomUUID()
     const requested = nextRequest()
     const turn = manager.startAgentTurn(first, 'hello', configFor('aipg-agent-a'))
     await requested
 
-    const second = crypto.randomUUID()
-    expect(await manager.startAgentTurn(second, 'and you', configFor('aipg-agent-b'))).toEqual({
-      success: false,
-      error: 'An agent turn is already running.',
-    })
+    expect(
+      await manager.startAgentTurn(crypto.randomUUID(), 'again', configFor('aipg-agent-a')),
+    ).toEqual({ success: false, error: 'This session already has a turn in flight.' })
 
     pending[0].release()
     await turn
     expect(pending).toHaveLength(1)
-    expect(agentEvents().every((event) => 'turnId' in event && event.turnId === first)).toBe(true)
+  }, 30000)
+
+  it('cancels a queued turn without it ever reaching the backend, leaving the running one alone', async () => {
+    autoRelease = false
+    const first = crypto.randomUUID()
+    const requested = nextRequest()
+    const turnA = manager.startAgentTurn(first, 'hello', configFor('aipg-agent-a'))
+    await requested
+
+    const second = crypto.randomUUID()
+    const turnB = manager.startAgentTurn(second, 'and you', configFor('aipg-agent-b'))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    manager.cancelAgentTurn('aipg-agent-b')
+    expect((await turnB).success).toBe(false)
+    expect(events.filter((event) => event.type === 'agent-turn-done')).toEqual([
+      expect.objectContaining({ sessionId: 'aipg-agent-b', turnId: second }),
+    ])
+    expect(events.some((event) => event.type === 'agent-chunk' && event.turnId === second)).toBe(
+      false,
+    )
+
+    pending[0].release()
+    expect(await turnA).toEqual({ success: true })
+    expect(pending).toHaveLength(1)
+  }, 30000)
+
+  it('stops a queued turn of a session that is deleted', async () => {
+    autoRelease = false
+    const first = crypto.randomUUID()
+    const requested = nextRequest()
+    const turnA = manager.startAgentTurn(first, 'hello', configFor('aipg-agent-a'))
+    await requested
+
+    const second = crypto.randomUUID()
+    const turnB = manager.startAgentTurn(second, 'and you', configFor('aipg-agent-b'))
+    expect(await manager.deleteAgentSession('aipg-agent-b')).toEqual({ success: true })
+    expect((await turnB).success).toBe(false)
+
+    pending[0].release()
+    await turnA
+    expect(pending).toHaveLength(1)
+    expect(manager.isAgentTurnActive()).toBe(false)
   }, 30000)
 
   it('stops the open turn of a session that is deleted', async () => {

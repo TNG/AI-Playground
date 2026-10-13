@@ -10,6 +10,7 @@ const {
   setKernelEventWindow,
   emitServiceUpdate,
   beginAgentTurnSnapshot,
+  emitAgentTurnState,
   emitAgentChunk,
   emitAgentToolProgress,
   emitAgentToolImage,
@@ -111,6 +112,7 @@ describe('kernel bus', () => {
 
   it('accumulates the active turn and clears it when the turn is done', () => {
     beginAgentTurnSnapshot('s1', 'turn-1')
+    emitAgentTurnState('s1', 'turn-1', 'running')
     emitAgentChunk('s1', 'turn-1', { type: 'text-start' })
     emitAgentChunk('s1', 'turn-1', { type: 'text-delta', id: 'a', delta: 'hello' })
     emitAgentToolProgress('s1', 'turn-1', 'call-1', 'browser', 'navigating')
@@ -165,6 +167,7 @@ describe('kernel bus', () => {
   it('lists one snapshot per open session and keeps their chunks apart', () => {
     beginAgentTurnSnapshot('s1', 'turn-a')
     beginAgentTurnSnapshot('s2', 'turn-b')
+    emitAgentTurnState('s1', 'turn-a', 'running')
     emitAgentChunk('s1', 'turn-a', { type: 'text-delta', id: 'p', delta: 'from a' })
     emitAgentChunk('s2', 'turn-b', { type: 'text-delta', id: 'p', delta: 'from b' })
     emitAgentToolImage('s2', 'turn-b', 'call-b', 'data:image/png;base64,', 'b.png')
@@ -174,7 +177,7 @@ describe('kernel bus', () => {
     const turns = getKernelSnapshot().state.agentTurns
     expect(turns.map(({ sessionId, turnId, state }) => ({ sessionId, turnId, state }))).toEqual([
       { sessionId: 's1', turnId: 'turn-a', state: 'running' },
-      { sessionId: 's2', turnId: 'turn-b', state: 'running' },
+      { sessionId: 's2', turnId: 'turn-b', state: 'queued' },
     ])
     expect(turns[0].chunks).toEqual([{ type: 'text-delta', id: 'p', delta: 'from a' }])
     expect(turns[0].toolImages).toEqual({})
@@ -189,11 +192,13 @@ describe('kernel bus', () => {
     const { win, sent } = fakeWindow()
     setKernelEventWindow(win)
     beginAgentTurnSnapshot('s1', 'turn-1')
+    emitAgentTurnState('s1', 'turn-1', 'running')
     emitAgentChunk('s1', 'turn-1', { type: 'text-start' })
     emitAgentToolProgress('s1', 'turn-1', 'call-1', 'browser', 'navigating')
     emitAgentToolImage('s1', 'turn-1', 'call-1', 'data:image/png;base64,', 'cover.png')
     emitAgentTurnDone('s1', 'turn-1')
     expect(sent.map((event) => [event.type, 'sessionId' in event && event.sessionId])).toEqual([
+      ['agent-turn-state', 's1'],
       ['agent-chunk', 's1'],
       ['agent-tool-progress', 's1'],
       ['agent-tool-image', 's1'],

@@ -9,6 +9,7 @@ const handlers = {
   onStreamChunk: vi.fn(),
   onToolProgress: vi.fn(),
   onToolImage: vi.fn(),
+  onTurnState: vi.fn(),
   onTurnDone: vi.fn(),
   onExecuteTool: vi.fn(),
   onSnapshot: vi.fn(),

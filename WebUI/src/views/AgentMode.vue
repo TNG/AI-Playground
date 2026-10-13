@@ -57,6 +57,14 @@
           <div class="flex flex-col gap-2 max-w-4/5 bg-muted rounded-md px-4 py-3">
             <MarkdownRenderer :content="messageText(message)" />
           </div>
+          <span
+            v-if="isQueuedMessage(message)"
+            role="status"
+            class="self-center inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+          >
+            <ClockIcon class="size-3.5" aria-hidden="true" />
+            {{ languages.AGENT_TURN_QUEUED }}
+          </span>
         </div>
         <div v-else-if="message.role === 'assistant'" class="flex items-start gap-3">
           <img src="../assets/svg/ai-icon.svg" class="size-6" />
@@ -86,7 +94,9 @@
         class="flex items-center gap-2 text-sm text-muted-foreground"
       >
         <span class="inline-block size-2 rounded-full bg-current animate-pulse"></span>
-        <span>{{ busyLabel }}</span>
+        <span>{{
+          agentMode.turnState === 'queued' ? languages.AGENT_TURN_QUEUED_DETAIL : busyLabel
+        }}</span>
       </div>
       <div
         v-if="agentMode.chat.error"
@@ -121,11 +131,13 @@ import {
 import { agentEmptyStateKind } from '@/lib/presetModes'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
 import { ensureMediaAgentEventWiring } from '@/assets/js/agents/mediaAgent'
-import { UserCircleIcon } from '@heroicons/vue/24/outline'
+import { useI18N } from '@/assets/js/store/i18n'
+import { ClockIcon, UserCircleIcon } from '@heroicons/vue/24/outline'
 
 const agentMode = useAgentMode()
 const promptStore = usePromptStore()
 const mediaRuns = useMediaAgentRuns()
+const languages = useI18N().state
 
 const panel = ref<HTMLElement | null>(null)
 
@@ -133,6 +145,13 @@ const panel = ref<HTMLElement | null>(null)
 // on a managed game folder, not to Agent Mode in general.
 const isGameAgent = computed(() => agentMode.agentWorkspaceKind === 'games')
 const emptyStateKind = computed(() => agentEmptyStateKind(agentMode.activeAgentPreset?.name))
+
+/** The sent message of a turn still waiting in the Turn Queue. */
+function isQueuedMessage(message: UIMessage): boolean {
+  if (agentMode.turnState !== 'queued') return false
+  const lastUser = agentMode.messages.findLast((entry) => entry.role === 'user')
+  return lastUser?.id === message.id
+}
 
 function messageText(message: UIMessage): string {
   return (

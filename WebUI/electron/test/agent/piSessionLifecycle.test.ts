@@ -181,6 +181,7 @@ const finishTextRequest = vi.hoisted(() => vi.fn())
 vi.mock('../../kernel/orchestrator.ts', () => ({
   submitTextRequest,
   finishTextRequest,
+  turnQueueHolder: () => null,
 }))
 
 vi.mock('../../agent/agentBrowser', () => ({
@@ -297,7 +298,7 @@ describe('session reuse', () => {
     expect(disposed).toHaveLength(1)
   })
 
-  it('refuses a second turn while one is running', async () => {
+  it('refuses a second turn for the same session while one is running', async () => {
     const manager = await loadManager()
     let release = () => {}
     // Hold the first turn open in session construction, so the second one has to
@@ -312,7 +313,7 @@ describe('session reuse', () => {
 
     const first = manager.startAgentTurn('t1', 'first', configFor())
     const second = await manager.startAgentTurn('t2', 'second', configFor())
-    expect(second).toEqual({ success: false, error: 'An agent turn is already running.' })
+    expect(second).toEqual({ success: false, error: 'This session already has a turn in flight.' })
 
     release()
     expect(await first).toEqual({ success: false, error: 'cancelled' })
@@ -1049,6 +1050,7 @@ describe('turn streaming', () => {
         runId: 't1',
         conversationKey: 'aipg-agent-1',
         needsGpu: true,
+        joinsTurnQueue: true,
       },
       expect.any(AbortSignal),
     )

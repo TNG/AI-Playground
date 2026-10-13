@@ -68,6 +68,39 @@
           <TooltipContent>{{ label }}</TooltipContent>
         </Tooltip>
         <span class="truncate text-sm text-foreground">{{ entry.title }}</span>
+        <Tooltip v-if="marker">
+          <TooltipTrigger as-child>
+            <span
+              role="img"
+              :aria-label="marker.label"
+              class="ml-auto inline-flex flex-none items-center gap-0.5 text-xs cursor-help"
+            >
+              <Spinner
+                v-if="marker.status === 'running'"
+                class="size-3.5 text-primary"
+                aria-hidden="true"
+              />
+              <template v-else-if="marker.status === 'queued'">
+                <ClockIcon class="size-3.5 text-muted-foreground" aria-hidden="true" />
+                <span v-if="marker.short" class="text-muted-foreground" aria-hidden="true">{{
+                  marker.short
+                }}</span>
+              </template>
+              <HandRaisedIcon
+                v-else-if="marker.status === 'paused'"
+                class="size-3.5 text-amber-500"
+                aria-hidden="true"
+              />
+              <span
+                v-else
+                class="size-2 rounded-full"
+                :class="marker.status === 'unseenFailed' ? 'bg-red-500' : 'bg-primary'"
+                aria-hidden="true"
+              ></span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{{ marker.label }}</TooltipContent>
+        </Tooltip>
       </span>
 
       <div class="flex items-center gap-2 min-w-0">
@@ -176,7 +209,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watchEffect } from 'vue'
-import { PuzzlePieceIcon } from '@heroicons/vue/24/outline'
+import { ClockIcon, HandRaisedIcon, PuzzlePieceIcon } from '@heroicons/vue/24/outline'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -214,6 +247,7 @@ import { collapseGamesPrefix } from '@/assets/js/store/agentModeSessions'
 import {
   isEmptyDraft,
   mediaSettings,
+  queueOrdinal,
   relativeTime,
   toolMedia,
   type HistoryEntry,
@@ -237,7 +271,8 @@ const emit = defineEmits<{
 
 const presetsStore = usePresets()
 const oemBranding = useOemBranding()
-const i18nState = useI18N().state
+const i18n = useI18N()
+const i18nState = i18n.state
 
 const menuOpen = ref(false)
 const renameOpen = ref(false)
@@ -266,6 +301,30 @@ const mediaPreset = computed(() => {
   const { preset, variant } = mediaSettings(props.entry.media)
   if (!preset) return ''
   return variant ? `${preset} - ${variant}` : preset
+})
+
+const marker = computed(() => {
+  if (props.entry.kind !== 'agent' || !props.entry.status) return null
+  const { status, queuePosition } = props.entry
+  switch (status) {
+    case 'running':
+      return { status, label: i18nState.HISTORY_STATUS_RUNNING }
+    case 'queued':
+      return queuePosition
+        ? {
+            status,
+            label: i18nState.HISTORY_STATUS_QUEUED_AT.replace('{position}', String(queuePosition)),
+            short: queueOrdinal(queuePosition, i18n.langName, i18nState),
+          }
+        : { status, label: i18nState.HISTORY_STATUS_QUEUED }
+    case 'paused':
+      return { status, label: i18nState.HISTORY_STATUS_PAUSED }
+    case 'unseen':
+      return { status, label: i18nState.HISTORY_STATUS_UNSEEN }
+    case 'unseenFailed':
+      return { status, label: i18nState.HISTORY_STATUS_UNSEEN_FAILED }
+  }
+  return null
 })
 
 const mediaReady = computed(

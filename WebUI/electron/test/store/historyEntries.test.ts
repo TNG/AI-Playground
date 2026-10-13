@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { UIMessage } from 'ai'
 import type { MediaItem } from '@/assets/js/store/imageGenerationPresets'
 import {
+  agentSessionStatus,
   collectToolMediaUrls,
   conversationMode,
   conversationTimes,
@@ -13,6 +14,7 @@ import {
   mediaTimes,
   mediaTitle,
   mediaSettings,
+  queueOrdinal,
   searchEntries,
   sortEntries,
   type AgentEntry,
@@ -288,5 +290,60 @@ describe('sortEntries', () => {
     const entries = [conversation(), media()]
     sortEntries(entries)
     expect(entries.map((entry) => entry.id)).toEqual(['1000', 'm1'])
+  })
+})
+
+describe('agentSessionStatus', () => {
+  it('names what a session’s turn is doing', () => {
+    expect(agentSessionStatus({ turn: { state: 'running' } })).toEqual({ status: 'running' })
+    expect(agentSessionStatus({ turn: { state: 'queued', queuePosition: 2 } })).toEqual({
+      status: 'queued',
+      queuePosition: 2,
+    })
+    expect(agentSessionStatus({ turn: { state: 'queued', queuePosition: null } })).toEqual({
+      status: 'queued',
+    })
+    expect(agentSessionStatus({ turn: { state: 'paused' } })).toEqual({ status: 'paused' })
+  })
+
+  it('marks a turn that ended out of sight, red when it failed', () => {
+    expect(agentSessionStatus({ unseen: 'done' })).toEqual({ status: 'unseen' })
+    expect(agentSessionStatus({ unseen: 'failed' })).toEqual({ status: 'unseenFailed' })
+    expect(agentSessionStatus({})).toEqual({})
+  })
+
+  it('lets a new turn in flight outrank the last one’s unseen result', () => {
+    expect(agentSessionStatus({ turn: { state: 'running' }, unseen: 'failed' })).toEqual({
+      status: 'running',
+    })
+  })
+})
+
+describe('queueOrdinal', () => {
+  const english = {
+    HISTORY_QUEUE_ORDINAL_ONE: '{n}st',
+    HISTORY_QUEUE_ORDINAL_TWO: '{n}nd',
+    HISTORY_QUEUE_ORDINAL_FEW: '{n}rd',
+    HISTORY_QUEUE_ORDINAL_OTHER: '{n}th',
+  }
+
+  it('follows the locale’s ordinal rules', () => {
+    expect([1, 2, 3, 4, 11, 12, 13, 21, 22].map((n) => queueOrdinal(n, 'en-US', english))).toEqual([
+      '1st',
+      '2nd',
+      '3rd',
+      '4th',
+      '11th',
+      '12th',
+      '13th',
+      '21st',
+      '22nd',
+    ])
+  })
+
+  it('uses the generic pattern where a language has no ordinal forms', () => {
+    const german = { ...english, HISTORY_QUEUE_ORDINAL_OTHER: '{n}.' }
+    expect(queueOrdinal(2, 'de', german)).toBe('2.')
+    expect(queueOrdinal(2, 'not a locale!', german)).toBe('2.')
   })
 })

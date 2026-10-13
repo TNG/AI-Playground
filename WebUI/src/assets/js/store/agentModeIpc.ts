@@ -17,6 +17,8 @@ type AgentModeIpcHandlers = {
   onToolImage: (data: AgentToolImage) => void
   onTurnState: (data: AgentTurnRef & { state: AgentTurnState }) => void
   onTurnDone: (data: AgentTurnRef) => void
+  /** A text run's Turn Queue position; `position` is absent once it holds the place. */
+  onQueuePosition: (data: AgentTurnRef & { position?: number }) => void
   onExecuteTool: (data: AgentToolExecuteRequest) => void | Promise<void>
   /**
    * The kernel snapshot, at install time — before buffered events are applied.
@@ -68,6 +70,14 @@ export function registerAgentModeIpc(handlers: AgentModeIpcHandlers): void {
           break
         case 'agent-turn-done':
           handlers.onTurnDone({ sessionId: event.sessionId, turnId: event.turnId })
+          break
+        case 'queue-event':
+          if (event.kind !== 'text' || !event.conversationKey) break
+          handlers.onQueuePosition({
+            sessionId: event.conversationKey,
+            turnId: event.runKey,
+            position: event.position,
+          })
           break
       }
     },

@@ -1,4 +1,13 @@
-import { markRaw, ref } from 'vue'
+import {
+  computed,
+  effectScope,
+  getCurrentScope,
+  markRaw,
+  ref,
+  shallowRef,
+  watch,
+  type Ref,
+} from 'vue'
 import { Chat } from '@ai-sdk/vue'
 import type { ChatTransport, UIMessage, UIMessageChunk } from 'ai'
 import { chatTemplateKwargs } from '@/lib/samplingDefaults'
@@ -211,31 +220,56 @@ export function latestTurnMetadata<K extends keyof TurnMetadata>(
   return (latest?.metadata as TurnMetadata | undefined)?.[key]
 }
 
-export function createAgentTurnRuntime(options: {
-  errors: { report: (error: unknown, overrides: Record<string, unknown>) => void }
-  buildTurnConfig: () => Promise<AgentModeTurnConfig>
-  /**
-   * Tools the store implements itself (e.g. offer_game_agent). Media tools
-   * execute in main; anything else arriving here is unknown.
-   */
-  storeTools?: Record<string, (input: Record<string, unknown>) => Promise<unknown>>
-}) {
+type StoreTool = (input: Record<string, unknown>, sessionId: string) => Promise<unknown>
+
+type ErrorSink = { report: (error: unknown, overrides: Record<string, unknown>) => void }
+
+/** The turn machinery of one Agent Session: what Agent Mode renders while that session is open. */
+export type AgentSessionRuntime = {
+  sessionId: string
+  chat: Chat<UIMessage>
+  processing: Ref<boolean>
+  toolProgress: Ref<Record<string, string>>
+  toolImages: Ref<Record<string, AgentToolImage[]>>
+  /** A turn streams into this runtime, or waits to be adopted from the kernel snapshot. */
+  hasTurn: () => boolean
+  /** Cancel the turn this runtime streams, or whatever main holds open for the session. */
+  cancel: () => Promise<void>
+}
+
+type SessionRuntime = AgentSessionRuntime & {
+  onChunk: (turnId: string, chunk: unknown) => void
+  onToolProgress: (turnId: string, toolCallId: string, text: string) => void
+  onToolImage: (image: AgentToolImage) => void
+  onTurnDone: (turnId: string) => void
+  resume: (turn: AgentTurnSnapshot) => void
+  dispose: () => void
+}
+
+function createSessionRuntime(options: {
+  sessionId: string
+  errors: ErrorSink
+  initialMessages: UIMessage[]
+  finishedTurns: Set<string>
+  buildTurnConfig: (sessionId: string) => Promise<AgentModeTurnConfig>
+  onTurnSettled?: (sessionId: string) => void
+  onAdoptedTurnDone?: (sessionId: string) => void
+}): SessionRuntime {
+  const { sessionId, finishedTurns } = options
+  const scope = effectScope()
   const processing = ref(false)
   const toolProgress = ref<Record<string, string>>({})
   const toolImages = ref<Record<string, AgentToolImage[]>>({})
-  const runningTools = new Map<string, AbortController>()
   let activeTurn: ActiveTurn | null = null
 
   // Resume state: a renderer that (re)connects while main is mid-turn adopts
   // that turn from the kernel snapshot. `pendingResume` holds it between the
   // snapshot install and the transport's reconnectToStream, and buffers any
   // stream chunks that win that race. `adoptedTurnId` marks a turn whose
-  // processing flag has no sendMessage finally to clear it.
+  // processing flag has no sendMessage finally to clear it; it clears once the
+  // resumed stream has been consumed.
   let pendingResume: { turn: AgentTurnSnapshot; chunks: unknown[] } | null = null
   let adoptedTurnId: string | null = null
-  // Turn ids that finished in this renderer — reconnecting onto one would hang
-  // the resumed stream open forever. Bounded by session length, not cleared.
-  const finishedTurns = new Set<string>()
 
   const transport: ChatTransport<UIMessage> = {
     sendMessages: async ({ messages, abortSignal }) => {
@@ -247,8 +281,7 @@ export function createAgentTurnRuntime(options: {
           .join('\n\n') ?? ''
 
       const turnId = crypto.randomUUID()
-      const config = await options.buildTurnConfig()
-      const { sessionId } = config
+      const config = await options.buildTurnConfig(sessionId)
 
       return new ReadableStream<UIMessageChunk>({
         start: (controller) => {
@@ -297,19 +330,14 @@ export function createAgentTurnRuntime(options: {
       processing.value = true
       adoptedTurnId = turn.turnId
       toolProgress.value = { ...turn.toolProgress }
-      const restoredImages: typeof toolImages.value = {}
+      const restoredImages: Record<string, AgentToolImage[]> = {}
       for (const [toolCallId, images] of Object.entries(turn.toolImages)) {
         restoredImages[toolCallId] = [...images]
       }
       toolImages.value = restoredImages
       return new ReadableStream<UIMessageChunk>({
         start: (controller) => {
-          activeTurn = {
-            sessionId: turn.sessionId,
-            turnId: turn.turnId,
-            controller,
-            closed: false,
-          }
+          activeTurn = { sessionId, turnId: turn.turnId, controller, closed: false }
           // Snapshot chunks first, then any that raced the adoption.
           for (const chunk of [...turn.chunks, ...pending.chunks]) {
             try {
@@ -324,7 +352,7 @@ export function createAgentTurnRuntime(options: {
             activeTurn.closed = true
             activeTurn = null
           }
-          window.electronAPI.agentMode.cancel(turn.sessionId, turn.turnId)
+          window.electronAPI.agentMode.cancel(sessionId, turn.turnId)
         },
       })
     },
@@ -333,6 +361,7 @@ export function createAgentTurnRuntime(options: {
   const chat = markRaw(
     new Chat<UIMessage>({
       transport,
+      messages: options.initialMessages,
       onError: (error) => {
         options.errors.report(error, {
           category: 'inference',
@@ -344,65 +373,205 @@ export function createAgentTurnRuntime(options: {
     }),
   )
 
-  registerAgentModeIpc({
-    onStreamChunk: ({ turnId, chunk }) => {
-      if (pendingResume && pendingResume.turn.turnId === turnId) {
-        pendingResume.chunks.push(chunk)
-        return
+  scope.run(() => {
+    watch(processing, (isProcessing, wasProcessing) => {
+      if (wasProcessing && !isProcessing) options.onTurnSettled?.(sessionId)
+    })
+  })
+
+  function onChunk(turnId: string, chunk: unknown): void {
+    if (pendingResume && pendingResume.turn.turnId === turnId) {
+      pendingResume.chunks.push(chunk)
+      return
+    }
+    if (!activeTurn || activeTurn.turnId !== turnId || activeTurn.closed) return
+    try {
+      activeTurn.controller.enqueue(chunk as UIMessageChunk)
+    } catch {
+      // Stream already closed (e.g. user aborted) — drop the chunk.
+    }
+  }
+
+  function onToolProgress(turnId: string, toolCallId: string, text: string): void {
+    if (pendingResume && pendingResume.turn.turnId === turnId) {
+      pendingResume.turn.toolProgress = { ...pendingResume.turn.toolProgress, [toolCallId]: text }
+      return
+    }
+    if (!activeTurn || activeTurn.turnId !== turnId) return
+    toolProgress.value = { ...toolProgress.value, [toolCallId]: text }
+  }
+
+  function onToolImage(image: AgentToolImage): void {
+    if (pendingResume && pendingResume.turn.turnId === image.turnId) {
+      const pendingShown = pendingResume.turn.toolImages[image.toolCallId] ?? []
+      pendingResume.turn.toolImages = {
+        ...pendingResume.turn.toolImages,
+        [image.toolCallId]: [...pendingShown, { type: 'agent-tool-image', ...image }],
       }
-      if (!activeTurn || activeTurn.turnId !== turnId || activeTurn.closed) return
-      try {
-        activeTurn.controller.enqueue(chunk as UIMessageChunk)
-      } catch {
-        // Stream already closed (e.g. user aborted) — drop the chunk.
-      }
-    },
-    onToolProgress: ({ turnId, toolCallId, text }) => {
-      if (pendingResume && pendingResume.turn.turnId === turnId) {
-        pendingResume.turn.toolProgress = {
-          ...pendingResume.turn.toolProgress,
-          [toolCallId]: text,
+      return
+    }
+    if (!activeTurn || activeTurn.turnId !== image.turnId) return
+    const shown = toolImages.value[image.toolCallId] ?? []
+    toolImages.value = { ...toolImages.value, [image.toolCallId]: [...shown, image] }
+  }
+
+  function onTurnDone(turnId: string): void {
+    if (!activeTurn || activeTurn.turnId !== turnId || activeTurn.closed) return
+    activeTurn.closed = true
+    try {
+      activeTurn.controller.close()
+    } catch {
+      // Already closed.
+    }
+    activeTurn = null
+  }
+
+  function resume(turn: AgentTurnSnapshot): void {
+    // Only a runtime with no turn of its own resumes — a turn started here
+    // since boot must not be displaced by a snapshot that predates it.
+    if (activeTurn || pendingResume || finishedTurns.has(turn.turnId)) return
+    pendingResume = { turn, chunks: [] }
+    chat
+      .resumeStream()
+      .catch((error: unknown) => {
+        if (pendingResume?.turn.turnId === turn.turnId) pendingResume = null
+        if (adoptedTurnId === turn.turnId) {
+          adoptedTurnId = null
+          processing.value = false
         }
-        return
-      }
-      if (!activeTurn || activeTurn.turnId !== turnId) return
-      toolProgress.value = { ...toolProgress.value, [toolCallId]: text }
+        options.errors.report(error, {
+          category: 'inference',
+          code: 'agent/resume-failed',
+          userMessage: `Could not resume the interrupted agent turn: ${extractMessage(error)}`,
+          surface: 'toast',
+        })
+      })
+      .then(() => {
+        // resumeStream resolved: whatever it did, a turn left pending was
+        // never adopted (reconnectToStream consumed it or bailed).
+        if (pendingResume?.turn.turnId === turn.turnId) pendingResume = null
+        if (adoptedTurnId !== turn.turnId) return
+        // The stream is fully consumed here, so the transcript is complete; it
+        // is saved before the turn counts as settled.
+        adoptedTurnId = null
+        options.onAdoptedTurnDone?.(sessionId)
+        processing.value = false
+      })
+  }
+
+  async function cancel(): Promise<void> {
+    if (activeTurn) {
+      await window.electronAPI.agentMode.cancel(sessionId, activeTurn.turnId)
+    } else if (sessionId) {
+      await window.electronAPI.agentMode.cancel(sessionId)
+    }
+  }
+
+  return markRaw({
+    sessionId,
+    chat,
+    processing,
+    toolProgress,
+    toolImages,
+    hasTurn: () => processing.value || activeTurn !== null || pendingResume !== null,
+    cancel,
+    onChunk,
+    onToolProgress,
+    onToolImage,
+    onTurnDone,
+    resume,
+    dispose: () => scope.stop(),
+  })
+}
+
+/**
+ * One turn runtime per Agent Session, created on demand. Kernel agent events are
+ * routed by the session id they carry, so a session's transcript, tool progress
+ * and images only ever change for its own turns.
+ */
+export function createAgentTurnRuntimes(options: {
+  errors: ErrorSink
+  buildTurnConfig: (sessionId: string) => Promise<AgentModeTurnConfig>
+  /** Tools the store implements itself (e.g. offer_game_agent); media tools execute in main. */
+  storeTools?: Record<string, StoreTool>
+  /** The transcript a newly created runtime starts from (the session record's). */
+  initialMessages?: (sessionId: string) => UIMessage[]
+  /** A session's turn has ended — completed, failed, stopped or adopted-and-done. */
+  onTurnSettled?: (sessionId: string) => void
+  /** A turn adopted from the kernel snapshot ended; nothing else saves its transcript. */
+  onAdoptedTurnDone?: (sessionId: string) => void
+}) {
+  const runtimes = shallowRef<Record<string, SessionRuntime>>({})
+  const runningTools = new Map<string, { sessionId: string; abort: AbortController }>()
+  // Turn ids that finished in this renderer — reconnecting onto one would hang
+  // the resumed stream open forever. Bounded by session length, not cleared.
+  const finishedTurns = new Set<string>()
+
+  // Runtimes are created lazily, often outside the store's setup, so their
+  // watchers are parented to the scope the store was set up in.
+  const parentScope = getCurrentScope()
+
+  function ensureRuntime(sessionId: string): SessionRuntime {
+    const existing = runtimes.value[sessionId]
+    if (existing) return existing
+    const create = () =>
+      createSessionRuntime({
+        sessionId,
+        errors: options.errors,
+        initialMessages: options.initialMessages?.(sessionId) ?? [],
+        finishedTurns,
+        buildTurnConfig: options.buildTurnConfig,
+        onTurnSettled: options.onTurnSettled,
+        onAdoptedTurnDone: options.onAdoptedTurnDone,
+      })
+    const created = parentScope ? parentScope.run(create)! : create()
+    runtimes.value = { ...runtimes.value, [sessionId]: created }
+    return created
+  }
+
+  function runtimeFor(sessionId: string): AgentSessionRuntime {
+    return ensureRuntime(sessionId)
+  }
+
+  function runtimeOf(sessionId: string): AgentSessionRuntime | undefined {
+    return runtimes.value[sessionId]
+  }
+
+  /** Drop a session's runtime once it holds no turn; its transcript lives on in the record. */
+  function release(sessionId: string): void {
+    const runtime = runtimes.value[sessionId]
+    if (!runtime || runtime.hasTurn()) return
+    runtime.dispose()
+    const next = { ...runtimes.value }
+    delete next[sessionId]
+    runtimes.value = next
+  }
+
+  const anyTurnOpen = computed(() =>
+    Object.values(runtimes.value).some((runtime) => runtime.processing.value),
+  )
+
+  registerAgentModeIpc({
+    onStreamChunk: ({ sessionId, turnId, chunk }) => {
+      runtimes.value[sessionId]?.onChunk(turnId, chunk)
+    },
+    onToolProgress: ({ sessionId, turnId, toolCallId, text }) => {
+      runtimes.value[sessionId]?.onToolProgress(turnId, toolCallId, text)
     },
     onToolImage: (image) => {
-      if (pendingResume && pendingResume.turn.turnId === image.turnId) {
-        const pendingShown = pendingResume.turn.toolImages[image.toolCallId] ?? []
-        pendingResume.turn.toolImages = {
-          ...pendingResume.turn.toolImages,
-          [image.toolCallId]: [...pendingShown, { type: 'agent-tool-image', ...image }],
-        }
-        return
-      }
-      if (!activeTurn || activeTurn.turnId !== image.turnId) return
-      const shown = toolImages.value[image.toolCallId] ?? []
-      toolImages.value = { ...toolImages.value, [image.toolCallId]: [...shown, image] }
+      runtimes.value[image.sessionId]?.onToolImage(image)
     },
-    onTurnDone: ({ turnId }) => {
+    onTurnDone: ({ sessionId, turnId }) => {
       finishedTurns.add(turnId)
-      if (adoptedTurnId === turnId) {
-        processing.value = false
-        adoptedTurnId = null
-      }
-      if (!activeTurn || activeTurn.turnId !== turnId || activeTurn.closed) return
-      activeTurn.closed = true
-      try {
-        activeTurn.controller.close()
-      } catch {
-        // Already closed.
-      }
-      activeTurn = null
+      runtimes.value[sessionId]?.onTurnDone(turnId)
     },
-    onExecuteTool: async ({ requestId, toolName, input }) => {
+    onExecuteTool: async ({ requestId, sessionId, toolName, input }) => {
       const abort = new AbortController()
-      runningTools.set(requestId, abort)
+      runningTools.set(requestId, { sessionId, abort })
       try {
         const storeTool = options.storeTools?.[toolName]
         if (!storeTool) throw new Error(`Unknown agent tool: ${toolName}`)
-        const result = await storeTool(input)
+        const result = await storeTool(input, sessionId)
         const plainResult: unknown = JSON.parse(JSON.stringify(result ?? null))
         await window.electronAPI.agentMode.submitToolResult(requestId, plainResult)
       } catch (error) {
@@ -422,58 +591,20 @@ export function createAgentTurnRuntime(options: {
       }
     },
     onSnapshot: (snapshot) => {
-      // One turn is open at most until the Turn Queue lands; adopt the running one.
-      const turn = snapshot.state.agentTurns.find((entry) => entry.state === 'running')
-      // Only a renderer with no turn of its own resumes — a turn started here
-      // since boot must not be displaced by a snapshot that predates it.
-      if (!turn || activeTurn || finishedTurns.has(turn.turnId)) return
-      pendingResume = { turn, chunks: [] }
-      chat
-        .resumeStream()
-        .catch((error: unknown) => {
-          if (pendingResume?.turn.turnId === turn.turnId) pendingResume = null
-          if (adoptedTurnId === turn.turnId) {
-            adoptedTurnId = null
-            processing.value = false
-          }
-          options.errors.report(error, {
-            category: 'inference',
-            code: 'agent/resume-failed',
-            userMessage: `Could not resume the interrupted agent turn: ${extractMessage(error)}`,
-            surface: 'toast',
-          })
-        })
-        .then(() => {
-          // resumeStream resolved: whatever it did, a turn left pending was
-          // never adopted (reconnectToStream consumed it or bailed).
-          if (pendingResume?.turn.turnId === turn.turnId) pendingResume = null
-        })
+      for (const turn of snapshot.state.agentTurns) {
+        if (finishedTurns.has(turn.turnId)) continue
+        ensureRuntime(turn.sessionId).resume(turn)
+      }
     },
   })
 
-  /**
-   * Cancel the turn this runtime is streaming, or — when it streams none —
-   * whatever main holds open for `sessionId`.
-   */
-  async function cancel(sessionId: string): Promise<void> {
-    if (activeTurn) {
-      await window.electronAPI.agentMode.cancel(activeTurn.sessionId, activeTurn.turnId)
-    } else if (sessionId) {
-      await window.electronAPI.agentMode.cancel(sessionId)
+  function abortRunningTools(sessionId: string): void {
+    for (const [requestId, tool] of runningTools) {
+      if (tool.sessionId !== sessionId) continue
+      tool.abort.abort()
+      runningTools.delete(requestId)
     }
   }
 
-  function abortRunningTools(): void {
-    for (const abort of runningTools.values()) abort.abort()
-    runningTools.clear()
-  }
-
-  return {
-    chat,
-    processing,
-    toolProgress,
-    toolImages,
-    cancel,
-    abortRunningTools,
-  }
+  return { runtimes, runtimeFor, runtimeOf, release, anyTurnOpen, abortRunningTools }
 }

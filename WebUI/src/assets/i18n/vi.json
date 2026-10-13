@@ -569,5 +569,13 @@
   "AGENT_SAVE_AS_DEFAULT": "Lưu làm mặc định",
   "AGENT_RESET_TO_DEFAULT": "Đặt lại về mặc định",
   "AGENT_SAVED_AS_DEFAULT": "Đã lưu làm mặc định cho các phiên Agent mới",
-  "AGENT_RESET_TO_DEFAULT_DONE": "Đã đặt lại phiên này về cài đặt mặc định"
+  "AGENT_RESET_TO_DEFAULT_DONE": "Đã đặt lại phiên này về cài đặt mặc định",
+  "AGENT_SETTINGS_UNUSABLE": "Không thể sử dụng cài đặt của phiên này lúc này. Hãy sửa chúng trong Cài đặt Agent để tiếp tục.",
+  "AGENT_SETTINGS_UNUSABLE_DETAIL": "{setting} “{value}” không còn khả dụng.",
+  "AGENT_SETTING_BACKEND": "Backend",
+  "AGENT_SETTING_MODEL": "Mô hình",
+  "AGENT_SETTING_DEVICE": "Thiết bị",
+  "AGENT_SETTING_PROVIDER": "Nhà cung cấp",
+  "AGENT_SETTING_MCP_SERVER": "Máy chủ MCP",
+  "AGENT_SETTING_EMBEDDING_MODEL": "Mô hình embedding"
 }

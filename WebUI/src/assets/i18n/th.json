@@ -569,5 +569,13 @@
   "AGENT_SAVE_AS_DEFAULT": "บันทึกเป็นค่าเริ่มต้น",
   "AGENT_RESET_TO_DEFAULT": "รีเซ็ตเป็นค่าเริ่มต้น",
   "AGENT_SAVED_AS_DEFAULT": "บันทึกเป็นค่าเริ่มต้นสำหรับเซสชัน Agent ใหม่แล้ว",
-  "AGENT_RESET_TO_DEFAULT_DONE": "รีเซ็ตเซสชันนี้เป็นการตั้งค่าเริ่มต้นแล้ว"
+  "AGENT_RESET_TO_DEFAULT_DONE": "รีเซ็ตเซสชันนี้เป็นการตั้งค่าเริ่มต้นแล้ว",
+  "AGENT_SETTINGS_UNUSABLE": "ไม่สามารถใช้การตั้งค่าของเซสชันนี้ได้ในขณะนี้ แก้ไขในการตั้งค่า Agent เพื่อดำเนินการต่อ",
+  "AGENT_SETTINGS_UNUSABLE_DETAIL": "{setting} “{value}” ไม่พร้อมใช้งานอีกต่อไป",
+  "AGENT_SETTING_BACKEND": "แบ็กเอนด์",
+  "AGENT_SETTING_MODEL": "โมเดล",
+  "AGENT_SETTING_DEVICE": "อุปกรณ์",
+  "AGENT_SETTING_PROVIDER": "ผู้ให้บริการ",
+  "AGENT_SETTING_MCP_SERVER": "เซิร์ฟเวอร์ MCP",
+  "AGENT_SETTING_EMBEDDING_MODEL": "โมเดลเอ็มเบดดิง"
 }

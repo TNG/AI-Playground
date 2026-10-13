@@ -569,5 +569,13 @@
   "AGENT_SAVE_AS_DEFAULT": "儲存為預設",
   "AGENT_RESET_TO_DEFAULT": "重設為預設",
   "AGENT_SAVED_AS_DEFAULT": "已儲存為新 Agent 工作階段的預設設定",
-  "AGENT_RESET_TO_DEFAULT_DONE": "已將此工作階段重設為預設設定"
+  "AGENT_RESET_TO_DEFAULT_DONE": "已將此工作階段重設為預設設定",
+  "AGENT_SETTINGS_UNUSABLE": "此工作階段的設定目前無法使用。請在 Agent 設定中修正後繼續。",
+  "AGENT_SETTINGS_UNUSABLE_DETAIL": "{setting}「{value}」已無法使用。",
+  "AGENT_SETTING_BACKEND": "後端",
+  "AGENT_SETTING_MODEL": "模型",
+  "AGENT_SETTING_DEVICE": "裝置",
+  "AGENT_SETTING_PROVIDER": "供應商",
+  "AGENT_SETTING_MCP_SERVER": "MCP 伺服器",
+  "AGENT_SETTING_EMBEDDING_MODEL": "嵌入模型"
 }

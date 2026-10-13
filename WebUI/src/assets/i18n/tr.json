@@ -569,5 +569,13 @@
   "AGENT_SAVE_AS_DEFAULT": "Varsayılan olarak kaydet",
   "AGENT_RESET_TO_DEFAULT": "Varsayılana sıfırla",
   "AGENT_SAVED_AS_DEFAULT": "Yeni Agent oturumları için varsayılan olarak kaydedildi",
-  "AGENT_RESET_TO_DEFAULT_DONE": "Bu oturum varsayılan ayarlara sıfırlandı"
+  "AGENT_RESET_TO_DEFAULT_DONE": "Bu oturum varsayılan ayarlara sıfırlandı",
+  "AGENT_SETTINGS_UNUSABLE": "Bu oturumun ayarları şu anda kullanılamıyor. Devam etmek için Agent Ayarları'nda düzeltin.",
+  "AGENT_SETTINGS_UNUSABLE_DETAIL": "{setting} “{value}” artık kullanılamıyor.",
+  "AGENT_SETTING_BACKEND": "Arka uç",
+  "AGENT_SETTING_MODEL": "Model",
+  "AGENT_SETTING_DEVICE": "Cihaz",
+  "AGENT_SETTING_PROVIDER": "Sağlayıcı",
+  "AGENT_SETTING_MCP_SERVER": "MCP sunucusu",
+  "AGENT_SETTING_EMBEDDING_MODEL": "Gömme modeli"
 }

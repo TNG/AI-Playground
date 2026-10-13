@@ -179,6 +179,9 @@ export type KernelMediaAgentEvent = {
     | { type: 'tool-finish'; toolCallId: string; output: unknown; error?: string }
 }
 
+/** What a `text` request is: an agent turn, a Chat / Home Agent turn, or a title summary. */
+export type TurnWork = 'agent' | 'chat' | 'summary'
+
 /**
  * One queue entry's lifecycle on the orchestrator's typed queue (steps 7 + 10).
  * Transient like media progress — only an agent turn's Turn Queue position is
@@ -195,6 +198,9 @@ export type KernelQueueEvent = {
   queueDepth: number
   /** 1-based place among the Turn Queue members still waiting; absent once it holds the place. */
   position?: number
+  work?: TurnWork
+  /** While a Turn Queue member waits: the kind of work holding the place. */
+  holder?: TurnWork
   origin?: 'renderer' | 'agent'
   /** Present for chat-scoped work — lets the projection relabel the tool activity. */
   conversationKey?: string

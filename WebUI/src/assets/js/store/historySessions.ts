@@ -212,7 +212,7 @@ export const useHistorySessions = defineStore('historySessions', () => {
       case 'conversation':
         return conversations.activeKey === entry.id
       case 'agent':
-        return agentMode.activeSessionId === entry.id
+        return agentMode.openSessionId === entry.id
       case 'media':
         return selectedMediaId(entry.media.mode) === entry.id
     }

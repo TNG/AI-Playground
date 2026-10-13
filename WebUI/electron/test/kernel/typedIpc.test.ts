@@ -54,6 +54,7 @@ describe('typed IPC registration', () => {
     const sender = { send } as unknown as WebContents
     const payload: AgentToolExecuteRequest = {
       requestId: 'tool-req-1',
+      sessionId: 'aipg-agent-1',
       toolCallId: 'call-1',
       toolName: 'comfyUI',
       input: { prompt: 'a cat' },
@@ -66,7 +67,12 @@ describe('typed IPC registration', () => {
   it('typedSend rejects a payload of the wrong shape', () => {
     const send = vi.fn()
     const sender = { send } as unknown as WebContents
-    const payload = { requestId: 'tool-req-1', toolCallId: 'call-1', input: {} }
+    const payload = {
+      requestId: 'tool-req-1',
+      sessionId: 'aipg-agent-1',
+      toolCallId: 'call-1',
+      input: {},
+    }
     typedSend(
       sender,
       'agentMode:executeTool',

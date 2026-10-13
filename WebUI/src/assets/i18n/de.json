@@ -569,5 +569,13 @@
   "AGENT_SAVE_AS_DEFAULT": "Als Standard speichern",
   "AGENT_RESET_TO_DEFAULT": "Auf Standard zurücksetzen",
   "AGENT_SAVED_AS_DEFAULT": "Als Standard für neue Agent-Sitzungen gespeichert",
-  "AGENT_RESET_TO_DEFAULT_DONE": "Diese Sitzung auf die Standardeinstellungen zurückgesetzt"
+  "AGENT_RESET_TO_DEFAULT_DONE": "Diese Sitzung auf die Standardeinstellungen zurückgesetzt",
+  "AGENT_SETTINGS_UNUSABLE": "Die Einstellungen dieser Sitzung können gerade nicht verwendet werden. Korrigieren Sie sie in den Agent-Einstellungen, um fortzufahren.",
+  "AGENT_SETTINGS_UNUSABLE_DETAIL": "{setting} „{value}“ ist nicht mehr verfügbar.",
+  "AGENT_SETTING_BACKEND": "Backend",
+  "AGENT_SETTING_MODEL": "Modell",
+  "AGENT_SETTING_DEVICE": "Gerät",
+  "AGENT_SETTING_PROVIDER": "Anbieter",
+  "AGENT_SETTING_MCP_SERVER": "MCP-Server",
+  "AGENT_SETTING_EMBEDDING_MODEL": "Embedding-Modell"
 }

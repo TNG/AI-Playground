@@ -1526,6 +1526,9 @@ export const useTextInference = defineStore(
       const binding = usesSessionSettings(activePreset.value) ? sessionSettingsBinding : null
       const sessionSettings = binding?.load(defaultSettings, embeddingBackend.value) ?? null
       const savedSettings = sessionSettings ?? defaultSettings
+      // A sent session's stored backend is applied as-is; an unusable one blocks Send instead.
+      const pinned = sessionSettings !== null && binding !== null && binding.pinned()
+      const pinnedBackend = pinned ? (savedSettings.backend as LlmBackend | undefined) : undefined
       console.log('Loading settings for preset', settingsKey, savedSettings)
       const preset = activePreset.value
 
@@ -1543,9 +1546,9 @@ export const useTextInference = defineStore(
               : null,
         },
         {
-          presetBackends: preset.backends ?? [],
+          presetBackends: pinnedBackend ? [pinnedBackend] : (preset.backends ?? []),
           presetPreferredModels: preset.preferredModels,
-          cloudEnabled: cloudMode.isFeatureEnabled,
+          cloudEnabled: pinned || cloudMode.isFeatureEnabled,
           runningBackends: llmBackendTypes.filter((b) => {
             const info = backendServices.info.find((s) => s.serviceName === backendToService[b])
             return info?.status === 'running'
@@ -1785,6 +1788,7 @@ export const useTextInference = defineStore(
 
       // A session with no settings of its own (a Draft Session) takes the repaired defaults.
       if (binding && !sessionSettings) binding.save(sessionSettingsBag(), embeddingBackend.value)
+      if (pinned) binding.loaded(sessionSettingsBag(), embeddingBackend.value)
 
       // Defer clearing the flag so the persistence watcher (default flush:
       // 'pre') sees `isLoadingSettings === true` when it runs for the writes
@@ -1948,6 +1952,10 @@ export const useTextInference = defineStore(
         embeddingBackend: Exclude<LlmBackend, 'cloud'>,
       ) => SettingsBag | null
       save: (bag: SettingsBag, embeddingBackend: Exclude<LlmBackend, 'cloud'>) => void
+      /** Whether the active session was already sent, so its stored values must not be swapped. */
+      pinned: () => boolean
+      /** The live values right after a pinned session loaded. */
+      loaded: (bag: SettingsBag, embeddingBackend: Exclude<LlmBackend, 'cloud'>) => void
     }
     let sessionSettingsBinding: SessionSettingsBinding | null = null
 
@@ -1956,9 +1964,32 @@ export const useTextInference = defineStore(
       return { ...currentSettingsBag(), cloudProviderId: cloudMode.selectedProviderId }
     }
 
+    const sessionSettingsBindingRef = shallowRef<SessionSettingsBinding | null>(null)
+
     function bindSessionSettings(binding: SessionSettingsBinding | null): void {
       sessionSettingsBinding = binding
+      sessionSettingsBindingRef.value = binding
     }
+
+    /** True while the Agent preset shows a sent session: nothing may replace its stored model. */
+    const sessionSettingsPinned = computed(
+      () =>
+        usesSessionSettings(activePreset.value) &&
+        sessionSettingsBindingRef.value?.pinned() === true,
+    )
+
+    /** What can be served right now, for checking a sent session's stored settings. */
+    const settingsAvailability = computed(() => ({
+      models: llmModels.value.map((m) => ({ name: m.name, type: m.type })),
+      embeddingModels: llmEmbeddingModels.value.map((m) => ({ name: m.name, type: m.type })),
+      services: (['llamaCPP', 'openVINO'] as const).flatMap((b) => {
+        const info = backendServices.info.find((s) => s.serviceName === backendToService[b])
+        return info ? [{ backend: b, isSetUp: info.isSetUp, devices: info.devices }] : []
+      }),
+      cloudEnabled: cloudMode.isFeatureEnabled,
+      cloudProviderIds: cloudMode.providers.map((p) => p.id),
+      embeddingBackend: embeddingBackend.value,
+    }))
 
     // Watch for setting changes and save them to settingsPerPreset
     // Note: Preset/variant changes are now handled by the orchestrator, not by watchers
@@ -2141,6 +2172,8 @@ export const useTextInference = defineStore(
 
     return {
       bindSessionSettings,
+      sessionSettingsPinned,
+      settingsAvailability,
       backend,
       activeModel,
       selectedModels,

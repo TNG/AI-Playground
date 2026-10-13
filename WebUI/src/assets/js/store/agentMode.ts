@@ -21,8 +21,14 @@ import {
 import {
   LegacyAgentSessionStateSchema,
   type AgentSessionBootstrap,
+  type AgentSessionSettings,
   type LegacyAgentSessionState,
 } from '@/types/agentSessionIpc'
+import {
+  sessionSettingsToBag,
+  updateSessionSettingsFromBag,
+  usesSessionSettings,
+} from '@/lib/agentSessionSettings'
 import { withResponseLanguage } from '@/lib/responseLanguage'
 import { ragEmbeddingPrepFailure } from '@/lib/ragEmbeddingPrep'
 import { requestDownload } from '@/assets/js/permissions/permissions'
@@ -66,8 +72,8 @@ export type { AgentSessionRecord }
 // sendMessages() triggers `agentMode:startTurn` over IPC and reconstructs the UI
 // message chunk stream from `agentMode:streamChunk` pushes — feeding a standard
 // @ai-sdk/vue Chat instance so the existing part renderers work unchanged.
-// Backend/model selection is fully shared with Chat (textInference + cloudMode)
-// — no agent-specific model settings.
+// The model controls are Chat's (textInference + cloudMode); for the Agent preset
+// they are bound to the active session's Session Settings (docs/adr/0001).
 //
 // There is at most one live Pi session and one workspace preview server. Switching
 // conversation or workspace (newSession, switchSession, adoptWorkspace, newGame)
@@ -191,6 +197,36 @@ export const useAgentMode = defineStore(
     let movingSession = false
 
     const presetSessions = computedPresetSessions(sessions, agentPresetName)
+
+    /**
+     * The active Agent Session's Session Settings (Agent preset only). Null until a Draft
+     * Session has taken the Default Settings; the chat store's next load fills it.
+     */
+    const activeSettings = ref<AgentSessionSettings | null>(null)
+
+    textInference.bindSessionSettings({
+      load: (defaults) =>
+        activeSettings.value ? sessionSettingsToBag(activeSettings.value, defaults) : null,
+      save: (bag) => {
+        activeSettings.value = updateSessionSettingsFromBag(activeSettings.value, bag)
+      },
+    })
+
+    function presetUsesSessionSettings(presetName: string): boolean {
+      const preset = presetsStore.presets.find((entry) => entry.name === presetName)
+      return preset?.type === 'chat' && usesSessionSettings(preset as ChatPreset)
+    }
+
+    /**
+     * Put the active session's settings into the live controls. Nothing starts here: the
+     * backend and model are made ready by the next send.
+     */
+    function activateSessionSettings(settings: AgentSessionSettings | undefined): void {
+      activeSettings.value = settings ? { ...settings } : null
+      const live = presetsStore.activePresetWithVariant
+      if (live?.type !== 'chat' || !usesSessionSettings(live as ChatPreset)) return
+      textInference.loadSettingsForActivePreset()
+    }
     const sessionCapabilities = ref<string[] | null>(null)
 
     /** An accepted `offer_game_agent`, waiting for the turn that offered it to end. */
@@ -535,13 +571,19 @@ export const useAgentMode = defineStore(
         capabilities: capabilities.value,
         presetName,
         responseLocale: sessions.value[id]?.responseLocale ?? pendingResponseLocales[id],
+        settings:
+          presetUsesSessionSettings(presetName) && activeSettings.value
+            ? activeSettings.value
+            : undefined,
       })
       if (!record) return
       rewriteSession(id, record)
     }
 
     function restoreActiveSession(): void {
-      chat.messages = (sessions.value[activeSessionId.value]?.messages ?? []) as UIMessage[]
+      const record = sessions.value[activeSessionId.value]
+      chat.messages = (record?.messages ?? []) as UIMessage[]
+      activateSessionSettings(record?.settings)
     }
 
     async function newSession(): Promise<void> {
@@ -549,6 +591,7 @@ export const useAgentMode = defineStore(
       activeSessionId.value = mintSessionId()
       sessionCapabilities.value = null
       chat.messages = []
+      activateSessionSettings(undefined)
     }
 
     async function switchSession(id: string): Promise<void> {
@@ -688,6 +731,7 @@ export const useAgentMode = defineStore(
         activeSessionId.value = mintSessionId()
         sessionCapabilities.value = null
         chat.messages = []
+        activateSessionSettings(undefined)
       }
     }
 
@@ -729,6 +773,7 @@ export const useAgentMode = defineStore(
       sessionCapabilities.value = null
       currentGame.value = null
       chat.messages = []
+      activeSettings.value = null
     }
 
     async function startNew(): Promise<void> {

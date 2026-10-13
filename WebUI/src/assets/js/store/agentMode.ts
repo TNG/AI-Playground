@@ -1086,7 +1086,7 @@ export const useAgentMode = defineStore(
     }
 
     async function stop(): Promise<void> {
-      await window.electronAPI.agentMode.cancel()
+      await turn.cancel(activeSessionId.value)
       abortRunningTools()
       await chat.stop()
       processing.value = false

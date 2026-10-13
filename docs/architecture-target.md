@@ -568,8 +568,8 @@ the notifications that were pushed point-to-point: service status, the four agen
 `src/assets/js/projection/kernelProjection.ts`). The handshake installs the snapshot through an
 `onInstall` hook that runs **before** the buffered flush, because a consumer that adopts snapshot
 state (a resumed agent turn's stream controller) must exist before the events meant to follow it
-arrive. The snapshot carries service status, the one active agent turn's accumulated chunks,
-tool progress and tool images, and the one active artifact run (phase + items) — enough for a
+arrive. The snapshot carries service status, every open agent turn (session id, turn id, state,
+accumulated chunks, tool progress and tool images), and the one active artifact run (phase + items) — enough for a
 recreated window to resume a running turn through `Chat.resumeStream()` without restarting it, and
 to rehydrate a renderer-originated Image Gen run. Chat turns also ride the bus (`chat-chunk` /
 `chat-turn-done`, with adjacent deltas coalesced at the bridge — step 6). What is not on the bus

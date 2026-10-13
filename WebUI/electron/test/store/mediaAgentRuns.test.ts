@@ -22,7 +22,7 @@ vi.stubGlobal('window', {
       sequence: 0,
       state: {
         services: [],
-        activeTurn: null,
+        agentTurns: [],
         activeArtifactRun: null,
         chatTurns: [],
         activities: [],

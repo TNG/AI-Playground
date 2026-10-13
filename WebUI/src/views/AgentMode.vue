@@ -79,7 +79,7 @@
 
       <!-- A tool can put a question to the user mid-turn (Quick Coder offering to
            hand the game to Game Agent). Same card as Chat, keyed by the session. -->
-      <ChatConfirmation :conversation-key="agentMode.activeSessionId" with-avatar />
+      <ChatConfirmation :conversation-key="agentMode.openSessionId" with-avatar />
 
       <div
         v-if="agentMode.processing"

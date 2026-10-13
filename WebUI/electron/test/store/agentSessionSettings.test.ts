@@ -160,7 +160,7 @@ vi.mock('@/assets/js/store/errors', () => ({
 }))
 
 const turnConfig = vi.hoisted(() => ({
-  build: null as (() => unknown) | null,
+  build: null as ((sessionId: string) => unknown) | null,
   lastInput: null as { planningThinkingOnly?: boolean } | null,
 }))
 
@@ -172,9 +172,9 @@ vi.mock('@/assets/js/store/agentModeTurn', async (importOriginal) => {
       turnConfig.lastInput = input
       return { capabilities: input.capabilities }
     },
-    createAgentTurnRuntime: (options: { buildTurnConfig: () => unknown }) => {
+    createAgentTurnRuntimes: (options: { buildTurnConfig: (sessionId: string) => unknown }) => {
       turnConfig.build = options.buildTurnConfig
-      return actual.createAgentTurnRuntime(options as never)
+      return actual.createAgentTurnRuntimes(options as never)
     },
   }
 })
@@ -289,7 +289,7 @@ describe('Agent Session Settings', () => {
     chat.edit({ model: 'Picked-27B' })
     await store.generate('build it')
 
-    expect(savedSettings(store.activeSessionId)).toMatchObject({
+    expect(savedSettings(store.openSessionId)).toMatchObject({
       backend: 'llamaCPP',
       model: 'Picked-27B',
     })
@@ -306,12 +306,12 @@ describe('Agent Session Settings', () => {
   it('keeps edits in one session out of the others and out of the defaults', async () => {
     const store = await startedStore()
     await store.generate('first')
-    const first = store.activeSessionId
+    const first = store.openSessionId
 
     await store.newSession()
     chat.edit({ backend: 'openVINO', model: 'Phi-4' })
     await store.generate('second')
-    const second = store.activeSessionId
+    const second = store.openSessionId
 
     expect(savedSettings(first)).toMatchObject({ backend: 'llamaCPP', model: 'Default-9B' })
     expect(savedSettings(second)).toMatchObject({ backend: 'openVINO', model: 'Phi-4' })
@@ -325,7 +325,7 @@ describe('Agent Session Settings', () => {
     const store = await startedStore()
     chat.edit({ backend: 'openVINO', model: 'Phi-4' })
     await store.generate('first')
-    const first = store.activeSessionId
+    const first = store.openSessionId
 
     await store.newSession()
     expect(live()).toEqual({ backend: 'llamaCPP', model: 'Default-9B' })
@@ -337,7 +337,7 @@ describe('Agent Session Settings', () => {
   it('does not change a session when the user edits after leaving it', async () => {
     const store = await startedStore()
     await store.generate('first')
-    const first = store.activeSessionId
+    const first = store.openSessionId
     await store.newSession()
     chat.edit({ model: 'Other-4B' })
 
@@ -355,7 +355,7 @@ describe('Agent Session Settings', () => {
     expect(chat.state.settingsPerPreset['Game Agent']).toMatchObject({
       selectedModels: { llamaCPP: 'Coder-14B' },
     })
-    expect(store.sessions[store.activeSessionId]?.settings).toBeUndefined()
+    expect(store.sessions[store.openSessionId]?.settings).toBeUndefined()
   })
 
   it('keeps device, provider, context, thinking, embeddings and workflows per session', async () => {
@@ -371,7 +371,7 @@ describe('Agent Session Settings', () => {
       builtinToolPresetEnablement: { Flux: false },
     })
     await store.generate('first')
-    const first = store.activeSessionId
+    const first = store.openSessionId
 
     await store.newSession()
     expect(chat.state.live.thinkingEnabled).toBeUndefined()
@@ -402,14 +402,14 @@ describe('Agent Session Settings', () => {
     const store = await startedStore()
     chat.edit({ selectedDeviceId: 'GPU.0', thinkingEnabled: true })
     await store.generate('first')
-    const first = store.activeSessionId
+    const first = store.openSessionId
 
     await store.newSession()
     chat.edit({ selectedDeviceId: 'NPU', thinkingEnabled: false })
     await store.generate('second')
 
     expect(savedSettings(first)).toMatchObject({ device: { id: 'GPU.0' }, thinkingEnabled: true })
-    expect(savedSettings(store.activeSessionId)).toMatchObject({
+    expect(savedSettings(store.openSessionId)).toMatchObject({
       device: { id: 'NPU' },
       thinkingEnabled: false,
     })
@@ -432,7 +432,7 @@ describe('Agent Session Settings', () => {
     store.setCapabilityEnabled('mcp:blender', true)
     store.setPlanningThinkingOnly(false)
     await store.generate('first')
-    const first = store.activeSessionId
+    const first = store.openSessionId
 
     await store.newSession()
     expect(store.isCapabilityEnabled('mcp:blender')).toBe(false)
@@ -450,7 +450,7 @@ describe('Agent Session Settings', () => {
     store.setCapabilityEnabled('mcp:blender', true)
     store.setPlanningThinkingOnly(false)
 
-    const config = turnConfig.build?.() as unknown as { capabilities: string[] }
+    const config = turnConfig.build?.(store.openSessionId) as unknown as { capabilities: string[] }
     expect(config.capabilities).toContain('mcp:blender')
     expect(turnConfig.lastInput?.planningThinkingOnly).toBe(false)
   })
@@ -534,7 +534,7 @@ describe('Agent Session Settings', () => {
   it('keeps earlier sessions as they were after saving new defaults', async () => {
     const store = await startedStore()
     await store.generate('first')
-    const first = store.activeSessionId
+    const first = store.openSessionId
     await store.newSession()
     chat.edit({ model: 'New-27B' })
     store.saveAsDefault()
@@ -545,12 +545,12 @@ describe('Agent Session Settings', () => {
   it('resets only the active session to the defaults', async () => {
     const store = await startedStore()
     await store.generate('first')
-    const first = store.activeSessionId
+    const first = store.openSessionId
     await store.newSession()
     chat.edit({ model: 'Picked-27B' })
     store.setCapabilityEnabled('mcp:blender', true)
     await store.generate('second')
-    const second = store.activeSessionId
+    const second = store.openSessionId
     saveSession.mockClear()
 
     store.resetToDefault()

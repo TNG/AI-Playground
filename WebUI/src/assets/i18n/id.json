@@ -579,5 +579,15 @@
   "AGENT_SETTING_MCP_SERVER": "Server MCP",
   "AGENT_SETTING_EMBEDDING_MODEL": "Model embedding",
   "AGENT_TURN_QUEUED": "Dalam antrean",
-  "AGENT_TURN_QUEUED_DETAIL": "Menunggu giliran yang sedang berjalan selesai…"
+  "AGENT_TURN_QUEUED_DETAIL": "Menunggu giliran yang sedang berjalan selesai…",
+  "HISTORY_STATUS_RUNNING": "Berjalan",
+  "HISTORY_STATUS_QUEUED": "Dalam antrean",
+  "HISTORY_STATUS_QUEUED_AT": "Dalam antrean, posisi {position}",
+  "HISTORY_STATUS_PAUSED": "Memerlukan masukan Anda",
+  "HISTORY_STATUS_UNSEEN": "Hasil baru",
+  "HISTORY_STATUS_UNSEEN_FAILED": "Giliran gagal",
+  "HISTORY_QUEUE_ORDINAL_ONE": "ke-{n}",
+  "HISTORY_QUEUE_ORDINAL_TWO": "ke-{n}",
+  "HISTORY_QUEUE_ORDINAL_FEW": "ke-{n}",
+  "HISTORY_QUEUE_ORDINAL_OTHER": "ke-{n}"
 }

@@ -25,7 +25,8 @@
 // - the Turn Queue: text requests that `joinsTurnQueue` (agent turns, local and
 //   cloud) hold one exclusive place for their whole turn and wait FIFO for it.
 //   Media nested in the holder's turn runs within it (same conversation key);
-//   members still waiting never block it.
+//   members still waiting never block it. Waiting members carry their 1-based
+//   position on `queue-event` (`enqueued`, then `moved` whenever one ahead leaves).
 //
 // What deliberately stays out: which model to load is still data from the last
 // successful load (or the turn request); download consent stays renderer-side.
@@ -350,15 +351,18 @@ export async function submitTextRequest(request: TextRequest, signal?: AbortSign
     throw new Error(`Text request ${request.runId} is already occupying the queue`)
   }
   textOccupancy.set(request.runId, { ...request, phase: 'waiting' })
+  // Joined before announcing, so the enqueued event already carries its position.
+  const place = request.joinsTurnQueue ? takeTurnPlace(request.runId, signal) : null
   emitQueueEvent({
     runKey: request.runId,
     kind: 'text',
     action: 'enqueued',
     queueDepth: Math.max(0, textWaitingCount() - 1),
+    position: turnQueuePosition(request.runId),
     conversationKey: request.conversationKey,
   })
   try {
-    if (request.joinsTurnQueue) await takeTurnPlace(request.runId, signal)
+    if (place) await place
     if (request.needsGpu) {
       await awaitChatWindow(signal)
     } else if (signal?.aborted) {
@@ -428,13 +432,38 @@ function takeTurnPlace(runId: string, signal?: AbortSignal): Promise<void> {
 /** Dequeues a waiting member (its wait rejects) or releases the place to the next one. */
 function leaveTurnQueue(runId: string): void {
   const index = turnQueue.findIndex((entry) => entry.runId === runId)
-  if (index !== -1) turnQueue.splice(index, 1)[0].drop()
+  if (index !== -1) {
+    turnQueue.splice(index, 1)[0].drop()
+    announceTurnPositions(index)
+  }
   if (turnHolder !== runId) return
   turnHolder = null
   const next = turnQueue.shift()
   if (!next) return
   turnHolder = next.runId
   next.take()
+  announceTurnPositions(0)
+}
+
+/** 1-based place among waiting members; undefined for the holder or a non-member. */
+function turnQueuePosition(runId: string): number | undefined {
+  const index = turnQueue.findIndex((entry) => entry.runId === runId)
+  return index === -1 ? undefined : index + 1
+}
+
+/** Every waiting member from `fromIndex` on has moved up one place. */
+function announceTurnPositions(fromIndex: number): void {
+  for (let index = fromIndex; index < turnQueue.length; index += 1) {
+    const { runId } = turnQueue[index]
+    emitQueueEvent({
+      runKey: runId,
+      kind: 'text',
+      action: 'moved',
+      queueDepth: turnQueue.length - index - 1,
+      position: index + 1,
+      conversationKey: textOccupancy.get(runId)?.conversationKey,
+    })
+  }
 }
 
 function cancelledTurnQueue(): Error {

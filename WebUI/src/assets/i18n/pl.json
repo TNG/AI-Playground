@@ -579,5 +579,15 @@
   "AGENT_SETTING_MCP_SERVER": "Serwer MCP",
   "AGENT_SETTING_EMBEDDING_MODEL": "Model embeddingów",
   "AGENT_TURN_QUEUED": "W kolejce",
-  "AGENT_TURN_QUEUED_DETAIL": "Czeka na zakończenie bieżącej tury…"
+  "AGENT_TURN_QUEUED_DETAIL": "Czeka na zakończenie bieżącej tury…",
+  "HISTORY_STATUS_RUNNING": "W toku",
+  "HISTORY_STATUS_QUEUED": "W kolejce",
+  "HISTORY_STATUS_QUEUED_AT": "W kolejce, pozycja {position}",
+  "HISTORY_STATUS_PAUSED": "Wymaga Twojej odpowiedzi",
+  "HISTORY_STATUS_UNSEEN": "Nowy wynik",
+  "HISTORY_STATUS_UNSEEN_FAILED": "Tura nie powiodła się",
+  "HISTORY_QUEUE_ORDINAL_ONE": "{n}.",
+  "HISTORY_QUEUE_ORDINAL_TWO": "{n}.",
+  "HISTORY_QUEUE_ORDINAL_FEW": "{n}.",
+  "HISTORY_QUEUE_ORDINAL_OTHER": "{n}."
 }

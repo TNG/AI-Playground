@@ -30,12 +30,18 @@ export type ConversationEntry = EntryBase & {
   messages: UIMessage[]
 }
 
+/** What an Agent Session's turn is doing, or how it went while nobody was looking. */
+export type AgentSessionStatus = 'running' | 'queued' | 'paused' | 'unseen' | 'unseenFailed'
+
 /** Agent, Game Agent, Quick Coder: a transcript plus a workspace folder. */
 export type AgentEntry = EntryBase & {
   kind: 'agent'
   workspaceDir: string
   capabilities?: string[]
   messages: UIMessage[]
+  status?: AgentSessionStatus
+  /** 1-based Turn Queue place, only while `queued` and known. */
+  queuePosition?: number
 }
 
 /**
@@ -68,6 +74,51 @@ export type FilterContext = {
 }
 
 const WORKFLOW_MODES: readonly string[] = ['imageGen', 'imageEdit', 'video']
+
+/**
+ * A turn in flight outranks an unseen result: the dot is about the last turn, and
+ * a new one has already started.
+ */
+export function agentSessionStatus(input: {
+  turn?: { state: 'queued' | 'running' | 'paused'; queuePosition?: number | null }
+  unseen?: 'done' | 'failed'
+}): { status?: AgentSessionStatus; queuePosition?: number } {
+  const { turn, unseen } = input
+  if (turn?.state === 'queued') {
+    return turn.queuePosition
+      ? { status: 'queued', queuePosition: turn.queuePosition }
+      : { status: 'queued' }
+  }
+  if (turn) return { status: turn.state }
+  if (unseen === 'failed') return { status: 'unseenFailed' }
+  if (unseen === 'done') return { status: 'unseen' }
+  return {}
+}
+
+const ORDINAL_KEYS: Partial<Record<Intl.LDMLPluralRule, string>> = {
+  one: 'HISTORY_QUEUE_ORDINAL_ONE',
+  two: 'HISTORY_QUEUE_ORDINAL_TWO',
+  few: 'HISTORY_QUEUE_ORDINAL_FEW',
+}
+
+/** "2nd" in English; each locale's ordinal pattern comes from its own strings. */
+export function queueOrdinal(
+  position: number,
+  locale: string,
+  labels: Record<string, string>,
+): string {
+  let category: Intl.LDMLPluralRule = 'other'
+  try {
+    category = new Intl.PluralRules(locale, { type: 'ordinal' }).select(position)
+  } catch {
+    // An unknown locale tag falls back to the generic pattern.
+  }
+  const pattern =
+    labels[ORDINAL_KEYS[category] ?? 'HISTORY_QUEUE_ORDINAL_OTHER'] ??
+    labels.HISTORY_QUEUE_ORDINAL_OTHER ??
+    '{n}'
+  return pattern.replace('{n}', String(position))
+}
 
 export function isWorkflowMode(mode: ModeType): mode is WorkflowModeType {
   return WORKFLOW_MODES.includes(mode)

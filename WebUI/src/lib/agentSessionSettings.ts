@@ -179,3 +179,22 @@ export function fillMissingSessionSettings(
   for (const key of missing) Object.assign(settings, { [key]: defaults[key] })
   return { settings, changed: true }
 }
+
+/**
+ * Keep the stored value of every field the user did not change since the session loaded:
+ * a value substituted while loading (an unavailable model, a removed provider) equals the
+ * post-load baseline and must not replace what the session chose.
+ */
+export function keepUneditedSettings(
+  stored: AgentSessionSettings,
+  next: AgentSessionSettings,
+  baseline: AgentSessionSettings,
+): AgentSessionSettings {
+  const result: AgentSessionSettings = { ...next }
+  for (const key of BAG_DERIVED_SETTINGS) {
+    if (JSON.stringify(next[key]) !== JSON.stringify(baseline[key])) continue
+    if (stored[key] === undefined) delete result[key]
+    else Object.assign(result, { [key]: stored[key] })
+  }
+  return result
+}

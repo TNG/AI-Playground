@@ -214,7 +214,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     args: NonNullable<import('../src/types/chatIpc').ChatModelConfig['readiness']>,
   ) => invoke('rememberChatBackendLoad', args),
   artifact: {
-    run: (request: ArtifactRunRequest, options?: { queue?: 'fail-fast' | 'queue' }) =>
+    run: (request: ArtifactRunRequest, options?: { queue?: 'turn' | 'queue' }) =>
       invoke('artifact:run', cloneForIpc(request), options),
     cancel: (runId?: string) => invoke('artifact:cancel', runId),
     respond: (payload: MediaResponsePayload) => invoke('artifact:respond', payload),

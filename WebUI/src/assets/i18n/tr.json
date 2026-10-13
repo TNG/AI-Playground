@@ -565,5 +565,9 @@
   "ARCADE_MANAGE_SHOW_GAME": "{game} oyununu {arcade} sayfasında göster",
   "ARCADE_MANAGE_DONE": "Bitti",
   "ARCADE_MANAGE_FAILED": "{arcade} güncellenemedi.",
-  "HOME_AGENT_LAN_INSECURE_STORAGE": "Kullanılabilir bir işletim sistemi anahtarlığı yok. LAN chat parolası şifrelenmez, **diskte gizlenir**.\n\nŞifreli depolama için bir anahtarlık daemon'ı (GNOME Keyring veya KWallet) kurup çalıştırın.\n\nBu parolanın korunmadığını kabul ediyorsanız devam edin."
+  "HOME_AGENT_LAN_INSECURE_STORAGE": "Kullanılabilir bir işletim sistemi anahtarlığı yok. LAN chat parolası şifrelenmez, **diskte gizlenir**.\n\nŞifreli depolama için bir anahtarlık daemon'ı (GNOME Keyring veya KWallet) kurup çalıştırın.\n\nBu parolanın korunmadığını kabul ediyorsanız devam edin.",
+  "AGENT_SAVE_AS_DEFAULT": "Varsayılan olarak kaydet",
+  "AGENT_RESET_TO_DEFAULT": "Varsayılana sıfırla",
+  "AGENT_SAVED_AS_DEFAULT": "Yeni Agent oturumları için varsayılan olarak kaydedildi",
+  "AGENT_RESET_TO_DEFAULT_DONE": "Bu oturum varsayılan ayarlara sıfırlandı"
 }

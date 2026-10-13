@@ -181,17 +181,20 @@ export type KernelMediaAgentEvent = {
 
 /**
  * One queue entry's lifecycle on the orchestrator's typed queue (steps 7 + 10).
- * Transient like media progress — a reloaded renderer does not adopt queue
- * positions, the entries either run or were cancelled. `text` is a chat turn's
+ * Transient like media progress — only an agent turn's Turn Queue position is
+ * snapshotted (on its `AgentTurnSnapshot`). `text` is a chat or agent turn's
  * occupancy (not an artifact); nested media for that conversation stays `queue`.
  */
 export type KernelQueueEvent = {
   type: 'queue-event'
   runKey: string
   kind: 'artifact' | 'media-request' | 'text'
-  action: 'enqueued' | 'started' | 'finished'
+  /** `moved`: a waiting Turn Queue member's position changed because one ahead left. */
+  action: 'enqueued' | 'moved' | 'started' | 'finished'
   /** Entries still waiting after this one. */
   queueDepth: number
+  /** 1-based place among the Turn Queue members still waiting; absent once it holds the place. */
+  position?: number
   origin?: 'renderer' | 'agent'
   /** Present for chat-scoped work — lets the projection relabel the tool activity. */
   conversationKey?: string
@@ -278,6 +281,8 @@ export type AgentTurnSnapshot = {
   sessionId: string
   turnId: string
   state: AgentTurnState
+  /** Its place in the Turn Queue while queued (1 = next to start). */
+  queuePosition?: number
   chunks: unknown[]
   toolProgress: Record<string, string>
   toolImages: Record<string, KernelAgentToolImageEvent[]>

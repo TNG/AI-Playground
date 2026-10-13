@@ -16,6 +16,7 @@ import {
   conversationTitle,
   entryRuntimeShown,
   isEmptyDraft,
+  agentSessionStatus,
   isWorkflowMode,
   matchesFilter,
   mediaSettings,
@@ -117,6 +118,10 @@ export const useHistorySessions = defineStore('historySessions', () => {
       messages: session.messages,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
+      ...agentSessionStatus({
+        turn: agentMode.sessionTurns[session.id],
+        unseen: agentMode.unseenTurns[session.id],
+      }),
     })),
   )
 

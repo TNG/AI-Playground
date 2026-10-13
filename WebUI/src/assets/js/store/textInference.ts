@@ -38,6 +38,7 @@ import { useActivities } from './activities'
 import { useI18N } from './i18n'
 import { useUIStore } from './ui'
 import { renamePresetKeys } from '@/lib/presetRenames'
+import { repairChatSettings } from '@/lib/chatSettingsRepair'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { boundMaxOutputTokens } from '@/lib/maxOutputTokens'
 import { formatRagSources } from '@/lib/ragSources'
@@ -1507,80 +1508,39 @@ export const useTextInference = defineStore(
       console.log('Loading settings for preset', settingsKey, savedSettings)
       const preset = activePreset.value
 
-      // Load backend - smart selection based on what's running
-      if (savedSettings.backend !== undefined) {
-        const savedBackend = savedSettings.backend as LlmBackend
-        // Cloud Mode is a global, feature-flagged backend that SettingsChat offers
-        // for any chat preset (see availableBackends), so a preset rarely lists it
-        // in `backends`. Honor a saved 'cloud' choice whenever the feature is on —
-        // otherwise a temporary preset switch (e.g. an image-gen tool call in an
-        // agentic chat) would restore to llamaCPP instead of Cloud Mode.
-        const cloudAllowed = savedBackend === 'cloud' && cloudMode.isFeatureEnabled
-        // Only apply saved backend if it's in the preset's allowed backends
-        if (preset.backends?.includes(savedBackend) || cloudAllowed) {
-          backend.value = savedBackend
-        } else {
-          // Fall through to smart selection below
-          selectBestBackend(preset)
-        }
-      } else {
-        selectBestBackend(preset)
-      }
-
-      // Helper to select the best available backend from preset's allowed list.
-      //
-      // We intentionally do NOT carry over `backend.value` when the new preset
-      // has no persisted choice: that branch caused per-preset settings to
-      // silently inherit whichever preset was active just before. Concretely,
-      // editing the Home Agent backend would change the Basic Chat backend on
-      // the next switch, because Basic Chat had no saved entry yet and
-      // "if current backend is allowed, keep it" pulled in the Home Agent
-      // value from the global ref. Deterministic per-preset defaults make the
-      // user's explicit choices the only thing that crosses presets.
-      function selectBestBackend(preset: ChatPreset) {
-        if (!preset.backends || preset.backends.length === 0) return
-
-        if (preset.backends.length === 1) {
-          backend.value = preset.backends[0]
-          return
-        }
-
-        const runningBackend = preset.backends.find((b) => {
-          const serviceName = backendToService[b] as BackendServiceName
-          const backendInfo = backendServices.info.find((s) => s.serviceName === serviceName)
-          return backendInfo && backendInfo.status === 'running'
-        })
-
-        backend.value = runningBackend ?? preset.backends[0]
-      }
+      // Backend, device and preferred model go through the shared silent repair:
+      // an unavailable choice is replaced rather than restored. A preset with no
+      // saved backend never inherits the previously active preset's backend.
+      const savedDeviceId = savedSettings.selectedDeviceId as string | undefined
+      const repaired = repairChatSettings(
+        {
+          backend: savedSettings.backend as LlmBackend | undefined,
+          deviceId: savedDeviceId,
+          deviceUuid:
+            typeof savedSettings.selectedDeviceUuid === 'string'
+              ? savedSettings.selectedDeviceUuid
+              : null,
+        },
+        {
+          presetBackends: preset.backends ?? [],
+          presetPreferredModels: preset.preferredModels,
+          cloudEnabled: cloudMode.isFeatureEnabled,
+          runningBackends: llmBackendTypes.filter((b) => {
+            const info = backendServices.info.find((s) => s.serviceName === backendToService[b])
+            return info?.status === 'running'
+          }),
+          devices: (b) =>
+            backendServices.info.find((s) => s.serviceName === backendToService[b])?.devices ?? [],
+          models: llmModels.value,
+        },
+      )
+      if (repaired.backend) backend.value = repaired.backend
 
       const serviceName = backendToService[backend.value] as BackendServiceName
       const serviceInfo = backendServices.info.find((s) => s.serviceName === serviceName)
-
-      if (savedSettings.selectedDeviceId !== undefined) {
-        // Restore saved device preference. Prefer the saved UUID so the preset
-        // re-binds to the same physical device even if its id shifted (driver
-        // update / enumeration reorder); fall back to the saved id.
-        const savedDeviceId = savedSettings.selectedDeviceId as string
-        const savedDeviceUuid =
-          typeof savedSettings.selectedDeviceUuid === 'string'
-            ? savedSettings.selectedDeviceUuid
-            : null
-        const byUuid = savedDeviceUuid
-          ? serviceInfo?.devices.find((d) => d.uuid != null && d.uuid === savedDeviceUuid)
-          : undefined
-        const targetId =
-          byUuid?.id ??
-          (serviceInfo?.devices.some((d) => d.id === savedDeviceId) ? savedDeviceId : undefined)
-        if (targetId !== undefined) {
-          backendServices.selectDevice(serviceName, targetId)
-        }
-      } else {
-        // Default to GPU if no preference saved
-        const gpuDevice = serviceInfo?.devices.find((d) => d.id.includes('GPU'))
-        if (gpuDevice && !gpuDevice.selected) {
-          backendServices.selectDevice(serviceName, gpuDevice.id)
-        }
+      const targetDevice = serviceInfo?.devices.find((d) => d.id === repaired.deviceId)
+      if (targetDevice && (savedDeviceId !== undefined || !targetDevice.selected)) {
+        backendServices.selectDevice(serviceName, targetDevice.id)
       }
 
       // Load selected models (per backend)
@@ -1589,18 +1549,8 @@ export const useTextInference = defineStore(
           ...selectedModels.value,
           ...(savedSettings.selectedModels as LlmBackendKV),
         }
-      } else {
-        // Check for preferredModels (per-backend defaults)
-        const preferredModel = preset.preferredModels?.[backend.value]
-        if (preferredModel) {
-          // Only select if model exists in available models
-          const modelExists = llmModels.value.some(
-            (m) => m.name === preferredModel && m.type === backend.value,
-          )
-          if (modelExists) {
-            selectModel(backend.value, preferredModel)
-          }
-        }
+      } else if (repaired.model) {
+        selectModel(backend.value, repaired.model)
       }
 
       // Load selected embedding models (per backend)

@@ -784,4 +784,46 @@ describe('the Turn Queue', () => {
     finishTextRequest('cloud-chat')
     finishTextRequest('turn-agent')
   })
+
+  it('tells a waiting member what kind of work holds the place, as the holder changes', async () => {
+    setOrchestratorDeps(deps())
+    await submitTextRequest({
+      runId: 'turn-agent',
+      conversationKey: 'session-a',
+      needsGpu: false,
+      joinsTurnQueue: true,
+      work: 'agent',
+    })
+    const summary = submitTextRequest({
+      runId: 'summary',
+      conversationKey: 'home-agent-summarize',
+      needsGpu: true,
+      joinsTurnQueue: true,
+      work: 'summary',
+    })
+    const chat = submitTextRequest({
+      runId: 'turn-chat',
+      conversationKey: 'conv-1',
+      needsGpu: true,
+      joinsTurnQueue: true,
+      work: 'chat',
+    })
+    await settle()
+
+    finishTextRequest('turn-agent')
+    await summary
+    finishTextRequest('summary')
+    await chat
+    finishTextRequest('turn-chat')
+
+    const waits = queueEvents
+      .filter((e) => e.runKey === 'turn-chat')
+      .map((e) => [e.action, e.position, e.work, e.holder])
+    expect(waits).toEqual([
+      ['enqueued', 2, 'chat', 'agent'],
+      ['moved', 1, 'chat', 'summary'],
+      ['started', undefined, 'chat', undefined],
+      ['finished', undefined, 'chat', undefined],
+    ])
+  })
 })

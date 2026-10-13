@@ -334,6 +334,7 @@ export async function startAgentTurn(
         conversationKey: sessionId,
         needsGpu: config.modelConfig.source !== 'cloud' && Boolean(config.readiness),
         joinsTurnQueue: true,
+        work: 'agent',
       },
       abortController.signal,
     )

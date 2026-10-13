@@ -565,5 +565,9 @@
   "ARCADE_MANAGE_SHOW_GAME": "Show {game} in {arcade}",
   "ARCADE_MANAGE_DONE": "Done",
   "ARCADE_MANAGE_FAILED": "Could not update {arcade}.",
-  "HOME_AGENT_LAN_INSECURE_STORAGE": "No OS keyring is available. The LAN chat password would be **obfuscated on disk**, not encrypted.\n\nInstall and run a keyring daemon (GNOME Keyring or KWallet) for encrypted storage.\n\nContinue only if you accept that this password is not protected."
+  "HOME_AGENT_LAN_INSECURE_STORAGE": "No OS keyring is available. The LAN chat password would be **obfuscated on disk**, not encrypted.\n\nInstall and run a keyring daemon (GNOME Keyring or KWallet) for encrypted storage.\n\nContinue only if you accept that this password is not protected.",
+  "AGENT_SAVE_AS_DEFAULT": "Save as default",
+  "AGENT_RESET_TO_DEFAULT": "Reset to default",
+  "AGENT_SAVED_AS_DEFAULT": "Saved as the default for new Agent sessions",
+  "AGENT_RESET_TO_DEFAULT_DONE": "Reset this session to the default settings"
 }

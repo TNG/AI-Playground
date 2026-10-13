@@ -1760,7 +1760,7 @@ export const useTextInference = defineStore(
       applyModelInferenceDefaults()
 
       // The cloud provider is global for every other preset, so only a session restores it.
-      const sessionProvider = sessionSettings?.cloudProviderId
+      const sessionProvider = binding ? savedSettings.cloudProviderId : undefined
       if (
         typeof sessionProvider === 'string' &&
         cloudMode.providers.some((p) => p.id === sessionProvider)

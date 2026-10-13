@@ -131,8 +131,8 @@ describe('the capability catalog', () => {
     expect(ids.indexOf('mcp:filesystem')).toBeLessThan(ids.indexOf('media'))
   })
 
-  it('defaults to media, web debugging and document search, with memory opt-in', () => {
-    expect([...DEFAULT_CAPABILITY_IDS]).toEqual(['media', 'web-debug', 'rag'])
+  it('defaults to media, web debugging, document search and web access, with memory opt-in', () => {
+    expect([...DEFAULT_CAPABILITY_IDS]).toEqual(['media', 'web-debug', 'rag', 'web'])
   })
 
   it('reports availability and commands for the settings UI', () => {

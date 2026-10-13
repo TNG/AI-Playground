@@ -11,7 +11,9 @@ import { finishTextRequest, submitTextRequest } from '../kernel/orchestrator'
 // factory before the move; the model call now has to come from main, so the
 // store ships the same prompt plus a ChatModelConfig over `chat:summarize`.
 // Step 15: admit as a short `text` occupancy and load here (remember: false
-// so a Home Agent `/load` cannot overwrite the GPU swap-back snapshot).
+// so a Home Agent `/load` cannot overwrite the GPU swap-back snapshot). Every
+// summary, cloud included, waits in the Turn Queue so it never swaps the model
+// under a running turn.
 
 const SUMMARY_PROMPT_PREFIX =
   'Summarize this conversation in 5 words or less. ' +
@@ -27,6 +29,8 @@ export async function summarizeConversationText(request: unknown): Promise<strin
     runId,
     conversationKey: SUMMARIZE_CONVERSATION_KEY,
     needsGpu: config.backend !== 'cloud' && Boolean(config.readiness),
+    joinsTurnQueue: true,
+    work: 'summary',
   })
   try {
     if (config.backend === 'cloud') {

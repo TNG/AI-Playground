@@ -94,7 +94,8 @@ const { setKernelEventWindow, resetKernelBusForTest, onKernelEvent } =
 const { handleChatAnswer, resetChatAskForTest } = await import('../../chat/chatAsk')
 const { listMcpServers, getMcpServerStatus, invokeMcpServerTool } =
   await import('../../adapters/mcp/mcpManager')
-const { resetOrchestratorForTest } = await import('../../kernel/orchestrator')
+const orchestrator = await import('../../kernel/orchestrator')
+const { resetOrchestratorForTest } = orchestrator
 
 type SentPayload = Record<string, unknown> & { channel?: string }
 
@@ -1456,5 +1457,89 @@ describe('turn engine', () => {
     const { turnId } = submitChatTurn(turnRequest())
     await waitForTurnDone(turnId)
     expect(saveChatTurnConversation).not.toHaveBeenCalled()
+  })
+})
+
+describe('chat turns in the Turn Queue', () => {
+  const { submitTextRequest, finishTextRequest } = orchestrator
+
+  function holdAgentTurn(): Promise<void> {
+    return submitTextRequest({
+      runId: 'agent-turn',
+      conversationKey: 'session-a',
+      needsGpu: false,
+      joinsTurnQueue: true,
+      work: 'agent',
+    })
+  }
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 30))
+
+  it('waits behind a running agent turn and only then loads its model', async () => {
+    const ensureBackendReadiness = vi.fn(async () => {})
+    setChatReadinessDeps({
+      getService: () => ({ ensureBackendReadiness, baseUrl: 'http://127.0.0.1:39101' }),
+      awaitChatWindow: vi.fn(async () => {}),
+      stopOvmsImageServer: vi.fn(async () => {}),
+      notifyHomeAgentUpstreamReady: vi.fn(),
+    })
+    await holdAgentTurn()
+    queueFetchMock(sse(textChunks('ok')))
+    const base = turnRequest()
+    const { turnId } = submitChatTurn({
+      ...base,
+      model: {
+        ...base.model,
+        readiness: { serviceName: 'llamacpp-backend', llmModelName: 'other/model.gguf' },
+      },
+    })
+    await settle()
+
+    expect(ensureBackendReadiness).not.toHaveBeenCalled()
+    expect(requests).toHaveLength(0)
+    expect(textQueueEvents().find((e) => e.runKey === turnId)).toMatchObject({
+      action: 'enqueued',
+      position: 1,
+      work: 'chat',
+      holder: 'agent',
+      conversationKey: 'conv-1',
+    })
+
+    finishTextRequest('agent-turn')
+    await waitForTurnDone(turnId)
+    expect(ensureBackendReadiness).toHaveBeenCalledTimes(1)
+    expect(requests).toHaveLength(1)
+  })
+
+  it('runs a cloud chat turn at once while an agent turn holds the place', async () => {
+    await holdAgentTurn()
+    queueFetchMock(sse(textChunks('ok')))
+    const { turnId } = submitChatTurn({
+      ...turnRequest(),
+      model: { backend: 'cloud', modelId: 'gpt-4o', baseUrl: 'http://127.0.0.1:39101' },
+    })
+    await waitForTurnDone(turnId)
+
+    expect(requests).toHaveLength(1)
+    expect(
+      textQueueEvents()
+        .filter((e) => e.runKey === turnId)
+        .map((e) => e.position),
+    ).toEqual([undefined, undefined, undefined])
+    finishTextRequest('agent-turn')
+  })
+
+  it('leaves the queue on Stop without touching the holder or reaching the server', async () => {
+    await holdAgentTurn()
+    queueFetchMock(sse(textChunks('ok')))
+    const { turnId } = submitChatTurn(turnRequest())
+    await settle()
+
+    cancelChatTurn('conv-1', turnId)
+    await waitForTurnDone(turnId)
+    expect(requests).toHaveLength(0)
+    expect(chatChunks().some((c) => c.type === 'error')).toBe(false)
+    expect(orchestrator.turnQueueHolder()).toBe('agent-turn')
+    finishTextRequest('agent-turn')
   })
 })

@@ -1524,7 +1524,7 @@ export const useTextInference = defineStore(
 
       const defaultSettings = settingsPerPreset.value[settingsKey] || {}
       const binding = usesSessionSettings(activePreset.value) ? sessionSettingsBinding : null
-      const sessionSettings = binding?.load(defaultSettings) ?? null
+      const sessionSettings = binding?.load(defaultSettings, embeddingBackend.value) ?? null
       const savedSettings = sessionSettings ?? defaultSettings
       console.log('Loading settings for preset', settingsKey, savedSettings)
       const preset = activePreset.value
@@ -1774,8 +1774,17 @@ export const useTextInference = defineStore(
       // itself did not change here, so the watcher would not fire.
       applyModelInferenceDefaults()
 
+      // The cloud provider is global for every other preset, so only a session restores it.
+      const sessionProvider = sessionSettings?.cloudProviderId
+      if (
+        typeof sessionProvider === 'string' &&
+        cloudMode.providers.some((p) => p.id === sessionProvider)
+      ) {
+        cloudMode.selectProvider(sessionProvider)
+      }
+
       // A session with no settings of its own (a Draft Session) takes the repaired defaults.
-      if (binding && !sessionSettings) binding.save(currentSettingsBag())
+      if (binding && !sessionSettings) binding.save(sessionSettingsBag(), embeddingBackend.value)
 
       // Defer clearing the flag so the persistence watcher (default flush:
       // 'pre') sees `isLoadingSettings === true` when it runs for the writes
@@ -1934,10 +1943,18 @@ export const useTextInference = defineStore(
      */
     type SessionSettingsBinding = {
       /** The session's settings laid over the defaults, or null when it has none yet. */
-      load: (defaults: SettingsBag) => SettingsBag | null
-      save: (bag: SettingsBag) => void
+      load: (
+        defaults: SettingsBag,
+        embeddingBackend: Exclude<LlmBackend, 'cloud'>,
+      ) => SettingsBag | null
+      save: (bag: SettingsBag, embeddingBackend: Exclude<LlmBackend, 'cloud'>) => void
     }
     let sessionSettingsBinding: SessionSettingsBinding | null = null
+
+    /** The live bag plus the cloud provider, which only a session stores. */
+    function sessionSettingsBag(): SettingsBag {
+      return { ...currentSettingsBag(), cloudProviderId: cloudMode.selectedProviderId }
+    }
 
     function bindSessionSettings(binding: SessionSettingsBinding | null): void {
       sessionSettingsBinding = binding
@@ -1969,6 +1986,7 @@ export const useTextInference = defineStore(
         numAssistantTokens,
         ragMode,
         stashedStandardContextSize,
+        () => cloudMode.selectedProviderId,
       ],
       () => {
         // Don't save if we're loading settings (prevents overwriting during preset switch)
@@ -1982,7 +2000,7 @@ export const useTextInference = defineStore(
         const binding = usesSessionSettings(activePreset.value) ? sessionSettingsBinding : null
         if (binding) {
           // The preset's bag holds the Default Settings; session-owned values go to the session.
-          binding.save(bag)
+          binding.save(sessionSettingsBag(), embeddingBackend.value)
           settingsPerPreset.value[settingsKey] = {
             ...settingsPerPreset.value[settingsKey],
             ...withoutSessionOwnedKeys(bag),
@@ -2005,7 +2023,10 @@ export const useTextInference = defineStore(
         if (!settingsKey) return
 
         const currentDeviceId = getCurrentDeviceId()
-        if (currentDeviceId) {
+        const binding = usesSessionSettings(activePreset.value) ? sessionSettingsBinding : null
+        if (currentDeviceId && binding) {
+          binding.save(sessionSettingsBag(), embeddingBackend.value)
+        } else if (currentDeviceId) {
           settingsPerPreset.value[settingsKey] = {
             ...settingsPerPreset.value[settingsKey],
             selectedDeviceId: currentDeviceId,

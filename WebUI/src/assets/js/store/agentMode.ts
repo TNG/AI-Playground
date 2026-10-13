@@ -205,10 +205,16 @@ export const useAgentMode = defineStore(
     const activeSettings = ref<AgentSessionSettings | null>(null)
 
     textInference.bindSessionSettings({
-      load: (defaults) =>
-        activeSettings.value ? sessionSettingsToBag(activeSettings.value, defaults) : null,
-      save: (bag) => {
-        activeSettings.value = updateSessionSettingsFromBag(activeSettings.value, bag)
+      load: (defaults, embeddingBackend) =>
+        activeSettings.value
+          ? sessionSettingsToBag(activeSettings.value, defaults, embeddingBackend)
+          : null,
+      save: (bag, embeddingBackend) => {
+        activeSettings.value = updateSessionSettingsFromBag(
+          activeSettings.value,
+          bag,
+          embeddingBackend,
+        )
       },
     })
 

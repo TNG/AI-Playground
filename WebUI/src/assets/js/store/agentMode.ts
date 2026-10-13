@@ -27,7 +27,9 @@ import {
 import {
   DEFAULT_CAPABILITIES_KEY,
   DEFAULT_PLANNING_THINKING_ONLY_KEY,
+  fillMissingSessionSettings,
   presetNameUsesSessionSettings,
+  sessionSettingsFromBag,
   sessionSettingsToBag,
   updateSessionSettingsFromBag,
   usesSessionSettings,
@@ -248,10 +250,11 @@ export const useAgentMode = defineStore(
     }
 
     textInference.bindSessionSettings({
-      load: (defaults, embeddingBackend) =>
-        activeSettings.value
-          ? sessionSettingsToBag(activeSettings.value, defaults, embeddingBackend)
-          : null,
+      load: (defaults, embeddingBackend) => {
+        if (!activeSettings.value) return null
+        fillFromDefaults(defaults, embeddingBackend)
+        return sessionSettingsToBag(activeSettings.value, defaults, embeddingBackend)
+      },
       save: (bag, embeddingBackend) => {
         // A Draft Session's first save also takes the capability and planning defaults.
         activeSettings.value = updateSessionSettingsFromBag(
@@ -291,6 +294,35 @@ export const useAgentMode = defineStore(
       const session = sessions.value[activeSessionId.value]
       if (!session || !reset) return
       rewriteSession(activeSessionId.value, { ...session, settings: { ...reset } })
+    }
+
+    /**
+     * A sent session whose file predates a field takes it from the current Default Settings
+     * (unrepaired) and stores it, so it does not follow later changes to the defaults.
+     */
+    function fillFromDefaults(
+      defaults: Record<string, unknown>,
+      embeddingBackend: 'llamaCPP' | 'openVINO',
+    ): void {
+      const record = sessions.value[activeSessionId.value]
+      if (!record || record.messages.length === 0 || !sessionsHydrated.value) return
+      const fromDefaults: AgentSessionSettings = {
+        ...sessionSettingsFromBag(defaults, embeddingBackend),
+        ...readAgentDefaults(),
+      }
+      const filled = fillMissingSessionSettings(activeSettings.value ?? {}, fromDefaults)
+      if (!filled.changed) return
+      activeSettings.value = filled.settings
+      rewriteSession(activeSessionId.value, { ...record, settings: { ...filled.settings } })
+    }
+
+    /** What a record contributes on activation: a sent Agent session always has settings. */
+    function settingsOfRecord(
+      record: AgentSessionRecord | undefined,
+    ): AgentSessionSettings | undefined {
+      if (!record || record.messages.length === 0) return record?.settings
+      if (!presetNameUsesSessionSettings(record.presetName)) return record.settings
+      return record.settings ?? {}
     }
 
     function presetUsesSessionSettings(presetName: string): boolean {
@@ -509,10 +541,13 @@ export const useAgentMode = defineStore(
           // sessions may re-run this once per boot — idempotent and bounded.
           await migrateSessionPresets()
           adoptLegacySessionCapabilities()
-          // Re-apply: the active record's settings may only now carry its capabilities.
-          activateSessionSettings(sessions.value[activeSessionId.value]?.settings)
         }
         sessionsHydrated.value = true
+        // Re-apply now that writes are allowed: the active record may only now carry its
+        // capabilities, and missing fields can be filled and stored.
+        if (bootstrap?.status === 'ok') {
+          activateSessionSettings(settingsOfRecord(sessions.value[activeSessionId.value]))
+        }
         // The workspace half of the same shared legacy key runs strictly
         // after the sessions half: interleaved read-modify-write slims can
         // resurrect what the other removed (§8.2).
@@ -713,7 +748,7 @@ export const useAgentMode = defineStore(
     function restoreActiveSession(): void {
       const record = sessions.value[activeSessionId.value]
       chat.messages = (record?.messages ?? []) as UIMessage[]
-      activateSessionSettings(record?.settings)
+      activateSessionSettings(settingsOfRecord(record))
     }
 
     async function newSession(): Promise<void> {

@@ -539,4 +539,85 @@ describe('Agent Session Settings', () => {
     expect(live()).toEqual({ backend: 'llamaCPP', model: 'Default-9B' })
     expect(saveSession).not.toHaveBeenCalled()
   })
+
+  const oldRecord = (id: string, overrides: Record<string, unknown> = {}) => ({
+    id,
+    workspaceDir: '/work',
+    title: 'old',
+    createdAt: 1,
+    updatedAt: 2,
+    presetName: 'Agent',
+    messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
+    ...overrides,
+  })
+
+  async function openedWith(record: Record<string, unknown>) {
+    bootstrap = { status: 'ok', activeSessionId: record.id, sessions: [record] }
+    const store = useAgentMode()
+    await store.init()
+    return store
+  }
+
+  it('fills a record saved without settings from the defaults and stores it once', async () => {
+    chat.state.settingsPerPreset.Agent = {
+      ...chat.state.settingsPerPreset.Agent,
+      thinkingEnabled: false,
+    }
+    await openedWith(oldRecord('aipg-agent-old'))
+
+    const saves = saveSession.mock.calls.filter(([r]) => r.id === 'aipg-agent-old')
+    expect(saves).toHaveLength(1)
+    expect(saves[0][0].settings).toMatchObject({
+      backend: 'llamaCPP',
+      model: 'Default-9B',
+      thinkingEnabled: false,
+    })
+  })
+
+  it('fills only the missing field and keeps what the session stored', async () => {
+    chat.state.settingsPerPreset.Agent = {
+      ...chat.state.settingsPerPreset.Agent,
+      thinkingEnabled: false,
+    }
+    await openedWith(
+      oldRecord('aipg-agent-old', { settings: { backend: 'llamaCPP', model: 'Own-4B' } }),
+    )
+
+    expect(savedSettings('aipg-agent-old')).toMatchObject({
+      backend: 'llamaCPP',
+      model: 'Own-4B',
+      thinkingEnabled: false,
+    })
+  })
+
+  it('stops following the defaults once filled', async () => {
+    const store = await openedWith(oldRecord('aipg-agent-old'))
+    chat.state.settingsPerPreset.Agent = {
+      ...chat.state.settingsPerPreset.Agent,
+      selectedModels: { llamaCPP: 'Changed-27B' },
+    }
+    await store.newSession()
+    await store.switchSession('aipg-agent-old')
+
+    expect(live()).toEqual({ backend: 'llamaCPP', model: 'Default-9B' })
+  })
+
+  it('does not rewrite a record that already has every field', async () => {
+    await openedWith(
+      oldRecord('aipg-agent-old', {
+        settings: {
+          backend: 'openVINO',
+          model: 'Phi-4',
+          capabilities: ['web'],
+          planningThinkingOnly: true,
+        },
+      }),
+    )
+    expect(saveSession).not.toHaveBeenCalled()
+  })
+
+  it('leaves an unavailable-session placeholder alone', async () => {
+    await openedWith(oldRecord('aipg-agent-gone', { title: 'Unavailable session', messages: [] }))
+    expect(saveSession).not.toHaveBeenCalled()
+  })
 })

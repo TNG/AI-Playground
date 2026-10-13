@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  fillMissingSessionSettings,
   sessionSettingsFromBag,
   sessionSettingsToBag,
   updateSessionSettingsFromBag,
@@ -141,5 +142,26 @@ describe('Session Settings ↔ settings bag', () => {
   it('round-trips: what is laid into the bag reads back unchanged', () => {
     const bag = sessionSettingsToBag(fullSettings as never, {}, 'llamaCPP')
     expect(sessionSettingsFromBag(bag, 'llamaCPP')).toEqual(fullSettings)
+  })
+})
+
+describe('fillMissingSessionSettings', () => {
+  it('fills only the fields the session lacks', () => {
+    const result = fillMissingSessionSettings(
+      { backend: 'llamaCPP', model: 'Own-4B' },
+      { backend: 'openVINO', model: 'Phi-4', thinkingEnabled: false },
+    )
+    expect(result).toEqual({
+      changed: true,
+      settings: { backend: 'llamaCPP', model: 'Own-4B', thinkingEnabled: false },
+    })
+  })
+
+  it('reports no change for a session that already has every default field', () => {
+    const current = { backend: 'llamaCPP' as const, thinkingEnabled: true }
+    expect(fillMissingSessionSettings(current, { thinkingEnabled: false })).toEqual({
+      changed: false,
+      settings: current,
+    })
   })
 })

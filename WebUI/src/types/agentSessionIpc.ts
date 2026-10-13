@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { llmBackendTypes } from './shared'
 
 /**
  * Wire shapes for the kernel-owned agent-session files (architecture-target
@@ -7,6 +8,29 @@ import { z } from 'zod'
  * renderer's `AgentSessionRecord` (agentModeSessions.ts) is structurally the
  * same record; `messages` travels as an opaque array both ways.
  */
+
+/**
+ * An Agent Session's own model and capability choices. Every field is optional so a
+ * file written before a field existed still parses; the store fills gaps from the
+ * Default Settings.
+ */
+export const AgentSessionSettingsSchema = z.object({
+  backend: z.enum(llmBackendTypes).optional(),
+  cloudProviderId: z.string().optional(),
+  device: z.object({ id: z.string(), uuid: z.string().nullable().optional() }).optional(),
+  model: z.string().optional(),
+  contextSize: z.number().optional(),
+  contextSizeEdited: z.boolean().optional(),
+  thinkingEnabled: z.boolean().optional(),
+  planningThinkingOnly: z.boolean().optional(),
+  capabilities: z.array(z.string()).optional(),
+  embeddingModel: z.string().optional(),
+  toolDelegationEnabled: z.boolean().optional(),
+  builtinToolEnablement: z.record(z.string(), z.boolean()).optional(),
+  builtinToolPresetEnablement: z.record(z.string(), z.boolean()).optional(),
+  builtinToolDefaultPresets: z.record(z.string(), z.string()).optional(),
+})
+export type AgentSessionSettings = z.infer<typeof AgentSessionSettingsSchema>
 
 export const AgentSessionFileSchema = z.object({
   schemaVersion: z.literal(1),
@@ -17,6 +41,8 @@ export const AgentSessionFileSchema = z.object({
   updatedAt: z.number(),
   capabilities: z.array(z.string()).optional(),
   presetName: z.string().optional(),
+  responseLocale: z.string().optional(),
+  settings: AgentSessionSettingsSchema.optional(),
   messages: z.array(z.unknown()),
 })
 export type AgentSessionFile = z.infer<typeof AgentSessionFileSchema>

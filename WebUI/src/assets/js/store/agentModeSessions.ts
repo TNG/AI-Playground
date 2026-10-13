@@ -2,6 +2,7 @@ import type { UIMessage } from 'ai'
 import { computed, type Ref } from 'vue'
 import { currentPresetName } from '@/lib/presetRenames'
 import { MCP_CAPABILITY_PREFIX } from '@/types/agentCapabilities'
+import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 
 export type AgentSessionRecord = {
   id: string
@@ -30,6 +31,8 @@ export type AgentSessionRecord = {
    * response-language clause (Pi rebuilds if instructions change).
    */
   responseLocale?: string
+  /** The session's own Session Settings (Agent preset only). */
+  settings?: AgentSessionSettings
 }
 
 /**

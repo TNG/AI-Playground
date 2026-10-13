@@ -35,6 +35,7 @@ import { requestDownload } from '@/assets/js/permissions/permissions'
 import { imageUrlToDataUri, saveImageToMediaInput } from '@/lib/utils'
 import { referenceSlotToFill } from '@/lib/referenceImageFit'
 import { withTraceSpan } from '@/lib/laminarSpans'
+import { turnQueuedLabel } from '@/lib/queueActivityProjection'
 import { runArtifact, type ArtifactKind, type ArtifactResult } from '../artifact/runArtifact'
 import type { Preset } from './presets'
 import {
@@ -113,7 +114,8 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
   const backendServices = useBackendServices()
   const uiStore = useUIStore()
   const errors = useErrors()
-  const i18nState = useI18N().state
+  const i18n = useI18N()
+  const i18nState = i18n.state
 
   const activePreset = computed(() => {
     console.log('### activePreset', presetsStore.activePresetWithVariant)
@@ -124,6 +126,9 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
 
   const processing = ref(false)
   const stopping = ref(false)
+  /** "Queued (2nd), waiting for …" while the panel's run waits in the Turn Queue. */
+  const queuedLabel = ref<string | null>(null)
+  let panelAbort: AbortController | null = null
 
   const selectedGeneratedImageId = ref<string | null>(null)
   const selectedEditedImageId = ref<string | null>(null)
@@ -744,6 +749,7 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     currentState.value = 'error'
     processing.value = false
     stopping.value = false
+    queuedLabel.value = null
   }
 
   function cancelGeneration() {
@@ -751,6 +757,7 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     currentState.value = 'no_start'
     processing.value = false
     stopping.value = false
+    queuedLabel.value = null
   }
 
   function loadSettingsForActivePreset() {
@@ -899,6 +906,7 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     progress?: { current: number; max: number },
     error?: string,
   ): void {
+    if (phase !== 'queued') queuedLabel.value = null
     switch (phase) {
       case 'queued':
         processing.value = true
@@ -949,6 +957,12 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
       if (event.type === 'artifact-phase') {
         if (!adoptArtifactRun(event.runId, event.owner)) return
         applyArtifactPhase(event.runId, event.phase, event.progress, event.error)
+      } else if (event.type === 'queue-event') {
+        if (event.kind !== 'artifact' || !trackedArtifactRunIds.has(event.runKey)) return
+        queuedLabel.value =
+          event.position === undefined
+            ? null
+            : turnQueuedLabel(i18nState, i18n.langName, event.position, event.holder)
       } else if (event.type === 'artifact-item') {
         if (adoptArtifactRun(event.runId, event.owner)) {
           updateImage(event.item)
@@ -1150,32 +1164,44 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     currentState.value = 'start_backend'
     stepText.value = i18nState.COM_GENERATING
 
+    const abort = new AbortController()
+    panelAbort = abort
     // UI runs are top-level: no parent activity (the runner resets the stale
     // tool-parented value the previous chat run may have left behind).
     try {
-      return await runArtifact({
-        kind: MODE_TO_ARTIFACT_KIND[mode],
-        workflow: preset.name,
-        variant: presetsStore.activeVariantName[preset.name] || undefined,
-        mode,
-        prompt: prompt.value,
-        negativePrompt: negativePrompt.value,
-        params: {
-          seed: seed.value,
-          width: width.value,
-          height: height.value,
-          inferenceSteps: inferenceSteps.value,
-          batchSize: batchSize.value,
+      return await runArtifact(
+        {
+          kind: MODE_TO_ARTIFACT_KIND[mode],
+          workflow: preset.name,
+          variant: presetsStore.activeVariantName[preset.name] || undefined,
+          mode,
+          prompt: prompt.value,
+          negativePrompt: negativePrompt.value,
+          params: {
+            seed: seed.value,
+            width: width.value,
+            height: height.value,
+            inferenceSteps: inferenceSteps.value,
+            batchSize: batchSize.value,
+          },
         },
-      })
+        { abortSignal: abort.signal },
+      )
     } finally {
+      if (panelAbort === abort) panelAbort = null
       processing.value = false
+      queuedLabel.value = null
     }
   }
 
+  /** Stops the panel's own runs only — waiting or running, never another turn's media. */
   function stopGeneration() {
     stopping.value = true
-    void window.electronAPI.artifact.cancel().finally(() => cancelGeneration())
+    panelAbort?.abort()
+    const cancels = [...trackedArtifactRunIds].map((runId) =>
+      window.electronAPI.artifact.cancel(runId),
+    )
+    void Promise.allSettled(cancels).finally(() => cancelGeneration())
   }
 
   function deleteImage(id: string) {
@@ -1245,6 +1271,7 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     backend,
     activePreset,
     processing,
+    queuedLabel,
     prompt,
     generatedImages,
     currentState,

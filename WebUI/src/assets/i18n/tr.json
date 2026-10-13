@@ -58,6 +58,7 @@
   "COM_ACTIVITY_TURN_QUEUED_FOR_AGENT": "Sırada ({position}), bir ajan turunun bitmesi bekleniyor",
   "COM_ACTIVITY_TURN_QUEUED_FOR_CHAT": "Sırada ({position}), bir sohbet turunun bitmesi bekleniyor",
   "COM_ACTIVITY_TURN_QUEUED_FOR_SUMMARY": "Sırada ({position}), bir sohbet başlığı özetinin bitmesi bekleniyor",
+  "COM_ACTIVITY_TURN_QUEUED_FOR_GENERATION": "Sırada ({position}), bir medya oluşturmanın bitmesi bekleniyor",
   "COM_ACTIVITY_RUNNING_TOOL": "{tool} çalıştırılıyor…",
   "COM_NO_SELECTED": "Seçim Yok",
   "COM_CONFIRM": "Onayla",

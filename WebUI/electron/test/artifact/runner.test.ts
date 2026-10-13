@@ -287,15 +287,11 @@ describe('artifact runner', () => {
     expect(savedItems[0]).toMatchObject({ state: 'done' })
   })
 
-  it('fail-fast refuses while a run is active, queued submissions wait', async () => {
+  it('a queued submission waits while a run is active', async () => {
     setArtifactRunnerDeps(deps())
     const first = payload()
     const active = submitArtifactRun({ ...first, items: itemsFor(first) })
     await vi.waitFor(() => expect(submittedPrompts).toHaveLength(2))
-
-    const refused = await submitArtifactRun(payload({ runId: 'run-2' }))
-    expect(refused.state).toBe('failed')
-    expect(refused.error).toBe('Another generation is already in progress')
 
     const queued = submitArtifactRun(payload({ runId: 'run-3' }), { queue: 'queue' })
     expect(await Promise.race([queued, Promise.resolve('pending')])).toBe('pending')

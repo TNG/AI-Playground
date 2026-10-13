@@ -58,6 +58,7 @@
   "COM_ACTIVITY_TURN_QUEUED_FOR_AGENT": "Queued ({position}), waiting for an agent turn to finish",
   "COM_ACTIVITY_TURN_QUEUED_FOR_CHAT": "Queued ({position}), waiting for a chat turn to finish",
   "COM_ACTIVITY_TURN_QUEUED_FOR_SUMMARY": "Queued ({position}), waiting for a chat title summary to finish",
+  "COM_ACTIVITY_TURN_QUEUED_FOR_GENERATION": "Queued ({position}), waiting for a media generation to finish",
   "COM_ACTIVITY_RUNNING_TOOL": "Running {tool}…",
   "COM_NO_SELECTED": "No Seleted",
   "COM_CONFIRM": "Confirm",

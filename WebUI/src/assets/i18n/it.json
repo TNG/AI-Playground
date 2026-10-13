@@ -58,6 +58,7 @@
   "COM_ACTIVITY_TURN_QUEUED_FOR_AGENT": "In coda ({position}), in attesa che un turno dell'agente finisca",
   "COM_ACTIVITY_TURN_QUEUED_FOR_CHAT": "In coda ({position}), in attesa che un turno di chat finisca",
   "COM_ACTIVITY_TURN_QUEUED_FOR_SUMMARY": "In coda ({position}), in attesa che un riepilogo del titolo della chat finisca",
+  "COM_ACTIVITY_TURN_QUEUED_FOR_GENERATION": "In coda ({position}), in attesa che una generazione di contenuti multimediali finisca",
   "COM_ACTIVITY_RUNNING_TOOL": "Esecuzione di {tool}…",
   "COM_NO_SELECTED": "Nessuna selezione",
   "COM_CONFIRM": "Conferma",

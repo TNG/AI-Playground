@@ -9,10 +9,9 @@
  * submission and the websocket progress through to a settled outcome —
  * streaming phase/item events on the kernel bus so the renderer's stores are
  * pure projections of this module. One run is active at a time; later
- * submissions either fail fast ("Another generation is already in progress",
- * the panel and Home Agent behavior) or queue behind it (the chat tools'
- * lane, and in-process agent direct tools waiting for the GPU — all of which
- * is the orchestrator's queue now).
+ * submissions wait in the orchestrator's queues — panel and Home Agent runs in
+ * the Turn Queue, media nested in a turn (the chat tools' lane, in-process
+ * agent direct tools) on the artifact queue.
  *
  * The single stall owner is here, unchanged from the renderer runner it
  * replaces: one re-arming 5-minute idle watchdog over every phase — backend

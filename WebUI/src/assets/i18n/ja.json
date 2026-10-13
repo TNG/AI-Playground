@@ -569,5 +569,13 @@
   "AGENT_SAVE_AS_DEFAULT": "デフォルトとして保存",
   "AGENT_RESET_TO_DEFAULT": "デフォルトに戻す",
   "AGENT_SAVED_AS_DEFAULT": "新しい Agent セッションのデフォルトとして保存しました",
-  "AGENT_RESET_TO_DEFAULT_DONE": "このセッションをデフォルト設定に戻しました"
+  "AGENT_RESET_TO_DEFAULT_DONE": "このセッションをデフォルト設定に戻しました",
+  "AGENT_SETTINGS_UNUSABLE": "このセッションの設定は現在使用できません。続行するには Agent 設定で修正してください。",
+  "AGENT_SETTINGS_UNUSABLE_DETAIL": "{setting}「{value}」は利用できなくなりました。",
+  "AGENT_SETTING_BACKEND": "バックエンド",
+  "AGENT_SETTING_MODEL": "モデル",
+  "AGENT_SETTING_DEVICE": "デバイス",
+  "AGENT_SETTING_PROVIDER": "プロバイダー",
+  "AGENT_SETTING_MCP_SERVER": "MCP サーバー",
+  "AGENT_SETTING_EMBEDDING_MODEL": "埋め込みモデル"
 }

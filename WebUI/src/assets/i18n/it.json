@@ -569,5 +569,13 @@
   "AGENT_SAVE_AS_DEFAULT": "Salva come predefinito",
   "AGENT_RESET_TO_DEFAULT": "Ripristina predefinito",
   "AGENT_SAVED_AS_DEFAULT": "Salvato come predefinito per le nuove sessioni Agent",
-  "AGENT_RESET_TO_DEFAULT_DONE": "Questa sessione è stata ripristinata alle impostazioni predefinite"
+  "AGENT_RESET_TO_DEFAULT_DONE": "Questa sessione è stata ripristinata alle impostazioni predefinite",
+  "AGENT_SETTINGS_UNUSABLE": "Le impostazioni di questa sessione non possono essere usate ora. Correggile nelle impostazioni di Agent per continuare.",
+  "AGENT_SETTINGS_UNUSABLE_DETAIL": "{setting} «{value}» non è più disponibile.",
+  "AGENT_SETTING_BACKEND": "Backend",
+  "AGENT_SETTING_MODEL": "Modello",
+  "AGENT_SETTING_DEVICE": "Dispositivo",
+  "AGENT_SETTING_PROVIDER": "Provider",
+  "AGENT_SETTING_MCP_SERVER": "Server MCP",
+  "AGENT_SETTING_EMBEDDING_MODEL": "Modello di embedding"
 }

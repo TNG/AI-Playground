@@ -493,6 +493,7 @@ import CameraCapture from '@/components/CameraCapture.vue'
 import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
 import DemoSamplePrompts from '@/components/DemoSamplePrompts.vue'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { promptBusy, promptOnBusyChange } from '@/lib/promptBusy'
 
 const instance = getCurrentInstance()
 const audioRecorder = useAudioRecorder()
@@ -501,7 +502,6 @@ const i18nState = useI18N().state
 const prompt = ref('')
 const promptStore = usePromptStore()
 const imageGeneration = useImageGenerationPresets()
-const processingDebounceTimer = ref<number | null>(null)
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const agentMode = useAgentMode()
 const oemBranding = useOemBranding()
@@ -841,20 +841,17 @@ function removeImage(index: number) {
   openAiCompatibleChat.fileInput = openAiCompatibleChat.fileInput.filter((_, i) => i !== index)
 }
 
-// Busy state is unified through the activity sink: in addition to the streaming /
-// generation flags, any active chat activity for the current conversation (backend
-// prep, RAG search, tool resolution, thinking) keeps the prompt area in its busy
-// state so the send/stop control matches the in-turn activity indicator.
-const isProcessing = computed(
-  () =>
-    openAiCompatibleChat.processing ||
-    imageGeneration.processing ||
-    // Model/backend load runs before the chat stream starts (so `processing` is
-    // still false); keep the busy state up for it too, so the send/stop control
-    // is the single, complete signal for "is the app working on this turn".
-    textInference.isPreparingBackend ||
-    agentMode.processing ||
-    activities.chatActivity(conversations.activeKey) !== null,
+// Busy state follows only what the prompt bar would send to (`promptBusy`). For the
+// open conversation that includes any chat activity on it (backend prep, a queued
+// turn, RAG search, tool resolution, thinking), so send/stop matches the in-turn
+// activity indicator.
+const isProcessing = computed(() =>
+  promptBusy(promptStore.getCurrentMode(), {
+    agentSession: agentMode.processing,
+    conversation:
+      openAiCompatibleChat.processing || activities.chatActivity(conversations.activeKey) !== null,
+    panelRun: imageGeneration.processing,
+  }),
 )
 
 const isStopping = computed(() => imageGeneration.stopping)
@@ -918,34 +915,14 @@ const isTextAreaDisabled = computed(() => {
 
 const contextError = computed(() => openAiCompatibleChat.error)
 
-watch(isProcessing, (newValue, oldValue) => {
-  if (processingDebounceTimer.value !== null) {
-    clearTimeout(processingDebounceTimer.value)
-    processingDebounceTimer.value = null
-  }
-
-  // Agent mode: busy follows the Open Session, so it flips on navigation too. The
-  // field clears once a send is accepted, and is never wiped by switching sessions.
-  if (promptStore.getCurrentMode() === 'agent') {
-    if (newValue && promptStore.promptSubmitted) prompt.value = ''
-    promptStore.promptSubmitted = false
-    return
-  }
-
-  if (oldValue === true && newValue === false) {
-    // Only clear the prompt in the chat-like modes (chat, agent, audio); persist it
-    // for the ComfyUI modes (imageGen, imageEdit, video)
-    if (isChatLikeMode.value) {
-      processingDebounceTimer.value = window.setTimeout(() => {
-        prompt.value = ''
-        promptStore.promptSubmitted = false
-        processingDebounceTimer.value = null
-      }, 1000)
-    } else {
-      // For ComfyUI modes, just reset the submitted flag but keep the prompt
-      promptStore.promptSubmitted = false
-    }
-  }
+watch(isProcessing, (busy, wasBusy) => {
+  const { clearPrompt, resetSubmitted } = promptOnBusyChange(promptStore.getCurrentMode(), {
+    busy,
+    wasBusy,
+    submitted: promptStore.promptSubmitted,
+  })
+  if (clearPrompt) prompt.value = ''
+  if (resetSubmitted) promptStore.promptSubmitted = false
 })
 
 // Sync prompt from store to textarea when switching to ComfyUI modes

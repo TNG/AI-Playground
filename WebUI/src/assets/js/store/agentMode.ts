@@ -262,6 +262,37 @@ export const useAgentMode = defineStore(
       },
     })
 
+    /** "Save as default": the active session's settings become the Agent preset's defaults. */
+    function saveAsDefault(): void {
+      const settings = activeSettings.value
+      if (!sessionScoped.value || !settings) return
+      const bags = textInference.settingsPerPreset ?? {}
+      const base = bags[AGENT_PRESET] ?? {}
+      textInference.settingsPerPreset = {
+        ...bags,
+        [AGENT_PRESET]: {
+          ...sessionSettingsToBag(settings, base, textInference.embeddingBackend),
+          [DEFAULT_CAPABILITIES_KEY]: [...capabilities.value],
+          [DEFAULT_PLANNING_THINKING_ONLY_KEY]: effectivePlanningThinkingOnly.value,
+        },
+      }
+    }
+
+    /**
+     * "Reset to default": the active session takes the Default Settings again, repaired the
+     * way a new Draft Session is. Other sessions and the stored defaults stay as they are.
+     */
+    function resetToDefault(): void {
+      if (!sessionScoped.value) return
+      activeSettings.value = null
+      // The load hands the repaired defaults back through the binding's save.
+      textInference.loadSettingsForActivePreset()
+      const reset = activeSettings.value as AgentSessionSettings | null
+      const session = sessions.value[activeSessionId.value]
+      if (!session || !reset) return
+      rewriteSession(activeSessionId.value, { ...session, settings: { ...reset } })
+    }
+
     function presetUsesSessionSettings(presetName: string): boolean {
       const preset = presetsStore.presets.find((entry) => entry.name === presetName)
       return preset?.type === 'chat' && usesSessionSettings(preset as ChatPreset)
@@ -994,6 +1025,9 @@ export const useAgentMode = defineStore(
       planningThinkingOnly,
       effectivePlanningThinkingOnly,
       setPlanningThinkingOnly,
+      sessionScoped,
+      saveAsDefault,
+      resetToDefault,
       migrateAgentDefaults,
       unsandboxedWorkspaces,
       unsandboxed,

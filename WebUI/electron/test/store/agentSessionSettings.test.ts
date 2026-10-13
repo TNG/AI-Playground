@@ -477,4 +477,66 @@ describe('Agent Session Settings', () => {
     await presetSwitchingMock.switchPreset('Game Agent')
     expect(store.capabilities).toEqual(['game-studio'])
   })
+
+  it('saves the session settings as the defaults without touching any record', async () => {
+    const store = await startedStore()
+    await store.generate('first')
+    chat.edit({ backend: 'openVINO', model: 'Phi-4', thinkingEnabled: false })
+    store.setCapabilityEnabled('mcp:blender', true)
+    saveSession.mockClear()
+
+    store.saveAsDefault()
+
+    expect(saveSession).not.toHaveBeenCalled()
+    expect(chat.state.settingsPerPreset.Agent).toMatchObject({
+      backend: 'openVINO',
+      selectedModels: { openVINO: 'Phi-4' },
+      thinkingEnabled: false,
+    })
+    expect(chat.state.settingsPerPreset.Agent.agentCapabilities).toContain('mcp:blender')
+
+    await store.newSession()
+    expect(live()).toEqual({ backend: 'openVINO', model: 'Phi-4' })
+    expect(store.isCapabilityEnabled('mcp:blender')).toBe(true)
+  })
+
+  it('keeps earlier sessions as they were after saving new defaults', async () => {
+    const store = await startedStore()
+    await store.generate('first')
+    const first = store.activeSessionId
+    await store.newSession()
+    chat.edit({ model: 'New-27B' })
+    store.saveAsDefault()
+
+    expect(store.sessions[first].settings).toMatchObject({ model: 'Default-9B' })
+  })
+
+  it('resets only the active session to the defaults', async () => {
+    const store = await startedStore()
+    await store.generate('first')
+    const first = store.activeSessionId
+    await store.newSession()
+    chat.edit({ model: 'Picked-27B' })
+    store.setCapabilityEnabled('mcp:blender', true)
+    await store.generate('second')
+    const second = store.activeSessionId
+    saveSession.mockClear()
+
+    store.resetToDefault()
+
+    expect(live()).toEqual({ backend: 'llamaCPP', model: 'Default-9B' })
+    expect(store.isCapabilityEnabled('mcp:blender')).toBe(false)
+    expect(saveSession.mock.calls.map(([record]) => record.id)).toEqual([second])
+    expect(savedSettings(second)).toMatchObject({ model: 'Default-9B' })
+    expect(store.sessions[first].settings).toMatchObject({ model: 'Default-9B' })
+  })
+
+  it('resets a Draft Session in memory only', async () => {
+    const store = await startedStore()
+    chat.edit({ model: 'Picked-27B' })
+    store.resetToDefault()
+
+    expect(live()).toEqual({ backend: 'llamaCPP', model: 'Default-9B' })
+    expect(saveSession).not.toHaveBeenCalled()
+  })
 })

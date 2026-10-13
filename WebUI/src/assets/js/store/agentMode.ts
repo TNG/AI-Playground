@@ -10,6 +10,7 @@ import { useConfirmations } from './confirmations'
 import { useOemBranding } from './oemBranding'
 import { useErrors } from './errors'
 import { useI18N } from './i18n'
+import { useMcp } from './mcp'
 import { unregisterAgentModeIpc } from './agentModeIpc'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { makeForwardPersist } from '@/lib/ipcPersist'
@@ -28,12 +29,15 @@ import {
   DEFAULT_CAPABILITIES_KEY,
   DEFAULT_PLANNING_THINKING_ONLY_KEY,
   fillMissingSessionSettings,
+  keepUneditedSettings,
   presetNameUsesSessionSettings,
   sessionSettingsFromBag,
   sessionSettingsToBag,
   updateSessionSettingsFromBag,
   usesSessionSettings,
 } from '@/lib/agentSessionSettings'
+import { sessionSettingsProblems, type SessionSettingsProblem } from '@/lib/sessionSettingsProblems'
+import { createAppError } from '@/assets/js/errors/appError'
 import { withResponseLanguage } from '@/lib/responseLanguage'
 import { ragEmbeddingPrepFailure } from '@/lib/ragEmbeddingPrep'
 import { requestDownload } from '@/assets/js/permissions/permissions'
@@ -107,6 +111,7 @@ export const useAgentMode = defineStore(
     const oemBranding = useOemBranding()
     const errors = useErrors()
     const i18n = useI18N()
+    const mcp = useMcp()
 
     const workspaceDir = ref<string>('')
 
@@ -211,6 +216,48 @@ export const useAgentMode = defineStore(
 
     const sessionScoped = computed(() => usesSessionSettings(activeAgentPreset.value))
 
+    /** The active Agent session has been sent: its stored settings are its own and are checked. */
+    const sessionSent = computed(
+      () =>
+        sessionScoped.value && (sessions.value[activeSessionId.value]?.messages.length ?? 0) > 0,
+    )
+
+    /** Live values right after a sent session loaded; fields still equal to them were not edited. */
+    let loadedBaseline: AgentSessionSettings | null = null
+
+    /** Stored settings of the sent session that can no longer be used. Drafts are never blocked. */
+    const settingsProblems = computed<SessionSettingsProblem[]>(() => {
+      if (!sessionSent.value || !activeSettings.value) return []
+      return sessionSettingsProblems(
+        { ...activeSettings.value, capabilities: capabilities.value },
+        {
+          ...textInference.settingsAvailability,
+          mcpServerIds: mcp.serversLoaded ? mcp.allServers.map((server) => server.id) : null,
+        },
+      )
+    })
+
+    /** Refuse a turn while a stored setting is unusable; the prompt bar names the field. */
+    async function blockedBySettingsProblems(): Promise<boolean> {
+      if (!sessionSent.value) return false
+      if (!mcp.serversLoaded && capabilities.value.some((id) => id.startsWith('mcp:'))) {
+        await mcp.refreshAvailableServers()
+      }
+      const problems = settingsProblems.value
+      if (problems.length === 0) return false
+      errors.report(
+        createAppError({
+          category: 'validation',
+          code: 'agent/session-settings-unusable',
+          userMessage: i18n.state.AGENT_SETTINGS_UNUSABLE,
+          technicalMessage: problems.map((p) => `${p.field}: ${p.value}`).join(', '),
+          surface: 'inline',
+          severity: 'warning',
+        }),
+      )
+      return true
+    }
+
     type AgentDefaults = { capabilities: string[]; planningThinkingOnly: boolean }
 
     /**
@@ -256,12 +303,19 @@ export const useAgentMode = defineStore(
         return sessionSettingsToBag(activeSettings.value, defaults, embeddingBackend)
       },
       save: (bag, embeddingBackend) => {
+        const stored = activeSettings.value
         // A Draft Session's first save also takes the capability and planning defaults.
-        activeSettings.value = updateSessionSettingsFromBag(
-          activeSettings.value ?? migrateAgentDefaults(),
+        const next = updateSessionSettingsFromBag(
+          stored ?? migrateAgentDefaults(),
           bag,
           embeddingBackend,
         )
+        activeSettings.value =
+          stored && loadedBaseline ? keepUneditedSettings(stored, next, loadedBaseline) : next
+      },
+      pinned: () => sessionSent.value,
+      loaded: (bag, embeddingBackend) => {
+        loadedBaseline = updateSessionSettingsFromBag(null, bag, embeddingBackend)
       },
     })
 
@@ -336,6 +390,7 @@ export const useAgentMode = defineStore(
      */
     function activateSessionSettings(settings: AgentSessionSettings | undefined): void {
       activeSettings.value = settings ? { ...settings } : null
+      loadedBaseline = null
       const live = presetsStore.activePresetWithVariant
       if (live?.type !== 'chat' || !usesSessionSettings(live as ChatPreset)) return
       textInference.loadSettingsForActivePreset()
@@ -995,6 +1050,7 @@ export const useAgentMode = defineStore(
     })
 
     async function generate(prompt: string): Promise<void> {
+      if (await blockedBySettingsProblems()) return
       // Game Agent never asks for a folder: the first turn of a game mints one.
       if (agentWorkspaceKind.value === 'games' && !(await isGameFolder(workspaceDir.value))) {
         const game = await window.electronAPI.games.create(prompt, {
@@ -1061,6 +1117,7 @@ export const useAgentMode = defineStore(
       effectivePlanningThinkingOnly,
       setPlanningThinkingOnly,
       sessionScoped,
+      settingsProblems,
       saveAsDefault,
       resetToDefault,
       migrateAgentDefaults,

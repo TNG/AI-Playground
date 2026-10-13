@@ -200,6 +200,8 @@ watchEffect(() => {
   const currentValue = value.value
   const availableItems = items.value
 
+  // A sent Agent session keeps its stored model; an unusable one blocks Send instead.
+  if (textInference.sessionSettingsPinned) return
   // If current selection is not in the filtered list, select the first available
   if (availableItems.length > 0 && !availableItems.some((item) => item.value === currentValue)) {
     textInference.selectModel(textInference.backend, availableItems[0].value)

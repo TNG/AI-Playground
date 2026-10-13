@@ -569,5 +569,13 @@
   "AGENT_SAVE_AS_DEFAULT": "Save as default",
   "AGENT_RESET_TO_DEFAULT": "Reset to default",
   "AGENT_SAVED_AS_DEFAULT": "Saved as the default for new Agent sessions",
-  "AGENT_RESET_TO_DEFAULT_DONE": "Reset this session to the default settings"
+  "AGENT_RESET_TO_DEFAULT_DONE": "Reset this session to the default settings",
+  "AGENT_SETTINGS_UNUSABLE": "This session's settings can't be used right now. Fix them in Agent Settings to continue.",
+  "AGENT_SETTINGS_UNUSABLE_DETAIL": "{setting} “{value}” is no longer available.",
+  "AGENT_SETTING_BACKEND": "Backend",
+  "AGENT_SETTING_MODEL": "Model",
+  "AGENT_SETTING_DEVICE": "Device",
+  "AGENT_SETTING_PROVIDER": "Provider",
+  "AGENT_SETTING_MCP_SERVER": "MCP server",
+  "AGENT_SETTING_EMBEDDING_MODEL": "Embedding model"
 }

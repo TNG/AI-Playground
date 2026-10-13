@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   fillMissingSessionSettings,
+  keepUneditedSettings,
   sessionSettingsFromBag,
   sessionSettingsToBag,
   updateSessionSettingsFromBag,
@@ -163,5 +164,25 @@ describe('fillMissingSessionSettings', () => {
       changed: false,
       settings: current,
     })
+  })
+})
+
+describe('keepUneditedSettings', () => {
+  it('keeps the stored value of a field that still equals the post-load baseline', () => {
+    const stored = { backend: 'llamaCPP' as const, model: 'Gone-7B', thinkingEnabled: true }
+    const baseline = { backend: 'llamaCPP' as const, model: 'Substitute-9B', thinkingEnabled: true }
+    const next = { backend: 'llamaCPP' as const, model: 'Substitute-9B', thinkingEnabled: false }
+    expect(keepUneditedSettings(stored, next, baseline)).toEqual({
+      backend: 'llamaCPP',
+      model: 'Gone-7B',
+      thinkingEnabled: false,
+    })
+  })
+
+  it('takes a field the user changed', () => {
+    const stored = { model: 'Gone-7B' }
+    expect(
+      keepUneditedSettings(stored, { model: 'Picked-4B' }, { model: 'Substitute-9B' }),
+    ).toEqual({ model: 'Picked-4B' })
   })
 })

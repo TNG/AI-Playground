@@ -165,3 +165,17 @@ export function withoutSessionOwnedKeys(bag: SettingsBag): SettingsBag {
   for (const key of SESSION_OWNED_KEYS) delete rest[key]
   return rest
 }
+
+/** Fill each field the session lacks (an older file) from the Default Settings, field by field. */
+export function fillMissingSessionSettings(
+  current: AgentSessionSettings,
+  defaults: AgentSessionSettings,
+): { settings: AgentSessionSettings; changed: boolean } {
+  const missing = (Object.keys(defaults) as (keyof AgentSessionSettings)[]).filter(
+    (key) => current[key] === undefined && defaults[key] !== undefined,
+  )
+  if (missing.length === 0) return { settings: current, changed: false }
+  const settings: AgentSessionSettings = { ...current }
+  for (const key of missing) Object.assign(settings, { [key]: defaults[key] })
+  return { settings, changed: true }
+}

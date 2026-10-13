@@ -58,6 +58,7 @@
   "COM_ACTIVITY_TURN_QUEUED_FOR_AGENT": "In der Warteschlange ({position}), wartet auf das Ende eines Agent-Durchgangs",
   "COM_ACTIVITY_TURN_QUEUED_FOR_CHAT": "In der Warteschlange ({position}), wartet auf das Ende eines Chat-Durchgangs",
   "COM_ACTIVITY_TURN_QUEUED_FOR_SUMMARY": "In der Warteschlange ({position}), wartet auf das Ende einer Chat-Titelzusammenfassung",
+  "COM_ACTIVITY_TURN_QUEUED_FOR_GENERATION": "In der Warteschlange ({position}), wartet auf das Ende einer Mediengenerierung",
   "COM_ACTIVITY_RUNNING_TOOL": "{tool} wird ausgeführt…",
   "COM_NO_SELECTED": "Nichts ausgewählt",
   "COM_CONFIRM": "Bestätigen",

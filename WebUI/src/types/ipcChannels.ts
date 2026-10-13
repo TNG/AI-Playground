@@ -402,7 +402,7 @@ export const CHANNELS = {
   'artifact:run': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [ArtifactRunRequest, { queue?: 'fail-fast' | 'queue' }?],
+    args: [] as unknown as readonly [ArtifactRunRequest, { queue?: 'turn' | 'queue' }?],
     result: null as unknown as ArtifactRunResult,
   },
   /** Cancel the active run, or one in-flight run by id. */

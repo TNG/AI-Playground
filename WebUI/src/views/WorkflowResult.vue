@@ -85,7 +85,12 @@
           class="absolute left-0 top-0 w-full h-full flex justify-center items-center"
         >
           <loading-bar
-            v-if="
+            v-if="imageGeneration.queuedLabel"
+            :text="imageGeneration.queuedLabel"
+            class="w-3/4"
+          ></loading-bar>
+          <loading-bar
+            v-else-if="
               [
                 'start_backend',
                 'load_model',

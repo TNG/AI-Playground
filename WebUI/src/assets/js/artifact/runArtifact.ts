@@ -64,8 +64,8 @@ export type ArtifactRunContext = {
   parentActivityId?: string | null
   abortSignal?: AbortSignal
   /**
-   * `'queue'` parks the run behind an active one (chat tool calls); the
-   * default fail-fast keeps the panel's one-generation-at-a-time contract.
+   * `'queue'` parks the run behind an active one (media nested in a turn); by
+   * default the run joins the Turn Queue like the panel's own runs.
    */
   queueMode?: 'queue'
   /** The conversation this run was asked from — routes orchestrator queue events. */
@@ -363,17 +363,12 @@ export async function runArtifact(
     ctx.abortSignal?.removeEventListener('abort', onAbort)
   }
 
-  // A refused submission left nothing of this run in flight — drop the queued
-  // stubs so the history shows no permanent placeholders.
+  // A failure that never started left nothing of this run in flight — drop the
+  // queued stubs so the history shows no permanent placeholders.
   if (result.state === 'failed' && result.items.length === 0) {
-    if (
-      result.error === 'Another generation is already in progress' ||
-      !items.some((item) => item.state !== 'queued')
-    ) {
-      removeQueuedStubs()
-    }
-    // Fail-fast (and other no-event failures) never emit a terminal phase, so
-    // the projection would keep this runId forever without an explicit untrack.
+    if (!items.some((item) => item.state !== 'queued')) removeQueuedStubs()
+    // A malformed request (and other no-event failures) never emits a terminal
+    // phase, so the projection would keep this runId forever without an untrack.
     imageGen.untrackArtifactRun(runId)
   }
   return result

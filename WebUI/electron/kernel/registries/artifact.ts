@@ -35,7 +35,7 @@ export function buildArtifactRegistry(deps: ArtifactDeps) {
         owner: { kind: 'panel' },
       }
       return deps.submitArtifactRun(payload, {
-        queue: options?.queue === 'queue' ? 'queue' : 'fail-fast',
+        queue: options?.queue === 'queue' ? 'queue' : 'turn',
       })
     },
 

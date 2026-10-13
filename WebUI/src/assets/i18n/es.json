@@ -58,6 +58,7 @@
   "COM_ACTIVITY_TURN_QUEUED_FOR_AGENT": "En cola ({position}), esperando a que termine un turno del agente",
   "COM_ACTIVITY_TURN_QUEUED_FOR_CHAT": "En cola ({position}), esperando a que termine un turno de chat",
   "COM_ACTIVITY_TURN_QUEUED_FOR_SUMMARY": "En cola ({position}), esperando a que termine un resumen de título de chat",
+  "COM_ACTIVITY_TURN_QUEUED_FOR_GENERATION": "En cola ({position}), esperando a que termine una generación de medios",
   "COM_ACTIVITY_RUNNING_TOOL": "Ejecutando {tool}…",
   "COM_NO_SELECTED": "Nada seleccionado",
   "COM_CONFIRM": "Confirmar",

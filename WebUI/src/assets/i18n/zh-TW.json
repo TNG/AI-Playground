@@ -58,6 +58,7 @@
   "COM_ACTIVITY_TURN_QUEUED_FOR_AGENT": "排隊中（{position}），正在等待代理程式輪次完成",
   "COM_ACTIVITY_TURN_QUEUED_FOR_CHAT": "排隊中（{position}），正在等待聊天輪次完成",
   "COM_ACTIVITY_TURN_QUEUED_FOR_SUMMARY": "排隊中（{position}），正在等待聊天標題摘要完成",
+  "COM_ACTIVITY_TURN_QUEUED_FOR_GENERATION": "排隊中（{position}），正在等待媒體生成完成",
   "COM_ACTIVITY_RUNNING_TOOL": "正在執行 {tool}…",
   "COM_NO_SELECTED": "未選取",
   "COM_CONFIRM": "確認",

@@ -94,11 +94,12 @@ export const useComfyUiPresets = defineStore(
           imageGeneration.currentState,
           imageGeneration.stepText,
           imageGeneration.processing,
+          imageGeneration.queuedLabel,
         ] as const,
-      ([state, _stepText, processing]) => {
+      ([state, _stepText, processing, queuedLabel]) => {
         const isActive = processing || GENERATION_ACTIVE_STATES.includes(state)
         if (isActive) {
-          const label = generationStateLabel(state)
+          const label = queuedLabel ?? generationStateLabel(state)
           if (!generationActivityId) {
             generationActivityId = activities.begin({
               category: 'generation',

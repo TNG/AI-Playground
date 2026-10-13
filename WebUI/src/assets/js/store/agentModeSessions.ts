@@ -172,6 +172,7 @@ export function snapshotSession(options: {
   capabilities: string[]
   presetName: string
   responseLocale?: string
+  settings?: AgentSessionSettings
 }): AgentSessionRecord | null {
   const plainMessages = JSON.parse(JSON.stringify(options.messages)) as UIMessage[]
   if (plainMessages.length === 0) return null
@@ -190,6 +191,11 @@ export function snapshotSession(options: {
     capabilities: options.existing?.capabilities ?? [...options.capabilities],
     presetName: options.existing?.presetName ?? options.presetName,
     responseLocale: existing?.responseLocale ?? options.responseLocale,
+    ...(options.settings
+      ? { settings: { ...options.settings } }
+      : existing?.settings
+        ? { settings: existing.settings }
+        : {}),
   }
 }
 

@@ -924,6 +924,14 @@ watch(isProcessing, (newValue, oldValue) => {
     processingDebounceTimer.value = null
   }
 
+  // Agent mode: busy follows the Open Session, so it flips on navigation too. The
+  // field clears once a send is accepted, and is never wiped by switching sessions.
+  if (promptStore.getCurrentMode() === 'agent') {
+    if (newValue && promptStore.promptSubmitted) prompt.value = ''
+    promptStore.promptSubmitted = false
+    return
+  }
+
   if (oldValue === true && newValue === false) {
     // Only clear the prompt in the chat-like modes (chat, agent, audio); persist it
     // for the ComfyUI modes (imageGen, imageEdit, video)

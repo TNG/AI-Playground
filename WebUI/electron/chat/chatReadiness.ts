@@ -53,6 +53,8 @@ export type ChatReadinessDeps = {
 let deps: ChatReadinessDeps | null = null
 let lastLoad: ChatReadinessArgs | null = null
 let lastLoadActive = true
+/** The Turn Queue holder's own load; a dropdown change mid-turn must not replace it. */
+let turnLoad: ChatReadinessArgs | null = null
 /** Last service `ensureChatBackendReady` actually loaded (not the dropdown snapshot). */
 let lastEnsuredServiceName: string | null = null
 
@@ -64,7 +66,13 @@ export function resetChatReadinessForTest(): void {
   deps = null
   lastLoad = null
   lastLoadActive = true
+  turnLoad = null
   lastEnsuredServiceName = null
+}
+
+/** Pin what a swap-back restores while a turn holds the place; null releases the pin. */
+export function setTurnChatBackendLoad(args: ChatReadinessArgs | null): void {
+  turnLoad = args ? { ...args } : null
 }
 
 export function lastChatBackendLoadForTest(): ChatReadinessArgs | null {
@@ -194,10 +202,11 @@ export async function ensureChatBackendReady(
 }
 
 export async function reloadLastChatBackend(): Promise<void> {
-  if (!lastLoad || !lastLoadActive) return
+  const load = turnLoad ?? (lastLoadActive ? lastLoad : null)
+  if (!load) return
   // Swap-back already set gpuWindow to 'chat' and is running inside
   // swapBackInFlight; awaiting the window here deadlocks.
-  await ensureChatBackendReady(lastLoad, {
+  await ensureChatBackendReady(load, {
     skipGpuAdmission: true,
     activityLabel: 'Reloading chat model…',
   })

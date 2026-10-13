@@ -57,6 +57,8 @@ vi.mock('@/assets/js/store/textInference', () => ({
     backend: 'llamaCPP',
     activeModel: 'Qwen3.8-27B-Q4_K_M.gguf',
     ensureReadyForInference: vi.fn(),
+    bindSessionSettings: vi.fn(),
+    loadSettingsForActivePreset: vi.fn(),
   }),
 }))
 

@@ -69,7 +69,12 @@ vi.mock('@/assets/js/store/presetSwitching', () => ({
 }))
 
 vi.mock('@/assets/js/store/textInference', () => ({
-  useTextInference: () => ({ backend: 'llamaCPP', ensureReadyForInference: vi.fn() }),
+  useTextInference: () => ({
+    backend: 'llamaCPP',
+    ensureReadyForInference: vi.fn(),
+    bindSessionSettings: vi.fn(),
+    loadSettingsForActivePreset: vi.fn(),
+  }),
 }))
 
 vi.mock('@/assets/js/store/models', () => ({

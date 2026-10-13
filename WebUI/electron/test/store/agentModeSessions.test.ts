@@ -177,7 +177,7 @@ describe('agentMode sessions', () => {
     await flush()
 
     expect(switchPreset).toHaveBeenCalledWith('Game Agent')
-    expect(store.activeSessionId).toBe('game-1')
+    expect(store.openSessionId).toBe('game-1')
     // The preset switch changes how the workspace is chosen, which is exactly
     // when the folder must NOT be re-derived: it belongs to the session.
     expect(store.workspaceDir).toBe('/games/space-dodger')
@@ -213,7 +213,7 @@ describe('agentMode sessions', () => {
 
     await store.switchSession('missing')
 
-    expect(store.activeSessionId).toBe('missing')
+    expect(store.openSessionId).toBe('missing')
     expect(store.workspaceDir).toBe('/code/project')
   })
 
@@ -282,14 +282,14 @@ describe('agentMode sessions', () => {
     await store.startNew()
     // Same workspace, fresh conversation.
     expect(store.workspaceDir).toBe('/code/project')
-    expect(store.activeSessionId).not.toBe('agent-1')
+    expect(store.openSessionId).not.toBe('agent-1')
 
     activePreset.value = GAME_AGENT
     await flush()
     await store.startNew()
     // No folder yet: the first turn mints one named after the request.
     expect(store.workspaceDir).toBe('')
-    expect(store.activeSessionId).toBe('')
+    expect(store.openSessionId).toBe('')
   })
 })
 

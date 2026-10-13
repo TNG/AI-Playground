@@ -88,13 +88,19 @@ afterEach(async () => {
   unregisterAgentModeIpc()
 })
 
-async function freshRuntime() {
-  const { createAgentTurnRuntime } = await import('@/assets/js/store/agentModeTurn')
+async function freshRuntimes() {
+  const { createAgentTurnRuntimes } = await import('@/assets/js/store/agentModeTurn')
+  const runtimes = createAgentTurnRuntimes({
+    errors: { report },
+    buildTurnConfig: async (sessionId) => ({ sessionId }) as never,
+  })
   return {
-    runtime: createAgentTurnRuntime({
-      errors: { report },
-      buildTurnConfig: async () => ({ sessionId: SESSION_ID }) as never,
-    }),
+    runtimes,
+    /** The resumed session's runtime, once the snapshot has created it. */
+    async adopted() {
+      await vi.waitFor(() => expect(runtimes.runtimeOf(SESSION_ID)).toBeDefined())
+      return runtimes.runtimeOf(SESSION_ID)!
+    },
   }
 }
 
@@ -115,8 +121,9 @@ function snapshotWithTurn(sequence: number, turn: typeof RUNNING_TURN | null) {
 
 describe('agent turn resume', () => {
   it('adopts a running turn: replays chunks, restores progress, appends live events', async () => {
-    const { runtime } = await freshRuntime()
+    const { adopted } = await freshRuntimes()
     resolveSnapshot(snapshotWithTurn(5, RUNNING_TURN))
+    const runtime = await adopted()
 
     await vi.waitFor(() => expect(runtime.processing.value).toBe(true))
     expect(runtime.toolProgress.value['call-1']).toBe('navigating')
@@ -144,43 +151,48 @@ describe('agent turn resume', () => {
   })
 
   it('cancels an adopted turn by its session and turn id', async () => {
-    const { runtime } = await freshRuntime()
+    const { adopted } = await freshRuntimes()
     resolveSnapshot(snapshotWithTurn(5, RUNNING_TURN))
+    const runtime = await adopted()
     await vi.waitFor(() => expect(runtime.processing.value).toBe(true))
 
-    await runtime.cancel('some-other-session')
+    await runtime.cancel()
     expect(cancelTurn).toHaveBeenCalledWith(SESSION_ID, TURN_ID)
   })
 
   it('mints a fresh UUID turn id after adopting', async () => {
-    const { runtime } = await freshRuntime()
+    const { adopted } = await freshRuntimes()
     resolveSnapshot(snapshotWithTurn(5, RUNNING_TURN))
+    const runtime = await adopted()
     await vi.waitFor(() => expect(runtime.processing.value).toBe(true))
     pushKernelEvent(kernelEventOf({ type: 'agent-turn-done', turnId: TURN_ID }, 7))
     await vi.waitFor(() => expect(runtime.processing.value).toBe(false))
 
     runtime.chat.sendMessage({ text: 'next request' })
     await vi.waitFor(() => expect(startTurn).toHaveBeenCalled())
-    const turnId = startTurn.mock.calls.at(-1)?.[0]
+    const [turnId, , config] = startTurn.mock.calls.at(-1) ?? []
     expect(turnId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
     expect(turnId).not.toBe(TURN_ID)
+    expect(config).toEqual({ sessionId: SESSION_ID })
   })
 
   it('does not resume when the snapshot has no running turn', async () => {
-    const { runtime } = await freshRuntime()
+    const { runtimes } = await freshRuntimes()
     resolveSnapshot(snapshotWithTurn(5, null))
     await Promise.resolve()
-    expect(runtime.processing.value).toBe(false)
+    expect(runtimes.runtimeOf(SESSION_ID)).toBeUndefined()
+    expect(runtimes.anyTurnOpen.value).toBe(false)
     expect(startTurn).not.toHaveBeenCalled()
   })
 
   it('does not adopt a turn whose done event arrived during the handshake', async () => {
-    const { runtime } = await freshRuntime()
+    const { adopted } = await freshRuntimes()
     // Buffered behind the handshake, so its seq is above the watermark —
     // but the install runs first and reconnect still must not hang a dead
     // turn open.
     pushKernelEvent(kernelEventOf({ type: 'agent-turn-done', turnId: TURN_ID }, 6))
     resolveSnapshot(snapshotWithTurn(5, RUNNING_TURN))
+    const runtime = await adopted()
 
     await vi.waitFor(() => expect(JSON.stringify(runtime.chat.messages)).toContain('hello '))
     // The turnDone flushed after install; processing settles without a hang.

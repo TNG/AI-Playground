@@ -14,6 +14,7 @@ import type { AgentModeTurnConfig } from '@/types/agentIpc'
 import type { AgentTurnSnapshot } from '@/types/kernelEvents'
 
 type ActiveTurn = {
+  sessionId: string
   turnId: string
   controller: ReadableStreamDefaultController<UIMessageChunk>
   closed: boolean
@@ -223,7 +224,6 @@ export function createAgentTurnRuntime(options: {
   const toolProgress = ref<Record<string, string>>({})
   const toolImages = ref<Record<string, AgentToolImage[]>>({})
   const runningTools = new Map<string, AbortController>()
-  let turnCounter = 0
   let activeTurn: ActiveTurn | null = null
 
   // Resume state: a renderer that (re)connects while main is mid-turn adopts
@@ -246,14 +246,20 @@ export function createAgentTurnRuntime(options: {
           .map((p) => p.text)
           .join('\n\n') ?? ''
 
-      const turnId = `turn-${++turnCounter}`
+      const turnId = crypto.randomUUID()
       const config = await options.buildTurnConfig()
+      const { sessionId } = config
 
       return new ReadableStream<UIMessageChunk>({
         start: (controller) => {
-          activeTurn = { turnId, controller, closed: false }
+          activeTurn = { sessionId, turnId, controller, closed: false }
+          if (abortSignal?.aborted) {
+            activeTurn = null
+            controller.close()
+            return
+          }
           abortSignal?.addEventListener('abort', () => {
-            window.electronAPI.agentMode.cancel()
+            window.electronAPI.agentMode.cancel(sessionId, turnId)
           })
           window.electronAPI.agentMode.startTurn(turnId, prompt, config).catch((error) => {
             if (activeTurn?.turnId === turnId && !activeTurn.closed) {
@@ -273,7 +279,7 @@ export function createAgentTurnRuntime(options: {
             activeTurn.closed = true
             activeTurn = null
           }
-          window.electronAPI.agentMode.cancel()
+          window.electronAPI.agentMode.cancel(sessionId, turnId)
         },
       })
     },
@@ -288,10 +294,6 @@ export function createAgentTurnRuntime(options: {
       pendingResume = null
       if (!pending || finishedTurns.has(pending.turn.turnId)) return null
       const { turn } = pending
-      // This fresh renderer's counter must never mint an id the running turn
-      // already has — the next sendMessages would collide with the live turnId.
-      const asNumber = Number(turn.turnId.replace(/^turn-/, ''))
-      if (Number.isFinite(asNumber) && asNumber > turnCounter) turnCounter = asNumber
       processing.value = true
       adoptedTurnId = turn.turnId
       toolProgress.value = { ...turn.toolProgress }
@@ -302,7 +304,12 @@ export function createAgentTurnRuntime(options: {
       toolImages.value = restoredImages
       return new ReadableStream<UIMessageChunk>({
         start: (controller) => {
-          activeTurn = { turnId: turn.turnId, controller, closed: false }
+          activeTurn = {
+            sessionId: turn.sessionId,
+            turnId: turn.turnId,
+            controller,
+            closed: false,
+          }
           // Snapshot chunks first, then any that raced the adoption.
           for (const chunk of [...turn.chunks, ...pending.chunks]) {
             try {
@@ -317,7 +324,7 @@ export function createAgentTurnRuntime(options: {
             activeTurn.closed = true
             activeTurn = null
           }
-          window.electronAPI.agentMode.cancel()
+          window.electronAPI.agentMode.cancel(turn.sessionId, turn.turnId)
         },
       })
     },
@@ -362,6 +369,15 @@ export function createAgentTurnRuntime(options: {
       toolProgress.value = { ...toolProgress.value, [toolCallId]: text }
     },
     onToolImage: (image) => {
+      if (pendingResume && pendingResume.turn.turnId === image.turnId) {
+        const pendingShown = pendingResume.turn.toolImages[image.toolCallId] ?? []
+        pendingResume.turn.toolImages = {
+          ...pendingResume.turn.toolImages,
+          [image.toolCallId]: [...pendingShown, { type: 'agent-tool-image', ...image }],
+        }
+        return
+      }
+      if (!activeTurn || activeTurn.turnId !== image.turnId) return
       const shown = toolImages.value[image.toolCallId] ?? []
       toolImages.value = { ...toolImages.value, [image.toolCallId]: [...shown, image] }
     },
@@ -406,7 +422,8 @@ export function createAgentTurnRuntime(options: {
       }
     },
     onSnapshot: (snapshot) => {
-      const turn = snapshot.state.activeTurn
+      // One turn is open at most until the Turn Queue lands; adopt the running one.
+      const turn = snapshot.state.agentTurns.find((entry) => entry.state === 'running')
       // Only a renderer with no turn of its own resumes — a turn started here
       // since boot must not be displaced by a snapshot that predates it.
       if (!turn || activeTurn || finishedTurns.has(turn.turnId)) return
@@ -434,6 +451,18 @@ export function createAgentTurnRuntime(options: {
     },
   })
 
+  /**
+   * Cancel the turn this runtime is streaming, or — when it streams none —
+   * whatever main holds open for `sessionId`.
+   */
+  async function cancel(sessionId: string): Promise<void> {
+    if (activeTurn) {
+      await window.electronAPI.agentMode.cancel(activeTurn.sessionId, activeTurn.turnId)
+    } else if (sessionId) {
+      await window.electronAPI.agentMode.cancel(sessionId)
+    }
+  }
+
   function abortRunningTools(): void {
     for (const abort of runningTools.values()) abort.abort()
     runningTools.clear()
@@ -444,6 +473,7 @@ export function createAgentTurnRuntime(options: {
     processing,
     toolProgress,
     toolImages,
+    cancel,
     abortRunningTools,
   }
 }

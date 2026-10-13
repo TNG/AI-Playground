@@ -29,11 +29,10 @@ import { clearPointer, readSessionStore, savePointer } from './piSessionStore.ts
 import { briefly, LOG_SOURCE, verboseLogging } from './piAgentLog.ts'
 import {
   active,
-  activeAbort,
+  agentTurns,
   lastSessionId,
-  setActiveAbort,
-  setCurrentTurn,
   type ActiveSession,
+  type AgentTurn,
 } from './piAgentState.ts'
 import { endActiveSession, ensureSession } from './piSessionLifecycle.ts'
 import { agentRunIdentity } from './agentRunIdentity.ts'
@@ -42,10 +41,6 @@ import { finishTextRequest, submitTextRequest } from '../kernel/orchestrator.ts'
 import { ensureChatBackendReady, setLastChatBackendLoadActive } from '../chat/chatReadiness.ts'
 
 const logger = appLoggerInstance
-
-function sendChunk(turnId: string, chunk: StreamChunk): void {
-  emitAgentChunk(turnId, chunk)
-}
 
 /**
  * Thinking pays for itself while the agent decides what to build and stops
@@ -311,24 +306,26 @@ export async function startAgentTurn(
   prompt: string,
   config: AgentModeTurnConfig,
 ): Promise<IpcMutationResult> {
-  if (activeAbort) {
+  if (agentTurns.size > 0) {
     return { success: false, error: 'An agent turn is already running.' }
   }
+  const { sessionId } = config
   const abortController = new AbortController()
-  setActiveAbort(abortController)
-  beginAgentTurnSnapshot(turnId)
+  const turn: AgentTurn = { sessionId, turnId, abort: abortController, live: null }
+  agentTurns.set(sessionId, turn)
+  beginAgentTurnSnapshot(sessionId, turnId)
   const verbose = verboseLogging()
   const translator = createStreamTranslator({
-    emit: (chunk) => sendChunk(turnId, chunk),
+    emit: (chunk: StreamChunk) => emitAgentChunk(sessionId, turnId, chunk),
     onToolProgress: ({ toolCallId, toolName, text }) => {
-      emitAgentToolProgress(turnId, toolCallId, toolName, text)
+      emitAgentToolProgress(sessionId, turnId, toolCallId, toolName, text)
     },
   })
   try {
     await submitTextRequest(
       {
         runId: turnId,
-        conversationKey: config.sessionId,
+        conversationKey: sessionId,
         needsGpu: config.modelConfig.source !== 'cloud' && Boolean(config.readiness),
       },
       abortController.signal,
@@ -339,10 +336,11 @@ export async function startAgentTurn(
       await ensureChatBackendReady(config.readiness, {
         abortSignal: abortController.signal,
         skipGpuAdmission: true,
-        conversationKey: config.sessionId,
+        conversationKey: sessionId,
       })
     }
     const current = await ensureSession(config)
+    turn.live = current
     // Per turn, not per session: a resumed session keeps its trace context but
     // its game may have been named since, and the preset can differ.
     setAgentRunIdentity(agentRunIdentity(config))
@@ -355,16 +353,13 @@ export async function startAgentTurn(
       translator.update(summary)
     }
     const planning = watchPlanningPhase(current)
-    setCurrentTurn({
-      turnId,
-      onEvent: (event) => {
-        if (verbose) logEvent(event)
-        planning.onEvent(event)
-        translator.handle(event)
-        if (USAGE_SAMPLE_EVENTS.has(event.type)) sampleUsage()
-      },
-      notice: (text) => translator.notice(text),
-    })
+    turn.onEvent = (event) => {
+      if (verbose) logEvent(event)
+      planning.onEvent(event)
+      translator.handle(event)
+      if (USAGE_SAMPLE_EVENTS.has(event.type)) sampleUsage()
+    }
+    turn.notice = (text) => translator.notice(text)
     const onAbort = () => current.session.abort()
     abortController.signal.addEventListener('abort', onAbort, { once: true })
     try {
@@ -415,14 +410,26 @@ export async function startAgentTurn(
     return { success: false, error: message }
   } finally {
     finishTextRequest(turnId)
-    setCurrentTurn(null)
-    setActiveAbort(null)
-    emitAgentTurnDone(turnId)
+    if (agentTurns.get(sessionId) === turn) agentTurns.delete(sessionId)
+    emitAgentTurnDone(sessionId, turnId)
   }
 }
 
-export function cancelAgentTurn(): void {
-  activeAbort?.abort()
+/** Abort the open turn of one Agent Session; `turnId` narrows it to that turn. */
+export function cancelAgentTurn(sessionId: string, turnId?: string): void {
+  const turn = agentTurns.get(sessionId)
+  if (!turn || (turnId !== undefined && turn.turnId !== turnId)) return
+  turn.abort.abort()
+}
+
+/** Abort every open agent turn — for shutdown only. */
+export function cancelAllAgentTurns(): void {
+  for (const turn of agentTurns.values()) turn.abort.abort()
+}
+
+/** Whether main holds any agent turn open — input to the hidden-window close policy. */
+export function hasOpenAgentTurn(): boolean {
+  return agentTurns.size > 0
 }
 
 /**
@@ -431,8 +438,8 @@ export function cancelAgentTurn(): void {
  * brand-new Pi conversation.
  */
 export async function resetAgentSession(): Promise<void> {
-  cancelAgentTurn()
   const sessionId = active?.sessionId ?? lastSessionId
+  if (sessionId) cancelAgentTurn(sessionId)
   await endActiveSession()
   if (sessionId) clearPointer(sessionId)
   closeWorkspaceRuntime()
@@ -445,7 +452,7 @@ export async function resetAgentSession(): Promise<void> {
  * survives, so the conversation resumes on the next launch.
  */
 export async function shutdownAgentMode(): Promise<void> {
-  cancelAgentTurn()
+  cancelAllAgentTurns()
   await endActiveSession()
   closeWorkspaceRuntime()
   // Windows left open by any earlier session too: a hidden survivor keeps the
@@ -462,8 +469,8 @@ export async function deleteAgentSession(
   sessionId: string,
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
+    cancelAgentTurn(sessionId)
     if (active?.sessionId === sessionId) {
-      cancelAgentTurn()
       await endActiveSession()
       closeWorkspaceRuntime()
     }

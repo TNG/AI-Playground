@@ -27,6 +27,7 @@ export type KernelServiceEvent = {
 /** A running agent turn's translated UI message chunk. */
 export type KernelAgentChunkEvent = {
   type: 'agent-chunk'
+  sessionId: string
   turnId: string
   chunk: unknown
 }
@@ -34,6 +35,7 @@ export type KernelAgentChunkEvent = {
 /** Streaming text output of one running tool, under its tool card. */
 export type KernelAgentToolProgressEvent = {
   type: 'agent-tool-progress'
+  sessionId: string
   turnId: string
   toolCallId: string
   toolName: string
@@ -43,6 +45,8 @@ export type KernelAgentToolProgressEvent = {
 /** An image a tool produced, shown under that tool's card. */
 export type KernelAgentToolImageEvent = {
   type: 'agent-tool-image'
+  sessionId: string
+  turnId: string
   toolCallId: string
   dataUri: string
   label: string
@@ -51,6 +55,7 @@ export type KernelAgentToolImageEvent = {
 /** The turn settled (success, error or abort); its stream can close. */
 export type KernelAgentTurnDoneEvent = {
   type: 'agent-turn-done'
+  sessionId: string
   turnId: string
 }
 
@@ -251,14 +256,19 @@ export type KernelEventPayload =
 
 export type KernelEvent = KernelEventPayload & KernelEventEnvelope
 
+/** Where an open agent turn stands in the Turn Queue. */
+export type AgentTurnState = 'queued' | 'running' | 'paused'
+
 /**
- * The accumulated state of the one agent turn main can be running, for a
- * renderer that (re)connects halfway through. Chunks are stored accumulated —
- * adjacent text/reasoning deltas of the same part are merged, never as
- * individual token events to replay.
+ * The accumulated state of one agent turn main holds open, for a renderer that
+ * (re)connects halfway through. Chunks are stored accumulated — adjacent
+ * text/reasoning deltas of the same part are merged, never as individual token
+ * events to replay.
  */
 export type AgentTurnSnapshot = {
+  sessionId: string
   turnId: string
+  state: AgentTurnState
   chunks: unknown[]
   toolProgress: Record<string, string>
   toolImages: Record<string, KernelAgentToolImageEvent[]>
@@ -300,7 +310,8 @@ export type ChatTurnSnapshot = {
 export type KernelSnapshotState = {
   /** `ApiServiceInformation` payloads, keyed off the live service registry. */
   services: unknown[]
-  activeTurn: AgentTurnSnapshot | null
+  /** Agent turns main holds open, at most one per Agent Session. */
+  agentTurns: AgentTurnSnapshot[]
   activeArtifactRun: ArtifactRunSnapshot | null
   /** Chat turns main is running, one per conversation (desktop + side channels). */
   chatTurns: ChatTurnSnapshot[]

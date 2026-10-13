@@ -15,6 +15,7 @@ const {
   resetChatReadinessForTest,
   setChatReadinessDeps,
   setLastChatBackendLoadActive,
+  setTurnChatBackendLoad,
 } = await import('../../chat/chatReadiness')
 
 function wire(overrides: Record<string, unknown> = {}) {
@@ -229,6 +230,14 @@ describe('chatReadiness', () => {
     await reloadLastChatBackend()
     expect(d.awaitChatWindow).not.toHaveBeenCalled()
     expect(d.ensureBackendReadiness).toHaveBeenCalledWith('Qwen3-27B', undefined, 32768, undefined)
+  })
+
+  it("a swap-back mid-turn restores the holder's model, not a dropdown change", async () => {
+    const d = wire()
+    setTurnChatBackendLoad(loadArgs)
+    rememberChatBackendLoad({ serviceName: 'llamacpp-backend', llmModelName: 'Qwen3-27B' })
+    await reloadLastChatBackend()
+    expect(d.ensureBackendReadiness).toHaveBeenLastCalledWith('Qwen3-9B', 'bge', 8192, '--jinja')
   })
 
   it('rememberChatBackendLoad ignores a non-chat service', () => {

@@ -2,6 +2,7 @@ import type { BrowserWindow } from 'electron'
 import { appLoggerInstance } from '../observability/logger'
 import type {
   AgentTurnSnapshot,
+  AgentTurnState,
   ArtifactRunSnapshot,
   ArtifactRunTag,
   ArtifactPhase,
@@ -116,16 +117,22 @@ function agentTurnOf(sessionId: string, turnId: string): AgentTurnSnapshot | und
   return turn?.turnId === turnId ? turn : undefined
 }
 
-/** Track a turn main is about to run, so snapshots can name it. */
+/** Track a turn main has accepted, so snapshots can name it; it starts out queued. */
 export function beginAgentTurnSnapshot(sessionId: string, turnId: string): void {
   agentTurns.set(sessionId, {
     sessionId,
     turnId,
-    state: 'running',
+    state: 'queued',
     chunks: [],
     toolProgress: {},
     toolImages: {},
   })
+}
+
+export function emitAgentTurnState(sessionId: string, turnId: string, state: AgentTurnState): void {
+  const turn = agentTurnOf(sessionId, turnId)
+  if (turn) turn.state = state
+  emit({ type: 'agent-turn-state', sessionId, turnId, state }, { kind: 'run', runId: turnId })
 }
 
 function isMergeableAgentDelta(

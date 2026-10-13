@@ -87,9 +87,10 @@ export type { AgentSessionRecord }
 // Each Agent Session gets its own turn runtime (Chat instance, busy state, tool
 // progress and images), and kernel events reach only the runtime of the session
 // they carry. The Open Session only selects which runtime Agent Mode renders.
-// Switching conversation or workspace (newSession, switchSession, adoptWorkspace,
-// newGame) still stops the running turn, so one turn runs at a time until the
-// Turn Queue lets several sessions hold one.
+// Every sent turn waits in main's Turn Queue, so any number of sessions can hold
+// a queued turn while one runs. For the Agent preset, switching conversation or
+// workspace (newSession, switchSession, adoptWorkspace) leaves turns running;
+// Game Agent and Quick Coder still stop the open session's turn when left.
 
 /**
  * Capabilities a new session starts with. Same list as DEFAULT_CAPABILITY_IDS;
@@ -733,6 +734,9 @@ export const useAgentMode = defineStore(
           cloudMode,
         }),
       initialMessages: (sessionId) => [...(sessions.value[sessionId]?.messages ?? [])],
+      // The sent message is on the record at once, so the session is in the history
+      // even when the user moves on before the turn has run.
+      onTurnSubmitted: (sessionId) => snapshotSessionById(sessionId),
       onTurnSettled: (sessionId) => onTurnSettled(sessionId),
       onAdoptedTurnDone: (sessionId) => {
         snapshotSessionById(sessionId)
@@ -760,6 +764,8 @@ export const useAgentMode = defineStore(
         openRuntime.value.processing.value = value
       },
     })
+    /** Where the Open Session's turn stands in the Turn Queue; null while it has none. */
+    const turnState = computed(() => openRuntime.value.turnState.value)
     const toolProgress = computed(() => openRuntime.value.toolProgress.value)
     const toolImages = computed(() => openRuntime.value.toolImages.value)
     /** Any Agent Session holds a turn, open or not. */
@@ -882,20 +888,31 @@ export const useAgentMode = defineStore(
       }
     }
 
-    async function newSession(): Promise<void> {
+    /**
+     * Agent preset sessions run concurrently, so leaving one leaves its turn
+     * running. Game Agent and Quick Coder sessions keep stop-on-switch.
+     */
+    async function leaveOpenSession(heldWith = agentPresetName.value): Promise<void> {
+      if (presetNameUsesSessionSettings(heldWith)) return
       await stop()
+    }
+
+    function blankSession(): void {
       openSessionId.value = mintSessionId()
       sessionCapabilities.value = null
       applyOpenSessionSettings(undefined)
+    }
+
+    async function newSession(): Promise<void> {
+      await leaveOpenSession()
+      blankSession()
     }
 
     async function switchSession(id: string): Promise<void> {
       if (id === openSessionId.value) return
       const target = sessions.value[id]
       if (!target) return
-      // Tears down the live Pi session and preview server for the conversation
-      // we are leaving; the next prompt rebuilds them for `id`.
-      await stop()
+      await leaveOpenSession()
       movingSession = true
       try {
         if (target.presetName && target.presetName !== agentPresetName.value) {
@@ -1036,7 +1053,7 @@ export const useAgentMode = defineStore(
     }
 
     async function adoptWorkspace(dir: string): Promise<void> {
-      await stop()
+      await leaveOpenSession()
       workspaceDir.value = dir
       const latest = Object.values(sessions.value)
         .filter((s) => s.workspaceDir === dir)
@@ -1066,14 +1083,18 @@ export const useAgentMode = defineStore(
     const { attachments, attachFiles, removeAttachment, clearAttachments, importAttachments } =
       createWorkspaceAttachments(errors)
 
-    async function newGame(): Promise<void> {
-      await stop()
+    function blankGame(): void {
       workspaceDir.value = ''
       openSessionId.value = ''
       sessionCapabilities.value = null
       currentGame.value = null
-      openRuntime.value.chat.messages = []
+      if (!openRuntime.value.hasTurn()) openRuntime.value.chat.messages = []
       openSettings.value = null
+    }
+
+    async function newGame(): Promise<void> {
+      await leaveOpenSession()
+      blankGame()
     }
 
     async function startNew(): Promise<void> {
@@ -1119,13 +1140,13 @@ export const useAgentMode = defineStore(
         ...lastWorkspaceByKind.value,
         [workspaceKindOf(previous)]: workspaceDir.value,
       }
+      await leaveOpenSession(previous)
       if (agentWorkspaceKind.value === 'games') {
-        await newGame()
+        blankGame()
         return
       }
-      await stop()
       workspaceDir.value = lastWorkspaceByKind.value.pick ?? ''
-      await newSession()
+      blankSession()
       await refreshCurrentGame()
     })
 
@@ -1226,6 +1247,7 @@ export const useAgentMode = defineStore(
       removeAttachment,
       clearAttachments,
       processing,
+      turnState,
       messages,
       toolProgress,
       toolImages,

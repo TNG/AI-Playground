@@ -6,6 +6,7 @@ import {
   emitAgentChunk,
   emitAgentToolProgress,
   emitAgentTurnDone,
+  emitAgentTurnState,
 } from '../kernel/kernelBus.ts'
 import { closeAllBrowserSessions, closeBrowserSession } from './agentBrowser.ts'
 import { closeWorkspaceRuntime } from './piWorkspaceRuntime.ts'
@@ -37,8 +38,12 @@ import {
 import { endActiveSession, ensureSession } from './piSessionLifecycle.ts'
 import { agentRunIdentity } from './agentRunIdentity.ts'
 import { setAgentRunIdentity } from '../observability/laminarAttributes.ts'
-import { finishTextRequest, submitTextRequest } from '../kernel/orchestrator.ts'
-import { ensureChatBackendReady, setLastChatBackendLoadActive } from '../chat/chatReadiness.ts'
+import { finishTextRequest, submitTextRequest, turnQueueHolder } from '../kernel/orchestrator.ts'
+import {
+  ensureChatBackendReady,
+  setLastChatBackendLoadActive,
+  setTurnChatBackendLoad,
+} from '../chat/chatReadiness.ts'
 
 const logger = appLoggerInstance
 
@@ -306,14 +311,15 @@ export async function startAgentTurn(
   prompt: string,
   config: AgentModeTurnConfig,
 ): Promise<IpcMutationResult> {
-  if (agentTurns.size > 0) {
-    return { success: false, error: 'An agent turn is already running.' }
-  }
   const { sessionId } = config
+  if (agentTurns.has(sessionId)) {
+    return { success: false, error: 'This session already has a turn in flight.' }
+  }
   const abortController = new AbortController()
   const turn: AgentTurn = { sessionId, turnId, abort: abortController, live: null }
   agentTurns.set(sessionId, turn)
   beginAgentTurnSnapshot(sessionId, turnId)
+  emitAgentTurnState(sessionId, turnId, 'queued')
   const verbose = verboseLogging()
   const translator = createStreamTranslator({
     emit: (chunk: StreamChunk) => emitAgentChunk(sessionId, turnId, chunk),
@@ -327,12 +333,17 @@ export async function startAgentTurn(
         runId: turnId,
         conversationKey: sessionId,
         needsGpu: config.modelConfig.source !== 'cloud' && Boolean(config.readiness),
+        joinsTurnQueue: true,
       },
       abortController.signal,
     )
+    emitAgentTurnState(sessionId, turnId, 'running')
+    // Readiness runs only now that the turn holds the place, so a turn on another
+    // model swaps the server while nothing else is streaming.
     if (config.modelConfig.source === 'cloud') {
       setLastChatBackendLoadActive(false)
     } else if (config.readiness) {
+      setTurnChatBackendLoad(config.readiness)
       await ensureChatBackendReady(config.readiness, {
         abortSignal: abortController.signal,
         skipGpuAdmission: true,
@@ -403,12 +414,18 @@ export async function startAgentTurn(
     return { success: true }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    // Stopped before it took its place (or while readying): nothing to report.
+    if (abortController.signal.aborted && !turn.live) {
+      logger.info(`agent turn cancelled before it ran: ${message}`, LOG_SOURCE)
+      return { success: false, error: message }
+    }
     logger.error(`agent turn failed: ${message}`, LOG_SOURCE)
     // Deliver the failure as a stream error chunk BEFORE the finally block sends
     // turnDone (which closes the renderer-side stream).
     translator.fail(message)
     return { success: false, error: message }
   } finally {
+    if (turnQueueHolder() === turnId) setTurnChatBackendLoad(null)
     finishTextRequest(turnId)
     if (agentTurns.get(sessionId) === turn) agentTurns.delete(sessionId)
     emitAgentTurnDone(sessionId, turnId)

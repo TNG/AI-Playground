@@ -22,10 +22,16 @@
 //   `text` requests first; `ensureChatBackendReady` then loads with
 //   `skipGpuAdmission` because the window wait already happened.
 //
+// - the Turn Queue: text requests that `joinsTurnQueue` (agent turns, local and
+//   cloud) hold one exclusive place for their whole turn and wait FIFO for it.
+//   Media nested in the holder's turn runs within it (same conversation key);
+//   members still waiting never block it.
+//
 // What deliberately stays out: which model to load is still data from the last
 // successful load (or the turn request); download consent stays renderer-side.
-// Concurrent chat turns stay concurrent with each other; they serialize only
-// against the media GPU window. VRAM budgets / jump-the-queue are not here.
+// Text requests outside the Turn Queue stay concurrent with each other; they
+// serialize only against the media GPU window. VRAM budgets / jump-the-queue
+// are not here.
 
 import { appLoggerInstance } from '../observability/logger'
 import { emitArtifactPhase, emitQueueEvent } from './kernelBus'
@@ -46,6 +52,11 @@ export type TextRequest = {
   conversationKey: string
   /** Local LLM turns wait for the chat GPU window. Cloud turns occupy without waiting. */
   needsGpu: boolean
+  /**
+   * Waits FIFO for the Turn Queue's one place and holds it until finished. Set by
+   * the kind of work, not by GPU use: agent turns join even when cloud.
+   */
+  joinsTurnQueue?: boolean
 }
 
 export type KernelRequestMap = {
@@ -112,6 +123,11 @@ let swapBackInFlight: Promise<void> | null = null
 
 const textOccupancy = new Map<string, TextOccupancy>()
 
+// The Turn Queue: at most one member holds the place; the rest wait in
+// submission order, each with the callback that hands it the place.
+let turnHolder: string | null = null
+const turnQueue: Array<{ runId: string; take: () => void; drop: () => void }> = []
+
 export function setOrchestratorDeps(deps: OrchestratorDeps): void {
   orchestratorDeps = deps
 }
@@ -131,6 +147,8 @@ export function resetOrchestratorForTest(): void {
   gpuWindow = 'chat'
   swapBackInFlight = null
   textOccupancy.clear()
+  turnHolder = null
+  for (const entry of turnQueue.splice(0)) entry.drop()
 }
 
 export function artifactRunsQueued(): number {
@@ -157,6 +175,7 @@ function queueBusy(): boolean {
 
 function localTextGpuOpen(): boolean {
   for (const entry of textOccupancy.values()) {
+    if (entry.joinsTurnQueue && turnHolder !== entry.runId) continue
     if (entry.needsGpu) return true
   }
   return false
@@ -170,9 +189,17 @@ function textWaitingCount(): number {
   return count
 }
 
+/** The member holding the Turn Queue's place, if any. */
+export function turnQueueHolder(): string | null {
+  return turnHolder
+}
+
 function unrelatedLocalTextOpen(conversationKey?: string): boolean {
   for (const entry of textOccupancy.values()) {
     if (!entry.needsGpu) continue
+    // A member still waiting for its place has not touched the GPU; waiting on it
+    // would deadlock the holder's own nested media.
+    if (entry.joinsTurnQueue && turnHolder !== entry.runId) continue
     if (conversationKey && entry.conversationKey === conversationKey) continue
     return true
   }
@@ -315,7 +342,8 @@ function cancelledRun(error = 'Generation cancelled.'): ArtifactRunResult {
  * until the GPU window is chat. Resolves when the turn may load/stream.
  * Nested media for this conversation uses `queue`, not fail-fast, so it can
  * take the GPU while this occupancy is still live (HTTP is idle in the tool
- * phase). Cloud turns occupy without waiting — they do not hold the local GPU.
+ * phase). Cloud turns occupy without waiting — they do not hold the local GPU —
+ * unless they join the Turn Queue, where every member first waits for its place.
  */
 export async function submitTextRequest(request: TextRequest, signal?: AbortSignal): Promise<void> {
   if (textOccupancy.has(request.runId)) {
@@ -330,13 +358,17 @@ export async function submitTextRequest(request: TextRequest, signal?: AbortSign
     conversationKey: request.conversationKey,
   })
   try {
+    if (request.joinsTurnQueue) await takeTurnPlace(request.runId, signal)
     if (request.needsGpu) {
       await awaitChatWindow(signal)
     } else if (signal?.aborted) {
       throw cancelledChatWindow()
     }
     const entry = textOccupancy.get(request.runId)
-    if (!entry) return
+    if (!entry) {
+      leaveTurnQueue(request.runId)
+      return
+    }
     entry.phase = 'running'
     emitQueueEvent({
       runKey: request.runId,
@@ -356,6 +388,7 @@ export function finishTextRequest(runId: string): void {
   const entry = textOccupancy.get(runId)
   if (!entry) return
   textOccupancy.delete(runId)
+  leaveTurnQueue(runId)
   emitQueueEvent({
     runKey: runId,
     kind: 'text',
@@ -363,6 +396,49 @@ export function finishTextRequest(runId: string): void {
     queueDepth: textWaitingCount(),
     conversationKey: entry.conversationKey,
   })
+}
+
+/**
+ * Resolves once `runId` holds the Turn Queue's place: at once when it is free and
+ * nobody is waiting, otherwise when every member submitted before it has finished.
+ */
+function takeTurnPlace(runId: string, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(cancelledTurnQueue())
+  if (turnHolder === null && turnQueue.length === 0) {
+    turnHolder = runId
+    return Promise.resolve()
+  }
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => leaveTurnQueue(runId)
+    turnQueue.push({
+      runId,
+      take: () => {
+        signal?.removeEventListener('abort', onAbort)
+        resolve()
+      },
+      drop: () => {
+        signal?.removeEventListener('abort', onAbort)
+        reject(cancelledTurnQueue())
+      },
+    })
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+/** Dequeues a waiting member (its wait rejects) or releases the place to the next one. */
+function leaveTurnQueue(runId: string): void {
+  const index = turnQueue.findIndex((entry) => entry.runId === runId)
+  if (index !== -1) turnQueue.splice(index, 1)[0].drop()
+  if (turnHolder !== runId) return
+  turnHolder = null
+  const next = turnQueue.shift()
+  if (!next) return
+  turnHolder = next.runId
+  next.take()
+}
+
+function cancelledTurnQueue(): Error {
+  return new Error('Cancelled while waiting in the Turn Queue.')
 }
 
 // ── Media request lane ─────────────────────────────────────────────────────────

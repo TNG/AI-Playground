@@ -577,5 +577,7 @@
   "AGENT_SETTING_DEVICE": "Gerät",
   "AGENT_SETTING_PROVIDER": "Anbieter",
   "AGENT_SETTING_MCP_SERVER": "MCP-Server",
-  "AGENT_SETTING_EMBEDDING_MODEL": "Embedding-Modell"
+  "AGENT_SETTING_EMBEDDING_MODEL": "Embedding-Modell",
+  "AGENT_TURN_QUEUED": "In Warteschlange",
+  "AGENT_TURN_QUEUED_DETAIL": "Wartet, bis der laufende Durchgang beendet ist…"
 }

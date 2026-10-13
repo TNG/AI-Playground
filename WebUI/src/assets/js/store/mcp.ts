@@ -30,6 +30,8 @@ type ServerState = {
 export const useMcp = defineStore('mcp', () => {
   const servers = ref<Map<string, ServerState>>(new Map())
   const availableServers = ref<McpServerInfo[]>([])
+  /** Whether `availableServers` reflects the config, rather than not having been fetched yet. */
+  const serversLoaded = ref(false)
   const configError = ref<string | null>(null)
 
   const allServers = computed(() => availableServers.value)
@@ -67,6 +69,7 @@ export const useMcp = defineStore('mcp', () => {
   async function refreshAvailableServers() {
     try {
       availableServers.value = await window.electronAPI.mcp.listServers()
+      serversLoaded.value = true
       configError.value = null
     } catch (error) {
       configError.value = formatConfigError(error, 'Failed to load MCP servers')
@@ -154,6 +157,7 @@ export const useMcp = defineStore('mcp', () => {
     try {
       const serverList = await window.electronAPI.mcp.reloadConfig()
       availableServers.value = serverList
+      serversLoaded.value = true
       servers.value.clear()
       configError.value = null
     } catch (error) {
@@ -165,6 +169,7 @@ export const useMcp = defineStore('mcp', () => {
     servers,
     availableServers,
     allServers,
+    serversLoaded,
     configError,
     getServerState,
     getServerStatus,

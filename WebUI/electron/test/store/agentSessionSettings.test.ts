@@ -53,12 +53,18 @@ vi.mock('@/assets/js/store/presetSwitching', () => ({
  * the Agent preset and to the preset's bag for every other preset.
  */
 const chat = vi.hoisted(() => {
-  type Binding = { load: (d: Bag, e: string) => Bag | null; save: (b: Bag, e: string) => void }
+  type Binding = {
+    load: (d: Bag, e: string) => Bag | null
+    save: (b: Bag, e: string) => void
+    pinned: () => boolean
+    loaded: (b: Bag, e: string) => void
+  }
   const state = {
     binding: null as Binding | null,
     live: {} as Bag,
     settingsPerPreset: {} as Record<string, Bag>,
     presetName: () => 'Agent',
+    catalog: [] as { name: string; type: string }[],
   }
   const models = () => (state.live.selectedModels ?? {}) as Record<string, string | null>
   const current = (): Bag => JSON.parse(JSON.stringify(state.live))
@@ -82,6 +88,17 @@ const chat = vi.hoisted(() => {
         state.settingsPerPreset = next
       },
       ensureReadyForInference: async () => {},
+      embeddingBackend: 'llamaCPP',
+      get settingsAvailability() {
+        return {
+          models: state.catalog,
+          embeddingModels: [],
+          services: [],
+          cloudEnabled: false,
+          cloudProviderIds: [],
+          embeddingBackend: 'llamaCPP',
+        }
+      },
       bindSessionSettings: (binding: Binding | null) => {
         state.binding = binding
       },
@@ -91,6 +108,18 @@ const chat = vi.hoisted(() => {
           ? (state.binding?.load(defaults, 'llamaCPP') ?? null)
           : null
         apply(sessionBag ?? defaults)
+        // Stands in for a substitution made while loading (an unavailable value replaced).
+        const model = models()[state.live.backend as string]
+        const catalog = state.catalog.filter((m) => m.type === state.live.backend)
+        if (model && catalog.length > 0 && !catalog.some((m) => m.name === model)) {
+          state.live.selectedModels = {
+            ...models(),
+            [state.live.backend as string]: catalog[0].name,
+          }
+        }
+        if (sessionBag && state.binding?.pinned()) {
+          state.binding.loaded(current(), 'llamaCPP')
+        }
         if (sessionScoped() && !sessionBag) state.binding?.save(current(), 'llamaCPP')
       },
     },
@@ -125,8 +154,9 @@ vi.mock('@/assets/js/store/cloudMode', () => ({
   CLOUD_DEFAULT_MODEL: 'test-model',
 }))
 
+const errorsReport = vi.hoisted(() => vi.fn())
 vi.mock('@/assets/js/store/errors', () => ({
-  useErrors: () => ({ report: vi.fn() }),
+  useErrors: () => ({ report: errorsReport }),
 }))
 
 const turnConfig = vi.hoisted(() => ({
@@ -221,6 +251,7 @@ beforeEach(() => {
   })
   bootstrap = { status: 'empty' }
   chat.state.binding = null
+  chat.state.catalog = []
   chat.state.presetName = () => activePreset.value.name
   chat.state.live = { backend: 'llamaCPP' }
   chat.state.settingsPerPreset = {
@@ -619,5 +650,60 @@ describe('Agent Session Settings', () => {
   it('leaves an unavailable-session placeholder alone', async () => {
     await openedWith(oldRecord('aipg-agent-gone', { title: 'Unavailable session', messages: [] }))
     expect(saveSession).not.toHaveBeenCalled()
+  })
+
+  describe('blocking on unusable stored settings', () => {
+    const sentWithModel = (model: string) =>
+      oldRecord('aipg-agent-sent', {
+        settings: {
+          backend: 'llamaCPP',
+          model,
+          capabilities: ['web'],
+          planningThinkingOnly: true,
+        },
+      })
+
+    it('refuses to send while the stored model is no longer in the catalog', async () => {
+      chat.state.catalog = [{ name: 'Default-9B', type: 'llamaCPP' }]
+      const store = await openedWith(sentWithModel('Gone-7B'))
+      const sent = store.chat.messages.length
+
+      await store.generate('go on')
+
+      expect(store.settingsProblems).toEqual([{ field: 'model', value: 'Gone-7B' }])
+      expect(store.chat.messages).toHaveLength(sent)
+      expect(errorsReport).toHaveBeenCalledWith(
+        expect.objectContaining({ surface: 'inline', code: 'agent/session-settings-unusable' }),
+      )
+    })
+
+    it('does not let a substitution made while loading replace the stored value', async () => {
+      chat.state.catalog = [{ name: 'Default-9B', type: 'llamaCPP' }]
+      const store = await openedWith(sentWithModel('Gone-7B'))
+      chat.edit({ thinkingEnabled: false })
+
+      expect(store.sessions['aipg-agent-sent'].settings?.model ?? 'Gone-7B').toBe('Gone-7B')
+      expect(store.settingsProblems.map((p) => p.field)).toEqual(['model'])
+    })
+
+    it('sends again once the user picks a usable model', async () => {
+      chat.state.catalog = [
+        { name: 'Default-9B', type: 'llamaCPP' },
+        { name: 'Other-4B', type: 'llamaCPP' },
+      ]
+      const store = await openedWith(sentWithModel('Gone-7B'))
+      chat.edit({ model: 'Other-4B' })
+
+      expect(store.settingsProblems).toEqual([])
+      const before = store.chat.messages.length
+      await store.generate('go on')
+      expect(store.chat.messages.length).toBe(before + 1)
+    })
+
+    it('never blocks a Draft Session', async () => {
+      chat.state.catalog = [{ name: 'Other-4B', type: 'llamaCPP' }]
+      const store = await startedStore()
+      expect(store.settingsProblems).toEqual([])
+    })
   })
 })

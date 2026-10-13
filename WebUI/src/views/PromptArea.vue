@@ -4,6 +4,17 @@
       <div v-if="contextError" class="flex items-center gap-3">
         <p class="text-red-500">{{ contextError }}</p>
       </div>
+      <div
+        v-if="agentSettingsProblems.length > 0"
+        role="alert"
+        aria-label="Agent session settings unusable"
+        class="w-full max-w-3xl text-sm text-amber-500 flex flex-col gap-1"
+      >
+        <p>{{ languages?.AGENT_SETTINGS_UNUSABLE }}</p>
+        <p v-for="problem in agentSettingsProblems" :key="`${problem.field}:${problem.value}`">
+          {{ describeSettingsProblem(problem) }}
+        </p>
+      </div>
       <p class="text-2xl font-bold">Let's Generate</p>
       <div class="w-full max-w-3xl flex flex-col">
         <PromptStatusBar />
@@ -379,6 +390,7 @@
                 @click="handleSubmitPromptClick"
                 id="send-button"
                 aria-label="Send"
+                :disabled="agentSettingsProblems.length > 0"
                 class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px]"
               >
                 →
@@ -451,6 +463,10 @@ import {
 } from '@/assets/js/store/imageGenerationPresets.ts'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import {
+  PROBLEM_FIELD_LABEL_KEYS,
+  type SessionSettingsProblem,
+} from '@/lib/sessionSettingsProblems'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { MODE_TO_CATEGORIES, MODE_TO_PRESET_TYPE, buttonModeFor } from '@/lib/presetModes'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
@@ -994,7 +1010,20 @@ function getTextAreaPlaceholder() {
   }
 }
 
+/** A sent Agent session whose stored settings cannot be used blocks Send (see agentMode). */
+const agentSettingsProblems = computed(() =>
+  promptStore.getCurrentMode() === 'agent' ? agentMode.settingsProblems : [],
+)
+
+function describeSettingsProblem(problem: SessionSettingsProblem): string {
+  const labels = languages as unknown as Record<string, string>
+  return (labels.AGENT_SETTINGS_UNUSABLE_DETAIL ?? '')
+    .replace('{setting}', labels[PROBLEM_FIELD_LABEL_KEYS[problem.field]] ?? problem.field)
+    .replace('{value}', problem.value)
+}
+
 function handleSubmitPromptClick() {
+  if (agentSettingsProblems.value.length > 0) return
   const needsPrompt = isChatLikeMode.value || imageGeneration.requiresUserPrompt
   if (needsPrompt && !prompt.value.trim()) {
     toast.error(languages?.COM_ERROR_NO_MESSAGE || 'Please enter a message before sending.')

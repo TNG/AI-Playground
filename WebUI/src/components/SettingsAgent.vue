@@ -83,7 +83,7 @@
     </div>
 
     <!-- Model settings (fully shared with chat via textInference/cloudMode) -->
-    <div class="grid grid-cols-[120px_1fr] items-center gap-4">
+    <div class="grid grid-cols-[120px_1fr] items-center gap-4" :class="problemClass('backend')">
       <Label class="whitespace-nowrap">Backend</Label>
       <drop-down-new
         title="Select Backend"
@@ -96,11 +96,16 @@
     <div
       v-if="textInference.backend === 'cloud'"
       class="grid grid-cols-[120px_1fr] items-center gap-4"
+      :class="problemClass('cloudProvider')"
     >
       <Label class="whitespace-nowrap">Provider</Label>
       <ProviderSelector />
     </div>
-    <div v-else class="grid grid-cols-[120px_1fr] items-center gap-4">
+    <div
+      v-else
+      class="grid grid-cols-[120px_1fr] items-center gap-4"
+      :class="problemClass('device')"
+    >
       <Label class="whitespace-nowrap">{{ languages.DEVICE }}</Label>
       <DeviceSelector :backend="deviceServiceName" />
     </div>
@@ -111,6 +116,7 @@
       role="group"
       :aria-label="languages.MODEL"
       class="grid grid-cols-[120px_1fr] items-center gap-4"
+      :class="problemClass('model')"
     >
       <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
       <!-- Same picker as Chat Settings, so an agent preset's requirements (tool
@@ -227,7 +233,11 @@
            embedding backend rather than the chat backend: an agent can run on a
            cloud model while its document search stays local. The model
            downloads on first actual rag use, not from here. -->
-      <div v-if="ragEnabled" class="grid grid-cols-[120px_1fr] items-center gap-4">
+      <div
+        v-if="ragEnabled"
+        class="grid grid-cols-[120px_1fr] items-center gap-4"
+        :class="problemClass('embeddingModel')"
+      >
         <Label class="whitespace-nowrap">Embeddings</Label>
         <drop-down-new
           :title="languages.RAG_DOCUMENT_EMBEDDING_MODEL"
@@ -266,6 +276,13 @@
       </div>
 
       <Label class="whitespace-nowrap mt-2">MCP servers</Label>
+      <p
+        v-for="serverId in missingMcpServers"
+        :key="serverId"
+        class="text-xs text-amber-500 rounded-sm ring-1 ring-amber-500 px-2 py-1"
+      >
+        {{ describeMissingMcpServer(serverId) }}
+      </p>
       <div v-if="mcp.allServers.length > 0" class="flex flex-col gap-2">
         <label
           v-for="server in mcp.allServers"
@@ -348,6 +365,10 @@ import { useContextSizeField } from '@/assets/js/contextSizeField'
 import { useEmbeddingModelPicker } from '@/assets/js/embeddingModelPicker'
 import * as toast from '@/assets/js/toast'
 import { useI18N } from '@/assets/js/store/i18n'
+import {
+  PROBLEM_FIELD_LABEL_KEYS,
+  type SessionSettingsProblemField,
+} from '@/lib/sessionSettingsProblems'
 
 const agentMode = useAgentMode()
 const i18n = useI18N().state
@@ -511,6 +532,24 @@ function resetPresetSettings() {
   agentMode.resetPresetSettings()
   void refreshCapabilityCatalog()
   toast.success('Reset to preset defaults')
+}
+
+const problemFields = computed(() => new Set(agentMode.settingsProblems.map((p) => p.field)))
+
+/** Highlights a control whose stored value blocks Send (see agentMode.settingsProblems). */
+function problemClass(field: SessionSettingsProblemField): string {
+  return problemFields.value.has(field) ? 'rounded-sm ring-1 ring-amber-500 p-1' : ''
+}
+
+const missingMcpServers = computed(() =>
+  agentMode.settingsProblems.filter((p) => p.field === 'mcpServer').map((p) => p.value),
+)
+
+function describeMissingMcpServer(serverId: string): string {
+  return i18n.AGENT_SETTINGS_UNUSABLE_DETAIL.replace(
+    '{setting}',
+    i18n[PROBLEM_FIELD_LABEL_KEYS.mcpServer],
+  ).replace('{value}', serverId)
 }
 
 function saveAsDefault() {

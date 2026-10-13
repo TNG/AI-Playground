@@ -44,7 +44,11 @@ import {
 } from '../kernel/kernelBus'
 import { listMcpServers, getMcpServerStatus } from '../adapters/mcp/mcpManager'
 import { createMainChatModel } from './chatModelMain'
-import { ensureChatBackendReady, setLastChatBackendLoadActive } from './chatReadiness'
+import {
+  ensureChatBackendReady,
+  setLastChatBackendLoadActive,
+  setTurnChatBackendLoad,
+} from './chatReadiness'
 import { retrieveRagForTurn } from './ragRetrieval'
 import { executeChatComfyTool } from './chatComfyTool'
 import { executeChatMcpTool, isChatMcpTool } from './chatMcpTool'
@@ -60,7 +64,7 @@ import {
   formatSnapshot,
 } from './chatWebTools'
 import type { WebPageSnapshot, WebSearchResults } from '../adapters/webBrowserManager'
-import { finishTextRequest, submitTextRequest } from '../kernel/orchestrator'
+import { finishTextRequest, submitTextRequest, turnQueueHolder } from '../kernel/orchestrator'
 import { saveChatTurnConversation } from '../persist/conversationFiles'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { emitFailure } from '../kernel/kernelBus'
@@ -783,11 +787,15 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
     await persistChatTurn(request, request.messages)
 
     const config = request.model
+    // Local Chat and Home Agent turns wait in the Turn Queue; cloud ones run at once.
+    const local = config.backend !== 'cloud'
     await submitTextRequest(
       {
         runId: turnId,
         conversationKey,
-        needsGpu: config.backend !== 'cloud' && Boolean(config.readiness),
+        needsGpu: local && Boolean(config.readiness),
+        joinsTurnQueue: local,
+        work: 'chat',
       },
       turn.controller.signal,
     )
@@ -878,7 +886,9 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
     if (config.backend === 'cloud') {
       setLastChatBackendLoadActive(false)
     } else if (config.readiness) {
-      // GPU admit already happened as the text request.
+      // GPU admit already happened as the text request; the turn holds the place, so
+      // its model is what a mid-turn swap-back restores.
+      setTurnChatBackendLoad(config.readiness)
       await ensureChatBackendReady(config.readiness, {
         abortSignal: turn.controller.signal,
         skipGpuAdmission: true,
@@ -1228,6 +1238,7 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
       })
     }
   } finally {
+    if (turnQueueHolder() === turnId) setTurnChatBackendLoad(null)
     finishTextRequest(turnId)
     activeTurns.delete(conversationKey)
     endChatTurn(conversationKey, turnId)

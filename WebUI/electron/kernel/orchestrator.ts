@@ -23,10 +23,12 @@
 //   `skipGpuAdmission` because the window wait already happened.
 //
 // - the Turn Queue: text requests that `joinsTurnQueue` (agent turns, local and
-//   cloud) hold one exclusive place for their whole turn and wait FIFO for it.
-//   Media nested in the holder's turn runs within it (same conversation key);
-//   members still waiting never block it. Waiting members carry their 1-based
-//   position on `queue-event` (`enqueued`, then `moved` whenever one ahead leaves).
+//   cloud; local Chat and Home Agent turns; title summaries) hold one exclusive
+//   place for their whole turn and wait FIFO for it. Cloud Chat / Home Agent
+//   turns stay outside it. Media nested in the holder's turn runs within it (same
+//   conversation key); members still waiting never block it. Waiting members
+//   carry their 1-based position and the holder's kind of work on `queue-event`
+//   (`enqueued`, then `moved` whenever one ahead leaves).
 //
 // What deliberately stays out: which model to load is still data from the last
 // successful load (or the turn request); download consent stays renderer-side.
@@ -36,6 +38,7 @@
 
 import { appLoggerInstance } from '../observability/logger'
 import { emitArtifactPhase, emitQueueEvent } from './kernelBus'
+import type { TurnWork } from '@/types/kernelEvents'
 import {
   artifactRunActive,
   artifactRunTag,
@@ -58,6 +61,8 @@ export type TextRequest = {
    * the kind of work, not by GPU use: agent turns join even when cloud.
    */
   joinsTurnQueue?: boolean
+  /** Lets a waiting member say what it waits for. */
+  work?: TurnWork
 }
 
 export type KernelRequestMap = {
@@ -359,6 +364,7 @@ export async function submitTextRequest(request: TextRequest, signal?: AbortSign
     action: 'enqueued',
     queueDepth: Math.max(0, textWaitingCount() - 1),
     position: turnQueuePosition(request.runId),
+    ...turnQueueContext(request.runId),
     conversationKey: request.conversationKey,
   })
   try {
@@ -379,6 +385,7 @@ export async function submitTextRequest(request: TextRequest, signal?: AbortSign
       kind: 'text',
       action: 'started',
       queueDepth: textWaitingCount(),
+      work: request.work,
       conversationKey: request.conversationKey,
     })
   } catch (error) {
@@ -398,6 +405,7 @@ export function finishTextRequest(runId: string): void {
     kind: 'text',
     action: 'finished',
     queueDepth: textWaitingCount(),
+    work: entry.work,
     conversationKey: entry.conversationKey,
   })
 }
@@ -461,8 +469,19 @@ function announceTurnPositions(fromIndex: number): void {
       action: 'moved',
       queueDepth: turnQueue.length - index - 1,
       position: index + 1,
+      ...turnQueueContext(runId),
       conversationKey: textOccupancy.get(runId)?.conversationKey,
     })
+  }
+}
+
+/** The member's own kind of work and, while it waits, the kind of work holding the place. */
+function turnQueueContext(runId: string): { work?: TurnWork; holder?: TurnWork } {
+  const waiting = turnQueuePosition(runId) !== undefined
+  const holder = waiting ? turnHolder : null
+  return {
+    work: textOccupancy.get(runId)?.work,
+    holder: holder ? textOccupancy.get(holder)?.work : undefined,
   }
 }
 

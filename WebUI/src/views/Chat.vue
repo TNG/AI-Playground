@@ -721,11 +721,11 @@ async function handlePromptSubmit(prompt: string) {
 
 function handleCancel() {
   // Fire off stop requests without awaiting to immediately unblock UI
+  // Only this conversation's turn: its in-process media follows the turn's abort, and
+  // a bare artifact cancel would kill whichever run holds the GPU (an agent turn's).
   if (openAiCompatibleChat.processing) {
     openAiCompatibleChat.stop()
   }
-  // Also cancel any ongoing generation through the main-process runner
-  void window.electronAPI.artifact.cancel()
 
   // Immediately reset prompt state to unblock UI
   promptStore.promptSubmitted = false

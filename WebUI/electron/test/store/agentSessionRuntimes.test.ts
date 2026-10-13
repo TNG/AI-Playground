@@ -7,7 +7,8 @@ import type { AgentTurnSnapshot, KernelEvent, KernelSnapshot } from '@/types/ker
 // One turn runtime per Agent Session: kernel events land only in the session they
 // carry, Agent Mode renders the Open Session's runtime, and the work done when a
 // turn ends (saving the transcript, settling its cards) is for the turn's own
-// session. Switching sessions still stops the running turn.
+// session. For the Agent preset, switching sessions leaves turns running; the
+// games presets still stop the open session's turn when it is left.
 
 const AGENT: ChatPreset = {
   type: 'chat',
@@ -39,6 +40,14 @@ vi.mock('@/assets/js/store/textInference', () => ({
     ensureReadyForInference: vi.fn(),
     bindSessionSettings: vi.fn(),
     loadSettingsForActivePreset: vi.fn(),
+    settingsAvailability: {
+      models: [],
+      embeddingModels: [],
+      services: [],
+      cloudEnabled: false,
+      cloudProviderIds: [],
+      embeddingBackend: 'llamaCPP',
+    },
   }),
 }))
 
@@ -278,6 +287,24 @@ describe('one turn runtime per Agent Session', () => {
     expect(savedRecord('session-a')).toBeUndefined()
   })
 
+  it('resumes a queued turn from the snapshot as queued, then running when it takes its place', async () => {
+    const store = useAgentMode()
+    await store.init()
+    resolveSnapshot(snapshotWith([{ ...RUNNING_B, state: 'queued', chunks: [] }]))
+    await vi.waitFor(() => expect(store.anyTurnOpen).toBe(true))
+
+    await store.switchSession('session-b')
+    expect(store.processing).toBe(true)
+    expect(store.turnState).toBe('queued')
+    pushEvent({
+      type: 'agent-turn-state',
+      sessionId: 'session-b',
+      turnId: 'turn-b',
+      state: 'running',
+    })
+    expect(store.turnState).toBe('running')
+  })
+
   it('puts the earlier transcript back when the snapshot beats the records', async () => {
     const store = useAgentMode()
     resolveSnapshot(snapshotWith([RUNNING_B]))
@@ -289,7 +316,7 @@ describe('one turn runtime per Agent Session', () => {
     expect(JSON.stringify(store.messages)).toContain('task B')
   })
 
-  it('still stops the running turn when another session is opened', async () => {
+  it('keeps the running turn when another session is opened, "+" is clicked or a new one is started', async () => {
     const store = useAgentMode()
     await store.init()
     resolveSnapshot(snapshotWith([]))
@@ -297,15 +324,117 @@ describe('one turn runtime per Agent Session', () => {
     store.workspaceDir = '/work/new'
     const sent = store.generate('build it')
     await vi.waitFor(() => expect(startTurn).toHaveBeenCalled())
-    const [turnId, , config] = startTurn.mock.calls[0]
-    const draftId = (config as { sessionId: string }).sessionId
-    expect(store.processing).toBe(true)
+    const draftId = (startTurn.mock.calls[0][2] as { sessionId: string }).sessionId
+    // The sent message is on the record before the turn has run.
+    expect(JSON.stringify(savedRecord(draftId)?.messages)).toContain('build it')
 
     await store.switchSession('session-a')
+    await store.newSession()
+    await store.startNew()
+    await store.switchSession(draftId)
+
+    expect(cancel).not.toHaveBeenCalled()
+    expect(store.processing).toBe(true)
+    expect(store.anyTurnOpen).toBe(true)
+    await store.stop()
+    await sent
+  })
+
+  it('sends to a second session while the first one runs; each shows its own turn state', async () => {
+    const store = useAgentMode()
+    await store.init()
+    resolveSnapshot(snapshotWith([]))
+    store.workspaceDir = '/work/session-a'
+    const sentA = store.generate('first')
+    await vi.waitFor(() => expect(startTurn).toHaveBeenCalledTimes(1))
+    const turnA = startTurn.mock.calls[0][0]
+    pushEvent({ type: 'agent-turn-state', sessionId: 'session-a', turnId: turnA, state: 'running' })
+
+    await store.switchSession('session-b')
+    expect(store.processing).toBe(false)
+    const sentB = store.generate('second')
+    await vi.waitFor(() => expect(startTurn).toHaveBeenCalledTimes(2))
+    const turnB = startTurn.mock.calls[1][0]
+    expect((startTurn.mock.calls[1][2] as { sessionId: string }).sessionId).toBe('session-b')
+    pushEvent({ type: 'agent-turn-state', sessionId: 'session-b', turnId: turnB, state: 'queued' })
+    expect(store.turnState).toBe('queued')
+
+    await store.switchSession('session-a')
+    expect(store.turnState).toBe('running')
+    expect(store.processing).toBe(true)
+
+    // Stop on the queued session reaches only that session's turn.
+    await store.switchSession('session-b')
+    await store.stop()
+    expect(cancel).toHaveBeenCalledWith('session-b', turnB)
+    expect(cancel).not.toHaveBeenCalledWith('session-a', expect.anything())
+    await sentB
+    expect(store.processing).toBe(false)
+
+    pushEvent({ type: 'agent-turn-done', sessionId: 'session-a', turnId: turnA })
+    await sentA
+    expect(store.anyTurnOpen).toBe(false)
+  })
+
+  it('stops the turn of a session that is deleted', async () => {
+    const store = useAgentMode()
+    await store.init()
+    resolveSnapshot(snapshotWith([]))
+    store.workspaceDir = '/work/session-a'
+    const sent = store.generate('doomed')
+    await vi.waitFor(() => expect(startTurn).toHaveBeenCalled())
+    const turnId = startTurn.mock.calls[0][0]
+    await store.switchSession('session-b')
+
+    await store.deleteSession('session-a')
+    expect(cancel).toHaveBeenCalledWith('session-a', turnId)
+    await sent
+    expect(store.anyTurnOpen).toBe(false)
+  })
+})
+
+describe('games presets keep stop-on-switch', () => {
+  const GAME: ChatPreset = {
+    type: 'chat',
+    category: 'chat',
+    name: 'Game Agent',
+    backends: ['llamaCPP'],
+    agentPreset: true,
+    agentWorkspace: 'games',
+  } as ChatPreset
+
+  afterEach(() => {
+    activePreset.value = AGENT
+  })
+
+  it('stops the running turn when another game session is opened', async () => {
+    activePreset.value = GAME
+    const gameRecord = (id: string) => ({
+      ...record(id, `game ${id}`),
+      presetName: 'Game Agent',
+      settings: undefined,
+    })
+    window.electronAPI.agentMode.bootstrapSessions = vi.fn(async () => ({
+      status: 'ok' as const,
+      activeSessionId: 'game-1',
+      sessions: [gameRecord('game-1'), gameRecord('game-2')],
+    })) as never
+    window.electronAPI.games.read = vi.fn(async (dir: string) =>
+      dir ? ({ dir, name: dir } as never) : null,
+    ) as never
+    const store = useAgentMode()
+    await store.init()
+    resolveSnapshot(snapshotWith([]))
+    await store.switchSession('game-1')
+    store.workspaceDir = '/work/game-1'
+    const sent = store.generate('make it faster')
+    await vi.waitFor(() => expect(startTurn).toHaveBeenCalled())
+    const turnId = startTurn.mock.calls[0][0]
+
+    await store.switchSession('game-2')
     await sent
 
-    expect(cancel).toHaveBeenCalledWith(draftId, turnId)
+    expect(cancel).toHaveBeenCalledWith('game-1', turnId)
     expect(store.anyTurnOpen).toBe(false)
-    expect(JSON.stringify(savedRecord(draftId)?.messages)).toContain('build it')
   })
 })

@@ -10,7 +10,8 @@ import type { KernelQueueEvent, TurnWork } from '@/types/kernelEvents'
 // a chat tool's own "Generating image…" activity already covers the wait, so
 // while its run is PARKED the activity is relabelled with its queue position
 // and restored when the run starts or is cancelled while queued. Panel runs
-// carry no activityId — panel waiting is the generation FSM's `queued` phase.
+// carry no activityId — a panel run waiting in the Turn Queue is labelled on the
+// generation overlay by the imageGenerationPresets store, with `turnQueuedLabel`.
 // A Chat / Home Agent turn waiting in the Turn Queue gets its own chat-scoped
 // activity ("Queued (2nd), waiting for …") until it takes the place; agent
 // turns show their wait on the session instead.
@@ -25,6 +26,7 @@ const WAITING_FOR_KEYS: Record<TurnWork, string> = {
   agent: 'COM_ACTIVITY_TURN_QUEUED_FOR_AGENT',
   chat: 'COM_ACTIVITY_TURN_QUEUED_FOR_CHAT',
   summary: 'COM_ACTIVITY_TURN_QUEUED_FOR_SUMMARY',
+  generation: 'COM_ACTIVITY_TURN_QUEUED_FOR_GENERATION',
 }
 
 export function startQueueActivityProjection(): void {
@@ -75,7 +77,8 @@ function applyTurnQueueEvent(
   )
 }
 
-function turnQueuedLabel(
+/** "Queued (2nd), waiting for …" for a Turn Queue member at `position`. */
+export function turnQueuedLabel(
   i18nState: I18nState,
   locale: string,
   position: number,

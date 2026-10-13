@@ -58,6 +58,7 @@
   "COM_ACTIVITY_TURN_QUEUED_FOR_AGENT": "대기 중({position}), 에이전트 턴이 끝나기를 기다리는 중",
   "COM_ACTIVITY_TURN_QUEUED_FOR_CHAT": "대기 중({position}), 채팅 턴이 끝나기를 기다리는 중",
   "COM_ACTIVITY_TURN_QUEUED_FOR_SUMMARY": "대기 중({position}), 채팅 제목 요약이 끝나기를 기다리는 중",
+  "COM_ACTIVITY_TURN_QUEUED_FOR_GENERATION": "대기 중({position}), 미디어 생성이 끝나기를 기다리는 중",
   "COM_ACTIVITY_RUNNING_TOOL": "{tool} 실행 중…",
   "COM_NO_SELECTED": "선택 안 됨",
   "COM_CONFIRM": "확인",

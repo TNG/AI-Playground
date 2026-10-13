@@ -134,7 +134,7 @@ describe('the orchestrator', () => {
     await active
   })
 
-  it('fail-fast refuses while anything is executing or queued; queue submissions park FIFO', async () => {
+  it('queue submissions park FIFO behind the active run', async () => {
     setOrchestratorDeps(deps())
     const holdOne = holdNextRun()
     const active = submitArtifactRun(payload())
@@ -142,14 +142,9 @@ describe('the orchestrator', () => {
     // runs are synchronous at that point, here the slot is awaited.
     await vi.waitFor(() => expect(activeRunId).toBe('run-1'))
 
-    const refused = await submitArtifactRun(payload({ runId: 'run-2' }))
-    expect(refused.state).toBe('failed')
-    expect(refused.error).toBe('Another generation is already in progress')
-
     const holdTwo = holdNextRun()
     const queued = submitArtifactRun(payload({ runId: 'run-3' }), { queue: 'queue' })
     expect(artifactRunsQueued()).toBe(1)
-    expect((await submitArtifactRun(payload({ runId: 'run-4' }))).state).toBe('failed')
 
     holdOne.resolve({ state: 'completed', items: [] })
     await active
@@ -316,16 +311,20 @@ describe('the orchestrator', () => {
     expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
   })
 
-  it('fail-fast refuses a second submit in the same tick, before the runner is active', async () => {
+  it('a second panel submit in the same tick waits for the first instead of cancelling it', async () => {
     setOrchestratorDeps(deps())
-    const hold = holdNextRun()
+    const holdOne = holdNextRun()
     const first = submitArtifactRun(payload({ runId: 'run-1' }))
+    const holdTwo = holdNextRun()
     const second = submitArtifactRun(payload({ runId: 'run-2' }))
-    expect((await second).state).toBe('failed')
-    expect((await second).error).toBe('Another generation is already in progress')
     await vi.waitFor(() => expect(activeRunId).toBe('run-1'))
-    hold.resolve({ state: 'completed', items: [] })
-    await first
+    expect(cancelActiveMock).not.toHaveBeenCalled()
+
+    holdOne.resolve({ state: 'completed', items: [] })
+    expect((await first).state).toBe('completed')
+    await vi.waitFor(() => expect(activeRunId).toBe('run-2'))
+    holdTwo.resolve({ state: 'completed', items: [] })
+    expect((await second).state).toBe('completed')
   })
 
   it('waits for open chat requests before stopping the backend', async () => {
@@ -490,26 +489,7 @@ describe('the orchestrator', () => {
     expect(ran).toEqual(['one'])
   })
 
-  it('fail-fast refuses a panel run while a local chat turn occupies the GPU', async () => {
-    setOrchestratorDeps(deps())
-    await submitTextRequest({ runId: 'turn-1', conversationKey: 'c1', needsGpu: true })
-    expect(textRequestsOpen()).toBe(1)
-
-    const refused = await submitArtifactRun(payload({ runId: 'panel-1' }))
-    expect(refused.state).toBe('failed')
-    expect(refused.error).toBe('A chat turn is already in progress')
-    expect(startArtifactRunMock).not.toHaveBeenCalled()
-
-    finishTextRequest('turn-1')
-    expect(textRequestsOpen()).toBe(0)
-    const hold = holdNextRun()
-    const active = submitArtifactRun(payload({ runId: 'panel-2' }))
-    await vi.waitFor(() => expect(activeRunId).toBe('panel-2'))
-    hold.resolve({ state: 'completed', items: [] })
-    expect((await active).state).toBe('completed')
-  })
-
-  it('cloud chat occupancy does not fail-fast a panel run', async () => {
+  it('cloud chat occupancy does not hold up a panel run', async () => {
     setOrchestratorDeps(deps())
     await submitTextRequest({ runId: 'cloud-1', conversationKey: 'c1', needsGpu: false })
     const hold = holdNextRun()
@@ -825,5 +805,158 @@ describe('the Turn Queue', () => {
       ['started', undefined, 'chat', undefined],
       ['finished', undefined, 'chat', undefined],
     ])
+  })
+})
+
+describe('panel runs in the Turn Queue', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    queueEvents.length = 0
+    phaseEvents.length = 0
+    activeRunId = null
+    resetOrchestratorForTest()
+  })
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+
+  function holdTurn(runId: string, conversationKey: string, work: 'agent' | 'chat' = 'agent') {
+    return submitTextRequest({
+      runId,
+      conversationKey,
+      needsGpu: true,
+      joinsTurnQueue: true,
+      work,
+    })
+  }
+
+  it('waits for the turn holding the place instead of being refused', async () => {
+    setOrchestratorDeps(deps())
+    await holdTurn('turn-chat', 'c1', 'chat')
+
+    const hold = holdNextRun()
+    const panel = submitArtifactRun(payload({ runId: 'panel-1' }))
+    await settle()
+    expect(startArtifactRunMock).not.toHaveBeenCalled()
+    expect(phaseEvents.map((e) => [e.tag.runId, e.phase])).toEqual([['panel-1', 'queued']])
+    expect(queueEvents.find((e) => e.runKey === 'panel-1')).toMatchObject({
+      kind: 'artifact',
+      action: 'enqueued',
+      position: 1,
+      work: 'generation',
+      holder: 'chat',
+    })
+    expect(artifactWorkOpen()).toBe(true)
+
+    finishTextRequest('turn-chat')
+    await vi.waitFor(() => expect(activeRunId).toBe('panel-1'))
+    hold.resolve({ state: 'completed', items: [] })
+    expect((await panel).state).toBe('completed')
+    expect(artifactWorkOpen()).toBe(false)
+  })
+
+  it('holds the place while it runs: a turn submitted meanwhile starts after it, GPU returned', async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    const hold = holdNextRun()
+    const panel = submitArtifactRun(payload({ runId: 'panel-1' }))
+    await vi.waitFor(() => expect(activeRunId).toBe('panel-1'))
+
+    let started = false
+    const turn = holdTurn('turn-a', 'session-a').then(() => {
+      started = true
+    })
+    await settle()
+    expect(started).toBe(false)
+    expect(queueEvents.find((e) => e.runKey === 'turn-a')).toMatchObject({
+      action: 'enqueued',
+      position: 1,
+      holder: 'generation',
+    })
+
+    hold.resolve({ state: 'completed', items: [] })
+    expect((await panel).state).toBe('completed')
+    await turn
+    expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
+    finishTextRequest('turn-a')
+  })
+
+  it('cancelling a waiting panel run dequeues it without touching the holder', async () => {
+    setOrchestratorDeps(deps())
+    await holdTurn('turn-a', 'session-a')
+    const panel = submitArtifactRun(payload({ runId: 'panel-1' }))
+    const behind = holdTurn('turn-b', 'session-b')
+    await settle()
+
+    cancelArtifactRun('panel-1')
+    expect((await panel).state).toBe('cancelled')
+    expect(phaseEvents.map((e) => e.phase)).toEqual(['queued', 'cancelled'])
+    expect(cancelActiveMock).not.toHaveBeenCalled()
+    expect(artifactWorkOpen()).toBe(false)
+    expect(
+      queueEvents.filter((e) => e.runKey === 'turn-b').map((e) => [e.action, e.position]),
+    ).toEqual([
+      ['enqueued', 2],
+      ['moved', 1],
+    ])
+
+    finishTextRequest('turn-a')
+    await behind
+    finishTextRequest('turn-b')
+    expect(startArtifactRunMock).not.toHaveBeenCalled()
+  })
+
+  it('a replaced window drops panel runs still waiting for the place', async () => {
+    setOrchestratorDeps(deps())
+    await holdTurn('turn-a', 'session-a')
+    const panel = submitArtifactRun(payload({ runId: 'panel-1' }))
+    cancelAllArtifactRuns('The app window was replaced')
+    expect((await panel).state).toBe('cancelled')
+    finishTextRequest('turn-a')
+    expect(artifactWorkOpen()).toBe(false)
+  })
+
+  it("runs the holding turn's nested media ahead of panel runs waiting for the place", async () => {
+    setOrchestratorDeps(deps())
+    await holdTurn('turn-a', 'session-a')
+    const panel = submitArtifactRun(payload({ runId: 'panel-1' }))
+
+    const holdNested = holdNextRun()
+    const nested = submitArtifactRun(payload({ runId: 'media-a', conversationKey: 'session-a' }), {
+      queue: 'queue',
+    })
+    await vi.waitFor(() => expect(activeRunId).toBe('media-a'))
+    holdNested.resolve({ state: 'completed', items: [] })
+    expect((await nested).state).toBe('completed')
+
+    const holdPanel = holdNextRun()
+    await settle()
+    expect(startArtifactRunMock).toHaveBeenCalledTimes(1)
+
+    finishTextRequest('turn-a')
+    await vi.waitFor(() => expect(activeRunId).toBe('panel-1'))
+    holdPanel.resolve({ state: 'completed', items: [] })
+    expect((await panel).state).toBe('completed')
+  })
+
+  it('back-to-back panel runs share one GPU swap', async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    const holdOne = holdNextRun()
+    const first = submitArtifactRun(payload({ runId: 'panel-1' }))
+    await vi.waitFor(() => expect(d.stopChatForMedia).toHaveBeenCalledTimes(1))
+    const holdTwo = holdNextRun()
+    const second = submitArtifactRun(payload({ runId: 'panel-2' }))
+
+    holdOne.resolve({ state: 'completed', items: [] })
+    await first
+    await vi.waitFor(() => expect(activeRunId).toBe('panel-2'))
+    expect(d.freeComfyMemory).not.toHaveBeenCalled()
+    expect(d.restartChatBackend).not.toHaveBeenCalled()
+
+    holdTwo.resolve({ state: 'completed', items: [] })
+    await second
+    expect(d.stopChatForMedia).toHaveBeenCalledTimes(1)
+    expect(d.freeComfyMemory).toHaveBeenCalledTimes(1)
+    expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
   })
 })

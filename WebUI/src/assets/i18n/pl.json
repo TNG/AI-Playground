@@ -58,6 +58,7 @@
   "COM_ACTIVITY_TURN_QUEUED_FOR_AGENT": "W kolejce ({position}), czeka na zakończenie tury agenta",
   "COM_ACTIVITY_TURN_QUEUED_FOR_CHAT": "W kolejce ({position}), czeka na zakończenie tury czatu",
   "COM_ACTIVITY_TURN_QUEUED_FOR_SUMMARY": "W kolejce ({position}), czeka na zakończenie podsumowania tytułu czatu",
+  "COM_ACTIVITY_TURN_QUEUED_FOR_GENERATION": "W kolejce ({position}), czeka na zakończenie generowania multimediów",
   "COM_ACTIVITY_RUNNING_TOOL": "Uruchamianie {tool}…",
   "COM_NO_SELECTED": "Nie wybrano",
   "COM_CONFIRM": "Potwierdź",

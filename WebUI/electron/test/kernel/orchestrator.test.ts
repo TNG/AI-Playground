@@ -601,3 +601,142 @@ describe('the orchestrator', () => {
     await active
   })
 })
+
+describe('the Turn Queue', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    queueEvents.length = 0
+    phaseEvents.length = 0
+    activeRunId = null
+    resetOrchestratorForTest()
+  })
+
+  function member(runId: string, conversationKey: string, needsGpu = true, signal?: AbortSignal) {
+    const started: string[] = []
+    const admitted = submitTextRequest(
+      { runId, conversationKey, needsGpu, joinsTurnQueue: true },
+      signal,
+    ).then(() => {
+      started.push(runId)
+    })
+    return { admitted, started }
+  }
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+
+  it('lets one member hold the place; the others start FIFO as each one finishes', async () => {
+    setOrchestratorDeps(deps())
+    const order: string[] = []
+    const track = (runId: string, conversationKey: string) =>
+      submitTextRequest({ runId, conversationKey, needsGpu: true, joinsTurnQueue: true }).then(() =>
+        order.push(runId),
+      )
+
+    const a = track('turn-a', 'session-a')
+    const b = track('turn-b', 'session-b')
+    const c = track('turn-c', 'session-c')
+    await a
+    await settle()
+    expect(order).toEqual(['turn-a'])
+
+    finishTextRequest('turn-a')
+    await b
+    await settle()
+    expect(order).toEqual(['turn-a', 'turn-b'])
+
+    finishTextRequest('turn-b')
+    await c
+    expect(order).toEqual(['turn-a', 'turn-b', 'turn-c'])
+    finishTextRequest('turn-c')
+  })
+
+  it('queues cloud agent turns like local ones', async () => {
+    setOrchestratorDeps(deps())
+    const local = member('turn-local', 'session-a', true)
+    await local.admitted
+    const cloud = member('turn-cloud', 'session-b', false)
+    await settle()
+    expect(cloud.started).toEqual([])
+
+    finishTextRequest('turn-local')
+    await cloud.admitted
+    expect(cloud.started).toEqual(['turn-cloud'])
+    finishTextRequest('turn-cloud')
+  })
+
+  it('does not hold up text requests outside the Turn Queue', async () => {
+    setOrchestratorDeps(deps())
+    await member('turn-agent', 'session-a').admitted
+    await submitTextRequest({ runId: 'cloud-chat', conversationKey: 'c1', needsGpu: false })
+    expect(textRequestsOpen()).toBe(2)
+    finishTextRequest('cloud-chat')
+    finishTextRequest('turn-agent')
+  })
+
+  it('dequeues a waiting member on abort without touching the holder', async () => {
+    setOrchestratorDeps(deps())
+    await member('turn-a', 'session-a').admitted
+    const ac = new AbortController()
+    const b = member('turn-b', 'session-b', true, ac.signal)
+    const c = member('turn-c', 'session-c')
+    await settle()
+
+    ac.abort()
+    await expect(b.admitted).rejects.toThrow('Cancelled while waiting in the Turn Queue.')
+    expect(b.started).toEqual([])
+    expect(textRequestsOpen()).toBe(2)
+    expect(c.started).toEqual([])
+
+    finishTextRequest('turn-a')
+    await c.admitted
+    expect(c.started).toEqual(['turn-c'])
+    finishTextRequest('turn-c')
+  })
+
+  it("runs the holder's nested media within its turn while other members wait", async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    await member('turn-a', 'session-a').admitted
+    const b = member('turn-b', 'session-b')
+
+    const hold = holdNextRun()
+    const nested = submitArtifactRun(payload({ runId: 'media-a', conversationKey: 'session-a' }), {
+      queue: 'queue',
+    })
+    await vi.waitFor(() => expect(activeRunId).toBe('media-a'))
+    expect(b.started).toEqual([])
+    hold.resolve({ state: 'completed', items: [] })
+    expect((await nested).state).toBe('completed')
+    finishTextRequest('turn-a')
+    await b.admitted
+    finishTextRequest('turn-b')
+  })
+
+  it('two agent sessions that both generate media do not deadlock', async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    const a = member('turn-a', 'session-a')
+    const b = member('turn-b', 'session-b')
+    await a.admitted
+
+    const holdA = holdNextRun()
+    const mediaA = submitArtifactRun(payload({ runId: 'media-a', conversationKey: 'session-a' }), {
+      queue: 'queue',
+    })
+    await vi.waitFor(() => expect(activeRunId).toBe('media-a'))
+    holdA.resolve({ state: 'completed', items: [] })
+    expect((await mediaA).state).toBe('completed')
+    finishTextRequest('turn-a')
+
+    await b.admitted
+    const holdB = holdNextRun()
+    const mediaB = submitArtifactRun(payload({ runId: 'media-b', conversationKey: 'session-b' }), {
+      queue: 'queue',
+    })
+    await vi.waitFor(() => expect(activeRunId).toBe('media-b'))
+    holdB.resolve({ state: 'completed', items: [] })
+    expect((await mediaB).state).toBe('completed')
+    finishTextRequest('turn-b')
+    expect(textRequestsOpen()).toBe(0)
+  })
+})

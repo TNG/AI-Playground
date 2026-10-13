@@ -320,7 +320,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   agentMode: {
     startTurn: (turnId: string, prompt: string, config: AgentModeTurnConfig) =>
       invoke('agentMode:startTurn', turnId, prompt, cloneForIpc(config)),
-    cancel: () => invoke('agentMode:cancel'),
+    cancel: (sessionId: string, turnId?: string) => invoke('agentMode:cancel', sessionId, turnId),
     resetSession: () => invoke('agentMode:resetSession'),
     deleteSession: (sessionId: string) => invoke('agentMode:deleteSession', sessionId),
     bootstrapSessions: () => invoke('agentMode:bootstrapSessions'),

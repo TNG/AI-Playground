@@ -96,7 +96,7 @@ describe('backend init race', () => {
       sequence: 0,
       state: {
         services: [],
-        activeTurn: null,
+        agentTurns: [],
         activeArtifactRun: null,
         chatTurns: [],
         activities: [],
@@ -117,7 +117,7 @@ describe('backend init race', () => {
       sequence: 1,
       state: {
         services: [AI_BACKEND],
-        activeTurn: null,
+        agentTurns: [],
         activeArtifactRun: null,
         chatTurns: [],
         activities: [],
@@ -141,7 +141,7 @@ describe('backend init race', () => {
       sequence: 0,
       state: {
         services: [],
-        activeTurn: null,
+        agentTurns: [],
         activeArtifactRun: null,
         chatTurns: [],
         activities: [],
@@ -187,7 +187,7 @@ describe('backend init race', () => {
       sequence: 1,
       state: {
         services: [llama],
-        activeTurn: null,
+        agentTurns: [],
         activeArtifactRun: null,
         chatTurns: [],
         activities: [],

@@ -20,7 +20,7 @@ function snapshotAt(sequence: number, services: unknown[] = []): KernelSnapshot 
     sequence,
     state: {
       services,
-      activeTurn: null,
+      agentTurns: [],
       activeArtifactRun: null,
       chatTurns: [],
       activities: [],

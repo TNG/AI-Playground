@@ -35,7 +35,7 @@ import {
 import { briefly, LOG_SOURCE } from './piAgentLog.ts'
 import {
   active,
-  currentTurn,
+  agentTurns,
   setActive,
   setLastSessionId,
   type ActiveSession,
@@ -304,10 +304,10 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   // createAgentSession loads extensions but does not start them: `session_start`
   // and `resources_discover` only fire from bindExtensions, and third-party
   // extensions (persistent memory) do all their work there.
-  await bindSessionExtensions(session)
+  await bindSessionExtensions(session, sessionId)
   hideDormantTools(session, capabilities.dormantToolNames)
 
-  const unsubscribe = session.subscribe((event) => currentTurn?.onEvent(event))
+  const unsubscribe = session.subscribe((event) => agentTurns.get(sessionId)?.onEvent?.(event))
   savePointer({
     sessionId,
     workspaceDir,
@@ -342,7 +342,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
  * that make no sense without a terminal UI (forking, session switching, tree
  * navigation) are refused with a clear message instead of pretending to work.
  */
-async function bindSessionExtensions(session: AgentSession): Promise<void> {
+async function bindSessionExtensions(session: AgentSession, sessionId: string): Promise<void> {
   const unsupported = (action: string) => async () => {
     throw new Error(`'${action}' is not available in AI Playground's agent mode.`)
   }
@@ -350,7 +350,7 @@ async function bindSessionExtensions(session: AgentSession): Promise<void> {
     // Not an interactive terminal: no UI prompts, and output is a message
     // stream the renderer consumes.
     mode: 'rpc',
-    uiContext: extensionUiContext(),
+    uiContext: extensionUiContext(sessionId),
     commandContextActions: {
       waitForIdle: () => session.agent.waitForIdle(),
       reload: () => session.reload(),
@@ -376,11 +376,11 @@ async function bindSessionExtensions(session: AgentSession): Promise<void> {
  * stays unavailable — there is no terminal to prompt in, and an extension asking
  * for input must fall back rather than hang.
  */
-function extensionUiContext(): ExtensionUIContext {
+function extensionUiContext(sessionId: string): ExtensionUIContext {
   const surface = (message: string, type?: 'info' | 'warning' | 'error') => {
     if (type === 'error') logger.warn(`extension notice: ${briefly(message)}`, LOG_SOURCE)
     else logger.info(`extension notice: ${briefly(message)}`, LOG_SOURCE)
-    currentTurn?.notice?.(message)
+    agentTurns.get(sessionId)?.notice?.(message)
   }
   const context = {
     notify: surface,

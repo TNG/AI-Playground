@@ -232,6 +232,40 @@ describe('saveAgentSession', () => {
     expect(indexAgain.sessions).toEqual([{ id: 'aipg-agent-1', updatedAt: 9 }])
   })
 
+  it('keeps Session Settings and the response locale across a save and a restart', async () => {
+    const { AgentSessionRecordSchema } = await import('@/types/agentSessionIpc')
+    const settings = {
+      backend: 'llamaCPP',
+      cloudProviderId: 'zai',
+      device: { id: 'GPU.0', uuid: 'u-arc' },
+      model: 'Qwen3-9B',
+      contextSize: 32768,
+      contextSizeEdited: true,
+      thinkingEnabled: false,
+      planningThinkingOnly: true,
+      capabilities: ['media', 'mcp:blender'],
+      embeddingModel: 'bge-small',
+      toolDelegationEnabled: true,
+      builtinToolEnablement: { captureScreenshot: true },
+      builtinToolPresetEnablement: { 'Flux.1-Schnell': false },
+      builtinToolDefaultPresets: { 'comfyUI:image': 'Z-Image' },
+    }
+    const saved = record('aipg-agent-1', { presetName: 'Agent', settings, responseLocale: 'de' })
+    await saveAgentSession(AgentSessionRecordSchema.parse(saved))
+
+    resetAgentSessionFilesForTest()
+    const boot = await bootstrapAgentSessions()
+    if (boot.status !== 'ok') throw new Error(`unexpected bootstrap ${boot.status}`)
+    expect(boot.sessions[0]).toMatchObject({ settings, responseLocale: 'de' })
+  })
+
+  it('still loads a record saved without settings', async () => {
+    await saveAgentSession(record('aipg-agent-1'))
+    const boot = await bootstrapAgentSessions()
+    if (boot.status !== 'ok') throw new Error(`unexpected bootstrap ${boot.status}`)
+    expect(boot.sessions[0].settings).toBeUndefined()
+  })
+
   it('repairs an orphaned tool call before the file is written', async () => {
     await saveAgentSession(record('aipg-agent-1', { messages: [orphanedToolMessage()] as never }))
     const doc = await readJson(path.join(dirs.real, 'aipg-agent-1.json'))

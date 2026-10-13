@@ -147,7 +147,7 @@
         </span>
       </div>
     </div>
-    <p class="text-xs text-muted-foreground">
+    <p v-if="!agentMode.sessionScoped" class="text-xs text-muted-foreground">
       Backend, device/provider, model and context size are shared with Chat mode.
     </p>
 
@@ -164,7 +164,7 @@
         />
         <span class="flex flex-col">
           <span class="text-foreground">Think before acting</span>
-          <span class="text-xs text-muted-foreground">
+          <span v-if="!agentMode.sessionScoped" class="text-xs text-muted-foreground">
             Shared with Chat mode, where it applies to every answer.
           </span>
         </span>
@@ -297,7 +297,18 @@
 
     <!-- Same reset affordance the Chat, Audio and workflow panels carry, so every
          preset offers a way back to its defaults. -->
-    <div class="border-t border-border items-center flex-wrap grid grid-cols-1 gap-2">
+    <div
+      v-if="agentMode.sessionScoped"
+      class="border-t border-border pt-4 flex flex-wrap items-center gap-2"
+    >
+      <Button variant="secondary" class="px-3 py-1.5 rounded text-sm" @click="saveAsDefault">
+        {{ languages.AGENT_SAVE_AS_DEFAULT }}
+      </Button>
+      <Button variant="secondary" class="px-3 py-1.5 rounded text-sm" @click="resetToDefault">
+        {{ languages.AGENT_RESET_TO_DEFAULT }}
+      </Button>
+    </div>
+    <div v-else class="border-t border-border items-center flex-wrap grid grid-cols-1 gap-2">
       <button class="mt-4" @click="resetPresetSettings">
         <div class="svg-icon i-refresh">Reset</div>
         {{ languages.COM_LOAD_PRESET_DEFAULTS || 'Reset Preset Settings' }}
@@ -336,8 +347,10 @@ import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useContextSizeField } from '@/assets/js/contextSizeField'
 import { useEmbeddingModelPicker } from '@/assets/js/embeddingModelPicker'
 import * as toast from '@/assets/js/toast'
+import { useI18N } from '@/assets/js/store/i18n'
 
 const agentMode = useAgentMode()
+const i18n = useI18N().state
 const presetsStore = usePresets()
 const presetSwitching = usePresetSwitching()
 const textInference = useTextInference()
@@ -498,6 +511,17 @@ function resetPresetSettings() {
   agentMode.resetPresetSettings()
   void refreshCapabilityCatalog()
   toast.success('Reset to preset defaults')
+}
+
+function saveAsDefault() {
+  agentMode.saveAsDefault()
+  toast.success(i18n.AGENT_SAVED_AS_DEFAULT)
+}
+
+function resetToDefault() {
+  agentMode.resetToDefault()
+  void refreshCapabilityCatalog()
+  toast.success(i18n.AGENT_RESET_TO_DEFAULT_DONE)
 }
 
 async function handlePresetChange(presetName: string) {

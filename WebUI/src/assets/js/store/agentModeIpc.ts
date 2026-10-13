@@ -7,7 +7,7 @@
 // is a request the renderer answers, not a notification.
 
 import { connectKernelEventStream } from '@/assets/js/projection/kernelProjection'
-import type { KernelSnapshot } from '@/types/kernelEvents'
+import type { AgentTurnState, KernelSnapshot } from '@/types/kernelEvents'
 
 type AgentTurnRef = { sessionId: string; turnId: string }
 
@@ -15,6 +15,7 @@ type AgentModeIpcHandlers = {
   onStreamChunk: (data: AgentTurnRef & { chunk: unknown }) => void
   onToolProgress: (data: AgentToolProgress) => void
   onToolImage: (data: AgentToolImage) => void
+  onTurnState: (data: AgentTurnRef & { state: AgentTurnState }) => void
   onTurnDone: (data: AgentTurnRef) => void
   onExecuteTool: (data: AgentToolExecuteRequest) => void | Promise<void>
   /**
@@ -56,6 +57,13 @@ export function registerAgentModeIpc(handlers: AgentModeIpcHandlers): void {
             toolCallId: event.toolCallId,
             dataUri: event.dataUri,
             label: event.label,
+          })
+          break
+        case 'agent-turn-state':
+          handlers.onTurnState({
+            sessionId: event.sessionId,
+            turnId: event.turnId,
+            state: event.state,
           })
           break
         case 'agent-turn-done':

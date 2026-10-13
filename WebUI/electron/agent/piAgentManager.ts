@@ -18,8 +18,9 @@ import {
 //
 // Holds at most ONE live Pi `AgentSession`, keyed by the renderer-minted session
 // id (one per archived conversation). Open turns are tracked per session id
-// (piAgentState `agentTurns`), but only one may be open at a time for now — a
-// second is refused until the Turn Queue lands. The session is long-lived: it survives
+// (piAgentState `agentTurns`), at most one per session; every turn waits in the
+// orchestrator's Turn Queue and is readied (backend, model, Pi session) only once
+// it holds the place, so only one runs at a time. The session is long-lived: it survives
 // across turns and is only rebuilt when the conversation, workspace, model or
 // tool set changes. Pi persists the transcript to its own session file on every
 // message, so restart survival is just remembering that file path per session.

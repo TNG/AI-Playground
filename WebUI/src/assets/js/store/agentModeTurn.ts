@@ -231,6 +231,8 @@ export type AgentSessionRuntime = {
   processing: Ref<boolean>
   /** Where the session's turn stands in the Turn Queue; null while it has none. */
   turnState: Ref<AgentTurnState | null>
+  /** 1-based place in the Turn Queue while queued; null when unknown or not waiting. */
+  queuePosition: Ref<number | null>
   toolProgress: Ref<Record<string, string>>
   toolImages: Ref<Record<string, AgentToolImage[]>>
   /** A turn streams into this runtime, or waits to be adopted from the kernel snapshot. */
@@ -245,6 +247,7 @@ type SessionRuntime = AgentSessionRuntime & {
   onToolImage: (image: AgentToolImage) => void
   onTurnState: (turnId: string, state: AgentTurnState) => void
   onTurnDone: (turnId: string) => void
+  onQueuePosition: (turnId: string, position: number | undefined) => void
   resume: (turn: AgentTurnSnapshot) => void
   dispose: () => void
 }
@@ -263,6 +266,7 @@ function createSessionRuntime(options: {
   const scope = effectScope()
   const processing = ref(false)
   const turnState = ref<AgentTurnState | null>(null)
+  const queuePosition = ref<number | null>(null)
   const toolProgress = ref<Record<string, string>>({})
   const toolImages = ref<Record<string, AgentToolImage[]>>({})
   let activeTurn: ActiveTurn | null = null
@@ -338,6 +342,7 @@ function createSessionRuntime(options: {
       processing.value = true
       adoptedTurnId = turn.turnId
       turnState.value = turn.state
+      queuePosition.value = turn.state === 'queued' ? (turn.queuePosition ?? null) : null
       toolProgress.value = { ...turn.toolProgress }
       const restoredImages: Record<string, AgentToolImage[]> = {}
       for (const [toolCallId, images] of Object.entries(turn.toolImages)) {
@@ -386,6 +391,7 @@ function createSessionRuntime(options: {
     watch(processing, (isProcessing, wasProcessing) => {
       if (isProcessing) return
       turnState.value = null
+      queuePosition.value = null
       if (wasProcessing) options.onTurnSettled?.(sessionId)
     })
   })
@@ -433,6 +439,16 @@ function createSessionRuntime(options: {
     }
     if (!activeTurn || activeTurn.turnId !== turnId) return
     turnState.value = state
+    if (state !== 'queued') queuePosition.value = null
+  }
+
+  function onQueuePosition(turnId: string, position: number | undefined): void {
+    if (pendingResume && pendingResume.turn.turnId === turnId) {
+      pendingResume.turn = { ...pendingResume.turn, queuePosition: position }
+      return
+    }
+    if (!activeTurn || activeTurn.turnId !== turnId) return
+    queuePosition.value = position ?? null
   }
 
   function onTurnDone(turnId: string): void {
@@ -492,6 +508,7 @@ function createSessionRuntime(options: {
     chat,
     processing,
     turnState,
+    queuePosition,
     toolProgress,
     toolImages,
     hasTurn: () => processing.value || activeTurn !== null || pendingResume !== null,
@@ -501,6 +518,7 @@ function createSessionRuntime(options: {
     onToolImage,
     onTurnState,
     onTurnDone,
+    onQueuePosition,
     resume,
     dispose: () => scope.stop(),
   })
@@ -592,6 +610,9 @@ export function createAgentTurnRuntimes(options: {
     onTurnDone: ({ sessionId, turnId }) => {
       finishedTurns.add(turnId)
       runtimes.value[sessionId]?.onTurnDone(turnId)
+    },
+    onQueuePosition: ({ sessionId, turnId, position }) => {
+      runtimes.value[sessionId]?.onQueuePosition(turnId, position)
     },
     onExecuteTool: async ({ requestId, sessionId, toolName, input }) => {
       const abort = new AbortController()

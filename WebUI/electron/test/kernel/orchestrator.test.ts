@@ -739,4 +739,49 @@ describe('the Turn Queue', () => {
     finishTextRequest('turn-b')
     expect(textRequestsOpen()).toBe(0)
   })
+
+  it('announces each waiting member’s position, and every move up as members ahead leave', async () => {
+    setOrchestratorDeps(deps())
+    await member('turn-a', 'session-a').admitted
+    const b = member('turn-b', 'session-b')
+    const ac = new AbortController()
+    const c = member('turn-c', 'session-c', true, ac.signal)
+    const d = member('turn-d', 'session-d')
+    await settle()
+
+    ac.abort()
+    await expect(c.admitted).rejects.toThrow('Cancelled while waiting in the Turn Queue.')
+    finishTextRequest('turn-a')
+    await b.admitted
+    finishTextRequest('turn-b')
+    await d.admitted
+    finishTextRequest('turn-d')
+
+    const positions = queueEvents
+      .filter((e) => e.kind === 'text' && e.action !== 'finished')
+      .map((e) => [e.runKey, e.action, e.position, e.conversationKey])
+    expect(positions).toEqual([
+      ['turn-a', 'enqueued', undefined, 'session-a'],
+      ['turn-a', 'started', undefined, 'session-a'],
+      ['turn-b', 'enqueued', 1, 'session-b'],
+      ['turn-c', 'enqueued', 2, 'session-c'],
+      ['turn-d', 'enqueued', 3, 'session-d'],
+      // c withdrawn: only d, behind it, moves up.
+      ['turn-d', 'moved', 2, 'session-d'],
+      // a done: b takes the place, d is next.
+      ['turn-d', 'moved', 1, 'session-d'],
+      ['turn-b', 'started', undefined, 'session-b'],
+      ['turn-d', 'started', undefined, 'session-d'],
+    ])
+  })
+
+  it('gives text requests outside the Turn Queue no position', async () => {
+    setOrchestratorDeps(deps())
+    await member('turn-agent', 'session-a').admitted
+    await submitTextRequest({ runId: 'cloud-chat', conversationKey: 'c1', needsGpu: false })
+    const chat = queueEvents.filter((e) => e.runKey === 'cloud-chat')
+    expect(chat.map((e) => e.position)).toEqual([undefined, undefined])
+    finishTextRequest('cloud-chat')
+    finishTextRequest('turn-agent')
+  })
 })

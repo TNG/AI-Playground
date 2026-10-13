@@ -28,6 +28,7 @@ const {
   emitFailure,
   emitStored,
   setInferenceProfileSnapshot,
+  emitQueueEvent,
 } = await import('../../kernel/kernelBus')
 
 function fakeWindow(): { win: BrowserWindow; sent: KernelEvent[] } {
@@ -186,6 +187,16 @@ describe('kernel bus', () => {
 
     emitAgentTurnDone('s1', 'turn-a')
     expect(getKernelSnapshot().state.agentTurns.map((turn) => turn.sessionId)).toEqual(['s2'])
+  })
+
+  it('keeps a queued agent turn’s Turn Queue position on its snapshot', () => {
+    beginAgentTurnSnapshot('s1', 'turn-a')
+    const queued = { kind: 'text', queueDepth: 0, conversationKey: 's1', runKey: 'turn-a' } as const
+    emitQueueEvent({ ...queued, action: 'enqueued', position: 3 })
+    emitQueueEvent({ ...queued, action: 'moved', position: 2 })
+    expect(getKernelSnapshot().state.agentTurns[0].queuePosition).toBe(2)
+    emitQueueEvent({ ...queued, action: 'started' })
+    expect(getKernelSnapshot().state.agentTurns[0].queuePosition).toBeUndefined()
   })
 
   it('stamps session and turn id on every agent event', () => {

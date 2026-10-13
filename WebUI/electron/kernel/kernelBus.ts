@@ -331,11 +331,20 @@ export function endMediaAgentRun(runKey: string): void {
 
 // ── Orchestrator queue events (§4.4, step 7) ─────────────────────────────────
 //
-// Queue positions are transient state, not coalesced and not snapshotted: a
-// reloaded renderer does not adopt queue positions, and the entries either
-// run or were cancelled with their callers.
+// Queue positions are transient state, not coalesced: the entries either run or
+// were cancelled with their callers. The one exception is an agent turn's Turn
+// Queue position, kept on its snapshot so a reloaded history still shows it.
+
+function agentTurnByTurnId(turnId: string): AgentTurnSnapshot | undefined {
+  for (const turn of agentTurns.values()) if (turn.turnId === turnId) return turn
+  return undefined
+}
 
 export function emitQueueEvent(event: Omit<KernelQueueEvent, 'type'>): void {
+  if (event.kind === 'text') {
+    const turn = agentTurnByTurnId(event.runKey)
+    if (turn) turn.queuePosition = event.position
+  }
   emit(
     { type: 'queue-event', ...event },
     event.conversationKey

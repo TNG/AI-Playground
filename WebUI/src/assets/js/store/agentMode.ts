@@ -49,6 +49,7 @@ import {
   RAG_PREPARE_EMBEDDING_MODEL,
 } from '@/types/agentCapabilities'
 import type { GameLibraryEntry } from '@/types/agentIpc'
+import type { AgentTurnState } from '@/types/kernelEvents'
 import {
   AGENT_PRESET,
   applySessionPresetNames,
@@ -72,6 +73,11 @@ import {
 } from './agentModeWorkspace'
 
 export type { AgentSessionRecord }
+
+export type SessionTurnInfo = { state: AgentTurnState; queuePosition: number | null }
+
+/** How a turn that ended out of sight went. */
+export type UnseenTurn = 'done' | 'failed'
 
 // ── Agent Mode: renderer side of the Pi coding-agent integration ─────────────
 //
@@ -736,7 +742,11 @@ export const useAgentMode = defineStore(
       initialMessages: (sessionId) => [...(sessions.value[sessionId]?.messages ?? [])],
       // The sent message is on the record at once, so the session is in the history
       // even when the user moves on before the turn has run.
-      onTurnSubmitted: (sessionId) => snapshotSessionById(sessionId),
+      onTurnSubmitted: (sessionId) => {
+        stoppedByUser.delete(sessionId)
+        forgetUnseen(sessionId)
+        snapshotSessionById(sessionId)
+      },
       onTurnSettled: (sessionId) => onTurnSettled(sessionId),
       onAdoptedTurnDone: (sessionId) => {
         snapshotSessionById(sessionId)
@@ -771,6 +781,36 @@ export const useAgentMode = defineStore(
     /** Any Agent Session holds a turn, open or not. */
     const anyTurnOpen = turns.anyTurnOpen
 
+    /** Where each session with a turn in flight stands in the Turn Queue. */
+    const sessionTurns = computed<Record<string, SessionTurnInfo>>(() => {
+      const result: Record<string, SessionTurnInfo> = {}
+      for (const [id, runtime] of Object.entries(turns.runtimes.value)) {
+        if (!runtime.processing.value) continue
+        result[id] = {
+          state: runtime.turnState.value ?? 'running',
+          queuePosition: runtime.queuePosition.value,
+        }
+      }
+      return result
+    })
+
+    /**
+     * Turns that ended while their session was not open, by outcome. Memory only:
+     * a restart starts clean. Cleared when the session is opened.
+     */
+    const unseenTurns = ref<Record<string, UnseenTurn>>({})
+    // A turn the user stopped is not news when it settles.
+    const stoppedByUser = new Set<string>()
+
+    function forgetUnseen(id: string): void {
+      if (!(id in unseenTurns.value)) return
+      const next = { ...unseenTurns.value }
+      delete next[id]
+      unseenTurns.value = next
+    }
+
+    watch(openSessionId, (id) => forgetUnseen(id), { flush: 'sync' })
+
     // Records persist on turn lifecycle (step 11): a generate/stop snapshot,
     // capability rewrite, or explicit delete — not a map watch. The Chat
     // still owns the UIMessage list; main writes the file.
@@ -801,6 +841,11 @@ export const useAgentMode = defineStore(
      * (mirrors the chat store). Everything here is the ending turn's own session's.
      */
     function onTurnSettled(sessionId: string): void {
+      const stopped = stoppedByUser.delete(sessionId)
+      if (!stopped && sessionId !== openSessionId.value && sessions.value[sessionId]) {
+        const failed = turns.runtimeOf(sessionId)?.chat.status === 'error'
+        unseenTurns.value = { ...unseenTurns.value, [sessionId]: failed ? 'failed' : 'done' }
+      }
       confirmations.cancelForConversation(sessionId, false)
       const handoff = pendingHandoffs[sessionId]
       if (handoff) {
@@ -1043,6 +1088,7 @@ export const useAgentMode = defineStore(
       delete next[id]
       sessions.value = next
       delete turnContexts[id]
+      forgetUnseen(id)
       if (id === openSessionId.value) {
         openSessionId.value = mintSessionId()
         sessionCapabilities.value = null
@@ -1200,6 +1246,7 @@ export const useAgentMode = defineStore(
         if (sessionId) await window.electronAPI.agentMode.cancel(sessionId)
         return
       }
+      if (runtime.hasTurn()) stoppedByUser.add(sessionId)
       await runtime.cancel()
       turns.abortRunningTools(sessionId)
       await runtime.chat.stop()
@@ -1257,6 +1304,8 @@ export const useAgentMode = defineStore(
       lastStepUsage,
       chat,
       anyTurnOpen,
+      sessionTurns,
+      unseenTurns,
       sessions,
       presetSessions,
       openSessionId,

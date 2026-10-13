@@ -12,35 +12,96 @@ export function usesSessionSettings(
 }
 
 /** Bag keys whose values belong to the session rather than to the Default Settings. */
-const SESSION_OWNED_KEYS = ['backend', 'selectedModels'] as const
+const SESSION_OWNED_KEYS = [
+  'backend',
+  'selectedModels',
+  'selectedDeviceId',
+  'selectedDeviceUuid',
+  'selectedEmbeddingModels',
+  'contextSize',
+  'requestedContextSize',
+  'contextSizeEdited',
+  'thinkingEnabled',
+  'toolDelegationEnabled',
+  'builtinToolEnablement',
+  'builtinToolPresetEnablement',
+  'builtinToolDefaultPresets',
+  'cloudProviderId',
+] as const
 
 type Backend = (typeof llmBackendTypes)[number]
+type LocalBackend = Exclude<Backend, 'cloud'>
 
 function isBackend(value: unknown): value is Backend {
   return (llmBackendTypes as readonly unknown[]).includes(value)
 }
 
 /** Session Settings fields read from the bag; they are replaced, never merged, on an edit. */
-const BAG_DERIVED_SETTINGS = ['backend', 'model'] as const
+const BAG_DERIVED_SETTINGS = [
+  'backend',
+  'model',
+  'device',
+  'embeddingModel',
+  'contextSize',
+  'contextSizeEdited',
+  'thinkingEnabled',
+  'toolDelegationEnabled',
+  'builtinToolEnablement',
+  'builtinToolPresetEnablement',
+  'builtinToolDefaultPresets',
+  'cloudProviderId',
+] as const
 
 /** Take the bag's values for the fields it owns, keeping the session's other settings. */
 export function updateSessionSettingsFromBag(
   current: AgentSessionSettings | null,
   bag: SettingsBag,
+  embeddingBackend?: LocalBackend,
 ): AgentSessionSettings {
   const kept: AgentSessionSettings = { ...current }
   for (const key of BAG_DERIVED_SETTINGS) delete kept[key]
-  return { ...kept, ...sessionSettingsFromBag(bag) }
+  return { ...kept, ...sessionSettingsFromBag(bag, embeddingBackend) }
 }
 
-export function sessionSettingsFromBag(bag: SettingsBag): AgentSessionSettings {
+const asRecord = <T>(value: unknown): Record<string, T> | undefined =>
+  value && typeof value === 'object' ? { ...(value as Record<string, T>) } : undefined
+
+/** `embeddingBackend` is the local backend document search runs on (a cloud session keeps one). */
+export function sessionSettingsFromBag(
+  bag: SettingsBag,
+  embeddingBackend?: LocalBackend,
+): AgentSessionSettings {
   const settings: AgentSessionSettings = {}
   if (isBackend(bag.backend)) {
     settings.backend = bag.backend
-    const models = bag.selectedModels as Record<string, string | null> | undefined
-    const model = models?.[bag.backend]
+    const model = asRecord<string | null>(bag.selectedModels)?.[bag.backend]
     if (typeof model === 'string') settings.model = model
   }
+  if (typeof bag.selectedDeviceId === 'string') {
+    settings.device = {
+      id: bag.selectedDeviceId,
+      uuid: typeof bag.selectedDeviceUuid === 'string' ? bag.selectedDeviceUuid : null,
+    }
+  }
+  const embeddingSlot = embeddingBackend ?? (bag.backend === 'cloud' ? undefined : bag.backend)
+  const embedding = embeddingSlot
+    ? asRecord<string | null>(bag.selectedEmbeddingModels)?.[embeddingSlot as string]
+    : undefined
+  if (typeof embedding === 'string') settings.embeddingModel = embedding
+  const contextSize = bag.requestedContextSize ?? bag.contextSize
+  if (typeof contextSize === 'number') settings.contextSize = contextSize
+  if (typeof bag.contextSizeEdited === 'boolean') settings.contextSizeEdited = bag.contextSizeEdited
+  if (typeof bag.thinkingEnabled === 'boolean') settings.thinkingEnabled = bag.thinkingEnabled
+  if (typeof bag.toolDelegationEnabled === 'boolean') {
+    settings.toolDelegationEnabled = bag.toolDelegationEnabled
+  }
+  const toolEnablement = asRecord<boolean>(bag.builtinToolEnablement)
+  if (toolEnablement) settings.builtinToolEnablement = toolEnablement
+  const workflowEnablement = asRecord<boolean>(bag.builtinToolPresetEnablement)
+  if (workflowEnablement) settings.builtinToolPresetEnablement = workflowEnablement
+  const defaultWorkflows = asRecord<string>(bag.builtinToolDefaultPresets)
+  if (defaultWorkflows) settings.builtinToolDefaultPresets = defaultWorkflows
+  if (typeof bag.cloudProviderId === 'string') settings.cloudProviderId = bag.cloudProviderId
   return settings
 }
 
@@ -48,16 +109,41 @@ export function sessionSettingsFromBag(bag: SettingsBag): AgentSessionSettings {
 export function sessionSettingsToBag(
   settings: AgentSessionSettings,
   base: SettingsBag,
+  embeddingBackend?: LocalBackend,
 ): SettingsBag {
   const bag: SettingsBag = { ...base }
   if (settings.backend) {
     bag.backend = settings.backend
     if (settings.model !== undefined) {
-      bag.selectedModels = {
-        ...(base.selectedModels as Record<string, unknown> | undefined),
-        [settings.backend]: settings.model,
-      }
+      bag.selectedModels = { ...asRecord(base.selectedModels), [settings.backend]: settings.model }
     }
+  }
+  if (settings.device) {
+    bag.selectedDeviceId = settings.device.id
+    bag.selectedDeviceUuid = settings.device.uuid ?? null
+  }
+  const embeddingSlot =
+    settings.backend && settings.backend !== 'cloud' ? settings.backend : embeddingBackend
+  if (settings.embeddingModel !== undefined && embeddingSlot) {
+    bag.selectedEmbeddingModels = {
+      ...asRecord(base.selectedEmbeddingModels),
+      [embeddingSlot]: settings.embeddingModel,
+    }
+  }
+  if (settings.contextSize !== undefined) {
+    bag.contextSize = settings.contextSize
+    bag.requestedContextSize = settings.contextSize
+  }
+  for (const key of [
+    'contextSizeEdited',
+    'thinkingEnabled',
+    'toolDelegationEnabled',
+    'builtinToolEnablement',
+    'builtinToolPresetEnablement',
+    'builtinToolDefaultPresets',
+    'cloudProviderId',
+  ] as const) {
+    if (settings[key] !== undefined) bag[key] = settings[key]
   }
   return bag
 }

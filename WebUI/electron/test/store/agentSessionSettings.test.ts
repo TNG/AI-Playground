@@ -53,30 +53,27 @@ vi.mock('@/assets/js/store/presetSwitching', () => ({
  * the Agent preset and to the preset's bag for every other preset.
  */
 const chat = vi.hoisted(() => {
-  type Binding = { load: (d: Bag) => Bag | null; save: (b: Bag) => void }
+  type Binding = { load: (d: Bag, e: string) => Bag | null; save: (b: Bag, e: string) => void }
   const state = {
     binding: null as Binding | null,
-    live: { backend: 'llamaCPP', selectedModels: {} as Record<string, string | null> },
+    live: {} as Bag,
     settingsPerPreset: {} as Record<string, Bag>,
     presetName: () => 'Agent',
   }
-  const current = (): Bag => ({
-    backend: state.live.backend,
-    selectedModels: { ...state.live.selectedModels },
-  })
+  const models = () => (state.live.selectedModels ?? {}) as Record<string, string | null>
+  const current = (): Bag => JSON.parse(JSON.stringify(state.live))
   const apply = (bag: Bag) => {
-    state.live.backend = (bag.backend as string) ?? 'llamaCPP'
-    state.live.selectedModels = { ...((bag.selectedModels as Record<string, string>) ?? {}) }
+    state.live = { backend: 'llamaCPP', ...JSON.parse(JSON.stringify(bag)) }
   }
   const sessionScoped = () => state.presetName() === 'Agent'
   return {
     state,
     store: {
       get backend() {
-        return state.live.backend
+        return state.live.backend as string
       },
       get activeModel() {
-        return state.live.selectedModels[state.live.backend] ?? undefined
+        return models()[state.live.backend as string] ?? undefined
       },
       get settingsPerPreset() {
         return state.settingsPerPreset
@@ -87,17 +84,23 @@ const chat = vi.hoisted(() => {
       },
       loadSettingsForActivePreset: () => {
         const defaults = state.settingsPerPreset[state.presetName()] ?? {}
-        const sessionBag = sessionScoped() ? (state.binding?.load(defaults) ?? null) : null
+        const sessionBag = sessionScoped()
+          ? (state.binding?.load(defaults, 'llamaCPP') ?? null)
+          : null
         apply(sessionBag ?? defaults)
-        if (sessionScoped() && !sessionBag) state.binding?.save(current())
+        if (sessionScoped() && !sessionBag) state.binding?.save(current(), 'llamaCPP')
       },
     },
-    edit(change: { backend?: string; model?: string }) {
-      if (change.backend) state.live.backend = change.backend
-      if (change.model !== undefined) state.live.selectedModels[state.live.backend] = change.model
+    edit(change: { backend?: string; model?: string } & Bag) {
+      const { backend, model, ...rest } = change
+      if (backend) state.live.backend = backend
+      if (model !== undefined) {
+        state.live.selectedModels = { ...models(), [state.live.backend as string]: model }
+      }
+      Object.assign(state.live, rest)
       const name = state.presetName()
       if (sessionScoped() && state.binding) {
-        state.binding.save(current())
+        state.binding.save(current(), 'llamaCPP')
         return
       }
       state.settingsPerPreset[name] = { ...state.settingsPerPreset[name], ...current() }
@@ -193,7 +196,7 @@ beforeEach(() => {
   })
   chat.state.binding = null
   chat.state.presetName = () => activePreset.value.name
-  chat.state.live = { backend: 'llamaCPP', selectedModels: {} }
+  chat.state.live = { backend: 'llamaCPP' }
   chat.state.settingsPerPreset = {
     Agent: { backend: 'llamaCPP', selectedModels: { llamaCPP: 'Default-9B' } },
   }
@@ -293,5 +296,62 @@ describe('Agent Session Settings', () => {
       selectedModels: { llamaCPP: 'Coder-14B' },
     })
     expect(store.sessions[store.activeSessionId]?.settings).toBeUndefined()
+  })
+
+  it('keeps device, provider, context, thinking, embeddings and workflows per session', async () => {
+    const store = await startedStore()
+    chat.edit({
+      selectedDeviceId: 'NPU',
+      selectedDeviceUuid: 'u-npu',
+      cloudProviderId: 'zai',
+      requestedContextSize: 65536,
+      contextSizeEdited: true,
+      thinkingEnabled: false,
+      selectedEmbeddingModels: { llamaCPP: 'bge-small' },
+      builtinToolPresetEnablement: { Flux: false },
+    })
+    await store.generate('first')
+    const first = store.activeSessionId
+
+    await store.newSession()
+    expect(chat.state.live.thinkingEnabled).toBeUndefined()
+    expect(chat.state.live.selectedDeviceId).toBeUndefined()
+
+    await store.switchSession(first)
+    expect(chat.state.live).toMatchObject({
+      selectedDeviceId: 'NPU',
+      selectedDeviceUuid: 'u-npu',
+      cloudProviderId: 'zai',
+      requestedContextSize: 65536,
+      contextSizeEdited: true,
+      thinkingEnabled: false,
+      selectedEmbeddingModels: { llamaCPP: 'bge-small' },
+      builtinToolPresetEnablement: { Flux: false },
+    })
+    expect(savedSettings(first)).toMatchObject({
+      device: { id: 'NPU', uuid: 'u-npu' },
+      cloudProviderId: 'zai',
+      contextSize: 65536,
+      thinkingEnabled: false,
+      embeddingModel: 'bge-small',
+      builtinToolPresetEnablement: { Flux: false },
+    })
+  })
+
+  it('leaves an earlier session alone when the next one changes its device and thinking', async () => {
+    const store = await startedStore()
+    chat.edit({ selectedDeviceId: 'GPU.0', thinkingEnabled: true })
+    await store.generate('first')
+    const first = store.activeSessionId
+
+    await store.newSession()
+    chat.edit({ selectedDeviceId: 'NPU', thinkingEnabled: false })
+    await store.generate('second')
+
+    expect(savedSettings(first)).toMatchObject({ device: { id: 'GPU.0' }, thinkingEnabled: true })
+    expect(savedSettings(store.activeSessionId)).toMatchObject({
+      device: { id: 'NPU' },
+      thinkingEnabled: false,
+    })
   })
 })

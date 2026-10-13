@@ -19,7 +19,7 @@ function emptySnapshot(overrides: Partial<KernelSnapshot['state']> = {}): Kernel
     sequence: 0,
     state: {
       services: [],
-      activeTurn: null,
+      agentTurns: [],
       activeArtifactRun: null,
       chatTurns: [],
       activities: [],

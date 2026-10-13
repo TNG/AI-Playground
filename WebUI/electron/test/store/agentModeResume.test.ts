@@ -10,8 +10,13 @@ import type { IpcMutationResult } from '@/types/ipcChannels'
 let pushKernelEvent: (event: KernelEvent) => void = () => {}
 let resolveSnapshot: (snapshot: KernelSnapshot) => void = () => {}
 
+const SESSION_ID = 'aipg-agent-7'
+const TURN_ID = '6f1c1e0a-3b7d-4c55-9a43-2f7d0c1b9e10'
+
 const RUNNING_TURN: AgentTurnSnapshot = {
-  turnId: 'turn-3',
+  sessionId: SESSION_ID,
+  turnId: TURN_ID,
+  state: 'running',
   chunks: [
     { type: 'start', id: 'msg-1', message: { id: 'msg-1', role: 'assistant', parts: [] } },
     { type: 'text-start', id: 'part-1' },
@@ -22,6 +27,8 @@ const RUNNING_TURN: AgentTurnSnapshot = {
     'call-1': [
       {
         type: 'agent-tool-image',
+        sessionId: SESSION_ID,
+        turnId: TURN_ID,
         toolCallId: 'call-1',
         dataUri: 'data:image/png;base64,',
         label: 'cover.png',
@@ -31,7 +38,12 @@ const RUNNING_TURN: AgentTurnSnapshot = {
 }
 
 function kernelEventOf(payload: Record<string, unknown>, seq: number): KernelEvent {
-  return { ...payload, scope: { kind: 'run', runId: 'turn-3' }, seq } as KernelEvent
+  return {
+    sessionId: SESSION_ID,
+    ...payload,
+    scope: { kind: 'run', runId: TURN_ID },
+    seq,
+  } as KernelEvent
 }
 
 const startTurn = vi.fn(
@@ -39,7 +51,7 @@ const startTurn = vi.fn(
     success: true,
   }),
 )
-const cancelTurn = vi.fn(async () => {})
+const cancelTurn = vi.fn(async (_sessionId: string, _turnId?: string) => {})
 
 const reported: unknown[] = []
 const report = vi.fn((error: unknown) => void reported.push(error))
@@ -81,18 +93,18 @@ async function freshRuntime() {
   return {
     runtime: createAgentTurnRuntime({
       errors: { report },
-      buildTurnConfig: async () => ({}) as never,
+      buildTurnConfig: async () => ({ sessionId: SESSION_ID }) as never,
     }),
   }
 }
 
-function snapshotWithTurn(sequence: number, activeTurn: typeof RUNNING_TURN | null) {
+function snapshotWithTurn(sequence: number, turn: typeof RUNNING_TURN | null) {
   return {
     scope: { kind: 'global' } as const,
     sequence,
     state: {
       services: [],
-      activeTurn,
+      agentTurns: turn ? [turn] : [],
       activeArtifactRun: null,
       chatTurns: [],
       activities: [],
@@ -118,7 +130,7 @@ describe('agent turn resume', () => {
       kernelEventOf(
         {
           type: 'agent-chunk',
-          turnId: 'turn-3',
+          turnId: TURN_ID,
           chunk: { type: 'text-delta', id: 'part-1', delta: 'world' },
         },
         6,
@@ -127,22 +139,31 @@ describe('agent turn resume', () => {
     await vi.waitFor(() => expect(JSON.stringify(runtime.chat.messages)).toContain('world'))
 
     // The done event closes the stream and clears processing.
-    pushKernelEvent(kernelEventOf({ type: 'agent-turn-done', turnId: 'turn-3' }, 7))
+    pushKernelEvent(kernelEventOf({ type: 'agent-turn-done', turnId: TURN_ID }, 7))
     await vi.waitFor(() => expect(runtime.processing.value).toBe(false))
   })
 
-  it('never mints a colliding turn id after adopting', async () => {
+  it('cancels an adopted turn by its session and turn id', async () => {
     const { runtime } = await freshRuntime()
     resolveSnapshot(snapshotWithTurn(5, RUNNING_TURN))
     await vi.waitFor(() => expect(runtime.processing.value).toBe(true))
-    pushKernelEvent(kernelEventOf({ type: 'agent-turn-done', turnId: 'turn-3' }, 7))
+
+    await runtime.cancel('some-other-session')
+    expect(cancelTurn).toHaveBeenCalledWith(SESSION_ID, TURN_ID)
+  })
+
+  it('mints a fresh UUID turn id after adopting', async () => {
+    const { runtime } = await freshRuntime()
+    resolveSnapshot(snapshotWithTurn(5, RUNNING_TURN))
+    await vi.waitFor(() => expect(runtime.processing.value).toBe(true))
+    pushKernelEvent(kernelEventOf({ type: 'agent-turn-done', turnId: TURN_ID }, 7))
     await vi.waitFor(() => expect(runtime.processing.value).toBe(false))
 
-    // A fresh send must not reuse turn-3's id range.
     runtime.chat.sendMessage({ text: 'next request' })
     await vi.waitFor(() => expect(startTurn).toHaveBeenCalled())
     const turnId = startTurn.mock.calls.at(-1)?.[0]
-    expect(turnId).toBe('turn-4')
+    expect(turnId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    expect(turnId).not.toBe(TURN_ID)
   })
 
   it('does not resume when the snapshot has no running turn', async () => {
@@ -158,7 +179,7 @@ describe('agent turn resume', () => {
     // Buffered behind the handshake, so its seq is above the watermark —
     // but the install runs first and reconnect still must not hang a dead
     // turn open.
-    pushKernelEvent(kernelEventOf({ type: 'agent-turn-done', turnId: 'turn-3' }, 6))
+    pushKernelEvent(kernelEventOf({ type: 'agent-turn-done', turnId: TURN_ID }, 6))
     resolveSnapshot(snapshotWithTurn(5, RUNNING_TURN))
 
     await vi.waitFor(() => expect(JSON.stringify(runtime.chat.messages)).toContain('hello '))

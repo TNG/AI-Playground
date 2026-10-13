@@ -219,7 +219,9 @@ describe('pendingResume tool progress', () => {
     if (!handlers) throw new Error('expected registerAgentModeIpc')
 
     const turn: AgentTurnSnapshot = {
+      sessionId: 'aipg-agent-1',
       turnId: 'turn-1',
+      state: 'running',
       chunks: [],
       toolProgress: { 'call-1': 'start' },
       toolImages: {},
@@ -229,7 +231,7 @@ describe('pendingResume tool progress', () => {
       sequence: 1,
       state: {
         services: [],
-        activeTurn: turn,
+        agentTurns: [turn],
         activeArtifactRun: null,
         chatTurns: [],
         activities: [],
@@ -237,6 +239,7 @@ describe('pendingResume tool progress', () => {
       },
     })
     handlers.onToolProgress({
+      sessionId: 'aipg-agent-1',
       turnId: 'turn-1',
       toolCallId: 'call-1',
       toolName: 'browser',

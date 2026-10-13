@@ -31,7 +31,7 @@ describe('registerAgentModeIpc', () => {
       sequence: 0,
       state: {
         services: [],
-        activeTurn: null,
+        agentTurns: [],
         activeArtifactRun: null,
         chatTurns: [],
         activities: [],
@@ -73,17 +73,20 @@ describe('registerAgentModeIpc', () => {
 
     push?.({
       type: 'agent-chunk',
+      sessionId: 'aipg-agent-1',
       turnId: 'turn-1',
       chunk: { type: 'text-start' },
       scope: { kind: 'run', runId: 'turn-1' },
       seq: 2,
     })
     expect(handlers.onStreamChunk).toHaveBeenCalledWith({
+      sessionId: 'aipg-agent-1',
       turnId: 'turn-1',
       chunk: { type: 'text-start' },
     })
     push?.({
       type: 'agent-tool-progress',
+      sessionId: 'aipg-agent-1',
       turnId: 'turn-1',
       toolCallId: 'call-1',
       toolName: 'browser',
@@ -92,6 +95,7 @@ describe('registerAgentModeIpc', () => {
       seq: 3,
     })
     expect(handlers.onToolProgress).toHaveBeenCalledWith({
+      sessionId: 'aipg-agent-1',
       turnId: 'turn-1',
       toolCallId: 'call-1',
       toolName: 'browser',
@@ -99,6 +103,8 @@ describe('registerAgentModeIpc', () => {
     })
     push?.({
       type: 'agent-tool-image',
+      sessionId: 'aipg-agent-1',
+      turnId: 'turn-1',
       toolCallId: 'call-1',
       dataUri: 'data:image/png;base64,',
       label: 'cover.png',
@@ -106,17 +112,23 @@ describe('registerAgentModeIpc', () => {
       seq: 4,
     })
     expect(handlers.onToolImage).toHaveBeenCalledWith({
+      sessionId: 'aipg-agent-1',
+      turnId: 'turn-1',
       toolCallId: 'call-1',
       dataUri: 'data:image/png;base64,',
       label: 'cover.png',
     })
     push?.({
       type: 'agent-turn-done',
+      sessionId: 'aipg-agent-1',
       turnId: 'turn-1',
       scope: { kind: 'run', runId: 'turn-1' },
       seq: 5,
     })
-    expect(handlers.onTurnDone).toHaveBeenCalledWith({ turnId: 'turn-1' })
+    expect(handlers.onTurnDone).toHaveBeenCalledWith({
+      sessionId: 'aipg-agent-1',
+      turnId: 'turn-1',
+    })
     // A service event is not an agent event — no handler fires for it.
     push?.(serviceEvent)
     expect(handlers.onSnapshot).toHaveBeenCalledTimes(1)
@@ -131,7 +143,7 @@ describe('registerAgentModeIpc', () => {
       sequence: 0,
       state: {
         services: [],
-        activeTurn: null,
+        agentTurns: [],
         activeArtifactRun: null,
         chatTurns: [],
         activities: [],

@@ -244,11 +244,11 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string, string, AgentModeTurnConfig],
     result: null as unknown as IpcMutationResult,
   },
-  /** Abort the running agent turn, if any. */
+  /** Abort one Agent Session's open turn; a turn id narrows it to that turn. */
   'agentMode:cancel': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as const,
+    args: [] as unknown as readonly [string, string?],
     result: null as unknown as void,
   },
   /** Hard-reset the live Pi session and its workspace runtime. */

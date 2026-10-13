@@ -507,27 +507,6 @@ describe('runArtifact', () => {
     expect(payload.keepModelsLoaded).toBe(false)
   })
 
-  it('removes the queued stubs and fails fast when main refuses a run', async () => {
-    presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
-    runIpcMock.mockResolvedValueOnce({
-      state: 'failed',
-      items: [],
-      error: 'Another generation is already in progress',
-    })
-
-    const result = await runArtifact({
-      kind: 'create-image',
-      workflow: 'Draft Image',
-      prompt: 'a castle',
-    })
-
-    expect(result).toMatchObject({
-      state: 'failed',
-      error: expect.stringContaining('already in progress'),
-    })
-    expect(generatedImages.value).toEqual([])
-  })
-
   it('drops the queued stubs when main fails the run before anything generated', async () => {
     presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
     runIpcMock.mockResolvedValueOnce({

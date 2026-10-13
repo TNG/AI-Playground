@@ -58,6 +58,7 @@
   "COM_ACTIVITY_TURN_QUEUED_FOR_AGENT": "อยู่ในคิว ({position}) กำลังรอให้รอบของเอเจนต์เสร็จสิ้น",
   "COM_ACTIVITY_TURN_QUEUED_FOR_CHAT": "อยู่ในคิว ({position}) กำลังรอให้รอบแชทเสร็จสิ้น",
   "COM_ACTIVITY_TURN_QUEUED_FOR_SUMMARY": "อยู่ในคิว ({position}) กำลังรอให้การสรุปชื่อแชทเสร็จสิ้น",
+  "COM_ACTIVITY_TURN_QUEUED_FOR_GENERATION": "อยู่ในคิว ({position}) กำลังรอให้การสร้างสื่อเสร็จสิ้น",
   "COM_ACTIVITY_RUNNING_TOOL": "กำลังเรียกใช้ {tool}…",
   "COM_NO_SELECTED": "ไม่ได้เลือก",
   "COM_CONFIRM": "ยืนยัน",

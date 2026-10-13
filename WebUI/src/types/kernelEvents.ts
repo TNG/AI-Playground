@@ -179,8 +179,11 @@ export type KernelMediaAgentEvent = {
     | { type: 'tool-finish'; toolCallId: string; output: unknown; error?: string }
 }
 
-/** What a `text` request is: an agent turn, a Chat / Home Agent turn, or a title summary. */
-export type TurnWork = 'agent' | 'chat' | 'summary'
+/**
+ * What a Turn Queue member is: an agent turn, a Chat / Home Agent turn, a title
+ * summary, or a panel / Home Agent media run.
+ */
+export type TurnWork = 'agent' | 'chat' | 'summary' | 'generation'
 
 /**
  * One queue entry's lifecycle on the orchestrator's typed queue (steps 7 + 10).

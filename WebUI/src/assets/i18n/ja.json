@@ -58,6 +58,7 @@
   "COM_ACTIVITY_TURN_QUEUED_FOR_AGENT": "待機中（{position}）：エージェントのターンが終わるのを待っています",
   "COM_ACTIVITY_TURN_QUEUED_FOR_CHAT": "待機中（{position}）：チャットのターンが終わるのを待っています",
   "COM_ACTIVITY_TURN_QUEUED_FOR_SUMMARY": "待機中（{position}）：チャットのタイトル要約が終わるのを待っています",
+  "COM_ACTIVITY_TURN_QUEUED_FOR_GENERATION": "待機中（{position}）：メディア生成が終わるのを待っています",
   "COM_ACTIVITY_RUNNING_TOOL": "{tool} を実行中…",
   "COM_NO_SELECTED": "未選択",
   "COM_CONFIRM": "確認",
